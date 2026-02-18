@@ -12,6 +12,10 @@ def main(image_path):
     # Initialize main (non gui) controller
     controller = Controller()
 
+    # initialize the main windows
+    w = MainWindow(controller)
+    controller.main_windows = w
+
     # Initialize the 4 viewers
     for tag in ["V1", "V2", "V3", "V4"]:
         controller.viewers[tag] = SliceViewer(tag, controller)
