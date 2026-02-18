@@ -12,27 +12,27 @@ def create_gui(controller):
         with dpg.menu(label="Link"):
             dpg.add_menu_item(label="Link All", callback=lambda: controller.link_all())
 
-    with dpg.window(tag="PrimaryWindow"):
-        with dpg.group(horizontal=True):
-            # 2. LEFT PANEL: Image List & Info
-            with dpg.child_window(width=250):
-                dpg.add_text("Loaded Images", color=[0, 255, 127])
-                dpg.add_listbox(tag="ui_image_list", items=[], num_items=10)
-                dpg.add_separator()
-                dpg.add_text("Viewer Info", color=[100, 100, 255])
-                dpg.add_input_text(tag="info_pixel", readonly=True, label="Value")
-                dpg.add_checkbox(label="Link this viewer", tag="ui_link_check")
+        # We add a resize_callback to the primary window
+        with dpg.window(tag="PrimaryWindow", on_close=controller.cleanup):
+            with dpg.item_handler_registry(tag="window_resize_handler"):
+                dpg.add_item_resize_handler(callback=lambda: controller.on_window_resize())
+            dpg.bind_item_handler_registry("PrimaryWindow", "window_resize_handler")
 
-            # 3. RIGHT PANEL: 2x2 Grid
-            with dpg.group():
-                with dpg.group(horizontal=True):
-                    # Top-Left, Top-Right
-                    create_viewer_widget("V1", controller)
-                    create_viewer_widget("V2", controller)
-                with dpg.group(horizontal=True):
-                    # Bottom-Left, Bottom-Right
-                    create_viewer_widget("V3", controller)
-                    create_viewer_widget("V4", controller)
+            with dpg.group(horizontal=True):
+                # 2. LEFT PANEL: Fixed width
+                with dpg.child_window(width=250, tag="side_panel"):
+                    dpg.add_text("Loaded Images", color=[0, 255, 127])
+                    dpg.add_listbox(tag="ui_image_list", items=[], num_items=10)
+                    # ...
+
+                # 3. RIGHT PANEL: This group will contain the 4 viewers
+                with dpg.group(tag="viewers_container"):
+                    with dpg.group(horizontal=True):
+                        create_viewer_widget("V1", controller)
+                        create_viewer_widget("V2", controller)
+                    with dpg.group(horizontal=True):
+                        create_viewer_widget("V3", controller)
+                        create_viewer_widget("V4", controller)
 
     dpg.create_viewport(title=f'VVV', width=900, height=700)
     dpg.setup_dearpygui()
@@ -90,9 +90,8 @@ class SliceViewer:
 
 
 def create_viewer_widget(tag, controller):
-    """Helper to create a quadrant with fixed size."""
-    # The child window remains a fixed 400x400
-    with dpg.child_window(width=400, height=400, border=True, tag=f"win_{tag}"):
-        dpg.add_text(f"Viewer {tag}")
-        # The 'width' and 'height' here force DPG to rescale the texture to fit the window
-        dpg.add_image(f"tex_{tag}", tag=f"img_{tag}", width=380, height=350)
+    # We use no_scrollbar to keep the view clean
+    with dpg.child_window(tag=f"win_{tag}", border=True, no_scrollbar=True):
+        dpg.add_text(f"Viewer {tag}", tag=f"txt_{tag}")
+        # pos=[x, y] will be controlled by on_window_resize for centering
+        dpg.add_image(f"tex_{tag}", tag=f"img_{tag}", pos=[10, 40])

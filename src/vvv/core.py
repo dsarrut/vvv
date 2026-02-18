@@ -69,3 +69,52 @@ class VVController:
     def on_global_release(self):
         for v in self.viewers.values():
             v.last_dx, v.last_dy = 0, 0
+
+    def on_window_resize(self):
+        # 1. Get current window dimensions
+        window_width = dpg.get_item_width("PrimaryWindow")
+        window_height = dpg.get_item_height("PrimaryWindow")
+
+        # 2. Subtract the sidebar and margins
+        side_panel_width = 250
+        available_width = window_width - side_panel_width - 40
+        available_height = window_height - 80
+
+        # 3. Calculate size for each quadrant (2x2)
+        quad_w = available_width // 2
+        quad_h = available_height // 2
+
+        for tag, viewer in self.viewers.items():
+            if not dpg.does_item_exist(f"win_{tag}"):
+                continue
+
+            # Set the container size
+            dpg.set_item_width(f"win_{tag}", quad_w)
+            dpg.set_item_height(f"win_{tag}", quad_h)
+
+            # 4. Aspect Ratio Calculation
+            if viewer.current_image_id is not None:
+                img = self.images[viewer.current_image_id]
+                img_h, img_w = img.data.shape[1], img.data.shape[2]
+
+                # Available space for the image (accounting for title/margins)
+                target_w = quad_w - 20
+                target_h = quad_h - 60
+
+                # Determine scaling factor
+                # Use the smaller ratio to ensure it fits both ways
+                scale = min(target_w / img_w, target_h / img_h)
+
+                new_w = int(img_w * scale)
+                new_h = int(img_h * scale)
+
+                if dpg.does_item_exist(f"img_{tag}"):
+                    dpg.set_item_width(f"img_{tag}", new_w)
+                    dpg.set_item_height(f"img_{tag}", new_h)
+
+                    # Optional: Center the image in the quadrant
+                    padding_x = (target_w - new_w) // 2
+                    dpg.set_item_pos(f"img_{tag}", [padding_x + 10, 40])
+
+    def cleanup(self):
+        dpg.stop_dearpygui()
