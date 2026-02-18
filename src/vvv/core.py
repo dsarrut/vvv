@@ -32,7 +32,7 @@ class ImageModel:
         return rgba.flatten()
 
 
-class VVController:
+class Controller:
     """The central manager."""
 
     def __init__(self):

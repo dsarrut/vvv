@@ -1,8 +1,9 @@
 import dearpygui.dearpygui as dpg
 import numpy as np
 
+
 def create_gui(controller):
-    #dpg.create_context()
+    # dpg.create_context()
 
     # 1. Menubar
     with dpg.viewport_menu_bar():
@@ -33,14 +34,6 @@ def create_gui(controller):
                     with dpg.group(horizontal=True):
                         create_viewer_widget("V3", controller)
                         create_viewer_widget("V4", controller)
-
-    dpg.create_viewport(title=f'VVV', width=900, height=700)
-    dpg.setup_dearpygui()
-    dpg.show_viewport()
-    dpg.set_primary_window("PrimaryWindow", True)
-
-    dpg.start_dearpygui()
-    dpg.destroy_context()
 
 
 class SliceViewer:

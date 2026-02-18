@@ -7,24 +7,33 @@ from .core import *
 @click.argument('image_path', type=click.Path(exists=True), required=False)
 def main(image_path):
 
-    print("Starting VVV...")
     dpg.create_context()
-    controller = VVController()
 
-    # Initialize viewers
+    # Initialize main (non gui) controller
+    controller = Controller()
+
+    # Initialize the 4 viewers
     for tag in ["V1", "V2", "V3", "V4"]:
-        print(f"Creating viewer {tag}...")
         controller.viewers[tag] = SliceViewer(tag, controller)
 
-    # Load image if provided and assign to V1
+    # Load image if provided
     if image_path:
         img_id = controller.load_image(image_path)
         print(f"Loading image {img_id}...")
         for v in controller.viewers.values():
             v.set_image(img_id)
 
-    print("Starting GUI...")
+    print("Initializing GUI...")
     create_gui(controller)
+
+    # display the GUI
+    dpg.create_viewport(title=f'VVV', width=900, height=700)
+    dpg.setup_dearpygui()
+    dpg.show_viewport()
+    dpg.set_primary_window("PrimaryWindow", True)
+    dpg.start_dearpygui()
+    dpg.destroy_context()
+
 
 
 if __name__ == "__main__":
