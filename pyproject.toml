@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vvv"
+version = "0.1.0"
+description = "A Python-based 3D/4D image viewer inspired by VV."
+requires-python = ">=3.9"
+dependencies = [
+    "click",
+    "SimpleITK",
+    "vtk",
+    "numpy",
+    "PySide6",
+    #"trame",
+    #"trame-vuetify",
+    #"trame-vtk"
+]
+
+[project.scripts]
+# This line creates the 'vvv' command in your shell
+vvv = "vvv.cli:main"
