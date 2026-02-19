@@ -65,6 +65,7 @@ def create_gui(controller):
         dpg.add_mouse_drag_handler(callback=lambda s, d: controller.main_windows.on_global_drag(d))
         dpg.add_mouse_release_handler(callback=lambda: controller.main_windows.on_global_release())
         dpg.add_key_press_handler(callback=lambda s, d: controller.main_windows.on_key_press(d))
+        dpg.add_mouse_click_handler(callback=lambda s, d: controller.main_windows.on_global_click(d))
 
 
 def create_viewer_widget(tag, controller):
@@ -138,6 +139,12 @@ class MainWindow:
     def on_global_release(self):
         for v in self.controller.viewers.values():
             v.last_dx, v.last_dy = 0, 0
+
+    def on_global_click(self, button):
+        if button == dpg.mvMouseButton_Left:
+            viewer = self.get_hovered_viewer()
+            if viewer and not dpg.is_key_down(dpg.mvKey_LShift) and not dpg.is_key_down(dpg.mvKey_LControl):
+                viewer.sync_other_views()
 
     def on_key_press(self, key):
         viewer = self.get_hovered_viewer()
@@ -341,6 +348,42 @@ class SliceViewer:
                 (target_h - new_h) // 2 + self.margin_top + self.pan_offset[1]
             ])
 
+    def sync_other_views(self):
+        """Synchronizes other views of the same image to the current mouse position."""
+        if self.current_image_id is None:
+            return
+
+        # 1. Get the 3D voxel index under the mouse in THIS viewer
+        pix_x, pix_y = self.get_mouse_to_pixel_coords()
+        if pix_x is None:
+            return
+
+        img_model = self.controller.images[self.current_image_id]
+        _, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
+        real_h, real_w = shape[0], shape[1]
+
+        # Map 2D mouse pixels -> 3D Voxel coordinates (V_x, V_y, V_z)
+        # Using your existing orientation mapping logic
+        if self.orientation == "Axial":
+            vx, vy, vz = pix_x, pix_y, self.slice_idx
+        elif self.orientation == "Sagittal":
+            vx, vy, vz = self.slice_idx, real_w - pix_x, real_h - pix_y
+        else:  # Coronal
+            vx, vy, vz = pix_x, self.slice_idx, real_h - pix_y
+
+        # 2. Tell the controller to update all viewers looking at this image
+        # but only for the dimensions they are NOT currently displaying
+        for viewer in self.controller.viewers.values():
+            if viewer.current_image_id == self.current_image_id and viewer.tag != self.tag:
+                if viewer.orientation == "Axial":
+                    viewer.slice_indices["Axial"] = int(np.clip(vz, 0, img_model.data.shape[0] - 1))
+                elif viewer.orientation == "Sagittal":
+                    viewer.slice_indices["Sagittal"] = int(np.clip(vx, 0, img_model.data.shape[2] - 1))
+                elif viewer.orientation == "Coronal":
+                    viewer.slice_indices["Coronal"] = int(np.clip(vy, 0, img_model.data.shape[1] - 1))
+
+                viewer.update_render()
+
     def update_render(self):
         if self.current_image_id is None:
             return
@@ -488,10 +531,17 @@ class SliceViewer:
         is_control = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl)
         is_shift = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(dpg.mvKey_RShift)
 
-        if is_control and dpg.is_mouse_button_down(dpg.mvMouseButton_Left):
+        # Navigation / Sync (Plain Left Click Drag)
+        if not is_control and not is_shift and dpg.is_mouse_button_down(dpg.mvMouseButton_Left):
+            self.sync_other_views()
+
+        # Pan (Control + Drag)
+        elif is_control and dpg.is_mouse_button_down(dpg.mvMouseButton_Left):
             self.pan_offset[0] += step_x
             self.pan_offset[1] += step_y
             self.controller.main_windows.on_window_resize()
+
+        # Window/Level (Shift + Drag)
         elif is_shift and dpg.is_mouse_button_down(dpg.mvMouseButton_Left):
             img_model = self.controller.images[self.current_image_id]
             img_model.ww = max(1, img_model.ww + step_x * 2)
