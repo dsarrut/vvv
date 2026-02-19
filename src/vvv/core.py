@@ -15,8 +15,8 @@ class ImageModel:
         self.origin = self.sitk_image.GetOrigin()
 
         # Shared Window/Level for this image
-        self.ww = 400
-        self.wl = 40
+        self.ww = 2000
+        self.wl = 270
 
     def get_slice_rgba_old(self, slice_idx, orientation="Axial"):
         """Extracts a slice and flips vertical axis for Sagittal/Coronal."""
