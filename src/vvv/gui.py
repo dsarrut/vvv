@@ -38,13 +38,17 @@ def create_gui(controller):
         dpg.add_mouse_wheel_handler(callback=lambda s, d: controller.main_windows.on_global_scroll(d))
         dpg.add_mouse_drag_handler(callback=lambda s, d: controller.main_windows.on_global_drag(d))
         dpg.add_mouse_release_handler(callback=lambda: controller.main_windows.on_global_release())
+        dpg.add_key_press_handler(callback=lambda s, d: controller.main_windows.on_key_press(d))
 
 
 def create_viewer_widget(tag, controller):
     # We use no_scrollbar to keep the view clean
-    with dpg.child_window(tag=f"win_{tag}", border=True, no_scrollbar=True):
+    with dpg.child_window(tag=f"win_{tag}",
+                          border=True,
+                          no_scrollbar=True,
+                          no_scroll_with_mouse=True):
         dpg.add_text(f"Viewer {tag}", tag=f"txt_{tag}")
-        # Overlay for coordinates and HU value
+        # Overlay for coordinates and HU value # FIXME to change
         dpg.add_text("", tag=f"overlay_{tag}", color=[255, 255, 0], pos=[15, 60])
         dpg.add_image(f"tex_{tag}", tag=f"img_{tag}", pos=[10, 40])
 
@@ -74,48 +78,18 @@ class MainWindow:
         available_width = window_width - side_panel_width - 40
         available_height = window_height - 80
 
-        # 3. Calculate size for each quadrant (2x2)
+        # 3. Calculate the sizes for each quadrant (2x2)
         quad_w = available_width // 2
         quad_h = available_height // 2
 
-        for tag, viewer in self.controller.viewers.items():
-            if not dpg.does_item_exist(f"win_{tag}"):
-                continue
-
-            # Set the container size
-            dpg.set_item_width(f"win_{tag}", quad_w)
-            dpg.set_item_height(f"win_{tag}", quad_h)
-
-            # 4. Aspect Ratio Calculation
-            if viewer.current_image_id is not None:
-                img = self.controller.images[viewer.current_image_id]
-                img_h, img_w = img.data.shape[1], img.data.shape[2]
-
-                # Available space for the image (accounting for title/margins)
-                target_w = quad_w - 20
-                target_h = quad_h - 60
-
-                # Determine scaling factor
-                # Use the smaller ratio to ensure it fits both ways
-                scale = min(target_w / img_w, target_h / img_h)
-
-                new_w = int(img_w * scale)
-                new_h = int(img_h * scale)
-
-                if dpg.does_item_exist(f"img_{tag}"):
-                    dpg.set_item_width(f"img_{tag}", new_w)
-                    dpg.set_item_height(f"img_{tag}", new_h)
-
-                    # Optional: Center the image in the quadrant
-                    padding_x = (target_w - new_w) // 2
-                    dpg.set_item_pos(f"img_{tag}", [padding_x + 10, 40])
+        # Resize all viewers
+        for viewer in self.controller.viewers.values():
+            viewer.resize(quad_w, quad_h)
 
     def on_global_scroll(self, delta):
         viewer = self.get_hovered_viewer()
         if viewer:
             viewer.on_scroll(delta)
-            # Add linking logic here:
-            # if viewer.is_linked: sync others...
 
     def on_global_drag(self, data):
         viewer = self.get_hovered_viewer()
@@ -126,49 +100,53 @@ class MainWindow:
         for v in self.controller.viewers.values():
             v.last_dx, v.last_dy = 0, 0
 
+    def on_key_press(self, key):
+        viewer = self.get_hovered_viewer()
+        if not viewer: return
+        if key == dpg.mvKey_I:
+            viewer.on_zoom("in")
+        elif key == dpg.mvKey_O:
+            viewer.on_zoom("out")
+        elif key == dpg.mvKey_R:  # Bonus: Reset pan/zoom
+            viewer.zoom = 1.0
+            viewer.pan_offset = [0, 0]
+            self.on_window_resize()
+
     def update_overlays(self):
-        """Calculates voxel coordinates and values under the mouse."""
+        """Coordinate probe logic adjusted for Zoom/Pan."""
         mouse_pos = dpg.get_mouse_pos(local=False)
         viewer = self.get_hovered_viewer()
 
         if not viewer or viewer.current_image_id is None:
-            # Clear all overlays if not hovering a valid viewer
             for tag in self.controller.viewers:
                 dpg.set_value(f"overlay_{tag}", "")
             return
 
-        # Get image widget transform info
         img_tag = f"img_{viewer.tag}"
-        win_tag = f"win_{viewer.tag}"
-
-        # Screen position of the viewer window
-        win_pos = dpg.get_item_pos(win_tag)
-        # Position of the image relative to the viewer window
+        win_pos = dpg.get_item_pos(f"win_{viewer.tag}")
         img_rel_pos = dpg.get_item_pos(img_tag)
 
-        # Absolute screen position of the image start
         img_start_x = win_pos[0] + img_rel_pos[0]
         img_start_y = win_pos[1] + img_rel_pos[1]
 
-        # Mouse position relative to the image top-left
         rel_mouse_x = mouse_pos[0] - img_start_x
         rel_mouse_y = mouse_pos[1] - img_start_y
 
-        # Get current displayed size to calculate scale
         disp_w = dpg.get_item_width(img_tag)
         disp_h = dpg.get_item_height(img_tag)
 
         img_model = self.controller.images[viewer.current_image_id]
         real_h, real_w = img_model.data.shape[1], img_model.data.shape[2]
 
-        # Map to voxel indices
         vox_x = int((rel_mouse_x / disp_w) * real_w)
         vox_y = int((rel_mouse_y / disp_h) * real_h)
 
-        # Check bounds
         if 0 <= vox_x < real_w and 0 <= vox_y < real_h:
             value = img_model.data[viewer.slice_idx, vox_y, vox_x]
-            info = f"X: {vox_x}, Y: {vox_y}, Z: {viewer.slice_idx}\nVal: {int(value)} HU"
+            info = (f"X: {vox_x}, Y: {vox_y}, Z: {viewer.slice_idx}\n"
+                    f"Val: {int(value)} HU\n"
+                    f"WW: {int(img_model.ww)} WL: {int(img_model.wl)}\n"
+                    f"Zoom: {viewer.zoom:.2f}x")
             dpg.set_value(f"overlay_{viewer.tag}", info)
         else:
             dpg.set_value(f"overlay_{viewer.tag}", "")
@@ -176,8 +154,6 @@ class MainWindow:
 
 class SliceViewer:
     def __init__(self, tag_id, controller):
-        self.last_dy = 0
-        self.last_dx = 0
         self.tag = tag_id
         self.controller = controller
         self.current_image_id = None
@@ -185,6 +161,12 @@ class SliceViewer:
         self.ww, self.wl = 400, 40
         self.texture_tag = f"tex_{tag_id}"
         self.image_tag = f"img_{tag_id}"
+        # used during mouse drag
+        self.last_dy = 0
+        self.last_dx = 0
+        # Zoom and Pan states
+        self.zoom = 1.0
+        self.pan_offset = [0, 0]  # [x, y] in screen pixels
 
         # Initialize a default small texture; will be recreated on image load
         with dpg.texture_registry():
@@ -201,7 +183,6 @@ class SliceViewer:
         with dpg.texture_registry():
             # Get dimensions from the ImageModel data (Z, Y, X) -> X=width, Y=height
             h, w = img.data.shape[1], img.data.shape[2]
-            print(f'Creating texture for image {img_id} with size {w}x{h}...')
             dpg.add_dynamic_texture(width=w, height=h,
                                     default_value=np.zeros(w * h * 4),
                                     tag=self.texture_tag)
@@ -233,23 +214,54 @@ class SliceViewer:
         self.update_render()
 
     def on_drag(self, data):
-        """Window/Level logic linked to ImageModel, triggered by Shift."""
         if self.current_image_id is None: return
 
-        total_dx, total_dy = data[1], data[2]
-        step_x = total_dx - self.last_dx
-        step_y = total_dy - self.last_dy
-        self.last_dx, self.last_dy = total_dx, total_dy
+        step_x, step_y = data[1] - self.last_dx, data[2] - self.last_dy
+        self.last_dx, self.last_dy = data[1], data[2]
 
-        # Use mvKey_LShift for Mac/Linux compatibility
+        is_control = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl)
         is_shift = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(dpg.mvKey_RShift)
 
-        if is_shift and dpg.is_mouse_button_down(dpg.mvMouseButton_Left):
+        if is_control and dpg.is_mouse_button_down(dpg.mvMouseButton_Left):
+            self.pan_offset[0] += step_x
+            self.pan_offset[1] += step_y
+            self.controller.main_windows.on_window_resize()
+        elif is_shift and dpg.is_mouse_button_down(dpg.mvMouseButton_Left):
             img_model = self.controller.images[self.current_image_id]
-
-            # Sensitivity adjustment for medical imaging
             img_model.ww = max(1, img_model.ww + step_x * 2)
-            img_model.wl = img_model.wl - step_y * 2
-
-            # Sync all viewers showing this image
+            img_model.wl -= step_y * 2
             self.controller.update_all_viewers_of_image(self.current_image_id)
+
+    def on_zoom(self, direction):
+        """Zoom in ('i') or out ('o')."""
+        if direction == "in":
+            self.zoom *= 1.1
+        else:
+            self.zoom /= 1.1
+        self.zoom = np.clip(self.zoom, 0.1, 20.0)
+        # Re-trigger resize to update display dimensions
+        self.controller.main_windows.on_window_resize()
+
+    def resize(self, quad_w, quad_h):
+        if not dpg.does_item_exist(f"win_{self.tag}"): return
+        dpg.set_item_width(f"win_{self.tag}", quad_w)
+        dpg.set_item_height(f"win_{self.tag}", quad_h)
+
+        if self.current_image_id:
+            img = self.controller.images[self.current_image_id]
+            h, w = img.data.shape[1], img.data.shape[2]
+            target_w, target_h = quad_w - 20, quad_h - 60
+
+            # Base scale + User Zoom
+            base_scale = min(target_w / w, target_h / h)
+            final_scale = base_scale * self.zoom
+
+            new_w, new_h = int(w * final_scale), int(h * final_scale)
+            dpg.set_item_width(f"img_{self.tag}", new_w)
+            dpg.set_item_height(f"img_{self.tag}", new_h)
+
+            # Centering + Pan Offset
+            dpg.set_item_pos(f"img_{self.tag}", [
+                (target_w - new_w) // 2 + 10 + self.pan_offset[0],
+                (target_h - new_h) // 2 + 40 + self.pan_offset[1]
+            ])
