@@ -1,7 +1,8 @@
 import click
 from .gui import *
 from .core import *
-
+from .window import MainWindow
+from .viewer import SliceViewer
 
 @click.command()
 @click.argument('image_path', type=click.Path(exists=True), required=False, nargs=-1)
