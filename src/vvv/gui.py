@@ -55,13 +55,14 @@ def create_gui(controller):
 
 def create_viewer_widget(tag, controller):
     # We use no_scrollbar to keep the view clean
+    viewer = controller.viewers[tag]
     with dpg.child_window(tag=f"win_{tag}",
                           border=True,
                           no_scrollbar=True,
                           no_scroll_with_mouse=True):
         # Overlay for coordinates and HU value # FIXME to change
         dpg.add_text("", tag=f"overlay_{tag}", color=[255, 255, 0], pos=[0, 0])
-        dpg.add_image(f"tex_{tag}", tag=f"img_{tag}", pos=[0, 0])
+        dpg.add_image(viewer.texture_tag, tag=f"img_{tag}", pos=[0, 0])
 
 
 class MainWindow:
@@ -114,7 +115,11 @@ class MainWindow:
     def on_key_press(self, key):
         viewer = self.get_hovered_viewer()
         if not viewer: return
-        if key == dpg.mvKey_I:
+
+        # Orientation keys
+        if key in [dpg.mvKey_F1, dpg.mvKey_F2, dpg.mvKey_F3]:
+            viewer.on_key_press(key)
+        elif key == dpg.mvKey_I:
             viewer.on_zoom("in")
         elif key == dpg.mvKey_O:
             viewer.on_zoom("out")
@@ -168,7 +173,7 @@ class SliceViewer:
         self.tag = tag_id
         self.controller = controller
         self.current_image_id = None
-        self.slice_idx = 0
+        # self.slice_idx = 0
         self.ww, self.wl = 400, 40
         self.texture_tag = f"tex_{tag_id}"
         self.image_tag = f"img_{tag_id}"
@@ -181,6 +186,14 @@ class SliceViewer:
         # Zoom and Pan states
         self.zoom = 1.0
         self.pan_offset = [0, 0]  # [x, y] in screen pixels
+        # current orientation
+        self.orientation = "Axial"
+        # Dictionary to store the last slice index for each view
+        self.slice_indices = {
+            "Axial": None,
+            "Sagittal": None,
+            "Coronal": None
+        }
 
         # Initialize a default small texture; will be recreated on image load
         with dpg.texture_registry():
@@ -188,31 +201,83 @@ class SliceViewer:
                                     default_value=np.zeros(4),
                                     tag=self.texture_tag)
 
+    @property
+    def slice_idx(self):
+        return self.slice_indices[self.orientation]
+
+    @slice_idx.setter
+    def slice_idx(self, value):
+        self.slice_indices[self.orientation] = value
+
     def set_image(self, img_id):
         self.current_image_id = img_id
         img = self.controller.images[img_id]
 
-        # Recreate texture with correct dimensions for the real image size
-        dpg.delete_item(self.texture_tag)
-        with dpg.texture_registry():
-            # Get dimensions from the ImageModel data (Z, Y, X) -> X=width, Y=height
-            h, w = img.data.shape[1], img.data.shape[2]
-            dpg.add_dynamic_texture(width=w, height=h,
-                                    default_value=np.zeros(w * h * 4),
-                                    tag=self.texture_tag)
+        # Initialize slice index in the middle if it's the first time for this orientation
+        if self.slice_indices[self.orientation] is None:
+            if self.orientation == "Axial":
+                self.slice_indices["Axial"] = img.data.shape[0] // 2
+            elif self.orientation == "Sagittal":
+                self.slice_indices["Sagittal"] = img.data.shape[2] // 2
+            elif self.orientation == "Coronal":
+                self.slice_indices["Coronal"] = img.data.shape[1] // 2
 
-        self.slice_idx = img.data.shape[0] // 2
+        # Get shape based on orientation
+        # Expecting img.get_slice_rgba to return (flattened_data, (height, width))
+        _, shape = img.get_slice_rgba(self.slice_idx, self.orientation)
+        h, w = shape[0], shape[1]
+
+        # Generate a unique tag for this specific viewer/orientation/size combo
+        new_texture_tag = f"tex_{self.tag}_{self.orientation}_{w}x{h}"
+        print(new_texture_tag)
+
+        # If this is a new tag, create the texture
+        if not dpg.does_item_exist(new_texture_tag):
+            with dpg.texture_registry():
+                dpg.add_dynamic_texture(
+                    width=w,
+                    height=h,
+                    default_value=np.zeros(w * h * 4),
+                    tag=new_texture_tag
+                )
+
+        # Delete the OLD texture if it's different from the new one
+        # if self.texture_tag != new_texture_tag and dpg.does_item_exist(self.texture_tag):
+        # dpg.delete_item(self.texture_tag)
+        if self.texture_tag != new_texture_tag and dpg.does_item_exist(self.texture_tag):
+            # Only delete if it's not the startup placeholder
+            if "Axial_1x1" not in self.texture_tag:
+                dpg.delete_item(self.texture_tag)
+
+        # Update the reference and re-bind the image widget
+        self.texture_tag = new_texture_tag
+        if dpg.does_item_exist(f"img_{self.tag}"):
+            dpg.configure_item(f"img_{self.tag}", texture_tag=self.texture_tag)
+
         self.update_render()
 
     def update_render(self):
         if self.current_image_id is None:
             return
-
         img_model = self.controller.images[self.current_image_id]
-        rgba_data = img_model.get_slice_rgba(self.slice_idx)
+        rgba, slice_shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
+        dpg.set_value(self.texture_tag, rgba)
 
-        # Update the texture data
-        dpg.set_value(self.texture_tag, rgba_data)
+    def on_key_press(self, key):
+        """Handle orientation switching."""
+        if key == dpg.mvKey_F1:
+            self.set_orientation("Axial")
+        elif key == dpg.mvKey_F2:
+            self.set_orientation("Sagittal")
+        elif key == dpg.mvKey_F3:
+            self.set_orientation("Coronal")
+
+    def set_orientation(self, orientation):
+        self.orientation = orientation
+        # When orientation changes, dimensions change -> Recreate Texture
+        if self.current_image_id:
+            self.set_image(self.current_image_id)  # Re-runs texture creation logic
+        self.controller.main_windows.on_window_resize()
 
     def on_scroll(self, delta):
         """Called by MainWindow when this viewer is hovered during a scroll."""
@@ -221,9 +286,17 @@ class SliceViewer:
         increment = 1 if delta > 0 else -1
         img_model = self.controller.images[self.current_image_id]
 
-        # Update slice index with bounds checking
-        max_slices = img_model.data.shape[0] - 1
-        self.slice_idx = np.clip(self.slice_idx + increment, 0, max_slices)
+        # Get max bounds based on current orientation
+        if self.orientation == "Axial":
+            max_s = img_model.data.shape[0] - 1
+        elif self.orientation == "Sagittal":
+            max_s = img_model.data.shape[2] - 1
+        else:
+            max_s = img_model.data.shape[1] - 1
+
+        # Update the orientation-specific index
+        new_idx = self.slice_indices[self.orientation] + increment
+        self.slice_indices[self.orientation] = np.clip(new_idx, 0, max_s)
 
         self.update_render()
 
@@ -265,7 +338,7 @@ class SliceViewer:
             img = self.controller.images[self.current_image_id]
             h, w = img.data.shape[1], img.data.shape[2]
             target_w, target_h = quad_w - self.margin_left, quad_h - self.margin_top
-            #target_w, target_h = quad_w - 0, quad_h - 0
+            # target_w, target_h = quad_w - 0, quad_h - 0
 
             # Base scale + User Zoom
             base_scale = min(target_w / w, target_h / h)

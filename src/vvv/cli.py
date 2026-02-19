@@ -20,7 +20,7 @@ def main(image_path):
     for tag in ["V1", "V2", "V3", "V4"]:
         controller.viewers[tag] = SliceViewer(tag, controller)
 
-    # Load image if provided
+    # Load images if provided
     i=0
     for path in image_path:
         img_id = controller.load_image(path)
@@ -61,7 +61,6 @@ def main(image_path):
         dpg.render_dearpygui_frame()
 
     dpg.destroy_context()
-
 
 
 if __name__ == "__main__":

@@ -18,19 +18,30 @@ class ImageModel:
         self.ww = 400
         self.wl = 40
 
-    def get_slice_rgba(self, slice_idx):
-        """Extracts a slice and applies window/leveling, returning RGBA float32."""
-        # Clamp slice_idx to valid range
-        slice_idx = np.clip(slice_idx, 0, self.data.shape[0] - 1)
-        slice_data = self.data[slice_idx, :, :].astype(np.float32)
+    def get_slice_rgba(self, slice_idx, orientation="Axial"):
+        """Extracts a slice and flips vertical axis for Sagittal/Coronal."""
+        if orientation == "Axial":
+            max_s = self.data.shape[0] - 1
+            idx = np.clip(slice_idx, 0, max_s)
+            slice_data = self.data[idx, :, :]
+            # Axial usually stays as is (Z, Y, X)
+        elif orientation == "Sagittal":
+            max_s = self.data.shape[2] - 1
+            idx = np.clip(slice_idx, 0, max_s)
+            # Slice along X, Flip vertically for correct orientation
+            slice_data = np.flipud(self.data[:, :, idx])
+        elif orientation == "Coronal":
+            max_s = self.data.shape[1] - 1
+            idx = np.clip(slice_idx, 0, max_s)
+            # Slice along Y, Flip vertically for correct orientation
+            slice_data = np.flipud(self.data[:, idx, :])
 
-        # Apply Window/Level
+        slice_data = slice_data.astype(np.float32)
         min_val = self.wl - self.ww / 2
         display_img = np.clip((slice_data - min_val) / self.ww, 0, 1)
 
-        # Convert to RGBA (DPG requirement)
         rgba = np.stack([display_img] * 3 + [np.ones_like(display_img)], axis=-1)
-        return rgba.flatten()
+        return rgba.flatten(), slice_data.shape
 
 
 class Controller:
