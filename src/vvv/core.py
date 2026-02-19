@@ -60,6 +60,10 @@ class ImageModel:
             # X and Z axes
             return dx, dz
 
+    def voxel_to_physic_coord(self, voxel):
+        phys = (voxel * self.spacing) + self.origin
+        return phys
+
 
 class Controller:
     """The central manager."""

@@ -329,34 +329,29 @@ class SliceViewer:
         pix_x = (rel_mouse_x / disp_w) * real_w
         pix_y = (rel_mouse_y / disp_h) * real_h
 
-        # 4. Map 2D pixels back to 3D Voxel Indices (v_x, v_y, v_z)
-        # Reversing flips from ImageModel.get_slice_rgba
+        # 4. Map 2D pixels back to 3D Voxel Indices (v)
+        idx = self.slice_idx
         if self.orientation == "Axial":
-            v_x, v_y, v_z = pix_x, pix_y, float(self.slice_indices["Axial"])
+            v = np.array([pix_x, pix_y, idx])
         elif self.orientation == "Sagittal":
-            v_x = float(self.slice_indices["Sagittal"])
-            v_y = (real_w - pix_x)  # Un-fliplr (Y axis)
-            v_z = (real_h - pix_y)  # Un-flipud (Z axis)
+            v = np.array([idx, real_w - pix_x, real_h - pix_y])
         else:
-            v_x = pix_x
-            v_y = float(self.slice_indices["Coronal"])
-            v_z = (real_h - pix_y)  # Un-flipud (Z axis)
+            v = np.array([pix_x, idx, real_h - pix_y])
 
         # 5. Convert to Physical World Coordinates (mm)
-        phys_x = (v_x * img_model.spacing[0]) + img_model.origin[0]
-        phys_y = (v_y * img_model.spacing[1]) + img_model.origin[1]
-        phys_z = (v_z * img_model.spacing[2]) + img_model.origin[2]
+        phys = img_model.voxel_to_physic_coord(v)
 
-        # 6. Fetch Voxel Value
-        ix, iy, iz = int(v_x), int(v_y), int(v_z)
+        # 6. Fetch Voxel Value. Round or not ??
+        # ix, iy, iz = int(round(v[0])), int(round(v[1])), int(round(v[2]))
+        ix, iy, iz = int(v[0]), int(v[1]), int(v[2])
         max_z, max_y, max_x = img_model.data.shape
 
         if 0 <= ix < max_x and 0 <= iy < max_y and 0 <= iz < max_z:
             val = img_model.data[iz, iy, ix]
             overlay_text = (
                 f"{self.orientation} {val:.1f}\n"
-                f"{v_x:.1f}, {v_y:.1f}, {v_z:.1f}\n"
-                f"{phys_x:.1f} {phys_y:.1f} {phys_z:.1f} mm"
+                f"{v[0]:.1f}, {v[1]:.1f}, {v[2]:.1f}\n"
+                f"{phys[0]:.1f} {phys[1]:.1f} {phys[2]:.1f} mm"
             )
             dpg.set_value(f"overlay_{self.tag}", overlay_text)
         else:
