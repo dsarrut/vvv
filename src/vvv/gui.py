@@ -24,20 +24,29 @@ def create_gui(controller):
                 dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 0, 0, category=dpg.mvThemeCat_Core)
 
         # We add a resize_callback to the primary window
-        with dpg.window(tag="PrimaryWindow", on_close=controller.main_windows.cleanup):
+        with dpg.window(tag="PrimaryWindow",
+                        on_close=controller.main_windows.cleanup,
+                        no_scrollbar=True,
+                        no_scroll_with_mouse=True):
             with dpg.item_handler_registry(tag="window_resize_handler"):
                 dpg.add_item_resize_handler(callback=lambda: controller.main_windows.on_window_resize())
             dpg.bind_item_handler_registry("PrimaryWindow", "window_resize_handler")
 
             with dpg.group(horizontal=True):
                 # 2. LEFT PANEL: Fixed width
-                with dpg.child_window(width=250, tag="side_panel"):
+                with dpg.child_window(width=250,
+                                      tag="side_panel",
+                                      no_scrollbar=True,
+                                      no_scroll_with_mouse=True):
                     dpg.add_text("Loaded Images", color=[0, 255, 127])
                     dpg.add_listbox(tag="ui_image_list", items=[], num_items=10)
                     # ...
 
                 # 3. RIGHT PANEL: This group will contain the 4 viewers
-                with dpg.group(tag="viewers_container"):
+                with dpg.child_window(tag="viewers_container",
+                                      border=False,
+                                      no_scrollbar=True,
+                                      no_scroll_with_mouse=True):
                     with dpg.group(horizontal=True):
                         create_viewer_widget("V1", controller)
                         create_viewer_widget("V2", controller)
@@ -45,6 +54,7 @@ def create_gui(controller):
                         create_viewer_widget("V3", controller)
                         create_viewer_widget("V4", controller)
 
+        dpg.bind_item_theme("viewers_container", viewer_theme)
         # Bind the theme to all viewer windows
         for tag in ["V1", "V2", "V3", "V4"]:
             dpg.bind_item_theme(f"win_{tag}", viewer_theme)
@@ -99,8 +109,13 @@ class MainWindow:
 
         # 2. Subtract the sidebar and margins
         side_panel_width = 250
-        available_width = window_width - side_panel_width - 15
-        available_height = window_height - 35  # Adjusted for menu bar
+        available_width = window_width - side_panel_width - 25
+        available_height = window_height - 45  # Adjusted for menu bar
+
+        # Resize the container child window
+        if dpg.does_item_exist("viewers_container"):
+            dpg.set_item_width("viewers_container", available_width)
+            dpg.set_item_height("viewers_container", available_height)
 
         # 3. Calculate the sizes for each quadrant (2x2)
         quad_w = available_width // 2
@@ -129,9 +144,9 @@ class MainWindow:
         if not viewer: return
 
         # Orientation keys
-        if key in [dpg.mvKey_F1, dpg.mvKey_F2, dpg.mvKey_F3]:
-            viewer.on_key_press(key)
-        elif key == dpg.mvKey_I:
+        # if key in [dpg.mvKey_F1, dpg.mvKey_F2, dpg.mvKey_F3]:
+        #    viewer.on_key_press(key)
+        if key == dpg.mvKey_I:
             viewer.on_zoom("in")
         elif key == dpg.mvKey_O:
             viewer.on_zoom("out")
@@ -139,6 +154,8 @@ class MainWindow:
             viewer.zoom = 1.0
             viewer.pan_offset = [0, 0]
             self.on_window_resize()
+        else:
+            viewer.on_key_press(key)
 
     def update_overlays(self):
         """Delegates overlay calculation to each individual viewer."""
@@ -249,6 +266,42 @@ class SliceViewer:
             self.set_image(self.current_image_id)  # Re-runs texture creation logic
         self.controller.main_windows.on_window_resize()
 
+    def get_mouse_to_pixel_coords(self):
+        """Returns (pix_x, pix_y) of the image under the mouse, or (None, None)."""
+        if not dpg.is_item_hovered(f"win_{self.tag}"):
+            return None, None
+
+        mouse_pos = dpg.get_mouse_pos(local=False)
+        img_tag = f"img_{self.tag}"
+
+        # Get positions to find the absolute screen start of the image
+        cont_pos = dpg.get_item_pos("viewers_container")
+        win_pos = dpg.get_item_pos(f"win_{self.tag}")
+        img_rel_pos = dpg.get_item_pos(img_tag)
+
+        # Correct absolute screen position of the image top-left
+        img_start_x = cont_pos[0] + win_pos[0] + img_rel_pos[0]
+        img_start_y = cont_pos[1] + win_pos[1] + img_rel_pos[1]
+
+        rel_m_x = mouse_pos[0] - img_start_x
+        rel_m_y = mouse_pos[1] - img_start_y
+
+        # Convert screen pixels to image pixel coordinates
+        disp_w = dpg.get_item_width(img_tag)
+        disp_h = dpg.get_item_height(img_tag)
+
+        if disp_w <= 0 or disp_h <= 0:
+            return None, None
+
+        img_model = self.controller.images[self.current_image_id]
+        _, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
+        real_h, real_w = shape[0], shape[1]
+
+        pix_x = (rel_m_x / disp_w) * real_w
+        pix_y = (rel_m_y / disp_h) * real_h
+
+        return pix_x, pix_y
+
     def resize(self, quad_w, quad_h):
         if not dpg.does_item_exist(f"win_{self.tag}"): return
         dpg.set_item_width(f"win_{self.tag}", quad_w)
@@ -301,48 +354,32 @@ class SliceViewer:
             dpg.set_value(f"overlay_{self.tag}", "")
             return
 
-        # 1. Check if mouse is over THIS viewer's window
-        if not dpg.is_item_hovered(f"win_{self.tag}"):
+        # 1. Use the mutualized helper to get image-space coordinates
+        pix_x, pix_y = self.get_mouse_to_pixel_coords()
+
+        # If the mouse isn't hovering over this specific viewer, pix_x will be None
+        if pix_x is None:
             return
 
-        mouse_pos = dpg.get_mouse_pos(local=False)
-        img_tag = f"img_{self.tag}"
-        win_pos = dpg.get_item_pos(f"win_{self.tag}")
-        img_rel_pos = dpg.get_item_pos(img_tag)
-
-        # 2. Localize mouse to image pixels
-        img_start_x = win_pos[0] + img_rel_pos[0]
-        img_start_y = win_pos[1] + img_rel_pos[1]
-        rel_mouse_x = mouse_pos[0] - img_start_x
-        rel_mouse_y = mouse_pos[1] - img_start_y
-
-        disp_w = dpg.get_item_width(img_tag)
-        disp_h = dpg.get_item_height(img_tag)
         img_model = self.controller.images[self.current_image_id]
 
-        # Get the pixel shape of the current 2D orientation
-        _, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
+        # 2. Map 2D pixels back to 3D Voxel Indices (v)
+        # Using the same mapping logic as your original code
+        idx = self.slice_idx
+        _, shape = img_model.get_slice_rgba(idx, self.orientation)
         real_h, real_w = shape[0], shape[1]
 
-        # 3. Calculate floating-point pixel coordinates [0, real_dim]
-        # Accounts for Zoom/Pan because disp_w/h change with them
-        pix_x = (rel_mouse_x / disp_w) * real_w
-        pix_y = (rel_mouse_y / disp_h) * real_h
-
-        # 4. Map 2D pixels back to 3D Voxel Indices (v)
-        idx = self.slice_idx
         if self.orientation == "Axial":
             v = np.array([pix_x, pix_y, idx])
         elif self.orientation == "Sagittal":
             v = np.array([idx, real_w - pix_x, real_h - pix_y])
-        else:
+        else:  # Coronal
             v = np.array([pix_x, idx, real_h - pix_y])
 
-        # 5. Convert to Physical World Coordinates (mm)
+        # 3. Convert to Physical World Coordinates (mm)
         phys = img_model.voxel_to_physic_coord(v)
 
-        # 6. Fetch Voxel Value. Round or not ??
-        # ix, iy, iz = int(round(v[0])), int(round(v[1])), int(round(v[2]))
+        # 4. Fetch Voxel Value
         ix, iy, iz = int(v[0]), int(v[1]), int(v[2])
         max_z, max_y, max_x = img_model.data.shape
 
@@ -350,26 +387,65 @@ class SliceViewer:
             val = img_model.data[iz, iy, ix]
             overlay_text = (
                 f"{self.orientation} {val:.1f}\n"
-                f"{v[0]:.1f}, {v[1]:.1f}, {v[2]:.1f}\n"
-                f"{phys[0]:.1f} {phys[1]:.1f} {phys[2]:.1f} mm"
+                f"Vox: {v[0]:.1f}, {v[1]:.1f}, {v[2]:.1f}\n"
+                f"Phys: {phys[0]:.1f}, {phys[1]:.1f}, {phys[2]:.1f} mm"
             )
             dpg.set_value(f"overlay_{self.tag}", overlay_text)
         else:
             dpg.set_value(f"overlay_{self.tag}", "Out of image")
 
-        # --- Dynamic Bottom-Left Positioning ---
-        # 1. Get the current window height
+        # 5. Position the text at the bottom-left of the viewer window
         win_h = dpg.get_item_height(f"win_{self.tag}")
-
-        # 2. Get the current text size
         text_size = dpg.get_item_rect_size(f"overlay_{self.tag}")
-        text_h = text_size[1] if text_size[1] > 0 else 60  # fallback height
+        text_h = text_size[1] if text_size[1] > 0 else 60
 
-        # 3. Calculate Y to pin to bottom (with 5px margin)
-        pos_y = win_h - text_h - 5
+        dpg.set_item_pos(f"overlay_{self.tag}", [5, win_h - text_h - 5])
 
-        # 4. Apply position (keeping X at 5 for the left side)
-        dpg.set_item_pos(f"overlay_{self.tag}", [5, pos_y])
+    def apply_local_auto_window(self, search_radius=25):
+        """Sets WW/WL based on a local neighborhood around the mouse."""
+        if self.current_image_id is None: return
+
+        pix_x, pix_y = self.get_mouse_to_pixel_coords()
+        if pix_x is None: return
+
+        img_model = self.controller.images[self.current_image_id]
+        _, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
+        real_h, real_w = shape[0], shape[1]
+
+        # Map search_radius (screen pixels) to voxel units using the current display ratio
+        img_tag = f"img_{self.tag}"
+        disp_w = dpg.get_item_width(img_tag)
+        disp_h = dpg.get_item_height(img_tag)
+
+        vox_radius_x = (search_radius / disp_w) * real_w
+        vox_radius_y = (search_radius / disp_h) * real_h
+
+        # Define bounds (clamped to image dimensions)
+        x0, x1 = int(max(0, pix_x - vox_radius_x)), int(min(real_w, pix_x + vox_radius_x))
+        y0, y1 = int(max(0, pix_y - vox_radius_y)), int(min(real_h, pix_y + vox_radius_y))
+
+        if x1 <= x0 or y1 <= y0: return
+
+        # Extract local patch (using your orientation logic)
+        if self.orientation == "Axial":
+            patch = img_model.data[self.slice_indices["Axial"], y0:y1, x0:x1]
+        elif self.orientation == "Sagittal":
+            # Correcting for flippings in your get_slice_rgba logic
+            z_idx0 = int(max(0, real_h - (pix_y + vox_radius_y)))
+            z_idx1 = int(min(img_model.data.shape[0], real_h - (pix_y - vox_radius_y)))
+            y_idx0 = int(max(0, real_w - (pix_x + vox_radius_x)))
+            y_idx1 = int(min(img_model.data.shape[1], real_w - (pix_x - vox_radius_x)))
+            patch = img_model.data[z_idx0:z_idx1, y_idx0:y_idx1, int(self.slice_indices["Sagittal"])]
+        else:  # Coronal
+            z_idx0 = int(max(0, real_h - (pix_y + vox_radius_y)))
+            z_idx1 = int(min(img_model.data.shape[0], real_h - (pix_y - vox_radius_y)))
+            patch = img_model.data[z_idx0:z_idx1, y0:y1, int(self.slice_indices["Coronal"])]
+
+        if patch.size > 0:
+            p_min, p_max = np.percentile(patch, [2, 98])
+            img_model.ww = max(1, p_max - p_min)
+            img_model.wl = (p_max + p_min) / 2
+            self.controller.update_all_viewers_of_image(self.current_image_id)
 
     def on_key_press(self, key):
         """Handle orientation switching."""
@@ -379,6 +455,8 @@ class SliceViewer:
             self.set_orientation("Sagittal")
         elif key == dpg.mvKey_F3:
             self.set_orientation("Coronal")
+        elif key == dpg.mvKey_W:
+            self.apply_local_auto_window()
 
     def on_scroll(self, delta):
         """Called by MainWindow when this viewer is hovered during a scroll."""
@@ -421,50 +499,32 @@ class SliceViewer:
             self.controller.update_all_viewers_of_image(self.current_image_id)
 
     def on_zoom(self, direction):
-        """Zoom while keeping the image pixel under the mouse fixed on screen."""
-        if self.current_image_id is None:
-            return
+        if self.current_image_id is None: return
 
-        # 1. Get current screen state
-        img_tag = f"img_{self.tag}"
+        # Get screen-space relative mouse (before zoom)
+        cont_pos = dpg.get_item_pos("viewers_container")
         win_pos = dpg.get_item_pos(f"win_{self.tag}")
-        img_rel_pos = dpg.get_item_pos(img_tag)  # relative to window
+        img_rel_pos = dpg.get_item_pos(f"img_{self.tag}")
         mouse_pos = dpg.get_mouse_pos(local=False)
 
-        # 2. Current width/height on screen
-        old_w = dpg.get_item_width(img_tag)
-        old_h = dpg.get_item_height(img_tag)
-        if old_w <= 0 or old_h <= 0: return
+        img_screen_x = cont_pos[0] + win_pos[0] + img_rel_pos[0]
+        img_screen_y = cont_pos[1] + win_pos[1] + img_rel_pos[1]
 
-        # 3. Calculate mouse position relative to the image's top-left corner
-        # We don't use local=True because it can be jittery during widget movement
-        img_screen_x = win_pos[0] + img_rel_pos[0]
-        img_screen_y = win_pos[1] + img_rel_pos[1]
+        rel_m_x = mouse_pos[0] - img_screen_x
+        rel_m_y = mouse_pos[1] - img_screen_y
 
-        rel_mouse_x = mouse_pos[0] - img_screen_x
-        rel_mouse_y = mouse_pos[1] - img_screen_y
-
-        # 4. Apply the zoom change
+        # Apply zoom
         old_zoom = self.zoom
-        zoom_step = 1.1 if direction == "in" else 0.9
-        self.zoom = np.clip(self.zoom * zoom_step, 0.1, 20.0)
+        self.zoom = np.clip(self.zoom * (1.1 if direction == "in" else 0.9), 0.1, 20.0)
+        ratio = self.zoom / old_zoom
 
-        # Calculate actual ratio (handling clipping at min/max zoom)
-        actual_ratio = self.zoom / old_zoom
+        # Calculate growth and centering shift compensation
+        old_w = dpg.get_item_width(f"img_{self.tag}")
+        old_h = dpg.get_item_height(f"img_{self.tag}")
+        dw, dh = (old_w * ratio) - old_w, (old_h * ratio) - old_h
 
-        # 5. Calculate the size change
-        new_w = old_w * actual_ratio
-        new_h = old_h * actual_ratio
-        dw = new_w - old_w
-        dh = new_h - old_h
+        # Update Pan: subtract growth, add back centering shift from resize()
+        self.pan_offset[0] -= (rel_m_x * (ratio - 1)) - (dw / 2)
+        self.pan_offset[1] -= (rel_m_y * (ratio - 1)) - (dh / 2)
 
-        # 6. PAN COMPENSATION
-        # Logic:
-        # A) Because of growth, the pixel at rel_mouse_x moves by: rel_mouse_x * (ratio - 1)
-        # B) Because of centering in resize(), the image shifts by: -dw / 2
-        # We need to subtract the growth movement but add back the centering shift
-        self.pan_offset[0] -= (rel_mouse_x * (actual_ratio - 1)) - (dw / 2)
-        self.pan_offset[1] -= (rel_mouse_y * (actual_ratio - 1)) - (dh / 2)
-
-        # 7. Apply via the standard resize path
         self.controller.main_windows.on_window_resize()
