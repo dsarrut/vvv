@@ -69,27 +69,25 @@ def create_gui(controller):
 
 
 def create_viewer_widget(tag, controller):
-    # We use no_scrollbar to keep the view clean
     viewer = controller.viewers[tag]
-    with dpg.child_window(tag=f"win_{tag}",
-                          border=True,
-                          no_scrollbar=True,
-                          no_scroll_with_mouse=True):
-        # Add the image first
-        border_color = [100, 100, 100, 255]
-        border_color = [100, 100, 100, 0]
-        dpg.add_image(viewer.texture_tag,
-                      tag=f"img_{tag}",
-                      pos=[0, 0],
-                      border_color=border_color)
-        # Overlay for coordinates and HU value
-        dpg.add_text("", tag=f"overlay_{tag}", color=[0, 246, 7])
+    with dpg.child_window(tag=f"win_{tag}", border=True, no_scrollbar=True, no_scroll_with_mouse=True):
+        # 1. The Image (pos=[0,0] keeps it from pushing other items)
+        dpg.add_image(viewer.texture_tag, tag=f"img_{tag}", pos=[0, 0])
+
+        # 2. Transparent Drawlist for Crosshair (Layered on top)
+        # width=-1, height=-1 makes it match the parent window size
+        with dpg.drawlist(tag=f"drawlist_{tag}", width=-1, height=-1, pos=[0, 0]):
+            dpg.add_draw_node(tag=f"crosshair_node_{tag}")
+
+        # 3. Text Overlay (pos=[0,0], actual position updated in update_overlay)
+        dpg.add_text("", tag=f"overlay_{tag}", color=[0, 246, 7], pos=[0, 0])
 
 
 class MainWindow:
 
     def __init__(self, controller):
         self.controller = controller
+        self.active_viewer = None
 
     def cleanup(self):
         dpg.stop_dearpygui()
@@ -131,21 +129,6 @@ class MainWindow:
         if viewer:
             viewer.on_scroll(delta)
 
-    def on_global_drag(self, data):
-        viewer = self.get_hovered_viewer()
-        if viewer:
-            viewer.on_drag(data)
-
-    def on_global_release(self):
-        for v in self.controller.viewers.values():
-            v.last_dx, v.last_dy = 0, 0
-
-    def on_global_click(self, button):
-        if button == dpg.mvMouseButton_Left:
-            viewer = self.get_hovered_viewer()
-            if viewer and not dpg.is_key_down(dpg.mvKey_LShift) and not dpg.is_key_down(dpg.mvKey_LControl):
-                viewer.sync_other_views()
-
     def on_key_press(self, key):
         viewer = self.get_hovered_viewer()
         if not viewer: return
@@ -163,6 +146,24 @@ class MainWindow:
             self.on_window_resize()
         else:
             viewer.on_key_press(key)
+
+    def on_global_click(self, button):
+        if button == dpg.mvMouseButton_Left:
+            # Lock the viewer that was initially clicked
+            self.active_viewer = self.get_hovered_viewer()
+            if self.active_viewer and not dpg.is_key_down(dpg.mvKey_LShift) and not dpg.is_key_down(dpg.mvKey_LControl):
+                self.active_viewer.sync_other_views()
+
+    def on_global_drag(self, data):
+        # Use the locked active_viewer instead of the hovered one
+        if self.active_viewer:
+            self.active_viewer.on_drag(data)
+
+    def on_global_release(self):
+        # Reset the lock and the drag deltas
+        for v in self.controller.viewers.values():
+            v.last_dx, v.last_dy = 0, 0
+        self.active_viewer = None
 
     def update_overlays(self):
         """Delegates overlay calculation to each individual viewer."""
@@ -274,79 +275,75 @@ class SliceViewer:
         self.controller.main_windows.on_window_resize()
 
     def get_mouse_to_pixel_coords(self):
-        """Returns (pix_x, pix_y) of the image under the mouse, or (None, None)."""
-        if not dpg.is_item_hovered(f"win_{self.tag}"):
-            return None, None
+        if not self.current_image_id: return None, None
 
-        mouse_pos = dpg.get_mouse_pos(local=False)
+        mouse_pos = dpg.get_mouse_pos(local=False)  # Global screen space
         img_tag = f"img_{self.tag}"
 
-        # Get positions to find the absolute screen start of the image
-        cont_pos = dpg.get_item_pos("viewers_container")
-        win_pos = dpg.get_item_pos(f"win_{self.tag}")
-        img_rel_pos = dpg.get_item_pos(img_tag)
+        # Get the global screen position of the image widget top-left
+        if not dpg.does_item_exist(img_tag): return None, None
+        img_rect_min = dpg.get_item_rect_min(img_tag)
 
-        # Correct absolute screen position of the image top-left
-        img_start_x = cont_pos[0] + win_pos[0] + img_rel_pos[0]
-        img_start_y = cont_pos[1] + win_pos[1] + img_rel_pos[1]
+        rel_m_x = mouse_pos[0] - img_rect_min[0]
+        rel_m_y = mouse_pos[1] - img_rect_min[1]
 
-        rel_m_x = mouse_pos[0] - img_start_x
-        rel_m_y = mouse_pos[1] - img_start_y
-
-        # Convert screen pixels to image pixel coordinates
+        # Scale to image pixels
         disp_w = dpg.get_item_width(img_tag)
         disp_h = dpg.get_item_height(img_tag)
-
-        if disp_w <= 0 or disp_h <= 0:
-            return None, None
+        if disp_w <= 0 or disp_h <= 0: return None, None
 
         img_model = self.controller.images[self.current_image_id]
         _, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
         real_h, real_w = shape[0], shape[1]
 
-        pix_x = (rel_m_x / disp_w) * real_w
-        pix_y = (rel_m_y / disp_h) * real_h
-
-        return pix_x, pix_y
+        return (rel_m_x / disp_w) * real_w, (rel_m_y / disp_h) * real_h
 
     def resize(self, quad_w, quad_h):
-        if not dpg.does_item_exist(f"win_{self.tag}"): return
+        if not dpg.does_item_exist(f"win_{self.tag}"):
+            return
         dpg.set_item_width(f"win_{self.tag}", quad_w)
         dpg.set_item_height(f"win_{self.tag}", quad_h)
 
-        if self.current_image_id:
-            img = self.controller.images[self.current_image_id]
+        # Explicitly resize the drawlist to match the quadrant
+        if dpg.does_item_exist(f"drawlist_{self.tag}"):
+            dpg.set_item_width(f"drawlist_{self.tag}", quad_w)
+            dpg.set_item_height(f"drawlist_{self.tag}", quad_h)
 
-            # Get pixel dimensions
-            # Axial: (Y, X), Sagittal: (Z, Y), Coronal: (Z, X)
-            _, shape = img.get_slice_rgba(self.slice_idx, self.orientation)
-            pix_h, pix_w = shape[0], shape[1]
+        if self.current_image_id is None:
+            return
 
-            # Get physical spacing (mm per pixel)
-            sw, sh = img.get_physical_aspect_ratio(self.orientation)
+        img = self.controller.images[self.current_image_id]
 
-            # Physical dimensions in mm
-            mm_w = pix_w * sw
-            mm_h = pix_h * sh
+        # Get pixel dimensions
+        # Axial: (Y, X), Sagittal: (Z, Y), Coronal: (Z, X)
+        _, shape = img.get_slice_rgba(self.slice_idx, self.orientation)
+        pix_h, pix_w = shape[0], shape[1]
 
-            target_w, target_h = quad_w - self.margin_left, quad_h - self.margin_top
+        # Get physical spacing (mm per pixel)
+        sw, sh = img.get_physical_aspect_ratio(self.orientation)
 
-            # Base scale: how many screen pixels per mm?
-            base_scale = min(target_w / mm_w, target_h / mm_h)
-            final_scale = base_scale * self.zoom
+        # Physical dimensions in mm
+        mm_w = pix_w * sw
+        mm_h = pix_h * sh
 
-            # New display size in screen pixels
-            new_w = int(mm_w * final_scale)
-            new_h = int(mm_h * final_scale)
+        target_w, target_h = quad_w - self.margin_left, quad_h - self.margin_top
 
-            dpg.set_item_width(f"img_{self.tag}", new_w)
-            dpg.set_item_height(f"img_{self.tag}", new_h)
+        # Base scale: how many screen pixels per mm?
+        base_scale = min(target_w / mm_w, target_h / mm_h)
+        final_scale = base_scale * self.zoom
 
-            # Centering + Pan Offset
-            dpg.set_item_pos(f"img_{self.tag}", [
-                (target_w - new_w) // 2 + self.margin_left + self.pan_offset[0],
-                (target_h - new_h) // 2 + self.margin_top + self.pan_offset[1]
-            ])
+        # New display size in screen pixels
+        new_w = int(mm_w * final_scale)
+        new_h = int(mm_h * final_scale)
+
+        dpg.set_item_width(f"img_{self.tag}", new_w)
+        dpg.set_item_height(f"img_{self.tag}", new_h)
+
+        # Centering + Pan Offset
+        dpg.set_item_pos(f"img_{self.tag}", [
+            (target_w - new_w) // 2 + self.margin_left + self.pan_offset[0],
+            (target_h - new_h) // 2 + self.margin_top + self.pan_offset[1]
+        ])
 
     def sync_other_views(self):
         """Synchronizes other views of the same image to the current mouse position."""
@@ -357,6 +354,9 @@ class SliceViewer:
         pix_x, pix_y = self.get_mouse_to_pixel_coords()
         if pix_x is None:
             return
+
+        # 1. Update the crosshair in the current window
+        self.draw_crosshair(pix_x, pix_y)
 
         img_model = self.controller.images[self.current_image_id]
         _, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
@@ -371,16 +371,22 @@ class SliceViewer:
         else:  # Coronal
             vx, vy, vz = pix_x, self.slice_idx, real_h - pix_y
 
-        # 2. Tell the controller to update all viewers looking at this image
-        # but only for the dimensions they are NOT currently displaying
+        # 2. Update and draw in all other viewers
         for viewer in self.controller.viewers.values():
             if viewer.current_image_id == self.current_image_id and viewer.tag != self.tag:
+                # We need the dimensions of the target viewer to project correctly
+                _, v_shape = img_model.get_slice_rgba(0, viewer.orientation)
+                vh, vw = v_shape[0], v_shape[1]
+
                 if viewer.orientation == "Axial":
                     viewer.slice_indices["Axial"] = int(np.clip(vz, 0, img_model.data.shape[0] - 1))
+                    viewer.draw_crosshair(vx, vy)
                 elif viewer.orientation == "Sagittal":
                     viewer.slice_indices["Sagittal"] = int(np.clip(vx, 0, img_model.data.shape[2] - 1))
+                    viewer.draw_crosshair(vw - vy, vh - vz)  # Projected coords
                 elif viewer.orientation == "Coronal":
                     viewer.slice_indices["Coronal"] = int(np.clip(vy, 0, img_model.data.shape[1] - 1))
+                    viewer.draw_crosshair(vx, vh - vz)  # Projected coords
 
                 viewer.update_render()
 
@@ -490,6 +496,34 @@ class SliceViewer:
             img_model.wl = (p_max + p_min) / 2
             self.controller.update_all_viewers_of_image(self.current_image_id)
 
+    def draw_crosshair(self, pix_x, pix_y):
+        """Draws a crosshair at the specified image pixel coordinates."""
+        node_tag = f"crosshair_node_{self.tag}"
+        if not dpg.does_item_exist(node_tag): return
+        dpg.delete_item(node_tag, children_only=True)
+
+        img_tag = f"img_{self.tag}"
+        disp_w = dpg.get_item_width(img_tag)
+        disp_h = dpg.get_item_height(img_tag)
+
+        img_model = self.controller.images[self.current_image_id]
+        _, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
+        real_h, real_w = shape[0], shape[1]
+
+        # Convert image pixels to screen coordinates within the drawlist
+        img_pos = dpg.get_item_pos(img_tag)
+        screen_x = (pix_x / real_w) * disp_w + img_pos[0]
+        screen_y = (pix_y / real_h) * disp_h + img_pos[1]
+
+        # Draw horizontal and vertical lines (Cyan for visibility)
+        color = [0, 255, 255, 180]
+        # Vertical
+        dpg.draw_line([screen_x, img_pos[1]], [screen_x, img_pos[1] + disp_h],
+                      color=color, thickness=1, parent=node_tag)
+        # Horizontal
+        dpg.draw_line([img_pos[0], screen_y], [img_pos[0] + disp_w, screen_y],
+                      color=color, thickness=1, parent=node_tag)
+
     def on_key_press(self, key):
         """Handle orientation switching."""
         if key == dpg.mvKey_F1:
@@ -523,17 +557,24 @@ class SliceViewer:
         self.update_render()
 
     def on_drag(self, data):
-        if self.current_image_id is None: return
+        if self.current_image_id is None:
+            return
 
         step_x, step_y = data[1] - self.last_dx, data[2] - self.last_dy
         self.last_dx, self.last_dy = data[1], data[2]
 
+        # Key modifiers?
         is_control = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl)
         is_shift = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(dpg.mvKey_RShift)
 
         # Navigation / Sync (Plain Left Click Drag)
         if not is_control and not is_shift and dpg.is_mouse_button_down(dpg.mvMouseButton_Left):
-            self.sync_other_views()
+            pix_x, pix_y = self.get_mouse_to_pixel_coords()
+            if pix_x is not None:
+                # Force crosshair and sync to update EVERY frame
+                self.draw_crosshair(pix_x, pix_y)
+                self.sync_other_views()
+            # self.sync_other_views()
 
         # Pan (Control + Drag)
         elif is_control and dpg.is_mouse_button_down(dpg.mvMouseButton_Left):
