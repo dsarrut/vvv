@@ -346,8 +346,8 @@ class SliceViewer:
         screen_x = (pix_x / real_w) * disp_w + img_pos[0]
         screen_y = (pix_y / real_h) * disp_h + img_pos[1]
 
-        # Draw horizontal and vertical lines (Cyan for visibility)
-        color = [0, 255, 255, 180]
+        # Draw horizontal and vertical lines
+        color = [0, 246, 7, 180]
         # Vertical
         dpg.draw_line([screen_x, img_pos[1]], [screen_x, img_pos[1] + disp_h],
                       color=color, thickness=1, parent=node_tag)

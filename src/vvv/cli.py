@@ -34,7 +34,6 @@ def main(image_path):
     for path in image_path:
         img_id = controller.load_image(path)
         img_ids.append(img_id)
-        print(f"Loading image {img_id}...")
         if i == 0:
             controller.viewers["V1"].set_image(img_id)
             controller.viewers["V2"].set_image(img_id)
