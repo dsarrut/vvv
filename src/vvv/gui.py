@@ -185,7 +185,11 @@ class SliceViewer:
         self.last_dx = 0
         # Zoom and Pan states
         self.zoom = 1.0
-        self.pan_offset = [0, 0]  # [x, y] in screen pixels
+        self.pan_offsets = {
+            "Axial": [0, 0],
+            "Sagittal": [0, 0],
+            "Coronal": [0, 0]
+        }
         # current orientation
         self.orientation = "Axial"
         # Dictionary to store the last slice index for each view
@@ -208,6 +212,14 @@ class SliceViewer:
     @slice_idx.setter
     def slice_idx(self, value):
         self.slice_indices[self.orientation] = value
+
+    @property
+    def pan_offset(self):
+        return self.pan_offsets[self.orientation]
+
+    @pan_offset.setter
+    def pan_offset(self, value):
+        self.pan_offsets[self.orientation] = value
 
     def set_image(self, img_id):
         self.current_image_id = img_id
@@ -242,8 +254,6 @@ class SliceViewer:
                 )
 
         # Delete the OLD texture if it's different from the new one
-        # if self.texture_tag != new_texture_tag and dpg.does_item_exist(self.texture_tag):
-        # dpg.delete_item(self.texture_tag)
         if self.texture_tag != new_texture_tag and dpg.does_item_exist(self.texture_tag):
             # Only delete if it's not the startup placeholder
             if "Axial_1x1" not in self.texture_tag:
@@ -336,15 +346,29 @@ class SliceViewer:
 
         if self.current_image_id:
             img = self.controller.images[self.current_image_id]
-            h, w = img.data.shape[1], img.data.shape[2]
-            target_w, target_h = quad_w - self.margin_left, quad_h - self.margin_top
-            # target_w, target_h = quad_w - 0, quad_h - 0
 
-            # Base scale + User Zoom
-            base_scale = min(target_w / w, target_h / h)
+            # Get pixel dimensions
+            # Axial: (Y, X), Sagittal: (Z, Y), Coronal: (Z, X)
+            _, shape = img.get_slice_rgba(self.slice_idx, self.orientation)
+            pix_h, pix_w = shape[0], shape[1]
+
+            # Get physical spacing (mm per pixel)
+            sw, sh = img.get_physical_aspect_ratio(self.orientation)
+
+            # Physical dimensions in mm
+            mm_w = pix_w * sw
+            mm_h = pix_h * sh
+
+            target_w, target_h = quad_w - self.margin_left, quad_h - self.margin_top
+
+            # Base scale: how many screen pixels per mm?
+            base_scale = min(target_w / mm_w, target_h / mm_h)
             final_scale = base_scale * self.zoom
 
-            new_w, new_h = int(w * final_scale), int(h * final_scale)
+            # New display size in screen pixels
+            new_w = int(mm_w * final_scale)
+            new_h = int(mm_h * final_scale)
+
             dpg.set_item_width(f"img_{self.tag}", new_w)
             dpg.set_item_height(f"img_{self.tag}", new_h)
 
