@@ -8,10 +8,8 @@ class ImageModel:
 
     def __init__(self, path):
         self.path = path
-        print(f'Loading image: {path}...')
         self.name = os.path.basename(path)
         self.sitk_image = sitk.ReadImage(path)
-        print(f'Image size: {self.sitk_image.GetSize()}')
         self.data = sitk.GetArrayFromImage(self.sitk_image)
         self.spacing = self.sitk_image.GetSpacing()
         self.origin = self.sitk_image.GetOrigin()

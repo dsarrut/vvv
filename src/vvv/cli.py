@@ -4,7 +4,7 @@ from .core import *
 
 
 @click.command()
-@click.argument('image_path', type=click.Path(exists=True), required=False)
+@click.argument('image_path', type=click.Path(exists=True), required=False, nargs=-1)
 def main(image_path):
 
     dpg.create_context()
@@ -21,11 +21,23 @@ def main(image_path):
         controller.viewers[tag] = SliceViewer(tag, controller)
 
     # Load image if provided
-    if image_path:
-        img_id = controller.load_image(image_path)
+    i=0
+    for path in image_path:
+        img_id = controller.load_image(path)
         print(f"Loading image {img_id}...")
-        for v in controller.viewers.values():
-            v.set_image(img_id)
+        if i == 0:
+            for v in controller.viewers.values():
+                v.set_image(img_id)
+        if i == 1:
+            controller.viewers["V2"].set_image(img_id)
+            controller.viewers["V3"].set_image(img_id)
+            controller.viewers["V4"].set_image(img_id)
+        if i == 2:
+            controller.viewers["V3"].set_image(img_id)
+            controller.viewers["V4"].set_image(img_id)
+        if i >= 3:
+            controller.viewers["V4"].set_image(img_id)
+        i = i+ 1
 
     # Initializing GUI
     create_gui(controller)
