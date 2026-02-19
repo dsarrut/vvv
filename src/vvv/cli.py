@@ -35,7 +35,21 @@ def main(image_path):
     dpg.setup_dearpygui()
     dpg.show_viewport()
     dpg.set_primary_window("PrimaryWindow", True)
-    dpg.start_dearpygui()
+
+    #dpg.start_dearpygui()
+
+    # Trigger an initial resize to ensure aspect ratio and layout are correct
+    w.on_window_resize()
+
+    # --- MANUAL MAIN LOOP ---
+    # This is necessary for the Coordinate Overlay to update as the mouse moves
+    while dpg.is_dearpygui_running():
+        # Update coordinate/HU value probe
+        w.update_overlays()
+
+        # Standard DPG render call
+        dpg.render_dearpygui_frame()
+
     dpg.destroy_context()
 
 

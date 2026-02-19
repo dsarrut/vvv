@@ -16,15 +16,19 @@ class ImageModel:
         self.spacing = self.sitk_image.GetSpacing()
         self.origin = self.sitk_image.GetOrigin()
 
-    def get_slice_rgba(self, slice_idx, ww, wl):
+        # Shared Window/Level for this image
+        self.ww = 400
+        self.wl = 40
+
+    def get_slice_rgba(self, slice_idx):
         """Extracts a slice and applies window/leveling, returning RGBA float32."""
         # Clamp slice_idx to valid range
         slice_idx = np.clip(slice_idx, 0, self.data.shape[0] - 1)
         slice_data = self.data[slice_idx, :, :].astype(np.float32)
 
         # Apply Window/Level
-        min_val = wl - ww / 2
-        display_img = np.clip((slice_data - min_val) / ww, 0, 1)
+        min_val = self.wl - self.ww / 2
+        display_img = np.clip((slice_data - min_val) / self.ww, 0, 1)
 
         # Convert to RGBA (DPG requirement)
         rgba = np.stack([display_img] * 3 + [np.ones_like(display_img)], axis=-1)
@@ -45,3 +49,9 @@ class Controller:
         img_id = str(len(self.images))
         self.images[img_id] = ImageModel(path)
         return img_id
+
+    def update_all_viewers_of_image(self, img_id):
+        """Refresh every viewer currently displaying this specific image."""
+        for viewer in self.viewers.values():
+            if viewer.current_image_id == img_id:
+                viewer.update_render()
