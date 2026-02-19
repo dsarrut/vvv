@@ -20,7 +20,14 @@ def main(image_path):
     for tag in ["V1", "V2", "V3", "V4"]:
         controller.viewers[tag] = SliceViewer(tag, controller)
 
-    # Load images if provided
+    # Initializing GUI
+    create_gui(controller)
+    dpg.create_viewport(title=f'VVV', width=900, height=700)
+    dpg.setup_dearpygui()
+    dpg.show_viewport()
+    dpg.set_primary_window("PrimaryWindow", True)
+
+    # Load images (if provided)
     i=0
     img_ids = []
     for path in image_path:
@@ -42,9 +49,6 @@ def main(image_path):
         if i >= 3:
             controller.viewers["V4"].set_image(img_id)
         i = i+ 1
-
-    # Initializing GUI
-    create_gui(controller)
 
     # default orientations
     if len(image_path) == 1:
@@ -68,11 +72,6 @@ def main(image_path):
         controller.viewers["V3"].set_orientation("Axial")
         controller.viewers["V4"].set_orientation("Axial")
 
-    # display the GUI
-    dpg.create_viewport(title=f'VVV', width=900, height=700)
-    dpg.setup_dearpygui()
-    dpg.show_viewport()
-    dpg.set_primary_window("PrimaryWindow", True)
 
     # Trigger an initial resize to ensure aspect ratio and layout are correct
     w.on_window_resize()
@@ -85,6 +84,7 @@ def main(image_path):
 
         # Standard DPG render call
         dpg.render_dearpygui_frame()
+        #   print(dpg.get_value(controller.viewers["V1"].texture_tag)[:4])
 
     dpg.destroy_context()
 
