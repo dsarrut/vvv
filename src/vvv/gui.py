@@ -18,6 +18,10 @@ def create_gui(controller):
                 dpg.add_theme_color(dpg.mvThemeCol_ChildBg, [0, 0, 0], category=dpg.mvThemeCat_Core)
                 # Change border color
                 dpg.add_theme_color(dpg.mvThemeCol_Border, [50, 50, 50], category=dpg.mvThemeCat_Core)
+                # force 0 padding inside the viewer windows
+                dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0, category=dpg.mvThemeCat_Core)
+                dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0, 0, category=dpg.mvThemeCat_Core)
+                dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 0, 0, category=dpg.mvThemeCat_Core)
 
         # We add a resize_callback to the primary window
         with dpg.window(tag="PrimaryWindow", on_close=controller.main_windows.cleanup):
@@ -61,9 +65,14 @@ def create_viewer_widget(tag, controller):
                           no_scrollbar=True,
                           no_scroll_with_mouse=True):
         # Add the image first
-        dpg.add_image(viewer.texture_tag, tag=f"img_{tag}", pos=[0, 0])
+        border_color = [100, 100, 100, 255]
+        border_color = [100, 100, 100, 0]
+        dpg.add_image(viewer.texture_tag,
+                      tag=f"img_{tag}",
+                      pos=[0, 0],
+                      border_color=border_color)
         # Overlay for coordinates and HU value
-        dpg.add_text("", tag=f"overlay_{tag}", color=[0, 246, 7], pos=[5, 10])
+        dpg.add_text("", tag=f"overlay_{tag}", color=[0, 246, 7])#, pos=[0, pos=[8, 8])
 
 
 class MainWindow:
@@ -85,11 +94,13 @@ class MainWindow:
         # 1. Get current window dimensions
         window_width = dpg.get_item_width("PrimaryWindow")
         window_height = dpg.get_item_height("PrimaryWindow")
+        if not window_width or not window_height:
+            return  # Safety
 
         # 2. Subtract the sidebar and margins
         side_panel_width = 250
-        available_width = window_width - side_panel_width - 40
-        available_height = window_height - 80
+        available_width = window_width - side_panel_width - 15
+        available_height = window_height - 35  # Adjusted for menu bar
 
         # 3. Calculate the sizes for each quadrant (2x2)
         quad_w = available_width // 2
@@ -213,18 +224,18 @@ class MainWindow:
         for viewer in self.controller.viewers.values():
             viewer.update_overlay()
 
+
 class SliceViewer:
     def __init__(self, tag_id, controller):
         self.tag = tag_id
         self.controller = controller
         self.current_image_id = None
-        # self.slice_idx = 0
-        self.ww, self.wl = 400, 40
         self.texture_tag = f"tex_{tag_id}"
         self.image_tag = f"img_{tag_id}"
         # GUI options
-        self.margin_left = 0
-        self.margin_top = 0
+        # Use a 4-pixel buffer to prevent the window border from cutting the image
+        self.margin_left = 4
+        self.margin_top = 4
         # used during mouse drag
         self.last_dy = 0
         self.last_dx = 0
@@ -422,13 +433,28 @@ class SliceViewer:
         if 0 <= ix < max_x and 0 <= iy < max_y and 0 <= iz < max_z:
             val = img_model.data[iz, iy, ix]
             overlay_text = (
-                f"{self.orientation} {val}\n"
+                f"{self.orientation} {val:.1f}\n"
                 f"{v_x:.1f}, {v_y:.1f}, {v_z:.1f}\n"
-                f"{phys_x:.1f}, {phys_y:.1f}, {phys_z:.1f} mm\n"
+                f"{phys_x:.1f} {phys_y:.1f} {phys_z:.1f} mm"
             )
             dpg.set_value(f"overlay_{self.tag}", overlay_text)
         else:
             dpg.set_value(f"overlay_{self.tag}", "Out of image")
+
+        # --- Dynamic Bottom-Left Positioning ---
+        # 1. Get the current window height
+        win_h = dpg.get_item_height(f"win_{self.tag}")
+
+        # 2. Get the current text size
+        text_size = dpg.get_item_rect_size(f"overlay_{self.tag}")
+        text_h = text_size[1] if text_size[1] > 0 else 60  # fallback height
+
+        # 3. Calculate Y to pin to bottom (with 5px margin)
+        pos_y = win_h - text_h - 5
+
+        # 4. Apply position (keeping X at 5 for the left side)
+        dpg.set_item_pos(f"overlay_{self.tag}", [5, pos_y])
+
 
     def on_key_press(self, key):
         """Handle orientation switching."""
