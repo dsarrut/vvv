@@ -22,17 +22,21 @@ def main(image_path):
 
     # Load images if provided
     i=0
+    img_ids = []
     for path in image_path:
         img_id = controller.load_image(path)
+        img_ids.append(img_id)
         print(f"Loading image {img_id}...")
         if i == 0:
-            for v in controller.viewers.values():
-                v.set_image(img_id)
-        if i == 1:
+            controller.viewers["V1"].set_image(img_id)
             controller.viewers["V2"].set_image(img_id)
             controller.viewers["V3"].set_image(img_id)
             controller.viewers["V4"].set_image(img_id)
+        if i == 1:
+            controller.viewers["V3"].set_image(img_id)
+            controller.viewers["V4"].set_image(img_id)
         if i == 2:
+            controller.viewers["V2"].set_image(img_ids[1])
             controller.viewers["V3"].set_image(img_id)
             controller.viewers["V4"].set_image(img_id)
         if i >= 3:
@@ -41,6 +45,28 @@ def main(image_path):
 
     # Initializing GUI
     create_gui(controller)
+
+    # default orientations
+    if len(image_path) == 1:
+        controller.viewers["V1"].set_orientation("Axial")
+        controller.viewers["V2"].set_orientation("Sagittal")
+        controller.viewers["V3"].set_orientation("Coronal")
+        controller.viewers["V4"].set_orientation("Axial")
+    elif len(image_path) == 2:
+        controller.viewers["V1"].set_orientation("Axial")
+        controller.viewers["V2"].set_orientation("Sagittal")
+        controller.viewers["V3"].set_orientation("Axial")
+        controller.viewers["V4"].set_orientation("Sagittal")
+    elif len(image_path) == 3:
+        controller.viewers["V1"].set_orientation("Axial")
+        controller.viewers["V2"].set_orientation("Axial")
+        controller.viewers["V3"].set_orientation("Axial")
+        controller.viewers["V4"].set_orientation("Sagittal")
+    elif len(image_path) >= 4:
+        controller.viewers["V1"].set_orientation("Axial")
+        controller.viewers["V2"].set_orientation("Axial")
+        controller.viewers["V3"].set_orientation("Axial")
+        controller.viewers["V4"].set_orientation("Axial")
 
     # display the GUI
     dpg.create_viewport(title=f'VVV', width=900, height=700)
