@@ -11,6 +11,14 @@ def create_gui(controller):
         with dpg.menu(label="Link"):
             dpg.add_menu_item(label="Link All", callback=lambda: controller.link_all())
 
+        # Define a theme for the viewers
+        with dpg.theme() as viewer_theme:
+            with dpg.theme_component(dpg.mvAll):
+                # Change the background of the child window
+                dpg.add_theme_color(dpg.mvThemeCol_ChildBg, [0, 0, 0], category=dpg.mvThemeCat_Core)
+                # Change border color
+                dpg.add_theme_color(dpg.mvThemeCol_Border, [50, 50, 50], category=dpg.mvThemeCat_Core)
+
         # We add a resize_callback to the primary window
         with dpg.window(tag="PrimaryWindow", on_close=controller.main_windows.cleanup):
             with dpg.item_handler_registry(tag="window_resize_handler"):
@@ -33,6 +41,10 @@ def create_gui(controller):
                         create_viewer_widget("V3", controller)
                         create_viewer_widget("V4", controller)
 
+        # Bind the theme to all viewer windows
+        for tag in ["V1", "V2", "V3", "V4"]:
+            dpg.bind_item_theme(f"win_{tag}", viewer_theme)
+
     # Add this at the end of create_gui before viewport setup:
     with dpg.handler_registry():
         dpg.add_mouse_wheel_handler(callback=lambda s, d: controller.main_windows.on_global_scroll(d))
@@ -47,10 +59,9 @@ def create_viewer_widget(tag, controller):
                           border=True,
                           no_scrollbar=True,
                           no_scroll_with_mouse=True):
-        dpg.add_text(f"Viewer {tag}", tag=f"txt_{tag}")
         # Overlay for coordinates and HU value # FIXME to change
-        dpg.add_text("", tag=f"overlay_{tag}", color=[255, 255, 0], pos=[15, 60])
-        dpg.add_image(f"tex_{tag}", tag=f"img_{tag}", pos=[10, 40])
+        dpg.add_text("", tag=f"overlay_{tag}", color=[255, 255, 0], pos=[0, 0])
+        dpg.add_image(f"tex_{tag}", tag=f"img_{tag}", pos=[0, 0])
 
 
 class MainWindow:
@@ -161,6 +172,9 @@ class SliceViewer:
         self.ww, self.wl = 400, 40
         self.texture_tag = f"tex_{tag_id}"
         self.image_tag = f"img_{tag_id}"
+        # GUI options
+        self.margin_left = 0
+        self.margin_top = 0
         # used during mouse drag
         self.last_dy = 0
         self.last_dx = 0
@@ -250,7 +264,8 @@ class SliceViewer:
         if self.current_image_id:
             img = self.controller.images[self.current_image_id]
             h, w = img.data.shape[1], img.data.shape[2]
-            target_w, target_h = quad_w - 20, quad_h - 60
+            target_w, target_h = quad_w - self.margin_left, quad_h - self.margin_top
+            #target_w, target_h = quad_w - 0, quad_h - 0
 
             # Base scale + User Zoom
             base_scale = min(target_w / w, target_h / h)
@@ -262,6 +277,6 @@ class SliceViewer:
 
             # Centering + Pan Offset
             dpg.set_item_pos(f"img_{self.tag}", [
-                (target_w - new_w) // 2 + 10 + self.pan_offset[0],
-                (target_h - new_h) // 2 + 40 + self.pan_offset[1]
+                (target_w - new_w) // 2 + self.margin_left + self.pan_offset[0],
+                (target_h - new_h) // 2 + self.margin_top + self.pan_offset[1]
             ])

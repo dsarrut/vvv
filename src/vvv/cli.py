@@ -27,7 +27,7 @@ def main(image_path):
         for v in controller.viewers.values():
             v.set_image(img_id)
 
-    print("Initializing GUI...")
+    # Initializing GUI
     create_gui(controller)
 
     # display the GUI
@@ -35,8 +35,6 @@ def main(image_path):
     dpg.setup_dearpygui()
     dpg.show_viewport()
     dpg.set_primary_window("PrimaryWindow", True)
-
-    #dpg.start_dearpygui()
 
     # Trigger an initial resize to ensure aspect ratio and layout are correct
     w.on_window_resize()
