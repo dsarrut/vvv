@@ -18,31 +18,6 @@ class ImageModel:
         self.ww = 2000
         self.wl = 270
 
-    def get_slice_rgba_old(self, slice_idx, orientation="Axial"):
-        """Extracts a slice and flips vertical axis for Sagittal/Coronal."""
-        if orientation == "Axial":
-            max_s = self.data.shape[0] - 1
-            idx = np.clip(slice_idx, 0, max_s)
-            slice_data = self.data[idx, :, :]
-            # Axial usually stays as is (Z, Y, X)
-        elif orientation == "Sagittal":
-            max_s = self.data.shape[2] - 1
-            idx = np.clip(slice_idx, 0, max_s)
-            # Slice along X, Flip vertically for correct orientation
-            slice_data = np.flipud(self.data[:, :, idx])
-        elif orientation == "Coronal":
-            max_s = self.data.shape[1] - 1
-            idx = np.clip(slice_idx, 0, max_s)
-            # Slice along Y, Flip vertically for correct orientation
-            slice_data = np.flipud(self.data[:, idx, :])
-
-        slice_data = slice_data.astype(np.float32)
-        min_val = self.wl - self.ww / 2
-        display_img = np.clip((slice_data - min_val) / self.ww, 0, 1)
-
-        rgba = np.stack([display_img] * 3 + [np.ones_like(display_img)], axis=-1)
-        return rgba.flatten(), slice_data.shape
-
     def get_slice_rgba(self, slice_idx, orientation="Axial"):
         """Extracts a slice with corrected orientations for vv parity."""
         if orientation == "Axial":
@@ -81,7 +56,7 @@ class ImageModel:
         elif orientation == "Sagittal":
             # Y and Z axes
             return dy, dz
-        elif orientation == "Coronal":
+        else:
             # X and Z axes
             return dx, dz
 
