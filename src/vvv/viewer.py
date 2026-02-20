@@ -8,10 +8,13 @@ class SliceViewer:
         self.controller = controller
         self.current_image_id = None
         self.current_image_model = None
+        self.active_strips_node = None
         self.active_grid_node = None
         # dpg tags
         self.texture_tag = f"tex_{tag_id}"
         self.image_tag = f"img_{tag_id}"
+        self.strips_a_tag = f"strips_node_A_{tag_id}"
+        self.strips_b_tag = f"strips_node_B_{tag_id}"
         self.grid_a_tag = f"grid_node_A_{tag_id}"
         self.grid_b_tag = f"grid_node_B_{tag_id}"
         self.overlay_tag = f"overlay_{tag_id}"
@@ -287,18 +290,28 @@ class SliceViewer:
         """
         Returns True if we should render using vector rectangles (NN)
         instead of the GPU texture (Linear).
+
+        This function determines if the current zoom level and visible area
+        justify switching from standard texture mapping to a manual
+        "Nearest Neighbor" (NN) rendering using DPG draw primitives.
+
+        It calculates the number of voxels currently visible within the
+        window bounds. If the count is low (e.g., when zoomed in significantly),
+        it returns True to trigger a pixel-perfect rendering mode that
+        avoids GPU linear interpolation artifacts.
         """
-        if self.controller.interpolation_linear or self.current_image_id is None:
+        if self.current_image_model.interpolation_linear or self.current_image_id is None:
             return False
 
         # Get the parent quadrant size
         win_w = dpg.get_item_width(f"win_{self.tag}")
         win_h = dpg.get_item_height(f"win_{self.tag}")
-        if not win_w or not win_h: return False
+        if not win_w or not win_h:
+            return False
 
         # Get voxel dimensions on screen
-        pmin = getattr(self, 'current_pmin', [0, 0])
-        pmax = getattr(self, 'current_pmax', [1, 1])
+        pmin = self.current_pmin
+        pmax = self.current_pmax
 
         img_model = self.controller.images[self.current_image_id]
         _, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
@@ -315,7 +328,7 @@ class SliceViewer:
 
         # Criteria: If the number of voxels to draw is small (e.g. < 5000)
         num_visible_voxels = (end_x - start_x) * (end_y - start_y)
-        return 0 < num_visible_voxels < 500
+        return 0 < num_visible_voxels < 1500
 
     def update_render(self):
         if self.current_image_id is None:
@@ -325,16 +338,46 @@ class SliceViewer:
         rgba_flat, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
         h, w = shape[0], shape[1]
 
-        # Clear previous grid/NN drawings
-        if dpg.does_item_exist(f"grid_node_{self.tag}"):
-            dpg.delete_item(f"grid_node_{self.tag}", children_only=True)
+        # 1. Image Base Layer Logic
+        # decide if we should use vector "Strips" for perfect sharpness
+        use_strips = self.should_use_nn_rects()
+
+        if use_strips:
+            # Vector Mode: Hide GPU texture, Draw Strips
+            dpg.configure_item(self.image_tag, show=False)
+            self.draw_voxels_as_strips(rgba_flat, h, w)
+        else:
+            # GPU Mode: Hide Strips, Update Texture
+            if dpg.does_item_exist(self.active_strips_node):
+                dpg.configure_item(self.active_strips_node, show=False)
+            dpg.configure_item(self.image_tag, show=True)
+            dpg.set_value(self.texture_tag, rgba_flat)
+
+        # 2. Grid Overlay Logic (Independent of Image Mode)
+        if self.current_image_model.grid_mode:
+            self.draw_voxel_grid(h, w)
+        else:
+            # Ensure grid is hidden if mode is toggled off
+            if dpg.does_item_exist(self.active_grid_node):
+                dpg.configure_item(self.active_grid_node, show=False)
+
+    def update_render_good(self):
+        if self.current_image_id is None:
+            return
+
+        img_model = self.controller.images[self.current_image_id]
+        rgba_flat, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
+        h, w = shape[0], shape[1]
 
         # Criteria for NN Mode
-        use_nn = not self.controller.interpolation_linear
+        use_nn = not self.current_image_model.interpolation_linear
+        use_grid = self.current_image_model.grid_mode
+        print(f"NN Mode: {use_nn}, Grid Mode: {use_grid}")
 
         # Decide if the image is small enough for "Perfect Sharpness" (Strips)
-        # Threshold: ~2500 pixels (e.g. 50x50)
         b = self.should_use_nn_rects()
+        if not b:
+            dpg.configure_item(self.active_strips_node, show=False)
         if use_nn and b:
             dpg.configure_item(self.image_tag, show=False)
             self.draw_voxels_as_strips(rgba_flat, h, w)
@@ -343,9 +386,9 @@ class SliceViewer:
             dpg.configure_item(self.image_tag, show=True)
             dpg.set_value(self.texture_tag, rgba_flat)
 
-            # If in NN mode but the image is large, draw the sharp grid overlay
-            if use_nn:
-                self.draw_voxel_grid(h, w)
+        # Draw the sharp grid overlay
+        if use_grid:
+            self.draw_voxel_grid(h, w)
 
     def draw_voxel_grid(self, h, w):
         # Use the same double-buffering logic as strips
@@ -364,28 +407,39 @@ class SliceViewer:
         pmin = self.current_pmin
         pmax = self.current_pmax
         vox_w = (pmax[0] - pmin[0]) / w
+        vox_h = (pmax[1] - pmin[1]) / h
 
-        if vox_w < 4: return
+        # if vox_w < 4: return # fixme
+        # Optimization: Don't draw if voxels are too small to see the grid
+        if vox_w < 2 or vox_h < 2:
+            dpg.configure_item(self.active_grid_node, show=False)
+            return
 
         color = [255, 255, 255, 40]
 
-        # Explicitly pass the back_node as the parent
+        # 1. Draw Vertical Lines (along the width)
         for x in range(w + 1):
             lx = pmin[0] + x * vox_w
             dpg.draw_line([lx, pmin[1]], [lx, pmax[1]], color=color, parent=back_node)
 
-        # Swap visibility to prevent flicker and deduce parent correctly
+        # 2. Draw Horizontal Lines (along the height)
+        for y in range(h + 1):
+            ly = pmin[1] + y * vox_h
+            dpg.draw_line([pmin[0], ly], [pmax[0], ly], color=color, parent=back_node)
+
         dpg.configure_item(back_node, show=True)
-        dpg.configure_item(self.active_grid_node, show=False)
+        if dpg.does_item_exist(self.active_grid_node):
+            dpg.configure_item(self.active_grid_node, show=False)
+
         self.active_grid_node = back_node
 
     def draw_voxels_as_strips(self, rgba_flat, h, w):
         # 1. Determine which node is hidden (our back-buffer)
-        node_a = self.grid_a_tag
-        node_b = self.grid_b_tag
+        node_a = self.strips_a_tag
+        node_b = self.strips_b_tag
 
         # If A is active, we draw to B. If B is active, we draw to A.
-        back_node = node_b if self.active_grid_node == node_a else node_a
+        back_node = node_b if self.active_strips_node == node_a else node_a
 
         # 2. Clear ONLY the back-buffer before drawing
         dpg.delete_item(back_node, children_only=True)
@@ -416,10 +470,10 @@ class SliceViewer:
 
         # 5. Atomic Swap: Show the new drawing and hide the old one
         dpg.configure_item(back_node, show=True)
-        dpg.configure_item(self.active_grid_node, show=False)
+        dpg.configure_item(self.active_strips_node, show=False)
 
         # Update the tracker
-        self.active_grid_node = back_node
+        self.active_strips_node = back_node
 
     def apply_local_auto_window(self, search_radius=25):
         """Sets WW/WL based on a local neighborhood around the mouse."""
@@ -581,6 +635,20 @@ class SliceViewer:
             self.set_orientation("Coronal")
         elif key == dpg.mvKey_W:
             self.apply_local_auto_window()
+        elif key == dpg.mvKey_L:
+            # Toggle interpolation state
+            self.current_image_model.interpolation_linear = not self.current_image_model.interpolation_linear
+            print(f"Interpolation: {self.current_image_model.interpolation_linear}")
+            # Refresh all viewers
+            for v in self.controller.viewers.values():
+                v.update_render()
+        elif key == dpg.mvKey_G:
+            # Toggle grid state
+            self.current_image_model.grid_mode = not self.current_image_model.grid_mode
+            print(f"Grid: {self.current_image_model.grid_mode}")
+            # Refresh all viewers
+            for v in self.controller.viewers.values():
+                v.update_render()
 
     def on_scroll(self, delta):
         """Called by MainWindow when this viewer is hovered during a scroll."""
@@ -636,7 +704,8 @@ class SliceViewer:
             self.controller.update_all_viewers_of_image(self.current_image_id)
 
     def on_zoom(self, direction):
-        if self.current_image_id is None: return
+        if self.current_image_id is None:
+            return
 
         # 1. Use drawing coordinates (local to the drawlist) for precision
         mouse_x, mouse_y = dpg.get_drawing_mouse_pos()

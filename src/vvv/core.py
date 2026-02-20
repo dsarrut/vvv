@@ -13,13 +13,15 @@ class ImageModel:
         self.data = sitk.GetArrayFromImage(self.sitk_image).astype(np.float32)
         self.spacing = np.array(self.sitk_image.GetSpacing())
         self.origin = np.array(self.sitk_image.GetOrigin())
-
-        # Shared Window/Level for this image
+        # Window/Level for this image
         self.ww = 2000
         self.wl = 270
-
-        # Shared zoom level
+        # Zoom level
         self.zoom = 1.0
+        # Interpolation mode
+        self.interpolation_linear = False
+        # Grid mode
+        self.grid_mode = False
 
     def get_orientation_str(self, orientation):
         if orientation == "Axial":
@@ -80,7 +82,6 @@ class Controller:
         self.main_windows = None
         self.images = {}  # { "id": ImageModel }
         self.viewers = {}  # { "id": SliceViewer } access by tag (V1, V2, etc)
-        self.interpolation_linear = False
 
     def load_image(self, path):
         img_id = str(len(self.images))

@@ -47,14 +47,6 @@ class MainWindow:
             viewer.on_scroll(delta)
 
     def on_key_press(self, key):
-        if key == dpg.mvKey_L:
-            # Toggle global state
-            self.controller.interpolation_linear = not self.controller.interpolation_linear
-            # Refresh all viewers
-            for v in self.controller.viewers.values():
-                v.update_render()
-            return
-
         viewer = self.get_hovered_viewer()
         if not viewer:
             return

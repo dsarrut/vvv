@@ -75,6 +75,10 @@ def create_viewer_widget(tag, controller):
                           no_scroll_with_mouse=True):
         with dpg.drawlist(tag=f"drawlist_{tag}", width=-1, height=-1):
             dpg.draw_image(viewer.texture_tag, [0, 0], [1, 1], tag=viewer.image_tag)
+            # The strip node layer (for high zoom)
+            dpg.add_draw_node(tag=viewer.strips_a_tag)
+            dpg.add_draw_node(tag=viewer.strips_b_tag)
+            viewer.active_strips_node = viewer.strips_a_tag
             # The grid node layer (for high zoom)
             dpg.add_draw_node(tag=viewer.grid_a_tag)
             dpg.add_draw_node(tag=viewer.grid_b_tag)
