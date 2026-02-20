@@ -48,10 +48,8 @@ class MainWindow:
 
     def on_key_press(self, key):
         if key == dpg.mvKey_L:
-            print("L pressed")
             # Toggle global state
             self.controller.interpolation_linear = not self.controller.interpolation_linear
-            print(f"Interpolation mode: {'Linear' if self.controller.interpolation_linear else 'Nearest Neighbor'}")
             # Refresh all viewers
             for v in self.controller.viewers.values():
                 v.update_render()
