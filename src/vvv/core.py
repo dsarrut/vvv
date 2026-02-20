@@ -10,6 +10,7 @@ class ImageModel:
         self.path = path
         self.name = os.path.basename(path)
         self.sitk_image = sitk.ReadImage(path)
+        self.pixel_type = self.sitk_image.GetPixelIDTypeAsString()
         self.data = sitk.GetArrayFromImage(self.sitk_image).astype(np.float32)
         self.spacing = np.array(self.sitk_image.GetSpacing())
         self.origin = np.array(self.sitk_image.GetOrigin())
@@ -87,6 +88,7 @@ class Controller:
         img_id = str(len(self.images))
         self.images[img_id] = ImageModel(path)
         return img_id
+
 
     def update_all_viewers_of_image(self, img_id):
         """Refresh every viewer currently displaying this specific image."""
