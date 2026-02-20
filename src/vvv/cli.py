@@ -8,12 +8,11 @@ from .viewer import SliceViewer
 @click.argument('image_path', type=click.Path(exists=True), required=False, nargs=-1)
 def main(image_path):
 
-    dpg.create_context()
-
     # Initialize main (non gui) controller
     controller = Controller()
 
     # initialize the main windows
+    dpg.create_context()
     w = MainWindow(controller)
     controller.main_windows = w
 
@@ -50,28 +49,8 @@ def main(image_path):
             controller.viewers["V4"].set_image(img_id)
         i = i+ 1
 
-    # default orientations
-    if len(image_path) == 1:
-        controller.viewers["V1"].set_orientation("Axial")
-        controller.viewers["V2"].set_orientation("Sagittal")
-        controller.viewers["V3"].set_orientation("Coronal")
-        controller.viewers["V4"].set_orientation("Axial")
-    elif len(image_path) == 2:
-        controller.viewers["V1"].set_orientation("Axial")
-        controller.viewers["V2"].set_orientation("Sagittal")
-        controller.viewers["V3"].set_orientation("Axial")
-        controller.viewers["V4"].set_orientation("Sagittal")
-    elif len(image_path) == 3:
-        controller.viewers["V1"].set_orientation("Axial")
-        controller.viewers["V2"].set_orientation("Axial")
-        controller.viewers["V3"].set_orientation("Axial")
-        controller.viewers["V4"].set_orientation("Sagittal")
-    elif len(image_path) >= 4:
-        controller.viewers["V1"].set_orientation("Axial")
-        controller.viewers["V2"].set_orientation("Axial")
-        controller.viewers["V3"].set_orientation("Axial")
-        controller.viewers["V4"].set_orientation("Axial")
-
+    # default orientations for the initial loaded images
+    controller.default_viewers_orientation()
 
     # Trigger an initial resize to ensure aspect ratio and layout are correct
     w.on_window_resize()
@@ -79,13 +58,13 @@ def main(image_path):
     # --- MANUAL MAIN LOOP ---
     # This is necessary for the Coordinate Overlay to update as the mouse moves
     while dpg.is_dearpygui_running():
-        # Update coordinate/HU value probe
+        # Update coordinate/pixel_value value probe
         w.update_overlays()
 
         # Standard DPG render call
         dpg.render_dearpygui_frame()
-        #   print(dpg.get_value(controller.viewers["V1"].texture_tag)[:4])
 
+    # this is the end, my friend
     dpg.destroy_context()
 
 

@@ -84,3 +84,26 @@ class Controller:
         for viewer in self.viewers.values():
             if viewer.current_image_id == img_id:
                 viewer.update_render()
+
+    def default_viewers_orientation(self):
+        n = len(self.images)
+        if n == 1:
+            self.viewers["V1"].set_orientation("Axial")
+            self.viewers["V2"].set_orientation("Sagittal")
+            self.viewers["V3"].set_orientation("Coronal")
+            self.viewers["V4"].set_orientation("Axial")
+        elif n == 2:
+            self.viewers["V1"].set_orientation("Axial")
+            self.viewers["V2"].set_orientation("Sagittal")
+            self.viewers["V3"].set_orientation("Axial")
+            self.viewers["V4"].set_orientation("Sagittal")
+        elif n == 3:
+            self.viewers["V1"].set_orientation("Axial")
+            self.viewers["V2"].set_orientation("Axial")
+            self.viewers["V3"].set_orientation("Axial")
+            self.viewers["V4"].set_orientation("Sagittal")
+        elif n >= 4:
+            self.viewers["V1"].set_orientation("Axial")
+            self.viewers["V2"].set_orientation("Axial")
+            self.viewers["V3"].set_orientation("Axial")
+            self.viewers["V4"].set_orientation("Axial")
