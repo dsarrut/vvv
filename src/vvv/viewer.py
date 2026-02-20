@@ -197,7 +197,7 @@ class SliceViewer:
         self.update_render()
 
     def sync_other_views(self):
-        """Synchronizes other views of the same image to the current mouse position."""
+        """Synchronizes other views and centers them on the crosshair."""
         if self.current_image_id is None:
             return
 
@@ -214,7 +214,6 @@ class SliceViewer:
         real_h, real_w = shape[0], shape[1]
 
         # Map 2D mouse pixels -> 3D Voxel coordinates (V_x, V_y, V_z)
-        # Using orientation mapping logic
         if self.orientation == "Axial":
             vx, vy, vz = pix_x, pix_y, self.slice_idx
         elif self.orientation == "Sagittal":
@@ -225,20 +224,59 @@ class SliceViewer:
         # Update and draw in all other viewers
         for viewer in self.controller.viewers.values():
             if viewer.current_image_id == self.current_image_id and viewer.tag != self.tag:
-                # We need the dimensions of the target viewer to project correctly
-                _, v_shape = img_model.get_slice_rgba(0, viewer.orientation)
-                vh, vw = v_shape[0], v_shape[1]
+                # 1. Update Slice Index
                 if viewer.orientation == "Axial":
                     viewer.slice_idx = int(np.clip(vz, 0, img_model.data.shape[0] - 1))
-                    viewer.draw_crosshair(vx, vy)
                 elif viewer.orientation == "Sagittal":
                     viewer.slice_idx = int(np.clip(vx, 0, img_model.data.shape[2] - 1))
-                    viewer.draw_crosshair(vw - vy, vh - vz)
                 elif viewer.orientation == "Coronal":
                     viewer.slice_idx = int(np.clip(vy, 0, img_model.data.shape[1] - 1))
-                    viewer.draw_crosshair(vx, vh - vz)
 
+                # 2. Calculate the target voxel position in the target viewer's 2D space
+                _, v_shape = img_model.get_slice_rgba(viewer.slice_idx, viewer.orientation)
+                vh, vw = v_shape[0], v_shape[1]
+
+                if viewer.orientation == "Axial":
+                    tx, ty = vx, vy
+                elif viewer.orientation == "Sagittal":
+                    tx, ty = vw - vy, vh - vz
+                elif viewer.orientation == "Coronal":
+                    tx, ty = vx, vh - vz
+
+                # 3. Calculate Pan adjustment to center the crosshair
+                # We need to know where the crosshair would be on screen without the current pan
+                # Then move the pan so that position matches the window center.
+                win_w = dpg.get_item_width(f"win_{viewer.tag}")
+                win_h = dpg.get_item_height(f"win_{viewer.tag}")
+
+                if win_w and win_h:
+                    # Determine physical size and scale as done in resize()
+                    sw, sh = img_model.get_physical_aspect_ratio(viewer.orientation)
+                    mm_w, mm_h = vw * sw, vh * sh
+
+                    target_w, target_h = win_w - viewer.margin_left, win_h - viewer.margin_top
+                    base_scale = min(target_w / mm_w, target_h / mm_h)
+                    final_scale = base_scale * viewer.zoom
+
+                    # Target screen position relative to image top-left (un-panned)
+                    # Note: x is scaled by sw, y by sh
+                    screen_v_x = (tx * sw) * final_scale
+                    screen_v_y = (ty * sh) * final_scale
+
+                    # Current image top-left (centered in window, no pan)
+                    base_off_x = (target_w - (mm_w * final_scale)) / 2 + viewer.margin_left
+                    base_off_y = (target_h - (mm_h * final_scale)) / 2 + viewer.margin_top
+
+                    # Desired pan = (Window Center) - (Base Offset + Scaled Voxel Position)
+                    viewer.pan_offset[0] = (win_w / 2) - (base_off_x + screen_v_x)
+                    viewer.pan_offset[1] = (win_h / 2) - (base_off_y + screen_v_y)
+
+                # 4. Finalize render
+                viewer.draw_crosshair(tx, ty)
                 viewer.update_render()
+
+        # Necessary to update pmin/pmax for all viewers after pan change
+        self.controller.main_windows.on_window_resize()
 
     def should_use_nn_rects(self):
         """
@@ -378,61 +416,6 @@ class SliceViewer:
         # Update the tracker
         self.active_grid_node = back_node
 
-    def update_overlay(self):
-        """Calculates coordinates and HU values for this specific viewer."""
-        if self.current_image_id is None:
-            dpg.set_value(f"overlay_{self.tag}", "")
-            return
-
-        # 1. Use the mutualized helper to get image-space coordinates
-        pix_x, pix_y = self.get_mouse_to_pixel_coords()
-
-        # If the mouse isn't hovering over this specific viewer, pix_x will be None
-        # is_hover = dpg.is_item_hovered(f"win_{self.tag}")
-        if pix_x is None:
-            dpg.set_value(f"overlay_{self.tag}", "")
-            return
-
-        img_model = self.controller.images[self.current_image_id]
-
-        # 2. Map 2D pixels back to 3D Voxel Indices (v)
-        # Using the same mapping logic as your original code
-        idx = self.slice_idx
-        _, shape = img_model.get_slice_rgba(idx, self.orientation)
-        real_h, real_w = shape[0], shape[1]
-
-        if self.orientation == "Axial":
-            v = np.array([pix_x, pix_y, idx])
-        elif self.orientation == "Sagittal":
-            v = np.array([idx, real_w - pix_x, real_h - pix_y])
-        else:  # Coronal
-            v = np.array([pix_x, idx, real_h - pix_y])
-
-        # 3. Convert to Physical World Coordinates (mm)
-        phys = img_model.voxel_to_physic_coord(v)
-
-        # 4. Fetch Voxel Value
-        ix, iy, iz = int(v[0]), int(v[1]), int(v[2])
-        max_z, max_y, max_x = img_model.data.shape
-
-        if 0 <= ix < max_x and 0 <= iy < max_y and 0 <= iz < max_z:
-            val = img_model.data[iz, iy, ix]
-            overlay_text = (
-                f"{self.orientation} {val:.1f}\n"
-                f"Vox: {v[0]:.1f}, {v[1]:.1f}, {v[2]:.1f}\n"
-                f"Phys: {phys[0]:.1f}, {phys[1]:.1f}, {phys[2]:.1f} mm"
-            )
-            dpg.set_value(f"overlay_{self.tag}", overlay_text)
-        else:
-            dpg.set_value(f"overlay_{self.tag}", "Out of image")
-
-        # 5. Position the text at the bottom-left of the viewer window
-        win_h = dpg.get_item_height(f"win_{self.tag}")
-        text_size = dpg.get_item_rect_size(f"overlay_{self.tag}")
-        text_h = text_size[1] if text_size[1] > 0 else 60
-
-        dpg.set_item_pos(f"overlay_{self.tag}", [5, win_h - text_h - 5])
-
     def apply_local_auto_window(self, search_radius=25):
         """Sets WW/WL based on a local neighborhood around the mouse."""
         if self.current_image_id is None:
@@ -495,6 +478,61 @@ class SliceViewer:
             img_model.wl = (p_max + p_min) / 2
             # Refresh all views showing this image
             self.controller.update_all_viewers_of_image(self.current_image_id)
+
+    def update_overlay(self):
+        """Calculates coordinates and HU values for this specific viewer."""
+        if self.current_image_id is None:
+            dpg.set_value(f"overlay_{self.tag}", "")
+            return
+
+        # 1. Use the mutualized helper to get image-space coordinates
+        pix_x, pix_y = self.get_mouse_to_pixel_coords()
+
+        # If the mouse isn't hovering over this specific viewer, pix_x will be None
+        # is_hover = dpg.is_item_hovered(f"win_{self.tag}")
+        if pix_x is None:
+            dpg.set_value(f"overlay_{self.tag}", "")
+            return
+
+        img_model = self.controller.images[self.current_image_id]
+
+        # 2. Map 2D pixels back to 3D Voxel Indices (v)
+        # Using the same mapping logic as your original code
+        idx = self.slice_idx
+        _, shape = img_model.get_slice_rgba(idx, self.orientation)
+        real_h, real_w = shape[0], shape[1]
+
+        if self.orientation == "Axial":
+            v = np.array([pix_x, pix_y, idx])
+        elif self.orientation == "Sagittal":
+            v = np.array([idx, real_w - pix_x, real_h - pix_y])
+        else:  # Coronal
+            v = np.array([pix_x, idx, real_h - pix_y])
+
+        # 3. Convert to Physical World Coordinates (mm)
+        phys = img_model.voxel_to_physic_coord(v)
+
+        # 4. Fetch Voxel Value
+        ix, iy, iz = int(v[0]), int(v[1]), int(v[2])
+        max_z, max_y, max_x = img_model.data.shape
+
+        if 0 <= ix < max_x and 0 <= iy < max_y and 0 <= iz < max_z:
+            val = img_model.data[iz, iy, ix]
+            overlay_text = (
+                f"{self.orientation} {val:.1f}\n"
+                f"Vox: {v[0]:.1f}, {v[1]:.1f}, {v[2]:.1f}\n"
+                f"Phys: {phys[0]:.1f}, {phys[1]:.1f}, {phys[2]:.1f} mm"
+            )
+            dpg.set_value(f"overlay_{self.tag}", overlay_text)
+        else:
+            dpg.set_value(f"overlay_{self.tag}", "Out of image")
+
+        # 5. Position the text at the bottom-left of the viewer window
+        win_h = dpg.get_item_height(f"win_{self.tag}")
+        text_size = dpg.get_item_rect_size(f"overlay_{self.tag}")
+        text_h = text_size[1] if text_size[1] > 0 else 60
+
+        dpg.set_item_pos(f"overlay_{self.tag}", [5, win_h - text_h - 5])
 
     def draw_crosshair(self, pix_x, pix_y):
         node_tag = f"crosshair_node_{self.tag}"
