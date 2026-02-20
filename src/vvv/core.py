@@ -10,7 +10,7 @@ class ImageModel:
         self.path = path
         self.name = os.path.basename(path)
         self.sitk_image = sitk.ReadImage(path)
-        self.data = sitk.GetArrayFromImage(self.sitk_image)
+        self.data = sitk.GetArrayFromImage(self.sitk_image).astype(np.float32)
         self.spacing = np.array(self.sitk_image.GetSpacing())
         self.origin = np.array(self.sitk_image.GetOrigin())
 
@@ -32,16 +32,14 @@ class ImageModel:
             # Flip vertically (np.flipud) and horizontally (np.fliplr) for vv alignment
             slice_data = np.flipud(np.fliplr(self.data[:, :, idx]))
 
-        elif orientation == "Coronal":
+        else:
             max_s = self.data.shape[1] - 1
             idx = np.clip(slice_idx, 0, max_s)
             # Slice along Y, Flip vertically
             slice_data = np.flipud(self.data[:, idx, :])
 
-        slice_data = slice_data.astype(np.float32)
         min_val = self.wl - self.ww / 2
         display_img = np.clip((slice_data - min_val) / self.ww, 0, 1)
-
         rgba = np.stack([display_img] * 3 + [np.ones_like(display_img)], axis=-1)
         return rgba.flatten(), slice_data.shape
 
