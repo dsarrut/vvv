@@ -1,5 +1,6 @@
 import dearpygui.dearpygui as dpg
 import numpy as np
+from .utils import *
 
 
 class SliceViewer:
@@ -43,6 +44,14 @@ class SliceViewer:
             "Sagittal": None,
             "Coronal": None
         }
+        # current voxel information under the mouse
+        self.mouse_phys_coord = None
+        self.mouse_pixel_coord = None
+        self.mouse_pixel_value = None
+        # current voxel information under the crosshair
+        self.crosshair_phys_coord = None
+        self.crosshair_pixel_coord = None
+        self.crosshair_pixel_value = None
 
         # Initialize a default small texture; will be recreated on image load
         with dpg.texture_registry():
@@ -121,6 +130,7 @@ class SliceViewer:
         if dpg.does_item_exist(self.image_tag):
             dpg.configure_item(self.image_tag, texture_tag=self.texture_tag)
 
+        self.update_sidebar_info()
         self.update_render()
 
     def set_orientation(self, orientation):
@@ -286,7 +296,113 @@ class SliceViewer:
         # Necessary to update pmin/pmax for all viewers after pan change
         self.controller.main_windows.on_window_resize()
 
-    def should_use_nn_rects(self):
+    def draw_voxel_grid(self, h, w):
+        # Use the same double-buffering logic as strips
+        node_a = self.grid_a_tag
+        node_b = self.grid_b_tag
+
+        # Determine which is currently hidden to use as back-buffer
+        back_node = node_b if self.active_grid_node == node_a else node_a
+
+        # Clear the back-buffer
+        if dpg.does_item_exist(back_node):
+            dpg.delete_item(back_node, children_only=True)
+        else:
+            return  # Safety
+
+        pmin = self.current_pmin
+        pmax = self.current_pmax
+        vox_w = (pmax[0] - pmin[0]) / w
+        vox_h = (pmax[1] - pmin[1]) / h
+
+        # Optimization: Don't draw if voxels are too small to see the grid
+        # if vox_w < 2 or vox_h < 2:
+        #    dpg.configure_item(self.active_grid_node, show=False)
+        #    return
+
+        color = [255, 255, 255, 40]
+
+        # 1. Draw Vertical Lines (along the width)
+        for x in range(w + 1):
+            lx = pmin[0] + x * vox_w
+            dpg.draw_line([lx, pmin[1]], [lx, pmax[1]], color=color, parent=back_node)
+
+        # 2. Draw Horizontal Lines (along the height)
+        for y in range(h + 1):
+            ly = pmin[1] + y * vox_h
+            dpg.draw_line([pmin[0], ly], [pmax[0], ly], color=color, parent=back_node)
+
+        dpg.configure_item(back_node, show=True)
+        if dpg.does_item_exist(self.active_grid_node):
+            dpg.configure_item(self.active_grid_node, show=False)
+
+        self.active_grid_node = back_node
+
+    def draw_crosshair(self, pix_x, pix_y):
+        node_tag = self.crosshair_tag
+        if not dpg.does_item_exist(node_tag): return
+        dpg.delete_item(node_tag, children_only=True)
+
+        pmin = self.current_pmin
+        pmax = self.current_pmax
+        disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
+
+        img_model = self.controller.images[self.current_image_id]
+        _, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
+        real_h, real_w = shape[0], shape[1]
+
+        # Map voxel back to screen-space within the drawlist
+        screen_x = (pix_x / real_w) * disp_w + pmin[0]
+        screen_y = (pix_y / real_h) * disp_h + pmin[1]
+
+        color = [0, 246, 7, 180]  # Cyan
+        dpg.draw_line([screen_x, pmin[1]], [screen_x, pmin[1] + disp_h], color=color, parent=node_tag)
+        dpg.draw_line([pmin[0], screen_y], [pmin[0] + disp_w, screen_y], color=color, parent=node_tag)
+
+    def draw_voxels_as_strips(self, rgba_flat, h, w):
+        # Determine which node is hidden (our back-buffer)
+        node_a = self.strips_a_tag
+        node_b = self.strips_b_tag
+
+        # If A is active, we draw to B. If B is active, we draw to A.
+        back_node = node_b if self.active_strips_node == node_a else node_a
+
+        # Clear ONLY the back-buffer before drawing
+        dpg.delete_item(back_node, children_only=True)
+
+        pmin, pmax = self.current_pmin, self.current_pmax
+        vox_w, vox_h = (pmax[0] - pmin[0]) / w, (pmax[1] - pmin[1]) / h
+        win_w = dpg.get_item_width(f"win_{self.tag}")
+        win_h = dpg.get_item_height(f"win_{self.tag}")
+
+        if not win_w or not win_h: return
+
+        # Culling logic
+        start_x = max(0, int(-pmin[0] / vox_w))
+        end_x = min(w, int((win_w - pmin[0]) / vox_w) + 1)
+        start_y = max(0, int(-pmin[1] / vox_h))
+        end_y = min(h, int((win_h - pmin[1]) / vox_h) + 1)
+
+        pixels = rgba_flat.reshape(h, w, 4)
+
+        # Draw to the hidden node
+        for y in range(start_y, end_y):
+            y_pos = pmin[1] + (y * vox_h) + (vox_h / 2)
+            for x in range(start_x, end_x):
+                x1 = pmin[0] + (x * vox_w)
+                x2 = x1 + vox_w
+                color = [int(c * 255) for c in pixels[y, x]]
+                # thickness + 1 to avoid slight lines at the boundary
+                dpg.draw_line([x1, y_pos], [x2, y_pos], color=color, thickness=vox_h + 1, parent=back_node)
+
+        # Atomic Swap: Show the new drawing and hide the old one
+        dpg.configure_item(back_node, show=True)
+        dpg.configure_item(self.active_strips_node, show=False)
+
+        # Update the tracker
+        self.active_strips_node = back_node
+
+    def should_use_voxels_strips(self):
         """
         Returns True if we should render using vector rectangles (NN)
         instead of the GPU texture (Linear).
@@ -329,122 +445,6 @@ class SliceViewer:
         # Criteria: If the number of voxels to draw is small (e.g. < 5000)
         num_visible_voxels = (end_x - start_x) * (end_y - start_y)
         return 0 < num_visible_voxels < 1500
-
-    def update_render(self):
-        if self.current_image_id is None:
-            return
-
-        img_model = self.controller.images[self.current_image_id]
-        rgba_flat, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
-        h, w = shape[0], shape[1]
-
-        # 1. Image Base Layer Logic
-        # decide if we should use vector "Strips" for perfect sharpness
-        use_strips = self.should_use_nn_rects()
-
-        if use_strips:
-            # Vector Mode: Hide GPU texture, Draw Strips
-            dpg.configure_item(self.image_tag, show=False)
-            self.draw_voxels_as_strips(rgba_flat, h, w)
-        else:
-            # GPU Mode: Hide Strips, Update Texture
-            if dpg.does_item_exist(self.active_strips_node):
-                dpg.configure_item(self.active_strips_node, show=False)
-            dpg.configure_item(self.image_tag, show=True)
-            dpg.set_value(self.texture_tag, rgba_flat)
-
-        # 2. Grid Overlay Logic (Independent of Image Mode)
-        if self.current_image_model.grid_mode:
-            self.draw_voxel_grid(h, w)
-        else:
-            # Ensure grid is hidden if mode is toggled off
-            if dpg.does_item_exist(self.active_grid_node):
-                dpg.configure_item(self.active_grid_node, show=False)
-
-    def draw_voxel_grid(self, h, w):
-        # Use the same double-buffering logic as strips
-        node_a = self.grid_a_tag
-        node_b = self.grid_b_tag
-
-        # Determine which is currently hidden to use as back-buffer
-        back_node = node_b if self.active_grid_node == node_a else node_a
-
-        # Clear the back-buffer
-        if dpg.does_item_exist(back_node):
-            dpg.delete_item(back_node, children_only=True)
-        else:
-            return  # Safety
-
-        pmin = self.current_pmin
-        pmax = self.current_pmax
-        vox_w = (pmax[0] - pmin[0]) / w
-        vox_h = (pmax[1] - pmin[1]) / h
-
-        # Optimization: Don't draw if voxels are too small to see the grid
-        #if vox_w < 2 or vox_h < 2:
-        #    dpg.configure_item(self.active_grid_node, show=False)
-        #    return
-
-        color = [255, 255, 255, 40]
-
-        # 1. Draw Vertical Lines (along the width)
-        for x in range(w + 1):
-            lx = pmin[0] + x * vox_w
-            dpg.draw_line([lx, pmin[1]], [lx, pmax[1]], color=color, parent=back_node)
-
-        # 2. Draw Horizontal Lines (along the height)
-        for y in range(h + 1):
-            ly = pmin[1] + y * vox_h
-            dpg.draw_line([pmin[0], ly], [pmax[0], ly], color=color, parent=back_node)
-
-        dpg.configure_item(back_node, show=True)
-        if dpg.does_item_exist(self.active_grid_node):
-            dpg.configure_item(self.active_grid_node, show=False)
-
-        self.active_grid_node = back_node
-
-    def draw_voxels_as_strips(self, rgba_flat, h, w):
-        # Determine which node is hidden (our back-buffer)
-        node_a = self.strips_a_tag
-        node_b = self.strips_b_tag
-
-        # If A is active, we draw to B. If B is active, we draw to A.
-        back_node = node_b if self.active_strips_node == node_a else node_a
-
-        # Clear ONLY the back-buffer before drawing
-        dpg.delete_item(back_node, children_only=True)
-
-        pmin, pmax = self.current_pmin, self.current_pmax
-        vox_w, vox_h = (pmax[0] - pmin[0]) / w, (pmax[1] - pmin[1]) / h
-        win_w = dpg.get_item_width(f"win_{self.tag}")
-        win_h = dpg.get_item_height(f"win_{self.tag}")
-
-        if not win_w or not win_h: return
-
-        # Culling logic
-        start_x = max(0, int(-pmin[0] / vox_w))
-        end_x = min(w, int((win_w - pmin[0]) / vox_w) + 1)
-        start_y = max(0, int(-pmin[1] / vox_h))
-        end_y = min(h, int((win_h - pmin[1]) / vox_h) + 1)
-
-        pixels = rgba_flat.reshape(h, w, 4)
-
-        # Draw to the hidden node
-        for y in range(start_y, end_y):
-            y_pos = pmin[1] + (y * vox_h) + (vox_h / 2)
-            for x in range(start_x, end_x):
-                x1 = pmin[0] + (x * vox_w)
-                x2 = x1 + vox_w
-                color = [int(c * 255) for c in pixels[y, x]]
-                # thickness + 1 to avoid slight lines at the boundary
-                dpg.draw_line([x1, y_pos], [x2, y_pos], color=color, thickness=vox_h+1, parent=back_node)
-
-        # Atomic Swap: Show the new drawing and hide the old one
-        dpg.configure_item(back_node, show=True)
-        dpg.configure_item(self.active_strips_node, show=False)
-
-        # Update the tracker
-        self.active_strips_node = back_node
 
     def apply_local_auto_window(self, search_radius=25):
         """Sets WW/WL based on a local neighborhood around the mouse."""
@@ -509,6 +509,42 @@ class SliceViewer:
             # Refresh all views showing this image
             self.controller.update_all_viewers_of_image(self.current_image_id)
 
+    def update_crosshair_position(self, viewer):
+        self.crosshair_pixel_coord = viewer.mouse_pixel_coord
+        self.crosshair_phys_coord = viewer.mouse_phys_coord
+        self.crosshair_pixel_value = viewer.mouse_pixel_value
+
+    def update_render(self):
+        if self.current_image_id is None:
+            return
+
+        img_model = self.controller.images[self.current_image_id]
+        rgba_flat, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
+        h, w = shape[0], shape[1]
+
+        # 1. Image Base Layer Logic
+        # decide if we should use vector "Strips" for perfect sharpness
+        use_strips = self.should_use_voxels_strips()
+
+        if use_strips:
+            # Vector Mode: Hide GPU texture, Draw Strips
+            dpg.configure_item(self.image_tag, show=False)
+            self.draw_voxels_as_strips(rgba_flat, h, w)
+        else:
+            # GPU Mode: Hide Strips, Update Texture
+            if dpg.does_item_exist(self.active_strips_node):
+                dpg.configure_item(self.active_strips_node, show=False)
+            dpg.configure_item(self.image_tag, show=True)
+            dpg.set_value(self.texture_tag, rgba_flat)
+
+        # 2. Grid Overlay Logic (Independent of Image Mode)
+        if self.current_image_model.grid_mode:
+            self.draw_voxel_grid(h, w)
+        else:
+            # Ensure grid is hidden if mode is toggled off
+            if dpg.does_item_exist(self.active_grid_node):
+                dpg.configure_item(self.active_grid_node, show=False)
+
     def update_overlay(self):
         """Calculates coordinates and HU values for this specific viewer."""
         if self.current_image_id is None:
@@ -549,6 +585,9 @@ class SliceViewer:
         if 0 <= ix < max_x and 0 <= iy < max_y and 0 <= iz < max_z:
             val = img_model.data[iz, iy, ix]
             t = self.current_image_model.get_orientation_str(self.orientation)
+            self.mouse_pixel_value = val
+            self.mouse_pixel_coord = v
+            self.mouse_phys_coord = phys
             overlay_text = (
                 f"{t} {val:.1f}\n"
                 f"Vox: {v[0]:.1f}, {v[1]:.1f}, {v[2]:.1f}\n"
@@ -565,26 +604,51 @@ class SliceViewer:
 
         dpg.set_item_pos(self.overlay_tag, [5, win_h - text_h - 5])
 
-    def draw_crosshair(self, pix_x, pix_y):
-        node_tag = self.crosshair_tag
-        if not dpg.does_item_exist(node_tag): return
-        dpg.delete_item(node_tag, children_only=True)
+    def update_sidebar_crosshair(self):
+        """Explicitly updates the sidebar with current crosshair data."""
+        if self.crosshair_pixel_coord is not None and self.crosshair_phys_coord is not None:
+            dpg.set_value("info_vox", fmt(self.crosshair_pixel_coord, 1))
+            dpg.set_value("info_phys", fmt(self.crosshair_phys_coord, 1))
+            dpg.set_value("info_val", f"{self.crosshair_pixel_value:g}")
 
-        pmin = self.current_pmin
-        pmax = self.current_pmax
-        disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
+    def update_sidebar_info(self):
+        """Pushes static image metadata to the sidebar."""
+        if self.current_image_id is None:
+            dpg.set_value("info_name", "No active image")
+            dpg.set_value("info_size", "")
+            dpg.set_value("info_spacing", "")
+            dpg.set_value("info_origin", "")
+            dpg.set_value("info_memory", "")
+            return
 
-        img_model = self.controller.images[self.current_image_id]
-        _, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
-        real_h, real_w = shape[0], shape[1]
+        img = self.current_image_model
+        dpg.set_value("info_name", self.current_image_model.name)
+        dpg.set_value("info_voxel_type", f"{img.pixel_type}")
+        dpg.set_value("info_size", f"{img.data.shape[2]} x {img.data.shape[1]} x {img.data.shape[1]}")
 
-        # Map voxel back to screen-space within the drawlist
-        screen_x = (pix_x / real_w) * disp_w + pmin[0]
-        screen_y = (pix_y / real_h) * disp_h + pmin[1]
+        '''# Tooltip Management
+        # Use a consistent tag for the tooltip container itself
+        tooltip_tag = "info_name_tt_container"
+        text_tag = "info_name_tooltip_text"
 
-        color = [0, 246, 7, 180]  # Cyan
-        dpg.draw_line([screen_x, pmin[1]], [screen_x, pmin[1] + disp_h], color=color, parent=node_tag)
-        dpg.draw_line([pmin[0], screen_y], [pmin[0] + disp_w, screen_y], color=color, parent=node_tag)
+        if dpg.does_item_exist(text_tag):
+            # If the text item exists, just update its value
+            dpg.set_value(text_tag, img.path)
+        else:
+            # Create the tooltip and the text item inside it
+            with dpg.tooltip("info_name", tag=tooltip_tag):
+                dpg.add_text(img.path, tag=text_tag)
+        '''
+
+        # display spacing and origine (rounded)
+        spacing = img.spacing
+        origin = img.origin
+        dpg.set_value("info_spacing", fmt(spacing, 4))
+        dpg.set_value("info_origin", fmt(origin, 2))
+
+        # Memory Calculation
+        mb_size = img.data.nbytes / (1024 * 1024)
+        dpg.set_value("info_memory", f"{mb_size:g} MB")
 
     def on_key_press(self, key):
         """Handle orientation switching."""

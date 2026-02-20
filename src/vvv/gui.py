@@ -33,13 +33,14 @@ def create_gui(controller):
 
             with dpg.group(horizontal=True):
                 # 2. LEFT PANEL: Fixed width
-                with dpg.child_window(width=250,
+                create_left_panel()
+                """with dpg.child_window(width=250,
                                       tag="side_panel",
                                       no_scrollbar=True,
                                       no_scroll_with_mouse=True):
                     dpg.add_text("Loaded Images", color=[0, 255, 127])
                     dpg.add_listbox(tag="ui_image_list", items=[], num_items=10)
-                    # ...
+                    # ..."""
 
                 # 3. RIGHT PANEL: This group will contain the 4 viewers
                 with dpg.child_window(tag="viewers_container",
@@ -88,3 +89,59 @@ def create_viewer_widget(tag, controller):
 
         # the overlay with the current pixel coordinate/value
         dpg.add_text("", tag=viewer.overlay_tag, color=[0, 246, 7], pos=[5, 5])
+
+
+# Helper function to create a labeled copiable field
+def add_labeled_field(label, tag):
+    with dpg.group(horizontal=True):
+        dpg.add_text(f"{label}:")
+        dpg.add_input_text(tag=tag, readonly=True, width=-1)
+
+
+def create_left_panel():
+    with dpg.child_window(width=300,
+                          tag="side_panel",
+                          no_scrollbar=True,
+                          no_scroll_with_mouse=True):
+        # --- TOP PANEL: Loaded Images ---
+        with dpg.child_window(tag="top_panel", height=300, resizable_y=True):
+            dpg.add_text("Loaded Images", color=[93, 93, 93])
+            dpg.add_separator()
+            dpg.add_group(tag="image_list_container")  # Dynamically filled by controller
+
+        dpg.add_spacer(height=5)
+
+        # --- BOTTOM PANEL: Active Viewer Info ---
+        with dpg.child_window(tag="bottom_panel", border=True):
+            dpg.add_text("Active Viewer", color=[93, 93, 93])
+            dpg.add_separator()
+
+            # Image Stats Section
+            with dpg.group(tag="image_info_group"):
+                dpg.add_input_text(tag="info_name", readonly=True, width=-1)
+                add_labeled_field("Type", tag="info_voxel_type")
+                add_labeled_field("Size", tag="info_size")
+                add_labeled_field("Spacing", tag="info_spacing")
+                add_labeled_field("Origin", tag="info_origin")
+                add_labeled_field("Orientation", tag="info_matrix")
+                add_labeled_field("Memory", tag="info_memory")
+
+            dpg.add_spacer(height=10)
+            dpg.add_text("Crosshair", color=[93, 93, 93])
+            dpg.add_separator()
+
+            # Live Pixel Data Section
+            with dpg.group(tag="image_crosshair_group"):
+                add_labeled_field("Voxel", tag="info_vox")
+                add_labeled_field("Coord", tag="info_phys")
+                add_labeled_field("Value", tag="info_val")
+
+    # Styling tip: To make input_text look like regular text:
+    with dpg.theme() as readonly_theme:
+        with dpg.theme_component(dpg.mvInputText):
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBg, [0, 0, 0, 0])  # Transparent bg
+            dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 0)  # No border
+            dpg.add_theme_color(dpg.mvThemeCol_Text, [0, 246, 7])
+
+    dpg.bind_item_theme("image_info_group", readonly_theme)
+    dpg.bind_item_theme("image_crosshair_group", readonly_theme)
