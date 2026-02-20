@@ -33,14 +33,7 @@ def create_gui(controller):
 
             with dpg.group(horizontal=True):
                 # 2. LEFT PANEL: Fixed width
-                create_left_panel()
-                """with dpg.child_window(width=250,
-                                      tag="side_panel",
-                                      no_scrollbar=True,
-                                      no_scroll_with_mouse=True):
-                    dpg.add_text("Loaded Images", color=[0, 255, 127])
-                    dpg.add_listbox(tag="ui_image_list", items=[], num_items=10)
-                    # ..."""
+                create_left_panel(controller)
 
                 # 3. RIGHT PANEL: This group will contain the 4 viewers
                 with dpg.child_window(tag="viewers_container",
@@ -98,13 +91,13 @@ def add_labeled_field(label, tag):
         dpg.add_input_text(tag=tag, readonly=True, width=-1)
 
 
-def create_left_panel():
-    with dpg.child_window(width=300,
+def create_left_panel(controller):
+    with dpg.child_window(width=controller.main_windows.side_panel_width,
                           tag="side_panel",
                           no_scrollbar=True,
                           no_scroll_with_mouse=True):
         # --- TOP PANEL: Loaded Images ---
-        with dpg.child_window(tag="top_panel", height=300, resizable_y=True):
+        with dpg.child_window(tag="top_panel", height=300, resizable_y=True, border=False):
             dpg.add_text("Loaded Images", color=[93, 93, 93])
             dpg.add_separator()
             dpg.add_group(tag="image_list_container")  # Dynamically filled by controller
@@ -112,7 +105,7 @@ def create_left_panel():
         dpg.add_spacer(height=5)
 
         # --- BOTTOM PANEL: Active Viewer Info ---
-        with dpg.child_window(tag="bottom_panel", border=True):
+        with dpg.child_window(tag="bottom_panel", border=False):
             dpg.add_text("Active Viewer", color=[93, 93, 93])
             dpg.add_separator()
 
@@ -123,8 +116,20 @@ def create_left_panel():
                 add_labeled_field("Size", tag="info_size")
                 add_labeled_field("Spacing", tag="info_spacing")
                 add_labeled_field("Origin", tag="info_origin")
-                add_labeled_field("Orientation", tag="info_matrix")
+                add_labeled_field("Matrix", tag="info_matrix")
                 add_labeled_field("Memory", tag="info_memory")
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Window")
+                    dpg.add_input_text(tag="info_window",
+                                       width=-1,
+                                       on_enter=True,
+                                       callback=lambda: controller.on_sidebar_wl_change())
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Level")
+                    dpg.add_input_text(tag="info_level",
+                                       width=-1,
+                                       on_enter=True,
+                                       callback=lambda: controller.on_sidebar_wl_change())
 
             dpg.add_spacer(height=10)
             dpg.add_text("Crosshair", color=[93, 93, 93])

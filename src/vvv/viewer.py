@@ -504,10 +504,12 @@ class SliceViewer:
 
         if patch.size > 0:
             p_min, p_max = np.percentile(patch, [2, 98])
-            img_model.ww = max(1, p_max - p_min)
-            img_model.wl = (p_max + p_min) / 2
-            # Refresh all views showing this image
-            self.controller.update_all_viewers_of_image(self.current_image_id)
+            #img_model.ww = max(1, p_max - p_min)
+            #img_model.wl = (p_max + p_min) / 2
+            ## Refresh all views showing this image
+            #self.update_sidebar_window_level()
+            #self.controller.update_all_viewers_of_image(self.current_image_id)
+            self.update_window_level(max(1, p_max - p_min), (p_max + p_min) / 2)
 
     def update_crosshair_position(self, viewer):
         self.crosshair_pixel_coord = viewer.mouse_pixel_coord
@@ -604,6 +606,13 @@ class SliceViewer:
 
         dpg.set_item_pos(self.overlay_tag, [5, win_h - text_h - 5])
 
+    def update_window_level(self, ww, wl):
+        self.current_image_model.ww = ww
+        self.current_image_model.wl = wl
+        self.update_sidebar_window_level()
+        self.controller.update_all_viewers_of_image(self.current_image_id)
+
+
     def update_sidebar_crosshair(self):
         """Explicitly updates the sidebar with current crosshair data."""
         if self.crosshair_pixel_coord is not None and self.crosshair_phys_coord is not None:
@@ -640,15 +649,23 @@ class SliceViewer:
                 dpg.add_text(img.path, tag=text_tag)
         '''
 
-        # display spacing and origine (rounded)
-        spacing = img.spacing
-        origin = img.origin
-        dpg.set_value("info_spacing", fmt(spacing, 4))
-        dpg.set_value("info_origin", fmt(origin, 2))
+        # display spacing and origin (rounded)
+        dpg.set_value("info_spacing", fmt(img.spacing, 4))
+        dpg.set_value("info_origin", fmt(img.origin, 2))
+
+        # orientation matrix ?
+        dpg.set_value("info_matrix", fmt(img.matrix, 1))
 
         # Memory Calculation
         mb_size = img.data.nbytes / (1024 * 1024)
         dpg.set_value("info_memory", f"{mb_size:g} MB")
+
+        self.update_sidebar_window_level()
+
+    def update_sidebar_window_level(self):
+        img_model = self.current_image_model
+        dpg.set_value("info_window", f"{img_model.ww:g}")
+        dpg.set_value("info_level", f"{img_model.wl:g}")
 
     def on_key_press(self, key):
         """Handle orientation switching."""
@@ -732,9 +749,14 @@ class SliceViewer:
         # Window/Level (Shift + Drag)
         elif is_shift and dpg.is_mouse_button_down(dpg.mvMouseButton_Left):
             img_model = self.controller.images[self.current_image_id]
+            # Adjust sensitivity if needed
+            #img_model.ww = max(1, img_model.ww + step_x * 2)
+            #img_model.wl -= step_y * 2
+            #self.update_sidebar_window_level()
+            #self.controller.update_all_viewers_of_image(self.current_image_id)
             img_model.ww = max(1, img_model.ww + step_x * 2)
             img_model.wl -= step_y * 2
-            self.controller.update_all_viewers_of_image(self.current_image_id)
+            self.update_window_level(img_model.ww, img_model.wl)
 
     def on_zoom(self, direction):
         if self.current_image_id is None:

@@ -1,6 +1,7 @@
 import SimpleITK as sitk
 import numpy as np
 import os
+import dearpygui.dearpygui as dpg
 
 
 class ImageModel:
@@ -11,6 +12,7 @@ class ImageModel:
         self.name = os.path.basename(path)
         self.sitk_image = sitk.ReadImage(path)
         self.pixel_type = self.sitk_image.GetPixelIDTypeAsString()
+        self.matrix = self.sitk_image.GetDirection()
         self.data = sitk.GetArrayFromImage(self.sitk_image).astype(np.float32)
         self.spacing = np.array(self.sitk_image.GetSpacing())
         self.origin = np.array(self.sitk_image.GetOrigin())
@@ -89,7 +91,6 @@ class Controller:
         self.images[img_id] = ImageModel(path)
         return img_id
 
-
     def update_all_viewers_of_image(self, img_id):
         """Refresh every viewer currently displaying this specific image."""
         for viewer in self.viewers.values():
@@ -118,3 +119,21 @@ class Controller:
             self.viewers["V2"].set_orientation("Axial")
             self.viewers["V3"].set_orientation("Axial")
             self.viewers["V4"].set_orientation("Axial")
+
+    def on_sidebar_wl_change(self):
+        # Identify which viewer is currently controlling the sidebar
+        # We use the context_viewer we defined in MainWindow
+        context_viewer = self.main_windows.context_viewer
+        if not context_viewer or context_viewer.current_image_id is None:
+            return
+
+        # Get the new values from the UI
+        try:
+            new_ww = float(dpg.get_value("info_window"))
+            new_wl = float(dpg.get_value("info_level"))
+        except ValueError:
+            # If the user typed something invalid (like letters), do nothing or reset
+            return
+
+        # Update the ImageModel
+        context_viewer.update_window_level(max(1.0, new_ww), new_wl)

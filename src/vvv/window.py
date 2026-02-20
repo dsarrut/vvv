@@ -9,6 +9,7 @@ class MainWindow:
         self.drag_viewer = None
         # The one showing in the sidebar
         self.context_viewer = None
+        self.side_panel_width = 300
 
     def cleanup(self):
         dpg.stop_dearpygui()
@@ -28,8 +29,8 @@ class MainWindow:
             return  # Safety
 
         # 2. Subtract the sidebar and margins
-        side_panel_width = 250
-        available_width = window_width - side_panel_width - 25
+        #side_panel_width = 250
+        available_width = window_width - self.side_panel_width - 25
         available_height = window_height - 45  # Adjusted for menu bar
 
         # Resize the container child window
