@@ -11,8 +11,8 @@ class ImageModel:
         self.name = os.path.basename(path)
         self.sitk_image = sitk.ReadImage(path)
         self.data = sitk.GetArrayFromImage(self.sitk_image)
-        self.spacing = self.sitk_image.GetSpacing()
-        self.origin = self.sitk_image.GetOrigin()
+        self.spacing = np.array(self.sitk_image.GetSpacing())
+        self.origin = np.array(self.sitk_image.GetOrigin())
 
         # Shared Window/Level for this image
         self.ww = 2000
@@ -61,7 +61,7 @@ class ImageModel:
             return dx, dz
 
     def voxel_to_physic_coord(self, voxel):
-        phys = (voxel * self.spacing) + self.origin
+        phys = (voxel * self.spacing) + self.origin - self.spacing / 2
         return phys
 
 

@@ -21,3 +21,4 @@ dependencies = [
 [project.scripts]
 # This line creates the 'vvv' command in your shell
 vvv = "vvv.cli:main"
+checkerboard = "vvv.checkerboard:create_checkerboard"
