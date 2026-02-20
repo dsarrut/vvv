@@ -72,6 +72,7 @@ class Controller:
         self.main_windows = None
         self.images = {}  # { "id": ImageModel }
         self.viewers = {}  # { "id": SliceViewer } access by tag (V1, V2, etc)
+        self.interpolation_linear = False
 
     def load_image(self, path):
         img_id = str(len(self.images))
