@@ -18,6 +18,9 @@ class ImageModel:
         self.ww = 2000
         self.wl = 270
 
+        # Shared zoom level
+        self.zoom = 1.0
+
     def get_slice_rgba(self, slice_idx, orientation="Axial"):
         """Extracts a slice with corrected orientations for vv parity."""
         if orientation == "Axial":

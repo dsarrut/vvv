@@ -7,6 +7,7 @@ class SliceViewer:
         self.tag = tag_id
         self.controller = controller
         self.current_image_id = None
+        self.current_image_model = None
         self.texture_tag = f"tex_{tag_id}"
         self.image_tag = f"img_{tag_id}"
         self.active_grid_node = None
@@ -20,7 +21,7 @@ class SliceViewer:
         self.current_pmin = [0, 0]
         self.current_pmax = [1, 1]
         # Zoom and Pan states
-        self.zoom = 1.0
+        # self.zoom = 1.0
         self.pan_offsets = {
             "Axial": [0, 0],
             "Sagittal": [0, 0],
@@ -57,9 +58,22 @@ class SliceViewer:
     def pan_offset(self, value):
         self.pan_offsets[self.orientation] = value
 
+    @property
+    def zoom(self):
+        if self.current_image_id is None:
+            return 1.0
+        return self.current_image_model.zoom
+
+    @zoom.setter
+    def zoom(self, value):
+        if self.current_image_id is None:
+            return
+        self.current_image_model.zoom = value
+
     def set_image(self, img_id):
         self.current_image_id = img_id
-        img = self.controller.images[img_id]
+        self.current_image_model = self.controller.images[self.current_image_id]
+        img = self.current_image_model
 
         # Initialize the slice index in the middle if it's the first time for this orientation
         if self.slice_indices[self.orientation] is None:
@@ -429,7 +443,7 @@ class SliceViewer:
         if pix_x is None:
             return
 
-        img_model = self.controller.images[self.current_image_id]
+        img_model = self.current_image_model
         _, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
         real_h, real_w = shape[0], shape[1]
 
