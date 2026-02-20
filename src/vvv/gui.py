@@ -76,7 +76,10 @@ def create_viewer_widget(tag, controller):
         with dpg.drawlist(tag=f"drawlist_{tag}", width=-1, height=-1):
             dpg.draw_image(viewer.texture_tag, [0, 0], [1, 1], tag=f"img_{tag}")
             # The grid node layer (for high zoom)
-            dpg.add_draw_node(tag=f"grid_node_{tag}")
+            #dpg.add_draw_node(tag=f"grid_node_{tag}")
+            dpg.add_draw_node(tag=f"grid_node_A_{tag}")
+            dpg.add_draw_node(tag=f"grid_node_B_{tag}")
+            viewer.active_grid_node = f"grid_node_A_{tag}"  # Keep track of which is currently shown
             # the crosshair layer
             dpg.add_draw_node(tag=f"crosshair_node_{tag}")
 
