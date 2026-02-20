@@ -67,48 +67,6 @@ def create_gui(controller):
         dpg.add_mouse_click_handler(callback=lambda s, d: controller.main_windows.on_global_click(d))
 
 
-def create_viewer_widget_old(tag, controller):
-    viewer = controller.viewers[tag]
-    with dpg.child_window(tag=f"win_{tag}", border=True, no_scrollbar=True, no_scroll_with_mouse=True):
-        # 1. The Image (pos=[0,0] keeps it from pushing other items)
-        dpg.add_image(viewer.texture_tag, tag=f"img_{tag}", pos=[0, 0])
-
-        # 2. Transparent Drawlist for Crosshair (Layered on top)
-        # width=-1, height=-1 makes it match the parent window size
-        with dpg.drawlist(tag=f"drawlist_{tag}", width=-1, height=-1, pos=[0, 0]):
-            dpg.add_draw_node(tag=f"crosshair_node_{tag}")
-
-        # 3. Text Overlay (pos=[0,0], actual position updated in update_overlay)
-        dpg.add_text("", tag=f"overlay_{tag}", color=[0, 246, 7], pos=[0, 0])
-
-
-def create_viewer_widget_test1(tag, controller):
-    viewer = controller.viewers[tag]
-    with dpg.child_window(tag=f"win_{tag}", border=True, no_scrollbar=True):
-        # We use a drawlist as the primary container for the image
-        with dpg.drawlist(tag=f"drawlist_{tag}", width=-1, height=-1):
-            # The image is now a drawing primitive
-            dpg.draw_image(viewer.texture_tag, [0, 0], [100, 100], tag=f"img_{tag}")
-            # Crosshair node on top
-            dpg.add_draw_node(tag=f"crosshair_node_{tag}")
-
-        dpg.add_text("", tag=f"overlay_{tag}", color=[0, 246, 7], pos=[5, 5])
-
-
-def create_viewer_widget_test2(tag, controller):
-    viewer = controller.viewers[tag]
-    with dpg.child_window(tag=f"win_{tag}", border=True, no_scrollbar=True):
-        with dpg.drawlist(tag=f"drawlist_{tag}", width=-1, height=-1):
-            # The standard image primitive
-            dpg.draw_image(viewer.texture_tag, [0, 0], [1, 1], tag=f"img_{tag}")
-            # NEW: Dedicated node for voxel rectangles
-            dpg.add_draw_node(tag=f"nn_node_{tag}")
-            # Crosshair node on top
-            dpg.add_draw_node(tag=f"crosshair_node_{tag}")
-
-        dpg.add_text("", tag=f"overlay_{tag}", color=[0, 246, 7], pos=[5, 5])
-
-
 def create_viewer_widget(tag, controller):
     viewer = controller.viewers[tag]
     with dpg.child_window(tag=f"win_{tag}",
@@ -117,8 +75,10 @@ def create_viewer_widget(tag, controller):
                           no_scroll_with_mouse=True):
         with dpg.drawlist(tag=f"drawlist_{tag}", width=-1, height=-1):
             dpg.draw_image(viewer.texture_tag, [0, 0], [1, 1], tag=f"img_{tag}")
-            # The grid node layer
+            # The grid node layer (for high zoom)
             dpg.add_draw_node(tag=f"grid_node_{tag}")
+            # the crosshair layer
             dpg.add_draw_node(tag=f"crosshair_node_{tag}")
 
+        # the overlay with the current pixel coordinate/value
         dpg.add_text("", tag=f"overlay_{tag}", color=[0, 246, 7], pos=[5, 5])
