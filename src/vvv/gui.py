@@ -74,14 +74,13 @@ def create_viewer_widget(tag, controller):
                           no_scrollbar=True,
                           no_scroll_with_mouse=True):
         with dpg.drawlist(tag=f"drawlist_{tag}", width=-1, height=-1):
-            dpg.draw_image(viewer.texture_tag, [0, 0], [1, 1], tag=f"img_{tag}")
+            dpg.draw_image(viewer.texture_tag, [0, 0], [1, 1], tag=viewer.image_tag)
             # The grid node layer (for high zoom)
-            #dpg.add_draw_node(tag=f"grid_node_{tag}")
-            dpg.add_draw_node(tag=f"grid_node_A_{tag}")
-            dpg.add_draw_node(tag=f"grid_node_B_{tag}")
-            viewer.active_grid_node = f"grid_node_A_{tag}"  # Keep track of which is currently shown
+            dpg.add_draw_node(tag=viewer.grid_a_tag)
+            dpg.add_draw_node(tag=viewer.grid_b_tag)
+            viewer.active_grid_node = viewer.grid_a_tag
             # the crosshair layer
-            dpg.add_draw_node(tag=f"crosshair_node_{tag}")
+            dpg.add_draw_node(tag=viewer.crosshair_tag)
 
         # the overlay with the current pixel coordinate/value
-        dpg.add_text("", tag=f"overlay_{tag}", color=[0, 246, 7], pos=[5, 5])
+        dpg.add_text("", tag=viewer.overlay_tag, color=[0, 246, 7], pos=[5, 5])

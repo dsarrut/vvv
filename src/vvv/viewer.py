@@ -8,9 +8,14 @@ class SliceViewer:
         self.controller = controller
         self.current_image_id = None
         self.current_image_model = None
+        self.active_grid_node = None
+        # dpg tags
         self.texture_tag = f"tex_{tag_id}"
         self.image_tag = f"img_{tag_id}"
-        self.active_grid_node = None
+        self.grid_a_tag = f"grid_node_A_{tag_id}"
+        self.grid_b_tag = f"grid_node_B_{tag_id}"
+        self.overlay_tag = f"overlay_{tag_id}"
+        self.crosshair_tag = f"crosshair_node_{tag_id}"
         # GUI options
         # Use a 4-pixel buffer to prevent the window border from cutting the image
         self.margin_left = 4
@@ -110,8 +115,8 @@ class SliceViewer:
 
         # Update the reference and re-bind the image widget
         self.texture_tag = new_texture_tag
-        if dpg.does_item_exist(f"img_{self.tag}"):
-            dpg.configure_item(f"img_{self.tag}", texture_tag=self.texture_tag)
+        if dpg.does_item_exist(self.image_tag):
+            dpg.configure_item(self.image_tag, texture_tag=self.texture_tag)
 
         self.update_render()
 
@@ -190,8 +195,8 @@ class SliceViewer:
         self.current_pmax = [off_x + new_w, off_y + new_h]
 
         # Update the standard image primitive
-        if dpg.does_item_exist(f"img_{self.tag}"):
-            dpg.configure_item(f"img_{self.tag}", pmin=self.current_pmin, pmax=self.current_pmax)
+        if dpg.does_item_exist(self.image_tag):
+            dpg.configure_item(self.image_tag, pmin=self.current_pmin, pmax=self.current_pmax)
 
         # Refresh the display (this will choose between Texture or Rectangles)
         self.update_render()
@@ -331,11 +336,11 @@ class SliceViewer:
         # Threshold: ~2500 pixels (e.g. 50x50)
         b = self.should_use_nn_rects()
         if use_nn and b:
-            dpg.configure_item(f"img_{self.tag}", show=False)
+            dpg.configure_item(self.image_tag, show=False)
             self.draw_voxels_as_strips(rgba_flat, h, w)
         else:
             # Standard GPU path
-            dpg.configure_item(f"img_{self.tag}", show=True)
+            dpg.configure_item(self.image_tag, show=True)
             dpg.set_value(self.texture_tag, rgba_flat)
 
             # If in NN mode but the image is large, draw the sharp grid overlay
@@ -344,8 +349,8 @@ class SliceViewer:
 
     def draw_voxel_grid(self, h, w):
         # Use the same double-buffering logic as strips
-        node_a = f"grid_node_A_{self.tag}"
-        node_b = f"grid_node_B_{self.tag}"
+        node_a = self.grid_a_tag
+        node_b = self.grid_b_tag
 
         # Determine which is currently hidden to use as back-buffer
         back_node = node_b if self.active_grid_node == node_a else node_a
@@ -376,8 +381,8 @@ class SliceViewer:
 
     def draw_voxels_as_strips(self, rgba_flat, h, w):
         # 1. Determine which node is hidden (our back-buffer)
-        node_a = f"grid_node_A_{self.tag}"
-        node_b = f"grid_node_B_{self.tag}"
+        node_a = self.grid_a_tag
+        node_b = self.grid_b_tag
 
         # If A is active, we draw to B. If B is active, we draw to A.
         back_node = node_b if self.active_grid_node == node_a else node_a
@@ -431,8 +436,8 @@ class SliceViewer:
         real_h, real_w = shape[0], shape[1]
 
         # Use stored pmin/pmax to avoid ZeroDivisionError from get_item_width
-        pmin = getattr(self, 'current_pmin', [0, 0])
-        pmax = getattr(self, 'current_pmax', [1, 1])
+        pmin = self.current_pmin
+        pmax = self.current_pmax
         disp_w = pmax[0] - pmin[0]
         disp_h = pmax[1] - pmin[1]
 
@@ -482,7 +487,7 @@ class SliceViewer:
     def update_overlay(self):
         """Calculates coordinates and HU values for this specific viewer."""
         if self.current_image_id is None:
-            dpg.set_value(f"overlay_{self.tag}", "")
+            dpg.set_value(self.overlay_tag, "")
             return
 
         # 1. Use the mutualized helper to get image-space coordinates
@@ -491,7 +496,7 @@ class SliceViewer:
         # If the mouse isn't hovering over this specific viewer, pix_x will be None
         # is_hover = dpg.is_item_hovered(f"win_{self.tag}")
         if pix_x is None:
-            dpg.set_value(f"overlay_{self.tag}", "")
+            dpg.set_value(self.overlay_tag, "")
             return
 
         img_model = self.controller.images[self.current_image_id]
@@ -518,29 +523,30 @@ class SliceViewer:
 
         if 0 <= ix < max_x and 0 <= iy < max_y and 0 <= iz < max_z:
             val = img_model.data[iz, iy, ix]
+            t = self.current_image_model.get_orientation_str(self.orientation)
             overlay_text = (
-                f"{self.orientation} {val:.1f}\n"
+                f"{t} {val:.1f}\n"
                 f"Vox: {v[0]:.1f}, {v[1]:.1f}, {v[2]:.1f}\n"
                 f"Phys: {phys[0]:.1f}, {phys[1]:.1f}, {phys[2]:.1f} mm"
             )
-            dpg.set_value(f"overlay_{self.tag}", overlay_text)
+            dpg.set_value(self.overlay_tag, overlay_text)
         else:
-            dpg.set_value(f"overlay_{self.tag}", "Out of image")
+            dpg.set_value(self.overlay_tag, "Out of image")
 
         # 5. Position the text at the bottom-left of the viewer window
         win_h = dpg.get_item_height(f"win_{self.tag}")
-        text_size = dpg.get_item_rect_size(f"overlay_{self.tag}")
+        text_size = dpg.get_item_rect_size(self.overlay_tag)
         text_h = text_size[1] if text_size[1] > 0 else 60
 
-        dpg.set_item_pos(f"overlay_{self.tag}", [5, win_h - text_h - 5])
+        dpg.set_item_pos(self.overlay_tag, [5, win_h - text_h - 5])
 
     def draw_crosshair(self, pix_x, pix_y):
-        node_tag = f"crosshair_node_{self.tag}"
+        node_tag = self.crosshair_tag
         if not dpg.does_item_exist(node_tag): return
         dpg.delete_item(node_tag, children_only=True)
 
-        pmin = getattr(self, 'current_pmin', [0, 0])
-        pmax = getattr(self, 'current_pmax', [1, 1])
+        pmin = self.current_pmin
+        pmax = self.current_pmax
         disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
 
         img_model = self.controller.images[self.current_image_id]

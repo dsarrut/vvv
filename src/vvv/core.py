@@ -21,6 +21,13 @@ class ImageModel:
         # Shared zoom level
         self.zoom = 1.0
 
+    def get_orientation_str(self, orientation):
+        if orientation == "Axial":
+            return "+X +Y (Z)"
+        if orientation == "Sagittal":
+            return "-Y -Z (X)"
+        return "+X -Z (Y)"
+
     def get_slice_rgba(self, slice_idx, orientation="Axial"):
         """Extracts a slice with corrected orientations for vv parity."""
         if orientation == "Axial":
