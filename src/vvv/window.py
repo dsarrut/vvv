@@ -22,25 +22,32 @@ class MainWindow:
         return None
 
     def on_window_resize(self):
-        # 1. Get current window dimensions
+        # Get current window dimensions
         window_width = dpg.get_item_width("PrimaryWindow")
         window_height = dpg.get_item_height("PrimaryWindow")
         if not window_width or not window_height:
             return  # Safety
 
-        # 2. Subtract the sidebar and margins
-        #side_panel_width = 250
-        available_width = window_width - self.side_panel_width - 25
-        available_height = window_height - 45  # Adjusted for menu bar
+        # Constants
+        margin_height = 30
+        margin_width = 30
+        side_panel_width = self.side_panel_width
+        available_width = window_width - side_panel_width - margin_width
+        available_height = window_height - margin_height
 
-        # Resize the container child window
-        if dpg.does_item_exist("viewers_container"):
-            dpg.set_item_width("viewers_container", available_width)
-            dpg.set_item_height("viewers_container", available_height)
-
-        # 3. Calculate the sizes for each quadrant (2x2)
+        # Calculate the sizes for each quadrant (2x2)
         quad_w = available_width // 2
         quad_h = available_height // 2
+
+        # Calculate the total height used by the 2 rows of viewers
+        total_viewers_height = quad_h * 2
+
+        if dpg.does_item_exist("viewers_container"):
+            dpg.set_item_width("viewers_container", available_width)
+            dpg.set_item_height("viewers_container", total_viewers_height)
+            # 10 and 22 are "magic" values such that the panel does not have scrollbars
+            # and the bottom viewers are aligned with the bottom left panel
+            dpg.set_item_pos("viewers_container", [side_panel_width+10, 22])
 
         # Resize all viewers
         for viewer in self.controller.viewers.values():

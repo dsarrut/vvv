@@ -26,16 +26,21 @@ def create_gui(controller):
         with dpg.window(tag="PrimaryWindow",
                         on_close=controller.main_windows.cleanup,
                         no_scrollbar=True,
-                        no_scroll_with_mouse=True):
+                        no_scroll_with_mouse=True,
+                        no_move=True,
+                        no_resize=True,  # We handle resize via code
+                        no_collapse=True,
+                        no_title_bar=True,
+                        no_bring_to_front_on_focus=True):
             with dpg.item_handler_registry(tag="window_resize_handler"):
                 dpg.add_item_resize_handler(callback=lambda: controller.main_windows.on_window_resize())
             dpg.bind_item_handler_registry("PrimaryWindow", "window_resize_handler")
 
             with dpg.group(horizontal=True):
-                # 2. LEFT PANEL: Fixed width
+                # LEFT PANEL: Fixed width
                 create_left_panel(controller)
 
-                # 3. RIGHT PANEL: This group will contain the 4 viewers
+                # RIGHT PANEL: This group will contain the 4 viewers
                 with dpg.child_window(tag="viewers_container",
                                       border=False,
                                       no_scrollbar=True,
@@ -85,7 +90,7 @@ def create_viewer_widget(tag, controller):
 
 
 # Helper function to create a labeled copiable field
-def add_labeled_field(label, tag):
+def create_labeled_field(label, tag):
     with dpg.group(horizontal=True):
         dpg.add_text(f"{label}:")
         dpg.add_input_text(tag=tag, readonly=True, width=-1)
@@ -95,12 +100,17 @@ def create_left_panel(controller):
     with dpg.child_window(width=controller.main_windows.side_panel_width,
                           tag="side_panel",
                           no_scrollbar=True,
-                          no_scroll_with_mouse=True):
+                          no_scroll_with_mouse=True,
+                          border=True):
+        # Add a small vertical space before "Loaded Images"
+        dpg.add_spacer(height=3)
+
         # --- TOP PANEL: Loaded Images ---
         with dpg.child_window(tag="top_panel", height=300, resizable_y=True, border=False):
             dpg.add_text("Loaded Images", color=[93, 93, 93])
             dpg.add_separator()
-            dpg.add_group(tag="image_list_container")  # Dynamically filled by controller
+            # Dynamically filled by controller
+            dpg.add_group(tag="image_list_container")
 
         dpg.add_spacer(height=5)
 
@@ -112,24 +122,13 @@ def create_left_panel(controller):
             # Image Stats Section
             with dpg.group(tag="image_info_group"):
                 dpg.add_input_text(tag="info_name", readonly=True, width=-1)
-                add_labeled_field("Type", tag="info_voxel_type")
-                add_labeled_field("Size", tag="info_size")
-                add_labeled_field("Spacing", tag="info_spacing")
-                add_labeled_field("Origin", tag="info_origin")
-                add_labeled_field("Matrix", tag="info_matrix")
-                add_labeled_field("Memory", tag="info_memory")
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Window")
-                    dpg.add_input_text(tag="info_window",
-                                       width=-1,
-                                       on_enter=True,
-                                       callback=lambda: controller.on_sidebar_wl_change())
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Level")
-                    dpg.add_input_text(tag="info_level",
-                                       width=-1,
-                                       on_enter=True,
-                                       callback=lambda: controller.on_sidebar_wl_change())
+                create_labeled_field("Type", tag="info_voxel_type")
+                create_labeled_field("Size", tag="info_size")
+                create_labeled_field("Spacing", tag="info_spacing")
+                create_labeled_field("Origin", tag="info_origin")
+                create_labeled_field("Matrix", tag="info_matrix")
+                create_labeled_field("Memory", tag="info_memory")
+                create_window_level(controller)
 
             dpg.add_spacer(height=10)
             dpg.add_text("Crosshair", color=[93, 93, 93])
@@ -137,9 +136,9 @@ def create_left_panel(controller):
 
             # Live Pixel Data Section
             with dpg.group(tag="image_crosshair_group"):
-                add_labeled_field("Voxel", tag="info_vox")
-                add_labeled_field("Coord", tag="info_phys")
-                add_labeled_field("Value", tag="info_val")
+                create_labeled_field("Voxel", tag="info_vox")
+                create_labeled_field("Coord", tag="info_phys")
+                create_labeled_field("Value", tag="info_val")
 
     # Styling tip: To make input_text look like regular text:
     with dpg.theme() as readonly_theme:
@@ -150,3 +149,25 @@ def create_left_panel(controller):
 
     dpg.bind_item_theme("image_info_group", readonly_theme)
     dpg.bind_item_theme("image_crosshair_group", readonly_theme)
+
+
+def create_window_level(controller):
+    # Create a parent group to hold both Window and Level on one line
+    with dpg.group(horizontal=True):
+        # Window Section
+        with dpg.group(horizontal=True):
+            dpg.add_text("Window")
+            dpg.add_input_text(tag="info_window",
+                               width=70,  # Fixed width to leave room for Level
+                               on_enter=True,
+                               callback=lambda: controller.on_sidebar_wl_change())
+
+        dpg.add_spacer(width=5)  # Small gap between the two
+
+        # Level Section
+        with dpg.group(horizontal=True):
+            dpg.add_text("Level")
+            dpg.add_input_text(tag="info_level",
+                               width=-1,  # Fill the remaining space
+                               on_enter=True,
+                               callback=lambda: controller.on_sidebar_wl_change())
