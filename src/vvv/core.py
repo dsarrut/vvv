@@ -94,6 +94,7 @@ class Controller:
     def load_image(self, path):
         img_id = str(len(self.images))
         self.images[img_id] = ImageModel(path)
+        self.refresh_image_list_ui()
         return img_id
 
     def update_all_viewers_of_image(self, img_id):
@@ -142,3 +143,54 @@ class Controller:
 
         # Update the ImageModel
         context_viewer.update_window_level(max(1.0, new_ww), new_wl)
+
+    def refresh_image_list_ui(self):
+        container = "image_list_container"
+        if not dpg.does_item_exist(container):
+            return
+
+        dpg.delete_item(container, children_only=True)
+
+        for img_id, img_model in self.images.items():
+            with dpg.group(parent=container):
+                with dpg.group(horizontal=True):
+                    # Image name with a slight indent or icon feel
+                    dpg.add_text(f" {img_model.name}")#, color=[200, 200, 200])
+
+                with dpg.group(horizontal=True):
+                    dpg.add_spacer(width=10)
+                    for v_tag in ["V1", "V2", "V3", "V4"]:
+                        # Check if this image is currently in this viewer
+                        is_active = self.viewers[v_tag].current_image_id == img_id
+
+                        dpg.add_checkbox(
+                            label="",  # v_tag,
+                            default_value=is_active,
+                            user_data={"img_id": img_id, "v_tag": v_tag},
+                            callback=self._on_image_viewer_toggle
+                        )
+            #dpg.add_spacer(height=5) # unsure
+
+    def _on_image_viewer_toggle(self, sender, value, user_data):
+        img_id = user_data["img_id"]
+        v_tag = user_data["v_tag"]
+        viewer = self.viewers[v_tag]
+
+        # Rule: If the user tries to uncheck the active image, force it back to True
+        if not value and viewer.current_image_id == img_id:
+            dpg.set_value(sender, True)
+            return
+
+        if value:  # Checkbox checked
+            viewer.set_image(img_id)
+            # Update the sidebar info to reflect the newly selected image
+            viewer.update_sidebar_info()
+        """else:  # Checkbox unchecked
+            # If unchecking the current image, we clear the viewer
+            if viewer.current_image_id == img_id:
+                viewer.current_image_id = None
+                viewer.update_render()"""
+
+        # Refresh UI to ensure only one image is checked per viewer row if desired,
+        # or to keep the checkboxes in sync with the state.
+        self.refresh_image_list_ui()

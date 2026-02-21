@@ -54,6 +54,7 @@ def main(image_path):
 
     # Trigger an initial resize to ensure aspect ratio and layout are correct
     w.on_window_resize()
+    controller.refresh_image_list_ui()
 
     # --- MANUAL MAIN LOOP ---
     # This is necessary for the Coordinate Overlay to update as the mouse moves
