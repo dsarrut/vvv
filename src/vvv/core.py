@@ -154,8 +154,8 @@ class Controller:
         for img_id, img_model in self.images.items():
             with dpg.group(parent=container):
                 with dpg.group(horizontal=True):
-                    # Image name with a slight indent or icon feel
-                    dpg.add_text(f" {img_model.name}")#, color=[200, 200, 200])
+                    # Image name
+                    dpg.add_text(f"{img_model.name}")
 
                 with dpg.group(horizontal=True):
                     dpg.add_spacer(width=10)
@@ -164,12 +164,30 @@ class Controller:
                         is_active = self.viewers[v_tag].current_image_id == img_id
 
                         dpg.add_checkbox(
-                            label="",  # v_tag,
+                            label="",
                             default_value=is_active,
                             user_data={"img_id": img_id, "v_tag": v_tag},
                             callback=self._on_image_viewer_toggle
                         )
-            #dpg.add_spacer(height=5) # unsure
+                    # Reload Button
+                    btn_reload = dpg.add_button(label="\uf01e", width=20,
+                                                callback=lambda s, a, u: self.reload_image(u),
+                                                user_data=img_id)
+                    # Close Button
+                    btn_close = dpg.add_button(label="\uf00d", width=20,
+                                               callback=lambda s, a, u: self.close_image(u),
+                                               user_data=img_id)
+
+                    # Bind the font to these specific buttons
+                    if dpg.does_item_exist("icon_font_tag"):
+                        dpg.bind_item_font(btn_reload, "icon_font_tag")
+                        dpg.bind_item_font(btn_close, "icon_font_tag")
+
+                    # Bind Themes for visual feedback
+                    if dpg.does_item_exist("delete_button_theme"):
+                        dpg.bind_item_theme(btn_close, "delete_button_theme")
+                    if dpg.does_item_exist("icon_button_theme"):
+                        dpg.bind_item_theme(btn_reload, "icon_button_theme")
 
     def _on_image_viewer_toggle(self, sender, value, user_data):
         img_id = user_data["img_id"]
@@ -185,12 +203,37 @@ class Controller:
             viewer.set_image(img_id)
             # Update the sidebar info to reflect the newly selected image
             viewer.update_sidebar_info()
-        """else:  # Checkbox unchecked
-            # If unchecking the current image, we clear the viewer
-            if viewer.current_image_id == img_id:
-                viewer.current_image_id = None
-                viewer.update_render()"""
 
         # Refresh UI to ensure only one image is checked per viewer row if desired,
         # or to keep the checkboxes in sync with the state.
         self.refresh_image_list_ui()
+
+    def reload_image(self, img_id):
+        """Re-reads the image file from the original path."""
+        if img_id in self.images:
+            path = self.images[img_id].path
+            # Re-initialize the ImageModel with the same path
+            self.images[img_id] = ImageModel(path)
+            # Refresh all viewers that were using this image
+            self.update_all_viewers_of_image(img_id)
+            # Update sidebar in case this was the active image
+            if self.main_windows.context_viewer and self.main_windows.context_viewer.current_image_id == img_id:
+                self.main_windows.context_viewer.update_sidebar_info()
+
+    def close_image(self, img_id):
+        """Removes the image from the controller and clears associated viewers."""
+        if img_id in self.images:
+            # Remove from any viewer currently displaying it
+            for viewer in self.viewers.values():
+                if viewer.current_image_id == img_id:
+                    viewer.current_image_id = None
+                    # Clear the texture/render
+                    if dpg.does_item_exist(viewer.image_tag):
+                        dpg.configure_item(viewer.image_tag, show=False)
+                    viewer.update_render()
+
+            # Delete from the data dictionary
+            del self.images[img_id]
+
+            # Refresh the UI list
+            self.refresh_image_list_ui()
