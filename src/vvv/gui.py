@@ -92,7 +92,7 @@ def create_viewer_widget(tag, controller):
 # Helper function to create a labeled copiable field
 def create_labeled_field(label, tag):
     with dpg.group(horizontal=True):
-        dpg.add_text(f"{label}:")
+        dpg.add_text(f"{label}:", tag=f"{tag}_label")
         dpg.add_input_text(tag=tag, readonly=True, width=-1)
 
 
@@ -121,13 +121,14 @@ def create_left_panel(controller):
 
             # Image Stats Section
             with dpg.group(tag="image_info_group"):
-                dpg.add_input_text(tag="info_name", readonly=True, width=-1)
+                create_labeled_field("", tag="info_name")
                 create_labeled_field("Type", tag="info_voxel_type")
                 create_labeled_field("Size", tag="info_size")
                 create_labeled_field("Spacing", tag="info_spacing")
                 create_labeled_field("Origin", tag="info_origin")
                 create_labeled_field("Matrix", tag="info_matrix")
-                create_labeled_field("Memory", tag="info_memory")
+                #create_labeled_field("Memory", tag="info_memory")
+                dpg.add_input_text(tag="info_memory", readonly=True, width=-1)
                 create_window_level(controller)
 
             dpg.add_spacer(height=10)

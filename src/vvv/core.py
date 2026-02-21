@@ -10,12 +10,17 @@ class ImageModel:
     def __init__(self, path):
         self.path = path
         self.name = os.path.basename(path)
+        # read and get the image data
         self.sitk_image = sitk.ReadImage(path)
         self.pixel_type = self.sitk_image.GetPixelIDTypeAsString()
+        self.bytes_per_component = self.sitk_image.GetSizeOfPixelComponent()
+        self.num_components = self.sitk_image.GetNumberOfComponentsPerPixel()
         self.matrix = self.sitk_image.GetDirection()
-        self.data = sitk.GetArrayFromImage(self.sitk_image).astype(np.float32)
+        self.data = sitk.GetArrayViewFromImage(self.sitk_image).astype(np.float32)
         self.spacing = np.array(self.sitk_image.GetSpacing())
         self.origin = np.array(self.sitk_image.GetOrigin())
+        bytes_per_pixel = self.bytes_per_component * self.num_components
+        self.memory_mb = self.sitk_image.GetNumberOfPixels() * bytes_per_pixel / (1024 * 1024)
         # Window/Level for this image
         self.ww = 2000
         self.wl = 270

@@ -632,22 +632,9 @@ class SliceViewer:
 
         img = self.current_image_model
         dpg.set_value("info_name", self.current_image_model.name)
+        dpg.set_value("info_name_label", self.tag)
         dpg.set_value("info_voxel_type", f"{img.pixel_type}")
         dpg.set_value("info_size", f"{img.data.shape[2]} x {img.data.shape[1]} x {img.data.shape[1]}")
-
-        '''# Tooltip Management
-        # Use a consistent tag for the tooltip container itself
-        tooltip_tag = "info_name_tt_container"
-        text_tag = "info_name_tooltip_text"
-
-        if dpg.does_item_exist(text_tag):
-            # If the text item exists, just update its value
-            dpg.set_value(text_tag, img.path)
-        else:
-            # Create the tooltip and the text item inside it
-            with dpg.tooltip("info_name", tag=tooltip_tag):
-                dpg.add_text(img.path, tag=text_tag)
-        '''
 
         # display spacing and origin (rounded)
         dpg.set_value("info_spacing", fmt(img.spacing, 4))
@@ -657,8 +644,8 @@ class SliceViewer:
         dpg.set_value("info_matrix", fmt(img.matrix, 1))
 
         # Memory Calculation
-        mb_size = img.data.nbytes / (1024 * 1024)
-        dpg.set_value("info_memory", f"{mb_size:g} MB")
+        im = self.current_image_model
+        dpg.set_value("info_memory", f"{im.sitk_image.GetNumberOfPixels():,} pixels    {im.memory_mb:g} MB")
 
         self.update_sidebar_window_level()
 
