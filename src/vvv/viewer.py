@@ -7,7 +7,6 @@ class SliceViewer:
     def __init__(self, tag_id, controller):
         self.tag = tag_id
         self.controller = controller
-        # self.view_state = None  # slice/pan/zoom variables
         self.image_id = None
         self.image_model = None
         self.active_strips_node = None  # FIXME in image model
@@ -429,7 +428,6 @@ class SliceViewer:
         self.update_sidebar_window_level()
 
     def update_sidebar_window_level(self):
-        # if self.view_state:
         dpg.set_value("info_window", f"{self.image_model.ww:g}")
         dpg.set_value("info_level", f"{self.image_model.wl:g}")
 

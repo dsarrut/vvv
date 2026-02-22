@@ -47,7 +47,7 @@ class MainWindow:
             dpg.set_item_height("viewers_container", total_viewers_height)
             # 10 and 22 are "magic" values such that the panel does not have scrollbars
             # and the bottom viewers are aligned with the bottom left panel
-            dpg.set_item_pos("viewers_container", [side_panel_width+10, 22])
+            dpg.set_item_pos("viewers_container", [side_panel_width + 10, 22])
 
         # Resize all viewers
         for viewer in self.controller.viewers.values():
@@ -101,6 +101,14 @@ class MainWindow:
 
         # Context Switch logic based on ViewState
         if hover_viewer and hover_viewer != self.context_viewer and not self.drag_viewer:
+            # 1. Remove highlight from old viewer
+            if self.context_viewer:
+                dpg.bind_item_theme(f"win_{self.context_viewer.tag}", "viewer_theme")
+
+            # 2. Add highlight to new viewer
+            dpg.bind_item_theme(f"win_{hover_viewer.tag}", "active_viewer_theme")
+
+            # 3. Update sidebar
             hover_viewer.update_sidebar_info()
             hover_viewer.update_sidebar_crosshair()
             self.context_viewer = hover_viewer

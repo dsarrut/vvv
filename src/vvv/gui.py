@@ -63,6 +63,15 @@ class MainGUI:
                 dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 0)
                 dpg.add_theme_color(dpg.mvThemeCol_Text, [0, 246, 7])
 
+        # Active Viewer Theme (Bright border)
+        with dpg.theme(tag="active_viewer_theme"):
+            with dpg.theme_component(dpg.mvAll):
+                dpg.add_theme_color(dpg.mvThemeCol_Border, [0, 246, 7, 50],
+                                    category=dpg.mvThemeCat_Core)  # Match your green crosshair
+                dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 2, category=dpg.mvThemeCat_Core)
+                # Keep other styles consistent with viewer_theme
+                dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0, category=dpg.mvThemeCat_Core)
+
     def create_layout(self):
         """Builds the main window layout."""
         self.create_menu_bar()
