@@ -116,6 +116,71 @@ class MainGUI:
                               no_scroll_with_mouse=True,
                               border=True):
             dpg.add_spacer(height=3)
+            self.create_left_panel_top_part()
+            dpg.add_spacer(height=5)
+            self.create_left_panel_bottom_part()
+
+        dpg.bind_item_theme("image_info_group", "readonly_theme")
+        dpg.bind_item_theme("image_crosshair_group", "readonly_theme")
+
+    def create_left_panel_top_part(self):
+        with dpg.child_window(tag="top_panel", height=350, resizable_y=True, border=False):
+            with dpg.tab_bar(tag="sidebar_tabs"):
+                # Tab 1: Image Management
+                with dpg.tab(label="Images"):
+                    dpg.add_spacer(height=5)
+                    dpg.add_text("Loaded Images", color=[93, 93, 93])
+                    dpg.add_separator()
+                    dpg.add_group(tag="image_list_container")
+
+                # Tab 2: Future Analysis/Commands (Placeholder)
+                with dpg.tab(label="Analysis"):
+                    dpg.add_spacer(height=5)
+                    dpg.add_text("Processing Tools", color=[93, 93, 93])
+                    dpg.add_separator()
+                    dpg.add_button(label="Run Reconstruction", width=-1)
+                    dpg.add_button(label="Monte Carlo Setup", width=-1)
+
+                # Tab 3: Settings
+                with dpg.tab(label="Settings"):
+                    dpg.add_spacer(height=5)
+                    dpg.add_text("Viewer Settings", color=[93, 93, 93])
+                    dpg.add_separator()
+                    dpg.add_checkbox(label="Show Orientation Axes", default_value=True)
+
+    def create_left_panel_bottom_part(self):
+        # Active Viewer Info Section
+        with dpg.child_window(tag="bottom_panel", border=False):
+            dpg.add_text("Active Viewer", color=[93, 93, 93])
+            dpg.add_separator()
+
+            with dpg.group(tag="image_info_group"):
+                self.create_labeled_field("", tag="info_name")
+                self.create_labeled_field("Type", tag="info_voxel_type")
+                self.create_labeled_field("Size", tag="info_size")
+                self.create_labeled_field("Spacing", tag="info_spacing")
+                self.create_labeled_field("Origin", tag="info_origin")
+                self.create_labeled_field("Matrix", tag="info_matrix")
+                dpg.add_input_text(tag="info_memory", readonly=True, width=-1)
+                self.create_window_level_controls()
+
+            dpg.add_spacer(height=10)
+            dpg.add_text("Crosshair", color=[93, 93, 93])
+            dpg.add_separator()
+
+            with dpg.group(tag="image_crosshair_group"):
+                self.create_labeled_field("Voxel", tag="info_vox")
+                self.create_labeled_field("Coord", tag="info_phys")
+                self.create_labeled_field("Value", tag="info_val")
+
+    def create_left_panel_initial(self):
+        """Creates the sidebar with image list and info."""
+        with dpg.child_window(width=self.controller.main_windows.side_panel_width,
+                              tag="side_panel",
+                              no_scrollbar=True,
+                              no_scroll_with_mouse=True,
+                              border=True):
+            dpg.add_spacer(height=3)
 
             # Loaded Images Section
             with dpg.child_window(tag="top_panel", height=300, resizable_y=True, border=False):

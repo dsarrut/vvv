@@ -36,7 +36,9 @@ class SliceViewer:
         self.mouse_phys_coord = None
         self.mouse_pixel_coord = None
         self.mouse_pixel_value = None
-
+        # for double buffering axis
+        self.axes_nodes = None
+        self.active_axes_idx = 0
         # default init texture
         with dpg.texture_registry():
             dpg.add_dynamic_texture(width=1, height=1,

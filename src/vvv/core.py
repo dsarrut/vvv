@@ -3,7 +3,6 @@ import numpy as np
 import os
 import dearpygui.dearpygui as dpg
 
-
 class ImageModel:
     """Store the image data and its properties."""
 
@@ -11,18 +10,19 @@ class ImageModel:
         self.path = path
         self.name = os.path.basename(path)
         # read the image
+        print(f"reading image: {path}")
         self.sitk_image = sitk.ReadImage(path)
         # raw pixel data : no copy between sitk and numpy
         self.data = sitk.GetArrayViewFromImage(self.sitk_image).astype(np.float32)
         # get some metadata
-        self.pixel_type = self.sitk_image.GetPixelIDTypeAsString()
-        self.bytes_per_component = self.sitk_image.GetSizeOfPixelComponent()
-        self.num_components = self.sitk_image.GetNumberOfComponentsPerPixel()
-        self.matrix = self.sitk_image.GetDirection()
-        self.spacing = np.array(self.sitk_image.GetSpacing())
-        self.origin = np.array(self.sitk_image.GetOrigin())
-        bytes_per_pixel = self.bytes_per_component * self.num_components
-        self.memory_mb = self.sitk_image.GetNumberOfPixels() * bytes_per_pixel / (1024 * 1024)
+        self.pixel_type = None
+        self.bytes_per_component = None
+        self.num_components = None
+        self.matrix = None
+        self.spacing = None
+        self.origin = None
+        self.memory_mb = None
+        self.read_image_metadata()
 
         # --- below is information shared among the viewers ---
 
@@ -48,6 +48,16 @@ class ImageModel:
         self.init_crosshair_to_slices()
         # Current pan for all orientation
         self.pan = {"Axial": [0, 0], "Sagittal": [0, 0], "Coronal": [0, 0]}
+
+    def read_image_metadata(self):
+        self.pixel_type = self.sitk_image.GetPixelIDTypeAsString()
+        self.bytes_per_component = self.sitk_image.GetSizeOfPixelComponent()
+        self.num_components = self.sitk_image.GetNumberOfComponentsPerPixel()
+        self.matrix = self.sitk_image.GetDirection()
+        self.spacing = np.array(self.sitk_image.GetSpacing())
+        self.origin = np.array(self.sitk_image.GetOrigin())
+        bytes_per_pixel = self.bytes_per_component * self.num_components
+        self.memory_mb = self.sitk_image.GetNumberOfPixels() * bytes_per_pixel / (1024 * 1024)
 
     def init_crosshair_to_slices(self):
         self.crosshair_pixel_coord = [self.slices["Coronal"], self.slices["Sagittal"], self.slices["Axial"]]
@@ -107,6 +117,24 @@ class ImageModel:
         phys = (voxel * self.spacing) + self.origin - self.spacing / 2
         return phys
 
+    def reload(self):
+        """Re-reads data from the disk while preserving state if dimensions match."""
+        # Read the new image from the existing path
+        new_sitk = sitk.ReadImage(self.path)
+        new_shape = new_sitk.GetSize()
+        current_shape = self.sitk_image.GetSize()
+
+        if new_shape == current_shape:
+            # DIMENSIONS MATCH: Soft update
+            self.sitk_image = new_sitk
+            # Update the view (no copy)
+            self.data = sitk.GetArrayViewFromImage(self.sitk_image).astype(np.float32)
+            self.read_image_metadata()
+            return False  # Indicates a soft reload
+        else:
+            # DIMENSIONS CHANGED: Full reset
+            self.__init__(self.path)
+            return True  # Indicates a full reset occurred
 
 class Controller:
     """The central manager."""
@@ -149,6 +177,12 @@ class Controller:
         """Refresh every viewer currently displaying this specific image."""
         for viewer in self.viewers.values():
             if viewer.image_id == img_id:
+                # recreate a viewer from scratch ?
+                # tag = viewer.tag
+                #self.viewers[tag] = SliceViewer(tag, self)
+                #viewer = self.viewers[tag]
+                #viewer.axes_nodes = [viewer.axis_a_tag, viewer.axis_b_tag]
+                #viewer.set_image(img_id)
                 viewer.update_render()
 
     def refresh_image_list_ui(self):
@@ -232,12 +266,16 @@ class Controller:
     def reload_image(self, img_id):
         """Re-reads the image file from the original path."""
         if img_id in self.images:
-            path = self.images[img_id].path
-            # Re-initialize the ImageModel with the same path
-            self.images[img_id] = ImageModel(path)
-            # Refresh all viewers that were using this image
-            self.update_all_viewers_of_image(img_id)
-            # Update sidebar in case this was the active image
+            img_model = self.images[img_id]
+            was_reset = img_model.reload()
+            if was_reset:
+                # If size changed, we must re-init textures and slice indices in viewers
+                for viewer in self.viewers.values():
+                    if viewer.image_id == img_id:
+                        viewer.set_image(img_id)
+            else:
+                self.update_all_viewers_of_image(img_id)
+            # Update the sidebar in case this was the active image
             if self.main_windows.context_viewer and self.main_windows.context_viewer.image_id == img_id:
                 self.main_windows.context_viewer.update_sidebar_info()
 
