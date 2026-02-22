@@ -64,14 +64,6 @@ class ImageModel:
         return "+X -Z (Y)"
 
     def get_slice_rgba(self, slice_idx, orientation="Axial"):
-        """if slice_idx is None:
-            if orientation == "Axial":
-                slice_idx = self.data.shape[0] // 2
-            elif orientation == "Sagittal":
-                slice_idx = self.data.shape[2] // 2
-            else:
-                slice_idx = self.data.shape[1] // 2"""
-
         """Extracts a slice with corrected orientations for vv parity."""
         if orientation == "Axial":
             max_s = self.data.shape[0] - 1
