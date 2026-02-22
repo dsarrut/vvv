@@ -452,7 +452,9 @@ class SliceViewer:
             val = img_model.data[iz, iy, ix]
             self.mouse_pixel_value, self.mouse_pixel_coord, self.mouse_phys_coord = val, v, phys
             dpg.set_value(self.overlay_tag,
-                          f"{img_model.get_orientation_str(self.orientation)} {val:.1f}\nVox: {v[0]:.1f}, {v[1]:.1f}, {v[2]:.1f}\nPhys: {phys[0]:.1f}, {phys[1]:.1f}, {phys[2]:.1f} mm")
+                          f"{val:g}\n"
+                          f"{fmt(v,1)}\n"
+                          f"{fmt(phys,1)} mm")
         else:
             dpg.set_value(self.overlay_tag, "Out of image")
         win_h = dpg.get_item_height(f"win_{self.tag}")
