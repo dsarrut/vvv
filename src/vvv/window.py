@@ -95,20 +95,33 @@ class MainWindow:
             v.last_dx, v.last_dy = 0, 0
         self.drag_viewer = None
 
+    def highlight_active_image_in_list(self, active_img_id):
+        """Binds a highlight theme to the text label in the sidebar matching the image."""
+        for img_id in self.controller.images.keys():
+            label_tag = f"img_label_{img_id}"
+            if dpg.does_item_exist(label_tag):
+                if img_id == active_img_id:
+                    dpg.bind_item_theme(label_tag, "active_image_list_theme")
+                else:
+                    dpg.bind_item_theme(label_tag, "")  # Reset to default
+
     def update_overlays(self):
         """Updates sidebar context on hover and refreshes on-image overlays."""
         hover_viewer = self.get_hovered_viewer()
 
         # Context Switch logic based on ViewState
         if hover_viewer and hover_viewer != self.context_viewer and not self.drag_viewer:
-            # 1. Remove highlight from old viewer
+            # Remove highlight from old viewer
             if self.context_viewer:
                 dpg.bind_item_theme(f"win_{self.context_viewer.tag}", "viewer_theme")
 
-            # 2. Add highlight to new viewer
+            # Add highlight to new viewer
             dpg.bind_item_theme(f"win_{hover_viewer.tag}", "active_viewer_theme")
 
-            # 3. Update sidebar
+            # Highlight the current image in the image list
+            self.highlight_active_image_in_list(hover_viewer.image_id)
+
+            # Update sidebar
             hover_viewer.update_sidebar_info()
             hover_viewer.update_sidebar_crosshair()
             self.context_viewer = hover_viewer

@@ -3,6 +3,7 @@ import numpy as np
 import os
 import dearpygui.dearpygui as dpg
 
+
 class ImageModel:
     """Store the image data and its properties."""
 
@@ -136,6 +137,7 @@ class ImageModel:
             self.__init__(self.path)
             return True  # Indicates a full reset occurred
 
+
 class Controller:
     """The central manager."""
 
@@ -179,10 +181,10 @@ class Controller:
             if viewer.image_id == img_id:
                 # recreate a viewer from scratch ?
                 # tag = viewer.tag
-                #self.viewers[tag] = SliceViewer(tag, self)
-                #viewer = self.viewers[tag]
-                #viewer.axes_nodes = [viewer.axis_a_tag, viewer.axis_b_tag]
-                #viewer.set_image(img_id)
+                # self.viewers[tag] = SliceViewer(tag, self)
+                # viewer = self.viewers[tag]
+                # viewer.axes_nodes = [viewer.axis_a_tag, viewer.axis_b_tag]
+                # viewer.set_image(img_id)
                 viewer.update_render()
 
     def refresh_image_list_ui(self):
@@ -195,7 +197,7 @@ class Controller:
         for img_id, img_model in self.images.items():
             with dpg.group(parent=container):
                 with dpg.group(horizontal=True):
-                    dpg.add_text(f"{img_model.name}")
+                    dpg.add_text(f"{img_model.name}", tag=f"img_label_{img_id}")
 
                 with dpg.group(horizontal=True):
                     dpg.add_spacer(width=10)

@@ -72,6 +72,12 @@ class MainGUI:
                 # Keep other styles consistent with viewer_theme
                 dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0, category=dpg.mvThemeCat_Core)
 
+        # Active Image List Theme (Green background)
+        with dpg.theme(tag="active_image_list_theme"):
+            with dpg.theme_component(dpg.mvAll):
+                # Change text to green and make it bold-ish if font supports it
+                dpg.add_theme_color(dpg.mvThemeCol_Text, [0, 246, 7], category=dpg.mvThemeCat_Core)
+
     def create_layout(self):
         """Builds the main window layout."""
         self.create_menu_bar()
