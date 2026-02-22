@@ -3,9 +3,6 @@ import numpy as np
 from .utils import *
 
 
-# from .core import ViewState
-
-
 class SliceViewer:
     def __init__(self, tag_id, controller):
         self.tag = tag_id
@@ -73,7 +70,6 @@ class SliceViewer:
         # set the image info to this viewer
         self.image_id = img_id
         self.image_model = self.controller.images[self.image_id]
-        print(f"set image {self.tag} {img_id}")
 
         # Sync viewer slice to image crosshair if it exists
         self.set_current_slice_to_crosshair()
@@ -95,14 +91,19 @@ class SliceViewer:
     def set_current_slice_to_crosshair(self):
         img_model = self.image_model
         vx, vy, vz = img_model.crosshair_pixel_coord
-        print(f"current is {self.slice_idx}")
         if self.orientation == "Axial":
             self.slice_idx = int(np.clip(vz, 0, img_model.data.shape[0] - 1))
         elif self.orientation == "Sagittal":
             self.slice_idx = int(np.clip(vx, 0, img_model.data.shape[2] - 1))
         elif self.orientation == "Coronal":
             self.slice_idx = int(np.clip(vy, 0, img_model.data.shape[1] - 1))
-        print(f"===> after is {self.slice_idx}")
+
+    def set_orientation(self, orientation):
+        self.orientation = orientation
+        if self.image_id:
+            # Re-initialize view for new orientation
+            self.set_image(self.image_id)
+        self.controller.main_windows.on_window_resize()
 
     def init_slice_texture(self):
         """Manages dynamic texture creation for the image."""
@@ -123,111 +124,6 @@ class SliceViewer:
         self.texture_tag = new_texture_tag
         if dpg.does_item_exist(self.image_tag):
             dpg.configure_item(self.image_tag, texture_tag=self.texture_tag)
-
-    def init_crosshair_NOPE(self):
-        """Initializes the slice position and crosshair state."""
-        img = self.image_model
-        if img.crosshair_pixel_coord is not None:
-            # Sync viewer slice to image crosshair if it exists
-            vx, vy, vz = img.crosshair_pixel_coord
-            if self.orientation == "Axial":
-                self.slice_idx = int(vz)
-            elif self.orientation == "Sagittal":
-                self.slice_idx = int(vx)
-            else:
-                self.slice_idx = int(vy)
-        else:
-            # Otherwise, default to the center and compute initial crosshair data
-            _, shape = img.get_slice_rgba(self.slice_idx, self.orientation)
-            self.update_crosshair_data(shape[1] // 2, shape[0] // 2)
-
-    def update_crosshair_data(self, pix_x, pix_y):
-        """COMPUTATION: Maps 2D pixels back to 3D Voxel Indices and stores in Model."""
-        img_model = self.image_model
-        _, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
-        real_h, real_w = shape[0], shape[1]
-
-        print(self.orientation)
-        if self.orientation == "Axial":
-            v = [pix_x, pix_y, self.slice_idx]
-        elif self.orientation == "Sagittal":
-            v = [self.slice_idx, real_w - pix_x, real_h - pix_y]
-        else:
-            v = [pix_x, self.slice_idx, real_h - pix_y]
-
-        img_model.crosshair_pixel_coord = v
-        print(v)
-        img_model.crosshair_phys_coord = img_model.voxel_coord_to_physic_coord(np.array(v))
-        ix, iy, iz = [int(np.clip(c, 0, limit - 1)) for c, limit in
-                      zip(v, [img_model.data.shape[2], img_model.data.shape[1], img_model.data.shape[0]])]
-        img_model.crosshair_pixel_value = img_model.data[iz, iy, ix]
-
-    def set_image_good(self, img_id):
-        self.image_id = img_id
-        self.image_model = self.controller.images[self.image_id]
-
-        # Create a persistent state for this view
-        print(f'set_image called {self.tag} {img_id}, create view state')
-        # self.view_state = ViewState(self.current_image_model)
-
-        # Sync viewer slice to image crosshair if it exists
-        img = self.image_model
-        if img.crosshair_pixel_coord is not None:
-            vx, vy, vz = img.crosshair_pixel_coord
-            if self.orientation == "Axial":
-                self.slice_idx = int(vz)
-            elif self.orientation == "Sagittal":
-                self.slice_idx = int(vx)
-            else:
-                self.slice_idx = int(vy)
-            self.reposition_crosshair_from_3d()
-        else:
-            _, shape = img.get_slice_rgba(self.slice_idx, self.orientation)
-            self.draw_crosshair(shape[1] // 2, shape[0] // 2)
-
-        _, shape = img.get_slice_rgba(self.slice_idx, self.orientation)
-        h, w = shape[0], shape[1]
-
-        new_texture_tag = f"tex_{self.tag}_{self.orientation}_{w}x{h}"
-
-        if not dpg.does_item_exist(new_texture_tag):
-            with dpg.texture_registry():
-                dpg.add_dynamic_texture(width=w, height=h, default_value=np.zeros(w * h * 4), tag=new_texture_tag)
-
-        if self.texture_tag != new_texture_tag and dpg.does_item_exist(self.texture_tag):
-            if "Axial_1x1" not in self.texture_tag: dpg.delete_item(self.texture_tag)
-
-        self.texture_tag = new_texture_tag
-        if dpg.does_item_exist(self.image_tag):
-            dpg.configure_item(self.image_tag, texture_tag=self.texture_tag)
-
-        self.update_sidebar_info()
-        self.update_render()
-
-    def reposition_crosshair_from_3d(self):
-        img_model = self.image_model
-        if img_model.crosshair_pixel_coord is None or self.image_id is None:
-            return
-
-        vx, vy, vz = img_model.crosshair_pixel_coord
-        _, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
-        real_h, real_w = shape[0], shape[1]
-
-        if self.orientation == "Axial":
-            tx, ty = vx, vy
-        elif self.orientation == "Sagittal":
-            tx, ty = real_w - vy, real_h - vz
-        else:
-            tx, ty = vx, real_h - vz
-
-        self.draw_crosshair(tx, ty)
-
-    def set_orientation(self, orientation):
-        self.orientation = orientation
-        if self.image_id:
-            # Re-initialize view for new orientation
-            self.set_image(self.image_id)
-        self.controller.main_windows.on_window_resize()
 
     def get_mouse_to_pixel_coords(self, ignore_hover=False):
         if not self.image_id: return None, None
@@ -275,7 +171,6 @@ class SliceViewer:
 
         self.current_pmin = [off_x, off_y]
         self.current_pmax = [off_x + new_w, off_y + new_h]
-        print(f"resize: {self.current_pmin}, {self.current_pmax}")
 
         # Update the standard image primitive
         if dpg.does_item_exist(self.image_tag):
@@ -311,52 +206,6 @@ class SliceViewer:
 
         self.controller.main_windows.on_window_resize()
 
-    def sync_other_views_good(self):
-        """Synchronizes other views and centers them on the crosshair."""
-        if self.image_id is None:
-            return
-
-        # Get the 3D voxel index under the mouse in THIS viewer
-        pix_x, pix_y = self.get_mouse_to_pixel_coords(ignore_hover=True)
-        if pix_x is None:
-            return
-
-        # Update the crosshair in the current window
-        self.draw_crosshair(pix_x, pix_y)
-
-        img_model = self.controller.images[self.image_id]
-        _, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
-        real_h, real_w = shape[0], shape[1]
-
-        # Use the voxel indices stored in ImageModel by draw_crosshair
-        vx, vy, vz = img_model.crosshair_pixel_coord
-
-        for viewer in self.controller.viewers.values():
-            if viewer.image_id == self.image_id and viewer.tag != self.tag:
-                # 1. Update Slice Index
-                if viewer.orientation == "Axial":
-                    viewer.slice_idx = int(np.clip(vz, 0, img_model.data.shape[0] - 1))
-                elif viewer.orientation == "Sagittal":
-                    viewer.slice_idx = int(np.clip(vx, 0, img_model.data.shape[2] - 1))
-                elif viewer.orientation == "Coronal":
-                    viewer.slice_idx = int(np.clip(vy, 0, img_model.data.shape[1] - 1))
-
-                # 2. Calculate the target voxel position in the target viewer's 2D space
-                _, v_shape = img_model.get_slice_rgba(viewer.slice_idx, viewer.orientation)
-                vh, vw = v_shape[0], v_shape[1]
-
-                if viewer.orientation == "Axial":
-                    tx, ty = vx, vy
-                elif viewer.orientation == "Sagittal":
-                    tx, ty = vw - vy, vh - vz
-                elif viewer.orientation == "Coronal":
-                    tx, ty = vx, vh - vz
-
-                viewer.draw_crosshair(tx, ty)
-                viewer.update_render()
-
-        self.controller.main_windows.on_window_resize()
-
     def draw_voxel_grid(self, h, w):
         node_a, node_b = self.grid_a_tag, self.grid_b_tag
         back_node = node_b if self.active_grid_node == node_a else node_a
@@ -386,7 +235,6 @@ class SliceViewer:
 
     def draw_crosshair(self):
         """DRAWING: Render the crosshair lines based on the ImageModel state."""
-        print(f"draw_crosshair: {self.orientation}")
         node_tag = self.crosshair_tag
         if not dpg.does_item_exist(node_tag) or self.image_model.crosshair_pixel_coord is None:
             return
@@ -394,7 +242,6 @@ class SliceViewer:
 
         img_model = self.image_model
         vx, vy, vz = img_model.crosshair_pixel_coord
-        print(f"draw_crosshair: {vx}, {vy}, {vz}")
         # FIXME why get slice here ?
         _, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
         real_h, real_w = shape[0], shape[1]
@@ -411,41 +258,6 @@ class SliceViewer:
         disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
         screen_x = (tx / real_w) * disp_w + pmin[0]
         screen_y = (ty / real_h) * disp_h + pmin[1]
-
-        color = [0, 246, 7, 180]
-        dpg.draw_line([screen_x, pmin[1]], [screen_x, pmin[1] + disp_h], color=color, parent=node_tag)
-        dpg.draw_line([pmin[0], screen_y], [pmin[0] + disp_w, screen_y], color=color, parent=node_tag)
-        self.update_sidebar_crosshair()
-
-    def draw_crosshair_good(self, pix_x, pix_y):
-        node_tag = self.crosshair_tag
-        if not dpg.does_item_exist(node_tag): return
-        dpg.delete_item(node_tag, children_only=True)
-
-        img_model = self.image_model
-        _, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
-        real_h, real_w = shape[0], shape[1]
-
-        if self.orientation == "Axial":
-            v = [pix_x, pix_y, self.slice_idx]
-        elif self.orientation == "Sagittal":
-            v = [self.slice_idx, real_w - pix_x, real_h - pix_y]
-        else:
-            v = [pix_x, self.slice_idx, real_h - pix_y]
-
-        # 2. Save these to the ImageModel
-        img_model.crosshair_pixel_coord = v
-        img_model.crosshair_phys_coord = img_model.voxel_coord_to_physic_coord(np.array(v))
-
-        # 3. Fetch the pixel value safely
-        ix, iy, iz = [int(np.clip(c, 0, limit - 1)) for c, limit in
-                      zip(v, [img_model.data.shape[2], img_model.data.shape[1], img_model.data.shape[0]])]
-        img_model.crosshair_pixel_value = img_model.data[iz, iy, ix]
-
-        pmin, pmax = self.current_pmin, self.current_pmax
-        disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
-        screen_x = (pix_x / real_w) * disp_w + pmin[0]
-        screen_y = (pix_y / real_h) * disp_h + pmin[1]
 
         color = [0, 246, 7, 180]
         dpg.draw_line([screen_x, pmin[1]], [screen_x, pmin[1] + disp_h], color=color, parent=node_tag)
@@ -514,6 +326,25 @@ class SliceViewer:
         if patch.size > 0:
             p_min, p_max = np.percentile(patch, [2, 98])
             self.update_window_level(max(1, p_max - p_min), (p_max + p_min) / 2)
+
+    def update_crosshair_data(self, pix_x, pix_y):
+        """COMPUTATION: Maps 2D pixels back to 3D Voxel Indices and stores in Model."""
+        img_model = self.image_model
+        _, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
+        real_h, real_w = shape[0], shape[1]
+
+        if self.orientation == "Axial":
+            v = [pix_x, pix_y, self.slice_idx]
+        elif self.orientation == "Sagittal":
+            v = [self.slice_idx, real_w - pix_x, real_h - pix_y]
+        else:
+            v = [pix_x, self.slice_idx, real_h - pix_y]
+
+        img_model.crosshair_pixel_coord = v
+        img_model.crosshair_phys_coord = img_model.voxel_coord_to_physic_coord(np.array(v))
+        ix, iy, iz = [int(np.clip(c, 0, limit - 1)) for c, limit in
+                      zip(v, [img_model.data.shape[2], img_model.data.shape[1], img_model.data.shape[0]])]
+        img_model.crosshair_pixel_value = img_model.data[iz, iy, ix]
 
     def update_render(self):
         if self.image_id is None:

@@ -36,7 +36,6 @@ class ImageModel:
         # Grid mode
         self.grid_mode = False
         # Current slices for all orientation (init to center)
-        print(self.data.shape)
         self.slices = {
             "Axial": self.data.shape[0] // 2,
             "Sagittal": self.data.shape[1] // 2,
@@ -46,20 +45,15 @@ class ImageModel:
         self.crosshair_phys_coord = None
         self.crosshair_pixel_coord = None
         self.crosshair_pixel_value = None
-        self.set_crosshair_to_slices()
+        self.init_crosshair_to_slices()
         # Current pan for all orientation
         self.pan = {"Axial": [0, 0], "Sagittal": [0, 0], "Coronal": [0, 0]}
 
-    def set_crosshair_to_slices(self):
+    def init_crosshair_to_slices(self):
         self.crosshair_pixel_coord = [self.slices["Coronal"], self.slices["Sagittal"], self.slices["Axial"]]
         self.crosshair_phys_coord = self.voxel_coord_to_physic_coord(self.crosshair_pixel_coord)
-        ix,iy,iz = self.crosshair_pixel_coord
-        #print(v)
-        #ix, iy, iz = [int(np.clip(c, 0, limit - 1)) for c, limit in
-        #              zip(v, [self.data.shape[2], self.data.shape[1], self.data.shape[0]])]
-        #print(ix,iy,iz)
-        self.crosshair_pixel_value = self.data[ix,iy,iz]
-        #print(f"{self.crosshair_pixel_coord} {self.crosshair_phys_coord} {self.crosshair_pixel_value}")
+        ix, iy, iz = self.crosshair_pixel_coord
+        self.crosshair_pixel_value = self.data[iz, iy, ix]
 
     def get_orientation_str(self, orientation):
         # FIXME to remove and change
@@ -122,66 +116,6 @@ class ImageModel:
         return phys
 
 
-class ViewStateNOPE:
-    """Holds the visualization state for a specific view of an image."""
-
-    def __init__(self, image_model):
-        self.image = image_model
-        # Use a dict for slices to handle all orientations independently
-        self.slices = {
-            "Axial": image_model.data.shape[0] // 2,
-            "Sagittal": image_model.data.shape[2] // 2,
-            "Coronal": image_model.data.shape[1] // 2
-        }
-        self.pan = {"Axial": [0, 0], "Sagittal": [0, 0], "Coronal": [0, 0]}
-        self.crosshair_phys_coord = image_model.crosshair_phys_coord
-        self.crosshair_pixel_coord = image_model.crosshair_pixel_coord
-        self.crosshair_pixel_value = image_model.crosshair_pixel_value
-
-    # Properties redirecting to ImageModel for shared values
-    @property
-    def zoom(self): return self.image.zoom
-
-    @zoom.setter
-    def zoom(self, val): self.image.zoom = val
-
-    @property
-    def ww(self): return self.image.ww
-
-    @ww.setter
-    def ww(self, val): self.image.ww = val
-
-    @property
-    def wl(self): return self.image.wl
-
-    @wl.setter
-    def wl(self, val): self.image.wl = val
-
-    @property
-    def crosshair_pixel_coord(self):
-        return self.image.crosshair_pixel_coord
-
-    @crosshair_pixel_coord.setter
-    def crosshair_pixel_coord(self, val):
-        self.image.crosshair_pixel_coord = val
-
-    @property
-    def crosshair_pixel_value(self):
-        return self.image.crosshair_pixel_value
-
-    @crosshair_pixel_value.setter
-    def crosshair_pixel_value(self, val):
-        self.image.crosshair_pixel_value = val
-
-    @property
-    def crosshair_phys_coord(self):
-        return self.image.crosshair_phys_coord
-
-    @crosshair_phys_coord.setter
-    def crosshair_phys_coord(self, val):
-        self.image.crosshair_phys_coord = val
-
-
 class Controller:
     """The central manager."""
 
@@ -189,18 +123,6 @@ class Controller:
         self.main_windows = None
         self.images = {}  # { "id": ImageModel }
         self.viewers = {}  # { "id": SliceViewer } access by tag (V1, V2, etc)
-
-    def load_image(self, path):
-        img_id = str(len(self.images))
-        self.images[img_id] = ImageModel(path)
-        self.refresh_image_list_ui()
-        return img_id
-
-    def update_all_viewers_of_image(self, img_id):
-        """Refresh every viewer currently displaying this specific image."""
-        for viewer in self.viewers.values():
-            if viewer.image_id == img_id:
-                viewer.update_render()
 
     def default_viewers_orientation(self):
         n = len(self.images)
@@ -225,21 +147,17 @@ class Controller:
             self.viewers["V3"].set_orientation("Axial")
             self.viewers["V4"].set_orientation("Axial")
 
-    def on_sidebar_wl_change(self):
-        context_viewer = self.main_windows.context_viewer
-        if not context_viewer or context_viewer.image_id is None:
-            return
+    def load_image(self, path):
+        img_id = str(len(self.images))
+        self.images[img_id] = ImageModel(path)
+        self.refresh_image_list_ui()
+        return img_id
 
-        # Get the new values from the UI
-        try:
-            new_ww = float(dpg.get_value("info_window"))
-            new_wl = float(dpg.get_value("info_level"))
-        except ValueError:
-            # If the user typed something invalid (like letters), do nothing or reset
-            return
-
-        # Update the ImageModel
-        context_viewer.update_window_level(max(1.0, new_ww), new_wl)
+    def update_all_viewers_of_image(self, img_id):
+        """Refresh every viewer currently displaying this specific image."""
+        for viewer in self.viewers.values():
+            if viewer.image_id == img_id:
+                viewer.update_render()
 
     def refresh_image_list_ui(self):
         container = "image_list_container"
@@ -262,7 +180,7 @@ class Controller:
                             label="",
                             default_value=is_active,
                             user_data={"img_id": img_id, "v_tag": v_tag},
-                            callback=self._on_image_viewer_toggle
+                            callback=self.on_image_viewer_toggle
                         )
                     # Reload Button
                     btn_reload = dpg.add_button(label="\uf01e", width=20,
@@ -284,7 +202,23 @@ class Controller:
                     if dpg.does_item_exist("icon_button_theme"):
                         dpg.bind_item_theme(btn_reload, "icon_button_theme")
 
-    def _on_image_viewer_toggle(self, sender, value, user_data):
+    def on_sidebar_wl_change(self):
+        context_viewer = self.main_windows.context_viewer
+        if not context_viewer or context_viewer.image_id is None:
+            return
+
+        # Get the new values from the UI
+        try:
+            new_ww = float(dpg.get_value("info_window"))
+            new_wl = float(dpg.get_value("info_level"))
+        except ValueError:
+            # If the user typed something invalid (like letters), do nothing or reset
+            return
+
+        # Update the ImageModel
+        context_viewer.update_window_level(max(1.0, new_ww), new_wl)
+
+    def on_image_viewer_toggle(self, sender, value, user_data):
         img_id = user_data["img_id"]
         v_tag = user_data["v_tag"]
         viewer = self.viewers[v_tag]
