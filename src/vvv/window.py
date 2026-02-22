@@ -70,14 +70,10 @@ class MainWindow:
         if button == dpg.mvMouseButton_Left:
             # Set the drag viewer to lock interaction to this quadrant
             self.drag_viewer = self.get_hovered_viewer()
-            if self.drag_viewer and not dpg.is_key_down(dpg.mvKey_LShift) and not dpg.is_key_down(dpg.mvKey_LControl):
-                # self.drag_viewer.sync_other_views()
-                # Force an immediate coordinate calculation for the click position
+            if self.drag_viewer:
                 self.drag_viewer.update_overlay()
-
-                # Update the sidebar immediately on click
-                self.drag_viewer.update_sidebar_crosshair()
                 self.drag_viewer.update_sidebar_info()
+                self.drag_viewer.update_sidebar_crosshair()
                 self.context_viewer = self.drag_viewer
 
                 # Sync other views if no modifiers are held
@@ -91,11 +87,6 @@ class MainWindow:
 
     def on_global_release(self):
         if self.drag_viewer:
-            # update the crosshair coord for other viewers of the same image
-            for v in self.controller.viewers.values():
-                if v.current_image_id == self.drag_viewer.current_image_id:
-                    v.update_crosshair_position(self.drag_viewer)
-            # Finalize sidebar data when the user lets go
             self.drag_viewer.update_sidebar_crosshair()
             self.drag_viewer.update_sidebar_info()
 
@@ -108,14 +99,10 @@ class MainWindow:
         """Updates sidebar context on hover and refreshes on-image overlays."""
         hover_viewer = self.get_hovered_viewer()
 
-        # Context Switch: Mouse moved to a different quadrant while not dragging
+        # Context Switch logic based on ViewState
         if hover_viewer and hover_viewer != self.context_viewer and not self.drag_viewer:
-            # Restore the specific metadata for this image
             hover_viewer.update_sidebar_info()
-
-            # Restore the LAST KNOWN crosshair position/value for this specific viewer
             hover_viewer.update_sidebar_crosshair()
-
             self.context_viewer = hover_viewer
 
         # Always refresh the on-image text/crosshairs for all viewers

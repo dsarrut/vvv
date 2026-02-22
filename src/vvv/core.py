@@ -30,7 +30,7 @@ class ImageModel:
         self.interpolation_linear = False
         # Grid mode
         self.grid_mode = False
-        # current voxel information under the crosshair
+        # current voxel information under the crosshair (Stored in model for cross-viewer persistence)
         self.crosshair_phys_coord = None
         self.crosshair_pixel_coord = None
         self.crosshair_pixel_value = None
@@ -95,6 +95,33 @@ class ImageModel:
         phys = (voxel * self.spacing) + self.origin - self.spacing / 2
         return phys
 
+class ViewState:
+    """Holds the visualization state for a specific view of an image."""
+    def __init__(self, image_model):
+        self.image = image_model
+        # Use a dict for slices to handle all orientations independently
+        self.slices = {
+            "Axial": image_model.data.shape[0] // 2,
+            "Sagittal": image_model.data.shape[2] // 2,
+            "Coronal": image_model.data.shape[1] // 2
+        }
+        self.pan = {"Axial": [0,0], "Sagittal": [0,0], "Coronal": [0,0]}
+
+    # Properties redirecting to ImageModel for shared values
+    @property
+    def zoom(self): return self.image.zoom
+    @zoom.setter
+    def zoom(self, val): self.image.zoom = val
+
+    @property
+    def ww(self): return self.image.ww
+    @ww.setter
+    def ww(self, val): self.image.ww = val
+
+    @property
+    def wl(self): return self.image.wl
+    @wl.setter
+    def wl(self, val): self.image.wl = val
 
 class Controller:
     """The central manager."""
@@ -140,8 +167,6 @@ class Controller:
             self.viewers["V4"].set_orientation("Axial")
 
     def on_sidebar_wl_change(self):
-        # Identify which viewer is currently controlling the sidebar
-        # We use the context_viewer we defined in MainWindow
         context_viewer = self.main_windows.context_viewer
         if not context_viewer or context_viewer.current_image_id is None:
             return
@@ -167,7 +192,6 @@ class Controller:
         for img_id, img_model in self.images.items():
             with dpg.group(parent=container):
                 with dpg.group(horizontal=True):
-                    # Image name
                     dpg.add_text(f"{img_model.name}")
 
                 with dpg.group(horizontal=True):
@@ -175,7 +199,6 @@ class Controller:
                     for v_tag in ["V1", "V2", "V3", "V4"]:
                         # Check if this image is currently in this viewer
                         is_active = self.viewers[v_tag].current_image_id == img_id
-
                         dpg.add_checkbox(
                             label="",
                             default_value=is_active,
