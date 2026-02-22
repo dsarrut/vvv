@@ -169,14 +169,21 @@ class MainGUI:
             with dpg.drawlist(tag=f"drawlist_{tag}", width=-1, height=-1):
                 dpg.draw_image(viewer.texture_tag, [0, 0], [1, 1], tag=viewer.image_tag)
 
-                # Draw nodes for layers
+                # Draw nodes for strips (double buffering to avoid flickering)
                 dpg.add_draw_node(tag=viewer.strips_a_tag)
                 dpg.add_draw_node(tag=viewer.strips_b_tag)
                 viewer.active_strips_node = viewer.strips_a_tag
 
+                # Draw nodes for grid (double buffering to avoid flickering)
                 dpg.add_draw_node(tag=viewer.grid_a_tag)
                 dpg.add_draw_node(tag=viewer.grid_b_tag)
                 viewer.active_grid_node = viewer.grid_a_tag
+
+                # Draw nodes for axis (double buffering to avoid flickering)
+                dpg.add_draw_node(tag=viewer.axis_a_tag)
+                dpg.add_draw_node(tag=viewer.axis_b_tag)
+                viewer.axes_nodes = [viewer.axis_a_tag, viewer.axis_b_tag]
+                viewer.active_axes_idx = 0
 
                 dpg.add_draw_node(tag=viewer.crosshair_tag)
 
