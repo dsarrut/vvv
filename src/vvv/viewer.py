@@ -48,10 +48,6 @@ class SliceViewer:
         self.mouse_phys_coord = None
         self.mouse_pixel_coord = None
         self.mouse_pixel_value = None
-        # current voxel information under the crosshair
-        self.crosshair_phys_coord = None
-        self.crosshair_pixel_coord = None
-        self.crosshair_pixel_value = None
 
         # Initialize a default small texture; will be recreated on image load
         with dpg.texture_registry():
@@ -92,6 +88,7 @@ class SliceViewer:
         self.current_image_model = self.controller.images[self.current_image_id]
         img = self.current_image_model
 
+        print(f'set_image called {self.tag} {img_id}')
         # Initialize the slice index in the middle if it's the first time for this orientation
         if self.slice_indices[self.orientation] is None:
             if self.orientation == "Axial":
@@ -100,6 +97,27 @@ class SliceViewer:
                 self.slice_idx = img.data.shape[2] // 2
             elif self.orientation == "Coronal":
                 self.slice_idx = img.data.shape[1] // 2
+
+        # Handle Crosshair Persistence
+        # If the crosshair_pixel_coord (3D voxel) already exists, use it to update the 2D view
+        if img.crosshair_pixel_coord is not None:
+            # If the image already has a crosshair, position the viewer on it
+            vx, vy, vz = img.crosshair_pixel_coord
+            #print("should set crosshair")
+            # Sync the viewer's slice index to the image's stored crosshair
+            if self.orientation == "Axial":
+                self.slice_idx = int(vz)
+            elif self.orientation == "Sagittal":
+                self.slice_idx = int(vx)
+            else:  # Coronal
+                self.slice_idx = int(vy)
+            self.reposition_crosshair_from_3d()
+            #self.draw_crosshair(self.crosshair_pixel_coord[0], self.crosshair_pixel_coord[1])
+        else:
+            # Otherwise, default to the center of the current 2D slice
+            _, shape = img.get_slice_rgba(self.slice_idx, self.orientation)
+            h, w = shape[0], shape[1]
+            self.draw_crosshair(w // 2, h // 2)
 
         # Get shape based on orientation
         # Expecting img.get_slice_rgba to return (flattened_data, (height, width))
@@ -132,6 +150,31 @@ class SliceViewer:
 
         self.update_sidebar_info()
         self.update_render()
+
+
+    def reposition_crosshair_from_3d(self):
+        print('reposition_crosshair_from_3d called')
+        """Maps the stored 3D voxel coordinate to the current 2D orientation."""
+        img_model = self.current_image_model
+        if img_model.crosshair_pixel_coord is None or self.current_image_id is None:
+            return
+
+        vx, vy, vz = self.current_image_model.crosshair_pixel_coord
+        _, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
+        real_h, real_w = shape[0], shape[1]
+
+        # Map 3D -> 2D based on current orientation logic
+        if self.orientation == "Axial":
+            tx, ty = vx, vy
+        elif self.orientation == "Sagittal":
+            # Matches logic in sync_other_views: Sagittal x is real_w - pix_x
+            tx, ty = real_w - vy, real_h - vz
+        else:  # Coronal
+            tx, ty = vx, real_h - vz
+
+        print('reposition_crosshair_from_3d: tx, ty =', tx, ty)
+        self.draw_crosshair(tx, ty)
+        #self.sync_other_views()
 
     def set_orientation(self, orientation):
         self.orientation = orientation
@@ -343,13 +386,49 @@ class SliceViewer:
         if not dpg.does_item_exist(node_tag): return
         dpg.delete_item(node_tag, children_only=True)
 
-        pmin = self.current_pmin
-        pmax = self.current_pmax
-        disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
-
         img_model = self.controller.images[self.current_image_id]
         _, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
         real_h, real_w = shape[0], shape[1]
+
+        '''if self.orientation == "Axial":
+            img_model.crosshair_pixel_coord = [pix_x, pix_y, self.slice_idx]
+        elif self.orientation == "Sagittal":
+            img_model.crosshair_pixel_coord = [self.slice_idx, real_w - pix_x, real_h - pix_y]
+        else:  # Coronal
+            img_model.crosshair_pixel_coord = [pix_x, self.slice_idx, real_h - pix_y]'''
+
+        # 1. Map 2D pixels back to 3D Voxel Indices (V_x, V_y, V_z)
+        # This is the "Source of Truth" for the crosshair
+        if self.orientation == "Axial":
+            v = [pix_x, pix_y, self.slice_idx]
+        elif self.orientation == "Sagittal":
+            v = [self.slice_idx, real_w - pix_x, real_h - pix_y]
+        else:  # Coronal
+            v = [pix_x, self.slice_idx, real_h - pix_y]
+
+        # 2. Save these to the ImageModel
+        img_model.crosshair_pixel_coord = v
+        img_model.crosshair_phys_coord = img_model.voxel_to_physic_coord(np.array(v))
+
+        # 3. Fetch the pixel value safely
+        ix, iy, iz = [int(np.clip(c, 0, limit - 1)) for c, limit in
+                      zip(v, [img_model.data.shape[2], img_model.data.shape[1], img_model.data.shape[0]])]
+        img_model.crosshair_pixel_value = img_model.data[iz, iy, ix]
+
+        """#img_model.crosshair_phys_coord = img_model.voxel_to_physic_coord(img_model.crosshair_pixel_coord)
+        #ix, iy, iz = int(img_model.crosshair_pixel_coord[0]), int(img_model.crosshair_pixel_coord[1]), int(img_model.crosshair_pixel_coord[2])
+        #img_model.crosshair_pixel_value = img_model.data[iz, iy, ix]
+        img_model.crosshair_phys_coord = self.mouse_phys_coord
+        img_model.crosshair_pixel_coord = self.mouse_pixel_coord
+        img_model.crosshair_pixel_value = self.mouse_pixel_value
+        print(f"update_crosshair_position called for image {self.current_image_id}")
+        print("phys coord:", img_model.crosshair_phys_coord, "pixel coord:",
+              img_model.crosshair_pixel_coord, "pixel value:",
+              img_model.crosshair_pixel_value)"""
+
+        pmin = self.current_pmin
+        pmax = self.current_pmax
+        disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
 
         # Map voxel back to screen-space within the drawlist
         screen_x = (pix_x / real_w) * disp_w + pmin[0]
@@ -358,6 +437,8 @@ class SliceViewer:
         color = [0, 246, 7, 180]  # Cyan
         dpg.draw_line([screen_x, pmin[1]], [screen_x, pmin[1] + disp_h], color=color, parent=node_tag)
         dpg.draw_line([pmin[0], screen_y], [pmin[0] + disp_w, screen_y], color=color, parent=node_tag)
+
+        self.update_sidebar_crosshair()
 
     def draw_voxels_as_strips(self, rgba_flat, h, w):
         # Determine which node is hidden (our back-buffer)
@@ -512,9 +593,14 @@ class SliceViewer:
             self.update_window_level(max(1, p_max - p_min), (p_max + p_min) / 2)
 
     def update_crosshair_position(self, viewer):
-        self.crosshair_pixel_coord = viewer.mouse_pixel_coord
+        print('update_crosshair_position called : NOTHING')
+        return
+        img = self.current_image_model
+        img_other = viewer.current_image_model
+        """self.crosshair_pixel_coord = viewer.mouse_pixel_coord
         self.crosshair_phys_coord = viewer.mouse_phys_coord
-        self.crosshair_pixel_value = viewer.mouse_pixel_value
+        self.crosshair_pixel_value = viewer.mouse_pixel_value"""
+        img.crosshair_pixel_coord = viewer.mouse_pixel_coord
 
     def update_render(self):
         if self.current_image_id is None:
@@ -615,10 +701,13 @@ class SliceViewer:
 
     def update_sidebar_crosshair(self):
         """Explicitly updates the sidebar with current crosshair data."""
-        if self.crosshair_pixel_coord is not None and self.crosshair_phys_coord is not None:
-            dpg.set_value("info_vox", fmt(self.crosshair_pixel_coord, 1))
-            dpg.set_value("info_phys", fmt(self.crosshair_phys_coord, 1))
-            dpg.set_value("info_val", f"{self.crosshair_pixel_value:g}")
+        img = self.current_image_model
+        print(f"update_sidebar_crosshair called for image {self.current_image_id}")
+        if img.crosshair_pixel_coord is not None and img.crosshair_phys_coord is not None:
+            print(img.crosshair_phys_coord)
+            dpg.set_value("info_vox", fmt(img.crosshair_pixel_coord, 1))
+            dpg.set_value("info_phys", fmt(img.crosshair_phys_coord, 1))
+            dpg.set_value("info_val", f"{img.crosshair_pixel_value:g}")
 
     def update_sidebar_info(self):
         """Pushes static image metadata to the sidebar."""

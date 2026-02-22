@@ -72,15 +72,15 @@ class MainWindow:
             self.drag_viewer = self.get_hovered_viewer()
             if self.drag_viewer and not dpg.is_key_down(dpg.mvKey_LShift) and not dpg.is_key_down(dpg.mvKey_LControl):
                 # self.drag_viewer.sync_other_views()
-                # 2. Force an immediate coordinate calculation for the click position
+                # Force an immediate coordinate calculation for the click position
                 self.drag_viewer.update_overlay()
 
-                # 3. Update the sidebar immediately on click
+                # Update the sidebar immediately on click
                 self.drag_viewer.update_sidebar_crosshair()
                 self.drag_viewer.update_sidebar_info()
                 self.context_viewer = self.drag_viewer
 
-                # 4. Sync other views if no modifiers are held
+                # Sync other views if no modifiers are held
                 if not dpg.is_key_down(dpg.mvKey_LShift) and not dpg.is_key_down(dpg.mvKey_LControl):
                     self.drag_viewer.sync_other_views()
 

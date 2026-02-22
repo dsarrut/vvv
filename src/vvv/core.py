@@ -30,6 +30,10 @@ class ImageModel:
         self.interpolation_linear = False
         # Grid mode
         self.grid_mode = False
+        # current voxel information under the crosshair
+        self.crosshair_phys_coord = None
+        self.crosshair_pixel_coord = None
+        self.crosshair_pixel_value = None
 
     def get_orientation_str(self, orientation):
         if orientation == "Axial":
@@ -39,6 +43,15 @@ class ImageModel:
         return "+X -Z (Y)"
 
     def get_slice_rgba(self, slice_idx, orientation="Axial"):
+
+        if slice_idx is None:
+            if orientation == "Axial":
+                slice_idx = self.data.shape[0] // 2
+            elif orientation == "Sagittal":
+                slice_idx = self.data.shape[2] // 2
+            else:
+                slice_idx = self.data.shape[1] // 2
+
         """Extracts a slice with corrected orientations for vv parity."""
         if orientation == "Axial":
             max_s = self.data.shape[0] - 1
@@ -234,6 +247,13 @@ class Controller:
 
             # Delete from the data dictionary
             del self.images[img_id]
+
+            # If there are other images, fill the empty viewers with the first one
+            if self.images:
+                first_img_id = next(iter(self.images))
+                for viewer in self.viewers.values():
+                    if viewer.current_image_id is None:
+                        viewer.set_image(first_img_id)
 
             # Refresh the UI list
             self.refresh_image_list_ui()
