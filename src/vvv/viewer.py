@@ -402,7 +402,7 @@ class SliceViewer:
         dpg.set_item_pos(self.overlay_tag, [5, win_h - (ts[1] if ts[1] > 0 else 60) - 5])
 
     def update_window_level(self, ww, wl):
-        self.view_state.ww, self.view_state.wl = ww, wl
+        self.image_model.ww, self.image_model.wl = ww, wl
         self.update_sidebar_window_level()
         self.controller.update_all_viewers_of_image(self.image_id)
 
@@ -434,7 +434,17 @@ class SliceViewer:
         dpg.set_value("info_level", f"{self.image_model.wl:g}")
 
     def on_key_press(self, key):
-        if key == dpg.mvKey_I:
+        if key == dpg.mvKey_W:
+            self.apply_local_auto_window()
+        elif key == dpg.mvKey_Up:
+            self.on_scroll(1)
+        elif key == dpg.mvKey_Down:
+            self.on_scroll(-1)
+        elif key == 517: # page up
+            self.on_scroll(10)
+        elif key == 518: # page down
+            self.on_scroll(-10)
+        elif key == dpg.mvKey_I:
             self.on_zoom("in")
         elif key == dpg.mvKey_O:
             self.on_zoom("out")
@@ -447,8 +457,6 @@ class SliceViewer:
             self.set_orientation("Sagittal")
         elif key == dpg.mvKey_F3:
             self.set_orientation("Coronal")
-        elif key == dpg.mvKey_W:
-            self.apply_local_auto_window()
         elif key == dpg.mvKey_L:
             self.image_model.interpolation_linear = not self.image_model.interpolation_linear
             for v in self.controller.viewers.values(): v.update_render()
@@ -456,9 +464,9 @@ class SliceViewer:
             self.image_model.grid_mode = not self.image_model.grid_mode
             for v in self.controller.viewers.values(): v.update_render()
 
-    def on_scroll(self, delta):
+    def on_scroll(self, delta=1):
         if self.image_id is None: return
-        inc = 1 if delta > 0 else -1
+        #inc = 1 if delta > 0 else -1
         img = self.image_model
         if self.orientation == "Axial":
             max_s = img.data.shape[0] - 1
@@ -466,7 +474,7 @@ class SliceViewer:
             max_s = img.data.shape[2] - 1
         else:
             max_s = img.data.shape[1] - 1
-        self.slice_idx = np.clip(self.slice_idx + inc, 0, max_s)
+        self.slice_idx = np.clip(self.slice_idx + delta, 0, max_s)
         self.update_render()
 
     def on_drag(self, data):
