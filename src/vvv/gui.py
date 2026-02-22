@@ -12,12 +12,12 @@ class MainGUI:
         self.icon_font = None
 
         # Setup resources and UI
-        self._load_resources()
-        self._setup_themes()
-        self._create_layout()
-        self._register_handlers()
+        self.load_resources()
+        self.setup_themes()
+        self.create_layout()
+        self.register_handlers()
 
-    def _load_resources(self):
+    def load_resources(self):
         """Loads fonts and other external resources."""
         current_dir = os.path.dirname(__file__)
         font_path = os.path.join(current_dir, "fonts", "Font Awesome 7 Free-Solid-900.otf")
@@ -31,7 +31,7 @@ class MainGUI:
                 dpg.add_font_range(0xf00d, 0xf021)
                 dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
 
-    def _setup_themes(self):
+    def setup_themes(self):
         """Defines and binds themes for various UI components."""
         # Viewer Theme
         with dpg.theme(tag="viewer_theme"):
@@ -63,9 +63,9 @@ class MainGUI:
                 dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 0)
                 dpg.add_theme_color(dpg.mvThemeCol_Text, [0, 246, 7])
 
-    def _create_layout(self):
+    def create_layout(self):
         """Builds the main window layout."""
-        self._create_menu_bar()
+        self.create_menu_bar()
 
         with dpg.window(tag="PrimaryWindow",
                         on_close=self.controller.main_windows.cleanup,
@@ -82,15 +82,15 @@ class MainGUI:
             dpg.bind_item_handler_registry("PrimaryWindow", "window_resize_handler")
 
             with dpg.group(horizontal=True):
-                self._create_left_panel()
-                self._create_viewer_grid()
+                self.create_left_panel()
+                self.create_viewer_grid()
 
         # Bind themes
         dpg.bind_item_theme("viewers_container", "viewer_theme")
         for tag in ["V1", "V2", "V3", "V4"]:
             dpg.bind_item_theme(f"win_{tag}", "viewer_theme")
 
-    def _create_menu_bar(self):
+    def create_menu_bar(self):
         """Creates the top menu bar."""
         with dpg.viewport_menu_bar():
             with dpg.menu(label="File"):
@@ -99,7 +99,7 @@ class MainGUI:
             with dpg.menu(label="Link"):
                 dpg.add_menu_item(label="Link All", callback=lambda: self.controller.link_all())
 
-    def _create_left_panel(self):
+    def create_left_panel(self):
         """Creates the sidebar with image list and info."""
         with dpg.child_window(width=self.controller.main_windows.side_panel_width,
                               tag="side_panel",
@@ -122,38 +122,38 @@ class MainGUI:
                 dpg.add_separator()
 
                 with dpg.group(tag="image_info_group"):
-                    self._create_labeled_field("", tag="info_name")
-                    self._create_labeled_field("Type", tag="info_voxel_type")
-                    self._create_labeled_field("Size", tag="info_size")
-                    self._create_labeled_field("Spacing", tag="info_spacing")
-                    self._create_labeled_field("Origin", tag="info_origin")
-                    self._create_labeled_field("Matrix", tag="info_matrix")
+                    self.create_labeled_field("", tag="info_name")
+                    self.create_labeled_field("Type", tag="info_voxel_type")
+                    self.create_labeled_field("Size", tag="info_size")
+                    self.create_labeled_field("Spacing", tag="info_spacing")
+                    self.create_labeled_field("Origin", tag="info_origin")
+                    self.create_labeled_field("Matrix", tag="info_matrix")
                     dpg.add_input_text(tag="info_memory", readonly=True, width=-1)
-                    self._create_window_level_controls()
+                    self.create_window_level_controls()
 
                 dpg.add_spacer(height=10)
                 dpg.add_text("Crosshair", color=[93, 93, 93])
                 dpg.add_separator()
 
                 with dpg.group(tag="image_crosshair_group"):
-                    self._create_labeled_field("Voxel", tag="info_vox")
-                    self._create_labeled_field("Coord", tag="info_phys")
-                    self._create_labeled_field("Value", tag="info_val")
+                    self.create_labeled_field("Voxel", tag="info_vox")
+                    self.create_labeled_field("Coord", tag="info_phys")
+                    self.create_labeled_field("Value", tag="info_val")
 
         dpg.bind_item_theme("image_info_group", "readonly_theme")
         dpg.bind_item_theme("image_crosshair_group", "readonly_theme")
 
-    def _create_viewer_grid(self):
+    def create_viewer_grid(self):
         """Creates the 2x2 grid of slice viewers."""
         with dpg.child_window(tag="viewers_container", border=False, no_scrollbar=True, no_scroll_with_mouse=True):
             with dpg.group(horizontal=True):
-                self._create_viewer_widget("V1")
-                self._create_viewer_widget("V2")
+                self.create_viewer_widget("V1")
+                self.create_viewer_widget("V2")
             with dpg.group(horizontal=True):
-                self._create_viewer_widget("V3")
-                self._create_viewer_widget("V4")
+                self.create_viewer_widget("V3")
+                self.create_viewer_widget("V4")
 
-    def _create_viewer_widget(self, tag):
+    def create_viewer_widget(self, tag):
         """Creates a single viewer widget."""
         viewer = self.controller.viewers[tag]
         with dpg.child_window(tag=f"win_{tag}", border=True, no_scrollbar=True, no_scroll_with_mouse=True):
@@ -173,14 +173,14 @@ class MainGUI:
 
             dpg.add_text("", tag=viewer.overlay_tag, color=[0, 246, 7], pos=[5, 5])
 
-    def _create_labeled_field(self, label, tag):
+    def create_labeled_field(self, label, tag):
         """Helper to create a labeled read-only input field."""
         with dpg.group(horizontal=True):
             # Always create the label tag, even if label text is empty
             dpg.add_text(f"{label}:" if label else "", tag=f"{tag}_label")
             dpg.add_input_text(tag=tag, readonly=True, width=-1)
 
-    def _create_window_level_controls(self):
+    def create_window_level_controls(self):
         """Creates the window and level input fields."""
         with dpg.group(horizontal=True):
             with dpg.group(horizontal=True):
@@ -193,7 +193,7 @@ class MainGUI:
                 dpg.add_input_text(tag="info_level", width=-1, on_enter=True,
                                    callback=lambda: self.controller.on_sidebar_wl_change())
 
-    def _register_handlers(self):
+    def register_handlers(self):
         """Registers global input handlers."""
         with dpg.handler_registry():
             dpg.add_mouse_wheel_handler(callback=lambda s, d: self.controller.main_windows.on_global_scroll(d))
@@ -209,7 +209,6 @@ class MainGUI:
         dpg.set_primary_window("PrimaryWindow", True)
 
         # --- MANUAL MAIN LOOP ---
-        self.controller.main_windows.on_window_resize()
         while dpg.is_dearpygui_running():
             # Update coordinate/pixel_value value probe
             self.controller.main_windows.update_overlays()
