@@ -209,6 +209,7 @@ class MainGUI:
         dpg.set_primary_window("PrimaryWindow", True)
 
         # --- MANUAL MAIN LOOP ---
+        self.controller.main_windows.on_window_resize()
         while dpg.is_dearpygui_running():
             # Update coordinate/pixel_value value probe
             self.controller.main_windows.update_overlays()

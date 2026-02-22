@@ -10,17 +10,22 @@ class ImageModel:
     def __init__(self, path):
         self.path = path
         self.name = os.path.basename(path)
-        # read and get the image data
+        # read the image
         self.sitk_image = sitk.ReadImage(path)
+        # raw pixel data : no copy between sitk and numpy
+        self.data = sitk.GetArrayViewFromImage(self.sitk_image).astype(np.float32)
+        # get some metadata
         self.pixel_type = self.sitk_image.GetPixelIDTypeAsString()
         self.bytes_per_component = self.sitk_image.GetSizeOfPixelComponent()
         self.num_components = self.sitk_image.GetNumberOfComponentsPerPixel()
         self.matrix = self.sitk_image.GetDirection()
-        self.data = sitk.GetArrayViewFromImage(self.sitk_image).astype(np.float32)
         self.spacing = np.array(self.sitk_image.GetSpacing())
         self.origin = np.array(self.sitk_image.GetOrigin())
         bytes_per_pixel = self.bytes_per_component * self.num_components
         self.memory_mb = self.sitk_image.GetNumberOfPixels() * bytes_per_pixel / (1024 * 1024)
+
+        # --- below is information shared among the viewers ---
+
         # Window/Level for this image
         self.ww = 2000
         self.wl = 270
@@ -30,12 +35,34 @@ class ImageModel:
         self.interpolation_linear = False
         # Grid mode
         self.grid_mode = False
-        # current voxel information under the crosshair (Stored in model for cross-viewer persistence)
+        # Current slices for all orientation (init to center)
+        print(self.data.shape)
+        self.slices = {
+            "Axial": self.data.shape[0] // 2,
+            "Sagittal": self.data.shape[1] // 2,
+            "Coronal": self.data.shape[2] // 2
+        }
+        # Current voxel information under the crosshair
         self.crosshair_phys_coord = None
         self.crosshair_pixel_coord = None
         self.crosshair_pixel_value = None
+        self.set_crosshair_to_slices()
+        # Current pan for all orientation
+        self.pan = {"Axial": [0, 0], "Sagittal": [0, 0], "Coronal": [0, 0]}
+
+    def set_crosshair_to_slices(self):
+        self.crosshair_pixel_coord = [self.slices["Coronal"], self.slices["Sagittal"], self.slices["Axial"]]
+        self.crosshair_phys_coord = self.voxel_coord_to_physic_coord(self.crosshair_pixel_coord)
+        ix,iy,iz = self.crosshair_pixel_coord
+        #print(v)
+        #ix, iy, iz = [int(np.clip(c, 0, limit - 1)) for c, limit in
+        #              zip(v, [self.data.shape[2], self.data.shape[1], self.data.shape[0]])]
+        #print(ix,iy,iz)
+        self.crosshair_pixel_value = self.data[ix,iy,iz]
+        #print(f"{self.crosshair_pixel_coord} {self.crosshair_phys_coord} {self.crosshair_pixel_value}")
 
     def get_orientation_str(self, orientation):
+        # FIXME to remove and change
         if orientation == "Axial":
             return "+X +Y (Z)"
         if orientation == "Sagittal":
@@ -43,14 +70,13 @@ class ImageModel:
         return "+X -Z (Y)"
 
     def get_slice_rgba(self, slice_idx, orientation="Axial"):
-
-        if slice_idx is None:
+        """if slice_idx is None:
             if orientation == "Axial":
                 slice_idx = self.data.shape[0] // 2
             elif orientation == "Sagittal":
                 slice_idx = self.data.shape[2] // 2
             else:
-                slice_idx = self.data.shape[1] // 2
+                slice_idx = self.data.shape[1] // 2"""
 
         """Extracts a slice with corrected orientations for vv parity."""
         if orientation == "Axial":
@@ -91,12 +117,14 @@ class ImageModel:
             # X and Z axes
             return dx, dz
 
-    def voxel_to_physic_coord(self, voxel):
+    def voxel_coord_to_physic_coord(self, voxel):
         phys = (voxel * self.spacing) + self.origin - self.spacing / 2
         return phys
 
-class ViewState:
+
+class ViewStateNOPE:
     """Holds the visualization state for a specific view of an image."""
+
     def __init__(self, image_model):
         self.image = image_model
         # Use a dict for slices to handle all orientations independently
@@ -105,23 +133,54 @@ class ViewState:
             "Sagittal": image_model.data.shape[2] // 2,
             "Coronal": image_model.data.shape[1] // 2
         }
-        self.pan = {"Axial": [0,0], "Sagittal": [0,0], "Coronal": [0,0]}
+        self.pan = {"Axial": [0, 0], "Sagittal": [0, 0], "Coronal": [0, 0]}
+        self.crosshair_phys_coord = image_model.crosshair_phys_coord
+        self.crosshair_pixel_coord = image_model.crosshair_pixel_coord
+        self.crosshair_pixel_value = image_model.crosshair_pixel_value
 
     # Properties redirecting to ImageModel for shared values
     @property
     def zoom(self): return self.image.zoom
+
     @zoom.setter
     def zoom(self, val): self.image.zoom = val
 
     @property
     def ww(self): return self.image.ww
+
     @ww.setter
     def ww(self, val): self.image.ww = val
 
     @property
     def wl(self): return self.image.wl
+
     @wl.setter
     def wl(self, val): self.image.wl = val
+
+    @property
+    def crosshair_pixel_coord(self):
+        return self.image.crosshair_pixel_coord
+
+    @crosshair_pixel_coord.setter
+    def crosshair_pixel_coord(self, val):
+        self.image.crosshair_pixel_coord = val
+
+    @property
+    def crosshair_pixel_value(self):
+        return self.image.crosshair_pixel_value
+
+    @crosshair_pixel_value.setter
+    def crosshair_pixel_value(self, val):
+        self.image.crosshair_pixel_value = val
+
+    @property
+    def crosshair_phys_coord(self):
+        return self.image.crosshair_phys_coord
+
+    @crosshair_phys_coord.setter
+    def crosshair_phys_coord(self, val):
+        self.image.crosshair_phys_coord = val
+
 
 class Controller:
     """The central manager."""
@@ -140,7 +199,7 @@ class Controller:
     def update_all_viewers_of_image(self, img_id):
         """Refresh every viewer currently displaying this specific image."""
         for viewer in self.viewers.values():
-            if viewer.current_image_id == img_id:
+            if viewer.image_id == img_id:
                 viewer.update_render()
 
     def default_viewers_orientation(self):
@@ -168,7 +227,7 @@ class Controller:
 
     def on_sidebar_wl_change(self):
         context_viewer = self.main_windows.context_viewer
-        if not context_viewer or context_viewer.current_image_id is None:
+        if not context_viewer or context_viewer.image_id is None:
             return
 
         # Get the new values from the UI
@@ -198,7 +257,7 @@ class Controller:
                     dpg.add_spacer(width=10)
                     for v_tag in ["V1", "V2", "V3", "V4"]:
                         # Check if this image is currently in this viewer
-                        is_active = self.viewers[v_tag].current_image_id == img_id
+                        is_active = self.viewers[v_tag].image_id == img_id
                         dpg.add_checkbox(
                             label="",
                             default_value=is_active,
@@ -231,7 +290,7 @@ class Controller:
         viewer = self.viewers[v_tag]
 
         # Rule: If the user tries to uncheck the active image, force it back to True
-        if not value and viewer.current_image_id == img_id:
+        if not value and viewer.image_id == img_id:
             dpg.set_value(sender, True)
             return
 
@@ -253,7 +312,7 @@ class Controller:
             # Refresh all viewers that were using this image
             self.update_all_viewers_of_image(img_id)
             # Update sidebar in case this was the active image
-            if self.main_windows.context_viewer and self.main_windows.context_viewer.current_image_id == img_id:
+            if self.main_windows.context_viewer and self.main_windows.context_viewer.image_id == img_id:
                 self.main_windows.context_viewer.update_sidebar_info()
 
     def close_image(self, img_id):
@@ -261,8 +320,8 @@ class Controller:
         if img_id in self.images:
             # Remove from any viewer currently displaying it
             for viewer in self.viewers.values():
-                if viewer.current_image_id == img_id:
-                    viewer.current_image_id = None
+                if viewer.image_id == img_id:
+                    viewer.image_id = None
                     # Clear the texture/render
                     if dpg.does_item_exist(viewer.image_tag):
                         dpg.configure_item(viewer.image_tag, show=False)
@@ -275,7 +334,7 @@ class Controller:
             if self.images:
                 first_img_id = next(iter(self.images))
                 for viewer in self.viewers.values():
-                    if viewer.current_image_id is None:
+                    if viewer.image_id is None:
                         viewer.set_image(first_img_id)
 
             # Refresh the UI list
