@@ -18,6 +18,8 @@ class SliceViewer:
         self.strips_b_tag = f"strips_node_B_{tag_id}"
         self.grid_a_tag = f"grid_node_A_{tag_id}"
         self.grid_b_tag = f"grid_node_B_{tag_id}"
+        self.axis_a_tag = f"axes_node_A_{tag_id}"
+        self.axis_b_tag = f"axes_node_B_{tag_id}"
         self.overlay_tag = f"overlay_{tag_id}"
         self.crosshair_tag = f"crosshair_node_{tag_id}"
         # --- GUI options ---
@@ -141,6 +143,18 @@ class SliceViewer:
 
         return (rel_x / disp_w) * w, (rel_y / disp_h) * h
 
+    def get_axis_labels(self):
+        """Returns (horizontal_axis, vertical_axis) and their directions."""
+        if self.orientation == "Axial":
+            # Horizontal is X (+), Vertical is Y (+)
+            return ("X", "Y"), (1, 1)
+        elif self.orientation == "Sagittal":
+            # Horizontal is Y (-), Vertical is Z (-)
+            return ("Y", "Z"), (-1, -1)
+        else:  # Coronal
+            # Horizontal is X (+), Vertical is Z (-)
+            return ("X", "Z"), (1, -1)
+
     def resize(self, quad_w, quad_h):
         if not dpg.does_item_exist(f"win_{self.tag}"): return
         dpg.set_item_width(f"win_{self.tag}", quad_w)
@@ -183,13 +197,13 @@ class SliceViewer:
         pix_x, pix_y = self.get_mouse_to_pixel_coords(ignore_hover=True)
         if pix_x is None: return
 
-        # 1. Update the state for the current image
+        # Update the state for the current image
         self.update_crosshair_data(pix_x, pix_y)
 
         img_model = self.image_model
         vx, vy, vz = img_model.crosshair_pixel_coord
 
-        # 2. Update and draw in all other viewers with the same image
+        # Update and draw in all other viewers with the same image
         for viewer in self.controller.viewers.values():
             if viewer.image_id == self.image_id:
                 # Update slice indices to match the 3D voxel
@@ -200,8 +214,8 @@ class SliceViewer:
                 elif viewer.orientation == "Coronal":
                     viewer.slice_idx = int(np.clip(vy, 0, img_model.data.shape[1] - 1))
 
-                viewer.draw_crosshair()  # also update the sidebar crosshair
                 viewer.update_render()
+                viewer.draw_crosshair()  # also update the sidebar crosshair
 
         self.controller.main_windows.on_window_resize()
 
@@ -288,6 +302,48 @@ class SliceViewer:
         if dpg.does_item_exist(self.active_strips_node): dpg.configure_item(self.active_strips_node, show=False)
         self.active_strips_node = back_node
 
+    def draw_orientation_axes(self):
+        # Determine which node is currently hidden (the "back" buffer)
+        back_idx = 1 - self.active_axes_idx
+        back_node = self.axes_nodes[back_idx]
+        front_node = self.axes_nodes[self.active_axes_idx]
+
+        # Clear only the back node
+        dpg.delete_item(back_node, children_only=True)
+
+        labels, directions = self.get_axis_labels()
+        axis_colors = {
+            "X": [255, 80, 80, 230],
+            "Y": [80, 255, 80, 230],
+            "Z": [80, 80, 255, 230]
+        }
+
+        origin = [12, 12]
+        length = 30
+        if directions[0] == -1:
+            origin[0] = 50
+        if directions[1] == -1:
+            origin[1] = 50
+
+        color_h = axis_colors[labels[0]]
+        color_v = axis_colors[labels[1]]
+        end_h = [origin[0] + (length * directions[0]), origin[1]]
+        end_v = [origin[0], origin[1] + (length * directions[1])]
+
+        # Draw to the BACK node
+        dpg.draw_arrow(end_h, origin, color=color_h, thickness=2, size=4, parent=back_node)
+        h_text_off = 5 if directions[0] > 0 else -18
+        dpg.draw_text([end_h[0] + h_text_off, end_h[1] - 7], labels[0], color=color_h, size=14, parent=back_node)
+
+        dpg.draw_arrow(end_v, origin, color=color_v, thickness=2, size=4, parent=back_node)
+        v_text_off = 5 if directions[1] > 0 else -18
+        dpg.draw_text([end_v[0] - 5, end_v[1] + v_text_off], labels[1], color=color_v, size=14, parent=back_node)
+
+        # --- THE SWAP ---
+        dpg.configure_item(back_node, show=True)
+        dpg.configure_item(front_node, show=False)
+        self.active_axes_idx = back_idx
+
     def should_use_voxels_strips(self):
         if not self.image_model or self.image_model.interpolation_linear: return False
         win_w, win_h = dpg.get_item_width(f"win_{self.tag}"), dpg.get_item_height(f"win_{self.tag}")
@@ -367,6 +423,9 @@ class SliceViewer:
             self.draw_voxel_grid(shape[0], shape[1])
         elif dpg.does_item_exist(self.active_grid_node):
             dpg.configure_item(self.active_grid_node, show=False)
+
+        # draw axes
+        self.draw_orientation_axes()
 
     def update_overlay(self):
         if self.image_id is None:
@@ -504,3 +563,4 @@ class SliceViewer:
         self.pan_offset[0] -= (rx * (ratio - 1)) - (dw / 2)
         self.pan_offset[1] -= (ry * (ratio - 1)) - (dh / 2)
         self.controller.main_windows.on_window_resize()
+        #self.sync_other_views() # ok for the crosshair, but a bit slow
