@@ -121,7 +121,7 @@ class MainGUI:
                               no_scrollbar=True,
                               no_scroll_with_mouse=True,
                               border=True):
-            dpg.add_spacer(height=3)
+            dpg.add_spacer(height=5)
             self.create_left_panel_top_part()
             dpg.add_spacer(height=5)
             self.create_left_panel_bottom_part()

@@ -10,9 +10,9 @@ requires-python = ">=3.9"
 dependencies = [
     "click",
     "SimpleITK",
-    "vtk",
+    "dearpygui",
     "numpy",
-    "PySide6",
+    #"PySide6",
     #"trame",
     #"trame-vuetify",
     #"trame-vtk"
