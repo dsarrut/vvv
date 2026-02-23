@@ -194,6 +194,9 @@ class SliceViewer:
         # Refresh the display (this will choose between Texture or Rectangles)
         self.update_render()
 
+        # refresh the crosshair (needed!)
+        self.draw_crosshair()
+
     def sync_other_views(self):
         if self.image_id is None: return
         pix_x, pix_y = self.get_mouse_to_pixel_coords(ignore_hover=True)

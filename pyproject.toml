@@ -12,10 +12,6 @@ dependencies = [
     "SimpleITK",
     "dearpygui",
     "numpy",
-    #"PySide6",
-    #"trame",
-    #"trame-vuetify",
-    #"trame-vtk"
 ]
 
 [project.scripts]
