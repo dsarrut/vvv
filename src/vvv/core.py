@@ -34,8 +34,6 @@ class ImageModel:
         self.zoom = 1.0
         # Interpolation mode
         self.interpolation_linear = False
-        # Grid mode
-        self.grid_mode = False
         # Current slices for all orientation (init to center)
         self.slices = {
             "Axial": self.data.shape[0] // 2,
@@ -49,6 +47,11 @@ class ImageModel:
         self.init_crosshair_to_slices()
         # Current pan for all orientation
         self.pan = {"Axial": [0, 0], "Sagittal": [0, 0], "Coronal": [0, 0]}
+        # options
+        self.grid_mode = False
+        self.show_axis = True
+        self.show_overlay = True
+        self.show_crosshair = True
 
     def read_image_metadata(self):
         self.pixel_type = self.sitk_image.GetPixelIDTypeAsString()
@@ -179,12 +182,7 @@ class Controller:
         """Refresh every viewer currently displaying this specific image."""
         for viewer in self.viewers.values():
             if viewer.image_id == img_id:
-                # recreate a viewer from scratch ?
-                # tag = viewer.tag
-                # self.viewers[tag] = SliceViewer(tag, self)
-                # viewer = self.viewers[tag]
-                # viewer.axes_nodes = [viewer.axis_a_tag, viewer.axis_b_tag]
-                # viewer.set_image(img_id)
+                viewer.draw_crosshair()
                 viewer.update_render()
 
     def refresh_image_list_ui(self):
@@ -305,3 +303,21 @@ class Controller:
 
             # Refresh the UI list
             self.refresh_image_list_ui()
+
+    def on_visibility_toggle(self, sender, value, user_data):
+        context_viewer = self.main_windows.context_viewer
+        if not context_viewer or not context_viewer.image_model:
+            return
+
+        model = context_viewer.image_model
+        if user_data == "axis":
+            model.show_axis = value
+        elif user_data == "grid":
+            model.grid_mode = value
+        elif user_data == "overlay":
+            model.show_overlay = value
+        elif user_data == "crosshair":
+            model.show_crosshair = value
+
+        # Refresh all viewers displaying this image
+        self.update_all_viewers_of_image(context_viewer.image_id)

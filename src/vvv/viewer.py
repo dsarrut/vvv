@@ -258,6 +258,10 @@ class SliceViewer:
             return
         dpg.delete_item(node_tag, children_only=True)
 
+        # Only draw if the model says so
+        if not self.image_model or not self.image_model.show_crosshair:
+            return
+
         img_model = self.image_model
         vx, vy, vz = img_model.crosshair_pixel_coord
         # FIXME why get slice here ?
@@ -429,11 +433,17 @@ class SliceViewer:
         elif dpg.does_item_exist(self.active_grid_node):
             dpg.configure_item(self.active_grid_node, show=False)
 
-        # draw axes
-        self.draw_orientation_axes()
+        # Axis visibility
+        if self.image_model.show_axis:
+            dpg.configure_item(self.axes_nodes[0], show=True)  # or call draw_orientation_axes()
+            dpg.configure_item(self.axes_nodes[1], show=True)
+            self.draw_orientation_axes()
+        else:
+            dpg.configure_item(self.axis_a_tag, show=False)
+            dpg.configure_item(self.axis_b_tag, show=False)
 
     def update_overlay(self):
-        if self.image_id is None:
+        if self.image_id is None or not self.image_model.show_overlay:
             dpg.set_value(self.overlay_tag, "")
             return
         pix_x, pix_y = self.get_mouse_to_pixel_coords()

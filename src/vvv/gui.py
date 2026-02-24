@@ -275,10 +275,36 @@ class MainGUI:
                 dpg.add_input_text(tag="info_window", width=70, on_enter=True,
                                    callback=lambda: self.controller.on_sidebar_wl_change())
             dpg.add_spacer(width=5)
+
             with dpg.group(horizontal=True):
                 dpg.add_text("Level")
                 dpg.add_input_text(tag="info_level", width=-1, on_enter=True,
                                    callback=lambda: self.controller.on_sidebar_wl_change())
+
+        # Visibility Toggles
+        with dpg.group(tag="visibility_controls"):
+            # Use a table with 2 columns to ensure perfect alignment
+            with dpg.table(header_row=False, policy=dpg.mvTable_SizingFixedFit):
+                dpg.add_table_column()
+                dpg.add_table_column()
+
+                # Row 1
+                with dpg.table_row():
+                    dpg.add_checkbox(label="Axis", tag="check_axis",
+                                     callback=self.controller.on_visibility_toggle,
+                                     user_data="axis", default_value=True)
+                    dpg.add_checkbox(label="Pixels grid", tag="check_grid",
+                                     callback=self.controller.on_visibility_toggle,
+                                     user_data="grid", default_value=False)
+
+                # Row 2
+                with dpg.table_row():
+                    dpg.add_checkbox(label="Tracker", tag="check_overlay",
+                                     callback=self.controller.on_visibility_toggle,
+                                     user_data="overlay", default_value=True)
+                    dpg.add_checkbox(label="Crosshair", tag="check_crosshair",
+                                     callback=self.controller.on_visibility_toggle,
+                                     user_data="crosshair", default_value=True)
 
     def register_handlers(self):
         """Registers global input handlers."""
