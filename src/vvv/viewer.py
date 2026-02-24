@@ -362,7 +362,8 @@ class SliceViewer:
         vox_w, vox_h = (pmax[0] - pmin[0]) / shape[1], (pmax[1] - pmin[1]) / shape[0]
         start_x, end_x = max(0, int(-pmin[0] / vox_w)), min(shape[1], int((win_w - pmin[0]) / vox_w) + 1)
         start_y, end_y = max(0, int(-pmin[1] / vox_h)), min(shape[0], int((win_h - pmin[1]) / vox_h) + 1)
-        return 0 < (end_x - start_x) * (end_y - start_y) < 1500
+        #return 0 < (end_x - start_x) * (end_y - start_y) < 1500
+        return 0 < (end_x - start_x) * (end_y - start_y) < 3000
 
     def apply_local_auto_window(self, search_radius=25):
         if self.image_id is None: return

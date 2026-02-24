@@ -290,7 +290,7 @@ class MainGUI:
 
                 # Row 1
                 with dpg.table_row():
-                    dpg.add_checkbox(label="Axis", tag="check_axis",
+                    dpg.add_checkbox(label="Slice axis", tag="check_axis",
                                      callback=self.controller.on_visibility_toggle,
                                      user_data="axis", default_value=True)
                     dpg.add_checkbox(label="Pixels grid", tag="check_grid",
@@ -299,7 +299,7 @@ class MainGUI:
 
                 # Row 2
                 with dpg.table_row():
-                    dpg.add_checkbox(label="Tracker", tag="check_overlay",
+                    dpg.add_checkbox(label="Mouse tracker", tag="check_overlay",
                                      callback=self.controller.on_visibility_toggle,
                                      user_data="overlay", default_value=True)
                     dpg.add_checkbox(label="Crosshair", tag="check_crosshair",
