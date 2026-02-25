@@ -530,12 +530,38 @@ class SliceViewer:
             self.set_orientation("Sagittal")
         elif key == dpg.mvKey_F3:
             self.set_orientation("Coronal")
-        elif key == dpg.mvKey_L:
+        elif key == dpg.mvKey_L: # FIXME to remove
             self.image_model.interpolation_linear = not self.image_model.interpolation_linear
-            for v in self.controller.viewers.values(): v.update_render()
+            for v in self.controller.viewers.values():
+                v.update_render()
         elif key == dpg.mvKey_G:
             self.image_model.grid_mode = not self.image_model.grid_mode
-            for v in self.controller.viewers.values(): v.update_render()
+            for v in self.controller.viewers.values():
+                v.update_render()
+        elif key == dpg.mvKey_H:
+            self.hide_everything()
+
+    def hide_everything(self):
+        # Determine the new state (Toggle logic)
+        # If the crosshair is currently shown, we hide everything. Otherwise, show.
+        new_state = not self.image_model.show_crosshair
+
+        # Update the ImageModel data
+        img = self.image_model
+        img.show_axis = new_state
+        img.show_crosshair = new_state
+        img.show_overlay = new_state
+        img.grid_mode = False
+
+        # Synchronize the GUI checkboxes
+        # We use the tags defined in your MainGUI.create_window_level_controls
+        dpg.set_value("check_axis", new_state)
+        dpg.set_value("check_crosshair", new_state)
+        dpg.set_value("check_overlay", new_state)
+        dpg.set_value("check_grid", False)
+
+        # Refresh all viewers using this image to reflect changes
+        self.controller.update_all_viewers_of_image(self.image_id)
 
     def on_scroll(self, delta=1):
         if self.image_id is None: return
