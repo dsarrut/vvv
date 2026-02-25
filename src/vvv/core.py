@@ -2,7 +2,11 @@ import SimpleITK as sitk
 import numpy as np
 import os
 import dearpygui.dearpygui as dpg
-
+from pathlib import Path
+import copy
+import json
+import threading
+import time
 
 class ImageModel:
     """Store the image data and its properties."""
@@ -11,7 +15,6 @@ class ImageModel:
         self.path = path
         self.name = os.path.basename(path)
         # read the image
-        print(f"reading image: {path}")
         self.sitk_image = sitk.ReadImage(path)
         # raw pixel data : no copy between sitk and numpy
         self.data = sitk.GetArrayViewFromImage(self.sitk_image).astype(np.float32)
@@ -68,14 +71,6 @@ class ImageModel:
         self.crosshair_phys_coord = self.voxel_coord_to_physic_coord(self.crosshair_pixel_coord)
         ix, iy, iz = self.crosshair_pixel_coord
         self.crosshair_pixel_value = self.data[iz, iy, ix]
-
-    def get_orientation_str(self, orientation):
-        # FIXME to remove and change
-        if orientation == "Axial":
-            return "+X +Y (Z)"
-        if orientation == "Sagittal":
-            return "-Y -Z (X)"
-        return "+X -Z (Y)"
 
     def get_slice_rgba(self, slice_idx, orientation="Axial"):
         """Extracts a slice with corrected orientations for vv parity."""
@@ -148,6 +143,7 @@ class Controller:
         self.main_windows = None
         self.images = {}  # { "id": ImageModel }
         self.viewers = {}  # { "id": SliceViewer } access by tag (V1, V2, etc)
+        self.settings = SettingsManager()
 
     def default_viewers_orientation(self):
         n = len(self.images)
@@ -184,6 +180,50 @@ class Controller:
             if viewer.image_id == img_id:
                 viewer.draw_crosshair()
                 viewer.update_render()
+
+    def update_setting(self, keys, value):
+        if not keys or keys[-1] is None:
+            print(f"DEBUG: Blocked update with keys {keys}")
+            return
+
+        # Update internal dict
+        d = self.settings.data
+        for key in keys[:-1]:
+            d = d[key]
+
+        # Handle the color conversion (0.0-1.0 float to 0-255 int)
+        if keys[0] == "colors" and isinstance(value, (list, tuple)):
+            # Check if the first element is a float to determine scaling
+            if any(isinstance(x, float) for x in value):
+                value = [int(x * 255) for x in value]
+            else:
+                value = [int(x) for x in value]
+
+        d[keys[-1]] = value
+
+        # Refresh visuals
+        for viewer in self.viewers.values():
+            viewer.update_render()
+            if viewer.image_id:
+                viewer.draw_crosshair()
+
+    def reset_settings(self):
+        self.settings.reset()
+        data = self.settings.data
+
+        # Reset Physics inputs
+        dpg.set_value("set_search_radius", data["physics"]["search_radius"])
+        dpg.set_value("set_strip_threshold", data["physics"]["voxel_strip_threshold"])
+
+        # Programmatically reset all color pickers
+        for key, value in data["colors"].items():
+            tag = f"set_col_{key}"
+            if dpg.does_item_exist(tag):
+                dpg.set_value(tag, value)
+
+        # Refresh viewers to apply the default colors immediately
+        for viewer in self.viewers.values():
+            viewer.update_render()
 
     def refresh_image_list_ui(self):
         container = "image_list_container"
@@ -228,40 +268,22 @@ class Controller:
                     if dpg.does_item_exist("icon_button_theme"):
                         dpg.bind_item_theme(btn_reload, "icon_button_theme")
 
-    def on_sidebar_wl_change(self):
-        context_viewer = self.main_windows.context_viewer
-        if not context_viewer or context_viewer.image_id is None:
-            return
+    def save_settings_with_hint(self):
+        # 1. Perform the save and get the path
+        path = self.settings.save()
 
-        # Get the new values from the UI
-        try:
-            new_ww = float(dpg.get_value("info_window"))
-            new_wl = float(dpg.get_value("info_level"))
-        except ValueError:
-            # If the user typed something invalid (like letters), do nothing or reset
-            return
+        # 2. Update the UI text
+        hint_msg = f"Saved in: {path}"
+        dpg.set_value("save_status_text", hint_msg)
 
-        # Update the ImageModel
-        context_viewer.update_window_level(max(1.0, new_ww), new_wl)
+        # 3. Optional: Clear the message after 3 seconds using a thread
+        # (So the UI doesn't freeze)
+        def clear_hint():
+            time.sleep(3.0)
+            if dpg.does_item_exist("save_status_text"):
+                dpg.set_value("save_status_text", "")
 
-    def on_image_viewer_toggle(self, sender, value, user_data):
-        img_id = user_data["img_id"]
-        v_tag = user_data["v_tag"]
-        viewer = self.viewers[v_tag]
-
-        # Rule: If the user tries to uncheck the active image, force it back to True
-        if not value and viewer.image_id == img_id:
-            dpg.set_value(sender, True)
-            return
-
-        if value:  # Checkbox checked
-            viewer.set_image(img_id)
-            # Update the sidebar info to reflect the newly selected image
-            viewer.update_sidebar_info()
-
-        # Refresh UI to ensure only one image is checked per viewer row if desired,
-        # or to keep the checkboxes in sync with the state.
-        self.refresh_image_list_ui()
+        threading.Thread(target=clear_hint, daemon=True).start()
 
     def reload_image(self, img_id):
         """Re-reads the image file from the original path."""
@@ -304,6 +326,41 @@ class Controller:
             # Refresh the UI list
             self.refresh_image_list_ui()
 
+    def on_sidebar_wl_change(self):
+        context_viewer = self.main_windows.context_viewer
+        if not context_viewer or context_viewer.image_id is None:
+            return
+
+        # Get the new values from the UI
+        try:
+            new_ww = float(dpg.get_value("info_window"))
+            new_wl = float(dpg.get_value("info_level"))
+        except ValueError:
+            # If the user typed something invalid (like letters), do nothing or reset
+            return
+
+        # Update the ImageModel
+        context_viewer.update_window_level(max(1.0, new_ww), new_wl)
+
+    def on_image_viewer_toggle(self, sender, value, user_data):
+        img_id = user_data["img_id"]
+        v_tag = user_data["v_tag"]
+        viewer = self.viewers[v_tag]
+
+        # Rule: If the user tries to uncheck the active image, force it back to True
+        if not value and viewer.image_id == img_id:
+            dpg.set_value(sender, True)
+            return
+
+        if value:  # Checkbox checked
+            viewer.set_image(img_id)
+            # Update the sidebar info to reflect the newly selected image
+            viewer.update_sidebar_info()
+
+        # Refresh UI to ensure only one image is checked per viewer row if desired,
+        # or to keep the checkboxes in sync with the state.
+        self.refresh_image_list_ui()
+
     def on_visibility_toggle(self, sender, value, user_data):
         context_viewer = self.main_windows.context_viewer
         if not context_viewer or not context_viewer.image_model:
@@ -321,3 +378,50 @@ class Controller:
 
         # Refresh all viewers displaying this image
         self.update_all_viewers_of_image(context_viewer.image_id)
+
+
+DEFAULT_SETTINGS = {
+    "colors": {
+        "crosshair": [0, 246, 7, 180],
+        "overlay_text": [0, 246, 7, 255],
+        "x": [255, 80, 80, 230],
+        "y": [80, 255, 80, 230],
+        "z": [80, 80, 255, 230],
+        "grid": [255, 255, 255, 40]
+    },
+    "physics": {
+        "search_radius": 25,
+        "voxel_strip_threshold": 1500
+    }
+}
+
+
+class SettingsManager:
+    def __init__(self):
+        # Platform-specific path
+        if os.name == 'nt':
+            self.config_dir = Path(os.getenv('APPDATA')) / "VVV"
+        else:
+            self.config_dir = Path.home() / ".config" / "vvv"
+
+        self.config_path = self.config_dir / ".vv_settings"
+        self.data = copy.deepcopy(DEFAULT_SETTINGS)
+        self.load()
+
+    def load(self):
+        if self.config_path.exists():
+            try:
+                with open(self.config_path, "r") as f:
+                    self.data.update(json.load(f))
+            except Exception as e:
+                print(f"Error loading settings: {e}")
+
+    def reset(self):
+        """Restores the data dictionary to default values."""
+        self.data = copy.deepcopy(DEFAULT_SETTINGS)
+
+    def save(self):
+        self.config_dir.mkdir(parents=True, exist_ok=True)
+        with open(self.config_path, "w") as f:
+            json.dump(self.data, f, indent=4)
+        return str(self.config_path)  # Return the path for the UI hint

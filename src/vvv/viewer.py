@@ -149,13 +149,13 @@ class SliceViewer:
         """Returns (horizontal_axis, vertical_axis) and their directions."""
         if self.orientation == "Axial":
             # Horizontal is X (+), Vertical is Y (+)
-            return ("X", "Y"), (1, 1)
+            return ("x", "y"), (1, 1)
         elif self.orientation == "Sagittal":
             # Horizontal is Y (-), Vertical is Z (-)
-            return ("Y", "Z"), (-1, -1)
+            return ("y", "z"), (-1, -1)
         else:  # Coronal
             # Horizontal is X (+), Vertical is Z (-)
-            return ("X", "Z"), (1, -1)
+            return ("x", "z"), (1, -1)
 
     def resize(self, quad_w, quad_h):
         if not dpg.does_item_exist(f"win_{self.tag}"): return
@@ -235,7 +235,7 @@ class SliceViewer:
 
         pmin, pmax = self.current_pmin, self.current_pmax
         vox_w, vox_h = (pmax[0] - pmin[0]) / w, (pmax[1] - pmin[1]) / h
-        color = [255, 255, 255, 40]
+        color = self.controller.settings.data["colors"]["grid"]
 
         # 1. Draw Vertical Lines (along the width)
         for x in range(w + 1):
@@ -281,7 +281,7 @@ class SliceViewer:
         screen_x = (tx / real_w) * disp_w + pmin[0]
         screen_y = (ty / real_h) * disp_h + pmin[1]
 
-        color = [0, 246, 7, 180]
+        color = self.controller.settings.data["colors"]["crosshair"]
         dpg.draw_line([screen_x, pmin[1]], [screen_x, pmin[1] + disp_h], color=color, parent=node_tag)
         dpg.draw_line([pmin[0], screen_y], [pmin[0] + disp_w, screen_y], color=color, parent=node_tag)
         self.update_sidebar_crosshair()
@@ -321,11 +321,7 @@ class SliceViewer:
         dpg.delete_item(back_node, children_only=True)
 
         labels, directions = self.get_axis_labels()
-        axis_colors = {
-            "X": [255, 80, 80, 230],
-            "Y": [80, 255, 80, 230],
-            "Z": [80, 80, 255, 230]
-        }
+        axis_colors = self.controller.settings.data["colors"]
 
         origin = [12, 12]
         length = 30
@@ -362,8 +358,8 @@ class SliceViewer:
         vox_w, vox_h = (pmax[0] - pmin[0]) / shape[1], (pmax[1] - pmin[1]) / shape[0]
         start_x, end_x = max(0, int(-pmin[0] / vox_w)), min(shape[1], int((win_w - pmin[0]) / vox_w) + 1)
         start_y, end_y = max(0, int(-pmin[1] / vox_h)), min(shape[0], int((win_h - pmin[1]) / vox_h) + 1)
-        #return 0 < (end_x - start_x) * (end_y - start_y) < 1500
-        return 0 < (end_x - start_x) * (end_y - start_y) < 3000
+        m = self.controller.settings.data['physics']['voxel_strip_threshold']
+        return 0 < (end_x - start_x) * (end_y - start_y) < m
 
     def apply_local_auto_window(self, search_radius=25):
         if self.image_id is None: return
@@ -464,6 +460,8 @@ class SliceViewer:
         phys = img_model.voxel_coord_to_physic_coord(v)
         ix, iy, iz = int(v[0]), int(v[1]), int(v[2])
         max_z, max_y, max_x = img_model.data.shape
+        col = self.controller.settings.data["colors"]["overlay_text"]
+        dpg.configure_item(self.overlay_tag, color=col)
         if 0 <= ix < max_x and 0 <= iy < max_y and 0 <= iz < max_z:
             val = img_model.data[iz, iy, ix]
             self.mouse_pixel_value, self.mouse_pixel_coord, self.mouse_phys_coord = val, v, phys
@@ -510,7 +508,7 @@ class SliceViewer:
 
     def on_key_press(self, key):
         if key == dpg.mvKey_W:
-            self.apply_local_auto_window()
+            self.apply_local_auto_window(search_radius=self.controller.settings.data["physics"]["search_radius"])
         elif key == dpg.mvKey_Up:
             self.on_scroll(1)
         elif key == dpg.mvKey_Down:
