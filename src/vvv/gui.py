@@ -1,7 +1,6 @@
 import dearpygui.dearpygui as dpg
 import os
-from functools import partial
-
+import time
 
 def create_labeled_field(label, tag):
     """Helper to create a labeled read-only input field."""
@@ -328,5 +327,6 @@ class MainGUI:
             self.controller.main_windows.update_overlays()
             # Standard DPG render call
             dpg.render_dearpygui_frame()
+            #time.sleep(0.005)
 
         dpg.destroy_context()
