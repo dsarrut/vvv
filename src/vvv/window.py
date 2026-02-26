@@ -71,6 +71,9 @@ class MainWindow:
             # Set the drag viewer to lock interaction to this quadrant
             self.drag_viewer = self.get_hovered_viewer()
             if self.drag_viewer:
+                print('here')
+                if self.drag_viewer.orientation == "Histogram":
+                    return
                 self.drag_viewer.update_overlay()
                 self.drag_viewer.update_sidebar_info()
                 self.drag_viewer.update_sidebar_crosshair()

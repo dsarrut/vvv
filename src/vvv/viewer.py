@@ -47,7 +47,9 @@ class SliceViewer:
 
     @property
     def slice_idx(self):
-        return self.image_model.slices[self.orientation] if self.image_model else None
+        if not self.image_model or self.orientation not in self.image_model.slices:
+            return 0  # Safe default for Histogram mode
+        return self.image_model.slices[self.orientation]
 
     @slice_idx.setter
     def slice_idx(self, value):
@@ -55,7 +57,9 @@ class SliceViewer:
 
     @property
     def pan_offset(self):
-        return self.image_model.pan[self.orientation] if self.image_model else [0, 0]
+        if not self.image_model or self.orientation not in self.image_model.pan:
+            return [0, 0]
+        return self.image_model.pan[self.orientation]
 
     @pan_offset.setter
     def pan_offset(self, value):
@@ -110,23 +114,31 @@ class SliceViewer:
 
     def init_slice_texture(self):
         """Manages dynamic texture creation for the image."""
+        if self.orientation == "Histogram":
+            return
+
         img = self.image_model
         _, shape = img.get_slice_rgba(self.slice_idx, self.orientation)
         h, w = shape[0], shape[1]
 
-        new_texture_tag = f"tex_{self.tag}_{self.orientation}_{w}x{h}"
+        # Create a unique tag per Viewer, Image, and Orientation
+        # This acts as a cache key
+        new_texture_tag = f"tex_{self.tag}_{self.image_id}_{self.orientation}_{w}x{h}"
 
+        # 1. Create it ONLY if it has never been created before
         if not dpg.does_item_exist(new_texture_tag):
+            print(f"Creating new texture: {new_texture_tag}")
             with dpg.texture_registry():
-                dpg.add_dynamic_texture(width=w, height=h, default_value=np.zeros(w * h * 4), tag=new_texture_tag)
+                dpg.add_dynamic_texture(width=w, height=h,
+                                        default_value=np.zeros(w * h * 4),
+                                        tag=new_texture_tag)
 
-        if self.texture_tag != new_texture_tag and dpg.does_item_exist(self.texture_tag):
-            if "Axial_1x1" not in self.texture_tag:
-                dpg.delete_item(self.texture_tag)
-
-        self.texture_tag = new_texture_tag
+        # 2. Switch the image primitive to this texture
         if dpg.does_item_exist(self.image_tag):
-            dpg.configure_item(self.image_tag, texture_tag=self.texture_tag)
+            dpg.configure_item(self.image_tag, texture_tag=new_texture_tag)
+
+        # 3. Simply update our reference without deleting anything
+        self.texture_tag = new_texture_tag
 
     def get_mouse_to_pixel_coords(self, ignore_hover=False):
         if not self.image_id: return None, None
@@ -167,6 +179,9 @@ class SliceViewer:
             dpg.set_item_height(f"drawlist_{self.tag}", quad_h)
 
         if self.image_id is None: return
+
+        if self.orientation == "Histogram":
+            return
 
         img = self.controller.images[self.image_id]
         _, shape = img.get_slice_rgba(self.slice_idx, self.orientation)
@@ -253,6 +268,8 @@ class SliceViewer:
 
     def draw_crosshair(self):
         """DRAWING: Render the crosshair lines based on the ImageModel state."""
+        if self.orientation == "Histogram":
+            return
         node_tag = self.crosshair_tag
         if not dpg.does_item_exist(node_tag) or self.image_model.crosshair_pixel_coord is None:
             return
@@ -312,6 +329,12 @@ class SliceViewer:
         self.active_strips_node = back_node
 
     def draw_orientation_axes(self):
+        if self.orientation == "Histogram":
+            # Hide axes if they were visible
+            if self.axes_nodes:
+                dpg.configure_item(self.axes_nodes[0], show=False)
+                dpg.configure_item(self.axes_nodes[1], show=False)
+            return
         # Determine which node is currently hidden (the "back" buffer)
         back_idx = 1 - self.active_axes_idx
         back_node = self.axes_nodes[back_idx]
@@ -348,6 +371,53 @@ class SliceViewer:
         dpg.configure_item(back_node, show=True)
         dpg.configure_item(front_node, show=False)
         self.active_axes_idx = back_idx
+
+    def draw_histogram_view(self):
+        img = self.image_model
+        plot_tag = f"plot_{self.tag}"
+
+        # Create the plot if it doesn't exist
+        if not dpg.does_item_exist(plot_tag):
+            # We place it inside the window, but OUTSIDE the drawlist
+            # to avoid coordinate confusion
+            with dpg.plot(label=f"Histogram: {img.name}", parent=f"win_{self.tag}",
+                          tag=plot_tag, width=-1, height=-1):
+                dpg.add_plot_axis(dpg.mvXAxis, label="Voxel Value", tag=f"x_axis_{self.tag}")
+                dpg.add_plot_axis(dpg.mvYAxis, label="Count", tag=f"y_axis_{self.tag}")
+                dpg.add_line_series([], [], label="Freq", parent=f"y_axis_{self.tag}", tag=f"series_{self.tag}")
+
+        # Ensure the plot is visible
+        dpg.configure_item(plot_tag, show=True)
+
+        # Update data
+        y_data = np.log10(img.hist_data_y + 1) if img.use_log_y else img.hist_data_y
+        dpg.set_value(f"series_{self.tag}", [img.hist_data_x.tolist(), y_data.tolist()])
+
+        # Auto-fit the axes on first load or data change
+        dpg.fit_axis_data(f"x_axis_{self.tag}")
+        dpg.fit_axis_data(f"y_axis_{self.tag}")
+
+    def hide_everything(self):
+        # Determine the new state (Toggle logic)
+        # If the crosshair is currently shown, we hide everything. Otherwise, show.
+        new_state = not self.image_model.show_crosshair
+
+        # Update the ImageModel data
+        img = self.image_model
+        img.show_axis = new_state
+        img.show_crosshair = new_state
+        img.show_overlay = new_state
+        img.grid_mode = False
+
+        # Synchronize the GUI checkboxes
+        # We use the tags defined in your MainGUI.create_window_level_controls
+        dpg.set_value("check_axis", new_state)
+        dpg.set_value("check_crosshair", new_state)
+        dpg.set_value("check_overlay", new_state)
+        dpg.set_value("check_grid", False)
+
+        # Refresh all viewers using this image to reflect changes
+        self.controller.update_all_viewers_of_image(self.image_id)
 
     def should_use_voxels_strips(self):
         if not self.image_model or self.image_model.interpolation_linear: return False
@@ -411,6 +481,23 @@ class SliceViewer:
         if self.image_id is None:
             return
 
+        drawlist_tag = f"drawlist_{self.tag}"
+        plot_tag = f"plot_{self.tag}"
+
+        if self.orientation == "Histogram":
+            # Hide the 2D image drawing area
+            if dpg.does_item_exist(drawlist_tag):
+                dpg.configure_item(drawlist_tag, show=False)
+            self.draw_histogram_view()
+            return
+        else:
+            # Show the 2D image drawing area
+            if dpg.does_item_exist(drawlist_tag):
+                dpg.configure_item(drawlist_tag, show=True)
+            # Hide the plot
+            if dpg.does_item_exist(plot_tag):
+                dpg.configure_item(plot_tag, show=False)
+
         # compute the slice texture
         img_model = self.image_model
         rgba_flat, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
@@ -440,7 +527,7 @@ class SliceViewer:
             dpg.configure_item(self.axis_b_tag, show=False)
 
     def update_overlay(self):
-        if self.image_id is None or not self.image_model.show_overlay:
+        if self.image_id is None or not self.image_model.show_overlay or self.orientation == "Histogram":
             dpg.set_value(self.overlay_tag, "")
             return
         pix_x, pix_y = self.get_mouse_to_pixel_coords()
@@ -530,6 +617,8 @@ class SliceViewer:
             self.set_orientation("Sagittal")
         elif key == dpg.mvKey_F3:
             self.set_orientation("Coronal")
+        elif key == dpg.mvKey_F4:
+            self.set_orientation("Histogram")
         elif key == dpg.mvKey_L: # FIXME to remove
             self.image_model.interpolation_linear = not self.image_model.interpolation_linear
             for v in self.controller.viewers.values():
@@ -541,30 +630,9 @@ class SliceViewer:
         elif key == dpg.mvKey_H:
             self.hide_everything()
 
-    def hide_everything(self):
-        # Determine the new state (Toggle logic)
-        # If the crosshair is currently shown, we hide everything. Otherwise, show.
-        new_state = not self.image_model.show_crosshair
-
-        # Update the ImageModel data
-        img = self.image_model
-        img.show_axis = new_state
-        img.show_crosshair = new_state
-        img.show_overlay = new_state
-        img.grid_mode = False
-
-        # Synchronize the GUI checkboxes
-        # We use the tags defined in your MainGUI.create_window_level_controls
-        dpg.set_value("check_axis", new_state)
-        dpg.set_value("check_crosshair", new_state)
-        dpg.set_value("check_overlay", new_state)
-        dpg.set_value("check_grid", False)
-
-        # Refresh all viewers using this image to reflect changes
-        self.controller.update_all_viewers_of_image(self.image_id)
-
     def on_scroll(self, delta=1):
-        if self.image_id is None: return
+        if self.image_id is None or self.orientation == "Histogram":
+            return  # Disable scrolling in histogram mode
         #inc = 1 if delta > 0 else -1
         img = self.image_model
         if self.orientation == "Axial":
@@ -577,7 +645,8 @@ class SliceViewer:
         self.update_render()
 
     def on_drag(self, data):
-        if self.image_id is None: return
+        if self.image_id is None or self.orientation == "Histogram":
+            return  # Disable pan/zoom/WL drag in histogram mode
         sx, sy = data[1] - self.last_dx, data[2] - self.last_dy
         self.last_dx, self.last_dy = data[1], data[2]
         is_ctrl, is_shift = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl), dpg.is_key_down(
