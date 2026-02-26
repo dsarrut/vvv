@@ -55,6 +55,12 @@ class ImageModel:
         self.show_axis = True
         self.show_overlay = True
         self.show_crosshair = True
+        # histogram
+        self.hist_data_x = []
+        self.hist_data_y = []
+        self.bin_width = 10.0
+        self.use_log_y = False
+        self.update_histogram()
 
     def read_image_metadata(self):
         self.pixel_type = self.sitk_image.GetPixelIDTypeAsString()
@@ -65,6 +71,17 @@ class ImageModel:
         self.origin = np.array(self.sitk_image.GetOrigin())
         bytes_per_pixel = self.bytes_per_component * self.num_components
         self.memory_mb = self.sitk_image.GetNumberOfPixels() * bytes_per_pixel / (1024 * 1024)
+
+    def update_histogram(self):
+        """Computes histogram for the entire 3D volume."""
+        flat_data = self.data.flatten()
+        # Filter out extreme values if necessary to keep the plot readable
+        min_v, max_v = np.min(flat_data), np.max(flat_data)
+        bins = np.arange(min_v, max_v + self.bin_width, self.bin_width)
+
+        hist, bin_edges = np.histogram(flat_data, bins=bins)
+        self.hist_data_y = hist.astype(np.float32)
+        self.hist_data_x = bin_edges[:-1].astype(np.float32)
 
     def init_crosshair_to_slices(self):
         self.crosshair_pixel_coord = [self.slices["Coronal"], self.slices["Sagittal"], self.slices["Axial"]]
