@@ -127,7 +127,6 @@ class SliceViewer:
 
         # 1. Create it ONLY if it has never been created before
         if not dpg.does_item_exist(new_texture_tag):
-            print(f"Creating new texture: {new_texture_tag}")
             with dpg.texture_registry():
                 dpg.add_dynamic_texture(width=w, height=h,
                                         default_value=np.zeros(w * h * 4),
@@ -169,7 +168,7 @@ class SliceViewer:
             # Horizontal is X (+), Vertical is Z (-)
             return ("x", "z"), (1, -1)
 
-    def resize(self, quad_w, quad_h):
+    def resize_initial(self, quad_w, quad_h):
         if not dpg.does_item_exist(f"win_{self.tag}"): return
         dpg.set_item_width(f"win_{self.tag}", quad_w)
         dpg.set_item_height(f"win_{self.tag}", quad_h)
@@ -212,6 +211,57 @@ class SliceViewer:
         # refresh the crosshair (needed!)
         self.draw_crosshair()
 
+    def resize(self, quad_w, quad_h):
+        if not dpg.does_item_exist(f"win_{self.tag}"): return
+        dpg.set_item_width(f"win_{self.tag}", quad_w)
+        dpg.set_item_height(f"win_{self.tag}", quad_h)
+
+        if dpg.does_item_exist(f"drawlist_{self.tag}"):
+            dpg.set_item_width(f"drawlist_{self.tag}", quad_w)
+            dpg.set_item_height(f"drawlist_{self.tag}", quad_h)
+
+        if self.image_id is None: return
+
+        if self.orientation == "Histogram":
+            return
+
+        img = self.image_model
+        #pix_h, pix_w = img.data.shape[0], img.data.shape[1]  # Simplify for logic
+
+        # 1. Get physical dimensions in mm
+        sw, sh = img.get_physical_aspect_ratio(self.orientation)
+        # Total mm width/height of the volume in this orientation
+        # Use actual slice shape which accounts for orientation flips
+        _, shape = img.get_slice_rgba(self.slice_idx, self.orientation)
+        mm_w, mm_h = shape[1] * sw, shape[0] * sh
+
+        # 2. Calculate a normalized "Base Scale"
+        # This scale makes the image fit the window perfectly at Zoom = 1.0
+        target_w, target_h = quad_w - self.margin_left, quad_h - self.margin_top
+        base_scale = min(target_w / mm_w, target_h / mm_h)
+
+        # 3. Apply the global zoom factor
+        # Since mm_w/mm_h are absolute physical units,
+        # 'base_scale * self.zoom' is now physically consistent across images.
+        final_scale = base_scale * self.zoom
+
+        new_w, new_h = int(mm_w * final_scale), int(mm_h * final_scale)
+
+        off_x = (target_w - new_w) // 2 + self.margin_left + self.pan_offset[0]
+        off_y = (target_h - new_h) // 2 + self.margin_top + self.pan_offset[1]
+
+        self.current_pmin = [off_x, off_y]
+        self.current_pmax = [off_x + new_w, off_y + new_h]
+
+        # Update the standard image primitive
+        if dpg.does_item_exist(self.image_tag):
+            dpg.configure_item(self.image_tag, pmin=self.current_pmin, pmax=self.current_pmax)
+
+        # Refresh the display (this will choose between Texture or Rectangles)
+        self.update_render()
+
+        # refresh the crosshair (needed!)
+        self.draw_crosshair()
     def sync_other_views(self):
         if self.image_id is None: return
         pix_x, pix_y = self.get_mouse_to_pixel_coords(ignore_hover=True)
@@ -301,7 +351,11 @@ class SliceViewer:
         color = self.controller.settings.data["colors"]["crosshair"]
         dpg.draw_line([screen_x, pmin[1]], [screen_x, pmin[1] + disp_h], color=color, parent=node_tag)
         dpg.draw_line([pmin[0], screen_y], [pmin[0] + disp_w, screen_y], color=color, parent=node_tag)
-        self.update_sidebar_crosshair()
+
+        # ONLY update the sidebar if this viewer is the one the user is looking at
+        if self.controller.main_windows.context_viewer == self:
+            self.update_sidebar_crosshair()
+        #self.update_sidebar_crosshair()
 
     def draw_voxels_as_strips(self, rgba_flat, h, w):
         node_a, node_b = self.strips_a_tag, self.strips_b_tag
@@ -661,6 +715,8 @@ class SliceViewer:
         elif is_shift and dpg.is_mouse_button_down(dpg.mvMouseButton_Left):
             self.update_window_level(max(1, self.image_model.ww + sx * 2), self.image_model.wl - sy * 2)
 
+        self.controller.propagate_sync(self.image_id)
+
     def on_zoom(self, direction):
         if self.image_id is None: return
         mx, my = dpg.get_drawing_mouse_pos()
@@ -674,4 +730,7 @@ class SliceViewer:
         self.pan_offset[0] -= (rx * (ratio - 1)) - (dw / 2)
         self.pan_offset[1] -= (ry * (ratio - 1)) - (dh / 2)
         self.controller.main_windows.on_window_resize()
+
         #self.sync_other_views() # ok for the crosshair, but a bit slow
+        self.controller.propagate_sync(self.image_id)
+        self.controller.main_windows.on_window_resize()

@@ -61,6 +61,8 @@ class ImageModel:
         self.bin_width = 10.0
         self.use_log_y = False
         self.update_histogram()
+        # synchro
+        self.sync_group = 0
 
     def read_image_metadata(self):
         self.pixel_type = self.sitk_image.GetPixelIDTypeAsString()
@@ -285,6 +287,30 @@ class Controller:
                     if dpg.does_item_exist("icon_button_theme"):
                         dpg.bind_item_theme(btn_reload, "icon_button_theme")
 
+        self.refresh_sync_ui()
+
+    def refresh_sync_ui(self):
+        container = "sync_list_container"
+        if not dpg.does_item_exist(container): return
+        dpg.delete_item(container, children_only=True)
+
+        # Table for alignment
+        with dpg.table(parent=container, header_row=False):
+            dpg.add_table_column(label="Image")
+            dpg.add_table_column(label="Group", width_fixed=True)
+
+            for img_id, img in self.images.items():
+                with dpg.table_row():
+                    dpg.add_text(img.name)
+                    # Dropdown to pick a group (0 = None)
+                    dpg.add_combo(
+                        items=["None", "Group 1", "Group 2", "Group 3"],
+                        default_value="None" if not img.sync_group else f"Group {img.sync_group}",
+                        width=100,
+                        user_data=img_id,
+                        callback=self.on_sync_group_change
+                    )
+
     def save_settings_with_hint(self):
         # 1. Perform the save and get the path
         path = self.settings.save()
@@ -396,6 +422,117 @@ class Controller:
         # Refresh all viewers displaying this image
         self.update_all_viewers_of_image(context_viewer.image_id)
 
+    def on_sync_group_change(self, sender, value, user_data):
+        img_id = user_data
+        img = self.images[img_id]
+
+        # Parse the group ID from "Group X" or "None"
+        if value == "None":
+            img.sync_group = 0
+            return
+
+        new_group_id = int(value.split(" ")[1])
+        img.sync_group = new_group_id
+
+        # Immediate Alignment:
+        # Find the first other image in this group and copy its state
+        master_image = None
+        for other_id, other_img in self.images.items():
+            if other_id != img_id and other_img.sync_group == new_group_id:
+                master_image = other_img
+                break
+
+        if master_image:
+            # Copy spatial state from the existing group member
+            #img.ww = master_image.ww
+            #img.wl = master_image.wl
+            img.zoom = master_image.zoom
+            #img.slices = copy.deepcopy(master_image.slices)
+            #img.pan = copy.deepcopy(master_image.pan)
+
+            # Update all viewers to reflect the alignment
+            self.update_all_viewers_of_image(img_id)
+
+    def propagate_sync(self, source_img_id):
+        source_img = self.images[source_img_id]
+        if source_img.sync_group == 0:
+            return
+
+        phys_pos = source_img.crosshair_phys_coord
+        shared_zoom = source_img.zoom  # This is now a physical factor
+
+        for target_id, target_img in self.images.items():
+            if target_id != source_img_id and target_img.sync_group == source_img.sync_group:
+                # 1. Physical Position Sync
+                target_vox = (phys_pos - target_img.origin + target_img.spacing / 2) / target_img.spacing
+                target_img.crosshair_pixel_coord = [
+                    np.clip(target_vox[0], 0, target_img.data.shape[2] - 1),
+                    np.clip(target_vox[1], 0, target_img.data.shape[1] - 1),
+                    np.clip(target_vox[2], 0, target_img.data.shape[0] - 1)
+                ]
+
+                # Update slices based on new voxel coords
+                target_img.slices["Axial"] = int(target_img.crosshair_pixel_coord[2])
+                target_img.slices["Sagittal"] = int(target_img.crosshair_pixel_coord[0])
+                target_img.slices["Coronal"] = int(target_img.crosshair_pixel_coord[1])
+
+                # 2. Zoom Sync
+                # Because 'resize' handles the spacing internally,
+                # we just pass the raw zoom value.
+                target_img.zoom = shared_zoom
+                target_img.pan = copy.deepcopy(source_img.pan)
+
+                # 3. Redraw followers safely
+                for viewer in self.viewers.values():
+                    if viewer.image_id == target_id:
+                        # resize() will use the new target_img.zoom
+                        viewer.resize(dpg.get_item_width(f"win_{viewer.tag}"),
+                                      dpg.get_item_height(f"win_{viewer.tag}"))
+                        viewer.update_render()
+                        viewer.draw_crosshair()
+
+    def propagate_sync_initial(self, source_img_id):
+        source_img = self.images[source_img_id]
+        if source_img.sync_group == 0:
+            return
+
+        phys_pos = source_img.crosshair_phys_coord
+        # Source physical field of view (approximate via zoom)
+        source_zoom = source_img.zoom
+
+        for target_id, target_img in self.images.items():
+            if target_id != source_img_id and target_img.sync_group == source_img.sync_group:
+                # 1. Physical Position Sync
+                target_vox = (phys_pos - target_img.origin + target_img.spacing / 2) / target_img.spacing
+
+                target_img.crosshair_pixel_coord = [
+                    np.clip(target_vox[0], 0, target_img.data.shape[2] - 1),
+                    np.clip(target_vox[1], 0, target_img.data.shape[1] - 1),
+                    np.clip(target_vox[2], 0, target_img.data.shape[0] - 1)
+                ]
+
+                target_img.slices["Axial"] = int(target_img.crosshair_pixel_coord[2])
+                target_img.slices["Sagittal"] = int(target_img.crosshair_pixel_coord[0])
+                target_img.slices["Coronal"] = int(target_img.crosshair_pixel_coord[1])
+
+                # 2. Zoom Sync (Adaptive based on spacing)
+                # This ensures 1cm on screen is 1cm for both images
+                avg_spacing_src = np.mean(source_img.spacing)
+                avg_spacing_tgt = np.mean(target_img.spacing)
+                target_img.zoom = source_zoom * (avg_spacing_src / avg_spacing_tgt)
+
+                # 3. Pan Sync (Keep the crosshair centered if panned)
+                target_img.pan = copy.deepcopy(source_img.pan)
+
+                # 4. Refresh target's pixel value
+                ix, iy, iz = [int(c) for c in target_img.crosshair_pixel_coord]
+                target_img.crosshair_pixel_value = target_img.data[iz, iy, ix]
+
+                # 5. Redraw followers (Do NOT update sidebar here)
+                for viewer in self.viewers.values():
+                    if viewer.image_id == target_id:
+                        viewer.update_render()
+                        viewer.draw_crosshair()
 
 DEFAULT_SETTINGS = {
     "colors": {

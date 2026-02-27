@@ -148,13 +148,14 @@ class MainGUI:
                     dpg.add_separator()
                     dpg.add_group(tag="image_list_container")
 
-                # Tab 2: Future Analysis/Commands (Placeholder)
-                with dpg.tab(label="Analysis"):
+                # Tab 2: Sync
+                with dpg.tab(label="Sync"):
                     dpg.add_spacer(height=5)
-                    dpg.add_text("Processing Tools", color=[93, 93, 93])
+                    dpg.add_text("Sync images", color=[93, 93, 93])
                     dpg.add_separator()
-                    dpg.add_button(label="todo", width=-1)
-                    dpg.add_button(label="todo", width=-1)
+                    with dpg.group(tag="sync_list_container"):
+                        # We will populate this programmatically
+                        pass
 
                 self.create_left_panel_settings()
 
@@ -228,6 +229,11 @@ class MainGUI:
                 create_labeled_field("Voxel", tag="info_vox")
                 create_labeled_field("Coord", tag="info_phys")
                 create_labeled_field("Value", tag="info_val")
+
+            '''with dpg.group(horizontal=True):
+                dpg.add_text("Performance:", color=[93, 93, 93])
+                dpg.add_text("0 FPS", tag="fps_display", color=[0, 255, 255])
+            dpg.add_separator()'''
 
     def create_window_level_controls(self):
         """Creates the window and level input fields."""
@@ -325,6 +331,14 @@ class MainGUI:
         while dpg.is_dearpygui_running():
             # Update coordinate/pixel_value value probe
             self.controller.main_windows.update_overlays()
+
+            '''# 2. Update FPS Display
+            # We only update the text every ~10 frames to keep it readable
+            if dpg.get_frame_count() % 10 == 0:
+                fps = dpg.get_frame_rate()
+                dpg.set_value("fps_display", f"{fps:.1f} FPS")
+            '''
+
             # Standard DPG render call
             dpg.render_dearpygui_frame()
             #time.sleep(0.005)

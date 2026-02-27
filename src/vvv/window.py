@@ -71,7 +71,6 @@ class MainWindow:
             # Set the drag viewer to lock interaction to this quadrant
             self.drag_viewer = self.get_hovered_viewer()
             if self.drag_viewer:
-                print('here')
                 if self.drag_viewer.orientation == "Histogram":
                     return
                 self.drag_viewer.update_overlay()
@@ -82,6 +81,7 @@ class MainWindow:
                 # Sync other views if no modifiers are held
                 if not dpg.is_key_down(dpg.mvKey_LShift) and not dpg.is_key_down(dpg.mvKey_LControl):
                     self.drag_viewer.sync_other_views()
+                    self.controller.propagate_sync(self.drag_viewer.image_id)
 
     def on_global_drag(self, data):
         # Use the locked active_viewer instead of the hovered one
