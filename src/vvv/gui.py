@@ -373,39 +373,3 @@ class MainGUI:
                 img.needs_render = False
 
             dpg.render_dearpygui_frame()
-
-
-    def run_initial(self):
-        dpg.setup_dearpygui()
-        dpg.show_viewport()
-        dpg.set_primary_window("PrimaryWindow", True)
-
-        while dpg.is_dearpygui_running():
-            # Update overlays (mouse tracking)
-            self.controller.main_windows.update_overlays()
-
-            self.sync_sidebar_checkboxes()
-
-            # Render: only update what is actually "dirty"
-            for viewer in self.controller.viewers.values():
-                if not viewer.image_model:
-                    continue
-
-                # If the DATA changed (W/L, new slice), we must re-calculate the texture
-                if viewer.image_model.needs_render or viewer.needs_refresh:
-                    viewer.update_render()
-                    viewer.draw_crosshair()
-
-                    # If THIS viewer is the one the user is currently looking at in the sidebar
-                    if viewer == self.controller.main_windows.context_viewer:
-                        viewer.update_sidebar_crosshair()
-                        viewer.update_sidebar_window_level()
-                        #viewer.update_sidebar_info() ?
-
-                    viewer.needs_refresh = False
-
-            # Reset the Global flags after all viewers have processed them
-            for img in self.controller.images.values():
-                img.needs_render = False
-
-            dpg.render_dearpygui_frame()

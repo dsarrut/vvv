@@ -100,7 +100,7 @@ class ImageModel:
         ix, iy, iz = self.crosshair_pixel_coord
         self.crosshair_pixel_value = self.data[iz, iy, ix]
 
-    def get_slice_rgba(self, slice_idx, orientation="Axial"):
+    def get_slice_rgba_initial(self, slice_idx, orientation="Axial"):
         """Extracts a slice with corrected orientations for vv parity."""
         if orientation == "Axial":
             max_s = self.data.shape[0] - 1
@@ -117,6 +117,42 @@ class ImageModel:
         else:
             max_s = self.data.shape[1] - 1
             idx = np.clip(slice_idx, 0, max_s)
+            # Slice along Y, Flip vertically
+            slice_data = np.flipud(self.data[:, idx, :])
+
+        min_val = self.wl - self.ww / 2
+        display_img = np.clip((slice_data - min_val) / self.ww, 0, 1)
+        rgba = np.stack([display_img] * 3 + [np.ones_like(display_img)], axis=-1)
+        return rgba.flatten(), slice_data.shape
+
+    def get_slice_rgba(self, slice_idx, orientation="Axial"):
+
+        # 1. Determine the maximum index for the current orientation
+        if orientation == "Axial":
+            max_s, h, w = self.data.shape[0], self.data.shape[1], self.data.shape[2]
+        elif orientation == "Sagittal":
+            max_s, h, w = self.data.shape[2], self.data.shape[0], self.data.shape[1]
+        else:  # Coronal
+            max_s, h, w = self.data.shape[1], self.data.shape[0], self.data.shape[2]
+
+        # 2. Check if the slice is out of bounds
+        if slice_idx < 0 or slice_idx >= max_s:
+            # Return a black slice of the correct shape
+            black_slice = np.zeros((h, w, 4), dtype=np.float32)
+            black_slice[:, :, 3] = 1.0  # Opaque alpha
+            return black_slice.flatten(), (h, w)
+
+        """Extracts a slice with corrected orientations for vv parity."""
+        idx = slice_idx
+        if orientation == "Axial":
+            slice_data = self.data[idx, :, :]
+
+        elif orientation == "Sagittal":
+            # Slice along X
+            # Flip vertically (np.flipud) and horizontally (np.fliplr) for vv alignment
+            slice_data = np.flipud(np.fliplr(self.data[:, :, idx]))
+
+        else:
             # Slice along Y, Flip vertically
             slice_data = np.flipud(self.data[:, idx, :])
 
@@ -463,6 +499,55 @@ class Controller:
             self.update_all_viewers_of_image(img_id)
 
     def propagate_sync(self, source_img_id):
+        source_img = self.images[source_img_id]
+        if source_img.sync_group == 0: return
+
+        phys_pos = source_img.crosshair_phys_coord
+        shared_zoom = source_img.zoom
+        shared_pan = copy.deepcopy(source_img.pan)
+
+        for target_id, target_img in self.images.items():
+            if target_id != source_img_id and target_img.sync_group == source_img.sync_group:
+                # Calculate TRUE floating point voxel position (Unclipped)
+                target_vox = (phys_pos - target_img.origin + target_img.spacing / 2) / target_img.spacing
+
+                # Store the unclipped coordinate for the crosshair lines
+                target_img.crosshair_pixel_coord = [target_vox[0], target_vox[1], target_vox[2]]
+
+                # 2. Handle the Pixel Value (Clipped for data safety)
+                ix, iy, iz = [int(np.clip(c, 0, limit - 1)) for c, limit in
+                              zip(target_vox,
+                                  [target_img.data.shape[2], target_img.data.shape[1], target_img.data.shape[0]])]
+
+                # Check if actually inside to show value or "Out of bounds"
+                if 0 <= target_vox[0] < target_img.data.shape[2] and \
+                        0 <= target_vox[1] < target_img.data.shape[1] and \
+                        0 <= target_vox[2] < target_img.data.shape[0]:
+                    target_img.crosshair_pixel_value = target_img.data[iz, iy, ix]
+                else:
+                    target_img.crosshair_pixel_value = float('nan')
+
+                # Update physical and slice data
+                vz_raw = target_vox[2]
+                vx_raw = target_vox[0]
+                vy_raw = target_vox[1]
+                target_img.crosshair_phys_coord = phys_pos
+                target_img.slices["Axial"] = int(vz_raw)
+                target_img.slices["Sagittal"] = int(vx_raw)
+                target_img.slices["Coronal"] = int(vy_raw)
+
+                # Zoom and Pan Sync
+                target_img.zoom = shared_zoom
+                target_img.pan = shared_pan
+
+                # Redraw followers safely
+                target_img.needs_render = True
+
+                for viewer in self.viewers.values():
+                    if viewer.image_model and viewer.image_model.sync_group == source_img.sync_group:
+                        viewer.needs_refresh = True
+
+    def propagate_sync_initial(self, source_img_id):
         source_img = self.images[source_img_id]
         if source_img.sync_group == 0:
             return

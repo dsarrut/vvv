@@ -336,6 +336,54 @@ class SliceViewer:
             dpg.configure_item(self.xh_line_h, p1=[pmin[0], screen_y],
                                p2=[pmin[0] + disp_w, screen_y], color=color, show=True)
 
+    def draw_crosshair_initial(self):
+        """DRAWING: Render the crosshair lines based on the ImageModel state."""
+        if self.orientation == "Histogram" or not self.image_model:
+            return
+
+        node_tag = self.crosshair_tag
+        img_model = self.image_model
+
+        # Handle Visibility Toggle
+        if not img_model.show_crosshair or img_model.crosshair_pixel_coord is None:
+            if dpg.does_item_exist(self.xh_line_h):
+                dpg.configure_item(self.xh_line_h, show=False)
+                dpg.configure_item(self.xh_line_v, show=False)
+            return
+
+        vx, vy, vz = img_model.crosshair_pixel_coord
+        _, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
+        real_h, real_w = shape[0], shape[1]
+
+        # Map 3D Voxel back to this viewer's 2D space
+        if self.orientation == "Axial":
+            tx, ty = vx, vy
+        elif self.orientation == "Sagittal":
+            tx, ty = real_w - vy, real_h - vz
+        else:
+            tx, ty = vx, real_h - vz
+
+        pmin, pmax = self.current_pmin, self.current_pmax
+        disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
+        screen_x = (tx / real_w) * disp_w + pmin[0]
+        screen_y = (ty / real_h) * disp_h + pmin[1]
+
+        color = self.controller.settings.data["colors"]["crosshair"]
+
+        if not self.xh_initialized:
+            # Create them for the first time
+            dpg.draw_line([screen_x, pmin[1]], [screen_x, pmin[1] + disp_h],
+                          color=color, parent=node_tag, tag=self.xh_line_v)
+            dpg.draw_line([pmin[0], screen_y], [pmin[0] + disp_w, screen_y],
+                          color=color, parent=node_tag, tag=self.xh_line_h)
+            self.xh_initialized = True
+        else:
+            # Just update positions - avoid flickering
+            dpg.configure_item(self.xh_line_v, p1=[screen_x, pmin[1]],
+                               p2=[screen_x, pmin[1] + disp_h], color=color, show=True)
+            dpg.configure_item(self.xh_line_h, p1=[pmin[0], screen_y],
+                               p2=[pmin[0] + disp_w, screen_y], color=color, show=True)
+
     def draw_voxels_as_strips(self, rgba_flat, h, w):
         node_a, node_b = self.strips_a_tag, self.strips_b_tag
         back_node = node_b if self.active_strips_node == node_a else node_a
@@ -867,13 +915,16 @@ class SliceViewer:
 
         # inc = 1 if delta > 0 else -1
         img = self.image_model
-        if self.orientation == "Axial":
+        """if self.orientation == "Axial":
             max_s = img.data.shape[0] - 1
         elif self.orientation == "Sagittal":
             max_s = img.data.shape[2] - 1
         else:
             max_s = img.data.shape[1] - 1
-        self.slice_idx = np.clip(self.slice_idx + delta, 0, max_s)
+        self.slice_idx = np.clip(self.slice_idx + delta, 0, max_s)"""
+        # Allow the index to go slightly outside bounds (e.g., +/- 100 slices)
+        # This allows the user to scroll back 'into' the image if they are lost
+        self.slice_idx += delta
 
         # We need to render
         img.needs_render = True
