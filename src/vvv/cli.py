@@ -50,17 +50,17 @@ def main(image_paths, link_all, sync):
         elif i >= 3:
             controller.viewers["V4"].set_image(img_id)
 
-    # Sync ?
-    if sync or link_all:
-        for img in controller.images.values():
-            img.sync_group = 1
-
     # Set default orientations
     controller.default_viewers_orientation()
 
     # Initial UI updates
     w.on_window_resize()
     controller.refresh_image_list_ui()
+
+    # Sync ?
+    if sync or link_all:
+        for img in controller.images.values():
+            img.sync_group = 1
 
     # Start the application
     gui.run()

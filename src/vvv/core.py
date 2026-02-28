@@ -100,31 +100,6 @@ class ImageModel:
         ix, iy, iz = self.crosshair_pixel_coord
         self.crosshair_pixel_value = self.data[iz, iy, ix]
 
-    def get_slice_rgba_initial(self, slice_idx, orientation="Axial"):
-        """Extracts a slice with corrected orientations for vv parity."""
-        if orientation == "Axial":
-            max_s = self.data.shape[0] - 1
-            idx = np.clip(slice_idx, 0, max_s)
-            slice_data = self.data[idx, :, :]
-
-        elif orientation == "Sagittal":
-            max_s = self.data.shape[2] - 1
-            idx = np.clip(slice_idx, 0, max_s)
-            # Slice along X
-            # Flip vertically (np.flipud) and horizontally (np.fliplr) for vv alignment
-            slice_data = np.flipud(np.fliplr(self.data[:, :, idx]))
-
-        else:
-            max_s = self.data.shape[1] - 1
-            idx = np.clip(slice_idx, 0, max_s)
-            # Slice along Y, Flip vertically
-            slice_data = np.flipud(self.data[:, idx, :])
-
-        min_val = self.wl - self.ww / 2
-        display_img = np.clip((slice_data - min_val) / self.ww, 0, 1)
-        rgba = np.stack([display_img] * 3 + [np.ones_like(display_img)], axis=-1)
-        return rgba.flatten(), slice_data.shape
-
     def get_slice_rgba(self, slice_idx, orientation="Axial"):
 
         # 1. Determine the maximum index for the current orientation
@@ -538,56 +513,17 @@ class Controller:
 
                 # Zoom and Pan Sync
                 target_img.zoom = shared_zoom
-                #target_img.pan = shared_pan
+                # target_img.pan = shared_pan
 
                 # Redraw followers safely
                 target_img.needs_render = True
 
                 for viewer in self.viewers.values():
                     if viewer.image_model and viewer.image_model.sync_group == source_img.sync_group:
-                        #if viewer.image_id != source_img_id:
-                            # Tell followers to re-calculate their pan based on
-                            # their own geometry and the new physical crosshair
+                        # if viewer.image_id != source_img_id:
+                        # Tell followers to re-calculate their pan based on
+                        # their own geometry and the new physical crosshair
                         #    viewer.needs_recenter = True
-                        viewer.needs_refresh = True
-
-    def propagate_sync_initial(self, source_img_id):
-        source_img = self.images[source_img_id]
-        if source_img.sync_group == 0:
-            return
-
-        phys_pos = source_img.crosshair_phys_coord
-        shared_zoom = source_img.zoom
-        shared_pan = copy.deepcopy(source_img.pan)  # Contains all 3 orientations
-
-        for target_id, target_img in self.images.items():
-            if target_id != source_img_id and target_img.sync_group == source_img.sync_group:
-                # Physical Position Sync
-                target_vox = (phys_pos - target_img.origin + target_img.spacing / 2) / target_img.spacing
-                target_img.crosshair_phys_coord = phys_pos
-                target_img.crosshair_pixel_coord = [
-                    np.clip(target_vox[0], 0, target_img.data.shape[2] - 1),
-                    np.clip(target_vox[1], 0, target_img.data.shape[1] - 1),
-                    np.clip(target_vox[2], 0, target_img.data.shape[0] - 1)
-                ]
-
-                # Update slices based on new voxel coords
-                target_img.slices["Axial"] = int(target_img.crosshair_pixel_coord[2])
-                target_img.slices["Sagittal"] = int(target_img.crosshair_pixel_coord[0])
-                target_img.slices["Coronal"] = int(target_img.crosshair_pixel_coord[1])
-
-                ix, iy, iz = [int(c) for c in target_img.crosshair_pixel_coord]
-                target_img.crosshair_pixel_value = target_img.data[iz, iy, ix]
-
-                # Zoom and Pan Sync
-                target_img.zoom = shared_zoom
-                target_img.pan = shared_pan
-
-                # Redraw followers safely
-                target_img.needs_render = True
-
-                for viewer in self.viewers.values():
-                    if viewer.image_model and viewer.image_model.sync_group == source_img.sync_group:
                         viewer.needs_refresh = True
 
 
