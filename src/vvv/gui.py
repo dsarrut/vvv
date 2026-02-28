@@ -321,6 +321,18 @@ class MainGUI:
             dpg.add_key_press_handler(callback=lambda s, d: self.controller.main_windows.on_key_press(d))
             dpg.add_mouse_click_handler(callback=lambda s, d: self.controller.main_windows.on_global_click(d))
 
+    def sync_sidebar_checkboxes(self):
+        viewer = self.controller.main_windows.context_viewer
+        if not viewer or not viewer.image_model:
+            return
+
+        img = viewer.image_model
+        # Update the DPG checkbox values to match the Model state
+        dpg.set_value("check_axis", img.show_axis)
+        dpg.set_value("check_grid", img.grid_mode)
+        dpg.set_value("check_overlay", img.show_overlay)
+        dpg.set_value("check_crosshair", img.show_crosshair)
+
     def run(self):
         dpg.setup_dearpygui()
         dpg.show_viewport()
@@ -329,6 +341,8 @@ class MainGUI:
         while dpg.is_dearpygui_running():
             # Update overlays (mouse tracking)
             self.controller.main_windows.update_overlays()
+
+            self.sync_sidebar_checkboxes()
 
             # Render: only update what is actually "dirty"
             for viewer in self.controller.viewers.values():
@@ -344,6 +358,7 @@ class MainGUI:
                     if viewer == self.controller.main_windows.context_viewer:
                         viewer.update_sidebar_crosshair()
                         viewer.update_sidebar_window_level()
+                        #viewer.update_sidebar_info() ?
 
                     viewer.needs_refresh = False
 
