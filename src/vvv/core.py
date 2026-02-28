@@ -469,10 +469,11 @@ class Controller:
 
         phys_pos = source_img.crosshair_phys_coord
         shared_zoom = source_img.zoom
+        shared_pan = copy.deepcopy(source_img.pan)  # Contains all 3 orientations
 
         for target_id, target_img in self.images.items():
             if target_id != source_img_id and target_img.sync_group == source_img.sync_group:
-                # 1. Physical Position Sync
+                # Physical Position Sync
                 target_vox = (phys_pos - target_img.origin + target_img.spacing / 2) / target_img.spacing
                 target_img.crosshair_phys_coord = phys_pos
                 target_img.crosshair_pixel_coord = [
@@ -489,21 +490,16 @@ class Controller:
                 ix, iy, iz = [int(c) for c in target_img.crosshair_pixel_coord]
                 target_img.crosshair_pixel_value = target_img.data[iz, iy, ix]
 
-                # 2. Zoom Sync
-                # Because 'resize' handles the spacing internally,
-                # we just pass the raw zoom value.
+                # Zoom and Pan Sync
                 target_img.zoom = shared_zoom
-                target_img.pan = copy.deepcopy(source_img.pan)
+                target_img.pan = shared_pan
 
-                # 3. Redraw followers safely
+                # Redraw followers safely
                 target_img.needs_render = True
-                """for viewer in self.viewers.values():
-                    if viewer.image_id == target_id:
-                        # resize() will use the new target_img.zoom
-                        viewer.resize(dpg.get_item_width(f"win_{viewer.tag}"),
-                                      dpg.get_item_height(f"win_{viewer.tag}"))
-                        #viewer.update_render()
-                        viewer.draw_crosshair()"""
+
+                for viewer in self.viewers.values():
+                    if viewer.image_model and viewer.image_model.sync_group == source_img.sync_group:
+                        viewer.needs_refresh = True
 
 
 DEFAULT_SETTINGS = {
