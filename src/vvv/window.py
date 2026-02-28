@@ -68,6 +68,19 @@ class MainWindow:
 
     def on_global_click(self, button):
         if button == dpg.mvMouseButton_Left:
+            self.drag_viewer = self.get_hovered_viewer()
+            if self.drag_viewer and self.drag_viewer.orientation != "Histogram":
+                self.context_viewer = self.drag_viewer
+
+                # If no modifiers, update crosshair position
+                if not dpg.is_key_down(dpg.mvKey_LShift) and not dpg.is_key_down(dpg.mvKey_LControl):
+                    # This updates the ImageModel data
+                    self.drag_viewer.sync_other_views()
+                    # This propagates that data to other ImageModels in the group
+                    self.controller.propagate_sync(self.drag_viewer.image_id)
+
+    def on_global_click_initial(self, button):
+        if button == dpg.mvMouseButton_Left:
             # Set the drag viewer to lock interaction to this quadrant
             self.drag_viewer = self.get_hovered_viewer()
             if self.drag_viewer:
@@ -114,11 +127,11 @@ class MainWindow:
 
         # Context Switch logic based on ViewState
         if hover_viewer and hover_viewer != self.context_viewer and not self.drag_viewer:
-            # Remove highlight from old viewer
+            # Remove highlight from the old viewer
             if self.context_viewer:
                 dpg.bind_item_theme(f"win_{self.context_viewer.tag}", "viewer_theme")
 
-            # Add highlight to new viewer
+            # Add highlight to the new viewer
             dpg.bind_item_theme(f"win_{hover_viewer.tag}", "active_viewer_theme")
 
             # Highlight the current image in the image list
@@ -126,6 +139,7 @@ class MainWindow:
 
             # Update sidebar
             hover_viewer.update_sidebar_info()
+            print("HERE ")
             hover_viewer.update_sidebar_crosshair()
             self.context_viewer = hover_viewer
 

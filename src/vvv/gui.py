@@ -322,25 +322,35 @@ class MainGUI:
             dpg.add_mouse_click_handler(callback=lambda s, d: self.controller.main_windows.on_global_click(d))
 
     def run(self):
-        """Starts the DearPyGui event loop."""
         dpg.setup_dearpygui()
         dpg.show_viewport()
         dpg.set_primary_window("PrimaryWindow", True)
 
-        # --- MANUAL MAIN LOOP ---
         while dpg.is_dearpygui_running():
-            # Update coordinate/pixel_value value probe
+            # Update overlays (mouse tracking)
             self.controller.main_windows.update_overlays()
 
-            '''# 2. Update FPS Display
-            # We only update the text every ~10 frames to keep it readable
-            if dpg.get_frame_count() % 10 == 0:
-                fps = dpg.get_frame_rate()
-                dpg.set_value("fps_display", f"{fps:.1f} FPS")
-            '''
+            # THE RENDER CHECK: Only update what is actually "dirty"
+            for viewer in self.controller.viewers.values():
+                if not viewer.image_model:
+                    continue
 
-            # Standard DPG render call
+                # If the DATA changed (W/L, new slice), we must re-calculate the texture
+                if viewer.image_model.needs_render or viewer.needs_refresh:
+                    print(f"Update render + crosshair for viewer {viewer.tag}")
+                    viewer.update_render()
+                    viewer.draw_crosshair()
+
+                    # If THIS viewer is the one the user is currently looking at in the sidebar
+                    if viewer == self.controller.main_windows.context_viewer:
+                        print(f"Update crosshair for image {viewer.image_model.name}")
+                        viewer.update_sidebar_crosshair()
+                        viewer.update_sidebar_window_level()
+
+                    viewer.needs_refresh = False
+
+            # 3. Reset the Global flags after all viewers have processed them
+            for img in self.controller.images.values():
+                img.needs_render = False
+
             dpg.render_dearpygui_frame()
-            #time.sleep(0.005)
-
-        dpg.destroy_context()

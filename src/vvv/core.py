@@ -8,6 +8,7 @@ import json
 import threading
 import time
 
+
 class ImageModel:
     """Store the image data and its properties."""
 
@@ -27,6 +28,14 @@ class ImageModel:
         self.origin = None
         self.memory_mb = None
         self.read_image_metadata()
+
+        """
+        The dirty flag: if True the image, should be rendered
+        Scope = Global
+        The actual pixel values in the volume or the lookup table (Window/Level) changed.
+        Ex: changing Brightness/Contrast, reloading the file, or applying a filter.
+        """
+        self.needs_render = True
 
         # --- below is information shared among the viewers ---
 
@@ -244,6 +253,23 @@ class Controller:
         for viewer in self.viewers.values():
             viewer.update_render()
 
+    def save_settings_with_hint(self):
+        # 1. Perform the save and get the path
+        path = self.settings.save()
+
+        # 2. Update the UI text
+        hint_msg = f"Saved in: {path}"
+        dpg.set_value("save_status_text", hint_msg)
+
+        # 3. Optional: Clear the message after 3 seconds using a thread
+        # (So the UI doesn't freeze)
+        def clear_hint():
+            time.sleep(3.0)
+            if dpg.does_item_exist("save_status_text"):
+                dpg.set_value("save_status_text", "")
+
+        threading.Thread(target=clear_hint, daemon=True).start()
+
     def refresh_image_list_ui(self):
         container = "image_list_container"
         if not dpg.does_item_exist(container):
@@ -310,23 +336,6 @@ class Controller:
                         user_data=img_id,
                         callback=self.on_sync_group_change
                     )
-
-    def save_settings_with_hint(self):
-        # 1. Perform the save and get the path
-        path = self.settings.save()
-
-        # 2. Update the UI text
-        hint_msg = f"Saved in: {path}"
-        dpg.set_value("save_status_text", hint_msg)
-
-        # 3. Optional: Clear the message after 3 seconds using a thread
-        # (So the UI doesn't freeze)
-        def clear_hint():
-            time.sleep(3.0)
-            if dpg.does_item_exist("save_status_text"):
-                dpg.set_value("save_status_text", "")
-
-        threading.Thread(target=clear_hint, daemon=True).start()
 
     def reload_image(self, img_id):
         """Re-reads the image file from the original path."""
@@ -444,11 +453,11 @@ class Controller:
 
         if master_image:
             # Copy spatial state from the existing group member
-            #img.ww = master_image.ww
-            #img.wl = master_image.wl
+            # img.ww = master_image.ww
+            # img.wl = master_image.wl
             img.zoom = master_image.zoom
-            #img.slices = copy.deepcopy(master_image.slices)
-            #img.pan = copy.deepcopy(master_image.pan)
+            # img.slices = copy.deepcopy(master_image.slices)
+            # img.pan = copy.deepcopy(master_image.pan)
 
             # Update all viewers to reflect the alignment
             self.update_all_viewers_of_image(img_id)
@@ -459,12 +468,13 @@ class Controller:
             return
 
         phys_pos = source_img.crosshair_phys_coord
-        shared_zoom = source_img.zoom  # This is now a physical factor
+        shared_zoom = source_img.zoom
 
         for target_id, target_img in self.images.items():
             if target_id != source_img_id and target_img.sync_group == source_img.sync_group:
                 # 1. Physical Position Sync
                 target_vox = (phys_pos - target_img.origin + target_img.spacing / 2) / target_img.spacing
+                target_img.crosshair_phys_coord = phys_pos
                 target_img.crosshair_pixel_coord = [
                     np.clip(target_vox[0], 0, target_img.data.shape[2] - 1),
                     np.clip(target_vox[1], 0, target_img.data.shape[1] - 1),
@@ -476,6 +486,9 @@ class Controller:
                 target_img.slices["Sagittal"] = int(target_img.crosshair_pixel_coord[0])
                 target_img.slices["Coronal"] = int(target_img.crosshair_pixel_coord[1])
 
+                ix, iy, iz = [int(c) for c in target_img.crosshair_pixel_coord]
+                target_img.crosshair_pixel_value = target_img.data[iz, iy, ix]
+
                 # 2. Zoom Sync
                 # Because 'resize' handles the spacing internally,
                 # we just pass the raw zoom value.
@@ -483,56 +496,15 @@ class Controller:
                 target_img.pan = copy.deepcopy(source_img.pan)
 
                 # 3. Redraw followers safely
-                for viewer in self.viewers.values():
+                target_img.needs_render = True
+                """for viewer in self.viewers.values():
                     if viewer.image_id == target_id:
                         # resize() will use the new target_img.zoom
                         viewer.resize(dpg.get_item_width(f"win_{viewer.tag}"),
                                       dpg.get_item_height(f"win_{viewer.tag}"))
-                        viewer.update_render()
-                        viewer.draw_crosshair()
+                        #viewer.update_render()
+                        viewer.draw_crosshair()"""
 
-    def propagate_sync_initial(self, source_img_id):
-        source_img = self.images[source_img_id]
-        if source_img.sync_group == 0:
-            return
-
-        phys_pos = source_img.crosshair_phys_coord
-        # Source physical field of view (approximate via zoom)
-        source_zoom = source_img.zoom
-
-        for target_id, target_img in self.images.items():
-            if target_id != source_img_id and target_img.sync_group == source_img.sync_group:
-                # 1. Physical Position Sync
-                target_vox = (phys_pos - target_img.origin + target_img.spacing / 2) / target_img.spacing
-
-                target_img.crosshair_pixel_coord = [
-                    np.clip(target_vox[0], 0, target_img.data.shape[2] - 1),
-                    np.clip(target_vox[1], 0, target_img.data.shape[1] - 1),
-                    np.clip(target_vox[2], 0, target_img.data.shape[0] - 1)
-                ]
-
-                target_img.slices["Axial"] = int(target_img.crosshair_pixel_coord[2])
-                target_img.slices["Sagittal"] = int(target_img.crosshair_pixel_coord[0])
-                target_img.slices["Coronal"] = int(target_img.crosshair_pixel_coord[1])
-
-                # 2. Zoom Sync (Adaptive based on spacing)
-                # This ensures 1cm on screen is 1cm for both images
-                avg_spacing_src = np.mean(source_img.spacing)
-                avg_spacing_tgt = np.mean(target_img.spacing)
-                target_img.zoom = source_zoom * (avg_spacing_src / avg_spacing_tgt)
-
-                # 3. Pan Sync (Keep the crosshair centered if panned)
-                target_img.pan = copy.deepcopy(source_img.pan)
-
-                # 4. Refresh target's pixel value
-                ix, iy, iz = [int(c) for c in target_img.crosshair_pixel_coord]
-                target_img.crosshair_pixel_value = target_img.data[iz, iy, ix]
-
-                # 5. Redraw followers (Do NOT update sidebar here)
-                for viewer in self.viewers.values():
-                    if viewer.image_id == target_id:
-                        viewer.update_render()
-                        viewer.draw_crosshair()
 
 DEFAULT_SETTINGS = {
     "colors": {
