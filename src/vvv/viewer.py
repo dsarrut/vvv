@@ -31,6 +31,9 @@ class SliceViewer:
         self.axis_b_tag = f"axes_node_B_{tag_id}"
         self.overlay_tag = f"overlay_{tag_id}"
         self.crosshair_tag = f"crosshair_node_{tag_id}"
+        self.xh_line_h = f"xh_h_{tag_id}"  # Tag for horizontal line
+        self.xh_line_v = f"xh_v_{tag_id}"  # Tag for vertical line
+        self.xh_initialized = False
 
         # --- GUI options ---
 
@@ -287,22 +290,20 @@ class SliceViewer:
 
     def draw_crosshair(self):
         """DRAWING: Render the crosshair lines based on the ImageModel state."""
-        if self.orientation == "Histogram":
+        if self.orientation == "Histogram" or not self.image_model:
             return
 
         node_tag = self.crosshair_tag
-        if not dpg.does_item_exist(node_tag) or self.image_model.crosshair_pixel_coord is None:
-            return
-
-        dpg.delete_item(node_tag, children_only=True)
-
-        # Only draw if the model says so
-        if not self.image_model or not self.image_model.show_crosshair:
-            return
-
         img_model = self.image_model
+
+        # Handle Visibility Toggle
+        if not img_model.show_crosshair or img_model.crosshair_pixel_coord is None:
+            if dpg.does_item_exist(self.xh_line_h):
+                dpg.configure_item(self.xh_line_h, show=False)
+                dpg.configure_item(self.xh_line_v, show=False)
+            return
+
         vx, vy, vz = img_model.crosshair_pixel_coord
-        # FIXME why get slice here ?
         _, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
         real_h, real_w = shape[0], shape[1]
 
@@ -320,8 +321,20 @@ class SliceViewer:
         screen_y = (ty / real_h) * disp_h + pmin[1]
 
         color = self.controller.settings.data["colors"]["crosshair"]
-        dpg.draw_line([screen_x, pmin[1]], [screen_x, pmin[1] + disp_h], color=color, parent=node_tag)
-        dpg.draw_line([pmin[0], screen_y], [pmin[0] + disp_w, screen_y], color=color, parent=node_tag)
+
+        if not self.xh_initialized:
+            # Create them for the first time
+            dpg.draw_line([screen_x, pmin[1]], [screen_x, pmin[1] + disp_h],
+                          color=color, parent=node_tag, tag=self.xh_line_v)
+            dpg.draw_line([pmin[0], screen_y], [pmin[0] + disp_w, screen_y],
+                          color=color, parent=node_tag, tag=self.xh_line_h)
+            self.xh_initialized = True
+        else:
+            # Just update positions - avoid flickering
+            dpg.configure_item(self.xh_line_v, p1=[screen_x, pmin[1]],
+                               p2=[screen_x, pmin[1] + disp_h], color=color, show=True)
+            dpg.configure_item(self.xh_line_h, p1=[pmin[0], screen_y],
+                               p2=[pmin[0] + disp_w, screen_y], color=color, show=True)
 
     def draw_voxels_as_strips(self, rgba_flat, h, w):
         node_a, node_b = self.strips_a_tag, self.strips_b_tag
