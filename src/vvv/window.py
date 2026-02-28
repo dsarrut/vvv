@@ -139,7 +139,6 @@ class MainWindow:
 
             # Update sidebar
             hover_viewer.update_sidebar_info()
-            print("HERE ")
             hover_viewer.update_sidebar_crosshair()
             self.context_viewer = hover_viewer
 

@@ -330,26 +330,24 @@ class MainGUI:
             # Update overlays (mouse tracking)
             self.controller.main_windows.update_overlays()
 
-            # THE RENDER CHECK: Only update what is actually "dirty"
+            # Render: only update what is actually "dirty"
             for viewer in self.controller.viewers.values():
                 if not viewer.image_model:
                     continue
 
                 # If the DATA changed (W/L, new slice), we must re-calculate the texture
                 if viewer.image_model.needs_render or viewer.needs_refresh:
-                    print(f"Update render + crosshair for viewer {viewer.tag}")
                     viewer.update_render()
                     viewer.draw_crosshair()
 
                     # If THIS viewer is the one the user is currently looking at in the sidebar
                     if viewer == self.controller.main_windows.context_viewer:
-                        print(f"Update crosshair for image {viewer.image_model.name}")
                         viewer.update_sidebar_crosshair()
                         viewer.update_sidebar_window_level()
 
                     viewer.needs_refresh = False
 
-            # 3. Reset the Global flags after all viewers have processed them
+            # Reset the Global flags after all viewers have processed them
             for img in self.controller.images.values():
                 img.needs_render = False
 

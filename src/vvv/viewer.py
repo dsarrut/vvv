@@ -33,22 +33,27 @@ class SliceViewer:
         self.crosshair_tag = f"crosshair_node_{tag_id}"
 
         # --- GUI options ---
+
         # Use a 4-pixel buffer to prevent the window border from cutting the image
         self.margin_left = 4
         self.margin_top = 4
+
         # used during mouse drag
         self.last_dy = 0
         self.last_dx = 0
         self.current_pmin = [0, 0]
         self.current_pmax = [1, 1]
         self.orientation = "Axial"
+
         # Transient mouse data (Viewer specific)
         self.mouse_phys_coord = None
         self.mouse_pixel_coord = None
         self.mouse_pixel_value = None
+
         # for double buffering axis
         self.axes_nodes = None
         self.active_axes_idx = 0
+
         # default init texture
         with dpg.texture_registry():
             dpg.add_dynamic_texture(width=1, height=1,
@@ -106,7 +111,6 @@ class SliceViewer:
 
         # Render
         self.image_model.needs_render = True
-        # self.update_render()
 
     def set_current_slice_to_crosshair(self):
         img_model = self.image_model
@@ -121,7 +125,7 @@ class SliceViewer:
     def set_orientation(self, orientation):
         self.orientation = orientation
         if self.image_id:
-            # Re-initialize view for new orientation
+            # Re-initialize the view for a new orientation
             self.set_image(self.image_id)
         self.controller.main_windows.on_window_resize()
 
@@ -181,49 +185,6 @@ class SliceViewer:
             # Horizontal is X (+), Vertical is Z (-)
             return ("x", "z"), (1, -1)
 
-    def resize_initial(self, quad_w, quad_h):
-        if not dpg.does_item_exist(f"win_{self.tag}"): return
-        dpg.set_item_width(f"win_{self.tag}", quad_w)
-        dpg.set_item_height(f"win_{self.tag}", quad_h)
-
-        if dpg.does_item_exist(f"drawlist_{self.tag}"):
-            dpg.set_item_width(f"drawlist_{self.tag}", quad_w)
-            dpg.set_item_height(f"drawlist_{self.tag}", quad_h)
-
-        if self.image_id is None: return
-
-        if self.orientation == "Histogram":
-            return
-
-        img = self.controller.images[self.image_id]
-        _, shape = img.get_slice_rgba(self.slice_idx, self.orientation)
-        pix_h, pix_w = shape[0], shape[1]
-
-        sw, sh = img.get_physical_aspect_ratio(self.orientation)
-        mm_w, mm_h = pix_w * sw, pix_h * sh
-
-        target_w, target_h = quad_w - self.margin_left, quad_h - self.margin_top
-        base_scale = min(target_w / mm_w, target_h / mm_h)
-        final_scale = base_scale * self.zoom
-
-        new_w, new_h = int(mm_w * final_scale), int(mm_h * final_scale)
-
-        off_x = (target_w - new_w) // 2 + self.margin_left + self.pan_offset[0]
-        off_y = (target_h - new_h) // 2 + self.margin_top + self.pan_offset[1]
-
-        self.current_pmin = [off_x, off_y]
-        self.current_pmax = [off_x + new_w, off_y + new_h]
-
-        # Update the standard image primitive
-        if dpg.does_item_exist(self.image_tag):
-            dpg.configure_item(self.image_tag, pmin=self.current_pmin, pmax=self.current_pmax)
-
-        # Refresh the display (this will choose between Texture or Rectangles)
-        self.update_render()
-
-        # refresh the crosshair (needed!)
-        self.draw_crosshair()
-
     def resize(self, quad_w, quad_h):
         if not dpg.does_item_exist(f"win_{self.tag}"): return
         dpg.set_item_width(f"win_{self.tag}", quad_w)
@@ -239,21 +200,20 @@ class SliceViewer:
             return
 
         img = self.image_model
-        # pix_h, pix_w = img.data.shape[0], img.data.shape[1]  # Simplify for logic
 
-        # 1. Get physical dimensions in mm
+        # Get the physical dimensions in mm
         sw, sh = img.get_physical_aspect_ratio(self.orientation)
         # Total mm width/height of the volume in this orientation
         # Use actual slice shape which accounts for orientation flips
         _, shape = img.get_slice_rgba(self.slice_idx, self.orientation)
         mm_w, mm_h = shape[1] * sw, shape[0] * sh
 
-        # 2. Calculate a normalized "Base Scale"
+        # Calculate a normalized "Base Scale"
         # This scale makes the image fit the window perfectly at Zoom = 1.0
         target_w, target_h = quad_w - self.margin_left, quad_h - self.margin_top
         base_scale = min(target_w / mm_w, target_h / mm_h)
 
-        # 3. Apply the global zoom factor
+        # Apply the global zoom factor
         # Since mm_w/mm_h are absolute physical units,
         # 'base_scale * self.zoom' is now physically consistent across images.
         final_scale = base_scale * self.zoom
@@ -272,10 +232,6 @@ class SliceViewer:
 
         # Refresh the display (this will choose between Texture or Rectangles)
         self.image_model.needs_render = True
-        # self.update_render()
-
-        # refresh the crosshair (needed!)
-        self.draw_crosshair()
 
     def sync_other_views(self):
         if self.image_id is None: return
@@ -299,10 +255,7 @@ class SliceViewer:
                 elif viewer.orientation == "Coronal":
                     viewer.slice_idx = int(np.clip(vy, 0, img_model.data.shape[1] - 1))
 
-                # viewer.update_render()
-                # viewer.draw_crosshair()  # also update the sidebar crosshair
-
-        # self.controller.main_windows.on_window_resize()
+        # Render the image
         img_model.needs_render = True
 
     def draw_voxel_grid(self, h, w):
@@ -318,12 +271,12 @@ class SliceViewer:
         vox_w, vox_h = (pmax[0] - pmin[0]) / w, (pmax[1] - pmin[1]) / h
         color = self.controller.settings.data["colors"]["grid"]
 
-        # 1. Draw Vertical Lines (along the width)
+        # Draw Vertical Lines (along the width)
         for x in range(w + 1):
             lx = pmin[0] + x * vox_w
             dpg.draw_line([lx, pmin[1]], [lx, pmax[1]], color=color, parent=back_node)
 
-        # 2. Draw Horizontal Lines (along the height)
+        # Draw Horizontal Lines (along the height)
         for y in range(h + 1):
             ly = pmin[1] + y * vox_h
             dpg.draw_line([pmin[0], ly], [pmax[0], ly], color=color, parent=back_node)
@@ -336,9 +289,11 @@ class SliceViewer:
         """DRAWING: Render the crosshair lines based on the ImageModel state."""
         if self.orientation == "Histogram":
             return
+
         node_tag = self.crosshair_tag
         if not dpg.does_item_exist(node_tag) or self.image_model.crosshair_pixel_coord is None:
             return
+
         dpg.delete_item(node_tag, children_only=True)
 
         # Only draw if the model says so
@@ -367,11 +322,6 @@ class SliceViewer:
         color = self.controller.settings.data["colors"]["crosshair"]
         dpg.draw_line([screen_x, pmin[1]], [screen_x, pmin[1] + disp_h], color=color, parent=node_tag)
         dpg.draw_line([pmin[0], screen_y], [pmin[0] + disp_w, screen_y], color=color, parent=node_tag)
-
-        # ONLY update the sidebar if this viewer is the one the user is looking at
-        # if self.controller.main_windows.context_viewer == self:
-        #    self.update_sidebar_crosshair()
-        # self.update_sidebar_crosshair()
 
     def draw_voxels_as_strips(self, rgba_flat, h, w):
         node_a, node_b = self.strips_a_tag, self.strips_b_tag
@@ -405,6 +355,7 @@ class SliceViewer:
                 dpg.configure_item(self.axes_nodes[0], show=False)
                 dpg.configure_item(self.axes_nodes[1], show=False)
             return
+
         # Determine which node is currently hidden (the "back" buffer)
         back_idx = 1 - self.active_axes_idx
         back_node = self.axes_nodes[back_idx]
@@ -416,6 +367,7 @@ class SliceViewer:
         labels, directions = self.get_axis_labels()
         axis_colors = self.controller.settings.data["colors"]
 
+        # Position of the axis
         origin = [12, 12]
         length = 30
         if directions[0] == -1:
@@ -490,31 +442,44 @@ class SliceViewer:
         self.controller.update_all_viewers_of_image(self.image_id)
 
     def should_use_voxels_strips(self):
-        if not self.image_model or self.image_model.interpolation_linear: return False
+        if not self.image_model or self.image_model.interpolation_linear:
+            return False
+
         win_w, win_h = dpg.get_item_width(f"win_{self.tag}"), dpg.get_item_height(f"win_{self.tag}")
-        if not win_w or not win_h: return False
+        if not win_w or not win_h:
+            return False
+
         pmin, pmax = self.current_pmin, self.current_pmax
         _, shape = self.image_model.get_slice_rgba(self.slice_idx, self.orientation)
+
         vox_w, vox_h = (pmax[0] - pmin[0]) / shape[1], (pmax[1] - pmin[1]) / shape[0]
         start_x, end_x = max(0, int(-pmin[0] / vox_w)), min(shape[1], int((win_w - pmin[0]) / vox_w) + 1)
         start_y, end_y = max(0, int(-pmin[1] / vox_h)), min(shape[0], int((win_h - pmin[1]) / vox_h) + 1)
+
         m = self.controller.settings.data['physics']['voxel_strip_threshold']
         return 0 < (end_x - start_x) * (end_y - start_y) < m
 
     def apply_local_auto_window(self, search_radius=25):
-        if self.image_id is None: return
+        if self.image_id is None:
+            return
         pix_x, pix_y = self.get_mouse_to_pixel_coords(ignore_hover=True)
-        if pix_x is None: return
+        if pix_x is None:
+            return
+
         img_model = self.image_model
         _, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
         real_h, real_w = shape[0], shape[1]
         pmin, pmax = self.current_pmin, self.current_pmax
         disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
-        if disp_w <= 0 or disp_h <= 0: return
+        if disp_w <= 0 or disp_h <= 0:
+            return
+
         vx_r_x, vx_r_y = (search_radius / disp_w) * real_w, (search_radius / disp_h) * real_h
         x0, x1 = int(max(0, pix_x - vx_r_x)), int(min(real_w, pix_x + vx_r_x))
         y0, y1 = int(max(0, pix_y - vx_r_y)), int(min(real_h, pix_y + vx_r_y))
-        if x1 <= x0 or y1 <= y0: return
+        if x1 <= x0 or y1 <= y0:
+            return
+
         if self.orientation == "Axial":
             patch = img_model.data[self.slice_idx, y0:y1, x0:x1]
         elif self.orientation == "Sagittal":
@@ -604,10 +569,12 @@ class SliceViewer:
         if pix_x is None:
             dpg.set_value(self.overlay_tag, "")
             return
+
         img_model = self.image_model
         idx = self.slice_idx
         _, shape = img_model.get_slice_rgba(idx, self.orientation)
         real_h, real_w = shape[0], shape[1]
+
         if self.orientation == "Axial":
             v = np.array([pix_x, pix_y, idx])
         elif self.orientation == "Sagittal":
@@ -619,6 +586,7 @@ class SliceViewer:
         max_z, max_y, max_x = img_model.data.shape
         col = self.controller.settings.data["colors"]["overlay_text"]
         dpg.configure_item(self.overlay_tag, color=col)
+
         if 0 <= ix < max_x and 0 <= iy < max_y and 0 <= iz < max_z:
             val = img_model.data[iz, iy, ix]
             self.mouse_pixel_value, self.mouse_pixel_coord, self.mouse_phys_coord = val, v, phys
@@ -628,6 +596,7 @@ class SliceViewer:
                           f"{fmt(phys, 1)} mm")
         else:
             dpg.set_value(self.overlay_tag, "Out of image")
+
         win_h = dpg.get_item_height(f"win_{self.tag}")
         ts = dpg.get_item_rect_size(self.overlay_tag)
         dpg.set_item_pos(self.overlay_tag, [5, win_h - (ts[1] if ts[1] > 0 else 60) - 5])
@@ -639,9 +608,7 @@ class SliceViewer:
 
     def update_sidebar_crosshair(self):
         img = self.image_model
-        print(f'update crosshair side bar for {img.name}')
         if img and img.crosshair_pixel_coord is not None:
-            print("set value", img.crosshair_phys_coord)
             dpg.set_value("info_vox", fmt(img.crosshair_pixel_coord, 1))
             dpg.set_value("info_phys", fmt(img.crosshair_phys_coord, 1))
             dpg.set_value("info_val", f"{img.crosshair_pixel_value:g}")
@@ -691,7 +658,7 @@ class SliceViewer:
             self.set_orientation("Coronal")
         elif key == dpg.mvKey_F4:
             self.set_orientation("Histogram")
-        elif key == dpg.mvKey_L:  # FIXME to remove
+        elif key == dpg.mvKey_L:  # FIXME to remove or change
             self.image_model.interpolation_linear = not self.image_model.interpolation_linear
             for v in self.controller.viewers.values():
                 v.update_render()
@@ -705,6 +672,7 @@ class SliceViewer:
     def on_scroll(self, delta=1):
         if self.image_id is None or self.orientation == "Histogram":
             return  # Disable scrolling in histogram mode
+
         # inc = 1 if delta > 0 else -1
         img = self.image_model
         if self.orientation == "Axial":
@@ -716,7 +684,6 @@ class SliceViewer:
         self.slice_idx = np.clip(self.slice_idx + delta, 0, max_s)
 
         # We need to render
-        # self.update_render()
         img.needs_render = True
 
     def on_drag(self, data):
@@ -759,15 +726,14 @@ class SliceViewer:
         ow, oh = pmax[0] - pmin[0], pmax[1] - pmin[1]
         rx, ry = mx - pmin[0], my - pmin[1]
         oz = self.zoom
+
         self.zoom = np.clip(self.zoom * (1.1 if direction == "in" else 0.9), 0.1, 200.0)
         ratio = self.zoom / oz
         dw, dh = (ow * ratio) - ow, (oh * ratio) - oh
+
         self.pan_offset[0] -= (rx * (ratio - 1)) - (dw / 2)
         self.pan_offset[1] -= (ry * (ratio - 1)) - (dh / 2)
         self.controller.main_windows.on_window_resize()
 
-        # self.sync_other_views() # ok for the crosshair, but a bit slow
-        # self.controller.propagate_sync(self.image_id)
-        # self.controller.main_windows.on_window_resize()
         self.needs_refresh = True
         self.controller.propagate_sync(self.image_id)
