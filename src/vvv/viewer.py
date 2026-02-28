@@ -19,6 +19,7 @@ class SliceViewer:
         Ex: Panning, Zooming, toggling the "Crosshair" visibility, or resizing the window.
         """
         self.needs_refresh = True
+        self.needs_recenter = None
 
         # dpg tags
         self.texture_tag = f"tex_{tag_id}"
@@ -203,6 +204,12 @@ class SliceViewer:
             return
 
         img = self.image_model
+
+        if self.needs_recenter:
+            print(f"resize trigget pan computation {self.image_id} {self.tag}")
+            self.pan_offset = self.calculate_pan_to_center_crosshair(quad_w, quad_h)
+            self.needs_recenter = False
+        #self.needs_recenter = False
 
         # Get the physical dimensions in mm
         sw, sh = img.get_physical_aspect_ratio(self.orientation)
@@ -554,7 +561,46 @@ class SliceViewer:
             p_min, p_max = np.percentile(patch, [2, 98])
             self.update_window_level(max(1, p_max - p_min), (p_max + p_min) / 2)
 
-    def center_view_on_crosshair(self):
+    def calculate_pan_to_center_crosshair(self, win_w, win_h):
+        """
+        Computes the exact [x, y] pixels needed to put the 3D crosshair
+        at the center of the current window.
+        """
+        if not self.image_model or self.image_model.crosshair_pixel_coord is None:
+            return [0, 0]
+
+        img = self.image_model
+        # 1. Get Geometry (Same logic as resize)
+        sw, sh = img.get_physical_aspect_ratio(self.orientation)
+        _, shape = img.get_slice_rgba(self.slice_idx, self.orientation)
+        real_h, real_w = shape[0], shape[1]
+
+        target_w, target_h = win_w - self.margin_left, win_h - self.margin_top
+        base_scale = min(target_w / (real_w * sw), target_h / (real_h * sh))
+        final_scale = base_scale * self.zoom
+        new_w, new_h = int(real_w * sw * final_scale), int(real_h * sh * final_scale)
+
+        # 2. Identify the 'Zero-Pan' origin
+        origin_x = (target_w - new_w) // 2 + self.margin_left
+        origin_y = (target_h - new_h) // 2 + self.margin_top
+
+        # 3. Map 3D Voxel to 2D Texture coordinates
+        vx, vy, vz = img.crosshair_pixel_coord
+        if self.orientation == "Axial":
+            tx, ty = vx, vy
+        elif self.orientation == "Sagittal":
+            tx, ty = real_w - vy, real_h - vz
+        else:  # Coronal
+            tx, ty = vx, real_h - vz
+
+        # 4. Find where that voxel sits on screen IF pan was 0,0
+        cx_zero_pan_x = (tx / real_w) * new_w + origin_x
+        cx_zero_pan_y = (ty / real_h) * new_h + origin_y
+
+        # 5. Return the vector from that point to the Screen Center
+        return [(win_w / 2) - cx_zero_pan_x, (win_h / 2) - cx_zero_pan_y]
+
+    def OLD_center_view_on_crosshair(self):
         if not self.image_model or self.image_model.crosshair_pixel_coord is None:
             return
 
@@ -605,7 +651,7 @@ class SliceViewer:
         for v in self.controller.viewers.values():
             v.needs_refresh = True
 
-    def center_view_on_crosshair_almost(self):
+    def OLD_center_view_on_crosshair_almost(self):
         if not self.image_model or self.image_model.crosshair_pixel_coord is None:
             return
 
@@ -664,7 +710,7 @@ class SliceViewer:
         # 8. Force a local refresh immediately for the current viewer
         self.needs_refresh = True
 
-    def center_view_on_crosshair_no(self):
+    def OLD_center_view_on_crosshair_no(self):
         if not self.image_model or self.image_model.crosshair_pixel_coord is None:
             return
 
@@ -884,7 +930,20 @@ class SliceViewer:
 
         elif key == dpg.mvKey_C:
             print(f'c')
-            self.center_view_on_crosshair()
+            #self.center_view_on_crosshair()
+            # 1. Set the flag to signal that we want to re-anchor the view
+            self.needs_recenter = True
+
+            # 2. Trigger a refresh so the GUI loop calls resize()
+            self.needs_refresh = True
+
+            # 3. If synced, tell the controller to update the group
+            if self.image_model and self.image_model.sync_group != 0:
+                group_id = self.image_model.sync_group
+                for v in self.controller.viewers.values():
+                    if v.image_model and v.image_model.sync_group == group_id:
+                        v.needs_recenter = True
+                        v.needs_refresh = True
 
         elif key == dpg.mvKey_F1:
             self.set_orientation("Axial")

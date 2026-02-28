@@ -538,13 +538,17 @@ class Controller:
 
                 # Zoom and Pan Sync
                 target_img.zoom = shared_zoom
-                target_img.pan = shared_pan
+                #target_img.pan = shared_pan
 
                 # Redraw followers safely
                 target_img.needs_render = True
 
                 for viewer in self.viewers.values():
                     if viewer.image_model and viewer.image_model.sync_group == source_img.sync_group:
+                        #if viewer.image_id != source_img_id:
+                            # Tell followers to re-calculate their pan based on
+                            # their own geometry and the new physical crosshair
+                        #    viewer.needs_recenter = True
                         viewer.needs_refresh = True
 
     def propagate_sync_initial(self, source_img_id):
