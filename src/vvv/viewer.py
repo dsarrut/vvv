@@ -113,8 +113,8 @@ class SliceViewer:
 
         # Transient mouse data (Viewer specific)
         self.mouse_phys_coord = None
-        self.mouse_pixel_coord = None
-        self.mouse_pixel_value = None
+        self.mouse_voxel = None
+        self.mouse_value = None
 
         # for double buffering axis
         self.axes_nodes = None
@@ -199,7 +199,7 @@ class SliceViewer:
 
     def set_current_slice_to_crosshair(self):
         img_model = self.image_model
-        vx, vy, vz = img_model.crosshair_pixel_coord
+        vx, vy, vz = img_model.crosshair_voxel
         if self.orientation == "Axial":
             self.slice_idx = int(np.clip(vz, 0, img_model.data.shape[0] - 1))
         elif self.orientation == "Sagittal":
@@ -275,7 +275,7 @@ class SliceViewer:
             # Horizontal is X (+), Vertical is Z (-)
             return ("x", "z"), (1, -1)
 
-    def get_mouse_to_pixel_coords(self, ignore_hover=False):
+    def get_mouse_slice_coords(self, ignore_hover=False):
         if not self.image_id: return None, None
         if not ignore_hover and not dpg.is_item_hovered(f"win_{self.tag}"): return None, None
 
@@ -315,7 +315,7 @@ class SliceViewer:
         self.image_model.needs_render = True
 
     def calculate_pan_to_center_crosshair(self, win_w, win_h):
-        if not self.image_model or self.image_model.crosshair_pixel_coord is None:
+        if not self.image_model or self.image_model.crosshair_voxel is None:
             return [0, 0]
 
         img = self.image_model
@@ -323,7 +323,7 @@ class SliceViewer:
         real_h, real_w = shape[0], shape[1]
         sw, sh = img.get_physical_aspect_ratio(self.orientation)
 
-        vx, vy, vz = img.crosshair_pixel_coord
+        vx, vy, vz = img.crosshair_voxel
         if self.orientation == "Axial":
             tx, ty = vx, vy
         elif self.orientation == "Sagittal":
@@ -369,13 +369,13 @@ class SliceViewer:
         img_model = self.image_model
 
         # Handle Visibility Toggle
-        if not img_model.show_crosshair or img_model.crosshair_pixel_coord is None:
+        if not img_model.show_crosshair or img_model.crosshair_voxel is None:
             if dpg.does_item_exist(self.xh_line_h):
                 dpg.configure_item(self.xh_line_h, show=False)
                 dpg.configure_item(self.xh_line_v, show=False)
             return
 
-        vx, vy, vz = img_model.crosshair_pixel_coord
+        vx, vy, vz = img_model.crosshair_voxel
         _, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
         real_h, real_w = shape[0], shape[1]
 
@@ -547,7 +547,7 @@ class SliceViewer:
     def apply_local_auto_window(self, search_radius=25):
         if self.image_id is None:
             return
-        pix_x, pix_y = self.get_mouse_to_pixel_coords(ignore_hover=True)
+        pix_x, pix_y = self.get_mouse_slice_coords(ignore_hover=True)
         if pix_x is None:
             return
 
@@ -639,7 +639,7 @@ class SliceViewer:
         if self.image_id is None or not self.image_model.show_overlay or self.orientation == "Histogram":
             dpg.set_value(self.overlay_tag, "")
             return
-        pix_x, pix_y = self.get_mouse_to_pixel_coords()
+        pix_x, pix_y = self.get_mouse_slice_coords()
         if pix_x is None:
             dpg.set_value(self.overlay_tag, "")
             return
@@ -663,7 +663,7 @@ class SliceViewer:
 
         if 0 <= ix < max_x and 0 <= iy < max_y and 0 <= iz < max_z:
             val = img_model.data[iz, iy, ix]
-            self.mouse_pixel_value, self.mouse_pixel_coord, self.mouse_phys_coord = val, v, phys
+            self.mouse_value, self.mouse_voxel, self.mouse_phys_coord = val, v, phys
             dpg.set_value(self.overlay_tag,
                           f"{val:g}\n"
                           f"{fmt(v, 1)}\n"
@@ -682,10 +682,10 @@ class SliceViewer:
 
     def update_sidebar_crosshair(self):
         img = self.image_model
-        if img and img.crosshair_pixel_coord is not None:
-            dpg.set_value("info_vox", fmt(img.crosshair_pixel_coord, 1))
+        if img and img.crosshair_voxel is not None:
+            dpg.set_value("info_vox", fmt(img.crosshair_voxel, 1))
             dpg.set_value("info_phys", fmt(img.crosshair_phys_coord, 1))
-            dpg.set_value("info_val", f"{img.crosshair_pixel_value:g}")
+            dpg.set_value("info_val", f"{img.crosshair_value:g}")
 
     def update_sidebar_info(self):
         if self.image_id is None:
@@ -807,7 +807,7 @@ class SliceViewer:
 
         # Drag without Ctrl and without Shift
         if not is_ctrl and not is_shift and is_button:
-            px, py = self.get_mouse_to_pixel_coords(ignore_hover=True)
+            px, py = self.get_mouse_slice_coords(ignore_hover=True)
             if px is not None:
                 self.update_crosshair_data(px, py)
                 self.controller.propagate_sync(self.image_id)

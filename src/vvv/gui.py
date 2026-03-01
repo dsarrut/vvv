@@ -506,7 +506,7 @@ class MainGUI:
 
             # If no modifiers, update crosshair position
             if not dpg.is_key_down(dpg.mvKey_LShift) and not dpg.is_key_down(dpg.mvKey_LControl):
-                px, py = viewer.get_mouse_to_pixel_coords(ignore_hover=True)
+                px, py = viewer.get_mouse_slice_coords(ignore_hover=True)
                 if px is not None:
                     viewer.update_crosshair_data(px, py)
                     self.controller.propagate_sync(viewer.image_id)

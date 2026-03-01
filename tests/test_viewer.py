@@ -105,7 +105,7 @@ def test_image_loading_and_metadata(headless_app):
 
     assert img_model.data.shape == (5, 5, 5)
     assert img_model.spacing.tolist() == [1.0, 1.0, 1.0]
-    assert img_model.crosshair_pixel_coord == [2, 2, 2]
+    assert img_model.crosshair_voxel == [2, 2, 2]
 
 
 def test_scroll_interaction_updates_crosshair(headless_app):
@@ -113,14 +113,14 @@ def test_scroll_interaction_updates_crosshair(headless_app):
     controller, viewer, img_id = headless_app
     img_model = controller.images[img_id]
 
-    assert img_model.crosshair_pixel_value == 0.0
+    assert img_model.crosshair_value == 0.0
 
     viewer.set_orientation("Axial")
     viewer.on_scroll(1)
 
     assert viewer.slice_idx == 3
-    assert img_model.crosshair_pixel_coord == [2, 2, 3]
-    assert img_model.crosshair_pixel_value == 100.0
+    assert img_model.crosshair_voxel == [2, 2, 3]
+    assert img_model.crosshair_value == 100.0
 
 
 def test_auto_window_level(headless_app):
@@ -135,7 +135,7 @@ def test_auto_window_level(headless_app):
     controller.settings.data["physics"]["search_radius"] = 250
 
     # Mock mouse position since there is no physical mouse
-    viewer.get_mouse_to_pixel_coords = lambda ignore_hover=False: (2.5, 2.5)
+    viewer.get_mouse_slice_coords = lambda ignore_hover=False: (2.5, 2.5)
 
     viewer.on_key_press(dpg.mvKey_W)
 

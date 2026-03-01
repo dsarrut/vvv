@@ -51,8 +51,8 @@ class ImageModel:
         }
         # Current voxel information under the crosshair
         self.crosshair_phys_coord = None
-        self.crosshair_pixel_coord = None
-        self.crosshair_pixel_value = None
+        self.crosshair_voxel = None
+        self.crosshair_value = None
         self.init_crosshair_to_slices()
         # Current pan for all orientation
         self.pan = {"Axial": [0, 0], "Sagittal": [0, 0], "Coronal": [0, 0]}
@@ -92,10 +92,10 @@ class ImageModel:
         self.hist_data_x = bin_edges[:-1].astype(np.float32)
 
     def init_crosshair_to_slices(self):
-        self.crosshair_pixel_coord = [self.slices["Coronal"], self.slices["Sagittal"], self.slices["Axial"]]
-        self.crosshair_phys_coord = self.voxel_coord_to_physic_coord(self.crosshair_pixel_coord)
-        ix, iy, iz = self.crosshair_pixel_coord
-        self.crosshair_pixel_value = self.data[iz, iy, ix]
+        self.crosshair_voxel = [self.slices["Coronal"], self.slices["Sagittal"], self.slices["Axial"]]
+        self.crosshair_phys_coord = self.voxel_coord_to_physic_coord(self.crosshair_voxel)
+        ix, iy, iz = self.crosshair_voxel
+        self.crosshair_value = self.data[iz, iy, ix]
 
     def get_slice_rgba(self, slice_idx, orientation="Axial"):
 
@@ -183,16 +183,16 @@ class ImageModel:
         else:
             v = [slice_x, slice_idx, real_h - slice_y]
 
-        self.crosshair_pixel_coord = v
+        self.crosshair_voxel = v
         self.crosshair_phys_coord = self.voxel_coord_to_physic_coord(np.array(v))
 
         ix, iy, iz = [int(np.clip(c, 0, limit - 1)) for c, limit in
                       zip(v, [self.data.shape[2], self.data.shape[1], self.data.shape[0]])]
-        self.crosshair_pixel_value = self.data[iz, iy, ix]
+        self.crosshair_value = self.data[iz, iy, ix]
 
     def update_crosshair_from_slice_scroll(self, new_slice_idx, orientation):
         """Updates the 3D crosshair depth when scrolling through slices."""
-        vx, vy, vz = self.crosshair_pixel_coord
+        vx, vy, vz = self.crosshair_voxel
 
         # Update only the coordinate corresponding to the current orientation
         if orientation == "Axial":
@@ -203,12 +203,12 @@ class ImageModel:
             vy = new_slice_idx
 
         new_v = [vx, vy, vz]
-        self.crosshair_pixel_coord = new_v
+        self.crosshair_voxel = new_v
         self.crosshair_phys_coord = self.voxel_coord_to_physic_coord(np.array(new_v))
 
         ix, iy, iz = [int(np.clip(c, 0, limit - 1)) for c, limit in
                       zip(new_v, [self.data.shape[2], self.data.shape[1], self.data.shape[0]])]
-        self.crosshair_pixel_value = self.data[iz, iy, ix]
+        self.crosshair_value = self.data[iz, iy, ix]
 
 
 class Controller:
@@ -397,7 +397,7 @@ class Controller:
 
             # Update Physical & Voxel State
             target_vox = (phys_pos - target_img.origin + target_img.spacing / 2) / target_img.spacing
-            target_img.crosshair_pixel_coord = list(target_vox)
+            target_img.crosshair_voxel = list(target_vox)
             target_img.crosshair_phys_coord = phys_pos
 
             # Update Slice Indices
