@@ -3,6 +3,75 @@ import numpy as np
 from .utils import *
 
 
+class ViewportMapper:
+    """Handles pure 2D spatial math: screen coordinates, zoom, and panning."""
+
+    def __init__(self, margin_left=4, margin_top=4):
+        self.margin_left = margin_left
+        self.margin_top = margin_top
+        self.pmin = [0, 0]
+        self.pmax = [1, 1]
+        self.disp_w = 1
+        self.disp_h = 1
+
+    def update(self, quad_w, quad_h, real_w, real_h, spacing_w, spacing_h, zoom, pan_offset):
+        """Calculates the 2D bounding box (pmin, pmax) for the image on the screen."""
+        mm_w, mm_h = real_w * spacing_w, real_h * spacing_h
+        target_w, target_h = quad_w - self.margin_left, quad_h - self.margin_top
+
+        base_scale = min(target_w / mm_w, target_h / mm_h)
+        final_scale = base_scale * zoom
+        new_w, new_h = int(mm_w * final_scale), int(mm_h * final_scale)
+
+        off_x = (target_w - new_w) // 2 + self.margin_left + pan_offset[0]
+        off_y = (target_h - new_h) // 2 + self.margin_top + pan_offset[1]
+
+        self.pmin = [off_x, off_y]
+        self.pmax = [off_x + new_w, off_y + new_h]
+        self.disp_w = new_w
+        self.disp_h = new_h
+
+        return self.pmin, self.pmax
+
+    def screen_to_image(self, screen_x, screen_y, real_w, real_h):
+        """Converts raw mouse coordinates into 2D image slice coordinates."""
+        rel_x, rel_y = screen_x - self.pmin[0], screen_y - self.pmin[1]
+        if not (0 <= rel_x <= self.disp_w and 0 <= rel_y <= self.disp_h):
+            return None, None
+        return (rel_x / self.disp_w) * real_w, (rel_y / self.disp_h) * real_h
+
+    def calculate_center_pan(self, tx, ty, quad_w, quad_h, real_w, real_h, spacing_w, spacing_h, zoom):
+        """Computes the pan offset needed to put target (tx, ty) at the center of the window."""
+        mm_w, mm_h = real_w * spacing_w, real_h * spacing_h
+        target_w, target_h = quad_w - self.margin_left, quad_h - self.margin_top
+
+        base_scale = min(target_w / mm_w, target_h / mm_h)
+        final_scale = base_scale * zoom
+        new_w, new_h = int(mm_w * final_scale), int(mm_h * final_scale)
+
+        origin_x = (target_w - new_w) // 2 + self.margin_left
+        origin_y = (target_h - new_h) // 2 + self.margin_top
+
+        cx_zero_pan_x = (tx / real_w) * new_w + origin_x
+        cx_zero_pan_y = (ty / real_h) * new_h + origin_y
+
+        return [(quad_w / 2) - cx_zero_pan_x, (quad_h / 2) - cx_zero_pan_y]
+
+    def calculate_zoom_pan_delta(self, mouse_x, mouse_y, old_zoom, new_zoom):
+        """Computes how much to shift pan_offset to zoom cleanly into the cursor."""
+        ratio = new_zoom / old_zoom
+        ow, oh = self.disp_w, self.disp_h
+        dw, dh = (ow * ratio) - ow, (oh * ratio) - oh
+        rx, ry = mouse_x - self.pmin[0], mouse_y - self.pmin[1]
+
+        # The image growth (dw/2) needs to be added back to compensate
+        # for the window center expansion.
+        dx = -(rx * (ratio - 1)) + (dw / 2)
+        dy = -(ry * (ratio - 1)) + (dh / 2)
+
+        return dx, dy
+
+
 class SliceViewer:
     def __init__(self, tag_id, controller):
         self.tag = tag_id
@@ -36,17 +105,10 @@ class SliceViewer:
         self.xh_line_v = f"xh_v_{tag_id}"  # Tag for vertical line
         self.xh_initialized = False
 
-        # --- GUI options ---
-
-        # Use a 4-pixel buffer to prevent the window border from cutting the image
-        self.margin_left = 4
-        self.margin_top = 4
-
         # used during mouse drag
         self.last_dy = 0
         self.last_dx = 0
-        self.current_pmin = [0, 0]
-        self.current_pmax = [1, 1]
+        self.mapper = ViewportMapper()
         self.orientation = "Axial"
 
         # Transient mouse data (Viewer specific)
@@ -63,6 +125,14 @@ class SliceViewer:
             dpg.add_dynamic_texture(width=1, height=1,
                                     default_value=np.zeros(4),
                                     tag=self.texture_tag)
+
+    @property
+    def current_pmin(self):
+        return self.mapper.pmin
+
+    @property
+    def current_pmax(self):
+        return self.mapper.pmax
 
     @property
     def slice_idx(self):
@@ -193,23 +263,6 @@ class SliceViewer:
 
         self.update_render()
 
-    def get_mouse_to_pixel_coords(self, ignore_hover=False):
-        if not self.image_id: return None, None
-        if not ignore_hover and not dpg.is_item_hovered(f"win_{self.tag}"): return None, None
-
-        mouse_x, mouse_y = dpg.get_drawing_mouse_pos()
-        pmin, pmax = self.current_pmin, self.current_pmax
-        rel_x, rel_y = mouse_x - pmin[0], mouse_y - pmin[1]
-        disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
-
-        if not (0 <= rel_x <= disp_w and 0 <= rel_y <= disp_h): return None, None
-
-        img_model = self.controller.images[self.image_id]
-        _, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
-        h, w = shape[0], shape[1]
-
-        return (rel_x / disp_w) * w, (rel_y / disp_h) * h
-
     def get_axis_labels(self):
         """Returns (horizontal_axis, vertical_axis) and their directions."""
         if self.orientation == "Axial":
@@ -222,6 +275,17 @@ class SliceViewer:
             # Horizontal is X (+), Vertical is Z (-)
             return ("x", "z"), (1, -1)
 
+    def get_mouse_to_pixel_coords(self, ignore_hover=False):
+        if not self.image_id: return None, None
+        if not ignore_hover and not dpg.is_item_hovered(f"win_{self.tag}"): return None, None
+
+        img = self.image_model
+        _, shape = img.get_slice_rgba(self.slice_idx, self.orientation)
+        real_h, real_w = shape[0], shape[1]
+
+        mx, my = dpg.get_drawing_mouse_pos()
+        return self.mapper.screen_to_image(mx, my, real_w, real_h)
+
     def resize(self, quad_w, quad_h):
         if not dpg.does_item_exist(f"win_{self.tag}"): return
         dpg.set_item_width(f"win_{self.tag}", quad_w)
@@ -231,29 +295,43 @@ class SliceViewer:
             dpg.set_item_width(f"drawlist_{self.tag}", quad_w)
             dpg.set_item_height(f"drawlist_{self.tag}", quad_h)
 
-        if self.image_id is None: return
+        if self.image_id is None or self.orientation == "Histogram": return
 
-        if self.orientation == "Histogram":
-            return
+        img = self.image_model
+        sw, sh = img.get_physical_aspect_ratio(self.orientation)
+        _, shape = img.get_slice_rgba(self.slice_idx, self.orientation)
+        real_h, real_w = shape[0], shape[1]
 
         if self.needs_recenter:
             self.pan_offset = self.calculate_pan_to_center_crosshair(quad_w, quad_h)
             self.needs_recenter = False
 
-        new_w, new_h, real_w, real_h, target_w, target_h = self.get_geometry_params(quad_w, quad_h)
+        # The Mapper handles all scaling and centering math
+        pmin, pmax = self.mapper.update(quad_w, quad_h, real_w, real_h, sw, sh, self.zoom, self.pan_offset)
 
-        off_x = (target_w - new_w) // 2 + self.margin_left + self.pan_offset[0]
-        off_y = (target_h - new_h) // 2 + self.margin_top + self.pan_offset[1]
-
-        self.current_pmin = [off_x, off_y]
-        self.current_pmax = [off_x + new_w, off_y + new_h]
-
-        # Update the standard image primitive
         if dpg.does_item_exist(self.image_tag):
-            dpg.configure_item(self.image_tag, pmin=self.current_pmin, pmax=self.current_pmax)
+            dpg.configure_item(self.image_tag, pmin=pmin, pmax=pmax)
 
-        # Refresh the display (this will choose between Texture or Rectangles)
         self.image_model.needs_render = True
+
+    def calculate_pan_to_center_crosshair(self, win_w, win_h):
+        if not self.image_model or self.image_model.crosshair_pixel_coord is None:
+            return [0, 0]
+
+        img = self.image_model
+        _, shape = img.get_slice_rgba(self.slice_idx, self.orientation)
+        real_h, real_w = shape[0], shape[1]
+        sw, sh = img.get_physical_aspect_ratio(self.orientation)
+
+        vx, vy, vz = img.crosshair_pixel_coord
+        if self.orientation == "Axial":
+            tx, ty = vx, vy
+        elif self.orientation == "Sagittal":
+            tx, ty = real_w - vy, real_h - vz
+        else:  # Coronal
+            tx, ty = vx, real_h - vz
+
+        return self.mapper.calculate_center_pan(tx, ty, win_w, win_h, real_w, real_h, sw, sh, self.zoom)
 
     def draw_voxel_grid(self, h, w):
         node_a, node_b = self.grid_a_tag, self.grid_b_tag
@@ -500,51 +578,6 @@ class SliceViewer:
             p_min, p_max = np.percentile(patch, [2, 98])
             self.update_window_level(max(1, p_max - p_min), (p_max + p_min) / 2)
 
-    def get_geometry_params(self, quad_w, quad_h):
-        """Single source of truth for image scaling math."""
-        img = self.image_model
-        sw, sh = img.get_physical_aspect_ratio(self.orientation)
-        _, shape = img.get_slice_rgba(self.slice_idx, self.orientation)
-        real_h, real_w = shape[0], shape[1]
-        mm_w, mm_h = real_w * sw, real_h * sh
-
-        target_w, target_h = quad_w - self.margin_left, quad_h - self.margin_top
-        base_scale = min(target_w / mm_w, target_h / mm_h)
-        final_scale = base_scale * self.zoom
-        return int(mm_w * final_scale), int(mm_h * final_scale), real_w, real_h, target_w, target_h
-
-    def calculate_pan_to_center_crosshair(self, win_w, win_h):
-        """
-        Computes the exact [x, y] pixels needed to put the 3D crosshair
-        at the center of the current window.
-        """
-        if not self.image_model or self.image_model.crosshair_pixel_coord is None:
-            return [0, 0]
-
-        img = self.image_model
-
-        new_w, new_h, real_w, real_h, target_w, target_h = self.get_geometry_params(win_w, win_h)
-
-        # 2. Identify the 'Zero-Pan' origin
-        origin_x = (target_w - new_w) // 2 + self.margin_left
-        origin_y = (target_h - new_h) // 2 + self.margin_top
-
-        # 3. Map 3D Voxel to 2D Texture coordinates
-        vx, vy, vz = img.crosshair_pixel_coord
-        if self.orientation == "Axial":
-            tx, ty = vx, vy
-        elif self.orientation == "Sagittal":
-            tx, ty = real_w - vy, real_h - vz
-        else:  # Coronal
-            tx, ty = vx, real_h - vz
-
-        # 4. Find where that voxel sits on screen IF pan was 0,0
-        cx_zero_pan_x = (tx / real_w) * new_w + origin_x
-        cx_zero_pan_y = (ty / real_h) * new_h + origin_y
-
-        # 5. Return the vector from that point to the Screen Center
-        return [(win_w / 2) - cx_zero_pan_x, (win_h / 2) - cx_zero_pan_y]
-
     def update_crosshair_data(self, pix_x, pix_y):
         """Passes 2D mouse coordinates to the Model to compute 3D state."""
         self.image_model.update_crosshair_from_2d(pix_x, pix_y, self.slice_idx, self.orientation)
@@ -745,10 +778,10 @@ class SliceViewer:
         # Update the local slice index
         self.slice_idx += delta
         if self.slice_idx < 0:
-            self.slice_idx -= delta
+            self.slice_idx  = 0
             return
         elif self.slice_idx >= self.num_slices:
-            self.slice_idx -= delta
+            self.slice_idx = self.num_slices -1
             return
 
         # Update the 3D crosshair position to match this new slice plane
@@ -793,19 +826,15 @@ class SliceViewer:
 
     def on_zoom(self, direction):
         if self.image_id is None: return
+
         mx, my = dpg.get_drawing_mouse_pos()
-        pmin, pmax = self.current_pmin, self.current_pmax
-        ow, oh = pmax[0] - pmin[0], pmax[1] - pmin[1]
-        rx, ry = mx - pmin[0], my - pmin[1]
         oz = self.zoom
-
         self.zoom = np.clip(self.zoom * (1.1 if direction == "in" else 0.9), 0.1, 200.0)
-        ratio = self.zoom / oz
-        dw, dh = (ow * ratio) - ow, (oh * ratio) - oh
 
-        self.pan_offset[0] -= (rx * (ratio - 1)) - (dw / 2)
-        self.pan_offset[1] -= (ry * (ratio - 1)) - (dh / 2)
+        dx, dy = self.mapper.calculate_zoom_pan_delta(mx, my, oz, self.zoom)
+        self.pan_offset[0] += dx
+        self.pan_offset[1] += dy
+
         self.controller.gui.on_window_resize()
-
         self.needs_refresh = True
         self.controller.propagate_sync(self.image_id)
