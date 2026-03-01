@@ -1,12 +1,9 @@
 import SimpleITK as sitk
 import numpy as np
 import os
-import dearpygui.dearpygui as dpg
 from pathlib import Path
 import copy
 import json
-import threading
-import time
 
 
 class ImageModel:
@@ -249,38 +246,12 @@ class Controller:
 
     def reset_settings(self):
         self.settings.reset()
-        data = self.settings.data
-
-        # Reset Physics inputs
-        dpg.set_value("set_search_radius", data["physics"]["search_radius"])
-        dpg.set_value("set_strip_threshold", data["physics"]["voxel_strip_threshold"])
-
-        # Programmatically reset all color pickers
-        for key, value in data["colors"].items():
-            tag = f"set_col_{key}"
-            if dpg.does_item_exist(tag):
-                dpg.set_value(tag, value)
-
         # Refresh viewers to apply the default colors immediately
         for viewer in self.viewers.values():
             viewer.update_render()
 
-    def save_settings_with_hint(self):
-        # 1. Perform the save and get the path
-        path = self.settings.save()
-
-        # 2. Update the UI text
-        hint_msg = f"Saved in: {path}"
-        dpg.set_value("save_status_text", hint_msg)
-
-        # 3. Optional: Clear the message after 3 seconds using a thread
-        # (So the UI doesn't freeze)
-        def clear_hint():
-            time.sleep(3.0)
-            if dpg.does_item_exist("save_status_text"):
-                dpg.set_value("save_status_text", "")
-
-        threading.Thread(target=clear_hint, daemon=True).start()
+    def save_settings(self):
+        return self.settings.save()
 
     def reload_image(self, img_id):
         """Re-reads the image file from the original path."""
@@ -301,20 +272,12 @@ class Controller:
     def close_image(self, img_id):
         """Removes the image from the controller and clears associated viewers."""
         if img_id in self.images:
-            # Remove from any viewer currently displaying it
+            # Tell the viewers to clean up their own DPG items
             for viewer in self.viewers.values():
                 if viewer.image_id == img_id:
-                    viewer.image_id = None
-                    # Clear the texture/render
-                    if dpg.does_item_exist(viewer.image_tag):
-                        dpg.configure_item(viewer.image_tag, show=False)
-                    # Destroy the texture from the registry
-                    if viewer.texture_tag and dpg.does_item_exist(viewer.texture_tag):
-                        dpg.delete_item(viewer.texture_tag)
-                        viewer.texture_tag = None  # Reset reference
-                    viewer.update_render()
+                    viewer.drop_image()
 
-            # Delete from the data dictionary
+            # Delete the image from the data dictionary
             del self.images[img_id]
 
             # If there are other images, fill the empty viewers with the first one
@@ -325,42 +288,8 @@ class Controller:
                         viewer.set_image(first_img_id)
 
             # Refresh the UI list
-            self.gui.refresh_image_list_ui()
-
-    def on_sidebar_wl_change(self):
-        context_viewer = self.main_windows.context_viewer
-        if not context_viewer or context_viewer.image_id is None:
-            return
-
-        # Get the new values from the UI
-        try:
-            new_ww = float(dpg.get_value("info_window"))
-            new_wl = float(dpg.get_value("info_level"))
-        except ValueError:
-            # If the user typed something invalid (like letters), do nothing or reset
-            return
-
-        # Update the ImageModel
-        context_viewer.update_window_level(max(1.0, new_ww), new_wl)
-
-    def on_image_viewer_toggle(self, sender, value, user_data):
-        img_id = user_data["img_id"]
-        v_tag = user_data["v_tag"]
-        viewer = self.viewers[v_tag]
-
-        # Rule: If the user tries to uncheck the active image, force it back to True
-        if not value and viewer.image_id == img_id:
-            dpg.set_value(sender, True)
-            return
-
-        if value:  # Checkbox checked
-            viewer.set_image(img_id)
-            # Update the sidebar info to reflect the newly selected image
-            viewer.update_sidebar_info()
-
-        # Refresh UI to ensure only one image is checked per viewer row if desired,
-        # or to keep the checkboxes in sync with the state.
-        self.gui.refresh_image_list_ui()
+            if self.gui:
+                self.gui.refresh_image_list_ui()
 
     def on_visibility_toggle(self, sender, value, user_data):
         context_viewer = self.main_windows.context_viewer

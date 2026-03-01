@@ -198,9 +198,9 @@ class MainGUI:
 
                 with dpg.group(horizontal=True):
                     dpg.add_button(label="Save", width=100,
-                                   callback=lambda: self.controller.save_settings_with_hint())
+                                   callback=lambda: self.on_save_settings())
                     dpg.add_button(label="Reset to Defaults", width=-1,
-                                   callback=lambda: self.controller.reset_settings())
+                                   callback=lambda: self.on_reset_settings())
 
                 dpg.add_text("", tag="save_status_text", color=[150, 150, 150])
                 # with dpg.group(horizontal=True):
@@ -242,13 +242,13 @@ class MainGUI:
             with dpg.group(horizontal=True):
                 dpg.add_text("Window")
                 dpg.add_input_text(tag="info_window", width=70, on_enter=True,
-                                   callback=lambda: self.controller.on_sidebar_wl_change())
+                                   callback=lambda: self.on_sidebar_wl_change())
             dpg.add_spacer(width=5)
 
             with dpg.group(horizontal=True):
                 dpg.add_text("Level")
                 dpg.add_input_text(tag="info_level", width=-1, on_enter=True,
-                                   callback=lambda: self.controller.on_sidebar_wl_change())
+                                   callback=lambda: self.on_sidebar_wl_change())
 
         # Visibility Toggles
         with dpg.group(tag="visibility_controls"):
@@ -355,7 +355,7 @@ class MainGUI:
                             label="",
                             default_value=is_active,
                             user_data={"img_id": img_id, "v_tag": v_tag},
-                            callback=self.controller.on_image_viewer_toggle
+                            callback=self.on_image_viewer_toggle
                         )
                     # Reload Button
                     btn_reload = dpg.add_button(label="\uf01e", width=20,
@@ -400,6 +400,64 @@ class MainGUI:
                         user_data=img_id,
                         callback=self.controller.on_sync_group_change
                     )
+
+    def on_save_settings(self):
+        path = self.controller.save_settings()
+        dpg.set_value("save_status_text", f"Saved in: {path}")
+
+        def clear_hint():
+            time.sleep(3.0)
+            if dpg.does_item_exist("save_status_text"):
+                dpg.set_value("save_status_text", "")
+
+        import threading
+        threading.Thread(target=clear_hint, daemon=True).start()
+
+    def on_reset_settings(self):
+        self.controller.reset_settings()
+        data = self.controller.settings.data
+
+        # Update the UI inputs to match the newly reset backend data
+        dpg.set_value("set_search_radius", data["physics"]["search_radius"])
+        dpg.set_value("set_strip_threshold", data["physics"]["voxel_strip_threshold"])
+        for key, value in data["colors"].items():
+            tag = f"set_col_{key}"
+            if dpg.does_item_exist(tag):
+                dpg.set_value(tag, value)
+
+    def on_image_viewer_toggle(self, sender, value, user_data):
+        img_id = user_data["img_id"]
+        v_tag = user_data["v_tag"]
+        viewer = self.controller.viewers[v_tag]
+
+        # Rule: If the user tries to uncheck the active image, force it back to True
+        if not value and viewer.image_id == img_id:
+            dpg.set_value(sender, True)
+            return
+
+        if value:  # Checkbox checked
+            viewer.set_image(img_id)
+            # Update the sidebar info to reflect the newly selected image
+            viewer.update_sidebar_info()
+
+        # Refresh UI
+        self.refresh_image_list_ui()
+
+    def on_sidebar_wl_change(self):
+        context_viewer = self.controller.main_windows.context_viewer
+        if not context_viewer or context_viewer.image_id is None:
+            return
+
+        # Get the new values from the UI
+        try:
+            new_ww = float(dpg.get_value("info_window"))
+            new_wl = float(dpg.get_value("info_level"))
+        except ValueError:
+            # If the user typed something invalid (like letters), do nothing
+            return
+
+        # Update the ImageModel via the viewer
+        context_viewer.update_window_level(max(1.0, new_ww), new_wl)
 
     def run(self):
         dpg.setup_dearpygui()

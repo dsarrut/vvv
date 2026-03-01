@@ -167,6 +167,21 @@ class SliceViewer:
         # Simply update our reference without deleting anything
         self.texture_tag = new_texture_tag
 
+    def drop_image(self):
+        """Clears the current image and frees GPU texture memory."""
+        self.image_id = None
+
+        # Hide the standard image primitive
+        if dpg.does_item_exist(self.image_tag):
+            dpg.configure_item(self.image_tag, show=False)
+
+        # Destroy the texture from the registry to prevent memory leaks
+        if self.texture_tag and dpg.does_item_exist(self.texture_tag):
+            dpg.delete_item(self.texture_tag)
+            self.texture_tag = None
+
+        self.update_render()
+
     def get_mouse_to_pixel_coords(self, ignore_hover=False):
         if not self.image_id: return None, None
         if not ignore_hover and not dpg.is_item_hovered(f"win_{self.tag}"): return None, None
