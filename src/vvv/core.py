@@ -374,6 +374,10 @@ class Controller:
                     # Clear the texture/render
                     if dpg.does_item_exist(viewer.image_tag):
                         dpg.configure_item(viewer.image_tag, show=False)
+                    # Destroy the texture from the registry
+                    if viewer.texture_tag and dpg.does_item_exist(viewer.texture_tag):
+                        dpg.delete_item(viewer.texture_tag)
+                        viewer.texture_tag = None  # Reset reference
                     viewer.update_render()
 
             # Delete from the data dictionary

@@ -146,18 +146,25 @@ class SliceViewer:
         # This acts as a cache key
         new_texture_tag = f"tex_{self.tag}_{self.image_id}_{self.orientation}_{w}x{h}"
 
-        # 1. Create it ONLY if it has never been created before
-        if not dpg.does_item_exist(new_texture_tag):
-            with dpg.texture_registry():
-                dpg.add_dynamic_texture(width=w, height=h,
-                                        default_value=np.zeros(w * h * 4),
-                                        tag=new_texture_tag)
+        # If the tag hasn't changed, the existing texture is the right size. Do nothing.
+        if self.texture_tag == new_texture_tag:
+            return
 
-        # 2. Switch the image primitive to this texture
+        # If an older, different texture exists for this viewer, destroy it to free GPU memory
+        if self.texture_tag and dpg.does_item_exist(self.texture_tag):
+            dpg.delete_item(self.texture_tag)
+
+        # Create the new texture
+        with dpg.texture_registry():
+            dpg.add_dynamic_texture(width=w, height=h,
+                                    default_value=np.zeros(w * h * 4),
+                                    tag=new_texture_tag)
+
+        # Switch the image primitive to this texture
         if dpg.does_item_exist(self.image_tag):
             dpg.configure_item(self.image_tag, texture_tag=new_texture_tag)
 
-        # 3. Simply update our reference without deleting anything
+        # Simply update our reference without deleting anything
         self.texture_tag = new_texture_tag
 
     def get_mouse_to_pixel_coords(self, ignore_hover=False):
