@@ -336,11 +336,18 @@ class MainGUI:
             return
 
         img = viewer.image_model
-        # Update the DPG checkbox values to match the Model state
-        dpg.set_value("check_axis", img.show_axis)
-        dpg.set_value("check_grid", img.grid_mode)
-        dpg.set_value("check_overlay", img.show_overlay)
-        dpg.set_value("check_crosshair", img.show_crosshair)
+        # Only push to the UI if the model state actually differs from the UI state
+        if dpg.get_value("check_axis") != img.show_axis:
+            dpg.set_value("check_axis", img.show_axis)
+
+        if dpg.get_value("check_grid") != img.grid_mode:
+            dpg.set_value("check_grid", img.grid_mode)
+
+        if dpg.get_value("check_overlay") != img.show_overlay:
+            dpg.set_value("check_overlay", img.show_overlay)
+
+        if dpg.get_value("check_crosshair") != img.show_crosshair:
+            dpg.set_value("check_crosshair", img.show_crosshair)
 
     def refresh_image_list_ui(self):
         container = "image_list_container"
