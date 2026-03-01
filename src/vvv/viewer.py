@@ -222,31 +222,6 @@ class SliceViewer:
         # Refresh the display (this will choose between Texture or Rectangles)
         self.image_model.needs_render = True
 
-    def sync_other_views(self):
-        if self.image_id is None: return
-        pix_x, pix_y = self.get_mouse_to_pixel_coords(ignore_hover=True)
-        if pix_x is None: return
-
-        # Update the state for the current image
-        self.update_crosshair_data(pix_x, pix_y)
-
-        img_model = self.image_model
-        vx, vy, vz = img_model.crosshair_pixel_coord
-
-        # Update and draw in all other viewers with the same image
-        for viewer in self.controller.viewers.values():
-            if viewer.image_id == self.image_id:
-                # Update slice indices to match the 3D voxel
-                if viewer.orientation == "Axial":
-                    viewer.slice_idx = int(np.clip(vz, 0, img_model.data.shape[0] - 1))
-                elif viewer.orientation == "Sagittal":
-                    viewer.slice_idx = int(np.clip(vx, 0, img_model.data.shape[2] - 1))
-                elif viewer.orientation == "Coronal":
-                    viewer.slice_idx = int(np.clip(vy, 0, img_model.data.shape[1] - 1))
-
-        # Render the image
-        img_model.needs_render = True
-
     def draw_voxel_grid(self, h, w):
         node_a, node_b = self.grid_a_tag, self.grid_b_tag
         back_node = node_b if self.active_grid_node == node_a else node_a
@@ -676,6 +651,28 @@ class SliceViewer:
         dpg.set_value("info_window", f"{self.image_model.ww:g}")
         dpg.set_value("info_level", f"{self.image_model.wl:g}")
 
+    def update_crosshair_from_slice(self):
+        """Updates the 3D physical crosshair based on the current 2D slice index."""
+        img_model = self.image_model
+        vx, vy, vz = img_model.crosshair_pixel_coord
+
+        # Update only the coordinate corresponding to the current orientation
+        if self.orientation == "Axial":
+            vz = self.slice_idx
+        elif self.orientation == "Sagittal":
+            vx = self.slice_idx
+        elif self.orientation == "Coronal":
+            vy = self.slice_idx
+
+        new_v = [vx, vy, vz]
+        img_model.crosshair_pixel_coord = new_v
+        img_model.crosshair_phys_coord = img_model.voxel_coord_to_physic_coord(np.array(new_v))
+
+        # Update the pixel value for the sidebar
+        ix, iy, iz = [int(np.clip(c, 0, limit - 1)) for c, limit in
+                      zip(new_v, [img_model.data.shape[2], img_model.data.shape[1], img_model.data.shape[0]])]
+        img_model.crosshair_pixel_value = img_model.data[iz, iy, ix]
+
     def on_key_press(self, key):
         img = self.image_model
         if not img:
@@ -745,21 +742,16 @@ class SliceViewer:
         if self.image_id is None or self.orientation == "Histogram":
             return  # Disable scrolling in histogram mode
 
-        # inc = 1 if delta > 0 else -1
-        img = self.image_model
-        """if self.orientation == "Axial":
-            max_s = img.data.shape[0] - 1
-        elif self.orientation == "Sagittal":
-            max_s = img.data.shape[2] - 1
-        else:
-            max_s = img.data.shape[1] - 1
-        self.slice_idx = np.clip(self.slice_idx + delta, 0, max_s)"""
-        # Allow the index to go slightly outside bounds (e.g., +/- 100 slices)
-        # This allows the user to scroll back 'into' the image if they are lost
+        # Update the local slice index
         self.slice_idx += delta
 
-        # We need to render
-        img.needs_render = True
+        # Update the 3D crosshair position to match this new slice plane
+        self.update_crosshair_from_slice()
+
+        # Broadcast the new physical position to all synced viewers
+        self.controller.propagate_sync(self.image_id)
+
+        self.image_model.needs_render = True
 
     def on_drag(self, data):
         if self.image_id is None or self.orientation == "Histogram":

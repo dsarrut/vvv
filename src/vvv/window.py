@@ -75,7 +75,7 @@ class MainWindow:
                 # If no modifiers, update crosshair position
                 if not dpg.is_key_down(dpg.mvKey_LShift) and not dpg.is_key_down(dpg.mvKey_LControl):
                     # This updates the ImageModel data
-                    self.drag_viewer.sync_other_views()
+                    #self.drag_viewer.sync_other_views()
                     # This propagates that data to other ImageModels in the group
                     self.controller.propagate_sync(self.drag_viewer.image_id)
 
@@ -93,7 +93,7 @@ class MainWindow:
 
                 # Sync other views if no modifiers are held
                 if not dpg.is_key_down(dpg.mvKey_LShift) and not dpg.is_key_down(dpg.mvKey_LControl):
-                    self.drag_viewer.sync_other_views()
+                    #self.drag_viewer.sync_other_views()
                     self.controller.propagate_sync(self.drag_viewer.image_id)
 
     def on_global_drag(self, data):
