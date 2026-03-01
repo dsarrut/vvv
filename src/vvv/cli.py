@@ -11,7 +11,6 @@ from .viewer import SliceViewer
 @click.option('--link_all', is_flag=True, help='Enable sync all images')
 @click.option('--sync', is_flag=True, help='Enable sync all images')
 def main(image_paths, link_all, sync):
-
     # Initialize DPG context first
     dpg.create_context()
 
@@ -28,6 +27,7 @@ def main(image_paths, link_all, sync):
 
     # Initialize GUI structure
     gui = MainGUI(controller)
+    controller.gui = gui
     dpg.create_viewport(title='VVV', width=1000, height=800)
 
     # Load images (if provided)
@@ -55,7 +55,7 @@ def main(image_paths, link_all, sync):
 
     # Initial UI updates
     w.on_window_resize()
-    controller.refresh_image_list_ui()
+    controller.gui.refresh_image_list_ui()
 
     # Sync ?
     if sync or link_all:

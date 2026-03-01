@@ -180,6 +180,7 @@ class Controller:
 
     def __init__(self):
         self.main_windows = None
+        self.gui = None
         self.images = {}  # { "id": ImageModel }
         self.viewers = {}  # { "id": SliceViewer } access by tag (V1, V2, etc)
         self.settings = SettingsManager()
@@ -210,7 +211,7 @@ class Controller:
     def load_image(self, path):
         img_id = str(len(self.images))
         self.images[img_id] = ImageModel(path)
-        self.refresh_image_list_ui()
+        self.gui.refresh_image_list_ui()
         return img_id
 
     def update_all_viewers_of_image(self, img_id):
@@ -281,73 +282,6 @@ class Controller:
 
         threading.Thread(target=clear_hint, daemon=True).start()
 
-    def refresh_image_list_ui(self):
-        container = "image_list_container"
-        if not dpg.does_item_exist(container):
-            return
-
-        dpg.delete_item(container, children_only=True)
-
-        for img_id, img_model in self.images.items():
-            with dpg.group(parent=container):
-                with dpg.group(horizontal=True):
-                    dpg.add_text(f"{img_model.name}", tag=f"img_label_{img_id}")
-
-                with dpg.group(horizontal=True):
-                    dpg.add_spacer(width=10)
-                    for v_tag in ["V1", "V2", "V3", "V4"]:
-                        # Check if this image is currently in this viewer
-                        is_active = self.viewers[v_tag].image_id == img_id
-                        dpg.add_checkbox(
-                            label="",
-                            default_value=is_active,
-                            user_data={"img_id": img_id, "v_tag": v_tag},
-                            callback=self.on_image_viewer_toggle
-                        )
-                    # Reload Button
-                    btn_reload = dpg.add_button(label="\uf01e", width=20,
-                                                callback=lambda s, a, u: self.reload_image(u),
-                                                user_data=img_id)
-                    # Close Button
-                    btn_close = dpg.add_button(label="\uf00d", width=20,
-                                               callback=lambda s, a, u: self.close_image(u),
-                                               user_data=img_id)
-
-                    # Bind the font to these specific buttons
-                    if dpg.does_item_exist("icon_font_tag"):
-                        dpg.bind_item_font(btn_reload, "icon_font_tag")
-                        dpg.bind_item_font(btn_close, "icon_font_tag")
-
-                    # Bind Themes for visual feedback
-                    if dpg.does_item_exist("delete_button_theme"):
-                        dpg.bind_item_theme(btn_close, "delete_button_theme")
-                    if dpg.does_item_exist("icon_button_theme"):
-                        dpg.bind_item_theme(btn_reload, "icon_button_theme")
-
-        self.refresh_sync_ui()
-
-    def refresh_sync_ui(self):
-        container = "sync_list_container"
-        if not dpg.does_item_exist(container): return
-        dpg.delete_item(container, children_only=True)
-
-        # Table for alignment
-        with dpg.table(parent=container, header_row=False):
-            dpg.add_table_column(label="Image")
-            dpg.add_table_column(label="Group", width_fixed=True)
-
-            for img_id, img in self.images.items():
-                with dpg.table_row():
-                    dpg.add_text(img.name)
-                    # Dropdown to pick a group (0 = None)
-                    dpg.add_combo(
-                        items=["None", "Group 1", "Group 2", "Group 3"],
-                        default_value="None" if not img.sync_group else f"Group {img.sync_group}",
-                        width=100,
-                        user_data=img_id,
-                        callback=self.on_sync_group_change
-                    )
-
     def reload_image(self, img_id):
         """Re-reads the image file from the original path."""
         if img_id in self.images:
@@ -391,7 +325,7 @@ class Controller:
                         viewer.set_image(first_img_id)
 
             # Refresh the UI list
-            self.refresh_image_list_ui()
+            self.gui.refresh_image_list_ui()
 
     def on_sidebar_wl_change(self):
         context_viewer = self.main_windows.context_viewer
@@ -426,7 +360,7 @@ class Controller:
 
         # Refresh UI to ensure only one image is checked per viewer row if desired,
         # or to keep the checkboxes in sync with the state.
-        self.refresh_image_list_ui()
+        self.gui.refresh_image_list_ui()
 
     def on_visibility_toggle(self, sender, value, user_data):
         context_viewer = self.main_windows.context_viewer

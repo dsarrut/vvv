@@ -2,6 +2,7 @@ import dearpygui.dearpygui as dpg
 import os
 import time
 
+
 def create_labeled_field(label, tag):
     """Helper to create a labeled read-only input field."""
     with dpg.group(horizontal=True):
@@ -202,7 +203,7 @@ class MainGUI:
                                    callback=lambda: self.controller.reset_settings())
 
                 dpg.add_text("", tag="save_status_text", color=[150, 150, 150])
-                #with dpg.group(horizontal=True):
+                # with dpg.group(horizontal=True):
                 #        dpg.add_text(f"{self.controller.settings.config_path}")
 
     def create_left_panel_bottom_part(self):
@@ -333,6 +334,73 @@ class MainGUI:
         dpg.set_value("check_overlay", img.show_overlay)
         dpg.set_value("check_crosshair", img.show_crosshair)
 
+    def refresh_image_list_ui(self):
+        container = "image_list_container"
+        if not dpg.does_item_exist(container):
+            return
+
+        dpg.delete_item(container, children_only=True)
+
+        for img_id, img_model in self.controller.images.items():
+            with dpg.group(parent=container):
+                with dpg.group(horizontal=True):
+                    dpg.add_text(f"{img_model.name}", tag=f"img_label_{img_id}")
+
+                with dpg.group(horizontal=True):
+                    dpg.add_spacer(width=10)
+                    for v_tag in ["V1", "V2", "V3", "V4"]:
+                        # Check if this image is currently in this viewer
+                        is_active = self.controller.viewers[v_tag].image_id == img_id
+                        dpg.add_checkbox(
+                            label="",
+                            default_value=is_active,
+                            user_data={"img_id": img_id, "v_tag": v_tag},
+                            callback=self.controller.on_image_viewer_toggle
+                        )
+                    # Reload Button
+                    btn_reload = dpg.add_button(label="\uf01e", width=20,
+                                                callback=lambda s, a, u: self.controller.reload_image(u),
+                                                user_data=img_id)
+                    # Close Button
+                    btn_close = dpg.add_button(label="\uf00d", width=20,
+                                               callback=lambda s, a, u: self.controller.close_image(u),
+                                               user_data=img_id)
+
+                    # Bind the font to these specific buttons
+                    if dpg.does_item_exist("icon_font_tag"):
+                        dpg.bind_item_font(btn_reload, "icon_font_tag")
+                        dpg.bind_item_font(btn_close, "icon_font_tag")
+
+                    # Bind Themes for visual feedback
+                    if dpg.does_item_exist("delete_button_theme"):
+                        dpg.bind_item_theme(btn_close, "delete_button_theme")
+                    if dpg.does_item_exist("icon_button_theme"):
+                        dpg.bind_item_theme(btn_reload, "icon_button_theme")
+
+        self.refresh_sync_ui()
+
+    def refresh_sync_ui(self):
+        container = "sync_list_container"
+        if not dpg.does_item_exist(container): return
+        dpg.delete_item(container, children_only=True)
+
+        # Table for alignment
+        with dpg.table(parent=container, header_row=False):
+            dpg.add_table_column(label="Image")
+            dpg.add_table_column(label="Group", width_fixed=True)
+
+            for img_id, img in self.controller.images.items():
+                with dpg.table_row():
+                    dpg.add_text(img.name)
+                    # Dropdown to pick a group (0 = None)
+                    dpg.add_combo(
+                        items=["None", "Group 1", "Group 2", "Group 3"],
+                        default_value="None" if not img.sync_group else f"Group {img.sync_group}",
+                        width=100,
+                        user_data=img_id,
+                        callback=self.controller.on_sync_group_change
+                    )
+
     def run(self):
         dpg.setup_dearpygui()
         dpg.show_viewport()
@@ -349,11 +417,11 @@ class MainGUI:
                 if not viewer.image_model:
                     continue
 
-                #1. Check if geometry needs recalculation (Pan/Zoom/Center)
+                # 1. Check if geometry needs recalculation (Pan/Zoom/Center)
                 if viewer.needs_refresh:
                     win_w = dpg.get_item_width(f"win_{viewer.tag}")
                     win_h = dpg.get_item_height(f"win_{viewer.tag}")
-                    viewer.resize(win_w, win_h) # This updates current_pmin/pmax
+                    viewer.resize(win_w, win_h)  # This updates current_pmin/pmax
                     viewer.needs_refresh = False
 
                 # If the DATA changed (W/L, new slice), we must re-calculate the texture
