@@ -171,6 +171,45 @@ class ImageModel:
             self.__init__(self.path)
             return True  # Indicates a full reset occurred
 
+    def update_crosshair_from_2d(self, slice_x, slice_y, slice_idx, orientation):
+        """Maps 2D slice coordinates back to 3D Voxel Indices and updates state."""
+        _, shape = self.get_slice_rgba(slice_idx, orientation)
+        real_h, real_w = shape[0], shape[1]
+
+        if orientation == "Axial":
+            v = [slice_x, slice_y, slice_idx]
+        elif orientation == "Sagittal":
+            v = [slice_idx, real_w - slice_x, real_h - slice_y]
+        else:
+            v = [slice_x, slice_idx, real_h - slice_y]
+
+        self.crosshair_pixel_coord = v
+        self.crosshair_phys_coord = self.voxel_coord_to_physic_coord(np.array(v))
+
+        ix, iy, iz = [int(np.clip(c, 0, limit - 1)) for c, limit in
+                      zip(v, [self.data.shape[2], self.data.shape[1], self.data.shape[0]])]
+        self.crosshair_pixel_value = self.data[iz, iy, ix]
+
+    def update_crosshair_from_slice_scroll(self, new_slice_idx, orientation):
+        """Updates the 3D crosshair depth when scrolling through slices."""
+        vx, vy, vz = self.crosshair_pixel_coord
+
+        # Update only the coordinate corresponding to the current orientation
+        if orientation == "Axial":
+            vz = new_slice_idx
+        elif orientation == "Sagittal":
+            vx = new_slice_idx
+        elif orientation == "Coronal":
+            vy = new_slice_idx
+
+        new_v = [vx, vy, vz]
+        self.crosshair_pixel_coord = new_v
+        self.crosshair_phys_coord = self.voxel_coord_to_physic_coord(np.array(new_v))
+
+        ix, iy, iz = [int(np.clip(c, 0, limit - 1)) for c, limit in
+                      zip(new_v, [self.data.shape[2], self.data.shape[1], self.data.shape[0]])]
+        self.crosshair_pixel_value = self.data[iz, iy, ix]
+
 
 class Controller:
     """The central manager."""

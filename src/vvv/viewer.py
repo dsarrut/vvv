@@ -546,23 +546,12 @@ class SliceViewer:
         return [(win_w / 2) - cx_zero_pan_x, (win_h / 2) - cx_zero_pan_y]
 
     def update_crosshair_data(self, pix_x, pix_y):
-        """COMPUTATION: Maps 2D pixels back to 3D Voxel Indices and stores in Model."""
-        img_model = self.image_model
-        _, shape = img_model.get_slice_rgba(self.slice_idx, self.orientation)
-        real_h, real_w = shape[0], shape[1]
+        """Passes 2D mouse coordinates to the Model to compute 3D state."""
+        self.image_model.update_crosshair_from_2d(pix_x, pix_y, self.slice_idx, self.orientation)
 
-        if self.orientation == "Axial":
-            v = [pix_x, pix_y, self.slice_idx]
-        elif self.orientation == "Sagittal":
-            v = [self.slice_idx, real_w - pix_x, real_h - pix_y]
-        else:
-            v = [pix_x, self.slice_idx, real_h - pix_y]
-
-        img_model.crosshair_pixel_coord = v
-        img_model.crosshair_phys_coord = img_model.voxel_coord_to_physic_coord(np.array(v))
-        ix, iy, iz = [int(np.clip(c, 0, limit - 1)) for c, limit in
-                      zip(v, [img_model.data.shape[2], img_model.data.shape[1], img_model.data.shape[0]])]
-        img_model.crosshair_pixel_value = img_model.data[iz, iy, ix]
+    def update_crosshair_from_slice(self):
+        """Notifies the Model that the slice depth has changed via scroll."""
+        self.image_model.update_crosshair_from_slice_scroll(self.slice_idx, self.orientation)
 
     def update_render(self):
         if self.image_id is None:
@@ -683,28 +672,6 @@ class SliceViewer:
     def update_sidebar_window_level(self):
         dpg.set_value("info_window", f"{self.image_model.ww:g}")
         dpg.set_value("info_level", f"{self.image_model.wl:g}")
-
-    def update_crosshair_from_slice(self):
-        """Updates the 3D physical crosshair based on the current 2D slice index."""
-        img_model = self.image_model
-        vx, vy, vz = img_model.crosshair_pixel_coord
-
-        # Update only the coordinate corresponding to the current orientation
-        if self.orientation == "Axial":
-            vz = self.slice_idx
-        elif self.orientation == "Sagittal":
-            vx = self.slice_idx
-        elif self.orientation == "Coronal":
-            vy = self.slice_idx
-
-        new_v = [vx, vy, vz]
-        img_model.crosshair_pixel_coord = new_v
-        img_model.crosshair_phys_coord = img_model.voxel_coord_to_physic_coord(np.array(new_v))
-
-        # Update the pixel value for the sidebar
-        ix, iy, iz = [int(np.clip(c, 0, limit - 1)) for c, limit in
-                      zip(new_v, [img_model.data.shape[2], img_model.data.shape[1], img_model.data.shape[0]])]
-        img_model.crosshair_pixel_value = img_model.data[iz, iy, ix]
 
     def on_key_press(self, key):
         img = self.image_model
