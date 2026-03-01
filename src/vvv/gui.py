@@ -324,11 +324,11 @@ class MainGUI:
     def register_handlers(self):
         """Registers global input handlers."""
         with dpg.handler_registry():
-            dpg.add_mouse_wheel_handler(callback=lambda s, d: self.on_global_scroll(d))
-            dpg.add_mouse_drag_handler(callback=lambda s, d: self.on_global_drag(d))
-            dpg.add_mouse_release_handler(callback=lambda: self.on_global_release())
-            dpg.add_key_press_handler(callback=lambda s, d: self.on_key_press(d))
-            dpg.add_mouse_click_handler(callback=lambda s, d: self.on_global_click(d))
+            dpg.add_mouse_wheel_handler(callback=self.on_global_scroll)
+            dpg.add_mouse_drag_handler(callback=self.on_global_drag)
+            dpg.add_mouse_release_handler(callback=self.on_global_release)
+            dpg.add_key_press_handler(callback=self.on_key_press)
+            dpg.add_mouse_click_handler(callback=self.on_global_click)
 
     def sync_sidebar_checkboxes(self):
         viewer = self.context_viewer
@@ -409,10 +409,11 @@ class MainGUI:
                         callback=self.controller.on_sync_group_change
                     )
 
-    def get_hovered_viewer(self):
-        """Finds which quadrant the mouse is currently over."""
-        for tag, viewer in self.controller.viewers.items():
-            if dpg.is_item_hovered(f"win_{tag}"):
+    @property
+    def hovered_viewer(self):
+        """Returns the viewer currently under the mouse cursor."""
+        for viewer in self.controller.viewers.values():
+            if dpg.is_item_hovered(f"win_{viewer.tag}"):
                 return viewer
         return None
 
@@ -428,7 +429,7 @@ class MainGUI:
 
     def update_overlays(self):
         """Updates sidebar context on hover and refreshes on-image overlays."""
-        hover_viewer = self.get_hovered_viewer()
+        hover_viewer = self.hovered_viewer
 
         # Context Switch logic based on ViewState
         if hover_viewer and hover_viewer != self.context_viewer and not self.drag_viewer:
@@ -483,37 +484,51 @@ class MainGUI:
         for viewer in self.controller.viewers.values():
             viewer.resize(quad_w, quad_h)
 
-    def on_global_scroll(self, delta):
-        viewer = self.get_hovered_viewer()
-        if viewer:
-            viewer.on_scroll(delta)
+    def on_global_click(self, sender, app_data, user_data):
+        button = app_data
+        if button != dpg.mvMouseButton_Left:
+            return
 
-    def on_global_click(self, button):
-        if button == dpg.mvMouseButton_Left:
-            self.drag_viewer = self.get_hovered_viewer()
-            if self.drag_viewer and self.drag_viewer.orientation != "Histogram":
-                self.context_viewer = self.drag_viewer
+        viewer = self.hovered_viewer
+        if not viewer:
+            return
 
-                # If no modifiers, update crosshair position
-                if not dpg.is_key_down(dpg.mvKey_LShift) and not dpg.is_key_down(dpg.mvKey_LControl):
-                    px, py = self.context_viewer.get_mouse_to_pixel_coords(ignore_hover=True)
-                    self.context_viewer.update_crosshair_data(px, py)
-                    self.controller.propagate_sync(self.drag_viewer.image_id)
+        self.drag_viewer = viewer
+        if viewer.orientation != "Histogram":
+            self.context_viewer = viewer
 
-    def on_global_drag(self, data):
-        # Use the locked active_viewer instead of the hovered one
+            # If no modifiers, update crosshair position
+            if not dpg.is_key_down(dpg.mvKey_LShift) and not dpg.is_key_down(dpg.mvKey_LControl):
+                px, py = viewer.get_mouse_to_pixel_coords(ignore_hover=True)
+                if px is not None:
+                    viewer.update_crosshair_data(px, py)
+                    self.controller.propagate_sync(viewer.image_id)
+
+    def on_global_drag(self, sender, app_data, user_data):
+        # Safety catch: If DPG sends an int (just the button) instead of the tuple, ignore it.
+        if isinstance(app_data, int):
+            return
+
         if self.drag_viewer:
-            self.drag_viewer.on_drag(data)
+            self.drag_viewer.on_drag(app_data)
 
-    def on_global_release(self):
+    def on_global_release(self, sender, app_data, user_data):
         if self.drag_viewer:
             self.drag_viewer.update_sidebar_crosshair()
             self.drag_viewer.update_sidebar_info()
 
-        # Reset the drag lock
-        for v in self.controller.viewers.values():
-            v.last_dx, v.last_dy = 0, 0
-        self.drag_viewer = None
+            # Reset the drag lock
+            self.drag_viewer.last_dx = 0
+            self.drag_viewer.last_dy = 0
+            self.drag_viewer = None
+
+    def on_global_scroll(self, sender, app_data, user_data):
+        if self.hovered_viewer:
+            self.hovered_viewer.on_scroll(app_data)
+
+    def on_key_press(self, sender, app_data, user_data):
+        if self.hovered_viewer:
+            self.hovered_viewer.on_key_press(app_data)
 
     def on_image_viewer_toggle(self, sender, value, user_data):
         img_id = user_data["img_id"]
@@ -532,14 +547,6 @@ class MainGUI:
 
         # Refresh UI
         self.refresh_image_list_ui()
-
-    def on_key_press(self, key):
-        viewer = self.get_hovered_viewer()
-        if not viewer:
-            return
-
-        # pass the pressed key to the current viewer
-        viewer.on_key_press(key)
 
     def on_save_settings(self):
         path = self.controller.save_settings()
