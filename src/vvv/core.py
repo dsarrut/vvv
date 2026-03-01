@@ -176,7 +176,6 @@ class Controller:
     """The central manager."""
 
     def __init__(self):
-        self.main_windows = None
         self.gui = None
         self.images = {}  # { "id": ImageModel }
         self.viewers = {}  # { "id": SliceViewer } access by tag (V1, V2, etc)
@@ -266,8 +265,8 @@ class Controller:
             else:
                 self.update_all_viewers_of_image(img_id)
             # Update the sidebar in case this was the active image
-            if self.main_windows.context_viewer and self.main_windows.context_viewer.image_id == img_id:
-                self.main_windows.context_viewer.update_sidebar_info()
+            if self.gui.context_viewer and self.gui.context_viewer.image_id == img_id:
+                self.gui.context_viewer.update_sidebar_info()
 
     def close_image(self, img_id):
         """Removes the image from the controller and clears associated viewers."""
@@ -292,7 +291,7 @@ class Controller:
                 self.gui.refresh_image_list_ui()
 
     def on_visibility_toggle(self, sender, value, user_data):
-        context_viewer = self.main_windows.context_viewer
+        context_viewer = self.gui.context_viewer
         if not context_viewer or not context_viewer.image_model:
             return
 

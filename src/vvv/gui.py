@@ -68,6 +68,11 @@ class MainGUI:
         self.controller = controller
         self.icon_font = None
 
+        # windows elements
+        self.drag_viewer = None
+        self.context_viewer = None
+        self.side_panel_width = 300
+
         # Setup resources and UI
         self.load_resources()
         setup_themes()
@@ -88,12 +93,15 @@ class MainGUI:
                 dpg.add_font_range(0xf00d, 0xf021)
                 dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
 
+    def cleanup(self):
+        dpg.stop_dearpygui()
+
     def create_layout(self):
         """Builds the main window layout."""
         self.create_menu_bar()
 
         with dpg.window(tag="PrimaryWindow",
-                        on_close=self.controller.main_windows.cleanup,
+                        on_close=self.cleanup,
                         no_scrollbar=True,
                         no_scroll_with_mouse=True,
                         no_move=True,
@@ -103,7 +111,7 @@ class MainGUI:
                         no_bring_to_front_on_focus=True):
             # Window resize handler
             with dpg.item_handler_registry(tag="window_resize_handler"):
-                dpg.add_item_resize_handler(callback=lambda: self.controller.main_windows.on_window_resize())
+                dpg.add_item_resize_handler(callback=lambda: self.on_window_resize())
             dpg.bind_item_handler_registry("PrimaryWindow", "window_resize_handler")
 
             with dpg.group(horizontal=True):
@@ -126,7 +134,7 @@ class MainGUI:
 
     def create_left_panel(self):
         """Creates the sidebar with image list and info."""
-        with dpg.child_window(width=self.controller.main_windows.side_panel_width,
+        with dpg.child_window(width=self.side_panel_width,
                               tag="side_panel",
                               no_scrollbar=True,
                               no_scroll_with_mouse=True,
@@ -316,14 +324,14 @@ class MainGUI:
     def register_handlers(self):
         """Registers global input handlers."""
         with dpg.handler_registry():
-            dpg.add_mouse_wheel_handler(callback=lambda s, d: self.controller.main_windows.on_global_scroll(d))
-            dpg.add_mouse_drag_handler(callback=lambda s, d: self.controller.main_windows.on_global_drag(d))
-            dpg.add_mouse_release_handler(callback=lambda: self.controller.main_windows.on_global_release())
-            dpg.add_key_press_handler(callback=lambda s, d: self.controller.main_windows.on_key_press(d))
-            dpg.add_mouse_click_handler(callback=lambda s, d: self.controller.main_windows.on_global_click(d))
+            dpg.add_mouse_wheel_handler(callback=lambda s, d: self.on_global_scroll(d))
+            dpg.add_mouse_drag_handler(callback=lambda s, d: self.on_global_drag(d))
+            dpg.add_mouse_release_handler(callback=lambda: self.on_global_release())
+            dpg.add_key_press_handler(callback=lambda s, d: self.on_key_press(d))
+            dpg.add_mouse_click_handler(callback=lambda s, d: self.on_global_click(d))
 
     def sync_sidebar_checkboxes(self):
-        viewer = self.controller.main_windows.context_viewer
+        viewer = self.context_viewer
         if not viewer or not viewer.image_model:
             return
 
@@ -401,6 +409,138 @@ class MainGUI:
                         callback=self.controller.on_sync_group_change
                     )
 
+    def get_hovered_viewer(self):
+        """Finds which quadrant the mouse is currently over."""
+        for tag, viewer in self.controller.viewers.items():
+            if dpg.is_item_hovered(f"win_{tag}"):
+                return viewer
+        return None
+
+    def highlight_active_image_in_list(self, active_img_id):
+        """Binds a highlight theme to the text label in the sidebar matching the image."""
+        for img_id in self.controller.images.keys():
+            label_tag = f"img_label_{img_id}"
+            if dpg.does_item_exist(label_tag):
+                if img_id == active_img_id:
+                    dpg.bind_item_theme(label_tag, "active_image_list_theme")
+                else:
+                    dpg.bind_item_theme(label_tag, "")  # Reset to default
+
+    def update_overlays(self):
+        """Updates sidebar context on hover and refreshes on-image overlays."""
+        hover_viewer = self.get_hovered_viewer()
+
+        # Context Switch logic based on ViewState
+        if hover_viewer and hover_viewer != self.context_viewer and not self.drag_viewer:
+            # Remove highlight from the old viewer
+            if self.context_viewer:
+                dpg.bind_item_theme(f"win_{self.context_viewer.tag}", "viewer_theme")
+
+            # Add highlight to the new viewer
+            dpg.bind_item_theme(f"win_{hover_viewer.tag}", "active_viewer_theme")
+
+            # Highlight the current image in the image list
+            self.highlight_active_image_in_list(hover_viewer.image_id)
+
+            # Update sidebar
+            hover_viewer.update_sidebar_info()
+            hover_viewer.update_sidebar_crosshair()
+            self.context_viewer = hover_viewer
+
+        # Always refresh the on-image text/crosshairs for all viewers
+        for viewer in self.controller.viewers.values():
+            viewer.update_overlay()
+
+    def on_window_resize(self):
+        # Get current window dimensions
+        window_width = dpg.get_item_width("PrimaryWindow")
+        window_height = dpg.get_item_height("PrimaryWindow")
+        if not window_width or not window_height:
+            return  # Safety
+
+        # Constants
+        margin_height = 30
+        margin_width = 30
+        side_panel_width = self.side_panel_width
+        available_width = window_width - side_panel_width - margin_width
+        available_height = window_height - margin_height
+
+        # Calculate the sizes for each quadrant (2x2)
+        quad_w = available_width // 2
+        quad_h = available_height // 2
+
+        # Calculate the total height used by the 2 rows of viewers
+        total_viewers_height = quad_h * 2
+
+        if dpg.does_item_exist("viewers_container"):
+            dpg.set_item_width("viewers_container", available_width)
+            dpg.set_item_height("viewers_container", total_viewers_height)
+            # 10 and 22 are "magic" values such that the panel does not have scrollbars
+            # and the bottom viewers are aligned with the bottom left panel
+            dpg.set_item_pos("viewers_container", [side_panel_width + 10, 22])
+
+        # Resize all viewers
+        for viewer in self.controller.viewers.values():
+            viewer.resize(quad_w, quad_h)
+
+    def on_global_scroll(self, delta):
+        viewer = self.get_hovered_viewer()
+        if viewer:
+            viewer.on_scroll(delta)
+
+    def on_global_click(self, button):
+        if button == dpg.mvMouseButton_Left:
+            self.drag_viewer = self.get_hovered_viewer()
+            if self.drag_viewer and self.drag_viewer.orientation != "Histogram":
+                self.context_viewer = self.drag_viewer
+
+                # If no modifiers, update crosshair position
+                if not dpg.is_key_down(dpg.mvKey_LShift) and not dpg.is_key_down(dpg.mvKey_LControl):
+                    px, py = self.context_viewer.get_mouse_to_pixel_coords(ignore_hover=True)
+                    self.context_viewer.update_crosshair_data(px, py)
+                    self.controller.propagate_sync(self.drag_viewer.image_id)
+
+    def on_global_drag(self, data):
+        # Use the locked active_viewer instead of the hovered one
+        if self.drag_viewer:
+            self.drag_viewer.on_drag(data)
+
+    def on_global_release(self):
+        if self.drag_viewer:
+            self.drag_viewer.update_sidebar_crosshair()
+            self.drag_viewer.update_sidebar_info()
+
+        # Reset the drag lock
+        for v in self.controller.viewers.values():
+            v.last_dx, v.last_dy = 0, 0
+        self.drag_viewer = None
+
+    def on_image_viewer_toggle(self, sender, value, user_data):
+        img_id = user_data["img_id"]
+        v_tag = user_data["v_tag"]
+        viewer = self.controller.viewers[v_tag]
+
+        # Rule: If the user tries to uncheck the active image, force it back to True
+        if not value and viewer.image_id == img_id:
+            dpg.set_value(sender, True)
+            return
+
+        if value:  # Checkbox checked
+            viewer.set_image(img_id)
+            # Update the sidebar info to reflect the newly selected image
+            viewer.update_sidebar_info()
+
+        # Refresh UI
+        self.refresh_image_list_ui()
+
+    def on_key_press(self, key):
+        viewer = self.get_hovered_viewer()
+        if not viewer:
+            return
+
+        # pass the pressed key to the current viewer
+        viewer.on_key_press(key)
+
     def on_save_settings(self):
         path = self.controller.save_settings()
         dpg.set_value("save_status_text", f"Saved in: {path}")
@@ -425,26 +565,8 @@ class MainGUI:
             if dpg.does_item_exist(tag):
                 dpg.set_value(tag, value)
 
-    def on_image_viewer_toggle(self, sender, value, user_data):
-        img_id = user_data["img_id"]
-        v_tag = user_data["v_tag"]
-        viewer = self.controller.viewers[v_tag]
-
-        # Rule: If the user tries to uncheck the active image, force it back to True
-        if not value and viewer.image_id == img_id:
-            dpg.set_value(sender, True)
-            return
-
-        if value:  # Checkbox checked
-            viewer.set_image(img_id)
-            # Update the sidebar info to reflect the newly selected image
-            viewer.update_sidebar_info()
-
-        # Refresh UI
-        self.refresh_image_list_ui()
-
     def on_sidebar_wl_change(self):
-        context_viewer = self.controller.main_windows.context_viewer
+        context_viewer = self.context_viewer
         if not context_viewer or context_viewer.image_id is None:
             return
 
@@ -466,7 +588,7 @@ class MainGUI:
 
         while dpg.is_dearpygui_running():
             # Update overlays (mouse tracking)
-            self.controller.main_windows.update_overlays()
+            self.update_overlays()
 
             self.sync_sidebar_checkboxes()
 
@@ -488,7 +610,7 @@ class MainGUI:
                     viewer.draw_crosshair()
 
                     # If THIS viewer is the one the user is currently looking at in the sidebar
-                    if viewer == self.controller.main_windows.context_viewer:
+                    if viewer == self.context_viewer:
                         viewer.update_sidebar_crosshair()
                         viewer.update_sidebar_window_level()
 

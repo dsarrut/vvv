@@ -2,7 +2,6 @@ import click
 import dearpygui.dearpygui as dpg
 from .gui import MainGUI
 from .core import Controller
-from .window import MainWindow
 from .viewer import SliceViewer
 
 
@@ -16,10 +15,6 @@ def main(image_paths, link_all, sync):
 
     # Initialize Controller and related objects
     controller = Controller()
-
-    # Initialize the main window manager
-    w = MainWindow(controller)
-    controller.main_windows = w
 
     # Initialize the 4 viewers
     for tag in ["V1", "V2", "V3", "V4"]:
@@ -54,13 +49,14 @@ def main(image_paths, link_all, sync):
     controller.default_viewers_orientation()
 
     # Initial UI updates
-    w.on_window_resize()
+    gui.on_window_resize()
     controller.gui.refresh_image_list_ui()
 
     # Sync ?
     if sync or link_all:
         for img in controller.images.values():
             img.sync_group = 1
+        gui.refresh_sync_ui()
 
     # Start the application
     gui.run()

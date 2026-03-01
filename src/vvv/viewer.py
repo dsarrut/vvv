@@ -131,7 +131,7 @@ class SliceViewer:
         if self.image_id:
             # Re-initialize the view for a new orientation
             self.set_image(self.image_id)
-        self.controller.main_windows.on_window_resize()
+        self.controller.gui.on_window_resize()
 
     def init_slice_texture(self):
         """Manages dynamic texture creation for the image."""
@@ -723,7 +723,7 @@ class SliceViewer:
 
         elif key == dpg.mvKey_R:
             self.zoom, self.pan_offset = 1.0, [0, 0]
-            self.controller.main_windows.on_window_resize()
+            self.controller.gui.on_window_resize()
 
         elif key == dpg.mvKey_C:
             # Set the flag to signal that we want to re-anchor the view
@@ -821,7 +821,7 @@ class SliceViewer:
 
         self.pan_offset[0] -= (rx * (ratio - 1)) - (dw / 2)
         self.pan_offset[1] -= (ry * (ratio - 1)) - (dh / 2)
-        self.controller.main_windows.on_window_resize()
+        self.controller.gui.on_window_resize()
 
         self.needs_refresh = True
         self.controller.propagate_sync(self.image_id)
