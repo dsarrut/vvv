@@ -92,6 +92,17 @@ class SliceViewer:
     def zoom(self, value):
         if self.image_model: self.image_model.zoom = value
 
+    @property
+    def num_slices(self):
+        img_model = self.image_model
+        if self.orientation == "Axial":
+            return img_model.data.shape[0]
+        elif self.orientation == "Sagittal":
+            return img_model.data.shape[2]
+        elif self.orientation == "Coronal":
+            return img_model.data.shape[1]
+        return 0
+
     def set_image(self, img_id):
         # set the image info to this viewer
         self.image_id = img_id
@@ -766,6 +777,12 @@ class SliceViewer:
 
         # Update the local slice index
         self.slice_idx += delta
+        if self.slice_idx < 0:
+            self.slice_idx -= delta
+            return
+        elif self.slice_idx >= self.num_slices:
+            self.slice_idx -= delta
+            return
 
         # Update the 3D crosshair position to match this new slice plane
         self.update_crosshair_from_slice()
