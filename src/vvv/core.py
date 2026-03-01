@@ -33,7 +33,7 @@ class ImageModel:
         The actual pixel values in the volume or the lookup table (Window/Level) changed.
         Ex: changing Brightness/Contrast, reloading the file, or applying a filter.
         """
-        self.needs_render = True
+        self.is_data_dirty = True
 
         # --- below is information shared among the viewers ---
 
@@ -416,13 +416,13 @@ class Controller:
 
             # Sync View State (Zoom)
             target_img.zoom = shared_zoom
-            target_img.needs_render = True
+            target_img.is_data_dirty = True
 
         # Trigger Viewers Refresh
         # We loop through viewers to find those looking at any of our target images
         for viewer in self.viewers.values():
             if viewer.image_id in target_ids:
-                viewer.needs_refresh = True
+                viewer.is_geometry_dirty = True
 
 
 DEFAULT_SETTINGS = {

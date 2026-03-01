@@ -612,14 +612,14 @@ class MainGUI:
                     continue
 
                 # 1. Check if geometry needs recalculation (Pan/Zoom/Center)
-                if viewer.needs_refresh:
+                if viewer.is_geometry_dirty:
                     win_w = dpg.get_item_width(f"win_{viewer.tag}")
                     win_h = dpg.get_item_height(f"win_{viewer.tag}")
                     viewer.resize(win_w, win_h)  # This updates current_pmin/pmax
-                    viewer.needs_refresh = False
+                    viewer.is_geometry_dirty = False
 
                 # If the DATA changed (W/L, new slice), we must re-calculate the texture
-                if viewer.image_model.needs_render:
+                if viewer.image_model.is_data_dirty:
                     viewer.update_render()
                     viewer.draw_crosshair()
 
@@ -628,10 +628,10 @@ class MainGUI:
                         viewer.update_sidebar_crosshair()
                         viewer.update_sidebar_window_level()
 
-                    viewer.needs_refresh = False
+                    viewer.is_geometry_dirty = False
 
             # Reset the Global flags after all viewers have processed them
             for img in self.controller.images.values():
-                img.needs_render = False
+                img.is_data_dirty = False
 
             dpg.render_dearpygui_frame()

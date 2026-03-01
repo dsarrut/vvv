@@ -87,7 +87,7 @@ class SliceViewer:
         The data is the same, but the camera moved or the UI decoration changed.
         Ex: Panning, Zooming, toggling the "Crosshair" visibility, or resizing the window.
         """
-        self.needs_refresh = True
+        self.is_geometry_dirty = True
         self.needs_recenter = None
 
         # dpg tags
@@ -195,7 +195,7 @@ class SliceViewer:
         self.draw_crosshair()  # also update sidebar_crosshair
 
         # Render
-        self.image_model.needs_render = True
+        self.image_model.is_data_dirty = True
 
     def set_current_slice_to_crosshair(self):
         img_model = self.image_model
@@ -312,7 +312,7 @@ class SliceViewer:
         if dpg.does_item_exist(self.image_tag):
             dpg.configure_item(self.image_tag, pmin=pmin, pmax=pmax)
 
-        self.image_model.needs_render = True
+        self.image_model.is_data_dirty = True
 
     def calculate_pan_to_center_crosshair(self, win_w, win_h):
         if not self.image_model or self.image_model.crosshair_voxel is None:
@@ -739,14 +739,14 @@ class SliceViewer:
         elif key == dpg.mvKey_C:
             # Set the flag to signal that we want to re-anchor the view
             self.needs_recenter = True
-            self.needs_refresh = True
+            self.is_geometry_dirty = True
             # If synced, tell the controller to update the group
             if self.image_model and self.image_model.sync_group != 0:
                 group_id = self.image_model.sync_group
                 for v in self.controller.viewers.values():
                     if v.image_model and v.image_model.sync_group == group_id:
                         v.needs_recenter = True
-                        v.needs_refresh = True
+                        v.is_geometry_dirty = True
 
         elif key == dpg.mvKey_F1:
             self.set_orientation(ViewMode.AXIAL)
@@ -762,11 +762,11 @@ class SliceViewer:
 
         elif key == dpg.mvKey_L:  # FIXME to remove or change
             img.interpolation_linear = not img.interpolation_linear
-            img.needs_render = True
+            img.is_data_dirty = True
 
         elif key == dpg.mvKey_G:
             img.grid_mode = not img.grid_mode
-            img.needs_render = True
+            img.is_data_dirty = True
 
         elif key == dpg.mvKey_H:
             self.hide_everything()
@@ -790,7 +790,7 @@ class SliceViewer:
         # Broadcast the new physical position to all synced viewers
         self.controller.propagate_sync(self.image_id)
 
-        self.image_model.needs_render = True
+        self.image_model.is_data_dirty = True
 
     def on_drag(self, data):
         if self.image_id is None or self.orientation == ViewMode.HISTOGRAM:
@@ -816,7 +816,7 @@ class SliceViewer:
         elif is_ctrl and is_button:
             self.pan_offset[0] += sx
             self.pan_offset[1] += sy
-            self.needs_refresh = True
+            self.is_geometry_dirty = True
 
         # Drag with Ctrl and with Shift
         elif is_shift and is_button:
@@ -836,5 +836,5 @@ class SliceViewer:
         self.pan_offset[1] += dy
 
         self.controller.gui.on_window_resize()
-        self.needs_refresh = True
+        self.is_geometry_dirty = True
         self.controller.propagate_sync(self.image_id)
