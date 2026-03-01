@@ -475,56 +475,40 @@ class Controller:
 
     def propagate_sync(self, source_img_id):
         source_img = self.images[source_img_id]
-        if source_img.sync_group == 0: return
+        if source_img.sync_group == 0:
+            # Even if not in a group, we might need to update
+            # other orientations of the SAME image
+            target_ids = [source_img_id]
+        else:
+            # Sync with everyone in the group
+            target_ids = [tid for tid, img in self.images.items()
+                          if img.sync_group == source_img.sync_group]
 
         phys_pos = source_img.crosshair_phys_coord
         shared_zoom = source_img.zoom
-        shared_pan = copy.deepcopy(source_img.pan)
 
-        for target_id, target_img in self.images.items():
-            if target_id != source_img_id and target_img.sync_group == source_img.sync_group:
-                # Calculate TRUE floating point voxel position (Unclipped)
-                target_vox = (phys_pos - target_img.origin + target_img.spacing / 2) / target_img.spacing
+        for target_id in target_ids:
+            target_img = self.images[target_id]
 
-                # Store the unclipped coordinate for the crosshair lines
-                target_img.crosshair_pixel_coord = [target_vox[0], target_vox[1], target_vox[2]]
+            # Update Physical & Voxel State
+            target_vox = (phys_pos - target_img.origin + target_img.spacing / 2) / target_img.spacing
+            target_img.crosshair_pixel_coord = list(target_vox)
+            target_img.crosshair_phys_coord = phys_pos
 
-                # 2. Handle the Pixel Value (Clipped for data safety)
-                ix, iy, iz = [int(np.clip(c, 0, limit - 1)) for c, limit in
-                              zip(target_vox,
-                                  [target_img.data.shape[2], target_img.data.shape[1], target_img.data.shape[0]])]
+            # Update Slice Indices
+            target_img.slices["Axial"] = int(target_vox[2])
+            target_img.slices["Sagittal"] = int(target_vox[0])
+            target_img.slices["Coronal"] = int(target_vox[1])
 
-                # Check if actually inside to show value or "Out of bounds"
-                if 0 <= target_vox[0] < target_img.data.shape[2] and \
-                        0 <= target_vox[1] < target_img.data.shape[1] and \
-                        0 <= target_vox[2] < target_img.data.shape[0]:
-                    target_img.crosshair_pixel_value = target_img.data[iz, iy, ix]
-                else:
-                    target_img.crosshair_pixel_value = float('nan')
+            # Sync View State (Zoom)
+            target_img.zoom = shared_zoom
+            target_img.needs_render = True
 
-                # Update physical and slice data
-                vz_raw = target_vox[2]
-                vx_raw = target_vox[0]
-                vy_raw = target_vox[1]
-                target_img.crosshair_phys_coord = phys_pos
-                target_img.slices["Axial"] = int(vz_raw)
-                target_img.slices["Sagittal"] = int(vx_raw)
-                target_img.slices["Coronal"] = int(vy_raw)
-
-                # Zoom and Pan Sync
-                target_img.zoom = shared_zoom
-                # target_img.pan = shared_pan
-
-                # Redraw followers safely
-                target_img.needs_render = True
-
-                for viewer in self.viewers.values():
-                    if viewer.image_model and viewer.image_model.sync_group == source_img.sync_group:
-                        # if viewer.image_id != source_img_id:
-                        # Tell followers to re-calculate their pan based on
-                        # their own geometry and the new physical crosshair
-                        #    viewer.needs_recenter = True
-                        viewer.needs_refresh = True
+        # Trigger Viewers Refresh
+        # We loop through viewers to find those looking at any of our target images
+        for viewer in self.viewers.values():
+            if viewer.image_id in target_ids:
+                viewer.needs_refresh = True
 
 
 DEFAULT_SETTINGS = {

@@ -1,7 +1,6 @@
 import dearpygui.dearpygui as dpg
 import numpy as np
 from .utils import *
-import copy
 
 
 class SliceViewer:
@@ -204,31 +203,11 @@ class SliceViewer:
         if self.orientation == "Histogram":
             return
 
-        img = self.image_model
-
         if self.needs_recenter:
             self.pan_offset = self.calculate_pan_to_center_crosshair(quad_w, quad_h)
             self.needs_recenter = False
-        # self.needs_recenter = False
 
-        # Get the physical dimensions in mm
-        sw, sh = img.get_physical_aspect_ratio(self.orientation)
-        # Total mm width/height of the volume in this orientation
-        # Use actual slice shape which accounts for orientation flips
-        _, shape = img.get_slice_rgba(self.slice_idx, self.orientation)
-        mm_w, mm_h = shape[1] * sw, shape[0] * sh
-
-        # Calculate a normalized "Base Scale"
-        # This scale makes the image fit the window perfectly at Zoom = 1.0
-        target_w, target_h = quad_w - self.margin_left, quad_h - self.margin_top
-        base_scale = min(target_w / mm_w, target_h / mm_h)
-
-        # Apply the global zoom factor
-        # Since mm_w/mm_h are absolute physical units,
-        # 'base_scale * self.zoom' is now physically consistent across images.
-        final_scale = base_scale * self.zoom
-
-        new_w, new_h = int(mm_w * final_scale), int(mm_h * final_scale)
+        new_w, new_h, real_w, real_h, target_w, target_h = self.get_geometry_params(quad_w, quad_h)
 
         off_x = (target_w - new_w) // 2 + self.margin_left + self.pan_offset[0]
         off_y = (target_h - new_h) // 2 + self.margin_top + self.pan_offset[1]
@@ -513,6 +492,19 @@ class SliceViewer:
             p_min, p_max = np.percentile(patch, [2, 98])
             self.update_window_level(max(1, p_max - p_min), (p_max + p_min) / 2)
 
+    def get_geometry_params(self, quad_w, quad_h):
+        """Single source of truth for image scaling math."""
+        img = self.image_model
+        sw, sh = img.get_physical_aspect_ratio(self.orientation)
+        _, shape = img.get_slice_rgba(self.slice_idx, self.orientation)
+        real_h, real_w = shape[0], shape[1]
+        mm_w, mm_h = real_w * sw, real_h * sh
+
+        target_w, target_h = quad_w - self.margin_left, quad_h - self.margin_top
+        base_scale = min(target_w / mm_w, target_h / mm_h)
+        final_scale = base_scale * self.zoom
+        return int(mm_w * final_scale), int(mm_h * final_scale), real_w, real_h, target_w, target_h
+
     def calculate_pan_to_center_crosshair(self, win_w, win_h):
         """
         Computes the exact [x, y] pixels needed to put the 3D crosshair
@@ -522,15 +514,8 @@ class SliceViewer:
             return [0, 0]
 
         img = self.image_model
-        # 1. Get Geometry (Same logic as resize)
-        sw, sh = img.get_physical_aspect_ratio(self.orientation)
-        _, shape = img.get_slice_rgba(self.slice_idx, self.orientation)
-        real_h, real_w = shape[0], shape[1]
 
-        target_w, target_h = win_w - self.margin_left, win_h - self.margin_top
-        base_scale = min(target_w / (real_w * sw), target_h / (real_h * sh))
-        final_scale = base_scale * self.zoom
-        new_w, new_h = int(real_w * sw * final_scale), int(real_h * sh * final_scale)
+        new_w, new_h, real_w, real_h, target_w, target_h = self.get_geometry_params(win_w, win_h)
 
         # 2. Identify the 'Zero-Pan' origin
         origin_x = (target_w - new_w) // 2 + self.margin_left
@@ -793,21 +778,20 @@ class SliceViewer:
         if not is_ctrl and not is_shift and is_button:
             px, py = self.get_mouse_to_pixel_coords(ignore_hover=True)
             if px is not None:
-                self.sync_other_views()
-                self.image_model.needs_render = True
+                self.update_crosshair_data(px, py)
+                self.controller.propagate_sync(self.image_id)
 
         # Drag with Ctrl and without Shift
         elif is_ctrl and is_button:
             self.pan_offset[0] += sx
             self.pan_offset[1] += sy
-            self.controller.main_windows.on_window_resize()
             self.needs_refresh = True
 
         # Drag with Ctrl and with Shift
         elif is_shift and is_button:
-            self.update_window_level(max(1, self.image_model.ww + sx * 2), self.image_model.wl - sy * 2)
-
-        self.controller.propagate_sync(self.image_id)
+            ww = max(1, self.image_model.ww + sx * 2)
+            wl = self.image_model.wl - sy * 2
+            self.update_window_level(ww, wl)
 
     def on_zoom(self, direction):
         if self.image_id is None: return
