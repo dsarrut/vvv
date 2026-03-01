@@ -12,9 +12,15 @@ dependencies = [
     "SimpleITK",
     "dearpygui",
     "numpy",
+    "pytest"
 ]
 
 [project.scripts]
 # This line creates the 'vvv' command in your shell
 vvv = "vvv.cli:main"
 checkerboard = "vvv.checkerboard:create_checkerboard"
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
