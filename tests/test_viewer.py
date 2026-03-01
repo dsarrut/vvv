@@ -5,7 +5,7 @@ import dearpygui.dearpygui as dpg
 from pathlib import Path
 from vvv.core import Controller
 from vvv.viewer import SliceViewer
-
+from vvv.utils import ViewMode
 
 # --- FIXTURES ---
 
@@ -115,7 +115,7 @@ def test_scroll_interaction_updates_crosshair(headless_app):
 
     assert img_model.crosshair_value == 0.0
 
-    viewer.set_orientation("Axial")
+    viewer.set_orientation(ViewMode.AXIAL)
     viewer.on_scroll(1)
 
     assert viewer.slice_idx == 3

@@ -109,7 +109,7 @@ class SliceViewer:
         self.last_dy = 0
         self.last_dx = 0
         self.mapper = ViewportMapper()
-        self.orientation = "Axial"
+        self.orientation = ViewMode.AXIAL
 
         # Transient mouse data (Viewer specific)
         self.mouse_phys_coord = None
@@ -165,11 +165,11 @@ class SliceViewer:
     @property
     def num_slices(self):
         img_model = self.image_model
-        if self.orientation == "Axial":
+        if self.orientation == ViewMode.AXIAL:
             return img_model.data.shape[0]
-        elif self.orientation == "Sagittal":
+        elif self.orientation == ViewMode.SAGITTAL:
             return img_model.data.shape[2]
-        elif self.orientation == "Coronal":
+        elif self.orientation == ViewMode.CORONAL:
             return img_model.data.shape[1]
         return 0
 
@@ -200,11 +200,11 @@ class SliceViewer:
     def set_current_slice_to_crosshair(self):
         img_model = self.image_model
         vx, vy, vz = img_model.crosshair_voxel
-        if self.orientation == "Axial":
+        if self.orientation == ViewMode.AXIAL:
             self.slice_idx = int(np.clip(vz, 0, img_model.data.shape[0] - 1))
-        elif self.orientation == "Sagittal":
+        elif self.orientation == ViewMode.SAGITTAL:
             self.slice_idx = int(np.clip(vx, 0, img_model.data.shape[2] - 1))
-        elif self.orientation == "Coronal":
+        elif self.orientation == ViewMode.CORONAL:
             self.slice_idx = int(np.clip(vy, 0, img_model.data.shape[1] - 1))
 
     def set_orientation(self, orientation):
@@ -216,7 +216,7 @@ class SliceViewer:
 
     def init_slice_texture(self):
         """Manages dynamic texture creation for the image."""
-        if self.orientation == "Histogram":
+        if self.orientation == ViewMode.HISTOGRAM:
             return
 
         img = self.image_model
@@ -265,10 +265,10 @@ class SliceViewer:
 
     def get_axis_labels(self):
         """Returns (horizontal_axis, vertical_axis) and their directions."""
-        if self.orientation == "Axial":
+        if self.orientation == ViewMode.AXIAL:
             # Horizontal is X (+), Vertical is Y (+)
             return ("x", "y"), (1, 1)
-        elif self.orientation == "Sagittal":
+        elif self.orientation == ViewMode.SAGITTAL:
             # Horizontal is Y (-), Vertical is Z (-)
             return ("y", "z"), (-1, -1)
         else:  # Coronal
@@ -295,7 +295,7 @@ class SliceViewer:
             dpg.set_item_width(f"drawlist_{self.tag}", quad_w)
             dpg.set_item_height(f"drawlist_{self.tag}", quad_h)
 
-        if self.image_id is None or self.orientation == "Histogram": return
+        if self.image_id is None or self.orientation == ViewMode.HISTOGRAM: return
 
         img = self.image_model
         sw, sh = img.get_physical_aspect_ratio(self.orientation)
@@ -324,9 +324,9 @@ class SliceViewer:
         sw, sh = img.get_physical_aspect_ratio(self.orientation)
 
         vx, vy, vz = img.crosshair_voxel
-        if self.orientation == "Axial":
+        if self.orientation == ViewMode.AXIAL:
             tx, ty = vx, vy
-        elif self.orientation == "Sagittal":
+        elif self.orientation == ViewMode.SAGITTAL:
             tx, ty = real_w - vy, real_h - vz
         else:  # Coronal
             tx, ty = vx, real_h - vz
@@ -362,7 +362,7 @@ class SliceViewer:
 
     def draw_crosshair(self):
         """DRAWING: Render the crosshair lines based on the ImageModel state."""
-        if self.orientation == "Histogram" or not self.image_model:
+        if self.orientation == ViewMode.HISTOGRAM or not self.image_model:
             return
 
         node_tag = self.crosshair_tag
@@ -380,9 +380,9 @@ class SliceViewer:
         real_h, real_w = shape[0], shape[1]
 
         # Map 3D Voxel back to this viewer's 2D space
-        if self.orientation == "Axial":
+        if self.orientation == ViewMode.AXIAL:
             tx, ty = vx, vy
-        elif self.orientation == "Sagittal":
+        elif self.orientation == ViewMode.SAGITTAL:
             tx, ty = real_w - vy, real_h - vz
         else:
             tx, ty = vx, real_h - vz
@@ -434,7 +434,7 @@ class SliceViewer:
         self.active_strips_node = back_node
 
     def draw_orientation_axes(self):
-        if self.orientation == "Histogram":
+        if self.orientation == ViewMode.HISTOGRAM:
             # Hide axes if they were visible
             if self.axes_nodes:
                 dpg.configure_item(self.axes_nodes[0], show=False)
@@ -565,9 +565,9 @@ class SliceViewer:
         if x1 <= x0 or y1 <= y0:
             return
 
-        if self.orientation == "Axial":
+        if self.orientation == ViewMode.AXIAL:
             patch = img_model.data[self.slice_idx, y0:y1, x0:x1]
-        elif self.orientation == "Sagittal":
+        elif self.orientation == ViewMode.SAGITTAL:
             z_idx0, z_idx1 = int(max(0, real_h - y1)), int(min(img_model.data.shape[0], real_h - y0))
             y_idx0, y_idx1 = int(max(0, real_w - x1)), int(min(img_model.data.shape[1], real_w - x0))
             patch = img_model.data[z_idx0:z_idx1, y_idx0:y_idx1, self.slice_idx]
@@ -593,7 +593,7 @@ class SliceViewer:
         drawlist_tag = f"drawlist_{self.tag}"
         plot_tag = f"plot_{self.tag}"
 
-        if self.orientation == "Histogram":
+        if self.orientation == ViewMode.HISTOGRAM:
             # Hide the 2D image drawing area
             if dpg.does_item_exist(drawlist_tag):
                 dpg.configure_item(drawlist_tag, show=False)
@@ -636,7 +636,7 @@ class SliceViewer:
             dpg.configure_item(self.axis_b_tag, show=False)
 
     def update_overlay(self):
-        if self.image_id is None or not self.image_model.show_overlay or self.orientation == "Histogram":
+        if self.image_id is None or not self.image_model.show_overlay or self.orientation == ViewMode.HISTOGRAM:
             dpg.set_value(self.overlay_tag, "")
             return
         pix_x, pix_y = self.get_mouse_slice_coords()
@@ -649,9 +649,9 @@ class SliceViewer:
         _, shape = img_model.get_slice_rgba(idx, self.orientation)
         real_h, real_w = shape[0], shape[1]
 
-        if self.orientation == "Axial":
+        if self.orientation == ViewMode.AXIAL:
             v = np.array([pix_x, pix_y, idx])
-        elif self.orientation == "Sagittal":
+        elif self.orientation == ViewMode.SAGITTAL:
             v = np.array([idx, real_w - pix_x, real_h - pix_y])
         else:
             v = np.array([pix_x, idx, real_h - pix_y])
@@ -749,16 +749,16 @@ class SliceViewer:
                         v.needs_refresh = True
 
         elif key == dpg.mvKey_F1:
-            self.set_orientation("Axial")
+            self.set_orientation(ViewMode.AXIAL)
 
         elif key == dpg.mvKey_F2:
-            self.set_orientation("Sagittal")
+            self.set_orientation(ViewMode.SAGITTAL)
 
         elif key == dpg.mvKey_F3:
-            self.set_orientation("Coronal")
+            self.set_orientation(ViewMode.CORONAL)
 
         elif key == dpg.mvKey_F4:
-            self.set_orientation("Histogram")
+            self.set_orientation(ViewMode.HISTOGRAM)
 
         elif key == dpg.mvKey_L:  # FIXME to remove or change
             img.interpolation_linear = not img.interpolation_linear
@@ -772,7 +772,7 @@ class SliceViewer:
             self.hide_everything()
 
     def on_scroll(self, delta=1):
-        if self.image_id is None or self.orientation == "Histogram":
+        if self.image_id is None or self.orientation == ViewMode.HISTOGRAM:
             return  # Disable scrolling in histogram mode
 
         # Update the local slice index
@@ -793,7 +793,7 @@ class SliceViewer:
         self.image_model.needs_render = True
 
     def on_drag(self, data):
-        if self.image_id is None or self.orientation == "Histogram":
+        if self.image_id is None or self.orientation == ViewMode.HISTOGRAM:
             return  # Disable pan/zoom/WL drag in histogram mode
 
         sx, sy = data[1] - self.last_dx, data[2] - self.last_dy

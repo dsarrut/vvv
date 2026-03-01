@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import copy
 import json
+from vvv.utils import ViewMode
 
 
 class ImageModel:
@@ -45,9 +46,9 @@ class ImageModel:
         self.interpolation_linear = False
         # Current slices for all orientation (init to center)
         self.slices = {
-            "Axial": self.data.shape[0] // 2,
-            "Sagittal": self.data.shape[1] // 2,
-            "Coronal": self.data.shape[2] // 2
+            ViewMode.AXIAL: self.data.shape[0] // 2,
+            ViewMode.SAGITTAL: self.data.shape[1] // 2,
+            ViewMode.CORONAL: self.data.shape[2] // 2
         }
         # Current voxel information under the crosshair
         self.crosshair_phys_coord = None
@@ -55,7 +56,11 @@ class ImageModel:
         self.crosshair_value = None
         self.init_crosshair_to_slices()
         # Current pan for all orientation
-        self.pan = {"Axial": [0, 0], "Sagittal": [0, 0], "Coronal": [0, 0]}
+        self.pan = {
+            ViewMode.AXIAL: [0, 0],
+            ViewMode.SAGITTAL: [0, 0],
+            ViewMode.CORONAL: [0, 0]
+        }
         # options
         self.grid_mode = False
         self.show_axis = True
@@ -92,20 +97,24 @@ class ImageModel:
         self.hist_data_x = bin_edges[:-1].astype(np.float32)
 
     def init_crosshair_to_slices(self):
-        self.crosshair_voxel = [self.slices["Coronal"], self.slices["Sagittal"], self.slices["Axial"]]
+        self.crosshair_voxel = [self.slices[ViewMode.CORONAL], self.slices[ViewMode.SAGITTAL],
+                                self.slices[ViewMode.AXIAL]]
         self.crosshair_phys_coord = self.voxel_coord_to_physic_coord(self.crosshair_voxel)
         ix, iy, iz = self.crosshair_voxel
         self.crosshair_value = self.data[iz, iy, ix]
 
-    def get_slice_rgba(self, slice_idx, orientation="Axial"):
+    def get_slice_rgba(self, slice_idx, orientation=ViewMode.AXIAL):
 
         # 1. Determine the maximum index for the current orientation
-        if orientation == "Axial":
+        if orientation == ViewMode.AXIAL:
             max_s, h, w = self.data.shape[0], self.data.shape[1], self.data.shape[2]
-        elif orientation == "Sagittal":
+        elif orientation == ViewMode.SAGITTAL:
             max_s, h, w = self.data.shape[2], self.data.shape[0], self.data.shape[1]
-        else:  # Coronal
+        elif orientation == ViewMode.CORONAL:
             max_s, h, w = self.data.shape[1], self.data.shape[0], self.data.shape[2]
+        else:
+            print(f"ERROR : orientation is not supported {orientation}")
+            exit(0)
 
         # 2. Check if the slice is out of bounds
         if slice_idx < 0 or slice_idx >= max_s:
@@ -116,10 +125,10 @@ class ImageModel:
 
         """Extracts a slice with corrected orientations for vv parity."""
         idx = slice_idx
-        if orientation == "Axial":
+        if orientation == ViewMode.AXIAL:
             slice_data = self.data[idx, :, :]
 
-        elif orientation == "Sagittal":
+        elif orientation == ViewMode.SAGITTAL:
             # Slice along X
             # Flip vertically (np.flipud) and horizontally (np.fliplr) for vv alignment
             slice_data = np.flipud(np.fliplr(self.data[:, :, idx]))
@@ -138,10 +147,10 @@ class ImageModel:
         # spacing is (dx, dy, dz)
         dx, dy, dz = self.spacing
 
-        if orientation == "Axial":
+        if orientation == ViewMode.AXIAL:
             # X and Y axes
             return dx, dy
-        elif orientation == "Sagittal":
+        elif orientation == ViewMode.SAGITTAL:
             # Y and Z axes
             return dy, dz
         else:
@@ -176,9 +185,9 @@ class ImageModel:
         _, shape = self.get_slice_rgba(slice_idx, orientation)
         real_h, real_w = shape[0], shape[1]
 
-        if orientation == "Axial":
+        if orientation == ViewMode.AXIAL:
             v = [slice_x, slice_y, slice_idx]
-        elif orientation == "Sagittal":
+        elif orientation == ViewMode.SAGITTAL:
             v = [slice_idx, real_w - slice_x, real_h - slice_y]
         else:
             v = [slice_x, slice_idx, real_h - slice_y]
@@ -195,11 +204,11 @@ class ImageModel:
         vx, vy, vz = self.crosshair_voxel
 
         # Update only the coordinate corresponding to the current orientation
-        if orientation == "Axial":
+        if orientation == ViewMode.AXIAL:
             vz = new_slice_idx
-        elif orientation == "Sagittal":
+        elif orientation == ViewMode.SAGITTAL:
             vx = new_slice_idx
-        elif orientation == "Coronal":
+        elif orientation == ViewMode.CORONAL:
             vy = new_slice_idx
 
         new_v = [vx, vy, vz]
@@ -223,25 +232,25 @@ class Controller:
     def default_viewers_orientation(self):
         n = len(self.images)
         if n == 1:
-            self.viewers["V1"].set_orientation("Axial")
-            self.viewers["V2"].set_orientation("Sagittal")
-            self.viewers["V3"].set_orientation("Coronal")
-            self.viewers["V4"].set_orientation("Axial")
+            self.viewers["V1"].set_orientation(ViewMode.AXIAL)
+            self.viewers["V2"].set_orientation(ViewMode.SAGITTAL)
+            self.viewers["V3"].set_orientation(ViewMode.CORONAL)
+            self.viewers["V4"].set_orientation(ViewMode.AXIAL)
         elif n == 2:
-            self.viewers["V1"].set_orientation("Axial")
-            self.viewers["V2"].set_orientation("Sagittal")
-            self.viewers["V3"].set_orientation("Axial")
-            self.viewers["V4"].set_orientation("Sagittal")
+            self.viewers["V1"].set_orientation(ViewMode.AXIAL)
+            self.viewers["V2"].set_orientation(ViewMode.SAGITTAL)
+            self.viewers["V3"].set_orientation(ViewMode.AXIAL)
+            self.viewers["V4"].set_orientation(ViewMode.SAGITTAL)
         elif n == 3:
-            self.viewers["V1"].set_orientation("Axial")
-            self.viewers["V2"].set_orientation("Axial")
-            self.viewers["V3"].set_orientation("Axial")
-            self.viewers["V4"].set_orientation("Sagittal")
+            self.viewers["V1"].set_orientation(ViewMode.AXIAL)
+            self.viewers["V2"].set_orientation(ViewMode.AXIAL)
+            self.viewers["V3"].set_orientation(ViewMode.AXIAL)
+            self.viewers["V4"].set_orientation(ViewMode.SAGITTAL)
         elif n >= 4:
-            self.viewers["V1"].set_orientation("Axial")
-            self.viewers["V2"].set_orientation("Axial")
-            self.viewers["V3"].set_orientation("Axial")
-            self.viewers["V4"].set_orientation("Axial")
+            self.viewers["V1"].set_orientation(ViewMode.AXIAL)
+            self.viewers["V2"].set_orientation(ViewMode.AXIAL)
+            self.viewers["V3"].set_orientation(ViewMode.AXIAL)
+            self.viewers["V4"].set_orientation(ViewMode.AXIAL)
 
     def load_image(self, path):
         img_id = str(len(self.images))
@@ -401,9 +410,9 @@ class Controller:
             target_img.crosshair_phys_coord = phys_pos
 
             # Update Slice Indices
-            target_img.slices["Axial"] = int(target_vox[2])
-            target_img.slices["Sagittal"] = int(target_vox[0])
-            target_img.slices["Coronal"] = int(target_vox[1])
+            target_img.slices[ViewMode.AXIAL] = int(target_vox[2])
+            target_img.slices[ViewMode.SAGITTAL] = int(target_vox[0])
+            target_img.slices[ViewMode.CORONAL] = int(target_vox[1])
 
             # Sync View State (Zoom)
             target_img.zoom = shared_zoom

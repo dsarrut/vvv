@@ -1,7 +1,7 @@
 import dearpygui.dearpygui as dpg
 import os
 import time
-
+from vvv.utils import ViewMode
 
 def create_labeled_field(label, tag):
     """Helper to create a labeled read-only input field."""
@@ -501,7 +501,7 @@ class MainGUI:
             return
 
         self.drag_viewer = viewer
-        if viewer.orientation != "Histogram":
+        if viewer.orientation != ViewMode.HISTOGRAM:
             self.context_viewer = viewer
 
             # If no modifiers, update crosshair position
