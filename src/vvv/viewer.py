@@ -820,13 +820,15 @@ class SliceViewer:
             self.on_zoom("out")
 
         elif key == dpg.mvKey_R:
-            self.zoom, self.pan_offset = 1.0, [0, 0]
-            img.slices = {
-                ViewMode.AXIAL: img.data.shape[0] // 2,
-                ViewMode.SAGITTAL: img.data.shape[1] // 2,
-                ViewMode.CORONAL: img.data.shape[2] // 2
-            }
-            self.controller.gui.on_window_resize()
+            # Reset the underlying data model to the center
+            img.reset_view()
+            self.needs_refresh = True
+
+            # Push this new center physical coordinate to all synced images
+            self.controller.propagate_sync(self.image_id)
+
+            # Push the new zoom (1.0) and camera pan to all synced viewers
+            self.controller.propagate_camera(self)
 
         elif key == dpg.mvKey_C:
             # Set the flag to signal that we want to re-anchor the view

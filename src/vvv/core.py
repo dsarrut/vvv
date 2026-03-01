@@ -103,6 +103,22 @@ class ImageModel:
         ix, iy, iz = self.crosshair_voxel
         self.crosshair_value = self.data[iz, iy, ix]
 
+    def reset_view(self):
+        """Resets zoom, pan, and crosshair to the center of the volume."""
+        self.zoom = 1.0
+        self.pan = {
+            ViewMode.AXIAL: [0, 0],
+            ViewMode.SAGITTAL: [0, 0],
+            ViewMode.CORONAL: [0, 0]
+        }
+        self.slices = {
+            ViewMode.AXIAL: self.data.shape[0] // 2,
+            ViewMode.SAGITTAL: self.data.shape[1] // 2,
+            ViewMode.CORONAL: self.data.shape[2] // 2
+        }
+        self.init_crosshair_to_slices()
+        self.needs_render = True
+
     def get_slice_rgba(self, slice_idx, orientation=ViewMode.AXIAL):
 
         # 1. Determine the maximum index for the current orientation
