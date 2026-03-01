@@ -286,6 +286,93 @@ class SliceViewer:
         mx, my = dpg.get_drawing_mouse_pos()
         return self.mapper.screen_to_image(mx, my, real_w, real_h)
 
+    def get_center_physical_coord(self):
+        """Returns the 3D physical coordinate currently at the center of the viewer's screen."""
+        if not self.image_model: return None
+        win_w = dpg.get_item_width(f"win_{self.tag}")
+        win_h = dpg.get_item_height(f"win_{self.tag}")
+        if not win_w or not win_h: return None
+
+        cx, cy = win_w / 2, win_h / 2
+        img = self.image_model
+        _, shape = img.get_slice_rgba(self.slice_idx, self.orientation)
+        real_h, real_w = shape[0], shape[1]
+        sw, sh = img.get_physical_aspect_ratio(self.orientation)
+
+        # Force a math update so we never use a stale cached pmin during active pan/zoom events
+        pmin, pmax = self.mapper.update(win_w, win_h, real_w, real_h, sw, sh, self.zoom, self.pan_offset)
+        disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
+
+        if disp_w <= 0 or disp_h <= 0: return None
+
+        rel_x, rel_y = cx - pmin[0], cy - pmin[1]
+        slice_x = (rel_x / disp_w) * real_w
+        slice_y = (rel_y / disp_h) * real_h
+
+        if self.orientation == ViewMode.AXIAL:
+            v = np.array([slice_x, slice_y, self.slice_idx])
+        elif self.orientation == ViewMode.SAGITTAL:
+            v = np.array([self.slice_idx, real_w - slice_x, real_h - slice_y])
+        else:  # CORONAL
+            v = np.array([slice_x, self.slice_idx, real_h - slice_y])
+
+        return img.voxel_coord_to_physic_coord(v)
+
+    def OLD_get_center_physical_coord(self):
+        """Returns the 3D physical coordinate currently at the center of the viewer's screen."""
+        if not self.image_model: return None
+        win_w = dpg.get_item_width(f"win_{self.tag}")
+        win_h = dpg.get_item_height(f"win_{self.tag}")
+        if not win_w or not win_h: return None
+
+        cx, cy = win_w / 2, win_h / 2
+        img = self.image_model
+        _, shape = img.get_slice_rgba(self.slice_idx, self.orientation)
+        real_h, real_w = shape[0], shape[1]
+
+        pmin = self.current_pmin
+        disp_w, disp_h = self.mapper.disp_w, self.mapper.disp_h
+        if disp_w <= 0 or disp_h <= 0: return None
+
+        rel_x, rel_y = cx - pmin[0], cy - pmin[1]
+        slice_x = (rel_x / disp_w) * real_w
+        slice_y = (rel_y / disp_h) * real_h
+
+        if self.orientation == ViewMode.AXIAL:
+            v = np.array([slice_x, slice_y, self.slice_idx])
+        elif self.orientation == ViewMode.SAGITTAL:
+            v = np.array([self.slice_idx, real_w - slice_x, real_h - slice_y])
+        else:  # CORONAL
+            v = np.array([slice_x, self.slice_idx, real_h - slice_y])
+
+        return img.voxel_coord_to_physic_coord(v)
+
+    def center_on_physical_coord(self, phys_coord):
+        """Calculates and sets the pan_offset so the given physical coordinate is at the center of the screen."""
+        if not self.image_model or phys_coord is None: return
+
+        win_w = dpg.get_item_width(f"win_{self.tag}")
+        win_h = dpg.get_item_height(f"win_{self.tag}")
+        if not win_w or not win_h: return
+
+        img = self.image_model
+        v = (phys_coord - img.origin + img.spacing / 2) / img.spacing
+
+        _, shape = img.get_slice_rgba(self.slice_idx, self.orientation)
+        real_h, real_w = shape[0], shape[1]
+        sw, sh = img.get_physical_aspect_ratio(self.orientation)
+
+        if self.orientation == ViewMode.AXIAL:
+            tx, ty = v[0], v[1]
+        elif self.orientation == ViewMode.SAGITTAL:
+            tx, ty = real_w - v[1], real_h - v[2]
+        else:
+            tx, ty = v[0], real_h - v[2]
+
+        # Overwrite the pan_offset so the target slice coordinates land perfectly in the center
+        self.pan_offset = self.mapper.calculate_center_pan(tx, ty, win_w, win_h, real_w, real_h, sw, sh, self.zoom)
+        self.needs_refresh = True
+
     def resize(self, quad_w, quad_h):
         if not dpg.does_item_exist(f"win_{self.tag}"): return
         dpg.set_item_width(f"win_{self.tag}", quad_w)
@@ -734,6 +821,11 @@ class SliceViewer:
 
         elif key == dpg.mvKey_R:
             self.zoom, self.pan_offset = 1.0, [0, 0]
+            img.slices = {
+                ViewMode.AXIAL: img.data.shape[0] // 2,
+                ViewMode.SAGITTAL: img.data.shape[1] // 2,
+                ViewMode.CORONAL: img.data.shape[2] // 2
+            }
             self.controller.gui.on_window_resize()
 
         elif key == dpg.mvKey_C:
@@ -741,8 +833,8 @@ class SliceViewer:
             self.needs_recenter = True
             self.is_geometry_dirty = True
             # If synced, tell the controller to update the group
-            if self.image_model and self.image_model.sync_group != 0:
-                group_id = self.image_model.sync_group
+            if img and img.sync_group != 0:
+                group_id = img.sync_group
                 for v in self.controller.viewers.values():
                     if v.image_model and v.image_model.sync_group == group_id:
                         v.needs_recenter = True
@@ -778,10 +870,10 @@ class SliceViewer:
         # Update the local slice index
         self.slice_idx += delta
         if self.slice_idx < 0:
-            self.slice_idx  = 0
+            self.slice_idx = 0
             return
         elif self.slice_idx >= self.num_slices:
-            self.slice_idx = self.num_slices -1
+            self.slice_idx = self.num_slices - 1
             return
 
         # Update the 3D crosshair position to match this new slice plane
@@ -817,6 +909,7 @@ class SliceViewer:
             self.pan_offset[0] += sx
             self.pan_offset[1] += sy
             self.is_geometry_dirty = True
+            self.controller.propagate_camera(self)
 
         # Drag with Ctrl and with Shift
         elif is_shift and is_button:
@@ -829,12 +922,14 @@ class SliceViewer:
 
         mx, my = dpg.get_drawing_mouse_pos()
         oz = self.zoom
-        self.zoom = np.clip(self.zoom * (1.1 if direction == "in" else 0.9), 0.1, 200.0)
+        #self.zoom = np.clip(self.zoom * (1.1 if direction == "in" else 0.9), 0.1, 200.0)
+        self.zoom = self.zoom * (1.1 if direction == "in" else 0.9)
 
         dx, dy = self.mapper.calculate_zoom_pan_delta(mx, my, oz, self.zoom)
         self.pan_offset[0] += dx
         self.pan_offset[1] += dy
 
-        self.controller.gui.on_window_resize()
+        #self.controller.gui.on_window_resize()
         self.is_geometry_dirty = True
+        self.controller.propagate_camera(self)
         self.controller.propagate_sync(self.image_id)

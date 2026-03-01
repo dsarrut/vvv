@@ -377,12 +377,15 @@ class Controller:
                 break
 
         if master_image:
-            # Copy spatial state from the existing group member
-            # img.ww = master_image.ww
-            # img.wl = master_image.wl
             img.zoom = master_image.zoom
-            # img.slices = copy.deepcopy(master_image.slices)
-            # img.pan = copy.deepcopy(master_image.pan)
+
+            # Center the newly joined image based on the master viewer's physical center
+            master_viewer = next((v for v in self.viewers.values() if v.image_id == master_image.image_id), None)
+            if master_viewer:
+                phys_center = master_viewer.get_center_physical_coord()
+                for v in self.viewers.values():
+                    if v.image_id == img_id:
+                        v.center_on_physical_coord(phys_center)
 
             # Update all viewers to reflect the alignment
             self.update_all_viewers_of_image(img_id)
@@ -399,7 +402,7 @@ class Controller:
                           if img.sync_group == source_img.sync_group]
 
         phys_pos = source_img.crosshair_phys_coord
-        shared_zoom = source_img.zoom
+        #shared_zoom = source_img.zoom
 
         for target_id in target_ids:
             target_img = self.images[target_id]
@@ -415,7 +418,7 @@ class Controller:
             target_img.slices[ViewMode.CORONAL] = int(target_vox[1])
 
             # Sync View State (Zoom)
-            target_img.zoom = shared_zoom
+            #target_img.zoom = shared_zoom
             target_img.is_data_dirty = True
 
         # Trigger Viewers Refresh
@@ -424,6 +427,30 @@ class Controller:
             if viewer.image_id in target_ids:
                 viewer.is_geometry_dirty = True
 
+    def propagate_camera(self, source_viewer):
+        """Syncs the zoom and physical center of the source viewer to all synced viewers."""
+        if not source_viewer.image_model: return
+        source_img = source_viewer.image_model
+
+        # Determine which images should be affected
+        if source_img.sync_group == 0:
+            target_ids = [source_viewer.image_id]
+        else:
+            target_ids = [tid for tid, img in self.images.items()
+                          if img.sync_group == source_img.sync_group]
+
+        # Grab the exact physical point the driver viewer is looking at
+        phys_center = source_viewer.get_center_physical_coord()
+        if phys_center is None: return
+
+        shared_zoom = source_viewer.zoom
+
+        # Apply to all relevant viewers
+        for viewer in self.viewers.values():
+            if viewer.image_id in target_ids and viewer != source_viewer:
+                target_img = viewer.image_model
+                target_img.zoom = shared_zoom
+                viewer.center_on_physical_coord(phys_center)
 
 DEFAULT_SETTINGS = {
     "colors": {
