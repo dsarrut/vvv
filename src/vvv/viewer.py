@@ -93,6 +93,7 @@ class SliceViewer:
         # dpg tags
         self.texture_tag = f"tex_{tag_id}"
         self.image_tag = f"img_{tag_id}"
+        self.img_node_tag = f"img_node_{tag_id}"
         self.strips_a_tag = f"strips_node_A_{tag_id}"
         self.strips_b_tag = f"strips_node_B_{tag_id}"
         self.grid_a_tag = f"grid_node_A_{tag_id}"
@@ -232,18 +233,36 @@ class SliceViewer:
             return
 
         # If an older, different texture exists for this viewer, destroy it to free GPU memory
-        if self.texture_tag and dpg.does_item_exist(self.texture_tag):
-            dpg.delete_item(self.texture_tag)
+        #if self.texture_tag and dpg.does_item_exist(self.texture_tag):
+        #    dpg.delete_item(self.texture_tag)
+        # NO -> seg fault on linux
 
         # Create the new texture
-        with dpg.texture_registry():
-            dpg.add_dynamic_texture(width=w, height=h,
-                                    default_value=np.zeros(w * h * 4),
-                                    tag=new_texture_tag)
+        # Create it ONLY if it has never been created before
+        if not dpg.does_item_exist(new_texture_tag):
+            with dpg.texture_registry():
+                dpg.add_dynamic_texture(width=w, height=h,
+                                        default_value=np.zeros(w * h * 4),
+                                        tag=new_texture_tag)
 
         # Switch the image primitive to this texture
-        if dpg.does_item_exist(self.image_tag):
-            dpg.configure_item(self.image_tag, texture_tag=new_texture_tag)
+        # FIXME seg fault on linux ?
+        #if dpg.does_item_exist(self.image_tag):
+        #    print("there")
+        #    dpg.configure_item(self.image_tag, texture_tag=new_texture_tag)
+
+        # Safely replace the drawing primitive using Auto-IDs
+        if dpg.does_item_exist(self.img_node_tag):
+            # Destroy the old primitive
+            dpg.delete_item(self.img_node_tag, children_only=True)
+
+            # Create a new primitive WITHOUT forcing the old string tag.
+            # DPG will auto-generate a safe, unique integer ID and return it.
+            # We overwrite self.image_tag with this new safe integer.
+            self.image_tag = dpg.draw_image(new_texture_tag,
+                                            self.current_pmin,
+                                            self.current_pmax,
+                                            parent=self.img_node_tag)
 
         # Simply update our reference without deleting anything
         self.texture_tag = new_texture_tag
