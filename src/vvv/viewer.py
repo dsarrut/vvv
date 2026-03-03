@@ -157,11 +157,14 @@ class SliceViewer:
 
     @property
     def zoom(self):
-        return self.image_model.zoom if self.image_model else 1.0
+        if not self.image_model or self.orientation not in self.image_model.zoom:
+            return 1.0
+        return self.image_model.zoom[self.orientation]
 
     @zoom.setter
     def zoom(self, value):
-        if self.image_model: self.image_model.zoom = value
+        if self.image_model:
+            self.image_model.zoom[self.orientation] = value
 
     @property
     def num_slices(self):
@@ -337,34 +340,49 @@ class SliceViewer:
 
         return img.voxel_coord_to_physic_coord(v)
 
-    def OLD_get_center_physical_coord(self):
-        """Returns the 3D physical coordinate currently at the center of the viewer's screen."""
-        if not self.image_model: return None
+    def get_pixels_per_mm(self):
+        """Calculates the absolute physical scale: screen pixels per millimeter."""
+        if not self.image_model: return 1.0
+
         win_w = dpg.get_item_width(f"win_{self.tag}")
         win_h = dpg.get_item_height(f"win_{self.tag}")
-        if not win_w or not win_h: return None
+        if not win_w or not win_h: return 1.0
 
-        cx, cy = win_w / 2, win_h / 2
         img = self.image_model
+        sw, sh = img.get_physical_aspect_ratio(self.orientation)
         _, shape = img.get_slice_rgba(self.slice_idx, self.orientation)
-        real_h, real_w = shape[0], shape[1]
+        real_w, real_h = shape[1], shape[0]
 
-        pmin = self.current_pmin
-        disp_w, disp_h = self.mapper.disp_w, self.mapper.disp_h
-        if disp_w <= 0 or disp_h <= 0: return None
+        mm_w, mm_h = real_w * sw, real_h * sh
+        target_w, target_h = win_w - self.mapper.margin_left, win_h - self.mapper.margin_top
 
-        rel_x, rel_y = cx - pmin[0], cy - pmin[1]
-        slice_x = (rel_x / disp_w) * real_w
-        slice_y = (rel_y / disp_h) * real_h
+        # Base scale is what is required to fit the image in the window natively
+        base_scale = min(target_w / mm_w, target_h / mm_h)
 
-        if self.orientation == ViewMode.AXIAL:
-            v = np.array([slice_x, slice_y, self.slice_idx])
-        elif self.orientation == ViewMode.SAGITTAL:
-            v = np.array([self.slice_idx, real_w - slice_x, real_h - slice_y])
-        else:  # CORONAL
-            v = np.array([slice_x, self.slice_idx, real_h - slice_y])
+        # Absolute scale is base * user zoom multiplier
+        return base_scale * self.zoom
 
-        return img.voxel_coord_to_physic_coord(v)
+    def set_pixels_per_mm(self, target_ppm):
+        """Adjusts the local zoom multiplier to match a specific absolute physical scale."""
+        if not self.image_model: return
+
+        win_w = dpg.get_item_width(f"win_{self.tag}")
+        win_h = dpg.get_item_height(f"win_{self.tag}")
+        if not win_w or not win_h: return
+
+        img = self.image_model
+        sw, sh = img.get_physical_aspect_ratio(self.orientation)
+        _, shape = img.get_slice_rgba(self.slice_idx, self.orientation)
+        real_w, real_h = shape[1], shape[0]
+
+        mm_w, mm_h = real_w * sw, real_h * sh
+        target_w, target_h = win_w - self.mapper.margin_left, win_h - self.mapper.margin_top
+
+        base_scale = min(target_w / mm_w, target_h / mm_h)
+
+        # Reverse the math to find the relative zoom multiplier needed for this specific image
+        if base_scale > 0:
+            self.zoom = target_ppm / base_scale
 
     def center_on_physical_coord(self, phys_coord):
         """Calculates and sets the pan_offset so the given physical coordinate is at the center of the screen."""
@@ -393,6 +411,9 @@ class SliceViewer:
         self.needs_refresh = True
 
     def resize(self, quad_w, quad_h):
+        if quad_w <= 0 or quad_h <= 0:
+            return
+
         if not dpg.does_item_exist(f"win_{self.tag}"): return
         dpg.set_item_width(f"win_{self.tag}", quad_w)
         dpg.set_item_height(f"win_{self.tag}", quad_h)
@@ -682,7 +703,8 @@ class SliceViewer:
             patch = img_model.data[z_idx0:z_idx1, self.slice_idx, x0:x1]
         if patch.size > 0:
             p_min, p_max = np.percentile(patch, [2, 98])
-            self.update_window_level(max(1, p_max - p_min), (p_max + p_min) / 2)
+            # self.update_window_level(max(1, p_max - p_min), (p_max + p_min) / 2)
+            self.update_window_level(p_max - p_min, (p_max + p_min) / 2)
 
     def update_crosshair_data(self, pix_x, pix_y):
         """Passes 2D mouse coordinates to the Model to compute 3D state."""
