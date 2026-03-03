@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import click
 import dearpygui.dearpygui as dpg
 from .gui import MainGUI
@@ -56,6 +59,7 @@ def main(image_paths, link_all, sync):
     if sync or link_all:
         for img in controller.images.values():
             img.sync_group = 1
+        controller.pending_initial_sync = True # FIXME need zoom !! ?
         gui.refresh_sync_ui()
 
     # Start the application
