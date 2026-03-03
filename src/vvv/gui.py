@@ -594,7 +594,7 @@ class MainGUI:
             return
 
         # Update the ImageModel via the viewer
-        context_viewer.update_window_level(max(1.0, new_ww), new_wl)
+        context_viewer.update_window_level(new_ww, new_wl)
 
     def run(self):
         dpg.setup_dearpygui()
