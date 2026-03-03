@@ -14,7 +14,9 @@ class ImageModel:
         self.path = path
         self.name = os.path.basename(path)
         # read the image
+        print(f"Loading image: {path}")
         self.sitk_image = sitk.ReadImage(path)
+        print(f"Image size: {self.sitk_image.GetSize()}")
         # raw pixel data : no copy between sitk and numpy
         self.data = sitk.GetArrayViewFromImage(self.sitk_image).astype(np.float32)
         # get some metadata
@@ -38,10 +40,15 @@ class ImageModel:
         # --- below is information shared among the viewers ---
 
         # Window/Level for this image
-        self.ww = 2000
-        self.wl = 270
+        self.ww = 2000.0
+        self.wl = 270.0
         # Zoom level
-        self.zoom = 1.0
+        #self.zoom = 1.0
+        self.zoom = { # FIXME unsure ?
+            ViewMode.AXIAL: 1.0,
+            ViewMode.SAGITTAL: 1.0,
+            ViewMode.CORONAL: 1.0
+        }
         # Interpolation mode
         self.interpolation_linear = False
         # Current slices for all orientation (init to center)
@@ -105,7 +112,11 @@ class ImageModel:
 
     def reset_view(self):
         """Resets zoom, pan, and crosshair to the center of the volume."""
-        self.zoom = 1.0
+        self.zoom = {
+            ViewMode.AXIAL: 1.0,
+            ViewMode.SAGITTAL: 1.0,
+            ViewMode.CORONAL: 1.0
+        }
         self.pan = {
             ViewMode.AXIAL: [0, 0],
             ViewMode.SAGITTAL: [0, 0],
@@ -393,14 +404,14 @@ class Controller:
                 break
 
         if master_image:
-            img.zoom = master_image.zoom
-
-            # Center the newly joined image based on the master viewer's physical center
-            master_viewer = next((v for v in self.viewers.values() if v.image_id == master_image.image_id), None)
+            master_viewer = next((v for v in self.viewers.values() if v.image_id == master_image), None)
             if master_viewer:
                 phys_center = master_viewer.get_center_physical_coord()
+                target_ppm = master_viewer.get_pixels_per_mm()  # Grab absolute scale
+
                 for v in self.viewers.values():
                     if v.image_id == img_id:
+                        v.set_pixels_per_mm(target_ppm)  # Set absolute scale
                         v.center_on_physical_coord(phys_center)
 
             # Update all viewers to reflect the alignment
@@ -418,7 +429,6 @@ class Controller:
                           if img.sync_group == source_img.sync_group]
 
         phys_pos = source_img.crosshair_phys_coord
-        #shared_zoom = source_img.zoom
 
         for target_id in target_ids:
             target_img = self.images[target_id]
@@ -459,13 +469,12 @@ class Controller:
         phys_center = source_viewer.get_center_physical_coord()
         if phys_center is None: return
 
-        shared_zoom = source_viewer.zoom
+        target_ppm = source_viewer.get_pixels_per_mm()
 
         # Apply to all relevant viewers
         for viewer in self.viewers.values():
             if viewer.image_id in target_ids and viewer != source_viewer:
-                target_img = viewer.image_model
-                target_img.zoom = shared_zoom
+                viewer.set_pixels_per_mm(target_ppm)
                 viewer.center_on_physical_coord(phys_center)
 
 DEFAULT_SETTINGS = {
