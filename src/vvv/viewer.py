@@ -610,6 +610,9 @@ class SliceViewer:
         img = self.image_model
         plot_tag = f"plot_{self.tag}"
 
+        if img.histogram_is_dirty:
+            img.update_histogram()
+
         # Create the plot if it doesn't exist
         if not dpg.does_item_exist(plot_tag):
             # We place it inside the window, but OUTSIDE the drawlist
@@ -839,7 +842,8 @@ class SliceViewer:
             return
 
         if key == dpg.mvKey_W:
-            self.apply_local_auto_window(search_radius=self.controller.settings.data["physics"]["search_radius"])
+            r = self.controller.settings.data["physics"]["search_radius"]
+            self.apply_local_auto_window(search_radius=r)
 
         elif key == dpg.mvKey_Up:
             self.on_scroll(1)

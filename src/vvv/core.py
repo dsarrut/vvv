@@ -43,8 +43,7 @@ class ImageModel:
         self.ww = 2000.0
         self.wl = 270.0
         # Zoom level
-        #self.zoom = 1.0
-        self.zoom = { # FIXME unsure ?
+        self.zoom = {  # FIXME unsure ?
             ViewMode.AXIAL: 1.0,
             ViewMode.SAGITTAL: 1.0,
             ViewMode.CORONAL: 1.0
@@ -78,9 +77,12 @@ class ImageModel:
         self.hist_data_y = []
         self.bin_width = 10.0
         self.use_log_y = False
-        self.update_histogram()
+        # self.update_histogram()
+        self.histogram_is_dirty = True
         # synchro
         self.sync_group = 0
+        # initial windows level
+        self.init_default_window_level()
 
     def read_image_metadata(self):
         self.pixel_type = self.sitk_image.GetPixelIDTypeAsString()
@@ -102,6 +104,102 @@ class ImageModel:
         hist, bin_edges = np.histogram(flat_data, bins=bins)
         self.hist_data_y = hist.astype(np.float32)
         self.hist_data_x = bin_edges[:-1].astype(np.float32)
+        self.histogram_is_dirty = False
+
+    def init_default_window_level(self):
+        """Initialize window/level based on image histogram percentiles for optimal viewing."""
+        # For large images, use systematic sampling to improve performance
+        total_pixels = self.data.size
+        max_sample_size = 1000000  # Sample up to 1M pixels for speed
+        max_sample_size = 100000  # Sample up to 1M pixels for speed
+
+        if total_pixels > max_sample_size:
+            # Systematic sampling using stride for large images (much faster than random.choice)
+            stride = max(1, total_pixels // max_sample_size)
+            sample_data = self.data.flatten()[::stride]
+        else:
+            # Use full data for smaller images
+            sample_data = self.data.flatten()
+
+        # Check if this is a CT image by looking at metadata and intensity range
+        is_ct = self._is_ct_image(sample_data)
+
+        if is_ct:
+            # Use CT-specific window/level presets
+            self._set_ct_window_level(sample_data)
+        else:
+            # Use percentile-based approach for other modalities
+            p1, p99 = np.percentile(sample_data, [1, 99])
+            p2, p98 = np.percentile(sample_data, [2, 98])
+
+            # Set window width to capture most of the data range
+            self.ww = p98 - p2
+            # Set window level to center of the data range
+            self.wl = (p98 + p2) / 2
+
+            # Ensure minimum window width to avoid division by zero
+            if self.ww <= 0:
+                self.ww = p99 - p1
+                if self.ww <= 0:
+                    self.ww = 1.0
+                self.wl = (p99 + p1) / 2
+
+    def _is_ct_image(self, flat_data):
+        """Detect if image is CT based on metadata and intensity characteristics."""
+        # Check metadata first
+        if hasattr(self.sitk_image, 'GetMetaData'):
+            try:
+                modality = self.sitk_image.GetMetaData('Modality')
+                if modality.upper() == 'CT':
+                    return True
+            except:
+                pass
+
+        # Check intensity range - CT typically has Hounsfield units (-1024 to ~3072)
+        min_val, max_val = np.min(flat_data), np.max(flat_data)
+        # CT images usually have negative values (air = -1000 HU) and range around 4000
+        if min_val < -500 and max_val > 1000 and (max_val - min_val) > 2000:
+            return True
+
+        return False
+
+    def _set_ct_window_level(self, flat_data):
+        """Set appropriate CT window/level based on tissue types."""
+        min_val, max_val = np.min(flat_data), np.max(flat_data)
+
+        # Common CT window presets (Hounsfield units)
+        ct_presets = {
+            'whole_body': {'ww': 600, 'wl': 0},  # Whole body window
+            'bone': {'ww': 2000, 'wl': 400},  # Bone window
+            'lung': {'ww': 1500, 'wl': -600},  # Lung window
+            'soft_tissue': {'ww': 400, 'wl': 50},  # Soft tissue window
+            'brain': {'ww': 80, 'wl': 40},  # Brain window
+        }
+
+        # Try to determine the best preset based on intensity distribution
+        p5, p95 = np.percentile(flat_data, [5, 95])
+        data_range = p95 - p5
+
+        # Choose preset based on data characteristics
+        # Check for whole body CT first (large z-dimension)
+        image_shape = self.data.shape
+        if len(image_shape) == 3 and image_shape[0] > 300:  # Many slices suggests whole body
+            preset = ct_presets['whole_body']
+        elif data_range > 1500:
+            # Wide range suggests bone window
+            preset = ct_presets['bone']
+        elif p5 < -800:
+            # Very low values suggest lung window
+            preset = ct_presets['lung']
+        elif -200 < p5 < 200 and data_range < 500:
+            # Narrow range around 0 suggests brain window
+            preset = ct_presets['brain']
+        else:
+            # Default to soft tissue window
+            preset = ct_presets['soft_tissue']
+
+        self.ww = preset['ww']
+        self.wl = preset['wl']
 
     def init_crosshair_to_slices(self):
         self.crosshair_voxel = [self.slices[ViewMode.CORONAL], self.slices[ViewMode.SAGITTAL],
@@ -448,7 +546,7 @@ class Controller:
             target_img.slices[ViewMode.CORONAL] = int(target_vox[1])
 
             # Sync View State (Zoom)
-            #target_img.zoom = shared_zoom
+            # target_img.zoom = shared_zoom
             target_img.is_data_dirty = True
 
         # Trigger Viewers Refresh
@@ -480,6 +578,7 @@ class Controller:
             if viewer.image_id in target_ids and viewer != source_viewer:
                 viewer.set_pixels_per_mm(target_ppm)
                 viewer.center_on_physical_coord(phys_center)
+
 
 DEFAULT_SETTINGS = {
     "colors": {
