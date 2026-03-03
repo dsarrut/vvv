@@ -703,7 +703,6 @@ class SliceViewer:
             patch = img_model.data[z_idx0:z_idx1, self.slice_idx, x0:x1]
         if patch.size > 0:
             p_min, p_max = np.percentile(patch, [2, 98])
-            # self.update_window_level(max(1, p_max - p_min), (p_max + p_min) / 2)
             self.update_window_level(p_max - p_min, (p_max + p_min) / 2)
 
     def update_crosshair_data(self, pix_x, pix_y):

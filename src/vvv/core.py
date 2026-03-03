@@ -165,7 +165,11 @@ class ImageModel:
             slice_data = np.flipud(self.data[:, idx, :])
 
         min_val = self.wl - self.ww / 2
-        display_img = np.clip((slice_data - min_val) / self.ww, 0, 1)
+        # robustify : prevent division by zero
+        if self.ww == 0:
+            display_img = np.zeros_like(slice_data)
+        else:
+            display_img = np.clip((slice_data - min_val) / self.ww, 0, 1)
         rgba = np.stack([display_img] * 3 + [np.ones_like(display_img)], axis=-1)
         return rgba.flatten(), slice_data.shape
 
