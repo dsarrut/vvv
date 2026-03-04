@@ -600,30 +600,21 @@ class MainGUI:
         # Update the ImageModel via the viewer
         context_viewer.update_window_level(new_ww, new_wl)
 
-    def run(self, initial_load_callback=None):
+    def run(self, boot_generator=None):
         dpg.setup_dearpygui()
         dpg.show_viewport()
         dpg.set_primary_window("PrimaryWindow", True)
 
-        # ==========================================
-        # 1. WARM-UP PHASE
-        # Render a few empty frames to force DPG to build the layout.
-        # This guarantees get_item_width() will return real numbers.
-        # ==========================================
+        # Warm-up phase to establish geometry
         for _ in range(3):
             dpg.render_dearpygui_frame()
 
-        # ==========================================
-        # 2. DEFERRED LOAD PHASE
-        # Now execute your CLI image loading and syncing.
-        # Everything will calculate perfect base_scales immediately.
-        # ==========================================
-        if initial_load_callback:
-            initial_load_callback()
+        # Step through the loading sequence, rendering a frame after every 'yield'
+        if boot_generator:
+            for _ in boot_generator:
+                dpg.render_dearpygui_frame()
 
-        # ==========================================
-        # 3. CLEAN RENDER LOOP
-        # ==========================================
+        # Clean render loop
         while dpg.is_dearpygui_running():
             self.update_overlays()
             self.sync_sidebar_checkboxes()
@@ -632,7 +623,6 @@ class MainGUI:
                 if not viewer.image_model:
                     continue
 
-                # Normal runtime resize (e.g. user dragged the window)
                 if viewer.is_geometry_dirty:
                     win_w = dpg.get_item_width(f"win_{viewer.tag}")
                     win_h = dpg.get_item_height(f"win_{viewer.tag}")
