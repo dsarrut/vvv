@@ -42,8 +42,8 @@ class ImageModel:
         # Window/Level for this image
         self.ww = 2000.0
         self.wl = 270.0
-        # Zoom level
-        self.zoom = {  # FIXME unsure ?
+        # Zoom level (anis
+        self.zoom = {
             ViewMode.AXIAL: 1.0,
             ViewMode.SAGITTAL: 1.0,
             ViewMode.CORONAL: 1.0
@@ -557,7 +557,8 @@ class Controller:
 
     def propagate_camera(self, source_viewer):
         """Syncs the zoom and physical center of the source viewer to all synced viewers."""
-        if not source_viewer.image_model: return
+        if not source_viewer.image_model:
+            return
         source_img = source_viewer.image_model
 
         # Determine which images should be affected
@@ -569,11 +570,13 @@ class Controller:
 
         # Grab the exact physical point the driver viewer is looking at
         phys_center = source_viewer.get_center_physical_coord()
-        if phys_center is None: return
+        if phys_center is None:
+            return
 
         target_ppm = source_viewer.get_pixels_per_mm()
 
         # Apply to all relevant viewers
+        print(f"propagate camera from {source_viewer.tag} to {target_ids} = {target_ppm}")
         for viewer in self.viewers.values():
             if viewer.image_id in target_ids and viewer != source_viewer:
                 viewer.set_pixels_per_mm(target_ppm)

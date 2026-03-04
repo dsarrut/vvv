@@ -3,6 +3,7 @@ import os
 import time
 from vvv.utils import ViewMode
 
+
 def create_labeled_field(label, tag):
     """Helper to create a labeled read-only input field."""
     with dpg.group(horizontal=True):
@@ -148,7 +149,7 @@ class MainGUI:
         dpg.bind_item_theme("image_crosshair_group", "readonly_theme")
 
     def create_left_panel_top_part(self):
-        with dpg.child_window(tag="top_panel", height=350, resizable_y=True, border=False):
+        with dpg.child_window(tag="top_panel", height=300, resizable_y=True, border=False):
             with dpg.tab_bar(tag="sidebar_tabs"):
                 # Tab 1: Image Management
                 with dpg.tab(label="Images"):
@@ -238,7 +239,10 @@ class MainGUI:
                 create_labeled_field("Voxel", tag="info_vox")
                 create_labeled_field("Coord", tag="info_phys")
                 create_labeled_field("Value", tag="info_val")
-
+                create_labeled_field("zoom", tag="info_zoom")
+                create_labeled_field("ppm", tag="info_ppm")
+                # dpg.add_input_text(tag="info_zoom", width=70, on_enter=True,
+                # callback=lambda: self.on_sidebar_zoom_change())
             '''with dpg.group(horizontal=True):
                 dpg.add_text("Performance:", color=[93, 93, 93])
                 dpg.add_text("0 FPS", tag="fps_display", color=[0, 255, 255])

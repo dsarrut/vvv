@@ -236,7 +236,7 @@ class SliceViewer:
             return
 
         # If an older, different texture exists for this viewer, destroy it to free GPU memory
-        #if self.texture_tag and dpg.does_item_exist(self.texture_tag):
+        # if self.texture_tag and dpg.does_item_exist(self.texture_tag):
         #    dpg.delete_item(self.texture_tag)
         # NO -> seg fault on linux
 
@@ -250,7 +250,7 @@ class SliceViewer:
 
         # Switch the image primitive to this texture
         # FIXME seg fault on linux ?
-        #if dpg.does_item_exist(self.image_tag):
+        # if dpg.does_item_exist(self.image_tag):
         #    print("there")
         #    dpg.configure_item(self.image_tag, texture_tag=new_texture_tag)
 
@@ -310,10 +310,14 @@ class SliceViewer:
 
     def get_center_physical_coord(self):
         """Returns the 3D physical coordinate currently at the center of the viewer's screen."""
-        if not self.image_model: return None
+        if not self.image_model:
+            return None
+
         win_w = dpg.get_item_width(f"win_{self.tag}")
         win_h = dpg.get_item_height(f"win_{self.tag}")
-        if not win_w or not win_h: return None
+        print(win_w, win_h)
+        if not win_w or not win_h:
+            return None
 
         cx, cy = win_w / 2, win_h / 2
         img = self.image_model
@@ -342,11 +346,14 @@ class SliceViewer:
 
     def get_pixels_per_mm(self):
         """Calculates the absolute physical scale: screen pixels per millimeter."""
-        if not self.image_model: return 1.0
+        if not self.image_model: 
+            return 1.0
 
+        # For synced images, calculate actual ppm based on current zoom
         win_w = dpg.get_item_width(f"win_{self.tag}")
         win_h = dpg.get_item_height(f"win_{self.tag}")
-        if not win_w or not win_h: return 1.0
+        if not win_w or not win_h: 
+            return 1.0
 
         img = self.image_model
         sw, sh = img.get_physical_aspect_ratio(self.orientation)
@@ -411,10 +418,13 @@ class SliceViewer:
         self.needs_refresh = True
 
     def resize(self, quad_w, quad_h):
+        print(f"resize {quad_w} {quad_h}")
         if quad_w <= 0 or quad_h <= 0:
             return
 
-        if not dpg.does_item_exist(f"win_{self.tag}"): return
+        if not dpg.does_item_exist(f"win_{self.tag}"):
+            return
+
         dpg.set_item_width(f"win_{self.tag}", quad_w)
         dpg.set_item_height(f"win_{self.tag}", quad_h)
 
@@ -422,7 +432,8 @@ class SliceViewer:
             dpg.set_item_width(f"drawlist_{self.tag}", quad_w)
             dpg.set_item_height(f"drawlist_{self.tag}", quad_h)
 
-        if self.image_id is None or self.orientation == ViewMode.HISTOGRAM: return
+        if self.image_id is None or self.orientation == ViewMode.HISTOGRAM:
+            return
 
         img = self.image_model
         sw, sh = img.get_physical_aspect_ratio(self.orientation)
@@ -816,6 +827,8 @@ class SliceViewer:
             dpg.set_value("info_vox", fmt(img.crosshair_voxel, 1))
             dpg.set_value("info_phys", fmt(img.crosshair_phys_coord, 1))
             dpg.set_value("info_val", f"{img.crosshair_value:g}")
+            dpg.set_value("info_zoom", f"{self.zoom:g}")
+            dpg.set_value("info_ppm", f"{self.get_pixels_per_mm():g}")
 
     def update_sidebar_info(self):
         if self.image_id is None:
@@ -964,18 +977,36 @@ class SliceViewer:
             self.update_window_level(ww, wl)
 
     def on_zoom(self, direction):
-        if self.image_id is None: return
-
+        if self.image_id is None:
+            return
+        print("on zoom", self.tag)
         mx, my = dpg.get_drawing_mouse_pos()
         oz = self.zoom
-        #self.zoom = np.clip(self.zoom * (1.1 if direction == "in" else 0.9), 0.1, 200.0)
         self.zoom = self.zoom * (1.1 if direction == "in" else 0.9)
 
         dx, dy = self.mapper.calculate_zoom_pan_delta(mx, my, oz, self.zoom)
         self.pan_offset[0] += dx
         self.pan_offset[1] += dy
 
-        #self.controller.gui.on_window_resize()
+        # Update shared ppm for single images to maintain consistency across orientations
+        if self.image_model.sync_group == 0:
+            # Calculate the new ppm and store it
+            win_w = dpg.get_item_width(f"win_{self.tag}")
+            win_h = dpg.get_item_height(f"win_{self.tag}")
+            if win_w and win_h:
+                img = self.image_model
+                sw, sh = img.get_physical_aspect_ratio(self.orientation)
+                _, shape = img.get_slice_rgba(self.slice_idx, self.orientation)
+                real_w, real_h = shape[1], shape[0]
+
+                mm_w, mm_h = real_w * sw, real_h * sh
+                target_w, target_h = win_w - self.mapper.margin_left, win_h - self.mapper.margin_top
+
+                base_scale = min(target_w / mm_w, target_h / mm_h)
+                self.image_model.shared_ppm = base_scale * self.zoom
+
+        # self.controller.gui.on_window_resize()
+        print("on zoom", self.tag, self.zoom)
         self.is_geometry_dirty = True
         self.controller.propagate_camera(self)
         self.controller.propagate_sync(self.image_id)
