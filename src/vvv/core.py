@@ -14,9 +14,7 @@ class ImageModel:
         self.path = path
         self.name = os.path.basename(path)
         # read the image
-        print(f"Loading image: {path}")
         self.sitk_image = sitk.ReadImage(path)
-        print(f"Image size: {self.sitk_image.GetSize()}")
         # raw pixel data : no copy between sitk and numpy
         self.data = sitk.GetArrayViewFromImage(self.sitk_image).astype(np.float32)
         # get some metadata
@@ -49,7 +47,7 @@ class ImageModel:
             ViewMode.CORONAL: 1.0
         }
         # Interpolation mode
-        self.interpolation_linear = False
+        self.interpolation_linear = False  # FIXME -> change the name
         # Current slices for all orientation (init to center)
         self.slices = {
             ViewMode.AXIAL: self.data.shape[0] // 2,
@@ -420,6 +418,50 @@ class Controller:
             if viewer.image_id:
                 viewer.draw_crosshair()
 
+    def unify_ppm_max(self, target_viewer_tags):
+        """Forces a list of viewers to share the maximum absolute scale (ppm)."""
+        valid_viewers = [self.viewers[tag] for tag in target_viewer_tags
+                         if self.viewers[tag].image_model]
+
+        if not valid_viewers:
+            return
+
+        # 1. Find the maximum PPM among the valid viewers
+        max_ppm = 0.0
+        for viewer in valid_viewers:
+            # We calculate what the ppm is at their CURRENT zoom (usually 1.0 on init)
+            ppm = viewer.get_pixels_per_mm()
+            if ppm > max_ppm:
+                max_ppm = ppm
+
+        # 2. Apply this target PPM to all viewers in the target list
+        if max_ppm > 0:
+            for viewer in valid_viewers:
+                viewer.set_pixels_per_mm(max_ppm)
+                viewer.is_geometry_dirty = True
+
+    def unify_ppm(self, target_viewer_tags):
+        """Forces a list of viewers to share the maximum absolute scale (ppm)."""
+        valid_viewers = [self.viewers[tag] for tag in target_viewer_tags
+                         if self.viewers[tag].image_model]
+
+        if not valid_viewers:
+            return
+
+        # 1. Find the minimum PPM among the valid viewers
+        min_ppm = 1e9
+        for viewer in valid_viewers:
+            # We calculate what the ppm is at their CURRENT zoom (usually 1.0 on init)
+            ppm = viewer.get_pixels_per_mm()
+            if ppm < min_ppm:
+                min_ppm = ppm
+
+        # 2. Apply this target PPM to all viewers in the target list
+        if min_ppm > 0:
+            for viewer in valid_viewers:
+                viewer.set_pixels_per_mm(min_ppm)
+                viewer.is_geometry_dirty = True
+
     def reset_settings(self):
         self.settings.reset()
         # Refresh viewers to apply the default colors immediately
@@ -497,27 +539,37 @@ class Controller:
         new_group_id = int(value.split(" ")[1])
         img.sync_group = new_group_id
 
-        # Immediate Alignment:
-        # Find the first other image in this group and copy its state
-        master_image = None
+        # Find the first other image already in this group to act as the "master" reference
+        master_image_id = None
         for other_id, other_img in self.images.items():
             if other_id != img_id and other_img.sync_group == new_group_id:
-                master_image = other_img
+                master_image_id = other_id
                 break
 
-        if master_image:
-            master_viewer = next((v for v in self.viewers.values() if v.image_id == master_image), None)
+        # Find all viewers currently displaying ANY image in this new sync group
+        group_viewer_tags = []
+        for v in self.viewers.values():
+            if v.image_model and v.image_model.sync_group == new_group_id:
+                group_viewer_tags.append(v.tag)
+
+        if not group_viewer_tags:
+            return
+
+        # 1. Unify the absolute scale (PPM) for everyone in the group
+        self.unify_ppm(group_viewer_tags)
+
+        # 2. Sync the physical center based on the master image
+        if master_image_id:
+            master_viewer = next((v for v in self.viewers.values() if v.image_id == master_image_id), None)
             if master_viewer:
                 phys_center = master_viewer.get_center_physical_coord()
-                target_ppm = master_viewer.get_pixels_per_mm()  # Grab absolute scale
+                if phys_center is not None:
+                    for tag in group_viewer_tags:
+                        self.viewers[tag].center_on_physical_coord(phys_center)
+            self.propagate_sync(master_image_id)
 
-                for v in self.viewers.values():
-                    if v.image_id == img_id:
-                        v.set_pixels_per_mm(target_ppm)  # Set absolute scale
-                        v.center_on_physical_coord(phys_center)
-
-            # Update all viewers to reflect the alignment
-            self.update_all_viewers_of_image(img_id)
+        # Update all viewers of the newly assigned image to reflect the alignment
+        self.update_all_viewers_of_image(img_id)
 
     def propagate_sync(self, source_img_id):
         source_img = self.images[source_img_id]
@@ -576,7 +628,6 @@ class Controller:
         target_ppm = source_viewer.get_pixels_per_mm()
 
         # Apply to all relevant viewers
-        print(f"propagate camera from {source_viewer.tag} to {target_ids} = {target_ppm}")
         for viewer in self.viewers.values():
             if viewer.image_id in target_ids and viewer != source_viewer:
                 viewer.set_pixels_per_mm(target_ppm)

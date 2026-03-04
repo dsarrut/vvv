@@ -28,42 +28,48 @@ def main(image_paths, link_all, sync):
     controller.gui = gui
     dpg.create_viewport(title='VVV', width=1000, height=800)
 
-    # Load images (if provided)
-    img_ids = []
-    for i, path in enumerate(image_paths):
-        img_id = controller.load_image(path)
-        img_ids.append(img_id)
+    # Define the boot sequence that runs AFTER the UI has drawn its initial layout
+    def boot_sequence():
+        if not image_paths:
+            return
 
-        # Initial image assignment logic
-        if i == 0:
-            for tag in ["V1", "V2", "V3", "V4"]:
-                controller.viewers[tag].set_image(img_id)
-        elif i == 1:
-            controller.viewers["V3"].set_image(img_id)
-            controller.viewers["V4"].set_image(img_id)
-        elif i == 2:
-            controller.viewers["V2"].set_image(img_ids[1])
-            controller.viewers["V3"].set_image(img_id)
-            controller.viewers["V4"].set_image(img_id)
-        elif i >= 3:
-            controller.viewers["V4"].set_image(img_id)
+        # Load images
+        img_ids = []
+        for i, path in enumerate(image_paths):
+            img_id = controller.load_image(path)
+            img_ids.append(img_id)
 
-    # Set default orientations
-    controller.default_viewers_orientation()
+            # Initial image assignment logic
+            if i == 0:
+                for tag in ["V1", "V2", "V3", "V4"]:
+                    controller.viewers[tag].set_image(img_id)
+            elif i == 1:
+                controller.viewers["V3"].set_image(img_id)
+                controller.viewers["V4"].set_image(img_id)
+            elif i == 2:
+                controller.viewers["V2"].set_image(img_ids[1])
+                controller.viewers["V3"].set_image(img_id)
+                controller.viewers["V4"].set_image(img_id)
+            elif i >= 3:
+                controller.viewers["V4"].set_image(img_id)
 
-    # Initial UI updates
-    gui.on_window_resize()
-    controller.gui.refresh_image_list_ui()
+        # Set default orientations
+        controller.default_viewers_orientation()
 
-    # Sync ?
-    if sync or link_all:
-        for img in controller.images.values():
-            img.sync_group = 1
-        controller.pending_initial_sync = True # FIXME need zoom !! ?
-        gui.refresh_sync_ui()
+        # Sync
+        if sync or link_all:
+            for img_id in img_ids:
+                # Use the official controller method so the PPM math
+                # triggers instantly now that windows have real sizes
+                controller.on_sync_group_change(None, "Group 1", img_id)
+            gui.refresh_sync_ui()
 
-    # Start the application
-    gui.run()
+        # Initial UI updates
+        gui.on_window_resize()
+        controller.gui.refresh_image_list_ui()
+
+    # Start the application, passing the deferred loading sequence
+    gui.run(initial_load_callback=boot_sequence)
 
 
 if __name__ == "__main__":
