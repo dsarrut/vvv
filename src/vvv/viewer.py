@@ -315,7 +315,7 @@ class SliceViewer:
 
         win_w = dpg.get_item_width(f"win_{self.tag}")
         win_h = dpg.get_item_height(f"win_{self.tag}")
-        print(win_w, win_h)
+
         if not win_w or not win_h:
             return None
 
@@ -346,13 +346,19 @@ class SliceViewer:
 
     def get_pixels_per_mm(self):
         """Calculates the absolute physical scale: screen pixels per millimeter."""
-        if not self.image_model: 
+        """
+        base_scale (The "Fit-to-Window" Factor): This is a dynamically calculated value. 
+        It answers the question: "How many screen pixels are needed per millimeter to make 
+        this specific image slice fit perfectly inside this specific window without cropping?"
+        """
+
+        if not self.image_model:
             return 1.0
 
         # For synced images, calculate actual ppm based on current zoom
         win_w = dpg.get_item_width(f"win_{self.tag}")
         win_h = dpg.get_item_height(f"win_{self.tag}")
-        if not win_w or not win_h: 
+        if not win_w or not win_h:
             return 1.0
 
         img = self.image_model
@@ -390,6 +396,7 @@ class SliceViewer:
         # Reverse the math to find the relative zoom multiplier needed for this specific image
         if base_scale > 0:
             self.zoom = target_ppm / base_scale
+            self.is_geometry_dirty = True
 
     def center_on_physical_coord(self, phys_coord):
         """Calculates and sets the pan_offset so the given physical coordinate is at the center of the screen."""
@@ -415,10 +422,10 @@ class SliceViewer:
 
         # Overwrite the pan_offset so the target slice coordinates land perfectly in the center
         self.pan_offset = self.mapper.calculate_center_pan(tx, ty, win_w, win_h, real_w, real_h, sw, sh, self.zoom)
-        self.needs_refresh = True
+        self.is_geometry_dirty = True
 
     def resize(self, quad_w, quad_h):
-        print(f"resize {quad_w} {quad_h}")
+
         if quad_w <= 0 or quad_h <= 0:
             return
 
@@ -979,7 +986,7 @@ class SliceViewer:
     def on_zoom(self, direction):
         if self.image_id is None:
             return
-        print("on zoom", self.tag)
+
         mx, my = dpg.get_drawing_mouse_pos()
         oz = self.zoom
         self.zoom = self.zoom * (1.1 if direction == "in" else 0.9)
@@ -1005,8 +1012,6 @@ class SliceViewer:
                 base_scale = min(target_w / mm_w, target_h / mm_h)
                 self.image_model.shared_ppm = base_scale * self.zoom
 
-        # self.controller.gui.on_window_resize()
-        print("on zoom", self.tag, self.zoom)
         self.is_geometry_dirty = True
         self.controller.propagate_camera(self)
         self.controller.propagate_sync(self.image_id)

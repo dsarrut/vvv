@@ -600,42 +600,55 @@ class MainGUI:
         # Update the ImageModel via the viewer
         context_viewer.update_window_level(new_ww, new_wl)
 
-    def run(self):
+    def run(self, initial_load_callback=None):
         dpg.setup_dearpygui()
         dpg.show_viewport()
         dpg.set_primary_window("PrimaryWindow", True)
 
-        while dpg.is_dearpygui_running():
-            # Update overlays (mouse tracking)
-            self.update_overlays()
+        # ==========================================
+        # 1. WARM-UP PHASE
+        # Render a few empty frames to force DPG to build the layout.
+        # This guarantees get_item_width() will return real numbers.
+        # ==========================================
+        for _ in range(3):
+            dpg.render_dearpygui_frame()
 
+        # ==========================================
+        # 2. DEFERRED LOAD PHASE
+        # Now execute your CLI image loading and syncing.
+        # Everything will calculate perfect base_scales immediately.
+        # ==========================================
+        if initial_load_callback:
+            initial_load_callback()
+
+        # ==========================================
+        # 3. CLEAN RENDER LOOP
+        # ==========================================
+        while dpg.is_dearpygui_running():
+            self.update_overlays()
             self.sync_sidebar_checkboxes()
 
-            # Render: only update what is actually "dirty"
             for viewer in self.controller.viewers.values():
                 if not viewer.image_model:
                     continue
 
-                # 1. Check if geometry needs recalculation (Pan/Zoom/Center)
+                # Normal runtime resize (e.g. user dragged the window)
                 if viewer.is_geometry_dirty:
                     win_w = dpg.get_item_width(f"win_{viewer.tag}")
                     win_h = dpg.get_item_height(f"win_{viewer.tag}")
-                    viewer.resize(win_w, win_h)  # This updates current_pmin/pmax
+                    viewer.resize(win_w, win_h)
                     viewer.is_geometry_dirty = False
 
-                # If the DATA changed (W/L, new slice), we must re-calculate the texture
                 if viewer.image_model.is_data_dirty:
                     viewer.update_render()
                     viewer.draw_crosshair()
 
-                    # If THIS viewer is the one the user is currently looking at in the sidebar
                     if viewer == self.context_viewer:
                         viewer.update_sidebar_crosshair()
                         viewer.update_sidebar_window_level()
 
                     viewer.is_geometry_dirty = False
 
-            # Reset the Global flags after all viewers have processed them
             for img in self.controller.images.values():
                 img.is_data_dirty = False
 
