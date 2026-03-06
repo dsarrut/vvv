@@ -47,7 +47,7 @@ def setup_themes():
     # Active Viewer Theme (Bright border)
     with dpg.theme(tag="active_viewer_theme"):
         with dpg.theme_component(dpg.mvAll):
-            dpg.add_theme_color(dpg.mvThemeCol_Border, [0, 246, 7, 70], # FIXME add an option
+            dpg.add_theme_color(dpg.mvThemeCol_Border, [0, 246, 7, 70],  # FIXME add an option
                                 category=dpg.mvThemeCat_Core)  # Match your green crosshair
             dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 2, category=dpg.mvThemeCat_Core)
             # Keep other styles consistent with viewer_theme
@@ -73,6 +73,9 @@ class MainGUI:
         self.drag_viewer = None
         self.context_viewer = None
         self.side_panel_width = 300
+
+        # tags
+        self.file_dialog_tag = "main_file_dialog"
 
         # Setup resources and UI
         self.load_resources()
@@ -100,6 +103,7 @@ class MainGUI:
     def create_layout(self):
         """Builds the main window layout."""
         self.create_menu_bar()
+        self.create_file_dialog()
 
         with dpg.window(tag="PrimaryWindow",
                         on_close=self.cleanup,
@@ -124,11 +128,30 @@ class MainGUI:
         for tag in ["V1", "V2", "V3", "V4"]:
             dpg.bind_item_theme(f"win_{tag}", "viewer_theme")
 
+    def create_file_dialog(self):
+        """Builds the hidden file browser modal."""
+        with dpg.file_dialog(directory_selector=False, show=False, callback=self.on_file_selected,
+                             tag=self.file_dialog_tag, width=700, height=400):
+            # The first extension added becomes the default selected filter
+            # 1. Default filter: Must be exactly ".*" to show all files reliably
+            dpg.add_file_extension(".*")
+
+            # 2. Grouped filter: STRICTLY NO SPACES allowed inside the curly braces!
+            dpg.add_file_extension("Images{.nii,.nii.gz,.mhd,.mha,.nrrd,.dcm,.tif,.png,.jpg}",
+                                   color=(0, 255, 0, 255))
+
+            # 3. Individual specific filters
+            dpg.add_file_extension(".nii")
+            dpg.add_file_extension(".nii.gz")
+            dpg.add_file_extension(".mhd")
+            dpg.add_file_extension(".mha")
+            dpg.add_file_extension(".dcm")
+
     def create_menu_bar(self):
         """Creates the top menu bar."""
         with dpg.viewport_menu_bar():
             with dpg.menu(label="File"):
-                dpg.add_menu_item(label="Open Image...")
+                dpg.add_menu_item(label="Open Image...", callback=lambda: dpg.show_item(self.file_dialog_tag))
                 dpg.add_menu_item(label="Exit")
             with dpg.menu(label="Link"):
                 dpg.add_menu_item(label="Link All", callback=lambda: self.controller.link_all())
@@ -599,6 +622,76 @@ class MainGUI:
 
         # Update the ImageModel via the viewer
         context_viewer.update_window_level(new_ww, new_wl)
+
+    def on_file_selected(self, sender, app_data):
+        # 1. Grab the dictionary of clicked files: { 'filename': 'full/absolute/path' }
+        selections = app_data.get('selections')
+        if not selections:
+            return  # User closed the dialog without selecting anything
+
+        # Extract the absolute path of the first selected file
+        file_path = list(selections.values())[0]
+
+        try:
+            # 2. Do the heavy lifting (UI freezes momentarily)
+            img_id = self.controller.load_image(file_path)
+
+            # 3. Assign the new image to the active viewer
+            target_viewer = self.context_viewer if self.context_viewer else self.controller.viewers["V1"]
+            target_viewer.set_image(img_id)
+
+            # 4. Ensure orientations align correctly in physical space
+            same_image_viewers = [v.tag for v in self.controller.viewers.values() if v.image_id == img_id]
+            if same_image_viewers:
+                self.controller.unify_ppm(same_image_viewers)
+
+            # 5. Refresh the UI
+            self.refresh_image_list_ui()
+
+        except Exception as e:
+            # Catch SimpleITK parsing errors or corrupted files gracefully
+            print(f"Error: Failed to load image '{file_path}'\n{e}")
+
+    def load_single_image_sequence(self, file_path):
+        """Generator that loads an image during runtime while rendering a progress bar."""
+        filename = os.path.basename(file_path)
+
+        # 1. Build the Loading Modal
+        with dpg.window(tag="loading_modal", modal=True, show=True, no_title_bar=True,
+                        no_resize=True, no_move=True, width=350, height=100):
+            dpg.add_text(f"Loading...\n{filename}", tag="loading_text")
+            dpg.add_spacer(height=5)
+            dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=0.5)
+
+        vp_width = dpg.get_viewport_client_width()
+        vp_height = dpg.get_viewport_client_height()
+        dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
+
+        yield  # Let DPG draw the modal
+
+        # 2. Load the image
+        img_id = self.controller.load_image(file_path)
+
+        dpg.set_value("loading_text", "Applying layouts...")
+        dpg.set_value("loading_progress", 1.0)
+        yield  # Render 100% completion
+
+        # 3. Assign the new image
+        # Rule: Assign it to the viewer the user was last interacting with,
+        # or fallback to V1 if none was active.
+        target_viewer = self.context_viewer if self.context_viewer else self.controller.viewers["V1"]
+        target_viewer.set_image(img_id)
+
+        # Ensure its orientations align correctly in physical space
+        same_image_viewers = [v.tag for v in self.controller.viewers.values() if v.image_id == img_id]
+        if same_image_viewers:
+            self.controller.unify_ppm(same_image_viewers)
+
+        self.refresh_image_list_ui()
+
+        # 4. Clean up
+        dpg.delete_item("loading_modal")
+        yield  # Clean up before returning to normal loop
 
     def create_boot_sequence(self, image_paths, sync=False, link_all=False):
         """Creates a generator for the boot sequence that loads images with progress UI."""
