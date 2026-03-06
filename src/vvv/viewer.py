@@ -220,7 +220,7 @@ class SliceViewer:
 
     def init_slice_texture(self):
         """Manages dynamic texture creation for the image."""
-        if self.orientation == ViewMode.HISTOGRAM:
+        if not self.is_image_orientation():
             return
 
         img = self.image_model
@@ -284,6 +284,10 @@ class SliceViewer:
             self.texture_tag = None
 
         self.update_render()
+
+    def is_image_orientation(self):
+        """Check if current orientation is a real image view (not histogram, etc)."""
+        return self.orientation in [ViewMode.AXIAL, ViewMode.SAGITTAL, ViewMode.CORONAL]
 
     def get_axis_labels(self):
         """Returns (horizontal_axis, vertical_axis) and their directions."""
@@ -439,7 +443,7 @@ class SliceViewer:
             dpg.set_item_width(f"drawlist_{self.tag}", quad_w)
             dpg.set_item_height(f"drawlist_{self.tag}", quad_h)
 
-        if self.image_id is None or self.orientation == ViewMode.HISTOGRAM:
+        if self.image_id is None or not self.is_image_orientation():
             return
 
         img = self.image_model
@@ -507,7 +511,7 @@ class SliceViewer:
 
     def draw_crosshair(self):
         """DRAWING: Render the crosshair lines based on the ImageModel state."""
-        if self.orientation == ViewMode.HISTOGRAM or not self.image_model:
+        if not self.is_image_orientation() or not self.image_model:
             return
 
         node_tag = self.crosshair_tag
@@ -579,7 +583,7 @@ class SliceViewer:
         self.active_strips_node = back_node
 
     def draw_orientation_axes(self):
-        if self.orientation == ViewMode.HISTOGRAM:
+        if not self.is_image_orientation():
             # Hide axes if they were visible
             if self.axes_nodes:
                 dpg.configure_item(self.axes_nodes[0], show=False)
@@ -628,9 +632,6 @@ class SliceViewer:
         img = self.image_model
         plot_tag = f"plot_{self.tag}"
 
-        if img.histogram_is_dirty:
-            img.update_histogram()
-
         # Create the plot if it doesn't exist
         if not dpg.does_item_exist(plot_tag):
             # We place it inside the window, but OUTSIDE the drawlist
@@ -640,6 +641,12 @@ class SliceViewer:
                 dpg.add_plot_axis(dpg.mvXAxis, label="Voxel Value", tag=f"x_axis_{self.tag}")
                 dpg.add_plot_axis(dpg.mvYAxis, label="Count", tag=f"y_axis_{self.tag}")
                 dpg.add_line_series([], [], label="Freq", parent=f"y_axis_{self.tag}", tag=f"series_{self.tag}")
+            img.histogram_is_dirty = True
+
+        if img.histogram_is_dirty:
+            img.update_histogram()
+        else:
+            return
 
         # Ensure the plot is visible
         dpg.configure_item(plot_tag, show=True)
@@ -741,7 +748,7 @@ class SliceViewer:
         drawlist_tag = f"drawlist_{self.tag}"
         plot_tag = f"plot_{self.tag}"
 
-        if self.orientation == ViewMode.HISTOGRAM:
+        if not self.is_image_orientation():
             # Hide the 2D image drawing area
             if dpg.does_item_exist(drawlist_tag):
                 dpg.configure_item(drawlist_tag, show=False)
@@ -784,7 +791,7 @@ class SliceViewer:
             dpg.configure_item(self.axis_b_tag, show=False)
 
     def update_overlay(self):
-        if self.image_id is None or not self.image_model.show_overlay or self.orientation == ViewMode.HISTOGRAM:
+        if self.image_id is None or not self.image_model.show_overlay or not self.is_image_orientation():
             dpg.set_value(self.overlay_tag, "")
             return
         pix_x, pix_y = self.get_mouse_slice_coords()
@@ -824,6 +831,8 @@ class SliceViewer:
         dpg.set_item_pos(self.overlay_tag, [5, win_h - (ts[1] if ts[1] > 0 else 60) - 5])
 
     def update_window_level(self, ww, wl):
+        if not self.is_image_orientation():
+            return  # Don't modify WL/WW in histogram mode
         self.image_model.ww, self.image_model.wl = ww, wl
         self.update_sidebar_window_level()
         self.controller.update_all_viewers_of_image(self.image_id)
@@ -916,7 +925,7 @@ class SliceViewer:
             self.set_orientation(ViewMode.CORONAL)
 
         elif key == dpg.mvKey_F4:
-            self.set_orientation(ViewMode.HISTOGRAM)
+            self.set_orientation(ViewMode.HISTOGRAM if self.is_image_orientation() else ViewMode.HISTOGRAM)
 
         elif key == dpg.mvKey_L:  # FIXME to remove or change
             img.interpolation_linear = not img.interpolation_linear
@@ -930,7 +939,7 @@ class SliceViewer:
             self.hide_everything()
 
     def on_scroll(self, delta=1):
-        if self.image_id is None or self.orientation == ViewMode.HISTOGRAM:
+        if self.image_id is None or not self.is_image_orientation():
             return  # Disable scrolling in histogram mode
 
         # Update the local slice index
@@ -949,7 +958,7 @@ class SliceViewer:
         self.image_model.is_data_dirty = True
 
     def on_drag(self, data):
-        if self.image_id is None or self.orientation == ViewMode.HISTOGRAM:
+        if self.image_id is None or not self.is_image_orientation():
             return  # Disable pan/zoom/WL drag in histogram mode
 
         sx, sy = data[1] - self.last_dx, data[2] - self.last_dy
@@ -966,6 +975,7 @@ class SliceViewer:
             px, py = self.get_mouse_slice_coords(ignore_hover=True)
             if px is not None:
                 self.update_crosshair_data(px, py)
+                #self.update_overlay() # FIXME do nothing ?
                 self.controller.propagate_sync(self.image_id)
 
         # Drag with Ctrl and without Shift
@@ -982,7 +992,7 @@ class SliceViewer:
             self.update_window_level(ww, wl)
 
     def on_zoom(self, direction):
-        if self.image_id is None:
+        if self.image_id is None or not self.is_image_orientation():
             return
 
         mx, my = dpg.get_drawing_mouse_pos()

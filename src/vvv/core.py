@@ -228,6 +228,11 @@ class ImageModel:
 
     def get_slice_rgba(self, slice_idx, orientation=ViewMode.AXIAL):
 
+        # Handle non-image orientations
+        if orientation == ViewMode.HISTOGRAM:
+            #return None, (0, 0)
+            return np.array([0, 0, 0, 255], dtype=np.uint8), (1, 1)
+
         # 1. Determine the maximum index for the current orientation
         if orientation == ViewMode.AXIAL:
             max_s, h, w = self.data.shape[0], self.data.shape[1], self.data.shape[2]
