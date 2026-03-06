@@ -937,10 +937,8 @@ class SliceViewer:
         self.slice_idx += delta
         if self.slice_idx < 0:
             self.slice_idx = 0
-            return
         elif self.slice_idx >= self.num_slices:
             self.slice_idx = self.num_slices - 1
-            return
 
         # Update the 3D crosshair position to match this new slice plane
         self.update_crosshair_from_slice()
