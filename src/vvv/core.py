@@ -574,31 +574,39 @@ class Controller:
     def propagate_sync(self, source_img_id):
         source_img = self.images[source_img_id]
         if source_img.sync_group == 0:
-            # Even if not in a group, we might need to update
-            # other orientations of the SAME image
+            # For single image not in any group, just sync other orientations
             target_ids = [source_img_id]
         else:
-            # Sync with everyone in the group
+            # For multiple images in a group, sync across all images in the group
             target_ids = [tid for tid, img in self.images.items()
                           if img.sync_group == source_img.sync_group]
-
-        phys_pos = source_img.crosshair_phys_coord
 
         for target_id in target_ids:
             target_img = self.images[target_id]
 
-            # Update Physical & Voxel State
-            target_vox = (phys_pos - target_img.origin + target_img.spacing / 2) / target_img.spacing
-            target_img.crosshair_voxel = list(target_vox)
-            target_img.crosshair_phys_coord = phys_pos
-
-            # Update Slice Indices
-            target_img.slices[ViewMode.AXIAL] = int(target_vox[2])
-            target_img.slices[ViewMode.SAGITTAL] = int(target_vox[0])
-            target_img.slices[ViewMode.CORONAL] = int(target_vox[1])
+            if target_id == source_img_id:
+                # Syncing within same image - use voxel coords directly to avoid rounding
+                source_vox = source_img.crosshair_voxel
+                target_img.crosshair_voxel = source_vox.copy()
+                target_img.crosshair_phys_coord = target_img.voxel_coord_to_physic_coord(source_vox)
+                
+                # Update Slice Indices directly from voxel coordinates
+                target_img.slices[ViewMode.AXIAL] = int(source_vox[2])
+                target_img.slices[ViewMode.SAGITTAL] = int(source_vox[0])
+                target_img.slices[ViewMode.CORONAL] = int(source_vox[1])
+            else:
+                # Syncing different images - use physical coordinates
+                phys_pos = source_img.crosshair_phys_coord
+                target_vox = (phys_pos - target_img.origin + target_img.spacing / 2) / target_img.spacing
+                target_img.crosshair_voxel = list(target_vox)
+                target_img.crosshair_phys_coord = phys_pos
+                
+                # Update Slice Indices from calculated voxel coordinates
+                target_img.slices[ViewMode.AXIAL] = int(round(target_vox[2]))
+                target_img.slices[ViewMode.SAGITTAL] = int(round(target_vox[0]))
+                target_img.slices[ViewMode.CORONAL] = int(round(target_vox[1]))
 
             # Sync View State (Zoom)
-            # target_img.zoom = shared_zoom
             target_img.is_data_dirty = True
 
         # Trigger Viewers Refresh
