@@ -33,11 +33,15 @@ class ViewportMapper:
 
         return self.pmin, self.pmax
 
-    def screen_to_image(self, screen_x, screen_y, real_w, real_h):
+    def screen_to_image(self, screen_x, screen_y, real_w, real_h, allow_outside=False):
         """Converts raw mouse coordinates into 2D image slice coordinates."""
         rel_x, rel_y = screen_x - self.pmin[0], screen_y - self.pmin[1]
-        if not (0 <= rel_x <= self.disp_w and 0 <= rel_y <= self.disp_h):
-            return None, None
+
+        # FIX: Bypass the bounding box check if we explicitly allow it
+        if not allow_outside:
+            if not (0 <= rel_x <= self.disp_w and 0 <= rel_y <= self.disp_h):
+                return None, None
+
         return (rel_x / self.disp_w) * real_w, (rel_y / self.disp_h) * real_h
 
     def calculate_center_pan(self, tx, ty, quad_w, quad_h, real_w, real_h, spacing_w, spacing_h, zoom):
@@ -301,7 +305,7 @@ class SliceViewer:
             # Horizontal is X (+), Vertical is Z (-)
             return ("x", "z"), (1, -1)
 
-    def get_mouse_slice_coords(self, ignore_hover=False):
+    def get_mouse_slice_coords(self, ignore_hover=False, allow_outside=False):
         if not self.image_id: return None, None
         if not ignore_hover and not dpg.is_item_hovered(f"win_{self.tag}"): return None, None
 
@@ -310,7 +314,7 @@ class SliceViewer:
         real_h, real_w = shape[0], shape[1]
 
         mx, my = dpg.get_drawing_mouse_pos()
-        return self.mapper.screen_to_image(mx, my, real_w, real_h)
+        return self.mapper.screen_to_image(mx, my, real_w, real_h, allow_outside)
 
     def get_center_physical_coord(self):
         """Returns the 3D physical coordinate currently at the center of the viewer's screen."""
@@ -797,7 +801,7 @@ class SliceViewer:
 
         is_dragging = (self.controller.gui.drag_viewer == self)
 
-        pix_x, pix_y = self.get_mouse_slice_coords(ignore_hover=is_dragging)
+        pix_x, pix_y = self.get_mouse_slice_coords(ignore_hover=is_dragging, allow_outside=is_dragging)
         if pix_x is None:
             dpg.set_value(self.overlay_tag, "")
             return
@@ -846,7 +850,7 @@ class SliceViewer:
             dpg.set_value("info_vox", fmt(img.crosshair_voxel, 1))
             dpg.set_value("info_phys", fmt(img.crosshair_phys_coord, 1))
             dpg.set_value("info_val", f"{img.crosshair_value:g}")
-            #dpg.set_value("info_zoom", f"{self.zoom:g}")
+            # dpg.set_value("info_zoom", f"{self.zoom:g}")
             dpg.set_value("info_ppm", f"{self.get_pixels_per_mm():g}")
 
     def update_sidebar_info(self):
@@ -975,7 +979,7 @@ class SliceViewer:
 
         # Drag without Ctrl and without Shift
         if not is_ctrl and not is_shift and is_button:
-            px, py = self.get_mouse_slice_coords(ignore_hover=True)
+            px, py = self.get_mouse_slice_coords(ignore_hover=True, allow_outside=True)
             if px is not None:
                 self.update_crosshair_data(px, py)
                 self.controller.propagate_sync(self.image_id)
