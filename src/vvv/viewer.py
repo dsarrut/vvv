@@ -794,7 +794,10 @@ class SliceViewer:
         if self.image_id is None or not self.image_model.show_overlay or not self.is_image_orientation():
             dpg.set_value(self.overlay_tag, "")
             return
-        pix_x, pix_y = self.get_mouse_slice_coords()
+
+        is_dragging = (self.controller.gui.drag_viewer == self)
+
+        pix_x, pix_y = self.get_mouse_slice_coords(ignore_hover=is_dragging)
         if pix_x is None:
             dpg.set_value(self.overlay_tag, "")
             return
@@ -975,7 +978,6 @@ class SliceViewer:
             px, py = self.get_mouse_slice_coords(ignore_hover=True)
             if px is not None:
                 self.update_crosshair_data(px, py)
-                #self.update_overlay() # FIXME do nothing ?
                 self.controller.propagate_sync(self.image_id)
 
         # Drag with Ctrl and without Shift
