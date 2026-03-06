@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 
 import click
-import os
 import dearpygui.dearpygui as dpg
 from .gui import MainGUI
 from .core import Controller
@@ -11,8 +10,8 @@ from .viewer import SliceViewer
 
 @click.command()
 @click.argument('image_paths', type=click.Path(exists=True), required=False, nargs=-1)
-@click.option('--link_all', is_flag=True, help='Enable sync all images')
-@click.option('--sync', is_flag=True, help='Enable sync all images')
+@click.option('--link_all', "-l", is_flag=True, help='Enable sync all images')
+@click.option('--sync', "-s", is_flag=True, help='Enable sync all images')
 def main(image_paths, link_all, sync):
     dpg.create_context()
     controller = Controller()
