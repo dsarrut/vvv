@@ -843,7 +843,7 @@ class SliceViewer:
             dpg.set_value("info_vox", fmt(img.crosshair_voxel, 1))
             dpg.set_value("info_phys", fmt(img.crosshair_phys_coord, 1))
             dpg.set_value("info_val", f"{img.crosshair_value:g}")
-            dpg.set_value("info_zoom", f"{self.zoom:g}")
+            #dpg.set_value("info_zoom", f"{self.zoom:g}")
             dpg.set_value("info_ppm", f"{self.get_pixels_per_mm():g}")
 
     def update_sidebar_info(self):

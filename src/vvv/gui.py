@@ -47,7 +47,7 @@ def setup_themes():
     # Active Viewer Theme (Bright border)
     with dpg.theme(tag="active_viewer_theme"):
         with dpg.theme_component(dpg.mvAll):
-            dpg.add_theme_color(dpg.mvThemeCol_Border, [0, 246, 7, 50],
+            dpg.add_theme_color(dpg.mvThemeCol_Border, [0, 246, 7, 70], # FIXME add an option
                                 category=dpg.mvThemeCat_Core)  # Match your green crosshair
             dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 2, category=dpg.mvThemeCat_Core)
             # Keep other styles consistent with viewer_theme
@@ -239,7 +239,7 @@ class MainGUI:
                 create_labeled_field("Voxel", tag="info_vox")
                 create_labeled_field("Coord", tag="info_phys")
                 create_labeled_field("Value", tag="info_val")
-                create_labeled_field("zoom", tag="info_zoom")
+                # create_labeled_field("zoom", tag="info_zoom")
                 create_labeled_field("ppm", tag="info_ppm")
                 # dpg.add_input_text(tag="info_zoom", width=70, on_enter=True,
                 # callback=lambda: self.on_sidebar_zoom_change())
