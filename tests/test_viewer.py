@@ -6,13 +6,20 @@ from pathlib import Path
 from vvv.core import Controller
 from vvv.viewer import SliceViewer
 from vvv.utils import ViewMode
+from vvv.gui import MainGUI
+
 
 # --- FIXTURES ---
 
 @pytest.fixture(autouse=True)
 def fresh_dpg_context():
-    """Create a fresh DPG context for EVERY test, and destroy it afterward."""
+    """Create a fresh DPG context and headless viewport for EVERY test."""
     dpg.create_context()
+
+    # The real GUI requires a viewport to exist for the menu bar and dimensions
+    dpg.create_viewport(title='Test Viewport', width=1000, height=800)
+    dpg.setup_dearpygui()
+
     yield
     dpg.destroy_context()
 
@@ -39,6 +46,33 @@ def synthetic_image_path(tmp_path_factory):
 
 @pytest.fixture
 def headless_app(synthetic_image_path):
+    """Sets up the real application architecture without launching the render loop."""
+    controller = Controller()
+
+    # 1. Initialize Viewers exactly like cli.py does
+    for tag in ["V1", "V2", "V3", "V4"]:
+        controller.viewers[tag] = SliceViewer(tag, controller)
+
+    # 2. Initialize the REAL GUI
+    gui = MainGUI(controller)
+    controller.gui = gui
+
+    # 3. Load the image and assign it to the primary viewer
+    img_id = controller.load_image(synthetic_image_path)
+    viewer = controller.viewers["V1"]
+    viewer.set_image(img_id)
+
+    # Set it as the context viewer so UI checks don't fail
+    gui.context_viewer = viewer
+
+    # 4. Force a resize so the viewers get actual drawing dimensions instead of 0x0
+    gui.on_window_resize()
+
+    return controller, viewer, img_id
+
+
+@pytest.fixture
+def headless_app_OLD(synthetic_image_path):
     """Sets up the Controller and a Viewer without launching the GUI loop."""
     controller = Controller()
 
@@ -141,3 +175,102 @@ def test_auto_window_level(headless_app):
 
     assert img_model.ww >= 95.0
     assert img_model.wl == pytest.approx(50.0, abs=5.0)
+
+
+def test_zoom_interaction(headless_app, monkeypatch):
+    """Test that zooming in and out properly updates the zoom multiplier."""
+    controller, viewer, img_id = headless_app
+
+    # Mock the mouse position to a fixed point during the zoom operation
+    monkeypatch.setattr(dpg, "get_drawing_mouse_pos", lambda: (250, 250))
+
+    initial_zoom = viewer.zoom
+
+    # Zoom In
+    viewer.on_zoom("in")
+    zoomed_in = viewer.zoom
+    assert zoomed_in > initial_zoom
+
+    # Zoom Out
+    viewer.on_zoom("out")
+
+    # Because 1.0 * 1.1 * 0.9 = 0.99, we assert against the actual math
+    assert viewer.zoom == pytest.approx(zoomed_in * 0.9)
+
+
+def test_single_image_sync_across_orientations(headless_app):
+    """Test that clicking in one orientation updates the slice index in another."""
+    controller, viewer1, img_id = headless_app
+
+    # Grab the V2 viewer that was already created by the headless_app fixture
+    viewer2 = controller.viewers["V2"]
+    viewer2.set_image(img_id)
+
+    viewer1.set_orientation(ViewMode.AXIAL)
+    viewer2.set_orientation(ViewMode.SAGITTAL)
+
+    # Move crosshair on V1 (Axial) to X=1.0, Y=4.0
+    viewer1.update_crosshair_data(1.0, 4.0)
+
+    # Trigger the sync propagation that the MainGUI would normally call
+    controller.propagate_sync(img_id)
+
+    # V2 (Sagittal) views along the X-axis.
+    # Its slice depth should now match the X coordinate we just clicked on V1.
+    assert viewer2.slice_idx == 1
+
+
+def test_pan_interaction_via_drag(headless_app, monkeypatch):
+    """Test that panning with Ctrl+Drag updates the pan_offset."""
+    controller, viewer, img_id = headless_app
+    initial_pan = viewer.pan_offset.copy()
+
+    # Mock DPG states to simulate holding Ctrl and Left-Click
+    monkeypatch.setattr(dpg, "is_mouse_button_down", lambda btn: btn == dpg.mvMouseButton_Left)
+    monkeypatch.setattr(dpg, "is_key_down", lambda key: key in [dpg.mvKey_LControl, dpg.mvKey_RControl])
+
+    # Simulate a drag event: data structure is typically [sender, current_x, current_y]
+    # Viewer calculates delta as (current_x - last_dx)
+    viewer.last_dx, viewer.last_dy = 100, 100
+    viewer.on_drag([None, 115, 125])  # Mouse moved +15x and +25y
+
+    assert viewer.pan_offset[0] == initial_pan[0] + 15
+    assert viewer.pan_offset[1] == initial_pan[1] + 25
+
+
+def test_crosshair_update_on_click(headless_app):
+    """Test that calculating a 2D crosshair position correctly updates the 3D ImageModel."""
+    controller, viewer, img_id = headless_app
+    img_model = controller.images[img_id]
+
+    viewer.set_orientation(ViewMode.AXIAL)
+
+    # Initial state check
+    assert img_model.crosshair_voxel == [2, 2, 2]
+
+    # Simulate a click at 2D slice coordinates (1.5, 3.5)
+    viewer.update_crosshair_data(1.5, 3.5)
+
+    # The Z-axis (index 2) should remain unchanged in Axial view
+    assert img_model.crosshair_voxel[0] == 1.5
+    assert img_model.crosshair_voxel[1] == 3.5
+    assert img_model.crosshair_voxel[2] == 2
+
+
+def test_reset_view(headless_app):
+    """Test that pressing 'R' resets zoom, pan, and slice depth to defaults."""
+    controller, viewer, img_id = headless_app
+    img_model = controller.images[img_id]
+
+    # Deliberately mess up the view state
+    viewer.zoom = 5.0
+    viewer.pan_offset = [100, -50]
+    viewer.slice_idx = 0
+
+    # Simulate pressing the 'R' key
+    viewer.on_key_press(dpg.mvKey_R)
+
+    # Everything should return to the center of the 5x5x5 volume
+    assert viewer.zoom == 1.0
+    assert viewer.pan_offset == [0, 0]
+    assert viewer.slice_idx == 2
