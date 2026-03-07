@@ -721,61 +721,6 @@ class SliceViewer:
         # Text Y coordinate must also be snapped to integer
         dpg.draw_text([text_x, int(y - 20)], text, color=color, size=14, parent=self.scale_bar_tag)
 
-    def draw_scale_bar_OK(self):
-        dpg.delete_item(self.scale_bar_tag, children_only=True)
-
-        if not self.is_image_orientation() or not self.image_model or not self.image_model.show_scalebar:
-            return
-
-        win_w = dpg.get_item_width(f"win_{self.tag}")
-        win_h = dpg.get_item_height(f"win_{self.tag}")
-        if not win_w or not win_h: return
-
-        ppm = self.get_pixels_per_mm()
-        if ppm <= 0: return
-
-        # Target ~15% of the screen width for the scale bar
-        target_px = win_w * 0.15
-        target_mm = target_px / ppm
-
-        # Find a "nice" round number (1, 2, 5, 10, 20, 50, 100...) using log magnitude
-        magnitude = 10 ** np.floor(np.log10(target_mm))
-        normalized = target_mm / magnitude
-
-        if normalized < 1.5:
-            factor = 1
-        elif normalized < 3.5:
-            factor = 2
-        elif normalized < 7.5:
-            factor = 5
-        else:
-            factor = 10
-
-        bar_mm = factor * magnitude
-        bar_px = bar_mm * ppm
-
-        # Position: Bottom right corner
-        margin_x = 20
-        margin_y = 20
-
-        x1 = win_w - margin_x - bar_px
-        x2 = win_w - margin_x
-        y = win_h - margin_y
-
-        color = self.controller.settings.data["colors"]["overlay_text"]
-
-        # Draw main horizontal line
-        dpg.draw_line([x1, y], [x2, y], color=color, thickness=2, parent=self.scale_bar_tag)
-        # Draw vertical tick marks
-        dpg.draw_line([x1, y - 5], [x1, y + 5], color=color, thickness=2, parent=self.scale_bar_tag)
-        dpg.draw_line([x2, y - 5], [x2, y + 5], color=color, thickness=2, parent=self.scale_bar_tag)
-
-        # Draw Text (Centered above the bar)
-        text = f"{bar_mm:g} mm"
-        est_text_w = len(text) * 7  # Rough estimate of text width in pixels
-        text_x = x1 + (bar_px / 2) - (est_text_w / 2)
-        dpg.draw_text([text_x, y - 20], text, color=color, size=14, parent=self.scale_bar_tag)
-
     def hide_everything(self):
         # Determine the new state (Toggle logic)
         # If the crosshair is currently shown, we hide everything. Otherwise, show.

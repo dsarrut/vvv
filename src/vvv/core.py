@@ -425,6 +425,7 @@ class Controller:
                 viewer.draw_crosshair()
 
     def unify_ppm_max(self, target_viewer_tags):
+        # FIXME not used : which one is better max or min ?
         """Forces a list of viewers to share the maximum absolute scale (ppm)."""
         valid_viewers = [self.viewers[tag] for tag in target_viewer_tags
                          if self.viewers[tag].image_model]
