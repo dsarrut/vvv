@@ -557,6 +557,20 @@ class MainGUI:
                 self.hovered_viewer.on_scroll(int(app_data))
 
     def on_key_press(self, sender, app_data, user_data):
+        # app_data contains the pressed key code
+
+        # Check for Control (Windows/Linux)
+        is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl)
+
+        # Check for Command (macOS) - DPG maps this to the 'Win' key constants
+        is_cmd = dpg.is_key_down(dpg.mvKey_LWin) or dpg.is_key_down(dpg.mvKey_RWin)
+
+        # Intercept Cmd+O / Ctrl+O globally
+        if app_data == dpg.mvKey_O and (is_ctrl or is_cmd):
+            self.on_open_file_clicked()
+            return  # Stop processing so it doesn't get sent to the viewer
+
+        # Otherwise, pass standard key presses down to the active viewer
         if self.hovered_viewer:
             self.hovered_viewer.on_key_press(app_data)
 
