@@ -70,6 +70,7 @@ class ImageModel:
         self.show_axis = True
         self.show_overlay = True
         self.show_crosshair = True
+        self.show_scalebar = False
         # histogram
         self.hist_data_x = []
         self.hist_data_y = []
@@ -528,6 +529,8 @@ class Controller:
             model.show_overlay = value
         elif user_data == "crosshair":
             model.show_crosshair = value
+        elif user_data == "scalebar":
+            model.show_scalebar = value
 
         # Refresh all viewers displaying this image
         self.update_all_viewers_of_image(context_viewer.image_id)

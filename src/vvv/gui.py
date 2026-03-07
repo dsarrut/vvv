@@ -244,14 +244,8 @@ class MainGUI:
                 create_labeled_field("Voxel", tag="info_vox")
                 create_labeled_field("Coord", tag="info_phys")
                 create_labeled_field("Value", tag="info_val")
-                # create_labeled_field("zoom", tag="info_zoom")
                 create_labeled_field("ppm", tag="info_ppm")
-                # dpg.add_input_text(tag="info_zoom", width=70, on_enter=True,
-                # callback=lambda: self.on_sidebar_zoom_change())
-            '''with dpg.group(horizontal=True):
-                dpg.add_text("Performance:", color=[93, 93, 93])
-                dpg.add_text("0 FPS", tag="fps_display", color=[0, 255, 255])
-            dpg.add_separator()'''
+                create_labeled_field("FOV", tag="info_scale")
 
     def create_window_level_controls(self):
         """Creates the window and level input fields."""
@@ -292,6 +286,12 @@ class MainGUI:
                                      callback=self.controller.on_visibility_toggle,
                                      user_data="crosshair", default_value=True)
 
+                # Row 3
+                with dpg.table_row():
+                    dpg.add_checkbox(label="Scale bar", tag="check_scalebar",
+                                     callback=self.controller.on_visibility_toggle,
+                                     user_data="scalebar", default_value=False)
+
     def create_viewer_grid(self):
         """Creates the 2x2 grid of slice viewers."""
         with dpg.child_window(tag="viewers_container", border=False, no_scrollbar=True, no_scroll_with_mouse=True):
@@ -326,6 +326,7 @@ class MainGUI:
                 viewer.axes_nodes = [viewer.axis_a_tag, viewer.axis_b_tag]
                 viewer.active_axes_idx = 0
 
+                dpg.add_draw_node(tag=viewer.scale_bar_tag)
                 dpg.add_draw_node(tag=viewer.crosshair_tag)
 
             col = self.controller.settings.data["colors"]["overlay_text"]
@@ -358,6 +359,9 @@ class MainGUI:
 
         if dpg.get_value("check_crosshair") != img.show_crosshair:
             dpg.set_value("check_crosshair", img.show_crosshair)
+
+        if dpg.get_value("check_scalebar") != img.show_scalebar:  # <-- NEW
+            dpg.set_value("check_scalebar", img.show_scalebar)
 
     def refresh_image_list_ui(self):
         container = "image_list_container"
@@ -541,7 +545,16 @@ class MainGUI:
 
     def on_global_scroll(self, sender, app_data, user_data):
         if self.hovered_viewer:
-            self.hovered_viewer.on_scroll(app_data)
+            # Check if either Left or Right Control is held down
+            is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl)
+
+            if is_ctrl:
+                # app_data is positive when scrolling up (away), negative when scrolling down (towards)
+                direction = "in" if app_data > 0 else "out"
+                self.hovered_viewer.on_zoom(direction)
+            else:
+                # Default behavior: scroll through slices
+                self.hovered_viewer.on_scroll(int(app_data))
 
     def on_key_press(self, sender, app_data, user_data):
         if self.hovered_viewer:
@@ -607,9 +620,7 @@ class MainGUI:
 
     def on_open_file_clicked(self, sender=None, app_data=None, user_data=None):
         """Triggers the native OS file browser and queues the load sequence."""
-        print("on_open_file_clicked")
         file_path = open_file_dialog("Open Medical Image")
-        print(file_path)
         if file_path and os.path.exists(file_path):
             self.tasks.append(self.load_single_image_sequence(file_path))
 
@@ -667,7 +678,6 @@ class MainGUI:
             yield
 
     def show_message(self, title, message):
-        print("show_message", message, title)
         """Displays a reusable, centered modal dialog for errors and alerts."""
         modal_tag = "generic_message_modal"
         if dpg.does_item_exist(modal_tag):
@@ -780,7 +790,6 @@ class MainGUI:
 
             if self.tasks:
                 try:
-                    print(f"tasks = {len(self.tasks)}")
                     next(self.tasks[0])
                 except StopIteration:
                     self.tasks.pop(0)

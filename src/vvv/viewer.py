@@ -108,6 +108,7 @@ class SliceViewer:
         self.crosshair_tag = f"crosshair_node_{tag_id}"
         self.xh_line_h = f"xh_h_{tag_id}"  # Tag for horizontal line
         self.xh_line_v = f"xh_v_{tag_id}"  # Tag for vertical line
+        self.scale_bar_tag = f"scale_bar_node_{tag_id}"
         self.xh_initialized = False
 
         # used during mouse drag
@@ -663,6 +664,118 @@ class SliceViewer:
         dpg.fit_axis_data(f"x_axis_{self.tag}")
         dpg.fit_axis_data(f"y_axis_{self.tag}")
 
+    def draw_scale_bar(self):
+        dpg.delete_item(self.scale_bar_tag, children_only=True)
+
+        if not self.is_image_orientation() or not self.image_model or not self.image_model.show_scalebar:
+            return
+
+        win_w = dpg.get_item_width(f"win_{self.tag}")
+        win_h = dpg.get_item_height(f"win_{self.tag}")
+        if not win_w or not win_h: return
+
+        ppm = self.get_pixels_per_mm()
+        if ppm <= 0: return
+
+        target_px = win_w * 0.15
+        target_mm = target_px / ppm
+
+        magnitude = 10 ** np.floor(np.log10(target_mm))
+        normalized = target_mm / magnitude
+
+        if normalized < 1.5:
+            factor = 1
+        elif normalized < 3.5:
+            factor = 2
+        elif normalized < 7.5:
+            factor = 5
+        else:
+            factor = 10
+
+        bar_mm = factor * magnitude
+        bar_px = bar_mm * ppm
+
+        margin_x = 20
+        margin_y = 20
+
+        # FIX 1: Cast all coordinates strictly to integers to snap to the pixel grid
+        x2 = int(win_w - margin_x)
+        x1 = int(x2 - bar_px)
+        y = int(win_h - margin_y)
+
+        color = self.controller.settings.data["colors"]["overlay_text"]
+
+        # FIX 2: Use filled rectangles instead of lines for absolute pixel-perfect sharpness
+        # Main horizontal bar (2px thick)
+        dpg.draw_rectangle([x1, y - 1], [x2, y + 1], color=color, fill=color, parent=self.scale_bar_tag)
+        # Left vertical tick (2px wide, 10px tall)
+        dpg.draw_rectangle([x1 - 1, y - 5], [x1 + 1, y + 5], color=color, fill=color, parent=self.scale_bar_tag)
+        # Right vertical tick
+        dpg.draw_rectangle([x2 - 1, y - 5], [x2 + 1, y + 5], color=color, fill=color, parent=self.scale_bar_tag)
+
+        # Draw Text (Centered above the bar)
+        text = f"{bar_mm:g} mm"
+        est_text_w = len(text) * 7
+        text_x = int(x1 + (bar_px / 2) - (est_text_w / 2))
+
+        # Text Y coordinate must also be snapped to integer
+        dpg.draw_text([text_x, int(y - 20)], text, color=color, size=14, parent=self.scale_bar_tag)
+
+    def draw_scale_bar_OK(self):
+        dpg.delete_item(self.scale_bar_tag, children_only=True)
+
+        if not self.is_image_orientation() or not self.image_model or not self.image_model.show_scalebar:
+            return
+
+        win_w = dpg.get_item_width(f"win_{self.tag}")
+        win_h = dpg.get_item_height(f"win_{self.tag}")
+        if not win_w or not win_h: return
+
+        ppm = self.get_pixels_per_mm()
+        if ppm <= 0: return
+
+        # Target ~15% of the screen width for the scale bar
+        target_px = win_w * 0.15
+        target_mm = target_px / ppm
+
+        # Find a "nice" round number (1, 2, 5, 10, 20, 50, 100...) using log magnitude
+        magnitude = 10 ** np.floor(np.log10(target_mm))
+        normalized = target_mm / magnitude
+
+        if normalized < 1.5:
+            factor = 1
+        elif normalized < 3.5:
+            factor = 2
+        elif normalized < 7.5:
+            factor = 5
+        else:
+            factor = 10
+
+        bar_mm = factor * magnitude
+        bar_px = bar_mm * ppm
+
+        # Position: Bottom right corner
+        margin_x = 20
+        margin_y = 20
+
+        x1 = win_w - margin_x - bar_px
+        x2 = win_w - margin_x
+        y = win_h - margin_y
+
+        color = self.controller.settings.data["colors"]["overlay_text"]
+
+        # Draw main horizontal line
+        dpg.draw_line([x1, y], [x2, y], color=color, thickness=2, parent=self.scale_bar_tag)
+        # Draw vertical tick marks
+        dpg.draw_line([x1, y - 5], [x1, y + 5], color=color, thickness=2, parent=self.scale_bar_tag)
+        dpg.draw_line([x2, y - 5], [x2, y + 5], color=color, thickness=2, parent=self.scale_bar_tag)
+
+        # Draw Text (Centered above the bar)
+        text = f"{bar_mm:g} mm"
+        est_text_w = len(text) * 7  # Rough estimate of text width in pixels
+        text_x = x1 + (bar_px / 2) - (est_text_w / 2)
+        dpg.draw_text([text_x, y - 20], text, color=color, size=14, parent=self.scale_bar_tag)
+
     def hide_everything(self):
         # Determine the new state (Toggle logic)
         # If the crosshair is currently shown, we hide everything. Otherwise, show.
@@ -673,6 +786,7 @@ class SliceViewer:
         img.show_axis = new_state
         img.show_crosshair = new_state
         img.show_overlay = new_state
+        img.show_scalebar = new_state
         img.grid_mode = False
 
         # Synchronize the GUI checkboxes
@@ -680,6 +794,7 @@ class SliceViewer:
         dpg.set_value("check_axis", new_state)
         dpg.set_value("check_crosshair", new_state)
         dpg.set_value("check_overlay", new_state)
+        dpg.set_value("check_scalebar", new_state)
         dpg.set_value("check_grid", False)
 
         # Refresh all viewers using this image to reflect changes
@@ -794,6 +909,9 @@ class SliceViewer:
             dpg.configure_item(self.axis_a_tag, show=False)
             dpg.configure_item(self.axis_b_tag, show=False)
 
+        # Draw Scale Bar
+        self.draw_scale_bar()
+
     def update_overlay(self):
         if self.image_id is None or not self.image_model.show_overlay or not self.is_image_orientation():
             dpg.set_value(self.overlay_tag, "")
@@ -850,8 +968,17 @@ class SliceViewer:
             dpg.set_value("info_vox", fmt(img.crosshair_voxel, 1))
             dpg.set_value("info_phys", fmt(img.crosshair_phys_coord, 1))
             dpg.set_value("info_val", f"{img.crosshair_value:g}")
-            # dpg.set_value("info_zoom", f"{self.zoom:g}")
-            dpg.set_value("info_ppm", f"{self.get_pixels_per_mm():g}")
+
+            # Calculate FOV and format the scale string
+            ppm = self.get_pixels_per_mm()
+            win_w = dpg.get_item_width(f"win_{self.tag}")
+            win_h = dpg.get_item_height(f"win_{self.tag}")
+
+            if ppm > 0 and win_w and win_h:
+                fov_w = win_w / ppm
+                fov_h = win_h / ppm
+                dpg.set_value("info_scale", f"{fov_w:.0f}x{fov_h:.0f} mm - {ppm:.1f} px/mm")
+            dpg.set_value("info_ppm", f"{ppm:g}")
 
     def update_sidebar_info(self):
         if self.image_id is None:
