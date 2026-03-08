@@ -175,7 +175,7 @@ class ViewState:
         hist, bin_edges = np.histogram(flat_data, bins=bins)
         self.hist_data_y = hist.astype(np.float32)
         self.hist_data_x = bin_edges[:-1].astype(np.float32)
-        self.histogram_is
+        self.histogram_is_dirty = False
 
 
 class ImageModel:
