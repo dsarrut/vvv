@@ -6,6 +6,52 @@ import copy
 import json
 from vvv.utils import ViewMode
 
+DEFAULT_SETTINGS = {
+    "colors": {
+        "crosshair": [0, 246, 7, 180],
+        "overlay_text": [0, 246, 7, 255],
+        "x": [255, 80, 80, 230],
+        "y": [80, 255, 80, 230],
+        "z": [80, 80, 255, 230],
+        "grid": [255, 255, 255, 40]
+    },
+    "physics": {
+        "search_radius": 25,
+        "voxel_strip_threshold": 1500
+    }
+}
+
+
+class SettingsManager:
+    def __init__(self):
+        # Platform-specific path
+        if os.name == 'nt':
+            self.config_dir = Path(os.getenv('APPDATA')) / "VVV"
+        else:
+            self.config_dir = Path.home() / ".config" / "vvv"
+
+        self.config_path = self.config_dir / ".vv_settings"
+        self.data = copy.deepcopy(DEFAULT_SETTINGS)
+        self.load()
+
+    def load(self):
+        if self.config_path.exists():
+            try:
+                with open(self.config_path, "r") as f:
+                    self.data.update(json.load(f))
+            except Exception as e:
+                print(f"Error loading settings: {e}")
+
+    def reset(self):
+        """Restores the data dictionary to default values."""
+        self.data = copy.deepcopy(DEFAULT_SETTINGS)
+
+    def save(self):
+        self.config_dir.mkdir(parents=True, exist_ok=True)
+        with open(self.config_path, "w") as f:
+            json.dump(self.data, f, indent=4)
+        return str(self.config_path)  # Return the path for the UI hint
+
 
 class ViewState:
     """Stores all transient UI and camera parameters (The Trojan Horse)."""
@@ -131,6 +177,7 @@ class ViewState:
         self.hist_data_x = bin_edges[:-1].astype(np.float32)
         self.histogram_is
 
+
 class ImageModel:
     """Store the image data and its properties."""
 
@@ -156,7 +203,7 @@ class ImageModel:
         # --- TROJAN HORSE ---
         # Create the separate state object inside the model
         self.view_state = ViewState(self)
-        #self.view_state = ViewState(self.data.shape)
+        # self.view_state = ViewState(self.data.shape)
 
         # Initialize crosshair and W/L
         # (These methods will naturally route to self.view_state thanks to __setattr__)
@@ -176,81 +223,6 @@ class ImageModel:
             setattr(self.view_state, name, value)
         else:
             super().__setattr__(name, value)
-
-    def OLD__init__(self, path):
-        self.path = path
-        self.name = os.path.basename(path)
-        # read the image
-        self.sitk_image = self.read_image_from_disk(path)
-        # raw pixel data: no copy between sitk and numpy
-        self.data = sitk.GetArrayViewFromImage(self.sitk_image)  # .astype(np.float32)
-        # get some metadata
-        self.pixel_type = None
-        self.bytes_per_component = None
-        self.num_components = None
-        self.matrix = None
-        self.spacing = None
-        self.origin = None
-        self.memory_mb = None
-        self.read_image_metadata()
-        # Detect if this is a color image (RGB or RGBA)
-        self.is_rgb = self.num_components in [3, 4]
-
-        """
-        The dirty flag: if True the image, should be rendered
-        Scope = Global
-        The actual pixel values in the volume or the lookup table (Window/Level) changed.
-        Ex: changing Brightness/Contrast, reloading the file, or applying a filter.
-        """
-        self.is_data_dirty = True
-
-        # --- below is information shared among the viewers ---
-
-        # Window/Level for this image
-        self.ww = 2000.0
-        self.wl = 270.0
-        # Zoom level (anis
-        self.zoom = {
-            ViewMode.AXIAL: 1.0,
-            ViewMode.SAGITTAL: 1.0,
-            ViewMode.CORONAL: 1.0
-        }
-        # Interpolation mode
-        self.interpolation_linear = False  # FIXME -> change the name
-        # Current slices for all orientation (init to center)
-        self.slices = {
-            ViewMode.AXIAL: self.data.shape[0] // 2,
-            ViewMode.SAGITTAL: self.data.shape[1] // 2,
-            ViewMode.CORONAL: self.data.shape[2] // 2
-        }
-        # Current voxel information under the crosshair
-        self.crosshair_phys_coord = None
-        self.crosshair_voxel = None
-        self.crosshair_value = None
-        self.init_crosshair_to_slices()
-        # Current pan for all orientation
-        self.pan = {
-            ViewMode.AXIAL: [0, 0],
-            ViewMode.SAGITTAL: [0, 0],
-            ViewMode.CORONAL: [0, 0]
-        }
-        # options
-        self.grid_mode = False
-        self.show_axis = True
-        self.show_overlay = True
-        self.show_crosshair = True
-        self.show_scalebar = False
-        # histogram
-        self.hist_data_x = []
-        self.hist_data_y = []
-        self.bin_width = 10.0
-        self.use_log_y = False
-        # self.update_histogram()
-        self.histogram_is_dirty = True
-        # synchro
-        self.sync_group = 0
-        # initial windows level
-        self.init_default_window_level()
 
     def read_image_from_disk(self, path):
         """Centralized image reading logic to handle 2D, 3D, and eventually 4D."""
@@ -277,18 +249,6 @@ class ImageModel:
         self.origin = np.array(self.sitk_image.GetOrigin())
         bytes_per_pixel = self.bytes_per_component * self.num_components
         self.memory_mb = self.sitk_image.GetNumberOfPixels() * bytes_per_pixel / (1024 * 1024)
-
-    def update_histogram_OLD(self):
-        """Computes histogram for the entire 3D volume."""
-        flat_data = self.data.flatten()
-        # Filter out extreme values if necessary to keep the plot readable
-        min_v, max_v = np.min(flat_data), np.max(flat_data)
-        bins = np.arange(min_v, max_v + self.bin_width, self.bin_width)
-
-        hist, bin_edges = np.histogram(flat_data, bins=bins)
-        self.hist_data_y = hist.astype(np.float32)
-        self.hist_data_x = bin_edges[:-1].astype(np.float32)
-        self.histogram_is_dirty = False
 
     def init_default_window_level(self):
         """Initialize window/level based on image histogram percentiles for optimal viewing."""
@@ -385,40 +345,6 @@ class ImageModel:
         self.ww = preset['ww']
         self.wl = preset['wl']
 
-    def apply_wl_preset_OLD(self, preset_name):
-        """Applies predefined WW/WL values based on the selection."""
-        if getattr(self, 'is_rgb', False) or preset_name == "Custom":
-            return
-
-        if preset_name == "Optimal":
-            stride = max(1, self.data.size // 100000)
-            sample_data = self.data.flatten()[::stride]
-            p2, p98 = np.percentile(sample_data, [2, 98])
-            self.ww = max(1e-5, p98 - p2)
-            self.wl = (p98 + p2) / 2
-        elif preset_name == "Min/Max":
-            min_v, max_v = np.min(self.data), np.max(self.data)
-            self.ww = max(1e-5, max_v - min_v)
-            self.wl = (max_v + min_v) / 2
-        elif "Binary Mask" in preset_name:
-            self.ww = 1.0
-            self.wl = 0.5
-        elif "CT: Soft Tissue" in preset_name:
-            self.ww, self.wl = 400, 50
-        elif "CT: Bone" in preset_name:
-            self.ww, self.wl = 2000, 400
-        elif "CT: Lung" in preset_name:
-            self.ww, self.wl = 1500, -600
-        elif "CT: Brain" in preset_name:
-            self.ww, self.wl = 80, 40
-
-    def init_crosshair_to_slices_OLD(self):
-        self.crosshair_voxel = [self.slices[ViewMode.CORONAL], self.slices[ViewMode.SAGITTAL],
-                                self.slices[ViewMode.AXIAL]]
-        self.crosshair_phys_coord = self.voxel_coord_to_physic_coord(self.crosshair_voxel)
-        ix, iy, iz = self.crosshair_voxel
-        self.crosshair_value = self.data[iz, iy, ix]
-
     def reset_view(self):
         """Resets zoom, pan, and crosshair to the center of the volume."""
         self.zoom = {
@@ -447,158 +373,6 @@ class ImageModel:
             self.data, getattr(self, 'is_rgb', False), self.num_components,
             self.ww, self.wl, slice_idx, orientation
         )
-
-    def get_raw_slice_OLD(self, slice_idx, orientation=ViewMode.AXIAL):
-        """Returns the 2D raw intensity data for the slice, correctly oriented for display."""
-        if getattr(self, 'is_rgb', False):
-            return np.zeros((1, 1))  # Auto-windowing doesn't apply to RGB
-
-        if orientation == ViewMode.AXIAL:
-            return self.data[slice_idx, :, :]
-        elif orientation == ViewMode.SAGITTAL:
-            return np.flipud(np.fliplr(self.data[:, :, slice_idx]))
-        elif orientation == ViewMode.CORONAL:
-            return np.flipud(self.data[:, slice_idx, :])
-
-        return np.zeros((1, 1))
-
-    def get_slice_rgb_OLD(self, slice_idx, orientation=ViewMode.AXIAL):
-
-        # Handle non-image orientations
-        if orientation == ViewMode.HISTOGRAM:
-            return np.array([0, 0, 0, 255], dtype=np.uint8), (1, 1)
-
-        # 1. Determine the maximum index for the current orientation
-        if orientation == ViewMode.AXIAL:
-            max_s, h, w = self.data.shape[0], self.data.shape[1], self.data.shape[2]
-        elif orientation == ViewMode.SAGITTAL:
-            max_s, h, w = self.data.shape[2], self.data.shape[0], self.data.shape[1]
-        elif orientation == ViewMode.CORONAL:
-            max_s, h, w = self.data.shape[1], self.data.shape[0], self.data.shape[2]
-        else:
-            print(f"ERROR : orientation is not supported {orientation}")
-            # Safely return an empty 1x1 black texture instead of crashing
-            return np.zeros(4, dtype=np.float32), (1, 1)
-
-        # 2. Check if the slice is out of bounds
-        if slice_idx < 0 or slice_idx >= max_s:
-            # Return a black/transparent slice of the correct shape
-            black_slice = np.zeros((h, w, 4), dtype=np.float32)
-            black_slice[:, :, 3] = 1.0  # Opaque alpha
-            return black_slice.flatten(), (h, w)
-
-        idx = slice_idx
-
-        # 3. Extract and format the slice based on image type
-        if getattr(self, 'is_rgb', False):
-            # Slicing for arrays with shape (Z, Y, X, Channels)
-            if orientation == ViewMode.AXIAL:
-                slice_data = self.data[idx, :, :, :]
-            elif orientation == ViewMode.SAGITTAL:
-                slice_data = np.flipud(np.fliplr(self.data[:, :, idx, :]))
-            else:
-                slice_data = np.flipud(self.data[:, idx, :, :])
-
-            # DearPyGui expects floats between 0 and 1. RGB is usually 0-255.
-            norm_img = np.clip(slice_data.astype(np.float32) / 255.0, 0.0, 1.0)
-
-            # If RGB (3 channels), add a 100% opaque Alpha channel
-            if self.num_components == 3:
-                alpha = np.ones((*norm_img.shape[:-1], 1), dtype=np.float32)
-                rgba = np.concatenate([norm_img, alpha], axis=-1)
-            else:
-                rgba = norm_img  # Already RGBA
-
-            return rgba.flatten(), (h, w)
-
-        else:
-            # Grayscale / Medical volumes (Z, Y, X)
-            # Use our new centralized raw slice getter!
-            slice_data = self.get_raw_slice(idx, orientation)
-
-            min_val = self.wl - self.ww / 2
-
-            # robustify : prevent division by zero
-            if self.ww <= 0:
-                display_img = np.zeros_like(slice_data)
-            else:
-                display_img = np.clip((slice_data - min_val) / self.ww, 0, 1)
-
-            rgba = np.stack([display_img] * 3 + [np.ones_like(display_img)], axis=-1)
-            return rgba.flatten(), (h, w)
-
-    def get_slice_rgba_OLD(self, slice_idx, orientation=ViewMode.AXIAL):
-
-        # Handle non-image orientations
-        if orientation == ViewMode.HISTOGRAM:
-            return np.array([0, 0, 0, 255], dtype=np.uint8), (1, 1)
-
-        # 1. Determine the maximum index for the current orientation
-        if orientation == ViewMode.AXIAL:
-            max_s, h, w = self.data.shape[0], self.data.shape[1], self.data.shape[2]
-        elif orientation == ViewMode.SAGITTAL:
-            max_s, h, w = self.data.shape[2], self.data.shape[0], self.data.shape[1]
-        elif orientation == ViewMode.CORONAL:
-            max_s, h, w = self.data.shape[1], self.data.shape[0], self.data.shape[2]
-        else:
-            print(f"ERROR : orientation is not supported {orientation}")
-            # Safely return an empty 1x1 black texture instead of crashing
-            return np.zeros(4, dtype=np.float32), (1, 1)
-
-        # 2. Check if the slice is out of bounds
-        if slice_idx < 0 or slice_idx >= max_s:
-            # Return a black/transparent slice of the correct shape
-            black_slice = np.zeros((h, w, 4), dtype=np.float32)
-            black_slice[:, :, 3] = 1.0  # Opaque alpha
-            return black_slice.flatten(), (h, w)
-
-        # 3. Extracts a slice with corrected orientations for vv parity.
-        idx = slice_idx
-
-        # Check if this is a color image (needs the self.is_rgb flag from __init__)
-        if getattr(self, 'is_rgb', False):
-            # Slicing for arrays with shape (Z, Y, X, Channels)
-            if orientation == ViewMode.AXIAL:
-                slice_data = self.data[idx, :, :, :]
-            elif orientation == ViewMode.SAGITTAL:
-                slice_data = np.flipud(np.fliplr(self.data[:, :, idx, :]))
-            else:
-                slice_data = np.flipud(self.data[:, idx, :, :])
-
-            # DearPyGui expects floats between 0 and 1. RGB is usually 0-255.
-            norm_img = np.clip(slice_data.astype(np.float32) / 255.0, 0.0, 1.0)
-
-            # If RGB (3 channels), add a 100% opaque Alpha channel
-            if self.num_components == 3:
-                alpha = np.ones((*norm_img.shape[:-1], 1), dtype=np.float32)
-                rgba = np.concatenate([norm_img, alpha], axis=-1)
-            else:
-                rgba = norm_img  # Already RGBA
-
-            return rgba.flatten(), (h, w)
-
-        else:
-            # Existing logic for standard Grayscale / Medical volumes (Z, Y, X)
-            if orientation == ViewMode.AXIAL:
-                slice_data = self.data[idx, :, :]
-            elif orientation == ViewMode.SAGITTAL:
-                # Slice along X
-                # Flip vertically (np.flipud) and horizontally (np.fliplr) for vv alignment
-                slice_data = np.flipud(np.fliplr(self.data[:, :, idx]))
-            else:
-                # Slice along Y, Flip vertically
-                slice_data = np.flipud(self.data[:, idx, :])
-
-            min_val = self.wl - self.ww / 2
-
-            # robustify : prevent division by zero
-            if self.ww == 0:
-                display_img = np.zeros_like(slice_data)
-            else:
-                display_img = np.clip((slice_data - min_val) / self.ww, 0, 1)
-
-            rgba = np.stack([display_img] * 3 + [np.ones_like(display_img)], axis=-1)
-            return rgba.flatten(), (h, w)
 
     def get_physical_aspect_ratio(self, orientation):
         """Calculates (width_scale, height_scale) based on mm spacing."""
@@ -656,26 +430,6 @@ class ImageModel:
 
         ix, iy, iz = [int(np.clip(c, 0, limit - 1)) for c, limit in
                       zip(v, [self.data.shape[2], self.data.shape[1], self.data.shape[0]])]
-        self.crosshair_value = self.data[iz, iy, ix]
-
-    def update_crosshair_from_slice_scroll_OLD(self, new_slice_idx, orientation):
-        """Updates the 3D crosshair depth when scrolling through slices."""
-        vx, vy, vz = self.crosshair_voxel
-
-        # Update only the coordinate corresponding to the current orientation
-        if orientation == ViewMode.AXIAL:
-            vz = new_slice_idx
-        elif orientation == ViewMode.SAGITTAL:
-            vx = new_slice_idx
-        elif orientation == ViewMode.CORONAL:
-            vy = new_slice_idx
-
-        new_v = [vx, vy, vz]
-        self.crosshair_voxel = new_v
-        self.crosshair_phys_coord = self.voxel_coord_to_physic_coord(np.array(new_v))
-
-        ix, iy, iz = [int(np.clip(c, 0, limit - 1)) for c, limit in
-                      zip(new_v, [self.data.shape[2], self.data.shape[1], self.data.shape[0]])]
         self.crosshair_value = self.data[iz, iy, ix]
 
 
@@ -1024,53 +778,6 @@ class Controller:
             if viewer.image_id in target_ids and viewer != source_viewer:
                 viewer.set_pixels_per_mm(target_ppm)
                 viewer.center_on_physical_coord(phys_center)
-
-
-DEFAULT_SETTINGS = {
-    "colors": {
-        "crosshair": [0, 246, 7, 180],
-        "overlay_text": [0, 246, 7, 255],
-        "x": [255, 80, 80, 230],
-        "y": [80, 255, 80, 230],
-        "z": [80, 80, 255, 230],
-        "grid": [255, 255, 255, 40]
-    },
-    "physics": {
-        "search_radius": 25,
-        "voxel_strip_threshold": 1500
-    }
-}
-
-
-class SettingsManager:
-    def __init__(self):
-        # Platform-specific path
-        if os.name == 'nt':
-            self.config_dir = Path(os.getenv('APPDATA')) / "VVV"
-        else:
-            self.config_dir = Path.home() / ".config" / "vvv"
-
-        self.config_path = self.config_dir / ".vv_settings"
-        self.data = copy.deepcopy(DEFAULT_SETTINGS)
-        self.load()
-
-    def load(self):
-        if self.config_path.exists():
-            try:
-                with open(self.config_path, "r") as f:
-                    self.data.update(json.load(f))
-            except Exception as e:
-                print(f"Error loading settings: {e}")
-
-    def reset(self):
-        """Restores the data dictionary to default values."""
-        self.data = copy.deepcopy(DEFAULT_SETTINGS)
-
-    def save(self):
-        self.config_dir.mkdir(parents=True, exist_ok=True)
-        with open(self.config_path, "w") as f:
-            json.dump(self.data, f, indent=4)
-        return str(self.config_path)  # Return the path for the UI hint
 
 
 class SliceRenderer:
