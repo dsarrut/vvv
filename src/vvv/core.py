@@ -307,6 +307,7 @@ class ImageModel:
             # Update the view (no copy)
             self.data = sitk.GetArrayViewFromImage(self.sitk_image).astype(np.float32)
             self.read_image_metadata()
+            self.histogram_is_dirty = True  # <-- Added this line
             return False  # Indicates a soft reload
         else:
             # DIMENSIONS CHANGED: Full reset

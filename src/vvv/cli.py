@@ -68,7 +68,7 @@ def set_macos_dock_info(name, icon_path=None):
 @click.option('--sync', "-s", is_flag=True, help='Enable sync all images')
 def main(image_paths, link_all, sync):
     # Resolve icon paths using the new resource helper
-    icon_png = get_resource_path(os.path.join("icons", "icon.png"))
+    icon_png = get_resource_path(os.path.join("icons", "py_vv.png"))
     icon_ico = get_resource_path(os.path.join("icons", "icon.ico"))
 
     # for the app icon

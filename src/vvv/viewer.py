@@ -648,13 +648,13 @@ class SliceViewer:
                 dpg.add_line_series([], [], label="Freq", parent=f"y_axis_{self.tag}", tag=f"series_{self.tag}")
             img.histogram_is_dirty = True
 
+        # Ensure the plot is visible
+        dpg.configure_item(plot_tag, show=True)
+
         if img.histogram_is_dirty:
             img.update_histogram()
         else:
             return
-
-        # Ensure the plot is visible
-        dpg.configure_item(plot_tag, show=True)
 
         # Update data
         y_data = np.log10(img.hist_data_y + 1) if img.use_log_y else img.hist_data_y
