@@ -10,30 +10,26 @@ from vvv.utils import ViewMode
 class ViewState:
     """Stores all transient UI and camera parameters (The Trojan Horse)."""
 
-    def __init__(self, data_shape):
+    def __init__(self, volume):
+        self.volume = volume  # This points back to the ImageModel
         self.is_data_dirty = True
 
-        # Window/Level
         self.ww = 2000.0
         self.wl = 270.0
 
-        # Camera State
         self.zoom = {ViewMode.AXIAL: 1.0, ViewMode.SAGITTAL: 1.0, ViewMode.CORONAL: 1.0}
         self.pan = {ViewMode.AXIAL: [0, 0], ViewMode.SAGITTAL: [0, 0], ViewMode.CORONAL: [0, 0]}
 
-        # Slices
         self.slices = {
-            ViewMode.AXIAL: data_shape[0] // 2,
-            ViewMode.SAGITTAL: data_shape[1] // 2,
-            ViewMode.CORONAL: data_shape[2] // 2
+            ViewMode.AXIAL: self.volume.data.shape[0] // 2,
+            ViewMode.SAGITTAL: self.volume.data.shape[1] // 2,
+            ViewMode.CORONAL: self.volume.data.shape[2] // 2
         }
 
-        # Crosshair State
         self.crosshair_phys_coord = None
         self.crosshair_voxel = None
         self.crosshair_value = None
 
-        # Display Options
         self.interpolation_linear = False
         self.grid_mode = False
         self.show_axis = True
@@ -41,16 +37,99 @@ class ViewState:
         self.show_crosshair = True
         self.show_scalebar = False
 
-        # Histogram State
         self.hist_data_x = []
         self.hist_data_y = []
         self.bin_width = 10.0
         self.use_log_y = False
         self.histogram_is_dirty = True
-
-        # Syncing
         self.sync_group = 0
 
+    def init_crosshair_to_slices(self):
+        self.crosshair_voxel = [self.slices[ViewMode.CORONAL], self.slices[ViewMode.SAGITTAL],
+                                self.slices[ViewMode.AXIAL]]
+        self.crosshair_phys_coord = self.volume.voxel_coord_to_physic_coord(self.crosshair_voxel)
+        ix, iy, iz = self.crosshair_voxel
+        self.crosshair_value = self.volume.data[iz, iy, ix]
+
+    def update_crosshair_from_slice_scroll(self, new_slice_idx, orientation):
+        vx, vy, vz = self.crosshair_voxel
+        if orientation == ViewMode.AXIAL:
+            vz = new_slice_idx
+        elif orientation == ViewMode.SAGITTAL:
+            vx = new_slice_idx
+        elif orientation == ViewMode.CORONAL:
+            vy = new_slice_idx
+
+        new_v = [vx, vy, vz]
+        self.crosshair_voxel = new_v
+        self.crosshair_phys_coord = self.volume.voxel_coord_to_physic_coord(np.array(new_v))
+        ix, iy, iz = [int(np.clip(c, 0, limit - 1)) for c, limit in
+                      zip(new_v, [self.volume.data.shape[2], self.volume.data.shape[1], self.volume.data.shape[0]])]
+        self.crosshair_value = self.volume.data[iz, iy, ix]
+
+    def update_crosshair_from_2d(self, slice_x, slice_y, slice_idx, orientation):
+        _, shape = SliceRenderer.get_slice_rgba(
+            self.volume.data, getattr(self.volume, 'is_rgb', False), self.volume.num_components,
+            self.ww, self.wl, slice_idx, orientation
+        )
+        real_h, real_w = shape[0], shape[1]
+
+        if orientation == ViewMode.AXIAL:
+            v = [slice_x, slice_y, slice_idx]
+        elif orientation == ViewMode.SAGITTAL:
+            v = [slice_idx, real_w - slice_x, real_h - slice_y]
+        else:
+            v = [slice_x, slice_idx, real_h - slice_y]
+
+        self.crosshair_voxel = v
+        self.crosshair_phys_coord = self.volume.voxel_coord_to_physic_coord(np.array(v))
+
+        ix, iy, iz = [int(np.clip(c, 0, limit - 1)) for c, limit in
+                      zip(v, [self.volume.data.shape[2], self.volume.data.shape[1], self.volume.data.shape[0]])]
+        self.crosshair_value = self.volume.data[iz, iy, ix]
+
+    def reset_view(self):
+        self.zoom = {ViewMode.AXIAL: 1.0, ViewMode.SAGITTAL: 1.0, ViewMode.CORONAL: 1.0}
+        self.pan = {ViewMode.AXIAL: [0, 0], ViewMode.SAGITTAL: [0, 0], ViewMode.CORONAL: [0, 0]}
+        self.slices = {
+            ViewMode.AXIAL: self.volume.data.shape[0] // 2,
+            ViewMode.SAGITTAL: self.volume.data.shape[1] // 2,
+            ViewMode.CORONAL: self.volume.data.shape[2] // 2
+        }
+        self.init_crosshair_to_slices()
+        self.is_data_dirty = True
+
+    def apply_wl_preset(self, preset_name):
+        if getattr(self.volume, 'is_rgb', False) or preset_name == "Custom": return
+        if preset_name == "Optimal":
+            stride = max(1, self.volume.data.size // 100000)
+            sample_data = self.volume.data.flatten()[::stride]
+            p2, p98 = np.percentile(sample_data, [2, 98])
+            self.ww = max(1e-5, p98 - p2)
+            self.wl = (p98 + p2) / 2
+        elif preset_name == "Min/Max":
+            min_v, max_v = np.min(self.volume.data), np.max(self.volume.data)
+            self.ww = max(1e-5, max_v - min_v)
+            self.wl = (max_v + min_v) / 2
+        elif "Binary Mask" in preset_name:
+            self.ww, self.wl = 1.0, 0.5
+        elif "CT: Soft Tissue" in preset_name:
+            self.ww, self.wl = 400, 50
+        elif "CT: Bone" in preset_name:
+            self.ww, self.wl = 2000, 400
+        elif "CT: Lung" in preset_name:
+            self.ww, self.wl = 1500, -600
+        elif "CT: Brain" in preset_name:
+            self.ww, self.wl = 80, 40
+
+    def update_histogram(self):
+        flat_data = self.volume.data.flatten()
+        min_v, max_v = np.min(flat_data), np.max(flat_data)
+        bins = np.arange(min_v, max_v + self.bin_width, self.bin_width)
+        hist, bin_edges = np.histogram(flat_data, bins=bins)
+        self.hist_data_y = hist.astype(np.float32)
+        self.hist_data_x = bin_edges[:-1].astype(np.float32)
+        self.histogram_is
 
 class ImageModel:
     """Store the image data and its properties."""
@@ -76,7 +155,8 @@ class ImageModel:
 
         # --- TROJAN HORSE ---
         # Create the separate state object inside the model
-        self.view_state = ViewState(self.data.shape)
+        self.view_state = ViewState(self)
+        #self.view_state = ViewState(self.data.shape)
 
         # Initialize crosshair and W/L
         # (These methods will naturally route to self.view_state thanks to __setattr__)
@@ -198,7 +278,7 @@ class ImageModel:
         bytes_per_pixel = self.bytes_per_component * self.num_components
         self.memory_mb = self.sitk_image.GetNumberOfPixels() * bytes_per_pixel / (1024 * 1024)
 
-    def update_histogram(self):
+    def update_histogram_OLD(self):
         """Computes histogram for the entire 3D volume."""
         flat_data = self.data.flatten()
         # Filter out extreme values if necessary to keep the plot readable
@@ -305,7 +385,7 @@ class ImageModel:
         self.ww = preset['ww']
         self.wl = preset['wl']
 
-    def apply_wl_preset(self, preset_name):
+    def apply_wl_preset_OLD(self, preset_name):
         """Applies predefined WW/WL values based on the selection."""
         if getattr(self, 'is_rgb', False) or preset_name == "Custom":
             return
@@ -332,7 +412,7 @@ class ImageModel:
         elif "CT: Brain" in preset_name:
             self.ww, self.wl = 80, 40
 
-    def init_crosshair_to_slices(self):
+    def init_crosshair_to_slices_OLD(self):
         self.crosshair_voxel = [self.slices[ViewMode.CORONAL], self.slices[ViewMode.SAGITTAL],
                                 self.slices[ViewMode.AXIAL]]
         self.crosshair_phys_coord = self.voxel_coord_to_physic_coord(self.crosshair_voxel)
@@ -578,7 +658,7 @@ class ImageModel:
                       zip(v, [self.data.shape[2], self.data.shape[1], self.data.shape[0]])]
         self.crosshair_value = self.data[iz, iy, ix]
 
-    def update_crosshair_from_slice_scroll(self, new_slice_idx, orientation):
+    def update_crosshair_from_slice_scroll_OLD(self, new_slice_idx, orientation):
         """Updates the 3D crosshair depth when scrolling through slices."""
         vx, vy, vz = self.crosshair_voxel
 
