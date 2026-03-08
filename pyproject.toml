@@ -12,7 +12,8 @@ dependencies = [
     "SimpleITK",
     "dearpygui",
     "numpy",
-    "pytest"
+    "pytest",
+    "pyobjc-framework-Cocoa; sys_platform == 'darwin'"
 ]
 
 [project.scripts]

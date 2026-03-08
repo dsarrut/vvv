@@ -3,6 +3,7 @@ import os
 import time
 from vvv.utils import ViewMode
 from vvv.file_dialog import open_file_dialog
+from pathlib import Path
 
 
 def create_labeled_field(label, tag):
@@ -86,8 +87,9 @@ class MainGUI:
 
     def load_resources(self):
         """Loads fonts and other external resources."""
-        current_dir = os.path.dirname(__file__)
-        font_path = os.path.join(current_dir, "fonts", "Font Awesome 7 Free-Solid-900.otf")
+        vvv_base_dir = Path(__file__).resolve().parent
+        vvv_resource_dir = vvv_base_dir / "resources"
+        font_path = os.path.join(vvv_resource_dir, "fonts", "Font Awesome 7 Free-Solid-900.otf")
 
         if not os.path.exists(font_path):
             print(f"WARNING: Font file not found at {font_path}")
@@ -479,6 +481,11 @@ class MainGUI:
         window_height = dpg.get_item_height("PrimaryWindow")
         if not window_width or not window_height:
             return  # Safety
+
+        # Catch macOS phantom resize events on Alt-Tab
+        if hasattr(self, "last_window_size") and self.last_window_size == (window_width, window_height):
+            return
+        self.last_window_size = (window_width, window_height)
 
         # Constants
         margin_height = 30

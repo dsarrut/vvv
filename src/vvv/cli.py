@@ -6,6 +6,45 @@ import dearpygui.dearpygui as dpg
 from .gui import MainGUI
 from .core import Controller
 from .viewer import SliceViewer
+import sys
+from pathlib import Path
+
+# Get the absolute path to the directory containing cli.py
+vvv_base_dir = Path(__file__).resolve().parent
+vvv_resource_dir = vvv_base_dir / "resources"
+
+# Define absolute paths to your icons
+icon_png = str(vvv_resource_dir / "icons" / "icon.png")
+icon_ico = str(vvv_resource_dir / "icons" / "icon.ico")
+
+
+def set_macos_dock_info(name, icon_path=None):
+    """Promotes script to a foreground app, sets icon, and steals focus."""
+    if sys.platform != 'darwin':
+        return
+
+    try:
+        from Cocoa import NSApplication, NSImage, NSApplicationActivationPolicyRegular
+        import os
+
+        # 1. Initialize the macOS application object
+        app = NSApplication.sharedApplication()
+
+        # 2. Promote from background script to regular UI app (Allows Dock icon)
+        app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
+
+        # 3. Steal focus from the Terminal (Forces window to the front)
+        app.activateIgnoringOtherApps_(True)
+
+        # 4. Set the Dock Icon
+        if icon_path and os.path.exists(icon_path):
+            image = NSImage.alloc().initWithContentsOfFile_(str(icon_path))
+            app.setApplicationIconImage_(image)
+        else:
+            print(f"Warning: Icon not found at {icon_path}")
+
+    except ImportError:
+        print("Warning: PyObjC not installed. Run: pip install pyobjc-framework-Cocoa")
 
 
 @click.command()
@@ -13,6 +52,9 @@ from .viewer import SliceViewer
 @click.option('--link_all', "-l", is_flag=True, help='Enable sync all images')
 @click.option('--sync', "-s", is_flag=True, help='Enable sync all images')
 def main(image_paths, link_all, sync):
+    # for the app icon
+    set_macos_dock_info("VVV", icon_path=icon_png)
+
     dpg.create_context()
     controller = Controller()
 
@@ -22,6 +64,14 @@ def main(image_paths, link_all, sync):
     gui = MainGUI(controller)
     controller.gui = gui
     dpg.create_viewport(title='VVV', width=1000, height=800)
+
+    # Window Icons (using absolute paths)
+    if sys.platform == "win32":
+        dpg.set_viewport_small_icon(icon_ico)
+        dpg.set_viewport_large_icon(icon_ico)
+    else:
+        dpg.set_viewport_small_icon(icon_png)
+        dpg.set_viewport_large_icon(icon_png)
 
     # Start the app, passing the boot sequence generator from GUI
     gui.run(boot_generator=gui.create_boot_sequence(image_paths, sync, link_all))

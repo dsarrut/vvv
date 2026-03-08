@@ -922,7 +922,7 @@ class SliceViewer:
             if ppm > 0 and win_w and win_h:
                 fov_w = win_w / ppm
                 fov_h = win_h / ppm
-                dpg.set_value("info_scale", f"{fov_w:.0f}x{fov_h:.0f} mm - {ppm:.1f} px/mm")
+                dpg.set_value("info_scale", f"{fov_w:.0f}x{fov_h:.0f} mm  {ppm:.1f} px/mm")
             dpg.set_value("info_ppm", f"{ppm:g}")
 
     def update_sidebar_info(self):
