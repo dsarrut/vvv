@@ -127,8 +127,8 @@ class ImageModel:
         """Initialize window/level based on image histogram percentiles for optimal viewing."""
         # For large images, use systematic sampling to improve performance
         total_pixels = self.data.size
-        max_sample_size = 1000000  # Sample up to 1M pixels for speed
-        max_sample_size = 100000  # Sample up to 1M pixels for speed
+        # max_sample_size = 1000000  # Sample up to 1M pixels for speed
+        max_sample_size = 100000  # Sample up to 100k pixels for speed
 
         if total_pixels > max_sample_size:
             # Systematic sampling using stride for large images (much faster than random.choice)
@@ -139,11 +139,11 @@ class ImageModel:
             sample_data = self.data.flatten()
 
         # Check if this is a CT image by looking at metadata and intensity range
-        is_ct = self._is_ct_image(sample_data)
+        is_ct = self.is_ct_image(sample_data)
 
         if is_ct:
             # Use CT-specific window/level presets
-            self._set_ct_window_level(sample_data)
+            self.set_ct_window_level(sample_data)
         else:
             # Use percentile-based approach for other modalities
             p1, p99 = np.percentile(sample_data, [1, 99])
@@ -161,7 +161,7 @@ class ImageModel:
                     self.ww = 1.0
                 self.wl = (p99 + p1) / 2
 
-    def _is_ct_image(self, flat_data):
+    def is_ct_image(self, flat_data):
         """Detect if image is CT based on metadata and intensity characteristics."""
         # Check metadata first
         if hasattr(self.sitk_image, 'GetMetaData'):
@@ -180,7 +180,7 @@ class ImageModel:
 
         return False
 
-    def _set_ct_window_level(self, flat_data):
+    def set_ct_window_level(self, flat_data):
         """Set appropriate CT window/level based on tissue types."""
         min_val, max_val = np.min(flat_data), np.max(flat_data)
 
@@ -217,6 +217,33 @@ class ImageModel:
 
         self.ww = preset['ww']
         self.wl = preset['wl']
+
+    def apply_wl_preset(self, preset_name):
+        """Applies predefined WW/WL values based on the selection."""
+        if getattr(self, 'is_rgb', False) or preset_name == "Custom":
+            return
+
+        if preset_name == "Optimal":
+            stride = max(1, self.data.size // 100000)
+            sample_data = self.data.flatten()[::stride]
+            p2, p98 = np.percentile(sample_data, [2, 98])
+            self.ww = max(1e-5, p98 - p2)
+            self.wl = (p98 + p2) / 2
+        elif preset_name == "Min/Max":
+            min_v, max_v = np.min(self.data), np.max(self.data)
+            self.ww = max(1e-5, max_v - min_v)
+            self.wl = (max_v + min_v) / 2
+        elif "Binary Mask" in preset_name:
+            self.ww = 1.0
+            self.wl = 0.5
+        elif "CT: Soft Tissue" in preset_name:
+            self.ww, self.wl = 400, 50
+        elif "CT: Bone" in preset_name:
+            self.ww, self.wl = 2000, 400
+        elif "CT: Lung" in preset_name:
+            self.ww, self.wl = 1500, -600
+        elif "CT: Brain" in preset_name:
+            self.ww, self.wl = 80, 40
 
     def init_crosshair_to_slices(self):
         self.crosshair_voxel = [self.slices[ViewMode.CORONAL], self.slices[ViewMode.SAGITTAL],
@@ -680,6 +707,34 @@ class Controller:
         for viewer in self.viewers.values():
             if viewer.image_id in target_ids:
                 viewer.is_geometry_dirty = True
+
+    def propagate_window_level(self, source_img_id):
+        """Applies WW/WL to synced images and triggers renders."""
+        source_img = self.images[source_img_id]
+        import dearpygui.dearpygui as dpg
+
+        # Check if the UI toggle for syncing W/L is active
+        sync_wl = False
+        if dpg.does_item_exist("check_sync_wl"):
+            sync_wl = dpg.get_value("check_sync_wl")
+
+        # 1. Apply values to group members if syncing is enabled
+        target_group = source_img.sync_group
+        if sync_wl and target_group != 0:
+            for target_id, img in self.images.items():
+                if img.sync_group == target_group and not getattr(img, 'is_rgb', False):
+                    img.ww = source_img.ww
+                    img.wl = source_img.wl
+                    img.is_data_dirty = True
+        else:
+            source_img.is_data_dirty = True
+
+        # 2. Update all viewers displaying the affected images
+        for viewer in self.viewers.values():
+            if viewer.image_model:
+                if viewer.image_id == source_img_id or (
+                        sync_wl and target_group != 0 and viewer.image_model.sync_group == target_group):
+                    viewer.update_render()
 
     def propagate_camera(self, source_viewer):
         """Syncs the zoom and physical center of the source viewer to all synced viewers."""

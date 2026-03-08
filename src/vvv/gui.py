@@ -81,6 +81,17 @@ class MainGUI:
             with dpg.menu(label="Link"):
                 dpg.add_menu_item(label="Link All", callback=lambda: self.controller.link_all())
 
+            with dpg.menu(label="Window/Level"):
+                presets = ["Optimal",
+                           "Min/Max",
+                           "Binary Mask (1.0, 0.5)",
+                           "CT: Soft Tissue (400, 50)",
+                           "CT: Bone (2000, 400)",
+                           "CT: Lung (1500, -600)",
+                           "CT: Brain (80, 40)"]
+                for preset in presets:
+                    dpg.add_menu_item(label=preset, user_data=preset, callback=self.on_wl_preset_menu_clicked)
+
             # Status Message Area (pushes text slightly away from the menus)
             dpg.add_spacer(width=20)
             dpg.add_text("", tag="global_status_text", color=[150, 255, 150])
@@ -195,27 +206,27 @@ class MainGUI:
                 create_labeled_field("FOV", tag="info_scale")
 
     def create_window_level_controls(self):
-        """Creates the window and level input fields."""
+        """Creates the window and level input fields and sync toggle."""
+
+        # 2. Manual W/L Inputs
         with dpg.group(horizontal=True):
             with dpg.group(horizontal=True):
                 dpg.add_text("Window")
-                dpg.add_input_text(tag="info_window", width=70, on_enter=True,
+                dpg.add_input_text(tag="info_window", width=65, on_enter=True,
                                    callback=lambda: self.on_sidebar_wl_change())
             dpg.add_spacer(width=5)
-
             with dpg.group(horizontal=True):
                 dpg.add_text("Level")
-                dpg.add_input_text(tag="info_level", width=-1, on_enter=True,
+                dpg.add_input_text(tag="info_level", width=65, on_enter=True,
                                    callback=lambda: self.on_sidebar_wl_change())
 
-        # Visibility Toggles
+        dpg.add_spacer(height=5)
+
+        # 3. Visibility Controls (Existing)
         with dpg.group(tag="visibility_controls"):
-            # Use a table with 2 columns to ensure perfect alignment
             with dpg.table(header_row=False, policy=dpg.mvTable_SizingFixedFit):
                 dpg.add_table_column()
                 dpg.add_table_column()
-
-                # Row 1
                 with dpg.table_row():
                     dpg.add_checkbox(label="Slice axis", tag="check_axis",
                                      callback=self.controller.on_visibility_toggle,
@@ -223,8 +234,6 @@ class MainGUI:
                     dpg.add_checkbox(label="Pixels grid", tag="check_grid",
                                      callback=self.controller.on_visibility_toggle,
                                      user_data="grid", default_value=False)
-
-                # Row 2
                 with dpg.table_row():
                     dpg.add_checkbox(label="Mouse tracker", tag="check_overlay",
                                      callback=self.controller.on_visibility_toggle,
@@ -232,12 +241,13 @@ class MainGUI:
                     dpg.add_checkbox(label="Crosshair", tag="check_crosshair",
                                      callback=self.controller.on_visibility_toggle,
                                      user_data="crosshair", default_value=True)
-
-                # Row 3
                 with dpg.table_row():
                     dpg.add_checkbox(label="Scale bar", tag="check_scalebar",
                                      callback=self.controller.on_visibility_toggle,
                                      user_data="scalebar", default_value=False)
+                    # Sync Toggle
+                    dpg.add_checkbox(label="Sync W/L", tag="check_sync_wl", default_value=False,
+                                     callback=self.on_sync_wl_toggle)
 
     def create_viewer_grid(self):
         """Creates the 2x2 grid of slice viewers."""
@@ -590,6 +600,28 @@ class MainGUI:
         file_path = open_file_dialog("Open Medical Image")
         if file_path and os.path.exists(file_path):
             self.tasks.append(self.load_single_image_sequence(file_path))
+
+    def on_wl_preset_menu_clicked(self, sender, app_data, user_data):
+        """Applies a WW/WL preset from the top menu to the currently active viewer."""
+        viewer = self.context_viewer
+        if not viewer or not viewer.image_model or getattr(viewer.image_model, 'is_rgb', False):
+            return
+
+        preset_name = user_data  # The name of the preset was passed via user_data in the menu item
+        viewer.image_model.apply_wl_preset(preset_name)
+        viewer.update_sidebar_window_level()
+        self.controller.propagate_window_level(viewer.image_id)
+
+    def on_sync_wl_toggle(self, sender, app_data, user_data):
+        """Immediately propagates window/level when the sync checkbox is turned on."""
+        viewer = self.context_viewer
+        if not viewer or not viewer.image_id:
+            return
+
+        # app_data is True if the box was just checked.
+        # If checked, push the current active image's W/L to the rest of its sync group immediately.
+        if app_data:
+            self.controller.propagate_window_level(viewer.image_id)
 
     def load_single_image_sequence(self, file_path):
         """Generator that shows a loading progress bar while reading a large file."""

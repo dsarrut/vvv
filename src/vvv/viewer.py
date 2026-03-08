@@ -814,7 +814,9 @@ class SliceViewer:
             patch = img_model.data[z_idx0:z_idx1, self.slice_idx, x0:x1]
         if patch.size > 0:
             p_min, p_max = np.percentile(patch, [2, 98])
-            self.update_window_level(p_max - p_min, (p_max + p_min) / 2)
+            # Prevent zero-width on completely flat/binary regions
+            ww = max(1e-5, p_max - p_min)
+            self.update_window_level(ww, (p_max + p_min) / 2)
 
     def update_crosshair_data(self, pix_x, pix_y):
         """Passes 2D mouse coordinates to the Model to compute 3D state."""
@@ -926,9 +928,14 @@ class SliceViewer:
     def update_window_level(self, ww, wl):
         if not self.is_image_orientation():
             return  # Don't modify WL/WW in histogram mode
-        self.image_model.ww, self.image_model.wl = ww, wl
+
+        self.image_model.ww = max(1e-5, ww)  # Enforce safety bound
+        self.image_model.wl = wl
+
         self.update_sidebar_window_level()
-        self.controller.update_all_viewers_of_image(self.image_id)
+
+        # Call the controller to handle syncing and rendering
+        self.controller.propagate_window_level(self.image_id)
 
     def update_sidebar_crosshair(self):
         img = self.image_model
@@ -952,7 +959,8 @@ class SliceViewer:
 
     def update_sidebar_info(self):
         if self.image_id is None:
-            for t in ["info_name", "info_size", "info_spacing", "info_origin", "info_memory"]: dpg.set_value(t, "")
+            for t in ["info_name", "info_size", "info_spacing", "info_origin", "info_memory"]:
+                dpg.set_value(t, "")
             return
         img = self.image_model
         dpg.set_value("info_name", img.name)
@@ -963,7 +971,19 @@ class SliceViewer:
         dpg.set_value("info_origin", fmt(img.origin, 2))
         dpg.set_value("info_matrix", fmt(img.matrix, 1))
         dpg.set_value("info_memory", f"{img.sitk_image.GetNumberOfPixels():,} px    {img.memory_mb:g} MB")
-        self.update_sidebar_window_level()
+
+        # RGB Locking Logic
+        is_rgb = getattr(img, 'is_rgb', False)
+        if dpg.does_item_exist("info_window"): dpg.configure_item("info_window", enabled=not is_rgb)
+        if dpg.does_item_exist("info_level"): dpg.configure_item("info_level", enabled=not is_rgb)
+
+        if is_rgb:
+            if dpg.does_item_exist("info_window"): dpg.set_value("info_window", "RGB")
+            if dpg.does_item_exist("info_level"): dpg.set_value("info_level", "RGB")
+        else:
+            self.update_sidebar_window_level()
+
+        #self.update_sidebar_window_level()
 
     def update_sidebar_window_level(self):
         dpg.set_value("info_window", f"{self.image_model.ww:g}")
@@ -1090,7 +1110,7 @@ class SliceViewer:
 
         # Drag with Ctrl and with Shift
         elif is_shift and is_button:
-            ww = max(1, self.image_model.ww + sx * 2)
+            ww = max(1e-9, self.image_model.ww + sx * 2)  # Prevent zero
             wl = self.image_model.wl - sy * 2
             self.update_window_level(ww, wl)
 
