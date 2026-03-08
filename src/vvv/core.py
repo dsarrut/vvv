@@ -273,6 +273,15 @@ class ImageModel:
         self.is_data_dirty = True
 
     def get_raw_slice(self, slice_idx, orientation=ViewMode.AXIAL):
+        return SliceRenderer.get_raw_slice(self.data, getattr(self, 'is_rgb', False), slice_idx, orientation)
+
+    def get_slice_rgba(self, slice_idx, orientation=ViewMode.AXIAL):
+        return SliceRenderer.get_slice_rgba(
+            self.data, getattr(self, 'is_rgb', False), self.num_components,
+            self.ww, self.wl, slice_idx, orientation
+        )
+
+    def get_raw_slice_OLD(self, slice_idx, orientation=ViewMode.AXIAL):
         """Returns the 2D raw intensity data for the slice, correctly oriented for display."""
         if getattr(self, 'is_rgb', False):
             return np.zeros((1, 1))  # Auto-windowing doesn't apply to RGB
@@ -286,7 +295,7 @@ class ImageModel:
 
         return np.zeros((1, 1))
 
-    def get_slice_rgba(self, slice_idx, orientation=ViewMode.AXIAL):
+    def get_slice_rgb_OLD(self, slice_idx, orientation=ViewMode.AXIAL):
 
         # Handle non-image orientations
         if orientation == ViewMode.HISTOGRAM:
@@ -895,3 +904,63 @@ class SettingsManager:
         with open(self.config_path, "w") as f:
             json.dump(self.data, f, indent=4)
         return str(self.config_path)  # Return the path for the UI hint
+
+class SliceRenderer:
+    """Pure utility to generate renderable RGBA arrays."""
+
+    @staticmethod
+    def get_raw_slice(data, is_rgb, slice_idx, orientation):
+        if is_rgb:
+            return np.zeros((1, 1))
+
+        if orientation == ViewMode.AXIAL:
+            return data[slice_idx, :, :]
+        elif orientation == ViewMode.SAGITTAL:
+            return np.flipud(np.fliplr(data[:, :, slice_idx]))
+        elif orientation == ViewMode.CORONAL:
+            return np.flipud(data[:, slice_idx, :])
+        return np.zeros((1, 1))
+
+    @staticmethod
+    def get_slice_rgba(data, is_rgb, num_components, ww, wl, slice_idx, orientation):
+        if orientation == ViewMode.HISTOGRAM:
+            return np.array([0, 0, 0, 255], dtype=np.uint8), (1, 1)
+
+        # 1. Dimensions
+        if orientation == ViewMode.AXIAL:
+            max_s, h, w = data.shape[0], data.shape[1], data.shape[2]
+        elif orientation == ViewMode.SAGITTAL:
+            max_s, h, w = data.shape[2], data.shape[0], data.shape[1]
+        elif orientation == ViewMode.CORONAL:
+            max_s, h, w = data.shape[1], data.shape[0], data.shape[2]
+        else:
+            return np.zeros(4, dtype=np.float32), (1, 1)
+
+        # 2. Out of bounds
+        if slice_idx < 0 or slice_idx >= max_s:
+            black_slice = np.zeros((h, w, 4), dtype=np.float32)
+            black_slice[:, :, 3] = 1.0
+            return black_slice.flatten(), (h, w)
+
+        # 3. Extract and format
+        if is_rgb:
+            if orientation == ViewMode.AXIAL:
+                slice_data = data[slice_idx, :, :, :]
+            elif orientation == ViewMode.SAGITTAL:
+                slice_data = np.flipud(np.fliplr(data[:, :, slice_idx, :]))
+            else:
+                slice_data = np.flipud(data[:, slice_idx, :, :])
+
+            norm_img = np.clip(slice_data.astype(np.float32) / 255.0, 0.0, 1.0)
+            if num_components == 3:
+                alpha = np.ones((*norm_img.shape[:-1], 1), dtype=np.float32)
+                rgba = np.concatenate([norm_img, alpha], axis=-1)
+            else:
+                rgba = norm_img
+            return rgba.flatten(), (h, w)
+        else:
+            slice_data = SliceRenderer.get_raw_slice(data, is_rgb, slice_idx, orientation)
+            min_val = wl - ww / 2
+            display_img = np.zeros_like(slice_data) if ww <= 0 else np.clip((slice_data - min_val) / ww, 0, 1)
+            rgba = np.stack([display_img] * 3 + [np.ones_like(display_img)], axis=-1)
+            return rgba.flatten(), (h, w)
