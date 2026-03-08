@@ -270,9 +270,88 @@ class ImageModel:
             ViewMode.CORONAL: self.data.shape[2] // 2
         }
         self.init_crosshair_to_slices()
-        self.needs_render = True
+        self.is_data_dirty = True
+
+    def get_raw_slice(self, slice_idx, orientation=ViewMode.AXIAL):
+        """Returns the 2D raw intensity data for the slice, correctly oriented for display."""
+        if getattr(self, 'is_rgb', False):
+            return np.zeros((1, 1))  # Auto-windowing doesn't apply to RGB
+
+        if orientation == ViewMode.AXIAL:
+            return self.data[slice_idx, :, :]
+        elif orientation == ViewMode.SAGITTAL:
+            return np.flipud(np.fliplr(self.data[:, :, slice_idx]))
+        elif orientation == ViewMode.CORONAL:
+            return np.flipud(self.data[:, slice_idx, :])
+
+        return np.zeros((1, 1))
 
     def get_slice_rgba(self, slice_idx, orientation=ViewMode.AXIAL):
+
+        # Handle non-image orientations
+        if orientation == ViewMode.HISTOGRAM:
+            return np.array([0, 0, 0, 255], dtype=np.uint8), (1, 1)
+
+        # 1. Determine the maximum index for the current orientation
+        if orientation == ViewMode.AXIAL:
+            max_s, h, w = self.data.shape[0], self.data.shape[1], self.data.shape[2]
+        elif orientation == ViewMode.SAGITTAL:
+            max_s, h, w = self.data.shape[2], self.data.shape[0], self.data.shape[1]
+        elif orientation == ViewMode.CORONAL:
+            max_s, h, w = self.data.shape[1], self.data.shape[0], self.data.shape[2]
+        else:
+            print(f"ERROR : orientation is not supported {orientation}")
+            # Safely return an empty 1x1 black texture instead of crashing
+            return np.zeros(4, dtype=np.float32), (1, 1)
+
+        # 2. Check if the slice is out of bounds
+        if slice_idx < 0 or slice_idx >= max_s:
+            # Return a black/transparent slice of the correct shape
+            black_slice = np.zeros((h, w, 4), dtype=np.float32)
+            black_slice[:, :, 3] = 1.0  # Opaque alpha
+            return black_slice.flatten(), (h, w)
+
+        idx = slice_idx
+
+        # 3. Extract and format the slice based on image type
+        if getattr(self, 'is_rgb', False):
+            # Slicing for arrays with shape (Z, Y, X, Channels)
+            if orientation == ViewMode.AXIAL:
+                slice_data = self.data[idx, :, :, :]
+            elif orientation == ViewMode.SAGITTAL:
+                slice_data = np.flipud(np.fliplr(self.data[:, :, idx, :]))
+            else:
+                slice_data = np.flipud(self.data[:, idx, :, :])
+
+            # DearPyGui expects floats between 0 and 1. RGB is usually 0-255.
+            norm_img = np.clip(slice_data.astype(np.float32) / 255.0, 0.0, 1.0)
+
+            # If RGB (3 channels), add a 100% opaque Alpha channel
+            if self.num_components == 3:
+                alpha = np.ones((*norm_img.shape[:-1], 1), dtype=np.float32)
+                rgba = np.concatenate([norm_img, alpha], axis=-1)
+            else:
+                rgba = norm_img  # Already RGBA
+
+            return rgba.flatten(), (h, w)
+
+        else:
+            # Grayscale / Medical volumes (Z, Y, X)
+            # Use our new centralized raw slice getter!
+            slice_data = self.get_raw_slice(idx, orientation)
+
+            min_val = self.wl - self.ww / 2
+
+            # robustify : prevent division by zero
+            if self.ww <= 0:
+                display_img = np.zeros_like(slice_data)
+            else:
+                display_img = np.clip((slice_data - min_val) / self.ww, 0, 1)
+
+            rgba = np.stack([display_img] * 3 + [np.ones_like(display_img)], axis=-1)
+            return rgba.flatten(), (h, w)
+
+    def get_slice_rgba_OLD(self, slice_idx, orientation=ViewMode.AXIAL):
 
         # Handle non-image orientations
         if orientation == ViewMode.HISTOGRAM:
@@ -433,6 +512,9 @@ class Controller:
         self.viewers = {}  # { "id": SliceViewer } access by tag (V1, V2, etc)
         self.settings = SettingsManager()
 
+        # Sequential ID tracker
+        self._next_image_id = 0
+
     def default_viewers_orientation(self):
         n = len(self.images)
         if n == 1:
@@ -457,9 +539,13 @@ class Controller:
             self.viewers["V4"].set_orientation(ViewMode.AXIAL)
 
     def load_image(self, path):
-        img_id = str(len(self.images))
+        # Use and increment the safe ID instead of relying on dictionary length
+        img_id = str(self._next_image_id)
+        self._next_image_id += 1
+
         self.images[img_id] = ImageModel(path)
-        self.gui.refresh_image_list_ui()
+        if self.gui:
+            self.gui.refresh_image_list_ui()
         return img_id
 
     def update_all_viewers_of_image(self, img_id):
@@ -567,7 +653,7 @@ class Controller:
 
             # Update the sidebar in case this was the active image
             if self.gui.context_viewer and self.gui.context_viewer.image_id == img_id:
-                self.gui.context_viewer.update_sidebar_info()
+                self.gui.update_sidebar_info(self.gui.context_viewer)
 
             # Trigger the visual status notification
             if self.gui:
@@ -583,6 +669,7 @@ class Controller:
                     viewer.drop_image()
 
             # Delete the image from the data dictionary
+            name = self.images[img_id].name
             del self.images[img_id]
 
             # If there are other images, fill the empty viewers with the first one
@@ -598,7 +685,7 @@ class Controller:
 
             # Trigger the visual status notification
             if self.gui:
-                self.gui.show_status_message(f"Closed: {img_id}")
+                self.gui.show_status_message(f"Closed: {name}")
 
     def on_visibility_toggle(self, sender, value, user_data):
         context_viewer = self.gui.context_viewer

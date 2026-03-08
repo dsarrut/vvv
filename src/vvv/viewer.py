@@ -33,11 +33,26 @@ class ViewportMapper:
 
         return self.pmin, self.pmax
 
-    def screen_to_image(self, screen_x, screen_y, real_w, real_h, allow_outside=False):
+    def screen_to_image_OLD(self, screen_x, screen_y, real_w, real_h, allow_outside=False):
         """Converts raw mouse coordinates into 2D image slice coordinates."""
         rel_x, rel_y = screen_x - self.pmin[0], screen_y - self.pmin[1]
 
         # FIX: Bypass the bounding box check if we explicitly allow it
+        if not allow_outside:
+            if not (0 <= rel_x <= self.disp_w and 0 <= rel_y <= self.disp_h):
+                return None, None
+
+        return (rel_x / self.disp_w) * real_w, (rel_y / self.disp_h) * real_h
+
+    def screen_to_image(self, screen_x, screen_y, real_w, real_h, allow_outside=False):
+        """Converts raw mouse coordinates into 2D image slice coordinates."""
+        # FIX: Prevent ZeroDivisionError if the image is infinitely thin or zoomed out entirely
+        if self.disp_w == 0 or self.disp_h == 0:
+            return None, None
+
+        rel_x, rel_y = screen_x - self.pmin[0], screen_y - self.pmin[1]
+
+        # Bypass the bounding box check if we explicitly allow it
         if not allow_outside:
             if not (0 <= rel_x <= self.disp_w and 0 <= rel_y <= self.disp_h):
                 return None, None
@@ -199,7 +214,6 @@ class SliceViewer:
         self.resize(win_w, win_h)
 
         # update the other elements (sidebar, overlay, crosshair)
-        self.update_sidebar_info()
         self.update_overlay()
         self.draw_crosshair()  # also update sidebar_crosshair
 
@@ -783,6 +797,56 @@ class SliceViewer:
         return 0 < (end_x - start_x) * (end_y - start_y) < m
 
     def apply_local_auto_window(self, search_radius=25):
+        if self.image_id is None or getattr(self.image_model, 'is_rgb', False):
+            return
+
+        pix_x, pix_y = self.get_mouse_slice_coords(ignore_hover=True)
+        if pix_x is None:
+            return
+
+        # 1. Calculate display dimensions
+        pmin, pmax = self.current_pmin, self.current_pmax
+        disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
+        if disp_w <= 0 or disp_h <= 0:
+            return
+
+        # 2. Fetch the correctly oriented 2D raw slice
+        slice_data = self.image_model.get_raw_slice(self.slice_idx, self.orientation)
+        real_h, real_w = slice_data.shape
+
+        # 3. Convert screen radius to voxel radius
+        vx_r_x = int((search_radius / disp_w) * real_w)
+        vx_r_y = int((search_radius / disp_h) * real_h)
+
+        # 4. Define the 2D bounding box
+        x0 = max(0, int(pix_x) - vx_r_x)
+        x1 = min(real_w, int(pix_x) + vx_r_x)
+        y0 = max(0, int(pix_y) - vx_r_y)
+        y1 = min(real_h, int(pix_y) + vx_r_y)
+
+        if x1 <= x0 or y1 <= y0:
+            return
+
+        # 5. Extract patch and apply WW/WL
+        patch = slice_data[y0:y1, x0:x1]
+
+        if patch.size > 0:
+            p_min, p_max = np.percentile(patch, [2, 98])
+            ww = max(1e-5, p_max - p_min)  # Prevent zero-width crash
+            self.update_window_level(ww, (p_max + p_min) / 2)
+
+    def update_window_level(self, ww, wl):
+        """Safely updates the window/level and propagates to synced viewers."""
+        if not self.is_image_orientation() or getattr(self.image_model, 'is_rgb', False):
+            return  # Don't modify WL/WW in histogram mode or for color images
+
+        self.image_model.ww = max(1e-5, ww)  # Enforce safety bound to prevent 0 width
+        self.image_model.wl = wl
+
+        # Tell the controller to sync this new W/L to the group and trigger renders
+        self.controller.propagate_window_level(self.image_id)
+
+    def apply_local_auto_window_OLD(self, search_radius=25):
         if self.image_id is None:
             return
         pix_x, pix_y = self.get_mouse_slice_coords(ignore_hover=True)
@@ -903,7 +967,7 @@ class SliceViewer:
             v = np.array([pix_x, idx, real_h - pix_y])
         phys = img_model.voxel_coord_to_physic_coord(v)
         ix, iy, iz = int(v[0]), int(v[1]), int(v[2])
-        max_z, max_y, max_x = img_model.data.shape[:3] # ignore 4thdim (rgb)
+        max_z, max_y, max_x = img_model.data.shape[:3]  # ignore 4thdim (rgb)
         col = self.controller.settings.data["colors"]["overlay_text"]
         dpg.configure_item(self.overlay_tag, color=col)
 
@@ -924,70 +988,6 @@ class SliceViewer:
         win_h = dpg.get_item_height(f"win_{self.tag}")
         ts = dpg.get_item_rect_size(self.overlay_tag)
         dpg.set_item_pos(self.overlay_tag, [5, win_h - (ts[1] if ts[1] > 0 else 60) - 5])
-
-    def update_window_level(self, ww, wl):
-        if not self.is_image_orientation():
-            return  # Don't modify WL/WW in histogram mode
-
-        self.image_model.ww = max(1e-5, ww)  # Enforce safety bound
-        self.image_model.wl = wl
-
-        self.update_sidebar_window_level()
-
-        # Call the controller to handle syncing and rendering
-        self.controller.propagate_window_level(self.image_id)
-
-    def update_sidebar_crosshair(self):
-        img = self.image_model
-        if img and img.crosshair_voxel is not None:
-            dpg.set_value("info_vox", fmt(img.crosshair_voxel, 1))
-            dpg.set_value("info_phys", fmt(img.crosshair_phys_coord, 1))
-            val_str = f"{img.crosshair_value[0]:g} {img.crosshair_value[1]:g} {img.crosshair_value[2]:g}" if img.is_rgb else f"{img.crosshair_value:g}"
-            dpg.set_value("info_val", val_str)
-            #dpg.set_value("info_val", f"{img.crosshair_value:g}")
-
-            # Calculate FOV and format the scale string
-            ppm = self.get_pixels_per_mm()
-            win_w = dpg.get_item_width(f"win_{self.tag}")
-            win_h = dpg.get_item_height(f"win_{self.tag}")
-
-            if ppm > 0 and win_w and win_h:
-                fov_w = win_w / ppm
-                fov_h = win_h / ppm
-                dpg.set_value("info_scale", f"{fov_w:.0f}x{fov_h:.0f} mm  {ppm:.1f} px/mm")
-            dpg.set_value("info_ppm", f"{ppm:g}")
-
-    def update_sidebar_info(self):
-        if self.image_id is None:
-            for t in ["info_name", "info_size", "info_spacing", "info_origin", "info_memory"]:
-                dpg.set_value(t, "")
-            return
-        img = self.image_model
-        dpg.set_value("info_name", img.name)
-        dpg.set_value("info_name_label", self.tag)
-        dpg.set_value("info_voxel_type", f"{img.pixel_type}")
-        dpg.set_value("info_size", f"{img.data.shape[2]} x {img.data.shape[1]} x {img.data.shape[0]}")
-        dpg.set_value("info_spacing", fmt(img.spacing, 4))
-        dpg.set_value("info_origin", fmt(img.origin, 2))
-        dpg.set_value("info_matrix", fmt(img.matrix, 1))
-        dpg.set_value("info_memory", f"{img.sitk_image.GetNumberOfPixels():,} px    {img.memory_mb:g} MB")
-
-        # RGB Locking Logic
-        is_rgb = getattr(img, 'is_rgb', False)
-        if dpg.does_item_exist("info_window"): dpg.configure_item("info_window", enabled=not is_rgb)
-        if dpg.does_item_exist("info_level"): dpg.configure_item("info_level", enabled=not is_rgb)
-
-        if is_rgb:
-            if dpg.does_item_exist("info_window"): dpg.set_value("info_window", "RGB")
-            if dpg.does_item_exist("info_level"): dpg.set_value("info_level", "RGB")
-        else:
-            self.update_sidebar_window_level()
-
-        #self.update_sidebar_window_level()
-
-    def update_sidebar_window_level(self):
-        dpg.set_value("info_window", f"{self.image_model.ww:g}")
-        dpg.set_value("info_level", f"{self.image_model.wl:g}")
 
     def on_key_press(self, key):
         img = self.image_model
