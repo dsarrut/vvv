@@ -607,6 +607,64 @@ class MainGUI:
             # 1. Read from disk (Blocks Python)
             img_id = self.controller.load_image(file_path)
 
+            # 2. Update UI to show completion safely before applying layouts
+            if dpg.does_item_exist("loading_text"):
+                dpg.set_value("loading_text", "Applying synchronization and layouts...")
+            if dpg.does_item_exist("loading_progress"):
+                dpg.set_value("loading_progress", 1.0)
+            yield
+
+            target_viewer = self.context_viewer if self.context_viewer else self.controller.viewers["V1"]
+            target_viewer.set_image(img_id)
+
+            same_image_viewers = [v.tag for v in self.controller.viewers.values() if v.image_id == img_id]
+            if same_image_viewers:
+                self.controller.unify_ppm(same_image_viewers)
+
+            self.refresh_image_list_ui()
+
+            # Clean up safely on success
+            if dpg.does_item_exist("loading_modal"):
+                dpg.delete_item("loading_modal")
+            yield
+
+        except Exception as e:
+            # Safely delete the loading modal and yield before showing the error modal
+            if dpg.does_item_exist("loading_modal"):
+                dpg.delete_item("loading_modal")
+
+            yield
+
+            self.show_message("File Load Error", f"Failed to load image:\n{filename}")
+
+            # Keep generator alive until user acknowledges the error
+            while dpg.does_item_exist("generic_message_modal"):
+                yield
+
+    def load_single_image_sequence_OLD(self, file_path):
+        """Generator that shows a loading progress bar while reading a large file."""
+        filename = os.path.basename(file_path)
+
+        # Use the exact same layout as create_boot_sequence
+        with dpg.window(tag="loading_modal", modal=True, show=True, no_title_bar=True,
+                        no_resize=True, no_move=True, width=350, height=100):
+            dpg.add_text(f"Loading image...\n{filename}", tag="loading_text")
+            dpg.add_spacer(height=5)
+            # Set to 0.5 to indicate the file read is in progress
+            dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=0.5)
+
+        vp_width = max(dpg.get_viewport_client_width(), 800)
+        vp_height = max(dpg.get_viewport_client_height(), 600)
+        dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
+
+        # Yield multiple times so DPG physically renders the window to the screen
+        for _ in range(3):
+            yield
+
+        try:
+            # 1. Read from disk (Blocks Python)
+            img_id = self.controller.load_image(file_path)
+
             # 2. Update UI to show completion before applying layouts
             dpg.set_value("loading_text", "Applying synchronization and layouts...")
             dpg.set_value("loading_progress", 1.0)
@@ -668,6 +726,118 @@ class MainGUI:
             dpg.add_spacer(height=5)
             dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=0.0)
 
+        # Center the modal on the screen (with fallbacks if viewport isn't fully sized yet)
+        vp_width = max(dpg.get_viewport_client_width(), 800)
+        vp_height = max(dpg.get_viewport_client_height(), 600)
+        dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
+
+        yield  # Let DPG draw the empty modal
+
+        # 2. Load the images one by one
+        img_ids = []
+        for i, path in enumerate(image_paths):
+            filename = os.path.basename(path)
+
+            # Update UI state safely in case the modal had to be deleted previously
+            if dpg.does_item_exist("loading_text"):
+                dpg.set_value("loading_text", f"Loading image {i + 1}/{total}...\n{filename}")
+            if dpg.does_item_exist("loading_progress"):
+                dpg.set_value("loading_progress", i / total)
+
+            yield  # Let DPG render the new text and progress bar BEFORE reading the file
+
+            # Do the heavy lifting
+            try:
+                img_id = self.controller.load_image(path)
+                img_ids.append(img_id)
+            except Exception as e:
+                # 1. Safely delete the loading modal and yield to clear ImGui's modal stack
+                if dpg.does_item_exist("loading_modal"):
+                    dpg.delete_item("loading_modal")
+                yield
+
+                # 2. Show the error message
+                self.show_message("File Load Error", f"Failed to load image:\n{filename}")
+
+                # 3. Wait for user to acknowledge the modal
+                while dpg.does_item_exist("generic_message_modal"):
+                    yield
+
+                # 4. Rebuild the loading modal ONLY if there are more files to process
+                if i < total - 1:
+                    with dpg.window(tag="loading_modal", modal=True, show=True, no_title_bar=True,
+                                    no_resize=True, no_move=True, width=350, height=100):
+                        dpg.add_text("Resuming...", tag="loading_text")
+                        dpg.add_spacer(height=5)
+                        dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=(i + 1) / total)
+
+                    vp_w = max(dpg.get_viewport_client_width(), 800)
+                    vp_h = max(dpg.get_viewport_client_height(), 600)
+                    dpg.set_item_pos("loading_modal", [vp_w // 2 - 175, vp_h // 2 - 50])
+                    yield
+
+                continue  # Skip to the next file
+
+            # Viewport assignment
+            if i == 0:
+                for tag in ["V1", "V2", "V3", "V4"]:
+                    self.controller.viewers[tag].set_image(img_id)
+            elif i == 1:
+                self.controller.viewers["V3"].set_image(img_id)
+                self.controller.viewers["V4"].set_image(img_id)
+            elif i == 2:
+                self.controller.viewers["V2"].set_image(img_ids[1])
+                self.controller.viewers["V3"].set_image(img_id)
+                self.controller.viewers["V4"].set_image(img_id)
+            elif i >= 3:
+                self.controller.viewers["V4"].set_image(img_id)
+
+        # 3. Finalize and Sync
+        # Safely check if items exist before updating them (prevents SystemError crashes if the last image failed)
+        if dpg.does_item_exist("loading_text"):
+            dpg.set_value("loading_text", "Applying synchronization and layouts...")
+        if dpg.does_item_exist("loading_progress"):
+            dpg.set_value("loading_progress", 1.0)
+
+        yield  # Render the 100% completion state
+
+        self.controller.default_viewers_orientation()
+
+        # Unify the absolute scale across different orientations of the SAME image
+        for img_id in img_ids:
+            # Find all viewers showing this specific image
+            same_image_viewers = [v.tag for v in self.controller.viewers.values() if v.image_id == img_id]
+            if same_image_viewers:
+                self.controller.unify_ppm(same_image_viewers)
+
+        if sync or link_all:
+            for img_id in img_ids:
+                self.controller.on_sync_group_change(None, "Group 1", img_id)
+            self.refresh_sync_ui()
+
+        self.on_window_resize()
+        self.refresh_image_list_ui()
+
+        # 4. Clean up
+        if dpg.does_item_exist("loading_modal"):
+            dpg.delete_item("loading_modal")
+
+        yield  # Let DPG remove the modal before entering the main loop
+
+    def create_boot_sequence_OLD(self, image_paths, sync=False, link_all=False):
+        """Creates a generator for the boot sequence that loads images with progress UI."""
+        if not image_paths:
+            return
+
+        total = len(image_paths)
+
+        # 1. Build the Loading Modal
+        with dpg.window(tag="loading_modal", modal=True, show=True, no_title_bar=True,
+                        no_resize=True, no_move=True, width=350, height=100):
+            dpg.add_text("Initializing...", tag="loading_text")
+            dpg.add_spacer(height=5)
+            dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=0.0)
+
         # Center the modal on the screen
         vp_width = dpg.get_viewport_client_width()
         vp_height = dpg.get_viewport_client_height()
@@ -687,8 +857,18 @@ class MainGUI:
             yield  # Let DPG render the new text and progress bar BEFORE reading the file
 
             # Do the heavy lifting
-            img_id = self.controller.load_image(path)
-            img_ids.append(img_id)
+            try:
+                img_id = self.controller.load_image(path)
+                img_ids.append(img_id)
+            except Exception as e:
+                # If loading fails, show an error message but continue with other files
+                self.show_message("File Load Error", f"Failed to load image:\n{filename}\n\nError: {str(e)}")
+
+                # Wait for user to close the modal
+                while dpg.does_item_exist("generic_message_modal"):
+                    yield
+
+                continue  # Skip to the next file
 
             # Viewport assignment
             if i == 0:
