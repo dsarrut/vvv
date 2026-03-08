@@ -974,13 +974,13 @@ class SliceViewer:
         elif key == dpg.mvKey_R:
             # Reset the underlying data model to the center
             img.reset_view()
-            self.needs_refresh = True
+            self.is_geometry_dirty = True
 
             # Push this new center physical coordinate to all synced images
             self.controller.propagate_sync(self.image_id)
 
             # Push the new zoom (1.0) and camera pan to all synced viewers
-            self.controller.propagate_camera(self)
+            self.controller.update_all_viewers_of_image(self.image_id)
 
         elif key == dpg.mvKey_C:
             # Set the flag to signal that we want to re-anchor the view

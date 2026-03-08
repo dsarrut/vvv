@@ -397,6 +397,9 @@ class Controller:
             if viewer.image_id == img_id:
                 viewer.draw_crosshair()
                 viewer.update_render()
+                # Also mark geometry as dirty to ensure pan/zoom resets are applied
+                # unsure : not needed ?
+                #viewer.is_geometry_dirty = True
 
     def update_setting(self, keys, value):
         if not keys or keys[-1] is None:
