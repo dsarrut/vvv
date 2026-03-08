@@ -303,25 +303,25 @@ class MainGUI:
 
     def sync_sidebar_checkboxes(self):
         viewer = self.context_viewer
-        if not viewer or not viewer.image_model:
+        if not viewer or not viewer.view_state:
             return
 
-        img = viewer.image_model
+        vs = viewer.view_state
         # Only push to the UI if the model state actually differs from the UI state
-        if dpg.get_value("check_axis") != img.show_axis:
-            dpg.set_value("check_axis", img.show_axis)
+        if dpg.get_value("check_axis") != vs.show_axis:
+            dpg.set_value("check_axis", vs.show_axis)
 
-        if dpg.get_value("check_grid") != img.grid_mode:
-            dpg.set_value("check_grid", img.grid_mode)
+        if dpg.get_value("check_grid") != vs.grid_mode:
+            dpg.set_value("check_grid", vs.grid_mode)
 
-        if dpg.get_value("check_overlay") != img.show_overlay:
-            dpg.set_value("check_overlay", img.show_overlay)
+        if dpg.get_value("check_overlay") != vs.show_overlay:
+            dpg.set_value("check_overlay", vs.show_overlay)
 
-        if dpg.get_value("check_crosshair") != img.show_crosshair:
-            dpg.set_value("check_crosshair", img.show_crosshair)
+        if dpg.get_value("check_crosshair") != vs.show_crosshair:
+            dpg.set_value("check_crosshair", vs.show_crosshair)
 
-        if dpg.get_value("check_scalebar") != img.show_scalebar:  # <-- NEW
-            dpg.set_value("check_scalebar", img.show_scalebar)
+        if dpg.get_value("check_scalebar") != vs.show_scalebar:
+            dpg.set_value("check_scalebar", vs.show_scalebar)
 
     def refresh_image_list_ui(self):
         container = "image_list_container"
@@ -380,51 +380,6 @@ class MainGUI:
                 else:
                     dpg.bind_item_theme(label_tag, "")  # Reset to default
 
-    def refresh_image_list_ui_OLD(self):
-        container = "image_list_container"
-        if not dpg.does_item_exist(container):
-            return
-
-        dpg.delete_item(container, children_only=True)
-
-        for img_id, img_model in self.controller.images.items():
-            with dpg.group(parent=container):
-                with dpg.group(horizontal=True):
-                    dpg.add_text(f"{img_model.name}", tag=f"img_label_{img_id}")
-
-                with dpg.group(horizontal=True):
-                    dpg.add_spacer(width=10)
-                    for v_tag in ["V1", "V2", "V3", "V4"]:
-                        # Check if this image is currently in this viewer
-                        is_active = self.controller.viewers[v_tag].image_id == img_id
-                        dpg.add_checkbox(
-                            label="",
-                            default_value=is_active,
-                            user_data={"img_id": img_id, "v_tag": v_tag},
-                            callback=self.on_image_viewer_toggle
-                        )
-                    # Reload Button
-                    btn_reload = dpg.add_button(label="\uf01e", width=20,
-                                                callback=lambda s, a, u: self.controller.reload_image(u),
-                                                user_data=img_id)
-                    # Close Button
-                    btn_close = dpg.add_button(label="\uf00d", width=20,
-                                               callback=lambda s, a, u: self.controller.close_image(u),
-                                               user_data=img_id)
-
-                    # Bind the font to these specific buttons
-                    if dpg.does_item_exist("icon_font_tag"):
-                        dpg.bind_item_font(btn_reload, "icon_font_tag")
-                        dpg.bind_item_font(btn_close, "icon_font_tag")
-
-                    # Bind Themes for visual feedback
-                    if dpg.does_item_exist("delete_button_theme"):
-                        dpg.bind_item_theme(btn_close, "delete_button_theme")
-                    if dpg.does_item_exist("icon_button_theme"):
-                        dpg.bind_item_theme(btn_reload, "icon_button_theme")
-
-        self.refresh_sync_ui()
-
     def refresh_sync_ui(self):
         container = "sync_list_container"
         if not dpg.does_item_exist(container): return
@@ -454,16 +409,6 @@ class MainGUI:
             if dpg.is_item_hovered(f"win_{viewer.tag}"):
                 return viewer
         return None
-
-    def highlight_active_image_in_list_OLD(self, active_img_id):
-        """Binds a highlight theme to the text label in the sidebar matching the image."""
-        for img_id in self.controller.images.keys():
-            label_tag = f"img_label_{img_id}"
-            if dpg.does_item_exist(label_tag):
-                if img_id == active_img_id:
-                    dpg.bind_item_theme(label_tag, "active_image_list_theme")
-                else:
-                    dpg.bind_item_theme(label_tag, "")  # Reset to default
 
     def update_overlays(self):
         """Updates sidebar context on hover and refreshes on-image overlays."""
@@ -497,18 +442,18 @@ class MainGUI:
                 dpg.set_value(t, "")
             return
 
-        img = viewer.image_model
-        dpg.set_value("info_name", img.name)
+        vol = viewer.volume  # Immutable physical data
+        dpg.set_value("info_name", vol.name)
         dpg.set_value("info_name_label", viewer.tag)
-        dpg.set_value("info_voxel_type", f"{img.pixel_type}")
-        dpg.set_value("info_size", f"{img.data.shape[2]} x {img.data.shape[1]} x {img.data.shape[0]}")
-        dpg.set_value("info_spacing", fmt(img.spacing, 4))
-        dpg.set_value("info_origin", fmt(img.origin, 2))
-        dpg.set_value("info_matrix", fmt(img.matrix, 1))
-        dpg.set_value("info_memory", f"{img.sitk_image.GetNumberOfPixels():,} px    {img.memory_mb:g} MB")
+        dpg.set_value("info_voxel_type", f"{vol.pixel_type}")
+        dpg.set_value("info_size", f"{vol.data.shape[2]} x {vol.data.shape[1]} x {vol.data.shape[0]}")
+        dpg.set_value("info_spacing", fmt(vol.spacing, 4))
+        dpg.set_value("info_origin", fmt(vol.origin, 2))
+        dpg.set_value("info_matrix", fmt(vol.matrix, 1))
+        dpg.set_value("info_memory", f"{vol.sitk_image.GetNumberOfPixels():,} px    {vol.memory_mb:g} MB")
 
         # RGB Locking Logic
-        is_rgb = getattr(img, 'is_rgb', False)
+        is_rgb = getattr(vol, 'is_rgb', False)
         if dpg.does_item_exist("info_window"): dpg.configure_item("info_window", enabled=not is_rgb)
         if dpg.does_item_exist("info_level"): dpg.configure_item("info_level", enabled=not is_rgb)
 
@@ -520,21 +465,26 @@ class MainGUI:
 
     def update_sidebar_window_level(self, viewer):
         """Updates the W/L inputs in the sidebar."""
-        if not viewer or not viewer.image_model: return
-        img = viewer.image_model
-        if getattr(img, 'is_rgb', False): return
-        dpg.set_value("info_window", f"{img.ww:g}")
-        dpg.set_value("info_level", f"{img.wl:g}")
+        if not viewer or not viewer.view_state: return
+        vol = viewer.volume
+        vs = viewer.view_state
+        if getattr(vol, 'is_rgb', False): return
+        dpg.set_value("info_window", f"{vs.ww:g}")
+        dpg.set_value("info_level", f"{vs.wl:g}")
 
     def update_sidebar_crosshair(self, viewer):
         """Updates the crosshair stats in the sidebar."""
-        if not viewer or not viewer.image_model: return
-        img = viewer.image_model
+        if not viewer or not viewer.view_state: return
+        vs = viewer.view_state
+        vol = viewer.volume
 
-        if img.crosshair_voxel is not None:
-            dpg.set_value("info_vox", fmt(img.crosshair_voxel, 1))
-            dpg.set_value("info_phys", fmt(img.crosshair_phys_coord, 1))
-            val_str = f"{img.crosshair_value[0]:g} {img.crosshair_value[1]:g} {img.crosshair_value[2]:g}" if img.is_rgb else f"{img.crosshair_value:g}"
+        if vs.crosshair_voxel is not None:
+            dpg.set_value("info_vox", fmt(vs.crosshair_voxel, 1))
+            dpg.set_value("info_phys", fmt(vs.crosshair_phys_coord, 1))
+            val_str = (f"{vs.crosshair_value[0]:g} "
+                       f"{vs.crosshair_value[1]:g} "
+                       f"{vs.crosshair_value[2]:g}") \
+                if getattr(vol, 'is_rgb', False) else f"{vs.crosshair_value:g}"
             dpg.set_value("info_val", val_str)
 
             ppm = viewer.get_pixels_per_mm()
@@ -721,11 +671,11 @@ class MainGUI:
     def on_wl_preset_menu_clicked(self, sender, app_data, user_data):
         """Applies a WW/WL preset from the top menu to the currently active viewer."""
         viewer = self.context_viewer
-        if not viewer or not viewer.image_model or getattr(viewer.image_model, 'is_rgb', False):
+        if not viewer or not viewer.view_state or getattr(viewer.volume, 'is_rgb', False):
             return
 
-        preset_name = user_data  # The name of the preset was passed via user_data in the menu item
-        viewer.image_model.apply_wl_preset(preset_name)
+        preset_name = user_data
+        viewer.view_state.apply_wl_preset(preset_name)
         self.update_sidebar_window_level(viewer)
         self.controller.propagate_window_level(viewer.image_id)
 
@@ -977,7 +927,7 @@ class MainGUI:
             self.sync_sidebar_checkboxes()
 
             for viewer in self.controller.viewers.values():
-                if not viewer.image_model:
+                if not viewer.view_state:
                     continue
 
                 if viewer.is_geometry_dirty:
@@ -986,7 +936,7 @@ class MainGUI:
                     viewer.resize(win_w, win_h)
                     viewer.is_geometry_dirty = False
 
-                if viewer.image_model.is_data_dirty:
+                if viewer.view_state.is_data_dirty:
                     viewer.update_render()
                     viewer.draw_crosshair()
 
@@ -997,6 +947,6 @@ class MainGUI:
                     viewer.is_geometry_dirty = False
 
             for img in self.controller.images.values():
-                img.is_data_dirty = False
+                img.view_state.is_data_dirty = False
 
             dpg.render_dearpygui_frame()

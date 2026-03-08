@@ -256,16 +256,6 @@ class SliceViewer:
         else:
             return ("x", "z"), (1, -1)
 
-    def get_mouse_slice_coords_OLD(self, ignore_hover=False, allow_outside=False):
-        if not self.image_id or not self.volume: return None, None
-        if not ignore_hover and not dpg.is_item_hovered(f"win_{self.tag}"): return None, None
-
-        _, shape = self.volume.get_slice_rgba(self.slice_idx, self.orientation)
-        real_h, real_w = shape[0], shape[1]
-
-        mx, my = dpg.get_drawing_mouse_pos()
-        return self.mapper.screen_to_image(mx, my, real_w, real_h, allow_outside)
-
     def get_center_physical_coord(self):
         if not self.view_state or not self.volume: return None
 
