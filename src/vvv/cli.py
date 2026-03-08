@@ -19,29 +19,52 @@ icon_ico = str(vvv_resource_dir / "icons" / "icon.ico")
 
 
 def set_macos_dock_info(name, icon_path=None):
-    """Promotes script to a foreground app, sets icon, and steals focus."""
+    """Promotes script, sets focus, icon, process name, and fixes Cmd+Q."""
     if sys.platform != 'darwin':
         return
 
+    # --- 1. Set Process Title (Activity Monitor / Terminal) ---
     try:
-        from Cocoa import NSApplication, NSImage, NSApplicationActivationPolicyRegular
+        import setproctitle
+        setproctitle.setproctitle(name)
+    except ImportError:
+        print("Warning: 'setproctitle' not installed. Run: pip install setproctitle")
+
+    # --- 2. macOS UI, Focus, and Menu Bar Fix ---
+    try:
+        from Cocoa import (
+            NSApplication, NSImage, NSApplicationActivationPolicyRegular,
+            NSMenu, NSMenuItem
+        )
         import os
 
-        # 1. Initialize the macOS application object
         app = NSApplication.sharedApplication()
 
-        # 2. Promote from background script to regular UI app (Allows Dock icon)
+        # Promote to regular app and steal focus
         app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
-
-        # 3. Steal focus from the Terminal (Forces window to the front)
         app.activateIgnoringOtherApps_(True)
 
-        # 4. Set the Dock Icon
+        # --- Fix Command+Q by creating a minimal Main Menu ---
+        main_menu = NSMenu.alloc().init()
+        app.setMainMenu_(main_menu)
+
+        app_menu_item = NSMenuItem.alloc().init()
+        main_menu.addItem_(app_menu_item)
+
+        app_menu = NSMenu.alloc().init()
+        app_menu_item.setSubmenu_(app_menu)
+
+        # "terminate:" is the native macOS action for quitting. "q" binds to Cmd+Q.
+        quit_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            f"Quit {name}", "terminate:", "q"
+        )
+        app_menu.addItem_(quit_item)
+        # -----------------------------------------------------
+
+        # Set the Dock Icon
         if icon_path and os.path.exists(icon_path):
             image = NSImage.alloc().initWithContentsOfFile_(str(icon_path))
             app.setApplicationIconImage_(image)
-        else:
-            print(f"Warning: Icon not found at {icon_path}")
 
     except ImportError:
         print("Warning: PyObjC not installed. Run: pip install pyobjc-framework-Cocoa")

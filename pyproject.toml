@@ -13,6 +13,7 @@ dependencies = [
     "dearpygui",
     "numpy",
     "pytest",
+    "setproctitle",
     "pyobjc-framework-Cocoa; sys_platform == 'darwin'"
 ]
 
