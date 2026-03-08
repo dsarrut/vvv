@@ -7,10 +7,97 @@ import json
 from vvv.utils import ViewMode
 
 
+class ViewState:
+    """Stores all transient UI and camera parameters (The Trojan Horse)."""
+
+    def __init__(self, data_shape):
+        self.is_data_dirty = True
+
+        # Window/Level
+        self.ww = 2000.0
+        self.wl = 270.0
+
+        # Camera State
+        self.zoom = {ViewMode.AXIAL: 1.0, ViewMode.SAGITTAL: 1.0, ViewMode.CORONAL: 1.0}
+        self.pan = {ViewMode.AXIAL: [0, 0], ViewMode.SAGITTAL: [0, 0], ViewMode.CORONAL: [0, 0]}
+
+        # Slices
+        self.slices = {
+            ViewMode.AXIAL: data_shape[0] // 2,
+            ViewMode.SAGITTAL: data_shape[1] // 2,
+            ViewMode.CORONAL: data_shape[2] // 2
+        }
+
+        # Crosshair State
+        self.crosshair_phys_coord = None
+        self.crosshair_voxel = None
+        self.crosshair_value = None
+
+        # Display Options
+        self.interpolation_linear = False
+        self.grid_mode = False
+        self.show_axis = True
+        self.show_overlay = True
+        self.show_crosshair = True
+        self.show_scalebar = False
+
+        # Histogram State
+        self.hist_data_x = []
+        self.hist_data_y = []
+        self.bin_width = 10.0
+        self.use_log_y = False
+        self.histogram_is_dirty = True
+
+        # Syncing
+        self.sync_group = 0
+
+
 class ImageModel:
     """Store the image data and its properties."""
 
     def __init__(self, path):
+        self.path = path
+        self.name = os.path.basename(path)
+
+        # Physical data
+        self.sitk_image = self.read_image_from_disk(path)
+        self.data = sitk.GetArrayViewFromImage(self.sitk_image)
+
+        # Metadata
+        self.pixel_type = None
+        self.bytes_per_component = None
+        self.num_components = None
+        self.matrix = None
+        self.spacing = None
+        self.origin = None
+        self.memory_mb = None
+        self.read_image_metadata()
+        self.is_rgb = self.num_components in [3, 4]
+
+        # --- TROJAN HORSE ---
+        # Create the separate state object inside the model
+        self.view_state = ViewState(self.data.shape)
+
+        # Initialize crosshair and W/L
+        # (These methods will naturally route to self.view_state thanks to __setattr__)
+        self.init_crosshair_to_slices()
+        self.init_default_window_level()
+
+    def __getattr__(self, name):
+        """If a property isn't found in ImageModel, look inside view_state."""
+        # Use __dict__ to check for view_state to prevent infinite recursion!
+        if 'view_state' in self.__dict__ and hasattr(self.view_state, name):
+            return getattr(self.view_state, name)
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+
+    def __setattr__(self, name, value):
+        """If we try to set a property that belongs to view_state, route it there."""
+        if 'view_state' in self.__dict__ and hasattr(self.view_state, name):
+            setattr(self.view_state, name, value)
+        else:
+            super().__setattr__(name, value)
+
+    def OLD__init__(self, path):
         self.path = path
         self.name = os.path.basename(path)
         # read the image
@@ -904,6 +991,7 @@ class SettingsManager:
         with open(self.config_path, "w") as f:
             json.dump(self.data, f, indent=4)
         return str(self.config_path)  # Return the path for the UI hint
+
 
 class SliceRenderer:
     """Pure utility to generate renderable RGBA arrays."""
