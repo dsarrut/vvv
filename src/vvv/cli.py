@@ -7,15 +7,8 @@ from .gui import MainGUI
 from .core import Controller
 from .viewer import SliceViewer
 import sys
-from pathlib import Path
-
-# Get the absolute path to the directory containing cli.py
-vvv_base_dir = Path(__file__).resolve().parent
-vvv_resource_dir = vvv_base_dir / "resources"
-
-# Define absolute paths to your icons
-icon_png = str(vvv_resource_dir / "icons" / "icon.png")
-icon_ico = str(vvv_resource_dir / "icons" / "icon.ico")
+import os
+from .resources import get_resource_path
 
 
 def set_macos_dock_info(name, icon_path=None):
@@ -23,20 +16,19 @@ def set_macos_dock_info(name, icon_path=None):
     if sys.platform != 'darwin':
         return
 
-    # --- 1. Set Process Title (Activity Monitor / Terminal) ---
+    # --- Set Process Title (Activity Monitor / Terminal) ---
     try:
         import setproctitle
         setproctitle.setproctitle(name)
     except ImportError:
         print("Warning: 'setproctitle' not installed. Run: pip install setproctitle")
 
-    # --- 2. macOS UI, Focus, and Menu Bar Fix ---
+    # --- macOS UI, Focus, and Menu Bar Fix ---
     try:
         from Cocoa import (
             NSApplication, NSImage, NSApplicationActivationPolicyRegular,
             NSMenu, NSMenuItem
         )
-        import os
 
         app = NSApplication.sharedApplication()
 
@@ -75,6 +67,10 @@ def set_macos_dock_info(name, icon_path=None):
 @click.option('--link_all', "-l", is_flag=True, help='Enable sync all images')
 @click.option('--sync', "-s", is_flag=True, help='Enable sync all images')
 def main(image_paths, link_all, sync):
+    # Resolve icon paths using the new resource helper
+    icon_png = get_resource_path(os.path.join("icons", "icon.png"))
+    icon_ico = get_resource_path(os.path.join("icons", "icon.ico"))
+
     # for the app icon
     set_macos_dock_info("VVV", icon_path=icon_png)
 

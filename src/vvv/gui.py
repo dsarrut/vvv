@@ -4,6 +4,7 @@ import time
 from vvv.utils import ViewMode
 from vvv.file_dialog import open_file_dialog
 from pathlib import Path
+from .resources import load_fonts, setup_themes
 
 
 def create_labeled_field(label, tag):
@@ -12,54 +13,6 @@ def create_labeled_field(label, tag):
         # Always create the label tag, even if label text is empty
         dpg.add_text(f"{label}:" if label else "", tag=f"{tag}_label")
         dpg.add_input_text(tag=tag, readonly=True, width=-1)
-
-
-def setup_themes():
-    """Defines and binds themes for various UI components."""
-    # Viewer Theme
-    with dpg.theme(tag="viewer_theme"):
-        with dpg.theme_component(dpg.mvAll):
-            dpg.add_theme_color(dpg.mvThemeCol_ChildBg, [0, 0, 0], category=dpg.mvThemeCat_Core)
-            dpg.add_theme_color(dpg.mvThemeCol_Border, [50, 50, 50], category=dpg.mvThemeCat_Core)
-            dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0, category=dpg.mvThemeCat_Core)
-            dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0, 0, category=dpg.mvThemeCat_Core)
-            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 0, 0, category=dpg.mvThemeCat_Core)
-
-    # Icon Button Theme
-    with dpg.theme(tag="icon_button_theme"):
-        with dpg.theme_component(dpg.mvButton):
-            dpg.add_theme_color(dpg.mvThemeCol_Button, [0, 0, 0, 0])
-            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, [60, 60, 60])
-            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 3)
-
-    # Delete Button Theme
-    with dpg.theme(tag="delete_button_theme"):
-        with dpg.theme_component(dpg.mvButton):
-            dpg.add_theme_color(dpg.mvThemeCol_Button, [0, 0, 0, 0])
-            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, [150, 40, 40])
-            dpg.add_theme_color(dpg.mvThemeCol_Text, [200, 100, 100])
-
-    # Read-only Input Theme (for sidebar info)
-    with dpg.theme(tag="readonly_theme"):
-        with dpg.theme_component(dpg.mvInputText):
-            dpg.add_theme_color(dpg.mvThemeCol_FrameBg, [0, 0, 0, 0])
-            dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 0)
-            dpg.add_theme_color(dpg.mvThemeCol_Text, [0, 246, 7])
-
-    # Active Viewer Theme (Bright border)
-    with dpg.theme(tag="active_viewer_theme"):
-        with dpg.theme_component(dpg.mvAll):
-            dpg.add_theme_color(dpg.mvThemeCol_Border, [0, 246, 7, 70],  # FIXME add an option
-                                category=dpg.mvThemeCat_Core)  # Match your green crosshair
-            dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 2, category=dpg.mvThemeCat_Core)
-            # Keep other styles consistent with viewer_theme
-            dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0, category=dpg.mvThemeCat_Core)
-
-    # Active Image List Theme (Green background)
-    with dpg.theme(tag="active_image_list_theme"):
-        with dpg.theme_component(dpg.mvAll):
-            # Change text to green and make it bold-ish if font supports it
-            dpg.add_theme_color(dpg.mvThemeCol_Text, [0, 246, 7], category=dpg.mvThemeCat_Core)
 
 
 class MainGUI:
@@ -80,25 +33,10 @@ class MainGUI:
         self.tasks = []
 
         # Setup resources and UI
-        self.load_resources()
+        self.icon_font = load_fonts()
         setup_themes()
         self.create_layout()
         self.register_handlers()
-
-    def load_resources(self):
-        """Loads fonts and other external resources."""
-        vvv_base_dir = Path(__file__).resolve().parent
-        vvv_resource_dir = vvv_base_dir / "resources"
-        font_path = os.path.join(vvv_resource_dir, "fonts", "Font Awesome 7 Free-Solid-900.otf")
-
-        if not os.path.exists(font_path):
-            print(f"WARNING: Font file not found at {font_path}")
-            return
-
-        with dpg.font_registry():
-            with dpg.font(font_path, 14, tag="icon_font_tag") as self.icon_font:
-                dpg.add_font_range(0xf00d, 0xf021)
-                dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
 
     def cleanup(self, sender=None, app_data=None, user_data=None):
         dpg.stop_dearpygui()
