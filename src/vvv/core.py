@@ -14,8 +14,8 @@ class ImageModel:
         self.path = path
         self.name = os.path.basename(path)
         # read the image
-        self.sitk_image = sitk.ReadImage(path)
-        # raw pixel data : no copy between sitk and numpy
+        self.sitk_image = self.read_image_from_disk(path)
+        # raw pixel data: no copy between sitk and numpy
         self.data = sitk.GetArrayViewFromImage(self.sitk_image).astype(np.float32)
         # get some metadata
         self.pixel_type = None
@@ -82,6 +82,22 @@ class ImageModel:
         self.sync_group = 0
         # initial windows level
         self.init_default_window_level()
+
+    def read_image_from_disk(self, path):
+        """Centralized image reading logic to handle 2D, 3D, and eventually 4D."""
+        # Force grayscale float to handle RGB PNG/JPGs safely
+        sitk_img = sitk.ReadImage(path, sitk.sitkFloat32)
+        dim = sitk_img.GetDimension()
+
+        if dim == 2:
+            # Promote 2D to 3D safely
+            sitk_img = sitk.JoinSeries([sitk_img])
+        elif dim == 4:
+            # TODO: Handle 4D images later (e.g., extract first time point or keep 4D)
+            print(f"4D not supported yet: {path}")
+            pass
+
+        return sitk_img
 
     def read_image_metadata(self):
         self.pixel_type = self.sitk_image.GetPixelIDTypeAsString()
@@ -297,7 +313,7 @@ class ImageModel:
     def reload(self):
         """Re-reads data from the disk while preserving state if dimensions match."""
         # Read the new image from the existing path
-        new_sitk = sitk.ReadImage(self.path)
+        new_sitk = self.read_image_from_disk(self.path)
         new_shape = new_sitk.GetSize()
         current_shape = self.sitk_image.GetSize()
 

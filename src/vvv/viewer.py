@@ -497,7 +497,14 @@ class SliceViewer:
             return
 
         pmin, pmax = self.current_pmin, self.current_pmax
+
+        if h == 0 or w == 0:
+            return
+
         vox_w, vox_h = (pmax[0] - pmin[0]) / w, (pmax[1] - pmin[1]) / h
+
+        if vox_w <= 0 or vox_h <= 0:
+            return
         color = self.controller.settings.data["colors"]["grid"]
 
         # Draw Vertical Lines (along the width)
@@ -568,9 +575,16 @@ class SliceViewer:
         dpg.delete_item(back_node, children_only=True)
 
         pmin, pmax = self.current_pmin, self.current_pmax
+        if h == 0 or w == 0:
+            return
+
         vox_w, vox_h = (pmax[0] - pmin[0]) / w, (pmax[1] - pmin[1]) / h
+        if vox_w <= 0 or vox_h <= 0:
+            return
+
         win_w, win_h = dpg.get_item_width(f"win_{self.tag}"), dpg.get_item_height(f"win_{self.tag}")
-        if not win_w or not win_h: return
+        if not win_w or not win_h:
+            return
 
         start_x, end_x = max(0, int(-pmin[0] / vox_w)), min(w, int((win_w - pmin[0]) / vox_w) + 1)
         start_y, end_y = max(0, int(-pmin[1] / vox_h)), min(h, int((win_h - pmin[1]) / vox_h) + 1)
@@ -757,6 +771,11 @@ class SliceViewer:
         _, shape = self.image_model.get_slice_rgba(self.slice_idx, self.orientation)
 
         vox_w, vox_h = (pmax[0] - pmin[0]) / shape[1], (pmax[1] - pmin[1]) / shape[0]
+
+        # Prevent ZeroDivisionError if the image is infinitely thin on screen
+        if vox_w <= 0 or vox_h <= 0:
+            return False
+
         start_x, end_x = max(0, int(-pmin[0] / vox_w)), min(shape[1], int((win_w - pmin[0]) / vox_w) + 1)
         start_y, end_y = max(0, int(-pmin[1] / vox_h)), min(shape[0], int((win_h - pmin[1]) / vox_h) + 1)
 
