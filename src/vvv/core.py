@@ -16,7 +16,7 @@ class ImageModel:
         # read the image
         self.sitk_image = self.read_image_from_disk(path)
         # raw pixel data: no copy between sitk and numpy
-        self.data = sitk.GetArrayViewFromImage(self.sitk_image).astype(np.float32)
+        self.data = sitk.GetArrayViewFromImage(self.sitk_image)  # .astype(np.float32)
         # get some metadata
         self.pixel_type = None
         self.bytes_per_component = None
@@ -26,6 +26,8 @@ class ImageModel:
         self.origin = None
         self.memory_mb = None
         self.read_image_metadata()
+        # Detect if this is a color image (RGB or RGBA)
+        self.is_rgb = self.num_components in [3, 4]
 
         """
         The dirty flag: if True the image, should be rendered
@@ -85,8 +87,8 @@ class ImageModel:
 
     def read_image_from_disk(self, path):
         """Centralized image reading logic to handle 2D, 3D, and eventually 4D."""
-        # Force grayscale float to handle RGB PNG/JPGs safely
-        sitk_img = sitk.ReadImage(path, sitk.sitkFloat32)
+        # Removed sitk.sitkFloat32 to preserve native formats (like RGB)
+        sitk_img = sitk.ReadImage(path)
         dim = sitk_img.GetDimension()
 
         if dim == 2:
@@ -247,7 +249,6 @@ class ImageModel:
 
         # Handle non-image orientations
         if orientation == ViewMode.HISTOGRAM:
-            #return None, (0, 0)
             return np.array([0, 0, 0, 255], dtype=np.uint8), (1, 1)
 
         # 1. Determine the maximum index for the current orientation
@@ -259,37 +260,63 @@ class ImageModel:
             max_s, h, w = self.data.shape[1], self.data.shape[0], self.data.shape[2]
         else:
             print(f"ERROR : orientation is not supported {orientation}")
-            exit(0)
+            # Safely return an empty 1x1 black texture instead of crashing
+            return np.zeros(4, dtype=np.float32), (1, 1)
 
         # 2. Check if the slice is out of bounds
         if slice_idx < 0 or slice_idx >= max_s:
-            # Return a black slice of the correct shape
+            # Return a black/transparent slice of the correct shape
             black_slice = np.zeros((h, w, 4), dtype=np.float32)
             black_slice[:, :, 3] = 1.0  # Opaque alpha
             return black_slice.flatten(), (h, w)
 
-        """Extracts a slice with corrected orientations for vv parity."""
+        # 3. Extracts a slice with corrected orientations for vv parity.
         idx = slice_idx
-        if orientation == ViewMode.AXIAL:
-            slice_data = self.data[idx, :, :]
 
-        elif orientation == ViewMode.SAGITTAL:
-            # Slice along X
-            # Flip vertically (np.flipud) and horizontally (np.fliplr) for vv alignment
-            slice_data = np.flipud(np.fliplr(self.data[:, :, idx]))
+        # Check if this is a color image (needs the self.is_rgb flag from __init__)
+        if getattr(self, 'is_rgb', False):
+            # Slicing for arrays with shape (Z, Y, X, Channels)
+            if orientation == ViewMode.AXIAL:
+                slice_data = self.data[idx, :, :, :]
+            elif orientation == ViewMode.SAGITTAL:
+                slice_data = np.flipud(np.fliplr(self.data[:, :, idx, :]))
+            else:
+                slice_data = np.flipud(self.data[:, idx, :, :])
+
+            # DearPyGui expects floats between 0 and 1. RGB is usually 0-255.
+            norm_img = np.clip(slice_data.astype(np.float32) / 255.0, 0.0, 1.0)
+
+            # If RGB (3 channels), add a 100% opaque Alpha channel
+            if self.num_components == 3:
+                alpha = np.ones((*norm_img.shape[:-1], 1), dtype=np.float32)
+                rgba = np.concatenate([norm_img, alpha], axis=-1)
+            else:
+                rgba = norm_img  # Already RGBA
+
+            return rgba.flatten(), (h, w)
 
         else:
-            # Slice along Y, Flip vertically
-            slice_data = np.flipud(self.data[:, idx, :])
+            # Existing logic for standard Grayscale / Medical volumes (Z, Y, X)
+            if orientation == ViewMode.AXIAL:
+                slice_data = self.data[idx, :, :]
+            elif orientation == ViewMode.SAGITTAL:
+                # Slice along X
+                # Flip vertically (np.flipud) and horizontally (np.fliplr) for vv alignment
+                slice_data = np.flipud(np.fliplr(self.data[:, :, idx]))
+            else:
+                # Slice along Y, Flip vertically
+                slice_data = np.flipud(self.data[:, idx, :])
 
-        min_val = self.wl - self.ww / 2
-        # robustify : prevent division by zero
-        if self.ww == 0:
-            display_img = np.zeros_like(slice_data)
-        else:
-            display_img = np.clip((slice_data - min_val) / self.ww, 0, 1)
-        rgba = np.stack([display_img] * 3 + [np.ones_like(display_img)], axis=-1)
-        return rgba.flatten(), slice_data.shape
+            min_val = self.wl - self.ww / 2
+
+            # robustify : prevent division by zero
+            if self.ww == 0:
+                display_img = np.zeros_like(slice_data)
+            else:
+                display_img = np.clip((slice_data - min_val) / self.ww, 0, 1)
+
+            rgba = np.stack([display_img] * 3 + [np.ones_like(display_img)], axis=-1)
+            return rgba.flatten(), (h, w)
 
     def get_physical_aspect_ratio(self, orientation):
         """Calculates (width_scale, height_scale) based on mm spacing."""
@@ -321,9 +348,9 @@ class ImageModel:
             # DIMENSIONS MATCH: Soft update
             self.sitk_image = new_sitk
             # Update the view (no copy)
-            self.data = sitk.GetArrayViewFromImage(self.sitk_image).astype(np.float32)
+            self.data = sitk.GetArrayViewFromImage(self.sitk_image)
             self.read_image_metadata()
-            self.histogram_is_dirty = True  # <-- Added this line
+            self.histogram_is_dirty = True
             return False  # Indicates a soft reload
         else:
             # DIMENSIONS CHANGED: Full reset
@@ -416,7 +443,7 @@ class Controller:
                 viewer.update_render()
                 # Also mark geometry as dirty to ensure pan/zoom resets are applied
                 # unsure : not needed ?
-                #viewer.is_geometry_dirty = True
+                # viewer.is_geometry_dirty = True
 
     def update_setting(self, keys, value):
         if not keys or keys[-1] is None:
@@ -546,7 +573,6 @@ class Controller:
             if self.gui:
                 self.gui.show_status_message(f"Closed: {img_id}")
 
-
     def on_visibility_toggle(self, sender, value, user_data):
         context_viewer = self.gui.context_viewer
         if not context_viewer or not context_viewer.image_model:
@@ -629,7 +655,7 @@ class Controller:
                 source_vox = source_img.crosshair_voxel
                 target_img.crosshair_voxel = source_vox.copy()
                 target_img.crosshair_phys_coord = target_img.voxel_coord_to_physic_coord(source_vox)
-                
+
                 # Update Slice Indices directly from voxel coordinates
                 target_img.slices[ViewMode.AXIAL] = int(source_vox[2])
                 target_img.slices[ViewMode.SAGITTAL] = int(source_vox[0])
@@ -640,7 +666,7 @@ class Controller:
                 target_vox = (phys_pos - target_img.origin + target_img.spacing / 2) / target_img.spacing
                 target_img.crosshair_voxel = list(target_vox)
                 target_img.crosshair_phys_coord = phys_pos
-                
+
                 # Update Slice Indices from calculated voxel coordinates
                 target_img.slices[ViewMode.AXIAL] = int(round(target_vox[2]))
                 target_img.slices[ViewMode.SAGITTAL] = int(round(target_vox[0]))

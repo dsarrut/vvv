@@ -901,15 +901,19 @@ class SliceViewer:
             v = np.array([pix_x, idx, real_h - pix_y])
         phys = img_model.voxel_coord_to_physic_coord(v)
         ix, iy, iz = int(v[0]), int(v[1]), int(v[2])
-        max_z, max_y, max_x = img_model.data.shape
+        max_z, max_y, max_x = img_model.data.shape[:3] # ignore 4thdim (rgb)
         col = self.controller.settings.data["colors"]["overlay_text"]
         dpg.configure_item(self.overlay_tag, color=col)
 
         if 0 <= ix < max_x and 0 <= iy < max_y and 0 <= iz < max_z:
             val = img_model.data[iz, iy, ix]
             self.mouse_value, self.mouse_voxel, self.mouse_phys_coord = val, v, phys
+
+            # Handle array (RGB) vs scalar (Grayscale) formatting safely
+            val_str = f"{val[0]:g} {val[1]:g} {val[2]:g}" if img_model.is_rgb else f"{val:g}"
+
             dpg.set_value(self.overlay_tag,
-                          f"{val:g}\n"
+                          f"{val_str}\n"
                           f"{fmt(v, 1)}\n"
                           f"{fmt(phys, 1)} mm")
         else:
@@ -931,7 +935,9 @@ class SliceViewer:
         if img and img.crosshair_voxel is not None:
             dpg.set_value("info_vox", fmt(img.crosshair_voxel, 1))
             dpg.set_value("info_phys", fmt(img.crosshair_phys_coord, 1))
-            dpg.set_value("info_val", f"{img.crosshair_value:g}")
+            val_str = f"{img.crosshair_value[0]:g} {img.crosshair_value[1]:g} {img.crosshair_value[2]:g}" if img.is_rgb else f"{img.crosshair_value:g}"
+            dpg.set_value("info_val", val_str)
+            #dpg.set_value("info_val", f"{img.crosshair_value:g}")
 
             # Calculate FOV and format the scale string
             ppm = self.get_pixels_per_mm()
