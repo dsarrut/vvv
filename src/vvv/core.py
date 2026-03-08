@@ -494,13 +494,19 @@ class Controller:
                         viewer.set_image(img_id)
             else:
                 self.update_all_viewers_of_image(img_id)
+
             # Update the sidebar in case this was the active image
             if self.gui.context_viewer and self.gui.context_viewer.image_id == img_id:
                 self.gui.context_viewer.update_sidebar_info()
 
+            # Trigger the visual status notification
+            if self.gui:
+                self.gui.show_status_message(f"Reloaded: {img_model.name}")
+
     def close_image(self, img_id):
         """Removes the image from the controller and clears associated viewers."""
         if img_id in self.images:
+
             # Tell the viewers to clean up their own DPG items
             for viewer in self.viewers.values():
                 if viewer.image_id == img_id:
@@ -519,6 +525,11 @@ class Controller:
             # Refresh the UI list
             if self.gui:
                 self.gui.refresh_image_list_ui()
+
+            # Trigger the visual status notification
+            if self.gui:
+                self.gui.show_status_message(f"Closed: {img_id}")
+
 
     def on_visibility_toggle(self, sender, value, user_data):
         context_viewer = self.gui.context_viewer

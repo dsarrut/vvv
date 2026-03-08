@@ -3,7 +3,6 @@ import os
 import time
 from vvv.utils import ViewMode
 from vvv.file_dialog import open_file_dialog
-from pathlib import Path
 from .resources import load_fonts, setup_themes
 
 
@@ -28,9 +27,13 @@ class MainGUI:
         self.drag_viewer = None
         self.context_viewer = None
         self.side_panel_width = 300
+        self.last_window_size = None
 
         # tasks manager
         self.tasks = []
+
+        # UI Status Message Tracker
+        self.status_message_expire_time = float('inf')
 
         # Setup resources and UI
         self.icon_font = load_fonts()
@@ -77,6 +80,10 @@ class MainGUI:
                 dpg.add_menu_item(label="Exit", callback=self.cleanup)
             with dpg.menu(label="Link"):
                 dpg.add_menu_item(label="Link All", callback=lambda: self.controller.link_all())
+
+            # Status Message Area (pushes text slightly away from the menus)
+            dpg.add_spacer(width=20)
+            dpg.add_text("", tag="global_status_text", color=[150, 255, 150])
 
     def create_left_panel(self):
         """Creates the sidebar with image list and info."""
@@ -539,7 +546,8 @@ class MainGUI:
 
     def on_save_settings(self):
         path = self.controller.save_settings()
-        dpg.set_value("save_status_text", f"Saved in: {path}")
+        # dpg.set_value("save_status_text", f"Saved in: {path}")
+        self.show_status_message(f"Settings saved in: {path}")
 
         def clear_hint():
             time.sleep(3.0)
@@ -711,6 +719,18 @@ class MainGUI:
         vp_width = max(dpg.get_viewport_client_width(), 800)
         vp_height = max(dpg.get_viewport_client_height(), 600)
         dpg.set_item_pos(modal_tag, [vp_width // 2 - 225, vp_height // 2 - 100])
+
+    def show_status_message(self, message, duration=3.0, color=None):
+        """Displays a temporary status message in the menu bar."""
+        if color is None:
+            color = [150, 255, 150]  # Default pale green
+
+        if dpg.does_item_exist("global_status_text"):
+            dpg.set_value("global_status_text", f"[{message}]")
+            dpg.configure_item("global_status_text", color=color)
+
+        # Set the time when this message should disappear
+        self.status_message_expire_time = time.time() + duration
 
     def create_boot_sequence(self, image_paths, sync=False, link_all=False):
         """Creates a generator for the boot sequence that loads images with progress UI."""
@@ -926,6 +946,12 @@ class MainGUI:
 
         # Clean render loop
         while dpg.is_dearpygui_running():
+
+            # Clear status message if it has expired
+            if time.time() > self.status_message_expire_time:
+                if dpg.does_item_exist("global_status_text"):
+                    dpg.set_value("global_status_text", "")
+                self.status_message_expire_time = float('inf')
 
             if self.tasks:
                 try:
