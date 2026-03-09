@@ -518,7 +518,7 @@ class Controller:
         # FIXME not used : which one is better max or min ?
         """Forces a list of viewers to share the maximum absolute scale (ppm)."""
         valid_viewers = [self.viewers[tag] for tag in target_viewer_tags
-                         if self.viewers[tag].image_model]
+                         if self.viewers[tag].view_state]
 
         if not valid_viewers:
             return
@@ -540,7 +540,7 @@ class Controller:
     def unify_ppm(self, target_viewer_tags):
         """Forces a list of viewers to share the maximum absolute scale (ppm)."""
         valid_viewers = [self.viewers[tag] for tag in target_viewer_tags
-                         if self.viewers[tag].image_model]
+                         if self.viewers[tag].view_state]
 
         if not valid_viewers:
             return
@@ -659,7 +659,7 @@ class Controller:
         # Find all viewers currently displaying ANY image in this new sync group
         group_viewer_tags = []
         for v in self.viewers.values():
-            if v.image_model and v.image_model.sync_group == new_group_id:
+            if v.view_state and v.view_state.sync_group == new_group_id:  # Changed here
                 group_viewer_tags.append(v.tag)
 
         if not group_viewer_tags:
@@ -748,23 +748,23 @@ class Controller:
 
         # 2. Update all viewers displaying the affected images
         for viewer in self.viewers.values():
-            if viewer.image_model:
+            if viewer.view_state:  # Changed here
                 if viewer.image_id == source_img_id or (
-                        sync_wl and target_group != 0 and viewer.image_model.sync_group == target_group):
+                        sync_wl and target_group != 0 and viewer.view_state.sync_group == target_group):  # Changed here
                     viewer.update_render()
 
     def propagate_camera(self, source_viewer):
         """Syncs the zoom and physical center of the source viewer to all synced viewers."""
-        if not source_viewer.image_model:
+        if not source_viewer.view_state: # Changed here
             return
-        source_img = source_viewer.image_model
+        source_vs = source_viewer.view_state # Changed here
 
         # Determine which images should be affected
-        if source_img.sync_group == 0:
+        if source_vs.sync_group == 0:
             target_ids = [source_viewer.image_id]
         else:
             target_ids = [tid for tid, img in self.images.items()
-                          if img.sync_group == source_img.sync_group]
+                          if img.sync_group == source_vs.sync_group]
 
         # Grab the exact physical point the driver viewer is looking at
         phys_center = source_viewer.get_center_physical_coord()

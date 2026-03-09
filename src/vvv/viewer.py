@@ -125,11 +125,6 @@ class SliceViewer:
         return self.volume.view_state if self.volume else None
 
     @property
-    def image_model(self):
-        # TEMPORARY SHIM: Keeps gui.py perfectly happy until we update it!
-        return self.volume
-
-    @property
     def current_pmin(self):
         return self.mapper.pmin
 
