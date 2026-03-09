@@ -770,6 +770,61 @@ class SliceViewer:
     def on_key_press(self, key):
         if not self.view_state: return
 
+        # Helper to resolve string shortcuts to DPG keycodes dynamically
+        def _k(action):
+            val = self.controller.settings.data["shortcuts"].get(action)
+            # If it's a string ("W"), append mvKey_. If it's an int (517), pass it through.
+            return getattr(dpg, f"mvKey_{val}", val) if isinstance(val, str) else val
+
+        if key == _k("auto_window"):
+            r = self.controller.settings.data["physics"]["search_radius"]
+            self.apply_local_auto_window(search_radius=r)
+        elif key == _k("scroll_up"):
+            self.on_scroll(1)
+        elif key == _k("scroll_down"):
+            self.on_scroll(-1)
+        elif key == _k("fast_scroll_up"):
+            self.on_scroll(10)
+        elif key == _k("fast_scroll_down"):
+            self.on_scroll(-10)
+        elif key == _k("zoom_in"):
+            self.on_zoom("in")
+        elif key == _k("zoom_out"):
+            self.on_zoom("out")
+        elif key == _k("reset_view"):
+            self.view_state.reset_view()
+            self.is_geometry_dirty = True
+            self.controller.propagate_sync(self.image_id)
+            self.controller.update_all_viewers_of_image(self.image_id)
+        elif key == _k("center_view"):
+            self.needs_recenter = True
+            self.is_geometry_dirty = True
+            if self.view_state.sync_group != 0:
+                group_id = self.view_state.sync_group
+                for v in self.controller.viewers.values():
+                    if v.view_state and v.view_state.sync_group == group_id:
+                        v.needs_recenter = True
+                        v.is_geometry_dirty = True
+        elif key == _k("view_axial"):
+            self.set_orientation(ViewMode.AXIAL)
+        elif key == _k("view_sagittal"):
+            self.set_orientation(ViewMode.SAGITTAL)
+        elif key == _k("view_coronal"):
+            self.set_orientation(ViewMode.CORONAL)
+        elif key == _k("view_histogram"):
+            self.set_orientation(ViewMode.HISTOGRAM if self.is_image_orientation() else ViewMode.HISTOGRAM)
+        elif key == _k("toggle_interp"):
+            self.view_state.interpolation_linear = not self.view_state.interpolation_linear
+            self.view_state.is_data_dirty = True
+        elif key == _k("toggle_grid"):
+            self.view_state.grid_mode = not self.view_state.grid_mode
+            self.view_state.is_data_dirty = True
+        elif key == _k("hide_all"):
+            self.hide_everything()
+
+    def on_key_press_OLD(self, key):
+        if not self.view_state: return
+
         if key == dpg.mvKey_W:
             r = self.controller.settings.data["physics"]["search_radius"]
             self.apply_local_auto_window(search_radius=r)
