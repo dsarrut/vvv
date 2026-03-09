@@ -20,7 +20,8 @@ def open_file_dialog(title="Open File"):
         # double-extensions like .nii.gz. We allow all files to be safe on Mac.
         script = (
             f'tell application (path to frontmost application as text)\n'
-            f'  try\n'  # Wrap in try/catch to prevent errors if the user clicks 'Cancel'
+            f'  activate\n'  # <--- FORCES DIALOG TO THE FRONT
+            f'  try\n'
             f'    set defaultLoc to POSIX file "{start_dir}" as alias\n'
             f'    set allowedExts to {{"nii", "gz", "mhd", "mha", "nrrd", "dcm", "tif", "tiff", "png", "jpg", "jpeg"}}\n'
             f'    set theFile to choose file with prompt "{title}" default location defaultLoc of type allowedExts\n'
@@ -74,7 +75,10 @@ def open_file_dialog(title="Open File"):
             f"$f.InitialDirectory = '{start_dir}';"
             f"$f.Filter = 'Medical Images|*.nii;*.nii.gz;*.mhd;*.mha;*.nrrd;*.dcm;*.tif;*.tiff;*.png;*.jpg;*.jpeg|All Files (*.*)|*.*';"
             f"$f.ShowHelp = $true;"
-            f"if ($f.ShowDialog() -eq 'OK') {{ $f.FileName }}"
+            # <--- CREATE A DUMMY TOPMOST WINDOW TO FORCE DIALOG TO FRONT --->
+            f"$form = New-Object System.Windows.Forms.Form;"
+            f"$form.TopMost = $true;"
+            f"if ($f.ShowDialog($form) -eq 'OK') {{ $f.FileName }}"
         )
         try:
             result = subprocess.run(["powershell", "-Command", script], capture_output=True, text=True,
