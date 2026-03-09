@@ -799,8 +799,9 @@ class SliceViewer:
         elif key == _k("scroll_down"):
             self.on_scroll(-1)
         elif key == _k("fast_scroll_up"):
-            self.on_scroll(10)
+            self.on_scroll(self.controller.settings.data["interaction"]["fast_scroll_steps"])
         elif key == _k("fast_scroll_down"):
+            self.on_scroll(-self.controller.settings.data["interaction"]["fast_scroll_steps"])
             self.on_scroll(-10)
         elif key == _k("zoom_in"):
             self.on_zoom("in")
@@ -919,8 +920,9 @@ class SliceViewer:
             self.is_geometry_dirty = True
             self.controller.propagate_camera(self)
         elif is_shift and is_button:
-            ww = max(1e-9, self.view_state.ww + sx * 2)
-            wl = self.view_state.wl - sy * 2
+            sens = self.controller.settings.data["interaction"]["wl_drag_sensitivity"]
+            ww = max(1e-9, self.view_state.ww + sx * sens)
+            wl = self.view_state.wl - sy * sens
             self.update_window_level(ww, wl)
 
     def on_zoom(self, direction):
@@ -928,7 +930,8 @@ class SliceViewer:
 
         mx, my = dpg.get_drawing_mouse_pos()
         oz = self.zoom
-        self.zoom = self.zoom * (1.1 if direction == "in" else 0.9)
+        speed = self.controller.settings.data["interaction"]["zoom_speed"]
+        self.zoom = self.zoom * (speed if direction == "in" else (1.0 / speed))
 
         dx, dy = self.mapper.calculate_zoom_pan_delta(mx, my, oz, self.zoom)
         self.pan_offset[0] += dx

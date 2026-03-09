@@ -38,6 +38,16 @@ DEFAULT_SETTINGS = {
         "toggle_interp": "L",
         "toggle_grid": "G",
         "hide_all": "H"
+    },
+    "interaction": {
+        "zoom_speed": 1.1,
+        "fast_scroll_steps": 10,
+        "wl_drag_sensitivity": 2.0
+    },
+    "layout": {
+        "window_width": 1000,
+        "window_height": 800,
+        "side_panel_width": 300
     }
 }
 

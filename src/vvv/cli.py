@@ -82,7 +82,9 @@ def main(image_paths, linkall, sync):
 
     gui = MainGUI(controller)
     controller.gui = gui
-    dpg.create_viewport(title='VVV', width=1000, height=800)
+    win_w = controller.settings.data["layout"]["window_width"]
+    win_h = controller.settings.data["layout"]["window_height"]
+    dpg.create_viewport(title='VVV', width=win_w, height=win_h)
 
     # Window Icons (using absolute paths)
     if sys.platform == "win32":

@@ -27,7 +27,7 @@ class MainGUI:
         # windows elements
         self.drag_viewer = None
         self.context_viewer = None
-        self.side_panel_width = 300
+        self.side_panel_width = self.controller.settings.data["layout"]["side_panel_width"]
         self.last_window_size = None
 
         # tasks manager
