@@ -64,9 +64,9 @@ def set_macos_dock_info(name, icon_path=None):
 
 @click.command()
 @click.argument('image_paths', type=click.Path(exists=True), required=False, nargs=-1)
-@click.option('--link_all', "-l", is_flag=True, help='Enable sync all images')
+@click.option('--linkall', "-l", is_flag=True, help='Enable sync all images')
 @click.option('--sync', "-s", is_flag=True, help='Enable sync all images')
-def main(image_paths, link_all, sync):
+def main(image_paths, linkall, sync):
     # Resolve icon paths using the new resource helper
     icon_png = get_resource_path(os.path.join("icons", "py_vv.png"))
     icon_ico = get_resource_path(os.path.join("icons", "icon.ico"))
@@ -93,7 +93,7 @@ def main(image_paths, link_all, sync):
         dpg.set_viewport_large_icon(icon_png)
 
     # Start the app, passing the boot sequence generator from GUI
-    gui.run(boot_generator=gui.create_boot_sequence(image_paths, sync, link_all))
+    gui.run(boot_generator=gui.create_boot_sequence(image_paths, sync, linkall))
 
 
 if __name__ == "__main__":
