@@ -174,6 +174,11 @@ class SliceViewer:
             return self.volume.data.shape[1]
         return 0
 
+    def get_slice_shape(self):
+        """Helper to get dimensions quickly without reading 3D array memory."""
+        if not self.view_state: return 1, 1
+        return self.view_state.get_slice_shape(self.orientation)
+
     def set_image(self, img_id):
         self.image_id = img_id
         self.set_current_slice_to_crosshair()
@@ -182,9 +187,6 @@ class SliceViewer:
         win_w = dpg.get_item_width(f"win_{self.tag}")
         win_h = dpg.get_item_height(f"win_{self.tag}")
         self.resize(win_w, win_h)
-
-        self.update_overlay()
-        self.draw_crosshair()
 
         if self.view_state:
             self.view_state.is_data_dirty = True
@@ -210,7 +212,7 @@ class SliceViewer:
         if not self.is_image_orientation() or not self.volume:
             return
 
-        _, shape = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
+        shape = self.get_slice_shape()
         h, w = shape[0], shape[1]
 
         new_texture_tag = f"tex_{self.tag}_{self.image_id}_{self.orientation}_{w}x{h}"
@@ -259,7 +261,7 @@ class SliceViewer:
         if not win_w or not win_h: return None
 
         cx, cy = win_w / 2, win_h / 2
-        _, shape = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
+        shape = self.get_slice_shape()
         real_h, real_w = shape[0], shape[1]
         sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
 
@@ -279,7 +281,7 @@ class SliceViewer:
         if not self.image_id or not self.volume: return None, None
         if not ignore_hover and not dpg.is_item_hovered(f"win_{self.tag}"): return None, None
 
-        _, shape = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
+        shape = self.get_slice_shape()
         real_h, real_w = shape[0], shape[1]
 
         mx, my = dpg.get_drawing_mouse_pos()
@@ -293,7 +295,7 @@ class SliceViewer:
         if not win_w or not win_h: return 1.0
 
         sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
-        _, shape = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
+        shape = self.get_slice_shape()
         real_w, real_h = shape[1], shape[0]
 
         mm_w, mm_h = real_w * sw, real_h * sh
@@ -310,7 +312,7 @@ class SliceViewer:
         if not win_w or not win_h: return
 
         sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
-        _, shape = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
+        shape = self.get_slice_shape()
         real_w, real_h = shape[1], shape[0]
 
         mm_w, mm_h = real_w * sw, real_h * sh
@@ -330,7 +332,7 @@ class SliceViewer:
         if not win_w or not win_h: return
 
         v = (phys_coord - self.volume.origin + self.volume.spacing / 2) / self.volume.spacing
-        _, shape = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
+        shape = self.get_slice_shape()
         real_h, real_w = shape[0], shape[1]
         sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
 
@@ -352,7 +354,7 @@ class SliceViewer:
         if self.image_id is None or not self.is_image_orientation() or not self.volume: return
 
         sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
-        _, shape = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
+        shape = self.get_slice_shape()
         real_h, real_w = shape[0], shape[1]
 
         if self.needs_recenter:
@@ -364,14 +366,11 @@ class SliceViewer:
         if dpg.does_item_exist(self.image_tag):
             dpg.configure_item(self.image_tag, pmin=pmin, pmax=pmax)
 
-        if self.view_state:
-            self.view_state.is_data_dirty = True
-
     def calculate_pan_to_center_crosshair(self, win_w, win_h):
         if not self.view_state or not self.volume or self.view_state.crosshair_voxel is None:
             return [0, 0]
 
-        _, shape = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
+        shape = self.get_slice_shape()
         real_h, real_w = shape[0], shape[1]
         sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
 
@@ -422,7 +421,7 @@ class SliceViewer:
             return
 
         vx, vy, vz = self.view_state.crosshair_voxel
-        _, shape = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
+        shape = self.get_slice_shape()
         real_h, real_w = shape[0], shape[1]
 
         tx, ty = voxel_to_slice(vx, vy, vz, self.orientation, shape)
@@ -603,7 +602,7 @@ class SliceViewer:
         if not win_w or not win_h: return False
 
         pmin, pmax = self.current_pmin, self.current_pmax
-        _, shape = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
+        shape = self.get_slice_shape()
 
         vox_w, vox_h = (pmax[0] - pmin[0]) / shape[1], (pmax[1] - pmin[1]) / shape[0]
         if vox_w <= 0 or vox_h <= 0: return False
@@ -660,22 +659,24 @@ class SliceViewer:
 
         did_update_data = False
 
-        # 1. Handle Window Resize / Pan / Zoom
+        # 1. Handle Data / Pixel Changes
+        if self.view_state.is_data_dirty:
+            self.update_render()
+            self.is_geometry_dirty = True  # Force overlays to update over new pixel data
+            did_update_data = True
+
+        # 2. Handle Window Resize / Pan / Zoom
         if self.is_geometry_dirty:
             win_w = dpg.get_item_width(f"win_{self.tag}")
             win_h = dpg.get_item_height(f"win_{self.tag}")
             self.resize(win_w, win_h)
+            self.update_overlays_only()
             self.is_geometry_dirty = False
-
-        # 2. Handle Data / Pixel Changes
-        if self.view_state.is_data_dirty:
-            self.update_render()
-            self.draw_crosshair()
-            did_update_data = True
 
         return did_update_data
 
     def update_render(self):
+        """Reslices the 3D volume and pushes the flat pixel array to the GPU."""
         if self.image_id is None or not self.volume or not self.view_state: return
 
         drawlist_tag = f"drawlist_{self.tag}"
@@ -689,18 +690,34 @@ class SliceViewer:
             if dpg.does_item_exist(drawlist_tag): dpg.configure_item(drawlist_tag, show=True)
             if dpg.does_item_exist(plot_tag): dpg.configure_item(plot_tag, show=False)
 
-        rgba_flat, shape = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
+        # THIS IS THE SLOWEST LINE IN THE APP:
+        rgba_flat, _ = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
 
-        if self.should_use_voxels_strips():
+        # Cache this flat array so overlays can use it during zooming without reslicing!
+        self.last_rgba_flat = rgba_flat
+
+        # Push strictly the texture to the GPU. Overlays are handled elsewhere.
+        if dpg.does_item_exist(self.image_tag):
+            dpg.set_value(self.texture_tag, rgba_flat)
+
+    def update_overlays_only(self):
+        """Redraws grids, axes, scalebar, and strips WITHOUT re-slicing the 3D volume."""
+        if not self.is_image_orientation() or not self.view_state or not self.volume: return
+
+        shape = self.get_slice_shape()
+        h, w = shape[0], shape[1]
+
+        # 1. Update Voxel Strips (If zoomed in very far)
+        if self.should_use_voxels_strips() and hasattr(self, 'last_rgba_flat'):
             dpg.configure_item(self.image_tag, show=False)
-            self.draw_voxels_as_strips(rgba_flat, shape[0], shape[1])
+            self.draw_voxels_as_strips(self.last_rgba_flat, h, w)
         else:
             if dpg.does_item_exist(self.active_strips_node): dpg.configure_item(self.active_strips_node, show=False)
             dpg.configure_item(self.image_tag, show=True)
-            dpg.set_value(self.texture_tag, rgba_flat)
 
+        # 2. Update Overlay Geometries
         if self.view_state.grid_mode:
-            self.draw_voxel_grid(shape[0], shape[1])
+            self.draw_voxel_grid(h, w)
         elif dpg.does_item_exist(self.active_grid_node):
             dpg.configure_item(self.active_grid_node, show=False)
 
@@ -713,6 +730,8 @@ class SliceViewer:
             dpg.configure_item(self.axis_b_tag, show=False)
 
         self.draw_scale_bar()
+        self.draw_crosshair()
+        self.update_overlay()
 
     def update_overlay(self):
         if (self.image_id is None or not self.view_state or not self.volume
@@ -727,7 +746,7 @@ class SliceViewer:
             return
 
         idx = self.slice_idx
-        _, shape = self.view_state.get_slice_rgba(idx, self.orientation)
+        shape = self.get_slice_shape()
         v = slice_to_voxel(pix_x, pix_y, idx, self.orientation, shape)
         phys = self.volume.voxel_coord_to_physic_coord(v)
 
@@ -850,7 +869,7 @@ class SliceViewer:
             win_h = dpg.get_item_height(f"win_{self.tag}")
             if win_w and win_h:
                 sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
-                _, shape = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
+                shape = self.get_slice_shape()
                 real_w, real_h = shape[1], shape[0]
 
                 mm_w, mm_h = real_w * sw, real_h * sh
@@ -861,4 +880,3 @@ class SliceViewer:
 
         self.is_geometry_dirty = True
         self.controller.propagate_camera(self)
-        self.controller.propagate_sync(self.image_id)

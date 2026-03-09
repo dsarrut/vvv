@@ -103,6 +103,17 @@ class ViewState:
         self.init_crosshair_to_slices()
         self.init_default_window_level()
 
+    def get_slice_shape(self, orientation):
+        """Returns the 2D shape (h, w) of the current slice without extracting pixel data."""
+        data = self.volume.data
+        if orientation == ViewMode.AXIAL:
+            return data.shape[1], data.shape[2]
+        elif orientation == ViewMode.SAGITTAL:
+            return data.shape[0], data.shape[1]
+        elif orientation == ViewMode.CORONAL:
+            return data.shape[0], data.shape[2]
+        return 1, 1
+
     def init_crosshair_to_slices(self):
         self.crosshair_voxel = [self.slices[ViewMode.CORONAL], self.slices[ViewMode.SAGITTAL],
                                 self.slices[ViewMode.AXIAL]]
@@ -127,7 +138,7 @@ class ViewState:
         self.crosshair_value = self.volume.data[iz, iy, ix]
 
     def update_crosshair_from_2d(self, slice_x, slice_y, slice_idx, orientation):
-        _, shape = self.get_slice_rgba(slice_idx, orientation)
+        shape = self.get_slice_shape(orientation)
 
         v = slice_to_voxel(slice_x, slice_y, slice_idx, orientation, shape)
         self.crosshair_voxel = list(v)
