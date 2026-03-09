@@ -642,26 +642,32 @@ class Controller:
 
 
 class SliceRenderer:
-    """Pure utility to generate renderable RGBA arrays."""
+    """Pure utility to generate renderable RGBA arrays using a streamlined pipeline."""
+
+    @staticmethod
+    def extract_slice(data, slice_idx, orientation):
+        """Step 1: Universal 3D extraction. The ellipsis (...) handles both Grayscale and RGB natively."""
+        if orientation == ViewMode.AXIAL:
+            return data[slice_idx, ...]
+        elif orientation == ViewMode.SAGITTAL:
+            return np.flipud(np.fliplr(data[:, :, slice_idx, ...]))
+        elif orientation == ViewMode.CORONAL:
+            return np.flipud(data[:, slice_idx, ...])
+        return None
 
     @staticmethod
     def get_raw_slice(data, is_rgb, slice_idx, orientation):
-        if is_rgb:
-            return np.zeros((1, 1))
-
-        if orientation == ViewMode.AXIAL:
-            return data[slice_idx, :, :]
-        elif orientation == ViewMode.SAGITTAL:
-            return np.flipud(np.fliplr(data[:, :, slice_idx]))
-        elif orientation == ViewMode.CORONAL:
-            return np.flipud(data[:, slice_idx, :])
-        return np.zeros((1, 1))
+        """Legacy helper for logic that strictly requires a 2D float array (like Auto Window/Level)."""
+        if is_rgb: return np.zeros((1, 1))
+        res = SliceRenderer.extract_slice(data, slice_idx, orientation)
+        return res if res is not None else np.zeros((1, 1))
 
     @staticmethod
     def get_slice_rgba(data, is_rgb, num_components, ww, wl, slice_idx, orientation):
         if orientation == ViewMode.HISTOGRAM:
             return np.array([0, 0, 0, 255], dtype=np.uint8), (1, 1)
 
+        # Determine bounds securely
         if orientation == ViewMode.AXIAL:
             max_s, h, w = data.shape[0], data.shape[1], data.shape[2]
         elif orientation == ViewMode.SAGITTAL:
@@ -671,29 +677,27 @@ class SliceRenderer:
         else:
             return np.zeros(4, dtype=np.float32), (1, 1)
 
+        # Handle out-of-bounds slicing securely
         if slice_idx < 0 or slice_idx >= max_s:
             black_slice = np.zeros((h, w, 4), dtype=np.float32)
             black_slice[:, :, 3] = 1.0
             return black_slice.flatten(), (h, w)
 
-        if is_rgb:
-            if orientation == ViewMode.AXIAL:
-                slice_data = data[slice_idx, :, :, :]
-            elif orientation == ViewMode.SAGITTAL:
-                slice_data = np.flipud(np.fliplr(data[:, :, slice_idx, :]))
-            else:
-                slice_data = np.flipud(data[:, slice_idx, :, :])
+        # Step 1: Extract (One single call handles everything)
+        slice_data = SliceRenderer.extract_slice(data, slice_idx, orientation)
 
+        # Step 2 & 3: Normalize and Colorize
+        if is_rgb:
             norm_img = np.clip(slice_data.astype(np.float32) / 255.0, 0.0, 1.0)
             if num_components == 3:
                 alpha = np.ones((*norm_img.shape[:-1], 1), dtype=np.float32)
                 rgba = np.concatenate([norm_img, alpha], axis=-1)
             else:
                 rgba = norm_img
-            return rgba.flatten(), (h, w)
         else:
-            slice_data = SliceRenderer.get_raw_slice(data, is_rgb, slice_idx, orientation)
             min_val = wl - ww / 2
-            display_img = np.zeros_like(slice_data) if ww <= 0 else np.clip((slice_data - min_val) / ww, 0, 1)
-            rgba = np.stack([display_img] * 3 + [np.ones_like(display_img)], axis=-1)
-            return rgba.flatten(), (h, w)
+            norm_img = np.zeros_like(slice_data, dtype=np.float32) if ww <= 0 else np.clip((slice_data - min_val) / ww,
+                                                                                           0.0, 1.0)
+            rgba = np.stack([norm_img, norm_img, norm_img, np.ones_like(norm_img)], axis=-1)
+
+        return rgba.flatten(), (h, w)
