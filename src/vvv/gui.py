@@ -6,6 +6,7 @@ from vvv.file_dialog import open_file_dialog
 from .resources import load_fonts, setup_themes
 from .core import WL_PRESETS
 
+
 def create_labeled_field(label, tag):
     """Helper to create a labeled read-only input field."""
     with dpg.group(horizontal=True):
@@ -172,7 +173,20 @@ class MainGUI:
                     dpg.add_button(label="Reset to Defaults", width=-1,
                                    callback=lambda: self.on_reset_settings())
 
-                dpg.add_text("", tag="save_status_text", color=[150, 150, 150])
+                def copy_and_notify():
+                    dpg.set_clipboard_text(str(self.controller.settings.config_path))
+                    self.show_status_message("Path copied to clipboard!")
+
+                dpg.add_spacer(height=10)
+                dpg.add_text(f'Edit settings in :', color=[150, 150, 150])
+                with dpg.group(horizontal=True):
+                    btn_copy = dpg.add_button(label="\uf0c5", callback=copy_and_notify)
+                    dpg.add_input_text(default_value=str(self.controller.settings.config_path),
+                                       readonly=True, width=230)
+
+                # Bind the custom icon font to this specific button
+                if dpg.does_item_exist("icon_font_tag"):
+                    dpg.bind_item_font(btn_copy, "icon_font_tag")
 
     def create_left_panel_bottom_part(self):
         # Active Viewer Info Section
@@ -581,11 +595,9 @@ class MainGUI:
     def on_key_press(self, sender, app_data, user_data):
         # app_data contains the pressed key code
 
-        # Check for Control (Windows/Linux)
-        is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl)
-
         # Check for Command (macOS) - DPG maps this to the 'Win' key constants
         is_cmd = dpg.is_key_down(dpg.mvKey_LWin) or dpg.is_key_down(dpg.mvKey_RWin)
+        is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl)
 
         # Intercept Cmd+O / Ctrl+O globally
         if app_data == dpg.mvKey_O and (is_ctrl or is_cmd):
@@ -617,14 +629,6 @@ class MainGUI:
     def on_save_settings(self):
         path = self.controller.save_settings()
         self.show_status_message(f"Settings saved in: {path}")
-
-        def clear_hint():
-            time.sleep(3.0)
-            if dpg.does_item_exist("save_status_text"):
-                dpg.set_value("save_status_text", "")
-
-        import threading
-        threading.Thread(target=clear_hint, daemon=True).start()
 
     def on_reset_settings(self):
         self.controller.reset_settings()
@@ -760,7 +764,7 @@ class MainGUI:
     def show_status_message(self, message, duration=3.0, color=None):
         """Displays a temporary status message in the menu bar."""
         if color is None:
-            color = [150, 255, 150] # FIXME in settings ?
+            color = [150, 255, 150]  # FIXME in settings ?
 
         if dpg.does_item_exist("global_status_text"):
             dpg.set_value("global_status_text", f"[{message}]")

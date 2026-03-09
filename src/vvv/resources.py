@@ -23,6 +23,7 @@ def load_fonts():
     with dpg.font_registry():
         with dpg.font(font_path, 14, tag="icon_font_tag") as icon_font:
             dpg.add_font_range(0xf00d, 0xf021)
+            dpg.add_font_chars([0xF0C5])
             dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
     return icon_font
 
