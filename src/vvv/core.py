@@ -18,6 +18,25 @@ DEFAULT_SETTINGS = {
     "physics": {
         "search_radius": 25,
         "voxel_strip_threshold": 1500
+    },
+    "shortcuts": {
+        "open_file": "O",
+        "auto_window": "W",
+        "scroll_up": "Up",
+        "scroll_down": "Down",
+        "fast_scroll_up": 517, # page up
+        "fast_scroll_down": 518, # page down
+        "zoom_in": "I",
+        "zoom_out": "O",
+        "reset_view": "R",
+        "center_view": "C",
+        "view_axial": "F1",
+        "view_sagittal": "F2",
+        "view_coronal": "F3",
+        "view_histogram": "F4",
+        "toggle_interp": "L",
+        "toggle_grid": "G",
+        "hide_all": "H"
     }
 }
 
