@@ -58,9 +58,9 @@ def headless_app(synthetic_image_path):
     controller.gui = gui
 
     # 3. Load the image and assign it to the primary viewer
-    img_id = controller.load_image(synthetic_image_path)
+    vs_id = controller.load_image(synthetic_image_path)
     viewer = controller.viewers["V1"]
-    viewer.set_image(img_id)
+    viewer.set_image(vs_id)
 
     # Set it as the context viewer so UI checks don't fail
     gui.context_viewer = viewer
@@ -68,7 +68,7 @@ def headless_app(synthetic_image_path):
     # 4. Force a resize so the viewers get actual drawing dimensions instead of 0x0
     gui.on_window_resize()
 
-    return controller, viewer, img_id
+    return controller, viewer, vs_id
 
 
 @pytest.fixture
@@ -124,43 +124,44 @@ def headless_app_OLD(synthetic_image_path):
 
     # LOAD IMAGE AND ASSIGN TO VIEWER
     # Now the UI exists, so set_image can safely update the sidebar texts
-    img_id = controller.load_image(synthetic_image_path)
-    viewer.set_image(img_id)
+    vs_id = controller.load_image(synthetic_image_path)
+    viewer.set_image(vs_id)
 
-    return controller, viewer, img_id
+    return controller, viewer, vs_id
 
 
 # --- TESTS ---
 
 def test_image_loading_and_metadata(headless_app):
     """Test that the 5x5x5 image loads with the correct dimensions."""
-    controller, viewer, img_id = headless_app
-    img_model = controller.images[img_id]
+    controller, viewer, vs_id = headless_app
+    vol = controller.volumes[vs_id]
+    vs = controller.view_states[vs_id]
 
-    assert img_model.data.shape == (5, 5, 5)
-    assert img_model.spacing.tolist() == [1.0, 1.0, 1.0]
-    assert img_model.crosshair_voxel == [2, 2, 2]
+    assert vol.data.shape == (5, 5, 5)
+    assert vol.spacing.tolist() == [1.0, 1.0, 1.0]
+    assert vs.crosshair_voxel == [2, 2, 2]
 
 
 def test_scroll_interaction_updates_crosshair(headless_app):
     """Test simulating a mouse scroll to change slices."""
-    controller, viewer, img_id = headless_app
-    img_model = controller.images[img_id]
+    controller, viewer, vs_id = headless_app
+    vs = controller.view_states[vs_id]
 
-    assert img_model.crosshair_value == 0.0
+    assert vs.crosshair_value == 0.0
 
     viewer.set_orientation(ViewMode.AXIAL)
     viewer.on_scroll(1)
 
     assert viewer.slice_idx == 3
-    assert img_model.crosshair_voxel == [2, 2, 3]
-    assert img_model.crosshair_value == 100.0
+    assert vs.crosshair_voxel == [2, 2, 3]
+    assert vs.crosshair_value == 100.0
 
 
 def test_auto_window_level(headless_app):
     """Test the local auto-windowing logic."""
-    controller, viewer, img_id = headless_app
-    img_model = controller.images[img_id]
+    controller, viewer, vs_id = headless_app
+    vs = controller.view_states[vs_id]
 
     viewer.update_window_level(ww=10.0, wl=500.0)
 
@@ -169,17 +170,17 @@ def test_auto_window_level(headless_app):
     controller.settings.data["physics"]["search_radius"] = 250
 
     # Mock mouse position since there is no physical mouse
-    viewer.get_mouse_slice_coords = lambda ignore_hover=False: (2.5, 2.5)
+    viewer.get_mouse_slice_coords = lambda ignore_hover=False, allow_outside=False: (2.5, 2.5)
 
     viewer.on_key_press(dpg.mvKey_W)
 
-    assert img_model.ww >= 95.0
-    assert img_model.wl == pytest.approx(50.0, abs=5.0)
+    assert vs.ww >= 95.0
+    assert vs.wl == pytest.approx(50.0, abs=5.0)
 
 
 def test_zoom_interaction(headless_app, monkeypatch):
     """Test that zooming in and out properly updates the zoom multiplier."""
-    controller, viewer, img_id = headless_app
+    controller, viewer, vs_id = headless_app
 
     # Mock the mouse position to a fixed point during the zoom operation
     monkeypatch.setattr(dpg, "get_drawing_mouse_pos", lambda: (250, 250))
@@ -200,11 +201,11 @@ def test_zoom_interaction(headless_app, monkeypatch):
 
 def test_single_image_sync_across_orientations(headless_app):
     """Test that clicking in one orientation updates the slice index in another."""
-    controller, viewer1, img_id = headless_app
+    controller, viewer1, vs_id = headless_app
 
     # Grab the V2 viewer that was already created by the headless_app fixture
     viewer2 = controller.viewers["V2"]
-    viewer2.set_image(img_id)
+    viewer2.set_image(vs_id)
 
     viewer1.set_orientation(ViewMode.AXIAL)
     viewer2.set_orientation(ViewMode.SAGITTAL)
@@ -213,7 +214,7 @@ def test_single_image_sync_across_orientations(headless_app):
     viewer1.update_crosshair_data(1.0, 4.0)
 
     # Trigger the sync propagation that the MainGUI would normally call
-    controller.propagate_sync(img_id)
+    controller.propagate_sync(vs_id)
 
     # V2 (Sagittal) views along the X-axis.
     # Its slice depth should now match the X coordinate we just clicked on V1.
@@ -222,7 +223,7 @@ def test_single_image_sync_across_orientations(headless_app):
 
 def test_pan_interaction_via_drag(headless_app, monkeypatch):
     """Test that panning with Ctrl+Drag updates the pan_offset."""
-    controller, viewer, img_id = headless_app
+    controller, viewer, vs_id = headless_app
     initial_pan = viewer.pan_offset.copy()
 
     # Mock DPG states to simulate holding Ctrl and Left-Click
@@ -240,27 +241,27 @@ def test_pan_interaction_via_drag(headless_app, monkeypatch):
 
 def test_crosshair_update_on_click(headless_app):
     """Test that calculating a 2D crosshair position correctly updates the 3D ImageModel."""
-    controller, viewer, img_id = headless_app
-    img_model = controller.images[img_id]
+    controller, viewer, vs_id = headless_app
+    vs = controller.view_states[vs_id]
 
     viewer.set_orientation(ViewMode.AXIAL)
 
     # Initial state check
-    assert img_model.crosshair_voxel == [2, 2, 2]
+    assert vs.crosshair_voxel == [2, 2, 2]
 
     # Simulate a click at 2D slice coordinates (1.5, 3.5)
     viewer.update_crosshair_data(1.5, 3.5)
 
     # The Z-axis (index 2) should remain unchanged in Axial view
-    assert img_model.crosshair_voxel[0] == 1.5
-    assert img_model.crosshair_voxel[1] == 3.5
-    assert img_model.crosshair_voxel[2] == 2
+    assert vs.crosshair_voxel[0] == 1.5
+    assert vs.crosshair_voxel[1] == 3.5
+    assert vs.crosshair_voxel[2] == 2
 
 
 def test_reset_view(headless_app):
     """Test that pressing 'R' resets zoom, pan, and slice depth to defaults."""
-    controller, viewer, img_id = headless_app
-    img_model = controller.images[img_id]
+    controller, viewer, vs_id = headless_app
+    vs = controller.view_states[vs_id]
 
     # Deliberately mess up the view state
     viewer.zoom = 5.0
