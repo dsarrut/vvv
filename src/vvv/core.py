@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import copy
 import json
-from vvv.utils import ViewMode
+from vvv.utils import ViewMode, slice_to_voxel
 
 DEFAULT_SETTINGS = {
     "colors": {
@@ -19,6 +19,16 @@ DEFAULT_SETTINGS = {
         "search_radius": 25,
         "voxel_strip_threshold": 1500
     }
+}
+
+WL_PRESETS = {
+    "Optimal": None,
+    "Min/Max": None,
+    "Binary Mask": {"ww": 1.0, "wl": 0.5},
+    "CT: Soft Tissue": {"ww": 400.0, "wl": 50.0},
+    "CT: Bone": {"ww": 2000.0, "wl": 400.0},
+    "CT: Lung": {"ww": 1500.0, "wl": -600.0},
+    "CT: Brain": {"ww": 80.0, "wl": 40.0}
 }
 
 
@@ -118,16 +128,9 @@ class ViewState:
 
     def update_crosshair_from_2d(self, slice_x, slice_y, slice_idx, orientation):
         _, shape = self.get_slice_rgba(slice_idx, orientation)
-        real_h, real_w = shape[0], shape[1]
 
-        if orientation == ViewMode.AXIAL:
-            v = [slice_x, slice_y, slice_idx]
-        elif orientation == ViewMode.SAGITTAL:
-            v = [slice_idx, real_w - slice_x, real_h - slice_y]
-        else:
-            v = [slice_x, slice_idx, real_h - slice_y]
-
-        self.crosshair_voxel = v
+        v = slice_to_voxel(slice_x, slice_y, slice_idx, orientation, shape)
+        self.crosshair_voxel = list(v)
         self.crosshair_phys_coord = self.volume.voxel_coord_to_physic_coord(np.array(v))
 
         ix, iy, iz = [int(np.clip(c, 0, limit - 1)) for c, limit in
@@ -147,26 +150,21 @@ class ViewState:
 
     def apply_wl_preset(self, preset_name):
         if getattr(self.volume, 'is_rgb', False) or preset_name == "Custom": return
-        if preset_name == "Optimal":
+        if "Optimal" in preset_name:
             stride = max(1, self.volume.data.size // 100000)
             sample_data = self.volume.data.flatten()[::stride]
             p2, p98 = np.percentile(sample_data, [2, 98])
             self.ww = max(1e-5, p98 - p2)
             self.wl = (p98 + p2) / 2
-        elif preset_name == "Min/Max":
-            min_v, max_v = np.min(self.volume.data), np.max(self.volume.data)
+        elif "Min/Max" in preset_name:
+            # Cast to float to prevent int16 overflow on medical images!
+            min_v = float(np.min(self.volume.data))
+            max_v = float(np.max(self.volume.data))
             self.ww = max(1e-5, max_v - min_v)
             self.wl = (max_v + min_v) / 2
-        elif "Binary Mask" in preset_name:
-            self.ww, self.wl = 1.0, 0.5
-        elif "CT: Soft Tissue" in preset_name:
-            self.ww, self.wl = 400, 50
-        elif "CT: Bone" in preset_name:
-            self.ww, self.wl = 2000, 400
-        elif "CT: Lung" in preset_name:
-            self.ww, self.wl = 1500, -600
-        elif "CT: Brain" in preset_name:
-            self.ww, self.wl = 80, 40
+        elif preset_name in WL_PRESETS and WL_PRESETS[preset_name] is not None:
+            self.ww = WL_PRESETS[preset_name]["ww"]
+            self.wl = WL_PRESETS[preset_name]["wl"]
 
     def update_histogram(self):
         flat_data = self.volume.data.flatten()
@@ -217,29 +215,20 @@ class ViewState:
         return False
 
     def set_ct_window_level(self, flat_data):
-        min_val, max_val = np.min(flat_data), np.max(flat_data)
-        ct_presets = {
-            'whole_body': {'ww': 600, 'wl': 0},
-            'bone': {'ww': 2000, 'wl': 400},
-            'lung': {'ww': 1500, 'wl': -600},
-            'soft_tissue': {'ww': 400, 'wl': 50},
-            'brain': {'ww': 80, 'wl': 40},
-        }
-
         p5, p95 = np.percentile(flat_data, [5, 95])
         data_range = p95 - p5
         image_shape = self.volume.data.shape
 
         if len(image_shape) == 3 and image_shape[0] > 300:
-            preset = ct_presets['whole_body']
+            preset = {'ww': 600, 'wl': 0}  # Special internal fallback for whole body
         elif data_range > 1500:
-            preset = ct_presets['bone']
+            preset = WL_PRESETS['CT: Bone']
         elif p5 < -800:
-            preset = ct_presets['lung']
+            preset = WL_PRESETS['CT: Lung']
         elif -200 < p5 < 200 and data_range < 500:
-            preset = ct_presets['brain']
+            preset = WL_PRESETS['CT: Brain']
         else:
-            preset = ct_presets['soft_tissue']
+            preset = WL_PRESETS['CT: Soft Tissue']
 
         self.ww = preset['ww']
         self.wl = preset['wl']
@@ -408,7 +397,7 @@ class Controller:
             if viewer.image_id:
                 viewer.draw_crosshair()
 
-    def unify_ppm_max(self, target_viewer_tags):
+    def unify_ppm_max_NOT_USE(self, target_viewer_tags):
         valid_viewers = [self.viewers[tag] for tag in target_viewer_tags if self.viewers[tag].view_state]
         if not valid_viewers: return
 

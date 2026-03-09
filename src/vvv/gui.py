@@ -4,7 +4,7 @@ import time
 from vvv.utils import ViewMode, fmt
 from vvv.file_dialog import open_file_dialog
 from .resources import load_fonts, setup_themes
-
+from .core import WL_PRESETS
 
 def create_labeled_field(label, tag):
     """Helper to create a labeled read-only input field."""
@@ -84,15 +84,11 @@ class MainGUI:
                 dpg.add_menu_item(label="Link All", callback=lambda: self.controller.link_all())
 
             with dpg.menu(label="Window/Level"):
-                presets = ["Optimal",
-                           "Min/Max",
-                           "Binary Mask (1.0, 0.5)",
-                           "CT: Soft Tissue (400, 50)",
-                           "CT: Bone (2000, 400)",
-                           "CT: Lung (1500, -600)",
-                           "CT: Brain (80, 40)"]
-                for preset in presets:
-                    dpg.add_menu_item(label=preset, user_data=preset, callback=self.on_wl_preset_menu_clicked)
+                for preset_name, vals in WL_PRESETS.items():
+                    label = preset_name
+                    if vals is not None:
+                        label = f"{preset_name} ({vals['ww']}, {vals['wl']})"
+                    dpg.add_menu_item(label=label, user_data=preset_name, callback=self.on_wl_preset_menu_clicked)
 
             # Status Message Area (pushes text slightly away from the menus)
             dpg.add_spacer(width=20)

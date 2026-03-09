@@ -272,13 +272,7 @@ class SliceViewer:
         slice_x = (rel_x / disp_w) * real_w
         slice_y = (rel_y / disp_h) * real_h
 
-        if self.orientation == ViewMode.AXIAL:
-            v = np.array([slice_x, slice_y, self.slice_idx])
-        elif self.orientation == ViewMode.SAGITTAL:
-            v = np.array([self.slice_idx, real_w - slice_x, real_h - slice_y])
-        else:
-            v = np.array([slice_x, self.slice_idx, real_h - slice_y])
-
+        v = slice_to_voxel(slice_x, slice_y, self.slice_idx, self.orientation, shape)
         return self.volume.voxel_coord_to_physic_coord(v)
 
     def get_mouse_slice_coords(self, ignore_hover=False, allow_outside=False):
@@ -340,13 +334,7 @@ class SliceViewer:
         real_h, real_w = shape[0], shape[1]
         sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
 
-        if self.orientation == ViewMode.AXIAL:
-            tx, ty = v[0], v[1]
-        elif self.orientation == ViewMode.SAGITTAL:
-            tx, ty = real_w - v[1], real_h - v[2]
-        else:
-            tx, ty = v[0], real_h - v[2]
-
+        tx, ty = voxel_to_slice(v[0], v[1], v[2], self.orientation, shape)
         self.pan_offset = self.mapper.calculate_center_pan(tx, ty, win_w, win_h, real_w, real_h, sw, sh, self.zoom)
         self.is_geometry_dirty = True
 
@@ -388,12 +376,7 @@ class SliceViewer:
         sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
 
         vx, vy, vz = self.view_state.crosshair_voxel
-        if self.orientation == ViewMode.AXIAL:
-            tx, ty = vx, vy
-        elif self.orientation == ViewMode.SAGITTAL:
-            tx, ty = real_w - vy, real_h - vz
-        else:
-            tx, ty = vx, real_h - vz
+        tx, ty = voxel_to_slice(vx, vy, vz, self.orientation, shape)
 
         return self.mapper.calculate_center_pan(tx, ty, win_w, win_h, real_w, real_h, sw, sh, self.zoom)
 
@@ -442,14 +425,9 @@ class SliceViewer:
         _, shape = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
         real_h, real_w = shape[0], shape[1]
 
-        if self.orientation == ViewMode.AXIAL:
-            tx, ty = vx, vy
-        elif self.orientation == ViewMode.SAGITTAL:
-            tx, ty = real_w - vy, real_h - vz
-        else:
-            tx, ty = vx, real_h - vz
-
+        tx, ty = voxel_to_slice(vx, vy, vz, self.orientation, shape)
         pmin, pmax = self.current_pmin, self.current_pmax
+
         disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
         screen_x = (tx / real_w) * disp_w + pmin[0]
         screen_y = (ty / real_h) * disp_h + pmin[1]
@@ -737,7 +715,8 @@ class SliceViewer:
         self.draw_scale_bar()
 
     def update_overlay(self):
-        if self.image_id is None or not self.view_state or not self.volume or not self.view_state.show_overlay or not self.is_image_orientation():
+        if (self.image_id is None or not self.view_state or not self.volume
+                or not self.view_state.show_overlay or not self.is_image_orientation()):
             dpg.set_value(self.overlay_tag, "")
             return
 
@@ -749,16 +728,9 @@ class SliceViewer:
 
         idx = self.slice_idx
         _, shape = self.view_state.get_slice_rgba(idx, self.orientation)
-        real_h, real_w = shape[0], shape[1]
-
-        if self.orientation == ViewMode.AXIAL:
-            v = np.array([pix_x, pix_y, idx])
-        elif self.orientation == ViewMode.SAGITTAL:
-            v = np.array([idx, real_w - pix_x, real_h - pix_y])
-        else:
-            v = np.array([pix_x, idx, real_h - pix_y])
-
+        v = slice_to_voxel(pix_x, pix_y, idx, self.orientation, shape)
         phys = self.volume.voxel_coord_to_physic_coord(v)
+
         ix, iy, iz = int(v[0]), int(v[1]), int(v[2])
         max_z, max_y, max_x = self.volume.data.shape[:3]
         col = self.controller.settings.data["colors"]["overlay_text"]
