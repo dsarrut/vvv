@@ -64,7 +64,7 @@ def set_macos_dock_info(name, icon_path=None):
 
 @click.command()
 @click.argument('image_paths', type=click.Path(exists=True), required=False, nargs=-1)
-@click.option('--linkall', "-l", is_flag=True, help='Enable sync all images')
+@click.option('--linkall', "-l", is_flag=True, help='Enable sync all images (similar to vv)')
 @click.option('--sync', "-s", is_flag=True, help='Enable sync all images')
 def main(image_paths, linkall, sync):
     # Resolve icon paths using the new resource helper
