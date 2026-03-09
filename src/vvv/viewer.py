@@ -776,6 +776,21 @@ class SliceViewer:
             # If it's a string ("W"), append mvKey_. If it's an int (517), pass it through.
             return getattr(dpg, f"mvKey_{val}", val) if isinstance(val, str) else val
 
+        # Handle next_image before the safety check, so we can Tab into an empty viewer
+
+        if key == _k("next_image"):
+            next_id = self.controller.get_next_image_id(self.image_id)
+            if next_id and next_id != self.image_id:
+                self.set_image(next_id)
+                # Tell the GUI to update the checkboxes and sidebar
+                if self.controller.gui:
+                    self.controller.gui.refresh_image_list_ui()
+                    if self.controller.gui.context_viewer == self:
+                        self.controller.gui.update_sidebar_info(self)
+            return
+
+        if not self.view_state: return
+
         if key == _k("auto_window"):
             r = self.controller.settings.data["physics"]["search_radius"]
             self.apply_local_auto_window(search_radius=r)

@@ -21,11 +21,12 @@ DEFAULT_SETTINGS = {
     },
     "shortcuts": {
         "open_file": "O",
+        "next_image": "N",
         "auto_window": "W",
         "scroll_up": "Up",
         "scroll_down": "Down",
-        "fast_scroll_up": 517, # page up
-        "fast_scroll_down": 518, # page down
+        "fast_scroll_up": 517,  # page up
+        "fast_scroll_down": 518,  # page down
         "zoom_in": "I",
         "zoom_out": "O",
         "reset_view": "R",
@@ -362,6 +363,16 @@ class Controller:
         self.settings = SettingsManager()
 
         self._next_image_id = 0
+
+    def get_next_image_id(self, current_id):
+        """Returns the ID of the next image in the global list, looping back to the start."""
+        if not self.view_states:
+            return None
+        keys = list(self.view_states.keys())
+        if current_id not in keys:
+            return keys[0]
+        next_idx = (keys.index(current_id) + 1) % len(keys)
+        return keys[next_idx]
 
     def default_viewers_orientation(self):
         n = len(self.view_states)
