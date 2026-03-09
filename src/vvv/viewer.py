@@ -281,6 +281,16 @@ class SliceViewer:
 
         return self.volume.voxel_coord_to_physic_coord(v)
 
+    def get_mouse_slice_coords(self, ignore_hover=False, allow_outside=False):
+        if not self.image_id or not self.volume: return None, None
+        if not ignore_hover and not dpg.is_item_hovered(f"win_{self.tag}"): return None, None
+
+        _, shape = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
+        real_h, real_w = shape[0], shape[1]
+
+        mx, my = dpg.get_drawing_mouse_pos()
+        return self.mapper.screen_to_image(mx, my, real_w, real_h, allow_outside)
+
     def get_pixels_per_mm(self):
         if not self.view_state or not self.volume: return 1.0
 
@@ -665,15 +675,27 @@ class SliceViewer:
     def update_crosshair_from_slice(self):
         if self.view_state: self.view_state.update_crosshair_from_slice_scroll(self.slice_idx, self.orientation)
 
-    def get_mouse_slice_coords(self, ignore_hover=False, allow_outside=False):
-        if not self.image_id or not self.volume: return None, None
-        if not ignore_hover and not dpg.is_item_hovered(f"win_{self.tag}"): return None, None
+    def tick(self):
+        """Called every frame. Evaluates dirty flags and updates rendering."""
+        if not self.view_state:
+            return False
 
-        _, shape = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
-        real_h, real_w = shape[0], shape[1]
+        did_update_data = False
 
-        mx, my = dpg.get_drawing_mouse_pos()
-        return self.mapper.screen_to_image(mx, my, real_w, real_h, allow_outside)
+        # 1. Handle Window Resize / Pan / Zoom
+        if self.is_geometry_dirty:
+            win_w = dpg.get_item_width(f"win_{self.tag}")
+            win_h = dpg.get_item_height(f"win_{self.tag}")
+            self.resize(win_w, win_h)
+            self.is_geometry_dirty = False
+
+        # 2. Handle Data / Pixel Changes
+        if self.view_state.is_data_dirty:
+            self.update_render()
+            self.draw_crosshair()
+            did_update_data = True
+
+        return did_update_data
 
     def update_render(self):
         if self.image_id is None or not self.volume or not self.view_state: return

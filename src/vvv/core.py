@@ -543,6 +543,21 @@ class Controller:
 
         self.update_all_viewers_of_image(vs_id)
 
+    def tick(self):
+        """Called every frame by the main loop to orchestrate updates."""
+        # 1. Tell every viewer to update if needed
+        for viewer in self.viewers.values():
+            did_update = viewer.tick()
+
+            # If the currently active viewer updated, tell the GUI to refresh the sidebar
+            if did_update and self.gui and viewer == self.gui.context_viewer:
+                self.gui.update_sidebar_crosshair(viewer)
+                self.gui.update_sidebar_window_level(viewer)
+
+        # 2. Safely reset the global data flags AFTER all viewers have seen them
+        for vs in self.view_states.values():
+            vs.is_data_dirty = False
+
     def propagate_sync(self, source_vs_id):
         source_vs = self.view_states[source_vs_id]
         if source_vs.sync_group == 0:

@@ -914,27 +914,6 @@ class MainGUI:
             self.update_overlays()
             self.sync_sidebar_checkboxes()
 
-            for viewer in self.controller.viewers.values():
-                if not viewer.view_state:
-                    continue
-
-                if viewer.is_geometry_dirty:
-                    win_w = dpg.get_item_width(f"win_{viewer.tag}")
-                    win_h = dpg.get_item_height(f"win_{viewer.tag}")
-                    viewer.resize(win_w, win_h)
-                    viewer.is_geometry_dirty = False
-
-                if viewer.view_state.is_data_dirty:
-                    viewer.update_render()
-                    viewer.draw_crosshair()
-
-                    if viewer == self.context_viewer:
-                        self.update_sidebar_crosshair(viewer)
-                        self.update_sidebar_window_level(viewer)
-
-                    viewer.is_geometry_dirty = False
-
-            for vs in self.controller.view_states.values():
-                vs.is_data_dirty = False
+            self.controller.tick()
 
             dpg.render_dearpygui_frame()
