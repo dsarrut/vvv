@@ -54,10 +54,10 @@ class SettingsManager:
 
 
 class ViewState:
-    """Stores all transient UI and camera parameters (The Trojan Horse)."""
+    """Stores all transient UI and camera parameters."""
 
     def __init__(self, volume):
-        self.volume = volume  # This points back to the ImageModel
+        self.volume = volume  # Immutable physical data
         self.is_data_dirty = True
 
         self.ww = 2000.0
@@ -90,6 +90,9 @@ class ViewState:
         self.histogram_is_dirty = True
         self.sync_group = 0
 
+        self.init_crosshair_to_slices()
+        self.init_default_window_level()
+
     def init_crosshair_to_slices(self):
         self.crosshair_voxel = [self.slices[ViewMode.CORONAL], self.slices[ViewMode.SAGITTAL],
                                 self.slices[ViewMode.AXIAL]]
@@ -114,10 +117,7 @@ class ViewState:
         self.crosshair_value = self.volume.data[iz, iy, ix]
 
     def update_crosshair_from_2d(self, slice_x, slice_y, slice_idx, orientation):
-        _, shape = SliceRenderer.get_slice_rgba(
-            self.volume.data, getattr(self.volume, 'is_rgb', False), self.volume.num_components,
-            self.ww, self.wl, slice_idx, orientation
-        )
+        _, shape = self.get_slice_rgba(slice_idx, orientation)
         real_h, real_w = shape[0], shape[1]
 
         if orientation == ViewMode.AXIAL:
@@ -177,9 +177,86 @@ class ViewState:
         self.hist_data_x = bin_edges[:-1].astype(np.float32)
         self.histogram_is_dirty = False
 
+    def init_default_window_level(self):
+        total_pixels = self.volume.data.size
+        max_sample_size = 100000
 
-class ImageModel:
-    """Store the image data and its properties."""
+        if total_pixels > max_sample_size:
+            stride = max(1, total_pixels // max_sample_size)
+            sample_data = self.volume.data.flatten()[::stride]
+        else:
+            sample_data = self.volume.data.flatten()
+
+        is_ct = self.is_ct_image(sample_data)
+
+        if is_ct:
+            self.set_ct_window_level(sample_data)
+        else:
+            p1, p99 = np.percentile(sample_data, [1, 99])
+            p2, p98 = np.percentile(sample_data, [2, 98])
+
+            self.ww = p98 - p2
+            self.wl = (p98 + p2) / 2
+            if self.ww <= 0:
+                self.ww = p99 - p1
+                if self.ww <= 0:
+                    self.ww = 1.0
+                self.wl = (p99 + p1) / 2
+
+    def is_ct_image(self, flat_data):
+        if hasattr(self.volume.sitk_image, 'GetMetaData'):
+            try:
+                modality = self.volume.sitk_image.GetMetaData('Modality')
+                if modality.upper() == 'CT':
+                    return True
+            except:
+                pass
+        min_val, max_val = np.min(flat_data), np.max(flat_data)
+        if min_val < -500 and max_val > 1000 and (max_val - min_val) > 2000:
+            return True
+        return False
+
+    def set_ct_window_level(self, flat_data):
+        min_val, max_val = np.min(flat_data), np.max(flat_data)
+        ct_presets = {
+            'whole_body': {'ww': 600, 'wl': 0},
+            'bone': {'ww': 2000, 'wl': 400},
+            'lung': {'ww': 1500, 'wl': -600},
+            'soft_tissue': {'ww': 400, 'wl': 50},
+            'brain': {'ww': 80, 'wl': 40},
+        }
+
+        p5, p95 = np.percentile(flat_data, [5, 95])
+        data_range = p95 - p5
+        image_shape = self.volume.data.shape
+
+        if len(image_shape) == 3 and image_shape[0] > 300:
+            preset = ct_presets['whole_body']
+        elif data_range > 1500:
+            preset = ct_presets['bone']
+        elif p5 < -800:
+            preset = ct_presets['lung']
+        elif -200 < p5 < 200 and data_range < 500:
+            preset = ct_presets['brain']
+        else:
+            preset = ct_presets['soft_tissue']
+
+        self.ww = preset['ww']
+        self.wl = preset['wl']
+
+    def get_raw_slice(self, slice_idx, orientation=ViewMode.AXIAL):
+        return SliceRenderer.get_raw_slice(self.volume.data, getattr(self.volume, 'is_rgb', False), slice_idx,
+                                           orientation)
+
+    def get_slice_rgba(self, slice_idx, orientation=ViewMode.AXIAL):
+        return SliceRenderer.get_slice_rgba(
+            self.volume.data, getattr(self.volume, 'is_rgb', False), self.volume.num_components,
+            self.ww, self.wl, slice_idx, orientation
+        )
+
+
+class VolumeData:
+    """Stores the immutable medical image data and physical metadata."""
 
     def __init__(self, path):
         self.path = path
@@ -200,41 +277,13 @@ class ImageModel:
         self.read_image_metadata()
         self.is_rgb = self.num_components in [3, 4]
 
-        # --- TROJAN HORSE ---
-        # Create the separate state object inside the model
-        self.view_state = ViewState(self)
-        # self.view_state = ViewState(self.data.shape)
-
-        # Initialize crosshair and W/L
-        # (These methods will naturally route to self.view_state thanks to __setattr__)
-        self.init_crosshair_to_slices()
-        self.init_default_window_level()
-
-    def __getattr__(self, name):
-        """If a property isn't found in ImageModel, look inside view_state."""
-        # Use __dict__ to check for view_state to prevent infinite recursion!
-        if 'view_state' in self.__dict__ and hasattr(self.view_state, name):
-            return getattr(self.view_state, name)
-        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
-
-    def __setattr__(self, name, value):
-        """If we try to set a property that belongs to view_state, route it there."""
-        if 'view_state' in self.__dict__ and hasattr(self.view_state, name):
-            setattr(self.view_state, name, value)
-        else:
-            super().__setattr__(name, value)
-
     def read_image_from_disk(self, path):
-        """Centralized image reading logic to handle 2D, 3D, and eventually 4D."""
-        # Removed sitk.sitkFloat32 to preserve native formats (like RGB)
         sitk_img = sitk.ReadImage(path)
         dim = sitk_img.GetDimension()
 
         if dim == 2:
-            # Promote 2D to 3D safely
             sitk_img = sitk.JoinSeries([sitk_img])
         elif dim == 4:
-            # TODO: Handle 4D images later (e.g., extract first time point or keep 4D)
             print(f"4D not supported yet: {path}")
             pass
 
@@ -250,152 +299,20 @@ class ImageModel:
         bytes_per_pixel = self.bytes_per_component * self.num_components
         self.memory_mb = self.sitk_image.GetNumberOfPixels() * bytes_per_pixel / (1024 * 1024)
 
-    def init_default_window_level(self):
-        """Initialize window/level based on image histogram percentiles for optimal viewing."""
-        # For large images, use systematic sampling to improve performance
-        total_pixels = self.data.size
-        # max_sample_size = 1000000  # Sample up to 1M pixels for speed
-        max_sample_size = 100000  # Sample up to 100k pixels for speed
-
-        if total_pixels > max_sample_size:
-            # Systematic sampling using stride for large images (much faster than random.choice)
-            stride = max(1, total_pixels // max_sample_size)
-            sample_data = self.data.flatten()[::stride]
-        else:
-            # Use full data for smaller images
-            sample_data = self.data.flatten()
-
-        # Check if this is a CT image by looking at metadata and intensity range
-        is_ct = self.is_ct_image(sample_data)
-
-        if is_ct:
-            # Use CT-specific window/level presets
-            self.set_ct_window_level(sample_data)
-        else:
-            # Use percentile-based approach for other modalities
-            p1, p99 = np.percentile(sample_data, [1, 99])
-            p2, p98 = np.percentile(sample_data, [2, 98])
-
-            # Set window width to capture most of the data range
-            self.ww = p98 - p2
-            # Set window level to center of the data range
-            self.wl = (p98 + p2) / 2
-
-            # Ensure minimum window width to avoid division by zero
-            if self.ww <= 0:
-                self.ww = p99 - p1
-                if self.ww <= 0:
-                    self.ww = 1.0
-                self.wl = (p99 + p1) / 2
-
-    def is_ct_image(self, flat_data):
-        """Detect if image is CT based on metadata and intensity characteristics."""
-        # Check metadata first
-        if hasattr(self.sitk_image, 'GetMetaData'):
-            try:
-                modality = self.sitk_image.GetMetaData('Modality')
-                if modality.upper() == 'CT':
-                    return True
-            except:
-                pass
-
-        # Check intensity range - CT typically has Hounsfield units (-1024 to ~3072)
-        min_val, max_val = np.min(flat_data), np.max(flat_data)
-        # CT images usually have negative values (air = -1000 HU) and range around 4000
-        if min_val < -500 and max_val > 1000 and (max_val - min_val) > 2000:
-            return True
-
-        return False
-
-    def set_ct_window_level(self, flat_data):
-        """Set appropriate CT window/level based on tissue types."""
-        min_val, max_val = np.min(flat_data), np.max(flat_data)
-
-        # Common CT window presets (Hounsfield units)
-        ct_presets = {
-            'whole_body': {'ww': 600, 'wl': 0},  # Whole body window
-            'bone': {'ww': 2000, 'wl': 400},  # Bone window
-            'lung': {'ww': 1500, 'wl': -600},  # Lung window
-            'soft_tissue': {'ww': 400, 'wl': 50},  # Soft tissue window
-            'brain': {'ww': 80, 'wl': 40},  # Brain window
-        }
-
-        # Try to determine the best preset based on intensity distribution
-        p5, p95 = np.percentile(flat_data, [5, 95])
-        data_range = p95 - p5
-
-        # Choose preset based on data characteristics
-        # Check for whole body CT first (large z-dimension)
-        image_shape = self.data.shape
-        if len(image_shape) == 3 and image_shape[0] > 300:  # Many slices suggests whole body
-            preset = ct_presets['whole_body']
-        elif data_range > 1500:
-            # Wide range suggests bone window
-            preset = ct_presets['bone']
-        elif p5 < -800:
-            # Very low values suggest lung window
-            preset = ct_presets['lung']
-        elif -200 < p5 < 200 and data_range < 500:
-            # Narrow range around 0 suggests brain window
-            preset = ct_presets['brain']
-        else:
-            # Default to soft tissue window
-            preset = ct_presets['soft_tissue']
-
-        self.ww = preset['ww']
-        self.wl = preset['wl']
-
-    def reset_view(self):
-        """Resets zoom, pan, and crosshair to the center of the volume."""
-        self.zoom = {
-            ViewMode.AXIAL: 1.0,
-            ViewMode.SAGITTAL: 1.0,
-            ViewMode.CORONAL: 1.0
-        }
-        self.pan = {
-            ViewMode.AXIAL: [0, 0],
-            ViewMode.SAGITTAL: [0, 0],
-            ViewMode.CORONAL: [0, 0]
-        }
-        self.slices = {
-            ViewMode.AXIAL: self.data.shape[0] // 2,
-            ViewMode.SAGITTAL: self.data.shape[1] // 2,
-            ViewMode.CORONAL: self.data.shape[2] // 2
-        }
-        self.init_crosshair_to_slices()
-        self.is_data_dirty = True
-
-    def get_raw_slice(self, slice_idx, orientation=ViewMode.AXIAL):
-        return SliceRenderer.get_raw_slice(self.data, getattr(self, 'is_rgb', False), slice_idx, orientation)
-
-    def get_slice_rgba(self, slice_idx, orientation=ViewMode.AXIAL):
-        return SliceRenderer.get_slice_rgba(
-            self.data, getattr(self, 'is_rgb', False), self.num_components,
-            self.ww, self.wl, slice_idx, orientation
-        )
-
     def get_physical_aspect_ratio(self, orientation):
-        """Calculates (width_scale, height_scale) based on mm spacing."""
-        # spacing is (dx, dy, dz)
         dx, dy, dz = self.spacing
-
         if orientation == ViewMode.AXIAL:
-            # X and Y axes
             return dx, dy
         elif orientation == ViewMode.SAGITTAL:
-            # Y and Z axes
             return dy, dz
         else:
-            # X and Z axes
             return dx, dz
 
     def voxel_coord_to_physic_coord(self, voxel):
-        phys = (voxel * self.spacing) + self.origin - self.spacing / 2
-        return phys
+        return (voxel * self.spacing) + self.origin - self.spacing / 2
 
     def reload(self):
         """Re-reads data from the disk while preserving state if dimensions match."""
-        # Read the new image from the existing path
         new_sitk = self.read_image_from_disk(self.path)
         new_shape = new_sitk.GetSize()
         current_shape = self.sitk_image.GetSize()
@@ -403,34 +320,13 @@ class ImageModel:
         if new_shape == current_shape:
             # DIMENSIONS MATCH: Soft update
             self.sitk_image = new_sitk
-            # Update the view (no copy)
             self.data = sitk.GetArrayViewFromImage(self.sitk_image)
             self.read_image_metadata()
-            self.histogram_is_dirty = True
-            return False  # Indicates a soft reload
+            return False
         else:
             # DIMENSIONS CHANGED: Full reset
             self.__init__(self.path)
-            return True  # Indicates a full reset occurred
-
-    def update_crosshair_from_2d(self, slice_x, slice_y, slice_idx, orientation):
-        """Maps 2D slice coordinates back to 3D Voxel Indices and updates state."""
-        _, shape = self.get_slice_rgba(slice_idx, orientation)
-        real_h, real_w = shape[0], shape[1]
-
-        if orientation == ViewMode.AXIAL:
-            v = [slice_x, slice_y, slice_idx]
-        elif orientation == ViewMode.SAGITTAL:
-            v = [slice_idx, real_w - slice_x, real_h - slice_y]
-        else:
-            v = [slice_x, slice_idx, real_h - slice_y]
-
-        self.crosshair_voxel = v
-        self.crosshair_phys_coord = self.voxel_coord_to_physic_coord(np.array(v))
-
-        ix, iy, iz = [int(np.clip(c, 0, limit - 1)) for c, limit in
-                      zip(v, [self.data.shape[2], self.data.shape[1], self.data.shape[0]])]
-        self.crosshair_value = self.data[iz, iy, ix]
+            return True
 
 
 class Controller:
@@ -438,15 +334,18 @@ class Controller:
 
     def __init__(self):
         self.gui = None
-        self.images = {}  # { "id": ImageModel }
-        self.viewers = {}  # { "id": SliceViewer } access by tag (V1, V2, etc)
+
+        # Completely Decoupled Contexts
+        self.volumes = {}
+        self.view_states = {}
+
+        self.viewers = {}
         self.settings = SettingsManager()
 
-        # Sequential ID tracker
         self._next_image_id = 0
 
     def default_viewers_orientation(self):
-        n = len(self.images)
+        n = len(self.view_states)
         if n == 1:
             self.viewers["V1"].set_orientation(ViewMode.AXIAL)
             self.viewers["V2"].set_orientation(ViewMode.SAGITTAL)
@@ -469,38 +368,34 @@ class Controller:
             self.viewers["V4"].set_orientation(ViewMode.AXIAL)
 
     def load_image(self, path):
-        # Use and increment the safe ID instead of relying on dictionary length
         img_id = str(self._next_image_id)
         self._next_image_id += 1
 
-        self.images[img_id] = ImageModel(path)
+        # Instantiate physical data, then map a view state to it
+        vol = VolumeData(path)
+        self.volumes[img_id] = vol
+        self.view_states[img_id] = ViewState(vol)
+
         if self.gui:
             self.gui.refresh_image_list_ui()
+
         return img_id
 
-    def update_all_viewers_of_image(self, img_id):
-        """Refresh every viewer currently displaying this specific image."""
+    def update_all_viewers_of_image(self, vs_id):
         for viewer in self.viewers.values():
-            if viewer.image_id == img_id:
+            if viewer.image_id == vs_id:
                 viewer.draw_crosshair()
                 viewer.update_render()
-                # Also mark geometry as dirty to ensure pan/zoom resets are applied
-                # unsure : not needed ?
-                # viewer.is_geometry_dirty = True
 
     def update_setting(self, keys, value):
         if not keys or keys[-1] is None:
-            print(f"DEBUG: Blocked update with keys {keys}")
             return
 
-        # Update internal dict
         d = self.settings.data
         for key in keys[:-1]:
             d = d[key]
 
-        # Handle the color conversion (0.0-1.0 float to 0-255 int)
         if keys[0] == "colors" and isinstance(value, (list, tuple)):
-            # Check if the first element is a float to determine scaling
             if any(isinstance(x, float) for x in value):
                 value = [int(x * 255) for x in value]
             else:
@@ -508,52 +403,36 @@ class Controller:
 
         d[keys[-1]] = value
 
-        # Refresh visuals
         for viewer in self.viewers.values():
             viewer.update_render()
             if viewer.image_id:
                 viewer.draw_crosshair()
 
     def unify_ppm_max(self, target_viewer_tags):
-        # FIXME not used : which one is better max or min ?
-        """Forces a list of viewers to share the maximum absolute scale (ppm)."""
-        valid_viewers = [self.viewers[tag] for tag in target_viewer_tags
-                         if self.viewers[tag].view_state]
+        valid_viewers = [self.viewers[tag] for tag in target_viewer_tags if self.viewers[tag].view_state]
+        if not valid_viewers: return
 
-        if not valid_viewers:
-            return
-
-        # 1. Find the maximum PPM among the valid viewers
         max_ppm = 0.0
         for viewer in valid_viewers:
-            # We calculate what the ppm is at their CURRENT zoom (usually 1.0 on init)
             ppm = viewer.get_pixels_per_mm()
             if ppm > max_ppm:
                 max_ppm = ppm
 
-        # 2. Apply this target PPM to all viewers in the target list
         if max_ppm > 0:
             for viewer in valid_viewers:
                 viewer.set_pixels_per_mm(max_ppm)
                 viewer.is_geometry_dirty = True
 
     def unify_ppm(self, target_viewer_tags):
-        """Forces a list of viewers to share the maximum absolute scale (ppm)."""
-        valid_viewers = [self.viewers[tag] for tag in target_viewer_tags
-                         if self.viewers[tag].view_state]
+        valid_viewers = [self.viewers[tag] for tag in target_viewer_tags if self.viewers[tag].view_state]
+        if not valid_viewers: return
 
-        if not valid_viewers:
-            return
-
-        # 1. Find the minimum PPM among the valid viewers
         min_ppm = 1e9
         for viewer in valid_viewers:
-            # We calculate what the ppm is at their CURRENT zoom (usually 1.0 on init)
             ppm = viewer.get_pixels_per_mm()
             if ppm < min_ppm:
                 min_ppm = ppm
 
-        # 2. Apply this target PPM to all viewers in the target list
         if min_ppm > 0:
             for viewer in valid_viewers:
                 viewer.set_pixels_per_mm(min_ppm)
@@ -561,219 +440,186 @@ class Controller:
 
     def reset_settings(self):
         self.settings.reset()
-        # Refresh viewers to apply the default colors immediately
         for viewer in self.viewers.values():
             viewer.update_render()
 
     def save_settings(self):
         return self.settings.save()
 
-    def reload_image(self, img_id):
-        """Re-reads the image file from the original path."""
-        if img_id in self.images:
-            img_model = self.images[img_id]
-            was_reset = img_model.reload()
-            if was_reset:
-                # If size changed, we must re-init textures and slice indices in viewers
-                for viewer in self.viewers.values():
-                    if viewer.image_id == img_id:
-                        viewer.set_image(img_id)
-            else:
-                self.update_all_viewers_of_image(img_id)
+    def reload_image(self, vs_id):
+        if vs_id in self.view_states:
+            vs = self.view_states[vs_id]
+            vol = vs.volume
+            was_reset = vol.reload()
 
-            # Update the sidebar in case this was the active image
-            if self.gui.context_viewer and self.gui.context_viewer.image_id == img_id:
+            if was_reset:
+                for viewer in self.viewers.values():
+                    if viewer.image_id == vs_id:
+                        viewer.set_image(vs_id)
+            else:
+                vs.histogram_is_dirty = True
+                self.update_all_viewers_of_image(vs_id)
+
+            if self.gui.context_viewer and self.gui.context_viewer.image_id == vs_id:
                 self.gui.update_sidebar_info(self.gui.context_viewer)
 
-            # Trigger the visual status notification
             if self.gui:
-                self.gui.show_status_message(f"Reloaded: {img_model.name}")
+                self.gui.show_status_message(f"Reloaded: {vol.name}")
 
-    def close_image(self, img_id):
-        """Removes the image from the controller and clears associated viewers."""
-        if img_id in self.images:
-
-            # Tell the viewers to clean up their own DPG items
+    def close_image(self, vs_id):
+        if vs_id in self.view_states:
             for viewer in self.viewers.values():
-                if viewer.image_id == img_id:
+                if viewer.image_id == vs_id:
                     viewer.drop_image()
 
-            # Delete the image from the data dictionary
-            name = self.images[img_id].name
-            del self.images[img_id]
+            name = self.view_states[vs_id].volume.name
+            del self.view_states[vs_id]
+            del self.volumes[vs_id]
 
-            # If there are other images, fill the empty viewers with the first one
-            if self.images:
-                first_img_id = next(iter(self.images))
+            if self.view_states:
+                first_vs_id = next(iter(self.view_states))
                 for viewer in self.viewers.values():
                     if viewer.image_id is None:
-                        viewer.set_image(first_img_id)
+                        viewer.set_image(first_vs_id)
 
-            # Refresh the UI list
             if self.gui:
                 self.gui.refresh_image_list_ui()
-
-            # Trigger the visual status notification
-            if self.gui:
                 self.gui.show_status_message(f"Closed: {name}")
 
     def on_visibility_toggle(self, sender, value, user_data):
         context_viewer = self.gui.context_viewer
-        if not context_viewer or not context_viewer.image_model:
+        if not context_viewer or not context_viewer.view_state:
             return
 
-        model = context_viewer.image_model
+        vs = context_viewer.view_state
         if user_data == "axis":
-            model.show_axis = value
+            vs.show_axis = value
         elif user_data == "grid":
-            model.grid_mode = value
+            vs.grid_mode = value
         elif user_data == "overlay":
-            model.show_overlay = value
+            vs.show_overlay = value
         elif user_data == "crosshair":
-            model.show_crosshair = value
+            vs.show_crosshair = value
         elif user_data == "scalebar":
-            model.show_scalebar = value
+            vs.show_scalebar = value
 
-        # Refresh all viewers displaying this image
         self.update_all_viewers_of_image(context_viewer.image_id)
 
     def on_sync_group_change(self, sender, value, user_data):
-        img_id = user_data
-        img = self.images[img_id]
+        vs_id = user_data
+        vs = self.view_states[vs_id]
 
-        # Parse the group ID from "Group X" or "None"
         if value == "None":
-            img.sync_group = 0
+            vs.sync_group = 0
             return
 
         new_group_id = int(value.split(" ")[1])
-        img.sync_group = new_group_id
+        vs.sync_group = new_group_id
 
-        # Find the first other image already in this group to act as the "master" reference
-        master_image_id = None
-        for other_id, other_img in self.images.items():
-            if other_id != img_id and other_img.sync_group == new_group_id:
-                master_image_id = other_id
+        master_vs_id = None
+        for other_id, other_vs in self.view_states.items():
+            if other_id != vs_id and other_vs.sync_group == new_group_id:
+                master_vs_id = other_id
                 break
 
-        # Find all viewers currently displaying ANY image in this new sync group
         group_viewer_tags = []
         for v in self.viewers.values():
-            if v.view_state and v.view_state.sync_group == new_group_id:  # Changed here
+            if v.view_state and v.view_state.sync_group == new_group_id:
                 group_viewer_tags.append(v.tag)
 
         if not group_viewer_tags:
             return
 
-        # 1. Unify the absolute scale (PPM) for everyone in the group
         self.unify_ppm(group_viewer_tags)
 
-        # 2. Sync the physical center based on the master image
-        if master_image_id:
-            master_viewer = next((v for v in self.viewers.values() if v.image_id == master_image_id), None)
+        if master_vs_id:
+            master_viewer = next((v for v in self.viewers.values() if v.image_id == master_vs_id), None)
             if master_viewer:
                 phys_center = master_viewer.get_center_physical_coord()
                 if phys_center is not None:
                     for tag in group_viewer_tags:
                         self.viewers[tag].center_on_physical_coord(phys_center)
-            self.propagate_sync(master_image_id)
+            self.propagate_sync(master_vs_id)
 
-        # Update all viewers of the newly assigned image to reflect the alignment
-        self.update_all_viewers_of_image(img_id)
+        self.update_all_viewers_of_image(vs_id)
 
-    def propagate_sync(self, source_img_id):
-        source_img = self.images[source_img_id]
-        if source_img.sync_group == 0:
-            # For single image not in any group, just sync other orientations
-            target_ids = [source_img_id]
+    def propagate_sync(self, source_vs_id):
+        source_vs = self.view_states[source_vs_id]
+        if source_vs.sync_group == 0:
+            target_ids = [source_vs_id]
         else:
-            # For multiple images in a group, sync across all images in the group
-            target_ids = [tid for tid, img in self.images.items()
-                          if img.sync_group == source_img.sync_group]
+            target_ids = [tid for tid, vs in self.view_states.items()
+                          if vs.sync_group == source_vs.sync_group]
 
         for target_id in target_ids:
-            target_img = self.images[target_id]
+            target_vs = self.view_states[target_id]
 
-            if target_id == source_img_id:
-                # Syncing within same image - use voxel coords directly to avoid rounding
-                source_vox = source_img.crosshair_voxel
-                target_img.crosshair_voxel = source_vox.copy()
-                target_img.crosshair_phys_coord = target_img.voxel_coord_to_physic_coord(source_vox)
+            if target_id == source_vs_id:
+                source_vox = source_vs.crosshair_voxel
+                target_vs.crosshair_voxel = source_vox.copy()
+                target_vs.crosshair_phys_coord = target_vs.volume.voxel_coord_to_physic_coord(source_vox)
 
-                # Update Slice Indices directly from voxel coordinates
-                target_img.slices[ViewMode.AXIAL] = int(source_vox[2])
-                target_img.slices[ViewMode.SAGITTAL] = int(source_vox[0])
-                target_img.slices[ViewMode.CORONAL] = int(source_vox[1])
+                target_vs.slices[ViewMode.AXIAL] = int(source_vox[2])
+                target_vs.slices[ViewMode.SAGITTAL] = int(source_vox[0])
+                target_vs.slices[ViewMode.CORONAL] = int(source_vox[1])
             else:
-                # Syncing different images - use physical coordinates
-                phys_pos = source_img.crosshair_phys_coord
-                target_vox = (phys_pos - target_img.origin + target_img.spacing / 2) / target_img.spacing
-                target_img.crosshair_voxel = list(target_vox)
-                target_img.crosshair_phys_coord = phys_pos
+                phys_pos = source_vs.crosshair_phys_coord
+                target_vol = target_vs.volume
+                target_vox = (phys_pos - target_vol.origin + target_vol.spacing / 2) / target_vol.spacing
+                target_vs.crosshair_voxel = list(target_vox)
+                target_vs.crosshair_phys_coord = phys_pos
 
-                # Update Slice Indices from calculated voxel coordinates
-                target_img.slices[ViewMode.AXIAL] = int(round(target_vox[2]))
-                target_img.slices[ViewMode.SAGITTAL] = int(round(target_vox[0]))
-                target_img.slices[ViewMode.CORONAL] = int(round(target_vox[1]))
+                target_vs.slices[ViewMode.AXIAL] = int(round(target_vox[2]))
+                target_vs.slices[ViewMode.SAGITTAL] = int(round(target_vox[0]))
+                target_vs.slices[ViewMode.CORONAL] = int(round(target_vox[1]))
 
-            # Sync View State (Zoom)
-            target_img.is_data_dirty = True
+            target_vs.is_data_dirty = True
 
-        # Trigger Viewers Refresh
-        # We loop through viewers to find those looking at any of our target images
         for viewer in self.viewers.values():
             if viewer.image_id in target_ids:
                 viewer.is_geometry_dirty = True
 
-    def propagate_window_level(self, source_img_id):
-        """Applies WW/WL to synced images and triggers renders."""
-        source_img = self.images[source_img_id]
+    def propagate_window_level(self, source_vs_id):
+        source_vs = self.view_states[source_vs_id]
         import dearpygui.dearpygui as dpg
 
-        # Check if the UI toggle for syncing W/L is active
         sync_wl = False
         if dpg.does_item_exist("check_sync_wl"):
             sync_wl = dpg.get_value("check_sync_wl")
 
-        # 1. Apply values to group members if syncing is enabled
-        target_group = source_img.sync_group
+        target_group = source_vs.sync_group
         if sync_wl and target_group != 0:
-            for target_id, img in self.images.items():
-                if img.sync_group == target_group and not getattr(img, 'is_rgb', False):
-                    img.ww = source_img.ww
-                    img.wl = source_img.wl
-                    img.is_data_dirty = True
+            for target_id, vs in self.view_states.items():
+                if vs.sync_group == target_group and not getattr(vs.volume, 'is_rgb', False):
+                    vs.ww = source_vs.ww
+                    vs.wl = source_vs.wl
+                    vs.is_data_dirty = True
         else:
-            source_img.is_data_dirty = True
+            source_vs.is_data_dirty = True
 
-        # 2. Update all viewers displaying the affected images
         for viewer in self.viewers.values():
-            if viewer.view_state:  # Changed here
-                if viewer.image_id == source_img_id or (
-                        sync_wl and target_group != 0 and viewer.view_state.sync_group == target_group):  # Changed here
+            if viewer.view_state:
+                if viewer.image_id == source_vs_id or (
+                        sync_wl and target_group != 0 and viewer.view_state.sync_group == target_group):
                     viewer.update_render()
 
     def propagate_camera(self, source_viewer):
-        """Syncs the zoom and physical center of the source viewer to all synced viewers."""
-        if not source_viewer.view_state: # Changed here
+        if not source_viewer.view_state:
             return
-        source_vs = source_viewer.view_state # Changed here
+        source_vs = source_viewer.view_state
 
-        # Determine which images should be affected
         if source_vs.sync_group == 0:
             target_ids = [source_viewer.image_id]
         else:
-            target_ids = [tid for tid, img in self.images.items()
-                          if img.sync_group == source_vs.sync_group]
+            target_ids = [tid for tid, vs in self.view_states.items()
+                          if vs.sync_group == source_vs.sync_group]
 
-        # Grab the exact physical point the driver viewer is looking at
         phys_center = source_viewer.get_center_physical_coord()
         if phys_center is None:
             return
 
         target_ppm = source_viewer.get_pixels_per_mm()
 
-        # Apply to all relevant viewers
         for viewer in self.viewers.values():
             if viewer.image_id in target_ids and viewer != source_viewer:
                 viewer.set_pixels_per_mm(target_ppm)
@@ -801,7 +647,6 @@ class SliceRenderer:
         if orientation == ViewMode.HISTOGRAM:
             return np.array([0, 0, 0, 255], dtype=np.uint8), (1, 1)
 
-        # 1. Dimensions
         if orientation == ViewMode.AXIAL:
             max_s, h, w = data.shape[0], data.shape[1], data.shape[2]
         elif orientation == ViewMode.SAGITTAL:
@@ -811,13 +656,11 @@ class SliceRenderer:
         else:
             return np.zeros(4, dtype=np.float32), (1, 1)
 
-        # 2. Out of bounds
         if slice_idx < 0 or slice_idx >= max_s:
             black_slice = np.zeros((h, w, 4), dtype=np.float32)
             black_slice[:, :, 3] = 1.0
             return black_slice.flatten(), (h, w)
 
-        # 3. Extract and format
         if is_rgb:
             if orientation == ViewMode.AXIAL:
                 slice_data = data[slice_idx, :, :, :]

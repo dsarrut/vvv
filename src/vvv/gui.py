@@ -78,7 +78,6 @@ class MainGUI:
         """Creates the top menu bar."""
         with dpg.viewport_menu_bar():
             with dpg.menu(label="File"):
-                # dpg.add_menu_item(label="Open Image...", callback=lambda: dpg.show_item(self.file_dialog_tag))
                 dpg.add_menu_item(label="Open Image...", callback=self.on_open_file_clicked)
                 dpg.add_menu_item(label="Exit", callback=self.cleanup)
             with dpg.menu(label="Link"):
@@ -178,8 +177,6 @@ class MainGUI:
                                    callback=lambda: self.on_reset_settings())
 
                 dpg.add_text("", tag="save_status_text", color=[150, 150, 150])
-                # with dpg.group(horizontal=True):
-                #        dpg.add_text(f"{self.controller.settings.config_path}")
 
     def create_left_panel_bottom_part(self):
         # Active Viewer Info Section
@@ -225,7 +222,7 @@ class MainGUI:
 
         dpg.add_spacer(height=5)
 
-        # 3. Visibility Controls (Existing)
+        # 3. Visibility Controls
         with dpg.group(tag="visibility_controls"):
             with dpg.table(header_row=False, policy=dpg.mvTable_SizingFixedFit):
                 dpg.add_table_column()
@@ -331,32 +328,32 @@ class MainGUI:
         dpg.delete_item(container, children_only=True)
         self.image_label_tags.clear()  # Clear the old cached tags
 
-        for img_id, img_model in self.controller.images.items():
+        for vs_id, vs in self.controller.view_states.items():
             with dpg.group(parent=container):
                 with dpg.group(horizontal=True):
                     # Let DPG generate a safe, unique integer ID and cache it!
-                    lbl_id = dpg.add_text(f"{img_model.name}")
-                    self.image_label_tags[img_id] = lbl_id
+                    lbl_id = dpg.add_text(f"{vs.volume.name}")
+                    self.image_label_tags[vs_id] = lbl_id
 
                 with dpg.group(horizontal=True):
                     dpg.add_spacer(width=10)
                     for v_tag in ["V1", "V2", "V3", "V4"]:
                         # Check if this image is currently in this viewer
-                        is_active = self.controller.viewers[v_tag].image_id == img_id
+                        is_active = self.controller.viewers[v_tag].image_id == vs_id
                         dpg.add_checkbox(
                             label="",
                             default_value=is_active,
-                            user_data={"img_id": img_id, "v_tag": v_tag},
+                            user_data={"img_id": vs_id, "v_tag": v_tag},
                             callback=self.on_image_viewer_toggle
                         )
                     # Reload Button
                     btn_reload = dpg.add_button(label="\uf01e", width=20,
                                                 callback=lambda s, a, u: self.controller.reload_image(u),
-                                                user_data=img_id)
+                                                user_data=vs_id)
                     # Close Button
                     btn_close = dpg.add_button(label="\uf00d", width=20,
                                                callback=lambda s, a, u: self.controller.close_image(u),
-                                               user_data=img_id)
+                                               user_data=vs_id)
 
                     # Bind the font to these specific buttons
                     if dpg.does_item_exist("icon_font_tag"):
@@ -390,15 +387,15 @@ class MainGUI:
             dpg.add_table_column(label="Image")
             dpg.add_table_column(label="Group", width_fixed=True)
 
-            for img_id, img in self.controller.images.items():
+            for vs_id, vs in self.controller.view_states.items():
                 with dpg.table_row():
-                    dpg.add_text(img.name)
+                    dpg.add_text(vs.volume.name)
                     # Dropdown to pick a group (0 = None)
                     dpg.add_combo(
                         items=["None", "Group 1", "Group 2", "Group 3"],
-                        default_value="None" if not img.sync_group else f"Group {img.sync_group}",
+                        default_value="None" if not vs.sync_group else f"Group {vs.sync_group}",
                         width=100,
-                        user_data=img_id,
+                        user_data=vs_id,
                         callback=self.controller.on_sync_group_change
                     )
 
@@ -623,7 +620,6 @@ class MainGUI:
 
     def on_save_settings(self):
         path = self.controller.save_settings()
-        # dpg.set_value("save_status_text", f"Saved in: {path}")
         self.show_status_message(f"Settings saved in: {path}")
 
         def clear_hint():
@@ -659,7 +655,7 @@ class MainGUI:
             # If the user typed something invalid (like letters), do nothing
             return
 
-        # Update the ImageModel via the viewer
+        # Update the state via the viewer
         context_viewer.update_window_level(new_ww, new_wl)
 
     def on_open_file_clicked(self, sender=None, app_data=None, user_data=None):
@@ -694,7 +690,6 @@ class MainGUI:
         """Generator that shows a loading progress bar while reading a large file."""
         filename = os.path.basename(file_path)
 
-        # Use the exact same layout as create_boot_sequence
         with dpg.window(tag="loading_modal", modal=True, show=True, no_title_bar=True,
                         no_resize=True, no_move=True, width=350, height=100):
             dpg.add_text(f"Loading image...\n{filename}", tag="loading_text")
@@ -711,10 +706,10 @@ class MainGUI:
             yield
 
         try:
-            # 1. Read from disk (Blocks Python)
+            # Read from disk (Blocks Python)
             img_id = self.controller.load_image(file_path)
 
-            # 2. Update UI to show completion safely before applying layouts
+            # Update UI to show completion safely before applying layouts
             if dpg.does_item_exist("loading_text"):
                 dpg.set_value("loading_text", "Applying synchronization and layouts...")
             if dpg.does_item_exist("loading_progress"):
@@ -728,9 +723,7 @@ class MainGUI:
             if same_image_viewers:
                 self.controller.unify_ppm(same_image_viewers)
 
-            # NEW: Force the sidebar to update with the new image info!
             self.update_sidebar_info(target_viewer)
-
             self.refresh_image_list_ui()
 
             # Clean up safely on success
@@ -744,8 +737,6 @@ class MainGUI:
                 dpg.delete_item("loading_modal")
 
             yield
-
-            # NEW: Put the {str(e)} back so we aren't debugging blind!
             self.show_message("File Load Error", f"Failed to load image:\n{filename}\n\nError: {str(e)}")
 
             # Keep generator alive until user acknowledges the error
@@ -773,7 +764,7 @@ class MainGUI:
     def show_status_message(self, message, duration=3.0, color=None):
         """Displays a temporary status message in the menu bar."""
         if color is None:
-            color = [150, 255, 150]  # Default pale green
+            color = [150, 255, 150] # FIXME in settings ?
 
         if dpg.does_item_exist("global_status_text"):
             dpg.set_value("global_status_text", f"[{message}]")
@@ -789,7 +780,7 @@ class MainGUI:
 
         total = len(image_paths)
 
-        # 1. Build the Loading Modal
+        # Build the Loading Modal
         with dpg.window(tag="loading_modal", modal=True, show=True, no_title_bar=True,
                         no_resize=True, no_move=True, width=350, height=100):
             dpg.add_text("Initializing...", tag="loading_text")
@@ -803,7 +794,7 @@ class MainGUI:
 
         yield  # Let DPG draw the empty modal
 
-        # 2. Load the images one by one
+        # Load the images one by one
         img_ids = []
         for i, path in enumerate(image_paths):
             filename = os.path.basename(path)
@@ -816,24 +807,23 @@ class MainGUI:
 
             yield  # Let DPG render the new text and progress bar BEFORE reading the file
 
-            # Do the heavy lifting
             try:
                 img_id = self.controller.load_image(path)
                 img_ids.append(img_id)
             except Exception as e:
-                # 1. Safely delete the loading modal and yield to clear ImGui's modal stack
+                # Safely delete the loading modal and yield to clear ImGui's modal stack
                 if dpg.does_item_exist("loading_modal"):
                     dpg.delete_item("loading_modal")
                 yield
 
-                # 2. Show the error message
+                # Show the error message
                 self.show_message("File Load Error", f"Failed to load image:\n{filename}")
 
-                # 3. Wait for user to acknowledge the modal
+                # Wait for user to acknowledge the modal
                 while dpg.does_item_exist("generic_message_modal"):
                     yield
 
-                # 4. Rebuild the loading modal ONLY if there are more files to process
+                # Rebuild the loading modal ONLY if there are more files to process
                 if i < total - 1:
                     with dpg.window(tag="loading_modal", modal=True, show=True, no_title_bar=True,
                                     no_resize=True, no_move=True, width=350, height=100):
@@ -845,10 +835,8 @@ class MainGUI:
                     vp_h = max(dpg.get_viewport_client_height(), 600)
                     dpg.set_item_pos("loading_modal", [vp_w // 2 - 175, vp_h // 2 - 50])
                     yield
+                continue
 
-                continue  # Skip to the next file
-
-            # Viewport assignment
             if i == 0:
                 for tag in ["V1", "V2", "V3", "V4"]:
                     self.controller.viewers[tag].set_image(img_id)
@@ -862,7 +850,7 @@ class MainGUI:
             elif i >= 3:
                 self.controller.viewers["V4"].set_image(img_id)
 
-        # 3. Finalize and Sync
+        # Finalize and Sync
         # Safely check if items exist before updating them (prevents SystemError crashes if the last image failed)
         if dpg.does_item_exist("loading_text"):
             dpg.set_value("loading_text", "Applying synchronization and layouts...")
@@ -888,7 +876,7 @@ class MainGUI:
         self.on_window_resize()
         self.refresh_image_list_ui()
 
-        # 4. Clean up
+        # Clean up
         if dpg.does_item_exist("loading_modal"):
             dpg.delete_item("loading_modal")
 
@@ -946,7 +934,7 @@ class MainGUI:
 
                     viewer.is_geometry_dirty = False
 
-            for img in self.controller.images.values():
-                img.view_state.is_data_dirty = False
+            for vs in self.controller.view_states.values():
+                vs.is_data_dirty = False
 
             dpg.render_dearpygui_frame()

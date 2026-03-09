@@ -117,12 +117,12 @@ class SliceViewer:
 
     # --- DYNAMIC PROPERTY ROUTING ---
     @property
-    def volume(self):
-        return self.controller.images.get(self.image_id) if self.image_id else None
+    def view_state(self):
+        return self.controller.view_states.get(self.image_id) if self.image_id else None
 
     @property
-    def view_state(self):
-        return self.volume.view_state if self.volume else None
+    def volume(self):
+        return self.view_state.volume if self.view_state else None
 
     @property
     def current_pmin(self):
@@ -210,7 +210,7 @@ class SliceViewer:
         if not self.is_image_orientation() or not self.volume:
             return
 
-        _, shape = self.volume.get_slice_rgba(self.slice_idx, self.orientation)
+        _, shape = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
         h, w = shape[0], shape[1]
 
         new_texture_tag = f"tex_{self.tag}_{self.image_id}_{self.orientation}_{w}x{h}"
@@ -259,7 +259,7 @@ class SliceViewer:
         if not win_w or not win_h: return None
 
         cx, cy = win_w / 2, win_h / 2
-        _, shape = self.volume.get_slice_rgba(self.slice_idx, self.orientation)
+        _, shape = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
         real_h, real_w = shape[0], shape[1]
         sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
 
@@ -289,7 +289,7 @@ class SliceViewer:
         if not win_w or not win_h: return 1.0
 
         sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
-        _, shape = self.volume.get_slice_rgba(self.slice_idx, self.orientation)
+        _, shape = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
         real_w, real_h = shape[1], shape[0]
 
         mm_w, mm_h = real_w * sw, real_h * sh
@@ -306,7 +306,7 @@ class SliceViewer:
         if not win_w or not win_h: return
 
         sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
-        _, shape = self.volume.get_slice_rgba(self.slice_idx, self.orientation)
+        _, shape = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
         real_w, real_h = shape[1], shape[0]
 
         mm_w, mm_h = real_w * sw, real_h * sh
@@ -326,7 +326,7 @@ class SliceViewer:
         if not win_w or not win_h: return
 
         v = (phys_coord - self.volume.origin + self.volume.spacing / 2) / self.volume.spacing
-        _, shape = self.volume.get_slice_rgba(self.slice_idx, self.orientation)
+        _, shape = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
         real_h, real_w = shape[0], shape[1]
         sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
 
@@ -354,7 +354,7 @@ class SliceViewer:
         if self.image_id is None or not self.is_image_orientation() or not self.volume: return
 
         sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
-        _, shape = self.volume.get_slice_rgba(self.slice_idx, self.orientation)
+        _, shape = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
         real_h, real_w = shape[0], shape[1]
 
         if self.needs_recenter:
@@ -373,7 +373,7 @@ class SliceViewer:
         if not self.view_state or not self.volume or self.view_state.crosshair_voxel is None:
             return [0, 0]
 
-        _, shape = self.volume.get_slice_rgba(self.slice_idx, self.orientation)
+        _, shape = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
         real_h, real_w = shape[0], shape[1]
         sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
 
@@ -429,7 +429,7 @@ class SliceViewer:
             return
 
         vx, vy, vz = self.view_state.crosshair_voxel
-        _, shape = self.volume.get_slice_rgba(self.slice_idx, self.orientation)
+        _, shape = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
         real_h, real_w = shape[0], shape[1]
 
         if self.orientation == ViewMode.AXIAL:
@@ -615,7 +615,7 @@ class SliceViewer:
         if not win_w or not win_h: return False
 
         pmin, pmax = self.current_pmin, self.current_pmax
-        _, shape = self.volume.get_slice_rgba(self.slice_idx, self.orientation)
+        _, shape = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
 
         vox_w, vox_h = (pmax[0] - pmin[0]) / shape[1], (pmax[1] - pmin[1]) / shape[0]
         if vox_w <= 0 or vox_h <= 0: return False
@@ -636,7 +636,7 @@ class SliceViewer:
         disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
         if disp_w <= 0 or disp_h <= 0: return
 
-        slice_data = self.volume.get_raw_slice(self.slice_idx, self.orientation)
+        slice_data = self.view_state.get_raw_slice(self.slice_idx, self.orientation)
         real_h, real_w = slice_data.shape
 
         vx_r_x = int((search_radius / disp_w) * real_w)
@@ -669,7 +669,7 @@ class SliceViewer:
         if not self.image_id or not self.volume: return None, None
         if not ignore_hover and not dpg.is_item_hovered(f"win_{self.tag}"): return None, None
 
-        _, shape = self.volume.get_slice_rgba(self.slice_idx, self.orientation)
+        _, shape = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
         real_h, real_w = shape[0], shape[1]
 
         mx, my = dpg.get_drawing_mouse_pos()
@@ -689,7 +689,7 @@ class SliceViewer:
             if dpg.does_item_exist(drawlist_tag): dpg.configure_item(drawlist_tag, show=True)
             if dpg.does_item_exist(plot_tag): dpg.configure_item(plot_tag, show=False)
 
-        rgba_flat, shape = self.volume.get_slice_rgba(self.slice_idx, self.orientation)
+        rgba_flat, shape = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
 
         if self.should_use_voxels_strips():
             dpg.configure_item(self.image_tag, show=False)
@@ -726,7 +726,7 @@ class SliceViewer:
             return
 
         idx = self.slice_idx
-        _, shape = self.volume.get_slice_rgba(idx, self.orientation)
+        _, shape = self.view_state.get_slice_rgba(idx, self.orientation)
         real_h, real_w = shape[0], shape[1]
 
         if self.orientation == ViewMode.AXIAL:
@@ -783,7 +783,7 @@ class SliceViewer:
             if self.view_state.sync_group != 0:
                 group_id = self.view_state.sync_group
                 for v in self.controller.viewers.values():
-                    if v.image_model and v.image_model.sync_group == group_id:
+                    if v.view_state and v.view_state.sync_group == group_id:
                         v.needs_recenter = True
                         v.is_geometry_dirty = True
         elif key == dpg.mvKey_F1:
@@ -856,7 +856,7 @@ class SliceViewer:
             win_h = dpg.get_item_height(f"win_{self.tag}")
             if win_w and win_h:
                 sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
-                _, shape = self.volume.get_slice_rgba(self.slice_idx, self.orientation)
+                _, shape = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
                 real_w, real_h = shape[1], shape[0]
 
                 mm_w, mm_h = real_w * sw, real_h * sh
