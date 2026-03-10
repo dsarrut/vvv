@@ -13,12 +13,13 @@ from .resources import get_resource_path
 
 def set_macos_dock_info(name, icon_path=None):
     """Promotes script, sets focus, icon, process name, and fixes Cmd+Q."""
-    if sys.platform != 'darwin':
+    if sys.platform != "darwin":
         return
 
     # --- Set Process Title (Activity Monitor / Terminal) ---
     try:
         import setproctitle
+
         setproctitle.setproctitle(name)
     except ImportError:
         print("Warning: 'setproctitle' not installed. Run: pip install setproctitle")
@@ -26,8 +27,11 @@ def set_macos_dock_info(name, icon_path=None):
     # --- macOS UI, Focus, and Menu Bar Fix ---
     try:
         from Cocoa import (
-            NSApplication, NSImage, NSApplicationActivationPolicyRegular,
-            NSMenu, NSMenuItem
+            NSApplication,
+            NSImage,
+            NSApplicationActivationPolicyRegular,
+            NSMenu,
+            NSMenuItem,
         )
 
         app = NSApplication.sharedApplication()
@@ -63,9 +67,11 @@ def set_macos_dock_info(name, icon_path=None):
 
 
 @click.command()
-@click.argument('image_paths', type=click.Path(exists=True), required=False, nargs=-1)
-@click.option('--linkall', "-l", is_flag=True, help='Enable sync all images (similar to vv)')
-@click.option('--sync', "-s", is_flag=True, help='Enable sync all images')
+@click.argument("image_paths", type=click.Path(exists=True), required=False, nargs=-1)
+@click.option(
+    "--linkall", "-l", is_flag=True, help="Enable sync all images (similar to vv)"
+)
+@click.option("--sync", "-s", is_flag=True, help="Enable sync all images")
 def main(image_paths, linkall, sync):
     # Resolve icon paths using the new resource helper
     icon_png = get_resource_path(os.path.join("icons", "py_vv.png"))
@@ -84,7 +90,7 @@ def main(image_paths, linkall, sync):
     controller.gui = gui
     win_w = controller.settings.data["layout"]["window_width"]
     win_h = controller.settings.data["layout"]["window_height"]
-    dpg.create_viewport(title='VVV', width=win_w, height=win_h)
+    dpg.create_viewport(title="VVV", width=win_w, height=win_h)
 
     # Window Icons (using absolute paths)
     if sys.platform == "win32":

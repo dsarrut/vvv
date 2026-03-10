@@ -14,7 +14,9 @@ class ViewportMapper:
         self.disp_w = 1
         self.disp_h = 1
 
-    def update(self, quad_w, quad_h, real_w, real_h, spacing_w, spacing_h, zoom, pan_offset):
+    def update(
+        self, quad_w, quad_h, real_w, real_h, spacing_w, spacing_h, zoom, pan_offset
+    ):
         mm_w, mm_h = real_w * spacing_w, real_h * spacing_h
         target_w, target_h = quad_w - self.margin_left, quad_h - self.margin_top
 
@@ -44,7 +46,9 @@ class ViewportMapper:
 
         return (rel_x / self.disp_w) * real_w, (rel_y / self.disp_h) * real_h
 
-    def calculate_center_pan(self, tx, ty, quad_w, quad_h, real_w, real_h, spacing_w, spacing_h, zoom):
+    def calculate_center_pan(
+        self, tx, ty, quad_w, quad_h, real_w, real_h, spacing_w, spacing_h, zoom
+    ):
         mm_w, mm_h = real_w * spacing_w, real_h * spacing_h
         target_w, target_h = quad_w - self.margin_left, quad_h - self.margin_top
 
@@ -113,7 +117,9 @@ class SliceViewer:
         self.active_axes_idx = 0
 
         with dpg.texture_registry():
-            dpg.add_dynamic_texture(width=1, height=1, default_value=np.zeros(4), tag=self.texture_tag)
+            dpg.add_dynamic_texture(
+                width=1, height=1, default_value=np.zeros(4), tag=self.texture_tag
+            )
 
     # --- DYNAMIC PROPERTY ROUTING ---
     @property
@@ -140,7 +146,8 @@ class SliceViewer:
 
     @slice_idx.setter
     def slice_idx(self, value):
-        if self.view_state: self.view_state.slices[self.orientation] = value
+        if self.view_state:
+            self.view_state.slices[self.orientation] = value
 
     @property
     def pan_offset(self):
@@ -150,7 +157,8 @@ class SliceViewer:
 
     @pan_offset.setter
     def pan_offset(self, value):
-        if self.view_state: self.view_state.pan[self.orientation] = value
+        if self.view_state:
+            self.view_state.pan[self.orientation] = value
 
     @property
     def zoom(self):
@@ -165,7 +173,8 @@ class SliceViewer:
 
     @property
     def num_slices(self):
-        if not self.volume: return 0
+        if not self.volume:
+            return 0
         if self.orientation == ViewMode.AXIAL:
             return self.volume.data.shape[0]
         elif self.orientation == ViewMode.SAGITTAL:
@@ -176,7 +185,8 @@ class SliceViewer:
 
     def get_slice_shape(self):
         """Helper to get dimensions quickly without reading 3D array memory."""
-        if not self.view_state: return 1, 1
+        if not self.view_state:
+            return 1, 1
         return self.view_state.get_slice_shape(self.orientation)
 
     def set_image(self, img_id):
@@ -193,7 +203,8 @@ class SliceViewer:
         self.update_render()
 
     def set_current_slice_to_crosshair(self):
-        if not self.view_state or not self.volume: return
+        if not self.view_state or not self.volume:
+            return
         vx, vy, vz = self.view_state.crosshair_voxel
         if self.orientation == ViewMode.AXIAL:
             self.slice_idx = int(np.clip(vz, 0, self.volume.data.shape[0] - 1))
@@ -222,12 +233,21 @@ class SliceViewer:
 
         if not dpg.does_item_exist(new_texture_tag):
             with dpg.texture_registry():
-                dpg.add_dynamic_texture(width=w, height=h, default_value=np.zeros(w * h * 4), tag=new_texture_tag)
+                dpg.add_dynamic_texture(
+                    width=w,
+                    height=h,
+                    default_value=np.zeros(w * h * 4),
+                    tag=new_texture_tag,
+                )
 
         if dpg.does_item_exist(self.img_node_tag):
             dpg.delete_item(self.img_node_tag, children_only=True)
-            self.image_tag = dpg.draw_image(new_texture_tag, self.current_pmin, self.current_pmax,
-                                            parent=self.img_node_tag)
+            self.image_tag = dpg.draw_image(
+                new_texture_tag,
+                self.current_pmin,
+                self.current_pmax,
+                parent=self.img_node_tag,
+            )
 
         self.texture_tag = new_texture_tag
 
@@ -254,21 +274,26 @@ class SliceViewer:
             return ("x", "z"), (1, -1)
 
     def get_center_physical_coord(self):
-        if not self.view_state or not self.volume: return None
+        if not self.view_state or not self.volume:
+            return None
 
         win_w = dpg.get_item_width(f"win_{self.tag}")
         win_h = dpg.get_item_height(f"win_{self.tag}")
-        if not win_w or not win_h: return None
+        if not win_w or not win_h:
+            return None
 
         cx, cy = win_w / 2, win_h / 2
         shape = self.get_slice_shape()
         real_h, real_w = shape[0], shape[1]
         sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
 
-        pmin, pmax = self.mapper.update(win_w, win_h, real_w, real_h, sw, sh, self.zoom, self.pan_offset)
+        pmin, pmax = self.mapper.update(
+            win_w, win_h, real_w, real_h, sw, sh, self.zoom, self.pan_offset
+        )
         disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
 
-        if disp_w <= 0 or disp_h <= 0: return None
+        if disp_w <= 0 or disp_h <= 0:
+            return None
 
         rel_x, rel_y = cx - pmin[0], cy - pmin[1]
         slice_x = (rel_x / disp_w) * real_w
@@ -278,8 +303,10 @@ class SliceViewer:
         return self.volume.voxel_coord_to_physic_coord(v)
 
     def get_mouse_slice_coords(self, ignore_hover=False, allow_outside=False):
-        if not self.image_id or not self.volume: return None, None
-        if not ignore_hover and not dpg.is_item_hovered(f"win_{self.tag}"): return None, None
+        if not self.image_id or not self.volume:
+            return None, None
+        if not ignore_hover and not dpg.is_item_hovered(f"win_{self.tag}"):
+            return None, None
 
         shape = self.get_slice_shape()
         real_h, real_w = shape[0], shape[1]
@@ -288,35 +315,45 @@ class SliceViewer:
         return self.mapper.screen_to_image(mx, my, real_w, real_h, allow_outside)
 
     def get_pixels_per_mm(self):
-        if not self.view_state or not self.volume: return 1.0
+        if not self.view_state or not self.volume:
+            return 1.0
 
         win_w = dpg.get_item_width(f"win_{self.tag}")
         win_h = dpg.get_item_height(f"win_{self.tag}")
-        if not win_w or not win_h: return 1.0
+        if not win_w or not win_h:
+            return 1.0
 
         sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
         shape = self.get_slice_shape()
         real_w, real_h = shape[1], shape[0]
 
         mm_w, mm_h = real_w * sw, real_h * sh
-        target_w, target_h = win_w - self.mapper.margin_left, win_h - self.mapper.margin_top
+        target_w, target_h = (
+            win_w - self.mapper.margin_left,
+            win_h - self.mapper.margin_top,
+        )
 
         base_scale = min(target_w / mm_w, target_h / mm_h)
         return base_scale * self.zoom
 
     def set_pixels_per_mm(self, target_ppm):
-        if not self.view_state or not self.volume: return
+        if not self.view_state or not self.volume:
+            return
 
         win_w = dpg.get_item_width(f"win_{self.tag}")
         win_h = dpg.get_item_height(f"win_{self.tag}")
-        if not win_w or not win_h: return
+        if not win_w or not win_h:
+            return
 
         sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
         shape = self.get_slice_shape()
         real_w, real_h = shape[1], shape[0]
 
         mm_w, mm_h = real_w * sw, real_h * sh
-        target_w, target_h = win_w - self.mapper.margin_left, win_h - self.mapper.margin_top
+        target_w, target_h = (
+            win_w - self.mapper.margin_left,
+            win_h - self.mapper.margin_top,
+        )
 
         base_scale = min(target_w / mm_w, target_h / mm_h)
 
@@ -325,24 +362,32 @@ class SliceViewer:
             self.is_geometry_dirty = True
 
     def center_on_physical_coord(self, phys_coord):
-        if not self.view_state or not self.volume or phys_coord is None: return
+        if not self.view_state or not self.volume or phys_coord is None:
+            return
 
         win_w = dpg.get_item_width(f"win_{self.tag}")
         win_h = dpg.get_item_height(f"win_{self.tag}")
-        if not win_w or not win_h: return
+        if not win_w or not win_h:
+            return
 
-        v = (phys_coord - self.volume.origin + self.volume.spacing / 2) / self.volume.spacing
+        v = (
+            phys_coord - self.volume.origin + self.volume.spacing / 2
+        ) / self.volume.spacing
         shape = self.get_slice_shape()
         real_h, real_w = shape[0], shape[1]
         sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
 
         tx, ty = voxel_to_slice(v[0], v[1], v[2], self.orientation, shape)
-        self.pan_offset = self.mapper.calculate_center_pan(tx, ty, win_w, win_h, real_w, real_h, sw, sh, self.zoom)
+        self.pan_offset = self.mapper.calculate_center_pan(
+            tx, ty, win_w, win_h, real_w, real_h, sw, sh, self.zoom
+        )
         self.is_geometry_dirty = True
 
     def resize(self, quad_w, quad_h):
-        if quad_w <= 0 or quad_h <= 0: return
-        if not dpg.does_item_exist(f"win_{self.tag}"): return
+        if quad_w <= 0 or quad_h <= 0:
+            return
+        if not dpg.does_item_exist(f"win_{self.tag}"):
+            return
 
         dpg.set_item_width(f"win_{self.tag}", quad_w)
         dpg.set_item_height(f"win_{self.tag}", quad_h)
@@ -351,7 +396,8 @@ class SliceViewer:
             dpg.set_item_width(f"drawlist_{self.tag}", quad_w)
             dpg.set_item_height(f"drawlist_{self.tag}", quad_h)
 
-        if self.image_id is None or not self.is_image_orientation() or not self.volume: return
+        if self.image_id is None or not self.is_image_orientation() or not self.volume:
+            return
 
         sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
         shape = self.get_slice_shape()
@@ -361,13 +407,19 @@ class SliceViewer:
             self.pan_offset = self.calculate_pan_to_center_crosshair(quad_w, quad_h)
             self.needs_recenter = False
 
-        pmin, pmax = self.mapper.update(quad_w, quad_h, real_w, real_h, sw, sh, self.zoom, self.pan_offset)
+        pmin, pmax = self.mapper.update(
+            quad_w, quad_h, real_w, real_h, sw, sh, self.zoom, self.pan_offset
+        )
 
         if dpg.does_item_exist(self.image_tag):
             dpg.configure_item(self.image_tag, pmin=pmin, pmax=pmax)
 
     def calculate_pan_to_center_crosshair(self, win_w, win_h):
-        if not self.view_state or not self.volume or self.view_state.crosshair_voxel is None:
+        if (
+            not self.view_state
+            or not self.volume
+            or self.view_state.crosshair_voxel is None
+        ):
             return [0, 0]
 
         shape = self.get_slice_shape()
@@ -377,7 +429,9 @@ class SliceViewer:
         vx, vy, vz = self.view_state.crosshair_voxel
         tx, ty = voxel_to_slice(vx, vy, vz, self.orientation, shape)
 
-        return self.mapper.calculate_center_pan(tx, ty, win_w, win_h, real_w, real_h, sw, sh, self.zoom)
+        return self.mapper.calculate_center_pan(
+            tx, ty, win_w, win_h, real_w, real_h, sw, sh, self.zoom
+        )
 
     def draw_voxel_grid(self, h, w):
         node_a, node_b = self.grid_a_tag, self.grid_b_tag
@@ -389,10 +443,12 @@ class SliceViewer:
             return
 
         pmin, pmax = self.current_pmin, self.current_pmax
-        if h == 0 or w == 0: return
+        if h == 0 or w == 0:
+            return
 
         vox_w, vox_h = (pmax[0] - pmin[0]) / w, (pmax[1] - pmin[1]) / h
-        if vox_w <= 0 or vox_h <= 0: return
+        if vox_w <= 0 or vox_h <= 0:
+            return
 
         color = self.controller.settings.data["colors"]["grid"]
 
@@ -405,7 +461,8 @@ class SliceViewer:
             dpg.draw_line([pmin[0], ly], [pmax[0], ly], color=color, parent=back_node)
 
         dpg.configure_item(back_node, show=True)
-        if dpg.does_item_exist(self.active_grid_node): dpg.configure_item(self.active_grid_node, show=False)
+        if dpg.does_item_exist(self.active_grid_node):
+            dpg.configure_item(self.active_grid_node, show=False)
         self.active_grid_node = back_node
 
     def draw_crosshair(self):
@@ -414,7 +471,10 @@ class SliceViewer:
 
         node_tag = self.crosshair_tag
 
-        if not self.view_state.show_crosshair or self.view_state.crosshair_voxel is None:
+        if (
+            not self.view_state.show_crosshair
+            or self.view_state.crosshair_voxel is None
+        ):
             if dpg.does_item_exist(self.xh_line_h):
                 dpg.configure_item(self.xh_line_h, show=False)
                 dpg.configure_item(self.xh_line_v, show=False)
@@ -434,16 +494,36 @@ class SliceViewer:
         color = self.controller.settings.data["colors"]["crosshair"]
 
         if not self.xh_initialized:
-            dpg.draw_line([screen_x, pmin[1]], [screen_x, pmin[1] + disp_h], color=color, parent=node_tag,
-                          tag=self.xh_line_v)
-            dpg.draw_line([pmin[0], screen_y], [pmin[0] + disp_w, screen_y], color=color, parent=node_tag,
-                          tag=self.xh_line_h)
+            dpg.draw_line(
+                [screen_x, pmin[1]],
+                [screen_x, pmin[1] + disp_h],
+                color=color,
+                parent=node_tag,
+                tag=self.xh_line_v,
+            )
+            dpg.draw_line(
+                [pmin[0], screen_y],
+                [pmin[0] + disp_w, screen_y],
+                color=color,
+                parent=node_tag,
+                tag=self.xh_line_h,
+            )
             self.xh_initialized = True
         else:
-            dpg.configure_item(self.xh_line_v, p1=[screen_x, pmin[1]], p2=[screen_x, pmin[1] + disp_h], color=color,
-                               show=True)
-            dpg.configure_item(self.xh_line_h, p1=[pmin[0], screen_y], p2=[pmin[0] + disp_w, screen_y], color=color,
-                               show=True)
+            dpg.configure_item(
+                self.xh_line_v,
+                p1=[screen_x, pmin[1]],
+                p2=[screen_x, pmin[1] + disp_h],
+                color=color,
+                show=True,
+            )
+            dpg.configure_item(
+                self.xh_line_h,
+                p1=[pmin[0], screen_y],
+                p2=[pmin[0] + disp_w, screen_y],
+                color=color,
+                show=True,
+            )
 
     def draw_voxels_as_strips(self, rgba_flat, h, w):
         node_a, node_b = self.strips_a_tag, self.strips_b_tag
@@ -451,16 +531,25 @@ class SliceViewer:
         dpg.delete_item(back_node, children_only=True)
 
         pmin, pmax = self.current_pmin, self.current_pmax
-        if h == 0 or w == 0: return
+        if h == 0 or w == 0:
+            return
 
         vox_w, vox_h = (pmax[0] - pmin[0]) / w, (pmax[1] - pmin[1]) / h
-        if vox_w <= 0 or vox_h <= 0: return
+        if vox_w <= 0 or vox_h <= 0:
+            return
 
-        win_w, win_h = dpg.get_item_width(f"win_{self.tag}"), dpg.get_item_height(f"win_{self.tag}")
-        if not win_w or not win_h: return
+        win_w, win_h = dpg.get_item_width(f"win_{self.tag}"), dpg.get_item_height(
+            f"win_{self.tag}"
+        )
+        if not win_w or not win_h:
+            return
 
-        start_x, end_x = max(0, int(-pmin[0] / vox_w)), min(w, int((win_w - pmin[0]) / vox_w) + 1)
-        start_y, end_y = max(0, int(-pmin[1] / vox_h)), min(h, int((win_h - pmin[1]) / vox_h) + 1)
+        start_x, end_x = max(0, int(-pmin[0] / vox_w)), min(
+            w, int((win_w - pmin[0]) / vox_w) + 1
+        )
+        start_y, end_y = max(0, int(-pmin[1] / vox_h)), min(
+            h, int((win_h - pmin[1]) / vox_h) + 1
+        )
         pixels = rgba_flat.reshape(h, w, 4)
 
         for y in range(start_y, end_y):
@@ -468,10 +557,17 @@ class SliceViewer:
             for x in range(start_x, end_x):
                 x1 = pmin[0] + (x * vox_w)
                 color = [int(c * 255) for c in pixels[y, x]]
-                dpg.draw_line([x1, y_pos], [x1 + vox_w, y_pos], color=color, thickness=vox_h + 1, parent=back_node)
+                dpg.draw_line(
+                    [x1, y_pos],
+                    [x1 + vox_w, y_pos],
+                    color=color,
+                    thickness=vox_h + 1,
+                    parent=back_node,
+                )
 
         dpg.configure_item(back_node, show=True)
-        if dpg.does_item_exist(self.active_strips_node): dpg.configure_item(self.active_strips_node, show=False)
+        if dpg.does_item_exist(self.active_strips_node):
+            dpg.configure_item(self.active_strips_node, show=False)
         self.active_strips_node = back_node
 
     def draw_orientation_axes(self):
@@ -491,36 +587,68 @@ class SliceViewer:
 
         origin = [12, 12]
         length = 30
-        if directions[0] == -1: origin[0] = 50
-        if directions[1] == -1: origin[1] = 50
+        if directions[0] == -1:
+            origin[0] = 50
+        if directions[1] == -1:
+            origin[1] = 50
 
         color_h = axis_colors[labels[0]]
         color_v = axis_colors[labels[1]]
         end_h = [origin[0] + (length * directions[0]), origin[1]]
         end_v = [origin[0], origin[1] + (length * directions[1])]
 
-        dpg.draw_arrow(end_h, origin, color=color_h, thickness=2, size=4, parent=back_node)
+        dpg.draw_arrow(
+            end_h, origin, color=color_h, thickness=2, size=4, parent=back_node
+        )
         h_text_off = 5 if directions[0] > 0 else -18
-        dpg.draw_text([end_h[0] + h_text_off, end_h[1] - 7], labels[0], color=color_h, size=14, parent=back_node)
+        dpg.draw_text(
+            [end_h[0] + h_text_off, end_h[1] - 7],
+            labels[0],
+            color=color_h,
+            size=14,
+            parent=back_node,
+        )
 
-        dpg.draw_arrow(end_v, origin, color=color_v, thickness=2, size=4, parent=back_node)
+        dpg.draw_arrow(
+            end_v, origin, color=color_v, thickness=2, size=4, parent=back_node
+        )
         v_text_off = 5 if directions[1] > 0 else -18
-        dpg.draw_text([end_v[0] - 5, end_v[1] + v_text_off], labels[1], color=color_v, size=14, parent=back_node)
+        dpg.draw_text(
+            [end_v[0] - 5, end_v[1] + v_text_off],
+            labels[1],
+            color=color_v,
+            size=14,
+            parent=back_node,
+        )
 
         dpg.configure_item(back_node, show=True)
         dpg.configure_item(front_node, show=False)
         self.active_axes_idx = back_idx
 
     def draw_histogram_view(self):
-        if not self.view_state: return
+        if not self.view_state:
+            return
         plot_tag = f"plot_{self.tag}"
 
         if not dpg.does_item_exist(plot_tag):
-            with dpg.plot(label=f"Histogram: {self.volume.name}", parent=f"win_{self.tag}", tag=plot_tag, width=-1,
-                          height=-1):
-                dpg.add_plot_axis(dpg.mvXAxis, label="Voxel Value", tag=f"x_axis_{self.tag}")
+            with dpg.plot(
+                label=f"Histogram: {self.volume.name}",
+                parent=f"win_{self.tag}",
+                tag=plot_tag,
+                width=-1,
+                height=-1,
+            ):
+                dpg.add_plot_axis(
+                    dpg.mvXAxis, label="Voxel Value", tag=f"x_axis_{self.tag}"
+                )
                 dpg.add_plot_axis(dpg.mvYAxis, label="Count", tag=f"y_axis_{self.tag}")
-                dpg.add_line_series([], [], label="Freq", parent=f"y_axis_{self.tag}", tag=f"series_{self.tag}")
+                dpg.add_line_series(
+                    [],
+                    [],
+                    label="Freq",
+                    parent=f"y_axis_{self.tag}",
+                    tag=f"series_{self.tag}",
+                )
             self.view_state.histogram_is_dirty = True
 
         dpg.configure_item(plot_tag, show=True)
@@ -530,22 +658,36 @@ class SliceViewer:
         else:
             return
 
-        y_data = np.log10(self.view_state.hist_data_y + 1) if self.view_state.use_log_y else self.view_state.hist_data_y
-        dpg.set_value(f"series_{self.tag}", [self.view_state.hist_data_x.tolist(), y_data.tolist()])
+        y_data = (
+            np.log10(self.view_state.hist_data_y + 1)
+            if self.view_state.use_log_y
+            else self.view_state.hist_data_y
+        )
+        dpg.set_value(
+            f"series_{self.tag}",
+            [self.view_state.hist_data_x.tolist(), y_data.tolist()],
+        )
         dpg.fit_axis_data(f"x_axis_{self.tag}")
         dpg.fit_axis_data(f"y_axis_{self.tag}")
 
     def draw_scale_bar(self):
         dpg.delete_item(self.scale_bar_tag, children_only=True)
 
-        if not self.is_image_orientation() or not self.view_state or not self.view_state.show_scalebar: return
+        if (
+            not self.is_image_orientation()
+            or not self.view_state
+            or not self.view_state.show_scalebar
+        ):
+            return
 
         win_w = dpg.get_item_width(f"win_{self.tag}")
         win_h = dpg.get_item_height(f"win_{self.tag}")
-        if not win_w or not win_h: return
+        if not win_w or not win_h:
+            return
 
         ppm = self.get_pixels_per_mm()
-        if ppm <= 0: return
+        if ppm <= 0:
+            return
 
         target_px = win_w * 0.15
         target_mm = target_px / ppm
@@ -570,13 +712,29 @@ class SliceViewer:
 
         color = self.controller.settings.data["colors"]["overlay_text"]
 
-        dpg.draw_rectangle([x1, y - 1], [x2, y + 1], color=color, fill=color, parent=self.scale_bar_tag)
-        dpg.draw_rectangle([x1 - 1, y - 5], [x1 + 1, y + 5], color=color, fill=color, parent=self.scale_bar_tag)
-        dpg.draw_rectangle([x2 - 1, y - 5], [x2 + 1, y + 5], color=color, fill=color, parent=self.scale_bar_tag)
+        dpg.draw_rectangle(
+            [x1, y - 1], [x2, y + 1], color=color, fill=color, parent=self.scale_bar_tag
+        )
+        dpg.draw_rectangle(
+            [x1 - 1, y - 5],
+            [x1 + 1, y + 5],
+            color=color,
+            fill=color,
+            parent=self.scale_bar_tag,
+        )
+        dpg.draw_rectangle(
+            [x2 - 1, y - 5],
+            [x2 + 1, y + 5],
+            color=color,
+            fill=color,
+            parent=self.scale_bar_tag,
+        )
 
         text = f"{bar_mm:g} mm"
         text_x = int(x1 + (bar_px / 2) - ((len(text) * 7) / 2))
-        dpg.draw_text([text_x, int(y - 20)], text, color=color, size=14, parent=self.scale_bar_tag)
+        dpg.draw_text(
+            [text_x, int(y - 20)], text, color=color, size=14, parent=self.scale_bar_tag
+        )
 
     def hide_everything(self):
         new_state = not self.view_state.show_crosshair
@@ -595,37 +753,57 @@ class SliceViewer:
         self.controller.update_all_viewers_of_image(self.image_id)
 
     def should_use_voxels_strips(self):
-        if not self.view_state or not self.volume or self.view_state.interpolation_linear:
+        if (
+            not self.view_state
+            or not self.volume
+            or self.view_state.interpolation_linear
+        ):
             return False
 
-        win_w, win_h = dpg.get_item_width(f"win_{self.tag}"), dpg.get_item_height(f"win_{self.tag}")
-        if not win_w or not win_h: return False
+        win_w, win_h = dpg.get_item_width(f"win_{self.tag}"), dpg.get_item_height(
+            f"win_{self.tag}"
+        )
+        if not win_w or not win_h:
+            return False
 
         pmin, pmax = self.current_pmin, self.current_pmax
         shape = self.get_slice_shape()
 
         vox_w, vox_h = (pmax[0] - pmin[0]) / shape[1], (pmax[1] - pmin[1]) / shape[0]
-        if vox_w <= 0 or vox_h <= 0: return False
+        if vox_w <= 0 or vox_h <= 0:
+            return False
 
-        start_x, end_x = max(0, int(-pmin[0] / vox_w)), min(shape[1], int((win_w - pmin[0]) / vox_w) + 1)
-        start_y, end_y = max(0, int(-pmin[1] / vox_h)), min(shape[0], int((win_h - pmin[1]) / vox_h) + 1)
+        start_x, end_x = max(0, int(-pmin[0] / vox_w)), min(
+            shape[1], int((win_w - pmin[0]) / vox_w) + 1
+        )
+        start_y, end_y = max(0, int(-pmin[1] / vox_h)), min(
+            shape[0], int((win_h - pmin[1]) / vox_h) + 1
+        )
 
-        m = self.controller.settings.data['physics']['voxel_strip_threshold']
+        m = self.controller.settings.data["physics"]["voxel_strip_threshold"]
         return 0 < (end_x - start_x) * (end_y - start_y) < m
 
     def apply_local_auto_window(self, fov_fraction=0.20):
-        if self.image_id is None or not self.volume or getattr(self.volume, 'is_rgb', False): return
+        if (
+            self.image_id is None
+            or not self.volume
+            or getattr(self.volume, "is_rgb", False)
+        ):
+            return
 
         pix_x, pix_y = self.get_mouse_slice_coords(ignore_hover=True)
-        if pix_x is None: return
+        if pix_x is None:
+            return
 
         pmin, pmax = self.current_pmin, self.current_pmax
         disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
-        if disp_w <= 0 or disp_h <= 0: return
+        if disp_w <= 0 or disp_h <= 0:
+            return
 
         win_w = dpg.get_item_width(f"win_{self.tag}")
         win_h = dpg.get_item_height(f"win_{self.tag}")
-        if not win_w or not win_h: return
+        if not win_w or not win_h:
+            return
 
         slice_data = self.view_state.get_raw_slice(self.slice_idx, self.orientation)
         real_h, real_w = slice_data.shape
@@ -641,7 +819,8 @@ class SliceViewer:
         x0, x1 = max(0, int(pix_x) - vx_r_x), min(real_w, int(pix_x) + vx_r_x)
         y0, y1 = max(0, int(pix_y) - vx_r_y), min(real_h, int(pix_y) + vx_r_y)
 
-        if x1 <= x0 or y1 <= y0: return
+        if x1 <= x0 or y1 <= y0:
+            return
 
         patch = slice_data[y0:y1, x0:x1]
         if patch.size > 0:
@@ -650,16 +829,27 @@ class SliceViewer:
             self.update_window_level(ww, (p_max + p_min) / 2)
 
     def update_window_level(self, ww, wl):
-        if not self.is_image_orientation() or not self.volume or getattr(self.volume, 'is_rgb', False): return
+        if (
+            not self.is_image_orientation()
+            or not self.volume
+            or getattr(self.volume, "is_rgb", False)
+        ):
+            return
         self.view_state.ww = max(1e-5, ww)
         self.view_state.wl = wl
         self.controller.propagate_window_level(self.image_id)
 
     def update_crosshair_data(self, pix_x, pix_y):
-        if self.view_state: self.view_state.update_crosshair_from_2d(pix_x, pix_y, self.slice_idx, self.orientation)
+        if self.view_state:
+            self.view_state.update_crosshair_from_2d(
+                pix_x, pix_y, self.slice_idx, self.orientation
+            )
 
     def update_crosshair_from_slice(self):
-        if self.view_state: self.view_state.update_crosshair_from_slice_scroll(self.slice_idx, self.orientation)
+        if self.view_state:
+            self.view_state.update_crosshair_from_slice_scroll(
+                self.slice_idx, self.orientation
+            )
 
     def tick(self):
         """Called every frame. Evaluates dirty flags and updates rendering."""
@@ -671,7 +861,9 @@ class SliceViewer:
         # 1. Handle Data / Pixel Changes
         if self.view_state.is_data_dirty:
             self.update_render()
-            self.is_geometry_dirty = True  # Force overlays to update over new pixel data
+            self.is_geometry_dirty = (
+                True  # Force overlays to update over new pixel data
+            )
             did_update_data = True
 
         # 2. Handle Window Resize / Pan / Zoom
@@ -686,18 +878,22 @@ class SliceViewer:
 
     def update_render(self):
         """Reslices the 3D volume and pushes the flat pixel array to the GPU."""
-        if self.image_id is None or not self.volume or not self.view_state: return
+        if self.image_id is None or not self.volume or not self.view_state:
+            return
 
         drawlist_tag = f"drawlist_{self.tag}"
         plot_tag = f"plot_{self.tag}"
 
         if not self.is_image_orientation():
-            if dpg.does_item_exist(drawlist_tag): dpg.configure_item(drawlist_tag, show=False)
+            if dpg.does_item_exist(drawlist_tag):
+                dpg.configure_item(drawlist_tag, show=False)
             self.draw_histogram_view()
             return
         else:
-            if dpg.does_item_exist(drawlist_tag): dpg.configure_item(drawlist_tag, show=True)
-            if dpg.does_item_exist(plot_tag): dpg.configure_item(plot_tag, show=False)
+            if dpg.does_item_exist(drawlist_tag):
+                dpg.configure_item(drawlist_tag, show=True)
+            if dpg.does_item_exist(plot_tag):
+                dpg.configure_item(plot_tag, show=False)
 
         # THIS IS THE SLOWEST LINE IN THE APP:
         rgba_flat, _ = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
@@ -711,17 +907,19 @@ class SliceViewer:
 
     def update_overlays_only(self):
         """Redraws grids, axes, scalebar, and strips WITHOUT re-slicing the 3D volume."""
-        if not self.is_image_orientation() or not self.view_state or not self.volume: return
+        if not self.is_image_orientation() or not self.view_state or not self.volume:
+            return
 
         shape = self.get_slice_shape()
         h, w = shape[0], shape[1]
 
         # 1. Update Voxel Strips (If zoomed in very far)
-        if self.should_use_voxels_strips() and hasattr(self, 'last_rgba_flat'):
+        if self.should_use_voxels_strips() and hasattr(self, "last_rgba_flat"):
             dpg.configure_item(self.image_tag, show=False)
             self.draw_voxels_as_strips(self.last_rgba_flat, h, w)
         else:
-            if dpg.does_item_exist(self.active_strips_node): dpg.configure_item(self.active_strips_node, show=False)
+            if dpg.does_item_exist(self.active_strips_node):
+                dpg.configure_item(self.active_strips_node, show=False)
             dpg.configure_item(self.image_tag, show=True)
 
         # 2. Update Overlay Geometries
@@ -743,13 +941,20 @@ class SliceViewer:
         self.update_overlay()
 
     def update_overlay(self):
-        if (self.image_id is None or not self.view_state or not self.volume
-                or not self.view_state.show_overlay or not self.is_image_orientation()):
+        if (
+            self.image_id is None
+            or not self.view_state
+            or not self.volume
+            or not self.view_state.show_overlay
+            or not self.is_image_orientation()
+        ):
             dpg.set_value(self.overlay_tag, "")
             return
 
-        is_dragging = (self.controller.gui.drag_viewer == self)
-        pix_x, pix_y = self.get_mouse_slice_coords(ignore_hover=is_dragging, allow_outside=is_dragging)
+        is_dragging = self.controller.gui.drag_viewer == self
+        pix_x, pix_y = self.get_mouse_slice_coords(
+            ignore_hover=is_dragging, allow_outside=is_dragging
+        )
         if pix_x is None:
             dpg.set_value(self.overlay_tag, "")
             return
@@ -767,17 +972,26 @@ class SliceViewer:
         if 0 <= ix < max_x and 0 <= iy < max_y and 0 <= iz < max_z:
             val = self.volume.data[iz, iy, ix]
             self.mouse_value, self.mouse_voxel, self.mouse_phys_coord = val, v, phys
-            val_str = f"{val[0]:g} {val[1]:g} {val[2]:g}" if getattr(self.volume, 'is_rgb', False) else f"{val:g}"
-            dpg.set_value(self.overlay_tag, f"{val_str}\n{fmt(v, 1)}\n{fmt(phys, 1)} mm")
+            val_str = (
+                f"{val[0]:g} {val[1]:g} {val[2]:g}"
+                if getattr(self.volume, "is_rgb", False)
+                else f"{val:g}"
+            )
+            dpg.set_value(
+                self.overlay_tag, f"{val_str}\n{fmt(v, 1)}\n{fmt(phys, 1)} mm"
+            )
         else:
             dpg.set_value(self.overlay_tag, "Out of image")
 
         win_h = dpg.get_item_height(f"win_{self.tag}")
         ts = dpg.get_item_rect_size(self.overlay_tag)
-        dpg.set_item_pos(self.overlay_tag, [5, win_h - (ts[1] if ts[1] > 0 else 60) - 5])
+        dpg.set_item_pos(
+            self.overlay_tag, [5, win_h - (ts[1] if ts[1] > 0 else 60) - 5]
+        )
 
     def on_key_press(self, key):
-        if not self.view_state: return
+        if not self.view_state:
+            return
 
         # Helper to resolve string shortcuts to DPG keycodes dynamically
         def _k(action):
@@ -798,7 +1012,8 @@ class SliceViewer:
                         self.controller.gui.update_sidebar_info(self)
             return
 
-        if not self.view_state: return
+        if not self.view_state:
+            return
 
         if key == _k("auto_window"):
             fov = self.controller.settings.data["physics"].get("auto_window_fov", 0.20)
@@ -808,9 +1023,13 @@ class SliceViewer:
         elif key == _k("scroll_down"):
             self.on_scroll(-1)
         elif key == _k("fast_scroll_up"):
-            self.on_scroll(self.controller.settings.data["interaction"]["fast_scroll_steps"])
+            self.on_scroll(
+                self.controller.settings.data["interaction"]["fast_scroll_steps"]
+            )
         elif key == _k("fast_scroll_down"):
-            self.on_scroll(-self.controller.settings.data["interaction"]["fast_scroll_steps"])
+            self.on_scroll(
+                -self.controller.settings.data["interaction"]["fast_scroll_steps"]
+            )
             self.on_scroll(-10)
         elif key == _k("zoom_in"):
             self.on_zoom("in")
@@ -837,9 +1056,15 @@ class SliceViewer:
         elif key == _k("view_coronal"):
             self.set_orientation(ViewMode.CORONAL)
         elif key == _k("view_histogram"):
-            self.set_orientation(ViewMode.HISTOGRAM if self.is_image_orientation() else ViewMode.HISTOGRAM)
+            self.set_orientation(
+                ViewMode.HISTOGRAM
+                if self.is_image_orientation()
+                else ViewMode.HISTOGRAM
+            )
         elif key == _k("toggle_interp"):
-            self.view_state.interpolation_linear = not self.view_state.interpolation_linear
+            self.view_state.interpolation_linear = (
+                not self.view_state.interpolation_linear
+            )
             self.view_state.is_data_dirty = True
         elif key == _k("toggle_grid"):
             self.view_state.grid_mode = not self.view_state.grid_mode
@@ -848,7 +1073,12 @@ class SliceViewer:
             self.hide_everything()
 
     def on_scroll(self, delta=1):
-        if self.image_id is None or not self.is_image_orientation() or not self.view_state: return
+        if (
+            self.image_id is None
+            or not self.is_image_orientation()
+            or not self.view_state
+        ):
+            return
         self.slice_idx += delta
         if self.slice_idx < 0:
             self.slice_idx = 0
@@ -860,14 +1090,20 @@ class SliceViewer:
         self.view_state.is_data_dirty = True
 
     def on_drag(self, data):
-        if self.image_id is None or not self.is_image_orientation() or not self.view_state: return
+        if (
+            self.image_id is None
+            or not self.is_image_orientation()
+            or not self.view_state
+        ):
+            return
 
         sx, sy = data[1] - self.last_dx, data[2] - self.last_dy
         self.last_dx, self.last_dy = data[1], data[2]
 
         is_button = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
-        is_ctrl, is_shift = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl), dpg.is_key_down(
-            dpg.mvKey_LShift) or dpg.is_key_down(dpg.mvKey_RShift)
+        is_ctrl, is_shift = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(
+            dpg.mvKey_RControl
+        ), dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(dpg.mvKey_RShift)
 
         if not is_ctrl and not is_shift and is_button:
             px, py = self.get_mouse_slice_coords(ignore_hover=True, allow_outside=True)
@@ -886,7 +1122,13 @@ class SliceViewer:
             self.update_window_level(ww, wl)
 
     def on_zoom(self, direction):
-        if self.image_id is None or not self.is_image_orientation() or not self.view_state or not self.volume: return
+        if (
+            self.image_id is None
+            or not self.is_image_orientation()
+            or not self.view_state
+            or not self.volume
+        ):
+            return
 
         mx, my = dpg.get_drawing_mouse_pos()
         oz = self.zoom
@@ -906,7 +1148,10 @@ class SliceViewer:
                 real_w, real_h = shape[1], shape[0]
 
                 mm_w, mm_h = real_w * sw, real_h * sh
-                target_w, target_h = win_w - self.mapper.margin_left, win_h - self.mapper.margin_top
+                target_w, target_h = (
+                    win_w - self.mapper.margin_left,
+                    win_h - self.mapper.margin_top,
+                )
 
                 base_scale = min(target_w / mm_w, target_h / mm_h)
                 self.view_state.shared_ppm = base_scale * self.zoom

@@ -13,12 +13,9 @@ DEFAULT_SETTINGS = {
         "x": [255, 80, 80, 230],
         "y": [80, 255, 80, 230],
         "z": [80, 80, 255, 230],
-        "grid": [255, 255, 255, 40]
+        "grid": [255, 255, 255, 40],
     },
-    "physics": {
-        "auto_window_fov": 0.20,
-        "voxel_strip_threshold": 1500
-    },
+    "physics": {"auto_window_fov": 0.20, "voxel_strip_threshold": 1500},
     "shortcuts": {
         "open_file": "O",
         "next_image": "N",
@@ -37,18 +34,14 @@ DEFAULT_SETTINGS = {
         "view_histogram": "F4",
         "toggle_interp": "L",
         "toggle_grid": "G",
-        "hide_all": "H"
+        "hide_all": "H",
     },
     "interaction": {
         "zoom_speed": 1.1,
         "fast_scroll_steps": 10,
-        "wl_drag_sensitivity": 2.0
+        "wl_drag_sensitivity": 2.0,
     },
-    "layout": {
-        "window_width": 1000,
-        "window_height": 800,
-        "side_panel_width": 300
-    }
+    "layout": {"window_width": 1000, "window_height": 800, "side_panel_width": 300},
 }
 
 WL_PRESETS = {
@@ -58,15 +51,15 @@ WL_PRESETS = {
     "CT: Soft Tissue": {"ww": 400.0, "wl": 50.0},
     "CT: Bone": {"ww": 2000.0, "wl": 400.0},
     "CT: Lung": {"ww": 1500.0, "wl": -600.0},
-    "CT: Brain": {"ww": 80.0, "wl": 40.0}
+    "CT: Brain": {"ww": 80.0, "wl": 40.0},
 }
 
 
 class SettingsManager:
     def __init__(self):
         # Platform-specific path
-        if os.name == 'nt':
-            self.config_dir = Path(os.getenv('APPDATA')) / "VVV"
+        if os.name == "nt":
+            self.config_dir = Path(os.getenv("APPDATA")) / "VVV"
         else:
             self.config_dir = Path.home() / ".config" / "vvv"
 
@@ -104,12 +97,16 @@ class ViewState:
         self.wl = 270.0
 
         self.zoom = {ViewMode.AXIAL: 1.0, ViewMode.SAGITTAL: 1.0, ViewMode.CORONAL: 1.0}
-        self.pan = {ViewMode.AXIAL: [0, 0], ViewMode.SAGITTAL: [0, 0], ViewMode.CORONAL: [0, 0]}
+        self.pan = {
+            ViewMode.AXIAL: [0, 0],
+            ViewMode.SAGITTAL: [0, 0],
+            ViewMode.CORONAL: [0, 0],
+        }
 
         self.slices = {
             ViewMode.AXIAL: self.volume.data.shape[0] // 2,
             ViewMode.SAGITTAL: self.volume.data.shape[1] // 2,
-            ViewMode.CORONAL: self.volume.data.shape[2] // 2
+            ViewMode.CORONAL: self.volume.data.shape[2] // 2,
         }
 
         self.crosshair_phys_coord = None
@@ -145,9 +142,14 @@ class ViewState:
         return 1, 1
 
     def init_crosshair_to_slices(self):
-        self.crosshair_voxel = [self.slices[ViewMode.CORONAL], self.slices[ViewMode.SAGITTAL],
-                                self.slices[ViewMode.AXIAL]]
-        self.crosshair_phys_coord = self.volume.voxel_coord_to_physic_coord(self.crosshair_voxel)
+        self.crosshair_voxel = [
+            self.slices[ViewMode.CORONAL],
+            self.slices[ViewMode.SAGITTAL],
+            self.slices[ViewMode.AXIAL],
+        ]
+        self.crosshair_phys_coord = self.volume.voxel_coord_to_physic_coord(
+            self.crosshair_voxel
+        )
         ix, iy, iz = self.crosshair_voxel
         self.crosshair_value = self.volume.data[iz, iy, ix]
 
@@ -162,9 +164,20 @@ class ViewState:
 
         new_v = [vx, vy, vz]
         self.crosshair_voxel = new_v
-        self.crosshair_phys_coord = self.volume.voxel_coord_to_physic_coord(np.array(new_v))
-        ix, iy, iz = [int(np.clip(c, 0, limit - 1)) for c, limit in
-                      zip(new_v, [self.volume.data.shape[2], self.volume.data.shape[1], self.volume.data.shape[0]])]
+        self.crosshair_phys_coord = self.volume.voxel_coord_to_physic_coord(
+            np.array(new_v)
+        )
+        ix, iy, iz = [
+            int(np.clip(c, 0, limit - 1))
+            for c, limit in zip(
+                new_v,
+                [
+                    self.volume.data.shape[2],
+                    self.volume.data.shape[1],
+                    self.volume.data.shape[0],
+                ],
+            )
+        ]
         self.crosshair_value = self.volume.data[iz, iy, ix]
 
     def update_crosshair_from_2d(self, slice_x, slice_y, slice_idx, orientation):
@@ -174,23 +187,37 @@ class ViewState:
         self.crosshair_voxel = list(v)
         self.crosshair_phys_coord = self.volume.voxel_coord_to_physic_coord(np.array(v))
 
-        ix, iy, iz = [int(np.clip(c, 0, limit - 1)) for c, limit in
-                      zip(v, [self.volume.data.shape[2], self.volume.data.shape[1], self.volume.data.shape[0]])]
+        ix, iy, iz = [
+            int(np.clip(c, 0, limit - 1))
+            for c, limit in zip(
+                v,
+                [
+                    self.volume.data.shape[2],
+                    self.volume.data.shape[1],
+                    self.volume.data.shape[0],
+                ],
+            )
+        ]
         self.crosshair_value = self.volume.data[iz, iy, ix]
 
     def reset_view(self):
         self.zoom = {ViewMode.AXIAL: 1.0, ViewMode.SAGITTAL: 1.0, ViewMode.CORONAL: 1.0}
-        self.pan = {ViewMode.AXIAL: [0, 0], ViewMode.SAGITTAL: [0, 0], ViewMode.CORONAL: [0, 0]}
+        self.pan = {
+            ViewMode.AXIAL: [0, 0],
+            ViewMode.SAGITTAL: [0, 0],
+            ViewMode.CORONAL: [0, 0],
+        }
         self.slices = {
             ViewMode.AXIAL: self.volume.data.shape[0] // 2,
             ViewMode.SAGITTAL: self.volume.data.shape[1] // 2,
-            ViewMode.CORONAL: self.volume.data.shape[2] // 2
+            ViewMode.CORONAL: self.volume.data.shape[2] // 2,
         }
         self.init_crosshair_to_slices()
         self.is_data_dirty = True
 
     def apply_wl_preset(self, preset_name):
-        if getattr(self.volume, 'is_rgb', False) or preset_name == "Custom": return
+        if getattr(self.volume, "is_rgb", False) or preset_name == "Custom":
+            return
         if "Optimal" in preset_name:
             stride = max(1, self.volume.data.size // 100000)
             sample_data = self.volume.data.flatten()[::stride]
@@ -243,10 +270,10 @@ class ViewState:
                 self.wl = (p99 + p1) / 2
 
     def is_ct_image(self, flat_data):
-        if hasattr(self.volume.sitk_image, 'GetMetaData'):
+        if hasattr(self.volume.sitk_image, "GetMetaData"):
             try:
-                modality = self.volume.sitk_image.GetMetaData('Modality')
-                if modality.upper() == 'CT':
+                modality = self.volume.sitk_image.GetMetaData("Modality")
+                if modality.upper() == "CT":
                     return True
             except:
                 pass
@@ -261,27 +288,36 @@ class ViewState:
         image_shape = self.volume.data.shape
 
         if len(image_shape) == 3 and image_shape[0] > 300:
-            preset = {'ww': 600, 'wl': 0}  # Special internal fallback for whole body
+            preset = {"ww": 600, "wl": 0}  # Special internal fallback for whole body
         elif data_range > 1500:
-            preset = WL_PRESETS['CT: Bone']
+            preset = WL_PRESETS["CT: Bone"]
         elif p5 < -800:
-            preset = WL_PRESETS['CT: Lung']
+            preset = WL_PRESETS["CT: Lung"]
         elif -200 < p5 < 200 and data_range < 500:
-            preset = WL_PRESETS['CT: Brain']
+            preset = WL_PRESETS["CT: Brain"]
         else:
-            preset = WL_PRESETS['CT: Soft Tissue']
+            preset = WL_PRESETS["CT: Soft Tissue"]
 
-        self.ww = preset['ww']
-        self.wl = preset['wl']
+        self.ww = preset["ww"]
+        self.wl = preset["wl"]
 
     def get_raw_slice(self, slice_idx, orientation=ViewMode.AXIAL):
-        return SliceRenderer.get_raw_slice(self.volume.data, getattr(self.volume, 'is_rgb', False), slice_idx,
-                                           orientation)
+        return SliceRenderer.get_raw_slice(
+            self.volume.data,
+            getattr(self.volume, "is_rgb", False),
+            slice_idx,
+            orientation,
+        )
 
     def get_slice_rgba(self, slice_idx, orientation=ViewMode.AXIAL):
         return SliceRenderer.get_slice_rgba(
-            self.volume.data, getattr(self.volume, 'is_rgb', False), self.volume.num_components,
-            self.ww, self.wl, slice_idx, orientation
+            self.volume.data,
+            getattr(self.volume, "is_rgb", False),
+            self.volume.num_components,
+            self.ww,
+            self.wl,
+            slice_idx,
+            orientation,
         )
 
 
@@ -327,7 +363,9 @@ class VolumeData:
         self.spacing = np.array(self.sitk_image.GetSpacing())
         self.origin = np.array(self.sitk_image.GetOrigin())
         bytes_per_pixel = self.bytes_per_component * self.num_components
-        self.memory_mb = self.sitk_image.GetNumberOfPixels() * bytes_per_pixel / (1024 * 1024)
+        self.memory_mb = (
+            self.sitk_image.GetNumberOfPixels() * bytes_per_pixel / (1024 * 1024)
+        )
 
     def get_physical_aspect_ratio(self, orientation):
         dx, dy, dz = self.spacing
@@ -449,8 +487,13 @@ class Controller:
                 viewer.draw_crosshair()
 
     def unify_ppm_max_NOT_USE(self, target_viewer_tags):
-        valid_viewers = [self.viewers[tag] for tag in target_viewer_tags if self.viewers[tag].view_state]
-        if not valid_viewers: return
+        valid_viewers = [
+            self.viewers[tag]
+            for tag in target_viewer_tags
+            if self.viewers[tag].view_state
+        ]
+        if not valid_viewers:
+            return
 
         max_ppm = 0.0
         for viewer in valid_viewers:
@@ -464,8 +507,13 @@ class Controller:
                 viewer.is_geometry_dirty = True
 
     def unify_ppm(self, target_viewer_tags):
-        valid_viewers = [self.viewers[tag] for tag in target_viewer_tags if self.viewers[tag].view_state]
-        if not valid_viewers: return
+        valid_viewers = [
+            self.viewers[tag]
+            for tag in target_viewer_tags
+            if self.viewers[tag].view_state
+        ]
+        if not valid_viewers:
+            return
 
         min_ppm = 1e9
         for viewer in valid_viewers:
@@ -573,7 +621,9 @@ class Controller:
         self.unify_ppm(group_viewer_tags)
 
         if master_vs_id:
-            master_viewer = next((v for v in self.viewers.values() if v.image_id == master_vs_id), None)
+            master_viewer = next(
+                (v for v in self.viewers.values() if v.image_id == master_vs_id), None
+            )
             if master_viewer:
                 phys_center = master_viewer.get_center_physical_coord()
                 if phys_center is not None:
@@ -603,8 +653,11 @@ class Controller:
         if source_vs.sync_group == 0:
             target_ids = [source_vs_id]
         else:
-            target_ids = [tid for tid, vs in self.view_states.items()
-                          if vs.sync_group == source_vs.sync_group]
+            target_ids = [
+                tid
+                for tid, vs in self.view_states.items()
+                if vs.sync_group == source_vs.sync_group
+            ]
 
         for target_id in target_ids:
             target_vs = self.view_states[target_id]
@@ -612,7 +665,9 @@ class Controller:
             if target_id == source_vs_id:
                 source_vox = source_vs.crosshair_voxel
                 target_vs.crosshair_voxel = source_vox.copy()
-                target_vs.crosshair_phys_coord = target_vs.volume.voxel_coord_to_physic_coord(source_vox)
+                target_vs.crosshair_phys_coord = (
+                    target_vs.volume.voxel_coord_to_physic_coord(source_vox)
+                )
 
                 target_vs.slices[ViewMode.AXIAL] = int(source_vox[2])
                 target_vs.slices[ViewMode.SAGITTAL] = int(source_vox[0])
@@ -620,7 +675,9 @@ class Controller:
             else:
                 phys_pos = source_vs.crosshair_phys_coord
                 target_vol = target_vs.volume
-                target_vox = (phys_pos - target_vol.origin + target_vol.spacing / 2) / target_vol.spacing
+                target_vox = (
+                    phys_pos - target_vol.origin + target_vol.spacing / 2
+                ) / target_vol.spacing
                 target_vs.crosshair_voxel = list(target_vox)
                 target_vs.crosshair_phys_coord = phys_pos
 
@@ -645,7 +702,9 @@ class Controller:
         target_group = source_vs.sync_group
         if sync_wl and target_group != 0:
             for target_id, vs in self.view_states.items():
-                if vs.sync_group == target_group and not getattr(vs.volume, 'is_rgb', False):
+                if vs.sync_group == target_group and not getattr(
+                    vs.volume, "is_rgb", False
+                ):
                     vs.ww = source_vs.ww
                     vs.wl = source_vs.wl
                     vs.is_data_dirty = True
@@ -655,7 +714,10 @@ class Controller:
         for viewer in self.viewers.values():
             if viewer.view_state:
                 if viewer.image_id == source_vs_id or (
-                        sync_wl and target_group != 0 and viewer.view_state.sync_group == target_group):
+                    sync_wl
+                    and target_group != 0
+                    and viewer.view_state.sync_group == target_group
+                ):
                     viewer.update_render()
 
     def propagate_camera(self, source_viewer):
@@ -666,8 +728,11 @@ class Controller:
         if source_vs.sync_group == 0:
             target_ids = [source_viewer.image_id]
         else:
-            target_ids = [tid for tid, vs in self.view_states.items()
-                          if vs.sync_group == source_vs.sync_group]
+            target_ids = [
+                tid
+                for tid, vs in self.view_states.items()
+                if vs.sync_group == source_vs.sync_group
+            ]
 
         phys_center = source_viewer.get_center_physical_coord()
         if phys_center is None:
@@ -698,7 +763,8 @@ class SliceRenderer:
     @staticmethod
     def get_raw_slice(data, is_rgb, slice_idx, orientation):
         """Legacy helper for logic that strictly requires a 2D float array (like Auto Window/Level)."""
-        if is_rgb: return np.zeros((1, 1))
+        if is_rgb:
+            return np.zeros((1, 1))
         res = SliceRenderer.extract_slice(data, slice_idx, orientation)
         return res if res is not None else np.zeros((1, 1))
 
@@ -736,8 +802,13 @@ class SliceRenderer:
                 rgba = norm_img
         else:
             min_val = wl - ww / 2
-            norm_img = np.zeros_like(slice_data, dtype=np.float32) if ww <= 0 else np.clip((slice_data - min_val) / ww,
-                                                                                           0.0, 1.0)
-            rgba = np.stack([norm_img, norm_img, norm_img, np.ones_like(norm_img)], axis=-1)
+            norm_img = (
+                np.zeros_like(slice_data, dtype=np.float32)
+                if ww <= 0
+                else np.clip((slice_data - min_val) / ww, 0.0, 1.0)
+            )
+            rgba = np.stack(
+                [norm_img, norm_img, norm_img, np.ones_like(norm_img)], axis=-1
+            )
 
         return rgba.flatten(), (h, w)
