@@ -99,6 +99,11 @@ class MainGUI:
                         callback=self.on_wl_preset_menu_clicked,
                     )
 
+            with dpg.menu(label="Help"):
+                dpg.add_menu_item(
+                    label="Shortcuts & Controls", callback=self.show_help_window
+                )
+
             # Status Message Area (pushes text slightly away from the menus)
             dpg.add_spacer(width=20)
             dpg.add_text("", tag="global_status_text", color=[150, 255, 150])
@@ -791,6 +796,8 @@ class MainGUI:
             if dpg.does_item_exist(tag):
                 dpg.set_value(tag, value)
 
+        self.show_status_message(f"Settings reset")
+
     def on_sidebar_wl_change(self):
         context_viewer = self.context_viewer
         if not context_viewer or context_viewer.image_id is None:
@@ -947,6 +954,93 @@ class MainGUI:
 
         # Set the time when this message should disappear
         self.status_message_expire_time = time.time() + duration
+
+    def show_help_window(self):
+        """Displays a dynamic floating window with mouse controls and current keyboard shortcuts."""
+        window_tag = "help_window"
+        if dpg.does_item_exist(window_tag):
+            dpg.delete_item(window_tag)
+
+        # Removed modal=True, enabled collapsing, added on_close cleanup
+        with dpg.window(
+            tag=window_tag,
+            show=True,
+            label="Shortcuts & Controls",
+            width=500,
+            height=520,
+            no_collapse=False,
+            on_close=lambda: dpg.delete_item(window_tag),
+        ):
+            dpg.add_spacer(height=5)
+            dpg.add_text("Mouse Controls", color=[100, 200, 255])
+            dpg.add_separator()
+            dpg.add_text("Left Click         : Move crosshair")
+            dpg.add_text("Scroll Wheel       : Change slice")
+            dpg.add_text("Ctrl + Scroll      : Zoom in/out")
+            dpg.add_text("Ctrl + Drag        : Pan view")
+            dpg.add_text("Shift + Drag       : Adjust Window/Level (X/Y axis)")
+
+            dpg.add_spacer(height=15)
+            dpg.add_text("Keyboard Shortcuts", color=[100, 200, 255])
+            dpg.add_separator()
+
+            shortcuts = self.controller.settings.data["shortcuts"]
+            descriptions = {
+                "open_file": "Open File",
+                "next_image": "Next Image in List",
+                "auto_window": "Local Auto Window/Level",
+                "scroll_up": "Scroll Slice Up",
+                "scroll_down": "Scroll Slice Down",
+                "fast_scroll_up": "Fast Scroll Up",
+                "fast_scroll_down": "Fast Scroll Down",
+                "zoom_in": "Zoom In",
+                "zoom_out": "Zoom Out",
+                "reset_view": "Reset Zoom & Pan",
+                "center_view": "Center View on Crosshair",
+                "view_axial": "Axial View",
+                "view_sagittal": "Sagittal View",
+                "view_coronal": "Coronal View",
+                "view_histogram": "Histogram View",
+                "toggle_interp": "Toggle strip pixels at zoom",
+                "toggle_grid": "Toggle Voxel Grid",
+                "hide_all": "Show/Hide Overlays",
+            }
+
+            def format_key(key_name, k):
+                if k == 517:
+                    return "Page Up"
+                if k == 518:
+                    return "Page Down"
+
+                # Explicitly add the modifier for the open file command
+                res = str(k)
+                if key_name == "open_file":
+                    return f"Ctrl + {res}"
+                return res
+
+            with dpg.table(
+                header_row=False, borders_innerH=True, policy=dpg.mvTable_SizingFixedFit
+            ):
+                dpg.add_table_column(width_fixed=True, init_width_or_weight=120)
+                dpg.add_table_column(width_stretch=True)
+                for key_id, desc in descriptions.items():
+                    val = shortcuts.get(key_id, "N/A")
+                    with dpg.table_row():
+                        dpg.add_text(format_key(key_id, val), color=[150, 255, 150])
+                        dpg.add_text(desc)
+
+            dpg.add_spacer(height=15)
+            with dpg.group(horizontal=True):
+                dpg.add_spacer(width=200)
+                dpg.add_button(
+                    label="Close",
+                    width=100,
+                    callback=lambda: dpg.delete_item(window_tag),
+                )
+
+        # Spawn the window neatly in the top-right corner so it doesn't block the images
+        vp_width = max(dpg.get_viewport_client_width(), 800)
+        dpg.set_item_pos(window_tag, [vp_width - 520, 40])
 
     def create_boot_sequence(self, image_paths, sync=False, link_all=False):
         """Creates a generator for the boot sequence that loads images with progress UI."""
