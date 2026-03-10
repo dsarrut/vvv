@@ -614,7 +614,8 @@ class SliceViewer:
         return 0 < (end_x - start_x) * (end_y - start_y) < m
 
     def apply_local_auto_window(self, search_radius=25):
-        if self.image_id is None or not self.volume or getattr(self.volume, 'is_rgb', False): return
+        if self.image_id is None or not self.volume or getattr(self.volume, 'is_rgb', False):
+            return
 
         pix_x, pix_y = self.get_mouse_slice_coords(ignore_hover=True)
         if pix_x is None: return

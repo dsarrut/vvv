@@ -737,7 +737,7 @@ class MainGUI:
                 dpg.delete_item("loading_modal")
 
             yield
-            self.show_message("File Load Error", f"Failed to load image:\n{filename}\n\nError: {str(e)}")
+            self.show_message("File Load Error", f"Failed to load image:\n{filename}")
 
             # Keep generator alive until user acknowledges the error
             while dpg.does_item_exist("generic_message_modal"):
