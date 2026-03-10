@@ -27,6 +27,7 @@ def load_fonts():
             dpg.add_font_range(0xF00D, 0xF021)
             dpg.add_font_chars([0xF0C5])
             dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
+
     return icon_font
 
 

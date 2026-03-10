@@ -135,7 +135,19 @@ class MainGUI:
                 # Tab 2: Sync
                 with dpg.tab(label="Sync"):
                     dpg.add_spacer(height=5)
-                    dpg.add_text("Sync images", color=[93, 93, 93])
+                    with dpg.group(horizontal=True):
+                        dpg.add_button(
+                            label="Link All",
+                            callback=lambda: self.controller.link_all(),
+                            width=80,
+                        )
+                        dpg.add_button(
+                            label="Unlink All",
+                            callback=lambda: self.controller.unlink_all(),
+                            width=80,
+                        )
+                    dpg.add_spacer(height=5)
+                    dpg.add_text("Sync Groups", color=[93, 93, 93])
                     dpg.add_separator()
                     with dpg.group(tag="sync_list_container"):
                         # We will populate this programmatically
@@ -414,6 +426,14 @@ class MainGUI:
         for vs_id, vs in self.controller.view_states.items():
             with dpg.group(parent=container):
                 with dpg.group(horizontal=True):
+                    # Subtle Sync Group Indicator (No color, just dimmed gray)
+                    if vs.sync_group > 0:
+                        dpg.add_text(f"[{vs.sync_group}]", color=[150, 150, 150])
+                    else:
+                        dpg.add_text(
+                            "   ", color=[0, 0, 0, 0]
+                        )  # Invisible spacer for alignment
+
                     # Let DPG generate a safe, unique integer ID and cache it!
                     lbl_id = dpg.add_text(f"{vs.volume.name}")
                     self.image_label_tags[vs_id] = lbl_id
@@ -472,6 +492,14 @@ class MainGUI:
             return
         dpg.delete_item(container, children_only=True)
 
+        # Safely determine the max group needed, even if images were closed
+        max_active_group = max(
+            [vs.sync_group for vs in self.controller.view_states.values()] + [0]
+        )
+        num_groups = max(3, len(self.controller.view_states), max_active_group)
+
+        combo_items = ["None"] + [f"Group {i}" for i in range(1, num_groups + 1)]
+
         # Table for alignment
         with dpg.table(parent=container, header_row=False):
             dpg.add_table_column(label="Image")
@@ -482,7 +510,7 @@ class MainGUI:
                     dpg.add_text(vs.volume.name)
                     # Dropdown to pick a group (0 = None)
                     dpg.add_combo(
-                        items=["None", "Group 1", "Group 2", "Group 3"],
+                        items=combo_items,
                         default_value=(
                             "None" if not vs.sync_group else f"Group {vs.sync_group}"
                         ),

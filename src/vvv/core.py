@@ -422,6 +422,34 @@ class Controller:
         next_idx = (keys.index(current_id) + 1) % len(keys)
         return keys[next_idx]
 
+    def link_all(self):
+        if not self.view_states:
+            return
+        first_vs_id = next(iter(self.view_states))
+        for vs in self.view_states.values():
+            vs.sync_group = 1
+
+        group_viewer_tags = [v.tag for v in self.viewers.values() if v.image_id]
+        if group_viewer_tags:
+            self.unify_ppm(group_viewer_tags)
+            master_viewer = self.viewers[group_viewer_tags[0]]
+            phys_center = master_viewer.get_center_physical_coord()
+            if phys_center is not None:
+                for tag in group_viewer_tags:
+                    self.viewers[tag].center_on_physical_coord(phys_center)
+
+        self.propagate_sync(first_vs_id)
+        if self.gui:
+            self.gui.refresh_sync_ui()
+            self.gui.refresh_image_list_ui()
+
+    def unlink_all(self):
+        for vs in self.view_states.values():
+            vs.sync_group = 0
+        if self.gui:
+            self.gui.refresh_sync_ui()
+            self.gui.refresh_image_list_ui()
+
     def default_viewers_orientation(self):
         n = len(self.view_states)
         if n == 1:
@@ -599,6 +627,8 @@ class Controller:
 
         if value == "None":
             vs.sync_group = 0
+            if self.gui:
+                self.gui.refresh_image_list_ui()
             return
 
         new_group_id = int(value.split(" ")[1])
@@ -632,6 +662,8 @@ class Controller:
             self.propagate_sync(master_vs_id)
 
         self.update_all_viewers_of_image(vs_id)
+        if self.gui:
+            self.gui.refresh_image_list_ui()
 
     def tick(self):
         """Called every frame by the main loop to orchestrate updates."""
