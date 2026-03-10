@@ -27,14 +27,16 @@ class MainGUI:
         # windows elements
         self.drag_viewer = None
         self.context_viewer = None
-        self.side_panel_width = self.controller.settings.data["layout"]["side_panel_width"]
+        self.side_panel_width = self.controller.settings.data["layout"][
+            "side_panel_width"
+        ]
         self.last_window_size = None
 
         # tasks manager
         self.tasks = []
 
         # UI Status Message Tracker
-        self.status_message_expire_time = float('inf')
+        self.status_message_expire_time = float("inf")
 
         # Cache for auto-generated DPG tags to prevent deletion crashes
         self.image_label_tags = {}
@@ -52,15 +54,17 @@ class MainGUI:
         """Builds the main window layout."""
         self.create_menu_bar()
 
-        with dpg.window(tag="PrimaryWindow",
-                        on_close=self.cleanup,
-                        no_scrollbar=True,
-                        no_scroll_with_mouse=True,
-                        no_move=True,
-                        no_resize=True,
-                        no_collapse=True,
-                        no_title_bar=True,
-                        no_bring_to_front_on_focus=True):
+        with dpg.window(
+            tag="PrimaryWindow",
+            on_close=self.cleanup,
+            no_scrollbar=True,
+            no_scroll_with_mouse=True,
+            no_move=True,
+            no_resize=True,
+            no_collapse=True,
+            no_title_bar=True,
+            no_bring_to_front_on_focus=True,
+        ):
             # Window resize handler
             with dpg.item_handler_registry(tag="window_resize_handler"):
                 dpg.add_item_resize_handler(callback=lambda: self.on_window_resize())
@@ -79,17 +83,21 @@ class MainGUI:
         """Creates the top menu bar."""
         with dpg.viewport_menu_bar():
             with dpg.menu(label="File"):
-                dpg.add_menu_item(label="Open Image...", callback=self.on_open_file_clicked)
+                dpg.add_menu_item(
+                    label="Open Image...", callback=self.on_open_file_clicked
+                )
                 dpg.add_menu_item(label="Exit", callback=self.cleanup)
-            with dpg.menu(label="Link"):
-                dpg.add_menu_item(label="Link All", callback=lambda: self.controller.link_all())
 
             with dpg.menu(label="Window/Level"):
                 for preset_name, vals in WL_PRESETS.items():
                     label = preset_name
                     if vals is not None:
                         label = f"{preset_name} ({vals['ww']}, {vals['wl']})"
-                    dpg.add_menu_item(label=label, user_data=preset_name, callback=self.on_wl_preset_menu_clicked)
+                    dpg.add_menu_item(
+                        label=label,
+                        user_data=preset_name,
+                        callback=self.on_wl_preset_menu_clicked,
+                    )
 
             # Status Message Area (pushes text slightly away from the menus)
             dpg.add_spacer(width=20)
@@ -97,11 +105,13 @@ class MainGUI:
 
     def create_left_panel(self):
         """Creates the sidebar with image list and info."""
-        with dpg.child_window(width=self.side_panel_width,
-                              tag="side_panel",
-                              no_scrollbar=True,
-                              no_scroll_with_mouse=True,
-                              border=True):
+        with dpg.child_window(
+            width=self.side_panel_width,
+            tag="side_panel",
+            no_scrollbar=True,
+            no_scroll_with_mouse=True,
+            border=True,
+        ):
             dpg.add_spacer(height=5)
             self.create_left_panel_top_part()
             dpg.add_spacer(height=5)
@@ -111,7 +121,9 @@ class MainGUI:
         dpg.bind_item_theme("image_crosshair_group", "readonly_theme")
 
     def create_left_panel_top_part(self):
-        with dpg.child_window(tag="top_panel", height=300, resizable_y=True, border=False):
+        with dpg.child_window(
+            tag="top_panel", height=300, resizable_y=True, border=False
+        ):
             with dpg.tab_bar(tag="sidebar_tabs"):
                 # Tab 1: Image Management
                 with dpg.tab(label="Images"):
@@ -140,48 +152,73 @@ class MainGUI:
                 settings = self.controller.settings.data
 
                 dpg.add_text("Parameters", color=[93, 93, 93])
-                dpg.add_input_float(label="Auto WL FOV", tag="set_auto_window_fov",
-                                    width=120, format="%.2f", step=0.05,
-                                    default_value=settings["physics"].get("auto_window_fov", 0.20),
-                                    callback=lambda s, v: call(["physics", "auto_window_fov"], v))
+                dpg.add_input_float(
+                    label="Auto WL FOV",
+                    tag="set_auto_window_fov",
+                    width=120,
+                    format="%.2f",
+                    step=0.05,
+                    default_value=settings["physics"].get("auto_window_fov", 0.20),
+                    callback=lambda s, v: call(["physics", "auto_window_fov"], v),
+                )
 
-                dpg.add_input_int(label="Strip Threshold", tag="set_strip_threshold",
-                                  width=120,
-                                  default_value=settings["physics"]["voxel_strip_threshold"],
-                                  callback=lambda s, v: call(
-                                      ["physics", "voxel_strip_threshold"], v))
+                dpg.add_input_int(
+                    label="Strip Threshold",
+                    tag="set_strip_threshold",
+                    width=120,
+                    default_value=settings["physics"]["voxel_strip_threshold"],
+                    callback=lambda s, v: call(["physics", "voxel_strip_threshold"], v),
+                )
 
                 dpg.add_separator()
 
                 dpg.add_text("Colors", color=[93, 93, 93])
-                dpg.add_color_edit(label="Crosshair", tag="set_col_crosshair",
-                                   default_value=settings["colors"]["crosshair"],
-                                   callback=lambda s, v: call(["colors", "crosshair"], v))
-                dpg.add_color_edit(label="Mouse tracker", tag="set_col_overlay_text",
-                                   default_value=settings["colors"]["overlay_text"],
-                                   callback=lambda s, v: call(["colors", "overlay_text"], v))
-                dpg.add_color_edit(label="Grid", tag="set_col_grid",
-                                   default_value=settings["colors"]["grid"],
-                                   callback=lambda s, v: call(["colors", "grid"], v))
+                dpg.add_color_edit(
+                    label="Crosshair",
+                    tag="set_col_crosshair",
+                    default_value=settings["colors"]["crosshair"],
+                    callback=lambda s, v: call(["colors", "crosshair"], v),
+                )
+                dpg.add_color_edit(
+                    label="Mouse tracker",
+                    tag="set_col_overlay_text",
+                    default_value=settings["colors"]["overlay_text"],
+                    callback=lambda s, v: call(["colors", "overlay_text"], v),
+                )
+                dpg.add_color_edit(
+                    label="Grid",
+                    tag="set_col_grid",
+                    default_value=settings["colors"]["grid"],
+                    callback=lambda s, v: call(["colors", "grid"], v),
+                )
 
                 dpg.add_spacer(height=10)
 
                 with dpg.group(horizontal=True):
-                    dpg.add_button(label="Save", width=100,
-                                   callback=lambda: self.on_save_settings())
-                    dpg.add_button(label="Reset to Defaults", width=-1,
-                                   callback=lambda: self.on_reset_settings())
+                    dpg.add_button(
+                        label="Save",
+                        width=100,
+                        callback=lambda: self.on_save_settings(),
+                    )
+                    dpg.add_button(
+                        label="Reset to Defaults",
+                        width=-1,
+                        callback=lambda: self.on_reset_settings(),
+                    )
 
                 def copy_and_notify():
                     dpg.set_clipboard_text(str(self.controller.settings.config_path))
                     self.show_status_message("Path copied to clipboard!")
 
                 dpg.add_spacer(height=10)
-                dpg.add_text(f'Edit settings in :', color=[150, 150, 150])
+                dpg.add_text(f"Edit settings in :", color=[150, 150, 150])
                 with dpg.group(horizontal=True):
                     btn_copy = dpg.add_button(label="\uf0c5", callback=copy_and_notify)
-                    dpg.add_input_text(default_value=str(self.controller.settings.config_path),
-                                       readonly=True, width=230)
+                    dpg.add_input_text(
+                        default_value=str(self.controller.settings.config_path),
+                        readonly=True,
+                        width=230,
+                    )
 
                 # Bind the custom icon font to this specific button
                 if dpg.does_item_exist("icon_font_tag"):
@@ -200,8 +237,10 @@ class MainGUI:
                 create_labeled_field("Spacing", tag="info_spacing")
                 create_labeled_field("Origin", tag="info_origin")
                 create_labeled_field("Matrix", tag="info_matrix")
-                dpg.add_input_text(tag="info_memory", readonly=True, width=-1)
                 self.create_window_level_controls()
+                dpg.add_input_text(tag="info_memory", readonly=True, width=-1)
+                dpg.add_spacer(height=5)
+                self.create_visibility_controls()
 
             dpg.add_spacer(height=10)
             dpg.add_text("Crosshair", color=[93, 93, 93])
@@ -216,51 +255,84 @@ class MainGUI:
 
     def create_window_level_controls(self):
         """Creates the window and level input fields and sync toggle."""
-
-        # 2. Manual W/L Inputs
         with dpg.group(horizontal=True):
             with dpg.group(horizontal=True):
                 dpg.add_text("Window")
-                dpg.add_input_text(tag="info_window", width=65, on_enter=True,
-                                   callback=lambda: self.on_sidebar_wl_change())
+                dpg.add_input_text(
+                    tag="info_window",
+                    width=65,
+                    on_enter=True,
+                    callback=lambda: self.on_sidebar_wl_change(),
+                )
             dpg.add_spacer(width=5)
             with dpg.group(horizontal=True):
                 dpg.add_text("Level")
-                dpg.add_input_text(tag="info_level", width=65, on_enter=True,
-                                   callback=lambda: self.on_sidebar_wl_change())
+                dpg.add_input_text(
+                    tag="info_level",
+                    width=65,
+                    on_enter=True,
+                    callback=lambda: self.on_sidebar_wl_change(),
+                )
 
-        dpg.add_spacer(height=5)
-
-        # 3. Visibility Controls
+    def create_visibility_controls(self):
         with dpg.group(tag="visibility_controls"):
             with dpg.table(header_row=False, policy=dpg.mvTable_SizingFixedFit):
                 dpg.add_table_column()
                 dpg.add_table_column()
                 with dpg.table_row():
-                    dpg.add_checkbox(label="Slice axis", tag="check_axis",
-                                     callback=self.controller.on_visibility_toggle,
-                                     user_data="axis", default_value=True)
-                    dpg.add_checkbox(label="Pixels grid", tag="check_grid",
-                                     callback=self.controller.on_visibility_toggle,
-                                     user_data="grid", default_value=False)
+                    dpg.add_checkbox(
+                        label="Slice axis",
+                        tag="check_axis",
+                        callback=self.controller.on_visibility_toggle,
+                        user_data="axis",
+                        default_value=True,
+                    )
+                    dpg.add_checkbox(
+                        label="Pixels grid",
+                        tag="check_grid",
+                        callback=self.controller.on_visibility_toggle,
+                        user_data="grid",
+                        default_value=False,
+                    )
                 with dpg.table_row():
-                    dpg.add_checkbox(label="Mouse tracker", tag="check_overlay",
-                                     callback=self.controller.on_visibility_toggle,
-                                     user_data="overlay", default_value=True)
-                    dpg.add_checkbox(label="Crosshair", tag="check_crosshair",
-                                     callback=self.controller.on_visibility_toggle,
-                                     user_data="crosshair", default_value=True)
+                    dpg.add_checkbox(
+                        label="Mouse tracker",
+                        tag="check_overlay",
+                        callback=self.controller.on_visibility_toggle,
+                        user_data="overlay",
+                        default_value=True,
+                    )
+                    dpg.add_checkbox(
+                        label="Crosshair",
+                        tag="check_crosshair",
+                        callback=self.controller.on_visibility_toggle,
+                        user_data="crosshair",
+                        default_value=True,
+                    )
                 with dpg.table_row():
-                    dpg.add_checkbox(label="Scale bar", tag="check_scalebar",
-                                     callback=self.controller.on_visibility_toggle,
-                                     user_data="scalebar", default_value=False)
+                    dpg.add_checkbox(
+                        label="Scale bar",
+                        tag="check_scalebar",
+                        callback=self.controller.on_visibility_toggle,
+                        user_data="scalebar",
+                        default_value=False,
+                    )
                     # Sync Toggle
-                    dpg.add_checkbox(label="Sync W/L", tag="check_sync_wl", default_value=False,
-                                     callback=self.on_sync_wl_toggle)
+                    dpg.add_checkbox(
+                        label="Sync W/L",
+                        tag="check_sync_wl",
+                        default_value=False,
+                        callback=self.on_sync_wl_toggle,
+                    )
 
     def create_viewer_grid(self):
         """Creates the 2x2 grid of slice viewers."""
-        with dpg.child_window(tag="viewers_container", border=False, no_scrollbar=True, no_scroll_with_mouse=True):
+        with dpg.child_window(
+            tag="viewers_container",
+            border=False,
+            no_scrollbar=True,
+            no_scroll_with_mouse=True,
+        ):
             with dpg.group(horizontal=True):
                 self.create_viewer_widget("V1")
                 self.create_viewer_widget("V2")
@@ -271,7 +343,9 @@ class MainGUI:
     def create_viewer_widget(self, tag):
         """Creates a single viewer widget."""
         viewer = self.controller.viewers[tag]
-        with dpg.child_window(tag=f"win_{tag}", border=True, no_scrollbar=True, no_scroll_with_mouse=True):
+        with dpg.child_window(
+            tag=f"win_{tag}", border=True, no_scrollbar=True, no_scroll_with_mouse=True
+        ):
             with dpg.drawlist(tag=f"drawlist_{tag}", width=-1, height=-1):
                 dpg.add_draw_node(tag=viewer.img_node_tag)
                 dpg.draw_image(viewer.texture_tag, [0, 0], [1, 1], tag=viewer.image_tag)
@@ -353,16 +427,22 @@ class MainGUI:
                             label="",
                             default_value=is_active,
                             user_data={"img_id": vs_id, "v_tag": v_tag},
-                            callback=self.on_image_viewer_toggle
+                            callback=self.on_image_viewer_toggle,
                         )
                     # Reload Button
-                    btn_reload = dpg.add_button(label="\uf01e", width=20,
-                                                callback=lambda s, a, u: self.controller.reload_image(u),
-                                                user_data=vs_id)
+                    btn_reload = dpg.add_button(
+                        label="\uf01e",
+                        width=20,
+                        callback=lambda s, a, u: self.controller.reload_image(u),
+                        user_data=vs_id,
+                    )
                     # Close Button
-                    btn_close = dpg.add_button(label="\uf00d", width=20,
-                                               callback=lambda s, a, u: self.controller.close_image(u),
-                                               user_data=vs_id)
+                    btn_close = dpg.add_button(
+                        label="\uf00d",
+                        width=20,
+                        callback=lambda s, a, u: self.controller.close_image(u),
+                        user_data=vs_id,
+                    )
 
                     # Bind the font to these specific buttons
                     if dpg.does_item_exist("icon_font_tag"):
@@ -388,7 +468,8 @@ class MainGUI:
 
     def refresh_sync_ui(self):
         container = "sync_list_container"
-        if not dpg.does_item_exist(container): return
+        if not dpg.does_item_exist(container):
+            return
         dpg.delete_item(container, children_only=True)
 
         # Table for alignment
@@ -402,10 +483,12 @@ class MainGUI:
                     # Dropdown to pick a group (0 = None)
                     dpg.add_combo(
                         items=["None", "Group 1", "Group 2", "Group 3"],
-                        default_value="None" if not vs.sync_group else f"Group {vs.sync_group}",
+                        default_value=(
+                            "None" if not vs.sync_group else f"Group {vs.sync_group}"
+                        ),
                         width=100,
                         user_data=vs_id,
-                        callback=self.controller.on_sync_group_change
+                        callback=self.controller.on_sync_group_change,
                     )
 
     @property
@@ -421,7 +504,11 @@ class MainGUI:
         hover_viewer = self.hovered_viewer
 
         # Context Switch logic based on ViewState
-        if hover_viewer and hover_viewer != self.context_viewer and not self.drag_viewer:
+        if (
+            hover_viewer
+            and hover_viewer != self.context_viewer
+            and not self.drag_viewer
+        ):
             # Remove highlight from the old viewer
             if self.context_viewer:
                 dpg.bind_item_theme(f"win_{self.context_viewer.tag}", "viewer_theme")
@@ -444,7 +531,13 @@ class MainGUI:
     def update_sidebar_info(self, viewer):
         """Pulls metadata from the active viewer and updates the sidebar."""
         if not viewer or viewer.image_id is None:
-            for t in ["info_name", "info_size", "info_spacing", "info_origin", "info_memory"]:
+            for t in [
+                "info_name",
+                "info_size",
+                "info_spacing",
+                "info_origin",
+                "info_memory",
+            ]:
                 dpg.set_value(t, "")
             return
 
@@ -452,45 +545,63 @@ class MainGUI:
         dpg.set_value("info_name", vol.name)
         dpg.set_value("info_name_label", viewer.tag)
         dpg.set_value("info_voxel_type", f"{vol.pixel_type}")
-        dpg.set_value("info_size", f"{vol.data.shape[2]} x {vol.data.shape[1]} x {vol.data.shape[0]}")
+        dpg.set_value(
+            "info_size",
+            f"{vol.data.shape[2]} x {vol.data.shape[1]} x {vol.data.shape[0]}",
+        )
         dpg.set_value("info_spacing", fmt(vol.spacing, 4))
         dpg.set_value("info_origin", fmt(vol.origin, 2))
         dpg.set_value("info_matrix", fmt(vol.matrix, 1))
-        dpg.set_value("info_memory", f"{vol.sitk_image.GetNumberOfPixels():,} px    {vol.memory_mb:g} MB")
+        dpg.set_value(
+            "info_memory",
+            f"{vol.sitk_image.GetNumberOfPixels():,} voxels    {vol.memory_mb:g} MB",
+        )
 
         # RGB Locking Logic
-        is_rgb = getattr(vol, 'is_rgb', False)
-        if dpg.does_item_exist("info_window"): dpg.configure_item("info_window", enabled=not is_rgb)
-        if dpg.does_item_exist("info_level"): dpg.configure_item("info_level", enabled=not is_rgb)
+        is_rgb = getattr(vol, "is_rgb", False)
+        if dpg.does_item_exist("info_window"):
+            dpg.configure_item("info_window", enabled=not is_rgb)
+        if dpg.does_item_exist("info_level"):
+            dpg.configure_item("info_level", enabled=not is_rgb)
 
         if is_rgb:
-            if dpg.does_item_exist("info_window"): dpg.set_value("info_window", "RGB")
-            if dpg.does_item_exist("info_level"): dpg.set_value("info_level", "RGB")
+            if dpg.does_item_exist("info_window"):
+                dpg.set_value("info_window", "RGB")
+            if dpg.does_item_exist("info_level"):
+                dpg.set_value("info_level", "RGB")
         else:
             self.update_sidebar_window_level(viewer)
 
     def update_sidebar_window_level(self, viewer):
         """Updates the W/L inputs in the sidebar."""
-        if not viewer or not viewer.view_state: return
+        if not viewer or not viewer.view_state:
+            return
         vol = viewer.volume
         vs = viewer.view_state
-        if getattr(vol, 'is_rgb', False): return
+        if getattr(vol, "is_rgb", False):
+            return
         dpg.set_value("info_window", f"{vs.ww:g}")
         dpg.set_value("info_level", f"{vs.wl:g}")
 
     def update_sidebar_crosshair(self, viewer):
         """Updates the crosshair stats in the sidebar."""
-        if not viewer or not viewer.view_state: return
+        if not viewer or not viewer.view_state:
+            return
         vs = viewer.view_state
         vol = viewer.volume
 
         if vs.crosshair_voxel is not None:
             dpg.set_value("info_vox", fmt(vs.crosshair_voxel, 1))
             dpg.set_value("info_phys", fmt(vs.crosshair_phys_coord, 1))
-            val_str = (f"{vs.crosshair_value[0]:g} "
-                       f"{vs.crosshair_value[1]:g} "
-                       f"{vs.crosshair_value[2]:g}") \
-                if getattr(vol, 'is_rgb', False) else f"{vs.crosshair_value:g}"
+            val_str = (
+                (
+                    f"{vs.crosshair_value[0]:g} "
+                    f"{vs.crosshair_value[1]:g} "
+                    f"{vs.crosshair_value[2]:g}"
+                )
+                if getattr(vol, "is_rgb", False)
+                else f"{vs.crosshair_value:g}"
+            )
             dpg.set_value("info_val", val_str)
 
             ppm = viewer.get_pixels_per_mm()
@@ -500,7 +611,9 @@ class MainGUI:
             if ppm > 0 and win_w and win_h:
                 fov_w = win_w / ppm
                 fov_h = win_h / ppm
-                dpg.set_value("info_scale", f"{fov_w:.0f}x{fov_h:.0f} mm  {ppm:.1f} px/mm")
+                dpg.set_value(
+                    "info_scale", f"{fov_w:.0f}x{fov_h:.0f} mm  {ppm:.1f} px/mm"
+                )
             dpg.set_value("info_ppm", f"{ppm:g}")
 
     def on_window_resize(self):
@@ -511,7 +624,10 @@ class MainGUI:
             return  # Safety
 
         # Catch macOS phantom resize events on Alt-Tab
-        if hasattr(self, "last_window_size") and self.last_window_size == (window_width, window_height):
+        if hasattr(self, "last_window_size") and self.last_window_size == (
+            window_width,
+            window_height,
+        ):
             return
         self.last_window_size = (window_width, window_height)
 
@@ -554,7 +670,9 @@ class MainGUI:
             self.context_viewer = viewer
 
             # If no modifiers, update crosshair position
-            if not dpg.is_key_down(dpg.mvKey_LShift) and not dpg.is_key_down(dpg.mvKey_LControl):
+            if not dpg.is_key_down(dpg.mvKey_LShift) and not dpg.is_key_down(
+                dpg.mvKey_LControl
+            ):
                 px, py = viewer.get_mouse_slice_coords(ignore_hover=True)
                 if px is not None:
                     viewer.update_crosshair_data(px, py)
@@ -581,7 +699,9 @@ class MainGUI:
     def on_global_scroll(self, sender, app_data, user_data):
         if self.hovered_viewer:
             # Check if either Left or Right Control is held down
-            is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl)
+            is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(
+                dpg.mvKey_RControl
+            )
 
             if is_ctrl:
                 # app_data is positive when scrolling up (away), negative when scrolling down (towards)
@@ -596,7 +716,9 @@ class MainGUI:
 
         # Check for Command (macOS) - DPG maps this to the 'Win' key constants
         is_cmd = dpg.is_key_down(dpg.mvKey_LWin) or dpg.is_key_down(dpg.mvKey_RWin)
-        is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl)
+        is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(
+            dpg.mvKey_RControl
+        )
 
         # Intercept Cmd+O / Ctrl+O globally
         if app_data == dpg.mvKey_O and (is_ctrl or is_cmd):
@@ -666,7 +788,11 @@ class MainGUI:
     def on_wl_preset_menu_clicked(self, sender, app_data, user_data):
         """Applies a WW/WL preset from the top menu to the currently active viewer."""
         viewer = self.context_viewer
-        if not viewer or not viewer.view_state or getattr(viewer.volume, 'is_rgb', False):
+        if (
+            not viewer
+            or not viewer.view_state
+            or getattr(viewer.volume, "is_rgb", False)
+        ):
             return
 
         preset_name = user_data
@@ -689,8 +815,16 @@ class MainGUI:
         """Generator that shows a loading progress bar while reading a large file."""
         filename = os.path.basename(file_path)
 
-        with dpg.window(tag="loading_modal", modal=True, show=True, no_title_bar=True,
-                        no_resize=True, no_move=True, width=350, height=100):
+        with dpg.window(
+            tag="loading_modal",
+            modal=True,
+            show=True,
+            no_title_bar=True,
+            no_resize=True,
+            no_move=True,
+            width=350,
+            height=100,
+        ):
             dpg.add_text(f"Loading image...\n{filename}", tag="loading_text")
             dpg.add_spacer(height=5)
             # Set to 0.5 to indicate the file read is in progress
@@ -715,10 +849,16 @@ class MainGUI:
                 dpg.set_value("loading_progress", 1.0)
             yield
 
-            target_viewer = self.context_viewer if self.context_viewer else self.controller.viewers["V1"]
+            target_viewer = (
+                self.context_viewer
+                if self.context_viewer
+                else self.controller.viewers["V1"]
+            )
             target_viewer.set_image(img_id)
 
-            same_image_viewers = [v.tag for v in self.controller.viewers.values() if v.image_id == img_id]
+            same_image_viewers = [
+                v.tag for v in self.controller.viewers.values() if v.image_id == img_id
+            ]
             if same_image_viewers:
                 self.controller.unify_ppm(same_image_viewers)
 
@@ -748,13 +888,21 @@ class MainGUI:
         if dpg.does_item_exist(modal_tag):
             dpg.delete_item(modal_tag)
 
-        with dpg.window(tag=modal_tag, modal=True, show=True, label=title,
-                        no_collapse=True, width=450):
+        with dpg.window(
+            tag=modal_tag,
+            modal=True,
+            show=True,
+            label=title,
+            no_collapse=True,
+            width=450,
+        ):
             dpg.add_text(message, wrap=430)
             dpg.add_spacer(height=10)
             with dpg.group(horizontal=True):
                 dpg.add_spacer(width=160)
-                dpg.add_button(label="OK", width=100, callback=lambda: dpg.delete_item(modal_tag))
+                dpg.add_button(
+                    label="OK", width=100, callback=lambda: dpg.delete_item(modal_tag)
+                )
 
         vp_width = max(dpg.get_viewport_client_width(), 800)
         vp_height = max(dpg.get_viewport_client_height(), 600)
@@ -780,8 +928,16 @@ class MainGUI:
         total = len(image_paths)
 
         # Build the Loading Modal
-        with dpg.window(tag="loading_modal", modal=True, show=True, no_title_bar=True,
-                        no_resize=True, no_move=True, width=350, height=100):
+        with dpg.window(
+            tag="loading_modal",
+            modal=True,
+            show=True,
+            no_title_bar=True,
+            no_resize=True,
+            no_move=True,
+            width=350,
+            height=100,
+        ):
             dpg.add_text("Initializing...", tag="loading_text")
             dpg.add_spacer(height=5)
             dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=0.0)
@@ -800,7 +956,9 @@ class MainGUI:
 
             # Update UI state safely in case the modal had to be deleted previously
             if dpg.does_item_exist("loading_text"):
-                dpg.set_value("loading_text", f"Loading image {i + 1}/{total}...\n{filename}")
+                dpg.set_value(
+                    "loading_text", f"Loading image {i + 1}/{total}...\n{filename}"
+                )
             if dpg.does_item_exist("loading_progress"):
                 dpg.set_value("loading_progress", i / total)
 
@@ -816,7 +974,9 @@ class MainGUI:
                 yield
 
                 # Show the error message
-                self.show_message("File Load Error", f"Failed to load image:\n{filename}")
+                self.show_message(
+                    "File Load Error", f"Failed to load image:\n{filename}"
+                )
 
                 # Wait for user to acknowledge the modal
                 while dpg.does_item_exist("generic_message_modal"):
@@ -824,11 +984,23 @@ class MainGUI:
 
                 # Rebuild the loading modal ONLY if there are more files to process
                 if i < total - 1:
-                    with dpg.window(tag="loading_modal", modal=True, show=True, no_title_bar=True,
-                                    no_resize=True, no_move=True, width=350, height=100):
+                    with dpg.window(
+                        tag="loading_modal",
+                        modal=True,
+                        show=True,
+                        no_title_bar=True,
+                        no_resize=True,
+                        no_move=True,
+                        width=350,
+                        height=100,
+                    ):
                         dpg.add_text("Resuming...", tag="loading_text")
                         dpg.add_spacer(height=5)
-                        dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=(i + 1) / total)
+                        dpg.add_progress_bar(
+                            tag="loading_progress",
+                            width=-1,
+                            default_value=(i + 1) / total,
+                        )
 
                     vp_w = max(dpg.get_viewport_client_width(), 800)
                     vp_h = max(dpg.get_viewport_client_height(), 600)
@@ -863,7 +1035,9 @@ class MainGUI:
         # Unify the absolute scale across different orientations of the SAME image
         for img_id in img_ids:
             # Find all viewers showing this specific image
-            same_image_viewers = [v.tag for v in self.controller.viewers.values() if v.image_id == img_id]
+            same_image_viewers = [
+                v.tag for v in self.controller.viewers.values() if v.image_id == img_id
+            ]
             if same_image_viewers:
                 self.controller.unify_ppm(same_image_viewers)
 
@@ -902,7 +1076,7 @@ class MainGUI:
             if time.time() > self.status_message_expire_time:
                 if dpg.does_item_exist("global_status_text"):
                     dpg.set_value("global_status_text", "")
-                self.status_message_expire_time = float('inf')
+                self.status_message_expire_time = float("inf")
 
             if self.tasks:
                 try:
