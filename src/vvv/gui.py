@@ -140,11 +140,10 @@ class MainGUI:
                 settings = self.controller.settings.data
 
                 dpg.add_text("Parameters", color=[93, 93, 93])
-                dpg.add_input_int(label="Auto WL Radius", tag="set_search_radius",
-                                  width=120,
-                                  default_value=settings["physics"]["search_radius"],
-                                  callback=lambda s, v: call(["physics", "search_radius"],
-                                                             v))
+                dpg.add_input_float(label="Auto WL FOV", tag="set_auto_window_fov",
+                                    width=120, format="%.2f", step=0.05,
+                                    default_value=settings["physics"].get("auto_window_fov", 0.20),
+                                    callback=lambda s, v: call(["physics", "auto_window_fov"], v))
 
                 dpg.add_input_int(label="Strip Threshold", tag="set_strip_threshold",
                                   width=120,
@@ -635,7 +634,7 @@ class MainGUI:
         data = self.controller.settings.data
 
         # Update the UI inputs to match the newly reset backend data
-        dpg.set_value("set_search_radius", data["physics"]["search_radius"])
+        dpg.set_value("set_auto_window_fov", data["physics"]["auto_window_fov"])
         dpg.set_value("set_strip_threshold", data["physics"]["voxel_strip_threshold"])
         for key, value in data["colors"].items():
             tag = f"set_col_{key}"

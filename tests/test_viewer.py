@@ -8,8 +8,8 @@ from vvv.viewer import SliceViewer
 from vvv.utils import ViewMode
 from vvv.gui import MainGUI
 
-
 # --- FIXTURES ---
+
 
 @pytest.fixture(autouse=True)
 def fresh_dpg_context():
@@ -17,7 +17,7 @@ def fresh_dpg_context():
     dpg.create_context()
 
     # The real GUI requires a viewport to exist for the menu bar and dimensions
-    dpg.create_viewport(title='Test Viewport', width=1000, height=800)
+    dpg.create_viewport(title="Test Viewport", width=1000, height=800)
     dpg.setup_dearpygui()
 
     yield
@@ -71,66 +71,8 @@ def headless_app(synthetic_image_path):
     return controller, viewer, vs_id
 
 
-@pytest.fixture
-def headless_app_OLD(synthetic_image_path):
-    """Sets up the Controller and a Viewer without launching the GUI loop."""
-    controller = Controller()
-
-    # Mock the GUI just enough so the controller doesn't crash on updates
-    class MockGUI:
-        def refresh_image_list_ui(self): pass
-
-        def on_window_resize(self): pass
-
-    controller.gui = MockGUI()
-
-    # SETUP THE VIEWER FIRST
-    # This initializes the texture registry and creates 'tex_V1'
-    viewer = SliceViewer("V1", controller)
-
-    # MOCK GUI INITIALIZATION:
-    # Provide the variables that gui.py normally assigns to the viewer
-    viewer.axes_nodes = [viewer.axis_a_tag, viewer.axis_b_tag]
-    viewer.active_axes_idx = 0
-    viewer.active_strips_node = viewer.strips_a_tag
-    viewer.active_grid_node = viewer.grid_a_tag
-
-    controller.viewers["V1"] = viewer
-
-    # CREATE THE DUMMY UI
-    # Now 'tex_V1' exists, so dpg.draw_image won't crash
-    with dpg.window(tag="dummy_sidebar", show=False):
-        for tag in ["info_name", "info_name_label", "info_voxel_type", "info_size",
-                    "info_spacing", "info_origin", "info_matrix", "info_memory",
-                    "info_window", "info_level", "info_vox", "info_phys", "info_val"]:
-            dpg.add_input_text(tag=tag)
-
-        for tag in ["check_axis", "check_crosshair", "check_overlay", "check_grid"]:
-            dpg.add_checkbox(tag=tag)
-
-    with dpg.window(tag="win_V1", width=500, height=500, show=False):
-        with dpg.drawlist(tag="drawlist_V1", width=500, height=500):
-            dpg.draw_image("tex_V1", [0, 0], [1, 1], tag="img_V1")
-
-            dpg.add_draw_node(tag="crosshair_node_V1")
-            dpg.add_draw_node(tag="axes_node_A_V1")
-            dpg.add_draw_node(tag="axes_node_B_V1")
-            dpg.add_draw_node(tag="grid_node_A_V1")
-            dpg.add_draw_node(tag="grid_node_B_V1")
-            dpg.add_draw_node(tag="strips_node_A_V1")
-            dpg.add_draw_node(tag="strips_node_B_V1")
-
-        dpg.add_text(tag="overlay_V1")
-
-    # LOAD IMAGE AND ASSIGN TO VIEWER
-    # Now the UI exists, so set_image can safely update the sidebar texts
-    vs_id = controller.load_image(synthetic_image_path)
-    viewer.set_image(vs_id)
-
-    return controller, viewer, vs_id
-
-
 # --- TESTS ---
+
 
 def test_image_loading_and_metadata(headless_app):
     """Test that the 5x5x5 image loads with the correct dimensions."""
@@ -170,7 +112,10 @@ def test_auto_window_level(headless_app):
     controller.settings.data["physics"]["search_radius"] = 250
 
     # Mock mouse position since there is no physical mouse
-    viewer.get_mouse_slice_coords = lambda ignore_hover=False, allow_outside=False: (2.5, 2.5)
+    viewer.get_mouse_slice_coords = lambda ignore_hover=False, allow_outside=False: (
+        2.5,
+        2.5,
+    )
 
     viewer.on_key_press(dpg.mvKey_W)
 
@@ -227,8 +172,12 @@ def test_pan_interaction_via_drag(headless_app, monkeypatch):
     initial_pan = viewer.pan_offset.copy()
 
     # Mock DPG states to simulate holding Ctrl and Left-Click
-    monkeypatch.setattr(dpg, "is_mouse_button_down", lambda btn: btn == dpg.mvMouseButton_Left)
-    monkeypatch.setattr(dpg, "is_key_down", lambda key: key in [dpg.mvKey_LControl, dpg.mvKey_RControl])
+    monkeypatch.setattr(
+        dpg, "is_mouse_button_down", lambda btn: btn == dpg.mvMouseButton_Left
+    )
+    monkeypatch.setattr(
+        dpg, "is_key_down", lambda key: key in [dpg.mvKey_LControl, dpg.mvKey_RControl]
+    )
 
     # Simulate a drag event: data structure is typically [sender, current_x, current_y]
     # Viewer calculates delta as (current_x - last_dx)

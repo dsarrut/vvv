@@ -613,9 +613,8 @@ class SliceViewer:
         m = self.controller.settings.data['physics']['voxel_strip_threshold']
         return 0 < (end_x - start_x) * (end_y - start_y) < m
 
-    def apply_local_auto_window(self, search_radius=25):
-        if self.image_id is None or not self.volume or getattr(self.volume, 'is_rgb', False):
-            return
+    def apply_local_auto_window(self, fov_fraction=0.20):
+        if self.image_id is None or not self.volume or getattr(self.volume, 'is_rgb', False): return
 
         pix_x, pix_y = self.get_mouse_slice_coords(ignore_hover=True)
         if pix_x is None: return
@@ -624,11 +623,20 @@ class SliceViewer:
         disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
         if disp_w <= 0 or disp_h <= 0: return
 
+        win_w = dpg.get_item_width(f"win_{self.tag}")
+        win_h = dpg.get_item_height(f"win_{self.tag}")
+        if not win_w or not win_h: return
+
         slice_data = self.view_state.get_raw_slice(self.slice_idx, self.orientation)
         real_h, real_w = slice_data.shape
 
-        vx_r_x = int((search_radius / disp_w) * real_w)
-        vx_r_y = int((search_radius / disp_h) * real_h)
+        # Define the sampling box as a fraction of the physical screen viewport
+        screen_radius_x = (win_w * fov_fraction) / 2.0
+        screen_radius_y = (win_h * fov_fraction) / 2.0
+
+        # Translate the screen radius into voxel units, ensuring at least 1 voxel
+        vx_r_x = max(1, int((screen_radius_x / disp_w) * real_w))
+        vx_r_y = max(1, int((screen_radius_y / disp_h) * real_h))
 
         x0, x1 = max(0, int(pix_x) - vx_r_x), min(real_w, int(pix_x) + vx_r_x)
         y0, y1 = max(0, int(pix_y) - vx_r_y), min(real_h, int(pix_y) + vx_r_y)
@@ -793,8 +801,8 @@ class SliceViewer:
         if not self.view_state: return
 
         if key == _k("auto_window"):
-            r = self.controller.settings.data["physics"]["search_radius"]
-            self.apply_local_auto_window(search_radius=r)
+            fov = self.controller.settings.data["physics"].get("auto_window_fov", 0.20)
+            self.apply_local_auto_window(fov_fraction=fov)
         elif key == _k("scroll_up"):
             self.on_scroll(1)
         elif key == _k("scroll_down"):
@@ -837,55 +845,6 @@ class SliceViewer:
             self.view_state.grid_mode = not self.view_state.grid_mode
             self.view_state.is_data_dirty = True
         elif key == _k("hide_all"):
-            self.hide_everything()
-
-    def on_key_press_OLD(self, key):
-        if not self.view_state: return
-
-        if key == dpg.mvKey_W:
-            r = self.controller.settings.data["physics"]["search_radius"]
-            self.apply_local_auto_window(search_radius=r)
-        elif key == dpg.mvKey_Up:
-            self.on_scroll(1)
-        elif key == dpg.mvKey_Down:
-            self.on_scroll(-1)
-        elif key == 517:
-            self.on_scroll(10)
-        elif key == 518:
-            self.on_scroll(-10)
-        elif key == dpg.mvKey_I:
-            self.on_zoom("in")
-        elif key == dpg.mvKey_O:
-            self.on_zoom("out")
-        elif key == dpg.mvKey_R:
-            self.view_state.reset_view()
-            self.is_geometry_dirty = True
-            self.controller.propagate_sync(self.image_id)
-            self.controller.update_all_viewers_of_image(self.image_id)
-        elif key == dpg.mvKey_C:
-            self.needs_recenter = True
-            self.is_geometry_dirty = True
-            if self.view_state.sync_group != 0:
-                group_id = self.view_state.sync_group
-                for v in self.controller.viewers.values():
-                    if v.view_state and v.view_state.sync_group == group_id:
-                        v.needs_recenter = True
-                        v.is_geometry_dirty = True
-        elif key == dpg.mvKey_F1:
-            self.set_orientation(ViewMode.AXIAL)
-        elif key == dpg.mvKey_F2:
-            self.set_orientation(ViewMode.SAGITTAL)
-        elif key == dpg.mvKey_F3:
-            self.set_orientation(ViewMode.CORONAL)
-        elif key == dpg.mvKey_F4:
-            self.set_orientation(ViewMode.HISTOGRAM if self.is_image_orientation() else ViewMode.HISTOGRAM)
-        elif key == dpg.mvKey_L:
-            self.view_state.interpolation_linear = not self.view_state.interpolation_linear
-            self.view_state.is_data_dirty = True
-        elif key == dpg.mvKey_G:
-            self.view_state.grid_mode = not self.view_state.grid_mode
-            self.view_state.is_data_dirty = True
-        elif key == dpg.mvKey_H:
             self.hide_everything()
 
     def on_scroll(self, delta=1):

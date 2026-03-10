@@ -16,7 +16,7 @@ DEFAULT_SETTINGS = {
         "grid": [255, 255, 255, 40]
     },
     "physics": {
-        "search_radius": 25,
+        "auto_window_fov": 0.20,
         "voxel_strip_threshold": 1500
     },
     "shortcuts": {
