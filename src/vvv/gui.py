@@ -4,7 +4,7 @@ import time
 from vvv.utils import ViewMode, fmt
 from vvv.file_dialog import open_file_dialog
 from .resources import load_fonts, setup_themes
-from .core import WL_PRESETS
+from .core import WL_PRESETS, COLORMAPS
 
 
 def create_labeled_field(label, tag):
@@ -97,6 +97,14 @@ class MainGUI:
                         label=label,
                         user_data=preset_name,
                         callback=self.on_wl_preset_menu_clicked,
+                    )
+
+            with dpg.menu(label="Colormap"):
+                for cmap_name in COLORMAPS.keys():
+                    dpg.add_menu_item(
+                        label=cmap_name,
+                        user_data=cmap_name,
+                        callback=self.on_colormap_menu_clicked,
                     )
 
             with dpg.menu(label="Help"):
@@ -834,6 +842,18 @@ class MainGUI:
         viewer.view_state.apply_wl_preset(preset_name)
         self.update_sidebar_window_level(viewer)
         self.controller.propagate_window_level(viewer.image_id)
+
+    def on_colormap_menu_clicked(self, sender, app_data, user_data):
+        viewer = self.context_viewer
+        if (
+            not viewer
+            or not viewer.view_state
+            or getattr(viewer.volume, "is_rgb", False)
+        ):
+            return
+
+        viewer.view_state.colormap = user_data
+        self.controller.propagate_colormap(viewer.image_id)
 
     def on_sync_wl_toggle(self, sender, app_data, user_data):
         """Immediately propagates window/level when the sync checkbox is turned on."""

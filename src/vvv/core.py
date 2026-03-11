@@ -44,6 +44,7 @@ DEFAULT_SETTINGS = {
     "layout": {"window_width": 1000, "window_height": 800, "side_panel_width": 300},
 }
 
+
 WL_PRESETS = {
     "Optimal": None,
     "Min/Max": None,
@@ -53,6 +54,52 @@ WL_PRESETS = {
     "CT: Lung": {"ww": 1500.0, "wl": -600.0},
     "CT: Brain": {"ww": 80.0, "wl": 40.0},
 }
+
+
+def generate_colormaps():
+    """Generates standard mathematical LUTs (Look-Up Tables) to avoid heavy dependencies."""
+    cmaps = {}
+    x = np.linspace(0, 1, 256)
+    ones = np.ones(256)
+
+    # 1. Grayscale
+    cmaps["Grayscale"] = np.column_stack([x, x, x, ones]).astype(np.float32)
+
+    # 2. Hot (Black -> Red -> Yellow -> White)
+    r = np.clip(3 * x, 0, 1)
+    g = np.clip(3 * x - 1, 0, 1)
+    b = np.clip(3 * x - 2, 0, 1)
+    cmaps["Hot"] = np.column_stack([r, g, b, ones]).astype(np.float32)
+
+    # 3. Cold (Black -> Blue -> Cyan -> White)
+    cmaps["Cold"] = np.column_stack([b, g, r, ones]).astype(np.float32)
+
+    # 4. Jet / Rainbow
+    r = np.clip(1.5 - np.abs(4 * x - 3), 0, 1)
+    g = np.clip(1.5 - np.abs(4 * x - 2), 0, 1)
+    b = np.clip(1.5 - np.abs(4 * x - 1), 0, 1)
+    cmaps["Jet"] = np.column_stack([r, g, b, ones]).astype(np.float32)
+
+    # 5. Dosimetry (Blue -> Green -> Red wash)
+    r = np.clip(4 * x - 1.5, 0, 1)
+    g = np.clip(2 - np.abs(4 * x - 2), 0, 1)
+    b = np.clip(2.5 - 4 * x, 0, 1)
+    cmaps["Dosimetry"] = np.column_stack([r, g, b, ones]).astype(np.float32)
+
+    # 6. Segmentation (Random high-contrast colors, Black background)
+    np.random.seed(42)  # Fixed seed so colors stay consistent between sessions
+    seg_r = np.random.rand(256)
+    seg_g = np.random.rand(256)
+    seg_b = np.random.rand(256)
+    seg_r[0], seg_g[0], seg_b[0] = 0, 0, 0  # 0 is always transparent black
+    cmaps["Segmentation"] = np.column_stack([seg_r, seg_g, seg_b, ones]).astype(
+        np.float32
+    )
+
+    return cmaps
+
+
+COLORMAPS = generate_colormaps()
 
 
 class SettingsManager:
@@ -119,6 +166,7 @@ class ViewState:
         self.show_overlay = True
         self.show_crosshair = True
         self.show_scalebar = False
+        self.colormap = "Grayscale"
 
         self.hist_data_x = []
         self.hist_data_y = []
@@ -316,6 +364,7 @@ class ViewState:
             self.volume.num_components,
             self.ww,
             self.wl,
+            self.colormap,
             slice_idx,
             orientation,
         )
@@ -723,6 +772,34 @@ class Controller:
             if viewer.image_id in target_ids:
                 viewer.is_geometry_dirty = True
 
+    def propagate_colormap(self, source_vs_id):
+        source_vs = self.view_states[source_vs_id]
+        import dearpygui.dearpygui as dpg
+
+        sync_wl = False
+        if dpg.does_item_exist("check_sync_wl"):
+            sync_wl = dpg.get_value("check_sync_wl")
+
+        target_group = source_vs.sync_group
+        if sync_wl and target_group != 0:
+            for target_id, vs in self.view_states.items():
+                if vs.sync_group == target_group and not getattr(
+                    vs.volume, "is_rgb", False
+                ):
+                    vs.colormap = source_vs.colormap
+                    vs.is_data_dirty = True
+        else:
+            source_vs.is_data_dirty = True
+
+        for viewer in self.viewers.values():
+            if viewer.view_state:
+                if viewer.image_id == source_vs_id or (
+                    sync_wl
+                    and target_group != 0
+                    and viewer.view_state.sync_group == target_group
+                ):
+                    viewer.update_render()
+
     def propagate_window_level(self, source_vs_id):
         source_vs = self.view_states[source_vs_id]
         import dearpygui.dearpygui as dpg
@@ -801,7 +878,58 @@ class SliceRenderer:
         return res if res is not None else np.zeros((1, 1))
 
     @staticmethod
-    def get_slice_rgba(data, is_rgb, num_components, ww, wl, slice_idx, orientation):
+    def get_slice_rgba(
+        data, is_rgb, num_components, ww, wl, cmap_name, slice_idx, orientation
+    ):
+        if orientation == ViewMode.HISTOGRAM:
+            return np.array([0, 0, 0, 255], dtype=np.uint8), (1, 1)
+
+        # Determine bounds securely
+        if orientation == ViewMode.AXIAL:
+            max_s, h, w = data.shape[0], data.shape[1], data.shape[2]
+        elif orientation == ViewMode.SAGITTAL:
+            max_s, h, w = data.shape[2], data.shape[0], data.shape[1]
+        elif orientation == ViewMode.CORONAL:
+            max_s, h, w = data.shape[1], data.shape[0], data.shape[2]
+        else:
+            return np.zeros(4, dtype=np.float32), (1, 1)
+
+        # Handle out-of-bounds slicing securely
+        if slice_idx < 0 or slice_idx >= max_s:
+            black_slice = np.zeros((h, w, 4), dtype=np.float32)
+            black_slice[:, :, 3] = 1.0
+            return black_slice.flatten(), (h, w)
+
+        # Step 1: Extract (One single call handles everything)
+        slice_data = SliceRenderer.extract_slice(data, slice_idx, orientation)
+
+        # Step 2 & 3: Normalize and apply LUT (Look-Up Table)
+        if is_rgb:
+            norm_img = np.clip(slice_data.astype(np.float32) / 255.0, 0.0, 1.0)
+            if num_components == 3:
+                alpha = np.ones((*norm_img.shape[:-1], 1), dtype=np.float32)
+                rgba = np.concatenate([norm_img, alpha], axis=-1)
+            else:
+                rgba = norm_img
+        else:
+            min_val = wl - ww / 2
+            norm_img = (
+                np.zeros_like(slice_data, dtype=np.float32)
+                if ww <= 0
+                else np.clip((slice_data - min_val) / ww, 0.0, 1.0)
+            )
+
+            # Map normalized [0..1] values directly into the Colormap LUT
+            lut = COLORMAPS.get(cmap_name, COLORMAPS["Grayscale"])
+            indices = (norm_img * 255).astype(np.uint8)
+            rgba = lut[indices]
+
+        return rgba.flatten(), (h, w)
+
+    @staticmethod
+    def get_slice_rgba_OLD(
+        data, is_rgb, num_components, ww, wl, slice_idx, orientation
+    ):
         if orientation == ViewMode.HISTOGRAM:
             return np.array([0, 0, 0, 255], dtype=np.uint8), (1, 1)
 
