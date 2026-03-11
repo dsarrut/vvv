@@ -1,6 +1,7 @@
 import dearpygui.dearpygui as dpg
 import numpy as np
 from .utils import *
+from .core import SliceRenderer
 
 
 class ViewportMapper:
@@ -896,7 +897,34 @@ class SliceViewer:
                 dpg.configure_item(plot_tag, show=False)
 
         # THIS IS THE SLOWEST LINE IN THE APP:
-        rgba_flat, _ = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
+        # rgba_flat, _ = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
+
+        # Check if we have a valid overlay and get its visual parameters
+        over_data = self.view_state.overlay_data
+        over_ww, over_wl, over_cmap = 1.0, 0.5, "Hot"
+        if (
+            over_data is not None
+            and self.view_state.overlay_id in self.controller.view_states
+        ):
+            ovs = self.controller.view_states[self.view_state.overlay_id]
+            over_ww, over_wl, over_cmap = ovs.ww, ovs.wl, ovs.colormap
+
+        # Generate the fused pixel array
+        rgba_flat, _ = SliceRenderer.get_slice_rgba(
+            self.volume.data,
+            getattr(self.volume, "is_rgb", False),
+            self.volume.num_components,
+            self.view_state.ww,
+            self.view_state.wl,
+            self.view_state.colormap,
+            over_data,
+            over_ww,
+            over_wl,
+            over_cmap,
+            self.view_state.overlay_opacity,
+            self.slice_idx,
+            self.orientation,
+        )
 
         # Cache this flat array so overlays can use it during zooming without reslicing!
         self.last_rgba_flat = rgba_flat

@@ -168,11 +168,20 @@ class ViewState:
         self.show_scalebar = False
         self.colormap = "Grayscale"
 
+        # Overlay / Fusion Data
+        self.overlay_id = None
+        self.overlay_data = None
+        self.overlay_opacity = 0.5
+        self.overlay_mode = "Alpha"
+
+        # Histogram
         self.hist_data_x = []
         self.hist_data_y = []
         self.bin_width = 10.0
         self.use_log_y = False
         self.histogram_is_dirty = True
+
+        # Syncing
         self.sync_group = 0
 
         self.init_crosshair_to_slices()
@@ -290,6 +299,40 @@ class ViewState:
         self.hist_data_y = hist.astype(np.float32)
         self.hist_data_x = bin_edges[:-1].astype(np.float32)
         self.histogram_is_dirty = False
+
+    def set_overlay(self, other_vs_id, other_vol):
+        """
+        Resamples a secondary VolumeData onto this ViewState's exact physical grid using SimpleITK.
+        """
+        if other_vs_id is None or other_vol is None:
+            self.overlay_id = None
+            self.overlay_data = None
+            self.is_data_dirty = True
+            return
+
+        self.overlay_id = other_vs_id
+
+        # Fast path: If the physical grids are exactly identical, just copy the numpy array reference
+        if (
+            np.array_equal(self.volume.spacing, other_vol.spacing)
+            and np.array_equal(self.volume.origin, other_vol.origin)
+            and self.volume.sitk_image.GetSize() == other_vol.sitk_image.GetSize()
+        ):
+            self.overlay_data = other_vol.data
+            self.is_data_dirty = True
+            return
+
+        # Slow path: Resample the moving image onto the fixed image's physical grid
+        # Use linear for smooth medical overlays?
+        resampler = sitk.ResampleImageFilter()
+        resampler.SetReferenceImage(self.volume.sitk_image)
+        resampler.SetInterpolator(sitk.sitkLinear)
+        resampler.SetDefaultPixelValue(0)
+
+        # Execute resampling
+        resampled_img = resampler.Execute(other_vol.sitk_image)
+        self.overlay_data = sitk.GetArrayFromImage(resampled_img)
+        self.is_data_dirty = True
 
     def init_default_window_level(self):
         total_pixels = self.volume.data.size
@@ -879,6 +922,91 @@ class SliceRenderer:
 
     @staticmethod
     def get_slice_rgba(
+        base_data,
+        base_is_rgb,
+        base_num_components,
+        base_ww,
+        base_wl,
+        base_cmap_name,
+        overlay_data,
+        overlay_ww,
+        overlay_wl,
+        overlay_cmap_name,
+        overlay_opacity,
+        slice_idx,
+        orientation,
+    ):
+        if orientation == ViewMode.HISTOGRAM:
+            return np.array([0, 0, 0, 255], dtype=np.uint8), (1, 1)
+
+        # 1. Determine bounds securely from the BASE image
+        if orientation == ViewMode.AXIAL:
+            max_s, h, w = base_data.shape[0], base_data.shape[1], base_data.shape[2]
+        elif orientation == ViewMode.SAGITTAL:
+            max_s, h, w = base_data.shape[2], base_data.shape[0], base_data.shape[1]
+        elif orientation == ViewMode.CORONAL:
+            max_s, h, w = base_data.shape[1], base_data.shape[0], base_data.shape[2]
+        else:
+            return np.zeros(4, dtype=np.float32), (1, 1)
+
+        # Handle out-of-bounds slicing securely
+        if slice_idx < 0 or slice_idx >= max_s:
+            black_slice = np.zeros((h, w, 4), dtype=np.float32)
+            black_slice[:, :, 3] = 1.0
+            return black_slice.flatten(), (h, w)
+
+        # 2. Extract Base Slice
+        base_slice = SliceRenderer.extract_slice(base_data, slice_idx, orientation)
+
+        # 3. Colorize Base Slice
+        if base_is_rgb:
+            norm_img = np.clip(base_slice.astype(np.float32) / 255.0, 0.0, 1.0)
+            if base_num_components == 3:
+                alpha = np.ones((*norm_img.shape[:-1], 1), dtype=np.float32)
+                base_rgba = np.concatenate([norm_img, alpha], axis=-1)
+            else:
+                base_rgba = norm_img
+        else:
+            min_val = base_wl - base_ww / 2
+            norm_img = (
+                np.zeros_like(base_slice, dtype=np.float32)
+                if base_ww <= 0
+                else np.clip((base_slice - min_val) / base_ww, 0.0, 1.0)
+            )
+            lut = COLORMAPS.get(base_cmap_name, COLORMAPS["Grayscale"])
+            base_rgba = lut[(norm_img * 255).astype(np.uint8)]
+
+        # 4. Handle Overlay Fusion (If an overlay exists)
+        if overlay_data is not None and overlay_opacity > 0.0:
+            over_slice = SliceRenderer.extract_slice(
+                overlay_data, slice_idx, orientation
+            )
+
+            # Normalize overlay (Assume overlays are always grayscale medical images for now)
+            over_min = overlay_wl - overlay_ww / 2
+            over_norm = (
+                np.zeros_like(over_slice, dtype=np.float32)
+                if overlay_ww <= 0
+                else np.clip((over_slice - over_min) / overlay_ww, 0.0, 1.0)
+            )
+
+            # Apply overlay LUT
+            over_lut = COLORMAPS.get(overlay_cmap_name, COLORMAPS["Hot"])
+            over_rgba = over_lut[(over_norm * 255).astype(np.uint8)]
+
+            # Alpha Blend: Base * (1 - Opacity) + Overlay * Opacity
+            # We preserve the Base Alpha (which is always 1.0) to avoid background transparency issues
+            final_rgba = (
+                base_rgba * (1.0 - overlay_opacity) + over_rgba * overlay_opacity
+            )
+            final_rgba[..., 3] = 1.0
+            return final_rgba.flatten(), (h, w)
+
+        # If no overlay, just return the base image
+        return base_rgba.flatten(), (h, w)
+
+    @staticmethod
+    def get_slice_rgba_OK_colormap(
         data, is_rgb, num_components, ww, wl, cmap_name, slice_idx, orientation
     ):
         if orientation == ViewMode.HISTOGRAM:

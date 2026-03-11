@@ -268,6 +268,29 @@ class MainGUI:
                 self.create_visibility_controls()
 
             dpg.add_spacer(height=10)
+            dpg.add_text("Overlay / Fusion", color=[93, 93, 93])
+            dpg.add_separator()
+
+            with dpg.group(tag="image_fusion_group"):
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Overlay")
+                    dpg.add_combo(
+                        ["None"],
+                        tag="combo_overlay_select",
+                        width=-1,
+                        callback=self.on_overlay_selected,
+                    )
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Opacity")
+                    dpg.add_slider_float(
+                        tag="slider_overlay_opacity",
+                        min_value=0.0,
+                        max_value=1.0,
+                        width=-1,
+                        callback=self.on_opacity_changed,
+                    )
+
+            dpg.add_spacer(height=10)
             dpg.add_text("Crosshair", color=[93, 93, 93])
             dpg.add_separator()
 
@@ -613,6 +636,24 @@ class MainGUI:
         else:
             self.update_sidebar_window_level(viewer)
 
+        # Update Overlay Dropdown Options
+        if dpg.does_item_exist("combo_overlay_select"):
+            options = ["None"]
+            for vid, ovs in self.controller.view_states.items():
+                if vid != viewer.image_id:  # Don't let an image overlay itself
+                    options.append(f"{vid}: {ovs.volume.name}")
+
+            dpg.configure_item("combo_overlay_select", items=options)
+
+            current_sel = "None"
+            if viewer.view_state.overlay_id:
+                ovs_name = self.controller.view_states[
+                    viewer.view_state.overlay_id
+                ].volume.name
+                current_sel = f"{viewer.view_state.overlay_id}: {ovs_name}"
+            dpg.set_value("combo_overlay_select", current_sel)
+            dpg.set_value("slider_overlay_opacity", viewer.view_state.overlay_opacity)
+
     def update_sidebar_window_level(self, viewer):
         """Updates the W/L inputs in the sidebar."""
         if not viewer or not viewer.view_state:
@@ -865,6 +906,39 @@ class MainGUI:
         # If checked, push the current active image's W/L to the rest of its sync group immediately.
         if app_data:
             self.controller.propagate_window_level(viewer.image_id)
+
+    def on_overlay_selected(self, sender, app_data, user_data):
+        viewer = self.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+
+        if app_data == "None":
+            viewer.view_state.set_overlay(None, None)
+        else:
+            # Extract the raw ID from the dropdown string "ID: Name"
+            target_id = app_data.split(":")[0]
+            target_vol = self.controller.volumes[target_id]
+
+            # Show a brief loading message because SimpleITK resampling might take 1-2 seconds
+            self.show_status_message(f"Resampling overlay to physical grid...")
+
+            # Use a tiny threading hack to allow the UI to draw the "Resampling..." message
+            # before we block the python thread with the heavy math.
+            def _resample():
+                time.sleep(0.05)
+                viewer.view_state.set_overlay(target_id, target_vol)
+                self.show_status_message("Overlay applied!")
+
+            import threading
+
+            threading.Thread(target=_resample, daemon=True).start()
+
+    def on_opacity_changed(self, sender, app_data, user_data):
+        viewer = self.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+        viewer.view_state.overlay_opacity = app_data
+        viewer.view_state.is_data_dirty = True
 
     def load_single_image_sequence(self, file_path):
         """Generator that shows a loading progress bar while reading a large file."""
