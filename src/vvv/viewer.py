@@ -922,6 +922,7 @@ class SliceViewer:
             over_wl,
             over_cmap,
             self.view_state.overlay_opacity,
+            self.view_state.overlay_threshold,
             self.slice_idx,
             self.orientation,
         )

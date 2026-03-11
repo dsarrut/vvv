@@ -145,30 +145,67 @@ class MainGUI:
                     dpg.add_separator()
                     dpg.add_group(tag="image_list_container")
 
-                # Tab 2: Sync
-                with dpg.tab(label="Sync"):
-                    dpg.add_spacer(height=5)
-                    with dpg.group(horizontal=True):
-                        dpg.add_button(
-                            label="Link All",
-                            callback=lambda: self.controller.link_all(),
-                            width=80,
-                        )
-                        dpg.add_button(
-                            label="Unlink All",
-                            callback=lambda: self.controller.unlink_all(),
-                            width=80,
-                        )
-                    dpg.add_spacer(height=5)
-                    dpg.add_text("Sync Groups", color=[93, 93, 93])
-                    dpg.add_separator()
-                    with dpg.group(tag="sync_list_container"):
-                        # We will populate this programmatically
-                        pass
+                self.create_tab_sync()
+                self.create_tab_fusion()
+                self.create_tab_settings()
 
-                self.create_left_panel_settings()
+    def create_tab_sync(self):
+        # Tab 2: Sync
+        with dpg.tab(label="Sync"):
+            dpg.add_spacer(height=5)
+            with dpg.group(horizontal=True):
+                dpg.add_button(
+                    label="Link All",
+                    callback=lambda: self.controller.link_all(),
+                    width=80,
+                )
+                dpg.add_button(
+                    label="Unlink All",
+                    callback=lambda: self.controller.unlink_all(),
+                    width=80,
+                )
+            dpg.add_spacer(height=5)
+            dpg.add_text("Sync Groups", color=[93, 93, 93])
+            dpg.add_separator()
+            with dpg.group(tag="sync_list_container"):
+                # We will populate this programmatically
+                pass
 
-    def create_left_panel_settings(self):
+    def create_tab_fusion(self):
+        # Tab 3: Fusion
+        with dpg.tab(label="Fusion"):
+            dpg.add_spacer(height=5)
+            dpg.add_text("Active Overlay", color=[93, 93, 93])
+            dpg.add_separator()
+
+            with dpg.group(tag="image_fusion_group"):
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Target ")
+                    dpg.add_combo(
+                        ["None"],
+                        tag="combo_overlay_select",
+                        width=-1,
+                        callback=self.on_overlay_selected,
+                    )
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Opacity")
+                    dpg.add_slider_float(
+                        tag="slider_overlay_opacity",
+                        min_value=0.0,
+                        max_value=1.0,
+                        width=-1,
+                        callback=self.on_opacity_changed,
+                    )
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Min Thr")
+                    dpg.add_input_float(
+                        tag="input_overlay_threshold",
+                        width=-1,
+                        step=10,
+                        callback=self.on_threshold_changed,
+                    )
+
+    def create_tab_settings(self):
         # Tab 3: Settings
         with dpg.tab(label="Settings"):
             dpg.add_spacer(height=5)
@@ -270,25 +307,6 @@ class MainGUI:
             dpg.add_spacer(height=10)
             dpg.add_text("Overlay / Fusion", color=[93, 93, 93])
             dpg.add_separator()
-
-            with dpg.group(tag="image_fusion_group"):
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Overlay")
-                    dpg.add_combo(
-                        ["None"],
-                        tag="combo_overlay_select",
-                        width=-1,
-                        callback=self.on_overlay_selected,
-                    )
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Opacity")
-                    dpg.add_slider_float(
-                        tag="slider_overlay_opacity",
-                        min_value=0.0,
-                        max_value=1.0,
-                        width=-1,
-                        callback=self.on_opacity_changed,
-                    )
 
             dpg.add_spacer(height=10)
             dpg.add_text("Crosshair", color=[93, 93, 93])
@@ -653,6 +671,9 @@ class MainGUI:
                 current_sel = f"{viewer.view_state.overlay_id}: {ovs_name}"
             dpg.set_value("combo_overlay_select", current_sel)
             dpg.set_value("slider_overlay_opacity", viewer.view_state.overlay_opacity)
+            dpg.set_value(
+                "input_overlay_threshold", viewer.view_state.overlay_threshold
+            )
 
     def update_sidebar_window_level(self, viewer):
         """Updates the W/L inputs in the sidebar."""
@@ -938,6 +959,13 @@ class MainGUI:
         if not viewer or not viewer.view_state:
             return
         viewer.view_state.overlay_opacity = app_data
+        viewer.view_state.is_data_dirty = True
+
+    def on_threshold_changed(self, sender, app_data, user_data):
+        viewer = self.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+        viewer.view_state.overlay_threshold = app_data
         viewer.view_state.is_data_dirty = True
 
     def load_single_image_sequence(self, file_path):

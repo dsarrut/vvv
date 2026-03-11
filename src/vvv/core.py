@@ -173,6 +173,7 @@ class ViewState:
         self.overlay_data = None
         self.overlay_opacity = 0.5
         self.overlay_mode = "Alpha"
+        self.overlay_threshold = -1
 
         # Histogram
         self.hist_data_x = []
@@ -676,6 +677,39 @@ class Controller:
 
     def close_image(self, vs_id):
         if vs_id in self.view_states:
+            # 1. Unload from any viewer actively displaying it
+            for viewer in self.viewers.values():
+                if viewer.image_id == vs_id:
+                    viewer.drop_image()
+
+            # 2. Detach it from any other image using it as an overlay
+            for other_id, other_vs in self.view_states.items():
+                if other_vs.overlay_id == vs_id:
+                    other_vs.set_overlay(None, None)
+                    self.update_all_viewers_of_image(other_id)
+
+            # 3. Delete the data from memory
+            name = self.view_states[vs_id].volume.name
+            del self.view_states[vs_id]
+            del self.volumes[vs_id]
+
+            # 4. Reassign empty viewers
+            if self.view_states:
+                first_vs_id = next(iter(self.view_states))
+                for viewer in self.viewers.values():
+                    if viewer.image_id is None:
+                        viewer.set_image(first_vs_id)
+
+            # 5. Update UI
+            if self.gui:
+                self.gui.refresh_image_list_ui()
+                if self.gui.context_viewer:
+                    # Force the sidebar to refresh so the Fusion dropdown reverts to "None"
+                    self.gui.update_sidebar_info(self.gui.context_viewer)
+                self.gui.show_status_message(f"Closed: {name}")
+
+    def close_image_OLD(self, vs_id):
+        if vs_id in self.view_states:
             for viewer in self.viewers.values():
                 if viewer.image_id == vs_id:
                     viewer.drop_image()
@@ -836,10 +870,14 @@ class Controller:
 
         for viewer in self.viewers.values():
             if viewer.view_state:
-                if viewer.image_id == source_vs_id or (
-                    sync_wl
-                    and target_group != 0
-                    and viewer.view_state.sync_group == target_group
+                if (
+                    viewer.image_id == source_vs_id
+                    or (
+                        sync_wl
+                        and target_group != 0
+                        and viewer.view_state.sync_group == target_group
+                    )
+                    or viewer.view_state.overlay_id == source_vs_id
                 ):
                     viewer.update_render()
 
@@ -865,10 +903,14 @@ class Controller:
 
         for viewer in self.viewers.values():
             if viewer.view_state:
-                if viewer.image_id == source_vs_id or (
-                    sync_wl
-                    and target_group != 0
-                    and viewer.view_state.sync_group == target_group
+                if (
+                    viewer.image_id == source_vs_id
+                    or (
+                        sync_wl
+                        and target_group != 0
+                        and viewer.view_state.sync_group == target_group
+                    )
+                    or viewer.view_state.overlay_id == source_vs_id
                 ):
                     viewer.update_render()
 
@@ -933,6 +975,7 @@ class SliceRenderer:
         overlay_wl,
         overlay_cmap_name,
         overlay_opacity,
+        overlay_threshold,
         slice_idx,
         orientation,
     ):
@@ -982,7 +1025,7 @@ class SliceRenderer:
                 overlay_data, slice_idx, orientation
             )
 
-            # Normalize overlay (Assume overlays are always grayscale medical images for now)
+            # Normalize overlay
             over_min = overlay_wl - overlay_ww / 2
             over_norm = (
                 np.zeros_like(over_slice, dtype=np.float32)
@@ -994,11 +1037,15 @@ class SliceRenderer:
             over_lut = COLORMAPS.get(overlay_cmap_name, COLORMAPS["Hot"])
             over_rgba = over_lut[(over_norm * 255).astype(np.uint8)]
 
-            # Alpha Blend: Base * (1 - Opacity) + Overlay * Opacity
-            # We preserve the Base Alpha (which is always 1.0) to avoid background transparency issues
-            final_rgba = (
-                base_rgba * (1.0 - overlay_opacity) + over_rgba * overlay_opacity
-            )
+            # Create a dynamic opacity mask to strip out values below the threshold
+            op_mask = np.full(over_slice.shape, overlay_opacity, dtype=np.float32)
+            op_mask[over_slice < overlay_threshold] = 0.0
+            op_mask = op_mask[
+                ..., None
+            ]  # Broadcast to (H, W, 1) so it multiplies RGBA correctly
+
+            # Alpha Blend: Base * (1 - Op_Mask) + Overlay * Op_Mask
+            final_rgba = base_rgba * (1.0 - op_mask) + over_rgba * op_mask
             final_rgba[..., 3] = 1.0
             return final_rgba.flatten(), (h, w)
 
