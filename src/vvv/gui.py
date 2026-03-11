@@ -1164,7 +1164,133 @@ class MainGUI:
         vp_width = max(dpg.get_viewport_client_width(), 800)
         dpg.set_item_pos(window_tag, [vp_width - 520, 40])
 
-    def create_boot_sequence(self, image_paths, sync=False, link_all=False):
+    def create_boot_sequence(self, image_tasks, sync=False, link_all=False):
+        """Creates a generator for the boot sequence that loads images and parses fusion tasks."""
+        if not image_tasks:
+            return
+
+        # Calculate total files to read (bases + fusions)
+        total_files = len(image_tasks) + sum(1 for t in image_tasks if t["fusion"])
+
+        with dpg.window(
+            tag="loading_modal",
+            modal=True,
+            show=True,
+            no_title_bar=True,
+            no_resize=True,
+            no_move=True,
+            width=350,
+            height=100,
+        ):
+            dpg.add_text("Initializing...", tag="loading_text")
+            dpg.add_spacer(height=5)
+            dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=0.0)
+
+        vp_width = max(dpg.get_viewport_client_width(), 800)
+        vp_height = max(dpg.get_viewport_client_height(), 600)
+        dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
+        yield
+
+        loaded_ids = []
+        files_processed = 0
+
+        for task in image_tasks:
+            base_path = task["base"]
+            filename = os.path.basename(base_path)
+
+            # 1. Load Base Image
+            if dpg.does_item_exist("loading_text"):
+                dpg.set_value("loading_text", f"Loading base...\n{filename}")
+            if dpg.does_item_exist("loading_progress"):
+                dpg.set_value("loading_progress", files_processed / total_files)
+            yield
+
+            try:
+                base_id = self.controller.load_image(base_path)
+                loaded_ids.append(base_id)
+                files_processed += 1
+            except Exception as e:
+                self.show_message("Load Error", f"Failed to load:\n{filename}")
+                continue
+
+            # 2. Handle Fusion Overlay (if requested)
+            if task["fusion"]:
+                fuse_path = task["fusion"]["path"]
+                fuse_name = os.path.basename(fuse_path)
+
+                if dpg.does_item_exist("loading_text"):
+                    dpg.set_value("loading_text", f"Resampling overlay...\n{fuse_name}")
+                if dpg.does_item_exist("loading_progress"):
+                    dpg.set_value("loading_progress", files_processed / total_files)
+                yield
+
+                try:
+                    # Load the overlay as a full image in the system
+                    fuse_id = self.controller.load_image(fuse_path)
+                    loaded_ids.append(fuse_id)
+                    files_processed += 1
+
+                    # Apply the requested modifiers
+                    fuse_vs = self.controller.view_states[fuse_id]
+                    fuse_vs.colormap = task["fusion"]["cmap"]
+                    fuse_vs.is_data_dirty = True
+
+                    # Bind it to the base image
+                    base_vs = self.controller.view_states[base_id]
+                    base_vs.set_overlay(fuse_id, fuse_vs.volume)
+                    base_vs.overlay_opacity = task["fusion"]["opacity"]
+                    base_vs.overlay_threshold = task["fusion"]["threshold"]
+
+                except Exception as e:
+                    self.show_message(
+                        "Overlay Error", f"Failed to load/fuse:\n{fuse_name}"
+                    )
+                    continue
+
+        if dpg.does_item_exist("loading_text"):
+            dpg.set_value("loading_text", "Applying synchronization and layouts...")
+        if dpg.does_item_exist("loading_progress"):
+            dpg.set_value("loading_progress", 1.0)
+        yield
+
+        self.controller.default_viewers_orientation()
+
+        # Distribute the loaded images across the 4 viewers
+        for i, img_id in enumerate(loaded_ids):
+            if i == 0:
+                for tag in ["V1", "V2", "V3", "V4"]:
+                    self.controller.viewers[tag].set_image(img_id)
+            elif i == 1:
+                self.controller.viewers["V3"].set_image(img_id)
+                self.controller.viewers["V4"].set_image(img_id)
+            elif i == 2:
+                self.controller.viewers["V2"].set_image(loaded_ids[1])
+                self.controller.viewers["V3"].set_image(img_id)
+                self.controller.viewers["V4"].set_image(img_id)
+            elif i >= 3:
+                self.controller.viewers["V4"].set_image(img_id)
+
+        # Unify scales for same-image viewers
+        for img_id in loaded_ids:
+            same_viewers = [
+                v.tag for v in self.controller.viewers.values() if v.image_id == img_id
+            ]
+            if same_viewers:
+                self.controller.unify_ppm(same_viewers)
+
+        if sync or link_all:
+            for img_id in loaded_ids:
+                self.controller.on_sync_group_change(None, "Group 1", img_id)
+            self.refresh_sync_ui()
+
+        self.on_window_resize()
+        self.refresh_image_list_ui()
+
+        if dpg.does_item_exist("loading_modal"):
+            dpg.delete_item("loading_modal")
+        yield
+
+    def create_boot_sequence_OLD(self, image_paths, sync=False, link_all=False):
         """Creates a generator for the boot sequence that loads images with progress UI."""
         if not image_paths:
             return
