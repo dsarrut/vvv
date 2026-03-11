@@ -1110,7 +1110,8 @@ class MainGUI:
             descriptions = {
                 "open_file": "Open File",
                 "next_image": "Next Image in List",
-                "auto_window": "Local Auto Window/Level",
+                "auto_window": "Auto Window/Level (Base)",
+                "auto_window_overlay": "Auto Window/Level (Overlay)",
                 "scroll_up": "Scroll Slice Up",
                 "scroll_down": "Scroll Slice Down",
                 "fast_scroll_up": "Fast Scroll Up",

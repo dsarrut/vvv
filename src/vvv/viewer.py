@@ -784,7 +784,81 @@ class SliceViewer:
         m = self.controller.settings.data["physics"]["voxel_strip_threshold"]
         return 0 < (end_x - start_x) * (end_y - start_y) < m
 
-    def apply_local_auto_window(self, fov_fraction=0.20):
+    def apply_local_auto_window(self, fov_fraction=0.20, target="base"):
+        if self.image_id is None or not self.volume:
+            return
+
+        pix_x, pix_y = self.get_mouse_slice_coords(ignore_hover=True)
+        if pix_x is None:
+            return
+
+        pmin, pmax = self.current_pmin, self.current_pmax
+        disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
+        if disp_w <= 0 or disp_h <= 0:
+            return
+
+        win_w = dpg.get_item_width(f"win_{self.tag}")
+        win_h = dpg.get_item_height(f"win_{self.tag}")
+        if not win_w or not win_h:
+            return
+
+        # Choose whether to sample the base CT or the Overlay PET
+        if target == "overlay":
+            if not self.view_state.overlay_id or self.view_state.overlay_data is None:
+                return
+            slice_data = SliceRenderer.extract_slice(
+                self.view_state.overlay_data, self.slice_idx, self.orientation
+            )
+        else:
+            if getattr(self.volume, "is_rgb", False):
+                return
+            slice_data = self.view_state.get_raw_slice(self.slice_idx, self.orientation)
+
+        if slice_data is None:
+            return
+
+        real_h, real_w = slice_data.shape[:2]
+
+        # Define the sampling box as a fraction of the physical screen viewport
+        screen_radius_x = (win_w * fov_fraction) / 2.0
+        screen_radius_y = (win_h * fov_fraction) / 2.0
+
+        # Translate the screen radius into voxel units, ensuring at least 1 voxel
+        vx_r_x = max(1, int((screen_radius_x / disp_w) * real_w))
+        vx_r_y = max(1, int((screen_radius_y / disp_h) * real_h))
+
+        x0, x1 = max(0, int(pix_x) - vx_r_x), min(real_w, int(pix_x) + vx_r_x)
+        y0, y1 = max(0, int(pix_y) - vx_r_y), min(real_h, int(pix_y) + vx_r_y)
+
+        if x1 <= x0 or y1 <= y0:
+            return
+
+        patch = slice_data[y0:y1, x0:x1]
+        if patch.size > 0:
+            p_min, p_max = np.percentile(patch, [2, 98])
+            ww = max(1e-5, p_max - p_min)
+            wl = (p_max + p_min) / 2
+
+            if target == "overlay":
+                ovs = self.controller.view_states[self.view_state.overlay_id]
+                ovs.ww = ww
+                ovs.wl = wl
+                self.controller.propagate_window_level(self.view_state.overlay_id)
+
+                # If the UI sidebar happens to be looking at the overlay image, sync its text boxes
+                if (
+                    self.controller.gui
+                    and self.controller.gui.context_viewer
+                    and self.controller.gui.context_viewer.image_id
+                    == self.view_state.overlay_id
+                ):
+                    self.controller.gui.update_sidebar_window_level(
+                        self.controller.gui.context_viewer
+                    )
+            else:
+                self.update_window_level(ww, wl)
+
+    def apply_local_auto_window_OLD(self, fov_fraction=0.20):
         if (
             self.image_id is None
             or not self.volume
@@ -1046,7 +1120,10 @@ class SliceViewer:
 
         if key == _k("auto_window"):
             fov = self.controller.settings.data["physics"].get("auto_window_fov", 0.20)
-            self.apply_local_auto_window(fov_fraction=fov)
+            self.apply_local_auto_window(fov_fraction=fov, target="base")
+        elif key == _k("auto_window_overlay"):
+            fov = self.controller.settings.data["physics"].get("auto_window_fov", 0.20)
+            self.apply_local_auto_window(fov_fraction=fov, target="overlay")
         elif key == _k("scroll_up"):
             self.on_scroll(1)
         elif key == _k("scroll_down"):

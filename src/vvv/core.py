@@ -20,6 +20,7 @@ DEFAULT_SETTINGS = {
         "open_file": "O",
         "next_image": "N",
         "auto_window": "W",
+        "auto_window_overlay": "X",
         "scroll_up": "Up",
         "scroll_down": "Down",
         "fast_scroll_up": 517,  # page up
