@@ -11,8 +11,10 @@ import numpy as np
 def create_labeled_field(label, tag):
     """Helper to create a labeled read-only input field."""
     with dpg.group(horizontal=True):
-        # Always create the label tag, even if label text is empty
-        dpg.add_text(f"{label}:" if label else "", tag=f"{tag}_label")
+        # Dim the label text so the data values pop out more
+        dpg.add_text(
+            f"{label}:" if label else "", tag=f"{tag}_label", color=[140, 140, 140]
+        )
         dpg.add_input_text(tag=tag, readonly=True, width=-1)
 
 
@@ -31,6 +33,7 @@ class MainGUI:
         self.side_panel_width = self.controller.settings.data["layout"][
             "side_panel_width"
         ]
+        print(self.side_panel_width)
         self.last_window_size = None
 
         # tasks manager
@@ -75,10 +78,29 @@ class MainGUI:
                 self.create_left_panel()
                 self.create_viewer_grid()
 
-        # Bind themes
-        dpg.bind_item_theme("viewers_container", "viewer_theme")
+        # --- Create Pure Black Themes for the Right Panel ---
+        with dpg.theme(tag="black_viewer_theme"):
+            with dpg.theme_component(dpg.mvAll):
+                dpg.add_theme_color(dpg.mvThemeCol_ChildBg, [0, 0, 0, 255])
+                dpg.add_theme_color(dpg.mvThemeCol_Border, [0, 0, 0, 255])
+                dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
+                dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 1)
+                # Remove the invisible 8px gaps between items to kill the scrollbar!
+                dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0, 0)
+
+        with dpg.theme(tag="active_black_viewer_theme"):
+            with dpg.theme_component(dpg.mvAll):
+                dpg.add_theme_color(dpg.mvThemeCol_ChildBg, [0, 0, 0, 255])
+                c = self.controller.settings.data["colors"]["viewer"]
+                dpg.add_theme_color(dpg.mvThemeCol_Border, c)
+                dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
+                dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 1)
+                dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0, 0)
+
+            # Bind the black themes globally to the right side
+        dpg.bind_item_theme("viewers_container", "black_viewer_theme")
         for tag in ["V1", "V2", "V3", "V4"]:
-            dpg.bind_item_theme(f"win_{tag}", "viewer_theme")
+            dpg.bind_item_theme(f"win_{tag}", "black_viewer_theme")
 
     def create_menu_bar(self):
         """Creates the top menu bar."""
@@ -124,19 +146,48 @@ class MainGUI:
             tag="side_panel",
             no_scrollbar=True,
             no_scroll_with_mouse=True,
-            border=True,
+            border=False,
         ):
-            dpg.add_spacer(height=5)
+            # Physically pushes the tabs down
+            dpg.add_spacer(height=15)
+
             self.create_left_panel_top_part()
-            dpg.add_spacer(height=5)
             self.create_left_panel_bottom_part()
 
-        dpg.bind_item_theme("image_info_group", "readonly_theme")
-        dpg.bind_item_theme("image_crosshair_group", "readonly_theme")
+        # Create a sleek, transparent theme for read-only text fields
+        if not dpg.does_item_exist("sleek_readonly_theme"):
+            with dpg.theme(tag="sleek_readonly_theme"):
+                with dpg.theme_component(dpg.mvInputText):
+                    dpg.add_theme_color(dpg.mvThemeCol_FrameBg, [0, 0, 0, 0])
+                    dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 0)
+                    dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 0, 3)
+
+        # Create a theme to highlight the active image in the list
+        if not dpg.does_item_exist("active_image_list_theme"):
+            with dpg.theme(tag="active_image_list_theme"):
+                with dpg.theme_component(dpg.mvText):
+                    # Cyan/Blue to perfectly match the active right-panel viewer border
+                    dpg.add_theme_color(dpg.mvThemeCol_Text, [100, 200, 255, 255])
+
+        # Create a theme to add breathing room (padding) inside the left panels
+        if not dpg.does_item_exist("left_panel_padding_theme"):
+            with dpg.theme(tag="left_panel_padding_theme"):
+                with dpg.theme_component(dpg.mvAll):
+                    # This drops the tabs 12px from the top, and indents the separators 12px!
+                    dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 12, 12)
+
+        dpg.bind_item_theme("image_info_group", "sleek_readonly_theme")
+        dpg.bind_item_theme("image_crosshair_group", "sleek_readonly_theme")
+
+        # Apply the padding to both the top and bottom sections
+        dpg.bind_item_theme("top_panel", "left_panel_padding_theme")
+        dpg.bind_item_theme("bottom_panel", "left_panel_padding_theme")
 
     def create_left_panel_top_part(self):
+        # Shortens the container so horizontal lines stop 15px before the image grid
+        panel_w = self.side_panel_width - 15
         with dpg.child_window(
-            tag="top_panel", height=320, resizable_y=True, border=False
+            tag="top_panel", height=370, width=panel_w, resizable_y=True, border=False
         ):
             with dpg.tab_bar(tag="sidebar_tabs"):
                 # Tab 1: Image Management
@@ -289,7 +340,8 @@ class MainGUI:
 
     def create_left_panel_bottom_part(self):
         # Active Viewer Info Section
-        with dpg.child_window(tag="bottom_panel", border=False):
+        panel_w = self.side_panel_width - 15
+        with dpg.child_window(tag="bottom_panel", width=panel_w, border=False):
             dpg.add_text("Active Viewer", color=[93, 93, 93])
             dpg.add_separator()
 
@@ -527,6 +579,9 @@ class MainGUI:
                         dpg.bind_item_theme(btn_reload, "icon_button_theme")
 
         self.refresh_sync_ui()
+        # Re-apply the highlight because the text labels were just recreated!
+        if self.context_viewer and self.context_viewer.image_id:
+            self.highlight_active_image_in_list(self.context_viewer.image_id)
 
     def highlight_active_image_in_list(self, active_img_id):
         """Binds a highlight theme to the text label in the sidebar matching the image."""
@@ -590,12 +645,14 @@ class MainGUI:
         ):
             # Remove highlight from the old viewer
             if self.context_viewer:
-                dpg.bind_item_theme(f"win_{self.context_viewer.tag}", "viewer_theme")
+                dpg.bind_item_theme(
+                    f"win_{self.context_viewer.tag}", "black_viewer_theme"
+                )
 
             # Add highlight to the new viewer
-            dpg.bind_item_theme(f"win_{hover_viewer.tag}", "active_viewer_theme")
+            dpg.bind_item_theme(f"win_{hover_viewer.tag}", "active_black_viewer_theme")
 
-            # Highlight the current image in the image list
+            # Tell the UI list to highlight the image we just hovered over!
             self.highlight_active_image_in_list(hover_viewer.image_id)
 
             # Update sidebar
@@ -728,11 +785,12 @@ class MainGUI:
             dpg.set_value("info_ppm", f"{ppm:g}")
 
     def on_window_resize(self):
-        # Get current window dimensions
-        window_width = dpg.get_item_width("PrimaryWindow")
-        window_height = dpg.get_item_height("PrimaryWindow")
+        # Use viewport client dimensions instead of PrimaryWindow to avoid OS border phantom pixels
+        window_width = dpg.get_viewport_client_width()
+        window_height = dpg.get_viewport_client_height()
+
         if not window_width or not window_height:
-            return  # Safety
+            return  # Safety catch during boot
 
         # Catch macOS phantom resize events on Alt-Tab
         if hasattr(self, "last_window_size") and self.last_window_size == (
@@ -742,26 +800,34 @@ class MainGUI:
             return
         self.last_window_size = (window_width, window_height)
 
-        # Constants
-        margin_height = 30
-        margin_width = 30
-        side_panel_width = self.side_panel_width
-        available_width = window_width - side_panel_width - margin_width
-        available_height = window_height - margin_height
+        # Positioning
+        pos_x = self.side_panel_width
+        pos_y = 28  # Clears the native top menu bar safely
+
+        # Define explicit physical margins to restore the right/bottom borders!
+        margin_right = 15  # 15 needed to avoid left-right scroll
+        margin_bottom = 10
+
+        # Calculate truly available space
+        available_width = window_width - pos_x - margin_right
+        available_height = window_height - pos_y - margin_bottom
+
+        # Prevent negative sizes if window is shrunk aggressively
+        if available_width < 100 or available_height < 100:
+            return
 
         # Calculate the sizes for each quadrant (2x2)
         quad_w = available_width // 2
         quad_h = available_height // 2
 
-        # Calculate the total height used by the 2 rows of viewers
+        # Re-multiply to ensure the container perfectly wraps the 4 viewers
+        total_viewers_width = quad_w * 2
         total_viewers_height = quad_h * 2
 
         if dpg.does_item_exist("viewers_container"):
-            dpg.set_item_width("viewers_container", available_width)
+            dpg.set_item_width("viewers_container", total_viewers_width)
             dpg.set_item_height("viewers_container", total_viewers_height)
-            # 10 and 22 are "magic" values such that the panel does not have scrollbars
-            # and the bottom viewers are aligned with the bottom left panel
-            dpg.set_item_pos("viewers_container", [side_panel_width + 10, 22])
+            dpg.set_item_pos("viewers_container", [pos_x, pos_y])
 
         # Resize all viewers
         for viewer in self.controller.viewers.values():
