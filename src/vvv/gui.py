@@ -5,6 +5,7 @@ from vvv.utils import ViewMode, fmt
 from vvv.file_dialog import open_file_dialog
 from .resources import load_fonts, setup_themes
 from .core import WL_PRESETS, COLORMAPS
+import numpy as np
 
 
 def create_labeled_field(label, tag):
@@ -304,18 +305,19 @@ class MainGUI:
                 dpg.add_spacer(height=5)
                 self.create_visibility_controls()
 
-            dpg.add_spacer(height=10)
-            dpg.add_text("Overlay / Fusion", color=[93, 93, 93])
-            dpg.add_separator()
+            # dpg.add_spacer(height=10)
+            # dpg.add_text("Overlay / Fusion", color=[93, 93, 93])
+            # dpg.add_separator()
 
             dpg.add_spacer(height=10)
             dpg.add_text("Crosshair", color=[93, 93, 93])
             dpg.add_separator()
 
             with dpg.group(tag="image_crosshair_group"):
+                create_labeled_field("Value", tag="info_val")
                 create_labeled_field("Voxel", tag="info_vox")
                 create_labeled_field("Coord", tag="info_phys")
-                create_labeled_field("Value", tag="info_val")
+                # create_labeled_field("Fuse Value", tag="info_fuse_val")
                 create_labeled_field("ppm", tag="info_ppm")
                 create_labeled_field("FOV", tag="info_scale")
 
@@ -705,6 +707,21 @@ class MainGUI:
                 if getattr(vol, "is_rgb", False)
                 else f"{vs.crosshair_value:g}"
             )
+
+            # Safely fetch the fused value using the exact same grid indices
+            if vs.overlay_data is not None:
+                ix, iy, iz = [
+                    int(np.clip(c, 0, limit - 1))
+                    for c, limit in zip(
+                        vs.crosshair_voxel,
+                        [vol.data.shape[2], vol.data.shape[1], vol.data.shape[0]],
+                    )
+                ]
+                val_str += f" ({vs.overlay_data[iz, iy, ix]:g})"
+                # dpg.set_value("info_fuse_val", f"{vs.overlay_data[iz, iy, ix]:g}")
+            # else:
+            # if dpg.does_item_exist("info_fuse_val"):
+            #    dpg.set_value("info_fuse_val", "")
             dpg.set_value("info_val", val_str)
 
             ppm = viewer.get_pixels_per_mm()

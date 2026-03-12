@@ -115,11 +115,24 @@ class SettingsManager:
         self.data = copy.deepcopy(DEFAULT_SETTINGS)
         self.load()
 
+    def _deep_update(self, default_dict, user_dict):
+        """Recursively merges user settings into defaults, preserving new keys."""
+        for key, value in user_dict.items():
+            if (
+                isinstance(value, dict)
+                and key in default_dict
+                and isinstance(default_dict[key], dict)
+            ):
+                self._deep_update(default_dict[key], value)
+            else:
+                default_dict[key] = value
+
     def load(self):
         if self.config_path.exists():
             try:
                 with open(self.config_path, "r") as f:
                     self.data.update(json.load(f))
+                    self._deep_update(self.data, user_settings)
             except Exception as e:
                 print(f"Error loading settings: {e}")
 
@@ -328,8 +341,10 @@ class ViewState:
         # Use linear for smooth medical overlays?
         resampler = sitk.ResampleImageFilter()
         resampler.SetReferenceImage(self.volume.sitk_image)
-        resampler.SetInterpolator(sitk.sitkLinear)
-        resampler.SetDefaultPixelValue(0)
+        # resampler.SetInterpolator(sitk.sitkLinear)
+        # keep NN resampling NN to avoid interpolated pixel intensities
+        resampler.SetInterpolator(sitk.sitkNearestNeighbor)
+        resampler.SetDefaultPixelValue(0)  # Warning, wrong for CT # how to deal ?
 
         # Execute resampling (need a *copy* not GetArrayViewFromImage)
         resampled_img = resampler.Execute(other_vol.sitk_image)

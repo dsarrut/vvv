@@ -1086,9 +1086,18 @@ class SliceViewer:
                 if getattr(self.volume, "is_rgb", False)
                 else f"{val:g}"
             )
-            dpg.set_value(
-                self.tracker_tag, f"{val_str}\n{fmt(v, 1)}\n{fmt(phys, 1)} mm"
-            )
+
+            # Format text block
+            text_lines = [f"{val_str}"]
+
+            # Fetch fusion value if active (same line)
+            if self.view_state.overlay_data is not None:
+                text_lines[0] += f" ({self.view_state.overlay_data[iz, iy, ix]:g})"
+
+            text_lines.append(fmt(v, 1))
+            text_lines.append(f"{fmt(phys, 1)} mm")
+
+            dpg.set_value(self.tracker_tag, "\n".join(text_lines))
         else:
             dpg.set_value(self.tracker_tag, "Out of image")
 
