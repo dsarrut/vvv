@@ -244,7 +244,7 @@ class ViewState:
             np.array(new_v)
         )
         ix, iy, iz = [
-            int(np.clip(c, 0, limit - 1))
+            int(np.clip(c + 1e-5, 0, limit - 1))
             for c, limit in zip(
                 new_v,
                 [
@@ -264,7 +264,7 @@ class ViewState:
         self.crosshair_phys_coord = self.volume.voxel_coord_to_physic_coord(np.array(v))
 
         ix, iy, iz = [
-            int(np.clip(c, 0, limit - 1))
+            int(np.clip(c + 1e-5, 0, limit - 1))
             for c, limit in zip(
                 v,
                 [
@@ -859,9 +859,31 @@ class Controller:
                 target_vs.crosshair_voxel = list(target_vox)
                 target_vs.crosshair_phys_coord = phys_pos
 
-                target_vs.slices[ViewMode.AXIAL] = int(round(target_vox[2]))
-                target_vs.slices[ViewMode.SAGITTAL] = int(round(target_vox[0]))
-                target_vs.slices[ViewMode.CORONAL] = int(round(target_vox[1]))
+                # Use identical clipping math to the value extractor so the rendered slice
+                # matches the data slice
+                target_vs.slices[ViewMode.AXIAL] = int(
+                    np.clip(target_vox[2] + 1e-5, 0, target_vol.data.shape[0] - 1)
+                )
+                target_vs.slices[ViewMode.SAGITTAL] = int(
+                    np.clip(target_vox[0] + 1e-5, 0, target_vol.data.shape[2] - 1)
+                )
+                target_vs.slices[ViewMode.CORONAL] = int(
+                    np.clip(target_vox[1] + 1e-5, 0, target_vol.data.shape[1] - 1)
+                )
+
+            # Ensure the target ViewState updates its cached intensity value right now!
+            ix, iy, iz = [
+                int(np.clip(c + 1e-5, 0, limit - 1))
+                for c, limit in zip(
+                    target_vs.crosshair_voxel,
+                    [
+                        target_vs.volume.data.shape[2],
+                        target_vs.volume.data.shape[1],
+                        target_vs.volume.data.shape[0],
+                    ],
+                )
+            ]
+            target_vs.crosshair_value = target_vs.volume.data[iz, iy, ix]
 
             target_vs.is_data_dirty = True
 

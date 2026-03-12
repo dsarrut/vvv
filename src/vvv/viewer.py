@@ -1073,7 +1073,7 @@ class SliceViewer:
         v = slice_to_voxel(pix_x, pix_y, idx, self.orientation, shape)
         phys = self.volume.voxel_coord_to_physic_coord(v)
 
-        ix, iy, iz = int(v[0]), int(v[1]), int(v[2])
+        ix, iy, iz = int(v[0] + 1e-5), int(v[1] + 1e-5), int(v[2] + 1e-5)
         max_z, max_y, max_x = self.volume.data.shape[:3]
         col = self.controller.settings.data["colors"]["tracker_text"]
         dpg.configure_item(self.tracker_tag, color=col)

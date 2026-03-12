@@ -33,7 +33,6 @@ class MainGUI:
         self.side_panel_width = self.controller.settings.data["layout"][
             "side_panel_width"
         ]
-        print(self.side_panel_width)
         self.last_window_size = None
 
         # tasks manager
@@ -763,7 +762,7 @@ class MainGUI:
             # Safely fetch the fused value using the exact same grid indices
             if vs.overlay_data is not None:
                 ix, iy, iz = [
-                    int(np.clip(c, 0, limit - 1))
+                    int(np.clip(c + 1e-5, 0, limit - 1))
                     for c, limit in zip(
                         vs.crosshair_voxel,
                         [vol.data.shape[2], vol.data.shape[1], vol.data.shape[0]],
