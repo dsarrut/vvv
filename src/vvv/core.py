@@ -9,7 +9,7 @@ from vvv.utils import ViewMode, slice_to_voxel
 DEFAULT_SETTINGS = {
     "colors": {
         "crosshair": [0, 246, 7, 180],
-        "overlay_text": [0, 246, 7, 255],
+        "tracker_text": [0, 246, 7, 255],
         "x": [255, 80, 80, 230],
         "y": [80, 255, 80, 230],
         "z": [80, 80, 255, 230],
@@ -164,7 +164,7 @@ class ViewState:
         self.interpolation_linear = False
         self.grid_mode = False
         self.show_axis = True
-        self.show_overlay = True
+        self.show_tracker = True
         self.show_crosshair = True
         self.show_scalebar = False
         self.colormap = "Grayscale"
@@ -331,7 +331,7 @@ class ViewState:
         resampler.SetInterpolator(sitk.sitkLinear)
         resampler.SetDefaultPixelValue(0)
 
-        # Execute resampling
+        # Execute resampling (need a *copy* not GetArrayViewFromImage)
         resampled_img = resampler.Execute(other_vol.sitk_image)
         self.overlay_data = sitk.GetArrayFromImage(resampled_img)
         self.is_data_dirty = True
@@ -739,8 +739,8 @@ class Controller:
             vs.show_axis = value
         elif user_data == "grid":
             vs.grid_mode = value
-        elif user_data == "overlay":
-            vs.show_overlay = value
+        elif user_data == "tracker":
+            vs.show_tracker = value
         elif user_data == "crosshair":
             vs.show_crosshair = value
         elif user_data == "scalebar":

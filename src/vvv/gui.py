@@ -243,9 +243,9 @@ class MainGUI:
                 )
                 dpg.add_color_edit(
                     label="Mouse tracker",
-                    tag="set_col_overlay_text",
-                    default_value=settings["colors"]["overlay_text"],
-                    callback=lambda s, v: call(["colors", "overlay_text"], v),
+                    tag="set_col_tracker_text",
+                    default_value=settings["colors"]["tracker_text"],
+                    callback=lambda s, v: call(["colors", "tracker_text"], v),
                 )
                 dpg.add_color_edit(
                     label="Grid",
@@ -363,9 +363,9 @@ class MainGUI:
                 with dpg.table_row():
                     dpg.add_checkbox(
                         label="Mouse tracker",
-                        tag="check_overlay",
+                        tag="check_tracker",
                         callback=self.controller.on_visibility_toggle,
-                        user_data="overlay",
+                        user_data="tracker",
                         default_value=True,
                     )
                     dpg.add_checkbox(
@@ -435,8 +435,8 @@ class MainGUI:
                 dpg.add_draw_node(tag=viewer.scale_bar_tag)
                 dpg.add_draw_node(tag=viewer.crosshair_tag)
 
-            col = self.controller.settings.data["colors"]["overlay_text"]
-            dpg.add_text("", tag=viewer.overlay_tag, color=col, pos=[5, 5])
+            col = self.controller.settings.data["colors"]["tracker_text"]
+            dpg.add_text("", tag=viewer.tracker_tag, color=col, pos=[5, 5])
 
     def register_handlers(self):
         """Registers global input handlers."""
@@ -460,8 +460,8 @@ class MainGUI:
         if dpg.get_value("check_grid") != vs.grid_mode:
             dpg.set_value("check_grid", vs.grid_mode)
 
-        if dpg.get_value("check_overlay") != vs.show_overlay:
-            dpg.set_value("check_overlay", vs.show_overlay)
+        if dpg.get_value("check_tracker") != vs.show_tracker:
+            dpg.set_value("check_tracker", vs.show_tracker)
 
         if dpg.get_value("check_crosshair") != vs.show_crosshair:
             dpg.set_value("check_crosshair", vs.show_crosshair)
@@ -581,8 +581,8 @@ class MainGUI:
                 return viewer
         return None
 
-    def update_overlays(self):
-        """Updates sidebar context on hover and refreshes on-image overlays."""
+    def update_trackers(self):
+        """Updates sidebar context on hover and refreshes on-image trackers."""
         hover_viewer = self.hovered_viewer
 
         # Context Switch logic based on ViewState
@@ -608,7 +608,7 @@ class MainGUI:
 
         # Always refresh the on-image text/crosshairs for all viewers
         for viewer in self.controller.viewers.values():
-            viewer.update_overlay()
+            viewer.update_tracker()
 
     def update_sidebar_info(self, viewer):
         """Pulls metadata from the active viewer and updates the sidebar."""
@@ -1455,7 +1455,7 @@ class MainGUI:
                 except StopIteration:
                     self.tasks.pop(0)
 
-            self.update_overlays()
+            self.update_trackers()
             self.sync_sidebar_checkboxes()
 
             self.controller.tick()

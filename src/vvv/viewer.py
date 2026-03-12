@@ -98,7 +98,7 @@ class SliceViewer:
         self.grid_b_tag = f"grid_node_B_{tag_id}"
         self.axis_a_tag = f"axes_node_A_{tag_id}"
         self.axis_b_tag = f"axes_node_B_{tag_id}"
-        self.overlay_tag = f"overlay_{tag_id}"
+        self.tracker_tag = f"tracker_{tag_id}"
         self.crosshair_tag = f"crosshair_node_{tag_id}"
         self.xh_line_h = f"xh_h_{tag_id}"
         self.xh_line_v = f"xh_v_{tag_id}"
@@ -711,7 +711,7 @@ class SliceViewer:
         x1 = int(x2 - bar_px)
         y = int(win_h - 20)
 
-        color = self.controller.settings.data["colors"]["overlay_text"]
+        color = self.controller.settings.data["colors"]["tracker_text"]
 
         dpg.draw_rectangle(
             [x1, y - 1], [x2, y + 1], color=color, fill=color, parent=self.scale_bar_tag
@@ -741,13 +741,13 @@ class SliceViewer:
         new_state = not self.view_state.show_crosshair
         self.view_state.show_axis = new_state
         self.view_state.show_crosshair = new_state
-        self.view_state.show_overlay = new_state
+        self.view_state.show_tracker = new_state
         self.view_state.show_scalebar = new_state
         self.view_state.grid_mode = False
 
         dpg.set_value("check_axis", new_state)
         dpg.set_value("check_crosshair", new_state)
-        dpg.set_value("check_overlay", new_state)
+        dpg.set_value("check_tracker", new_state)
         dpg.set_value("check_scalebar", new_state)
         dpg.set_value("check_grid", False)
 
@@ -834,6 +834,12 @@ class SliceViewer:
             return
 
         patch = slice_data[y0:y1, x0:x1]
+
+        # MATH FIX: Strip out background noise so it doesn't pull the 2nd percentile to 0
+        if target == "overlay":
+            thr = self.view_state.overlay_threshold
+            patch = patch[patch >= thr]
+
         if patch.size > 0:
             p_min, p_max = np.percentile(patch, [2, 98])
             ww = max(1e-5, p_max - p_min)
@@ -946,7 +952,7 @@ class SliceViewer:
             win_w = dpg.get_item_width(f"win_{self.tag}")
             win_h = dpg.get_item_height(f"win_{self.tag}")
             self.resize(win_w, win_h)
-            self.update_overlays_only()
+            self.update_stuff_in_image_only()
             self.is_geometry_dirty = False
 
         return did_update_data
@@ -1008,7 +1014,7 @@ class SliceViewer:
         if dpg.does_item_exist(self.image_tag):
             dpg.set_value(self.texture_tag, rgba_flat)
 
-    def update_overlays_only(self):
+    def update_stuff_in_image_only(self):
         """Redraws grids, axes, scalebar, and strips WITHOUT re-slicing the 3D volume."""
         if not self.is_image_orientation() or not self.view_state or not self.volume:
             return
@@ -1041,17 +1047,17 @@ class SliceViewer:
 
         self.draw_scale_bar()
         self.draw_crosshair()
-        self.update_overlay()
+        self.update_tracker()
 
-    def update_overlay(self):
+    def update_tracker(self):
         if (
             self.image_id is None
             or not self.view_state
             or not self.volume
-            or not self.view_state.show_overlay
+            or not self.view_state.show_tracker
             or not self.is_image_orientation()
         ):
-            dpg.set_value(self.overlay_tag, "")
+            dpg.set_value(self.tracker_tag, "")
             return
 
         is_dragging = self.controller.gui.drag_viewer == self
@@ -1059,7 +1065,7 @@ class SliceViewer:
             ignore_hover=is_dragging, allow_outside=is_dragging
         )
         if pix_x is None:
-            dpg.set_value(self.overlay_tag, "")
+            dpg.set_value(self.tracker_tag, "")
             return
 
         idx = self.slice_idx
@@ -1069,8 +1075,8 @@ class SliceViewer:
 
         ix, iy, iz = int(v[0]), int(v[1]), int(v[2])
         max_z, max_y, max_x = self.volume.data.shape[:3]
-        col = self.controller.settings.data["colors"]["overlay_text"]
-        dpg.configure_item(self.overlay_tag, color=col)
+        col = self.controller.settings.data["colors"]["tracker_text"]
+        dpg.configure_item(self.tracker_tag, color=col)
 
         if 0 <= ix < max_x and 0 <= iy < max_y and 0 <= iz < max_z:
             val = self.volume.data[iz, iy, ix]
@@ -1081,15 +1087,15 @@ class SliceViewer:
                 else f"{val:g}"
             )
             dpg.set_value(
-                self.overlay_tag, f"{val_str}\n{fmt(v, 1)}\n{fmt(phys, 1)} mm"
+                self.tracker_tag, f"{val_str}\n{fmt(v, 1)}\n{fmt(phys, 1)} mm"
             )
         else:
-            dpg.set_value(self.overlay_tag, "Out of image")
+            dpg.set_value(self.tracker_tag, "Out of image")
 
         win_h = dpg.get_item_height(f"win_{self.tag}")
-        ts = dpg.get_item_rect_size(self.overlay_tag)
+        ts = dpg.get_item_rect_size(self.tracker_tag)
         dpg.set_item_pos(
-            self.overlay_tag, [5, win_h - (ts[1] if ts[1] > 0 else 60) - 5]
+            self.tracker_tag, [5, win_h - (ts[1] if ts[1] > 0 else 60) - 5]
         )
 
     def on_key_press(self, key):
