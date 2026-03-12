@@ -136,7 +136,7 @@ class MainGUI:
 
     def create_left_panel_top_part(self):
         with dpg.child_window(
-            tag="top_panel", height=300, resizable_y=True, border=False
+            tag="top_panel", height=320, resizable_y=True, border=False
         ):
             with dpg.tab_bar(tag="sidebar_tabs"):
                 # Tab 1: Image Management
@@ -264,7 +264,7 @@ class MainGUI:
                         callback=lambda: self.on_save_settings(),
                     )
                     dpg.add_button(
-                        label="Reset to Defaults",
+                        label="Reset",
                         width=-1,
                         callback=lambda: self.on_reset_settings(),
                     )
@@ -305,10 +305,6 @@ class MainGUI:
                 dpg.add_spacer(height=5)
                 self.create_visibility_controls()
 
-            # dpg.add_spacer(height=10)
-            # dpg.add_text("Overlay / Fusion", color=[93, 93, 93])
-            # dpg.add_separator()
-
             dpg.add_spacer(height=10)
             dpg.add_text("Crosshair", color=[93, 93, 93])
             dpg.add_separator()
@@ -317,7 +313,6 @@ class MainGUI:
                 create_labeled_field("Value", tag="info_val")
                 create_labeled_field("Voxel", tag="info_vox")
                 create_labeled_field("Coord", tag="info_phys")
-                # create_labeled_field("Fuse Value", tag="info_fuse_val")
                 create_labeled_field("ppm", tag="info_ppm")
                 create_labeled_field("FOV", tag="info_scale")
 
@@ -718,10 +713,6 @@ class MainGUI:
                     )
                 ]
                 val_str += f" ({vs.overlay_data[iz, iy, ix]:g})"
-                # dpg.set_value("info_fuse_val", f"{vs.overlay_data[iz, iy, ix]:g}")
-            # else:
-            # if dpg.does_item_exist("info_fuse_val"):
-            #    dpg.set_value("info_fuse_val", "")
             dpg.set_value("info_val", val_str)
 
             ppm = viewer.get_pixels_per_mm()

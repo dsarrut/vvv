@@ -42,7 +42,7 @@ DEFAULT_SETTINGS = {
         "fast_scroll_steps": 10,
         "wl_drag_sensitivity": 2.0,
     },
-    "layout": {"window_width": 1000, "window_height": 800, "side_panel_width": 300},
+    "layout": {"window_width": 1200, "window_height": 1000, "side_panel_width": 350},
 }
 
 
@@ -131,7 +131,10 @@ class SettingsManager:
         if self.config_path.exists():
             try:
                 with open(self.config_path, "r") as f:
-                    self.data.update(json.load(f))
+                    # 1. Load the JSON from the file into the variable
+                    user_settings = json.load(f)
+
+                    # 2. Recursively merge it into the default data
                     self._deep_update(self.data, user_settings)
             except Exception as e:
                 print(f"Error loading settings: {e}")

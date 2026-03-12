@@ -3,32 +3,52 @@ import sys
 import dearpygui.dearpygui as dpg
 
 
-def get_resource_path(relative_path):
-    """
-    Get absolute path to resource, works for dev and for PyInstaller.
-    """
-    if hasattr(sys, "_MEIPASS"):
-        return os.path.join(sys._MEIPASS, relative_path)
-    return os.path.join(os.path.dirname(__file__), relative_path)
+def get_resource_path(rel_path):
+    """Get absolute path to resource, works for dev and for PyInstaller/cx_Freeze"""
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(os.path.dirname(__file__))
+    return os.path.join(base_path, rel_path)
 
 
 def load_fonts():
-    """Loads fonts and other external resources."""
-    font_path = get_resource_path(
+    main_font_path = get_resource_path(os.path.join("fonts", "Roboto-Regular.ttf"))
+    icon_font_path = get_resource_path(
         os.path.join("fonts", "Font Awesome 7 Free-Solid-900.otf")
     )
 
-    if not os.path.exists(font_path):
-        print(f"WARNING: Font file not found at {font_path}")
-        return None
+    if not os.path.exists(main_font_path):
+        if sys.platform == "darwin":
+            # main_font_path = "/System/Library/Fonts/Supplemental/Arial.ttf"
+            main_font_path = "/System/Library/Fonts/Helvetica.ttc"  # Native macOS font
+        elif sys.platform == "win32":
+            main_font_path = "C:\\Windows\\Fonts\\segoeui.ttf"
+        else:
+            main_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
     with dpg.font_registry():
-        with dpg.font(font_path, 14, tag="icon_font_tag") as icon_font:
-            dpg.add_font_range(0xF00D, 0xF021)
-            dpg.add_font_chars([0xF0C5])
-            dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
+        default_font = None
 
-    return icon_font
+        # 1. Load the UI Text Font
+        if os.path.exists(main_font_path):
+            with dpg.font(main_font_path, 14) as font:
+                dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
+                default_font = font
+
+        # 2. Load the Icon Font
+        if os.path.exists(icon_font_path):
+            with dpg.font(icon_font_path, 14, tag="icon_font_tag"):
+                dpg.add_font_range(0xF00D, 0xF021)
+                dpg.add_font_chars([0xF0C5])  # Copy icon
+                dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
+        else:
+            print("🚨 ERROR: Icon font file not found! Buttons will show '?'.")
+
+        # 3. Bind the default text font at the very end
+        if default_font:
+            dpg.bind_font(default_font)
 
 
 def setup_themes():

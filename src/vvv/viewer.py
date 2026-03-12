@@ -1093,10 +1093,8 @@ class SliceViewer:
             # Fetch fusion value if active (same line)
             if self.view_state.overlay_data is not None:
                 text_lines[0] += f" ({self.view_state.overlay_data[iz, iy, ix]:g})"
-
             text_lines.append(fmt(v, 1))
             text_lines.append(f"{fmt(phys, 1)} mm")
-
             dpg.set_value(self.tracker_tag, "\n".join(text_lines))
         else:
             dpg.set_value(self.tracker_tag, "Out of image")
@@ -1118,7 +1116,6 @@ class SliceViewer:
             return getattr(dpg, f"mvKey_{val}", val) if isinstance(val, str) else val
 
         # Handle next_image before the safety check, so we can Tab into an empty viewer
-
         if key == _k("next_image"):
             next_id = self.controller.get_next_image_id(self.image_id)
             if next_id and next_id != self.image_id:
