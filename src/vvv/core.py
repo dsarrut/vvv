@@ -244,7 +244,7 @@ class ViewState:
             np.array(new_v)
         )
         ix, iy, iz = [
-            int(np.clip(c + 1e-5, 0, limit - 1))
+            int(np.clip(np.floor(c + 0.5), 0, limit - 1))
             for c, limit in zip(
                 new_v,
                 [
@@ -264,7 +264,7 @@ class ViewState:
         self.crosshair_phys_coord = self.volume.voxel_coord_to_physic_coord(np.array(v))
 
         ix, iy, iz = [
-            int(np.clip(c + 1e-5, 0, limit - 1))
+            int(np.clip(np.floor(c + 0.5), 0, limit - 1))
             for c, limit in zip(
                 v,
                 [
@@ -472,7 +472,9 @@ class VolumeData:
         self.pixel_type = self.sitk_image.GetPixelIDTypeAsString()
         self.bytes_per_component = self.sitk_image.GetSizeOfPixelComponent()
         self.num_components = self.sitk_image.GetNumberOfComponentsPerPixel()
-        self.matrix = self.sitk_image.GetDirection()
+        # Robust 3x3 Direction Matrix for medical orientation
+        self.matrix = np.array(self.sitk_image.GetDirection()).reshape((3, 3))
+        self.inverse_matrix = np.linalg.inv(self.matrix)
         self.spacing = np.array(self.sitk_image.GetSpacing())
         self.origin = np.array(self.sitk_image.GetOrigin())
         bytes_per_pixel = self.bytes_per_component * self.num_components
@@ -490,7 +492,12 @@ class VolumeData:
             return dx, dz
 
     def voxel_coord_to_physic_coord(self, voxel):
-        return (voxel * self.spacing) + self.origin - self.spacing / 2
+        # ITK Standard: Physical = Origin + Matrix * (Spacing * Index)
+        return self.origin + self.matrix @ (voxel * self.spacing)
+
+    def physic_coord_to_voxel_coord(self, phys):
+        # Inverse ITK Standard (Converts physical back to continuous floating voxel)
+        return (self.inverse_matrix @ (phys - self.origin)) / self.spacing
 
     def reload(self):
         """Re-reads data from the disk while preserving state if dimensions match."""
@@ -853,27 +860,33 @@ class Controller:
             else:
                 phys_pos = source_vs.crosshair_phys_coord
                 target_vol = target_vs.volume
-                target_vox = (
-                    phys_pos - target_vol.origin + target_vol.spacing / 2
-                ) / target_vol.spacing
+
+                # Use the new bulletproof inverse matrix math
+                target_vox = target_vol.physic_coord_to_voxel_coord(phys_pos)
+
                 target_vs.crosshair_voxel = list(target_vox)
                 target_vs.crosshair_phys_coord = phys_pos
 
-                # Use identical clipping math to the value extractor so the rendered slice
-                # matches the data slice
+                # Sync rendering plane to the exact snapped voxel center
                 target_vs.slices[ViewMode.AXIAL] = int(
-                    np.clip(target_vox[2] + 1e-5, 0, target_vol.data.shape[0] - 1)
+                    np.clip(
+                        np.floor(target_vox[2] + 0.5), 0, target_vol.data.shape[0] - 1
+                    )
                 )
                 target_vs.slices[ViewMode.SAGITTAL] = int(
-                    np.clip(target_vox[0] + 1e-5, 0, target_vol.data.shape[2] - 1)
+                    np.clip(
+                        np.floor(target_vox[0] + 0.5), 0, target_vol.data.shape[2] - 1
+                    )
                 )
                 target_vs.slices[ViewMode.CORONAL] = int(
-                    np.clip(target_vox[1] + 1e-5, 0, target_vol.data.shape[1] - 1)
+                    np.clip(
+                        np.floor(target_vox[1] + 0.5), 0, target_vol.data.shape[1] - 1
+                    )
                 )
 
             # Ensure the target ViewState updates its cached intensity value right now!
             ix, iy, iz = [
-                int(np.clip(c + 1e-5, 0, limit - 1))
+                int(np.clip(np.floor(c + 0.5), 0, limit - 1))
                 for c, limit in zip(
                     target_vs.crosshair_voxel,
                     [

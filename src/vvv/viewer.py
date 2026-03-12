@@ -1070,10 +1070,90 @@ class SliceViewer:
 
         idx = self.slice_idx
         shape = self.get_slice_shape()
+
+        # 1. Screen to continuous voxel, then to continuous physical coordinate
         v = slice_to_voxel(pix_x, pix_y, idx, self.orientation, shape)
         phys = self.volume.voxel_coord_to_physic_coord(v)
 
-        ix, iy, iz = int(v[0] + 1e-5), int(v[1] + 1e-5), int(v[2] + 1e-5)
+        # 2. Robust snap to nearest voxel center
+        ix = int(np.floor(v[0] + 0.5))
+        iy = int(np.floor(v[1] + 0.5))
+        iz = int(np.floor(v[2] + 0.5))
+
+        max_z, max_y, max_x = self.volume.data.shape[:3]
+        col = self.controller.settings.data["colors"]["tracker_text"]
+        dpg.configure_item(self.tracker_tag, color=col)
+
+        if 0 <= ix < max_x and 0 <= iy < max_y and 0 <= iz < max_z:
+            val = self.volume.data[iz, iy, ix]
+            self.mouse_value, self.mouse_voxel, self.mouse_phys_coord = val, v, phys
+            val_str = (
+                f"{val[0]:g} {val[1]:g} {val[2]:g}"
+                if getattr(self.volume, "is_rgb", False)
+                else f"{val:g}"
+            )
+
+            # Format text block
+            text_lines = [f"{val_str}"]
+
+            # 3. Fetch true fusion value using the original volume via inverse matrix
+            if (
+                self.view_state.overlay_id
+                and self.view_state.overlay_id in self.controller.volumes
+            ):
+                ov_vol = self.controller.volumes[self.view_state.overlay_id]
+                ov_vox = ov_vol.physic_coord_to_voxel_coord(phys)
+
+                # Snap the overlay voxel
+                ox = int(np.floor(ov_vox[0] + 0.5))
+                oy = int(np.floor(ov_vox[1] + 0.5))
+                oz = int(np.floor(ov_vox[2] + 0.5))
+                mz, my, mx = ov_vol.data.shape[:3]
+
+                # Only append the overlay value if we are actually hovering over its bounding box
+                if 0 <= ox < mx and 0 <= oy < my and 0 <= oz < mz:
+                    text_lines[0] += f" ({ov_vol.data[oz, oy, ox]:g})"
+
+            text_lines.append(fmt(v, 1))
+            text_lines.append(f"{fmt(phys, 1)} mm")
+            dpg.set_value(self.tracker_tag, "\n".join(text_lines))
+        else:
+            dpg.set_value(self.tracker_tag, "Out of image")
+
+        win_h = dpg.get_item_height(f"win_{self.tag}")
+        ts = dpg.get_item_rect_size(self.tracker_tag)
+        dpg.set_item_pos(
+            self.tracker_tag, [5, win_h - (ts[1] if ts[1] > 0 else 60) - 5]
+        )
+
+    def update_tracker_OLD(self):
+        if (
+            self.image_id is None
+            or not self.view_state
+            or not self.volume
+            or not self.view_state.show_tracker
+            or not self.is_image_orientation()
+        ):
+            dpg.set_value(self.tracker_tag, "")
+            return
+
+        is_dragging = self.controller.gui.drag_viewer == self
+        pix_x, pix_y = self.get_mouse_slice_coords(
+            ignore_hover=is_dragging, allow_outside=is_dragging
+        )
+        if pix_x is None:
+            dpg.set_value(self.tracker_tag, "")
+            return
+
+        idx = self.slice_idx
+        shape = self.get_slice_shape()
+        v = slice_to_voxel(pix_x, pix_y, idx, self.orientation, shape)
+        phys = self.volume.voxel_coord_to_physic_coord(v)
+
+        # Robust snap to nearest voxel center
+        ix = int(np.floor(v[0] + 0.5))
+        iy = int(np.floor(v[1] + 0.5))
+        iz = int(np.floor(v[2] + 0.5))
         max_z, max_y, max_x = self.volume.data.shape[:3]
         col = self.controller.settings.data["colors"]["tracker_text"]
         dpg.configure_item(self.tracker_tag, color=col)
