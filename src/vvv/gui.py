@@ -394,6 +394,12 @@ class MainGUI:
                     default_value=settings["colors"]["grid"],
                     callback=lambda s, v: call(["colors", "grid"], v),
                 )
+                """dpg.add_color_edit(
+                    label="Hover",
+                    tag="set_col_hover",
+                    default_value=settings["colors"]["viewer"],
+                    callback=lambda s, v: call(["colors", "viewer"], v),
+                )"""  # FIXME why not update ?
 
                 dpg.add_spacer(height=10)
 
@@ -922,7 +928,7 @@ class MainGUI:
             dpg.set_item_height("viewers_container", quad_h * 2)
 
         for viewer in self.controller.viewers.values():
-            # viewer.resize(quad_w - 4, quad_h - 4)  # Gap for rounding visibility
+            # viewer.resize(quad_w - 28, quad_h - 28)  # Gap for rounding visibility
             viewer.resize(quad_w, quad_h)  # Gap for rounding visibility
 
     def on_global_click(self, sender, app_data, user_data):
