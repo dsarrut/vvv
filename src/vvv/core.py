@@ -653,7 +653,7 @@ class Controller:
             if viewer.image_id:
                 viewer.draw_crosshair()
 
-    def unify_ppm_max_NOT_USED(self, target_viewer_tags):
+    def unify_ppm(self, target_viewer_tags):
         valid_viewers = [
             self.viewers[tag]
             for tag in target_viewer_tags
@@ -673,7 +673,7 @@ class Controller:
                 viewer.set_pixels_per_mm(max_ppm)
                 viewer.is_geometry_dirty = True
 
-    def unify_ppm(self, target_viewer_tags):
+    def unify_ppm_min_NOT_USED(self, target_viewer_tags):
         valid_viewers = [
             self.viewers[tag]
             for tag in target_viewer_tags
@@ -1173,52 +1173,3 @@ class SliceRenderer:
 
         # If no overlay, just return the base image
         return base_rgba.flatten(), (h, w)
-
-    @staticmethod
-    def get_slice_rgba_OK_colormap(
-        data, is_rgb, num_components, ww, wl, cmap_name, slice_idx, orientation
-    ):
-        if orientation == ViewMode.HISTOGRAM:
-            return np.array([0, 0, 0, 255], dtype=np.uint8), (1, 1)
-
-        # Determine bounds securely
-        if orientation == ViewMode.AXIAL:
-            max_s, h, w = data.shape[0], data.shape[1], data.shape[2]
-        elif orientation == ViewMode.SAGITTAL:
-            max_s, h, w = data.shape[2], data.shape[0], data.shape[1]
-        elif orientation == ViewMode.CORONAL:
-            max_s, h, w = data.shape[1], data.shape[0], data.shape[2]
-        else:
-            return np.zeros(4, dtype=np.float32), (1, 1)
-
-        # Handle out-of-bounds slicing securely
-        if slice_idx < 0 or slice_idx >= max_s:
-            black_slice = np.zeros((h, w, 4), dtype=np.float32)
-            black_slice[:, :, 3] = 1.0
-            return black_slice.flatten(), (h, w)
-
-        # Step 1: Extract (One single call handles everything)
-        slice_data = SliceRenderer.extract_slice(data, slice_idx, orientation)
-
-        # Step 2 & 3: Normalize and apply LUT (Look-Up Table)
-        if is_rgb:
-            norm_img = np.clip(slice_data.astype(np.float32) / 255.0, 0.0, 1.0)
-            if num_components == 3:
-                alpha = np.ones((*norm_img.shape[:-1], 1), dtype=np.float32)
-                rgba = np.concatenate([norm_img, alpha], axis=-1)
-            else:
-                rgba = norm_img
-        else:
-            min_val = wl - ww / 2
-            norm_img = (
-                np.zeros_like(slice_data, dtype=np.float32)
-                if ww <= 0
-                else np.clip((slice_data - min_val) / ww, 0.0, 1.0)
-            )
-
-            # Map normalized [0..1] values directly into the Colormap LUT
-            lut = COLORMAPS.get(cmap_name, COLORMAPS["Grayscale"])
-            indices = (norm_img * 255).astype(np.uint8)
-            rgba = lut[indices]
-
-        return rgba.flatten(), (h, w)

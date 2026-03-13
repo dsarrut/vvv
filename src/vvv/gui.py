@@ -63,10 +63,23 @@ class MainGUI:
                 "right_m_bottom": shared_margin,
                 "right_m_top": 0,
                 "rounding": 8,
+                # Chunky padding for top menu items
+                "pad_frame_menu": [8, 10],
+                # Sleek vertical-only padding for sidebar text
+                "pad_frame_readonly": [0, 3],
+                # Standard button padding for sidebar
+                "pad_frame_sidebar": [4, 3],
+                # Menu Dropdown Spacing (Left/Right and Top/Bottom border margin)
+                "pad_menu_popup": [12, 12],
+                # Gap between menu items
+                "space_menu_item": [10, 6],
             },
             "colors": {
                 "bg_window": [0, 0, 0, 255],
-                "bg_menu": [45, 45, 48, 255],
+                "bg_menubar": [37, 37, 38, 255],
+                "bg_menu": [27, 27, 28, 255],
+                "bg_menu_hover": [70, 70, 75, 255],
+                "bg_menu_active": [80, 80, 85, 255],
                 "bg_sidebar": [37, 37, 38, 255],
                 "border_black": [0, 0, 0, 255],
                 "text_dim": [140, 140, 140],
@@ -80,6 +93,113 @@ class MainGUI:
         }
 
     def register_dynamic_themes(self):
+        """Builds and registers all UI themes dynamically based on the ui_cfg."""
+        cfg_l = self.ui_cfg["layout"]
+        cfg_c = self.ui_cfg["colors"]
+
+        # Base black background theme for the primary window
+        if not dpg.does_item_exist("primary_black_theme"):
+            with dpg.theme(tag="primary_black_theme"):
+                with dpg.theme_component(dpg.mvAll):
+                    dpg.add_theme_color(dpg.mvThemeCol_WindowBg, cfg_c["bg_window"])
+                    dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
+
+        # Right side: Viewer quadrants (Idle)
+        if not dpg.does_item_exist("black_viewer_theme"):
+            with dpg.theme(tag="black_viewer_theme"):
+                with dpg.theme_component(dpg.mvAll):
+                    dpg.add_theme_color(dpg.mvThemeCol_ChildBg, cfg_c["bg_window"])
+                    dpg.add_theme_color(dpg.mvThemeCol_Border, cfg_c["border_black"])
+                    dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
+                    dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 1)
+                    dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0, 0)
+                    dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, cfg_l["rounding"])
+
+        # Right side: Viewer quadrants (Active)
+        if not dpg.does_item_exist("active_black_viewer_theme"):
+            with dpg.theme(tag="active_black_viewer_theme"):
+                with dpg.theme_component(dpg.mvAll):
+                    dpg.add_theme_color(dpg.mvThemeCol_ChildBg, cfg_c["bg_window"])
+                    v_col = self.controller.settings.data["colors"]["viewer"]
+                    dpg.add_theme_color(dpg.mvThemeCol_Border, v_col)
+                    dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
+                    dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0, 0)
+                    dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 2)
+                    dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, cfg_l["rounding"])
+
+        # Top menu bar theme
+        if not dpg.does_item_exist("floating_menu_theme"):
+            with dpg.theme(tag="floating_menu_theme"):
+                with dpg.theme_component(dpg.mvAll):
+                    dpg.add_theme_style(
+                        dpg.mvStyleVar_FramePadding, *cfg_l["pad_frame_menu"]
+                    )
+                    dpg.add_theme_color(dpg.mvThemeCol_PopupBg, cfg_c["bg_menu"])
+                    dpg.add_theme_color(dpg.mvThemeCol_WindowBg, cfg_c["bg_menu"])
+                    dpg.add_theme_color(
+                        dpg.mvThemeCol_HeaderHovered, cfg_c["bg_menu_hover"]
+                    )
+                    dpg.add_theme_color(
+                        dpg.mvThemeCol_HeaderActive, cfg_c["bg_menu_active"]
+                    )
+
+                with dpg.theme_component(dpg.mvMenu):
+                    dpg.add_theme_style(
+                        dpg.mvStyleVar_WindowPadding, *cfg_l["pad_menu_popup"]
+                    )
+                    dpg.add_theme_style(
+                        dpg.mvStyleVar_ItemSpacing, *cfg_l["space_menu_item"]
+                    )
+
+                # THE FIX: Apply MenuBarBg directly to the ChildWindow component!
+                with dpg.theme_component(dpg.mvChildWindow):
+                    dpg.add_theme_color(dpg.mvThemeCol_ChildBg, cfg_c["bg_menubar"])
+                    dpg.add_theme_color(dpg.mvThemeCol_MenuBarBg, cfg_c["bg_menubar"])
+                    dpg.add_theme_color(dpg.mvThemeCol_Border, cfg_c["transparent"])
+                    dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, cfg_l["rounding"])
+                    dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 0)
+                    dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
+
+                with dpg.theme_component(dpg.mvMenuBar):
+                    dpg.add_theme_color(dpg.mvThemeCol_MenuBarBg, cfg_c["bg_menubar"])
+                    dpg.add_theme_color(dpg.mvThemeCol_Border, cfg_c["transparent"])
+                    dpg.add_theme_style(dpg.mvStyleVar_WindowBorderSize, 0)
+
+        # Left panel: Sidebar container
+        if not dpg.does_item_exist("sidebar_bg_theme"):
+            with dpg.theme(tag="sidebar_bg_theme"):
+                with dpg.theme_component(dpg.mvChildWindow):
+                    dpg.add_theme_color(dpg.mvThemeCol_ChildBg, cfg_c["bg_sidebar"])
+                    dpg.add_theme_color(dpg.mvThemeCol_Border, cfg_c["border_black"])
+                    dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 1)
+                    dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, cfg_l["rounding"])
+
+        # Left panel: Info inputs (read-only)
+        if not dpg.does_item_exist("sleek_readonly_theme"):
+            with dpg.theme(tag="sleek_readonly_theme"):
+                with dpg.theme_component(dpg.mvInputText):
+                    dpg.add_theme_color(dpg.mvThemeCol_FrameBg, cfg_c["transparent"])
+                    dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 0)
+                    dpg.add_theme_style(
+                        dpg.mvStyleVar_FramePadding, *cfg_l["pad_frame_readonly"]
+                    )
+
+        # Left panel: Active image list item
+        if not dpg.does_item_exist("active_image_list_theme"):
+            with dpg.theme(tag="active_image_list_theme"):
+                with dpg.theme_component(dpg.mvText):
+                    dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["text_active"])
+
+        # Left panel: Inner padding
+        if not dpg.does_item_exist("left_panel_padding_theme"):
+            with dpg.theme(tag="left_panel_padding_theme"):
+                with dpg.theme_component(dpg.mvAll):
+                    dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 12)
+                    dpg.add_theme_style(
+                        dpg.mvStyleVar_FramePadding, *cfg_l["pad_frame_sidebar"]
+                    )
+
+    def register_dynamic_themes_OLD(self):
         """Builds and registers all UI themes dynamically based on the ui_cfg."""
         cfg_l = self.ui_cfg["layout"]
         cfg_c = self.ui_cfg["colors"]
@@ -112,21 +232,60 @@ class MainGUI:
                 dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 2)
                 dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, cfg_l["rounding"])
 
-        # Top menu bar theme
-        if not dpg.does_item_exist("floating_menu_theme"):
-            with dpg.theme(tag="floating_menu_theme"):
-                with dpg.theme_component(dpg.mvAll):
-                    dpg.add_theme_color(dpg.mvThemeCol_ChildBg, cfg_c["bg_menu"])
-                    dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 8, 10)
-                with dpg.theme_component(dpg.mvChildWindow):
-                    dpg.add_theme_color(dpg.mvThemeCol_ChildBg, cfg_c["bg_menu"])
-                    dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, cfg_l["rounding"])
-                    dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 0)
-                    dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
-                with dpg.theme_component(dpg.mvMenuBar):
-                    dpg.add_theme_color(dpg.mvThemeCol_MenuBarBg, cfg_c["bg_menu"])
-                    dpg.add_theme_color(dpg.mvThemeCol_Border, cfg_c["transparent"])
-                    dpg.add_theme_style(dpg.mvStyleVar_WindowBorderSize, 0)
+                # Top menu bar theme
+                if not dpg.does_item_exist("floating_menu_theme"):
+                    with dpg.theme(tag="floating_menu_theme"):
+                        with dpg.theme_component(dpg.mvAll):
+                            dpg.add_theme_style(
+                                dpg.mvStyleVar_FramePadding, *cfg_l["pad_frame_menu"]
+                            )
+
+                            dpg.add_theme_color(
+                                dpg.mvThemeCol_PopupBg, cfg_c["bg_menu"]
+                            )
+                            dpg.add_theme_color(
+                                dpg.mvThemeCol_WindowBg, cfg_c["bg_menu"]
+                            )
+                            dpg.add_theme_color(
+                                dpg.mvThemeCol_HeaderHovered, cfg_c["bg_menu_hover"]
+                            )
+                            dpg.add_theme_color(
+                                dpg.mvThemeCol_HeaderActive, cfg_c["bg_menu_active"]
+                            )
+
+                            # Target the dropdown items specifically
+                        with dpg.theme_component(dpg.mvMenu):
+                            dpg.add_theme_style(
+                                dpg.mvStyleVar_WindowPadding, *cfg_l["pad_menu_popup"]
+                            )
+                            dpg.add_theme_style(
+                                dpg.mvStyleVar_ItemSpacing, *cfg_l["space_menu_item"]
+                            )
+
+                        with dpg.theme_component(dpg.mvChildWindow):
+                            dpg.add_theme_color(
+                                dpg.mvThemeCol_ChildBg, cfg_c["bg_menubar"]
+                            )  # <-- Applied here
+                            # dpg.add_theme_color(
+                            #    dpg.mvThemeCol_ChildBg, cfg_c["bg_menu"]
+                            # )
+                            dpg.add_theme_style(
+                                dpg.mvStyleVar_ChildRounding, cfg_l["rounding"]
+                            )
+                            dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 0)
+                            dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
+
+                        with dpg.theme_component(dpg.mvMenuBar):
+                            dpg.add_theme_color(
+                                dpg.mvThemeCol_MenuBarBg, cfg_c["bg_menubar"]
+                            )  # <-- Applied here
+                            # dpg.add_theme_color(
+                            #    dpg.mvThemeCol_MenuBarBg, cfg_c["bg_menu"]
+                            # )
+                            dpg.add_theme_color(
+                                dpg.mvThemeCol_Border, cfg_c["transparent"]
+                            )
+                            dpg.add_theme_style(dpg.mvStyleVar_WindowBorderSize, 0)
 
         # Left panel: Sidebar container
         if not dpg.does_item_exist("sidebar_bg_theme"):
@@ -137,13 +296,19 @@ class MainGUI:
                     dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 1)
                     dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, cfg_l["rounding"])
 
-        # Left panel: Info inputs (read-only)
-        if not dpg.does_item_exist("sleek_readonly_theme"):
-            with dpg.theme(tag="sleek_readonly_theme"):
-                with dpg.theme_component(dpg.mvInputText):
-                    dpg.add_theme_color(dpg.mvThemeCol_FrameBg, cfg_c["transparent"])
-                    dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 0)
-                    dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 0, 3)
+                # Left panel: Info inputs (read-only)
+                if not dpg.does_item_exist("sleek_readonly_theme"):
+                    with dpg.theme(tag="sleek_readonly_theme"):
+                        with dpg.theme_component(dpg.mvInputText):
+                            dpg.add_theme_color(
+                                dpg.mvThemeCol_FrameBg, cfg_c["transparent"]
+                            )
+                            dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 0)
+                            # Unpack the readonly padding
+                            dpg.add_theme_style(
+                                dpg.mvStyleVar_FramePadding,
+                                *cfg_l["pad_frame_readonly"],
+                            )
 
         # Left panel: Active image list item
         if not dpg.does_item_exist("active_image_list_theme"):
@@ -151,12 +316,15 @@ class MainGUI:
                 with dpg.theme_component(dpg.mvText):
                     dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["text_active"])
 
-        # Left panel: Inner padding
-        if not dpg.does_item_exist("left_panel_padding_theme"):
-            with dpg.theme(tag="left_panel_padding_theme"):
-                with dpg.theme_component(dpg.mvAll):
-                    dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 12)
-                    dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 4, 3)
+                # Left panel: Inner padding
+                if not dpg.does_item_exist("left_panel_padding_theme"):
+                    with dpg.theme(tag="left_panel_padding_theme"):
+                        with dpg.theme_component(dpg.mvAll):
+                            dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 12)
+                            # Unpack the general sidebar padding
+                            dpg.add_theme_style(
+                                dpg.mvStyleVar_FramePadding, *cfg_l["pad_frame_sidebar"]
+                            )
 
     # ==========================================
     # 2. LAYOUT BUILDERS
