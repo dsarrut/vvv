@@ -88,6 +88,7 @@ class SliceViewer:
 
         self.is_geometry_dirty = True
         self.needs_recenter = None
+        self.last_rgba_flat = None
 
         self.texture_tag = f"tex_{tag_id}"
         self.image_tag = f"img_{tag_id}"
@@ -960,6 +961,7 @@ class SliceViewer:
             over_cmap,
             self.view_state.overlay_opacity,
             self.view_state.overlay_threshold,
+            self.view_state.overlay_mode,
             self.slice_idx,
             self.orientation,
         )

@@ -98,6 +98,23 @@ def generate_colormaps():
         np.float32
     )
 
+    # 7. Registration (Elekta XVI style: Green -> Gray/White -> Pink)
+    # Registration (Green [Base+] <-> Gray [0] <-> Pink [Over+])
+    x = np.linspace(0, 1, 256)
+    # Green component: High at low values (Base higher)
+    g = np.where(x < 0.5, 0.5 + (0.5 - x), 0.5 - (x - 0.5))
+    # Red/Blue components: High at high values (Overlay higher) to make Pink/Magenta
+    rb = np.where(x > 0.5, 0.5 + (x - 0.5), 0.5 - (0.5 - x))
+
+    cmaps["Registration"] = np.column_stack(
+        [
+            np.clip(rb, 0, 1),  # Red
+            np.clip(g, 0, 1),  # Green
+            np.clip(rb, 0, 1),  # Blue
+            ones,  # Alpha
+        ]
+    ).astype(np.float32)
+
     return cmaps
 
 
@@ -995,6 +1012,26 @@ class Controller:
                 viewer.set_pixels_per_mm(target_ppm)
                 viewer.center_on_physical_coord(phys_center)
 
+    def propagate_overlay_mode(self, source_vs_id):
+        """Syncs the blending mode across the sync group."""
+        source_vs = self.view_states[source_vs_id]
+        target_group = source_vs.sync_group
+
+        if target_group != 0:
+            for vs in self.view_states.values():
+                if vs.sync_group == target_group:
+                    vs.overlay_mode = source_vs.overlay_mode
+                    vs.is_data_dirty = True
+        else:
+            source_vs.is_data_dirty = True
+
+        for viewer in self.viewers.values():
+            if viewer.view_state and (
+                viewer.image_id == source_vs_id
+                or viewer.view_state.sync_group == target_group
+            ):
+                viewer.update_render()
+
 
 class SliceRenderer:
     """Pure utility to generate renderable RGBA arrays using a streamlined pipeline."""
@@ -1032,6 +1069,7 @@ class SliceRenderer:
         overlay_cmap_name,
         overlay_opacity,
         overlay_threshold,
+        overlay_mode,
         slice_idx,
         orientation,
     ):
@@ -1080,6 +1118,34 @@ class SliceRenderer:
             over_slice = SliceRenderer.extract_slice(
                 overlay_data, slice_idx, orientation
             )
+
+            if overlay_mode == "Registration":
+                # 1. Normalize both base and overlay to [0, 1] using their specific W/L
+                base_norm = np.clip(
+                    (base_slice - (base_wl - base_ww / 2)) / base_ww, 0.0, 1.0
+                )
+                over_norm = np.clip(
+                    (over_slice - (overlay_wl - overlay_ww / 2)) / overlay_ww, 0.0, 1.0
+                )
+
+                # 2. Difference Formula:
+                # If they are equal, diff is 0.5 (Gray).
+                # If Overlay > Base, diff > 0.5 (Pink).
+                # If Base > Overlay, diff < 0.5 (Green).
+                diff = 0.5 + (over_norm - base_norm) * 0.5
+                diff = np.clip(diff, 0.0, 1.0)
+
+                # 3. Apply the 'Registration' LUT
+                lut = COLORMAPS.get("Registration", COLORMAPS["Grayscale"])
+                final_rgba = lut[(diff * 255).astype(np.uint8)]
+
+                # 4. Mix with original base for context based on opacity
+                # This allows you to see the original anatomy if opacity < 1.0
+                res_rgba = (base_rgba * (1.0 - overlay_opacity)) + (
+                    final_rgba * overlay_opacity
+                )
+                res_rgba[..., 3] = 1.0
+                return res_rgba.flatten(), (h, w)
 
             # Normalize overlay
             over_min = overlay_wl - overlay_ww / 2

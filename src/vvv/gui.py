@@ -345,6 +345,14 @@ class MainGUI:
                         step=10,
                         callback=self.on_threshold_changed,
                     )
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Mode   ")
+                    dpg.add_combo(
+                        ["Alpha", "Registration"],
+                        tag="combo_overlay_mode",
+                        width=-1,
+                        callback=self.on_overlay_mode_changed,
+                    )
 
     def create_tab_settings(self):
         # Tab 3: Settings
@@ -825,6 +833,8 @@ class MainGUI:
             dpg.set_value(
                 "input_overlay_threshold", viewer.view_state.overlay_threshold
             )
+            if dpg.does_item_exist("combo_overlay_mode"):
+                dpg.set_value("combo_overlay_mode", viewer.view_state.overlay_mode)
 
     def update_sidebar_window_level(self, viewer):
         """Updates the W/L inputs in the sidebar."""
@@ -1125,6 +1135,21 @@ class MainGUI:
             import threading
 
             threading.Thread(target=_resample, daemon=True).start()
+
+    def on_overlay_mode_changed(self, sender, app_data, user_data):
+        viewer = self.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+
+        viewer.view_state.overlay_mode = app_data
+
+        # Auto-switch colormap for convenience
+        if app_data == "Registration":
+            viewer.view_state.overlay_cmap_name = "Registration"
+        else:
+            viewer.view_state.overlay_cmap_name = "Hot"
+
+        viewer.view_state.is_data_dirty = True
 
     def on_opacity_changed(self, sender, app_data, user_data):
         viewer = self.context_viewer
