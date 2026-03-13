@@ -756,26 +756,6 @@ class Controller:
                     self.gui.update_sidebar_info(self.gui.context_viewer)
                 self.gui.show_status_message(f"Closed: {name}")
 
-    def close_image_OLD(self, vs_id):
-        if vs_id in self.view_states:
-            for viewer in self.viewers.values():
-                if viewer.image_id == vs_id:
-                    viewer.drop_image()
-
-            name = self.view_states[vs_id].volume.name
-            del self.view_states[vs_id]
-            del self.volumes[vs_id]
-
-            if self.view_states:
-                first_vs_id = next(iter(self.view_states))
-                for viewer in self.viewers.values():
-                    if viewer.image_id is None:
-                        viewer.set_image(first_vs_id)
-
-            if self.gui:
-                self.gui.refresh_image_list_ui()
-                self.gui.show_status_message(f"Closed: {name}")
-
     def on_visibility_toggle(self, sender, value, user_data):
         context_viewer = self.gui.context_viewer
         if not context_viewer or not context_viewer.view_state:
@@ -1174,52 +1154,5 @@ class SliceRenderer:
             lut = COLORMAPS.get(cmap_name, COLORMAPS["Grayscale"])
             indices = (norm_img * 255).astype(np.uint8)
             rgba = lut[indices]
-
-        return rgba.flatten(), (h, w)
-
-    @staticmethod
-    def get_slice_rgba_OLD(
-        data, is_rgb, num_components, ww, wl, slice_idx, orientation
-    ):
-        if orientation == ViewMode.HISTOGRAM:
-            return np.array([0, 0, 0, 255], dtype=np.uint8), (1, 1)
-
-        # Determine bounds securely
-        if orientation == ViewMode.AXIAL:
-            max_s, h, w = data.shape[0], data.shape[1], data.shape[2]
-        elif orientation == ViewMode.SAGITTAL:
-            max_s, h, w = data.shape[2], data.shape[0], data.shape[1]
-        elif orientation == ViewMode.CORONAL:
-            max_s, h, w = data.shape[1], data.shape[0], data.shape[2]
-        else:
-            return np.zeros(4, dtype=np.float32), (1, 1)
-
-        # Handle out-of-bounds slicing securely
-        if slice_idx < 0 or slice_idx >= max_s:
-            black_slice = np.zeros((h, w, 4), dtype=np.float32)
-            black_slice[:, :, 3] = 1.0
-            return black_slice.flatten(), (h, w)
-
-        # Step 1: Extract (One single call handles everything)
-        slice_data = SliceRenderer.extract_slice(data, slice_idx, orientation)
-
-        # Step 2 & 3: Normalize and Colorize
-        if is_rgb:
-            norm_img = np.clip(slice_data.astype(np.float32) / 255.0, 0.0, 1.0)
-            if num_components == 3:
-                alpha = np.ones((*norm_img.shape[:-1], 1), dtype=np.float32)
-                rgba = np.concatenate([norm_img, alpha], axis=-1)
-            else:
-                rgba = norm_img
-        else:
-            min_val = wl - ww / 2
-            norm_img = (
-                np.zeros_like(slice_data, dtype=np.float32)
-                if ww <= 0
-                else np.clip((slice_data - min_val) / ww, 0.0, 1.0)
-            )
-            rgba = np.stack(
-                [norm_img, norm_img, norm_img, np.ones_like(norm_img)], axis=-1
-            )
 
         return rgba.flatten(), (h, w)

@@ -36,19 +36,25 @@ class MainGUI:
         self.last_window_size = None
 
         self.layout_cfg = {
-            "menu_h": 40,
+            "menu_h": 28,
+            # Independent Floating Menu Margins
+            "menu_m_top": 0,
+            "menu_m_bottom": 15,
+            "menu_m_left": 0,
+            "menu_m_right": 0,
             "side_panel_w": self.side_panel_width,
             "gap_center": 10,  # Black vertical gap
             "left_m_left": 10,  # Black margin far left
             "left_m_bottom": 10,
-            "left_m_top": 0,
+            "left_m_top": 0,  # unsure if used ?
             # Internal Gray Padding
-            "left_inner_m": 0,  # Margin before text/lines start on the left
-            "right_inner_m": 17,  # Margin where lines/text stop on the right
+            "left_inner_m": 10,  # Margin before text/lines start on the left
+            "right_inner_m": 10,  # Margin where lines/text stop on the right
             # Right margins
-            "right_m_right": 10,
+            "right_m_right": 10,  # 18,
             "right_m_bottom": 10,
             "right_m_top": 0,
+            "rounding": 8,
         }
 
         # tasks manager
@@ -74,7 +80,7 @@ class MainGUI:
         # 1. Start the window container FIRST, and enable its menubar
         with dpg.window(
             tag="PrimaryWindow",
-            menubar=True,
+            menubar=False,
             on_close=self.cleanup,
             no_scrollbar=True,
             no_scroll_with_mouse=True,
@@ -92,19 +98,22 @@ class MainGUI:
                 dpg.add_item_resize_handler(callback=lambda: self.on_window_resize())
             dpg.bind_item_handler_registry("PrimaryWindow", "window_resize_handler")
 
-            with dpg.group(horizontal=True):
-                self.create_left_panel()
-                self.create_viewer_grid()
+            # with dpg.group(horizontal=True):
+            self.create_left_panel()
+            self.create_viewer_grid()
 
         # --- Create Pure Black Themes for the Right Panel ---
+        cfg = self.layout_cfg
         with dpg.theme(tag="black_viewer_theme"):
             with dpg.theme_component(dpg.mvAll):
                 dpg.add_theme_color(dpg.mvThemeCol_ChildBg, [0, 0, 0, 255])
                 dpg.add_theme_color(dpg.mvThemeCol_Border, [0, 0, 0, 255])
                 dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
                 dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 1)
-                # Remove the invisible 8px gaps between items to kill the scrollbar!
+                # Remove the invisible 8px gaps between items to kill the scrollbar
                 dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0, 0)
+                # Use ChildRounding for the quadrants
+                dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, cfg["rounding"])
 
         with dpg.theme(tag="active_black_viewer_theme"):
             with dpg.theme_component(dpg.mvAll):
@@ -114,60 +123,86 @@ class MainGUI:
                 dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
                 dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 1)
                 dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0, 0)
+                # Set thickness to 2 so the rounded corner is clearly visible
+                dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 2)
+                dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, cfg["rounding"])
 
         # Bind the black themes globally to the right side
         dpg.bind_item_theme("viewers_container", "black_viewer_theme")
         for tag in ["V1", "V2", "V3", "V4"]:
             dpg.bind_item_theme(f"win_{tag}", "black_viewer_theme")
 
+        # Force the underlying 'floor' to be black
+        if not dpg.does_item_exist("primary_black_theme"):
+            with dpg.theme(tag="primary_black_theme"):
+                with dpg.theme_component(dpg.mvAll):
+                    dpg.add_theme_color(dpg.mvThemeCol_WindowBg, [0, 0, 0, 255])
+                    dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
+
+        dpg.bind_item_theme("PrimaryWindow", "primary_black_theme")
+
     def create_menu_bar(self):
-        """Creates the top menu bar."""
-        with dpg.menu_bar(tag="main_menu_bar"):
-            with dpg.menu(label="File"):
-                dpg.add_menu_item(
-                    label="Open Image...", callback=self.on_open_file_clicked
-                )
-                dpg.add_menu_item(label="Exit", callback=self.cleanup)
+        """Creates a floating, rounded top menu bar using native ImGui menus."""
+        cfg = self.layout_cfg
+        bg_color = [45, 45, 48, 255]
 
-            with dpg.menu(label="Window/Level"):
-                for preset_name, vals in WL_PRESETS.items():
-                    label = preset_name
-                    if vals is not None:
-                        label = f"{preset_name} ({vals['ww']}, {vals['wl']})"
+        if not dpg.does_item_exist("floating_menu_theme"):
+            with dpg.theme(tag="floating_menu_theme"):
+
+                # 1. FramePadding MUST be in mvAll to affect the menu text
+                with dpg.theme_component(dpg.mvAll):
+                    dpg.add_theme_color(dpg.mvThemeCol_ChildBg, bg_color)
+                    dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 8, 10)
+
+                # 2. Style the Capsule Background
+                with dpg.theme_component(dpg.mvChildWindow):
+                    dpg.add_theme_color(dpg.mvThemeCol_ChildBg, bg_color)
+                    dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, cfg["rounding"])
+                    dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 0)
+                    dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
+
+                # 3. Style the Native Menu Bar inside it
+                with dpg.theme_component(dpg.mvMenuBar):
+                    dpg.add_theme_color(dpg.mvThemeCol_MenuBarBg, bg_color)
+                    dpg.add_theme_color(dpg.mvThemeCol_Border, [0, 0, 0, 0])
+                    dpg.add_theme_style(dpg.mvStyleVar_WindowBorderSize, 0)
+
+        # 3. Create the Container
+        with dpg.child_window(
+            tag="menu_container",
+            height=cfg["menu_h"],
+            border=False,
+            menubar=True,
+            no_scrollbar=True,
+        ):
+            # ... keep your with dpg.menu_bar() and menus exactly the same
+            with dpg.menu_bar(tag="main_menu_bar"):
+                with dpg.menu(label="File"):
                     dpg.add_menu_item(
-                        label=label,
-                        user_data=preset_name,
-                        callback=self.on_wl_preset_menu_clicked,
+                        label="Open Image...", callback=self.on_open_file_clicked
                     )
+                    dpg.add_menu_item(label="Exit", callback=self.cleanup)
 
-            with dpg.menu(label="Colormap"):
-                for cmap_name in COLORMAPS.keys():
-                    dpg.add_menu_item(
-                        label=cmap_name,
-                        user_data=cmap_name,
-                        callback=self.on_colormap_menu_clicked,
-                    )
+                with dpg.menu(label="Window/Level"):
+                    for preset_name, vals in WL_PRESETS.items():
+                        dpg.add_menu_item(
+                            label=preset_name,
+                            user_data=preset_name,
+                            callback=self.on_wl_preset_menu_clicked,
+                        )
 
-            with dpg.menu(label="Help"):
-                dpg.add_menu_item(
-                    label="Shortcuts & Controls", callback=self.show_help_window
-                )
+                with dpg.menu(label="Colormap"):
+                    for cmap_name in COLORMAPS.keys():
+                        dpg.add_menu_item(
+                            label=cmap_name,
+                            user_data=cmap_name,
+                            callback=self.on_colormap_menu_clicked,
+                        )
 
-            # Status Message Area (pushes text slightly away from the menus)
-            dpg.add_spacer(width=20)
-            dpg.add_text("", tag="global_status_text", color=[150, 255, 150])
+                dpg.add_spacer(width=20)
+                dpg.add_text("", tag="global_status_text", color=[150, 255, 150])
 
-            # Make the menu bar taller and more comfortable
-            if not dpg.does_item_exist("menu_bar_theme"):
-                with dpg.theme(tag="menu_bar_theme"):
-                    with dpg.theme_component(dpg.mvAll):
-                        # Pure black background for the whole application 'floor'
-                        dpg.add_theme_color(dpg.mvThemeCol_WindowBg, [0, 0, 0, 255])
-                        dpg.add_theme_color(dpg.mvThemeCol_ChildBg, [0, 0, 0, 255])
-                        # (X padding, Y padding) - Y padding controls the bar's height!
-                        dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 8, 10)
-
-        dpg.bind_item_theme("PrimaryWindow", "menu_bar_theme")
+        dpg.bind_item_theme("menu_container", "floating_menu_theme")
 
     def create_left_panel(self):
         """Creates the sidebar with image list and info."""
@@ -180,6 +215,8 @@ class MainGUI:
                     # Add a 1px black border strictly to the right side
                     dpg.add_theme_color(dpg.mvThemeCol_Border, [0, 0, 0, 255])
                     dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 1)
+                    # Controls the 'roundness'
+                    dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, cfg["rounding"])
 
         # OUTER CONTAINER (Matches the global black window)
         with dpg.group(tag="side_panel_outer"):
@@ -235,7 +272,11 @@ class MainGUI:
     def create_left_panel_top_part(self):
         # We no longer hardcode width here; it's updated in on_window_resize
         with dpg.child_window(
-            tag="top_panel", height=370, resizable_y=True, border=False
+            tag="top_panel",
+            height=370,
+            resizable_y=True,
+            border=False,
+            no_scrollbar=True,
         ):
             with dpg.tab_bar(tag="sidebar_tabs"):
                 # Tab 1: Image Management
@@ -389,7 +430,9 @@ class MainGUI:
     def create_left_panel_bottom_part(self):
         # Active Viewer Info Section
         panel_w = self.side_panel_width - 15
-        with dpg.child_window(tag="bottom_panel", width=panel_w, border=False):
+        with dpg.child_window(
+            tag="bottom_panel", width=panel_w, border=False, no_scrollbar=True
+        ):
             dpg.add_text("Active Viewer", color=[93, 93, 93])
             dpg.add_separator()
 
@@ -840,42 +883,47 @@ class MainGUI:
 
         cfg = self.layout_cfg
 
-        # 1. Left Panel Positioning
-        l_x = cfg["left_m_left"]
-        l_y = cfg["menu_h"] + cfg["left_m_top"]
-        l_w = cfg["side_panel_w"]
-        l_h = window_height - l_y - cfg["left_m_bottom"]
+        # 1. Position the Menu Bar (using separate margins)
+        m_t, m_l, m_r = cfg["menu_m_top"], cfg["menu_m_left"], cfg["menu_m_right"]
+        if dpg.does_item_exist("menu_container"):
+            dpg.set_item_pos("menu_container", [m_l, m_t])
+            dpg.set_item_width("menu_container", window_width - m_l - m_r)
 
-        # Calculate the exact width available for lines/content
-        # We subtract the center black gap and BOTH inner gray margins
-        inner_w = l_w - cfg["gap_center"] - cfg["left_inner_m"] - cfg["right_inner_m"]
+        # 2. Panels Y position = Top Margin + Menu Height + Bottom Menu Margin
+        panels_y = cfg["menu_m_top"] + cfg["menu_h"] + cfg["menu_m_bottom"]
+
+        # Left Panel
+        l_x = cfg["left_m_left"]
+        l_w = cfg["side_panel_w"]
+        l_h = window_height - panels_y - cfg["left_m_bottom"]
 
         if dpg.does_item_exist("side_panel_outer"):
-            dpg.set_item_pos("side_panel_outer", [l_x, l_y])
-            # The gray background width
+            dpg.set_item_pos("side_panel_outer", [l_x, panels_y])
             dpg.set_item_width("side_panel", l_w - cfg["gap_center"])
             dpg.set_item_height("side_panel", l_h)
 
-            # This forces the horizontal lines to stop early!
+            inner_w = (
+                l_w - cfg["gap_center"] - cfg["left_inner_m"] - cfg["right_inner_m"]
+            )
             if dpg.does_item_exist("top_panel"):
                 dpg.set_item_width("top_panel", inner_w)
             if dpg.does_item_exist("bottom_panel"):
                 dpg.set_item_width("bottom_panel", inner_w)
 
-        # 2. Right Viewers Positioning
+        # Right Viewers
         r_x = l_x + l_w
-        r_y = cfg["menu_h"] + cfg["right_m_top"]
         avail_w = window_width - r_x - cfg["right_m_right"]
-        avail_h = window_height - r_y - cfg["right_m_bottom"]
+        avail_h = window_height - panels_y - cfg["right_m_bottom"]
         quad_w, quad_h = avail_w // 2, avail_h // 2
 
         if dpg.does_item_exist("viewers_container"):
-            dpg.set_item_pos("viewers_container", [r_x, r_y])
+            dpg.set_item_pos("viewers_container", [r_x, panels_y])
             dpg.set_item_width("viewers_container", quad_w * 2)
             dpg.set_item_height("viewers_container", quad_h * 2)
 
         for viewer in self.controller.viewers.values():
-            viewer.resize(quad_w, quad_h)
+            # viewer.resize(quad_w - 4, quad_h - 4)  # Gap for rounding visibility
+            viewer.resize(quad_w, quad_h)  # Gap for rounding visibility
 
     def on_global_click(self, sender, app_data, user_data):
         button = app_data
@@ -1408,141 +1456,6 @@ class MainGUI:
         if dpg.does_item_exist("loading_modal"):
             dpg.delete_item("loading_modal")
         yield
-
-    def create_boot_sequence_OLD(self, image_paths, sync=False, link_all=False):
-        """Creates a generator for the boot sequence that loads images with progress UI."""
-        if not image_paths:
-            return
-
-        total = len(image_paths)
-
-        # Build the Loading Modal
-        with dpg.window(
-            tag="loading_modal",
-            modal=True,
-            show=True,
-            no_title_bar=True,
-            no_resize=True,
-            no_move=True,
-            width=350,
-            height=100,
-        ):
-            dpg.add_text("Initializing...", tag="loading_text")
-            dpg.add_spacer(height=5)
-            dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=0.0)
-
-        # Center the modal on the screen (with fallbacks if viewport isn't fully sized yet)
-        vp_width = max(dpg.get_viewport_client_width(), 800)
-        vp_height = max(dpg.get_viewport_client_height(), 600)
-        dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
-
-        yield  # Let DPG draw the empty modal
-
-        # Load the images one by one
-        img_ids = []
-        for i, path in enumerate(image_paths):
-            filename = os.path.basename(path)
-
-            # Update UI state safely in case the modal had to be deleted previously
-            if dpg.does_item_exist("loading_text"):
-                dpg.set_value(
-                    "loading_text", f"Loading image {i + 1}/{total}...\n{filename}"
-                )
-            if dpg.does_item_exist("loading_progress"):
-                dpg.set_value("loading_progress", i / total)
-
-            yield  # Let DPG render the new text and progress bar BEFORE reading the file
-
-            try:
-                img_id = self.controller.load_image(path)
-                img_ids.append(img_id)
-            except Exception as e:
-                # Safely delete the loading modal and yield to clear ImGui's modal stack
-                if dpg.does_item_exist("loading_modal"):
-                    dpg.delete_item("loading_modal")
-                yield
-
-                # Show the error message
-                self.show_message(
-                    "File Load Error", f"Failed to load image:\n{filename}"
-                )
-
-                # Wait for user to acknowledge the modal
-                while dpg.does_item_exist("generic_message_modal"):
-                    yield
-
-                # Rebuild the loading modal ONLY if there are more files to process
-                if i < total - 1:
-                    with dpg.window(
-                        tag="loading_modal",
-                        modal=True,
-                        show=True,
-                        no_title_bar=True,
-                        no_resize=True,
-                        no_move=True,
-                        width=350,
-                        height=100,
-                    ):
-                        dpg.add_text("Resuming...", tag="loading_text")
-                        dpg.add_spacer(height=5)
-                        dpg.add_progress_bar(
-                            tag="loading_progress",
-                            width=-1,
-                            default_value=(i + 1) / total,
-                        )
-
-                    vp_w = max(dpg.get_viewport_client_width(), 800)
-                    vp_h = max(dpg.get_viewport_client_height(), 600)
-                    dpg.set_item_pos("loading_modal", [vp_w // 2 - 175, vp_h // 2 - 50])
-                    yield
-                continue
-
-            if i == 0:
-                for tag in ["V1", "V2", "V3", "V4"]:
-                    self.controller.viewers[tag].set_image(img_id)
-            elif i == 1:
-                self.controller.viewers["V3"].set_image(img_id)
-                self.controller.viewers["V4"].set_image(img_id)
-            elif i == 2:
-                self.controller.viewers["V2"].set_image(img_ids[1])
-                self.controller.viewers["V3"].set_image(img_id)
-                self.controller.viewers["V4"].set_image(img_id)
-            elif i >= 3:
-                self.controller.viewers["V4"].set_image(img_id)
-
-        # Finalize and Sync
-        # Safely check if items exist before updating them (prevents SystemError crashes if the last image failed)
-        if dpg.does_item_exist("loading_text"):
-            dpg.set_value("loading_text", "Applying synchronization and layouts...")
-        if dpg.does_item_exist("loading_progress"):
-            dpg.set_value("loading_progress", 1.0)
-
-        yield  # Render the 100% completion state
-
-        self.controller.default_viewers_orientation()
-
-        # Unify the absolute scale across different orientations of the SAME image
-        for img_id in img_ids:
-            # Find all viewers showing this specific image
-            same_image_viewers = [
-                v.tag for v in self.controller.viewers.values() if v.image_id == img_id
-            ]
-            if same_image_viewers:
-                self.controller.unify_ppm(same_image_viewers)
-
-        if sync or link_all:
-            for img_id in img_ids:
-                self.controller.on_sync_group_change(None, "Group 1", img_id)
-            self.refresh_sync_ui()
-
-        self.on_window_resize()
-        self.refresh_image_list_ui()
-
-        # Clean up
-        if dpg.does_item_exist("loading_modal"):
-            dpg.delete_item("loading_modal")
-
-        yield  # Let DPG remove the modal before entering the main loop
 
     def run(self, boot_generator=None):
         dpg.setup_dearpygui()
