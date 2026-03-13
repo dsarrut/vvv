@@ -202,6 +202,8 @@ class SliceViewer:
         if self.view_state:
             self.view_state.is_data_dirty = True
         self.update_render()
+        # Ensure scale bar and axes are drawn the moment the image loads
+        self.is_geometry_dirty = True
 
     def set_current_slice_to_crosshair(self):
         if not self.view_state or not self.volume:
@@ -864,51 +866,6 @@ class SliceViewer:
             else:
                 self.update_window_level(ww, wl)
 
-    def apply_local_auto_window_OLD(self, fov_fraction=0.20):
-        if (
-            self.image_id is None
-            or not self.volume
-            or getattr(self.volume, "is_rgb", False)
-        ):
-            return
-
-        pix_x, pix_y = self.get_mouse_slice_coords(ignore_hover=True)
-        if pix_x is None:
-            return
-
-        pmin, pmax = self.current_pmin, self.current_pmax
-        disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
-        if disp_w <= 0 or disp_h <= 0:
-            return
-
-        win_w = dpg.get_item_width(f"win_{self.tag}")
-        win_h = dpg.get_item_height(f"win_{self.tag}")
-        if not win_w or not win_h:
-            return
-
-        slice_data = self.view_state.get_raw_slice(self.slice_idx, self.orientation)
-        real_h, real_w = slice_data.shape
-
-        # Define the sampling box as a fraction of the physical screen viewport
-        screen_radius_x = (win_w * fov_fraction) / 2.0
-        screen_radius_y = (win_h * fov_fraction) / 2.0
-
-        # Translate the screen radius into voxel units, ensuring at least 1 voxel
-        vx_r_x = max(1, int((screen_radius_x / disp_w) * real_w))
-        vx_r_y = max(1, int((screen_radius_y / disp_h) * real_h))
-
-        x0, x1 = max(0, int(pix_x) - vx_r_x), min(real_w, int(pix_x) + vx_r_x)
-        y0, y1 = max(0, int(pix_y) - vx_r_y), min(real_h, int(pix_y) + vx_r_y)
-
-        if x1 <= x0 or y1 <= y0:
-            return
-
-        patch = slice_data[y0:y1, x0:x1]
-        if patch.size > 0:
-            p_min, p_max = np.percentile(patch, [2, 98])
-            ww = max(1e-5, p_max - p_min)
-            self.update_window_level(ww, (p_max + p_min) / 2)
-
     def update_window_level(self, ww, wl):
         if (
             not self.is_image_orientation()
@@ -1123,66 +1080,9 @@ class SliceViewer:
         win_h = dpg.get_item_height(f"win_{self.tag}")
         ts = dpg.get_item_rect_size(self.tracker_tag)
         dpg.set_item_pos(
-            self.tracker_tag, [5, win_h - (ts[1] if ts[1] > 0 else 60) - 5]
-        )
-
-    def update_tracker_OLD(self):
-        if (
-            self.image_id is None
-            or not self.view_state
-            or not self.volume
-            or not self.view_state.show_tracker
-            or not self.is_image_orientation()
-        ):
-            dpg.set_value(self.tracker_tag, "")
-            return
-
-        is_dragging = self.controller.gui.drag_viewer == self
-        pix_x, pix_y = self.get_mouse_slice_coords(
-            ignore_hover=is_dragging, allow_outside=is_dragging
-        )
-        if pix_x is None:
-            dpg.set_value(self.tracker_tag, "")
-            return
-
-        idx = self.slice_idx
-        shape = self.get_slice_shape()
-        v = slice_to_voxel(pix_x, pix_y, idx, self.orientation, shape)
-        phys = self.volume.voxel_coord_to_physic_coord(v)
-
-        # Robust snap to nearest voxel center
-        ix = int(np.floor(v[0] + 0.5))
-        iy = int(np.floor(v[1] + 0.5))
-        iz = int(np.floor(v[2] + 0.5))
-        max_z, max_y, max_x = self.volume.data.shape[:3]
-        col = self.controller.settings.data["colors"]["tracker_text"]
-        dpg.configure_item(self.tracker_tag, color=col)
-
-        if 0 <= ix < max_x and 0 <= iy < max_y and 0 <= iz < max_z:
-            val = self.volume.data[iz, iy, ix]
-            self.mouse_value, self.mouse_voxel, self.mouse_phys_coord = val, v, phys
-            val_str = (
-                f"{val[0]:g} {val[1]:g} {val[2]:g}"
-                if getattr(self.volume, "is_rgb", False)
-                else f"{val:g}"
-            )
-
-            # Format text block
-            text_lines = [f"{val_str}"]
-
-            # Fetch fusion value if active (same line)
-            if self.view_state.overlay_data is not None:
-                text_lines[0] += f" ({self.view_state.overlay_data[iz, iy, ix]:g})"
-            text_lines.append(fmt(v, 1))
-            text_lines.append(f"{fmt(phys, 1)} mm")
-            dpg.set_value(self.tracker_tag, "\n".join(text_lines))
-        else:
-            dpg.set_value(self.tracker_tag, "Out of image")
-
-        win_h = dpg.get_item_height(f"win_{self.tag}")
-        ts = dpg.get_item_rect_size(self.tracker_tag)
-        dpg.set_item_pos(
-            self.tracker_tag, [5, win_h - (ts[1] if ts[1] > 0 else 60) - 5]
+            # self.tracker_tag, [5, win_h - (ts[1] if ts[1] > 0 else 60) - 5]
+            self.tracker_tag,
+            [8, win_h - (ts[1] if ts[1] > 0 else 80) - 15],
         )
 
     def on_key_press(self, key):

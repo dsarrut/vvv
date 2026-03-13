@@ -35,6 +35,22 @@ class MainGUI:
         ]
         self.last_window_size = None
 
+        self.layout_cfg = {
+            "menu_h": 40,
+            "side_panel_w": self.side_panel_width,
+            "gap_center": 10,  # Black vertical gap
+            "left_m_left": 10,  # Black margin far left
+            "left_m_bottom": 10,
+            "left_m_top": 0,
+            # Internal Gray Padding
+            "left_inner_m": 0,  # Margin before text/lines start on the left
+            "right_inner_m": 17,  # Margin where lines/text stop on the right
+            # Right margins
+            "right_m_right": 10,
+            "right_m_bottom": 10,
+            "right_m_top": 0,
+        }
+
         # tasks manager
         self.tasks = []
 
@@ -55,10 +71,10 @@ class MainGUI:
 
     def create_layout(self):
         """Builds the main window layout."""
-        self.create_menu_bar()
-
+        # 1. Start the window container FIRST, and enable its menubar
         with dpg.window(
             tag="PrimaryWindow",
+            menubar=True,
             on_close=self.cleanup,
             no_scrollbar=True,
             no_scroll_with_mouse=True,
@@ -68,6 +84,9 @@ class MainGUI:
             no_title_bar=True,
             no_bring_to_front_on_focus=True,
         ):
+            # 2. Call the menu bar creation INSIDE the window block!
+            self.create_menu_bar()
+
             # Window resize handler
             with dpg.item_handler_registry(tag="window_resize_handler"):
                 dpg.add_item_resize_handler(callback=lambda: self.on_window_resize())
@@ -96,14 +115,14 @@ class MainGUI:
                 dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 1)
                 dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0, 0)
 
-            # Bind the black themes globally to the right side
+        # Bind the black themes globally to the right side
         dpg.bind_item_theme("viewers_container", "black_viewer_theme")
         for tag in ["V1", "V2", "V3", "V4"]:
             dpg.bind_item_theme(f"win_{tag}", "black_viewer_theme")
 
     def create_menu_bar(self):
         """Creates the top menu bar."""
-        with dpg.viewport_menu_bar():
+        with dpg.menu_bar(tag="main_menu_bar"):
             with dpg.menu(label="File"):
                 dpg.add_menu_item(
                     label="Open Image...", callback=self.on_open_file_clicked
@@ -138,20 +157,46 @@ class MainGUI:
             dpg.add_spacer(width=20)
             dpg.add_text("", tag="global_status_text", color=[150, 255, 150])
 
+            # Make the menu bar taller and more comfortable
+            if not dpg.does_item_exist("menu_bar_theme"):
+                with dpg.theme(tag="menu_bar_theme"):
+                    with dpg.theme_component(dpg.mvAll):
+                        # Pure black background for the whole application 'floor'
+                        dpg.add_theme_color(dpg.mvThemeCol_WindowBg, [0, 0, 0, 255])
+                        dpg.add_theme_color(dpg.mvThemeCol_ChildBg, [0, 0, 0, 255])
+                        # (X padding, Y padding) - Y padding controls the bar's height!
+                        dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 8, 10)
+
+        dpg.bind_item_theme("PrimaryWindow", "menu_bar_theme")
+
     def create_left_panel(self):
         """Creates the sidebar with image list and info."""
-        with dpg.child_window(
-            width=self.side_panel_width,
-            tag="side_panel",
-            no_scrollbar=True,
-            no_scroll_with_mouse=True,
-            border=False,
-        ):
-            # Physically pushes the tabs down
-            dpg.add_spacer(height=15)
+        cfg = self.layout_cfg
+        # Theme to make the sidebar gray and add a subtle black border on the right
+        if not dpg.does_item_exist("sidebar_bg_theme"):
+            with dpg.theme(tag="sidebar_bg_theme"):
+                with dpg.theme_component(dpg.mvChildWindow):
+                    dpg.add_theme_color(dpg.mvThemeCol_ChildBg, [37, 37, 38, 255])
+                    # Add a 1px black border strictly to the right side
+                    dpg.add_theme_color(dpg.mvThemeCol_Border, [0, 0, 0, 255])
+                    dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 1)
 
-            self.create_left_panel_top_part()
-            self.create_left_panel_bottom_part()
+        # OUTER CONTAINER (Matches the global black window)
+        with dpg.group(tag="side_panel_outer"):
+            # INNER FLOATING PANEL (The actual gray sidebar)
+            # Subtracting 4px from width creates the black 'canyon' gap on the right
+            with dpg.child_window(
+                width=self.side_panel_width - 4,
+                tag="side_panel",
+                no_scrollbar=True,
+                no_scroll_with_mouse=True,
+                border=True,  # Border enabled to show the black line on the right
+            ):
+                # Add a 10px indent group so text doesn't touch the left edge
+                with dpg.group(indent=cfg["left_inner_m"]):
+                    dpg.add_spacer(height=5)
+                    self.create_left_panel_top_part()
+                    self.create_left_panel_bottom_part()
 
         # Create a sleek, transparent theme for read-only text fields
         if not dpg.does_item_exist("sleek_readonly_theme"):
@@ -173,7 +218,11 @@ class MainGUI:
             with dpg.theme(tag="left_panel_padding_theme"):
                 with dpg.theme_component(dpg.mvAll):
                     # This drops the tabs 12px from the top, and indents the separators 12px!
-                    dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 12, 12)
+                    # dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 12, 12)
+                    dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 12)
+                    # Reset FramePadding back to ImGui defaults (4, 3) so the
+                    # sidebar buttons don't inherit the huge Menu Bar padding!
+                    dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 4, 3)
 
         dpg.bind_item_theme("image_info_group", "sleek_readonly_theme")
         dpg.bind_item_theme("image_crosshair_group", "sleek_readonly_theme")
@@ -181,12 +230,12 @@ class MainGUI:
         # Apply the padding to both the top and bottom sections
         dpg.bind_item_theme("top_panel", "left_panel_padding_theme")
         dpg.bind_item_theme("bottom_panel", "left_panel_padding_theme")
+        dpg.bind_item_theme("side_panel", "sidebar_bg_theme")
 
     def create_left_panel_top_part(self):
-        # Shortens the container so horizontal lines stop 15px before the image grid
-        panel_w = self.side_panel_width - 15
+        # We no longer hardcode width here; it's updated in on_window_resize
         with dpg.child_window(
-            tag="top_panel", height=370, width=panel_w, resizable_y=True, border=False
+            tag="top_panel", height=370, resizable_y=True, border=False
         ):
             with dpg.tab_bar(tag="sidebar_tabs"):
                 # Tab 1: Image Management
@@ -784,51 +833,47 @@ class MainGUI:
             dpg.set_value("info_ppm", f"{ppm:g}")
 
     def on_window_resize(self):
-        # Use viewport client dimensions instead of PrimaryWindow to avoid OS border phantom pixels
         window_width = dpg.get_viewport_client_width()
         window_height = dpg.get_viewport_client_height()
-
         if not window_width or not window_height:
-            return  # Safety catch during boot
-
-        # Catch macOS phantom resize events on Alt-Tab
-        if hasattr(self, "last_window_size") and self.last_window_size == (
-            window_width,
-            window_height,
-        ):
-            return
-        self.last_window_size = (window_width, window_height)
-
-        # Positioning
-        pos_x = self.side_panel_width
-        pos_y = 28  # Clears the native top menu bar safely
-
-        # Define explicit physical margins to restore the right/bottom borders!
-        margin_right = 15  # 15 needed to avoid left-right scroll
-        margin_bottom = 10
-
-        # Calculate truly available space
-        available_width = window_width - pos_x - margin_right
-        available_height = window_height - pos_y - margin_bottom
-
-        # Prevent negative sizes if window is shrunk aggressively
-        if available_width < 100 or available_height < 100:
             return
 
-        # Calculate the sizes for each quadrant (2x2)
-        quad_w = available_width // 2
-        quad_h = available_height // 2
+        cfg = self.layout_cfg
 
-        # Re-multiply to ensure the container perfectly wraps the 4 viewers
-        total_viewers_width = quad_w * 2
-        total_viewers_height = quad_h * 2
+        # 1. Left Panel Positioning
+        l_x = cfg["left_m_left"]
+        l_y = cfg["menu_h"] + cfg["left_m_top"]
+        l_w = cfg["side_panel_w"]
+        l_h = window_height - l_y - cfg["left_m_bottom"]
+
+        # Calculate the exact width available for lines/content
+        # We subtract the center black gap and BOTH inner gray margins
+        inner_w = l_w - cfg["gap_center"] - cfg["left_inner_m"] - cfg["right_inner_m"]
+
+        if dpg.does_item_exist("side_panel_outer"):
+            dpg.set_item_pos("side_panel_outer", [l_x, l_y])
+            # The gray background width
+            dpg.set_item_width("side_panel", l_w - cfg["gap_center"])
+            dpg.set_item_height("side_panel", l_h)
+
+            # This forces the horizontal lines to stop early!
+            if dpg.does_item_exist("top_panel"):
+                dpg.set_item_width("top_panel", inner_w)
+            if dpg.does_item_exist("bottom_panel"):
+                dpg.set_item_width("bottom_panel", inner_w)
+
+        # 2. Right Viewers Positioning
+        r_x = l_x + l_w
+        r_y = cfg["menu_h"] + cfg["right_m_top"]
+        avail_w = window_width - r_x - cfg["right_m_right"]
+        avail_h = window_height - r_y - cfg["right_m_bottom"]
+        quad_w, quad_h = avail_w // 2, avail_h // 2
 
         if dpg.does_item_exist("viewers_container"):
-            dpg.set_item_width("viewers_container", total_viewers_width)
-            dpg.set_item_height("viewers_container", total_viewers_height)
-            dpg.set_item_pos("viewers_container", [pos_x, pos_y])
+            dpg.set_item_pos("viewers_container", [r_x, r_y])
+            dpg.set_item_width("viewers_container", quad_w * 2)
+            dpg.set_item_height("viewers_container", quad_h * 2)
 
-        # Resize all viewers
         for viewer in self.controller.viewers.values():
             viewer.resize(quad_w, quad_h)
 

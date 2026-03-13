@@ -612,6 +612,8 @@ class Controller:
             if viewer.image_id == vs_id:
                 viewer.draw_crosshair()
                 viewer.update_render()
+                # Force the scale bar, grids, and axes to redraw on the next frame
+                viewer.is_geometry_dirty = True
 
     def update_setting(self, keys, value):
         if not keys or keys[-1] is None:
@@ -693,7 +695,7 @@ class Controller:
                     if viewer.image_id == vs_id:
                         viewer.set_image(vs_id)
             else:
-                # FIX 1: Instantly refresh the crosshair intensity value for the sidebar
+                # Instantly refresh the crosshair intensity value for the sidebar
                 ix, iy, iz = [
                     int(np.clip(np.floor(c + 0.5), 0, limit - 1))
                     for c, limit in zip(
@@ -707,7 +709,7 @@ class Controller:
                 vs.is_data_dirty = True
                 self.update_all_viewers_of_image(vs_id)
 
-            # FIX 2: If this reloaded image is an overlay on ANY other image, force a re-resample!
+            # If this reloaded image is an overlay on ANY other image, force a re-resample!
             for other_id, other_vs in self.view_states.items():
                 if other_vs.overlay_id == vs_id:
                     # Triggers SimpleITK to pull the fresh data from disk
