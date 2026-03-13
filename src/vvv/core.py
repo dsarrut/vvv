@@ -693,11 +693,30 @@ class Controller:
                     if viewer.image_id == vs_id:
                         viewer.set_image(vs_id)
             else:
+                # FIX 1: Instantly refresh the crosshair intensity value for the sidebar
+                ix, iy, iz = [
+                    int(np.clip(np.floor(c + 0.5), 0, limit - 1))
+                    for c, limit in zip(
+                        vs.crosshair_voxel,
+                        [vol.data.shape[2], vol.data.shape[1], vol.data.shape[0]],
+                    )
+                ]
+                vs.crosshair_value = vol.data[iz, iy, ix]
+
                 vs.histogram_is_dirty = True
+                vs.is_data_dirty = True
                 self.update_all_viewers_of_image(vs_id)
+
+            # FIX 2: If this reloaded image is an overlay on ANY other image, force a re-resample!
+            for other_id, other_vs in self.view_states.items():
+                if other_vs.overlay_id == vs_id:
+                    # Triggers SimpleITK to pull the fresh data from disk
+                    other_vs.set_overlay(vs_id, vol)
+                    self.update_all_viewers_of_image(other_id)
 
             if self.gui.context_viewer and self.gui.context_viewer.image_id == vs_id:
                 self.gui.update_sidebar_info(self.gui.context_viewer)
+                self.gui.update_sidebar_crosshair(self.gui.context_viewer)
 
             if self.gui:
                 self.gui.show_status_message(f"Reloaded: {vol.name}")
