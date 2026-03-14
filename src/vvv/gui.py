@@ -250,7 +250,11 @@ class MainGUI:
             with dpg.menu_bar(tag="main_menu_bar"):
                 with dpg.menu(label="File"):
                     dpg.add_menu_item(
-                        label="Open Image...", callback=self.on_open_file_clicked
+                        label="Open Image(s)...", callback=self.on_open_file_clicked
+                    )
+                    dpg.add_menu_item(
+                        label="Open a 4D Sequence...",
+                        callback=self.on_open_4d_sequence_clicked,
                     )
                     dpg.add_menu_item(
                         label="Settings...",
@@ -1104,9 +1108,34 @@ class MainGUI:
             pass
 
     def on_open_file_clicked(self, sender=None, app_data=None, user_data=None):
-        file_path = open_file_dialog("Open Medical Image")
-        if file_path and os.path.exists(file_path):
-            self.tasks.append(self.load_single_image_sequence(file_path))
+        # Pass multiple=True to allow selecting several distinct images at once
+        file_paths = open_file_dialog("Open Medical Image(s)", multiple=True)
+        if not file_paths:
+            return
+
+        # Ensure it's a list even if the dialog returns a single string
+        if isinstance(file_paths, str):
+            file_paths = [file_paths]
+
+        for path in file_paths:
+            if os.path.exists(path):
+                self.tasks.append(self.load_single_image_sequence(path))
+
+    def on_open_4d_sequence_clicked(self, sender=None, app_data=None, user_data=None):
+        file_paths = open_file_dialog(
+            "Select multiple images for 4D Sequence", multiple=True
+        )
+        if not file_paths:
+            return
+
+        if isinstance(file_paths, str):
+            file_paths = [file_paths]
+
+        if len(file_paths) > 0:
+            # We bundle the files into the "4D:" magic string for the VolumeData parser!
+            # Using quotes around each path ensures shlex handles spaces in filenames perfectly.
+            magic_path_string = "4D:" + " ".join(f'"{p}"' for p in file_paths)
+            self.tasks.append(self.load_single_image_sequence(magic_path_string))
 
     def on_wl_preset_menu_clicked(self, sender, app_data, user_data):
         viewer = self.context_viewer
@@ -1186,7 +1215,12 @@ class MainGUI:
     # ==========================================
 
     def load_single_image_sequence(self, file_path):
-        filename = os.path.basename(file_path)
+        is_4d = file_path.startswith("4D:")
+
+        if is_4d:
+            display_name = "4D Sequence"
+        else:
+            display_name = os.path.basename(file_path)
 
         with dpg.window(
             tag="loading_modal",
@@ -1198,7 +1232,7 @@ class MainGUI:
             width=350,
             height=100,
         ):
-            dpg.add_text(f"Loading image...\n{filename}", tag="loading_text")
+            dpg.add_text(f"Loading image...\n{display_name}", tag="loading_text")
             dpg.add_spacer(height=5)
             dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=0.5)
 

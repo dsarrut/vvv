@@ -3,8 +3,23 @@ import numpy as np
 import os
 import glob
 import shlex
+from dataclasses import dataclass
 from vvv.utils import ViewMode
 from .config import COLORMAPS
+
+
+@dataclass
+class RenderLayer:
+    """Bundles all necessary rendering parameters for a single image layer."""
+
+    data: np.ndarray
+    is_rgb: bool
+    num_components: int
+    ww: float
+    wl: float
+    cmap_name: str
+    threshold: float
+    time_idx: int
 
 
 class SliceRenderer:
@@ -47,26 +62,35 @@ class SliceRenderer:
 
     @staticmethod
     def get_slice_rgba(
-        base_data,
-        base_is_rgb,
-        base_num_components,
-        base_ww,
-        base_wl,
-        base_cmap_name,
-        base_threshold,
-        base_time_idx,
-        overlay_data,
-        overlay_is_rgb,
-        overlay_ww,
-        overlay_wl,
-        overlay_cmap_name,
-        overlay_opacity,
-        overlay_threshold,
-        overlay_mode,
-        overlay_time_idx,
-        slice_idx,
-        orientation,
+        base: RenderLayer,
+        overlay: RenderLayer,  # Can be None if no overlay is active
+        overlay_opacity: float,
+        overlay_mode: str,
+        slice_idx: int,
+        orientation: int,
     ):
+        # --- Unpack the base layer safely ---
+        base_data, base_is_rgb, base_num_components = (
+            base.data,
+            base.is_rgb,
+            base.num_components,
+        )
+        base_ww, base_wl, base_cmap_name = base.ww, base.wl, base.cmap_name
+        base_threshold, base_time_idx = base.threshold, base.time_idx
+
+        # --- Unpack the overlay layer safely ---
+        if overlay is not None and overlay.data is not None:
+            overlay_data, overlay_is_rgb = overlay.data, overlay.is_rgb
+            overlay_ww, overlay_wl, overlay_cmap_name = (
+                overlay.ww,
+                overlay.wl,
+                overlay.cmap_name,
+            )
+            overlay_threshold, overlay_time_idx = overlay.threshold, overlay.time_idx
+        else:
+            overlay_data = None
+            overlay_opacity = 0.0  # Force skip
+
         if orientation == ViewMode.HISTOGRAM:
             return np.array([0, 0, 0, 255], dtype=np.uint8), (1, 1)
 

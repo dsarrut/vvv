@@ -1,7 +1,7 @@
 import dearpygui.dearpygui as dpg
 import numpy as np
 from .utils import *
-from .core import SliceRenderer
+from .core import SliceRenderer, RenderLayer
 from .drawing import OverlayDrawer
 
 
@@ -546,7 +546,13 @@ class SliceViewer:
         else:
             if getattr(self.volume, "is_rgb", False):
                 return
-            slice_data = self.view_state.get_raw_slice(self.slice_idx, self.orientation)
+            slice_data = SliceRenderer.get_raw_slice(
+                self.volume.data,
+                getattr(self.volume, "is_rgb", False),
+                self.view_state.time_idx,
+                self.slice_idx,
+                self.orientation,
+            )
 
         if slice_data is None:
             return
@@ -652,40 +658,44 @@ class SliceViewer:
             if dpg.does_item_exist(plot_tag):
                 dpg.configure_item(plot_tag, show=False)
 
-        over_data = self.view_state.overlay_data
-        over_is_rgb = False
-        over_ww, over_wl, over_cmap = 1.0, 0.5, "Hot"
-        over_time_idx = 0
+        # 1. Package the Base Layer
+        base_layer = RenderLayer(
+            data=self.volume.data,
+            is_rgb=getattr(self.volume, "is_rgb", False),
+            num_components=self.volume.num_components,
+            ww=self.view_state.ww,
+            wl=self.view_state.wl,
+            cmap_name=self.view_state.colormap,
+            threshold=self.view_state.base_threshold,
+            time_idx=self.view_state.time_idx,
+        )
 
+        # 2. Package the Overlay Layer (if it exists)
+        overlay_layer = None
         if (
-            over_data is not None
+            self.view_state.overlay_data is not None
             and self.view_state.overlay_id in self.controller.view_states
         ):
             ovs = self.controller.view_states[self.view_state.overlay_id]
-            over_is_rgb = getattr(ovs.volume, "is_rgb", False)
-            over_ww, over_wl, over_cmap = ovs.ww, ovs.wl, ovs.colormap
-            over_time_idx = min(self.view_state.time_idx, ovs.volume.num_timepoints - 1)
+            overlay_layer = RenderLayer(
+                data=self.view_state.overlay_data,
+                is_rgb=getattr(ovs.volume, "is_rgb", False),
+                num_components=ovs.volume.num_components,
+                ww=ovs.ww,
+                wl=ovs.wl,
+                cmap_name=ovs.colormap,
+                threshold=self.view_state.overlay_threshold,
+                time_idx=min(self.view_state.time_idx, ovs.volume.num_timepoints - 1),
+            )
 
+        # 3. Call the renderer seamlessly
         rgba_flat, _ = SliceRenderer.get_slice_rgba(
-            self.volume.data,
-            getattr(self.volume, "is_rgb", False),
-            self.volume.num_components,
-            self.view_state.ww,
-            self.view_state.wl,
-            self.view_state.colormap,
-            self.view_state.base_threshold,
-            self.view_state.time_idx,
-            over_data,
-            over_is_rgb,
-            over_ww,
-            over_wl,
-            over_cmap,
-            self.view_state.overlay_opacity,
-            self.view_state.overlay_threshold,
-            self.view_state.overlay_mode,
-            over_time_idx,
-            self.slice_idx,
-            self.orientation,
+            base=base_layer,
+            overlay=overlay_layer,
+            overlay_opacity=self.view_state.overlay_opacity,
+            overlay_mode=self.view_state.overlay_mode,
+            slice_idx=self.slice_idx,
+            orientation=self.orientation,
         )
 
         self.last_rgba_flat = rgba_flat

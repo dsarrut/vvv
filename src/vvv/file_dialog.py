@@ -3,11 +3,12 @@ import sys
 import subprocess
 
 
-def open_file_dialog(title="Open File"):
+def open_file_dialog(title="Open File", multiple=False):
     """
     Native File Dialog wrapper.
     Vendored and adapted from 'crossfiledialog' by maikelwever
     https://github.com/maikelwever/crossfiledialog
+    Supports selecting single or multiple files.
     """
 
     # Determine the starting folder (Current Working Directory or Home)
@@ -24,19 +25,36 @@ def open_file_dialog(title="Open File"):
             f"  try\n"
             f'    set defaultLoc to POSIX file "{start_dir}" as alias\n'
             f'    set allowedExts to {{"nii", "gz", "mhd", "mha", "nrrd", "dcm", "tif", "tiff", "png", "jpg", "jpeg"}}\n'
-            f'    set theFile to choose file with prompt "{title}" default location defaultLoc of type allowedExts\n'
-            f"    return POSIX path of theFile\n"
-            f"  end try\n"
-            f"end tell"
         )
+
+        if multiple:
+            script += (
+                f'    set theFiles to choose file with prompt "{title}" default location defaultLoc of type allowedExts with multiple selections allowed\n'
+                f"    set pathList to {{}}\n"
+                f"    repeat with aFile in theFiles\n"
+                f"      set end of pathList to POSIX path of aFile\n"
+                f"    end repeat\n"
+                f"    set AppleScript's text item delimiters to linefeed\n"
+                f"    return pathList as text\n"
+            )
+        else:
+            script += (
+                f'    set theFile to choose file with prompt "{title}" default location defaultLoc of type allowedExts\n'
+                f"    return POSIX path of theFile\n"
+            )
+
+        script += f"  end try\n" f"end tell"
+
         try:
             result = subprocess.run(
                 ["osascript", "-e", script], capture_output=True, text=True
             )
             path = result.stdout.strip()
-            return path if path else None
+            if not path:
+                return [] if multiple else None
+            return path.splitlines() if multiple else path
         except Exception:
-            return None
+            return [] if multiple else None
 
     elif sys.platform == "linux":  # Linux
         # Ensure start_dir ends with a slash so Zenity opens the dir, not a file named "dir"
@@ -53,10 +71,14 @@ def open_file_dialog(title="Open File"):
                 "--file-filter=Medical Images | *.nii *.nii.gz *.mhd *.mha *.nrrd *.dcm *.tif *.tiff *.png *.jpg *.jpeg",
                 "--file-filter=All Files | *",
             ]
+            if multiple:
+                cmd.append("--multiple")
+                cmd.append("--separator=\n")
+
             result = subprocess.run(cmd, capture_output=True, text=True)
             path = result.stdout.strip()
             if path:
-                return path
+                return path.splitlines() if multiple else path
         except FileNotFoundError:
             try:
                 # Fallback to Kdialog
@@ -67,25 +89,35 @@ def open_file_dialog(title="Open File"):
                     "*.nii *.nii.gz *.mhd *.mha *.nrrd *.dcm *.tif *.png *.jpg | Medical Images",
                     f"--title={title}",
                 ]
+                if multiple:
+                    cmd.append("--multiple")
+                    cmd.append("--separate-output")
+
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 path = result.stdout.strip()
                 if path:
-                    return path
+                    return path.splitlines() if multiple else path
             except FileNotFoundError:
-                return None
+                return [] if multiple else None
 
     elif sys.platform == "win32":  # Windows
+        mult_str = "$true" if multiple else "$false"
+        out_str = (
+            "$f.FileNames -join [Environment]::NewLine" if multiple else "$f.FileName"
+        )
+
         script = (
             f"Add-Type -AssemblyName System.Windows.Forms;"
             f"$f = New-Object System.Windows.Forms.OpenFileDialog;"
             f"$f.Title = '{title}';"
             f"$f.InitialDirectory = '{start_dir}';"
             f"$f.Filter = 'Medical Images|*.nii;*.nii.gz;*.mhd;*.mha;*.nrrd;*.dcm;*.tif;*.tiff;*.png;*.jpg;*.jpeg|All Files (*.*)|*.*';"
+            f"$f.Multiselect = {mult_str};"
             f"$f.ShowHelp = $true;"
             # <--- CREATE A DUMMY TOPMOST WINDOW TO FORCE DIALOG TO FRONT --->
             f"$form = New-Object System.Windows.Forms.Form;"
             f"$form.TopMost = $true;"
-            f"if ($f.ShowDialog($form) -eq 'OK') {{ $f.FileName }}"
+            f"if ($f.ShowDialog($form) -eq 'OK') {{ {out_str} }}"
         )
         try:
             result = subprocess.run(
@@ -95,8 +127,10 @@ def open_file_dialog(title="Open File"):
                 creationflags=0x08000000,
             )
             path = result.stdout.strip()
-            return path if path else None
+            if not path:
+                return [] if multiple else None
+            return path.splitlines() if multiple else path
         except Exception:
-            return None
+            return [] if multiple else None
 
-    return None
+    return [] if multiple else None

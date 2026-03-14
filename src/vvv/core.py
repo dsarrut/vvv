@@ -10,7 +10,7 @@ from vvv.utils import ViewMode, slice_to_voxel
 # Re-exporting these so that existing files (like gui.py and viewer.py)
 # don't have to change their `from .core import XYZ` statements!
 from .config import DEFAULT_SETTINGS, WL_PRESETS, COLORMAPS
-from .image import VolumeData, SliceRenderer
+from .image import VolumeData, SliceRenderer, RenderLayer
 
 
 class SettingsManager:
@@ -349,15 +349,6 @@ class ViewState:
 
         self.ww = preset["ww"]
         self.wl = preset["wl"]
-
-    def get_raw_slice(self, slice_idx, orientation=ViewMode.AXIAL):
-        return SliceRenderer.get_raw_slice(
-            self.volume.data,
-            getattr(self.volume, "is_rgb", False),
-            self.time_idx,
-            slice_idx,
-            orientation,
-        )
 
 
 class Controller:
