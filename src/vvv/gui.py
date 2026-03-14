@@ -1167,6 +1167,10 @@ class MainGUI:
         )
         viewer.view_state.is_data_dirty = True
 
+        # Force W/L parity when Registration is engaged
+        if app_data == "Registration":
+            self.controller.propagate_window_level(viewer.image_id)
+
     def on_opacity_changed(self, sender, app_data, user_data):
         if self.context_viewer and self.context_viewer.view_state:
             self.context_viewer.view_state.overlay_opacity = app_data

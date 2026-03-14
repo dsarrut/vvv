@@ -1226,6 +1226,74 @@ class Controller:
         if dpg.does_item_exist("check_sync_wl"):
             sync_wl = dpg.get_value("check_sync_wl")
 
+        dirty_ids = {source_vs_id}
+
+        # 1. Standard Sync Groups
+        target_group = source_vs.sync_group
+        if sync_wl and target_group != 0:
+            for target_id, vs in self.view_states.items():
+                if vs.sync_group == target_group and not getattr(
+                    vs.volume, "is_rgb", False
+                ):
+                    vs.ww = source_vs.ww
+                    vs.wl = source_vs.wl
+                    vs.base_threshold = source_vs.base_threshold
+                    dirty_ids.add(target_id)
+
+        # 2. Registration Mode Forced Sync
+        # (Loop until no new links are found to gracefully handle chained sync groups)
+        while True:
+            added_new = False
+
+            # A. Base -> Overlay Sync
+            for tid in list(dirty_ids):
+                t_vs = self.view_states[tid]
+                if t_vs.overlay_id and t_vs.overlay_mode == "Registration":
+                    if t_vs.overlay_id not in dirty_ids:
+                        ovs = self.view_states.get(t_vs.overlay_id)
+                        if ovs and not getattr(ovs.volume, "is_rgb", False):
+                            ovs.ww = t_vs.ww
+                            ovs.wl = t_vs.wl
+                            dirty_ids.add(t_vs.overlay_id)
+                            added_new = True
+
+            # B. Overlay -> Base Sync
+            for vs_id, vs in self.view_states.items():
+                if (
+                    vs_id not in dirty_ids
+                    and vs.overlay_id in dirty_ids
+                    and vs.overlay_mode == "Registration"
+                ):
+                    if not getattr(vs.volume, "is_rgb", False):
+                        vs.ww = self.view_states[vs.overlay_id].ww
+                        vs.wl = self.view_states[vs.overlay_id].wl
+                        dirty_ids.add(vs_id)
+                        added_new = True
+
+            if not added_new:
+                break
+
+        # 3. Apply Dirty Flags and Update Viewers
+        for tid in dirty_ids:
+            self.view_states[tid].is_data_dirty = True
+
+        for viewer in self.viewers.values():
+            if viewer.view_state:
+                if (
+                    viewer.image_id in dirty_ids
+                    or viewer.view_state.overlay_id in dirty_ids
+                ):
+                    viewer.update_render()
+                    viewer.is_geometry_dirty = True
+
+    def propagate_window_level_OLD(self, source_vs_id):
+        source_vs = self.view_states[source_vs_id]
+        import dearpygui.dearpygui as dpg
+
+        sync_wl = False
+        if dpg.does_item_exist("check_sync_wl"):
+            sync_wl = dpg.get_value("check_sync_wl")
+
         target_group = source_vs.sync_group
         if sync_wl and target_group != 0:
             for target_id, vs in self.view_states.items():
@@ -1438,17 +1506,37 @@ class SliceRenderer:
 
         # 6. Apply Overlay Modes (Easily extensible)
         if overlay_mode == "Registration":
-            base_reg_norm = (
+            # True Magenta/Green Fusion (Elekta XVI / open-vv style)
+            base_reg = (
                 np.mean(base_norm[..., :3], axis=-1) if base_is_rgb else base_norm
             )
-
-            diff = np.clip(0.5 + (over_norm - base_reg_norm) * 0.5, 0.0, 1.0)
-            lut = COLORMAPS.get("Registration", COLORMAPS["Grayscale"])
-            final_rgba = lut[(diff * 255).astype(np.uint8)]
-
-            res_rgba = (base_rgba * (1.0 - overlay_opacity)) + (
-                final_rgba * overlay_opacity
+            over_reg = (
+                np.mean(over_norm[..., :3], axis=-1) if overlay_is_rgb else over_norm
             )
+
+            # Apply the overlay threshold dynamically
+            W = np.full(over_slice.shape, overlay_opacity, dtype=np.float32)
+            W[over_slice < overlay_threshold] = 0.0
+
+            res_rgba = np.zeros((*base_reg.shape, 4), dtype=np.float32)
+
+            m1 = W <= 0.5
+            W2 = W * 2.0
+
+            # Vectorized crossfade from Base -> Fusion -> Overlay
+            res_rgba[..., 0] = np.where(
+                m1, base_reg, base_reg * (2.0 - W2) + over_reg * (W2 - 1.0)
+            )
+            res_rgba[..., 1] = np.where(
+                m1, base_reg * (1.0 - W2) + over_reg * W2, over_reg
+            )
+            res_rgba[..., 2] = res_rgba[..., 0]  # Blue is identical to Red (Magenta)
+            res_rgba[..., 3] = 1.0
+
+            # Preserve the base threshold mask if it exists
+            if base_threshold > -1e8 and not base_is_rgb:
+                mask = base_slice <= base_threshold
+                res_rgba[mask] = [0.0, 0.0, 0.0, 0.0]
 
         elif overlay_mode == "Alpha":
             over_lut = COLORMAPS.get(overlay_cmap_name, COLORMAPS["Hot"])
