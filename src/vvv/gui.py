@@ -1328,7 +1328,7 @@ class MainGUI:
             show=True,
             label="Shortcuts & Controls",
             width=500,
-            height=520,
+            height=570,  # Increased height to fit the new 4D shortcuts
             no_collapse=False,
             on_close=lambda: dpg.delete_item(window_tag),
         ):
@@ -1347,7 +1347,7 @@ class MainGUI:
 
             shortcuts = self.controller.settings.data["shortcuts"]
             descriptions = {
-                "open_file": "Open File",
+                "open_file": "Open File(s)",
                 "next_image": "Next Image in List",
                 "auto_window": "Auto Window/Level (Base)",
                 "auto_window_overlay": "Auto Window/Level (Overlay)",
@@ -1355,6 +1355,8 @@ class MainGUI:
                 "scroll_down": "Scroll Slice Down",
                 "fast_scroll_up": "Fast Scroll Up",
                 "fast_scroll_down": "Fast Scroll Down",
+                "time_backward": "Previous Time Frame (4D)",
+                "time_forward": "Next Time Frame (4D)",
                 "zoom_in": "Zoom In",
                 "zoom_out": "Zoom Out",
                 "reset_view": "Reset Zoom & Pan",
