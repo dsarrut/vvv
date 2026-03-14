@@ -27,6 +27,95 @@ class SliceRenderer:
     """Pure utility to generate renderable RGBA arrays using a streamlined pipeline."""
 
     @staticmethod
+    def _blend_registration(
+        base_rgba,
+        base_norm,
+        over_slice,
+        over_norm,
+        base_is_rgb,
+        over_is_rgb,
+        opacity,
+        threshold,
+        base_threshold,
+        base_slice,
+    ):
+        """Handles grayscale/RGB structural mixing for Registration mode."""
+        base_reg = np.mean(base_norm[..., :3], axis=-1) if base_is_rgb else base_norm
+        over_reg = np.mean(over_norm[..., :3], axis=-1) if over_is_rgb else over_norm
+
+        W = np.full(over_slice.shape, opacity, dtype=np.float32)
+        W[over_slice < threshold] = 0.0
+
+        res_rgba = np.zeros((*base_reg.shape, 4), dtype=np.float32)
+        m1 = W <= 0.5
+        W2 = W * 2.0
+
+        res_rgba[..., 0] = np.where(
+            m1, base_reg, base_reg * (2.0 - W2) + over_reg * (W2 - 1.0)
+        )
+        res_rgba[..., 1] = np.where(m1, base_reg * (1.0 - W2) + over_reg * W2, over_reg)
+        res_rgba[..., 2] = res_rgba[..., 0]
+        res_rgba[..., 3] = 1.0
+
+        if base_threshold > -1e8 and not base_is_rgb:
+            mask = base_slice <= base_threshold
+            res_rgba[mask] = [0.0, 0.0, 0.0, 0.0]
+
+        return res_rgba
+
+    @staticmethod
+    def _blend_alpha(base_rgba, over_slice, over_norm, cmap_name, opacity, threshold):
+        """Handles standard opacity-based colormap overlays."""
+        over_lut = COLORMAPS.get(cmap_name, COLORMAPS["Hot"])
+        over_rgba = over_lut[(over_norm * 255).astype(np.uint8)]
+
+        op_mask = np.full(over_slice.shape, opacity, dtype=np.float32)
+        op_mask[over_slice < threshold] = 0.0
+        op_mask = op_mask[..., None]
+
+        return base_rgba * (1.0 - op_mask) + over_rgba * op_mask
+
+    @staticmethod
+    def _blend_checkerboard(
+        base_rgba,
+        over_rgba,
+        over_slice,
+        base_slice,
+        overlay_threshold,
+        base_threshold,
+        spacing_2d,
+        chk_size,
+        swap,
+        is_base_rgb,
+        is_over_rgb,
+    ):
+        """Handles spatial grid swapping between base and overlay."""
+        h, w = base_rgba.shape[:2]
+        grid_y, grid_x = np.ogrid[:h, :w]
+        space_w, space_h = spacing_2d
+
+        chk_size = max(0.1, float(chk_size))
+        chk_y = ((grid_y * space_h) / chk_size).astype(np.int32)
+        chk_x = ((grid_x * space_w) / chk_size).astype(np.int32)
+
+        mask = (chk_y + chk_x) % 2 == 0
+        if swap:
+            mask = ~mask
+        mask_rgba = mask[..., None]
+
+        res_rgba = np.where(mask_rgba, base_rgba, over_rgba)
+
+        if overlay_threshold > -1e8 and not is_over_rgb:
+            o_mask = (over_slice < overlay_threshold)[..., None]
+            res_rgba = np.where(~mask_rgba & o_mask, base_rgba, res_rgba)
+
+        if base_threshold > -1e8 and not is_base_rgb:
+            b_mask = (base_slice <= base_threshold)[..., None]
+            res_rgba = np.where(mask_rgba & b_mask, [0.0, 0.0, 0.0, 0.0], res_rgba)
+
+        return res_rgba
+
+    @staticmethod
     def extract_slice(data, is_rgb, time_idx, slice_idx, orientation):
         if is_rgb:
             if data.ndim == 4:
@@ -160,46 +249,35 @@ class SliceRenderer:
         )
         over_norm = SliceRenderer.normalize_wl(over_slice, overlay_ww, overlay_wl)
 
+        # ---------------------------------------------------------
+        # THE NEW ROUTING PIPELINE
+        # ---------------------------------------------------------
         if overlay_mode == "Registration":
-            base_reg = (
-                np.mean(base_norm[..., :3], axis=-1) if base_is_rgb else base_norm
+            res_rgba = SliceRenderer._blend_registration(
+                base_rgba,
+                base_norm,
+                over_slice,
+                over_norm,
+                base_is_rgb,
+                overlay_is_rgb,
+                overlay_opacity,
+                overlay_threshold,
+                base_threshold,
+                base_slice,
             )
-            over_reg = (
-                np.mean(over_norm[..., :3], axis=-1) if overlay_is_rgb else over_norm
-            )
-
-            W = np.full(over_slice.shape, overlay_opacity, dtype=np.float32)
-            W[over_slice < overlay_threshold] = 0.0
-
-            res_rgba = np.zeros((*base_reg.shape, 4), dtype=np.float32)
-
-            m1 = W <= 0.5
-            W2 = W * 2.0
-
-            res_rgba[..., 0] = np.where(
-                m1, base_reg, base_reg * (2.0 - W2) + over_reg * (W2 - 1.0)
-            )
-            res_rgba[..., 1] = np.where(
-                m1, base_reg * (1.0 - W2) + over_reg * W2, over_reg
-            )
-            res_rgba[..., 2] = res_rgba[..., 0]
-            res_rgba[..., 3] = 1.0
-
-            if base_threshold > -1e8 and not base_is_rgb:
-                mask = base_slice <= base_threshold
-                res_rgba[mask] = [0.0, 0.0, 0.0, 0.0]
 
         elif overlay_mode == "Alpha":
-            over_lut = COLORMAPS.get(overlay_cmap_name, COLORMAPS["Hot"])
-            over_rgba = over_lut[(over_norm * 255).astype(np.uint8)]
-
-            op_mask = np.full(over_slice.shape, overlay_opacity, dtype=np.float32)
-            op_mask[over_slice < overlay_threshold] = 0.0
-            op_mask = op_mask[..., None]
-
-            res_rgba = base_rgba * (1.0 - op_mask) + over_rgba * op_mask
+            res_rgba = SliceRenderer._blend_alpha(
+                base_rgba,
+                over_slice,
+                over_norm,
+                overlay_cmap_name,
+                overlay_opacity,
+                overlay_threshold,
+            )
 
         elif overlay_mode == "Checkerboard":
+            # Prep overlay RGBA specifically for checkerboard
             if overlay_is_rgb:
                 over_rgba = over_norm
                 if over_rgba.shape[-1] == 3:
@@ -209,31 +287,19 @@ class SliceRenderer:
                 over_lut = COLORMAPS.get(overlay_cmap_name, COLORMAPS["Hot"])
                 over_rgba = over_lut[(over_norm * 255).astype(np.uint8)]
 
-            # Generate the checkerboard grid using fast numpy broadcasting
-            grid_y, grid_x = np.ogrid[:h, :w]
-            space_w, space_h = base.spacing_2d
-            chk_size = max(0.1, float(checkerboard_size))
-
-            # Multiply physical spacing by pixel indices to convert perfectly to mm!
-            chk_y = ((grid_y * space_h) / chk_size).astype(np.int32)
-            chk_x = ((grid_x * space_w) / chk_size).astype(np.int32)
-
-            mask = (chk_y + chk_x) % 2 == 0
-            if checkerboard_swap:
-                mask = ~mask
-
-            mask_rgba = mask[..., None]
-            res_rgba = np.where(mask_rgba, base_rgba, over_rgba)
-
-            # If the overlay falls below the cutoff threshold, gracefully reveal the base image underneath
-            if overlay_threshold > -1e8 and not overlay_is_rgb:
-                o_mask = (over_slice < overlay_threshold)[..., None]
-                res_rgba = np.where(~mask_rgba & o_mask, base_rgba, res_rgba)
-
-            if base_threshold > -1e8 and not base_is_rgb:
-                b_mask = (base_slice <= base_threshold)[..., None]
-                res_rgba = np.where(mask_rgba & b_mask, [0.0, 0.0, 0.0, 0.0], res_rgba)
-
+            res_rgba = SliceRenderer._blend_checkerboard(
+                base_rgba,
+                over_rgba,
+                over_slice,
+                base_slice,
+                overlay_threshold,
+                base_threshold,
+                base.spacing_2d,
+                checkerboard_size,
+                checkerboard_swap,
+                base_is_rgb,
+                overlay_is_rgb,
+            )
         else:
             res_rgba = base_rgba
 
