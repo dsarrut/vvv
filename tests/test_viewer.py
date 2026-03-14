@@ -120,7 +120,7 @@ def test_exact_coordinate_and_value_mapping(headless_app):
     viewer.update_crosshair_data(pix_x=1.5, pix_y=3.5)
 
     # 2. Verify Continuous Voxel Coordinate
-    assert vs.crosshair_voxel == [1.0, 3.0, 2.0]
+    assert vs.crosshair_voxel == [1.0, 3.0, 2.0, 0]
 
     # 3. Verify Exact Physical Coordinate
     # Origin = (10, 20, 50), Spacing = (1, 1, 1) -> [10+1, 20+3, 50+2]
@@ -205,7 +205,7 @@ def test_sync_correspondence_between_different_geometries(
     vs2 = controller.view_states[vs_id2]
 
     # V1 Voxel should be [2.0, 2.0, 2.0], Phys [12.0, 22.0, 52.0]
-    assert vs1.crosshair_voxel == [2.0, 2.0, 2.0]
+    assert vs1.crosshair_voxel == [2.0, 2.0, 2.0, 0]
     assert vs1.crosshair_phys_coord.tolist() == [12.0, 22.0, 52.0]
 
     # V2 Physical coordinate MUST exactly match V1
@@ -213,7 +213,7 @@ def test_sync_correspondence_between_different_geometries(
 
     # V2 voxel coordinate should be dynamically calculated via ITK inverse matrix
     # Origin (10, 20, 50), Spacing (2, 2, 2) -> Phys 12 -> (12 - 10)/2 = 1.0
-    assert vs2.crosshair_voxel == [1.0, 1.0, 1.0]
+    assert vs2.crosshair_voxel == [1.0, 1.0, 1.0, 0.0]
 
     # V2 view plane depth must have automatically updated
     assert vs2.slices[ViewMode.AXIAL] == 1
