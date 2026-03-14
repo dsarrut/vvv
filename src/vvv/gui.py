@@ -29,6 +29,7 @@ class MainGUI:
         self.tasks = []
         self.status_message_expire_time = float("inf")
         self.image_label_tags = {}
+        self.sync_label_tags = {}
         self.ui_cfg = None
 
         # Initialization pipeline
@@ -474,6 +475,13 @@ class MainGUI:
             dpg.add_separator()
 
             with dpg.group(tag="image_fusion_group"):
+
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Base   ")
+                    dpg.add_text(
+                        "-", tag="text_fusion_base_image", color=cfg_c["text_active"]
+                    )
+
                 with dpg.group(horizontal=True):
                     dpg.add_text("Target ")
                     dpg.add_combo(
@@ -514,6 +522,21 @@ class MainGUI:
             with dpg.group(tag="settings_container"):
                 call = self.controller.update_setting
                 settings = self.controller.settings.data
+
+                dpg.add_text("Interaction", color=cfg_c["text_header"])
+                dpg.add_combo(
+                    label="Focus Mode",
+                    tag="set_active_viewer_mode",
+                    items=["hybrid", "click", "hover"],
+                    default_value=settings["interaction"].get(
+                        "active_viewer_mode", "hybrid"
+                    ),
+                    width=120,
+                    callback=lambda s, v: call(
+                        ["interaction", "active_viewer_mode"], v
+                    ),
+                )
+                dpg.add_separator()
 
                 dpg.add_text("Parameters", color=cfg_c["text_header"])
                 dpg.add_input_float(
@@ -839,7 +862,49 @@ class MainGUI:
                 else:
                     dpg.bind_item_theme(label_tag, "")
 
+        for img_id, label_tag in self.sync_label_tags.items():
+            if dpg.does_item_exist(label_tag):
+                if img_id == active_img_id:
+                    dpg.bind_item_theme(label_tag, "active_image_list_theme")
+                else:
+                    dpg.bind_item_theme(label_tag, "")
+
     def refresh_sync_ui(self):
+        container = "sync_list_container"
+        if not dpg.does_item_exist(container):
+            return
+        dpg.delete_item(container, children_only=True)
+        self.sync_label_tags.clear()  # <-- Clear the tags
+
+        max_active_group = max(
+            [vs.sync_group for vs in self.controller.view_states.values()] + [0]
+        )
+        num_groups = max(3, len(self.controller.view_states), max_active_group)
+        combo_items = ["None"] + [f"Group {i}" for i in range(1, num_groups + 1)]
+
+        with dpg.table(parent=container, header_row=False):
+            dpg.add_table_column(label="Image")
+            dpg.add_table_column(label="Group", width_fixed=True)
+
+            for vs_id, vs in self.controller.view_states.items():
+                with dpg.table_row():
+                    lbl_id = dpg.add_text(vs.volume.name)
+                    self.sync_label_tags[vs_id] = lbl_id  # <-- Track the label
+                    dpg.add_combo(
+                        items=combo_items,
+                        default_value=(
+                            "None" if not vs.sync_group else f"Group {vs.sync_group}"
+                        ),
+                        width=100,
+                        user_data=vs_id,
+                        callback=self.controller.on_sync_group_change,
+                    )
+
+        # Re-evaluate sidebar states (so the Sync W/L checkbox dynamically toggles on/off)
+        if self.context_viewer:
+            self.update_sidebar_info(self.context_viewer)
+
+    def refresh_sync_ui_OLD(self):
         container = "sync_list_container"
         if not dpg.does_item_exist(container):
             return
@@ -876,6 +941,60 @@ class MainGUI:
         return None
 
     def update_trackers(self):
+        mode = self.controller.settings.data["interaction"].get(
+            "active_viewer_mode", "hybrid"
+        )
+        hover_viewer = self.hovered_viewer
+
+        # If strict hover mode is engaged, the Menu target actively follows the mouse
+        if mode == "hover":
+            if (
+                hover_viewer
+                and hover_viewer != self.context_viewer
+                and not self.drag_viewer
+            ):
+                self.set_context_viewer(hover_viewer)
+
+        # The green on-image text always dynamically updates for all viewers
+        for viewer in self.controller.viewers.values():
+            viewer.update_tracker()
+
+        # Update the sidebar's crosshair stats for the Active Menu Target
+        if self.context_viewer and not self.drag_viewer:
+            # Continuously check if 'Hide Everything' is engaged to strip the active contour!
+            theme = (
+                "active_black_viewer_theme"
+                if self.context_viewer.view_state.show_crosshair
+                else "black_viewer_theme"
+            )
+            dpg.bind_item_theme(f"win_{self.context_viewer.tag}", theme)
+
+            self.update_sidebar_crosshair(self.context_viewer)
+
+    def update_trackers_OLD2(self):
+        mode = self.controller.settings.data["interaction"].get(
+            "active_viewer_mode", "hybrid"
+        )
+        hover_viewer = self.hovered_viewer
+
+        # If strict hover mode is engaged, the Menu target actively follows the mouse
+        if mode == "hover":
+            if (
+                hover_viewer
+                and hover_viewer != self.context_viewer
+                and not self.drag_viewer
+            ):
+                self.set_context_viewer(hover_viewer)
+
+        # The green on-image text always dynamically updates for all viewers
+        for viewer in self.controller.viewers.values():
+            viewer.update_tracker()
+
+        # Update the sidebar's crosshair stats for the Active Menu Target
+        if self.context_viewer and not self.drag_viewer:
+            self.update_sidebar_crosshair(self.context_viewer)
+
+    def update_trackers_OLD(self):
         hover_viewer = self.hovered_viewer
         if (
             hover_viewer
@@ -897,6 +1016,94 @@ class MainGUI:
             viewer.update_tracker()
 
     def update_sidebar_info(self, viewer):
+        if not viewer or viewer.image_id is None:
+            for t in [
+                "info_name",
+                "info_size",
+                "info_spacing",
+                "info_origin",
+                "info_memory",
+            ]:
+                dpg.set_value(t, "")
+            return
+
+        vol = viewer.volume
+        dpg.set_value("info_name", vol.name)
+        dpg.set_value("info_name_label", viewer.tag)
+        dpg.set_value("info_voxel_type", f"{vol.pixel_type}")
+        dpg.set_value(
+            "info_size",
+            f"{vol.data.shape[2]} x {vol.data.shape[1]} x {vol.data.shape[0]}",
+        )
+        dpg.set_value("info_spacing", fmt(vol.spacing, 4))
+        dpg.set_value("info_origin", fmt(vol.origin, 2))
+        dpg.set_value("info_matrix", fmt(vol.matrix, 1))
+        dpg.set_value(
+            "info_memory",
+            f"{vol.sitk_image.GetNumberOfPixels():,} voxels    {vol.memory_mb:g} MB",
+        )
+
+        # 1. Update Fusion tab base image name
+        if dpg.does_item_exist("text_fusion_base_image"):
+            dpg.set_value("text_fusion_base_image", vol.name)
+
+        # 2. Toggle the Sync W/L checkbox (Disable if alone or Group 0)
+        group = viewer.view_state.sync_group
+        can_sync_wl = False
+        if group != 0:
+            members = sum(
+                1
+                for vs in self.controller.view_states.values()
+                if vs.sync_group == group
+            )
+            can_sync_wl = members > 1
+        if dpg.does_item_exist("check_sync_wl"):
+            dpg.configure_item("check_sync_wl", enabled=can_sync_wl)
+
+        is_rgb = getattr(vol, "is_rgb", False)
+        for t in ["info_window", "info_level"]:
+            if dpg.does_item_exist(t):
+                dpg.configure_item(t, enabled=not is_rgb)
+                if is_rgb:
+                    dpg.set_value(t, "RGB")
+
+        if not is_rgb:
+            self.update_sidebar_window_level(viewer)
+
+        if dpg.does_item_exist("combo_overlay_select"):
+            options = ["None"]
+            for vid, ovs in self.controller.view_states.items():
+                if vid != viewer.image_id:
+                    options.append(f"{vid}: {ovs.volume.name}")
+
+            dpg.configure_item("combo_overlay_select", items=options)
+
+            # Evaluate if we currently have an overlay
+            current_sel = "None"
+            has_overlay = False
+            if viewer.view_state.overlay_id:
+                has_overlay = True
+                ovs_name = self.controller.view_states[
+                    viewer.view_state.overlay_id
+                ].volume.name
+                current_sel = f"{viewer.view_state.overlay_id}: {ovs_name}"
+            dpg.set_value("combo_overlay_select", current_sel)
+
+            # Setup fusion controls
+            dpg.set_value("slider_overlay_opacity", viewer.view_state.overlay_opacity)
+            dpg.set_value(
+                "input_overlay_threshold", viewer.view_state.overlay_threshold
+            )
+            if dpg.does_item_exist("combo_overlay_mode"):
+                dpg.set_value("combo_overlay_mode", viewer.view_state.overlay_mode)
+
+            # 3. Disable/Enable the controls dynamically
+            dpg.configure_item("slider_overlay_opacity", enabled=has_overlay)
+            dpg.configure_item("input_overlay_threshold", enabled=has_overlay)
+            if dpg.does_item_exist("combo_overlay_mode"):
+                dpg.configure_item("combo_overlay_mode", enabled=has_overlay)
+
+    def update_sidebar_info_OLD(self, viewer):
         if not viewer or viewer.image_id is None:
             for t in [
                 "info_name",
@@ -1000,6 +1207,59 @@ class MainGUI:
                 )
             dpg.set_value("info_ppm", f"{ppm:g}")
 
+    def set_context_viewer(self, viewer):
+        """Centralized helper to switch the Active Menu/Sidebar target."""
+        if self.context_viewer == viewer:
+            return
+
+        # Drop highlight from the old viewer
+        if self.context_viewer:
+            dpg.bind_item_theme(f"win_{self.context_viewer.tag}", "black_viewer_theme")
+
+        self.context_viewer = viewer
+
+        # Apply highlight and update sidebar logic for the new viewer
+        if self.context_viewer:
+            theme = (
+                "active_black_viewer_theme"
+                if self.context_viewer.view_state.show_crosshair
+                else "black_viewer_theme"
+            )
+            dpg.bind_item_theme(f"win_{self.context_viewer.tag}", theme)
+
+            self.highlight_active_image_in_list(viewer.image_id)
+            self.update_sidebar_info(viewer)
+            self.update_sidebar_crosshair(viewer)
+
+    def set_context_viewer_OLD(self, viewer):
+        """Centralized helper to switch the Active Menu/Sidebar target."""
+        if self.context_viewer == viewer:
+            return
+
+        # Drop highlight from the old viewer
+        if self.context_viewer:
+            dpg.bind_item_theme(f"win_{self.context_viewer.tag}", "black_viewer_theme")
+
+        self.context_viewer = viewer
+
+        # Apply highlight and update sidebar logic for the new viewer
+        if self.context_viewer:
+            dpg.bind_item_theme(
+                f"win_{self.context_viewer.tag}", "active_black_viewer_theme"
+            )
+            self.highlight_active_image_in_list(viewer.image_id)
+            self.update_sidebar_info(viewer)
+            self.update_sidebar_crosshair(viewer)
+
+    def get_interaction_target(self):
+        """Resolves which viewer receives spatial shortcuts (Keys, Scrolls)."""
+        mode = self.controller.settings.data["interaction"].get(
+            "active_viewer_mode", "hybrid"
+        )
+        if mode == "click":
+            return self.context_viewer
+        return self.hovered_viewer or self.context_viewer
+
     # ==========================================
     # 4. EVENT HANDLERS
     # ==========================================
@@ -1050,7 +1310,7 @@ class MainGUI:
         for viewer in self.controller.viewers.values():
             viewer.resize(quad_w, quad_h)
 
-    def on_global_click(self, sender, app_data, user_data):
+    def on_global_click_OLD(self, sender, app_data, user_data):
         if app_data != dpg.mvMouseButton_Left:
             return
         viewer = self.hovered_viewer
@@ -1068,6 +1328,52 @@ class MainGUI:
                     viewer.update_crosshair_data(px, py)
                     self.controller.propagate_sync(viewer.image_id)
 
+    def on_global_click(self, sender, app_data, user_data):
+        if app_data != dpg.mvMouseButton_Left:
+            return
+        viewer = self.hovered_viewer
+        if not viewer:
+            return
+
+        self.drag_viewer = viewer
+
+        # Click instantly sets the Active Menu Target!
+        self.set_context_viewer(viewer)
+
+        if viewer.orientation != ViewMode.HISTOGRAM:
+            if not dpg.is_key_down(dpg.mvKey_LShift) and not dpg.is_key_down(
+                dpg.mvKey_LControl
+            ):
+                px, py = viewer.get_mouse_slice_coords(ignore_hover=True)
+                if px is not None:
+                    viewer.update_crosshair_data(px, py)
+                    self.controller.propagate_sync(viewer.image_id)
+
+    def on_global_scroll(self, sender, app_data, user_data):
+        target = self.get_interaction_target()
+        if target:
+            is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(
+                dpg.mvKey_RControl
+            )
+            if is_ctrl:
+                target.on_zoom("in" if app_data > 0 else "out")
+            else:
+                target.on_scroll(int(app_data))
+
+    def on_key_press(self, sender, app_data, user_data):
+        is_cmd = dpg.is_key_down(dpg.mvKey_LWin) or dpg.is_key_down(dpg.mvKey_RWin)
+        is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(
+            dpg.mvKey_RControl
+        )
+
+        if app_data == dpg.mvKey_O and (is_ctrl or is_cmd):
+            self.on_open_file_clicked()
+            return
+
+        target = self.get_interaction_target()
+        if target:
+            target.on_key_press(app_data)
+
     def on_global_drag(self, sender, app_data, user_data):
         if isinstance(app_data, int):
             return
@@ -1081,7 +1387,7 @@ class MainGUI:
             self.drag_viewer.last_dx, self.drag_viewer.last_dy = 0, 0
             self.drag_viewer = None
 
-    def on_global_scroll(self, sender, app_data, user_data):
+    def on_global_scroll_OLD(self, sender, app_data, user_data):
         if self.hovered_viewer:
             is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(
                 dpg.mvKey_RControl
@@ -1091,7 +1397,7 @@ class MainGUI:
             else:
                 self.hovered_viewer.on_scroll(int(app_data))
 
-    def on_key_press(self, sender, app_data, user_data):
+    def on_key_press_OLD(self, sender, app_data, user_data):
         is_cmd = dpg.is_key_down(dpg.mvKey_LWin) or dpg.is_key_down(dpg.mvKey_RWin)
         is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(
             dpg.mvKey_RControl
@@ -1125,8 +1431,12 @@ class MainGUI:
     def on_reset_settings(self):
         self.controller.reset_settings()
         data = self.controller.settings.data
-        dpg.set_value("set_auto_window_fov", data["physics"]["auto_window_fov"])
-        dpg.set_value("set_strip_threshold", data["physics"]["voxel_strip_threshold"])
+        dp = data["physics"]
+        di = data["interaction"]
+        dpg.set_value("set_auto_window_fov", dp["auto_window_fov"])
+        dpg.set_value("set_strip_threshold", dp["voxel_strip_threshold"])
+        dpg.set_value("set_active_viewer_mode", di["active_viewer_mode"])
+        dpg.set_value("set_auto_window_fov", dp["auto_window_fov"])
         for key, value in data["colors"].items():
             tag = f"set_col_{key}"
             if dpg.does_item_exist(tag):
@@ -1264,7 +1574,8 @@ class MainGUI:
             if same_image_viewers:
                 self.controller.unify_ppm(same_image_viewers)
 
-            self.update_sidebar_info(target_viewer)
+            # self.update_sidebar_info(target_viewer)
+            self.set_context_viewer(target_viewer)
             self.refresh_image_list_ui()
 
             if dpg.does_item_exist("loading_modal"):
@@ -1505,6 +1816,10 @@ class MainGUI:
             self.refresh_sync_ui()
 
         self.on_window_resize()
+
+        # Ensure V1 is the guaranteed Active Viewer target upon loading
+        self.set_context_viewer(self.controller.viewers["V1"])
+
         self.refresh_image_list_ui()
 
         if dpg.does_item_exist("loading_modal"):

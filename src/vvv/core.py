@@ -14,7 +14,7 @@ DEFAULT_SETTINGS = {
         "y": [80, 255, 80, 230],
         "z": [80, 80, 255, 230],
         "grid": [255, 255, 255, 40],
-        "viewer": [10, 246, 7, 60],
+        "viewer": [10, 246, 7, 80],
     },
     "physics": {"auto_window_fov": 0.20, "voxel_strip_threshold": 1500},
     "shortcuts": {
@@ -42,6 +42,8 @@ DEFAULT_SETTINGS = {
         "zoom_speed": 1.1,
         "fast_scroll_steps": 10,
         "wl_drag_sensitivity": 2.0,
+        # Modes: "hybrid", "click", "hover"
+        "active_viewer_mode": "hybrid",
     },
     "layout": {"window_width": 1200, "window_height": 1000, "side_panel_width": 300},
 }
