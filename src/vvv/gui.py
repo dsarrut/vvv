@@ -835,17 +835,18 @@ class MainGUI:
         for viewer in self.controller.viewers.values():
             viewer.update_tracker()
 
-        # Update the sidebar's crosshair stats for the Active Menu Target
-        if self.context_viewer and not self.drag_viewer:
-            # Continuously check if 'Hide Everything' is engaged to strip the active contour!
-            theme = (
-                "active_black_viewer_theme"
-                if self.context_viewer.view_state.show_crosshair
-                else "black_viewer_theme"
-            )
-            dpg.bind_item_theme(f"win_{self.context_viewer.tag}", theme)
+            # Update the sidebar's crosshair stats for the Active Menu Target
+            if self.context_viewer and not self.drag_viewer:
+                # Continuously check if 'Hide Everything' is engaged to strip the active contour!
+                show_xh = (
+                    self.context_viewer.view_state.show_crosshair
+                    if self.context_viewer.view_state
+                    else False
+                )
+                theme = "active_black_viewer_theme" if show_xh else "black_viewer_theme"
+                dpg.bind_item_theme(f"win_{self.context_viewer.tag}", theme)
 
-            self.update_sidebar_crosshair(self.context_viewer)
+                self.update_sidebar_crosshair(self.context_viewer)
 
     def update_sidebar_info(self, viewer):
         if not viewer or viewer.image_id is None:
@@ -1017,11 +1018,14 @@ class MainGUI:
 
         # Apply highlight and update sidebar logic for the new viewer
         if self.context_viewer:
-            theme = (
-                "active_black_viewer_theme"
-                if self.context_viewer.view_state.show_crosshair
-                else "black_viewer_theme"
+            # FIX: Protect against empty view_state if image failed to load
+            show_xh = (
+                self.context_viewer.view_state.show_crosshair
+                if self.context_viewer.view_state
+                else False
             )
+            theme = "active_black_viewer_theme" if show_xh else "black_viewer_theme"
+
             dpg.bind_item_theme(f"win_{self.context_viewer.tag}", theme)
 
             self.highlight_active_image_in_list(viewer.image_id)
@@ -1483,6 +1487,11 @@ class MainGUI:
                 base_id = self.controller.load_image(base_path)
                 loaded_ids.append(base_id)
                 id_to_group[base_id] = sync_group  # Register the group
+
+                if task.get("base_cmap"):
+                    self.controller.view_states[base_id].colormap = task["base_cmap"]
+                    self.controller.view_states[base_id].is_data_dirty = True
+
                 files_processed += 1
             except Exception as e:
                 self.show_message("Load Error", f"Failed to load:\n{filename}")

@@ -168,5 +168,7 @@ old_other_gui/
 .DS_Store
 .python-version
 activate*
-tests/checkerboard_5x5x5.nrrd
 temp/
+.aider*
+tests/*.nrrd
+data/

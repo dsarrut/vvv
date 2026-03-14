@@ -93,25 +93,45 @@ def main(datasets, linkall, sync):
             base_part = match.group(2)
         # -------------------------------------------------------------------------------
 
-        task = {"base": base_part, "fusion": None, "sync_group": sync_group}
+        task = {
+            "base": base_part,
+            "fusion": None,
+            "sync_group": sync_group,
+            "base_cmap": None,
+        }
 
         if len(parts) > 1:
-            cmap = parts[2] if len(parts) > 2 else "Jet"
+            overlay_path = parts[1].strip()
+            cmap = parts[2].strip() if len(parts) > 2 else "Jet"
             mode = "Alpha"
+
+            # Normalize known colormaps case-insensitively
+            known_cmaps = {
+                "grayscale": "Grayscale",
+                "hot": "Hot",
+                "cold": "Cold",
+                "jet": "Jet",
+                "dosimetry": "Dosimetry",
+                "segmentation": "Segmentation",
+            }
 
             # Handle the "Reg" shorthand
             if cmap.lower() in ["reg", "registration"]:
-                cmap = "Grayscale"  # The standalone overlay gets Grayscale
-                mode = "Registration"  # The fused representation gets Registration math
+                cmap = "Grayscale"
+                mode = "Registration"
 
-            task["fusion"] = {
-                "path": parts[1],
-                "cmap": cmap,
-                "mode": mode,
-                "opacity": float(parts[3]) if len(parts) > 3 else 0.5,
-                # Default threshold set lower to ensure CT/MRI overlays aren't stripped
-                "threshold": float(parts[4]) if len(parts) > 4 else -10000.0,
-            }
+            if overlay_path:
+                task["fusion"] = {
+                    "path": overlay_path,
+                    "cmap": cmap,
+                    "mode": mode,
+                    "opacity": float(parts[3]) if len(parts) > 3 else 0.5,
+                    "threshold": float(parts[4]) if len(parts) > 4 else 0.0,
+                }
+            else:
+                # User left the overlay blank (e.g. "image.nii,,Jet") to apply cmap to base!
+                task["base_cmap"] = cmap
+
         image_tasks.append(task)
 
     # --- Setup Application ---
