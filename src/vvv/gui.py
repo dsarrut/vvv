@@ -7,6 +7,7 @@ from vvv.utils import ViewMode, fmt
 from vvv.file_dialog import open_file_dialog
 from .resources import load_fonts, setup_themes
 from .core import WL_PRESETS, COLORMAPS
+from .settings_ui import SettingsWindow
 
 
 class MainGUI:
@@ -37,6 +38,7 @@ class MainGUI:
         self.icon_font = load_fonts()
         setup_themes()  # From resources.py (static themes)
         self.register_dynamic_themes()
+        self.settings_window = SettingsWindow(self.controller)
 
         self.build_main_layout()
         self.register_handlers()
@@ -250,6 +252,10 @@ class MainGUI:
                     dpg.add_menu_item(
                         label="Open Image...", callback=self.on_open_file_clicked
                     )
+                    dpg.add_menu_item(
+                        label="Settings...",
+                        callback=lambda: self.settings_window.show(),
+                    )
                     dpg.add_menu_item(label="Exit", callback=self.cleanup)
 
                 with dpg.menu(label="Window/Level"):
@@ -326,7 +332,6 @@ class MainGUI:
 
                 self.build_tab_sync(cfg_c)
                 self.build_tab_fusion(cfg_c)
-                self.build_tab_settings(cfg_c)
 
     def build_tab_sync(self, cfg_c):
         with dpg.tab(label="Sync"):
@@ -394,109 +399,6 @@ class MainGUI:
                         width=-1,
                         callback=self.on_overlay_mode_changed,
                     )
-
-    def build_tab_settings(self, cfg_c):
-        with dpg.tab(label="Settings"):
-            dpg.add_spacer(height=5)
-            with dpg.group(tag="settings_container"):
-                call = self.controller.update_setting
-                settings = self.controller.settings.data
-
-                dpg.add_text("Interaction", color=cfg_c["text_header"])
-                dpg.add_combo(
-                    label="Focus Mode",
-                    tag="set_active_viewer_mode",
-                    items=["hybrid", "click", "hover"],
-                    default_value=settings["interaction"].get(
-                        "active_viewer_mode", "hybrid"
-                    ),
-                    width=120,
-                    callback=lambda s, v: call(
-                        ["interaction", "active_viewer_mode"], v
-                    ),
-                )
-                dpg.add_separator()
-
-                dpg.add_text("Parameters", color=cfg_c["text_header"])
-                dpg.add_input_float(
-                    label="Auto WL FOV",
-                    tag="set_auto_window_fov",
-                    width=120,
-                    format="%.2f",
-                    step=0.05,
-                    default_value=settings["physics"].get("auto_window_fov", 0.20),
-                    callback=lambda s, v: call(["physics", "auto_window_fov"], v),
-                )
-                dpg.add_input_int(
-                    label="Strip Threshold",
-                    tag="set_strip_threshold",
-                    width=120,
-                    default_value=settings["physics"]["voxel_strip_threshold"],
-                    callback=lambda s, v: call(["physics", "voxel_strip_threshold"], v),
-                )
-                dpg.add_separator()
-
-                dpg.add_text("Colors", color=cfg_c["text_header"])
-                dpg.add_color_edit(
-                    label="Crosshair",
-                    tag="set_col_crosshair",
-                    default_value=settings["colors"]["crosshair"],
-                    callback=lambda s, v: call(["colors", "crosshair"], v),
-                )
-                dpg.add_color_edit(
-                    label="Mouse tracker",
-                    tag="set_col_tracker_text",
-                    default_value=settings["colors"]["tracker_text"],
-                    callback=lambda s, v: call(["colors", "tracker_text"], v),
-                )
-                dpg.add_color_edit(
-                    label="Grid",
-                    tag="set_col_grid",
-                    default_value=settings["colors"]["grid"],
-                    callback=lambda s, v: call(["colors", "grid"], v),
-                )
-
-                dpg.add_color_edit(
-                    label="Legend BG",
-                    tag="set_col_legend_bg",
-                    default_value=settings["colors"]["legend_bg"],
-                    callback=lambda s, v: call(["colors", "legend_bg"], v),
-                )
-
-                dpg.add_spacer(height=10)
-                with dpg.group(horizontal=True):
-                    dpg.add_button(
-                        label="Save",
-                        width=100,
-                        callback=lambda: self.on_save_settings(),
-                    )
-                    dpg.add_button(
-                        label="Reload",
-                        width=80,
-                        callback=lambda: self.on_reload_settings(),
-                    )
-                    dpg.add_button(
-                        label="Reset",
-                        width=-1,
-                        callback=lambda: self.on_reset_settings(),
-                    )
-
-                def copy_and_notify():
-                    dpg.set_clipboard_text(str(self.controller.settings.config_path))
-                    self.show_status_message("Path copied to clipboard!")
-
-                dpg.add_spacer(height=10)
-                dpg.add_text(f"Edit settings in :", color=cfg_c["text_muted"])
-                with dpg.group(horizontal=True):
-                    btn_copy = dpg.add_button(label="\uf0c5", callback=copy_and_notify)
-                    dpg.add_input_text(
-                        default_value=str(self.controller.settings.config_path),
-                        readonly=True,
-                        width=230,
-                    )
-
-                if dpg.does_item_exist("icon_font_tag"):
-                    dpg.bind_item_font(btn_copy, "icon_font_tag")
 
     def build_sidebar_bottom(self):
         """Builds the lower half of the sidebar for Active Viewer info."""
@@ -1000,26 +902,6 @@ class MainGUI:
                 )
             dpg.set_value("info_ppm", f"{ppm:g} px/mm")
 
-    def update_settings_ui(self):
-        """Helper to sync the UI inputs with the current SettingsManager data."""
-        data = self.controller.settings.data
-        if dpg.does_item_exist("set_active_viewer_mode"):
-            dpg.set_value(
-                "set_active_viewer_mode",
-                data["interaction"].get("active_viewer_mode", "hybrid"),
-            )
-        if dpg.does_item_exist("set_auto_window_fov"):
-            dpg.set_value("set_auto_window_fov", data["physics"]["auto_window_fov"])
-        if dpg.does_item_exist("set_strip_threshold"):
-            dpg.set_value(
-                "set_strip_threshold", data["physics"]["voxel_strip_threshold"]
-            )
-
-        for key, value in data["colors"].items():
-            tag = f"set_col_{key}"
-            if dpg.does_item_exist(tag):
-                dpg.set_value(tag, value)
-
     def set_context_viewer(self, viewer):
         """Centralized helper to switch the Active Menu/Sidebar target."""
         if self.context_viewer == viewer:
@@ -1179,20 +1061,6 @@ class MainGUI:
             self.update_sidebar_info(viewer)
 
         self.refresh_image_list_ui()
-
-    def on_save_settings(self):
-        path = self.controller.save_settings()
-        self.show_status_message(f"Settings saved in: {path}")
-
-    def on_reset_settings(self):
-        self.controller.reset_settings()
-        self.update_settings_ui()
-        self.show_status_message("Settings reset to defaults")
-
-    def on_reload_settings(self):
-        self.controller.reload_settings()
-        self.update_settings_ui()
-        self.show_status_message("Settings reloaded from file")
 
     def on_sidebar_wl_change(self):
         if not self.context_viewer or self.context_viewer.image_id is None:
