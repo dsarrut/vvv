@@ -668,6 +668,7 @@ class SliceViewer:
             cmap_name=self.view_state.colormap,
             threshold=self.view_state.base_threshold,
             time_idx=self.view_state.time_idx,
+            spacing_2d=self.volume.get_physical_aspect_ratio(self.orientation),
         )
 
         # 2. Package the Overlay Layer (if it exists)
@@ -686,6 +687,7 @@ class SliceViewer:
                 cmap_name=ovs.colormap,
                 threshold=self.view_state.overlay_threshold,
                 time_idx=min(self.view_state.time_idx, ovs.volume.num_timepoints - 1),
+                spacing_2d=self.volume.get_physical_aspect_ratio(self.orientation),
             )
 
         # 3. Call the renderer seamlessly
@@ -696,6 +698,8 @@ class SliceViewer:
             overlay_mode=self.view_state.overlay_mode,
             slice_idx=self.slice_idx,
             orientation=self.orientation,
+            checkerboard_size=self.view_state.overlay_checkerboard_size,
+            checkerboard_swap=self.view_state.overlay_checkerboard_swap,
         )
 
         self.last_rgba_flat = rgba_flat

@@ -15,7 +15,7 @@ The architecture follows a strict **Model-View-Controller (MVC)** pattern. To ma
 * **`config.py` (The Data Constants):** The single source of truth for hardcoded application defaults. Contains `DEFAULT_SETTINGS` (shortcuts, colors, layout), `WL_PRESETS`, and the mathematical generators for `COLORMAPS`.
 
 * **`image.py` (The Pipeline):** * **`VolumeData`:** The immutable source of truth for a loaded image. Manages the SimpleITK image, 4D stacking (`sitk.JoinSeries`), and the zero-copy NumPy array. Stores physical metadata and handles 3D spatial math (voxels to millimeters).
-    * **`SliceRenderer`:** A stateless, highly-optimized utility. It slices 3D/4D NumPy arrays, applies Window/Level transfer functions, processes Complementary Color Registration math, and packs the final 1D RGBA arrays for the GPU.
+    * **`SliceRenderer`:** A stateless, highly-optimized utility. It slices 3D/4D NumPy arrays, applies Window/Level transfer functions, processes Complementary Color Registration math, Checkerboard modes, and packs the final 1D RGBA arrays for the GPU.
 
 * **`core.py` (The Brain):**
     * **`Controller`:** Acts as the central nervous system. Maintains the dictionaries of all loaded datasets and viewports. Handles complex cross-viewer synchronization (e.g., forcing Window/Level parity during image registration).

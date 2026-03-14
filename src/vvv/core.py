@@ -97,6 +97,8 @@ class ViewState:
         self.overlay_opacity = 0.5
         self.overlay_mode = "Alpha"
         self.overlay_threshold = -1
+        self.overlay_checkerboard_size = 20.0
+        self.overlay_checkerboard_swap = False
 
         self.hist_data_x = []
         self.hist_data_y = []
@@ -849,6 +851,8 @@ class Controller:
             for vs in self.view_states.values():
                 if vs.sync_group == target_group:
                     vs.overlay_mode = source_vs.overlay_mode
+                    vs.overlay_checkerboard_size = source_vs.overlay_checkerboard_size
+                    vs.overlay_checkerboard_swap = source_vs.overlay_checkerboard_swap
                     vs.is_data_dirty = True
         else:
             source_vs.is_data_dirty = True

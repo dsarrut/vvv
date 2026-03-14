@@ -20,6 +20,7 @@ class RenderLayer:
     cmap_name: str
     threshold: float
     time_idx: int
+    spacing_2d: tuple  # <--- ADDED: Physical pixel dimensions (width_mm, height_mm)
 
 
 class SliceRenderer:
@@ -68,6 +69,8 @@ class SliceRenderer:
         overlay_mode: str,
         slice_idx: int,
         orientation: int,
+        checkerboard_size: float = 20.0,
+        checkerboard_swap: bool = False,
     ):
         # --- Unpack the base layer safely ---
         base_data, base_is_rgb, base_num_components = (
@@ -196,11 +199,46 @@ class SliceRenderer:
 
             res_rgba = base_rgba * (1.0 - op_mask) + over_rgba * op_mask
 
+        elif overlay_mode == "Checkerboard":
+            if overlay_is_rgb:
+                over_rgba = over_norm
+                if over_rgba.shape[-1] == 3:
+                    alpha = np.ones((*over_rgba.shape[:-1], 1), dtype=np.float32)
+                    over_rgba = np.concatenate([over_rgba, alpha], axis=-1)
+            else:
+                over_lut = COLORMAPS.get(overlay_cmap_name, COLORMAPS["Hot"])
+                over_rgba = over_lut[(over_norm * 255).astype(np.uint8)]
+
+            # Generate the checkerboard grid using fast numpy broadcasting
+            grid_y, grid_x = np.ogrid[:h, :w]
+            space_w, space_h = base.spacing_2d
+            chk_size = max(0.1, float(checkerboard_size))
+
+            # Multiply physical spacing by pixel indices to convert perfectly to mm!
+            chk_y = ((grid_y * space_h) / chk_size).astype(np.int32)
+            chk_x = ((grid_x * space_w) / chk_size).astype(np.int32)
+
+            mask = (chk_y + chk_x) % 2 == 0
+            if checkerboard_swap:
+                mask = ~mask
+
+            mask_rgba = mask[..., None]
+            res_rgba = np.where(mask_rgba, base_rgba, over_rgba)
+
+            # If the overlay falls below the cutoff threshold, gracefully reveal the base image underneath
+            if overlay_threshold > -1e8 and not overlay_is_rgb:
+                o_mask = (over_slice < overlay_threshold)[..., None]
+                res_rgba = np.where(~mask_rgba & o_mask, base_rgba, res_rgba)
+
+            if base_threshold > -1e8 and not base_is_rgb:
+                b_mask = (base_slice <= base_threshold)[..., None]
+                res_rgba = np.where(mask_rgba & b_mask, [0.0, 0.0, 0.0, 0.0], res_rgba)
+
         else:
             res_rgba = base_rgba
 
-        res_rgba[..., 3] = 1.0
-        return res_rgba.flatten(), (h, w)
+        # Ensure absolute Float32 strictness before sending to the DPG GPU texture buffer!
+        return res_rgba.astype(np.float32).flatten(), (h, w)
 
 
 class VolumeData:

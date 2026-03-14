@@ -398,10 +398,26 @@ class MainGUI:
                 with dpg.group(horizontal=True):
                     dpg.add_text("Mode   ")
                     dpg.add_combo(
-                        ["Alpha", "Registration"],
+                        ["Alpha", "Registration", "Checkerboard"],
                         tag="combo_overlay_mode",
                         width=-1,
                         callback=self.on_overlay_mode_changed,
+                    )
+
+                with dpg.group(horizontal=True, tag="group_checkerboard", show=False):
+                    dpg.add_text("Square ")
+                    dpg.add_slider_float(
+                        tag="slider_chk_size",
+                        min_value=1.0,
+                        max_value=200.0,
+                        format="%.1f mm",
+                        width=100,
+                        callback=self.on_checkerboard_changed,
+                    )
+                    dpg.add_checkbox(
+                        label="Swap",
+                        tag="check_chk_swap",
+                        callback=self.on_checkerboard_changed,
                     )
 
     def build_sidebar_bottom(self):
@@ -852,11 +868,27 @@ class MainGUI:
             if dpg.does_item_exist("combo_overlay_mode"):
                 dpg.set_value("combo_overlay_mode", viewer.view_state.overlay_mode)
 
+            # Update Checkerboard UI values
+            if dpg.does_item_exist("slider_chk_size"):
+                dpg.set_value(
+                    "slider_chk_size", viewer.view_state.overlay_checkerboard_size
+                )
+                dpg.set_value(
+                    "check_chk_swap", viewer.view_state.overlay_checkerboard_swap
+                )
+
             # 3. Disable/Enable the controls dynamically
-            dpg.configure_item("slider_overlay_opacity", enabled=has_overlay)
+            is_chk = viewer.view_state.overlay_mode == "Checkerboard"
+            dpg.configure_item(
+                "slider_overlay_opacity", enabled=has_overlay and not is_chk
+            )
             dpg.configure_item("input_overlay_threshold", enabled=has_overlay)
             if dpg.does_item_exist("combo_overlay_mode"):
                 dpg.configure_item("combo_overlay_mode", enabled=has_overlay)
+
+            # Show/Hide the extra row
+            if dpg.does_item_exist("group_checkerboard"):
+                dpg.configure_item("group_checkerboard", show=has_overlay and is_chk)
 
     def update_sidebar_window_level(self, viewer):
         if not viewer or not viewer.view_state:
@@ -1196,9 +1228,25 @@ class MainGUI:
         )
         viewer.view_state.is_data_dirty = True
 
-        # Force W/L parity when Registration is engaged
         if app_data == "Registration":
             self.controller.propagate_window_level(viewer.image_id)
+
+        # Pushes the sync to other viewers and forces the UI to show/hide the checkerboard sliders
+        self.controller.propagate_overlay_mode(viewer.image_id)
+        self.update_sidebar_info(viewer)
+
+    def on_checkerboard_changed(self, sender, app_data, user_data):
+        viewer = self.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+
+        if sender == "slider_chk_size":
+            viewer.view_state.overlay_checkerboard_size = app_data
+        elif sender == "check_chk_swap":
+            viewer.view_state.overlay_checkerboard_swap = app_data
+
+        viewer.view_state.is_data_dirty = True
+        self.controller.propagate_overlay_mode(viewer.image_id)
 
     def on_opacity_changed(self, sender, app_data, user_data):
         if self.context_viewer and self.context_viewer.view_state:
@@ -1276,7 +1324,9 @@ class MainGUI:
             if dpg.does_item_exist("loading_modal"):
                 dpg.delete_item("loading_modal")
             yield
-            self.show_message("File Load Error", f"Failed to load image:\n{filename}")
+            self.show_message(
+                "File Load Error", f"Failed to load image:\n{display_name}"
+            )
             while dpg.does_item_exist("generic_message_modal"):
                 yield
 
@@ -1328,7 +1378,7 @@ class MainGUI:
             show=True,
             label="Shortcuts & Controls",
             width=500,
-            height=570,  # Increased height to fit the new 4D shortcuts
+            height=570,
             no_collapse=False,
             on_close=lambda: dpg.delete_item(window_tag),
         ):
