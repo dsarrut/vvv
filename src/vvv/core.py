@@ -4,117 +4,13 @@ import os
 from pathlib import Path
 import copy
 import json
-import glob
-import shlex
+
 from vvv.utils import ViewMode, slice_to_voxel
 
-DEFAULT_SETTINGS = {
-    "colors": {
-        "crosshair": [0, 246, 7, 120],
-        "tracker_text": [0, 246, 7, 255],
-        "x": [255, 80, 80, 230],
-        "y": [80, 255, 80, 230],
-        "z": [80, 80, 255, 230],
-        "grid": [255, 255, 255, 40],
-        "viewer": [10, 246, 7, 120],
-        "legend_bg": [0, 0, 0, 150],
-    },
-    "physics": {"auto_window_fov": 0.20, "voxel_strip_threshold": 5000},
-    "shortcuts": {
-        "open_file": "O",
-        "next_image": "N",
-        "auto_window": "W",
-        "auto_window_overlay": "X",
-        "scroll_up": "Up",
-        "scroll_down": "Down",
-        "fast_scroll_up": 517,  # page up
-        "fast_scroll_down": 518,  # page down
-        "zoom_in": "I",
-        "zoom_out": "O",
-        "reset_view": "R",
-        "center_view": "C",
-        "view_axial": "F1",
-        "view_sagittal": "F2",
-        "view_coronal": "F3",
-        "view_histogram": "F4",
-        "toggle_interp": "K",
-        "toggle_legend": "L",
-        "toggle_grid": "G",
-        "hide_all": "H",
-        "time_forward": "Right",
-        "time_backward": "Left",
-    },
-    "interaction": {
-        "zoom_speed": 1.1,
-        "fast_scroll_steps": 10,
-        "wl_drag_sensitivity": 2.0,
-        "active_viewer_mode": "hybrid",
-    },
-    "layout": {"window_width": 1200, "window_height": 1000, "side_panel_width": 300},
-}
-
-
-WL_PRESETS = {
-    "Optimal": None,
-    "Min/Max": None,
-    "Binary Mask": {"ww": 1.0, "wl": 0.5},
-    "CT: Soft Tissue": {"ww": 400.0, "wl": 50.0},
-    "CT: Bone": {"ww": 2000.0, "wl": 400.0},
-    "CT: Lung": {"ww": 1500.0, "wl": -600.0},
-    "CT: Brain": {"ww": 80.0, "wl": 40.0},
-}
-
-
-def generate_colormaps():
-    cmaps = {}
-    x = np.linspace(0, 1, 256)
-    ones = np.ones(256)
-
-    cmaps["Grayscale"] = np.column_stack([x, x, x, ones]).astype(np.float32)
-
-    r = np.clip(3 * x, 0, 1)
-    g = np.clip(3 * x - 1, 0, 1)
-    b = np.clip(3 * x - 2, 0, 1)
-    cmaps["Hot"] = np.column_stack([r, g, b, ones]).astype(np.float32)
-
-    cmaps["Cold"] = np.column_stack([b, g, r, ones]).astype(np.float32)
-
-    r = np.clip(1.5 - np.abs(4 * x - 3), 0, 1)
-    g = np.clip(1.5 - np.abs(4 * x - 2), 0, 1)
-    b = np.clip(1.5 - np.abs(4 * x - 1), 0, 1)
-    cmaps["Jet"] = np.column_stack([r, g, b, ones]).astype(np.float32)
-
-    r = np.clip(4 * x - 1.5, 0, 1)
-    g = np.clip(2 - np.abs(4 * x - 2), 0, 1)
-    b = np.clip(2.5 - 4 * x, 0, 1)
-    cmaps["Dosimetry"] = np.column_stack([r, g, b, ones]).astype(np.float32)
-
-    np.random.seed(42)
-    seg_r = np.random.rand(256)
-    seg_g = np.random.rand(256)
-    seg_b = np.random.rand(256)
-    seg_r[0], seg_g[0], seg_b[0] = 0, 0, 0
-    cmaps["Segmentation"] = np.column_stack([seg_r, seg_g, seg_b, ones]).astype(
-        np.float32
-    )
-
-    x = np.linspace(0, 1, 256)
-    g = np.where(x < 0.5, 0.5 + (0.5 - x), 0.5 - (x - 0.5))
-    rb = np.where(x > 0.5, 0.5 + (x - 0.5), 0.5 - (0.5 - x))
-
-    cmaps["Registration"] = np.column_stack(
-        [
-            np.clip(rb, 0, 1),
-            np.clip(g, 0, 1),
-            np.clip(rb, 0, 1),
-            ones,
-        ]
-    ).astype(np.float32)
-
-    return cmaps
-
-
-COLORMAPS = generate_colormaps()
+# Re-exporting these so that existing files (like gui.py and viewer.py)
+# don't have to change their `from .core import XYZ` statements!
+from .config import DEFAULT_SETTINGS, WL_PRESETS, COLORMAPS
+from .image import VolumeData, SliceRenderer
 
 
 class SettingsManager:
@@ -214,7 +110,6 @@ class ViewState:
         self.init_default_window_level()
 
     def get_slice_shape(self, orientation):
-        """Returns the 2D shape (h, w) of the current slice."""
         sh = self.volume.shape3d
         if orientation == ViewMode.AXIAL:
             return sh[1], sh[2]
@@ -348,8 +243,6 @@ class ViewState:
 
         self.overlay_id = other_vs_id
 
-        # 1. If the 3D spatial grid matches perfectly, skip resampling completely!
-        # (This prevents trying to resample a 3D image purely because the base is 4D)
         if (
             np.allclose(self.volume.spacing, other_vol.spacing, atol=1e-4)
             and np.allclose(self.volume.origin, other_vol.origin, atol=1e-4)
@@ -359,8 +252,6 @@ class ViewState:
             self.is_data_dirty = True
             return
 
-        # 2. Resampling is required. We must strictly resample the 3D SPATIAL domain.
-        # SimpleITK cannot natively resample 4D onto 3D, so we build a clean 3D reference.
         ref_img = sitk.Image(
             int(self.volume.shape3d[2]),
             int(self.volume.shape3d[1]),
@@ -376,7 +267,6 @@ class ViewState:
         resampler.SetInterpolator(sitk.sitkNearestNeighbor)
         resampler.SetDefaultPixelValue(0)
 
-        # 3. Resample the target volume frame by frame
         target_dim = other_vol.sitk_image.GetDimension()
 
         if target_dim == 3:
@@ -384,11 +274,10 @@ class ViewState:
             self.overlay_data = sitk.GetArrayFromImage(resampled_img)
 
         elif target_dim == 4:
-            # Iterate through time, extracting and resampling each 3D frame
             resampled_volumes = []
             for t in range(other_vol.num_timepoints):
                 size = list(other_vol.sitk_image.GetSize())
-                size[3] = 0  # Collapse the 4th dimension for extraction
+                size[3] = 0
                 index = [0, 0, 0, t]
                 vol_3d = sitk.Extract(other_vol.sitk_image, size, index)
 
@@ -399,7 +288,7 @@ class ViewState:
             self.overlay_data = sitk.GetArrayFromImage(resampled_4d)
 
         else:
-            self.overlay_data = other_vol.data  # Fallback
+            self.overlay_data = other_vol.data
 
         self.is_data_dirty = True
 
@@ -469,195 +358,6 @@ class ViewState:
             slice_idx,
             orientation,
         )
-
-
-class VolumeData:
-    """Stores the immutable medical image data and physical metadata."""
-
-    def __init__(self, path):
-        self.path = path
-        self.file_paths = []
-
-        # 1. Evaluate if a 4D sequence is requested
-        is_4d = False
-        if isinstance(path, str) and path.startswith("4D:"):
-            is_4d = True
-            path = path[3:].strip()
-
-        # 2. Safely resolve the paths (Directory, Glob, or Shell Expansion)
-        if is_4d:
-            if os.path.isdir(path):
-                valid_exts = (
-                    ".mhd",
-                    ".nii",
-                    ".nii.gz",
-                    ".nrrd",
-                    ".dcm",
-                    ".hdr",
-                    ".img",
-                )
-                self.file_paths = sorted(
-                    [
-                        os.path.join(path, f)
-                        for f in os.listdir(path)
-                        if f.lower().endswith(valid_exts)
-                    ]
-                )
-            elif "*" in path or "?" in path:
-                self.file_paths = sorted(glob.glob(path))
-            else:
-                # shlex cleanly separates paths while respecting quotes if the shell expanded them
-                tokens = shlex.split(path)
-                valid_files = [f for f in tokens if os.path.isfile(f)]
-                if valid_files:
-                    self.file_paths = sorted(valid_files)
-                else:
-                    self.file_paths = [path]  # Fallback
-        else:
-            self.file_paths = [path]
-
-        if not self.file_paths:
-            raise FileNotFoundError(f"No files found for path: {self.path}")
-
-        # Physical data
-        self.sitk_image = self.read_image_from_disk(self.file_paths)
-        self.data = sitk.GetArrayViewFromImage(self.sitk_image)
-
-        # 3. Create a clean display name
-        is_4d = self.sitk_image.GetDimension() == 4 and self.data.shape[0] > 1
-        self.name = os.path.basename(self.file_paths[0])
-        if is_4d and len(self.file_paths) > 1:
-            self.name += f" ({len(self.file_paths)})"
-
-        # Metadata
-        self.pixel_type = None
-        self.bytes_per_component = None
-        self.num_components = None
-        self.matrix = None
-        self.spacing = None
-        self.origin = None
-        self.memory_mb = None
-
-        # Geometry isolation
-        self.is_rgb = False
-        self.num_timepoints = 1
-        self.shape3d = (1, 1, 1)
-
-        self.read_image_metadata()
-
-    def read_image_from_disk(self, paths):
-        if len(paths) == 1:
-            sitk_img = sitk.ReadImage(paths[0])
-            dim = sitk_img.GetDimension()
-
-            if dim == 2:
-                sitk_img = sitk.JoinSeries([sitk_img])
-
-            return sitk_img
-        else:
-            # Natively stack multiple files, but protect against shape mismatches!
-            imgs = []
-            base_size = None
-            for p in paths:
-                try:
-                    img = sitk.ReadImage(p)
-                    if base_size is None:
-                        base_size = img.GetSize()
-                        imgs.append(img)
-                    elif img.GetSize() == base_size:
-                        imgs.append(img)
-                    else:
-                        print(
-                            f"Warning: Skipping {os.path.basename(p)} - Size {img.GetSize()} mismatches base {base_size}"
-                        )
-                except Exception as e:
-                    print(f"Warning: Failed to read {os.path.basename(p)}")
-
-            if not imgs:
-                raise RuntimeError(
-                    "No valid images could be read from the provided paths."
-                )
-
-            if len(imgs) == 1:
-                return imgs[0]
-
-            return sitk.JoinSeries(imgs)
-
-    def read_image_metadata(self):
-        self.pixel_type = self.sitk_image.GetPixelIDTypeAsString()
-        self.bytes_per_component = self.sitk_image.GetSizeOfPixelComponent()
-        self.num_components = self.sitk_image.GetNumberOfComponentsPerPixel()
-
-        raw_matrix = self.sitk_image.GetDirection()
-        if len(raw_matrix) == 9:
-            self.matrix = np.array(raw_matrix).reshape((3, 3))
-        elif len(raw_matrix) == 16:
-            # Drop the 4th time dimension from the spatial grid matrix
-            m = np.array(raw_matrix)
-            self.matrix = np.array(
-                [[m[0], m[1], m[2]], [m[4], m[5], m[6]], [m[8], m[9], m[10]]]
-            )
-        else:
-            self.matrix = np.eye(3)
-
-        self.inverse_matrix = np.linalg.inv(self.matrix)
-
-        # Only retain the strict 3D physical coordinate spacing/origin
-        self.spacing = np.array(self.sitk_image.GetSpacing()[:3])
-        self.origin = np.array(self.sitk_image.GetOrigin()[:3])
-
-        self.is_rgb = self.num_components in [3, 4]
-        shape = self.data.shape
-        self.num_timepoints = 1
-
-        # Safely isolate the Spatial 3D Shape from Time and Colors!
-        if self.is_rgb:
-            if len(shape) == 5:
-                self.num_timepoints = shape[0]
-                self.shape3d = shape[1:4]
-            else:
-                self.shape3d = shape[0:3]
-        else:
-            if len(shape) == 4:
-                self.num_timepoints = shape[0]
-                self.shape3d = shape[1:4]
-            else:
-                self.shape3d = shape[0:3]
-
-        bytes_per_pixel = self.bytes_per_component * self.num_components
-        self.memory_mb = (
-            self.sitk_image.GetNumberOfPixels() * bytes_per_pixel / (1024 * 1024)
-        )
-
-    def get_physical_aspect_ratio(self, orientation):
-        dx, dy, dz = self.spacing
-        if orientation == ViewMode.AXIAL:
-            return dx, dy
-        elif orientation == ViewMode.SAGITTAL:
-            return dy, dz
-        else:
-            return dx, dz
-
-    def voxel_coord_to_physic_coord(self, voxel):
-        return self.origin + self.matrix @ (voxel * self.spacing)
-
-    def physic_coord_to_voxel_coord(self, phys):
-        return (self.inverse_matrix @ (phys - self.origin)) / self.spacing
-
-    def reload(self):
-        # Reload now strictly evaluates the entire series of 4D file paths!
-        new_sitk = self.read_image_from_disk(self.file_paths)
-        new_shape = new_sitk.GetSize()
-        current_shape = self.sitk_image.GetSize()
-
-        if new_shape == current_shape:
-            self.sitk_image = new_sitk
-            self.data = sitk.GetArrayViewFromImage(self.sitk_image)
-            self.read_image_metadata()
-            return False
-        else:
-            self.__init__(self.path)
-            return True
 
 
 class Controller:
@@ -984,7 +684,6 @@ class Controller:
 
                 target_vox = target_vol.physic_coord_to_voxel_coord(phys_pos)
 
-                # Sync time
                 nt = target_vs.volume.num_timepoints
                 target_vs.time_idx = min(source_vs.time_idx, nt - 1)
 
@@ -1074,7 +773,6 @@ class Controller:
 
         dirty_ids = {source_vs_id}
 
-        # 1. Standard Sync Groups
         target_group = source_vs.sync_group
         if sync_wl and target_group != 0:
             for target_id, vs in self.view_states.items():
@@ -1086,12 +784,9 @@ class Controller:
                     vs.base_threshold = source_vs.base_threshold
                     dirty_ids.add(target_id)
 
-        # 2. Registration Mode Forced Sync
-        # (Loop until no new links are found to gracefully handle chained sync groups)
         while True:
             added_new = False
 
-            # A. Base -> Overlay Sync
             for tid in list(dirty_ids):
                 t_vs = self.view_states[tid]
                 if t_vs.overlay_id and t_vs.overlay_mode == "Registration":
@@ -1103,7 +798,6 @@ class Controller:
                             dirty_ids.add(t_vs.overlay_id)
                             added_new = True
 
-            # B. Overlay -> Base Sync
             for vs_id, vs in self.view_states.items():
                 if (
                     vs_id not in dirty_ids
@@ -1119,7 +813,6 @@ class Controller:
             if not added_new:
                 break
 
-        # 3. Apply Dirty Flags and Update Viewers
         for tid in dirty_ids:
             self.view_states[tid].is_data_dirty = True
 
@@ -1175,192 +868,3 @@ class Controller:
                 or viewer.view_state.sync_group == target_group
             ):
                 viewer.update_render()
-
-
-class SliceRenderer:
-    """Pure utility to generate renderable RGBA arrays using a streamlined pipeline."""
-
-    @staticmethod
-    def extract_slice(data, is_rgb, time_idx, slice_idx, orientation):
-        """Step 1: Universal extraction handling 3D/4D transparently."""
-        # Force a normalized view format (T, Z, Y, X, [C]) to eliminate manual shape checking later
-        if is_rgb:
-            if data.ndim == 4:
-                data = data[np.newaxis, ...]
-        else:
-            if data.ndim == 3:
-                data = data[np.newaxis, ...]
-
-        t = min(time_idx, data.shape[0] - 1)
-
-        if orientation == ViewMode.AXIAL:
-            return data[t, slice_idx, ...]
-        elif orientation == ViewMode.SAGITTAL:
-            return np.flipud(np.fliplr(data[t, :, :, slice_idx, ...]))
-        elif orientation == ViewMode.CORONAL:
-            return np.flipud(data[t, :, slice_idx, ...])
-        return None
-
-    @staticmethod
-    def get_raw_slice(data, is_rgb, time_idx, slice_idx, orientation):
-        """Legacy helper for logic that strictly requires a 2D float array (like Auto Window/Level)."""
-        if is_rgb:
-            return np.zeros((1, 1))
-        res = SliceRenderer.extract_slice(
-            data, is_rgb, time_idx, slice_idx, orientation
-        )
-        return res if res is not None else np.zeros((1, 1))
-
-    @staticmethod
-    def normalize_wl(slice_data, ww, wl):
-        """Fast helper to apply Window/Level and normalize intensities to [0.0, 1.0]."""
-        if ww <= 0:
-            return np.zeros_like(slice_data, dtype=np.float32)
-        min_val = wl - ww / 2.0
-        return np.clip((slice_data - min_val) / ww, 0.0, 1.0)
-
-    @staticmethod
-    def get_slice_rgba(
-        base_data,
-        base_is_rgb,
-        base_num_components,
-        base_ww,
-        base_wl,
-        base_cmap_name,
-        base_threshold,
-        base_time_idx,
-        overlay_data,
-        overlay_is_rgb,
-        overlay_ww,
-        overlay_wl,
-        overlay_cmap_name,
-        overlay_opacity,
-        overlay_threshold,
-        overlay_mode,
-        overlay_time_idx,
-        slice_idx,
-        orientation,
-    ):
-        if orientation == ViewMode.HISTOGRAM:
-            return np.array([0, 0, 0, 255], dtype=np.uint8), (1, 1)
-
-        # Normalize Base Array
-        if base_is_rgb:
-            if base_data.ndim == 4:
-                base_data = base_data[np.newaxis, ...]
-        else:
-            if base_data.ndim == 3:
-                base_data = base_data[np.newaxis, ...]
-
-        # 1. Determine bounds using the mapped 4D axes
-        axis_map = {
-            ViewMode.AXIAL: (1, 2, 3),
-            ViewMode.SAGITTAL: (3, 1, 2),
-            ViewMode.CORONAL: (2, 1, 3),
-        }
-
-        if orientation not in axis_map:
-            return np.zeros(4, dtype=np.float32), (1, 1)
-
-        s_ax, h_ax, w_ax = axis_map[orientation]
-        max_s, h, w = (
-            base_data.shape[s_ax],
-            base_data.shape[h_ax],
-            base_data.shape[w_ax],
-        )
-
-        # Handle out-of-bounds slicing securely
-        if slice_idx < 0 or slice_idx >= max_s:
-            black_slice = np.zeros((h, w, 4), dtype=np.float32)
-            black_slice[:, :, 3] = 1.0
-            return black_slice.flatten(), (h, w)
-
-        # 2. Extract Base Slice
-        base_slice = SliceRenderer.extract_slice(
-            base_data, base_is_rgb, base_time_idx, slice_idx, orientation
-        )
-
-        # 3. Base Image -> RGBA
-        if base_is_rgb:
-            base_norm = np.clip(base_slice.astype(np.float32) / 255.0, 0.0, 1.0)
-            if base_num_components == 3:
-                alpha = np.ones((*base_norm.shape[:-1], 1), dtype=np.float32)
-                base_rgba = np.concatenate([base_norm, alpha], axis=-1)
-            else:
-                base_rgba = base_norm
-        else:
-            base_norm = SliceRenderer.normalize_wl(base_slice, base_ww, base_wl)
-            lut = COLORMAPS.get(base_cmap_name, COLORMAPS["Grayscale"])
-            base_rgba = lut[(base_norm * 255).astype(np.uint8)]
-
-            if base_threshold > -1e8:
-                mask = base_slice <= base_threshold
-                base_rgba[mask] = [0.0, 0.0, 0.0, 0.0]
-
-        # 4. Return early if no overlay is needed
-        if overlay_data is None or overlay_opacity <= 0.0:
-            return base_rgba.flatten(), (h, w)
-
-        # Normalize Overlay Array
-        if overlay_is_rgb:
-            if overlay_data.ndim == 4:
-                overlay_data = overlay_data[np.newaxis, ...]
-        else:
-            if overlay_data.ndim == 3:
-                overlay_data = overlay_data[np.newaxis, ...]
-
-        # 5. Extract & Normalize Overlay
-        over_slice = SliceRenderer.extract_slice(
-            overlay_data, overlay_is_rgb, overlay_time_idx, slice_idx, orientation
-        )
-        over_norm = SliceRenderer.normalize_wl(over_slice, overlay_ww, overlay_wl)
-
-        # 6. Apply Overlay Modes (Easily extensible)
-        if overlay_mode == "Registration":
-            # True Magenta/Green Fusion (Elekta XVI / open-vv style)
-            base_reg = (
-                np.mean(base_norm[..., :3], axis=-1) if base_is_rgb else base_norm
-            )
-            over_reg = (
-                np.mean(over_norm[..., :3], axis=-1) if overlay_is_rgb else over_norm
-            )
-
-            # Apply the overlay threshold dynamically
-            W = np.full(over_slice.shape, overlay_opacity, dtype=np.float32)
-            W[over_slice < overlay_threshold] = 0.0
-
-            res_rgba = np.zeros((*base_reg.shape, 4), dtype=np.float32)
-
-            m1 = W <= 0.5
-            W2 = W * 2.0
-
-            # Vectorized crossfade from Base -> Fusion -> Overlay
-            res_rgba[..., 0] = np.where(
-                m1, base_reg, base_reg * (2.0 - W2) + over_reg * (W2 - 1.0)
-            )
-            res_rgba[..., 1] = np.where(
-                m1, base_reg * (1.0 - W2) + over_reg * W2, over_reg
-            )
-            res_rgba[..., 2] = res_rgba[..., 0]  # Blue is identical to Red (Magenta)
-            res_rgba[..., 3] = 1.0
-
-            # Preserve the base threshold mask if it exists
-            if base_threshold > -1e8 and not base_is_rgb:
-                mask = base_slice <= base_threshold
-                res_rgba[mask] = [0.0, 0.0, 0.0, 0.0]
-
-        elif overlay_mode == "Alpha":
-            over_lut = COLORMAPS.get(overlay_cmap_name, COLORMAPS["Hot"])
-            over_rgba = over_lut[(over_norm * 255).astype(np.uint8)]
-
-            op_mask = np.full(over_slice.shape, overlay_opacity, dtype=np.float32)
-            op_mask[over_slice < overlay_threshold] = 0.0
-            op_mask = op_mask[..., None]
-
-            res_rgba = base_rgba * (1.0 - op_mask) + over_rgba * op_mask
-
-        else:
-            res_rgba = base_rgba
-
-        res_rgba[..., 3] = 1.0
-        return res_rgba.flatten(), (h, w)
