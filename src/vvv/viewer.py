@@ -1199,7 +1199,7 @@ class SliceViewer:
 
             if self.volume.num_timepoints > 1:
                 text_lines.append(
-                    f"[{v[0]:.1f}, {v[1]:.1f}, {v[2]:.1f}, t={self.view_state.time_idx}]"
+                    f"{v[0]:.1f} {v[1]:.1f} {v[2]:.1f} {self.view_state.time_idx}"
                 )
             else:
                 text_lines.append(fmt(v, 1))

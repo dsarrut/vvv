@@ -878,7 +878,8 @@ class MainGUI:
                 if vol.num_timepoints > 1:
                     dpg.set_value(
                         "info_vox",
-                        f"[{vs.crosshair_voxel[0]:.1f}, {vs.crosshair_voxel[1]:.1f}, {vs.crosshair_voxel[2]:.1f}, t={vs.crosshair_voxel[3]}]",
+                        f"{vs.crosshair_voxel[0]:.1f} {vs.crosshair_voxel[1]:.1f} "
+                        f"{vs.crosshair_voxel[2]:.1f} {vs.crosshair_voxel[3]}",
                     )
                 else:
                     dpg.set_value("info_vox", fmt(vs.crosshair_voxel[:3], 1))

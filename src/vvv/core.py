@@ -482,14 +482,15 @@ class VolumeData:
         if not self.file_paths:
             raise FileNotFoundError(f"No files found for path: {self.path}")
 
-        # 3. Create a clean display name
-        self.name = os.path.basename(self.file_paths[0])
-        if is_4d and len(self.file_paths) > 1:
-            self.name += f" (+{len(self.file_paths)-1})"
-
         # Physical data
         self.sitk_image = self.read_image_from_disk(self.file_paths)
         self.data = sitk.GetArrayViewFromImage(self.sitk_image)
+
+        # 3. Create a clean display name
+        is_4d = self.sitk_image.GetDimension() == 4 and self.data.shape[0] > 1
+        self.name = os.path.basename(self.file_paths[0])
+        if is_4d and len(self.file_paths) > 1:
+            self.name += f" ({len(self.file_paths)})"
 
         # Metadata
         self.pixel_type = None
