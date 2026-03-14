@@ -268,6 +268,11 @@ class MainGUI:
                             callback=self.on_colormap_menu_clicked,
                         )
 
+                with dpg.menu(label="Help"):
+                    dpg.add_menu_item(
+                        label="Shortcuts & Controls", callback=self.show_help_window
+                    )
+
                 dpg.add_spacer(width=20)
                 dpg.add_text(
                     "",
