@@ -1140,10 +1140,10 @@ class SliceRenderer:
             lut = COLORMAPS.get(base_cmap_name, COLORMAPS["Grayscale"])
             base_rgba = lut[(base_norm * 255).astype(np.uint8)]
 
-            if base_threshold > -1e8:
-                mask = base_slice <= base_threshold
-                # Force pixels below threshold to Black
-                base_rgba[mask] = [0.0, 0.0, 0.0, 0.0]
+            # if base_threshold > -1e8:
+            mask = base_slice <= base_threshold
+            # Force pixels below threshold to Black
+            base_rgba[mask] = [0.0, 0.0, 0.0, 0.0]
 
         # 4. Return early if no overlay is needed
         if overlay_data is None or overlay_opacity <= 0.0:

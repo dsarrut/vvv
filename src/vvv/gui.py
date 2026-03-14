@@ -863,7 +863,8 @@ class MainGUI:
         dpg.set_value("info_level", f"{vs.wl:g}")
         dpg.set_value(
             "info_base_threshold",
-            "" if vs.base_threshold <= -1e8 else f"{vs.base_threshold:g}",
+            # "" if vs.base_threshold <= -1e8 else f"{vs.base_threshold:g}",
+            f"{vs.base_threshold:g}",
         )
 
     def update_sidebar_crosshair(self, viewer):
@@ -1129,7 +1130,7 @@ class MainGUI:
             def _resample():
                 time.sleep(0.05)
                 viewer.view_state.set_overlay(target_id, target_vol)
-                self.show_status_message("Overlay applied!")
+                self.show_status_message("Overlay applied")
 
             threading.Thread(target=_resample, daemon=True).start()
 
