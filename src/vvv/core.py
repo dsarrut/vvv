@@ -1038,7 +1038,7 @@ class SliceRenderer:
 
     @staticmethod
     def extract_slice(data, slice_idx, orientation):
-        """Step 1: Universal 3D extraction. The ellipsis (...) handles both Grayscale and RGB natively."""
+        """Step 1: Universal 3D extraction."""
         if orientation == ViewMode.AXIAL:
             return data[slice_idx, ...]
         elif orientation == ViewMode.SAGITTAL:
@@ -1054,6 +1054,14 @@ class SliceRenderer:
             return np.zeros((1, 1))
         res = SliceRenderer.extract_slice(data, slice_idx, orientation)
         return res if res is not None else np.zeros((1, 1))
+
+    @staticmethod
+    def normalize_wl(slice_data, ww, wl):
+        """Fast helper to apply Window/Level and normalize intensities to [0.0, 1.0]."""
+        if ww <= 0:
+            return np.zeros_like(slice_data, dtype=np.float32)
+        min_val = wl - ww / 2.0
+        return np.clip((slice_data - min_val) / ww, 0.0, 1.0)
 
     @staticmethod
     def get_slice_rgba(
@@ -1076,15 +1084,22 @@ class SliceRenderer:
         if orientation == ViewMode.HISTOGRAM:
             return np.array([0, 0, 0, 255], dtype=np.uint8), (1, 1)
 
-        # 1. Determine bounds securely from the BASE image
-        if orientation == ViewMode.AXIAL:
-            max_s, h, w = base_data.shape[0], base_data.shape[1], base_data.shape[2]
-        elif orientation == ViewMode.SAGITTAL:
-            max_s, h, w = base_data.shape[2], base_data.shape[0], base_data.shape[1]
-        elif orientation == ViewMode.CORONAL:
-            max_s, h, w = base_data.shape[1], base_data.shape[0], base_data.shape[2]
-        else:
+        # 1. Determine bounds using an axis map
+        axis_map = {
+            ViewMode.AXIAL: (0, 1, 2),
+            ViewMode.SAGITTAL: (2, 0, 1),
+            ViewMode.CORONAL: (1, 0, 2),
+        }
+
+        if orientation not in axis_map:
             return np.zeros(4, dtype=np.float32), (1, 1)
+
+        s_ax, h_ax, w_ax = axis_map[orientation]
+        max_s, h, w = (
+            base_data.shape[s_ax],
+            base_data.shape[h_ax],
+            base_data.shape[w_ax],
+        )
 
         # Handle out-of-bounds slicing securely
         if slice_idx < 0 or slice_idx >= max_s:
@@ -1095,81 +1110,58 @@ class SliceRenderer:
         # 2. Extract Base Slice
         base_slice = SliceRenderer.extract_slice(base_data, slice_idx, orientation)
 
-        # 3. Colorize Base Slice
+        # 3. Base Image -> RGBA
         if base_is_rgb:
-            norm_img = np.clip(base_slice.astype(np.float32) / 255.0, 0.0, 1.0)
+            base_norm = np.clip(base_slice.astype(np.float32) / 255.0, 0.0, 1.0)
             if base_num_components == 3:
-                alpha = np.ones((*norm_img.shape[:-1], 1), dtype=np.float32)
-                base_rgba = np.concatenate([norm_img, alpha], axis=-1)
+                alpha = np.ones((*base_norm.shape[:-1], 1), dtype=np.float32)
+                base_rgba = np.concatenate([base_norm, alpha], axis=-1)
             else:
-                base_rgba = norm_img
+                base_rgba = base_norm
         else:
-            min_val = base_wl - base_ww / 2
-            norm_img = (
-                np.zeros_like(base_slice, dtype=np.float32)
-                if base_ww <= 0
-                else np.clip((base_slice - min_val) / base_ww, 0.0, 1.0)
-            )
+            base_norm = SliceRenderer.normalize_wl(base_slice, base_ww, base_wl)
             lut = COLORMAPS.get(base_cmap_name, COLORMAPS["Grayscale"])
-            base_rgba = lut[(norm_img * 255).astype(np.uint8)]
+            base_rgba = lut[(base_norm * 255).astype(np.uint8)]
 
-        # 4. Handle Overlay Fusion (If an overlay exists)
-        if overlay_data is not None and overlay_opacity > 0.0:
-            over_slice = SliceRenderer.extract_slice(
-                overlay_data, slice_idx, orientation
+        # 4. Return early if no overlay is needed
+        if overlay_data is None or overlay_opacity <= 0.0:
+            return base_rgba.flatten(), (h, w)
+
+        # 5. Extract & Normalize Overlay
+        over_slice = SliceRenderer.extract_slice(overlay_data, slice_idx, orientation)
+        over_norm = SliceRenderer.normalize_wl(over_slice, overlay_ww, overlay_wl)
+
+        # 6. Apply Overlay Modes (Easily extensible)
+        if overlay_mode == "Registration":
+            # If base is RGB, average it to grayscale for registration diff calculation
+            base_reg_norm = (
+                np.mean(base_norm[..., :3], axis=-1) if base_is_rgb else base_norm
             )
 
-            if overlay_mode == "Registration":
-                # 1. Normalize both base and overlay to [0, 1] using their specific W/L
-                base_norm = np.clip(
-                    (base_slice - (base_wl - base_ww / 2)) / base_ww, 0.0, 1.0
-                )
-                over_norm = np.clip(
-                    (over_slice - (overlay_wl - overlay_ww / 2)) / overlay_ww, 0.0, 1.0
-                )
+            diff = np.clip(0.5 + (over_norm - base_reg_norm) * 0.5, 0.0, 1.0)
+            lut = COLORMAPS.get("Registration", COLORMAPS["Grayscale"])
+            final_rgba = lut[(diff * 255).astype(np.uint8)]
 
-                # 2. Difference Formula:
-                # If they are equal, diff is 0.5 (Gray).
-                # If Overlay > Base, diff > 0.5 (Pink).
-                # If Base > Overlay, diff < 0.5 (Green).
-                diff = 0.5 + (over_norm - base_norm) * 0.5
-                diff = np.clip(diff, 0.0, 1.0)
-
-                # 3. Apply the 'Registration' LUT
-                lut = COLORMAPS.get("Registration", COLORMAPS["Grayscale"])
-                final_rgba = lut[(diff * 255).astype(np.uint8)]
-
-                # 4. Mix with original base for context based on opacity
-                # This allows you to see the original anatomy if opacity < 1.0
-                res_rgba = (base_rgba * (1.0 - overlay_opacity)) + (
-                    final_rgba * overlay_opacity
-                )
-                res_rgba[..., 3] = 1.0
-                return res_rgba.flatten(), (h, w)
-
-            # Normalize overlay
-            over_min = overlay_wl - overlay_ww / 2
-            over_norm = (
-                np.zeros_like(over_slice, dtype=np.float32)
-                if overlay_ww <= 0
-                else np.clip((over_slice - over_min) / overlay_ww, 0.0, 1.0)
+            # Blend with context
+            res_rgba = (base_rgba * (1.0 - overlay_opacity)) + (
+                final_rgba * overlay_opacity
             )
 
-            # Apply overlay LUT
+        elif overlay_mode == "Alpha":
             over_lut = COLORMAPS.get(overlay_cmap_name, COLORMAPS["Hot"])
             over_rgba = over_lut[(over_norm * 255).astype(np.uint8)]
 
-            # Create a dynamic opacity mask to strip out values below the threshold
+            # Threshold Masking
             op_mask = np.full(over_slice.shape, overlay_opacity, dtype=np.float32)
             op_mask[over_slice < overlay_threshold] = 0.0
-            op_mask = op_mask[
-                ..., None
-            ]  # Broadcast to (H, W, 1) so it multiplies RGBA correctly
+            op_mask = op_mask[..., None]  # Broadcast to RGBA
 
-            # Alpha Blend: Base * (1 - Op_Mask) + Overlay * Op_Mask
-            final_rgba = base_rgba * (1.0 - op_mask) + over_rgba * op_mask
-            final_rgba[..., 3] = 1.0
-            return final_rgba.flatten(), (h, w)
+            res_rgba = base_rgba * (1.0 - op_mask) + over_rgba * op_mask
 
-        # If no overlay, just return the base image
-        return base_rgba.flatten(), (h, w)
+        else:
+            # Fallback block (Prevents crashes if an unsupported mode string is passed)
+            res_rgba = base_rgba
+
+        # Ensure full opacity on the final combined image
+        res_rgba[..., 3] = 1.0
+        return res_rgba.flatten(), (h, w)
