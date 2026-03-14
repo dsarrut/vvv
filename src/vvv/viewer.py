@@ -2,6 +2,7 @@ import dearpygui.dearpygui as dpg
 import numpy as np
 from .utils import *
 from .core import SliceRenderer
+from .drawing import OverlayDrawer
 
 
 class ViewportMapper:
@@ -121,6 +122,10 @@ class SliceViewer:
 
         self.axes_nodes = None
         self.active_axes_idx = 0
+
+        # Sub-modules
+        self.drawer = OverlayDrawer(self)
+        self.init_shortcut_dispatcher()
 
         with dpg.texture_registry():
             dpg.add_dynamic_texture(
@@ -458,412 +463,9 @@ class SliceViewer:
             tx, ty, win_w, win_h, real_w, real_h, sw, sh, self.zoom
         )
 
-    def draw_voxel_grid(self, h, w):
-        node_a, node_b = self.grid_a_tag, self.grid_b_tag
-        back_node = node_b if self.active_grid_node == node_a else node_a
-
-        if dpg.does_item_exist(back_node):
-            dpg.delete_item(back_node, children_only=True)
-        else:
-            return
-
-        pmin, pmax = self.current_pmin, self.current_pmax
-        if h == 0 or w == 0:
-            return
-
-        vox_w, vox_h = (pmax[0] - pmin[0]) / w, (pmax[1] - pmin[1]) / h
-        if vox_w <= 0 or vox_h <= 0:
-            return
-
-        color = self.controller.settings.data["colors"]["grid"]
-
-        for x in range(w + 1):
-            lx = pmin[0] + x * vox_w
-            dpg.draw_line([lx, pmin[1]], [lx, pmax[1]], color=color, parent=back_node)
-
-        for y in range(h + 1):
-            ly = pmin[1] + y * vox_h
-            dpg.draw_line([pmin[0], ly], [pmax[0], ly], color=color, parent=back_node)
-
-        dpg.configure_item(back_node, show=True)
-        if dpg.does_item_exist(self.active_grid_node):
-            dpg.configure_item(self.active_grid_node, show=False)
-        self.active_grid_node = back_node
-
     def draw_crosshair(self):
-        if not self.is_image_orientation() or not self.view_state or not self.volume:
-            return
-
-        node_tag = self.crosshair_tag
-
-        if (
-            not self.view_state.show_crosshair
-            or self.view_state.crosshair_voxel is None
-        ):
-            if dpg.does_item_exist(self.xh_line_h):
-                dpg.configure_item(self.xh_line_h, show=False)
-                dpg.configure_item(self.xh_line_v, show=False)
-            return
-
-        vx, vy, vz = self.view_state.crosshair_voxel[:3]
-        shape = self.get_slice_shape()
-        real_h, real_w = shape[0], shape[1]
-
-        tx, ty = voxel_to_slice(vx, vy, vz, self.orientation, shape)
-        pmin, pmax = self.current_pmin, self.current_pmax
-
-        disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
-        screen_x = (tx / real_w) * disp_w + pmin[0]
-        screen_y = (ty / real_h) * disp_h + pmin[1]
-
-        color = self.controller.settings.data["colors"]["crosshair"]
-
-        if not self.xh_initialized:
-            dpg.draw_line(
-                [screen_x, pmin[1]],
-                [screen_x, pmin[1] + disp_h],
-                color=color,
-                parent=node_tag,
-                tag=self.xh_line_v,
-            )
-            dpg.draw_line(
-                [pmin[0], screen_y],
-                [pmin[0] + disp_w, screen_y],
-                color=color,
-                parent=node_tag,
-                tag=self.xh_line_h,
-            )
-            self.xh_initialized = True
-        else:
-            dpg.configure_item(
-                self.xh_line_v,
-                p1=[screen_x, pmin[1]],
-                p2=[screen_x, pmin[1] + disp_h],
-                color=color,
-                show=True,
-            )
-            dpg.configure_item(
-                self.xh_line_h,
-                p1=[pmin[0], screen_y],
-                p2=[pmin[0] + disp_w, screen_y],
-                color=color,
-                show=True,
-            )
-
-    def draw_voxels_as_strips(self, rgba_flat, h, w):
-        node_a, node_b = self.strips_a_tag, self.strips_b_tag
-        back_node = node_b if self.active_strips_node == node_a else node_a
-        dpg.delete_item(back_node, children_only=True)
-
-        pmin, pmax = self.current_pmin, self.current_pmax
-        if h == 0 or w == 0:
-            return
-
-        vox_w, vox_h = (pmax[0] - pmin[0]) / w, (pmax[1] - pmin[1]) / h
-        if vox_w <= 0 or vox_h <= 0:
-            return
-
-        win_w, win_h = self.quad_w, self.quad_h
-        if not win_w or not win_h:
-            return
-
-        start_x, end_x = max(0, int(-pmin[0] / vox_w)), min(
-            w, int((win_w - pmin[0]) / vox_w) + 1
-        )
-        start_y, end_y = max(0, int(-pmin[1] / vox_h)), min(
-            h, int((win_h - pmin[1]) / vox_h) + 1
-        )
-        pixels = rgba_flat.reshape(h, w, 4)
-
-        for y in range(start_y, end_y):
-            y_pos = pmin[1] + (y * vox_h) + (vox_h / 2)
-            for x in range(start_x, end_x):
-                x1 = pmin[0] + (x * vox_w)
-                color = [int(c * 255) for c in pixels[y, x]]
-                dpg.draw_line(
-                    [x1, y_pos],
-                    [x1 + vox_w, y_pos],
-                    color=color,
-                    thickness=vox_h + 1,
-                    parent=back_node,
-                )
-
-        dpg.configure_item(back_node, show=True)
-        if dpg.does_item_exist(self.active_strips_node):
-            dpg.configure_item(self.active_strips_node, show=False)
-        self.active_strips_node = back_node
-
-    def draw_orientation_axes(self):
-        if not self.is_image_orientation():
-            if self.axes_nodes:
-                dpg.configure_item(self.axes_nodes[0], show=False)
-                dpg.configure_item(self.axes_nodes[1], show=False)
-            return
-
-        back_idx = 1 - self.active_axes_idx
-        back_node = self.axes_nodes[back_idx]
-        front_node = self.axes_nodes[self.active_axes_idx]
-
-        dpg.delete_item(back_node, children_only=True)
-        labels, directions = self.get_axis_labels()
-        axis_colors = self.controller.settings.data["colors"]
-
-        origin = [12, 12]
-        length = 30
-        if directions[0] == -1:
-            origin[0] = 50
-        if directions[1] == -1:
-            origin[1] = 50
-
-        color_h = axis_colors[labels[0]]
-        color_v = axis_colors[labels[1]]
-        end_h = [origin[0] + (length * directions[0]), origin[1]]
-        end_v = [origin[0], origin[1] + (length * directions[1])]
-
-        dpg.draw_arrow(
-            end_h, origin, color=color_h, thickness=2, size=4, parent=back_node
-        )
-        h_text_off = 5 if directions[0] > 0 else -18
-        dpg.draw_text(
-            [end_h[0] + h_text_off, end_h[1] - 7],
-            labels[0],
-            color=color_h,
-            size=14,
-            parent=back_node,
-        )
-
-        dpg.draw_arrow(
-            end_v, origin, color=color_v, thickness=2, size=4, parent=back_node
-        )
-        v_text_off = 5 if directions[1] > 0 else -18
-        dpg.draw_text(
-            [end_v[0] - 5, end_v[1] + v_text_off],
-            labels[1],
-            color=color_v,
-            size=14,
-            parent=back_node,
-        )
-
-        dpg.configure_item(back_node, show=True)
-        dpg.configure_item(front_node, show=False)
-        self.active_axes_idx = back_idx
-
-    def draw_histogram_view(self):
-        if not self.view_state:
-            return
-        plot_tag = f"plot_{self.tag}"
-
-        if not dpg.does_item_exist(plot_tag):
-            with dpg.plot(
-                label=f"Histogram: {self.volume.name}",
-                parent=f"win_{self.tag}",
-                tag=plot_tag,
-                width=-1,
-                height=-1,
-            ):
-                dpg.add_plot_axis(
-                    dpg.mvXAxis, label="Voxel Value", tag=f"x_axis_{self.tag}"
-                )
-                dpg.add_plot_axis(dpg.mvYAxis, label="Count", tag=f"y_axis_{self.tag}")
-                dpg.add_line_series(
-                    [],
-                    [],
-                    label="Freq",
-                    parent=f"y_axis_{self.tag}",
-                    tag=f"series_{self.tag}",
-                )
-            self.view_state.histogram_is_dirty = True
-
-        dpg.configure_item(plot_tag, show=True)
-
-        if self.view_state.histogram_is_dirty:
-            self.view_state.update_histogram()
-        else:
-            return
-
-        y_data = (
-            np.log10(self.view_state.hist_data_y + 1)
-            if self.view_state.use_log_y
-            else self.view_state.hist_data_y
-        )
-        dpg.set_value(
-            f"series_{self.tag}",
-            [self.view_state.hist_data_x.tolist(), y_data.tolist()],
-        )
-        dpg.fit_axis_data(f"x_axis_{self.tag}")
-        dpg.fit_axis_data(f"y_axis_{self.tag}")
-
-    def draw_scale_bar(self):
-        dpg.delete_item(self.scale_bar_tag, children_only=True)
-
-        if (
-            not self.is_image_orientation()
-            or not self.view_state
-            or not self.view_state.show_scalebar
-        ):
-            return
-
-        win_w, win_h = self.quad_w, self.quad_h
-        if not win_w or not win_h:
-            return
-
-        ppm = self.get_pixels_per_mm()
-        if ppm <= 0:
-            return
-
-        target_px = win_w * 0.15
-        target_mm = target_px / ppm
-        magnitude = 10 ** np.floor(np.log10(target_mm))
-        normalized = target_mm / magnitude
-
-        if normalized < 1.5:
-            factor = 1
-        elif normalized < 3.5:
-            factor = 2
-        elif normalized < 7.5:
-            factor = 5
-        else:
-            factor = 10
-
-        bar_mm = factor * magnitude
-        bar_px = bar_mm * ppm
-
-        x2 = int(win_w - 20)
-        x1 = int(x2 - bar_px)
-        y = int(win_h - 20)
-
-        color = self.controller.settings.data["colors"]["tracker_text"]
-
-        dpg.draw_rectangle(
-            [x1, y - 1], [x2, y + 1], color=color, fill=color, parent=self.scale_bar_tag
-        )
-        dpg.draw_rectangle(
-            [x1 - 1, y - 5],
-            [x1 + 1, y + 5],
-            color=color,
-            fill=color,
-            parent=self.scale_bar_tag,
-        )
-        dpg.draw_rectangle(
-            [x2 - 1, y - 5],
-            [x2 + 1, y + 5],
-            color=color,
-            fill=color,
-            parent=self.scale_bar_tag,
-        )
-
-        text = f"{bar_mm:g} mm"
-        text_x = int(x1 + (bar_px / 2) - ((len(text) * 7) / 2))
-        dpg.draw_text(
-            [text_x, int(y - 20)], text, color=color, size=14, parent=self.scale_bar_tag
-        )
-
-    def draw_legend(self):
-        dpg.delete_item(self.legend_tag, children_only=True)
-
-        if (
-            not self.is_image_orientation()
-            or not self.view_state
-            or not self.view_state.show_legend
-        ):
-            return
-
-        if getattr(self.volume, "is_rgb", False):
-            return
-
-        win_w = self.quad_w
-        win_h = self.quad_h
-        if not win_w or not win_h:
-            return
-
-        cb_width = 15
-        cb_height = int(win_h * 0.4)
-        if cb_height < 50:
-            return
-
-        x_start = win_w - cb_width - 55
-        y_start = (win_h - cb_height) // 2
-
-        bg_col = self.controller.settings.data["colors"]["legend_bg"]
-        dpg.draw_rectangle(
-            [x_start - 15, y_start - 20],
-            [win_w - 5, y_start + cb_height + 20],
-            color=bg_col,
-            fill=bg_col,
-            parent=self.legend_tag,
-        )
-
-        from .core import COLORMAPS
-
-        cmap = COLORMAPS.get(self.view_state.colormap, COLORMAPS["Grayscale"])
-
-        for i in range(256):
-            y = y_start + cb_height - (i / 255.0) * cb_height
-            color = [int(c * 255) for c in cmap[i]]
-            dpg.draw_line(
-                [x_start, y],
-                [x_start + cb_width, y],
-                color=color,
-                thickness=2,
-                parent=self.legend_tag,
-            )
-
-        border_col = [255, 255, 255, 120]
-        dpg.draw_rectangle(
-            [x_start, y_start],
-            [x_start + cb_width, y_start + cb_height],
-            color=border_col,
-            parent=self.legend_tag,
-        )
-
-        ww, wl = self.view_state.ww, self.view_state.wl
-        val_min = wl - ww / 2.0
-        val_max = wl + ww / 2.0
-        text_col = self.controller.settings.data["colors"]["tracker_text"]
-
-        dpg.draw_text(
-            [x_start + cb_width + 8, y_start - 7],
-            f"{val_max:g}",
-            color=text_col,
-            size=14,
-            parent=self.legend_tag,
-        )
-        dpg.draw_text(
-            [x_start + cb_width + 8, y_start + cb_height / 2 - 7],
-            f"{wl:g}",
-            color=text_col,
-            size=14,
-            parent=self.legend_tag,
-        )
-        dpg.draw_text(
-            [x_start + cb_width + 8, y_start + cb_height - 7],
-            f"{val_min:g}",
-            color=text_col,
-            size=14,
-            parent=self.legend_tag,
-        )
-
-        val_to_mark = self.view_state.crosshair_value
-        if val_to_mark is not None and isinstance(val_to_mark, (int, float, np.number)):
-            norm = (val_to_mark - val_min) / max(1e-5, ww)
-            norm = np.clip(norm, 0.0, 1.0)
-            y_pos = y_start + cb_height - (norm * cb_height)
-
-            dpg.draw_line(
-                [x_start - 6, y_pos],
-                [x_start + cb_width + 6, y_pos],
-                color=[255, 255, 255, 255],
-                thickness=1,
-                parent=self.legend_tag,
-            )
-            dpg.draw_triangle(
-                [x_start - 5, y_pos],
-                [x_start - 11, y_pos - 4],
-                [x_start - 11, y_pos + 4],
-                color=[255, 255, 255, 255],
-                fill=[255, 255, 255, 255],
-                parent=self.legend_tag,
-            )
+        """Proxy to the drawing module for external callers (e.g. core.py)."""
+        self.drawer.draw_crosshair()
 
     def hide_everything(self):
         new_state = not self.view_state.show_crosshair
@@ -1042,7 +644,7 @@ class SliceViewer:
         if not self.is_image_orientation():
             if dpg.does_item_exist(drawlist_tag):
                 dpg.configure_item(drawlist_tag, show=False)
-            self.draw_histogram_view()
+            self.drawer.draw_histogram_view()
             return
         else:
             if dpg.does_item_exist(drawlist_tag):
@@ -1100,28 +702,28 @@ class SliceViewer:
 
         if self.should_use_voxels_strips() and hasattr(self, "last_rgba_flat"):
             dpg.configure_item(self.image_tag, show=False)
-            self.draw_voxels_as_strips(self.last_rgba_flat, h, w)
+            self.drawer.draw_voxels_as_strips(self.last_rgba_flat, h, w)
         else:
             if dpg.does_item_exist(self.active_strips_node):
                 dpg.configure_item(self.active_strips_node, show=False)
             dpg.configure_item(self.image_tag, show=True)
 
         if self.view_state.grid_mode:
-            self.draw_voxel_grid(h, w)
+            self.drawer.draw_voxel_grid(h, w)
         elif dpg.does_item_exist(self.active_grid_node):
             dpg.configure_item(self.active_grid_node, show=False)
 
         if self.view_state.show_axis:
             dpg.configure_item(self.axes_nodes[0], show=True)
             dpg.configure_item(self.axes_nodes[1], show=True)
-            self.draw_orientation_axes()
+            self.drawer.draw_orientation_axes()
         else:
             dpg.configure_item(self.axis_a_tag, show=False)
             dpg.configure_item(self.axis_b_tag, show=False)
 
-        self.draw_scale_bar()
-        self.draw_legend()
-        self.draw_crosshair()
+        self.drawer.draw_scale_bar()
+        self.drawer.draw_legend()
+        self.drawer.draw_crosshair()
         self.update_tracker()
 
     def update_tracker(self):
@@ -1216,92 +818,100 @@ class SliceViewer:
             [8, win_h - (ts[1] if ts[1] > 0 else 80) - 15],
         )
 
+    # --- ACTIONS & KEYBINDING DISPATCHER ---
+
+    def init_shortcut_dispatcher(self):
+        self._shortcut_map = {
+            "next_image": self.action_next_image,
+            "auto_window": lambda: self.apply_local_auto_window(
+                fov_fraction=self.controller.settings.data["physics"].get(
+                    "auto_window_fov", 0.20
+                ),
+                target="base",
+            ),
+            "auto_window_overlay": lambda: self.apply_local_auto_window(
+                fov_fraction=self.controller.settings.data["physics"].get(
+                    "auto_window_fov", 0.20
+                ),
+                target="overlay",
+            ),
+            "scroll_up": lambda: self.on_scroll(1),
+            "scroll_down": lambda: self.on_scroll(-1),
+            "fast_scroll_up": lambda: self.on_scroll(
+                self.controller.settings.data["interaction"]["fast_scroll_steps"]
+            ),
+            "fast_scroll_down": lambda: self.on_scroll(
+                -self.controller.settings.data["interaction"]["fast_scroll_steps"]
+            ),
+            "time_forward": lambda: self.on_time_scroll(1),
+            "time_backward": lambda: self.on_time_scroll(-1),
+            "zoom_in": lambda: self.on_zoom("in"),
+            "zoom_out": lambda: self.on_zoom("out"),
+            "reset_view": self.action_reset_view,
+            "center_view": self.action_center_view,
+            "view_axial": lambda: self.set_orientation(ViewMode.AXIAL),
+            "view_sagittal": lambda: self.set_orientation(ViewMode.SAGITTAL),
+            "view_coronal": lambda: self.set_orientation(ViewMode.CORONAL),
+            "view_histogram": self.action_view_histogram,
+            "toggle_interp": self.action_toggle_interp,
+            "toggle_legend": self.action_toggle_legend,
+            "toggle_grid": self.action_toggle_grid,
+            "hide_all": self.hide_everything,
+        }
+
+    def action_next_image(self):
+        next_id = self.controller.get_next_image_id(self.image_id)
+        if next_id and next_id != self.image_id:
+            self.set_image(next_id)
+            if self.controller.gui:
+                self.controller.gui.refresh_image_list_ui()
+                if self.controller.gui.context_viewer == self:
+                    self.controller.gui.update_sidebar_info(self)
+
+    def action_reset_view(self):
+        self.view_state.reset_view()
+        self.is_geometry_dirty = True
+        self.controller.propagate_sync(self.image_id)
+        self.controller.update_all_viewers_of_image(self.image_id)
+
+    def action_center_view(self):
+        self.needs_recenter = True
+        self.is_geometry_dirty = True
+        if self.view_state.sync_group != 0:
+            group_id = self.view_state.sync_group
+            for v in self.controller.viewers.values():
+                if v.view_state and v.view_state.sync_group == group_id:
+                    v.needs_recenter = True
+                    v.is_geometry_dirty = True
+
+    def action_view_histogram(self):
+        self.set_orientation(ViewMode.HISTOGRAM)
+
+    def action_toggle_interp(self):
+        self.view_state.interpolation_linear = not self.view_state.interpolation_linear
+        self.view_state.is_data_dirty = True
+
+    def action_toggle_legend(self):
+        self.view_state.show_legend = not self.view_state.show_legend
+        self.controller.update_all_viewers_of_image(self.image_id)
+
+    def action_toggle_grid(self):
+        self.view_state.grid_mode = not self.view_state.grid_mode
+        self.view_state.is_data_dirty = True
+
     def on_key_press(self, key):
         if not self.view_state:
             return
 
-        def _k(action):
-            val = self.controller.settings.data["shortcuts"].get(action)
-            return getattr(dpg, f"mvKey_{val}", val) if isinstance(val, str) else val
-
-        if key == _k("next_image"):
-            next_id = self.controller.get_next_image_id(self.image_id)
-            if next_id and next_id != self.image_id:
-                self.set_image(next_id)
-                if self.controller.gui:
-                    self.controller.gui.refresh_image_list_ui()
-                    if self.controller.gui.context_viewer == self:
-                        self.controller.gui.update_sidebar_info(self)
-            return
-
-        if not self.view_state:
-            return
-
-        if key == _k("auto_window"):
-            fov = self.controller.settings.data["physics"].get("auto_window_fov", 0.20)
-            self.apply_local_auto_window(fov_fraction=fov, target="base")
-        elif key == _k("auto_window_overlay"):
-            fov = self.controller.settings.data["physics"].get("auto_window_fov", 0.20)
-            self.apply_local_auto_window(fov_fraction=fov, target="overlay")
-        elif key == _k("scroll_up"):
-            self.on_scroll(1)
-        elif key == _k("scroll_down"):
-            self.on_scroll(-1)
-        elif key == _k("fast_scroll_up"):
-            self.on_scroll(
-                self.controller.settings.data["interaction"]["fast_scroll_steps"]
+        shortcuts = self.controller.settings.data["shortcuts"]
+        for action_name, action_func in self._shortcut_map.items():
+            val = shortcuts.get(action_name)
+            mapped_key = (
+                getattr(dpg, f"mvKey_{val}", val) if isinstance(val, str) else val
             )
-        elif key == _k("fast_scroll_down"):
-            self.on_scroll(
-                -self.controller.settings.data["interaction"]["fast_scroll_steps"]
-            )
-        elif key == _k("time_forward"):
-            self.on_time_scroll(1)
-        elif key == _k("time_backward"):
-            self.on_time_scroll(-1)
-        elif key == _k("zoom_in"):
-            self.on_zoom("in")
-        elif key == _k("zoom_out"):
-            self.on_zoom("out")
-        elif key == _k("reset_view"):
-            self.view_state.reset_view()
-            self.is_geometry_dirty = True
-            self.controller.propagate_sync(self.image_id)
-            self.controller.update_all_viewers_of_image(self.image_id)
-        elif key == _k("center_view"):
-            self.needs_recenter = True
-            self.is_geometry_dirty = True
-            if self.view_state.sync_group != 0:
-                group_id = self.view_state.sync_group
-                for v in self.controller.viewers.values():
-                    if v.view_state and v.view_state.sync_group == group_id:
-                        v.needs_recenter = True
-                        v.is_geometry_dirty = True
-        elif key == _k("view_axial"):
-            self.set_orientation(ViewMode.AXIAL)
-        elif key == _k("view_sagittal"):
-            self.set_orientation(ViewMode.SAGITTAL)
-        elif key == _k("view_coronal"):
-            self.set_orientation(ViewMode.CORONAL)
-        elif key == _k("view_histogram"):
-            self.set_orientation(
-                ViewMode.HISTOGRAM
-                if self.is_image_orientation()
-                else ViewMode.HISTOGRAM
-            )
-        elif key == _k("toggle_interp"):
-            self.view_state.interpolation_linear = (
-                not self.view_state.interpolation_linear
-            )
-            self.view_state.is_data_dirty = True
-        elif key == _k("toggle_legend"):
-            self.view_state.show_legend = not self.view_state.show_legend
-            self.controller.update_all_viewers_of_image(self.image_id)
-        elif key == _k("toggle_grid"):
-            self.view_state.grid_mode = not self.view_state.grid_mode
-            self.view_state.is_data_dirty = True
-        elif key == _k("hide_all"):
-            self.hide_everything()
+            if key == mapped_key:
+                action_func()
+                return
 
     def on_scroll(self, delta=1):
         if (
