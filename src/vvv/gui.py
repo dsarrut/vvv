@@ -464,6 +464,11 @@ class MainGUI:
                         callback=lambda: self.on_save_settings(),
                     )
                     dpg.add_button(
+                        label="Reload",
+                        width=80,
+                        callback=lambda: self.on_reload_settings(),
+                    )
+                    dpg.add_button(
                         label="Reset",
                         width=-1,
                         callback=lambda: self.on_reset_settings(),
@@ -958,6 +963,26 @@ class MainGUI:
                 )
             dpg.set_value("info_ppm", f"{ppm:g}")
 
+    def update_settings_ui(self):
+        """Helper to sync the UI inputs with the current SettingsManager data."""
+        data = self.controller.settings.data
+        if dpg.does_item_exist("set_active_viewer_mode"):
+            dpg.set_value(
+                "set_active_viewer_mode",
+                data["interaction"].get("active_viewer_mode", "hybrid"),
+            )
+        if dpg.does_item_exist("set_auto_window_fov"):
+            dpg.set_value("set_auto_window_fov", data["physics"]["auto_window_fov"])
+        if dpg.does_item_exist("set_strip_threshold"):
+            dpg.set_value(
+                "set_strip_threshold", data["physics"]["voxel_strip_threshold"]
+            )
+
+        for key, value in data["colors"].items():
+            tag = f"set_col_{key}"
+            if dpg.does_item_exist(tag):
+                dpg.set_value(tag, value)
+
     def set_context_viewer(self, viewer):
         """Centralized helper to switch the Active Menu/Sidebar target."""
         if self.context_viewer == viewer:
@@ -1119,6 +1144,16 @@ class MainGUI:
         self.show_status_message(f"Settings saved in: {path}")
 
     def on_reset_settings(self):
+        self.controller.reset_settings()
+        self.update_settings_ui()
+        self.show_status_message("Settings reset to defaults")
+
+    def on_reload_settings(self):
+        self.controller.reload_settings()
+        self.update_settings_ui()
+        self.show_status_message("Settings reloaded from file")
+
+    def on_reset_settings_OLD(self):
         self.controller.reset_settings()
         data = self.controller.settings.data
         dp = data["physics"]

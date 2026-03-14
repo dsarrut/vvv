@@ -8,15 +8,15 @@ from vvv.utils import ViewMode, slice_to_voxel
 
 DEFAULT_SETTINGS = {
     "colors": {
-        "crosshair": [0, 246, 7, 180],
+        "crosshair": [0, 246, 7, 120],
         "tracker_text": [0, 246, 7, 255],
         "x": [255, 80, 80, 230],
         "y": [80, 255, 80, 230],
         "z": [80, 80, 255, 230],
         "grid": [255, 255, 255, 40],
-        "viewer": [10, 246, 7, 80],
+        "viewer": [10, 246, 7, 120],
     },
-    "physics": {"auto_window_fov": 0.20, "voxel_strip_threshold": 1500},
+    "physics": {"auto_window_fov": 0.20, "voxel_strip_threshold": 5000},
     "shortcuts": {
         "open_file": "O",
         "next_image": "N",
@@ -702,6 +702,18 @@ class Controller:
 
     def save_settings(self):
         return self.settings.save()
+
+    def reload_settings(self):
+        # 1. Wipe memory to defaults to clear any unsaved user tweaks
+        self.settings.reset()
+        # 2. Re-apply whatever is currently saved in the JSON file
+        self.settings.load()
+
+        # 3. Force all viewers to update immediately
+        for viewer in self.viewers.values():
+            viewer.update_render()
+            if viewer.image_id:
+                viewer.draw_crosshair()
 
     def reload_image(self, vs_id):
         if vs_id in self.view_states:
