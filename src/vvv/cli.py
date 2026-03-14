@@ -83,7 +83,7 @@ def main(datasets, linkall, sync):
                 "path": parts[1],
                 "cmap": parts[2] if len(parts) > 2 else "Jet",
                 "opacity": float(parts[3]) if len(parts) > 3 else 0.5,
-                "threshold": float(parts[4]) if len(parts) > 4 else -10000.0,
+                "threshold": float(parts[4]) if len(parts) > 4 else 0,
             }
         image_tasks.append(task)
 

@@ -48,8 +48,8 @@ class MainGUI:
                 "menu_h": 27,
                 "menu_m_top": 0,
                 "menu_m_bottom": 5 + shared_margin,
-                "menu_m_left": -3,
-                "menu_m_right": -3,
+                "menu_m_left": 0,
+                "menu_m_right": 0,
                 "side_panel_w": self.controller.settings.data["layout"][
                     "side_panel_width"
                 ],
