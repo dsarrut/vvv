@@ -217,12 +217,6 @@ class SliceViewer:
         elif self.orientation == ViewMode.CORONAL:
             self.slice_idx = int(np.clip(vy, 0, self.volume.data.shape[1] - 1))
 
-    def set_orientation_OLD(self, orientation):
-        self.orientation = orientation
-        if self.image_id:
-            self.set_image(self.image_id)
-        self.controller.gui.on_window_resize()
-
     def set_orientation(self, orientation):
         if self.orientation == orientation:
             return

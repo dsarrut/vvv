@@ -201,133 +201,6 @@ class MainGUI:
                         dpg.mvStyleVar_FramePadding, *cfg_l["pad_frame_sidebar"]
                     )
 
-    def register_dynamic_themes_OLD(self):
-        """Builds and registers all UI themes dynamically based on the ui_cfg."""
-        cfg_l = self.ui_cfg["layout"]
-        cfg_c = self.ui_cfg["colors"]
-
-        # Base black background theme for the primary window
-        if not dpg.does_item_exist("primary_black_theme"):
-            with dpg.theme(tag="primary_black_theme"):
-                with dpg.theme_component(dpg.mvAll):
-                    dpg.add_theme_color(dpg.mvThemeCol_WindowBg, cfg_c["bg_window"])
-                    dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
-
-        # Right side: Viewer quadrants (Idle)
-        with dpg.theme(tag="black_viewer_theme"):
-            with dpg.theme_component(dpg.mvAll):
-                dpg.add_theme_color(dpg.mvThemeCol_ChildBg, cfg_c["bg_window"])
-                dpg.add_theme_color(dpg.mvThemeCol_Border, cfg_c["border_black"])
-                dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
-                dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 1)
-                dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0, 0)
-                dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, cfg_l["rounding"])
-
-        # Right side: Viewer quadrants (Active)
-        with dpg.theme(tag="active_black_viewer_theme"):
-            with dpg.theme_component(dpg.mvAll):
-                dpg.add_theme_color(dpg.mvThemeCol_ChildBg, cfg_c["bg_window"])
-                v_col = self.controller.settings.data["colors"]["viewer"]
-                dpg.add_theme_color(dpg.mvThemeCol_Border, v_col)
-                dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
-                dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0, 0)
-                dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 2)
-                dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, cfg_l["rounding"])
-
-                # Top menu bar theme
-                if not dpg.does_item_exist("floating_menu_theme"):
-                    with dpg.theme(tag="floating_menu_theme"):
-                        with dpg.theme_component(dpg.mvAll):
-                            dpg.add_theme_style(
-                                dpg.mvStyleVar_FramePadding, *cfg_l["pad_frame_menu"]
-                            )
-
-                            dpg.add_theme_color(
-                                dpg.mvThemeCol_PopupBg, cfg_c["bg_menu"]
-                            )
-                            dpg.add_theme_color(
-                                dpg.mvThemeCol_WindowBg, cfg_c["bg_menu"]
-                            )
-                            dpg.add_theme_color(
-                                dpg.mvThemeCol_HeaderHovered, cfg_c["bg_menu_hover"]
-                            )
-                            dpg.add_theme_color(
-                                dpg.mvThemeCol_HeaderActive, cfg_c["bg_menu_active"]
-                            )
-
-                            # Target the dropdown items specifically
-                        with dpg.theme_component(dpg.mvMenu):
-                            dpg.add_theme_style(
-                                dpg.mvStyleVar_WindowPadding, *cfg_l["pad_menu_popup"]
-                            )
-                            dpg.add_theme_style(
-                                dpg.mvStyleVar_ItemSpacing, *cfg_l["space_menu_item"]
-                            )
-
-                        with dpg.theme_component(dpg.mvChildWindow):
-                            dpg.add_theme_color(
-                                dpg.mvThemeCol_ChildBg, cfg_c["bg_menubar"]
-                            )  # <-- Applied here
-                            # dpg.add_theme_color(
-                            #    dpg.mvThemeCol_ChildBg, cfg_c["bg_menu"]
-                            # )
-                            dpg.add_theme_style(
-                                dpg.mvStyleVar_ChildRounding, cfg_l["rounding"]
-                            )
-                            dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 0)
-                            dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
-
-                        with dpg.theme_component(dpg.mvMenuBar):
-                            dpg.add_theme_color(
-                                dpg.mvThemeCol_MenuBarBg, cfg_c["bg_menubar"]
-                            )  # <-- Applied here
-                            # dpg.add_theme_color(
-                            #    dpg.mvThemeCol_MenuBarBg, cfg_c["bg_menu"]
-                            # )
-                            dpg.add_theme_color(
-                                dpg.mvThemeCol_Border, cfg_c["transparent"]
-                            )
-                            dpg.add_theme_style(dpg.mvStyleVar_WindowBorderSize, 0)
-
-        # Left panel: Sidebar container
-        if not dpg.does_item_exist("sidebar_bg_theme"):
-            with dpg.theme(tag="sidebar_bg_theme"):
-                with dpg.theme_component(dpg.mvChildWindow):
-                    dpg.add_theme_color(dpg.mvThemeCol_ChildBg, cfg_c["bg_sidebar"])
-                    dpg.add_theme_color(dpg.mvThemeCol_Border, cfg_c["border_black"])
-                    dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 1)
-                    dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, cfg_l["rounding"])
-
-                # Left panel: Info inputs (read-only)
-                if not dpg.does_item_exist("sleek_readonly_theme"):
-                    with dpg.theme(tag="sleek_readonly_theme"):
-                        with dpg.theme_component(dpg.mvInputText):
-                            dpg.add_theme_color(
-                                dpg.mvThemeCol_FrameBg, cfg_c["transparent"]
-                            )
-                            dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 0)
-                            # Unpack the readonly padding
-                            dpg.add_theme_style(
-                                dpg.mvStyleVar_FramePadding,
-                                *cfg_l["pad_frame_readonly"],
-                            )
-
-        # Left panel: Active image list item
-        if not dpg.does_item_exist("active_image_list_theme"):
-            with dpg.theme(tag="active_image_list_theme"):
-                with dpg.theme_component(dpg.mvText):
-                    dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["text_active"])
-
-                # Left panel: Inner padding
-                if not dpg.does_item_exist("left_panel_padding_theme"):
-                    with dpg.theme(tag="left_panel_padding_theme"):
-                        with dpg.theme_component(dpg.mvAll):
-                            dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 12)
-                            # Unpack the general sidebar padding
-                            dpg.add_theme_style(
-                                dpg.mvStyleVar_FramePadding, *cfg_l["pad_frame_sidebar"]
-                            )
-
     # ==========================================
     # 2. LAYOUT BUILDERS
     # ==========================================
@@ -905,35 +778,6 @@ class MainGUI:
         if self.context_viewer:
             self.update_sidebar_info(self.context_viewer)
 
-    def refresh_sync_ui_OLD(self):
-        container = "sync_list_container"
-        if not dpg.does_item_exist(container):
-            return
-        dpg.delete_item(container, children_only=True)
-
-        max_active_group = max(
-            [vs.sync_group for vs in self.controller.view_states.values()] + [0]
-        )
-        num_groups = max(3, len(self.controller.view_states), max_active_group)
-        combo_items = ["None"] + [f"Group {i}" for i in range(1, num_groups + 1)]
-
-        with dpg.table(parent=container, header_row=False):
-            dpg.add_table_column(label="Image")
-            dpg.add_table_column(label="Group", width_fixed=True)
-
-            for vs_id, vs in self.controller.view_states.items():
-                with dpg.table_row():
-                    dpg.add_text(vs.volume.name)
-                    dpg.add_combo(
-                        items=combo_items,
-                        default_value=(
-                            "None" if not vs.sync_group else f"Group {vs.sync_group}"
-                        ),
-                        width=100,
-                        user_data=vs_id,
-                        callback=self.controller.on_sync_group_change,
-                    )
-
     @property
     def hovered_viewer(self):
         for viewer in self.controller.viewers.values():
@@ -972,50 +816,6 @@ class MainGUI:
 
             self.update_sidebar_crosshair(self.context_viewer)
 
-    def update_trackers_OLD2(self):
-        mode = self.controller.settings.data["interaction"].get(
-            "active_viewer_mode", "hybrid"
-        )
-        hover_viewer = self.hovered_viewer
-
-        # If strict hover mode is engaged, the Menu target actively follows the mouse
-        if mode == "hover":
-            if (
-                hover_viewer
-                and hover_viewer != self.context_viewer
-                and not self.drag_viewer
-            ):
-                self.set_context_viewer(hover_viewer)
-
-        # The green on-image text always dynamically updates for all viewers
-        for viewer in self.controller.viewers.values():
-            viewer.update_tracker()
-
-        # Update the sidebar's crosshair stats for the Active Menu Target
-        if self.context_viewer and not self.drag_viewer:
-            self.update_sidebar_crosshair(self.context_viewer)
-
-    def update_trackers_OLD(self):
-        hover_viewer = self.hovered_viewer
-        if (
-            hover_viewer
-            and hover_viewer != self.context_viewer
-            and not self.drag_viewer
-        ):
-            if self.context_viewer:
-                dpg.bind_item_theme(
-                    f"win_{self.context_viewer.tag}", "black_viewer_theme"
-                )
-
-            dpg.bind_item_theme(f"win_{hover_viewer.tag}", "active_black_viewer_theme")
-            self.highlight_active_image_in_list(hover_viewer.image_id)
-            self.update_sidebar_info(hover_viewer)
-            self.update_sidebar_crosshair(hover_viewer)
-            self.context_viewer = hover_viewer
-
-        for viewer in self.controller.viewers.values():
-            viewer.update_tracker()
-
     def update_sidebar_info(self, viewer):
         if not viewer or viewer.image_id is None:
             for t in [
@@ -1048,18 +848,22 @@ class MainGUI:
         if dpg.does_item_exist("text_fusion_base_image"):
             dpg.set_value("text_fusion_base_image", vol.name)
 
-        # 2. Toggle the Sync W/L checkbox (Disable if alone or Group 0)
-        group = viewer.view_state.sync_group
-        can_sync_wl = False
-        if group != 0:
-            members = sum(
-                1
-                for vs in self.controller.view_states.values()
-                if vs.sync_group == group
-            )
-            can_sync_wl = members > 1
-        if dpg.does_item_exist("check_sync_wl"):
-            dpg.configure_item("check_sync_wl", enabled=can_sync_wl)
+            # 2. Toggle the Sync W/L checkbox (Hide if alone or Group 0)
+            group = viewer.view_state.sync_group
+            can_sync_wl = False
+            if group != 0:
+                members = sum(
+                    1
+                    for vs in self.controller.view_states.values()
+                    if vs.sync_group == group
+                )
+                can_sync_wl = members > 1
+
+            if dpg.does_item_exist("check_sync_wl"):
+                # Force uncheck it if it becomes invalid, and completely hide it from the UI
+                if not can_sync_wl:
+                    dpg.set_value("check_sync_wl", False)
+                dpg.configure_item("check_sync_wl", show=can_sync_wl)
 
         is_rgb = getattr(vol, "is_rgb", False)
         for t in ["info_window", "info_level"]:
@@ -1103,65 +907,6 @@ class MainGUI:
             dpg.configure_item("input_overlay_threshold", enabled=has_overlay)
             if dpg.does_item_exist("combo_overlay_mode"):
                 dpg.configure_item("combo_overlay_mode", enabled=has_overlay)
-
-    def update_sidebar_info_OLD(self, viewer):
-        if not viewer or viewer.image_id is None:
-            for t in [
-                "info_name",
-                "info_size",
-                "info_spacing",
-                "info_origin",
-                "info_memory",
-            ]:
-                dpg.set_value(t, "")
-            return
-
-        vol = viewer.volume
-        dpg.set_value("info_name", vol.name)
-        dpg.set_value("info_name_label", viewer.tag)
-        dpg.set_value("info_voxel_type", f"{vol.pixel_type}")
-        dpg.set_value(
-            "info_size",
-            f"{vol.data.shape[2]} x {vol.data.shape[1]} x {vol.data.shape[0]}",
-        )
-        dpg.set_value("info_spacing", fmt(vol.spacing, 4))
-        dpg.set_value("info_origin", fmt(vol.origin, 2))
-        dpg.set_value("info_matrix", fmt(vol.matrix, 1))
-        dpg.set_value(
-            "info_memory",
-            f"{vol.sitk_image.GetNumberOfPixels():,} voxels    {vol.memory_mb:g} MB",
-        )
-
-        is_rgb = getattr(vol, "is_rgb", False)
-        for t in ["info_window", "info_level"]:
-            if dpg.does_item_exist(t):
-                dpg.configure_item(t, enabled=not is_rgb)
-                if is_rgb:
-                    dpg.set_value(t, "RGB")
-
-        if not is_rgb:
-            self.update_sidebar_window_level(viewer)
-
-        if dpg.does_item_exist("combo_overlay_select"):
-            options = ["None"]
-            for vid, ovs in self.controller.view_states.items():
-                if vid != viewer.image_id:
-                    options.append(f"{vid}: {ovs.volume.name}")
-
-            dpg.configure_item("combo_overlay_select", items=options)
-            current_sel = "None"
-            if viewer.view_state.overlay_id:
-                ovs_name = self.controller.view_states[
-                    viewer.view_state.overlay_id
-                ].volume.name
-                current_sel = f"{viewer.view_state.overlay_id}: {ovs_name}"
-            dpg.set_value("combo_overlay_select", current_sel)
-            dpg.set_value("slider_overlay_opacity", viewer.view_state.overlay_opacity)
-            dpg.set_value(
-                "input_overlay_threshold", viewer.view_state.overlay_threshold
-            )
-            if dpg.does_item_exist("combo_overlay_mode"):
-                dpg.set_value("combo_overlay_mode", viewer.view_state.overlay_mode)
 
     def update_sidebar_window_level(self, viewer):
         if not viewer or not viewer.view_state:
@@ -1232,26 +977,6 @@ class MainGUI:
             self.update_sidebar_info(viewer)
             self.update_sidebar_crosshair(viewer)
 
-    def set_context_viewer_OLD(self, viewer):
-        """Centralized helper to switch the Active Menu/Sidebar target."""
-        if self.context_viewer == viewer:
-            return
-
-        # Drop highlight from the old viewer
-        if self.context_viewer:
-            dpg.bind_item_theme(f"win_{self.context_viewer.tag}", "black_viewer_theme")
-
-        self.context_viewer = viewer
-
-        # Apply highlight and update sidebar logic for the new viewer
-        if self.context_viewer:
-            dpg.bind_item_theme(
-                f"win_{self.context_viewer.tag}", "active_black_viewer_theme"
-            )
-            self.highlight_active_image_in_list(viewer.image_id)
-            self.update_sidebar_info(viewer)
-            self.update_sidebar_crosshair(viewer)
-
     def get_interaction_target(self):
         """Resolves which viewer receives spatial shortcuts (Keys, Scrolls)."""
         mode = self.controller.settings.data["interaction"].get(
@@ -1311,24 +1036,6 @@ class MainGUI:
         for viewer in self.controller.viewers.values():
             viewer.resize(quad_w, quad_h)
 
-    def on_global_click_OLD(self, sender, app_data, user_data):
-        if app_data != dpg.mvMouseButton_Left:
-            return
-        viewer = self.hovered_viewer
-        if not viewer:
-            return
-
-        self.drag_viewer = viewer
-        if viewer.orientation != ViewMode.HISTOGRAM:
-            self.context_viewer = viewer
-            if not dpg.is_key_down(dpg.mvKey_LShift) and not dpg.is_key_down(
-                dpg.mvKey_LControl
-            ):
-                px, py = viewer.get_mouse_slice_coords(ignore_hover=True)
-                if px is not None:
-                    viewer.update_crosshair_data(px, py)
-                    self.controller.propagate_sync(viewer.image_id)
-
     def on_global_click(self, sender, app_data, user_data):
         if app_data != dpg.mvMouseButton_Left:
             return
@@ -1387,29 +1094,6 @@ class MainGUI:
             self.update_sidebar_info(self.drag_viewer)
             self.drag_viewer.last_dx, self.drag_viewer.last_dy = 0, 0
             self.drag_viewer = None
-
-    def on_global_scroll_OLD(self, sender, app_data, user_data):
-        if self.hovered_viewer:
-            is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(
-                dpg.mvKey_RControl
-            )
-            if is_ctrl:
-                self.hovered_viewer.on_zoom("in" if app_data > 0 else "out")
-            else:
-                self.hovered_viewer.on_scroll(int(app_data))
-
-    def on_key_press_OLD(self, sender, app_data, user_data):
-        is_cmd = dpg.is_key_down(dpg.mvKey_LWin) or dpg.is_key_down(dpg.mvKey_RWin)
-        is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(
-            dpg.mvKey_RControl
-        )
-
-        if app_data == dpg.mvKey_O and (is_ctrl or is_cmd):
-            self.on_open_file_clicked()
-            return
-
-        if self.hovered_viewer:
-            self.hovered_viewer.on_key_press(app_data)
 
     def on_image_viewer_toggle(self, sender, value, user_data):
         img_id, v_tag = user_data["img_id"], user_data["v_tag"]
