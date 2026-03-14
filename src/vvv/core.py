@@ -403,33 +403,6 @@ class ViewState:
 
         self.is_data_dirty = True
 
-    def set_overlay_OLD(self, other_vs_id, other_vol):
-        if other_vs_id is None or other_vol is None:
-            self.overlay_id = None
-            self.overlay_data = None
-            self.is_data_dirty = True
-            return
-
-        self.overlay_id = other_vs_id
-
-        if (
-            np.array_equal(self.volume.spacing, other_vol.spacing)
-            and np.array_equal(self.volume.origin, other_vol.origin)
-            and self.volume.sitk_image.GetSize() == other_vol.sitk_image.GetSize()
-        ):
-            self.overlay_data = other_vol.data
-            self.is_data_dirty = True
-            return
-
-        resampler = sitk.ResampleImageFilter()
-        resampler.SetReferenceImage(self.volume.sitk_image)
-        resampler.SetInterpolator(sitk.sitkNearestNeighbor)
-        resampler.SetDefaultPixelValue(0)
-
-        resampled_img = resampler.Execute(other_vol.sitk_image)
-        self.overlay_data = sitk.GetArrayFromImage(resampled_img)
-        self.is_data_dirty = True
-
     def init_default_window_level(self):
         total_pixels = self.volume.data.size
         max_sample_size = 100000
@@ -610,20 +583,6 @@ class VolumeData:
 
             return sitk.JoinSeries(imgs)
 
-    def read_image_from_disk_OLD(self, paths):
-        if len(paths) == 1:
-            sitk_img = sitk.ReadImage(paths[0])
-            dim = sitk_img.GetDimension()
-
-            if dim == 2:
-                sitk_img = sitk.JoinSeries([sitk_img])
-
-            return sitk_img
-        else:
-            # Natively stack multiple 3D files into a 4D SimpleITK Series!
-            imgs = [sitk.ReadImage(p) for p in paths]
-            return sitk.JoinSeries(imgs)
-
     def read_image_metadata(self):
         self.pixel_type = self.sitk_image.GetPixelIDTypeAsString()
         self.bytes_per_component = self.sitk_image.GetSizeOfPixelComponent()
@@ -688,119 +647,6 @@ class VolumeData:
     def reload(self):
         # Reload now strictly evaluates the entire series of 4D file paths!
         new_sitk = self.read_image_from_disk(self.file_paths)
-        new_shape = new_sitk.GetSize()
-        current_shape = self.sitk_image.GetSize()
-
-        if new_shape == current_shape:
-            self.sitk_image = new_sitk
-            self.data = sitk.GetArrayViewFromImage(self.sitk_image)
-            self.read_image_metadata()
-            return False
-        else:
-            self.__init__(self.path)
-            return True
-
-
-class VolumeData_OLD:
-    """Stores the immutable medical image data and physical metadata."""
-
-    def __init__(self, path):
-        self.path = path
-        self.name = os.path.basename(path)
-
-        # Physical data
-        self.sitk_image = self.read_image_from_disk(path)
-        self.data = sitk.GetArrayViewFromImage(self.sitk_image)
-
-        # Metadata
-        self.pixel_type = None
-        self.bytes_per_component = None
-        self.num_components = None
-        self.matrix = None
-        self.spacing = None
-        self.origin = None
-        self.memory_mb = None
-
-        # Geometry isolation
-        self.is_rgb = False
-        self.num_timepoints = 1
-        self.shape3d = (1, 1, 1)
-
-        self.read_image_metadata()
-
-    def read_image_from_disk(self, path):
-        sitk_img = sitk.ReadImage(path)
-        dim = sitk_img.GetDimension()
-
-        if dim == 2:
-            sitk_img = sitk.JoinSeries([sitk_img])
-
-        # Natively support reading 4D!
-        return sitk_img
-
-    def read_image_metadata(self):
-        self.pixel_type = self.sitk_image.GetPixelIDTypeAsString()
-        self.bytes_per_component = self.sitk_image.GetSizeOfPixelComponent()
-        self.num_components = self.sitk_image.GetNumberOfComponentsPerPixel()
-
-        raw_matrix = self.sitk_image.GetDirection()
-        if len(raw_matrix) == 9:
-            self.matrix = np.array(raw_matrix).reshape((3, 3))
-        elif len(raw_matrix) == 16:
-            # Drop the 4th time dimension from the spatial grid matrix
-            m = np.array(raw_matrix)
-            self.matrix = np.array(
-                [[m[0], m[1], m[2]], [m[4], m[5], m[6]], [m[8], m[9], m[10]]]
-            )
-        else:
-            self.matrix = np.eye(3)
-
-        self.inverse_matrix = np.linalg.inv(self.matrix)
-
-        # Only retain the strict 3D physical coordinate spacing/origin
-        self.spacing = np.array(self.sitk_image.GetSpacing()[:3])
-        self.origin = np.array(self.sitk_image.GetOrigin()[:3])
-
-        self.is_rgb = self.num_components in [3, 4]
-        shape = self.data.shape
-        self.num_timepoints = 1
-
-        # Safely isolate the Spatial 3D Shape from Time and Colors!
-        if self.is_rgb:
-            if len(shape) == 5:
-                self.num_timepoints = shape[0]
-                self.shape3d = shape[1:4]
-            else:
-                self.shape3d = shape[0:3]
-        else:
-            if len(shape) == 4:
-                self.num_timepoints = shape[0]
-                self.shape3d = shape[1:4]
-            else:
-                self.shape3d = shape[0:3]
-
-        bytes_per_pixel = self.bytes_per_component * self.num_components
-        self.memory_mb = (
-            self.sitk_image.GetNumberOfPixels() * bytes_per_pixel / (1024 * 1024)
-        )
-
-    def get_physical_aspect_ratio(self, orientation):
-        dx, dy, dz = self.spacing
-        if orientation == ViewMode.AXIAL:
-            return dx, dy
-        elif orientation == ViewMode.SAGITTAL:
-            return dy, dz
-        else:
-            return dx, dz
-
-    def voxel_coord_to_physic_coord(self, voxel):
-        return self.origin + self.matrix @ (voxel * self.spacing)
-
-    def physic_coord_to_voxel_coord(self, phys):
-        return (self.inverse_matrix @ (phys - self.origin)) / self.spacing
-
-    def reload(self):
-        new_sitk = self.read_image_from_disk(self.path)
         new_shape = new_sitk.GetSize()
         current_shape = self.sitk_image.GetSize()
 
@@ -1282,41 +1128,6 @@ class Controller:
                 if (
                     viewer.image_id in dirty_ids
                     or viewer.view_state.overlay_id in dirty_ids
-                ):
-                    viewer.update_render()
-                    viewer.is_geometry_dirty = True
-
-    def propagate_window_level_OLD(self, source_vs_id):
-        source_vs = self.view_states[source_vs_id]
-        import dearpygui.dearpygui as dpg
-
-        sync_wl = False
-        if dpg.does_item_exist("check_sync_wl"):
-            sync_wl = dpg.get_value("check_sync_wl")
-
-        target_group = source_vs.sync_group
-        if sync_wl and target_group != 0:
-            for target_id, vs in self.view_states.items():
-                if vs.sync_group == target_group and not getattr(
-                    vs.volume, "is_rgb", False
-                ):
-                    vs.ww = source_vs.ww
-                    vs.wl = source_vs.wl
-                    vs.base_threshold = source_vs.base_threshold
-                    vs.is_data_dirty = True
-        else:
-            source_vs.is_data_dirty = True
-
-        for viewer in self.viewers.values():
-            if viewer.view_state:
-                if (
-                    viewer.image_id == source_vs_id
-                    or (
-                        sync_wl
-                        and target_group != 0
-                        and viewer.view_state.sync_group == target_group
-                    )
-                    or viewer.view_state.overlay_id == source_vs_id
                 ):
                     viewer.update_render()
                     viewer.is_geometry_dirty = True
