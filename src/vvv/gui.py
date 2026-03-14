@@ -1143,6 +1143,7 @@ class MainGUI:
 
         if app_data == "None":
             viewer.view_state.set_overlay(None, None)
+            self.update_sidebar_info(viewer)
         else:
             target_id = app_data.split(":")[0]
             target_vol = self.controller.volumes[target_id]
@@ -1152,6 +1153,7 @@ class MainGUI:
                 time.sleep(0.05)
                 viewer.view_state.set_overlay(target_id, target_vol)
                 self.show_status_message("Overlay applied")
+                self.update_sidebar_info(viewer)
 
             threading.Thread(target=_resample, daemon=True).start()
 

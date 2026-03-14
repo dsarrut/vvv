@@ -348,6 +348,70 @@ class ViewState:
 
         self.overlay_id = other_vs_id
 
+        # 1. If the 3D spatial grid matches perfectly, skip resampling completely!
+        # (This prevents trying to resample a 3D image purely because the base is 4D)
+        if (
+            np.allclose(self.volume.spacing, other_vol.spacing, atol=1e-4)
+            and np.allclose(self.volume.origin, other_vol.origin, atol=1e-4)
+            and self.volume.shape3d == other_vol.shape3d
+        ):
+            self.overlay_data = other_vol.data
+            self.is_data_dirty = True
+            return
+
+        # 2. Resampling is required. We must strictly resample the 3D SPATIAL domain.
+        # SimpleITK cannot natively resample 4D onto 3D, so we build a clean 3D reference.
+        ref_img = sitk.Image(
+            int(self.volume.shape3d[2]),
+            int(self.volume.shape3d[1]),
+            int(self.volume.shape3d[0]),
+            sitk.sitkUInt8,
+        )
+        ref_img.SetSpacing(self.volume.spacing.tolist())
+        ref_img.SetOrigin(self.volume.origin.tolist())
+        ref_img.SetDirection(self.volume.matrix.flatten().tolist())
+
+        resampler = sitk.ResampleImageFilter()
+        resampler.SetReferenceImage(ref_img)
+        resampler.SetInterpolator(sitk.sitkNearestNeighbor)
+        resampler.SetDefaultPixelValue(0)
+
+        # 3. Resample the target volume frame by frame
+        target_dim = other_vol.sitk_image.GetDimension()
+
+        if target_dim == 3:
+            resampled_img = resampler.Execute(other_vol.sitk_image)
+            self.overlay_data = sitk.GetArrayFromImage(resampled_img)
+
+        elif target_dim == 4:
+            # Iterate through time, extracting and resampling each 3D frame
+            resampled_volumes = []
+            for t in range(other_vol.num_timepoints):
+                size = list(other_vol.sitk_image.GetSize())
+                size[3] = 0  # Collapse the 4th dimension for extraction
+                index = [0, 0, 0, t]
+                vol_3d = sitk.Extract(other_vol.sitk_image, size, index)
+
+                res_3d = resampler.Execute(vol_3d)
+                resampled_volumes.append(res_3d)
+
+            resampled_4d = sitk.JoinSeries(resampled_volumes)
+            self.overlay_data = sitk.GetArrayFromImage(resampled_4d)
+
+        else:
+            self.overlay_data = other_vol.data  # Fallback
+
+        self.is_data_dirty = True
+
+    def set_overlay_OLD(self, other_vs_id, other_vol):
+        if other_vs_id is None or other_vol is None:
+            self.overlay_id = None
+            self.overlay_data = None
+            self.is_data_dirty = True
+            return
+
+        self.overlay_id = other_vs_id
+
         if (
             np.array_equal(self.volume.spacing, other_vol.spacing)
             and np.array_equal(self.volume.origin, other_vol.origin)
