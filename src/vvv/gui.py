@@ -155,7 +155,7 @@ class MainGUI:
                         dpg.mvStyleVar_ItemSpacing, *cfg_l["space_menu_item"]
                     )
 
-                # THE FIX: Apply MenuBarBg directly to the ChildWindow component!
+                # Apply MenuBarBg directly to the ChildWindow component
                 with dpg.theme_component(dpg.mvChildWindow):
                     dpg.add_theme_color(dpg.mvThemeCol_ChildBg, cfg_c["bg_menubar"])
                     dpg.add_theme_color(dpg.mvThemeCol_MenuBarBg, cfg_c["bg_menubar"])
@@ -777,10 +777,11 @@ class MainGUI:
         dpg.set_value("info_name", vol.name)
         dpg.set_value("info_name_label", viewer.tag)
         dpg.set_value("info_voxel_type", f"{vol.pixel_type}")
-        dpg.set_value(
-            "info_size",
-            f"{vol.data.shape[2]} x {vol.data.shape[1]} x {vol.data.shape[0]}",
-        )
+        if vol.num_timepoints > 1:
+            size_str = f"{vol.shape3d[2]} x {vol.shape3d[1]} x {vol.shape3d[0]} x {vol.num_timepoints}"
+        else:
+            size_str = f"{vol.shape3d[2]} x {vol.shape3d[1]} x {vol.shape3d[0]}"
+        dpg.set_value("info_size", size_str)
         dpg.set_value("info_spacing", fmt(vol.spacing, 4))
         dpg.set_value("info_origin", fmt(vol.origin, 2))
         dpg.set_value("info_matrix", fmt(vol.matrix, 1))
@@ -873,7 +874,16 @@ class MainGUI:
         vs, vol = viewer.view_state, viewer.volume
 
         if vs.crosshair_voxel is not None:
-            dpg.set_value("info_vox", fmt(vs.crosshair_voxel, 1))
+            if vs.crosshair_voxel is not None:
+                if vol.num_timepoints > 1:
+                    dpg.set_value(
+                        "info_vox",
+                        f"[{vs.crosshair_voxel[0]:.1f}, {vs.crosshair_voxel[1]:.1f}, {vs.crosshair_voxel[2]:.1f}, t={vs.crosshair_voxel[3]}]",
+                    )
+                else:
+                    dpg.set_value("info_vox", fmt(vs.crosshair_voxel[:3], 1))
+
+                dpg.set_value("info_phys", fmt(vs.crosshair_phys_coord, 1))
             dpg.set_value("info_phys", fmt(vs.crosshair_phys_coord, 1))
             val_str = (
                 f"{vs.crosshair_value[0]:g} {vs.crosshair_value[1]:g} {vs.crosshair_value[2]:g}"
@@ -885,11 +895,21 @@ class MainGUI:
                 ix, iy, iz = [
                     int(np.clip(np.floor(c + 0.5), 0, limit - 1))
                     for c, limit in zip(
-                        vs.crosshair_voxel,
-                        [vol.data.shape[2], vol.data.shape[1], vol.data.shape[0]],
+                        vs.crosshair_voxel[:3],
+                        [vol.shape3d[2], vol.shape3d[1], vol.shape3d[0]],
                     )
                 ]
-                val_str += f" ({vs.overlay_data[iz, iy, ix]:g})"
+
+                # Fetch overlay using time limits
+                ovs = self.controller.view_states[vs.overlay_id]
+                ot = min(vs.time_idx, ovs.volume.num_timepoints - 1)
+
+                if ovs.volume.num_timepoints > 1:
+                    ov_val = vs.overlay_data[ot, iz, iy, ix]
+                else:
+                    ov_val = vs.overlay_data[iz, iy, ix]
+
+                val_str += f" ({ov_val:g})"
             dpg.set_value("info_val", val_str)
 
             ppm = viewer.get_pixels_per_mm()
@@ -1388,6 +1408,7 @@ class MainGUI:
                 files_processed += 1
             except Exception as e:
                 self.show_message("Load Error", f"Failed to load:\n{filename}")
+                yield
                 continue
 
             if task["fusion"]:
@@ -1422,6 +1443,7 @@ class MainGUI:
                     self.show_message(
                         "Overlay Error", f"Failed to load/fuse:\n{fuse_name}"
                     )
+                    yield
                     continue
 
         if dpg.does_item_exist("loading_text"):

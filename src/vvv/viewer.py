@@ -107,6 +107,9 @@ class SliceViewer:
         self.scale_bar_tag = f"scale_bar_node_{tag_id}"
         self.xh_initialized = False
 
+        self.quad_w = 100
+        self.quad_h = 100
+
         self.last_dy = 0
         self.last_dx = 0
         self.mapper = ViewportMapper()
@@ -124,7 +127,6 @@ class SliceViewer:
                 width=1, height=1, default_value=np.zeros(4), tag=self.texture_tag
             )
 
-    # --- DYNAMIC PROPERTY ROUTING ---
     @property
     def view_state(self):
         return self.controller.view_states.get(self.image_id) if self.image_id else None
@@ -179,15 +181,14 @@ class SliceViewer:
         if not self.volume:
             return 0
         if self.orientation == ViewMode.AXIAL:
-            return self.volume.data.shape[0]
+            return self.volume.shape3d[0]
         elif self.orientation == ViewMode.SAGITTAL:
-            return self.volume.data.shape[2]
+            return self.volume.shape3d[2]
         elif self.orientation == ViewMode.CORONAL:
-            return self.volume.data.shape[1]
+            return self.volume.shape3d[1]
         return 0
 
     def get_slice_shape(self):
-        """Helper to get dimensions quickly without reading 3D array memory."""
         if not self.view_state:
             return 1, 1
         return self.view_state.get_slice_shape(self.orientation)
@@ -204,30 +205,27 @@ class SliceViewer:
         if self.view_state:
             self.view_state.is_data_dirty = True
         self.update_render()
-        # Ensure scale bar and axes are drawn the moment the image loads
         self.is_geometry_dirty = True
 
     def set_current_slice_to_crosshair(self):
         if not self.view_state or not self.volume:
             return
-        vx, vy, vz = self.view_state.crosshair_voxel
+        vx, vy, vz = self.view_state.crosshair_voxel[:3]
         if self.orientation == ViewMode.AXIAL:
-            self.slice_idx = int(np.clip(vz, 0, self.volume.data.shape[0] - 1))
+            self.slice_idx = int(np.clip(vz, 0, self.volume.shape3d[0] - 1))
         elif self.orientation == ViewMode.SAGITTAL:
-            self.slice_idx = int(np.clip(vx, 0, self.volume.data.shape[2] - 1))
+            self.slice_idx = int(np.clip(vx, 0, self.volume.shape3d[2] - 1))
         elif self.orientation == ViewMode.CORONAL:
-            self.slice_idx = int(np.clip(vy, 0, self.volume.data.shape[1] - 1))
+            self.slice_idx = int(np.clip(vy, 0, self.volume.shape3d[1] - 1))
 
     def set_orientation(self, orientation):
         if self.orientation == orientation:
             return
 
-        # 1. Capture the current camera state before flipping the axes
         is_old_image = self.is_image_orientation()
         old_ppm = self.get_pixels_per_mm() if is_old_image else None
         old_center = self.get_center_physical_coord() if is_old_image else None
 
-        # 2. Apply the new orientation
         self.orientation = orientation
         if self.image_id:
             self.set_image(self.image_id)
@@ -235,14 +233,11 @@ class SliceViewer:
         if self.controller.gui:
             self.controller.gui.on_window_resize()
 
-        # 3. Re-apply the scale and center to the new perspective
         if self.is_image_orientation():
             if old_ppm and old_ppm > 0:
                 self.set_pixels_per_mm(old_ppm)
             if old_center is not None:
                 self.center_on_physical_coord(old_center)
-
-            # 4. Enforce the sync across the rest of the group to match this perspective
             self.controller.propagate_camera(self)
 
     def init_slice_texture(self):
@@ -412,6 +407,10 @@ class SliceViewer:
     def resize(self, quad_w, quad_h):
         if quad_w <= 0 or quad_h <= 0:
             return
+
+        self.quad_w = quad_w
+        self.quad_h = quad_h
+
         if not dpg.does_item_exist(f"win_{self.tag}"):
             return
 
@@ -452,7 +451,7 @@ class SliceViewer:
         real_h, real_w = shape[0], shape[1]
         sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
 
-        vx, vy, vz = self.view_state.crosshair_voxel
+        vx, vy, vz = self.view_state.crosshair_voxel[:3]
         tx, ty = voxel_to_slice(vx, vy, vz, self.orientation, shape)
 
         return self.mapper.calculate_center_pan(
@@ -506,7 +505,7 @@ class SliceViewer:
                 dpg.configure_item(self.xh_line_v, show=False)
             return
 
-        vx, vy, vz = self.view_state.crosshair_voxel
+        vx, vy, vz = self.view_state.crosshair_voxel[:3]
         shape = self.get_slice_shape()
         real_h, real_w = shape[0], shape[1]
 
@@ -564,9 +563,7 @@ class SliceViewer:
         if vox_w <= 0 or vox_h <= 0:
             return
 
-        win_w, win_h = dpg.get_item_width(f"win_{self.tag}"), dpg.get_item_height(
-            f"win_{self.tag}"
-        )
+        win_w, win_h = self.quad_w, self.quad_h
         if not win_w or not win_h:
             return
 
@@ -706,8 +703,7 @@ class SliceViewer:
         ):
             return
 
-        win_w = dpg.get_item_width(f"win_{self.tag}")
-        win_h = dpg.get_item_height(f"win_{self.tag}")
+        win_w, win_h = self.quad_w, self.quad_h
         if not win_w or not win_h:
             return
 
@@ -772,25 +768,22 @@ class SliceViewer:
         ):
             return
 
-        # Colorbars don't make sense for pre-baked RGB files
         if getattr(self.volume, "is_rgb", False):
             return
 
-        win_w = dpg.get_item_width(f"win_{self.tag}")
-        win_h = dpg.get_item_height(f"win_{self.tag}")
+        win_w = self.quad_w
+        win_h = self.quad_h
         if not win_w or not win_h:
             return
 
-        # Dimensions & Position (Right edge, vertically centered)
         cb_width = 15
         cb_height = int(win_h * 0.4)
         if cb_height < 50:
             return
 
-        x_start = win_w - cb_width - 55  # Leave space for text
+        x_start = win_w - cb_width - 55
         y_start = (win_h - cb_height) // 2
 
-        # 1. Draw subtle background for contrast against bright images
         bg_col = self.controller.settings.data["colors"]["legend_bg"]
         dpg.draw_rectangle(
             [x_start - 15, y_start - 20],
@@ -800,14 +793,12 @@ class SliceViewer:
             parent=self.legend_tag,
         )
 
-        # 2. Fetch active colormap
         from .core import COLORMAPS
 
         cmap = COLORMAPS.get(self.view_state.colormap, COLORMAPS["Grayscale"])
 
-        # 3. Draw Gradient (256 horizontal lines)
         for i in range(256):
-            y = y_start + cb_height - (i / 255.0) * cb_height  # High values at top
+            y = y_start + cb_height - (i / 255.0) * cb_height
             color = [int(c * 255) for c in cmap[i]]
             dpg.draw_line(
                 [x_start, y],
@@ -817,7 +808,6 @@ class SliceViewer:
                 parent=self.legend_tag,
             )
 
-        # 4. Draw Border
         border_col = [255, 255, 255, 120]
         dpg.draw_rectangle(
             [x_start, y_start],
@@ -826,7 +816,6 @@ class SliceViewer:
             parent=self.legend_tag,
         )
 
-        # 5. Draw Text (Window/Level mapping)
         ww, wl = self.view_state.ww, self.view_state.wl
         val_min = wl - ww / 2.0
         val_max = wl + ww / 2.0
@@ -854,10 +843,8 @@ class SliceViewer:
             parent=self.legend_tag,
         )
 
-        # 6. Draw dynamic marker for current pixel intensity
         val_to_mark = self.view_state.crosshair_value
         if val_to_mark is not None and isinstance(val_to_mark, (int, float, np.number)):
-            # Normalize the physical value between 0.0 and 1.0 using the current W/L
             norm = (val_to_mark - val_min) / max(1e-5, ww)
             norm = np.clip(norm, 0.0, 1.0)
             y_pos = y_start + cb_height - (norm * cb_height)
@@ -869,7 +856,6 @@ class SliceViewer:
                 thickness=1,
                 parent=self.legend_tag,
             )
-            # Draw a tiny triangle pointer
             dpg.draw_triangle(
                 [x_start - 5, y_pos],
                 [x_start - 11, y_pos - 4],
@@ -903,9 +889,7 @@ class SliceViewer:
         ):
             return False
 
-        win_w, win_h = dpg.get_item_width(f"win_{self.tag}"), dpg.get_item_height(
-            f"win_{self.tag}"
-        )
+        win_w, win_h = self.quad_w, self.quad_h
         if not win_w or not win_h:
             return False
 
@@ -939,17 +923,23 @@ class SliceViewer:
         if disp_w <= 0 or disp_h <= 0:
             return
 
-        win_w = dpg.get_item_width(f"win_{self.tag}")
-        win_h = dpg.get_item_height(f"win_{self.tag}")
+        win_w = self.quad_w
+        win_h = self.quad_h
         if not win_w or not win_h:
             return
 
-        # Choose whether to sample the base CT or the Overlay PET
         if target == "overlay":
             if not self.view_state.overlay_id or self.view_state.overlay_data is None:
                 return
+            ov_vol = self.controller.volumes[self.view_state.overlay_id]
+            is_ov_rgb = getattr(ov_vol, "is_rgb", False)
+            ov_time_idx = min(self.view_state.time_idx, ov_vol.num_timepoints - 1)
             slice_data = SliceRenderer.extract_slice(
-                self.view_state.overlay_data, self.slice_idx, self.orientation
+                self.view_state.overlay_data,
+                is_ov_rgb,
+                ov_time_idx,
+                self.slice_idx,
+                self.orientation,
             )
         else:
             if getattr(self.volume, "is_rgb", False):
@@ -960,12 +950,9 @@ class SliceViewer:
             return
 
         real_h, real_w = slice_data.shape[:2]
-
-        # Define the sampling box as a fraction of the physical screen viewport
         screen_radius_x = (win_w * fov_fraction) / 2.0
         screen_radius_y = (win_h * fov_fraction) / 2.0
 
-        # Translate the screen radius into voxel units, ensuring at least 1 voxel
         vx_r_x = max(1, int((screen_radius_x / disp_w) * real_w))
         vx_r_y = max(1, int((screen_radius_y / disp_h) * real_h))
 
@@ -977,7 +964,6 @@ class SliceViewer:
 
         patch = slice_data[y0:y1, x0:x1]
 
-        # MATH FIX: Strip out background noise so it doesn't pull the 2nd percentile to 0
         if target == "overlay":
             thr = self.view_state.overlay_threshold
             patch = patch[patch >= thr]
@@ -993,7 +979,6 @@ class SliceViewer:
                 ovs.wl = wl
                 self.controller.propagate_window_level(self.view_state.overlay_id)
 
-                # If the UI sidebar happens to be looking at the overlay image, sync its text boxes
                 if (
                     self.controller.gui
                     and self.controller.gui.context_viewer
@@ -1030,32 +1015,24 @@ class SliceViewer:
             )
 
     def tick(self):
-        """Called every frame. Evaluates dirty flags and updates rendering."""
         if not self.view_state:
             return False
 
         did_update_data = False
 
-        # 1. Handle Data / Pixel Changes
         if self.view_state.is_data_dirty:
             self.update_render()
-            self.is_geometry_dirty = (
-                True  # Force overlays to update over new pixel data
-            )
+            self.is_geometry_dirty = True
             did_update_data = True
 
-        # 2. Handle Window Resize / Pan / Zoom
         if self.is_geometry_dirty:
-            win_w = dpg.get_item_width(f"win_{self.tag}")
-            win_h = dpg.get_item_height(f"win_{self.tag}")
-            self.resize(win_w, win_h)
+            self.resize(self.quad_w, self.quad_h)
             self.update_stuff_in_image_only()
             self.is_geometry_dirty = False
 
         return did_update_data
 
     def update_render(self):
-        """Reslices the 3D volume and pushes the flat pixel array to the GPU."""
         if self.image_id is None or not self.volume or not self.view_state:
             return
 
@@ -1073,20 +1050,20 @@ class SliceViewer:
             if dpg.does_item_exist(plot_tag):
                 dpg.configure_item(plot_tag, show=False)
 
-        # THIS IS THE SLOWEST LINE IN THE APP:
-        # rgba_flat, _ = self.view_state.get_slice_rgba(self.slice_idx, self.orientation)
-
-        # Check if we have a valid overlay and get its visual parameters
         over_data = self.view_state.overlay_data
+        over_is_rgb = False
         over_ww, over_wl, over_cmap = 1.0, 0.5, "Hot"
+        over_time_idx = 0
+
         if (
             over_data is not None
             and self.view_state.overlay_id in self.controller.view_states
         ):
             ovs = self.controller.view_states[self.view_state.overlay_id]
+            over_is_rgb = getattr(ovs.volume, "is_rgb", False)
             over_ww, over_wl, over_cmap = ovs.ww, ovs.wl, ovs.colormap
+            over_time_idx = min(self.view_state.time_idx, ovs.volume.num_timepoints - 1)
 
-        # Generate the fused pixel array
         rgba_flat, _ = SliceRenderer.get_slice_rgba(
             self.volume.data,
             getattr(self.volume, "is_rgb", False),
@@ -1095,33 +1072,32 @@ class SliceViewer:
             self.view_state.wl,
             self.view_state.colormap,
             self.view_state.base_threshold,
+            self.view_state.time_idx,
             over_data,
+            over_is_rgb,
             over_ww,
             over_wl,
             over_cmap,
             self.view_state.overlay_opacity,
             self.view_state.overlay_threshold,
             self.view_state.overlay_mode,
+            over_time_idx,
             self.slice_idx,
             self.orientation,
         )
 
-        # Cache this flat array so overlays can use it during zooming without reslicing!
         self.last_rgba_flat = rgba_flat
 
-        # Push strictly the texture to the GPU. Overlays are handled elsewhere.
         if dpg.does_item_exist(self.image_tag):
             dpg.set_value(self.texture_tag, rgba_flat)
 
     def update_stuff_in_image_only(self):
-        """Redraws grids, axes, scalebar, and strips WITHOUT re-slicing the 3D volume."""
         if not self.is_image_orientation() or not self.view_state or not self.volume:
             return
 
         shape = self.get_slice_shape()
         h, w = shape[0], shape[1]
 
-        # 1. Update Voxel Strips (If zoomed in very far)
         if self.should_use_voxels_strips() and hasattr(self, "last_rgba_flat"):
             dpg.configure_item(self.image_tag, show=False)
             self.draw_voxels_as_strips(self.last_rgba_flat, h, w)
@@ -1130,7 +1106,6 @@ class SliceViewer:
                 dpg.configure_item(self.active_strips_node, show=False)
             dpg.configure_item(self.image_tag, show=True)
 
-        # 2. Update Overlay Geometries
         if self.view_state.grid_mode:
             self.draw_voxel_grid(h, w)
         elif dpg.does_item_exist(self.active_grid_node):
@@ -1171,32 +1146,37 @@ class SliceViewer:
         idx = self.slice_idx
         shape = self.get_slice_shape()
 
-        # 1. Screen to continuous voxel, then to continuous physical coordinate
         v = slice_to_voxel(pix_x, pix_y, idx, self.orientation, shape)
-        phys = self.volume.voxel_coord_to_physic_coord(v)
+        phys = self.volume.voxel_coord_to_physic_coord(np.array(v))
 
-        # 2. Robust snap to nearest voxel center
         ix = int(np.floor(v[0] + 0.5))
         iy = int(np.floor(v[1] + 0.5))
         iz = int(np.floor(v[2] + 0.5))
 
-        max_z, max_y, max_x = self.volume.data.shape[:3]
+        max_z, max_y, max_x = self.volume.shape3d
         col = self.controller.settings.data["colors"]["tracker_text"]
         dpg.configure_item(self.tracker_tag, color=col)
 
         if 0 <= ix < max_x and 0 <= iy < max_y and 0 <= iz < max_z:
-            val = self.volume.data[iz, iy, ix]
-            self.mouse_value, self.mouse_voxel, self.mouse_phys_coord = val, v, phys
+            if self.volume.num_timepoints > 1:
+                val = self.volume.data[self.view_state.time_idx, iz, iy, ix]
+            else:
+                val = self.volume.data[iz, iy, ix]
+
+            self.mouse_value, self.mouse_voxel, self.mouse_phys_coord = (
+                val,
+                [v[0], v[1], v[2], self.view_state.time_idx],
+                phys,
+            )
+
             val_str = (
                 f"{val[0]:g} {val[1]:g} {val[2]:g}"
                 if getattr(self.volume, "is_rgb", False)
                 else f"{val:g}"
             )
 
-            # Format text block
             text_lines = [f"{val_str}"]
 
-            # 3. Fetch true fusion value using the original volume via inverse matrix
             if (
                 self.view_state.overlay_id
                 and self.view_state.overlay_id in self.controller.volumes
@@ -1204,28 +1184,34 @@ class SliceViewer:
                 ov_vol = self.controller.volumes[self.view_state.overlay_id]
                 ov_vox = ov_vol.physic_coord_to_voxel_coord(phys)
 
-                # Snap the overlay voxel
                 ox = int(np.floor(ov_vox[0] + 0.5))
                 oy = int(np.floor(ov_vox[1] + 0.5))
                 oz = int(np.floor(ov_vox[2] + 0.5))
-                mz, my, mx = ov_vol.data.shape[:3]
+                mz, my, mx = ov_vol.shape3d
 
-                # Only append the overlay value if we are actually hovering over its bounding box
                 if 0 <= ox < mx and 0 <= oy < my and 0 <= oz < mz:
-                    text_lines[0] += f" ({ov_vol.data[oz, oy, ox]:g})"
+                    ot = min(self.view_state.time_idx, ov_vol.num_timepoints - 1)
+                    if ov_vol.num_timepoints > 1:
+                        ov_val = ov_vol.data[ot, oz, oy, ox]
+                    else:
+                        ov_val = ov_vol.data[oz, oy, ox]
+                    text_lines[0] += f" ({ov_val:g})"
 
-            text_lines.append(fmt(v, 1))
+            if self.volume.num_timepoints > 1:
+                text_lines.append(
+                    f"[{v[0]:.1f}, {v[1]:.1f}, {v[2]:.1f}, t={self.view_state.time_idx}]"
+                )
+            else:
+                text_lines.append(fmt(v, 1))
+
             text_lines.append(f"{fmt(phys, 1)} mm")
             dpg.set_value(self.tracker_tag, "\n".join(text_lines))
-            # self.draw_legend(hover_val=val)
         else:
             dpg.set_value(self.tracker_tag, "Out of image")
-            # self.draw_legend(hover_val=None)
 
-        win_h = dpg.get_item_height(f"win_{self.tag}")
+        win_h = self.quad_h
         ts = dpg.get_item_rect_size(self.tracker_tag)
         dpg.set_item_pos(
-            # self.tracker_tag, [5, win_h - (ts[1] if ts[1] > 0 else 60) - 5]
             self.tracker_tag,
             [8, win_h - (ts[1] if ts[1] > 0 else 80) - 15],
         )
@@ -1234,18 +1220,14 @@ class SliceViewer:
         if not self.view_state:
             return
 
-        # Helper to resolve string shortcuts to DPG keycodes dynamically
         def _k(action):
             val = self.controller.settings.data["shortcuts"].get(action)
-            # If it's a string ("W"), append mvKey_. If it's an int (517), pass it through.
             return getattr(dpg, f"mvKey_{val}", val) if isinstance(val, str) else val
 
-        # Handle next_image before the safety check, so we can Tab into an empty viewer
         if key == _k("next_image"):
             next_id = self.controller.get_next_image_id(self.image_id)
             if next_id and next_id != self.image_id:
                 self.set_image(next_id)
-                # Tell the GUI to update the checkboxes and sidebar
                 if self.controller.gui:
                     self.controller.gui.refresh_image_list_ui()
                     if self.controller.gui.context_viewer == self:
@@ -1273,7 +1255,10 @@ class SliceViewer:
             self.on_scroll(
                 -self.controller.settings.data["interaction"]["fast_scroll_steps"]
             )
-            self.on_scroll(-10)
+        elif key == _k("time_forward"):
+            self.on_time_scroll(1)
+        elif key == _k("time_backward"):
+            self.on_time_scroll(-1)
         elif key == _k("zoom_in"):
             self.on_zoom("in")
         elif key == _k("zoom_out"):
@@ -1335,6 +1320,20 @@ class SliceViewer:
         self.controller.propagate_sync(self.image_id)
         self.view_state.is_data_dirty = True
 
+    def on_time_scroll(self, delta):
+        if self.image_id is None or not self.view_state or not self.volume:
+            return
+        nt = self.volume.num_timepoints
+        if nt <= 1:
+            return
+
+        # Loop the time index
+        self.view_state.time_idx = (self.view_state.time_idx + delta) % nt
+
+        self.update_crosshair_from_slice()
+        self.controller.propagate_sync(self.image_id)
+        self.view_state.is_data_dirty = True
+
     def on_drag(self, data):
         if (
             self.image_id is None
@@ -1386,8 +1385,8 @@ class SliceViewer:
         self.pan_offset[1] += dy
 
         if self.view_state.sync_group == 0:
-            win_w = dpg.get_item_width(f"win_{self.tag}")
-            win_h = dpg.get_item_height(f"win_{self.tag}")
+            win_w = self.quad_w
+            win_h = self.quad_h
             if win_w and win_h:
                 sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
                 shape = self.get_slice_shape()

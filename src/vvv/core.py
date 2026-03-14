@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 import copy
 import json
+import glob
+import shlex
 from vvv.utils import ViewMode, slice_to_voxel
 
 DEFAULT_SETTINGS = {
@@ -39,12 +41,13 @@ DEFAULT_SETTINGS = {
         "toggle_legend": "L",
         "toggle_grid": "G",
         "hide_all": "H",
+        "time_forward": "Right",
+        "time_backward": "Left",
     },
     "interaction": {
         "zoom_speed": 1.1,
         "fast_scroll_steps": 10,
         "wl_drag_sensitivity": 2.0,
-        # Modes: "hybrid", "click", "hover"
         "active_viewer_mode": "hybrid",
     },
     "layout": {"window_width": 1200, "window_height": 1000, "side_panel_width": 300},
@@ -63,59 +66,48 @@ WL_PRESETS = {
 
 
 def generate_colormaps():
-    """Generates standard mathematical LUTs (Look-Up Tables) to avoid heavy dependencies."""
     cmaps = {}
     x = np.linspace(0, 1, 256)
     ones = np.ones(256)
 
-    # 1. Grayscale
     cmaps["Grayscale"] = np.column_stack([x, x, x, ones]).astype(np.float32)
 
-    # 2. Hot (Black -> Red -> Yellow -> White)
     r = np.clip(3 * x, 0, 1)
     g = np.clip(3 * x - 1, 0, 1)
     b = np.clip(3 * x - 2, 0, 1)
     cmaps["Hot"] = np.column_stack([r, g, b, ones]).astype(np.float32)
 
-    # 3. Cold (Black -> Blue -> Cyan -> White)
     cmaps["Cold"] = np.column_stack([b, g, r, ones]).astype(np.float32)
 
-    # 4. Jet / Rainbow
     r = np.clip(1.5 - np.abs(4 * x - 3), 0, 1)
     g = np.clip(1.5 - np.abs(4 * x - 2), 0, 1)
     b = np.clip(1.5 - np.abs(4 * x - 1), 0, 1)
     cmaps["Jet"] = np.column_stack([r, g, b, ones]).astype(np.float32)
 
-    # 5. Dosimetry (Blue -> Green -> Red wash)
     r = np.clip(4 * x - 1.5, 0, 1)
     g = np.clip(2 - np.abs(4 * x - 2), 0, 1)
     b = np.clip(2.5 - 4 * x, 0, 1)
     cmaps["Dosimetry"] = np.column_stack([r, g, b, ones]).astype(np.float32)
 
-    # 6. Segmentation (Random high-contrast colors, Black background)
-    np.random.seed(42)  # Fixed seed so colors stay consistent between sessions
+    np.random.seed(42)
     seg_r = np.random.rand(256)
     seg_g = np.random.rand(256)
     seg_b = np.random.rand(256)
-    seg_r[0], seg_g[0], seg_b[0] = 0, 0, 0  # 0 is always transparent black
+    seg_r[0], seg_g[0], seg_b[0] = 0, 0, 0
     cmaps["Segmentation"] = np.column_stack([seg_r, seg_g, seg_b, ones]).astype(
         np.float32
     )
 
-    # 7. Registration (Elekta XVI style: Green -> Gray/White -> Pink)
-    # Registration (Green [Base+] <-> Gray [0] <-> Pink [Over+])
     x = np.linspace(0, 1, 256)
-    # Green component: High at low values (Base higher)
     g = np.where(x < 0.5, 0.5 + (0.5 - x), 0.5 - (x - 0.5))
-    # Red/Blue components: High at high values (Overlay higher) to make Pink/Magenta
     rb = np.where(x > 0.5, 0.5 + (x - 0.5), 0.5 - (0.5 - x))
 
     cmaps["Registration"] = np.column_stack(
         [
-            np.clip(rb, 0, 1),  # Red
-            np.clip(g, 0, 1),  # Green
-            np.clip(rb, 0, 1),  # Blue
-            ones,  # Alpha
+            np.clip(rb, 0, 1),
+            np.clip(g, 0, 1),
+            np.clip(rb, 0, 1),
+            ones,
         ]
     ).astype(np.float32)
 
@@ -127,7 +119,6 @@ COLORMAPS = generate_colormaps()
 
 class SettingsManager:
     def __init__(self):
-        # Platform-specific path
         if os.name == "nt":
             self.config_dir = Path(os.getenv("APPDATA")) / "VVV"
         else:
@@ -138,7 +129,6 @@ class SettingsManager:
         self.load()
 
     def _deep_update(self, default_dict, user_dict):
-        """Recursively merges user settings into defaults, preserving new keys."""
         for key, value in user_dict.items():
             if (
                 isinstance(value, dict)
@@ -153,30 +143,26 @@ class SettingsManager:
         if self.config_path.exists():
             try:
                 with open(self.config_path, "r") as f:
-                    # 1. Load the JSON from the file into the variable
                     user_settings = json.load(f)
-
-                    # 2. Recursively merge it into the default data
                     self._deep_update(self.data, user_settings)
             except Exception as e:
                 print(f"Error loading settings: {e}")
 
     def reset(self):
-        """Restores the data dictionary to default values."""
         self.data = copy.deepcopy(DEFAULT_SETTINGS)
 
     def save(self):
         self.config_dir.mkdir(parents=True, exist_ok=True)
         with open(self.config_path, "w") as f:
             json.dump(self.data, f, indent=4)
-        return str(self.config_path)  # Return the path for the UI hint
+        return str(self.config_path)
 
 
 class ViewState:
     """Stores all transient UI and camera parameters."""
 
     def __init__(self, volume):
-        self.volume = volume  # Immutable physical data
+        self.volume = volume
         self.is_data_dirty = True
 
         self.ww = 2000.0
@@ -190,9 +176,9 @@ class ViewState:
         }
 
         self.slices = {
-            ViewMode.AXIAL: self.volume.data.shape[0] // 2,
-            ViewMode.SAGITTAL: self.volume.data.shape[1] // 2,
-            ViewMode.CORONAL: self.volume.data.shape[2] // 2,
+            ViewMode.AXIAL: self.volume.shape3d[0] // 2,
+            ViewMode.SAGITTAL: self.volume.shape3d[2] // 2,
+            ViewMode.CORONAL: self.volume.shape3d[1] // 2,
         }
 
         self.crosshair_phys_coord = None
@@ -208,36 +194,34 @@ class ViewState:
         self.show_legend = False
         self.colormap = "Grayscale"
         self.base_threshold = -1e8
+        self.time_idx = 0
 
-        # Overlay / Fusion Data
         self.overlay_id = None
         self.overlay_data = None
         self.overlay_opacity = 0.5
         self.overlay_mode = "Alpha"
         self.overlay_threshold = -1
 
-        # Histogram
         self.hist_data_x = []
         self.hist_data_y = []
         self.bin_width = 10.0
         self.use_log_y = False
         self.histogram_is_dirty = True
 
-        # Syncing
         self.sync_group = 0
 
         self.init_crosshair_to_slices()
         self.init_default_window_level()
 
     def get_slice_shape(self, orientation):
-        """Returns the 2D shape (h, w) of the current slice without extracting pixel data."""
-        data = self.volume.data
+        """Returns the 2D shape (h, w) of the current slice."""
+        sh = self.volume.shape3d
         if orientation == ViewMode.AXIAL:
-            return data.shape[1], data.shape[2]
+            return sh[1], sh[2]
         elif orientation == ViewMode.SAGITTAL:
-            return data.shape[0], data.shape[1]
+            return sh[0], sh[1]
         elif orientation == ViewMode.CORONAL:
-            return data.shape[0], data.shape[2]
+            return sh[0], sh[2]
         return 1, 1
 
     def init_crosshair_to_slices(self):
@@ -245,15 +229,21 @@ class ViewState:
             self.slices[ViewMode.CORONAL],
             self.slices[ViewMode.SAGITTAL],
             self.slices[ViewMode.AXIAL],
+            self.time_idx,
         ]
         self.crosshair_phys_coord = self.volume.voxel_coord_to_physic_coord(
-            self.crosshair_voxel
+            np.array(self.crosshair_voxel[:3])
         )
-        ix, iy, iz = self.crosshair_voxel
-        self.crosshair_value = self.volume.data[iz, iy, ix]
+
+        v = self.crosshair_voxel
+        ix, iy, iz = int(v[0]), int(v[1]), int(v[2])
+        if self.volume.num_timepoints > 1:
+            self.crosshair_value = self.volume.data[self.time_idx, iz, iy, ix]
+        else:
+            self.crosshair_value = self.volume.data[iz, iy, ix]
 
     def update_crosshair_from_slice_scroll(self, new_slice_idx, orientation):
-        vx, vy, vz = self.crosshair_voxel
+        vx, vy, vz = self.crosshair_voxel[:3]
         if orientation == ViewMode.AXIAL:
             vz = new_slice_idx
         elif orientation == ViewMode.SAGITTAL:
@@ -261,43 +251,51 @@ class ViewState:
         elif orientation == ViewMode.CORONAL:
             vy = new_slice_idx
 
-        new_v = [vx, vy, vz]
+        new_v = [vx, vy, vz, self.time_idx]
         self.crosshair_voxel = new_v
         self.crosshair_phys_coord = self.volume.voxel_coord_to_physic_coord(
-            np.array(new_v)
+            np.array(new_v[:3])
         )
         ix, iy, iz = [
             int(np.clip(np.floor(c + 0.5), 0, limit - 1))
             for c, limit in zip(
-                new_v,
+                new_v[:3],
                 [
-                    self.volume.data.shape[2],
-                    self.volume.data.shape[1],
-                    self.volume.data.shape[0],
+                    self.volume.shape3d[2],
+                    self.volume.shape3d[1],
+                    self.volume.shape3d[0],
                 ],
             )
         ]
-        self.crosshair_value = self.volume.data[iz, iy, ix]
+        if self.volume.num_timepoints > 1:
+            self.crosshair_value = self.volume.data[self.time_idx, iz, iy, ix]
+        else:
+            self.crosshair_value = self.volume.data[iz, iy, ix]
 
     def update_crosshair_from_2d(self, slice_x, slice_y, slice_idx, orientation):
         shape = self.get_slice_shape(orientation)
 
         v = slice_to_voxel(slice_x, slice_y, slice_idx, orientation, shape)
-        self.crosshair_voxel = list(v)
-        self.crosshair_phys_coord = self.volume.voxel_coord_to_physic_coord(np.array(v))
+        self.crosshair_voxel = [v[0], v[1], v[2], self.time_idx]
+        self.crosshair_phys_coord = self.volume.voxel_coord_to_physic_coord(
+            np.array(v[:3])
+        )
 
         ix, iy, iz = [
             int(np.clip(np.floor(c + 0.5), 0, limit - 1))
             for c, limit in zip(
                 v,
                 [
-                    self.volume.data.shape[2],
-                    self.volume.data.shape[1],
-                    self.volume.data.shape[0],
+                    self.volume.shape3d[2],
+                    self.volume.shape3d[1],
+                    self.volume.shape3d[0],
                 ],
             )
         ]
-        self.crosshair_value = self.volume.data[iz, iy, ix]
+        if self.volume.num_timepoints > 1:
+            self.crosshair_value = self.volume.data[self.time_idx, iz, iy, ix]
+        else:
+            self.crosshair_value = self.volume.data[iz, iy, ix]
 
     def reset_view(self):
         self.zoom = {ViewMode.AXIAL: 1.0, ViewMode.SAGITTAL: 1.0, ViewMode.CORONAL: 1.0}
@@ -307,9 +305,9 @@ class ViewState:
             ViewMode.CORONAL: [0, 0],
         }
         self.slices = {
-            ViewMode.AXIAL: self.volume.data.shape[0] // 2,
-            ViewMode.SAGITTAL: self.volume.data.shape[1] // 2,
-            ViewMode.CORONAL: self.volume.data.shape[2] // 2,
+            ViewMode.AXIAL: self.volume.shape3d[0] // 2,
+            ViewMode.SAGITTAL: self.volume.shape3d[2] // 2,
+            ViewMode.CORONAL: self.volume.shape3d[1] // 2,
         }
         self.init_crosshair_to_slices()
         self.is_data_dirty = True
@@ -324,7 +322,6 @@ class ViewState:
             self.ww = max(1e-5, p98 - p2)
             self.wl = (p98 + p2) / 2
         elif "Min/Max" in preset_name:
-            # Cast to float to prevent int16 overflow on medical images!
             min_v = float(np.min(self.volume.data))
             max_v = float(np.max(self.volume.data))
             self.ww = max(1e-5, max_v - min_v)
@@ -343,9 +340,6 @@ class ViewState:
         self.histogram_is_dirty = False
 
     def set_overlay(self, other_vs_id, other_vol):
-        """
-        Resamples a secondary VolumeData onto this ViewState's exact physical grid using SimpleITK.
-        """
         if other_vs_id is None or other_vol is None:
             self.overlay_id = None
             self.overlay_data = None
@@ -354,7 +348,6 @@ class ViewState:
 
         self.overlay_id = other_vs_id
 
-        # Fast path: If the physical grids are exactly identical, just copy the numpy array reference
         if (
             np.array_equal(self.volume.spacing, other_vol.spacing)
             and np.array_equal(self.volume.origin, other_vol.origin)
@@ -364,16 +357,11 @@ class ViewState:
             self.is_data_dirty = True
             return
 
-        # Slow path: Resample the moving image onto the fixed image's physical grid
-        # Use linear for smooth medical overlays?
         resampler = sitk.ResampleImageFilter()
         resampler.SetReferenceImage(self.volume.sitk_image)
-        # resampler.SetInterpolator(sitk.sitkLinear)
-        # keep NN resampling NN to avoid interpolated pixel intensities
         resampler.SetInterpolator(sitk.sitkNearestNeighbor)
-        resampler.SetDefaultPixelValue(0)  # Warning, wrong for CT # how to deal ?
+        resampler.SetDefaultPixelValue(0)
 
-        # Execute resampling (need a *copy* not GetArrayViewFromImage)
         resampled_img = resampler.Execute(other_vol.sitk_image)
         self.overlay_data = sitk.GetArrayFromImage(resampled_img)
         self.is_data_dirty = True
@@ -423,7 +411,7 @@ class ViewState:
         image_shape = self.volume.data.shape
 
         if len(image_shape) == 3 and image_shape[0] > 300:
-            preset = {"ww": 600, "wl": 0}  # Special internal fallback for whole body
+            preset = {"ww": 600, "wl": 0}
         elif data_range > 1500:
             preset = WL_PRESETS["CT: Bone"]
         elif p5 < -800:
@@ -440,12 +428,215 @@ class ViewState:
         return SliceRenderer.get_raw_slice(
             self.volume.data,
             getattr(self.volume, "is_rgb", False),
+            self.time_idx,
             slice_idx,
             orientation,
         )
 
 
 class VolumeData:
+    """Stores the immutable medical image data and physical metadata."""
+
+    def __init__(self, path):
+        self.path = path
+        self.file_paths = []
+
+        # 1. Evaluate if a 4D sequence is requested
+        is_4d = False
+        if isinstance(path, str) and path.startswith("4D:"):
+            is_4d = True
+            path = path[3:].strip()
+
+        # 2. Safely resolve the paths (Directory, Glob, or Shell Expansion)
+        if is_4d:
+            if os.path.isdir(path):
+                valid_exts = (
+                    ".mhd",
+                    ".nii",
+                    ".nii.gz",
+                    ".nrrd",
+                    ".dcm",
+                    ".hdr",
+                    ".img",
+                )
+                self.file_paths = sorted(
+                    [
+                        os.path.join(path, f)
+                        for f in os.listdir(path)
+                        if f.lower().endswith(valid_exts)
+                    ]
+                )
+            elif "*" in path or "?" in path:
+                self.file_paths = sorted(glob.glob(path))
+            else:
+                # shlex cleanly separates paths while respecting quotes if the shell expanded them
+                tokens = shlex.split(path)
+                valid_files = [f for f in tokens if os.path.isfile(f)]
+                if valid_files:
+                    self.file_paths = sorted(valid_files)
+                else:
+                    self.file_paths = [path]  # Fallback
+        else:
+            self.file_paths = [path]
+
+        if not self.file_paths:
+            raise FileNotFoundError(f"No files found for path: {self.path}")
+
+        # 3. Create a clean display name
+        self.name = os.path.basename(self.file_paths[0])
+        if is_4d and len(self.file_paths) > 1:
+            self.name += f" (+{len(self.file_paths)-1})"
+
+        # Physical data
+        self.sitk_image = self.read_image_from_disk(self.file_paths)
+        self.data = sitk.GetArrayViewFromImage(self.sitk_image)
+
+        # Metadata
+        self.pixel_type = None
+        self.bytes_per_component = None
+        self.num_components = None
+        self.matrix = None
+        self.spacing = None
+        self.origin = None
+        self.memory_mb = None
+
+        # Geometry isolation
+        self.is_rgb = False
+        self.num_timepoints = 1
+        self.shape3d = (1, 1, 1)
+
+        self.read_image_metadata()
+
+    def read_image_from_disk(self, paths):
+        if len(paths) == 1:
+            sitk_img = sitk.ReadImage(paths[0])
+            dim = sitk_img.GetDimension()
+
+            if dim == 2:
+                sitk_img = sitk.JoinSeries([sitk_img])
+
+            return sitk_img
+        else:
+            # Natively stack multiple files, but protect against shape mismatches!
+            imgs = []
+            base_size = None
+            for p in paths:
+                try:
+                    img = sitk.ReadImage(p)
+                    if base_size is None:
+                        base_size = img.GetSize()
+                        imgs.append(img)
+                    elif img.GetSize() == base_size:
+                        imgs.append(img)
+                    else:
+                        print(
+                            f"Warning: Skipping {os.path.basename(p)} - Size {img.GetSize()} mismatches base {base_size}"
+                        )
+                except Exception as e:
+                    print(f"Warning: Failed to read {os.path.basename(p)}")
+
+            if not imgs:
+                raise RuntimeError(
+                    "No valid images could be read from the provided paths."
+                )
+
+            if len(imgs) == 1:
+                return imgs[0]
+
+            return sitk.JoinSeries(imgs)
+
+    def read_image_from_disk_OLD(self, paths):
+        if len(paths) == 1:
+            sitk_img = sitk.ReadImage(paths[0])
+            dim = sitk_img.GetDimension()
+
+            if dim == 2:
+                sitk_img = sitk.JoinSeries([sitk_img])
+
+            return sitk_img
+        else:
+            # Natively stack multiple 3D files into a 4D SimpleITK Series!
+            imgs = [sitk.ReadImage(p) for p in paths]
+            return sitk.JoinSeries(imgs)
+
+    def read_image_metadata(self):
+        self.pixel_type = self.sitk_image.GetPixelIDTypeAsString()
+        self.bytes_per_component = self.sitk_image.GetSizeOfPixelComponent()
+        self.num_components = self.sitk_image.GetNumberOfComponentsPerPixel()
+
+        raw_matrix = self.sitk_image.GetDirection()
+        if len(raw_matrix) == 9:
+            self.matrix = np.array(raw_matrix).reshape((3, 3))
+        elif len(raw_matrix) == 16:
+            # Drop the 4th time dimension from the spatial grid matrix
+            m = np.array(raw_matrix)
+            self.matrix = np.array(
+                [[m[0], m[1], m[2]], [m[4], m[5], m[6]], [m[8], m[9], m[10]]]
+            )
+        else:
+            self.matrix = np.eye(3)
+
+        self.inverse_matrix = np.linalg.inv(self.matrix)
+
+        # Only retain the strict 3D physical coordinate spacing/origin
+        self.spacing = np.array(self.sitk_image.GetSpacing()[:3])
+        self.origin = np.array(self.sitk_image.GetOrigin()[:3])
+
+        self.is_rgb = self.num_components in [3, 4]
+        shape = self.data.shape
+        self.num_timepoints = 1
+
+        # Safely isolate the Spatial 3D Shape from Time and Colors!
+        if self.is_rgb:
+            if len(shape) == 5:
+                self.num_timepoints = shape[0]
+                self.shape3d = shape[1:4]
+            else:
+                self.shape3d = shape[0:3]
+        else:
+            if len(shape) == 4:
+                self.num_timepoints = shape[0]
+                self.shape3d = shape[1:4]
+            else:
+                self.shape3d = shape[0:3]
+
+        bytes_per_pixel = self.bytes_per_component * self.num_components
+        self.memory_mb = (
+            self.sitk_image.GetNumberOfPixels() * bytes_per_pixel / (1024 * 1024)
+        )
+
+    def get_physical_aspect_ratio(self, orientation):
+        dx, dy, dz = self.spacing
+        if orientation == ViewMode.AXIAL:
+            return dx, dy
+        elif orientation == ViewMode.SAGITTAL:
+            return dy, dz
+        else:
+            return dx, dz
+
+    def voxel_coord_to_physic_coord(self, voxel):
+        return self.origin + self.matrix @ (voxel * self.spacing)
+
+    def physic_coord_to_voxel_coord(self, phys):
+        return (self.inverse_matrix @ (phys - self.origin)) / self.spacing
+
+    def reload(self):
+        # Reload now strictly evaluates the entire series of 4D file paths!
+        new_sitk = self.read_image_from_disk(self.file_paths)
+        new_shape = new_sitk.GetSize()
+        current_shape = self.sitk_image.GetSize()
+
+        if new_shape == current_shape:
+            self.sitk_image = new_sitk
+            self.data = sitk.GetArrayViewFromImage(self.sitk_image)
+            self.read_image_metadata()
+            return False
+        else:
+            self.__init__(self.path)
+            return True
+
+
+class VolumeData_OLD:
     """Stores the immutable medical image data and physical metadata."""
 
     def __init__(self, path):
@@ -464,8 +655,13 @@ class VolumeData:
         self.spacing = None
         self.origin = None
         self.memory_mb = None
+
+        # Geometry isolation
+        self.is_rgb = False
+        self.num_timepoints = 1
+        self.shape3d = (1, 1, 1)
+
         self.read_image_metadata()
-        self.is_rgb = self.num_components in [3, 4]
 
     def read_image_from_disk(self, path):
         sitk_img = sitk.ReadImage(path)
@@ -473,21 +669,51 @@ class VolumeData:
 
         if dim == 2:
             sitk_img = sitk.JoinSeries([sitk_img])
-        elif dim == 4:
-            print(f"4D not supported yet: {path}")
-            pass
 
+        # Natively support reading 4D!
         return sitk_img
 
     def read_image_metadata(self):
         self.pixel_type = self.sitk_image.GetPixelIDTypeAsString()
         self.bytes_per_component = self.sitk_image.GetSizeOfPixelComponent()
         self.num_components = self.sitk_image.GetNumberOfComponentsPerPixel()
-        # Robust 3x3 Direction Matrix for medical orientation
-        self.matrix = np.array(self.sitk_image.GetDirection()).reshape((3, 3))
+
+        raw_matrix = self.sitk_image.GetDirection()
+        if len(raw_matrix) == 9:
+            self.matrix = np.array(raw_matrix).reshape((3, 3))
+        elif len(raw_matrix) == 16:
+            # Drop the 4th time dimension from the spatial grid matrix
+            m = np.array(raw_matrix)
+            self.matrix = np.array(
+                [[m[0], m[1], m[2]], [m[4], m[5], m[6]], [m[8], m[9], m[10]]]
+            )
+        else:
+            self.matrix = np.eye(3)
+
         self.inverse_matrix = np.linalg.inv(self.matrix)
-        self.spacing = np.array(self.sitk_image.GetSpacing())
-        self.origin = np.array(self.sitk_image.GetOrigin())
+
+        # Only retain the strict 3D physical coordinate spacing/origin
+        self.spacing = np.array(self.sitk_image.GetSpacing()[:3])
+        self.origin = np.array(self.sitk_image.GetOrigin()[:3])
+
+        self.is_rgb = self.num_components in [3, 4]
+        shape = self.data.shape
+        self.num_timepoints = 1
+
+        # Safely isolate the Spatial 3D Shape from Time and Colors!
+        if self.is_rgb:
+            if len(shape) == 5:
+                self.num_timepoints = shape[0]
+                self.shape3d = shape[1:4]
+            else:
+                self.shape3d = shape[0:3]
+        else:
+            if len(shape) == 4:
+                self.num_timepoints = shape[0]
+                self.shape3d = shape[1:4]
+            else:
+                self.shape3d = shape[0:3]
+
         bytes_per_pixel = self.bytes_per_component * self.num_components
         self.memory_mb = (
             self.sitk_image.GetNumberOfPixels() * bytes_per_pixel / (1024 * 1024)
@@ -503,27 +729,22 @@ class VolumeData:
             return dx, dz
 
     def voxel_coord_to_physic_coord(self, voxel):
-        # ITK Standard: Physical = Origin + Matrix * (Spacing * Index)
         return self.origin + self.matrix @ (voxel * self.spacing)
 
     def physic_coord_to_voxel_coord(self, phys):
-        # Inverse ITK Standard (Converts physical back to continuous floating voxel)
         return (self.inverse_matrix @ (phys - self.origin)) / self.spacing
 
     def reload(self):
-        """Re-reads data from the disk while preserving state if dimensions match."""
         new_sitk = self.read_image_from_disk(self.path)
         new_shape = new_sitk.GetSize()
         current_shape = self.sitk_image.GetSize()
 
         if new_shape == current_shape:
-            # DIMENSIONS MATCH: Soft update
             self.sitk_image = new_sitk
             self.data = sitk.GetArrayViewFromImage(self.sitk_image)
             self.read_image_metadata()
             return False
         else:
-            # DIMENSIONS CHANGED: Full reset
             self.__init__(self.path)
             return True
 
@@ -533,18 +754,13 @@ class Controller:
 
     def __init__(self):
         self.gui = None
-
-        # Completely Decoupled Contexts
         self.volumes = {}
         self.view_states = {}
-
         self.viewers = {}
         self.settings = SettingsManager()
-
         self._next_image_id = 0
 
     def get_next_image_id(self, current_id):
-        """Returns the ID of the next image in the global list, looping back to the start."""
         if not self.view_states:
             return None
         keys = list(self.view_states.keys())
@@ -607,8 +823,6 @@ class Controller:
     def load_image(self, path):
         img_id = str(self._next_image_id)
         self._next_image_id += 1
-
-        # Instantiate physical data, then map a view state to it
         vol = VolumeData(path)
         self.volumes[img_id] = vol
         self.view_states[img_id] = ViewState(vol)
@@ -623,7 +837,6 @@ class Controller:
             if viewer.image_id == vs_id:
                 viewer.draw_crosshair()
                 viewer.update_render()
-                # Force the scale bar, grids, and axes to redraw on the next frame
                 viewer.is_geometry_dirty = True
 
     def unify_ppm(self, target_viewer_tags):
@@ -644,26 +857,6 @@ class Controller:
         if max_ppm > 0:
             for viewer in valid_viewers:
                 viewer.set_pixels_per_mm(max_ppm)
-                viewer.is_geometry_dirty = True
-
-    def unify_ppm_min_NOT_USED(self, target_viewer_tags):
-        valid_viewers = [
-            self.viewers[tag]
-            for tag in target_viewer_tags
-            if self.viewers[tag].view_state
-        ]
-        if not valid_viewers:
-            return
-
-        min_ppm = 1e9
-        for viewer in valid_viewers:
-            ppm = viewer.get_pixels_per_mm()
-            if ppm < min_ppm:
-                min_ppm = ppm
-
-        if min_ppm > 0:
-            for viewer in valid_viewers:
-                viewer.set_pixels_per_mm(min_ppm)
                 viewer.is_geometry_dirty = True
 
     def update_setting(self, keys, value):
@@ -697,12 +890,8 @@ class Controller:
                 viewer.is_geometry_dirty = True
 
     def reload_settings(self):
-        # 1. Wipe memory to defaults to clear any unsaved user tweaks
         self.settings.reset()
-        # 2. Re-apply whatever is currently saved in the JSON file
         self.settings.load()
-
-        # 3. Force all viewers to update immediately
         for viewer in self.viewers.values():
             viewer.update_render()
             if viewer.image_id:
@@ -723,24 +912,25 @@ class Controller:
                     if viewer.image_id == vs_id:
                         viewer.set_image(vs_id)
             else:
-                # Instantly refresh the crosshair intensity value for the sidebar
                 ix, iy, iz = [
                     int(np.clip(np.floor(c + 0.5), 0, limit - 1))
                     for c, limit in zip(
-                        vs.crosshair_voxel,
-                        [vol.data.shape[2], vol.data.shape[1], vol.data.shape[0]],
+                        vs.crosshair_voxel[:3],
+                        [vol.shape3d[2], vol.shape3d[1], vol.shape3d[0]],
                     )
                 ]
-                vs.crosshair_value = vol.data[iz, iy, ix]
+
+                if vol.num_timepoints > 1:
+                    vs.crosshair_value = vol.data[vs.time_idx, iz, iy, ix]
+                else:
+                    vs.crosshair_value = vol.data[iz, iy, ix]
 
                 vs.histogram_is_dirty = True
                 vs.is_data_dirty = True
                 self.update_all_viewers_of_image(vs_id)
 
-            # If this reloaded image is an overlay on ANY other image, force a re-resample!
             for other_id, other_vs in self.view_states.items():
                 if other_vs.overlay_id == vs_id:
-                    # Triggers SimpleITK to pull the fresh data from disk
                     other_vs.set_overlay(vs_id, vol)
                     self.update_all_viewers_of_image(other_id)
 
@@ -753,34 +943,28 @@ class Controller:
 
     def close_image(self, vs_id):
         if vs_id in self.view_states:
-            # 1. Unload from any viewer actively displaying it
             for viewer in self.viewers.values():
                 if viewer.image_id == vs_id:
                     viewer.drop_image()
 
-            # 2. Detach it from any other image using it as an overlay
             for other_id, other_vs in self.view_states.items():
                 if other_vs.overlay_id == vs_id:
                     other_vs.set_overlay(None, None)
                     self.update_all_viewers_of_image(other_id)
 
-            # 3. Delete the data from memory
             name = self.view_states[vs_id].volume.name
             del self.view_states[vs_id]
             del self.volumes[vs_id]
 
-            # 4. Reassign empty viewers
             if self.view_states:
                 first_vs_id = next(iter(self.view_states))
                 for viewer in self.viewers.values():
                     if viewer.image_id is None:
                         viewer.set_image(first_vs_id)
 
-            # 5. Update UI
             if self.gui:
                 self.gui.refresh_image_list_ui()
                 if self.gui.context_viewer:
-                    # Force the sidebar to refresh so the Fusion dropdown reverts to "None"
                     self.gui.update_sidebar_info(self.gui.context_viewer)
                 self.gui.show_status_message(f"Closed: {name}")
 
@@ -850,17 +1034,12 @@ class Controller:
             self.gui.refresh_image_list_ui()
 
     def tick(self):
-        """Called every frame by the main loop to orchestrate updates."""
-        # 1. Tell every viewer to update if needed
         for viewer in self.viewers.values():
             did_update = viewer.tick()
-
-            # If the currently active viewer updated, tell the GUI to refresh the sidebar
             if did_update and self.gui and viewer == self.gui.context_viewer:
                 self.gui.update_sidebar_crosshair(viewer)
                 self.gui.update_sidebar_window_level(viewer)
 
-        # 2. Safely reset the global data flags AFTER all viewers have seen them
         for vs in self.view_states.values():
             vs.is_data_dirty = False
 
@@ -882,7 +1061,7 @@ class Controller:
                 source_vox = source_vs.crosshair_voxel
                 target_vs.crosshair_voxel = source_vox.copy()
                 target_vs.crosshair_phys_coord = (
-                    target_vs.volume.voxel_coord_to_physic_coord(source_vox)
+                    target_vs.volume.voxel_coord_to_physic_coord(source_vox[:3])
                 )
 
                 target_vs.slices[ViewMode.AXIAL] = int(source_vox[2])
@@ -892,42 +1071,48 @@ class Controller:
                 phys_pos = source_vs.crosshair_phys_coord
                 target_vol = target_vs.volume
 
-                # Use the new bulletproof inverse matrix math
                 target_vox = target_vol.physic_coord_to_voxel_coord(phys_pos)
 
-                target_vs.crosshair_voxel = list(target_vox)
+                # Sync time
+                nt = target_vs.volume.num_timepoints
+                target_vs.time_idx = min(source_vs.time_idx, nt - 1)
+
+                target_vs.crosshair_voxel = [
+                    target_vox[0],
+                    target_vox[1],
+                    target_vox[2],
+                    target_vs.time_idx,
+                ]
                 target_vs.crosshair_phys_coord = phys_pos
 
-                # Sync rendering plane to the exact snapped voxel center
                 target_vs.slices[ViewMode.AXIAL] = int(
-                    np.clip(
-                        np.floor(target_vox[2] + 0.5), 0, target_vol.data.shape[0] - 1
-                    )
+                    np.clip(np.floor(target_vox[2] + 0.5), 0, target_vol.shape3d[0] - 1)
                 )
                 target_vs.slices[ViewMode.SAGITTAL] = int(
-                    np.clip(
-                        np.floor(target_vox[0] + 0.5), 0, target_vol.data.shape[2] - 1
-                    )
+                    np.clip(np.floor(target_vox[0] + 0.5), 0, target_vol.shape3d[2] - 1)
                 )
                 target_vs.slices[ViewMode.CORONAL] = int(
-                    np.clip(
-                        np.floor(target_vox[1] + 0.5), 0, target_vol.data.shape[1] - 1
-                    )
+                    np.clip(np.floor(target_vox[1] + 0.5), 0, target_vol.shape3d[1] - 1)
                 )
 
-            # Ensure the target ViewState updates its cached intensity value right now!
             ix, iy, iz = [
                 int(np.clip(np.floor(c + 0.5), 0, limit - 1))
                 for c, limit in zip(
-                    target_vs.crosshair_voxel,
+                    target_vs.crosshair_voxel[:3],
                     [
-                        target_vs.volume.data.shape[2],
-                        target_vs.volume.data.shape[1],
-                        target_vs.volume.data.shape[0],
+                        target_vs.volume.shape3d[2],
+                        target_vs.volume.shape3d[1],
+                        target_vs.volume.shape3d[0],
                     ],
                 )
             ]
-            target_vs.crosshair_value = target_vs.volume.data[iz, iy, ix]
+
+            if target_vs.volume.num_timepoints > 1:
+                target_vs.crosshair_value = target_vs.volume.data[
+                    target_vs.time_idx, iz, iy, ix
+                ]
+            else:
+                target_vs.crosshair_value = target_vs.volume.data[iz, iy, ix]
 
             target_vs.is_data_dirty = True
 
@@ -1029,7 +1214,6 @@ class Controller:
                 viewer.center_on_physical_coord(phys_center)
 
     def propagate_overlay_mode(self, source_vs_id):
-        """Syncs the blending mode across the sync group."""
         source_vs = self.view_states[source_vs_id]
         target_group = source_vs.sync_group
 
@@ -1053,22 +1237,34 @@ class SliceRenderer:
     """Pure utility to generate renderable RGBA arrays using a streamlined pipeline."""
 
     @staticmethod
-    def extract_slice(data, slice_idx, orientation):
-        """Step 1: Universal 3D extraction."""
+    def extract_slice(data, is_rgb, time_idx, slice_idx, orientation):
+        """Step 1: Universal extraction handling 3D/4D transparently."""
+        # Force a normalized view format (T, Z, Y, X, [C]) to eliminate manual shape checking later
+        if is_rgb:
+            if data.ndim == 4:
+                data = data[np.newaxis, ...]
+        else:
+            if data.ndim == 3:
+                data = data[np.newaxis, ...]
+
+        t = min(time_idx, data.shape[0] - 1)
+
         if orientation == ViewMode.AXIAL:
-            return data[slice_idx, ...]
+            return data[t, slice_idx, ...]
         elif orientation == ViewMode.SAGITTAL:
-            return np.flipud(np.fliplr(data[:, :, slice_idx, ...]))
+            return np.flipud(np.fliplr(data[t, :, :, slice_idx, ...]))
         elif orientation == ViewMode.CORONAL:
-            return np.flipud(data[:, slice_idx, ...])
+            return np.flipud(data[t, :, slice_idx, ...])
         return None
 
     @staticmethod
-    def get_raw_slice(data, is_rgb, slice_idx, orientation):
+    def get_raw_slice(data, is_rgb, time_idx, slice_idx, orientation):
         """Legacy helper for logic that strictly requires a 2D float array (like Auto Window/Level)."""
         if is_rgb:
             return np.zeros((1, 1))
-        res = SliceRenderer.extract_slice(data, slice_idx, orientation)
+        res = SliceRenderer.extract_slice(
+            data, is_rgb, time_idx, slice_idx, orientation
+        )
         return res if res is not None else np.zeros((1, 1))
 
     @staticmethod
@@ -1088,24 +1284,35 @@ class SliceRenderer:
         base_wl,
         base_cmap_name,
         base_threshold,
+        base_time_idx,
         overlay_data,
+        overlay_is_rgb,
         overlay_ww,
         overlay_wl,
         overlay_cmap_name,
         overlay_opacity,
         overlay_threshold,
         overlay_mode,
+        overlay_time_idx,
         slice_idx,
         orientation,
     ):
         if orientation == ViewMode.HISTOGRAM:
             return np.array([0, 0, 0, 255], dtype=np.uint8), (1, 1)
 
-        # 1. Determine bounds using an axis map
+        # Normalize Base Array
+        if base_is_rgb:
+            if base_data.ndim == 4:
+                base_data = base_data[np.newaxis, ...]
+        else:
+            if base_data.ndim == 3:
+                base_data = base_data[np.newaxis, ...]
+
+        # 1. Determine bounds using the mapped 4D axes
         axis_map = {
-            ViewMode.AXIAL: (0, 1, 2),
-            ViewMode.SAGITTAL: (2, 0, 1),
-            ViewMode.CORONAL: (1, 0, 2),
+            ViewMode.AXIAL: (1, 2, 3),
+            ViewMode.SAGITTAL: (3, 1, 2),
+            ViewMode.CORONAL: (2, 1, 3),
         }
 
         if orientation not in axis_map:
@@ -1125,7 +1332,9 @@ class SliceRenderer:
             return black_slice.flatten(), (h, w)
 
         # 2. Extract Base Slice
-        base_slice = SliceRenderer.extract_slice(base_data, slice_idx, orientation)
+        base_slice = SliceRenderer.extract_slice(
+            base_data, base_is_rgb, base_time_idx, slice_idx, orientation
+        )
 
         # 3. Base Image -> RGBA
         if base_is_rgb:
@@ -1140,22 +1349,30 @@ class SliceRenderer:
             lut = COLORMAPS.get(base_cmap_name, COLORMAPS["Grayscale"])
             base_rgba = lut[(base_norm * 255).astype(np.uint8)]
 
-            # if base_threshold > -1e8:
-            mask = base_slice <= base_threshold
-            # Force pixels below threshold to Black
-            base_rgba[mask] = [0.0, 0.0, 0.0, 0.0]
+            if base_threshold > -1e8:
+                mask = base_slice <= base_threshold
+                base_rgba[mask] = [0.0, 0.0, 0.0, 0.0]
 
         # 4. Return early if no overlay is needed
         if overlay_data is None or overlay_opacity <= 0.0:
             return base_rgba.flatten(), (h, w)
 
+        # Normalize Overlay Array
+        if overlay_is_rgb:
+            if overlay_data.ndim == 4:
+                overlay_data = overlay_data[np.newaxis, ...]
+        else:
+            if overlay_data.ndim == 3:
+                overlay_data = overlay_data[np.newaxis, ...]
+
         # 5. Extract & Normalize Overlay
-        over_slice = SliceRenderer.extract_slice(overlay_data, slice_idx, orientation)
+        over_slice = SliceRenderer.extract_slice(
+            overlay_data, overlay_is_rgb, overlay_time_idx, slice_idx, orientation
+        )
         over_norm = SliceRenderer.normalize_wl(over_slice, overlay_ww, overlay_wl)
 
         # 6. Apply Overlay Modes (Easily extensible)
         if overlay_mode == "Registration":
-            # If base is RGB, average it to grayscale for registration diff calculation
             base_reg_norm = (
                 np.mean(base_norm[..., :3], axis=-1) if base_is_rgb else base_norm
             )
@@ -1164,7 +1381,6 @@ class SliceRenderer:
             lut = COLORMAPS.get("Registration", COLORMAPS["Grayscale"])
             final_rgba = lut[(diff * 255).astype(np.uint8)]
 
-            # Blend with context
             res_rgba = (base_rgba * (1.0 - overlay_opacity)) + (
                 final_rgba * overlay_opacity
             )
@@ -1173,17 +1389,14 @@ class SliceRenderer:
             over_lut = COLORMAPS.get(overlay_cmap_name, COLORMAPS["Hot"])
             over_rgba = over_lut[(over_norm * 255).astype(np.uint8)]
 
-            # Threshold Masking
             op_mask = np.full(over_slice.shape, overlay_opacity, dtype=np.float32)
             op_mask[over_slice < overlay_threshold] = 0.0
-            op_mask = op_mask[..., None]  # Broadcast to RGBA
+            op_mask = op_mask[..., None]
 
             res_rgba = base_rgba * (1.0 - op_mask) + over_rgba * op_mask
 
         else:
-            # Fallback block (Prevents crashes if an unsupported mode string is passed)
             res_rgba = base_rgba
 
-        # Ensure full opacity on the final combined image
         res_rgba[..., 3] = 1.0
         return res_rgba.flatten(), (h, w)

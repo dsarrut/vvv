@@ -68,12 +68,28 @@ def main(datasets, linkall, sync):
     # 1. Smart Re-grouping: Handle spaces after commas AND colons from the shell
     grouped_datasets = []
     buf = []
+    in_4d = False
+
     for item in datasets:
+        # Detect if this argument initiates a 4D wildcard capture
+        if item.startswith("4D:") or item == "4D:":
+            in_4d = True
+
         buf.append(item)
-        # If the argument is trailing a comma OR a colon, keep buffering!
-        if not (item.endswith(",") or item.endswith(":")):
-            grouped_datasets.append(" ".join(buf))
-            buf = []
+
+        if in_4d:
+            # If we are capturing 4D files expanded by the shell, we swallow all
+            # subsequent files until we hit a comma (which indicates overlay params are starting)
+            if item.endswith(","):
+                grouped_datasets.append(" ".join(buf))
+                buf = []
+                in_4d = False
+        else:
+            # Standard buffering for spaces after colons/commas
+            if not (item.endswith(",") or item.endswith(":")):
+                grouped_datasets.append(" ".join(buf))
+                buf = []
+
     if buf:  # Catch any trailing fragments
         grouped_datasets.append(" ".join(buf))
 
