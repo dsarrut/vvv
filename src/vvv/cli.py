@@ -3,12 +3,12 @@
 
 import click
 import dearpygui.dearpygui as dpg
-from .gui import MainGUI
-from .core import Controller
-from .viewer import SliceViewer
 import sys
 import os
 import re
+from .gui import MainGUI
+from .core import Controller
+from .viewer import SliceViewer
 from .resources import get_resource_path
 
 
@@ -59,55 +59,59 @@ def set_macos_dock_info(name, icon_path=None):
         pass
 
 
-@click.command()
-@click.argument("datasets", nargs=-1)
-@click.option("--linkall", "-l", is_flag=True, help="Enable sync all images")
-@click.option("--sync", "-s", is_flag=True, help="Enable sync all images")
-def main(datasets, linkall, sync):
-
-    # 1. Smart Re-grouping: Handle spaces after commas AND colons from the shell
+def parse_cli_arguments(datasets):
+    """
+    Parses raw command line arguments into structured image tasks.
+    Handles shell-expanded 4D sequences, sync groups, and comma-separated fusion parameters.
+    """
+    # 1. Re-group shell-split arguments (4D sequences and comma spaces)
     grouped_datasets = []
     buf = []
     in_4d = False
 
     for item in datasets:
-        # Detect if this argument initiates a 4D wildcard capture
-        if item.startswith("4D:") or item == "4D:":
+        if item.startswith("4D:") or item.startswith("4d:") or item == "4D:":
             in_4d = True
 
         buf.append(item)
 
         if in_4d:
-            # If we are capturing 4D files expanded by the shell, we swallow all
-            # subsequent files until we hit a comma (which indicates overlay params are starting)
+            # Swallow expanded files until we hit a comma (overlay trigger)
             if item.endswith(","):
                 grouped_datasets.append(" ".join(buf))
                 buf = []
                 in_4d = False
         else:
-            # Standard buffering for spaces after colons/commas
             if not (item.endswith(",") or item.endswith(":")):
                 grouped_datasets.append(" ".join(buf))
                 buf = []
 
-    if buf:  # Catch any trailing fragments
+    if buf:
         grouped_datasets.append(" ".join(buf))
 
-    # 2. Parse the composite strings
+    # 2. Parse the composite strings into tasks
     image_tasks = []
+
+    # Normalize known colormaps case-insensitively
+    known_cmaps = {
+        "grayscale": "Grayscale",
+        "hot": "Hot",
+        "cold": "Cold",
+        "jet": "Jet",
+        "dosimetry": "Dosimetry",
+        "segmentation": "Segmentation",
+    }
+
     for ds in grouped_datasets:
-        # Split by comma and clean up whitespace
         parts = [p.strip() for p in ds.split(",")]
         base_part = parts[0]
         sync_group = 0
 
-        # --- Extract Sync Group Prefix allowing spaces (e.g. "1: path/to/image.nii") ---
-        # \s* safely absorbs any spaces between the colon and the file path
+        # Extract Sync Group (e.g. "1: file.mhd")
         match = re.match(r"^(\d+):\s*(.*)$", base_part)
         if match:
             sync_group = int(match.group(1))
             base_part = match.group(2)
-        # -------------------------------------------------------------------------------
 
         task = {
             "base": base_part,
@@ -118,26 +122,15 @@ def main(datasets, linkall, sync):
 
         if len(parts) > 1:
             overlay_path = parts[1].strip()
-            cmap = parts[2].strip() if len(parts) > 2 else "Jet"
+            cmap_input = parts[2].strip() if len(parts) > 2 else "Jet"
             mode = "Alpha"
 
-            # Normalize known colormaps case-insensitively
-            known_cmaps = {
-                "grayscale": "Grayscale",
-                "hot": "Hot",
-                "cold": "Cold",
-                "jet": "Jet",
-                "dosimetry": "Dosimetry",
-                "segmentation": "Segmentation",
-            }
-
-            # Handle the "Reg" shorthand
-            cmap_lower = cmap.lower()
+            cmap_lower = cmap_input.lower()
             if cmap_lower in ["reg", "registration"]:
                 cmap = "Grayscale"
                 mode = "Registration"
             else:
-                cmap = known_cmaps.get(cmap_lower, cmap.capitalize())
+                cmap = known_cmaps.get(cmap_lower, cmap_input.capitalize())
 
             if overlay_path:
                 task["fusion"] = {
@@ -150,8 +143,23 @@ def main(datasets, linkall, sync):
             else:
                 # User left the overlay blank (e.g. "image.nii,,Jet") to apply cmap to base!
                 task["base_cmap"] = cmap
+                if len(parts) > 4:
+                    task["base_threshold"] = float(parts[4])
 
         image_tasks.append(task)
+
+    return image_tasks
+
+
+@click.command()
+@click.argument("datasets", nargs=-1)
+@click.option("--linkall", "-l", is_flag=True, help="Enable sync all images")
+@click.option("--sync", "-s", is_flag=True, help="Enable sync all images")
+def main(datasets, linkall, sync):
+    """Entry point for the VVV command line interface."""
+
+    # Parse the tasks cleanly
+    image_tasks = parse_cli_arguments(datasets)
 
     # --- Setup Application ---
     icon_png = get_resource_path(os.path.join("icons", "py_vv.png"))
@@ -168,6 +176,7 @@ def main(datasets, linkall, sync):
     controller.gui = gui
     win_w = controller.settings.data["layout"]["window_width"]
     win_h = controller.settings.data["layout"]["window_height"]
+
     dpg.create_viewport(title="VVV", width=win_w, height=win_h)
 
     if sys.platform == "win32":
@@ -177,7 +186,7 @@ def main(datasets, linkall, sync):
         dpg.set_viewport_small_icon(icon_png)
         dpg.set_viewport_large_icon(icon_png)
 
-    # Boot
+    # Boot GUI with generator
     gui.run(boot_generator=gui.create_boot_sequence(image_tasks, sync, linkall))
 
 
