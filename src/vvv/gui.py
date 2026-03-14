@@ -456,6 +456,13 @@ class MainGUI:
                     callback=lambda s, v: call(["colors", "grid"], v),
                 )
 
+                dpg.add_color_edit(
+                    label="Legend BG",
+                    tag="set_col_legend_bg",
+                    default_value=settings["colors"]["legend_bg"],
+                    callback=lambda s, v: call(["colors", "legend_bg"], v),
+                )
+
                 dpg.add_spacer(height=10)
                 with dpg.group(horizontal=True):
                     dpg.add_button(
@@ -599,6 +606,14 @@ class MainGUI:
                         default_value=False,
                     )
                     dpg.add_checkbox(
+                        label="Legend",
+                        tag="check_legend",
+                        callback=self.controller.on_visibility_toggle,
+                        user_data="legend",
+                        default_value=False,
+                    )
+                with dpg.table_row():
+                    dpg.add_checkbox(
                         label="Sync W/L",
                         tag="check_sync_wl",
                         default_value=False,
@@ -644,6 +659,7 @@ class MainGUI:
 
                 dpg.add_draw_node(tag=viewer.scale_bar_tag)
                 dpg.add_draw_node(tag=viewer.crosshair_tag)
+                dpg.add_draw_node(tag=viewer.legend_tag)
 
             col = self.controller.settings.data["colors"]["tracker_text"]
             dpg.add_text("", tag=viewer.tracker_tag, color=col, pos=[5, 5])
@@ -679,6 +695,11 @@ class MainGUI:
             dpg.set_value("check_crosshair", vs.show_crosshair)
         if dpg.get_value("check_scalebar") != vs.show_scalebar:
             dpg.set_value("check_scalebar", vs.show_scalebar)
+        if (
+            dpg.does_item_exist("check_legend")
+            and dpg.get_value("check_legend") != vs.show_legend
+        ):
+            dpg.set_value("check_legend", vs.show_legend)
 
     def refresh_image_list_ui(self):
         container = "image_list_container"
@@ -1065,6 +1086,7 @@ class MainGUI:
 
         for viewer in self.controller.viewers.values():
             viewer.resize(quad_w, quad_h)
+            viewer.is_geometry_dirty = True  # update the legend
 
     def on_global_click(self, sender, app_data, user_data):
         if app_data != dpg.mvMouseButton_Left:
@@ -1385,6 +1407,7 @@ class MainGUI:
                 "view_histogram": "Histogram View",
                 "toggle_interp": "Toggle strip pixels at zoom",
                 "toggle_grid": "Toggle Voxel Grid",
+                "toggle_legend": "Toggle Legend",
                 "hide_all": "Show/Hide Overlays",
             }
 

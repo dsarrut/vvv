@@ -101,6 +101,7 @@ class SliceViewer:
         self.axis_b_tag = f"axes_node_B_{tag_id}"
         self.tracker_tag = f"tracker_{tag_id}"
         self.crosshair_tag = f"crosshair_node_{tag_id}"
+        self.legend_tag = f"legend_node_{tag_id}"
         self.xh_line_h = f"xh_h_{tag_id}"
         self.xh_line_v = f"xh_v_{tag_id}"
         self.scale_bar_tag = f"scale_bar_node_{tag_id}"
@@ -761,6 +762,123 @@ class SliceViewer:
             [text_x, int(y - 20)], text, color=color, size=14, parent=self.scale_bar_tag
         )
 
+    def draw_legend(self):
+        dpg.delete_item(self.legend_tag, children_only=True)
+
+        if (
+            not self.is_image_orientation()
+            or not self.view_state
+            or not self.view_state.show_legend
+        ):
+            return
+
+        # Colorbars don't make sense for pre-baked RGB files
+        if getattr(self.volume, "is_rgb", False):
+            return
+
+        win_w = dpg.get_item_width(f"win_{self.tag}")
+        win_h = dpg.get_item_height(f"win_{self.tag}")
+        if not win_w or not win_h:
+            return
+
+        # Dimensions & Position (Right edge, vertically centered)
+        cb_width = 15
+        cb_height = int(win_h * 0.4)
+        if cb_height < 50:
+            return
+
+        x_start = win_w - cb_width - 55  # Leave space for text
+        y_start = (win_h - cb_height) // 2
+
+        # 1. Draw subtle background for contrast against bright images
+        bg_col = self.controller.settings.data["colors"]["legend_bg"]
+        dpg.draw_rectangle(
+            [x_start - 15, y_start - 20],
+            [win_w - 5, y_start + cb_height + 20],
+            color=bg_col,
+            fill=bg_col,
+            parent=self.legend_tag,
+        )
+
+        # 2. Fetch active colormap
+        from .core import COLORMAPS
+
+        cmap = COLORMAPS.get(self.view_state.colormap, COLORMAPS["Grayscale"])
+
+        # 3. Draw Gradient (256 horizontal lines)
+        for i in range(256):
+            y = y_start + cb_height - (i / 255.0) * cb_height  # High values at top
+            color = [int(c * 255) for c in cmap[i]]
+            dpg.draw_line(
+                [x_start, y],
+                [x_start + cb_width, y],
+                color=color,
+                thickness=2,
+                parent=self.legend_tag,
+            )
+
+        # 4. Draw Border
+        border_col = [255, 255, 255, 120]
+        dpg.draw_rectangle(
+            [x_start, y_start],
+            [x_start + cb_width, y_start + cb_height],
+            color=border_col,
+            parent=self.legend_tag,
+        )
+
+        # 5. Draw Text (Window/Level mapping)
+        ww, wl = self.view_state.ww, self.view_state.wl
+        val_min = wl - ww / 2.0
+        val_max = wl + ww / 2.0
+        text_col = self.controller.settings.data["colors"]["tracker_text"]
+
+        dpg.draw_text(
+            [x_start + cb_width + 8, y_start - 7],
+            f"{val_max:g}",
+            color=text_col,
+            size=14,
+            parent=self.legend_tag,
+        )
+        dpg.draw_text(
+            [x_start + cb_width + 8, y_start + cb_height / 2 - 7],
+            f"{wl:g}",
+            color=text_col,
+            size=14,
+            parent=self.legend_tag,
+        )
+        dpg.draw_text(
+            [x_start + cb_width + 8, y_start + cb_height - 7],
+            f"{val_min:g}",
+            color=text_col,
+            size=14,
+            parent=self.legend_tag,
+        )
+
+        # 6. Draw dynamic marker for current pixel intensity
+        val_to_mark = self.view_state.crosshair_value
+        if val_to_mark is not None and isinstance(val_to_mark, (int, float, np.number)):
+            # Normalize the physical value between 0.0 and 1.0 using the current W/L
+            norm = (val_to_mark - val_min) / max(1e-5, ww)
+            norm = np.clip(norm, 0.0, 1.0)
+            y_pos = y_start + cb_height - (norm * cb_height)
+
+            dpg.draw_line(
+                [x_start - 6, y_pos],
+                [x_start + cb_width + 6, y_pos],
+                color=[255, 255, 255, 255],
+                thickness=1,
+                parent=self.legend_tag,
+            )
+            # Draw a tiny triangle pointer
+            dpg.draw_triangle(
+                [x_start - 5, y_pos],
+                [x_start - 11, y_pos - 4],
+                [x_start - 11, y_pos + 4],
+                color=[255, 255, 255, 255],
+                fill=[255, 255, 255, 255],
+                parent=self.legend_tag,
+            )
+
     def hide_everything(self):
         new_state = not self.view_state.show_crosshair
         self.view_state.show_axis = new_state
@@ -1026,6 +1144,7 @@ class SliceViewer:
             dpg.configure_item(self.axis_b_tag, show=False)
 
         self.draw_scale_bar()
+        self.draw_legend()
         self.draw_crosshair()
         self.update_tracker()
 
@@ -1097,8 +1216,10 @@ class SliceViewer:
             text_lines.append(fmt(v, 1))
             text_lines.append(f"{fmt(phys, 1)} mm")
             dpg.set_value(self.tracker_tag, "\n".join(text_lines))
+            # self.draw_legend(hover_val=val)
         else:
             dpg.set_value(self.tracker_tag, "Out of image")
+            # self.draw_legend(hover_val=None)
 
         win_h = dpg.get_item_height(f"win_{self.tag}")
         ts = dpg.get_item_rect_size(self.tracker_tag)
@@ -1187,6 +1308,9 @@ class SliceViewer:
                 not self.view_state.interpolation_linear
             )
             self.view_state.is_data_dirty = True
+        elif key == _k("toggle_legend"):
+            self.view_state.show_legend = not self.view_state.show_legend
+            self.controller.update_all_viewers_of_image(self.image_id)
         elif key == _k("toggle_grid"):
             self.view_state.grid_mode = not self.view_state.grid_mode
             self.view_state.is_data_dirty = True

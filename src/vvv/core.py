@@ -15,6 +15,7 @@ DEFAULT_SETTINGS = {
         "z": [80, 80, 255, 230],
         "grid": [255, 255, 255, 40],
         "viewer": [10, 246, 7, 120],
+        "legend_bg": [0, 0, 0, 150],
     },
     "physics": {"auto_window_fov": 0.20, "voxel_strip_threshold": 5000},
     "shortcuts": {
@@ -34,7 +35,8 @@ DEFAULT_SETTINGS = {
         "view_sagittal": "F2",
         "view_coronal": "F3",
         "view_histogram": "F4",
-        "toggle_interp": "L",
+        "toggle_interp": "K",
+        "toggle_legend": "L",
         "toggle_grid": "G",
         "hide_all": "H",
     },
@@ -203,6 +205,7 @@ class ViewState:
         self.show_tracker = True
         self.show_crosshair = True
         self.show_scalebar = False
+        self.show_legend = False
         self.colormap = "Grayscale"
 
         # Overlay / Fusion Data
@@ -634,27 +637,6 @@ class Controller:
                 # Force the scale bar, grids, and axes to redraw on the next frame
                 viewer.is_geometry_dirty = True
 
-    def update_setting(self, keys, value):
-        if not keys or keys[-1] is None:
-            return
-
-        d = self.settings.data
-        for key in keys[:-1]:
-            d = d[key]
-
-        if keys[0] == "colors" and isinstance(value, (list, tuple)):
-            if any(isinstance(x, float) for x in value):
-                value = [int(x * 255) for x in value]
-            else:
-                value = [int(x) for x in value]
-
-        d[keys[-1]] = value
-
-        for viewer in self.viewers.values():
-            viewer.update_render()
-            if viewer.image_id:
-                viewer.draw_crosshair()
-
     def unify_ppm(self, target_viewer_tags):
         valid_viewers = [
             self.viewers[tag]
@@ -695,13 +677,35 @@ class Controller:
                 viewer.set_pixels_per_mm(min_ppm)
                 viewer.is_geometry_dirty = True
 
+    def update_setting(self, keys, value):
+        if not keys or keys[-1] is None:
+            return
+
+        d = self.settings.data
+        for key in keys[:-1]:
+            d = d[key]
+
+        if keys[0] == "colors" and isinstance(value, (list, tuple)):
+            if any(isinstance(x, float) for x in value):
+                value = [int(x * 255) for x in value]
+            else:
+                value = [int(x) for x in value]
+
+        d[keys[-1]] = value
+
+        for viewer in self.viewers.values():
+            viewer.update_render()
+            viewer.is_geometry_dirty = True
+            if viewer.image_id:
+                viewer.draw_crosshair()
+
     def reset_settings(self):
         self.settings.reset()
         for viewer in self.viewers.values():
             viewer.update_render()
-
-    def save_settings(self):
-        return self.settings.save()
+            if viewer.image_id:
+                viewer.draw_crosshair()
+                viewer.is_geometry_dirty = True
 
     def reload_settings(self):
         # 1. Wipe memory to defaults to clear any unsaved user tweaks
@@ -714,6 +718,10 @@ class Controller:
             viewer.update_render()
             if viewer.image_id:
                 viewer.draw_crosshair()
+                viewer.is_geometry_dirty = True
+
+    def save_settings(self):
+        return self.settings.save()
 
     def reload_image(self, vs_id):
         if vs_id in self.view_states:
@@ -803,6 +811,8 @@ class Controller:
             vs.show_crosshair = value
         elif user_data == "scalebar":
             vs.show_scalebar = value
+        elif user_data == "legend":
+            vs.show_legend = value
 
         self.update_all_viewers_of_image(context_viewer.image_id)
 
@@ -967,6 +977,7 @@ class Controller:
                     or viewer.view_state.overlay_id == source_vs_id
                 ):
                     viewer.update_render()
+                    viewer.is_geometry_dirty = True
 
     def propagate_window_level(self, source_vs_id):
         source_vs = self.view_states[source_vs_id]
@@ -1000,6 +1011,7 @@ class Controller:
                     or viewer.view_state.overlay_id == source_vs_id
                 ):
                     viewer.update_render()
+                    viewer.is_geometry_dirty = True
 
     def propagate_camera(self, source_viewer):
         if not source_viewer.view_state:
