@@ -777,34 +777,23 @@ class Controller:
                     vs.base_threshold = source_vs.base_threshold
                     dirty_ids.add(target_id)
 
-        while True:
-            added_new = False
+        # Perform a single pass to sync Window/Level across the flat Base <-> Overlay hierarchy
+        for tid in list(dirty_ids):
+            t_vs = self.view_states[tid]
 
-            for tid in list(dirty_ids):
-                t_vs = self.view_states[tid]
-                if t_vs.overlay_id and t_vs.overlay_mode == "Registration":
-                    if t_vs.overlay_id not in dirty_ids:
-                        ovs = self.view_states.get(t_vs.overlay_id)
-                        if ovs and not getattr(ovs.volume, "is_rgb", False):
-                            ovs.ww = t_vs.ww
-                            ovs.wl = t_vs.wl
-                            dirty_ids.add(t_vs.overlay_id)
-                            added_new = True
+            # 1. Top-Down: If this image is a Base with a Registration overlay, push W/L down to the overlay
+            if t_vs.overlay_id and t_vs.overlay_mode == "Registration":
+                ovs = self.view_states.get(t_vs.overlay_id)
+                if ovs and not getattr(ovs.volume, "is_rgb", False):
+                    ovs.ww, ovs.wl = t_vs.ww, t_vs.wl
+                    dirty_ids.add(t_vs.overlay_id)
 
-            for vs_id, vs in self.view_states.items():
-                if (
-                    vs_id not in dirty_ids
-                    and vs.overlay_id in dirty_ids
-                    and vs.overlay_mode == "Registration"
-                ):
-                    if not getattr(vs.volume, "is_rgb", False):
-                        vs.ww = self.view_states[vs.overlay_id].ww
-                        vs.wl = self.view_states[vs.overlay_id].wl
-                        dirty_ids.add(vs_id)
-                        added_new = True
-
-            if not added_new:
-                break
+            # 2. Bottom-Up: If this image is acting as an Overlay for a Base in Registration mode, push W/L up to the Base
+            for base_id, base_vs in self.view_states.items():
+                if base_vs.overlay_id == tid and base_vs.overlay_mode == "Registration":
+                    if not getattr(base_vs.volume, "is_rgb", False):
+                        base_vs.ww, base_vs.wl = t_vs.ww, t_vs.wl
+                        dirty_ids.add(base_id)
 
         for tid in dirty_ids:
             self.view_states[tid].is_data_dirty = True

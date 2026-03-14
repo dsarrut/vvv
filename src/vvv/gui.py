@@ -842,12 +842,23 @@ class MainGUI:
             self.update_sidebar_window_level(viewer)
 
         if dpg.does_item_exist("combo_overlay_select"):
+            # 1. Check if the active image is already acting as an overlay for another image
+            is_acting_as_overlay = any(
+                other_vs.overlay_id == viewer.image_id
+                for other_vs in self.controller.view_states.values()
+            )
+
             options = ["None"]
             for vid, ovs in self.controller.view_states.items():
                 if vid != viewer.image_id:
-                    options.append(f"{vid}: {ovs.volume.name}")
+                    # 2. Prevent chains: Do not list images that already have their own overlay attached
+                    if ovs.overlay_id is None:
+                        options.append(f"{vid}: {ovs.volume.name}")
 
             dpg.configure_item("combo_overlay_select", items=options)
+
+            # 3. Lock the dropdown completely if this image is already an overlay
+            dpg.configure_item("combo_overlay_select", enabled=not is_acting_as_overlay)
 
             # Evaluate if we currently have an overlay
             current_sel = "None"
