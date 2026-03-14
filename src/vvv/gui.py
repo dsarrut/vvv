@@ -1423,6 +1423,144 @@ class MainGUI:
         yield
 
         loaded_ids, files_processed = [], 0
+        id_to_group = {}  # Tracks the specific sync group mapping
+
+        for task in image_tasks:
+            base_path = task["base"]
+            filename = os.path.basename(base_path)
+            sync_group = task.get("sync_group", 0)
+
+            if dpg.does_item_exist("loading_text"):
+                dpg.set_value("loading_text", f"Loading base...\n{filename}")
+            if dpg.does_item_exist("loading_progress"):
+                dpg.set_value("loading_progress", files_processed / total_files)
+            yield
+
+            try:
+                base_id = self.controller.load_image(base_path)
+                loaded_ids.append(base_id)
+                id_to_group[base_id] = sync_group  # Register the group
+                files_processed += 1
+            except Exception as e:
+                self.show_message("Load Error", f"Failed to load:\n{filename}")
+                continue
+
+            if task["fusion"]:
+                fuse_path = task["fusion"]["path"]
+                fuse_name = os.path.basename(fuse_path)
+
+                if dpg.does_item_exist("loading_text"):
+                    dpg.set_value("loading_text", f"Resampling overlay...\n{fuse_name}")
+                if dpg.does_item_exist("loading_progress"):
+                    dpg.set_value("loading_progress", files_processed / total_files)
+                yield
+
+                try:
+                    fuse_id = self.controller.load_image(fuse_path)
+                    loaded_ids.append(fuse_id)
+                    id_to_group[fuse_id] = sync_group  # Register overlay to same group
+                    files_processed += 1
+
+                    fuse_vs = self.controller.view_states[fuse_id]
+                    fuse_vs.colormap = task["fusion"]["cmap"]
+                    fuse_vs.is_data_dirty = True
+
+                    base_vs = self.controller.view_states[base_id]
+                    base_vs.set_overlay(fuse_id, fuse_vs.volume)
+                    base_vs.overlay_opacity = task["fusion"]["opacity"]
+                    base_vs.overlay_threshold = task["fusion"]["threshold"]
+
+                    if "mode" in task["fusion"]:
+                        base_vs.overlay_mode = task["fusion"]["mode"]
+
+                except Exception as e:
+                    self.show_message(
+                        "Overlay Error", f"Failed to load/fuse:\n{fuse_name}"
+                    )
+                    continue
+
+        if dpg.does_item_exist("loading_text"):
+            dpg.set_value("loading_text", "Applying synchronization and layouts...")
+        if dpg.does_item_exist("loading_progress"):
+            dpg.set_value("loading_progress", 1.0)
+        yield
+
+        self.controller.default_viewers_orientation()
+
+        for i, img_id in enumerate(loaded_ids):
+            if i == 0:
+                for tag in ["V1", "V2", "V3", "V4"]:
+                    self.controller.viewers[tag].set_image(img_id)
+            elif i == 1:
+                self.controller.viewers["V3"].set_image(img_id)
+                self.controller.viewers["V4"].set_image(img_id)
+            elif i == 2:
+                self.controller.viewers["V2"].set_image(loaded_ids[1])
+                self.controller.viewers["V3"].set_image(img_id)
+                self.controller.viewers["V4"].set_image(img_id)
+            elif i >= 3:
+                self.controller.viewers["V4"].set_image(img_id)
+
+        for img_id in loaded_ids:
+            same_viewers = [
+                v.tag for v in self.controller.viewers.values() if v.image_id == img_id
+            ]
+            if same_viewers:
+                self.controller.unify_ppm(same_viewers)
+
+        # --- SYNC ASSIGNMENT ---
+        group_applied = False
+        for img_id in loaded_ids:
+            if sync or link_all:
+                # Global sync overrides specific prefixes
+                self.controller.on_sync_group_change(None, "Group 1", img_id)
+                group_applied = True
+            elif id_to_group.get(img_id, 0) > 0:
+                # Apply the specific prefix group requested
+                self.controller.on_sync_group_change(
+                    None, f"Group {id_to_group[img_id]}", img_id
+                )
+                group_applied = True
+
+        if group_applied:
+            self.refresh_sync_ui()
+        # ------------------------
+
+        self.on_window_resize()
+
+        # Ensure V1 is the guaranteed Active Viewer target upon loading
+        self.set_context_viewer(self.controller.viewers["V1"])
+        self.refresh_image_list_ui()
+
+        if dpg.does_item_exist("loading_modal"):
+            dpg.delete_item("loading_modal")
+        yield
+
+    def create_boot_sequence_OLD(self, image_tasks, sync=False, link_all=False):
+        if not image_tasks:
+            return
+        total_files = len(image_tasks) + sum(1 for t in image_tasks if t["fusion"])
+
+        with dpg.window(
+            tag="loading_modal",
+            modal=True,
+            show=True,
+            no_title_bar=True,
+            no_resize=True,
+            no_move=True,
+            width=350,
+            height=100,
+        ):
+            dpg.add_text("Initializing...", tag="loading_text")
+            dpg.add_spacer(height=5)
+            dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=0.0)
+
+        vp_width = max(dpg.get_viewport_client_width(), 800)
+        vp_height = max(dpg.get_viewport_client_height(), 600)
+        dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
+        yield
+
+        loaded_ids, files_processed = [], 0
 
         for task in image_tasks:
             base_path = task["base"]
@@ -1465,6 +1603,10 @@ class MainGUI:
                     base_vs.set_overlay(fuse_id, fuse_vs.volume)
                     base_vs.overlay_opacity = task["fusion"]["opacity"]
                     base_vs.overlay_threshold = task["fusion"]["threshold"]
+
+                    if "mode" in task["fusion"]:
+                        base_vs.overlay_mode = task["fusion"]["mode"]
+
                 except Exception as e:
                     self.show_message(
                         "Overlay Error", f"Failed to load/fuse:\n{fuse_name}"

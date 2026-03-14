@@ -8,6 +8,7 @@ from .core import Controller
 from .viewer import SliceViewer
 import sys
 import os
+import re
 from .resources import get_resource_path
 
 
@@ -16,15 +17,13 @@ def set_macos_dock_info(name, icon_path=None):
     if sys.platform != "darwin":
         return
 
-    # --- Set Process Title (Activity Monitor / Terminal) ---
     try:
         import setproctitle
 
         setproctitle.setproctitle(name)
     except ImportError:
-        print("Warning: 'setproctitle' not installed. Run: pip install setproctitle")
+        pass
 
-    # --- macOS UI, Focus, and Menu Bar Fix ---
     try:
         from Cocoa import (
             NSApplication,
@@ -35,12 +34,9 @@ def set_macos_dock_info(name, icon_path=None):
         )
 
         app = NSApplication.sharedApplication()
-
-        # Promote to regular app and steal focus
         app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
         app.activateIgnoringOtherApps_(True)
 
-        # --- Fix Command+Q by creating a minimal Main Menu ---
         main_menu = NSMenu.alloc().init()
         app.setMainMenu_(main_menu)
 
@@ -50,20 +46,17 @@ def set_macos_dock_info(name, icon_path=None):
         app_menu = NSMenu.alloc().init()
         app_menu_item.setSubmenu_(app_menu)
 
-        # "terminate:" is the native macOS action for quitting. "q" binds to Cmd+Q.
         quit_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
             f"Quit {name}", "terminate:", "q"
         )
         app_menu.addItem_(quit_item)
-        # -----------------------------------------------------
 
-        # Set the Dock Icon
         if icon_path and os.path.exists(icon_path):
             image = NSImage.alloc().initWithContentsOfFile_(str(icon_path))
             app.setApplicationIconImage_(image)
 
     except ImportError:
-        print("Warning: PyObjC not installed. Run: pip install pyobjc-framework-Cocoa")
+        pass
 
 
 @click.command()
@@ -72,18 +65,52 @@ def set_macos_dock_info(name, icon_path=None):
 @click.option("--sync", "-s", is_flag=True, help="Enable sync all images")
 def main(datasets, linkall, sync):
 
-    # Parse the composite strings: "base[,overlay,cmap,opacity,threshold]"
+    # 1. Smart Re-grouping: Handle spaces after commas AND colons from the shell
+    grouped_datasets = []
+    buf = []
+    for item in datasets:
+        buf.append(item)
+        # If the argument is trailing a comma OR a colon, keep buffering!
+        if not (item.endswith(",") or item.endswith(":")):
+            grouped_datasets.append(" ".join(buf))
+            buf = []
+    if buf:  # Catch any trailing fragments
+        grouped_datasets.append(" ".join(buf))
+
+    # 2. Parse the composite strings
     image_tasks = []
-    for ds in datasets:
-        parts = ds.split(",")
-        task = {"base": parts[0], "fusion": None}
+    for ds in grouped_datasets:
+        # Split by comma and clean up whitespace
+        parts = [p.strip() for p in ds.split(",")]
+        base_part = parts[0]
+        sync_group = 0
+
+        # --- Extract Sync Group Prefix allowing spaces (e.g. "1: path/to/image.nii") ---
+        # \s* safely absorbs any spaces between the colon and the file path
+        match = re.match(r"^(\d+):\s*(.*)$", base_part)
+        if match:
+            sync_group = int(match.group(1))
+            base_part = match.group(2)
+        # -------------------------------------------------------------------------------
+
+        task = {"base": base_part, "fusion": None, "sync_group": sync_group}
 
         if len(parts) > 1:
+            cmap = parts[2] if len(parts) > 2 else "Jet"
+            mode = "Alpha"
+
+            # Handle the "Reg" shorthand
+            if cmap.lower() in ["reg", "registration"]:
+                cmap = "Grayscale"  # The standalone overlay gets Grayscale
+                mode = "Registration"  # The fused representation gets Registration math
+
             task["fusion"] = {
                 "path": parts[1],
-                "cmap": parts[2] if len(parts) > 2 else "Jet",
+                "cmap": cmap,
+                "mode": mode,
                 "opacity": float(parts[3]) if len(parts) > 3 else 0.5,
-                "threshold": float(parts[4]) if len(parts) > 4 else 0,
+                # Default threshold set lower to ensure CT/MRI overlays aren't stripped
+                "threshold": float(parts[4]) if len(parts) > 4 else -10000.0,
             }
         image_tasks.append(task)
 
