@@ -217,11 +217,38 @@ class SliceViewer:
         elif self.orientation == ViewMode.CORONAL:
             self.slice_idx = int(np.clip(vy, 0, self.volume.data.shape[1] - 1))
 
-    def set_orientation(self, orientation):
+    def set_orientation_OLD(self, orientation):
         self.orientation = orientation
         if self.image_id:
             self.set_image(self.image_id)
         self.controller.gui.on_window_resize()
+
+    def set_orientation(self, orientation):
+        if self.orientation == orientation:
+            return
+
+        # 1. Capture the current camera state before flipping the axes
+        is_old_image = self.is_image_orientation()
+        old_ppm = self.get_pixels_per_mm() if is_old_image else None
+        old_center = self.get_center_physical_coord() if is_old_image else None
+
+        # 2. Apply the new orientation
+        self.orientation = orientation
+        if self.image_id:
+            self.set_image(self.image_id)
+
+        if self.controller.gui:
+            self.controller.gui.on_window_resize()
+
+        # 3. Re-apply the scale and center to the new perspective
+        if self.is_image_orientation():
+            if old_ppm and old_ppm > 0:
+                self.set_pixels_per_mm(old_ppm)
+            if old_center is not None:
+                self.center_on_physical_coord(old_center)
+
+            # 4. Enforce the sync across the rest of the group to match this perspective
+            self.controller.propagate_camera(self)
 
     def init_slice_texture(self):
         if not self.is_image_orientation() or not self.volume:

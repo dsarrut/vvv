@@ -86,7 +86,8 @@ class MainGUI:
                 "text_dim": [140, 140, 140],
                 # "text_header": [140, 140, 140],
                 "text_header": [93, 93, 93],
-                "text_active": [100, 200, 255, 255],  # Cyan/Blue
+                # "text_active": [100, 200, 255, 255],  # Cyan/Blue
+                "text_active": [0, 246, 7, 255],
                 "text_status_ok": [150, 255, 150],
                 "text_muted": [150, 150, 150],
                 "transparent": [0, 0, 0, 0],
