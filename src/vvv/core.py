@@ -207,6 +207,7 @@ class ViewState:
         self.show_scalebar = False
         self.show_legend = False
         self.colormap = "Grayscale"
+        self.base_threshold = -1e8
 
         # Overlay / Fusion Data
         self.overlay_id = None
@@ -439,18 +440,6 @@ class ViewState:
         return SliceRenderer.get_raw_slice(
             self.volume.data,
             getattr(self.volume, "is_rgb", False),
-            slice_idx,
-            orientation,
-        )
-
-    def get_slice_rgba(self, slice_idx, orientation=ViewMode.AXIAL):
-        return SliceRenderer.get_slice_rgba(
-            self.volume.data,
-            getattr(self.volume, "is_rgb", False),
-            self.volume.num_components,
-            self.ww,
-            self.wl,
-            self.colormap,
             slice_idx,
             orientation,
         )
@@ -995,6 +984,7 @@ class Controller:
                 ):
                     vs.ww = source_vs.ww
                     vs.wl = source_vs.wl
+                    vs.base_threshold = source_vs.base_threshold
                     vs.is_data_dirty = True
         else:
             source_vs.is_data_dirty = True
@@ -1097,6 +1087,7 @@ class SliceRenderer:
         base_ww,
         base_wl,
         base_cmap_name,
+        base_threshold,
         overlay_data,
         overlay_ww,
         overlay_wl,
@@ -1148,6 +1139,11 @@ class SliceRenderer:
             base_norm = SliceRenderer.normalize_wl(base_slice, base_ww, base_wl)
             lut = COLORMAPS.get(base_cmap_name, COLORMAPS["Grayscale"])
             base_rgba = lut[(base_norm * 255).astype(np.uint8)]
+
+            if base_threshold > -1e8:
+                mask = base_slice <= base_threshold
+                # Force pixels below threshold to Black
+                base_rgba[mask] = [0.0, 0.0, 0.0, 0.0]
 
         # 4. Return early if no overlay is needed
         if overlay_data is None or overlay_opacity <= 0.0:

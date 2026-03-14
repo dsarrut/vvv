@@ -1094,6 +1094,7 @@ class SliceViewer:
             self.view_state.ww,
             self.view_state.wl,
             self.view_state.colormap,
+            self.view_state.base_threshold,
             over_data,
             over_ww,
             over_wl,

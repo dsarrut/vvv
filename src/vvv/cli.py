@@ -116,9 +116,12 @@ def main(datasets, linkall, sync):
             }
 
             # Handle the "Reg" shorthand
-            if cmap.lower() in ["reg", "registration"]:
+            cmap_lower = cmap.lower()
+            if cmap_lower in ["reg", "registration"]:
                 cmap = "Grayscale"
                 mode = "Registration"
+            else:
+                cmap = known_cmaps.get(cmap_lower, cmap.capitalize())
 
             if overlay_path:
                 task["fusion"] = {

@@ -543,9 +543,10 @@ class MainGUI:
             dpg.add_input_text(tag=tag, readonly=True, width=-1)
 
     def build_window_level_controls(self):
+        dim_color = self.ui_cfg["colors"]["text_dim"]
         with dpg.group(horizontal=True):
             with dpg.group(horizontal=True):
-                dpg.add_text("Window")
+                dpg.add_text("Window", color=dim_color)
                 dpg.add_input_text(
                     tag="info_window",
                     width=65,
@@ -554,13 +555,23 @@ class MainGUI:
                 )
             dpg.add_spacer(width=5)
             with dpg.group(horizontal=True):
-                dpg.add_text("Level")
+                dpg.add_text("Level", color=dim_color)
                 dpg.add_input_text(
                     tag="info_level",
                     width=65,
                     on_enter=True,
                     callback=lambda: self.on_sidebar_wl_change(),
                 )
+
+        with dpg.group(horizontal=True):
+            dpg.add_text("Min Threshold", color=dim_color)
+            dpg.add_input_text(
+                tag="info_base_threshold",
+                width=65,
+                on_enter=True,
+                callback=lambda: self.on_sidebar_wl_change(),
+            )
+            # dpg.add_text("(< val = black)", color=self.ui_cfg["colors"]["text_dim"])
 
     def build_visibility_controls(self):
         with dpg.group(tag="visibility_controls"):
@@ -898,7 +909,7 @@ class MainGUI:
                 dpg.configure_item("check_sync_wl", show=can_sync_wl)
 
         is_rgb = getattr(vol, "is_rgb", False)
-        for t in ["info_window", "info_level"]:
+        for t in ["info_window", "info_level", "info_base_threshold"]:
             if dpg.does_item_exist(t):
                 dpg.configure_item(t, enabled=not is_rgb)
                 if is_rgb:
@@ -948,6 +959,10 @@ class MainGUI:
             return
         dpg.set_value("info_window", f"{vs.ww:g}")
         dpg.set_value("info_level", f"{vs.wl:g}")
+        dpg.set_value(
+            "info_base_threshold",
+            "" if vs.base_threshold <= -1e8 else f"{vs.base_threshold:g}",
+        )
 
     def update_sidebar_crosshair(self, viewer):
         if not viewer or not viewer.view_state:
@@ -981,9 +996,9 @@ class MainGUI:
             if ppm > 0 and win_w and win_h:
                 dpg.set_value(
                     "info_scale",
-                    f"{win_w / ppm:.0f}x{win_h / ppm:.0f} mm  {ppm:.1f} px/mm",
+                    f"{win_w / ppm:.0f} x {win_h / ppm:.0f} mm",
                 )
-            dpg.set_value("info_ppm", f"{ppm:g}")
+            dpg.set_value("info_ppm", f"{ppm:g} px/mm")
 
     def update_settings_ui(self):
         """Helper to sync the UI inputs with the current SettingsManager data."""
@@ -1185,7 +1200,16 @@ class MainGUI:
         try:
             new_ww = float(dpg.get_value("info_window"))
             new_wl = float(dpg.get_value("info_level"))
-            self.context_viewer.update_window_level(new_ww, new_wl)
+
+            thr_str = dpg.get_value("info_base_threshold")
+            new_thr = float(thr_str) if thr_str.strip() else -1e9
+
+            self.context_viewer.view_state.ww = max(1e-5, new_ww)
+            self.context_viewer.view_state.wl = new_wl
+            self.context_viewer.view_state.base_threshold = new_thr
+
+            self.controller.propagate_window_level(self.context_viewer.image_id)
+            # self.context_viewer.update_window_level(new_ww, new_wl)
         except ValueError:
             pass
 
