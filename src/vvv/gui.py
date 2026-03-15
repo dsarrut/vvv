@@ -388,6 +388,7 @@ class MainGUI:
 
                 self.build_tab_sync(cfg_c)
                 self.build_tab_fusion(cfg_c)
+                self.build_tab_rois(cfg_c)
 
     def build_tab_sync(self, cfg_c):
         with dpg.tab(label="Sync"):
@@ -471,6 +472,145 @@ class MainGUI:
                         tag="check_chk_swap",
                         callback=self.on_checkerboard_changed,
                     )
+
+    def build_tab_rois(self, cfg_c):
+        with dpg.tab(label="ROIs"):
+            dpg.add_spacer(height=5)
+
+            # --- TOP: Load & Import ---
+            dpg.add_text("ROI Management", color=cfg_c["text_header"])
+            dpg.add_separator()
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Load ROI...", width=80)
+                dpg.add_combo(
+                    ["Binary Mask", "Label Map", "RT-Struct"],
+                    default_value="Binary Mask",
+                    width=-1,
+                )
+
+            dpg.add_spacer(height=10)
+
+            # --- MIDDLE: The List (Mocked) ---
+            dpg.add_text("Loaded Regions", color=cfg_c["text_header"])
+            dpg.add_separator()
+
+            with dpg.child_window(height=110, border=False, no_scrollbar=True):
+                # Using a table to align columns nicely
+                with dpg.table(
+                    header_row=False, resizable=False, borders_innerH=True, scrollY=True
+                ):
+                    dpg.add_table_column(
+                        width_fixed=True, init_width_or_weight=20
+                    )  # Eye
+                    dpg.add_table_column(
+                        width_fixed=True, init_width_or_weight=20
+                    )  # Color
+                    dpg.add_table_column(width_stretch=True)  # Name
+                    dpg.add_table_column(
+                        width_fixed=True, init_width_or_weight=20
+                    )  # C/F (Contour)
+                    dpg.add_table_column(
+                        width_fixed=True, init_width_or_weight=50
+                    )  # Opacity
+
+                    # Mock Row 1 (Visible, Filled)
+                    with dpg.table_row():
+                        btn_eye1 = dpg.add_button(
+                            label="\uf06e", width=20
+                        )  # FontAwesome Eye
+                        dpg.add_color_edit(
+                            default_value=[255, 50, 50, 255],
+                            no_inputs=True,
+                            no_label=True,
+                            no_alpha=True,
+                            width=20,
+                            height=20,
+                        )
+                        dpg.add_text("Tumor_GTV")
+                        dpg.add_checkbox(label="", default_value=False)
+                        dpg.add_slider_float(
+                            default_value=0.5,
+                            min_value=0.0,
+                            max_value=1.0,
+                            width=50,
+                            no_input=True,
+                        )
+
+                    # Mock Row 2 (Hidden, Contour)
+                    with dpg.table_row():
+                        btn_eye2 = dpg.add_button(
+                            label="\uf070", width=20
+                        )  # FontAwesome Eye-slash
+                        dpg.add_color_edit(
+                            default_value=[50, 255, 50, 255],
+                            no_inputs=True,
+                            no_label=True,
+                            no_alpha=True,
+                            width=20,
+                            height=20,
+                        )
+                        dpg.add_text("Liver")
+                        dpg.add_checkbox(label="", default_value=True)
+                        dpg.add_slider_float(
+                            default_value=1.0,
+                            min_value=0.0,
+                            max_value=1.0,
+                            width=50,
+                            no_input=True,
+                        )
+
+            # Bind icon font if it exists
+            if dpg.does_item_exist("icon_font_tag"):
+                dpg.bind_item_font(btn_eye1, "icon_font_tag")
+                dpg.bind_item_font(btn_eye2, "icon_font_tag")
+
+            dpg.add_spacer(height=10)
+
+            # --- BOTTOM: Analytics (Mocked) ---
+            dpg.add_text("ROI Statistics", color=cfg_c["text_header"])
+            dpg.add_separator()
+
+            with dpg.group():
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Target:")
+                    dpg.add_combo(
+                        ["Tumor_GTV", "Liver"], default_value="Tumor_GTV", width=-1
+                    )
+
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Image: ")
+                    dpg.add_combo(
+                        ["Base Image", "Active Overlay"],
+                        default_value="Base Image",
+                        width=-1,
+                    )
+
+                dpg.add_spacer(height=5)
+
+                # Stats layout using a sleek 2-column table
+                dim_col = cfg_c["text_dim"]
+                with dpg.table(header_row=False, borders_innerH=True):
+                    dpg.add_table_column(width_stretch=True)
+                    dpg.add_table_column(width_stretch=True)
+
+                    with dpg.table_row():
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("Vol:", color=dim_col)
+                            dpg.add_text("14.2 cc")
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("Mean:", color=dim_col)
+                            dpg.add_text("45.1")
+                    with dpg.table_row():
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("Max:", color=dim_col)
+                            dpg.add_text("120.4")
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("Min:", color=dim_col)
+                            dpg.add_text("-10.0")
+                    with dpg.table_row():
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("Std:", color=dim_col)
+                            dpg.add_text("12.5")
 
     def build_sidebar_bottom(self):
         """Builds the lower half of the sidebar for Active Viewer info."""
@@ -1113,9 +1253,17 @@ class MainGUI:
             return
 
         self.drag_viewer = viewer
-
-        # Click instantly sets the Active Menu Target!
         self.set_context_viewer(viewer)
+
+        # --- 1. THE BULLETPROOF ANCHOR ---
+        self.drag_viewer.drag_start_mouse = dpg.get_mouse_pos(local=False)
+        self.drag_viewer.drag_start_pan = list(self.drag_viewer.pan_offset)
+        if self.drag_viewer.view_state:
+            self.drag_viewer.drag_start_wl = [
+                self.drag_viewer.view_state.display.ww,
+                self.drag_viewer.view_state.display.wl,
+            ]
+        # ---------------------------------
 
         if viewer.orientation != ViewMode.HISTOGRAM:
             if not dpg.is_key_down(dpg.mvKey_LShift) and not dpg.is_key_down(
@@ -1125,6 +1273,19 @@ class MainGUI:
                 if px is not None:
                     viewer.update_crosshair_data(px, py)
                     self.controller.propagate_sync(viewer.image_id)
+
+    def on_global_release(self, sender, app_data, user_data):
+        if self.drag_viewer:
+            self.update_sidebar_crosshair(self.drag_viewer)
+            self.update_sidebar_info(self.drag_viewer)
+
+            # CLEANUP ANCHORS
+            self.drag_viewer.drag_start_mouse = None
+            self.drag_viewer.drag_start_pan = None
+            self.drag_viewer.drag_start_wl = None
+            self.drag_viewer.last_dx, self.drag_viewer.last_dy = 0, 0
+
+            self.drag_viewer = None
 
     def on_global_scroll(self, sender, app_data, user_data):
         target = self.get_interaction_target()
@@ -1156,13 +1317,6 @@ class MainGUI:
             return
         if self.drag_viewer:
             self.drag_viewer.on_drag(app_data)
-
-    def on_global_release(self, sender, app_data, user_data):
-        if self.drag_viewer:
-            self.update_sidebar_crosshair(self.drag_viewer)
-            self.update_sidebar_info(self.drag_viewer)
-            self.drag_viewer.last_dx, self.drag_viewer.last_dy = 0, 0
-            self.drag_viewer = None
 
     def on_image_viewer_toggle(self, sender, value, user_data):
         img_id, v_tag = user_data["img_id"], user_data["v_tag"]

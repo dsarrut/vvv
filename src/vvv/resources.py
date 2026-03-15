@@ -42,6 +42,8 @@ def load_fonts():
             with dpg.font(icon_font_path, 14, tag="icon_font_tag"):
                 dpg.add_font_range(0xF00D, 0xF021)
                 dpg.add_font_chars([0xF0C5])  # Copy icon
+                dpg.add_font_chars([0xF06E])  # Eye icon open
+                dpg.add_font_chars([0xF070])  # Eye icon close
                 dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
         else:
             print("🚨 ERROR: Icon font file not found! Buttons will show '?'.")
