@@ -4,10 +4,10 @@ import time
 import threading
 import numpy as np
 from vvv.utils import ViewMode, fmt
-from vvv.file_dialog import open_file_dialog
-from .resources import load_fonts, setup_themes
-from .core import WL_PRESETS, COLORMAPS
-from .settings_ui import SettingsWindow
+from vvv.file_dialog import open_file_dialog, save_file_dialog
+from vvv.resources import load_fonts, setup_themes
+from vvv.core import WL_PRESETS, COLORMAPS
+from vvv.settings_ui import SettingsWindow
 
 
 class MainGUI:
@@ -85,7 +85,7 @@ class MainGUI:
                 "right_m_bottom": shared_margin,
                 "right_m_top": 0,
                 "rounding": 8,
-                "viewport_padding": 0,  # inside viewer padding when rounded active contour
+                "viewport_padding": 4,  # inside viewer padding when rounded active contour
                 # Chunky padding for top menu items
                 "pad_frame_menu": [8, 10],
                 # Sleek vertical-only padding for sidebar text
@@ -284,6 +284,17 @@ class MainGUI:
                         label="Open a 4D Sequence...",
                         callback=self.on_open_4d_sequence_clicked,
                     )
+
+                    dpg.add_menu_item(
+                        label="Open Workspace...",
+                        callback=self.on_open_workspace_clicked,
+                    )
+                    dpg.add_menu_item(
+                        label="Save Workspace As...",
+                        callback=self.on_save_workspace_clicked,
+                    )
+                    dpg.add_separator()
+
                     dpg.add_menu_item(
                         label="Settings...",
                         callback=lambda: self.settings_window.show(),
@@ -1290,6 +1301,140 @@ class MainGUI:
         if self.context_viewer and self.context_viewer.view_state:
             self.context_viewer.view_state.overlay_threshold = app_data
             self.context_viewer.view_state.is_data_dirty = True
+
+    def on_save_workspace_clicked(self, sender=None, app_data=None, user_data=None):
+        file_path = save_file_dialog("Save VVV Workspace", default_name="workspace.vvw")
+
+        if file_path:
+            # Ensure it has the correct extension
+            if not file_path.endswith(".vvw"):
+                file_path += ".vvw"
+
+            self.controller.save_workspace(file_path)
+            self.show_status_message(f"Workspace saved: {os.path.basename(file_path)}")
+
+    def on_open_workspace_clicked(self, sender=None, app_data=None, user_data=None):
+        file_path = open_file_dialog(
+            "Open VVV Workspace", multiple=False, is_workspace=True
+        )
+
+        if file_path:
+            # open_file_dialog returns a string when multiple=False
+            self.tasks.append(self.load_workspace_sequence(file_path))
+
+    def load_workspace_sequence(self, file_path):
+        import json
+        import shlex
+        from vvv.utils import ViewMode, resolve_relative_path
+
+        with open(file_path, "r") as f:
+            data = json.load(f)
+
+        workspace_dir = os.path.dirname(file_path)
+
+        with dpg.window(
+            tag="loading_modal",
+            modal=True,
+            show=True,
+            no_title_bar=True,
+            no_resize=True,
+            no_move=True,
+            width=350,
+            height=100,
+        ):
+            dpg.add_text("Cleaning up current session...", tag="loading_text")
+            dpg.add_spacer(height=5)
+            dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=0.0)
+
+        vp_width = max(dpg.get_viewport_client_width(), 800)
+        vp_height = max(dpg.get_viewport_client_height(), 600)
+        dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
+        yield
+
+        # 1. Close all currently open images
+        for vs_id in list(self.controller.view_states.keys()):
+            self.controller.close_image(vs_id)
+        yield
+
+        # 2. Temporarily disable Auto-History so it doesn't overwrite the Workspace settings
+        prev_history = getattr(self.controller, "use_history", True)
+        self.controller.use_history = False
+
+        id_mapping = {}  # Maps the saved JSON ID to the new internal session ID
+        vols_data = data.get("volumes", {})
+        total_vols = max(1, len(vols_data))
+        processed = 0
+
+        # 3. Load all raw volumes and apply their states
+        for old_id, v_data in vols_data.items():
+            raw_path = v_data["path"]
+            filename = os.path.basename(raw_path)
+
+            if dpg.does_item_exist("loading_text"):
+                dpg.set_value("loading_text", f"Loading volume...\n{filename}")
+                dpg.set_value("loading_progress", processed / total_vols)
+            yield
+
+            # Resolve relative paths back to absolute
+            if raw_path.startswith("4D:"):
+                tokens = shlex.split(raw_path[3:].strip())
+                abs_paths = [resolve_relative_path(p, workspace_dir) for p in tokens]
+                full_path = "4D:" + " ".join(f'"{p}"' for p in abs_paths)
+            else:
+                full_path = resolve_relative_path(raw_path, workspace_dir)
+
+            try:
+                # Load quietly, bypassing auto-history
+                new_id = self.controller.load_image(full_path, is_auto_overlay=True)
+                id_mapping[old_id] = new_id
+
+                vs = self.controller.view_states[new_id]
+                vs.sync_group = v_data.get("sync_group", 0)
+                vs.camera.from_dict(v_data["camera"])
+                vs.display.from_dict(v_data["display"])
+                vs.is_data_dirty = True
+            except Exception as e:
+                print(f"Failed to load workspace volume: {full_path}")
+
+            processed += 1
+            yield
+
+        # 4. Re-establish overlay connections safely
+        if dpg.does_item_exist("loading_text"):
+            dpg.set_value("loading_text", "Re-linking fusions and layouts...")
+            dpg.set_value("loading_progress", 1.0)
+        yield
+
+        for old_id, v_data in vols_data.items():
+            old_ov = v_data.get("overlay_id")
+            if old_ov and old_ov in id_mapping and old_id in id_mapping:
+                base_id = id_mapping[old_id]
+                over_id = id_mapping[old_ov]
+                self.controller.view_states[base_id].set_overlay(
+                    over_id, self.controller.volumes[over_id]
+                )
+
+        # 5. Restore Viewers exact configuration
+        for v_tag, v_data in data.get("viewers", {}).items():
+            viewer = self.controller.viewers[v_tag]
+            old_img_id = v_data.get("image_id")
+
+            if old_img_id and old_img_id in id_mapping:
+                viewer.set_image(id_mapping[old_img_id])
+            else:
+                viewer.drop_image()
+
+            viewer.set_orientation(ViewMode[v_data.get("orientation", "AXIAL")])
+
+        # 6. Cleanup
+        self.controller.use_history = prev_history
+        self.refresh_image_list_ui()
+        self.refresh_sync_ui()
+        self.set_context_viewer(self.controller.viewers["V1"])
+
+        if dpg.does_item_exist("loading_modal"):
+            dpg.delete_item("loading_modal")
+        yield
 
     # ==========================================
     # 5. MODALS & POPUPS

@@ -635,6 +635,27 @@ class ViewState:
         self.init_crosshair_to_slices()
         self.is_data_dirty = True
 
+    def hard_reset(self):
+        """Completely resets the image to its initial load state."""
+        # 1. Reset Spatial properties (zoom, pan, slices)
+        self.reset_view()
+
+        # 2. Reset Camera UI toggles
+        self.show_axis = True
+        self.show_tracker = True
+        self.show_crosshair = True
+        self.show_scalebar = False
+        self.show_grid = False
+        self.show_legend = False
+
+        # 3. Nuke the DisplayState (Drops overlays, resets colormap, etc.)
+        self.display = DisplayState()
+
+        # 4. Recalculate the optimal Window/Level from scratch
+        self.init_default_window_level()
+
+        self.is_data_dirty = True
+
     def apply_wl_preset(self, preset_name):
         if getattr(self.volume, "is_rgb", False) or preset_name == "Custom":
             return
@@ -741,6 +762,7 @@ class Controller:
         self.viewers = {}
         self.settings = SettingsManager()
         self.history = HistoryManager()
+        self.use_history = True
         self._next_image_id = 0
 
     def get_next_image_id(self, current_id):
@@ -810,7 +832,7 @@ class Controller:
         vs = ViewState(vol)
 
         # History
-        history_entry = self.history.get_image_state(vol)
+        history_entry = self.history.get_image_state(vol) if self.use_history else None
         if history_entry:
             vs.camera.from_dict(history_entry["camera"])
             vs.display.from_dict(history_entry["display"])
@@ -925,6 +947,45 @@ class Controller:
 
     def save_settings(self):
         return self.settings.save()
+
+    def save_workspace(self, filepath):
+        import shlex
+        from vvv.utils import get_relative_path
+
+        workspace_dir = os.path.dirname(filepath)
+        data = {"volumes": {}, "viewers": {}}
+
+        # 1. Save all open volumes and their states
+        for vs_id, vs in self.view_states.items():
+            vol = self.volumes[vs_id]
+
+            # Handle 4D magic paths safely
+            if vol.path.startswith("4D:"):
+                tokens = shlex.split(vol.path[3:].strip())
+                rel_paths = [get_relative_path(p, workspace_dir) for p in tokens]
+                safe_path = "4D:" + " ".join(f'"{p}"' for p in rel_paths)
+            else:
+                safe_path = get_relative_path(vol.path, workspace_dir)
+
+            data["volumes"][vs_id] = {
+                "path": safe_path,
+                "sync_group": vs.sync_group,
+                "overlay_id": vs.overlay_id,
+                "camera": vs.camera.to_dict(),
+                "display": vs.display.to_dict(),
+            }
+
+        # 2. Save which viewer is looking at what
+        for v_tag, viewer in self.viewers.items():
+            data["viewers"][v_tag] = {
+                "image_id": viewer.image_id,
+                "orientation": (
+                    viewer.orientation.name if viewer.orientation else "AXIAL"
+                ),
+            }
+
+        with open(filepath, "w") as f:
+            json.dump(data, f, indent=4)
 
     def reload_image(self, vs_id):
         if vs_id in self.view_states:

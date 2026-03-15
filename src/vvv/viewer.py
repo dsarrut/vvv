@@ -915,6 +915,29 @@ class SliceViewer:
                     self.controller.gui.update_sidebar_info(self)
 
     def action_reset_view(self):
+        # Check if either Left Shift or Right Shift is currently held down
+        is_shift = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(
+            dpg.mvKey_RShift
+        )
+
+        if is_shift:
+            self.view_state.hard_reset()
+            # Because W/L, colormaps, and overlays changed, we must push syncs
+            self.controller.propagate_window_level(self.image_id)
+            self.controller.propagate_colormap(self.image_id)
+            self.controller.propagate_overlay_mode(self.image_id)
+        else:
+            self.view_state.reset_view()
+
+        self.is_geometry_dirty = True
+        self.controller.propagate_sync(self.image_id)
+        self.controller.update_all_viewers_of_image(self.image_id)
+
+        # If the active viewer was reset, force the sidebar to update its overlay/info text
+        if self.controller.gui and self.controller.gui.context_viewer == self:
+            self.controller.gui.update_sidebar_info(self)
+
+    def action_reset_view_OLD(self):
         self.view_state.reset_view()
         self.is_geometry_dirty = True
         self.controller.propagate_sync(self.image_id)

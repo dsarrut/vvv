@@ -63,3 +63,19 @@ def resolve_history_path_key(key):
     if key.startswith("~/"):
         return str((Path.home() / key[2:]).resolve())
     return str(Path(key).resolve())
+
+
+def get_relative_path(target_path, base_dir):
+    """Converts an absolute path to a relative path based on the workspace directory."""
+    try:
+        return os.path.relpath(os.path.abspath(target_path), os.path.abspath(base_dir))
+    except ValueError:
+        # Fallback for Windows if files are on different drives
+        return os.path.abspath(target_path)
+
+
+def resolve_relative_path(rel_path, base_dir):
+    """Converts a relative path back to an absolute path."""
+    if os.path.isabs(rel_path):
+        return rel_path
+    return os.path.normpath(os.path.join(os.path.abspath(base_dir), rel_path))

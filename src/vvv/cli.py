@@ -155,7 +155,13 @@ def parse_cli_arguments(datasets):
 @click.argument("datasets", nargs=-1)
 @click.option("--linkall", "-l", is_flag=True, help="Enable sync all images")
 @click.option("--sync", "-s", is_flag=True, help="Enable sync all images")
-def main(datasets, linkall, sync):
+@click.option(
+    "--no-history",
+    "-nh",
+    is_flag=True,
+    help="Ignore saved history and load with defaults.",
+)
+def main(no_history, datasets, linkall, sync):
     """Entry point for the VVV command line interface."""
 
     # Parse the tasks cleanly
@@ -168,6 +174,9 @@ def main(datasets, linkall, sync):
 
     dpg.create_context()
     controller = Controller()
+
+    if no_history:
+        controller.use_history = False
 
     for tag in ["V1", "V2", "V3", "V4"]:
         controller.viewers[tag] = SliceViewer(tag, controller)
