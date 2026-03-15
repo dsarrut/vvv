@@ -1347,18 +1347,15 @@ class MainGUI:
             pass
 
     def on_open_file_clicked(self, sender=None, app_data=None, user_data=None):
-        # Pass multiple=True to allow selecting several distinct images at once
         file_paths = open_file_dialog("Open Medical Image(s)", multiple=True)
         if not file_paths:
             return
 
-        # Ensure it's a list even if the dialog returns a single string
         if isinstance(file_paths, str):
             file_paths = [file_paths]
 
-        for path in file_paths:
-            if os.path.exists(path):
-                self.tasks.append(self.load_single_image_sequence(path))
+        # Route the whole list to the batch loader!
+        self.tasks.append(self.load_batch_images_sequence(file_paths))
 
     def on_open_4d_sequence_clicked(self, sender=None, app_data=None, user_data=None):
         file_paths = open_file_dialog(
@@ -1506,17 +1503,8 @@ class MainGUI:
         if isinstance(file_paths, str):
             file_paths = [file_paths]
 
-        for path in file_paths:
-            if os.path.exists(path):
-                # Generate a random bright color for the new mask
-                color = list(np.random.randint(50, 255, 3))
-                try:
-                    self.controller.load_binary_mask(viewer.image_id, path, color=color)
-                except Exception as e:
-                    self.show_message("Load Error", f"Failed to load mask:\n{e}")
-
-        self.refresh_rois_ui()
-        self.controller.update_all_viewers_of_image(viewer.image_id)
+        # Enqueue the non-blocking loader sequence
+        self.tasks.append(self.load_batch_rois_sequence(viewer.image_id, file_paths))
 
     def on_roi_toggle_visible(self, sender, app_data, user_data):
         roi_id = user_data
@@ -1731,6 +1719,122 @@ class MainGUI:
             )
             while dpg.does_item_exist("generic_message_modal"):
                 yield
+
+    def load_batch_images_sequence(self, file_paths):
+        total_files = len(file_paths)
+
+        with dpg.window(
+            tag="loading_modal",
+            modal=True,
+            show=True,
+            no_title_bar=True,
+            no_resize=True,
+            no_move=True,
+            width=350,
+            height=100,
+        ):
+            dpg.add_text(f"Loading {total_files} images...", tag="loading_text")
+            dpg.add_spacer(height=5)
+            dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=0.0)
+
+        vp_width = max(dpg.get_viewport_client_width(), 800)
+        vp_height = max(dpg.get_viewport_client_height(), 600)
+        dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
+        yield
+
+        loaded_ids = []
+        for i, path in enumerate(file_paths):
+            filename = os.path.basename(path)
+            if dpg.does_item_exist("loading_text"):
+                dpg.set_value(
+                    "loading_text", f"Loading ({i+1}/{total_files}):\n{filename}"
+                )
+            if dpg.does_item_exist("loading_progress"):
+                dpg.set_value("loading_progress", i / total_files)
+            yield
+
+            try:
+                img_id = self.controller.load_image(path)
+                loaded_ids.append(img_id)
+            except Exception as e:
+                print(f"Failed to load {filename}: {e}")
+            yield
+
+        if dpg.does_item_exist("loading_text"):
+            dpg.set_value("loading_text", "Applying layouts...")
+        if dpg.does_item_exist("loading_progress"):
+            dpg.set_value("loading_progress", 1.0)
+        yield
+
+        if loaded_ids:
+            target_viewer = (
+                self.context_viewer
+                if self.context_viewer
+                else self.controller.viewers["V1"]
+            )
+            target_viewer.set_image(loaded_ids[0])
+            self.set_context_viewer(target_viewer)
+            self.refresh_image_list_ui()
+
+        if dpg.does_item_exist("loading_modal"):
+            dpg.delete_item("loading_modal")
+        yield
+
+    def load_batch_rois_sequence(self, base_image_id, file_paths):
+        total_files = len(file_paths)
+
+        with dpg.window(
+            tag="loading_modal",
+            modal=True,
+            show=True,
+            no_title_bar=True,
+            no_resize=True,
+            no_move=True,
+            width=350,
+            height=100,
+        ):
+            dpg.add_text(f"Loading {total_files} ROIs...", tag="loading_text")
+            dpg.add_spacer(height=5)
+            dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=0.0)
+
+        vp_width = max(dpg.get_viewport_client_width(), 800)
+        vp_height = max(dpg.get_viewport_client_height(), 600)
+        dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
+        yield
+
+        for i, path in enumerate(file_paths):
+            if not os.path.exists(path):
+                continue
+
+            filename = os.path.basename(path)
+            if dpg.does_item_exist("loading_text"):
+                dpg.set_value(
+                    "loading_text", f"Loading ROI ({i+1}/{total_files}):\n{filename}"
+                )
+            if dpg.does_item_exist("loading_progress"):
+                dpg.set_value("loading_progress", i / total_files)
+            yield
+
+            # Generate a random bright color for the new mask
+            color = list(np.random.randint(50, 255, 3))
+            try:
+                self.controller.load_binary_mask(base_image_id, path, color=color)
+            except Exception as e:
+                print(f"Failed to load ROI {filename}: {e}")
+            yield
+
+        if dpg.does_item_exist("loading_text"):
+            dpg.set_value("loading_text", "Applying ROIs...")
+        if dpg.does_item_exist("loading_progress"):
+            dpg.set_value("loading_progress", 1.0)
+        yield
+
+        self.refresh_rois_ui()
+        self.controller.update_all_viewers_of_image(base_image_id)
+
+        if dpg.does_item_exist("loading_modal"):
+            dpg.delete_item("loading_modal")
+        yield
 
     def show_message(self, title, message):
         modal_tag = "generic_message_modal"

@@ -669,6 +669,102 @@ class SliceViewer:
                 self.slice_idx, self.orientation
             )
 
+    def _package_base_layer(self):
+        return RenderLayer(
+            data=self.volume.data,
+            is_rgb=getattr(self.volume, "is_rgb", False),
+            num_components=self.volume.num_components,
+            ww=self.view_state.display.ww,
+            wl=self.view_state.display.wl,
+            cmap_name=self.view_state.display.colormap,
+            threshold=self.view_state.display.base_threshold,
+            time_idx=self.view_state.camera.time_idx,
+            spacing_2d=self.volume.get_physical_aspect_ratio(self.orientation),
+        )
+
+    def _package_overlay_layer(self):
+        if self.view_state.display.overlay_data is None:
+            return None
+        if self.view_state.display.overlay_id not in self.controller.view_states:
+            return None
+
+        ovs = self.controller.view_states[self.view_state.display.overlay_id]
+        return RenderLayer(
+            data=self.view_state.display.overlay_data,
+            is_rgb=getattr(ovs.volume, "is_rgb", False),
+            num_components=ovs.volume.num_components,
+            ww=ovs.display.ww,
+            wl=ovs.display.wl,
+            cmap_name=ovs.display.colormap,
+            threshold=self.view_state.display.overlay_threshold,
+            time_idx=min(
+                self.view_state.camera.time_idx, ovs.volume.num_timepoints - 1
+            ),
+            spacing_2d=self.volume.get_physical_aspect_ratio(self.orientation),
+        )
+
+    def _package_roi_layers(self):
+        active_rois = []
+        for roi_id, roi_state in self.view_state.rois.items():
+            if not roi_state.visible or roi_state.opacity <= 0.0:
+                continue
+
+            roi_vol = self.controller.volumes[roi_id]
+            if not hasattr(roi_vol, "roi_bbox"):
+                continue
+
+            z0, z1, y0, y1, x0, x1 = roi_vol.roi_bbox
+            if z0 == z1:
+                continue
+
+            t_idx = min(self.view_state.camera.time_idx, roi_vol.num_timepoints - 1)
+            base_z, base_y, base_x = self.volume.shape3d
+            roi_slice = None
+            offset_x, offset_y = 0, 0
+
+            if self.orientation == ViewMode.AXIAL:
+                if z0 <= self.slice_idx < z1:
+                    if roi_vol.data.ndim == 4:
+                        roi_slice = roi_vol.data[t_idx, self.slice_idx - z0, :, :]
+                    else:
+                        roi_slice = roi_vol.data[self.slice_idx - z0, :, :]
+                    offset_x, offset_y = x0, y0
+            elif self.orientation == ViewMode.CORONAL:
+                if y0 <= self.slice_idx < y1:
+                    if roi_vol.data.ndim == 4:
+                        roi_slice = np.flipud(
+                            roi_vol.data[t_idx, :, self.slice_idx - y0, :]
+                        )
+                    else:
+                        roi_slice = np.flipud(roi_vol.data[:, self.slice_idx - y0, :])
+                    offset_x = x0
+                    offset_y = base_z - z1
+            elif self.orientation == ViewMode.SAGITTAL:
+                if x0 <= self.slice_idx < x1:
+                    if roi_vol.data.ndim == 4:
+                        roi_slice = np.flipud(
+                            np.fliplr(roi_vol.data[t_idx, :, :, self.slice_idx - x0])
+                        )
+                    else:
+                        roi_slice = np.flipud(
+                            np.fliplr(roi_vol.data[:, :, self.slice_idx - x0])
+                        )
+                    offset_x = base_y - y1
+                    offset_y = base_z - z1
+
+            if roi_slice is not None and roi_slice.size > 0:
+                active_rois.append(
+                    ROILayer(
+                        data=roi_slice,
+                        color=roi_state.color,
+                        opacity=roi_state.opacity,
+                        is_contour=roi_state.is_contour,
+                        offset_x=offset_x,
+                        offset_y=offset_y,
+                    )
+                )
+        return active_rois
+
     def update_render(self):
         if self.image_id is None or not self.volume or not self.view_state:
             return
@@ -687,113 +783,12 @@ class SliceViewer:
             if dpg.does_item_exist(plot_tag):
                 dpg.configure_item(plot_tag, show=False)
 
-        # 1. Package the Base Layer
-        base_layer = RenderLayer(
-            data=self.volume.data,
-            is_rgb=getattr(self.volume, "is_rgb", False),
-            num_components=self.volume.num_components,
-            ww=self.view_state.display.ww,
-            wl=self.view_state.display.wl,
-            cmap_name=self.view_state.display.colormap,
-            threshold=self.view_state.display.base_threshold,
-            time_idx=self.view_state.camera.time_idx,
-            spacing_2d=self.volume.get_physical_aspect_ratio(self.orientation),
-        )
+        # 1. Cleanly package all layers
+        base_layer = self._package_base_layer()
+        overlay_layer = self._package_overlay_layer()
+        active_rois = self._package_roi_layers()
 
-        # 2. Package the Overlay Layer (if it exists)
-        overlay_layer = None
-        if (
-            self.view_state.display.overlay_data is not None
-            and self.view_state.display.overlay_id in self.controller.view_states
-        ):
-            ovs = self.controller.view_states[self.view_state.display.overlay_id]
-            overlay_layer = RenderLayer(
-                data=self.view_state.display.overlay_data,
-                is_rgb=getattr(ovs.volume, "is_rgb", False),
-                num_components=ovs.volume.num_components,
-                ww=ovs.display.ww,
-                wl=ovs.display.wl,
-                cmap_name=ovs.display.colormap,
-                threshold=self.view_state.display.overlay_threshold,
-                time_idx=min(
-                    self.view_state.camera.time_idx, ovs.volume.num_timepoints - 1
-                ),
-                spacing_2d=self.volume.get_physical_aspect_ratio(self.orientation),
-            )
-
-        # --- 3. Package the ROIs into 2D slices ---
-        active_rois = []
-        for roi_id, roi_state in self.view_state.rois.items():
-            if not roi_state.visible or roi_state.opacity <= 0.0:
-                continue
-
-            roi_vol = self.controller.volumes[roi_id]
-
-            # Ensure the ROI was autocropped
-            if not hasattr(roi_vol, "roi_bbox"):
-                continue
-
-            z0, z1, y0, y1, x0, x1 = roi_vol.roi_bbox
-            if z0 == z1:  # Empty mask
-                continue
-
-            t_idx = min(self.view_state.camera.time_idx, roi_vol.num_timepoints - 1)
-            base_z, base_y, base_x = self.volume.shape3d
-
-            roi_slice = None
-            offset_x, offset_y = 0, 0
-
-            # Fast Bounding Box Mapping
-            if self.orientation == ViewMode.AXIAL:
-                if (
-                    z0 <= self.slice_idx < z1
-                ):  # Only extract if we are INSIDE the Z bounds!
-                    if roi_vol.data.ndim == 4:
-                        roi_slice = roi_vol.data[t_idx, self.slice_idx - z0, :, :]
-                    else:
-                        roi_slice = roi_vol.data[self.slice_idx - z0, :, :]
-                    offset_x, offset_y = x0, y0
-
-            elif self.orientation == ViewMode.CORONAL:
-                if y0 <= self.slice_idx < y1:  # Inside Y bounds
-                    if roi_vol.data.ndim == 4:
-                        roi_slice = np.flipud(
-                            roi_vol.data[t_idx, :, self.slice_idx - y0, :]
-                        )
-                    else:
-                        roi_slice = np.flipud(roi_vol.data[:, self.slice_idx - y0, :])
-                    offset_x = x0
-                    offset_y = (
-                        base_z - z1
-                    )  # Image is flipped UD, so Y-offset is from the bottom of Z
-
-            elif self.orientation == ViewMode.SAGITTAL:
-                if x0 <= self.slice_idx < x1:  # Inside X bounds
-                    if roi_vol.data.ndim == 4:
-                        roi_slice = np.flipud(
-                            np.fliplr(roi_vol.data[t_idx, :, :, self.slice_idx - x0])
-                        )
-                    else:
-                        roi_slice = np.flipud(
-                            np.fliplr(roi_vol.data[:, :, self.slice_idx - x0])
-                        )
-                    offset_x = base_y - y1  # Image is flipped LR
-                    offset_y = base_z - z1  # Image is flipped UD
-
-            if roi_slice is not None and roi_slice.size > 0:
-                active_rois.append(
-                    ROILayer(
-                        data=roi_slice,
-                        color=roi_state.color,
-                        opacity=roi_state.opacity,
-                        is_contour=roi_state.is_contour,
-                        offset_x=offset_x,
-                        offset_y=offset_y,
-                    )
-                )
-        # ------------------------------------------
-
-        # 4. Call the renderer seamlessly
+        # 2. Render
         rgba_flat, _ = SliceRenderer.get_slice_rgba(
             base=base_layer,
             overlay=overlay_layer,
@@ -803,7 +798,7 @@ class SliceViewer:
             orientation=self.orientation,
             checkerboard_size=self.view_state.display.overlay_checkerboard_size,
             checkerboard_swap=self.view_state.display.overlay_checkerboard_swap,
-            rois=active_rois,  # <-- Pass the list of 2D slices!
+            rois=active_rois,
         )
 
         self.last_rgba_flat = rgba_flat
