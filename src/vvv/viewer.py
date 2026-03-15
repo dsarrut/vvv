@@ -937,12 +937,6 @@ class SliceViewer:
         if self.controller.gui and self.controller.gui.context_viewer == self:
             self.controller.gui.update_sidebar_info(self)
 
-    def action_reset_view_OLD(self):
-        self.view_state.reset_view()
-        self.is_geometry_dirty = True
-        self.controller.propagate_sync(self.image_id)
-        self.controller.update_all_viewers_of_image(self.image_id)
-
     def action_center_view(self):
         self.needs_recenter = True
         self.is_geometry_dirty = True
@@ -1031,28 +1025,42 @@ class SliceViewer:
         ):
             return
 
-        sx, sy = data[1] - self.last_dx, data[2] - self.last_dy
-        self.last_dx, self.last_dy = data[1], data[2]
+        # --- 3. CALCULATE ABSOLUTE DRAG ---
+        current_pos = dpg.get_mouse_pos(local=False)
+        if getattr(self, "drag_start_mouse", None) is None:
+            return
+
+        total_dx = current_pos[0] - self.drag_start_mouse[0]
+        total_dy = current_pos[1] - self.drag_start_mouse[1]
+        # ----------------------------------
 
         is_button = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
-        is_ctrl, is_shift = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(
+        is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(
             dpg.mvKey_RControl
-        ), dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(dpg.mvKey_RShift)
+        )
+        is_shift = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(
+            dpg.mvKey_RShift
+        )
 
         if not is_ctrl and not is_shift and is_button:
             px, py = self.get_mouse_slice_coords(ignore_hover=True, allow_outside=True)
             if px is not None:
                 self.update_crosshair_data(px, py)
                 self.controller.propagate_sync(self.image_id)
+
         elif is_ctrl and is_button:
-            self.pan_offset[0] += sx
-            self.pan_offset[1] += sy
+            # Absolute assignment! Mathematically impossible to drift.
+            self.pan_offset[0] = self.drag_start_pan[0] + total_dx
+            self.pan_offset[1] = self.drag_start_pan[1] + total_dy
+
             self.is_geometry_dirty = True
             self.controller.propagate_camera(self)
+
         elif is_shift and is_button:
             sens = self.controller.settings.data["interaction"]["wl_drag_sensitivity"]
-            ww = max(1e-9, self.view_state.display.ww + sx * sens)
-            wl = self.view_state.display.wl - sy * sens
+            # Absolute assignment for W/L too
+            ww = max(1e-9, self.drag_start_wl[0] + total_dx * sens)
+            wl = self.drag_start_wl[1] - total_dy * sens
             self.update_window_level(ww, wl)
 
     def on_zoom(self, direction):
