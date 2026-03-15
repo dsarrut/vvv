@@ -7,6 +7,7 @@ import json
 from vvv.utils import ViewMode, slice_to_voxel
 from vvv.config import DEFAULT_SETTINGS, WL_PRESETS, COLORMAPS
 from vvv.image import VolumeData, SliceRenderer, RenderLayer
+from vvv.utils import get_history_path_key, resolve_history_path_key
 
 
 class SettingsManager:
@@ -50,6 +51,81 @@ class SettingsManager:
         return str(self.config_path)
 
 
+class HistoryManager:
+    def __init__(self):
+        if os.name == "nt":
+            self.config_dir = Path(os.getenv("APPDATA")) / "VVV"
+        else:
+            self.config_dir = Path.home() / ".config" / "vvv"
+
+        self.history_path = self.config_dir / "history.json"
+        self.data = {}
+        self.load()
+
+    def load(self):
+        if self.history_path.exists():
+            try:
+                with open(self.history_path, "r") as f:
+                    self.data = json.load(f)
+            except Exception as e:
+                pass
+
+    def save(self):
+        self.config_dir.mkdir(parents=True, exist_ok=True)
+        with open(self.history_path, "w") as f:
+            json.dump(self.data, f, indent=4)
+
+    def save_image_state(self, controller, vs_id):
+        vs = controller.view_states[vs_id]
+        vol = controller.volumes[vs_id]
+        primary_path = vol.file_paths[0]
+        key = get_history_path_key(primary_path)
+
+        try:
+            mtime = os.path.getmtime(primary_path)
+        except OSError:
+            mtime = 0
+
+        # Extract Overlay Path
+        overlay_path = None
+        if vs.display.overlay_id and vs.display.overlay_id in controller.volumes:
+            ov_path = controller.volumes[vs.display.overlay_id].file_paths[0]
+            overlay_path = get_history_path_key(ov_path)
+
+        self.data[key] = {
+            "mtime": mtime,
+            "shape3d": list(vol.shape3d),
+            "spacing": list(vol.spacing),
+            "camera": vs.camera.to_dict(),
+            "display": vs.display.to_dict(),
+            "overlay_path": overlay_path,
+        }
+        self.save()
+
+    def get_image_state(self, volume):
+        primary_path = volume.file_paths[0]
+        key = get_history_path_key(primary_path)
+
+        if key not in self.data:
+            return None
+
+        entry = self.data[key]
+        try:
+            current_mtime = os.path.getmtime(primary_path)
+        except OSError:
+            current_mtime = 0
+
+        # Strict Validation
+        if entry.get("mtime") != current_mtime:
+            return None
+        if entry.get("shape3d") != list(volume.shape3d):
+            return None
+        if not np.allclose(entry.get("spacing"), volume.spacing, atol=1e-4):
+            return None
+
+        return entry
+
+
 class CameraState:
     """Stores all transient spatial and navigation parameters."""
 
@@ -81,6 +157,59 @@ class CameraState:
         self.show_grid = False
         self.show_legend = False
 
+    def to_dict(self):
+        return {
+            # Use k.name to securely save "AXIAL", "SAGITTAL", etc.
+            "zoom": {k.name: v for k, v in self.zoom.items()},
+            "pan": {k.name: v for k, v in self.pan.items()},
+            "slices": {k.name: v for k, v in self.slices.items()},
+            "time_idx": self.time_idx,
+            "show_axis": self.show_axis,
+            "show_tracker": self.show_tracker,
+            "show_crosshair": self.show_crosshair,
+            "show_scalebar": self.show_scalebar,
+            "show_grid": self.show_grid,
+            "show_legend": self.show_legend,
+            "crosshair_voxel": self.crosshair_voxel,
+            "crosshair_phys_coord": (
+                list(self.crosshair_phys_coord)
+                if self.crosshair_phys_coord is not None
+                else None
+            ),
+        }
+
+    def from_dict(self, d):
+        # Helper to safely convert JSON strings back to ViewMode Enums
+        def parse_dict(source_dict):
+            res = {}
+            for k, v in source_dict.items():
+                # .split() cleans up old corrupted keys like "ViewMode.AXIAL" if they exist
+                clean_k = k.split(".")[-1] if "." in k else k
+                if clean_k in ViewMode.__members__:
+                    res[ViewMode[clean_k]] = v
+            return res
+
+        # Safely update dictionaries instead of overwriting them
+        if "zoom" in d:
+            self.zoom.update(parse_dict(d["zoom"]))
+        if "pan" in d:
+            self.pan.update(parse_dict(d["pan"]))
+        if "slices" in d:
+            self.slices.update(parse_dict(d["slices"]))
+
+        self.time_idx = d.get("time_idx", self.time_idx)
+        self.show_axis = d.get("show_axis", self.show_axis)
+        self.show_tracker = d.get("show_tracker", self.show_tracker)
+        self.show_crosshair = d.get("show_crosshair", self.show_crosshair)
+        self.show_scalebar = d.get("show_scalebar", self.show_scalebar)
+        self.show_grid = d.get("show_grid", self.show_grid)
+        self.show_legend = d.get("show_legend", self.show_legend)
+
+        if "crosshair_voxel" in d:
+            self.crosshair_voxel = d["crosshair_voxel"]
+        if "crosshair_phys_coord" in d and d["crosshair_phys_coord"] is not None:
+            self.crosshair_phys_coord = np.array(d["crosshair_phys_coord"])
+
 
 class DisplayState:
     """Stores all radiometric and rendering properties."""
@@ -103,6 +232,38 @@ class DisplayState:
         self.overlay_threshold = -1  # Not displayed if below this value
         self.overlay_checkerboard_size = 20.0  # in mm
         self.overlay_checkerboard_swap = False
+
+    def to_dict(self):
+        return {
+            "ww": self.ww,
+            "wl": self.wl,
+            "colormap": self.colormap,
+            "base_threshold": self.base_threshold,
+            "interpolation_linear": self.interpolation_linear,
+            "overlay_opacity": self.overlay_opacity,
+            "overlay_mode": self.overlay_mode,
+            "overlay_threshold": self.overlay_threshold,
+            "overlay_checkerboard_size": self.overlay_checkerboard_size,
+            "overlay_checkerboard_swap": self.overlay_checkerboard_swap,
+        }
+
+    def from_dict(self, d):
+        self.ww = d.get("ww", self.ww)
+        self.wl = d.get("wl", self.wl)
+        self.colormap = d.get("colormap", self.colormap)
+        self.base_threshold = d.get("base_threshold", self.base_threshold)
+        self.interpolation_linear = d.get(
+            "interpolation_linear", self.interpolation_linear
+        )
+        self.overlay_opacity = d.get("overlay_opacity", self.overlay_opacity)
+        self.overlay_mode = d.get("overlay_mode", self.overlay_mode)
+        self.overlay_threshold = d.get("overlay_threshold", self.overlay_threshold)
+        self.overlay_checkerboard_size = d.get(
+            "overlay_checkerboard_size", self.overlay_checkerboard_size
+        )
+        self.overlay_checkerboard_swap = d.get(
+            "overlay_checkerboard_swap", self.overlay_checkerboard_swap
+        )
 
 
 class ViewState:
@@ -579,6 +740,7 @@ class Controller:
         self.view_states = {}
         self.viewers = {}
         self.settings = SettingsManager()
+        self.history = HistoryManager()
         self._next_image_id = 0
 
     def get_next_image_id(self, current_id):
@@ -641,7 +803,49 @@ class Controller:
             self.viewers["V3"].set_orientation(ViewMode.AXIAL)
             self.viewers["V4"].set_orientation(ViewMode.AXIAL)
 
-    def load_image(self, path):
+    def load_image(self, path, is_auto_overlay=False):
+        img_id = str(self._next_image_id)
+        self._next_image_id += 1
+        vol = VolumeData(path)
+        vs = ViewState(vol)
+
+        # History
+        history_entry = self.history.get_image_state(vol)
+        if history_entry:
+            vs.camera.from_dict(history_entry["camera"])
+            vs.display.from_dict(history_entry["display"])
+
+            # Re-derive the crosshair_value based on restored voxel
+            if vs.camera.crosshair_voxel is not None:
+                ix, iy, iz = [int(v) for v in vs.camera.crosshair_voxel[:3]]
+                if vol.num_timepoints > 1:
+                    vs.crosshair_value = vol.data[vs.camera.time_idx, iz, iy, ix]
+                else:
+                    vs.crosshair_value = vol.data[iz, iy, ix]
+
+            vs.is_data_dirty = True
+        # ---------------------------
+
+        self.volumes[img_id] = vol
+        self.view_states[img_id] = vs
+
+        # Auto-load overlay
+        # Prevent infinite recursion with is_auto_overlay flag
+        if history_entry and history_entry.get("overlay_path") and not is_auto_overlay:
+            op_path = resolve_history_path_key(history_entry["overlay_path"])
+            if os.path.exists(op_path):
+                # Load the overlay quietly in the background
+                op_id = self.load_image(op_path, is_auto_overlay=True)
+                op_vol = self.volumes[op_id]
+                # Restore the link! (opacity, mode, threshold are already restored in from_dict)
+                vs.set_overlay(op_id, op_vol)
+
+        if self.gui:
+            self.gui.refresh_image_list_ui()
+
+        return img_id
+
+    def load_image_OLD(self, path):
         img_id = str(self._next_image_id)
         self._next_image_id += 1
         vol = VolumeData(path)
@@ -764,6 +968,10 @@ class Controller:
 
     def close_image(self, vs_id):
         if vs_id in self.view_states:
+
+            # history
+            self.history.save_image_state(self, vs_id)
+
             for viewer in self.viewers.values():
                 if viewer.image_id == vs_id:
                     viewer.drop_image()

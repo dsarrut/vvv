@@ -634,6 +634,16 @@ class MainGUI:
             dpg.add_mouse_click_handler(callback=self.on_global_click)
 
     def cleanup(self, sender=None, app_data=None, user_data=None):
+        # 1. Save auto-history for all currently open images
+        if hasattr(self.controller, "history"):
+            for vs_id, vs in self.controller.view_states.items():
+                vol = self.controller.volumes[vs_id]
+                self.controller.history.save_image_state(vol, vs)
+
+        # 2. Save standard settings (like layout dimensions, etc.)
+        self.controller.save_settings()
+
+        # 3. Terminate UI
         dpg.stop_dearpygui()
 
     # ==========================================
@@ -1648,3 +1658,11 @@ class MainGUI:
             self.controller.tick()
 
             dpg.render_dearpygui_frame()
+
+        # This ALWAYS executes when the app dies (CMD+Q, Red X, Menu Exit)
+        if hasattr(self.controller, "history"):
+            for vs_id in list(self.controller.view_states.keys()):
+                self.controller.history.save_image_state(self.controller, vs_id)
+
+        self.controller.save_settings()
+        dpg.destroy_context()
