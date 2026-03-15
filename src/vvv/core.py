@@ -283,6 +283,7 @@ class ViewState:
         # The main elements Camera + Display
         self.camera = CameraState(volume)
         self.display = DisplayState()
+        self.rois = {}
 
         # Derived value based on camera coords and display data
         self.crosshair_value = None
@@ -758,6 +759,33 @@ class ViewState:
         self.wl = preset["wl"]
 
 
+class ROIState:
+    def __init__(self, volume_id, name, color):
+        self.volume_id = volume_id  # ID of the mask VolumeData in the controller
+        self.name = name
+        self.color = color  # [R, G, B]
+        self.opacity = 0.5
+        self.visible = True
+        self.is_contour = False  # Default to fill for Phase 2
+
+    def to_dict(self):
+        return {
+            "volume_id": self.volume_id,
+            "name": self.name,
+            "color": self.color,
+            "opacity": self.opacity,
+            "visible": self.visible,
+            "is_contour": self.is_contour,
+        }
+
+    def from_dict(self, d):
+        self.name = d.get("name", self.name)
+        self.color = d.get("color", self.color)
+        self.opacity = d.get("opacity", self.opacity)
+        self.visible = d.get("visible", self.visible)
+        self.is_contour = d.get("is_contour", self.is_contour)
+
+
 class Controller:
     """The central manager."""
 
@@ -873,17 +901,44 @@ class Controller:
 
         return img_id
 
-    def load_image_OLD(self, path):
-        img_id = str(self._next_image_id)
+    def load_binary_mask(self, base_id, filepath, name=None, color=[255, 50, 50]):
+        base_vol = self.volumes[base_id]
+        mask_vol = VolumeData(filepath)
+
+        # --- THE RESAMPLING TRAP FIX ---
+        # If the mask grid differs from the base image grid, force a resample
+        if (
+            mask_vol.shape3d != base_vol.shape3d
+            or not np.allclose(mask_vol.spacing, base_vol.spacing, atol=1e-4)
+            or not np.allclose(mask_vol.origin, base_vol.origin, atol=1e-4)
+        ):
+
+            print(f"Geometry mismatch. Resampling mask {name} via Nearest Neighbor...")
+            resampler = sitk.ResampleImageFilter()
+            resampler.SetReferenceImage(base_vol.sitk_image)
+            resampler.SetInterpolator(sitk.sitkNearestNeighbor)  # CRITICAL for masks
+            resampler.SetDefaultPixelValue(0)
+
+            mask_vol.sitk_image = resampler.Execute(mask_vol.sitk_image)
+            mask_vol.data = sitk.GetArrayFromImage(mask_vol.sitk_image)
+            mask_vol.shape3d = base_vol.shape3d
+            mask_vol.spacing = base_vol.spacing
+            mask_vol.origin = base_vol.origin
+        # -------------------------------
+
+        mask_id = str(self._next_image_id)
         self._next_image_id += 1
-        vol = VolumeData(path)
-        self.volumes[img_id] = vol
-        self.view_states[img_id] = ViewState(vol)
+        self.volumes[mask_id] = mask_vol
 
-        if self.gui:
-            self.gui.refresh_image_list_ui()
+        if name is None:
+            name = os.path.basename(filepath)
 
-        return img_id
+        # Create the state and link it to the base ViewState
+        roi_state = ROIState(mask_id, name, color)
+        self.view_states[base_id].rois[mask_id] = roi_state
+        self.view_states[base_id].is_data_dirty = True
+
+        return mask_id
 
     def unify_ppm(self, target_viewer_tags):
         valid_viewers = [

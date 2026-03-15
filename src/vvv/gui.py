@@ -481,7 +481,9 @@ class MainGUI:
             dpg.add_text("ROI Management", color=cfg_c["text_header"])
             dpg.add_separator()
             with dpg.group(horizontal=True):
-                dpg.add_button(label="Load ROI...", width=80)
+                dpg.add_button(
+                    label="Load ROI...", width=80, callback=self.on_load_roi_clicked
+                )
                 dpg.add_combo(
                     ["Binary Mask", "Label Map", "RT-Struct"],
                     default_value="Binary Mask",
@@ -490,83 +492,16 @@ class MainGUI:
 
             dpg.add_spacer(height=10)
 
-            # --- MIDDLE: The List (Mocked) ---
+            # --- MIDDLE: The Dynamic List ---
             dpg.add_text("Loaded Regions", color=cfg_c["text_header"])
             dpg.add_separator()
 
             with dpg.child_window(height=110, border=False, no_scrollbar=True):
-                # Using a table to align columns nicely
-                with dpg.table(
-                    header_row=False, resizable=False, borders_innerH=True, scrollY=True
-                ):
-                    dpg.add_table_column(
-                        width_fixed=True, init_width_or_weight=20
-                    )  # Eye
-                    dpg.add_table_column(
-                        width_fixed=True, init_width_or_weight=20
-                    )  # Color
-                    dpg.add_table_column(width_stretch=True)  # Name
-                    dpg.add_table_column(
-                        width_fixed=True, init_width_or_weight=20
-                    )  # C/F (Contour)
-                    dpg.add_table_column(
-                        width_fixed=True, init_width_or_weight=50
-                    )  # Opacity
-
-                    # Mock Row 1 (Visible, Filled)
-                    with dpg.table_row():
-                        btn_eye1 = dpg.add_button(
-                            label="\uf06e", width=20
-                        )  # FontAwesome Eye
-                        dpg.add_color_edit(
-                            default_value=[255, 50, 50, 255],
-                            no_inputs=True,
-                            no_label=True,
-                            no_alpha=True,
-                            width=20,
-                            height=20,
-                        )
-                        dpg.add_text("Tumor_GTV")
-                        dpg.add_checkbox(label="", default_value=False)
-                        dpg.add_slider_float(
-                            default_value=0.5,
-                            min_value=0.0,
-                            max_value=1.0,
-                            width=50,
-                            no_input=True,
-                        )
-
-                    # Mock Row 2 (Hidden, Contour)
-                    with dpg.table_row():
-                        btn_eye2 = dpg.add_button(
-                            label="\uf070", width=20
-                        )  # FontAwesome Eye-slash
-                        dpg.add_color_edit(
-                            default_value=[50, 255, 50, 255],
-                            no_inputs=True,
-                            no_label=True,
-                            no_alpha=True,
-                            width=20,
-                            height=20,
-                        )
-                        dpg.add_text("Liver")
-                        dpg.add_checkbox(label="", default_value=True)
-                        dpg.add_slider_float(
-                            default_value=1.0,
-                            min_value=0.0,
-                            max_value=1.0,
-                            width=50,
-                            no_input=True,
-                        )
-
-            # Bind icon font if it exists
-            if dpg.does_item_exist("icon_font_tag"):
-                dpg.bind_item_font(btn_eye1, "icon_font_tag")
-                dpg.bind_item_font(btn_eye2, "icon_font_tag")
+                dpg.add_group(tag="roi_list_container")  # The empty container!
 
             dpg.add_spacer(height=10)
 
-            # --- BOTTOM: Analytics (Mocked) ---
+            # --- BOTTOM: Analytics (Mocked for Phase 3) ---
             dpg.add_text("ROI Statistics", color=cfg_c["text_header"])
             dpg.add_separator()
 
@@ -576,7 +511,6 @@ class MainGUI:
                     dpg.add_combo(
                         ["Tumor_GTV", "Liver"], default_value="Tumor_GTV", width=-1
                     )
-
                 with dpg.group(horizontal=True):
                     dpg.add_text("Image: ")
                     dpg.add_combo(
@@ -586,31 +520,24 @@ class MainGUI:
                     )
 
                 dpg.add_spacer(height=5)
-
-                # Stats layout using a sleek 2-column table
                 dim_col = cfg_c["text_dim"]
                 with dpg.table(header_row=False, borders_innerH=True):
                     dpg.add_table_column(width_stretch=True)
                     dpg.add_table_column(width_stretch=True)
-
                     with dpg.table_row():
                         with dpg.group(horizontal=True):
                             dpg.add_text("Vol:", color=dim_col)
-                            dpg.add_text("14.2 cc")
+                            dpg.add_text("--- cc", tag="roi_stat_vol")
                         with dpg.group(horizontal=True):
                             dpg.add_text("Mean:", color=dim_col)
-                            dpg.add_text("45.1")
+                            dpg.add_text("---", tag="roi_stat_mean")
                     with dpg.table_row():
                         with dpg.group(horizontal=True):
                             dpg.add_text("Max:", color=dim_col)
-                            dpg.add_text("120.4")
+                            dpg.add_text("---", tag="roi_stat_max")
                         with dpg.group(horizontal=True):
                             dpg.add_text("Min:", color=dim_col)
-                            dpg.add_text("-10.0")
-                    with dpg.table_row():
-                        with dpg.group(horizontal=True):
-                            dpg.add_text("Std:", color=dim_col)
-                            dpg.add_text("12.5")
+                            dpg.add_text("---", tag="roi_stat_min")
 
     def build_sidebar_bottom(self):
         """Builds the lower half of the sidebar for Active Viewer info."""
@@ -963,6 +890,76 @@ class MainGUI:
         if self.context_viewer:
             self.update_sidebar_info(self.context_viewer)
 
+    def refresh_rois_ui(self):
+        container = "roi_list_container"
+        if not dpg.does_item_exist(container):
+            return
+
+        dpg.delete_item(container, children_only=True)
+        viewer = self.context_viewer
+
+        if not viewer or not viewer.view_state or not viewer.view_state.rois:
+            return
+
+        with dpg.table(
+            parent=container,
+            header_row=False,
+            resizable=False,
+            borders_innerH=True,
+            scrollY=True,
+        ):
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)  # Eye
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)  # Color
+            dpg.add_table_column(width_stretch=True)  # Name
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)  # Contour
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=50)  # Opacity
+
+            for roi_id, roi in viewer.view_state.rois.items():
+                with dpg.table_row():
+                    # 1. Eye Button (Visibility)
+                    lbl_eye = "\uf06e" if roi.visible else "\uf070"
+                    btn_eye = dpg.add_button(
+                        label=lbl_eye,
+                        width=20,
+                        user_data=roi_id,
+                        callback=self.on_roi_toggle_visible,
+                    )
+                    if dpg.does_item_exist("icon_font_tag"):
+                        dpg.bind_item_font(btn_eye, "icon_font_tag")
+
+                    # 2. Color Edit
+                    dpg.add_color_edit(
+                        default_value=roi.color + [255],
+                        no_inputs=True,
+                        no_label=True,
+                        no_alpha=True,
+                        width=20,
+                        height=20,
+                        user_data=roi_id,
+                        callback=self.on_roi_color_changed,
+                    )
+
+                    # 3. Name
+                    dpg.add_text(roi.name)
+
+                    # 4. Contour Checkbox (Disabled for Phase 2)
+                    dpg.add_checkbox(
+                        label="",
+                        default_value=roi.is_contour,
+                        user_data=roi_id,
+                        enabled=False,
+                    )
+
+                    # 5. Opacity Slider
+                    dpg.add_slider_float(
+                        default_value=roi.opacity,
+                        min_value=0.0,
+                        max_value=1.0,
+                        width=50,
+                        user_data=roi_id,
+                        callback=self.on_roi_opacity_changed,
+                    )
+
     @property
     def hovered_viewer(self):
         for viewer in self.controller.viewers.values():
@@ -1163,15 +1160,12 @@ class MainGUI:
         if self.context_viewer == viewer:
             return
 
-        # Drop highlight from the old viewer
         if self.context_viewer:
             dpg.bind_item_theme(f"win_{self.context_viewer.tag}", "black_viewer_theme")
 
         self.context_viewer = viewer
 
-        # Apply highlight and update sidebar logic for the new viewer
         if self.context_viewer:
-            # FIX: Protect against empty view_state if image failed to load
             show_xh = (
                 self.context_viewer.view_state.show_crosshair
                 if self.context_viewer.view_state
@@ -1184,6 +1178,7 @@ class MainGUI:
             self.highlight_active_image_in_list(viewer.image_id)
             self.update_sidebar_info(viewer)
             self.update_sidebar_crosshair(viewer)
+            self.refresh_rois_ui()  # <--- ADD THIS LINE
 
     def get_interaction_target(self):
         """Resolves which viewer receives spatial shortcuts (Keys, Scrolls)."""
@@ -1495,6 +1490,69 @@ class MainGUI:
         if file_path:
             # open_file_dialog returns a string when multiple=False
             self.tasks.append(self.load_workspace_sequence(file_path))
+
+    def on_load_roi_clicked(self, sender, app_data, user_data):
+        viewer = self.context_viewer
+        if not viewer or not viewer.image_id:
+            self.show_status_message(
+                "Select a base image first!", color=[255, 100, 100]
+            )
+            return
+
+        file_paths = open_file_dialog("Load Binary Mask(s)", multiple=True)
+        if not file_paths:
+            return
+
+        if isinstance(file_paths, str):
+            file_paths = [file_paths]
+
+        for path in file_paths:
+            if os.path.exists(path):
+                # Generate a random bright color for the new mask
+                color = list(np.random.randint(50, 255, 3))
+                try:
+                    self.controller.load_binary_mask(viewer.image_id, path, color=color)
+                except Exception as e:
+                    self.show_message("Load Error", f"Failed to load mask:\n{e}")
+
+        self.refresh_rois_ui()
+        self.controller.update_all_viewers_of_image(viewer.image_id)
+
+    def on_roi_toggle_visible(self, sender, app_data, user_data):
+        roi_id = user_data
+        vs = self.context_viewer.view_state
+        vs.rois[roi_id].visible = not vs.rois[roi_id].visible
+        vs.is_data_dirty = True
+        self.refresh_rois_ui()
+        self.controller.update_all_viewers_of_image(self.context_viewer.image_id)
+
+    def on_roi_color_changed(self, sender, app_data, user_data):
+        roi_id = user_data
+        vs = self.context_viewer.view_state
+
+        # DearPyGui's color_edit app_data returns 0.0-1.0 floats
+        # We check if it is normalized and scale it safely back to 0-255.
+        is_normalized = all(c <= 1.0 for c in app_data)
+        scale = 255.0 if is_normalized else 1.0
+
+        vs.rois[roi_id].color = [int(c * scale) for c in app_data[:3]]
+        vs.is_data_dirty = True
+        self.controller.update_all_viewers_of_image(self.context_viewer.image_id)
+
+    def on_roi_color_changed_OLD(self, sender, app_data, user_data):
+        roi_id = user_data
+        vs = self.context_viewer.view_state
+        # app_data from color edit is [r, g, b, a] from 0 to 255
+        vs.rois[roi_id].color = [int(c) for c in app_data[:3]]
+        vs.is_data_dirty = True
+        self.controller.update_all_viewers_of_image(self.context_viewer.image_id)
+
+    def on_roi_opacity_changed(self, sender, app_data, user_data):
+        roi_id = user_data
+        vs = self.context_viewer.view_state
+        vs.rois[roi_id].opacity = app_data
+        vs.is_data_dirty = True
+        self.controller.update_all_viewers_of_image(self.context_viewer.image_id)
 
     def load_workspace_sequence(self, file_path):
         import json

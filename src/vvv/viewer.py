@@ -1,8 +1,9 @@
 import dearpygui.dearpygui as dpg
 import numpy as np
-from .utils import *
-from .core import SliceRenderer, RenderLayer
-from .drawing import OverlayDrawer
+from vvv.utils import *
+from vvv.core import SliceRenderer, RenderLayer
+from vvv.image import ROILayer
+from vvv.drawing import OverlayDrawer
 
 
 class ViewportMapper:
@@ -720,7 +721,35 @@ class SliceViewer:
                 spacing_2d=self.volume.get_physical_aspect_ratio(self.orientation),
             )
 
-        # 3. Call the renderer seamlessly
+        # --- 3. Package the ROIs into 2D slices ---
+        active_rois = []
+        for roi_id, roi_state in self.view_state.rois.items():
+            if not roi_state.visible or roi_state.opacity <= 0.0:
+                continue
+
+            roi_vol = self.controller.volumes[roi_id]
+
+            # Extract the 2D slice for this specific mask
+            roi_slice = SliceRenderer.extract_slice(
+                roi_vol.data,
+                getattr(roi_vol, "is_rgb", False),
+                min(self.view_state.camera.time_idx, roi_vol.num_timepoints - 1),
+                self.slice_idx,
+                self.orientation,
+            )
+
+            if roi_slice is not None:
+                active_rois.append(
+                    ROILayer(
+                        data=roi_slice,
+                        color=roi_state.color,
+                        opacity=roi_state.opacity,
+                        is_contour=roi_state.is_contour,
+                    )
+                )
+        # ------------------------------------------
+
+        # 4. Call the renderer seamlessly
         rgba_flat, _ = SliceRenderer.get_slice_rgba(
             base=base_layer,
             overlay=overlay_layer,
@@ -730,6 +759,7 @@ class SliceViewer:
             orientation=self.orientation,
             checkerboard_size=self.view_state.display.overlay_checkerboard_size,
             checkerboard_swap=self.view_state.display.overlay_checkerboard_swap,
+            rois=active_rois,  # <-- Pass the list of 2D slices!
         )
 
         self.last_rgba_flat = rgba_flat

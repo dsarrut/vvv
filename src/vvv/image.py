@@ -23,6 +23,16 @@ class RenderLayer:
     spacing_2d: tuple  # <--- ADDED: Physical pixel dimensions (width_mm, height_mm)
 
 
+@dataclass
+class ROILayer:
+    """Bundles a 2D mask slice with its display properties for rendering."""
+
+    data: np.ndarray  # The 2D slice of the mask
+    color: list  # [R, G, B] (0-255)
+    opacity: float  # 0.0 to 1.0
+    is_contour: bool = False  # Placeholder for Phase 5!
+
+
 class SliceRenderer:
     """Pure utility to generate renderable RGBA arrays using a streamlined pipeline."""
 
@@ -116,6 +126,31 @@ class SliceRenderer:
         return res_rgba
 
     @staticmethod
+    def _apply_rois(base_rgba, rois):
+        """Rapidly composites binary ROI masks over the generated RGBA image."""
+        for roi in rois:
+            if roi.opacity <= 0.0:
+                continue
+
+            # Phase 2: Binary Filled Mask (Foreground > 0)
+            mask = roi.data > 0
+
+            alpha = roi.opacity
+            inv_alpha = 1.0 - alpha
+
+            # Scale color to 0.0-1.0 because base_rgba is a float32 texture
+            r = roi.color[0] / 255.0
+            g = roi.color[1] / 255.0
+            b = roi.color[2] / 255.0
+
+            # Alpha blending vectorized across the RGB channels
+            base_rgba[mask, 0] = base_rgba[mask, 0] * inv_alpha + r * alpha
+            base_rgba[mask, 1] = base_rgba[mask, 1] * inv_alpha + g * alpha
+            base_rgba[mask, 2] = base_rgba[mask, 2] * inv_alpha + b * alpha
+
+        return base_rgba
+
+    @staticmethod
     def extract_slice(data, is_rgb, time_idx, slice_idx, orientation):
         if is_rgb:
             if data.ndim == 4:
@@ -160,6 +195,7 @@ class SliceRenderer:
         orientation: int,
         checkerboard_size: float = 20.0,
         checkerboard_swap: bool = False,
+        rois=(),
     ):
         # --- Unpack the base layer safely ---
         base_data, base_is_rgb, base_num_components = (
@@ -234,74 +270,73 @@ class SliceRenderer:
                 mask = base_slice <= base_threshold
                 base_rgba[mask] = [0.0, 0.0, 0.0, 0.0]
 
-        if overlay_data is None or overlay_opacity <= 0.0:
-            return base_rgba.flatten(), (h, w)
+        # --- THE FIX: We no longer return early here! ---
+        res_rgba = base_rgba
 
-        if overlay_is_rgb:
-            if overlay_data.ndim == 4:
-                overlay_data = overlay_data[np.newaxis, ...]
-        else:
-            if overlay_data.ndim == 3:
-                overlay_data = overlay_data[np.newaxis, ...]
-
-        over_slice = SliceRenderer.extract_slice(
-            overlay_data, overlay_is_rgb, overlay_time_idx, slice_idx, orientation
-        )
-        over_norm = SliceRenderer.normalize_wl(over_slice, overlay_ww, overlay_wl)
-
-        # ---------------------------------------------------------
-        # THE NEW ROUTING PIPELINE
-        # ---------------------------------------------------------
-        if overlay_mode == "Registration":
-            res_rgba = SliceRenderer._blend_registration(
-                base_rgba,
-                base_norm,
-                over_slice,
-                over_norm,
-                base_is_rgb,
-                overlay_is_rgb,
-                overlay_opacity,
-                overlay_threshold,
-                base_threshold,
-                base_slice,
-            )
-
-        elif overlay_mode == "Alpha":
-            res_rgba = SliceRenderer._blend_alpha(
-                base_rgba,
-                over_slice,
-                over_norm,
-                overlay_cmap_name,
-                overlay_opacity,
-                overlay_threshold,
-            )
-
-        elif overlay_mode == "Checkerboard":
-            # Prep overlay RGBA specifically for checkerboard
+        if overlay_data is not None and overlay_opacity > 0.0:
             if overlay_is_rgb:
-                over_rgba = over_norm
-                if over_rgba.shape[-1] == 3:
-                    alpha = np.ones((*over_rgba.shape[:-1], 1), dtype=np.float32)
-                    over_rgba = np.concatenate([over_rgba, alpha], axis=-1)
+                if overlay_data.ndim == 4:
+                    overlay_data = overlay_data[np.newaxis, ...]
             else:
-                over_lut = COLORMAPS.get(overlay_cmap_name, COLORMAPS["Hot"])
-                over_rgba = over_lut[(over_norm * 255).astype(np.uint8)]
+                if overlay_data.ndim == 3:
+                    overlay_data = overlay_data[np.newaxis, ...]
 
-            res_rgba = SliceRenderer._blend_checkerboard(
-                base_rgba,
-                over_rgba,
-                over_slice,
-                base_slice,
-                overlay_threshold,
-                base_threshold,
-                base.spacing_2d,
-                checkerboard_size,
-                checkerboard_swap,
-                base_is_rgb,
-                overlay_is_rgb,
+            over_slice = SliceRenderer.extract_slice(
+                overlay_data, overlay_is_rgb, overlay_time_idx, slice_idx, orientation
             )
-        else:
-            res_rgba = base_rgba
+            over_norm = SliceRenderer.normalize_wl(over_slice, overlay_ww, overlay_wl)
+
+            if overlay_mode == "Registration":
+                res_rgba = SliceRenderer._blend_registration(
+                    base_rgba,
+                    base_norm,
+                    over_slice,
+                    over_norm,
+                    base_is_rgb,
+                    overlay_is_rgb,
+                    overlay_opacity,
+                    overlay_threshold,
+                    base_threshold,
+                    base_slice,
+                )
+
+            elif overlay_mode == "Alpha":
+                res_rgba = SliceRenderer._blend_alpha(
+                    base_rgba,
+                    over_slice,
+                    over_norm,
+                    overlay_cmap_name,
+                    overlay_opacity,
+                    overlay_threshold,
+                )
+
+            elif overlay_mode == "Checkerboard":
+                if overlay_is_rgb:
+                    over_rgba = over_norm
+                    if over_rgba.shape[-1] == 3:
+                        alpha = np.ones((*over_rgba.shape[:-1], 1), dtype=np.float32)
+                        over_rgba = np.concatenate([over_rgba, alpha], axis=-1)
+                else:
+                    over_lut = COLORMAPS.get(overlay_cmap_name, COLORMAPS["Hot"])
+                    over_rgba = over_lut[(over_norm * 255).astype(np.uint8)]
+
+                res_rgba = SliceRenderer._blend_checkerboard(
+                    base_rgba,
+                    over_rgba,
+                    over_slice,
+                    base_slice,
+                    overlay_threshold,
+                    base_threshold,
+                    base.spacing_2d,
+                    checkerboard_size,
+                    checkerboard_swap,
+                    base_is_rgb,
+                    overlay_is_rgb,
+                )
+
+        # ROI management
+        if rois:
+            res_rgba = SliceRenderer._apply_rois(res_rgba, rois)
 
         # Ensure absolute Float32 strictness before sending to the DPG GPU texture buffer!
         return res_rgba.astype(np.float32).flatten(), (h, w)
