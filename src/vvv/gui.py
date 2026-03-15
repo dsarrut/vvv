@@ -1575,8 +1575,8 @@ class MainGUI:
             tag=window_tag,
             show=True,
             label="Shortcuts & Controls",
-            width=500,
-            height=570,
+            width=520,  # Slightly wider to accommodate longer shortcut names
+            height=600,  # Slightly taller for the new entry
             no_collapse=False,
             on_close=lambda: dpg.delete_item(window_tag),
         ):
@@ -1608,6 +1608,7 @@ class MainGUI:
                 "zoom_in": "Zoom In",
                 "zoom_out": "Zoom Out",
                 "reset_view": "Reset Zoom & Pan",
+                "hard_reset": "Hard Reset (Zoom, W/L, Defaults)",
                 "center_view": "Center View on Crosshair",
                 "view_axial": "Axial View",
                 "view_sagittal": "Sagittal View",
@@ -1624,22 +1625,31 @@ class MainGUI:
                     return "Page Up"
                 if k == 518:
                     return "Page Down"
-                return f"Ctrl + {k}" if key_name == "open_file" else str(k)
+                if key_name == "open_file":
+                    return f"Ctrl + {k}"
+                if key_name == "hard_reset":
+                    return f"Shift + {k}"
+                return str(k)
 
             with dpg.table(
                 header_row=False, borders_innerH=True, policy=dpg.mvTable_SizingFixedFit
             ):
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=120)
+                dpg.add_table_column(
+                    width_fixed=True, init_width_or_weight=140
+                )  # Wider for "Shift + R"
                 dpg.add_table_column(width_stretch=True)
                 for key_id, desc in descriptions.items():
-                    val = shortcuts.get(key_id, "N/A")
+                    # Map the virtual "hard_reset" action to the physical "reset_view" key
+                    lookup_key = "reset_view" if key_id == "hard_reset" else key_id
+                    val = shortcuts.get(lookup_key, "N/A")
+
                     with dpg.table_row():
                         dpg.add_text(format_key(key_id, val), color=ok_col)
                         dpg.add_text(desc)
 
             dpg.add_spacer(height=15)
             with dpg.group(horizontal=True):
-                dpg.add_spacer(width=200)
+                dpg.add_spacer(width=210)
                 dpg.add_button(
                     label="Close",
                     width=100,
@@ -1647,7 +1657,7 @@ class MainGUI:
                 )
 
         vp_width = max(dpg.get_viewport_client_width(), 800)
-        dpg.set_item_pos(window_tag, [vp_width - 520, 40])
+        dpg.set_item_pos(window_tag, [vp_width - 540, 40])
 
     def create_boot_sequence(self, image_tasks, sync=False, link_all=False):
         if not image_tasks:
