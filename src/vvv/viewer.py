@@ -11,10 +11,21 @@ class ViewportMapper:
     def __init__(self, margin_left=4, margin_top=4):
         self.margin_left = margin_left
         self.margin_top = margin_top
+        # pmin and pmax are recalculated dynamically
+        # every time the user zooms, pans, or resizes the application window.
+        # = 2D bounding box on the screen
         self.pmin = [0, 0]
         self.pmax = [1, 1]
         self.disp_w = 1
         self.disp_h = 1
+
+    @property
+    def current_pmin(self):
+        return self.pmin
+
+    @property
+    def current_pmax(self):
+        return self.pmax
 
     def update(
         self, quad_w, quad_h, real_w, real_h, spacing_w, spacing_h, zoom, pan_offset
@@ -193,11 +204,6 @@ class SliceViewer:
             return self.volume.shape3d[1]
         return 0
 
-    def get_slice_shape(self):
-        if not self.view_state:
-            return 1, 1
-        return self.view_state.get_slice_shape(self.orientation)
-
     def set_image(self, img_id):
         self.image_id = img_id
         self.set_current_slice_to_crosshair()
@@ -290,6 +296,11 @@ class SliceViewer:
 
     def is_image_orientation(self):
         return self.orientation in [ViewMode.AXIAL, ViewMode.SAGITTAL, ViewMode.CORONAL]
+
+    def get_slice_shape(self):
+        if not self.view_state:
+            return 1, 1
+        return self.view_state.get_slice_shape(self.orientation)
 
     def get_axis_labels(self):
         if self.orientation == ViewMode.AXIAL:
@@ -473,7 +484,7 @@ class SliceViewer:
         self.view_state.camera.show_crosshair = new_state
         self.view_state.camera.show_tracker = new_state
         self.view_state.camera.show_scalebar = new_state
-        self.view_state.camera.grid_mode = False
+        self.view_state.camera.show_grid = False
 
         dpg.set_value("check_axis", new_state)
         dpg.set_value("check_crosshair", new_state)
@@ -482,6 +493,24 @@ class SliceViewer:
         dpg.set_value("check_grid", False)
 
         self.controller.update_all_viewers_of_image(self.image_id)
+
+    def tick(self):
+        if not self.view_state:
+            return False
+
+        did_update_data = False
+
+        if self.view_state.is_data_dirty:
+            self.update_render()
+            self.is_geometry_dirty = True
+            did_update_data = True
+
+        if self.is_geometry_dirty:
+            self.resize(self.quad_w, self.quad_h)
+            self.update_stuff_in_image_only()
+            self.is_geometry_dirty = False
+
+        return did_update_data
 
     def should_use_voxels_strips(self):
         if (
@@ -629,24 +658,6 @@ class SliceViewer:
                 self.slice_idx, self.orientation
             )
 
-    def tick(self):
-        if not self.view_state:
-            return False
-
-        did_update_data = False
-
-        if self.view_state.is_data_dirty:
-            self.update_render()
-            self.is_geometry_dirty = True
-            did_update_data = True
-
-        if self.is_geometry_dirty:
-            self.resize(self.quad_w, self.quad_h)
-            self.update_stuff_in_image_only()
-            self.is_geometry_dirty = False
-
-        return did_update_data
-
     def update_render(self):
         if self.image_id is None or not self.volume or not self.view_state:
             return
@@ -731,7 +742,7 @@ class SliceViewer:
                 dpg.configure_item(self.active_strips_node, show=False)
             dpg.configure_item(self.image_tag, show=True)
 
-        if self.view_state.camera.grid_mode:
+        if self.view_state.camera.show_grid:
             self.drawer.draw_voxel_grid(h, w)
         elif dpg.does_item_exist(self.active_grid_node):
             dpg.configure_item(self.active_grid_node, show=False)
@@ -917,11 +928,11 @@ class SliceViewer:
         self.view_state.is_data_dirty = True
 
     def action_toggle_legend(self):
-        self.view_state.display.show_legend = not self.view_state.display.show_legend
+        self.view_state.camera.show_legend = not self.view_state.camera.show_legend
         self.controller.update_all_viewers_of_image(self.image_id)
 
     def action_toggle_grid(self):
-        self.view_state.camera.grid_mode = not self.view_state.camera.grid_mode
+        self.view_state.camera.show_grid = not self.view_state.camera.show_grid
         self.view_state.is_data_dirty = True
 
     def on_key_press(self, key):

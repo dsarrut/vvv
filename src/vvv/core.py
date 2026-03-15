@@ -4,13 +4,9 @@ import os
 from pathlib import Path
 import copy
 import json
-
 from vvv.utils import ViewMode, slice_to_voxel
-
-# Re-exporting these so that existing files (like gui.py and viewer.py)
-# don't have to change their `from .core import XYZ` statements!
-from .config import DEFAULT_SETTINGS, WL_PRESETS, COLORMAPS
-from .image import VolumeData, SliceRenderer, RenderLayer
+from vvv.config import DEFAULT_SETTINGS, WL_PRESETS, COLORMAPS
+from vvv.image import VolumeData, SliceRenderer, RenderLayer
 
 
 class SettingsManager:
@@ -75,34 +71,37 @@ class CameraState:
         }
         self.crosshair_phys_coord = None
         self.crosshair_voxel = None
-        self.time_idx = 0
+        self.time_idx = 0  # for 4D images
 
         # Visibility toggles (these are spatially relevant)
         self.show_axis = True
         self.show_tracker = True
         self.show_crosshair = True
         self.show_scalebar = False
-        self.grid_mode = False
+        self.show_grid = False
+        self.show_legend = False
 
 
 class DisplayState:
     """Stores all radiometric and rendering properties."""
 
     def __init__(self):
+        # Window Level
         self.ww = 2000.0
         self.wl = 270.0
         self.colormap = "Grayscale"
+        # voxels with value below this threshold are not display (black)
         self.base_threshold = -1e8
+        # FIXME : not really linear interpolation : draw squares pixels on large zoom
         self.interpolation_linear = False
-        self.show_legend = False
 
         # Overlay parameters
         self.overlay_id = None
         self.overlay_data = None
         self.overlay_opacity = 0.5
-        self.overlay_mode = "Alpha"
-        self.overlay_threshold = -1
-        self.overlay_checkerboard_size = 20.0
+        self.overlay_mode = "Alpha"  # Alpha, Registration, Checkboard, ...
+        self.overlay_threshold = -1  # Not displayed if below this value
+        self.overlay_checkerboard_size = 20.0  # in mm
         self.overlay_checkerboard_swap = False
 
 
@@ -114,7 +113,7 @@ class ViewState:
         self.is_data_dirty = True
         self.sync_group = 0
 
-        # The Split
+        # The main elements Camera + Display
         self.camera = CameraState(volume)
         self.display = DisplayState()
 
@@ -126,7 +125,7 @@ class ViewState:
 
     # ==========================================
     # THE PROPERTY BRIDGE
-    # Safely routes top-level requests to the new sub-states
+    # Routes top-level requests to the new sub-states
     # ==========================================
 
     # --- Camera Properties ---
@@ -211,12 +210,12 @@ class ViewState:
         self.camera.show_scalebar = v
 
     @property
-    def grid_mode(self):
-        return self.camera.grid_mode
+    def show_grid(self):
+        return self.camera.show_grid
 
-    @grid_mode.setter
-    def grid_mode(self, v):
-        self.camera.grid_mode = v
+    @show_grid.setter
+    def show_grid(self, v):
+        self.camera.show_grid = v
 
     # --- Display Properties ---
     @property
@@ -261,11 +260,11 @@ class ViewState:
 
     @property
     def show_legend(self):
-        return self.display.show_legend
+        return self.camera.show_legend
 
     @show_legend.setter
     def show_legend(self, v):
-        self.display.show_legend = v
+        self.camera.show_legend = v
 
     @property
     def overlay_id(self):
@@ -325,6 +324,19 @@ class ViewState:
 
     # ==========================================
 
+    def is_ct_image(self, flat_data):
+        if hasattr(self.volume.sitk_image, "GetMetaData"):
+            try:
+                modality = self.volume.sitk_image.GetMetaData("Modality")
+                if modality.upper() == "CT":
+                    return True
+            except:
+                pass
+        min_val, max_val = np.min(flat_data), np.max(flat_data)
+        if min_val < -500 and max_val > 1000 and (max_val - min_val) > 2000:
+            return True
+        return False
+
     def get_slice_shape(self, orientation):
         sh = self.volume.shape3d
         if orientation == ViewMode.AXIAL:
@@ -352,6 +364,32 @@ class ViewState:
             self.crosshair_value = self.volume.data[self.time_idx, iz, iy, ix]
         else:
             self.crosshair_value = self.volume.data[iz, iy, ix]
+
+    def init_default_window_level(self):
+        total_pixels = self.volume.data.size
+        max_sample_size = 100000
+
+        if total_pixels > max_sample_size:
+            stride = max(1, total_pixels // max_sample_size)
+            sample_data = self.volume.data.flatten()[::stride]
+        else:
+            sample_data = self.volume.data.flatten()
+
+        is_ct = self.is_ct_image(sample_data)
+
+        if is_ct:
+            self.set_ct_window_level(sample_data)
+        else:
+            p1, p99 = np.percentile(sample_data, [1, 99])
+            p2, p98 = np.percentile(sample_data, [2, 98])
+
+            self.ww = p98 - p2
+            self.wl = (p98 + p2) / 2
+            if self.ww <= 0:
+                self.ww = p99 - p1
+                if self.ww <= 0:
+                    self.ww = 1.0
+                self.wl = (p99 + p1) / 2
 
     def update_crosshair_from_slice_scroll(self, new_slice_idx, orientation):
         vx, vy, vz = self.crosshair_voxel[:3]
@@ -408,6 +446,15 @@ class ViewState:
         else:
             self.crosshair_value = self.volume.data[iz, iy, ix]
 
+    def update_histogram(self):
+        flat_data = self.volume.data.flatten()
+        min_v, max_v = np.min(flat_data), np.max(flat_data)
+        bins = np.arange(min_v, max_v + self.bin_width, self.bin_width)
+        hist, bin_edges = np.histogram(flat_data, bins=bins)
+        self.hist_data_y = hist.astype(np.float32)
+        self.hist_data_x = bin_edges[:-1].astype(np.float32)
+        self.histogram_is_dirty = False
+
     def reset_view(self):
         self.zoom = {
             ViewMode.AXIAL: 1.0,
@@ -444,15 +491,6 @@ class ViewState:
         elif preset_name in WL_PRESETS and WL_PRESETS[preset_name] is not None:
             self.ww = WL_PRESETS[preset_name]["ww"]
             self.wl = WL_PRESETS[preset_name]["wl"]
-
-    def update_histogram(self):
-        flat_data = self.volume.data.flatten()
-        min_v, max_v = np.min(flat_data), np.max(flat_data)
-        bins = np.arange(min_v, max_v + self.bin_width, self.bin_width)
-        hist, bin_edges = np.histogram(flat_data, bins=bins)
-        self.hist_data_y = hist.astype(np.float32)
-        self.hist_data_x = bin_edges[:-1].astype(np.float32)
-        self.histogram_is_dirty = False
 
     def set_overlay(self, other_vs_id, other_vol):
         if other_vs_id is None or other_vol is None:
@@ -511,45 +549,6 @@ class ViewState:
             self.overlay_data = other_vol.data
 
         self.is_data_dirty = True
-
-    def init_default_window_level(self):
-        total_pixels = self.volume.data.size
-        max_sample_size = 100000
-
-        if total_pixels > max_sample_size:
-            stride = max(1, total_pixels // max_sample_size)
-            sample_data = self.volume.data.flatten()[::stride]
-        else:
-            sample_data = self.volume.data.flatten()
-
-        is_ct = self.is_ct_image(sample_data)
-
-        if is_ct:
-            self.set_ct_window_level(sample_data)
-        else:
-            p1, p99 = np.percentile(sample_data, [1, 99])
-            p2, p98 = np.percentile(sample_data, [2, 98])
-
-            self.ww = p98 - p2
-            self.wl = (p98 + p2) / 2
-            if self.ww <= 0:
-                self.ww = p99 - p1
-                if self.ww <= 0:
-                    self.ww = 1.0
-                self.wl = (p99 + p1) / 2
-
-    def is_ct_image(self, flat_data):
-        if hasattr(self.volume.sitk_image, "GetMetaData"):
-            try:
-                modality = self.volume.sitk_image.GetMetaData("Modality")
-                if modality.upper() == "CT":
-                    return True
-            except:
-                pass
-        min_val, max_val = np.min(flat_data), np.max(flat_data)
-        if min_val < -500 and max_val > 1000 and (max_val - min_val) > 2000:
-            return True
-        return False
 
     def set_ct_window_level(self, flat_data):
         p5, p95 = np.percentile(flat_data, [5, 95])
@@ -654,13 +653,6 @@ class Controller:
 
         return img_id
 
-    def update_all_viewers_of_image(self, vs_id):
-        for viewer in self.viewers.values():
-            if viewer.image_id == vs_id:
-                viewer.draw_crosshair()
-                viewer.update_render()
-                viewer.is_geometry_dirty = True
-
     def unify_ppm(self, target_viewer_tags):
         valid_viewers = [
             self.viewers[tag]
@@ -679,6 +671,13 @@ class Controller:
         if max_ppm > 0:
             for viewer in valid_viewers:
                 viewer.set_pixels_per_mm(max_ppm)
+                viewer.is_geometry_dirty = True
+
+    def update_all_viewers_of_image(self, vs_id):
+        for viewer in self.viewers.values():
+            if viewer.image_id == vs_id:
+                viewer.draw_crosshair()
+                viewer.update_render()
                 viewer.is_geometry_dirty = True
 
     def update_setting(self, keys, value):
@@ -799,7 +798,7 @@ class Controller:
         if user_data == "axis":
             vs.show_axis = value
         elif user_data == "grid":
-            vs.grid_mode = value
+            vs.show_grid = value
         elif user_data == "tracker":
             vs.show_tracker = value
         elif user_data == "crosshair":

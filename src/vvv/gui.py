@@ -620,8 +620,8 @@ class MainGUI:
         vs = viewer.view_state
         if dpg.get_value("check_axis") != vs.show_axis:
             dpg.set_value("check_axis", vs.show_axis)
-        if dpg.get_value("check_grid") != vs.grid_mode:
-            dpg.set_value("check_grid", vs.grid_mode)
+        if dpg.get_value("check_grid") != vs.show_grid:
+            dpg.set_value("check_grid", vs.show_grid)
         if dpg.get_value("check_tracker") != vs.show_tracker:
             dpg.set_value("check_tracker", vs.show_tracker)
         if dpg.get_value("check_crosshair") != vs.show_crosshair:
