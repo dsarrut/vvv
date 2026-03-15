@@ -1141,7 +1141,7 @@ class MainGUI:
             thr_str = dpg.get_value("info_base_threshold")
             new_thr = float(thr_str) if thr_str.strip() else -1e9
 
-            self.context_viewer.view_state.ww = max(1e-5, new_ww)
+            self.context_viewer.view_state.display.ww = max(1e-5, new_ww)
             self.context_viewer.view_state.wl = new_wl
             self.context_viewer.view_state.base_threshold = new_thr
 

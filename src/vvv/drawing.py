@@ -390,7 +390,7 @@ class OverlayDrawer:
             parent=viewer.legend_tag,
         )
 
-        ww, wl = viewer.view_state.ww, viewer.view_state.wl
+        ww, wl = viewer.view_state.display.ww, viewer.view_state.wl
         val_min = wl - ww / 2.0
         val_max = wl + ww / 2.0
         text_col = viewer.controller.settings.data["colors"]["tracker_text"]

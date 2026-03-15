@@ -150,36 +150,36 @@ class SliceViewer:
 
     @property
     def slice_idx(self):
-        if not self.view_state or self.orientation not in self.view_state.slices:
+        if not self.view_state or self.orientation not in self.view_state.camera.slices:
             return 0
-        return self.view_state.slices[self.orientation]
+        return self.view_state.camera.slices[self.orientation]
 
     @slice_idx.setter
     def slice_idx(self, value):
         if self.view_state:
-            self.view_state.slices[self.orientation] = value
+            self.view_state.camera.slices[self.orientation] = value
 
     @property
     def pan_offset(self):
-        if not self.view_state or self.orientation not in self.view_state.pan:
+        if not self.view_state or self.orientation not in self.view_state.camera.pan:
             return [0, 0]
-        return self.view_state.pan[self.orientation]
+        return self.view_state.camera.pan[self.orientation]
 
     @pan_offset.setter
     def pan_offset(self, value):
         if self.view_state:
-            self.view_state.pan[self.orientation] = value
+            self.view_state.camera.pan[self.orientation] = value
 
     @property
     def zoom(self):
-        if not self.view_state or self.orientation not in self.view_state.zoom:
+        if not self.view_state or self.orientation not in self.view_state.camera.zoom:
             return 1.0
-        return self.view_state.zoom[self.orientation]
+        return self.view_state.camera.zoom[self.orientation]
 
     @zoom.setter
     def zoom(self, value):
         if self.view_state:
-            self.view_state.zoom[self.orientation] = value
+            self.view_state.camera.zoom[self.orientation] = value
 
     @property
     def num_slices(self):
@@ -215,7 +215,7 @@ class SliceViewer:
     def set_current_slice_to_crosshair(self):
         if not self.view_state or not self.volume:
             return
-        vx, vy, vz = self.view_state.crosshair_voxel[:3]
+        vx, vy, vz = self.view_state.camera.crosshair_voxel[:3]
         if self.orientation == ViewMode.AXIAL:
             self.slice_idx = int(np.clip(vz, 0, self.volume.shape3d[0] - 1))
         elif self.orientation == ViewMode.SAGITTAL:
@@ -448,7 +448,7 @@ class SliceViewer:
         if (
             not self.view_state
             or not self.volume
-            or self.view_state.crosshair_voxel is None
+            or self.view_state.camera.crosshair_voxel is None
         ):
             return [0, 0]
 
@@ -456,7 +456,7 @@ class SliceViewer:
         real_h, real_w = shape[0], shape[1]
         sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
 
-        vx, vy, vz = self.view_state.crosshair_voxel[:3]
+        vx, vy, vz = self.view_state.camera.crosshair_voxel[:3]
         tx, ty = voxel_to_slice(vx, vy, vz, self.orientation, shape)
 
         return self.mapper.calculate_center_pan(
@@ -468,12 +468,12 @@ class SliceViewer:
         self.drawer.draw_crosshair()
 
     def hide_everything(self):
-        new_state = not self.view_state.show_crosshair
-        self.view_state.show_axis = new_state
-        self.view_state.show_crosshair = new_state
-        self.view_state.show_tracker = new_state
-        self.view_state.show_scalebar = new_state
-        self.view_state.grid_mode = False
+        new_state = not self.view_state.camera.show_crosshair
+        self.view_state.camera.show_axis = new_state
+        self.view_state.camera.show_crosshair = new_state
+        self.view_state.camera.show_tracker = new_state
+        self.view_state.camera.show_scalebar = new_state
+        self.view_state.camera.grid_mode = False
 
         dpg.set_value("check_axis", new_state)
         dpg.set_value("check_crosshair", new_state)
@@ -487,7 +487,7 @@ class SliceViewer:
         if (
             not self.view_state
             or not self.volume
-            or self.view_state.interpolation_linear
+            or self.view_state.display.interpolation_linear
         ):
             return False
 
@@ -531,13 +531,18 @@ class SliceViewer:
             return
 
         if target == "overlay":
-            if not self.view_state.overlay_id or self.view_state.overlay_data is None:
+            if (
+                not self.view_state.display.overlay_id
+                or self.view_state.display.overlay_data is None
+            ):
                 return
-            ov_vol = self.controller.volumes[self.view_state.overlay_id]
+            ov_vol = self.controller.volumes[self.view_state.display.overlay_id]
             is_ov_rgb = getattr(ov_vol, "is_rgb", False)
-            ov_time_idx = min(self.view_state.time_idx, ov_vol.num_timepoints - 1)
+            ov_time_idx = min(
+                self.view_state.camera.time_idx, ov_vol.num_timepoints - 1
+            )
             slice_data = SliceRenderer.extract_slice(
-                self.view_state.overlay_data,
+                self.view_state.display.overlay_data,
                 is_ov_rgb,
                 ov_time_idx,
                 self.slice_idx,
@@ -549,7 +554,7 @@ class SliceViewer:
             slice_data = SliceRenderer.get_raw_slice(
                 self.volume.data,
                 getattr(self.volume, "is_rgb", False),
-                self.view_state.time_idx,
+                self.view_state.camera.time_idx,
                 self.slice_idx,
                 self.orientation,
             )
@@ -573,7 +578,7 @@ class SliceViewer:
         patch = slice_data[y0:y1, x0:x1]
 
         if target == "overlay":
-            thr = self.view_state.overlay_threshold
+            thr = self.view_state.display.overlay_threshold
             patch = patch[patch >= thr]
 
         if patch.size > 0:
@@ -582,16 +587,18 @@ class SliceViewer:
             wl = (p_max + p_min) / 2
 
             if target == "overlay":
-                ovs = self.controller.view_states[self.view_state.overlay_id]
-                ovs.ww = ww
-                ovs.wl = wl
-                self.controller.propagate_window_level(self.view_state.overlay_id)
+                ovs = self.controller.view_states[self.view_state.display.overlay_id]
+                ovs.display.ww = ww
+                ovs.display.wl = wl
+                self.controller.propagate_window_level(
+                    self.view_state.display.overlay_id
+                )
 
                 if (
                     self.controller.gui
                     and self.controller.gui.context_viewer
                     and self.controller.gui.context_viewer.image_id
-                    == self.view_state.overlay_id
+                    == self.view_state.display.overlay_id
                 ):
                     self.controller.gui.update_sidebar_window_level(
                         self.controller.gui.context_viewer
@@ -606,8 +613,8 @@ class SliceViewer:
             or getattr(self.volume, "is_rgb", False)
         ):
             return
-        self.view_state.ww = max(1e-5, ww)
-        self.view_state.wl = wl
+        self.view_state.display.ww = max(1e-5, ww)
+        self.view_state.display.wl = wl
         self.controller.propagate_window_level(self.image_id)
 
     def update_crosshair_data(self, pix_x, pix_y):
@@ -663,30 +670,32 @@ class SliceViewer:
             data=self.volume.data,
             is_rgb=getattr(self.volume, "is_rgb", False),
             num_components=self.volume.num_components,
-            ww=self.view_state.ww,
-            wl=self.view_state.wl,
-            cmap_name=self.view_state.colormap,
-            threshold=self.view_state.base_threshold,
-            time_idx=self.view_state.time_idx,
+            ww=self.view_state.display.ww,
+            wl=self.view_state.display.wl,
+            cmap_name=self.view_state.display.colormap,
+            threshold=self.view_state.display.base_threshold,
+            time_idx=self.view_state.camera.time_idx,
             spacing_2d=self.volume.get_physical_aspect_ratio(self.orientation),
         )
 
         # 2. Package the Overlay Layer (if it exists)
         overlay_layer = None
         if (
-            self.view_state.overlay_data is not None
-            and self.view_state.overlay_id in self.controller.view_states
+            self.view_state.display.overlay_data is not None
+            and self.view_state.display.overlay_id in self.controller.view_states
         ):
-            ovs = self.controller.view_states[self.view_state.overlay_id]
+            ovs = self.controller.view_states[self.view_state.display.overlay_id]
             overlay_layer = RenderLayer(
-                data=self.view_state.overlay_data,
+                data=self.view_state.display.overlay_data,
                 is_rgb=getattr(ovs.volume, "is_rgb", False),
                 num_components=ovs.volume.num_components,
-                ww=ovs.ww,
-                wl=ovs.wl,
-                cmap_name=ovs.colormap,
-                threshold=self.view_state.overlay_threshold,
-                time_idx=min(self.view_state.time_idx, ovs.volume.num_timepoints - 1),
+                ww=ovs.display.ww,
+                wl=ovs.display.wl,
+                cmap_name=ovs.display.colormap,
+                threshold=self.view_state.display.overlay_threshold,
+                time_idx=min(
+                    self.view_state.camera.time_idx, ovs.volume.num_timepoints - 1
+                ),
                 spacing_2d=self.volume.get_physical_aspect_ratio(self.orientation),
             )
 
@@ -694,12 +703,12 @@ class SliceViewer:
         rgba_flat, _ = SliceRenderer.get_slice_rgba(
             base=base_layer,
             overlay=overlay_layer,
-            overlay_opacity=self.view_state.overlay_opacity,
-            overlay_mode=self.view_state.overlay_mode,
+            overlay_opacity=self.view_state.display.overlay_opacity,
+            overlay_mode=self.view_state.display.overlay_mode,
             slice_idx=self.slice_idx,
             orientation=self.orientation,
-            checkerboard_size=self.view_state.overlay_checkerboard_size,
-            checkerboard_swap=self.view_state.overlay_checkerboard_swap,
+            checkerboard_size=self.view_state.display.overlay_checkerboard_size,
+            checkerboard_swap=self.view_state.display.overlay_checkerboard_swap,
         )
 
         self.last_rgba_flat = rgba_flat
@@ -722,12 +731,12 @@ class SliceViewer:
                 dpg.configure_item(self.active_strips_node, show=False)
             dpg.configure_item(self.image_tag, show=True)
 
-        if self.view_state.grid_mode:
+        if self.view_state.camera.grid_mode:
             self.drawer.draw_voxel_grid(h, w)
         elif dpg.does_item_exist(self.active_grid_node):
             dpg.configure_item(self.active_grid_node, show=False)
 
-        if self.view_state.show_axis:
+        if self.view_state.camera.show_axis:
             dpg.configure_item(self.axes_nodes[0], show=True)
             dpg.configure_item(self.axes_nodes[1], show=True)
             self.drawer.draw_orientation_axes()
@@ -745,7 +754,7 @@ class SliceViewer:
             self.image_id is None
             or not self.view_state
             or not self.volume
-            or not self.view_state.show_tracker
+            or not self.view_state.camera.show_tracker
             or not self.is_image_orientation()
         ):
             dpg.set_value(self.tracker_tag, "")
@@ -775,13 +784,13 @@ class SliceViewer:
 
         if 0 <= ix < max_x and 0 <= iy < max_y and 0 <= iz < max_z:
             if self.volume.num_timepoints > 1:
-                val = self.volume.data[self.view_state.time_idx, iz, iy, ix]
+                val = self.volume.data[self.view_state.camera.time_idx, iz, iy, ix]
             else:
                 val = self.volume.data[iz, iy, ix]
 
             self.mouse_value, self.mouse_voxel, self.mouse_phys_coord = (
                 val,
-                [v[0], v[1], v[2], self.view_state.time_idx],
+                [v[0], v[1], v[2], self.view_state.camera.time_idx],
                 phys,
             )
 
@@ -794,10 +803,10 @@ class SliceViewer:
             text_lines = [f"{val_str}"]
 
             if (
-                self.view_state.overlay_id
-                and self.view_state.overlay_id in self.controller.volumes
+                self.view_state.display.overlay_id
+                and self.view_state.display.overlay_id in self.controller.volumes
             ):
-                ov_vol = self.controller.volumes[self.view_state.overlay_id]
+                ov_vol = self.controller.volumes[self.view_state.display.overlay_id]
                 ov_vox = ov_vol.physic_coord_to_voxel_coord(phys)
 
                 ox = int(np.floor(ov_vox[0] + 0.5))
@@ -806,7 +815,7 @@ class SliceViewer:
                 mz, my, mx = ov_vol.shape3d
 
                 if 0 <= ox < mx and 0 <= oy < my and 0 <= oz < mz:
-                    ot = min(self.view_state.time_idx, ov_vol.num_timepoints - 1)
+                    ot = min(self.view_state.camera.time_idx, ov_vol.num_timepoints - 1)
                     if ov_vol.num_timepoints > 1:
                         ov_val = ov_vol.data[ot, oz, oy, ox]
                     else:
@@ -815,7 +824,7 @@ class SliceViewer:
 
             if self.volume.num_timepoints > 1:
                 text_lines.append(
-                    f"{v[0]:.1f} {v[1]:.1f} {v[2]:.1f} {self.view_state.time_idx}"
+                    f"{v[0]:.1f} {v[1]:.1f} {v[2]:.1f} {self.view_state.camera.time_idx}"
                 )
             else:
                 text_lines.append(fmt(v, 1))
@@ -902,15 +911,17 @@ class SliceViewer:
         self.set_orientation(ViewMode.HISTOGRAM)
 
     def action_toggle_interp(self):
-        self.view_state.interpolation_linear = not self.view_state.interpolation_linear
+        self.view_state.display.interpolation_linear = (
+            not self.view_state.display.interpolation_linear
+        )
         self.view_state.is_data_dirty = True
 
     def action_toggle_legend(self):
-        self.view_state.show_legend = not self.view_state.show_legend
+        self.view_state.display.show_legend = not self.view_state.display.show_legend
         self.controller.update_all_viewers_of_image(self.image_id)
 
     def action_toggle_grid(self):
-        self.view_state.grid_mode = not self.view_state.grid_mode
+        self.view_state.camera.grid_mode = not self.view_state.camera.grid_mode
         self.view_state.is_data_dirty = True
 
     def on_key_press(self, key):
@@ -952,7 +963,7 @@ class SliceViewer:
             return
 
         # Loop the time index
-        self.view_state.time_idx = (self.view_state.time_idx + delta) % nt
+        self.view_state.camera.time_idx = (self.view_state.camera.time_idx + delta) % nt
 
         self.update_crosshair_from_slice()
         self.controller.propagate_sync(self.image_id)
@@ -986,8 +997,8 @@ class SliceViewer:
             self.controller.propagate_camera(self)
         elif is_shift and is_button:
             sens = self.controller.settings.data["interaction"]["wl_drag_sensitivity"]
-            ww = max(1e-9, self.view_state.ww + sx * sens)
-            wl = self.view_state.wl - sy * sens
+            ww = max(1e-9, self.view_state.display.ww + sx * sens)
+            wl = self.view_state.display.wl - sy * sens
             self.update_window_level(ww, wl)
 
     def on_zoom(self, direction):

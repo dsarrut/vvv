@@ -54,44 +54,49 @@ class SettingsManager:
         return str(self.config_path)
 
 
-class ViewState:
-    """Stores all transient UI and camera parameters."""
+class CameraState:
+    """Stores all transient spatial and navigation parameters."""
 
     def __init__(self, volume):
-        self.volume = volume
-        self.is_data_dirty = True
-
-        self.ww = 2000.0
-        self.wl = 270.0
-
-        self.zoom = {ViewMode.AXIAL: 1.0, ViewMode.SAGITTAL: 1.0, ViewMode.CORONAL: 1.0}
+        self.zoom = {
+            ViewMode.AXIAL: 1.0,
+            ViewMode.SAGITTAL: 1.0,
+            ViewMode.CORONAL: 1.0,
+        }
         self.pan = {
             ViewMode.AXIAL: [0, 0],
             ViewMode.SAGITTAL: [0, 0],
             ViewMode.CORONAL: [0, 0],
         }
-
         self.slices = {
-            ViewMode.AXIAL: self.volume.shape3d[0] // 2,
-            ViewMode.SAGITTAL: self.volume.shape3d[2] // 2,
-            ViewMode.CORONAL: self.volume.shape3d[1] // 2,
+            ViewMode.AXIAL: volume.shape3d[0] // 2,
+            ViewMode.SAGITTAL: volume.shape3d[2] // 2,
+            ViewMode.CORONAL: volume.shape3d[1] // 2,
         }
-
         self.crosshair_phys_coord = None
         self.crosshair_voxel = None
-        self.crosshair_value = None
+        self.time_idx = 0
 
-        self.interpolation_linear = False
-        self.grid_mode = False
+        # Visibility toggles (these are spatially relevant)
         self.show_axis = True
         self.show_tracker = True
         self.show_crosshair = True
         self.show_scalebar = False
-        self.show_legend = False
+        self.grid_mode = False
+
+
+class DisplayState:
+    """Stores all radiometric and rendering properties."""
+
+    def __init__(self):
+        self.ww = 2000.0
+        self.wl = 270.0
         self.colormap = "Grayscale"
         self.base_threshold = -1e8
-        self.time_idx = 0
+        self.interpolation_linear = False
+        self.show_legend = False
 
+        # Overlay parameters
         self.overlay_id = None
         self.overlay_data = None
         self.overlay_opacity = 0.5
@@ -100,16 +105,225 @@ class ViewState:
         self.overlay_checkerboard_size = 20.0
         self.overlay_checkerboard_swap = False
 
-        self.hist_data_x = []
-        self.hist_data_y = []
-        self.bin_width = 10.0
-        self.use_log_y = False
-        self.histogram_is_dirty = True
 
+class ViewState:
+    """Stores all transient UI and camera parameters."""
+
+    def __init__(self, volume):
+        self.volume = volume
+        self.is_data_dirty = True
         self.sync_group = 0
+
+        # The Split
+        self.camera = CameraState(volume)
+        self.display = DisplayState()
+
+        # Derived value based on camera coords and display data
+        self.crosshair_value = None
 
         self.init_crosshair_to_slices()
         self.init_default_window_level()
+
+    # ==========================================
+    # THE PROPERTY BRIDGE
+    # Safely routes top-level requests to the new sub-states
+    # ==========================================
+
+    # --- Camera Properties ---
+    @property
+    def zoom(self):
+        return self.camera.zoom
+
+    @zoom.setter
+    def zoom(self, v):
+        self.camera.zoom = v
+
+    @property
+    def pan(self):
+        return self.camera.pan
+
+    @pan.setter
+    def pan(self, v):
+        self.camera.pan = v
+
+    @property
+    def slices(self):
+        return self.camera.slices
+
+    @slices.setter
+    def slices(self, v):
+        self.camera.slices = v
+
+    @property
+    def crosshair_phys_coord(self):
+        return self.camera.crosshair_phys_coord
+
+    @crosshair_phys_coord.setter
+    def crosshair_phys_coord(self, v):
+        self.camera.crosshair_phys_coord = v
+
+    @property
+    def crosshair_voxel(self):
+        return self.camera.crosshair_voxel
+
+    @crosshair_voxel.setter
+    def crosshair_voxel(self, v):
+        self.camera.crosshair_voxel = v
+
+    @property
+    def time_idx(self):
+        return self.camera.time_idx
+
+    @time_idx.setter
+    def time_idx(self, v):
+        self.camera.time_idx = v
+
+    @property
+    def show_axis(self):
+        return self.camera.show_axis
+
+    @show_axis.setter
+    def show_axis(self, v):
+        self.camera.show_axis = v
+
+    @property
+    def show_tracker(self):
+        return self.camera.show_tracker
+
+    @show_tracker.setter
+    def show_tracker(self, v):
+        self.camera.show_tracker = v
+
+    @property
+    def show_crosshair(self):
+        return self.camera.show_crosshair
+
+    @show_crosshair.setter
+    def show_crosshair(self, v):
+        self.camera.show_crosshair = v
+
+    @property
+    def show_scalebar(self):
+        return self.camera.show_scalebar
+
+    @show_scalebar.setter
+    def show_scalebar(self, v):
+        self.camera.show_scalebar = v
+
+    @property
+    def grid_mode(self):
+        return self.camera.grid_mode
+
+    @grid_mode.setter
+    def grid_mode(self, v):
+        self.camera.grid_mode = v
+
+    # --- Display Properties ---
+    @property
+    def ww(self):
+        return self.display.ww
+
+    @ww.setter
+    def ww(self, v):
+        self.display.ww = v
+
+    @property
+    def wl(self):
+        return self.display.wl
+
+    @wl.setter
+    def wl(self, v):
+        self.display.wl = v
+
+    @property
+    def colormap(self):
+        return self.display.colormap
+
+    @colormap.setter
+    def colormap(self, v):
+        self.display.colormap = v
+
+    @property
+    def base_threshold(self):
+        return self.display.base_threshold
+
+    @base_threshold.setter
+    def base_threshold(self, v):
+        self.display.base_threshold = v
+
+    @property
+    def interpolation_linear(self):
+        return self.display.interpolation_linear
+
+    @interpolation_linear.setter
+    def interpolation_linear(self, v):
+        self.display.interpolation_linear = v
+
+    @property
+    def show_legend(self):
+        return self.display.show_legend
+
+    @show_legend.setter
+    def show_legend(self, v):
+        self.display.show_legend = v
+
+    @property
+    def overlay_id(self):
+        return self.display.overlay_id
+
+    @overlay_id.setter
+    def overlay_id(self, v):
+        self.display.overlay_id = v
+
+    @property
+    def overlay_data(self):
+        return self.display.overlay_data
+
+    @overlay_data.setter
+    def overlay_data(self, v):
+        self.display.overlay_data = v
+
+    @property
+    def overlay_opacity(self):
+        return self.display.overlay_opacity
+
+    @overlay_opacity.setter
+    def overlay_opacity(self, v):
+        self.display.overlay_opacity = v
+
+    @property
+    def overlay_mode(self):
+        return self.display.overlay_mode
+
+    @overlay_mode.setter
+    def overlay_mode(self, v):
+        self.display.overlay_mode = v
+
+    @property
+    def overlay_threshold(self):
+        return self.display.overlay_threshold
+
+    @overlay_threshold.setter
+    def overlay_threshold(self, v):
+        self.display.overlay_threshold = v
+
+    @property
+    def overlay_checkerboard_size(self):
+        return self.display.overlay_checkerboard_size
+
+    @overlay_checkerboard_size.setter
+    def overlay_checkerboard_size(self, v):
+        self.display.overlay_checkerboard_size = v
+
+    @property
+    def overlay_checkerboard_swap(self):
+        return self.display.overlay_checkerboard_swap
+
+    @overlay_checkerboard_swap.setter
+    def overlay_checkerboard_swap(self, v):
+        self.display.overlay_checkerboard_swap = v
+
+    # ==========================================
 
     def get_slice_shape(self, orientation):
         sh = self.volume.shape3d
@@ -195,7 +409,11 @@ class ViewState:
             self.crosshair_value = self.volume.data[iz, iy, ix]
 
     def reset_view(self):
-        self.zoom = {ViewMode.AXIAL: 1.0, ViewMode.SAGITTAL: 1.0, ViewMode.CORONAL: 1.0}
+        self.zoom = {
+            ViewMode.AXIAL: 1.0,
+            ViewMode.SAGITTAL: 1.0,
+            ViewMode.CORONAL: 1.0,
+        }
         self.pan = {
             ViewMode.AXIAL: [0, 0],
             ViewMode.SAGITTAL: [0, 0],
