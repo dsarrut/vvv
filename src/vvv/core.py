@@ -60,6 +60,7 @@ class HistoryManager:
 
         self.history_path = self.config_dir / "history.json"
         self.data = {}
+        self.max_history_files = 100  # Enforce limit
         self.load()
 
     def load(self):
@@ -81,25 +82,30 @@ class HistoryManager:
         primary_path = vol.file_paths[0]
         key = get_history_path_key(primary_path)
 
-        try:
-            mtime = os.path.getmtime(primary_path)
-        except OSError:
-            mtime = 0
-
         # Extract Overlay Path
         overlay_path = None
         if vs.display.overlay_id and vs.display.overlay_id in controller.volumes:
             ov_path = controller.volumes[vs.display.overlay_id].file_paths[0]
             overlay_path = get_history_path_key(ov_path)
 
+        # Remove the key if it exists so we can push it to the "end" of the dictionary (LRU logic)
+        if key in self.data:
+            del self.data[key]
+
         self.data[key] = {
-            "mtime": mtime,
             "shape3d": list(vol.shape3d),
             "spacing": list(vol.spacing),
+            "origin": list(vol.origin),  # ADDED: Physical origin
             "camera": vs.camera.to_dict(),
             "display": vs.display.to_dict(),
             "overlay_path": overlay_path,
         }
+
+        # Enforce the 100 files limit by deleting the oldest item(s) at the front of the dict
+        while len(self.data) > self.max_history_files:
+            oldest_key = next(iter(self.data))
+            del self.data[oldest_key]
+
         self.save()
 
     def get_image_state(self, volume):
@@ -110,18 +116,18 @@ class HistoryManager:
             return None
 
         entry = self.data[key]
-        try:
-            current_mtime = os.path.getmtime(primary_path)
-        except OSError:
-            current_mtime = 0
 
-        # Strict Validation
-        if entry.get("mtime") != current_mtime:
-            return None
+        # Strict Geometry Validation (No more mtime!)
         if entry.get("shape3d") != list(volume.shape3d):
             return None
+
         if not np.allclose(entry.get("spacing"), volume.spacing, atol=1e-4):
             return None
+
+        # Validate origin (with a safe fallback if loading an old history file)
+        if "origin" in entry:
+            if not np.allclose(entry.get("origin"), volume.origin, atol=1e-4):
+                return None
 
         return entry
 
