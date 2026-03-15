@@ -478,8 +478,8 @@ class MainGUI:
             dpg.add_spacer(height=5)
 
             # --- TOP: Load & Import ---
-            dpg.add_text("ROI Management", color=cfg_c["text_header"])
-            dpg.add_separator()
+            # dpg.add_text("ROI Management", color=cfg_c["text_header"])
+            # dpg.add_separator()
             with dpg.group(horizontal=True):
                 dpg.add_button(
                     label="Load ROI...", width=80, callback=self.on_load_roi_clicked
@@ -493,8 +493,8 @@ class MainGUI:
             dpg.add_spacer(height=10)
 
             # --- MIDDLE: The Dynamic List ---
-            dpg.add_text("Loaded Regions", color=cfg_c["text_header"])
-            dpg.add_separator()
+            # dpg.add_text("Loaded Regions", color=cfg_c["text_header"])
+            # dpg.add_separator()
 
             with dpg.child_window(height=110, border=False, no_scrollbar=True):
                 dpg.add_group(tag="roi_list_container")  # The empty container!

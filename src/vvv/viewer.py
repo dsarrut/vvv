@@ -729,22 +729,66 @@ class SliceViewer:
 
             roi_vol = self.controller.volumes[roi_id]
 
-            # Extract the 2D slice for this specific mask
-            roi_slice = SliceRenderer.extract_slice(
-                roi_vol.data,
-                getattr(roi_vol, "is_rgb", False),
-                min(self.view_state.camera.time_idx, roi_vol.num_timepoints - 1),
-                self.slice_idx,
-                self.orientation,
-            )
+            # Ensure the ROI was autocropped
+            if not hasattr(roi_vol, "roi_bbox"):
+                continue
 
-            if roi_slice is not None:
+            z0, z1, y0, y1, x0, x1 = roi_vol.roi_bbox
+            if z0 == z1:  # Empty mask
+                continue
+
+            t_idx = min(self.view_state.camera.time_idx, roi_vol.num_timepoints - 1)
+            base_z, base_y, base_x = self.volume.shape3d
+
+            roi_slice = None
+            offset_x, offset_y = 0, 0
+
+            # Fast Bounding Box Mapping
+            if self.orientation == ViewMode.AXIAL:
+                if (
+                    z0 <= self.slice_idx < z1
+                ):  # Only extract if we are INSIDE the Z bounds!
+                    if roi_vol.data.ndim == 4:
+                        roi_slice = roi_vol.data[t_idx, self.slice_idx - z0, :, :]
+                    else:
+                        roi_slice = roi_vol.data[self.slice_idx - z0, :, :]
+                    offset_x, offset_y = x0, y0
+
+            elif self.orientation == ViewMode.CORONAL:
+                if y0 <= self.slice_idx < y1:  # Inside Y bounds
+                    if roi_vol.data.ndim == 4:
+                        roi_slice = np.flipud(
+                            roi_vol.data[t_idx, :, self.slice_idx - y0, :]
+                        )
+                    else:
+                        roi_slice = np.flipud(roi_vol.data[:, self.slice_idx - y0, :])
+                    offset_x = x0
+                    offset_y = (
+                        base_z - z1
+                    )  # Image is flipped UD, so Y-offset is from the bottom of Z
+
+            elif self.orientation == ViewMode.SAGITTAL:
+                if x0 <= self.slice_idx < x1:  # Inside X bounds
+                    if roi_vol.data.ndim == 4:
+                        roi_slice = np.flipud(
+                            np.fliplr(roi_vol.data[t_idx, :, :, self.slice_idx - x0])
+                        )
+                    else:
+                        roi_slice = np.flipud(
+                            np.fliplr(roi_vol.data[:, :, self.slice_idx - x0])
+                        )
+                    offset_x = base_y - y1  # Image is flipped LR
+                    offset_y = base_z - z1  # Image is flipped UD
+
+            if roi_slice is not None and roi_slice.size > 0:
                 active_rois.append(
                     ROILayer(
                         data=roi_slice,
                         color=roi_state.color,
                         opacity=roi_state.opacity,
                         is_contour=roi_state.is_contour,
+                        offset_x=offset_x,
+                        offset_y=offset_y,
                     )
                 )
         # ------------------------------------------

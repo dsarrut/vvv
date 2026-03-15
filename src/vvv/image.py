@@ -30,7 +30,10 @@ class ROILayer:
     data: np.ndarray  # The 2D slice of the mask
     color: list  # [R, G, B] (0-255)
     opacity: float  # 0.0 to 1.0
-    is_contour: bool = False  # Placeholder for Phase 5!
+    is_contour: bool = False  # FIXME Placeholder for Phase 5!
+    # position on the screen
+    offset_x: int = 0
+    offset_y: int = 0
 
 
 class SliceRenderer:
@@ -127,6 +130,52 @@ class SliceRenderer:
 
     @staticmethod
     def _apply_rois(base_rgba, rois):
+        """Rapidly composites binary ROI masks using 2D Bounding Boxes."""
+        bh, bw = base_rgba.shape[:2]
+
+        for roi in rois:
+            if roi.opacity <= 0.0 or roi.data.size == 0:
+                continue
+
+            h, w = roi.data.shape
+            x0, y0 = roi.offset_x, roi.offset_y
+            x1, y1 = x0 + w, y0 + h
+
+            # Skip if completely out of bounds (safety check)
+            if x0 >= bw or y0 >= bh or x1 <= 0 or y1 <= 0:
+                continue
+
+            # Calculate intersection bounds
+            src_x0, src_y0 = max(0, -x0), max(0, -y0)
+            src_x1, src_y1 = min(w, bw - x0), min(h, bh - y0)
+
+            dst_x0, dst_y0 = max(0, x0), max(0, y0)
+            dst_x1, dst_y1 = min(bw, x1), min(bh, y1)
+
+            # Crop mask and apply to sub-region of the screen
+            roi_data_cropped = roi.data[src_y0:src_y1, src_x0:src_x1]
+            mask = roi_data_cropped > 0
+
+            if not np.any(mask):
+                continue
+
+            alpha = roi.opacity
+            inv_alpha = 1.0 - alpha
+            r = roi.color[0] / 255.0
+            g = roi.color[1] / 255.0
+            b = roi.color[2] / 255.0
+
+            # Only do math on the specific patch where the organ lives!
+            base_sub = base_rgba[dst_y0:dst_y1, dst_x0:dst_x1]
+
+            base_sub[mask, 0] = base_sub[mask, 0] * inv_alpha + r * alpha
+            base_sub[mask, 1] = base_sub[mask, 1] * inv_alpha + g * alpha
+            base_sub[mask, 2] = base_sub[mask, 2] * inv_alpha + b * alpha
+
+        return base_rgba
+
+    @staticmethod
+    def _apply_rois_OLD(base_rgba, rois):
         """Rapidly composites binary ROI masks over the generated RGBA image."""
         for roi in rois:
             if roi.opacity <= 0.0:

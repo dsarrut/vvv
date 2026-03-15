@@ -905,6 +905,68 @@ class Controller:
         base_vol = self.volumes[base_id]
         mask_vol = VolumeData(filepath)
 
+        if (
+            mask_vol.shape3d != base_vol.shape3d
+            or not np.allclose(mask_vol.spacing, base_vol.spacing, atol=1e-4)
+            or not np.allclose(mask_vol.origin, base_vol.origin, atol=1e-4)
+        ):
+            print(f"Geometry mismatch. Resampling mask {name} via Nearest Neighbor...")
+            resampler = sitk.ResampleImageFilter()
+            resampler.SetReferenceImage(base_vol.sitk_image)
+            resampler.SetInterpolator(sitk.sitkNearestNeighbor)
+            resampler.SetDefaultPixelValue(0)
+
+            mask_vol.sitk_image = resampler.Execute(mask_vol.sitk_image)
+            mask_vol.data = sitk.GetArrayFromImage(mask_vol.sitk_image)
+            mask_vol.shape3d = base_vol.shape3d
+            mask_vol.spacing = base_vol.spacing
+            mask_vol.origin = base_vol.origin
+
+        # --- THE 3D AUTOCROP ---
+        coords = np.argwhere(mask_vol.data > 0)
+        if coords.size > 0:
+            if mask_vol.data.ndim == 4:
+                # Keep all timepoints, crop spatial axes
+                z0, y0, x0 = coords[:, 1:].min(axis=0)
+                z1, y1, x1 = coords[:, 1:].max(axis=0) + 1
+                mask_vol.data = mask_vol.data[:, z0:z1, y0:y1, x0:x1]
+            else:
+                z0, y0, x0 = coords.min(axis=0)
+                z1, y1, x1 = coords.max(axis=0) + 1
+                mask_vol.data = mask_vol.data[z0:z1, y0:y1, x0:x1]
+
+            mask_vol.roi_bbox = (z0, z1, y0, y1, x0, x1)
+        else:
+            # Empty mask safeguard
+            mask_vol.roi_bbox = (0, 0, 0, 0, 0, 0)
+            if mask_vol.data.ndim == 4:
+                mask_vol.data = np.zeros(
+                    (mask_vol.data.shape[0], 0, 0, 0), dtype=mask_vol.data.dtype
+                )
+            else:
+                mask_vol.data = np.zeros((0, 0, 0), dtype=mask_vol.data.dtype)
+
+        # CRITICAL: Do NOT change mask_vol.shape3d. It must pretend to be full size
+        # so physical coordinate math and history saving doesn't break!
+        # ------------------------
+
+        mask_id = str(self._next_image_id)
+        self._next_image_id += 1
+        self.volumes[mask_id] = mask_vol
+
+        if name is None:
+            name = os.path.basename(filepath)
+
+        roi_state = ROIState(mask_id, name, color)
+        self.view_states[base_id].rois[mask_id] = roi_state
+        self.view_states[base_id].is_data_dirty = True
+
+        return mask_id
+
+    def load_binary_mask_OLD(self, base_id, filepath, name=None, color=[255, 50, 50]):
+        base_vol = self.volumes[base_id]
+        mask_vol = VolumeData(filepath)
+
         # --- THE RESAMPLING TRAP FIX ---
         # If the mask grid differs from the base image grid, force a resample
         if (
