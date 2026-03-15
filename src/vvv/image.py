@@ -175,31 +175,6 @@ class SliceRenderer:
         return base_rgba
 
     @staticmethod
-    def _apply_rois_OLD(base_rgba, rois):
-        """Rapidly composites binary ROI masks over the generated RGBA image."""
-        for roi in rois:
-            if roi.opacity <= 0.0:
-                continue
-
-            # Phase 2: Binary Filled Mask (Foreground > 0)
-            mask = roi.data > 0
-
-            alpha = roi.opacity
-            inv_alpha = 1.0 - alpha
-
-            # Scale color to 0.0-1.0 because base_rgba is a float32 texture
-            r = roi.color[0] / 255.0
-            g = roi.color[1] / 255.0
-            b = roi.color[2] / 255.0
-
-            # Alpha blending vectorized across the RGB channels
-            base_rgba[mask, 0] = base_rgba[mask, 0] * inv_alpha + r * alpha
-            base_rgba[mask, 1] = base_rgba[mask, 1] * inv_alpha + g * alpha
-            base_rgba[mask, 2] = base_rgba[mask, 2] * inv_alpha + b * alpha
-
-        return base_rgba
-
-    @staticmethod
     def extract_slice(data, is_rgb, time_idx, slice_idx, orientation):
         if is_rgb:
             if data.ndim == 4:

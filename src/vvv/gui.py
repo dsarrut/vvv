@@ -1539,14 +1539,6 @@ class MainGUI:
         vs.is_data_dirty = True
         self.controller.update_all_viewers_of_image(self.context_viewer.image_id)
 
-    def on_roi_color_changed_OLD(self, sender, app_data, user_data):
-        roi_id = user_data
-        vs = self.context_viewer.view_state
-        # app_data from color edit is [r, g, b, a] from 0 to 255
-        vs.rois[roi_id].color = [int(c) for c in app_data[:3]]
-        vs.is_data_dirty = True
-        self.controller.update_all_viewers_of_image(self.context_viewer.image_id)
-
     def on_roi_opacity_changed(self, sender, app_data, user_data):
         roi_id = user_data
         vs = self.context_viewer.view_state

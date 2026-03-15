@@ -963,45 +963,6 @@ class Controller:
 
         return mask_id
 
-    def load_binary_mask_OLD(self, base_id, filepath, name=None, color=[255, 50, 50]):
-        base_vol = self.volumes[base_id]
-        mask_vol = VolumeData(filepath)
-
-        # --- THE RESAMPLING TRAP FIX ---
-        # If the mask grid differs from the base image grid, force a resample
-        if (
-            mask_vol.shape3d != base_vol.shape3d
-            or not np.allclose(mask_vol.spacing, base_vol.spacing, atol=1e-4)
-            or not np.allclose(mask_vol.origin, base_vol.origin, atol=1e-4)
-        ):
-
-            print(f"Geometry mismatch. Resampling mask {name} via Nearest Neighbor...")
-            resampler = sitk.ResampleImageFilter()
-            resampler.SetReferenceImage(base_vol.sitk_image)
-            resampler.SetInterpolator(sitk.sitkNearestNeighbor)  # CRITICAL for masks
-            resampler.SetDefaultPixelValue(0)
-
-            mask_vol.sitk_image = resampler.Execute(mask_vol.sitk_image)
-            mask_vol.data = sitk.GetArrayFromImage(mask_vol.sitk_image)
-            mask_vol.shape3d = base_vol.shape3d
-            mask_vol.spacing = base_vol.spacing
-            mask_vol.origin = base_vol.origin
-        # -------------------------------
-
-        mask_id = str(self._next_image_id)
-        self._next_image_id += 1
-        self.volumes[mask_id] = mask_vol
-
-        if name is None:
-            name = os.path.basename(filepath)
-
-        # Create the state and link it to the base ViewState
-        roi_state = ROIState(mask_id, name, color)
-        self.view_states[base_id].rois[mask_id] = roi_state
-        self.view_states[base_id].is_data_dirty = True
-
-        return mask_id
-
     def unify_ppm(self, target_viewer_tags):
         valid_viewers = [
             self.viewers[tag]
