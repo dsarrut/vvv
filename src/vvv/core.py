@@ -859,7 +859,6 @@ class Controller:
             did_update = viewer.tick()
             if did_update and self.gui and viewer == self.gui.context_viewer:
                 self.gui.update_sidebar_crosshair(viewer)
-                self.gui.update_sidebar_window_level(viewer)
 
         for vs in self.view_states.values():
             vs.is_data_dirty = False

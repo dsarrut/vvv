@@ -32,6 +32,8 @@ DEFAULT_SETTINGS = {
         "toggle_interp": "K",
         "toggle_legend": "L",
         "toggle_grid": "G",
+        "toggle_axis": "A",
+        "toggle_scalebar": "B",
         "hide_all": "H",
         "time_forward": "Right",
         "time_backward": "Left",

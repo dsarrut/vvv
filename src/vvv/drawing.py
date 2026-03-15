@@ -340,7 +340,7 @@ class OverlayDrawer:
         if (
             not viewer.is_image_orientation()
             or not viewer.view_state
-            or not viewer.view_state.camera.show_legend
+            or not viewer.show_legend
         ):
             return
 

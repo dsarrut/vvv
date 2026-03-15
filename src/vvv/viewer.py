@@ -119,6 +119,9 @@ class SliceViewer:
         self.scale_bar_tag = f"scale_bar_node_{tag_id}"
         self.xh_initialized = False
 
+        # for the shortkey
+        self._shortcut_map = None
+
         self.quad_w = 100
         self.quad_h = 100
 
@@ -203,6 +206,15 @@ class SliceViewer:
         elif self.orientation == ViewMode.CORONAL:
             return self.volume.shape3d[1]
         return 0
+
+    @property
+    def show_legend(self):
+        return self.view_state.show_legend if self.view_state else False
+
+    @show_legend.setter
+    def show_legend(self, value):
+        if self.view_state:
+            self.view_state.show_legend = value
 
     def set_image(self, img_id):
         self.image_id = img_id
@@ -622,16 +634,6 @@ class SliceViewer:
                 self.controller.propagate_window_level(
                     self.view_state.display.overlay_id
                 )
-
-                if (
-                    self.controller.gui
-                    and self.controller.gui.context_viewer
-                    and self.controller.gui.context_viewer.image_id
-                    == self.view_state.display.overlay_id
-                ):
-                    self.controller.gui.update_sidebar_window_level(
-                        self.controller.gui.context_viewer
-                    )
             else:
                 self.update_window_level(ww, wl)
 
@@ -890,6 +892,8 @@ class SliceViewer:
             "toggle_interp": self.action_toggle_interp,
             "toggle_legend": self.action_toggle_legend,
             "toggle_grid": self.action_toggle_grid,
+            "toggle_axis": self.action_toggle_axis,
+            "toggle_scalebar": self.action_toggle_scalebar,
             "hide_all": self.hide_everything,
         }
 
@@ -928,11 +932,19 @@ class SliceViewer:
         self.view_state.is_data_dirty = True
 
     def action_toggle_legend(self):
-        self.view_state.camera.show_legend = not self.view_state.camera.show_legend
+        self.show_legend = not self.show_legend
         self.controller.update_all_viewers_of_image(self.image_id)
 
     def action_toggle_grid(self):
         self.view_state.camera.show_grid = not self.view_state.camera.show_grid
+        self.view_state.is_data_dirty = True
+
+    def action_toggle_axis(self):
+        self.view_state.show_axis = not self.view_state.show_axis
+        self.view_state.is_data_dirty = True
+
+    def action_toggle_scalebar(self):
+        self.view_state.show_scalebar = not self.view_state.show_scalebar
         self.view_state.is_data_dirty = True
 
     def on_key_press(self, key):

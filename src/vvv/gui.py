@@ -33,10 +33,29 @@ class MainGUI:
         self.sync_label_tags = {}
         self.ui_cfg = None
 
+        # --- DATA BINDING DICTIONARY ---
+        # Maps DPG tag -> ViewState property name
+        self.bindings = {
+            "check_axis": "show_axis",
+            "check_grid": "show_grid",
+            "check_tracker": "show_tracker",
+            "check_crosshair": "show_crosshair",
+            "check_legend": "show_legend",
+            "check_scalebar": "show_scalebar",
+            "info_window": "ww",
+            "info_level": "wl",
+            "info_base_threshold": "base_threshold",
+            "slider_overlay_opacity": "overlay_opacity",
+            "input_overlay_threshold": "overlay_threshold",
+            "combo_overlay_mode": "overlay_mode",
+            "slider_chk_size": "overlay_checkerboard_size",
+            "check_chk_swap": "overlay_checkerboard_swap",
+        }
+
         # Initialization pipeline
         self.init_config()
         self.icon_font = load_fonts()
-        setup_themes()  # From resources.py (static themes)
+        setup_themes()
         self.register_dynamic_themes()
         self.settings_window = SettingsWindow(self.controller)
 
@@ -612,27 +631,46 @@ class MainGUI:
     # 3. UI UPDATERS / SYNC LOGIC
     # ==========================================
 
-    def sync_sidebar_checkboxes(self):
+    def sync_bound_ui(self):
+        """Automatically pushes backend state to the UI based on the bindings dictionary."""
         viewer = self.context_viewer
         if not viewer or not viewer.view_state:
             return
 
         vs = viewer.view_state
-        if dpg.get_value("check_axis") != vs.show_axis:
-            dpg.set_value("check_axis", vs.show_axis)
-        if dpg.get_value("check_grid") != vs.show_grid:
-            dpg.set_value("check_grid", vs.show_grid)
-        if dpg.get_value("check_tracker") != vs.show_tracker:
-            dpg.set_value("check_tracker", vs.show_tracker)
-        if dpg.get_value("check_crosshair") != vs.show_crosshair:
-            dpg.set_value("check_crosshair", vs.show_crosshair)
-        if dpg.get_value("check_scalebar") != vs.show_scalebar:
-            dpg.set_value("check_scalebar", vs.show_scalebar)
-        if (
-            dpg.does_item_exist("check_legend")
-            and dpg.get_value("check_legend") != vs.show_legend
-        ):
-            dpg.set_value("check_legend", vs.show_legend)
+
+        for tag, prop_name in self.bindings.items():
+            if not dpg.does_item_exist(tag):
+                continue
+
+            # Safeguard: Do not overwrite text inputs if the user is currently typing in them
+            if dpg.get_item_type(
+                tag
+            ) == "mvAppItemType::mvInputText" and dpg.is_item_focused(tag):
+                continue
+
+            val = getattr(vs, prop_name, None)
+            if val is not None:
+                current_ui_val = dpg.get_value(tag)
+
+                # Format floats to clean strings for text boxes (like Window/Level)
+                if isinstance(current_ui_val, str) and isinstance(val, (float, int)):
+                    # Skip WW/WL if the image is RGB
+                    if getattr(viewer.volume, "is_rgb", False) and prop_name in [
+                        "ww",
+                        "wl",
+                        "base_threshold",
+                    ]:
+                        continue
+
+                    formatted_val = f"{val:g}"
+                    if current_ui_val != formatted_val:
+                        dpg.set_value(tag, formatted_val)
+
+                # Direct assignment for sliders, checkboxes, and combos
+                else:
+                    if current_ui_val != val:
+                        dpg.set_value(tag, val)
 
     def refresh_image_list_ui(self):
         container = "image_list_container"
@@ -838,9 +876,6 @@ class MainGUI:
                 if is_rgb:
                     dpg.set_value(t, "RGB")
 
-        if not is_rgb:
-            self.update_sidebar_window_level(viewer)
-
         if dpg.does_item_exist("combo_overlay_select"):
             # 1. Check if the active image is already acting as an overlay for another image
             is_acting_as_overlay = any(
@@ -871,23 +906,6 @@ class MainGUI:
                 current_sel = f"{viewer.view_state.overlay_id}: {ovs_name}"
             dpg.set_value("combo_overlay_select", current_sel)
 
-            # Setup fusion controls
-            dpg.set_value("slider_overlay_opacity", viewer.view_state.overlay_opacity)
-            dpg.set_value(
-                "input_overlay_threshold", viewer.view_state.overlay_threshold
-            )
-            if dpg.does_item_exist("combo_overlay_mode"):
-                dpg.set_value("combo_overlay_mode", viewer.view_state.overlay_mode)
-
-            # Update Checkerboard UI values
-            if dpg.does_item_exist("slider_chk_size"):
-                dpg.set_value(
-                    "slider_chk_size", viewer.view_state.overlay_checkerboard_size
-                )
-                dpg.set_value(
-                    "check_chk_swap", viewer.view_state.overlay_checkerboard_swap
-                )
-
             # 3. Disable/Enable the controls dynamically
             is_chk = viewer.view_state.overlay_mode == "Checkerboard"
             dpg.configure_item(
@@ -900,20 +918,6 @@ class MainGUI:
             # Show/Hide the extra row
             if dpg.does_item_exist("group_checkerboard"):
                 dpg.configure_item("group_checkerboard", show=has_overlay and is_chk)
-
-    def update_sidebar_window_level(self, viewer):
-        if not viewer or not viewer.view_state:
-            return
-        vol, vs = viewer.volume, viewer.view_state
-        if getattr(vol, "is_rgb", False):
-            return
-        dpg.set_value("info_window", f"{vs.ww:g}")
-        dpg.set_value("info_level", f"{vs.wl:g}")
-        dpg.set_value(
-            "info_base_threshold",
-            # "" if vs.base_threshold <= -1e8 else f"{vs.base_threshold:g}",
-            f"{vs.base_threshold:g}",
-        )
 
     def update_sidebar_crosshair(self, viewer):
         if not viewer or not viewer.view_state:
@@ -969,7 +973,7 @@ class MainGUI:
                     "info_scale",
                     f"{win_w / ppm:.0f} x {win_h / ppm:.0f} mm",
                 )
-            dpg.set_value("info_ppm", f"{ppm:g} px/mm")
+            dpg.set_value("info_ppm", f"{round(ppm,2):g} px/mm")
 
     def set_context_viewer(self, viewer):
         """Centralized helper to switch the Active Menu/Sidebar target."""
@@ -1189,7 +1193,6 @@ class MainGUI:
         ):
             return
         viewer.view_state.apply_wl_preset(user_data)
-        self.update_sidebar_window_level(viewer)
         self.controller.propagate_window_level(viewer.image_id)
 
     def on_colormap_menu_clicked(self, sender, app_data, user_data):
@@ -1632,7 +1635,7 @@ class MainGUI:
                     self.tasks.pop(0)
 
             self.update_trackers()
-            self.sync_sidebar_checkboxes()
+            self.sync_bound_ui()
             self.controller.tick()
 
             dpg.render_dearpygui_frame()
