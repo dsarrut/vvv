@@ -445,9 +445,15 @@ class SliceViewer:
         dpg.set_item_width(f"win_{self.tag}", quad_w)
         dpg.set_item_height(f"win_{self.tag}", quad_h)
 
+        # The true rendering canvas is now 8 pixels smaller due to the 4px WindowPadding
+        layout = self.controller.gui.ui_cfg["layout"]
+        pad = layout.get("viewport_padding", 4) * 2
+        canvas_w = quad_w - pad
+        canvas_h = quad_h - pad
+
         if dpg.does_item_exist(f"drawlist_{self.tag}"):
-            dpg.set_item_width(f"drawlist_{self.tag}", quad_w)
-            dpg.set_item_height(f"drawlist_{self.tag}", quad_h)
+            dpg.set_item_width(f"drawlist_{self.tag}", canvas_w)
+            dpg.set_item_height(f"drawlist_{self.tag}", canvas_h)
 
         if self.image_id is None or not self.is_image_orientation() or not self.volume:
             return
@@ -457,11 +463,13 @@ class SliceViewer:
         real_h, real_w = shape[0], shape[1]
 
         if self.needs_recenter:
-            self.pan_offset = self.calculate_pan_to_center_crosshair(quad_w, quad_h)
+            # Use canvas_w/canvas_h instead of quad_w/quad_h
+            self.pan_offset = self.calculate_pan_to_center_crosshair(canvas_w, canvas_h)
             self.needs_recenter = False
 
+        # Use canvas_w/canvas_h instead of quad_w/quad_h
         pmin, pmax = self.mapper.update(
-            quad_w, quad_h, real_w, real_h, sw, sh, self.zoom, self.pan_offset
+            canvas_w, canvas_h, real_w, real_h, sw, sh, self.zoom, self.pan_offset
         )
 
         if dpg.does_item_exist(self.image_tag):

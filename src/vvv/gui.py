@@ -85,6 +85,7 @@ class MainGUI:
                 "right_m_bottom": shared_margin,
                 "right_m_top": 0,
                 "rounding": 8,
+                "viewport_padding": 0,  # inside viewer padding when rounded active contour
                 # Chunky padding for top menu items
                 "pad_frame_menu": [8, 10],
                 # Sleek vertical-only padding for sidebar text
@@ -133,7 +134,11 @@ class MainGUI:
                 with dpg.theme_component(dpg.mvAll):
                     dpg.add_theme_color(dpg.mvThemeCol_ChildBg, cfg_c["bg_window"])
                     dpg.add_theme_color(dpg.mvThemeCol_Border, cfg_c["border_black"])
-                    dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
+                    dpg.add_theme_style(
+                        dpg.mvStyleVar_WindowPadding,
+                        cfg_l["viewport_padding"],
+                        cfg_l["viewport_padding"],
+                    )
                     dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 1)
                     dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0, 0)
                     dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, cfg_l["rounding"])
@@ -145,7 +150,11 @@ class MainGUI:
                     dpg.add_theme_color(dpg.mvThemeCol_ChildBg, cfg_c["bg_window"])
                     v_col = self.controller.settings.data["colors"]["viewer"]
                     dpg.add_theme_color(dpg.mvThemeCol_Border, v_col)
-                    dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
+                    dpg.add_theme_style(
+                        dpg.mvStyleVar_WindowPadding,
+                        cfg_l["viewport_padding"],
+                        cfg_l["viewport_padding"],
+                    )
                     dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0, 0)
                     dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 2)
                     dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, cfg_l["rounding"])
