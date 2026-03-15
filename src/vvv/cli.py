@@ -195,8 +195,27 @@ def main(no_history, datasets, linkall, sync):
         dpg.set_viewport_small_icon(icon_png)
         dpg.set_viewport_large_icon(icon_png)
 
-    # Boot GUI with generator
-    gui.run(boot_generator=gui.create_boot_sequence(image_tasks, sync, linkall))
+    # 1. Detect if a workspace file was passed in the arguments
+    workspace_file = None
+    for file_path in datasets:  # Assuming 'files' is your click argument list
+        if file_path.lower().endswith(".vvw"):
+            workspace_file = file_path
+            break
+
+    # 2. Swap the boot generator based on the file type
+    if workspace_file:
+        if len(datasets) > 1:
+            print(
+                f"Find workspace {workspace_file}, ignoring other files on the command line"
+            )
+        # Use the workspace loader
+        boot_gen = gui.load_workspace_sequence(workspace_file)
+    else:
+        # Standard image loading sequence
+        boot_gen = gui.create_boot_sequence(image_tasks, sync, linkall)
+
+    # 3. Run the application
+    gui.run(boot_generator=boot_gen)
 
 
 if __name__ == "__main__":

@@ -45,6 +45,9 @@ DEFAULT_SETTINGS = {
         "active_viewer_mode": "hybrid",
     },
     "layout": {"window_width": 1200, "window_height": 1000, "side_panel_width": 300},
+    "behavior": {
+        "auto_save_history": True,
+    },
 }
 
 WL_PRESETS = {

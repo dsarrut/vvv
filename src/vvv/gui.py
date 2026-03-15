@@ -293,6 +293,19 @@ class MainGUI:
                         label="Save Workspace As...",
                         callback=self.on_save_workspace_clicked,
                     )
+
+                    # Fetch the current setting state
+                    auto_save = self.controller.settings.data.get("behavior", {}).get(
+                        "auto_save_history", True
+                    )
+
+                    dpg.add_menu_item(
+                        label="Auto-Save History on Exit",
+                        check=True,
+                        default_value=auto_save,
+                        callback=self.on_toggle_auto_save,
+                    )
+
                     dpg.add_separator()
 
                     dpg.add_menu_item(
@@ -1302,6 +1315,13 @@ class MainGUI:
             self.context_viewer.view_state.overlay_threshold = app_data
             self.context_viewer.view_state.is_data_dirty = True
 
+    def on_toggle_auto_save(self, sender, app_data, user_data):
+        # app_data holds the new boolean state of the checkbox
+        if "behavior" not in self.controller.settings.data:
+            self.controller.settings.data["behavior"] = {}
+
+        self.controller.settings.data["behavior"]["auto_save_history"] = app_data
+
     def on_save_workspace_clicked(self, sender=None, app_data=None, user_data=None):
         file_path = save_file_dialog("Save VVV Workspace", default_name="workspace.vvw")
 
@@ -1804,8 +1824,12 @@ class MainGUI:
 
             dpg.render_dearpygui_frame()
 
-        # This ALWAYS executes when the app dies (CMD+Q, Red X, Menu Exit)
-        if hasattr(self.controller, "history"):
+        # Shutdown sequence
+        auto_save = self.controller.settings.data.get("behavior", {}).get(
+            "auto_save_history", True
+        )
+
+        if auto_save and hasattr(self.controller, "history"):
             for vs_id in list(self.controller.view_states.keys()):
                 self.controller.history.save_image_state(self.controller, vs_id)
 
