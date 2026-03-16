@@ -8,17 +8,7 @@ from vvv.file_dialog import open_file_dialog, save_file_dialog
 from vvv.resources import load_fonts, setup_themes
 from vvv.core import WL_PRESETS, COLORMAPS
 from vvv.settings_ui import SettingsWindow
-
-ROI_COLORS = [
-    [255, 50, 50],  # Red
-    [50, 255, 50],  # Green
-    [50, 150, 255],  # Blue
-    [255, 200, 50],  # Yellow
-    [255, 50, 255],  # Magenta
-    [50, 255, 255],  # Cyan
-    [255, 100, 50],  # Orange
-    [150, 50, 255],  # Purple
-]
+from vvv.config import ROI_COLORS
 
 
 class MainGUI:
@@ -1388,12 +1378,11 @@ class MainGUI:
             thr_str = dpg.get_value("info_base_threshold")
             new_thr = float(thr_str) if thr_str.strip() else -1e9
 
-            self.context_viewer.view_state.display.ww = max(1e-5, new_ww)
+            self.context_viewer.view_state.display.ww = max(1e-20, new_ww)
             self.context_viewer.view_state.wl = new_wl
             self.context_viewer.view_state.base_threshold = new_thr
 
             self.controller.propagate_window_level(self.context_viewer.image_id)
-            # self.context_viewer.update_window_level(new_ww, new_wl)
         except ValueError:
             pass
 

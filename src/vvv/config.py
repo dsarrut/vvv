@@ -60,6 +60,33 @@ WL_PRESETS = {
     "CT: Brain": {"ww": 80.0, "wl": 40.0},
 }
 
+ROI_COLORS = [
+    [255, 50, 50],  # Red
+    [50, 255, 50],  # Green
+    [50, 150, 255],  # Blue
+    [255, 200, 50],  # Yellow
+    [255, 50, 255],  # Magenta
+    [50, 255, 255],  # Cyan
+    [255, 100, 50],  # Orange
+    [150, 50, 255],  # Purple
+    [255, 105, 97],  # Pastel Red
+    [119, 221, 119],  # Pastel Green
+    [174, 198, 207],  # Pastel Blue
+    [253, 253, 150],  # Pastel Yellow
+    [203, 153, 201],  # Pastel Purple
+    [255, 179, 71],  # Pastel Orange
+    [244, 154, 194],  # Pastel Pink
+    [119, 158, 203],  # Darker Pastel Blue
+    [255, 209, 220],  # Pastel Rose
+    [150, 222, 209],  # Pastel Turquoise
+    [255, 229, 180],  # Pastel Peach
+    [207, 207, 196],  # Pastel Grey
+    [194, 59, 34],  # Brick Red
+    [3, 192, 60],  # Darker Pastel Green
+    [179, 158, 181],  # Pastel Lavender
+    [253, 180, 75],  # Deep Pastel Orange
+]
+
 
 def generate_colormaps():
     cmaps = {}

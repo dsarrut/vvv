@@ -131,6 +131,9 @@ class SliceViewer:
         self.mapper = ViewportMapper()
         self.orientation = ViewMode.AXIAL
 
+        # for dynamic WL sensitivity
+        self.drag_start_wl = None
+
         self.mouse_phys_coord = None
         self.mouse_voxel = None
         self.mouse_value = None
@@ -633,7 +636,7 @@ class SliceViewer:
 
         if patch.size > 0:
             p_min, p_max = np.percentile(patch, [2, 98])
-            ww = max(1e-5, p_max - p_min)
+            ww = max(1e-20, p_max - p_min)
             wl = (p_max + p_min) / 2
 
             if target == "overlay":
@@ -653,7 +656,7 @@ class SliceViewer:
             or getattr(self.volume, "is_rgb", False)
         ):
             return
-        self.view_state.display.ww = max(1e-5, ww)
+        self.view_state.display.ww = max(1e-20, ww)
         self.view_state.display.wl = wl
         self.controller.propagate_window_level(self.image_id)
 
@@ -1118,17 +1121,20 @@ class SliceViewer:
                 self.controller.propagate_sync(self.image_id)
 
         elif is_ctrl and is_button:
-            # Absolute assignment! Mathematically impossible to drift.
             self.pan_offset[0] = self.drag_start_pan[0] + total_dx
             self.pan_offset[1] = self.drag_start_pan[1] + total_dy
-
             self.is_geometry_dirty = True
             self.controller.propagate_camera(self)
 
         elif is_shift and is_button:
-            sens = self.controller.settings.data["interaction"]["wl_drag_sensitivity"]
-            # Absolute assignment for W/L too
-            ww = max(1e-9, self.drag_start_wl[0] + total_dx * sens)
+            # --- DYNAMIC SENSITIVITY FIX ---
+            base_sens = self.controller.settings.data["interaction"][
+                "wl_drag_sensitivity"
+            ]
+            # Scale the sensitivity based on the initial window width (e.g., 0.5% per pixel dragged)
+            scale = max(self.drag_start_wl[0], 1e-20) * 0.005
+            sens = base_sens * scale
+            ww = max(1e-20, self.drag_start_wl[0] + total_dx * sens)
             wl = self.drag_start_wl[1] - total_dy * sens
             self.update_window_level(ww, wl)
 

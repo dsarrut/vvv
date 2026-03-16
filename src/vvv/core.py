@@ -288,6 +288,10 @@ class ViewState:
         # Derived value based on camera coords and display data
         self.crosshair_value = None
 
+        self.hist_data_x = None
+        self.hist_data_y = None
+        self.histogram_is_dirty = True
+
         self.init_crosshair_to_slices()
         self.init_default_window_level()
 
@@ -553,11 +557,14 @@ class ViewState:
 
             self.ww = p98 - p2
             self.wl = (p98 + p2) / 2
-            if self.ww <= 0:
+
+            # FIXED FOR EXTREMELY SMALL VALUES
+            if self.ww <= 1e-20:
                 self.ww = p99 - p1
-                if self.ww <= 0:
-                    self.ww = 1.0
-                self.wl = (p99 + p1) / 2
+                if self.ww <= 1e-20:
+                    # If perfectly uniform, set width to 10% of the value
+                    self.ww = max(abs(p1) * 0.1, 1e-20)
+                    self.wl = (p99 + p1) / 2
 
     def update_crosshair_from_slice_scroll(self, new_slice_idx, orientation):
         vx, vy, vz = self.crosshair_voxel[:3]
@@ -616,9 +623,8 @@ class ViewState:
 
     def update_histogram(self):
         flat_data = self.volume.data.flatten()
-        min_v, max_v = np.min(flat_data), np.max(flat_data)
-        bins = np.arange(min_v, max_v + self.bin_width, self.bin_width)
-        hist, bin_edges = np.histogram(flat_data, bins=bins)
+        # Automatically determine 256 bins across the exact data range
+        hist, bin_edges = np.histogram(flat_data, bins=256)
         self.hist_data_y = hist.astype(np.float32)
         self.hist_data_x = bin_edges[:-1].astype(np.float32)
         self.histogram_is_dirty = False
@@ -670,12 +676,12 @@ class ViewState:
             stride = max(1, self.volume.data.size // 100000)
             sample_data = self.volume.data.flatten()[::stride]
             p2, p98 = np.percentile(sample_data, [2, 98])
-            self.ww = max(1e-5, p98 - p2)
+            self.ww = max(1e-20, p98 - p2)  # FIXED
             self.wl = (p98 + p2) / 2
         elif "Min/Max" in preset_name:
             min_v = float(np.min(self.volume.data))
             max_v = float(np.max(self.volume.data))
-            self.ww = max(1e-5, max_v - min_v)
+            self.ww = max(1e-20, max_v - min_v)  # FIXED
             self.wl = (max_v + min_v) / 2
         elif preset_name in WL_PRESETS and WL_PRESETS[preset_name] is not None:
             self.ww = WL_PRESETS[preset_name]["ww"]
@@ -1000,6 +1006,16 @@ class Controller:
         )
 
         self.propagate_sync(base_id)
+
+        # Command the synced cameras to actively pan
+        target_group = vs.sync_group
+        for viewer in self.viewers.values():
+            if viewer.image_id and viewer.view_state:
+                if viewer.image_id == base_id or (
+                    target_group != 0 and viewer.view_state.sync_group == target_group
+                ):
+                    viewer.needs_recenter = True
+                    viewer.is_geometry_dirty = True
 
     def unify_ppm(self, target_viewer_tags):
         valid_viewers = [
