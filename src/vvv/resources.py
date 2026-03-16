@@ -44,9 +44,10 @@ def load_fonts():
                 dpg.add_font_chars([0xF0C5])  # Copy icon
                 dpg.add_font_chars([0xF06E])  # Eye icon open
                 dpg.add_font_chars([0xF070])  # Eye icon close
+                dpg.add_font_chars([0xF05B])  # ROI center
                 dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
         else:
-            print("🚨 ERROR: Icon font file not found! Buttons will show '?'.")
+            print("ERROR: Icon font file not found! Buttons will show '?'.")
 
         # 3. Bind the default text font at the very end
         if default_font:

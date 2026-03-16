@@ -9,6 +9,17 @@ from vvv.resources import load_fonts, setup_themes
 from vvv.core import WL_PRESETS, COLORMAPS
 from vvv.settings_ui import SettingsWindow
 
+ROI_COLORS = [
+    [255, 50, 50],  # Red
+    [50, 255, 50],  # Green
+    [50, 150, 255],  # Blue
+    [255, 200, 50],  # Yellow
+    [255, 50, 255],  # Magenta
+    [50, 255, 255],  # Cyan
+    [255, 100, 50],  # Orange
+    [150, 50, 255],  # Purple
+]
+
 
 class MainGUI:
     """
@@ -496,7 +507,7 @@ class MainGUI:
             # dpg.add_text("Loaded Regions", color=cfg_c["text_header"])
             # dpg.add_separator()
 
-            with dpg.child_window(height=110, border=False, no_scrollbar=True):
+            with dpg.child_window(height=160, border=False, no_scrollbar=True):
                 dpg.add_group(tag="roi_list_container")  # The empty container!
 
             dpg.add_spacer(height=10)
@@ -911,12 +922,12 @@ class MainGUI:
             dpg.add_table_column(width_fixed=True, init_width_or_weight=20)  # Eye
             dpg.add_table_column(width_fixed=True, init_width_or_weight=20)  # Color
             dpg.add_table_column(width_stretch=True)  # Name
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)  # Contour
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)  # Reload
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)  # Center
             dpg.add_table_column(width_fixed=True, init_width_or_weight=50)  # Opacity
 
             for roi_id, roi in viewer.view_state.rois.items():
                 with dpg.table_row():
-                    # 1. Eye Button (Visibility)
                     lbl_eye = "\uf06e" if roi.visible else "\uf070"
                     btn_eye = dpg.add_button(
                         label=lbl_eye,
@@ -924,8 +935,48 @@ class MainGUI:
                         user_data=roi_id,
                         callback=self.on_roi_toggle_visible,
                     )
+
+                    dpg.add_color_edit(
+                        default_value=roi.color + [255],
+                        no_inputs=True,
+                        no_label=True,
+                        no_alpha=True,
+                        width=20,
+                        height=20,
+                        user_data=roi_id,
+                        callback=self.on_roi_color_changed,
+                    )
+
+                    dpg.add_text(roi.name)
+
+                    # --- NEW BUTTONS ---
+                    btn_reload = dpg.add_button(
+                        label="\uf01e",
+                        width=20,
+                        user_data=roi_id,
+                        callback=self.on_roi_reload,
+                    )
+                    btn_center = dpg.add_button(
+                        label="\uf05b",
+                        width=20,
+                        user_data=roi_id,
+                        callback=self.on_roi_center,
+                    )
+                    # -------------------
+
+                    dpg.add_slider_float(
+                        default_value=roi.opacity,
+                        min_value=0.0,
+                        max_value=1.0,
+                        width=50,
+                        user_data=roi_id,
+                        callback=self.on_roi_opacity_changed,
+                    )
+
                     if dpg.does_item_exist("icon_font_tag"):
                         dpg.bind_item_font(btn_eye, "icon_font_tag")
+                        dpg.bind_item_font(btn_reload, "icon_font_tag")
+                        dpg.bind_item_font(btn_center, "icon_font_tag")
 
                     # 2. Color Edit
                     dpg.add_color_edit(
@@ -1283,7 +1334,7 @@ class MainGUI:
             self.drag_viewer = None
 
     def on_global_scroll(self, sender, app_data, user_data):
-        target = self.get_interaction_target()
+        target = self.hovered_viewer  # <--- ONLY SCROLL IF STRICTLY HOVERING AN IMAGE
         if target:
             is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(
                 dpg.mvKey_RControl
@@ -1533,6 +1584,16 @@ class MainGUI:
         vs.rois[roi_id].opacity = app_data
         vs.is_data_dirty = True
         self.controller.update_all_viewers_of_image(self.context_viewer.image_id)
+
+    def on_roi_reload(self, sender, app_data, user_data):
+        roi_id = user_data
+        base_id = self.context_viewer.image_id
+        self.controller.reload_roi(base_id, roi_id)
+
+    def on_roi_center(self, sender, app_data, user_data):
+        roi_id = user_data
+        base_id = self.context_viewer.image_id
+        self.controller.center_on_roi(base_id, roi_id)
 
     def load_workspace_sequence(self, file_path):
         import json
@@ -1802,6 +1863,10 @@ class MainGUI:
         dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
         yield
 
+        # Get starting index based on existing ROIs
+        vs = self.controller.view_states[base_image_id]
+        color_idx = len(vs.rois)
+
         for i, path in enumerate(file_paths):
             if not os.path.exists(path):
                 continue
@@ -1815,8 +1880,10 @@ class MainGUI:
                 dpg.set_value("loading_progress", i / total_files)
             yield
 
-            # Generate a random bright color for the new mask
-            color = list(np.random.randint(50, 255, 3))
+            # Cycle naturally through the nice color palette!
+            color = ROI_COLORS[color_idx % len(ROI_COLORS)]
+            color_idx += 1
+
             try:
                 self.controller.load_binary_mask(base_image_id, path, color=color)
             except Exception as e:

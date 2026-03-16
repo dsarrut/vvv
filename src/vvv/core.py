@@ -901,16 +901,14 @@ class Controller:
 
         return img_id
 
-    def load_binary_mask(self, base_id, filepath, name=None, color=[255, 50, 50]):
-        base_vol = self.volumes[base_id]
-        mask_vol = VolumeData(filepath)
-
+    def _process_binary_mask(self, base_vol, mask_vol):
+        """Helper to resample and autocrop a binary mask."""
         if (
             mask_vol.shape3d != base_vol.shape3d
             or not np.allclose(mask_vol.spacing, base_vol.spacing, atol=1e-4)
             or not np.allclose(mask_vol.origin, base_vol.origin, atol=1e-4)
         ):
-            print(f"Geometry mismatch. Resampling mask {name} via Nearest Neighbor...")
+
             resampler = sitk.ResampleImageFilter()
             resampler.SetReferenceImage(base_vol.sitk_image)
             resampler.SetInterpolator(sitk.sitkNearestNeighbor)
@@ -922,11 +920,10 @@ class Controller:
             mask_vol.spacing = base_vol.spacing
             mask_vol.origin = base_vol.origin
 
-        # --- THE 3D AUTOCROP ---
+        # 3D Autocrop
         coords = np.argwhere(mask_vol.data > 0)
         if coords.size > 0:
             if mask_vol.data.ndim == 4:
-                # Keep all timepoints, crop spatial axes
                 z0, y0, x0 = coords[:, 1:].min(axis=0)
                 z1, y1, x1 = coords[:, 1:].max(axis=0) + 1
                 mask_vol.data = mask_vol.data[:, z0:z1, y0:y1, x0:x1]
@@ -934,10 +931,8 @@ class Controller:
                 z0, y0, x0 = coords.min(axis=0)
                 z1, y1, x1 = coords.max(axis=0) + 1
                 mask_vol.data = mask_vol.data[z0:z1, y0:y1, x0:x1]
-
             mask_vol.roi_bbox = (z0, z1, y0, y1, x0, x1)
         else:
-            # Empty mask safeguard
             mask_vol.roi_bbox = (0, 0, 0, 0, 0, 0)
             if mask_vol.data.ndim == 4:
                 mask_vol.data = np.zeros(
@@ -946,9 +941,11 @@ class Controller:
             else:
                 mask_vol.data = np.zeros((0, 0, 0), dtype=mask_vol.data.dtype)
 
-        # CRITICAL: Do NOT change mask_vol.shape3d. It must pretend to be full size
-        # so physical coordinate math and history saving doesn't break!
-        # ------------------------
+    def load_binary_mask(self, base_id, filepath, name=None, color=[255, 50, 50]):
+        base_vol = self.volumes[base_id]
+        mask_vol = VolumeData(filepath)
+
+        self._process_binary_mask(base_vol, mask_vol)
 
         mask_id = str(self._next_image_id)
         self._next_image_id += 1
@@ -962,6 +959,47 @@ class Controller:
         self.view_states[base_id].is_data_dirty = True
 
         return mask_id
+
+    def reload_roi(self, base_id, roi_id):
+        if base_id not in self.view_states or roi_id not in self.volumes:
+            return
+
+        mask_vol = self.volumes[roi_id]
+        was_reset = mask_vol.reload()
+
+        # Re-apply resampling and autocropping to the fresh data
+        base_vol = self.volumes[base_id]
+        self._process_binary_mask(base_vol, mask_vol)
+
+        self.view_states[base_id].is_data_dirty = True
+        self.update_all_viewers_of_image(base_id)
+
+    def center_on_roi(self, base_id, roi_id):
+        if base_id not in self.view_states or roi_id not in self.volumes:
+            return
+
+        mask_vol = self.volumes[roi_id]
+        if not hasattr(mask_vol, "roi_bbox"):
+            return
+
+        z0, z1, y0, y1, x0, x1 = mask_vol.roi_bbox
+        if z0 == z1:  # Empty mask
+            return
+
+        # Calculate centroid in voxel space (relative to base image)
+        cx = (x0 + x1 - 1) / 2.0
+        cy = (y0 + y1 - 1) / 2.0
+        cz = (z0 + z1 - 1) / 2.0
+
+        vs = self.view_states[base_id]
+
+        # Jump the crosshair precisely to the center of the bounding box
+        vs.crosshair_voxel = [cx, cy, cz, vs.time_idx]
+        vs.crosshair_phys_coord = mask_vol.voxel_coord_to_physic_coord(
+            np.array([cx, cy, cz])
+        )
+
+        self.propagate_sync(base_id)
 
     def unify_ppm(self, target_viewer_tags):
         valid_viewers = [
