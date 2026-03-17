@@ -92,10 +92,11 @@ class HistoryManager:
         if key in self.data:
             del self.data[key]
 
+        # Cast NumPy arrays to native Python types
         self.data[key] = {
-            "shape3d": list(vol.shape3d),
-            "spacing": list(vol.spacing),
-            "origin": list(vol.origin),  # ADDED: Physical origin
+            "shape3d": [int(x) for x in vol.shape3d],
+            "spacing": [float(x) for x in vol.spacing],
+            "origin": [float(x) for x in vol.origin],
             "camera": vs.camera.to_dict(),
             "display": vs.display.to_dict(),
             "overlay_path": overlay_path,
@@ -165,20 +166,23 @@ class CameraState:
 
     def to_dict(self):
         return {
-            # Use k.name to securely save "AXIAL", "SAGITTAL", etc.
-            "zoom": {k.name: v for k, v in self.zoom.items()},
-            "pan": {k.name: v for k, v in self.pan.items()},
-            "slices": {k.name: v for k, v in self.slices.items()},
-            "time_idx": self.time_idx,
-            "show_axis": self.show_axis,
-            "show_tracker": self.show_tracker,
-            "show_crosshair": self.show_crosshair,
-            "show_scalebar": self.show_scalebar,
-            "show_grid": self.show_grid,
-            "show_legend": self.show_legend,
-            "crosshair_voxel": self.crosshair_voxel,
+            "zoom": {k.name: float(v) for k, v in self.zoom.items()},
+            "pan": {k.name: [float(p) for p in v] for k, v in self.pan.items()},
+            "slices": {k.name: int(v) for k, v in self.slices.items()},
+            "time_idx": int(self.time_idx),
+            "show_axis": bool(self.show_axis),
+            "show_tracker": bool(self.show_tracker),
+            "show_crosshair": bool(self.show_crosshair),
+            "show_scalebar": bool(self.show_scalebar),
+            "show_grid": bool(self.show_grid),
+            "show_legend": bool(self.show_legend),
+            "crosshair_voxel": (
+                [float(x) for x in self.crosshair_voxel]
+                if self.crosshair_voxel
+                else None
+            ),
             "crosshair_phys_coord": (
-                list(self.crosshair_phys_coord)
+                [float(x) for x in self.crosshair_phys_coord]
                 if self.crosshair_phys_coord is not None
                 else None
             ),
@@ -241,16 +245,16 @@ class DisplayState:
 
     def to_dict(self):
         return {
-            "ww": self.ww,
-            "wl": self.wl,
-            "colormap": self.colormap,
-            "base_threshold": self.base_threshold,
-            "interpolation_linear": self.interpolation_linear,
-            "overlay_opacity": self.overlay_opacity,
-            "overlay_mode": self.overlay_mode,
-            "overlay_threshold": self.overlay_threshold,
-            "overlay_checkerboard_size": self.overlay_checkerboard_size,
-            "overlay_checkerboard_swap": self.overlay_checkerboard_swap,
+            "ww": float(self.ww),
+            "wl": float(self.wl),
+            "colormap": str(self.colormap),
+            "base_threshold": float(self.base_threshold),
+            "interpolation_linear": bool(self.interpolation_linear),
+            "overlay_opacity": float(self.overlay_opacity),
+            "overlay_mode": str(self.overlay_mode),
+            "overlay_threshold": float(self.overlay_threshold),
+            "overlay_checkerboard_size": float(self.overlay_checkerboard_size),
+            "overlay_checkerboard_swap": bool(self.overlay_checkerboard_swap),
         }
 
     def from_dict(self, d):
@@ -291,6 +295,7 @@ class ViewState:
         self.hist_data_x = None
         self.hist_data_y = None
         self.histogram_is_dirty = True
+        self.use_log_y = True
 
         self.init_crosshair_to_slices()
         self.init_default_window_level()
