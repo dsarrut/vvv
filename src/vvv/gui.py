@@ -8,8 +8,17 @@ from vvv.utils import ViewMode, fmt
 from vvv.file_dialog import open_file_dialog, save_file_dialog
 from vvv.resources import load_fonts, setup_themes
 from vvv.core import WL_PRESETS, COLORMAPS
-from vvv.settings_ui import SettingsWindow
+from vvv.ui_settings import SettingsWindow
 from vvv.config import ROI_COLORS
+from vvv.ui_theme import build_ui_config, register_dynamic_themes
+from vvv.ui_sequences import (
+    load_single_image_sequence,
+    load_batch_images_sequence,
+    load_batch_rois_sequence,
+    load_workspace_sequence,
+    create_boot_sequence,
+)
+from vvv.ui_tabs import build_tab_sync, build_tab_fusion, build_tab_rois
 
 
 class MainGUI:
@@ -57,198 +66,13 @@ class MainGUI:
         }
 
         # Initialization pipeline
-        self.init_config()
+        self.ui_cfg = build_ui_config(self.controller)
         self.icon_font = load_fonts()
         setup_themes()
-        self.register_dynamic_themes()
+        register_dynamic_themes(self.ui_cfg, self.controller)
         self.settings_window = SettingsWindow(self.controller)
-
         self.build_main_layout()
         self.register_handlers()
-
-    def init_config(self):
-        """Centralizes all layout dimensions, margins, and colors."""
-        shared_margin = 7
-
-        is_mac = sys.platform == "darwin"
-
-        # Mac Retina scaling makes text blocks taller and gaps slightly tighter
-        av_h = 360 if is_mac else 340
-        ch_h = 160 if is_mac else 150
-        item_gap = 6 if is_mac else 8
-
-        self.ui_cfg = {
-            "layout": {
-                "panel_av_h": av_h,  # height of the Active Viewer panel
-                "panel_ch_h": ch_h,  # height of the Crosshair panel
-                "roi_detail_h": 180,  # height of the ROI details panel
-                "roi_detail_bottom_margin": 10,
-                "sidebar_margin_bot": 10,
-                "sidebar_top_spacer": 5,
-                "sidebar_item_gap": item_gap,
-                "menu_h": 27,
-                "menu_m_top": 0,
-                "menu_m_bottom": 5 + shared_margin,
-                "menu_m_left": 0,
-                "menu_m_right": 0,
-                "side_panel_w": self.controller.settings.data["layout"][
-                    "side_panel_width"
-                ],
-                "gap_center": shared_margin,  # Black vertical gap
-                "left_m_left": shared_margin,  # Black margin far left
-                "left_m_bottom": shared_margin,
-                "left_m_top": 0,
-                "left_inner_m": shared_margin,  # Margin before text/lines start on the left
-                "right_inner_m": shared_margin,  # Margin where lines/text stop on the right
-                "right_m_right": shared_margin,
-                "right_m_bottom": shared_margin,
-                "right_m_top": 0,
-                "rounding": 8,
-                "viewport_padding": 4,  # inside viewer padding when rounded active contour
-                # Chunky padding for top menu items
-                "pad_frame_menu": [8, 10],
-                # Sleek vertical-only padding for sidebar text
-                "pad_frame_readonly": [0, 3],
-                # Standard button padding for sidebar
-                "pad_frame_sidebar": [4, 3],
-                # Menu Dropdown Spacing (Left/Right and Top/Bottom border margin)
-                "pad_menu_popup": [12, 12],
-                # Gap between menu items
-                "space_menu_item": [10, 6],
-            },
-            "colors": {
-                "bg_window": [0, 0, 0, 255],
-                "bg_menubar": [37, 37, 38, 255],
-                "bg_menu": [27, 27, 28, 255],
-                "bg_menu_hover": [70, 70, 75, 255],
-                "bg_menu_active": [80, 80, 85, 255],
-                "bg_sidebar": [37, 37, 38, 255],
-                "border_black": [0, 0, 0, 255],
-                "text_dim": [140, 140, 140],
-                # "text_header": [140, 140, 140],
-                "text_header": [93, 93, 93],
-                # "text_active": [100, 200, 255, 255],  # Cyan/Blue
-                "text_active": [0, 246, 7, 255],
-                "text_status_ok": [150, 255, 150],
-                "text_muted": [150, 150, 150],
-                "transparent": [0, 0, 0, 0],
-            },
-        }
-
-    def register_dynamic_themes(self):
-        """Builds and registers all UI themes dynamically based on the ui_cfg."""
-        cfg_l = self.ui_cfg["layout"]
-        cfg_c = self.ui_cfg["colors"]
-
-        # Base black background theme for the primary window
-        if not dpg.does_item_exist("primary_black_theme"):
-            with dpg.theme(tag="primary_black_theme"):
-                with dpg.theme_component(dpg.mvAll):
-                    dpg.add_theme_color(dpg.mvThemeCol_WindowBg, cfg_c["bg_window"])
-                    dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
-
-        # Right side: Viewer quadrants (Idle)
-        if not dpg.does_item_exist("black_viewer_theme"):
-            with dpg.theme(tag="black_viewer_theme"):
-                with dpg.theme_component(dpg.mvAll):
-                    dpg.add_theme_color(dpg.mvThemeCol_ChildBg, cfg_c["bg_window"])
-                    dpg.add_theme_color(dpg.mvThemeCol_Border, cfg_c["border_black"])
-                    dpg.add_theme_style(
-                        dpg.mvStyleVar_WindowPadding,
-                        cfg_l["viewport_padding"],
-                        cfg_l["viewport_padding"],
-                    )
-                    dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 1)
-                    dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0, 0)
-                    dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, cfg_l["rounding"])
-
-        # Right side: Viewer quadrants (Active)
-        if not dpg.does_item_exist("active_black_viewer_theme"):
-            with dpg.theme(tag="active_black_viewer_theme"):
-                with dpg.theme_component(dpg.mvAll):
-                    dpg.add_theme_color(dpg.mvThemeCol_ChildBg, cfg_c["bg_window"])
-                    v_col = self.controller.settings.data["colors"]["viewer"]
-                    dpg.add_theme_color(dpg.mvThemeCol_Border, v_col)
-                    dpg.add_theme_style(
-                        dpg.mvStyleVar_WindowPadding,
-                        cfg_l["viewport_padding"],
-                        cfg_l["viewport_padding"],
-                    )
-                    dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0, 0)
-                    dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 2)
-                    dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, cfg_l["rounding"])
-
-        # Top menu bar theme
-        if not dpg.does_item_exist("floating_menu_theme"):
-            with dpg.theme(tag="floating_menu_theme"):
-                with dpg.theme_component(dpg.mvAll):
-                    dpg.add_theme_style(
-                        dpg.mvStyleVar_FramePadding, *cfg_l["pad_frame_menu"]
-                    )
-                    dpg.add_theme_color(dpg.mvThemeCol_PopupBg, cfg_c["bg_menu"])
-                    dpg.add_theme_color(dpg.mvThemeCol_WindowBg, cfg_c["bg_menu"])
-                    dpg.add_theme_color(
-                        dpg.mvThemeCol_HeaderHovered, cfg_c["bg_menu_hover"]
-                    )
-                    dpg.add_theme_color(
-                        dpg.mvThemeCol_HeaderActive, cfg_c["bg_menu_active"]
-                    )
-
-                with dpg.theme_component(dpg.mvMenu):
-                    dpg.add_theme_style(
-                        dpg.mvStyleVar_WindowPadding, *cfg_l["pad_menu_popup"]
-                    )
-                    dpg.add_theme_style(
-                        dpg.mvStyleVar_ItemSpacing, *cfg_l["space_menu_item"]
-                    )
-
-                # Apply MenuBarBg directly to the ChildWindow component
-                with dpg.theme_component(dpg.mvChildWindow):
-                    dpg.add_theme_color(dpg.mvThemeCol_ChildBg, cfg_c["bg_menubar"])
-                    dpg.add_theme_color(dpg.mvThemeCol_MenuBarBg, cfg_c["bg_menubar"])
-                    dpg.add_theme_color(dpg.mvThemeCol_Border, cfg_c["transparent"])
-                    dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, cfg_l["rounding"])
-                    dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 0)
-                    dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
-
-                with dpg.theme_component(dpg.mvMenuBar):
-                    dpg.add_theme_color(dpg.mvThemeCol_MenuBarBg, cfg_c["bg_menubar"])
-                    dpg.add_theme_color(dpg.mvThemeCol_Border, cfg_c["transparent"])
-                    dpg.add_theme_style(dpg.mvStyleVar_WindowBorderSize, 0)
-
-        # Left panel: Sidebar container
-        if not dpg.does_item_exist("sidebar_bg_theme"):
-            with dpg.theme(tag="sidebar_bg_theme"):
-                with dpg.theme_component(dpg.mvChildWindow):
-                    dpg.add_theme_color(dpg.mvThemeCol_ChildBg, cfg_c["bg_sidebar"])
-                    dpg.add_theme_color(dpg.mvThemeCol_Border, cfg_c["border_black"])
-                    dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 1)
-                    dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, cfg_l["rounding"])
-
-        # Left panel: Info inputs (read-only)
-        if not dpg.does_item_exist("sleek_readonly_theme"):
-            with dpg.theme(tag="sleek_readonly_theme"):
-                with dpg.theme_component(dpg.mvInputText):
-                    dpg.add_theme_color(dpg.mvThemeCol_FrameBg, cfg_c["transparent"])
-                    dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 0)
-                    dpg.add_theme_style(
-                        dpg.mvStyleVar_FramePadding, *cfg_l["pad_frame_readonly"]
-                    )
-
-        # Left panel: Active image list item
-        if not dpg.does_item_exist("active_image_list_theme"):
-            with dpg.theme(tag="active_image_list_theme"):
-                with dpg.theme_component(dpg.mvText):
-                    dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["text_active"])
-
-        # Left panel: Inner padding
-        if not dpg.does_item_exist("left_panel_padding_theme"):
-            with dpg.theme(tag="left_panel_padding_theme"):
-                with dpg.theme_component(dpg.mvAll):
-                    dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 12)
-                    dpg.add_theme_style(
-                        dpg.mvStyleVar_FramePadding, *cfg_l["pad_frame_sidebar"]
-                    )
 
     # ==========================================
     # 2. LAYOUT BUILDERS
@@ -407,137 +231,9 @@ class MainGUI:
                     dpg.add_separator()
                     dpg.add_group(tag="image_list_container")
 
-                self.build_tab_sync(cfg_c)
-                self.build_tab_fusion(cfg_c)
-                self.build_tab_rois(cfg_c)
-
-    def build_tab_sync(self, cfg_c):
-        with dpg.tab(label="Sync", tag="tab_sync"):
-            dpg.add_spacer(height=5)
-            with dpg.group(horizontal=True):
-                dpg.add_button(
-                    label="Link All",
-                    callback=lambda: self.controller.link_all(),
-                    width=80,
-                )
-                dpg.add_button(
-                    label="Unlink All",
-                    callback=lambda: self.controller.unlink_all(),
-                    width=80,
-                )
-            dpg.add_spacer(height=5)
-            dpg.add_text("Sync Groups", color=cfg_c["text_header"])
-            dpg.add_separator()
-            dpg.add_group(tag="sync_list_container")
-
-    def build_tab_fusion(self, cfg_c):
-        with dpg.tab(label="Fusion", tag="tab_fusion"):
-            dpg.add_spacer(height=5)
-            dpg.add_text("Active Overlay", color=cfg_c["text_header"])
-            dpg.add_separator()
-
-            with dpg.group(tag="image_fusion_group"):
-
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Base   ")
-                    dpg.add_text(
-                        "-", tag="text_fusion_base_image", color=cfg_c["text_active"]
-                    )
-
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Target ")
-                    dpg.add_combo(
-                        ["None"],
-                        tag="combo_overlay_select",
-                        width=-1,
-                        callback=self.on_overlay_selected,
-                    )
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Opacity")
-                    dpg.add_slider_float(
-                        tag="slider_overlay_opacity",
-                        min_value=0.0,
-                        max_value=1.0,
-                        width=-1,
-                        callback=self.on_opacity_changed,
-                    )
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Min Thr")
-                    dpg.add_input_float(
-                        tag="input_overlay_threshold",
-                        width=-1,
-                        step=10,
-                        callback=self.on_threshold_changed,
-                    )
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Mode   ")
-                    dpg.add_combo(
-                        ["Alpha", "Registration", "Checkerboard"],
-                        tag="combo_overlay_mode",
-                        width=-1,
-                        callback=self.on_overlay_mode_changed,
-                    )
-
-                with dpg.group(horizontal=True, tag="group_checkerboard", show=False):
-                    dpg.add_text("Square ")
-                    dpg.add_slider_float(
-                        tag="slider_chk_size",
-                        min_value=1.0,
-                        max_value=200.0,
-                        format="%.1f mm",
-                        width=100,
-                        callback=self.on_checkerboard_changed,
-                    )
-                    dpg.add_checkbox(
-                        label="Swap",
-                        tag="check_chk_swap",
-                        callback=self.on_checkerboard_changed,
-                    )
-
-    def build_tab_rois(self, cfg_c):
-        # Fetch layout config
-        cfg_l = self.ui_cfg["layout"]
-
-        with dpg.tab(label="ROIs", tag="tab_rois"):
-            dpg.add_spacer(height=5)
-
-            # --- TOP: Load & Import ---
-            dpg.add_text("ROI Management", color=cfg_c["text_header"])
-            dpg.add_separator()
-            with dpg.group(horizontal=True):
-                dpg.add_button(
-                    label="Load ROI...", width=80, callback=self.on_load_roi_clicked
-                )
-                dpg.add_combo(
-                    ["Binary Mask", "Label Map", "RT-Struct"],
-                    default_value="Binary Mask",
-                    width=-1,
-                )
-
-            dpg.add_spacer(height=10)
-
-            # --- MIDDLE: The Master List ---
-            dpg.add_text("Loaded Regions", color=cfg_c["text_header"])
-            dpg.add_separator()
-
-            # --- THE FIX: DYNAMIC COMPUTED HEIGHT ---
-            # Stretches infinitely downwards, leaving exactly `roi_detail_h` pixels
-            # for the Detail Panel below it!
-            with dpg.child_window(
-                height=-cfg_l["roi_detail_h"] + cfg_l["roi_detail_bottom_margin"],
-                border=False,
-                no_scrollbar=True,
-            ):
-                dpg.add_group(tag="roi_list_container")
-
-            dpg.add_spacer(height=10)
-
-            # --- BOTTOM: The Detail Panel ---
-            dpg.add_text("Selected ROI Properties", color=cfg_c["text_header"])
-            dpg.add_separator()
-
-            with dpg.child_window(border=False, no_scrollbar=True):
-                dpg.add_group(tag="roi_detail_container")
+                build_tab_sync(self)
+                build_tab_fusion(self)
+                build_tab_rois(self)
 
     def build_sidebar_bottom(self):
         cfg_c = self.ui_cfg["colors"]
@@ -1374,7 +1070,7 @@ class MainGUI:
                 l_w - cfg["gap_center"] - cfg["left_inner_m"] - cfg["right_inner_m"]
             )
 
-            # --- THE FLAWLESS COMPUTED LAYOUT ENGINE ---
+            # --- THE COMPUTED LAYOUT ENGINE ---
             is_roi = getattr(self, "_is_roi_tab_active", False)
 
             ch_h = cfg["panel_ch_h"]
@@ -1397,6 +1093,13 @@ class MainGUI:
             if dpg.does_item_exist("top_panel"):
                 dpg.set_item_width("top_panel", inner_w)
                 dpg.set_item_height("top_panel", top_h)
+
+            # We explicitly calculate the list height and set it BEFORE the frame renders!
+            if dpg.does_item_exist("roi_list_window"):
+                # Total Top Panel Height MINUS the Detail Panel MINUS the static text/buttons (~195px)
+                list_h = top_h - cfg["roi_detail_h"] - 195
+                dpg.set_item_width("roi_list_window", inner_w)
+                dpg.set_item_height("roi_list_window", max(50, list_h))
 
             if dpg.does_item_exist("av_panel"):
                 dpg.set_item_width("av_panel", inner_w)
@@ -1535,7 +1238,7 @@ class MainGUI:
             file_paths = [file_paths]
 
         # Route the whole list to the batch loader!
-        self.tasks.append(self.load_batch_images_sequence(file_paths))
+        self.tasks.append(load_batch_images_sequence(self, self.controller, file_paths))
 
     def on_open_4d_sequence_clicked(self, sender=None, app_data=None, user_data=None):
         file_paths = open_file_dialog(
@@ -1551,7 +1254,9 @@ class MainGUI:
             # We bundle the files into the "4D:" magic string for the VolumeData parser!
             # Using quotes around each path ensures shlex handles spaces in filenames perfectly.
             magic_path_string = "4D:" + " ".join(f'"{p}"' for p in file_paths)
-            self.tasks.append(self.load_single_image_sequence(magic_path_string))
+            self.tasks.append(
+                load_single_image_sequence(self, self.controller, magic_path_string)
+            )
 
     def on_wl_preset_menu_clicked(self, sender, app_data, user_data):
         viewer = self.context_viewer
@@ -1666,7 +1371,7 @@ class MainGUI:
 
         if file_path:
             # open_file_dialog returns a string when multiple=False
-            self.tasks.append(self.load_workspace_sequence(file_path))
+            self.tasks.append(load_workspace_sequence(self, self.controller, file_path))
 
     def on_load_roi_clicked(self, sender, app_data, user_data):
         viewer = self.context_viewer
@@ -1684,7 +1389,9 @@ class MainGUI:
             file_paths = [file_paths]
 
         # Enqueue the non-blocking loader sequence
-        self.tasks.append(self.load_batch_rois_sequence(viewer.image_id, file_paths))
+        self.tasks.append(
+            load_batch_rois_sequence(self, self.controller, viewer.image_id, file_paths)
+        )
 
     def on_roi_toggle_visible(self, sender, app_data, user_data):
         roi_id = user_data
@@ -1754,375 +1461,6 @@ class MainGUI:
     # ==========================================
     # 5. MODALS & POPUPS
     # ==========================================
-
-    def load_single_image_sequence(self, file_path):
-        is_4d = file_path.startswith("4D:")
-
-        if is_4d:
-            display_name = "4D Sequence"
-        else:
-            display_name = os.path.basename(file_path)
-
-        with dpg.window(
-            tag="loading_modal",
-            modal=True,
-            show=True,
-            no_title_bar=True,
-            no_resize=True,
-            no_move=True,
-            width=350,
-            height=100,
-        ):
-            dpg.add_text(f"Loading image...\n{display_name}", tag="loading_text")
-            dpg.add_spacer(height=5)
-            dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=0.5)
-
-        vp_width = max(dpg.get_viewport_client_width(), 800)
-        vp_height = max(dpg.get_viewport_client_height(), 600)
-        dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
-
-        for _ in range(3):
-            yield
-
-        try:
-            img_id = self.controller.load_image(file_path)
-
-            # Load ROI
-            yield from self.load_history_rois_sequence(img_id)
-
-            if dpg.does_item_exist("loading_text"):
-                dpg.set_value("loading_text", "Applying synchronization and layouts...")
-            if dpg.does_item_exist("loading_progress"):
-                dpg.set_value("loading_progress", 1.0)
-            yield
-
-            target_viewer = (
-                self.context_viewer
-                if self.context_viewer
-                else self.controller.viewers["V1"]
-            )
-            target_viewer.set_image(img_id)
-
-            same_image_viewers = [
-                v.tag for v in self.controller.viewers.values() if v.image_id == img_id
-            ]
-            if same_image_viewers:
-                self.controller.unify_ppm(same_image_viewers)
-
-            # self.update_sidebar_info(target_viewer)
-            self.set_context_viewer(target_viewer)
-            self.refresh_image_list_ui()
-            self.refresh_rois_ui()
-
-            if dpg.does_item_exist("loading_modal"):
-                dpg.delete_item("loading_modal")
-            yield
-
-        except Exception as e:
-            if dpg.does_item_exist("loading_modal"):
-                dpg.delete_item("loading_modal")
-            yield
-            self.show_message(
-                "File Load Error", f"Failed to load image:\n{display_name}"
-            )
-            while dpg.does_item_exist("generic_message_modal"):
-                yield
-
-    def load_history_rois_sequence(self, img_id):
-        """Yielding generator to animate the progress bar while restoring ROIs."""
-        from vvv.utils import resolve_history_path_key
-
-        if not self.controller.use_history:
-            return
-
-        vol = self.controller.volumes[img_id]
-        vs = self.controller.view_states[img_id]
-
-        history_entry = self.controller.history.get_image_state(vol)
-        if not history_entry or not history_entry.get("rois"):
-            return
-
-        rois = history_entry["rois"]
-        total_rois = len(rois)
-
-        for i, roi_data in enumerate(rois):
-            roi_path = resolve_history_path_key(roi_data["path"])
-            filename = os.path.basename(roi_path)
-
-            if dpg.does_item_exist("loading_text"):
-                dpg.set_value(
-                    "loading_text", f"Restoring ROI ({i+1}/{total_rois}):\n{filename}"
-                )
-            if dpg.does_item_exist("loading_progress"):
-                dpg.set_value("loading_progress", i / total_rois)
-
-            time.sleep(0.05)
-            yield  # <--- Forces the UI to visually update!
-
-            if os.path.exists(roi_path):
-                try:
-                    new_roi_id = self.controller.load_binary_mask(img_id, roi_path)
-                    vs.rois[new_roi_id].from_dict(roi_data["state"])
-                except Exception as e:
-                    print(f"Failed to restore ROI {filename}: {e}")
-            yield
-
-    def load_batch_images_sequence(self, file_paths):
-        total_files = len(file_paths)
-
-        with dpg.window(
-            tag="loading_modal",
-            modal=True,
-            show=True,
-            no_title_bar=True,
-            no_resize=True,
-            no_move=True,
-            width=350,
-            height=100,
-        ):
-            dpg.add_text(f"Loading {total_files} images...", tag="loading_text")
-            dpg.add_spacer(height=5)
-            dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=0.0)
-
-        vp_width = max(dpg.get_viewport_client_width(), 800)
-        vp_height = max(dpg.get_viewport_client_height(), 600)
-        dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
-        yield
-
-        loaded_ids = []
-        for i, path in enumerate(file_paths):
-            filename = os.path.basename(path)
-            if dpg.does_item_exist("loading_text"):
-                dpg.set_value(
-                    "loading_text", f"Loading ({i+1}/{total_files}):\n{filename}"
-                )
-            if dpg.does_item_exist("loading_progress"):
-                dpg.set_value("loading_progress", i / total_files)
-            yield
-
-            try:
-                img_id = self.controller.load_image(path)
-                loaded_ids.append(img_id)
-
-                yield from self.load_history_rois_sequence(img_id)
-
-            except Exception as e:
-                print(f"Failed to load {filename}: {e}")
-            yield
-
-        if dpg.does_item_exist("loading_text"):
-            dpg.set_value("loading_text", "Applying layouts...")
-        if dpg.does_item_exist("loading_progress"):
-            dpg.set_value("loading_progress", 1.0)
-        yield
-
-        if loaded_ids:
-            target_viewer = (
-                self.context_viewer
-                if self.context_viewer
-                else self.controller.viewers["V1"]
-            )
-            target_viewer.set_image(loaded_ids[0])
-            self.set_context_viewer(target_viewer)
-            self.refresh_image_list_ui()
-            self.refresh_rois_ui()
-
-        if dpg.does_item_exist("loading_modal"):
-            dpg.delete_item("loading_modal")
-        yield
-
-    def load_batch_rois_sequence(self, base_image_id, file_paths):
-        total_files = len(file_paths)
-
-        with dpg.window(
-            tag="loading_modal",
-            modal=True,
-            show=True,
-            no_title_bar=True,
-            no_resize=True,
-            no_move=True,
-            width=350,
-            height=100,
-        ):
-            dpg.add_text(f"Loading {total_files} ROIs...", tag="loading_text")
-            dpg.add_spacer(height=5)
-            dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=0.0)
-
-        vp_width = max(dpg.get_viewport_client_width(), 800)
-        vp_height = max(dpg.get_viewport_client_height(), 600)
-        dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
-        yield
-
-        # Get starting index based on existing ROIs
-        vs = self.controller.view_states[base_image_id]
-        color_idx = len(vs.rois)
-
-        for i, path in enumerate(file_paths):
-            if not os.path.exists(path):
-                continue
-
-            filename = os.path.basename(path)
-            if dpg.does_item_exist("loading_text"):
-                dpg.set_value(
-                    "loading_text", f"Loading ROI ({i+1}/{total_files}):\n{filename}"
-                )
-            if dpg.does_item_exist("loading_progress"):
-                dpg.set_value("loading_progress", i / total_files)
-            yield
-
-            # Cycle naturally through the nice color palette!
-            color = ROI_COLORS[color_idx % len(ROI_COLORS)]
-            color_idx += 1
-
-            try:
-                self.controller.load_binary_mask(base_image_id, path, color=color)
-            except Exception as e:
-                print(f"Failed to load ROI {filename}: {e}")
-            yield
-
-        if dpg.does_item_exist("loading_text"):
-            dpg.set_value("loading_text", "Applying ROIs...")
-        if dpg.does_item_exist("loading_progress"):
-            dpg.set_value("loading_progress", 1.0)
-        yield
-
-        # Select the last loaded ROI to immediately show its properties
-        vs = self.controller.view_states[base_image_id]
-        if vs.rois:
-            self.active_roi_id = list(vs.rois.keys())[-1]
-
-        self.refresh_rois_ui()
-        self.controller.update_all_viewers_of_image(base_image_id)
-
-        if dpg.does_item_exist("loading_modal"):
-            dpg.delete_item("loading_modal")
-        yield
-
-    def load_workspace_sequence(self, file_path):
-        import json
-        import shlex
-        from vvv.utils import ViewMode, resolve_relative_path
-
-        with open(file_path, "r") as f:
-            data = json.load(f)
-
-        workspace_dir = os.path.dirname(file_path)
-
-        with dpg.window(
-            tag="loading_modal",
-            modal=True,
-            show=True,
-            no_title_bar=True,
-            no_resize=True,
-            no_move=True,
-            width=350,
-            height=100,
-        ):
-            dpg.add_text("Cleaning up current session...", tag="loading_text")
-            dpg.add_spacer(height=5)
-            dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=0.0)
-
-        vp_width = max(dpg.get_viewport_client_width(), 800)
-        vp_height = max(dpg.get_viewport_client_height(), 600)
-        dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
-        yield
-
-        # 1. Close all currently open images
-        for vs_id in list(self.controller.view_states.keys()):
-            self.controller.close_image(vs_id)
-        yield
-
-        # 2. Temporarily disable Auto-History so it doesn't overwrite the Workspace settings
-        prev_history = getattr(self.controller, "use_history", True)
-        self.controller.use_history = False
-
-        id_mapping = {}  # Maps the saved JSON ID to the new internal session ID
-        vols_data = data.get("volumes", {})
-        total_vols = max(1, len(vols_data))
-        processed = 0
-
-        # 3. Load all raw volumes and apply their states
-        for old_id, v_data in vols_data.items():
-            raw_path = v_data["path"]
-            filename = os.path.basename(raw_path)
-
-            if dpg.does_item_exist("loading_text"):
-                dpg.set_value("loading_text", f"Loading volume...\n{filename}")
-                dpg.set_value("loading_progress", processed / total_vols)
-            yield
-
-            # Resolve relative paths back to absolute
-            if raw_path.startswith("4D:"):
-                tokens = shlex.split(raw_path[3:].strip())
-                abs_paths = [resolve_relative_path(p, workspace_dir) for p in tokens]
-                full_path = "4D:" + " ".join(f'"{p}"' for p in abs_paths)
-            else:
-                full_path = resolve_relative_path(raw_path, workspace_dir)
-
-            try:
-                # Load quietly, bypassing auto-history
-                new_id = self.controller.load_image(full_path, is_auto_overlay=True)
-                id_mapping[old_id] = new_id
-
-                vs = self.controller.view_states[new_id]
-                vs.sync_group = v_data.get("sync_group", 0)
-                vs.camera.from_dict(v_data["camera"])
-                vs.display.from_dict(v_data["display"])
-                vs.is_data_dirty = True
-            except Exception as e:
-                print(f"Failed to load workspace volume: {full_path}")
-
-            processed += 1
-            yield
-
-        # 4. Re-establish overlay connections safely
-        if dpg.does_item_exist("loading_text"):
-            dpg.set_value("loading_text", "Re-linking fusions and layouts...")
-            dpg.set_value("loading_progress", 1.0)
-        yield
-
-        for old_id, v_data in vols_data.items():
-            old_ov = v_data.get("overlay_id")
-            if old_ov and old_ov in id_mapping and old_id in id_mapping:
-                base_id = id_mapping[old_id]
-                over_id = id_mapping[old_ov]
-                self.controller.view_states[base_id].set_overlay(
-                    over_id, self.controller.volumes[over_id]
-                )
-
-            # Re-link and Load ROIs
-            for roi_data in v_data.get("rois", []):
-                abs_path = resolve_relative_path(roi_data["path"], workspace_dir)
-                if os.path.exists(abs_path):
-                    try:
-                        new_roi_id = self.controller.load_binary_mask(base_id, abs_path)
-                        self.controller.view_states[base_id].rois[new_roi_id].from_dict(
-                            roi_data["state"]
-                        )
-                    except Exception as e:
-                        print(f"Failed to load workspace ROI {abs_path}: {e}")
-
-        # 5. Restore Viewers exact configuration
-        for v_tag, v_data in data.get("viewers", {}).items():
-            viewer = self.controller.viewers[v_tag]
-            old_img_id = v_data.get("image_id")
-
-            if old_img_id and old_img_id in id_mapping:
-                viewer.set_image(id_mapping[old_img_id])
-            else:
-                viewer.drop_image()
-
-            viewer.set_orientation(ViewMode[v_data.get("orientation", "AXIAL")])
-
-        # 6. Cleanup
-        self.controller.use_history = prev_history
-        self.refresh_image_list_ui()
-        self.refresh_sync_ui()
-        self.set_context_viewer(self.controller.viewers["V1"])
-
-        if dpg.does_item_exist("loading_modal"):
-            dpg.delete_item("loading_modal")
-        yield
 
     def show_message(self, title, message):
         modal_tag = "generic_message_modal"
@@ -2256,152 +1594,8 @@ class MainGUI:
         dpg.set_item_pos(window_tag, [vp_width - 540, 40])
 
     def create_boot_sequence(self, image_tasks, sync=False, link_all=False):
-        if not image_tasks:
-            return
-        total_files = len(image_tasks) + sum(1 for t in image_tasks if t["fusion"])
-
-        with dpg.window(
-            tag="loading_modal",
-            modal=True,
-            show=True,
-            no_title_bar=True,
-            no_resize=True,
-            no_move=True,
-            width=350,
-            height=100,
-        ):
-            dpg.add_text("Initializing...", tag="loading_text")
-            dpg.add_spacer(height=5)
-            dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=0.0)
-
-        vp_width = max(dpg.get_viewport_client_width(), 800)
-        vp_height = max(dpg.get_viewport_client_height(), 600)
-        dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
-        yield
-
-        loaded_ids, files_processed = [], 0
-        id_to_group = {}  # Tracks the specific sync group mapping
-
-        for task in image_tasks:
-            base_path = task["base"]
-            filename = os.path.basename(base_path)
-            sync_group = task.get("sync_group", 0)
-
-            if dpg.does_item_exist("loading_text"):
-                dpg.set_value("loading_text", f"Loading base...\n{filename}")
-            if dpg.does_item_exist("loading_progress"):
-                dpg.set_value("loading_progress", files_processed / total_files)
-            yield
-
-            try:
-                base_id = self.controller.load_image(base_path)
-                loaded_ids.append(base_id)
-                id_to_group[base_id] = sync_group  # Register the group
-
-                yield from self.load_history_rois_sequence(base_id)
-
-                if task.get("base_cmap"):
-                    self.controller.view_states[base_id].colormap = task["base_cmap"]
-                    self.controller.view_states[base_id].is_data_dirty = True
-
-                files_processed += 1
-            except Exception as e:
-                self.show_message("Load Error", f"Failed to load:\n{filename}")
-                yield
-                continue
-
-            if task["fusion"]:
-                fuse_path = task["fusion"]["path"]
-                fuse_name = os.path.basename(fuse_path)
-
-                if dpg.does_item_exist("loading_text"):
-                    dpg.set_value("loading_text", f"Resampling overlay...\n{fuse_name}")
-                if dpg.does_item_exist("loading_progress"):
-                    dpg.set_value("loading_progress", files_processed / total_files)
-                yield
-
-                try:
-                    fuse_id = self.controller.load_image(fuse_path)
-                    loaded_ids.append(fuse_id)
-                    id_to_group[fuse_id] = sync_group  # Register overlay to same group
-                    files_processed += 1
-
-                    fuse_vs = self.controller.view_states[fuse_id]
-                    fuse_vs.colormap = task["fusion"]["cmap"]
-                    fuse_vs.is_data_dirty = True
-
-                    base_vs = self.controller.view_states[base_id]
-                    base_vs.set_overlay(fuse_id, fuse_vs.volume)
-                    base_vs.overlay_opacity = task["fusion"]["opacity"]
-                    base_vs.overlay_threshold = task["fusion"]["threshold"]
-
-                    if "mode" in task["fusion"]:
-                        base_vs.overlay_mode = task["fusion"]["mode"]
-
-                except Exception as e:
-                    self.show_message(
-                        "Overlay Error", f"Failed to load/fuse:\n{fuse_name}"
-                    )
-                    yield
-                    continue
-
-        if dpg.does_item_exist("loading_text"):
-            dpg.set_value("loading_text", "Applying synchronization and layouts...")
-        if dpg.does_item_exist("loading_progress"):
-            dpg.set_value("loading_progress", 1.0)
-        yield
-
-        self.controller.default_viewers_orientation()
-
-        for i, img_id in enumerate(loaded_ids):
-            if i == 0:
-                for tag in ["V1", "V2", "V3", "V4"]:
-                    self.controller.viewers[tag].set_image(img_id)
-            elif i == 1:
-                self.controller.viewers["V3"].set_image(img_id)
-                self.controller.viewers["V4"].set_image(img_id)
-            elif i == 2:
-                self.controller.viewers["V2"].set_image(loaded_ids[1])
-                self.controller.viewers["V3"].set_image(img_id)
-                self.controller.viewers["V4"].set_image(img_id)
-            elif i >= 3:
-                self.controller.viewers["V4"].set_image(img_id)
-
-        for img_id in loaded_ids:
-            same_viewers = [
-                v.tag for v in self.controller.viewers.values() if v.image_id == img_id
-            ]
-            if same_viewers:
-                self.controller.unify_ppm(same_viewers)
-
-        # --- SYNC ASSIGNMENT ---
-        group_applied = False
-        for img_id in loaded_ids:
-            if sync or link_all:
-                # Global sync overrides specific prefixes
-                self.controller.on_sync_group_change(None, "Group 1", img_id)
-                group_applied = True
-            elif id_to_group.get(img_id, 0) > 0:
-                # Apply the specific prefix group requested
-                self.controller.on_sync_group_change(
-                    None, f"Group {id_to_group[img_id]}", img_id
-                )
-                group_applied = True
-
-        if group_applied:
-            self.refresh_sync_ui()
-        # ------------------------
-
-        self.on_window_resize()
-
-        # Ensure V1 is the guaranteed Active Viewer target upon loading
-        self.set_context_viewer(self.controller.viewers["V1"])
-        self.refresh_image_list_ui()
-        self.refresh_rois_ui()
-
-        if dpg.does_item_exist("loading_modal"):
-            dpg.delete_item("loading_modal")
-        yield
+        """Wrapper to pass the CLI boot request into the external Sequence Manager."""
+        return create_boot_sequence(self, self.controller, image_tasks, sync, link_all)
 
     def run(self, boot_generator=None):
         dpg.setup_dearpygui()
