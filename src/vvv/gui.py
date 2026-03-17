@@ -1,6 +1,5 @@
 import dearpygui.dearpygui as dpg
 import os
-import sys
 import time
 import threading
 import numpy as np
@@ -9,8 +8,9 @@ from vvv.file_dialog import open_file_dialog, save_file_dialog
 from vvv.resources import load_fonts, setup_themes
 from vvv.core import WL_PRESETS, COLORMAPS
 from vvv.ui_settings import SettingsWindow
-from vvv.config import ROI_COLORS
 from vvv.ui_theme import build_ui_config, register_dynamic_themes
+from vvv.ui_tabs import build_tab_sync, build_tab_fusion, build_tab_rois
+from vvv.ui_interaction import InteractionManager
 from vvv.ui_sequences import (
     load_single_image_sequence,
     load_batch_images_sequence,
@@ -18,7 +18,6 @@ from vvv.ui_sequences import (
     load_workspace_sequence,
     create_boot_sequence,
 )
-from vvv.ui_tabs import build_tab_sync, build_tab_fusion, build_tab_rois
 
 
 class MainGUI:
@@ -35,7 +34,6 @@ class MainGUI:
 
         # State variables
         self.icon_font = None
-        self.drag_viewer = None
         self.context_viewer = None
         self.last_window_size = None
         self.tasks = []
@@ -71,6 +69,9 @@ class MainGUI:
         setup_themes()
         register_dynamic_themes(self.ui_cfg, self.controller)
         self.settings_window = SettingsWindow(self.controller)
+        self.interaction = InteractionManager(self, self.controller)
+
+        # go
         self.build_main_layout()
         self.register_handlers()
 
@@ -409,11 +410,11 @@ class MainGUI:
 
     def register_handlers(self):
         with dpg.handler_registry():
-            dpg.add_mouse_wheel_handler(callback=self.on_global_scroll)
-            dpg.add_mouse_drag_handler(callback=self.on_global_drag)
-            dpg.add_mouse_release_handler(callback=self.on_global_release)
-            dpg.add_key_press_handler(callback=self.on_key_press)
-            dpg.add_mouse_click_handler(callback=self.on_global_click)
+            dpg.add_mouse_wheel_handler(callback=self.interaction.on_mouse_scroll)
+            dpg.add_mouse_drag_handler(callback=self.interaction.on_mouse_drag)
+            dpg.add_mouse_release_handler(callback=self.interaction.on_mouse_release)
+            dpg.add_key_press_handler(callback=self.interaction.on_key_press)
+            dpg.add_mouse_click_handler(callback=self.interaction.on_mouse_click)
 
     def cleanup(self, sender=None, app_data=None, user_data=None):
         # 1. Save auto-history for all currently open images
@@ -749,45 +750,6 @@ class MainGUI:
 
         self.update_roi_stats_ui()
 
-    @property
-    def hovered_viewer(self):
-        for viewer in self.controller.viewers.values():
-            if dpg.is_item_hovered(f"win_{viewer.tag}"):
-                return viewer
-        return None
-
-    def update_trackers(self):
-        mode = self.controller.settings.data["interaction"].get(
-            "active_viewer_mode", "hybrid"
-        )
-        hover_viewer = self.hovered_viewer
-
-        # If strict hover mode is engaged, the Menu target actively follows the mouse
-        if mode == "hover":
-            if (
-                hover_viewer
-                and hover_viewer != self.context_viewer
-                and not self.drag_viewer
-            ):
-                self.set_context_viewer(hover_viewer)
-
-        # The green on-image text always dynamically updates for all viewers
-        for viewer in self.controller.viewers.values():
-            viewer.update_tracker()
-
-            # Update the sidebar's crosshair stats for the Active Menu Target
-            if self.context_viewer and not self.drag_viewer:
-                # Continuously check if 'Hide Everything' is engaged to strip the active contour!
-                show_xh = (
-                    self.context_viewer.view_state.show_crosshair
-                    if self.context_viewer.view_state
-                    else False
-                )
-                theme = "active_black_viewer_theme" if show_xh else "black_viewer_theme"
-                dpg.bind_item_theme(f"win_{self.context_viewer.tag}", theme)
-
-                self.update_sidebar_crosshair(self.context_viewer)
-
     def update_sidebar_info(self, viewer):
         if not viewer or viewer.image_id is None:
             for t in [
@@ -1028,15 +990,6 @@ class MainGUI:
             self.update_sidebar_crosshair(viewer)
             self.refresh_rois_ui()  # <--- ADD THIS LINE
 
-    def get_interaction_target(self):
-        """Resolves which viewer receives spatial shortcuts (Keys, Scrolls)."""
-        mode = self.controller.settings.data["interaction"].get(
-            "active_viewer_mode", "hybrid"
-        )
-        if mode == "click":
-            return self.context_viewer
-        return self.hovered_viewer or self.context_viewer
-
     # ==========================================
     # 4. EVENT HANDLERS
     # ==========================================
@@ -1123,79 +1076,6 @@ class MainGUI:
         for viewer in self.controller.viewers.values():
             viewer.resize(quad_w, quad_h)
             viewer.is_geometry_dirty = True
-
-    def on_global_click(self, sender, app_data, user_data):
-        if app_data != dpg.mvMouseButton_Left:
-            return
-        viewer = self.hovered_viewer
-        if not viewer:
-            return
-
-        self.drag_viewer = viewer
-        self.set_context_viewer(viewer)
-
-        # --- 1. THE BULLETPROOF ANCHOR ---
-        self.drag_viewer.drag_start_mouse = dpg.get_mouse_pos(local=False)
-        self.drag_viewer.drag_start_pan = list(self.drag_viewer.pan_offset)
-        if self.drag_viewer.view_state:
-            self.drag_viewer.drag_start_wl = [
-                self.drag_viewer.view_state.display.ww,
-                self.drag_viewer.view_state.display.wl,
-            ]
-        # ---------------------------------
-
-        if viewer.orientation != ViewMode.HISTOGRAM:
-            if not dpg.is_key_down(dpg.mvKey_LShift) and not dpg.is_key_down(
-                dpg.mvKey_LControl
-            ):
-                px, py = viewer.get_mouse_slice_coords(ignore_hover=True)
-                if px is not None:
-                    viewer.update_crosshair_data(px, py)
-                    self.controller.propagate_sync(viewer.image_id)
-
-    def on_global_release(self, sender, app_data, user_data):
-        if self.drag_viewer:
-            self.update_sidebar_crosshair(self.drag_viewer)
-            self.update_sidebar_info(self.drag_viewer)
-
-            # CLEANUP ANCHORS
-            self.drag_viewer.drag_start_mouse = None
-            self.drag_viewer.drag_start_pan = None
-            self.drag_viewer.drag_start_wl = None
-            self.drag_viewer.last_dx, self.drag_viewer.last_dy = 0, 0
-
-            self.drag_viewer = None
-
-    def on_global_scroll(self, sender, app_data, user_data):
-        target = self.hovered_viewer  # <--- ONLY SCROLL IF STRICTLY HOVERING AN IMAGE
-        if target:
-            is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(
-                dpg.mvKey_RControl
-            )
-            if is_ctrl:
-                target.on_zoom("in" if app_data > 0 else "out")
-            else:
-                target.on_scroll(int(app_data))
-
-    def on_key_press(self, sender, app_data, user_data):
-        is_cmd = dpg.is_key_down(dpg.mvKey_LWin) or dpg.is_key_down(dpg.mvKey_RWin)
-        is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(
-            dpg.mvKey_RControl
-        )
-
-        if app_data == dpg.mvKey_O and (is_ctrl or is_cmd):
-            self.on_open_file_clicked()
-            return
-
-        target = self.get_interaction_target()
-        if target:
-            target.on_key_press(app_data)
-
-    def on_global_drag(self, sender, app_data, user_data):
-        if isinstance(app_data, int):
-            return
-        if self.drag_viewer:
-            self.drag_viewer.on_drag(app_data)
 
     def on_image_viewer_toggle(self, sender, value, user_data):
         img_id, v_tag = user_data["img_id"], user_data["v_tag"]
@@ -1593,6 +1473,10 @@ class MainGUI:
         vp_width = max(dpg.get_viewport_client_width(), 800)
         dpg.set_item_pos(window_tag, [vp_width - 540, 40])
 
+    def load_workspace_sequence(self, file_path):
+        """Wrapper to pass the CLI workspace request into the external Sequence Manager."""
+        return load_workspace_sequence(self, self.controller, file_path)
+
     def create_boot_sequence(self, image_tasks, sync=False, link_all=False):
         """Wrapper to pass the CLI boot request into the external Sequence Manager."""
         return create_boot_sequence(self, self.controller, image_tasks, sync, link_all)
@@ -1621,7 +1505,7 @@ class MainGUI:
                 except StopIteration:
                     self.tasks.pop(0)
 
-            self.update_trackers()
+            self.interaction.update_trackers()
             self.sync_bound_ui()
             self.controller.tick()
 

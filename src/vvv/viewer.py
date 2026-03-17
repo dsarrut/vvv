@@ -853,7 +853,11 @@ class SliceViewer:
             dpg.set_value(self.tracker_tag, "")
             return
 
-        is_dragging = self.controller.gui.drag_viewer == self
+        is_dragging = False
+        if self.controller.gui and hasattr(self.controller.gui, "interaction"):
+            active_tool = self.controller.gui.interaction.active_tool
+            is_dragging = getattr(active_tool, "drag_viewer", None) == self
+
         pix_x, pix_y = self.get_mouse_slice_coords(
             ignore_hover=is_dragging, allow_outside=is_dragging
         )
