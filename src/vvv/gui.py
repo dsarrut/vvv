@@ -82,6 +82,7 @@ class MainGUI:
                 "panel_av_h": av_h,  # height of the Active Viewer panel
                 "panel_ch_h": ch_h,  # height of the Crosshair panel
                 "roi_detail_h": 180,  # height of the ROI details panel
+                "roi_detail_bottom_margin": 10,
                 "sidebar_margin_bot": 10,
                 "sidebar_top_spacer": 5,
                 "sidebar_item_gap": item_gap,
@@ -494,6 +495,9 @@ class MainGUI:
                     )
 
     def build_tab_rois(self, cfg_c):
+        # Fetch layout config
+        cfg_l = self.ui_cfg["layout"]
+
         with dpg.tab(label="ROIs", tag="tab_rois"):
             dpg.add_spacer(height=5)
 
@@ -516,9 +520,14 @@ class MainGUI:
             dpg.add_text("Loaded Regions", color=cfg_c["text_header"])
             dpg.add_separator()
 
-            # DYNAMIC HEIGHT: -160 tells DPG to stretch this list downwards,
-            # leaving exactly 160px for the Detail Panel below it!
-            with dpg.child_window(height=-160, border=False, no_scrollbar=True):
+            # --- THE FIX: DYNAMIC COMPUTED HEIGHT ---
+            # Stretches infinitely downwards, leaving exactly `roi_detail_h` pixels
+            # for the Detail Panel below it!
+            with dpg.child_window(
+                height=-cfg_l["roi_detail_h"] + cfg_l["roi_detail_bottom_margin"],
+                border=False,
+                no_scrollbar=True,
+            ):
                 dpg.add_group(tag="roi_list_container")
 
             dpg.add_spacer(height=10)
@@ -713,9 +722,8 @@ class MainGUI:
     def cleanup(self, sender=None, app_data=None, user_data=None):
         # 1. Save auto-history for all currently open images
         if hasattr(self.controller, "history"):
-            for vs_id, vs in self.controller.view_states.items():
-                vol = self.controller.volumes[vs_id]
-                self.controller.history.save_image_state(vol, vs)
+            for vs_id in list(self.controller.view_states.keys()):
+                self.controller.history.save_image_state(self.controller, vs_id)
 
         # 2. Save standard settings (like layout dimensions, etc.)
         self.controller.save_settings()
@@ -1778,6 +1786,10 @@ class MainGUI:
 
         try:
             img_id = self.controller.load_image(file_path)
+
+            # Load ROI
+            yield from self.load_history_rois_sequence(img_id)
+
             if dpg.does_item_exist("loading_text"):
                 dpg.set_value("loading_text", "Applying synchronization and layouts...")
             if dpg.does_item_exist("loading_progress"):
@@ -1800,6 +1812,7 @@ class MainGUI:
             # self.update_sidebar_info(target_viewer)
             self.set_context_viewer(target_viewer)
             self.refresh_image_list_ui()
+            self.refresh_rois_ui()
 
             if dpg.does_item_exist("loading_modal"):
                 dpg.delete_item("loading_modal")
@@ -1814,6 +1827,45 @@ class MainGUI:
             )
             while dpg.does_item_exist("generic_message_modal"):
                 yield
+
+    def load_history_rois_sequence(self, img_id):
+        """Yielding generator to animate the progress bar while restoring ROIs."""
+        from vvv.utils import resolve_history_path_key
+
+        if not self.controller.use_history:
+            return
+
+        vol = self.controller.volumes[img_id]
+        vs = self.controller.view_states[img_id]
+
+        history_entry = self.controller.history.get_image_state(vol)
+        if not history_entry or not history_entry.get("rois"):
+            return
+
+        rois = history_entry["rois"]
+        total_rois = len(rois)
+
+        for i, roi_data in enumerate(rois):
+            roi_path = resolve_history_path_key(roi_data["path"])
+            filename = os.path.basename(roi_path)
+
+            if dpg.does_item_exist("loading_text"):
+                dpg.set_value(
+                    "loading_text", f"Restoring ROI ({i+1}/{total_rois}):\n{filename}"
+                )
+            if dpg.does_item_exist("loading_progress"):
+                dpg.set_value("loading_progress", i / total_rois)
+
+            time.sleep(0.05)
+            yield  # <--- Forces the UI to visually update!
+
+            if os.path.exists(roi_path):
+                try:
+                    new_roi_id = self.controller.load_binary_mask(img_id, roi_path)
+                    vs.rois[new_roi_id].from_dict(roi_data["state"])
+                except Exception as e:
+                    print(f"Failed to restore ROI {filename}: {e}")
+            yield
 
     def load_batch_images_sequence(self, file_paths):
         total_files = len(file_paths)
@@ -1851,6 +1903,9 @@ class MainGUI:
             try:
                 img_id = self.controller.load_image(path)
                 loaded_ids.append(img_id)
+
+                yield from self.load_history_rois_sequence(img_id)
+
             except Exception as e:
                 print(f"Failed to load {filename}: {e}")
             yield
@@ -1870,6 +1925,7 @@ class MainGUI:
             target_viewer.set_image(loaded_ids[0])
             self.set_context_viewer(target_viewer)
             self.refresh_image_list_ui()
+            self.refresh_rois_ui()
 
         if dpg.does_item_exist("loading_modal"):
             dpg.delete_item("loading_modal")
@@ -2033,6 +2089,18 @@ class MainGUI:
                 self.controller.view_states[base_id].set_overlay(
                     over_id, self.controller.volumes[over_id]
                 )
+
+            # Re-link and Load ROIs
+            for roi_data in v_data.get("rois", []):
+                abs_path = resolve_relative_path(roi_data["path"], workspace_dir)
+                if os.path.exists(abs_path):
+                    try:
+                        new_roi_id = self.controller.load_binary_mask(base_id, abs_path)
+                        self.controller.view_states[base_id].rois[new_roi_id].from_dict(
+                            roi_data["state"]
+                        )
+                    except Exception as e:
+                        print(f"Failed to load workspace ROI {abs_path}: {e}")
 
         # 5. Restore Viewers exact configuration
         for v_tag, v_data in data.get("viewers", {}).items():
@@ -2230,6 +2298,8 @@ class MainGUI:
                 loaded_ids.append(base_id)
                 id_to_group[base_id] = sync_group  # Register the group
 
+                yield from self.load_history_rois_sequence(base_id)
+
                 if task.get("base_cmap"):
                     self.controller.view_states[base_id].colormap = task["base_cmap"]
                     self.controller.view_states[base_id].is_data_dirty = True
@@ -2327,6 +2397,7 @@ class MainGUI:
         # Ensure V1 is the guaranteed Active Viewer target upon loading
         self.set_context_viewer(self.controller.viewers["V1"])
         self.refresh_image_list_ui()
+        self.refresh_rois_ui()
 
         if dpg.does_item_exist("loading_modal"):
             dpg.delete_item("loading_modal")

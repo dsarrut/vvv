@@ -92,6 +92,15 @@ class HistoryManager:
         if key in self.data:
             del self.data[key]
 
+        # Extract ROI paths and states
+        rois_list = []
+        for roi_id, roi_state in vs.rois.items():
+            if roi_id in controller.volumes:
+                r_vol = controller.volumes[roi_id]
+                if r_vol.file_paths:
+                    r_path = get_history_path_key(r_vol.file_paths[0])
+                    rois_list.append({"path": r_path, "state": roi_state.to_dict()})
+
         # Cast NumPy arrays to native Python types
         self.data[key] = {
             "shape3d": [int(x) for x in vol.shape3d],
@@ -100,6 +109,7 @@ class HistoryManager:
             "camera": vs.camera.to_dict(),
             "display": vs.display.to_dict(),
             "overlay_path": overlay_path,
+            "rois": rois_list,
         }
 
         # Enforce the 100 files limit by deleting the oldest item(s) at the front of the dict
@@ -891,7 +901,6 @@ class Controller:
                     vs.crosshair_value = vol.data[iz, iy, ix]
 
             vs.is_data_dirty = True
-        # ---------------------------
 
         self.volumes[img_id] = vol
         self.view_states[img_id] = vs
@@ -1160,6 +1169,15 @@ class Controller:
                 safe_path = "4D:" + " ".join(f'"{p}"' for p in rel_paths)
             else:
                 safe_path = get_relative_path(vol.path, workspace_dir)
+
+            # Convert ROI paths to relative paths
+            rois_data = []
+            for roi_id, roi_state in vs.rois.items():
+                if roi_id in self.volumes:
+                    r_vol = self.volumes[roi_id]
+                    if r_vol.file_paths:
+                        r_path = get_relative_path(r_vol.file_paths[0], workspace_dir)
+                        rois_data.append({"path": r_path, "state": roi_state.to_dict()})
 
             data["volumes"][vs_id] = {
                 "path": safe_path,
