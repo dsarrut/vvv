@@ -1,5 +1,6 @@
 import dearpygui.dearpygui as dpg
 import os
+import sys
 import time
 import threading
 import numpy as np
@@ -32,7 +33,9 @@ class MainGUI:
         self.status_message_expire_time = float("inf")
         self.image_label_tags = {}
         self.sync_label_tags = {}
+        self.roi_selectables = {}
         self.ui_cfg = None
+        self.active_roi_id = None
 
         # --- DATA BINDING DICTIONARY ---
         # Maps DPG tag -> ViewState property name
@@ -66,8 +69,22 @@ class MainGUI:
     def init_config(self):
         """Centralizes all layout dimensions, margins, and colors."""
         shared_margin = 7
+
+        is_mac = sys.platform == "darwin"
+
+        # Mac Retina scaling makes text blocks taller and gaps slightly tighter
+        av_h = 360 if is_mac else 340
+        ch_h = 160 if is_mac else 150
+        item_gap = 6 if is_mac else 8
+
         self.ui_cfg = {
             "layout": {
+                "panel_av_h": av_h,  # height of the Active Viewer panel
+                "panel_ch_h": ch_h,  # height of the Crosshair panel
+                "roi_detail_h": 180,  # height of the ROI details panel
+                "sidebar_margin_bot": 10,
+                "sidebar_top_spacer": 5,
+                "sidebar_item_gap": item_gap,
                 "menu_h": 27,
                 "menu_m_top": 0,
                 "menu_m_bottom": 5 + shared_margin,
@@ -365,23 +382,25 @@ class MainGUI:
         # Bind Sidebar Themes
         dpg.bind_item_theme("side_panel", "sidebar_bg_theme")
         dpg.bind_item_theme("top_panel", "left_panel_padding_theme")
-        dpg.bind_item_theme("bottom_panel", "left_panel_padding_theme")
+
+        # --- THE FIX: Target the two new panels instead of 'bottom_panel' ---
+        dpg.bind_item_theme("av_panel", "left_panel_padding_theme")
+        dpg.bind_item_theme("ch_panel", "left_panel_padding_theme")
+        # --------------------------------------------------------------------
+
         dpg.bind_item_theme("image_info_group", "sleek_readonly_theme")
         dpg.bind_item_theme("image_crosshair_group", "sleek_readonly_theme")
 
     def build_sidebar_top(self):
-        """Builds the upper half of the sidebar containing the tabs."""
         cfg_c = self.ui_cfg["colors"]
 
         with dpg.child_window(
             tag="top_panel",
-            height=370,
-            resizable_y=True,
             border=False,
             no_scrollbar=True,
         ):
-            with dpg.tab_bar(tag="sidebar_tabs"):
-                with dpg.tab(label="Images"):
+            with dpg.tab_bar(tag="sidebar_tabs", callback=self.on_tab_changed):
+                with dpg.tab(label="Images", tag="tab_images"):
                     dpg.add_spacer(height=5)
                     dpg.add_text("Loaded Images", color=cfg_c["text_header"])
                     dpg.add_separator()
@@ -392,7 +411,7 @@ class MainGUI:
                 self.build_tab_rois(cfg_c)
 
     def build_tab_sync(self, cfg_c):
-        with dpg.tab(label="Sync"):
+        with dpg.tab(label="Sync", tag="tab_sync"):
             dpg.add_spacer(height=5)
             with dpg.group(horizontal=True):
                 dpg.add_button(
@@ -411,7 +430,7 @@ class MainGUI:
             dpg.add_group(tag="sync_list_container")
 
     def build_tab_fusion(self, cfg_c):
-        with dpg.tab(label="Fusion"):
+        with dpg.tab(label="Fusion", tag="tab_fusion"):
             dpg.add_spacer(height=5)
             dpg.add_text("Active Overlay", color=cfg_c["text_header"])
             dpg.add_separator()
@@ -475,12 +494,12 @@ class MainGUI:
                     )
 
     def build_tab_rois(self, cfg_c):
-        with dpg.tab(label="ROIs"):
+        with dpg.tab(label="ROIs", tag="tab_rois"):
             dpg.add_spacer(height=5)
 
             # --- TOP: Load & Import ---
-            # dpg.add_text("ROI Management", color=cfg_c["text_header"])
-            # dpg.add_separator()
+            dpg.add_text("ROI Management", color=cfg_c["text_header"])
+            dpg.add_separator()
             with dpg.group(horizontal=True):
                 dpg.add_button(
                     label="Load ROI...", width=80, callback=self.on_load_roi_clicked
@@ -493,65 +512,31 @@ class MainGUI:
 
             dpg.add_spacer(height=10)
 
-            # --- MIDDLE: The Dynamic List ---
-            # dpg.add_text("Loaded Regions", color=cfg_c["text_header"])
-            # dpg.add_separator()
+            # --- MIDDLE: The Master List ---
+            dpg.add_text("Loaded Regions", color=cfg_c["text_header"])
+            dpg.add_separator()
 
-            with dpg.child_window(height=160, border=False, no_scrollbar=True):
-                dpg.add_group(tag="roi_list_container")  # The empty container!
+            # DYNAMIC HEIGHT: -160 tells DPG to stretch this list downwards,
+            # leaving exactly 160px for the Detail Panel below it!
+            with dpg.child_window(height=-160, border=False, no_scrollbar=True):
+                dpg.add_group(tag="roi_list_container")
 
             dpg.add_spacer(height=10)
 
-            # --- BOTTOM: Analytics (Mocked for Phase 3) ---
-            dpg.add_text("ROI Statistics", color=cfg_c["text_header"])
+            # --- BOTTOM: The Detail Panel ---
+            dpg.add_text("Selected ROI Properties", color=cfg_c["text_header"])
             dpg.add_separator()
 
-            with dpg.group():
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Target:")
-                    dpg.add_combo(
-                        ["Tumor_GTV", "Liver"], default_value="Tumor_GTV", width=-1
-                    )
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Image: ")
-                    dpg.add_combo(
-                        ["Base Image", "Active Overlay"],
-                        default_value="Base Image",
-                        width=-1,
-                    )
-
-                dpg.add_spacer(height=5)
-                dim_col = cfg_c["text_dim"]
-                with dpg.table(header_row=False, borders_innerH=True):
-                    dpg.add_table_column(width_stretch=True)
-                    dpg.add_table_column(width_stretch=True)
-                    with dpg.table_row():
-                        with dpg.group(horizontal=True):
-                            dpg.add_text("Vol:", color=dim_col)
-                            dpg.add_text("--- cc", tag="roi_stat_vol")
-                        with dpg.group(horizontal=True):
-                            dpg.add_text("Mean:", color=dim_col)
-                            dpg.add_text("---", tag="roi_stat_mean")
-                    with dpg.table_row():
-                        with dpg.group(horizontal=True):
-                            dpg.add_text("Max:", color=dim_col)
-                            dpg.add_text("---", tag="roi_stat_max")
-                        with dpg.group(horizontal=True):
-                            dpg.add_text("Min:", color=dim_col)
-                            dpg.add_text("---", tag="roi_stat_min")
+            with dpg.child_window(border=False, no_scrollbar=True):
+                dpg.add_group(tag="roi_detail_container")
 
     def build_sidebar_bottom(self):
-        """Builds the lower half of the sidebar for Active Viewer info."""
-        cfg_l = self.ui_cfg["layout"]
         cfg_c = self.ui_cfg["colors"]
-        panel_w = cfg_l["side_panel_w"] - 15
 
-        with dpg.child_window(
-            tag="bottom_panel", width=panel_w, border=False, no_scrollbar=True
-        ):
+        # --- Panel 1: Active Viewer ---
+        with dpg.child_window(tag="av_panel", border=False, no_scrollbar=True):
             dpg.add_text("Active Viewer", color=cfg_c["text_header"])
             dpg.add_separator()
-
             with dpg.group(tag="image_info_group"):
                 self.create_labeled_field("", tag="info_name")
                 self.create_labeled_field("Type", tag="info_voxel_type")
@@ -564,10 +549,10 @@ class MainGUI:
                 dpg.add_spacer(height=5)
                 self.build_visibility_controls()
 
-            dpg.add_spacer(height=10)
+        # --- Panel 2: Crosshair ---
+        with dpg.child_window(tag="ch_panel", border=False, no_scrollbar=True):
             dpg.add_text("Crosshair", color=cfg_c["text_header"])
             dpg.add_separator()
-
             with dpg.group(tag="image_crosshair_group"):
                 self.create_labeled_field("Value", tag="info_val")
                 self.create_labeled_field("Voxel", tag="info_vox")
@@ -783,6 +768,21 @@ class MainGUI:
                     if current_ui_val != val:
                         dpg.set_value(tag, val)
 
+    def highlight_active_image_in_list(self, active_img_id):
+        for img_id, label_tag in self.image_label_tags.items():
+            if dpg.does_item_exist(label_tag):
+                if img_id == active_img_id:
+                    dpg.bind_item_theme(label_tag, "active_image_list_theme")
+                else:
+                    dpg.bind_item_theme(label_tag, "")
+
+        for img_id, label_tag in self.sync_label_tags.items():
+            if dpg.does_item_exist(label_tag):
+                if img_id == active_img_id:
+                    dpg.bind_item_theme(label_tag, "active_image_list_theme")
+                else:
+                    dpg.bind_item_theme(label_tag, "")
+
     def refresh_image_list_ui(self):
         container = "image_list_container"
         if not dpg.does_item_exist(container):
@@ -841,21 +841,6 @@ class MainGUI:
         if self.context_viewer and self.context_viewer.image_id:
             self.highlight_active_image_in_list(self.context_viewer.image_id)
 
-    def highlight_active_image_in_list(self, active_img_id):
-        for img_id, label_tag in self.image_label_tags.items():
-            if dpg.does_item_exist(label_tag):
-                if img_id == active_img_id:
-                    dpg.bind_item_theme(label_tag, "active_image_list_theme")
-                else:
-                    dpg.bind_item_theme(label_tag, "")
-
-        for img_id, label_tag in self.sync_label_tags.items():
-            if dpg.does_item_exist(label_tag):
-                if img_id == active_img_id:
-                    dpg.bind_item_theme(label_tag, "active_image_list_theme")
-                else:
-                    dpg.bind_item_theme(label_tag, "")
-
     def refresh_sync_ui(self):
         container = "sync_list_container"
         if not dpg.does_item_exist(container):
@@ -896,25 +881,32 @@ class MainGUI:
         if not dpg.does_item_exist(container):
             return
 
+        current_scroll = 0.0
+        if dpg.does_item_exist("roi_table"):
+            current_scroll = dpg.get_y_scroll("roi_table")
+
         dpg.delete_item(container, children_only=True)
+        self.roi_selectables.clear()  # <--- Clear old tracking
+
         viewer = self.context_viewer
 
         if not viewer or not viewer.view_state or not viewer.view_state.rois:
+            self.refresh_roi_detail_ui()
             return
 
         with dpg.table(
+            tag="roi_table",
             parent=container,
             header_row=False,
             resizable=False,
             borders_innerH=True,
             scrollY=True,
         ):
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)  # Eye
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)  # Color
-            dpg.add_table_column(width_stretch=True)  # Name
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)  # Reload
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)  # Center
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=50)  # Opacity
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+            dpg.add_table_column(width_stretch=True)
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
 
             for roi_id, roi in viewer.view_state.rois.items():
                 with dpg.table_row():
@@ -937,9 +929,17 @@ class MainGUI:
                         callback=self.on_roi_color_changed,
                     )
 
-                    dpg.add_text(roi.name)
+                    is_active = roi_id == getattr(self, "active_roi_id", None)
+                    # --- CAPTURE THE SELECTABLE ID ---
+                    sel_id = dpg.add_selectable(
+                        label=roi.name,
+                        default_value=is_active,
+                        user_data=roi_id,
+                        callback=self.on_roi_selected,
+                    )
+                    self.roi_selectables[roi_id] = sel_id
+                    # ---------------------------------
 
-                    # --- NEW BUTTONS ---
                     btn_reload = dpg.add_button(
                         label="\uf01e",
                         width=20,
@@ -952,54 +952,98 @@ class MainGUI:
                         user_data=roi_id,
                         callback=self.on_roi_center,
                     )
-                    # -------------------
-
-                    dpg.add_slider_float(
-                        default_value=roi.opacity,
-                        min_value=0.0,
-                        max_value=1.0,
-                        width=50,
-                        user_data=roi_id,
-                        callback=self.on_roi_opacity_changed,
-                    )
 
                     if dpg.does_item_exist("icon_font_tag"):
                         dpg.bind_item_font(btn_eye, "icon_font_tag")
                         dpg.bind_item_font(btn_reload, "icon_font_tag")
                         dpg.bind_item_font(btn_center, "icon_font_tag")
 
-                    # 2. Color Edit
-                    dpg.add_color_edit(
-                        default_value=roi.color + [255],
-                        no_inputs=True,
-                        no_label=True,
-                        no_alpha=True,
-                        width=20,
-                        height=20,
-                        user_data=roi_id,
-                        callback=self.on_roi_color_changed,
-                    )
+        dpg.set_y_scroll("roi_table", current_scroll)
+        self.refresh_roi_detail_ui()
 
-                    # 3. Name
-                    dpg.add_text(roi.name)
+    def refresh_roi_detail_ui(self):
+        container = "roi_detail_container"
+        if not dpg.does_item_exist(container):
+            return
 
-                    # 4. Contour Checkbox (Disabled for Phase 2)
-                    dpg.add_checkbox(
-                        label="",
-                        default_value=roi.is_contour,
-                        user_data=roi_id,
-                        enabled=False,
-                    )
+        dpg.delete_item(container, children_only=True)
+        viewer = self.context_viewer
 
-                    # 5. Opacity Slider
-                    dpg.add_slider_float(
-                        default_value=roi.opacity,
-                        min_value=0.0,
-                        max_value=1.0,
-                        width=50,
-                        user_data=roi_id,
-                        callback=self.on_roi_opacity_changed,
-                    )
+        active_id = getattr(self, "active_roi_id", None)
+        if (
+            not viewer
+            or not viewer.view_state
+            or not active_id
+            or active_id not in viewer.view_state.rois
+        ):
+            dpg.add_text(
+                "Select a ROI from the list above.",
+                color=self.ui_cfg["colors"]["text_dim"],
+                parent=container,
+            )
+            self.clear_roi_stats()
+            return
+
+        roi = viewer.view_state.rois[active_id]
+
+        with dpg.group(parent=container):
+            with dpg.group(horizontal=True):
+                dpg.add_text("Opacity:")
+                dpg.add_slider_float(
+                    default_value=roi.opacity,
+                    min_value=0.0,
+                    max_value=1.0,
+                    width=-1,
+                    user_data=active_id,
+                    callback=self.on_roi_opacity_changed,
+                )
+
+            with dpg.group(horizontal=True):
+                dpg.add_text("Contour:")
+                dpg.add_checkbox(
+                    label="Enable (Phase 5)",
+                    default_value=roi.is_contour,
+                    user_data=active_id,
+                    enabled=False,
+                )
+
+            dpg.add_spacer(height=5)
+
+            # --- ROI Statistics ---
+            with dpg.group(horizontal=True):
+                dpg.add_text("Analyze:")
+                dpg.add_combo(
+                    ["Base Image", "Active Overlay"],
+                    default_value="Base Image",
+                    tag="combo_roi_image",
+                    width=-1,
+                    callback=self.on_roi_stat_dropdown_changed,
+                )
+
+            dim_col = self.ui_cfg["colors"]["text_dim"]
+            with dpg.table(header_row=False, borders_innerH=True):
+                dpg.add_table_column(width_stretch=True)
+                dpg.add_table_column(width_stretch=True)
+                with dpg.table_row():
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("Vol:", color=dim_col)
+                        dpg.add_text("---", tag="roi_stat_vol")
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("Mean:", color=dim_col)
+                        dpg.add_text("---", tag="roi_stat_mean")
+                with dpg.table_row():
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("Max:", color=dim_col)
+                        dpg.add_text("---", tag="roi_stat_max")
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("Min:", color=dim_col)
+                        dpg.add_text("---", tag="roi_stat_min")
+                with dpg.table_row():
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("Std:", color=dim_col)
+                        dpg.add_text("---", tag="roi_stat_std")
+
+        self.update_roi_stats_ui()
 
     @property
     def hovered_viewer(self):
@@ -1196,6 +1240,60 @@ class MainGUI:
                 )
             dpg.set_value("info_ppm", f"{round(ppm,2):g} px/mm")
 
+    def update_roi_stats_ui(self):
+        viewer = self.context_viewer
+        active_id = getattr(self, "active_roi_id", None)
+
+        if (
+            not viewer
+            or not viewer.view_state
+            or not active_id
+            or active_id not in viewer.view_state.rois
+        ):
+            self.clear_roi_stats()
+            return
+
+        roi_id = active_id
+        image_source = (
+            dpg.get_value("combo_roi_image")
+            if dpg.does_item_exist("combo_roi_image")
+            else "Base Image"
+        )
+
+        target_image_id = viewer.image_id
+        if image_source == "Active Overlay":
+            if not viewer.view_state.overlay_id:
+                self.clear_roi_stats()
+                return
+            target_image_id = viewer.view_state.overlay_id
+
+        stats = self.controller.get_roi_stats(
+            roi_id, target_image_id, viewer.view_state.camera.time_idx
+        )
+
+        if not stats:
+            self.clear_roi_stats()
+            return
+
+        dpg.set_value("roi_stat_vol", f"{stats['vol']:.2f} cc")
+        dpg.set_value("roi_stat_mean", f"{stats['mean']:.2f}")
+        dpg.set_value("roi_stat_max", f"{stats['max']:.2f}")
+        dpg.set_value("roi_stat_min", f"{stats['min']:.2f}")
+        dpg.set_value("roi_stat_std", f"{stats['std']:.2f}")
+
+    def clear_roi_stats(self):
+        """Resets the ROI statistics display to default empty values."""
+        tags = [
+            "roi_stat_vol",
+            "roi_stat_mean",
+            "roi_stat_max",
+            "roi_stat_min",
+            "roi_stat_std",
+        ]
+        for tag in tags:
+            if dpg.does_item_exist(tag):
+                dpg.set_value(tag, "---")
+
     def set_context_viewer(self, viewer):
         """Centralized helper to switch the Active Menu/Sidebar target."""
         if self.context_viewer == viewer:
@@ -1203,6 +1301,11 @@ class MainGUI:
 
         if self.context_viewer:
             dpg.bind_item_theme(f"win_{self.context_viewer.tag}", "black_viewer_theme")
+
+        # Safely deselect ROI if it doesn't belong to the new image
+        if getattr(self, "active_roi_id", None):
+            if viewer.view_state and self.active_roi_id not in viewer.view_state.rois:
+                self.active_roi_id = None
 
         self.context_viewer = viewer
 
@@ -1262,10 +1365,39 @@ class MainGUI:
             inner_w = (
                 l_w - cfg["gap_center"] - cfg["left_inner_m"] - cfg["right_inner_m"]
             )
+
+            # --- THE FLAWLESS COMPUTED LAYOUT ENGINE ---
+            is_roi = getattr(self, "_is_roi_tab_active", False)
+
+            ch_h = cfg["panel_ch_h"]
+            av_h = cfg["panel_av_h"]
+            margin_bot = cfg["sidebar_margin_bot"]
+
+            # DearPyGui vertically stacks items with an invisible 4px ItemSpacing gap.
+            # We explicitly calculate the exact pixel height taken by everything else.
+            if is_roi:
+                # Sequence: Spacer(5) + Gap(4) + TopPanel(top_h) + Gap(4) + Crosshair(ch_h) + Margin(10)
+                # 5 + 4 + 4 + 10 = 23 static pixels
+                top_h = l_h - ch_h - margin_bot - 13
+            else:
+                # Sequence: Spacer(5) + Gap(4) + TopPanel(top_h) + Gap(4) + ActiveViewer(av_h) + Gap(4) + Crosshair(ch_h) + Margin(10)
+                # 5 + 4 + 4 + 4 + 10 = 27 static pixels
+                top_h = l_h - av_h - ch_h - margin_bot - 17
+
+            top_h = max(100, top_h)
+
             if dpg.does_item_exist("top_panel"):
                 dpg.set_item_width("top_panel", inner_w)
-            if dpg.does_item_exist("bottom_panel"):
-                dpg.set_item_width("bottom_panel", inner_w)
+                dpg.set_item_height("top_panel", top_h)
+
+            if dpg.does_item_exist("av_panel"):
+                dpg.set_item_width("av_panel", inner_w)
+                dpg.set_item_height("av_panel", av_h)
+
+            if dpg.does_item_exist("ch_panel"):
+                dpg.set_item_width("ch_panel", inner_w)
+                dpg.set_item_height("ch_panel", ch_h)
+            # ----------------------------------
 
         r_x = l_x + l_w
         avail_w = window_w - r_x - cfg["right_m_right"]
@@ -1279,7 +1411,7 @@ class MainGUI:
 
         for viewer in self.controller.viewers.values():
             viewer.resize(quad_w, quad_h)
-            viewer.is_geometry_dirty = True  # update the legend
+            viewer.is_geometry_dirty = True
 
     def on_global_click(self, sender, app_data, user_data):
         if app_data != dpg.mvMouseButton_Left:
@@ -1584,119 +1716,32 @@ class MainGUI:
         base_id = self.context_viewer.image_id
         self.controller.center_on_roi(base_id, roi_id)
 
-    def load_workspace_sequence(self, file_path):
-        import json
-        import shlex
-        from vvv.utils import ViewMode, resolve_relative_path
+    def on_roi_selected(self, sender, app_data, user_data):
+        self.active_roi_id = user_data
 
-        with open(file_path, "r") as f:
-            data = json.load(f)
+        # Manually toggle the UI state of the selectables without rebuilding the list!
+        for r_id, sel_id in getattr(self, "roi_selectables", {}).items():
+            if dpg.does_item_exist(sel_id):
+                dpg.set_value(sel_id, r_id == self.active_roi_id)
 
-        workspace_dir = os.path.dirname(file_path)
+        # Only refresh the details pane so the scrollbar remains perfectly un-disturbed
+        self.refresh_roi_detail_ui()
 
-        with dpg.window(
-            tag="loading_modal",
-            modal=True,
-            show=True,
-            no_title_bar=True,
-            no_resize=True,
-            no_move=True,
-            width=350,
-            height=100,
-        ):
-            dpg.add_text("Cleaning up current session...", tag="loading_text")
-            dpg.add_spacer(height=5)
-            dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=0.0)
+    def on_roi_stat_dropdown_changed(self, sender, app_data, user_data):
+        self.update_roi_stats_ui()
 
-        vp_width = max(dpg.get_viewport_client_width(), 800)
-        vp_height = max(dpg.get_viewport_client_height(), 600)
-        dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
-        yield
+    def on_tab_changed(self, sender, app_data, user_data):
+        tab_tag = app_data
+        if isinstance(app_data, int):
+            tab_tag = dpg.get_item_alias(app_data) or app_data
 
-        # 1. Close all currently open images
-        for vs_id in list(self.controller.view_states.keys()):
-            self.controller.close_image(vs_id)
-        yield
+        is_roi = tab_tag == "tab_rois"
+        self._is_roi_tab_active = is_roi
 
-        # 2. Temporarily disable Auto-History so it doesn't overwrite the Workspace settings
-        prev_history = getattr(self.controller, "use_history", True)
-        self.controller.use_history = False
+        if dpg.does_item_exist("av_panel"):
+            dpg.configure_item("av_panel", show=not is_roi)
 
-        id_mapping = {}  # Maps the saved JSON ID to the new internal session ID
-        vols_data = data.get("volumes", {})
-        total_vols = max(1, len(vols_data))
-        processed = 0
-
-        # 3. Load all raw volumes and apply their states
-        for old_id, v_data in vols_data.items():
-            raw_path = v_data["path"]
-            filename = os.path.basename(raw_path)
-
-            if dpg.does_item_exist("loading_text"):
-                dpg.set_value("loading_text", f"Loading volume...\n{filename}")
-                dpg.set_value("loading_progress", processed / total_vols)
-            yield
-
-            # Resolve relative paths back to absolute
-            if raw_path.startswith("4D:"):
-                tokens = shlex.split(raw_path[3:].strip())
-                abs_paths = [resolve_relative_path(p, workspace_dir) for p in tokens]
-                full_path = "4D:" + " ".join(f'"{p}"' for p in abs_paths)
-            else:
-                full_path = resolve_relative_path(raw_path, workspace_dir)
-
-            try:
-                # Load quietly, bypassing auto-history
-                new_id = self.controller.load_image(full_path, is_auto_overlay=True)
-                id_mapping[old_id] = new_id
-
-                vs = self.controller.view_states[new_id]
-                vs.sync_group = v_data.get("sync_group", 0)
-                vs.camera.from_dict(v_data["camera"])
-                vs.display.from_dict(v_data["display"])
-                vs.is_data_dirty = True
-            except Exception as e:
-                print(f"Failed to load workspace volume: {full_path}")
-
-            processed += 1
-            yield
-
-        # 4. Re-establish overlay connections safely
-        if dpg.does_item_exist("loading_text"):
-            dpg.set_value("loading_text", "Re-linking fusions and layouts...")
-            dpg.set_value("loading_progress", 1.0)
-        yield
-
-        for old_id, v_data in vols_data.items():
-            old_ov = v_data.get("overlay_id")
-            if old_ov and old_ov in id_mapping and old_id in id_mapping:
-                base_id = id_mapping[old_id]
-                over_id = id_mapping[old_ov]
-                self.controller.view_states[base_id].set_overlay(
-                    over_id, self.controller.volumes[over_id]
-                )
-
-        # 5. Restore Viewers exact configuration
-        for v_tag, v_data in data.get("viewers", {}).items():
-            viewer = self.controller.viewers[v_tag]
-            old_img_id = v_data.get("image_id")
-
-            if old_img_id and old_img_id in id_mapping:
-                viewer.set_image(id_mapping[old_img_id])
-            else:
-                viewer.drop_image()
-
-            viewer.set_orientation(ViewMode[v_data.get("orientation", "AXIAL")])
-
-        # 6. Cleanup
-        self.controller.use_history = prev_history
-        self.refresh_image_list_ui()
-        self.refresh_sync_ui()
-        self.set_context_viewer(self.controller.viewers["V1"])
-
-        if dpg.does_item_exist("loading_modal"):
-            dpg.delete_item("loading_modal")
-        yield
+        self.on_window_resize()
 
     # ==========================================
     # 5. MODALS & POPUPS
@@ -1885,8 +1930,127 @@ class MainGUI:
             dpg.set_value("loading_progress", 1.0)
         yield
 
+        # Select the last loaded ROI to immediately show its properties
+        vs = self.controller.view_states[base_image_id]
+        if vs.rois:
+            self.active_roi_id = list(vs.rois.keys())[-1]
+
         self.refresh_rois_ui()
         self.controller.update_all_viewers_of_image(base_image_id)
+
+        if dpg.does_item_exist("loading_modal"):
+            dpg.delete_item("loading_modal")
+        yield
+
+    def load_workspace_sequence(self, file_path):
+        import json
+        import shlex
+        from vvv.utils import ViewMode, resolve_relative_path
+
+        with open(file_path, "r") as f:
+            data = json.load(f)
+
+        workspace_dir = os.path.dirname(file_path)
+
+        with dpg.window(
+            tag="loading_modal",
+            modal=True,
+            show=True,
+            no_title_bar=True,
+            no_resize=True,
+            no_move=True,
+            width=350,
+            height=100,
+        ):
+            dpg.add_text("Cleaning up current session...", tag="loading_text")
+            dpg.add_spacer(height=5)
+            dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=0.0)
+
+        vp_width = max(dpg.get_viewport_client_width(), 800)
+        vp_height = max(dpg.get_viewport_client_height(), 600)
+        dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
+        yield
+
+        # 1. Close all currently open images
+        for vs_id in list(self.controller.view_states.keys()):
+            self.controller.close_image(vs_id)
+        yield
+
+        # 2. Temporarily disable Auto-History so it doesn't overwrite the Workspace settings
+        prev_history = getattr(self.controller, "use_history", True)
+        self.controller.use_history = False
+
+        id_mapping = {}  # Maps the saved JSON ID to the new internal session ID
+        vols_data = data.get("volumes", {})
+        total_vols = max(1, len(vols_data))
+        processed = 0
+
+        # 3. Load all raw volumes and apply their states
+        for old_id, v_data in vols_data.items():
+            raw_path = v_data["path"]
+            filename = os.path.basename(raw_path)
+
+            if dpg.does_item_exist("loading_text"):
+                dpg.set_value("loading_text", f"Loading volume...\n{filename}")
+                dpg.set_value("loading_progress", processed / total_vols)
+            yield
+
+            # Resolve relative paths back to absolute
+            if raw_path.startswith("4D:"):
+                tokens = shlex.split(raw_path[3:].strip())
+                abs_paths = [resolve_relative_path(p, workspace_dir) for p in tokens]
+                full_path = "4D:" + " ".join(f'"{p}"' for p in abs_paths)
+            else:
+                full_path = resolve_relative_path(raw_path, workspace_dir)
+
+            try:
+                # Load quietly, bypassing auto-history
+                new_id = self.controller.load_image(full_path, is_auto_overlay=True)
+                id_mapping[old_id] = new_id
+
+                vs = self.controller.view_states[new_id]
+                vs.sync_group = v_data.get("sync_group", 0)
+                vs.camera.from_dict(v_data["camera"])
+                vs.display.from_dict(v_data["display"])
+                vs.is_data_dirty = True
+            except Exception as e:
+                print(f"Failed to load workspace volume: {full_path}")
+
+            processed += 1
+            yield
+
+        # 4. Re-establish overlay connections safely
+        if dpg.does_item_exist("loading_text"):
+            dpg.set_value("loading_text", "Re-linking fusions and layouts...")
+            dpg.set_value("loading_progress", 1.0)
+        yield
+
+        for old_id, v_data in vols_data.items():
+            old_ov = v_data.get("overlay_id")
+            if old_ov and old_ov in id_mapping and old_id in id_mapping:
+                base_id = id_mapping[old_id]
+                over_id = id_mapping[old_ov]
+                self.controller.view_states[base_id].set_overlay(
+                    over_id, self.controller.volumes[over_id]
+                )
+
+        # 5. Restore Viewers exact configuration
+        for v_tag, v_data in data.get("viewers", {}).items():
+            viewer = self.controller.viewers[v_tag]
+            old_img_id = v_data.get("image_id")
+
+            if old_img_id and old_img_id in id_mapping:
+                viewer.set_image(id_mapping[old_img_id])
+            else:
+                viewer.drop_image()
+
+            viewer.set_orientation(ViewMode[v_data.get("orientation", "AXIAL")])
+
+        # 6. Cleanup
+        self.controller.use_history = prev_history
+        self.refresh_image_list_ui()
+        self.refresh_sync_ui()
+        self.set_context_viewer(self.controller.viewers["V1"])
 
         if dpg.does_item_exist("loading_modal"):
             dpg.delete_item("loading_modal")

@@ -558,7 +558,7 @@ class ViewState:
             self.ww = p98 - p2
             self.wl = (p98 + p2) / 2
 
-            # FIXED FOR EXTREMELY SMALL VALUES
+            # For extremely small values
             if self.ww <= 1e-20:
                 self.ww = p99 - p1
                 if self.ww <= 1e-20:
@@ -676,12 +676,12 @@ class ViewState:
             stride = max(1, self.volume.data.size // 100000)
             sample_data = self.volume.data.flatten()[::stride]
             p2, p98 = np.percentile(sample_data, [2, 98])
-            self.ww = max(1e-20, p98 - p2)  # FIXED
+            self.ww = max(1e-20, p98 - p2)
             self.wl = (p98 + p2) / 2
         elif "Min/Max" in preset_name:
             min_v = float(np.min(self.volume.data))
             max_v = float(np.max(self.volume.data))
-            self.ww = max(1e-20, max_v - min_v)  # FIXED
+            self.ww = max(1e-20, max_v - min_v)
             self.wl = (max_v + min_v) / 2
         elif preset_name in WL_PRESETS and WL_PRESETS[preset_name] is not None:
             self.ww = WL_PRESETS[preset_name]["ww"]
@@ -907,7 +907,7 @@ class Controller:
 
         return img_id
 
-    def _process_binary_mask(self, base_vol, mask_vol):
+    def process_binary_mask(self, base_vol, mask_vol):
         """Helper to resample and autocrop a binary mask."""
         if (
             mask_vol.shape3d != base_vol.shape3d
@@ -951,7 +951,7 @@ class Controller:
         base_vol = self.volumes[base_id]
         mask_vol = VolumeData(filepath)
 
-        self._process_binary_mask(base_vol, mask_vol)
+        self.process_binary_mask(base_vol, mask_vol)
 
         mask_id = str(self._next_image_id)
         self._next_image_id += 1
@@ -959,6 +959,20 @@ class Controller:
 
         if name is None:
             name = os.path.basename(filepath)
+            for ext in [
+                ".nii.gz",
+                ".nii",
+                ".mhd",
+                ".mha",
+                ".nrrd",
+                ".dcm",
+                ".tif",
+                ".png",
+                ".jpg",
+            ]:
+                if name.lower().endswith(ext):
+                    name = name[: -len(ext)]
+                    break
 
         roi_state = ROIState(mask_id, name, color)
         self.view_states[base_id].rois[mask_id] = roi_state
@@ -973,9 +987,8 @@ class Controller:
         mask_vol = self.volumes[roi_id]
         was_reset = mask_vol.reload()
 
-        # Re-apply resampling and autocropping to the fresh data
         base_vol = self.volumes[base_id]
-        self._process_binary_mask(base_vol, mask_vol)
+        self.process_binary_mask(base_vol, mask_vol)
 
         self.view_states[base_id].is_data_dirty = True
         self.update_all_viewers_of_image(base_id)
@@ -992,14 +1005,12 @@ class Controller:
         if z0 == z1:  # Empty mask
             return
 
-        # Calculate centroid in voxel space (relative to base image)
         cx = (x0 + x1 - 1) / 2.0
         cy = (y0 + y1 - 1) / 2.0
         cz = (z0 + z1 - 1) / 2.0
 
         vs = self.view_states[base_id]
 
-        # Jump the crosshair precisely to the center of the bounding box
         vs.crosshair_voxel = [cx, cy, cz, vs.time_idx]
         vs.crosshair_phys_coord = mask_vol.voxel_coord_to_physic_coord(
             np.array([cx, cy, cz])
@@ -1007,7 +1018,6 @@ class Controller:
 
         self.propagate_sync(base_id)
 
-        # Command the synced cameras to actively pan
         target_group = vs.sync_group
         for viewer in self.viewers.values():
             if viewer.image_id and viewer.view_state:
@@ -1016,6 +1026,47 @@ class Controller:
                 ):
                     viewer.needs_recenter = True
                     viewer.is_geometry_dirty = True
+
+    def get_roi_stats(self, roi_id, target_image_id, time_idx=0):
+        if roi_id not in self.volumes or target_image_id not in self.volumes:
+            return None
+
+        roi_vol = self.volumes[roi_id]
+        target_vol = self.volumes[target_image_id]
+
+        # 1. Calculate physical volume per voxel in cubic centimeters (cc)
+        voxel_vol_mm3 = abs(np.prod(roi_vol.spacing))
+
+        # 2. Extract the 3D mask
+        mask = roi_vol.data > 0
+        voxel_count = np.count_nonzero(mask)
+        vol_cc = (voxel_count * voxel_vol_mm3) / 1000.0
+
+        if voxel_count == 0:
+            return {"vol": 0.0, "mean": 0.0, "max": 0.0, "min": 0.0, "std": 0.0}
+
+        # 3. Apply the mask to the target volume data
+        if target_vol.num_timepoints > 1:
+            t = min(time_idx, target_vol.num_timepoints - 1)
+            target_data = target_vol.data[t]
+        else:
+            target_data = target_vol.data
+
+        # NEW: We must crop the target image to match the ROI's bounding box!
+        if hasattr(roi_vol, "roi_bbox"):
+            z0, z1, y0, y1, x0, x1 = roi_vol.roi_bbox
+            if z0 != z1:
+                target_data = target_data[z0:z1, y0:y1, x0:x1]
+
+        pixels = target_data[mask]
+
+        return {
+            "vol": vol_cc,
+            "mean": float(np.mean(pixels)),
+            "max": float(np.max(pixels)),
+            "min": float(np.min(pixels)),
+            "std": float(np.std(pixels)),
+        }
 
     def unify_ppm(self, target_viewer_tags):
         valid_viewers = [
