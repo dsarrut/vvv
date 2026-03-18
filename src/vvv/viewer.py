@@ -926,6 +926,44 @@ class SliceViewer:
             else:
                 text_lines.append(fmt(v, 1))
 
+            roi_names = []
+            for r_id, r_state in self.view_state.rois.items():
+                if r_state.visible:
+                    r_vol = self.controller.volumes.get(r_id)
+                    if r_vol:
+                        if hasattr(r_vol, "roi_bbox"):
+                            z0, z1, y0, y1, x0, x1 = r_vol.roi_bbox
+                            if x0 <= ix < x1 and y0 <= iy < y1 and z0 <= iz < z1:
+                                rx, ry, rz = ix - x0, iy - y0, iz - z0
+                                rt = min(
+                                    self.view_state.camera.time_idx,
+                                    r_vol.num_timepoints - 1,
+                                )
+                                r_val = (
+                                    r_vol.data[rt, rz, ry, rx]
+                                    if r_vol.num_timepoints > 1
+                                    else r_vol.data[rz, ry, rx]
+                                )
+                                if r_val > 0:
+                                    roi_names.append(r_state.name)
+                        else:
+                            mz, my, mx = r_vol.shape3d
+                            if 0 <= ix < mx and 0 <= iy < my and 0 <= iz < mz:
+                                rt = min(
+                                    self.view_state.camera.time_idx,
+                                    r_vol.num_timepoints - 1,
+                                )
+                                r_val = (
+                                    r_vol.data[rt, iz, iy, ix]
+                                    if r_vol.num_timepoints > 1
+                                    else r_vol.data[iz, iy, ix]
+                                )
+                                if r_val > 0:
+                                    roi_names.append(r_state.name)
+
+            if roi_names:
+                text_lines[0] += f"  [{', '.join(roi_names)}]"
+
             text_lines.append(f"{fmt(phys, 1)} mm")
             dpg.set_value(self.tracker_tag, "\n".join(text_lines))
         else:

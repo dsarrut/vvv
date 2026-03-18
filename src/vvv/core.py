@@ -1107,47 +1107,6 @@ class Controller:
             "mass": mass_g,
         }
 
-    def get_roi_stats_OLD(self, roi_id, target_image_id, time_idx=0):
-        if roi_id not in self.volumes or target_image_id not in self.volumes:
-            return None
-
-        roi_vol = self.volumes[roi_id]
-        target_vol = self.volumes[target_image_id]
-
-        # 1. Calculate physical volume per voxel in cubic centimeters (cc)
-        voxel_vol_mm3 = abs(np.prod(roi_vol.spacing))
-
-        # 2. Extract the 3D mask
-        mask = roi_vol.data > 0
-        voxel_count = np.count_nonzero(mask)
-        vol_cc = (voxel_count * voxel_vol_mm3) / 1000.0
-
-        if voxel_count == 0:
-            return {"vol": 0.0, "mean": 0.0, "max": 0.0, "min": 0.0, "std": 0.0}
-
-        # 3. Apply the mask to the target volume data
-        if target_vol.num_timepoints > 1:
-            t = min(time_idx, target_vol.num_timepoints - 1)
-            target_data = target_vol.data[t]
-        else:
-            target_data = target_vol.data
-
-        # NEW: We must crop the target image to match the ROI's bounding box!
-        if hasattr(roi_vol, "roi_bbox"):
-            z0, z1, y0, y1, x0, x1 = roi_vol.roi_bbox
-            if z0 != z1:
-                target_data = target_data[z0:z1, y0:y1, x0:x1]
-
-        pixels = target_data[mask]
-
-        return {
-            "vol": vol_cc,
-            "mean": float(np.mean(pixels)),
-            "max": float(np.max(pixels)),
-            "min": float(np.min(pixels)),
-            "std": float(np.std(pixels)),
-        }
-
     def unify_ppm(self, target_viewer_tags):
         valid_viewers = [
             self.viewers[tag]

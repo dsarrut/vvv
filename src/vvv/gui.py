@@ -1,4 +1,5 @@
 import dearpygui.dearpygui as dpg
+import json
 import os
 import time
 import threading
@@ -721,14 +722,14 @@ class MainGUI:
             dpg.bind_item_theme("slider_roi_opacity", theme_tag)
             # ---------------------------------------------
 
-            with dpg.group(horizontal=True):
+            """with dpg.group(horizontal=True):
                 dpg.add_text("Contour:")
                 dpg.add_checkbox(
                     label="Enable (Phase 5)",
                     default_value=roi.is_contour,
                     user_data=active_id,
                     enabled=False,
-                )
+                )"""
 
             dpg.add_spacer(height=5)
 
@@ -829,90 +830,6 @@ class MainGUI:
         for tag in tags:
             if dpg.does_item_exist(tag):
                 dpg.set_value(tag, "---")
-
-    def refresh_roi_detail_ui_OLD(self):
-        container = "roi_detail_container"
-        if not dpg.does_item_exist(container):
-            return
-
-        dpg.delete_item(container, children_only=True)
-        viewer = self.context_viewer
-
-        active_id = getattr(self, "active_roi_id", None)
-        if (
-            not viewer
-            or not viewer.view_state
-            or not active_id
-            or active_id not in viewer.view_state.rois
-        ):
-            dpg.add_text(
-                "Select a ROI from the list above.",
-                color=self.ui_cfg["colors"]["text_dim"],
-                parent=container,
-            )
-            self.clear_roi_stats()
-            return
-
-        roi = viewer.view_state.rois[active_id]
-
-        with dpg.group(parent=container):
-            with dpg.group(horizontal=True):
-                dpg.add_text("Opacity:")
-                dpg.add_slider_float(
-                    default_value=roi.opacity,
-                    min_value=0.0,
-                    max_value=1.0,
-                    width=-1,
-                    user_data=active_id,
-                    callback=self.on_roi_opacity_changed,
-                )
-
-            with dpg.group(horizontal=True):
-                dpg.add_text("Contour:")
-                dpg.add_checkbox(
-                    label="Enable (Phase 5)",
-                    default_value=roi.is_contour,
-                    user_data=active_id,
-                    enabled=False,
-                )
-
-            dpg.add_spacer(height=5)
-
-            # --- ROI Statistics ---
-            with dpg.group(horizontal=True):
-                dpg.add_text("Analyze:")
-                dpg.add_combo(
-                    ["Base Image", "Active Overlay"],
-                    default_value="Base Image",
-                    tag="combo_roi_image",
-                    width=-1,
-                    callback=self.on_roi_stat_dropdown_changed,
-                )
-
-            dim_col = self.ui_cfg["colors"]["text_dim"]
-            with dpg.table(header_row=False, borders_innerH=True):
-                dpg.add_table_column(width_stretch=True)
-                dpg.add_table_column(width_stretch=True)
-                with dpg.table_row():
-                    with dpg.group(horizontal=True):
-                        dpg.add_text("Vol:", color=dim_col)
-                        dpg.add_text("---", tag="roi_stat_vol")
-                    with dpg.group(horizontal=True):
-                        dpg.add_text("Mean:", color=dim_col)
-                        dpg.add_text("---", tag="roi_stat_mean")
-                with dpg.table_row():
-                    with dpg.group(horizontal=True):
-                        dpg.add_text("Max:", color=dim_col)
-                        dpg.add_text("---", tag="roi_stat_max")
-                    with dpg.group(horizontal=True):
-                        dpg.add_text("Min:", color=dim_col)
-                        dpg.add_text("---", tag="roi_stat_min")
-                with dpg.table_row():
-                    with dpg.group(horizontal=True):
-                        dpg.add_text("Std:", color=dim_col)
-                        dpg.add_text("---", tag="roi_stat_std")
-
-        self.update_roi_stats_ui()
 
     def update_sidebar_info(self, viewer):
         if not viewer or viewer.image_id is None:
@@ -1057,6 +974,41 @@ class MainGUI:
                     ov_val = vs.overlay_data[iz, iy, ix]
 
                 val_str += f" ({ov_val:g})"
+
+            # --- NEW: Get names of intersecting ROIs safely ---
+            roi_names = []
+            for r_id, r_state in vs.rois.items():
+                if r_state.visible:
+                    r_vol = self.controller.volumes.get(r_id)
+                    if r_vol:
+                        # Handle Autocropped arrays safely!
+                        if hasattr(r_vol, "roi_bbox"):
+                            z0, z1, y0, y1, x0, x1 = r_vol.roi_bbox
+                            if x0 <= ix < x1 and y0 <= iy < y1 and z0 <= iz < z1:
+                                rx, ry, rz = ix - x0, iy - y0, iz - z0
+                                rt = min(vs.camera.time_idx, r_vol.num_timepoints - 1)
+                                r_val = (
+                                    r_vol.data[rt, rz, ry, rx]
+                                    if r_vol.num_timepoints > 1
+                                    else r_vol.data[rz, ry, rx]
+                                )
+                                if r_val > 0:
+                                    roi_names.append(r_state.name)
+                        else:
+                            mz, my, mx = r_vol.shape3d
+                            if 0 <= ix < mx and 0 <= iy < my and 0 <= iz < mz:
+                                rt = min(vs.camera.time_idx, r_vol.num_timepoints - 1)
+                                r_val = (
+                                    r_vol.data[rt, iz, iy, ix]
+                                    if r_vol.num_timepoints > 1
+                                    else r_vol.data[iz, iy, ix]
+                                )
+                                if r_val > 0:
+                                    roi_names.append(r_state.name)
+
+            if roi_names:
+                val_str += f"  [{', '.join(roi_names)}]"
+
             dpg.set_value("info_val", val_str)
 
             ppm = viewer.get_pixels_per_mm()
@@ -1069,60 +1021,6 @@ class MainGUI:
                     f"{win_w / ppm:.0f} x {win_h / ppm:.0f} mm",
                 )
             dpg.set_value("info_ppm", f"{round(ppm,2):g} px/mm")
-
-    def update_roi_stats_ui_OLD(self):
-        viewer = self.context_viewer
-        active_id = getattr(self, "active_roi_id", None)
-
-        if (
-            not viewer
-            or not viewer.view_state
-            or not active_id
-            or active_id not in viewer.view_state.rois
-        ):
-            self.clear_roi_stats()
-            return
-
-        roi_id = active_id
-        image_source = (
-            dpg.get_value("combo_roi_image")
-            if dpg.does_item_exist("combo_roi_image")
-            else "Base Image"
-        )
-
-        target_image_id = viewer.image_id
-        if image_source == "Active Overlay":
-            if not viewer.view_state.overlay_id:
-                self.clear_roi_stats()
-                return
-            target_image_id = viewer.view_state.overlay_id
-
-        stats = self.controller.get_roi_stats(
-            roi_id, target_image_id, viewer.view_state.camera.time_idx
-        )
-
-        if not stats:
-            self.clear_roi_stats()
-            return
-
-        dpg.set_value("roi_stat_vol", f"{stats['vol']:.2f} cc")
-        dpg.set_value("roi_stat_mean", f"{stats['mean']:.2f}")
-        dpg.set_value("roi_stat_max", f"{stats['max']:.2f}")
-        dpg.set_value("roi_stat_min", f"{stats['min']:.2f}")
-        dpg.set_value("roi_stat_std", f"{stats['std']:.2f}")
-
-    def clear_roi_stats_OLD(self):
-        """Resets the ROI statistics display to default empty values."""
-        tags = [
-            "roi_stat_vol",
-            "roi_stat_mean",
-            "roi_stat_max",
-            "roi_stat_min",
-            "roi_stat_std",
-        ]
-        for tag in tags:
-            if dpg.does_item_exist(tag):
-                dpg.set_value(tag, "---")
 
     def set_context_viewer(self, viewer):
         """Centralized helper to switch the Active Menu/Sidebar target."""
@@ -1485,6 +1383,60 @@ class MainGUI:
 
         # Only refresh the details pane so the scrollbar remains perfectly un-disturbed
         self.refresh_roi_detail_ui()
+
+    def on_roi_show_all(self, sender, app_data, user_data):
+        viewer = self.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+        for roi in viewer.view_state.rois.values():
+            roi.visible = True
+        viewer.view_state.is_data_dirty = True
+        self.refresh_rois_ui()
+        self.controller.update_all_viewers_of_image(viewer.image_id)
+
+    def on_roi_hide_all(self, sender, app_data, user_data):
+        viewer = self.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+        for roi in viewer.view_state.rois.values():
+            roi.visible = False
+        viewer.view_state.is_data_dirty = True
+        self.refresh_rois_ui()
+        self.controller.update_all_viewers_of_image(viewer.image_id)
+
+    def on_export_roi_stats_clicked(self, sender, app_data, user_data):
+        viewer = self.context_viewer
+        if not viewer or not viewer.view_state or not viewer.view_state.rois:
+            self.show_status_message("No ROIs to export.", color=[255, 100, 100])
+            return
+
+        file_path = save_file_dialog("Export ROI Stats", default_name="roi_stats.json")
+        if not file_path:
+            return
+        if not file_path.endswith(".json"):
+            file_path += ".json"
+
+        image_source = (
+            dpg.get_value("combo_roi_image")
+            if dpg.does_item_exist("combo_roi_image")
+            else "Base Image"
+        )
+        is_overlay = image_source == "Active Overlay"
+
+        results = {}
+        for r_id, r_state in viewer.view_state.rois.items():
+            stats = self.controller.get_roi_stats(
+                viewer.image_id, r_id, is_overlay=is_overlay
+            )
+            if stats:
+                results[r_state.name] = stats
+
+        try:
+            with open(file_path, "w") as f:
+                json.dump(results, f, indent=4)
+            self.show_status_message(f"Exported stats to {os.path.basename(file_path)}")
+        except Exception as e:
+            self.show_message("Export Failed", str(e))
 
     def on_roi_stat_dropdown_changed(self, sender, app_data, user_data):
         self.update_roi_stats_ui()

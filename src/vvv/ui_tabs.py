@@ -108,15 +108,36 @@ def build_tab_rois(gui):
         dpg.add_spacer(height=10)
 
         # --- MIDDLE: The Master List ---
-        # dpg.add_text("Loaded Regions", color=cfg_c["text_header"])
-        # dpg.add_separator()
+        with dpg.group(horizontal=True):
+            # dpg.add_text("Loaded Regions", color=cfg_c["text_header"])
+            # dpg.add_spacer(width=10)
 
-        # List of ROIs
+            # Show/Hide All Buttons
+            btn_show = dpg.add_button(
+                label="\uf06e", width=20, callback=gui.on_roi_show_all
+            )
+            btn_hide = dpg.add_button(
+                label="\uf070", width=20, callback=gui.on_roi_hide_all
+            )
+            if dpg.does_item_exist("icon_font_tag"):
+                dpg.bind_item_font(btn_show, "icon_font_tag")
+                dpg.bind_item_font(btn_hide, "icon_font_tag")
+
+        dpg.add_separator()
+
         with dpg.child_window(
-            tag="roi_list_window", height=350, border=False, no_scrollbar=True
+            tag="roi_list_window", height=150, border=False, no_scrollbar=True
         ):
             dpg.add_group(tag="roi_list_container")
 
+        dpg.add_spacer(height=5)
+
+        # Export Button
+        dpg.add_button(
+            label="Export All Stats to JSON",
+            width=-1,
+            callback=gui.on_export_roi_stats_clicked,
+        )
         dpg.add_spacer(height=10)
 
         # --- BOTTOM: The Detail Panel ---
