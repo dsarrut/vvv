@@ -1041,7 +1041,73 @@ class Controller:
                     viewer.needs_recenter = True
                     viewer.is_geometry_dirty = True
 
-    def get_roi_stats(self, roi_id, target_image_id, time_idx=0):
+    def get_roi_stats(self, base_vs_id, roi_id, is_overlay=False):
+        if base_vs_id not in self.view_states or roi_id not in self.volumes:
+            return None
+
+        vs = self.view_states[base_vs_id]
+        roi_vol = self.volumes[roi_id]
+
+        # 1. Calculate physical volume per voxel in cubic centimeters (cc)
+        voxel_vol_mm3 = abs(np.prod(roi_vol.spacing))
+        mask = roi_vol.data > 0
+        voxel_count = np.count_nonzero(mask)
+        vol_cc = (voxel_count * voxel_vol_mm3) / 1000.0
+
+        if voxel_count == 0:
+            return {
+                "vol": 0.0,
+                "mean": 0.0,
+                "max": 0.0,
+                "min": 0.0,
+                "std": 0.0,
+                "peak": 0.0,
+                "mass": 0.0,
+            }
+
+        # 2. Extract the target data (Base vs Resampled Overlay)
+        if is_overlay:
+            if not vs.display.overlay_id or vs.display.overlay_data is None:
+                return None
+            target_data = vs.display.overlay_data
+            ov_vol = self.volumes[vs.display.overlay_id]
+            if ov_vol.num_timepoints > 1:
+                t = min(vs.camera.time_idx, ov_vol.num_timepoints - 1)
+                target_data = target_data[t]
+        else:
+            base_vol = self.volumes[base_vs_id]
+            target_data = base_vol.data
+            if base_vol.num_timepoints > 1:
+                t = min(vs.camera.time_idx, base_vol.num_timepoints - 1)
+                target_data = target_data[t]
+
+        # 3. Crop the target image to match the ROI's bounding box
+        if hasattr(roi_vol, "roi_bbox"):
+            z0, z1, y0, y1, x0, x1 = roi_vol.roi_bbox
+            if z0 != z1:
+                target_data = target_data[z0:z1, y0:y1, x0:x1]
+
+        pixels = target_data[mask]
+
+        # 4. Compute advanced statistics
+        mean_val = float(np.mean(pixels))
+        peak_val = float(np.percentile(pixels, 95))  # Robust P95 Peak
+
+        # Mass assumes CT Hounsfield Units (Water = 0 = 1g/cc, Air = -1000 = 0g/cc)
+        density_g_cc = (mean_val / 1000.0) + 1.0
+        mass_g = vol_cc * density_g_cc
+
+        return {
+            "vol": vol_cc,
+            "mean": mean_val,
+            "max": float(np.max(pixels)),
+            "min": float(np.min(pixels)),
+            "std": float(np.std(pixels)),
+            "peak": peak_val,
+            "mass": mass_g,
+        }
+
+    def get_roi_stats_OLD(self, roi_id, target_image_id, time_idx=0):
         if roi_id not in self.volumes or target_image_id not in self.volumes:
             return None
 

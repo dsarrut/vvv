@@ -25,7 +25,7 @@ def build_tab_sync(gui):
 
 def build_tab_fusion(gui):
     cfg_c = gui.ui_cfg["colors"]
-    with dpg.tab(label="Fusion", tag="tab_fusion"):  # Reverted label
+    with dpg.tab(label="Overlay", tag="tab_fusion"):  # Reverted label
         dpg.add_spacer(height=5)
         dpg.add_text("Active Overlay", color=cfg_c["text_header"])
         dpg.add_separator()
@@ -93,8 +93,8 @@ def build_tab_rois(gui):
         dpg.add_spacer(height=5)
 
         # --- TOP: Load & Import ---
-        dpg.add_text("ROI Management", color=cfg_c["text_header"])
-        dpg.add_separator()
+        # dpg.add_text("ROI Management", color=cfg_c["text_header"])
+        # dpg.add_separator()
         with dpg.group(horizontal=True):
             dpg.add_button(
                 label="Load ROI...", width=80, callback=gui.on_load_roi_clicked
@@ -108,8 +108,8 @@ def build_tab_rois(gui):
         dpg.add_spacer(height=10)
 
         # --- MIDDLE: The Master List ---
-        dpg.add_text("Loaded Regions", color=cfg_c["text_header"])
-        dpg.add_separator()
+        # dpg.add_text("Loaded Regions", color=cfg_c["text_header"])
+        # dpg.add_separator()
 
         # List of ROIs
         with dpg.child_window(

@@ -608,21 +608,14 @@ class MainGUI:
             scrollY=True,
         ):
             dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
             dpg.add_table_column(width_stretch=True)
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
             dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
             dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
 
             for roi_id, roi in viewer.view_state.rois.items():
                 with dpg.table_row():
                     lbl_eye = "\uf06e" if roi.visible else "\uf070"
-                    btn_eye = dpg.add_button(
-                        label=lbl_eye,
-                        width=20,
-                        user_data=roi_id,
-                        callback=self.on_roi_toggle_visible,
-                    )
-
                     dpg.add_color_edit(
                         default_value=roi.color + [255],
                         no_inputs=True,
@@ -644,6 +637,13 @@ class MainGUI:
                     )
                     self.roi_selectables[roi_id] = sel_id
                     # ---------------------------------
+
+                    btn_eye = dpg.add_button(
+                        label=lbl_eye,
+                        width=20,
+                        user_data=roi_id,
+                        callback=self.on_roi_toggle_visible,
+                    )
 
                     btn_reload = dpg.add_button(
                         label="\uf01e",
@@ -667,6 +667,170 @@ class MainGUI:
         self.refresh_roi_detail_ui()
 
     def refresh_roi_detail_ui(self):
+        container = "roi_detail_container"
+        if not dpg.does_item_exist(container):
+            return
+
+        dpg.delete_item(container, children_only=True)
+        viewer = self.context_viewer
+
+        active_id = getattr(self, "active_roi_id", None)
+        if (
+            not viewer
+            or not viewer.view_state
+            or not active_id
+            or active_id not in viewer.view_state.rois
+        ):
+            dpg.add_text(
+                "Select a ROI from the list above.",
+                color=self.ui_cfg["colors"]["text_dim"],
+                parent=container,
+            )
+            self.clear_roi_stats()
+            return
+
+        roi = viewer.view_state.rois[active_id]
+
+        with dpg.group(parent=container):
+            with dpg.group(horizontal=True):
+                dpg.add_text("Opacity:")
+                dpg.add_slider_float(
+                    default_value=roi.opacity,
+                    min_value=0.0,
+                    max_value=1.0,
+                    width=-1,
+                    tag="slider_roi_opacity",  # <--- Tag required for theme binding!
+                    user_data=active_id,
+                    callback=self.on_roi_opacity_changed,
+                )
+
+            # --- THE FIX: DYNAMIC COLORED SLIDER THEME ---
+            theme_tag = "dynamic_roi_slider_theme"
+            if dpg.does_item_exist(theme_tag):
+                dpg.delete_item(theme_tag)
+            with dpg.theme(tag=theme_tag):
+                with dpg.theme_component(dpg.mvSliderFloat):
+                    r, g, b = roi.color
+                    dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, [r, g, b, 255])
+                    dpg.add_theme_color(
+                        dpg.mvThemeCol_SliderGrabActive,
+                        [min(255, r + 40), min(255, g + 40), min(255, b + 40), 255],
+                    )
+                    dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, [r, g, b, 100])
+                    dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, [r, g, b, 50])
+            dpg.bind_item_theme("slider_roi_opacity", theme_tag)
+            # ---------------------------------------------
+
+            with dpg.group(horizontal=True):
+                dpg.add_text("Contour:")
+                dpg.add_checkbox(
+                    label="Enable (Phase 5)",
+                    default_value=roi.is_contour,
+                    user_data=active_id,
+                    enabled=False,
+                )
+
+            dpg.add_spacer(height=5)
+
+            # --- ROI Statistics ---
+            with dpg.group(horizontal=True):
+                dpg.add_text("Analyze:")
+                dpg.add_combo(
+                    ["Base Image", "Active Overlay"],
+                    default_value="Base Image",
+                    tag="combo_roi_image",
+                    width=-1,
+                    callback=self.on_roi_stat_dropdown_changed,
+                )
+
+            dim_col = self.ui_cfg["colors"]["text_dim"]
+            with dpg.table(header_row=False, borders_innerH=True):
+                dpg.add_table_column(width_stretch=True)
+                dpg.add_table_column(width_stretch=True)
+                with dpg.table_row():
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("Vol:", color=dim_col)
+                        dpg.add_text("---", tag="roi_stat_vol")
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("Mean:", color=dim_col)
+                        dpg.add_text("---", tag="roi_stat_mean")
+                with dpg.table_row():
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("Max:", color=dim_col)
+                        dpg.add_text("---", tag="roi_stat_max")
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("Min:", color=dim_col)
+                        dpg.add_text("---", tag="roi_stat_min")
+                with dpg.table_row():
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("Std:", color=dim_col)
+                        dpg.add_text("---", tag="roi_stat_std")
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("Peak:", color=dim_col)
+                        dpg.add_text("---", tag="roi_stat_peak")
+                with dpg.table_row():
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("Mass:", color=dim_col)
+                        dpg.add_text("---", tag="roi_stat_mass")
+                    with dpg.group(horizontal=True):
+                        pass  # Empty placeholder to balance the table
+
+        self.update_roi_stats_ui()
+
+    def update_roi_stats_ui(self):
+        viewer = self.context_viewer
+        active_id = getattr(self, "active_roi_id", None)
+
+        if (
+            not viewer
+            or not viewer.view_state
+            or not active_id
+            or active_id not in viewer.view_state.rois
+        ):
+            self.clear_roi_stats()
+            return
+
+        roi_id = active_id
+        image_source = (
+            dpg.get_value("combo_roi_image")
+            if dpg.does_item_exist("combo_roi_image")
+            else "Base Image"
+        )
+
+        is_overlay = image_source == "Active Overlay"
+
+        stats = self.controller.get_roi_stats(
+            base_vs_id=viewer.image_id, roi_id=roi_id, is_overlay=is_overlay
+        )
+
+        if not stats:
+            self.clear_roi_stats()
+            return
+
+        dpg.set_value("roi_stat_vol", f"{stats['vol']:.2f} cc")
+        dpg.set_value("roi_stat_mean", f"{stats['mean']:.2f}")
+        dpg.set_value("roi_stat_max", f"{stats['max']:.2f}")
+        dpg.set_value("roi_stat_min", f"{stats['min']:.2f}")
+        dpg.set_value("roi_stat_std", f"{stats['std']:.2f}")
+        dpg.set_value("roi_stat_peak", f"{stats['peak']:.2f}")
+        dpg.set_value("roi_stat_mass", f"{stats['mass']:.2f} g")
+
+    def clear_roi_stats(self):
+        """Resets the ROI statistics display to default empty values."""
+        tags = [
+            "roi_stat_vol",
+            "roi_stat_mean",
+            "roi_stat_max",
+            "roi_stat_min",
+            "roi_stat_std",
+            "roi_stat_peak",
+            "roi_stat_mass",
+        ]
+        for tag in tags:
+            if dpg.does_item_exist(tag):
+                dpg.set_value(tag, "---")
+
+    def refresh_roi_detail_ui_OLD(self):
         container = "roi_detail_container"
         if not dpg.does_item_exist(container):
             return
@@ -906,7 +1070,7 @@ class MainGUI:
                 )
             dpg.set_value("info_ppm", f"{round(ppm,2):g} px/mm")
 
-    def update_roi_stats_ui(self):
+    def update_roi_stats_ui_OLD(self):
         viewer = self.context_viewer
         active_id = getattr(self, "active_roi_id", None)
 
@@ -947,7 +1111,7 @@ class MainGUI:
         dpg.set_value("roi_stat_min", f"{stats['min']:.2f}")
         dpg.set_value("roi_stat_std", f"{stats['std']:.2f}")
 
-    def clear_roi_stats(self):
+    def clear_roi_stats_OLD(self):
         """Resets the ROI statistics display to default empty values."""
         tags = [
             "roi_stat_vol",
