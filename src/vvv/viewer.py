@@ -871,20 +871,17 @@ class SliceViewer:
         v = slice_to_voxel(pix_x, pix_y, idx, self.orientation, shape)
         phys = self.volume.voxel_coord_to_physic_coord(np.array(v))
 
-        ix = int(np.floor(v[0] + 0.5))
-        iy = int(np.floor(v[1] + 0.5))
-        iz = int(np.floor(v[2] + 0.5))
-
-        max_z, max_y, max_x = self.volume.shape3d
         col = self.controller.settings.data["colors"]["tracker_text"]
         dpg.configure_item(self.tracker_tag, color=col)
 
-        if 0 <= ix < max_x and 0 <= iy < max_y and 0 <= iz < max_z:
-            if self.volume.num_timepoints > 1:
-                val = self.volume.data[self.view_state.camera.time_idx, iz, iy, ix]
-            else:
-                val = self.volume.data[iz, iy, ix]
+        info = self.controller.get_pixel_values_at_voxel(
+            self.image_id, [v[0], v[1], v[2], self.view_state.camera.time_idx]
+        )
 
+        if info is not None:
+            val = info["base_val"]
+
+            # Maintain backward compatibility for scripts relying on mouse_value
             self.mouse_value, self.mouse_voxel, self.mouse_phys_coord = (
                 val,
                 [v[0], v[1], v[2], self.view_state.camera.time_idx],
@@ -896,28 +893,13 @@ class SliceViewer:
                 if getattr(self.volume, "is_rgb", False)
                 else f"{val:g}"
             )
-
             text_lines = [f"{val_str}"]
 
-            if (
-                self.view_state.display.overlay_id
-                and self.view_state.display.overlay_id in self.controller.volumes
-            ):
-                ov_vol = self.controller.volumes[self.view_state.display.overlay_id]
-                ov_vox = ov_vol.physic_coord_to_voxel_coord(phys)
+            if info["overlay_val"] is not None:
+                text_lines[0] += f" ({info['overlay_val']:g})"
 
-                ox = int(np.floor(ov_vox[0] + 0.5))
-                oy = int(np.floor(ov_vox[1] + 0.5))
-                oz = int(np.floor(ov_vox[2] + 0.5))
-                mz, my, mx = ov_vol.shape3d
-
-                if 0 <= ox < mx and 0 <= oy < my and 0 <= oz < mz:
-                    ot = min(self.view_state.camera.time_idx, ov_vol.num_timepoints - 1)
-                    if ov_vol.num_timepoints > 1:
-                        ov_val = ov_vol.data[ot, oz, oy, ox]
-                    else:
-                        ov_val = ov_vol.data[oz, oy, ox]
-                    text_lines[0] += f" ({ov_val:g})"
+            if info["rois"]:
+                text_lines[0] += f"  {', '.join(info['rois'])}"
 
             if self.volume.num_timepoints > 1:
                 text_lines.append(
@@ -925,44 +907,6 @@ class SliceViewer:
                 )
             else:
                 text_lines.append(fmt(v, 1))
-
-            roi_names = []
-            for r_id, r_state in self.view_state.rois.items():
-                if r_state.visible:
-                    r_vol = self.controller.volumes.get(r_id)
-                    if r_vol:
-                        if hasattr(r_vol, "roi_bbox"):
-                            z0, z1, y0, y1, x0, x1 = r_vol.roi_bbox
-                            if x0 <= ix < x1 and y0 <= iy < y1 and z0 <= iz < z1:
-                                rx, ry, rz = ix - x0, iy - y0, iz - z0
-                                rt = min(
-                                    self.view_state.camera.time_idx,
-                                    r_vol.num_timepoints - 1,
-                                )
-                                r_val = (
-                                    r_vol.data[rt, rz, ry, rx]
-                                    if r_vol.num_timepoints > 1
-                                    else r_vol.data[rz, ry, rx]
-                                )
-                                if r_val > 0:
-                                    roi_names.append(r_state.name)
-                        else:
-                            mz, my, mx = r_vol.shape3d
-                            if 0 <= ix < mx and 0 <= iy < my and 0 <= iz < mz:
-                                rt = min(
-                                    self.view_state.camera.time_idx,
-                                    r_vol.num_timepoints - 1,
-                                )
-                                r_val = (
-                                    r_vol.data[rt, iz, iy, ix]
-                                    if r_vol.num_timepoints > 1
-                                    else r_vol.data[iz, iy, ix]
-                                )
-                                if r_val > 0:
-                                    roi_names.append(r_state.name)
-
-            if roi_names:
-                text_lines[0] += f"  [{', '.join(roi_names)}]"
 
             text_lines.append(f"{fmt(phys, 1)} mm")
             dpg.set_value(self.tracker_tag, "\n".join(text_lines))

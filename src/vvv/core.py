@@ -1107,6 +1107,93 @@ class Controller:
             "mass": mass_g,
         }
 
+    def get_pixel_values_at_voxel(self, vs_id, voxel_coord):
+        """
+        Calculates the Base value, Fused Target value, and intersecting ROIs for a specific voxel.
+        Centralizes the math for both the floating mouse tracker and the sidebar crosshair!
+        """
+        vs = self.view_states.get(vs_id)
+        if not vs:
+            return None
+
+        vol = self.volumes[vs_id]
+
+        # 1. Extract and clamp integer base coordinates
+        ix, iy, iz = [
+            int(np.clip(np.floor(c + 0.5), 0, limit - 1))
+            for c, limit in zip(
+                voxel_coord[:3], [vol.shape3d[2], vol.shape3d[1], vol.shape3d[0]]
+            )
+        ]
+
+        t_idx = int(voxel_coord[3]) if len(voxel_coord) > 3 else vs.time_idx
+
+        # 2. Base Image Value
+        base_val = None
+        mz, my, mx = vol.shape3d
+        if 0 <= ix < mx and 0 <= iy < my and 0 <= iz < mz:
+            if vol.num_timepoints > 1:
+                t = min(t_idx, vol.num_timepoints - 1)
+                base_val = vol.data[t, iz, iy, ix]
+            else:
+                base_val = vol.data[iz, iy, ix]
+
+        if base_val is None:
+            return None  # Mouse is completely outside the image bounds
+
+        # 3. Fused Target Overlay Value (Calculated via physical coordinate mapping)
+        overlay_val = None
+        if vs.overlay_id and vs.overlay_id in self.volumes:
+            ov_vol = self.volumes[vs.overlay_id]
+            phys = vol.voxel_coord_to_physic_coord(np.array([ix, iy, iz]))
+            ov_vox = ov_vol.physic_coord_to_voxel_coord(phys)
+
+            ox, oy, oz = (
+                int(np.floor(ov_vox[0] + 0.5)),
+                int(np.floor(ov_vox[1] + 0.5)),
+                int(np.floor(ov_vox[2] + 0.5)),
+            )
+            omz, omy, omx = ov_vol.shape3d
+
+            if 0 <= ox < omx and 0 <= oy < omy and 0 <= oz < omz:
+                ot = min(t_idx, ov_vol.num_timepoints - 1)
+                overlay_val = (
+                    ov_vol.data[ot, oz, oy, ox]
+                    if ov_vol.num_timepoints > 1
+                    else ov_vol.data[oz, oy, ox]
+                )
+
+        # 4. Intersecting ROIs (No visibility check! We want to see hidden ROIs)
+        roi_names = []
+        for r_id, r_state in vs.rois.items():
+            r_vol = self.volumes.get(r_id)
+            if r_vol:
+                if hasattr(r_vol, "roi_bbox"):
+                    rz0, rz1, ry0, ry1, rx0, rx1 = r_vol.roi_bbox
+                    if rx0 <= ix < rx1 and ry0 <= iy < ry1 and rz0 <= iz < rz1:
+                        rrx, rry, rrz = ix - rx0, iy - ry0, iz - rz0
+                        rt = min(t_idx, r_vol.num_timepoints - 1)
+                        r_val = (
+                            r_vol.data[rt, rrz, rry, rrx]
+                            if r_vol.num_timepoints > 1
+                            else r_vol.data[rrz, rry, rrx]
+                        )
+                        if r_val > 0:
+                            roi_names.append(r_state.name)
+                else:
+                    rmz, rmy, rmx = r_vol.shape3d
+                    if 0 <= ix < rmx and 0 <= iy < rmy and 0 <= iz < rmz:
+                        rt = min(t_idx, r_vol.num_timepoints - 1)
+                        r_val = (
+                            r_vol.data[rt, iz, iy, ix]
+                            if r_vol.num_timepoints > 1
+                            else r_vol.data[iz, iy, ix]
+                        )
+                        if r_val > 0:
+                            roi_names.append(r_state.name)
+
+        return {"base_val": base_val, "overlay_val": overlay_val, "rois": roi_names}
+
     def unify_ppm(self, target_viewer_tags):
         valid_viewers = [
             self.viewers[tag]

@@ -937,89 +937,46 @@ class MainGUI:
         vs, vol = viewer.view_state, viewer.volume
 
         if vs.crosshair_voxel is not None:
-            if vs.crosshair_voxel is not None:
-                if vol.num_timepoints > 1:
-                    dpg.set_value(
-                        "info_vox",
-                        f"{vs.crosshair_voxel[0]:.1f} {vs.crosshair_voxel[1]:.1f} "
-                        f"{vs.crosshair_voxel[2]:.1f} {vs.crosshair_voxel[3]}",
-                    )
-                else:
-                    dpg.set_value("info_vox", fmt(vs.crosshair_voxel[:3], 1))
+            if vol.num_timepoints > 1:
+                dpg.set_value(
+                    "info_vox",
+                    f"{vs.crosshair_voxel[0]:.1f} {vs.crosshair_voxel[1]:.1f} "
+                    f"{vs.crosshair_voxel[2]:.1f} {vs.crosshair_voxel[3]}",
+                )
+            else:
+                dpg.set_value("info_vox", fmt(vs.crosshair_voxel[:3], 1))
 
-                dpg.set_value("info_phys", fmt(vs.crosshair_phys_coord, 1))
             dpg.set_value("info_phys", fmt(vs.crosshair_phys_coord, 1))
-            val_str = (
-                f"{vs.crosshair_value[0]:g} {vs.crosshair_value[1]:g} {vs.crosshair_value[2]:g}"
-                if getattr(vol, "is_rgb", False)
-                else f"{vs.crosshair_value:g}"
+
+            # --- THE NEW CONSOLIDATED CALL ---
+            info = self.controller.get_pixel_values_at_voxel(
+                viewer.image_id, vs.crosshair_voxel
             )
+            if info is not None:
+                val = info["base_val"]
+                val_str = (
+                    f"{val[0]:g} {val[1]:g} {val[2]:g}"
+                    if getattr(vol, "is_rgb", False)
+                    else f"{val:g}"
+                )
 
-            if vs.overlay_data is not None:
-                ix, iy, iz = [
-                    int(np.clip(np.floor(c + 0.5), 0, limit - 1))
-                    for c, limit in zip(
-                        vs.crosshair_voxel[:3],
-                        [vol.shape3d[2], vol.shape3d[1], vol.shape3d[0]],
-                    )
-                ]
+                if info["overlay_val"] is not None:
+                    val_str += f" ({info['overlay_val']:g})"
 
-                # Fetch overlay using time limits
-                ovs = self.controller.view_states[vs.overlay_id]
-                ot = min(vs.time_idx, ovs.volume.num_timepoints - 1)
+                if info["rois"]:
+                    val_str += f"  {', '.join(info['rois'])}"
 
-                if ovs.volume.num_timepoints > 1:
-                    ov_val = vs.overlay_data[ot, iz, iy, ix]
-                else:
-                    ov_val = vs.overlay_data[iz, iy, ix]
-
-                val_str += f" ({ov_val:g})"
-
-            # --- NEW: Get names of intersecting ROIs safely ---
-            roi_names = []
-            for r_id, r_state in vs.rois.items():
-                if r_state.visible:
-                    r_vol = self.controller.volumes.get(r_id)
-                    if r_vol:
-                        # Handle Autocropped arrays safely!
-                        if hasattr(r_vol, "roi_bbox"):
-                            z0, z1, y0, y1, x0, x1 = r_vol.roi_bbox
-                            if x0 <= ix < x1 and y0 <= iy < y1 and z0 <= iz < z1:
-                                rx, ry, rz = ix - x0, iy - y0, iz - z0
-                                rt = min(vs.camera.time_idx, r_vol.num_timepoints - 1)
-                                r_val = (
-                                    r_vol.data[rt, rz, ry, rx]
-                                    if r_vol.num_timepoints > 1
-                                    else r_vol.data[rz, ry, rx]
-                                )
-                                if r_val > 0:
-                                    roi_names.append(r_state.name)
-                        else:
-                            mz, my, mx = r_vol.shape3d
-                            if 0 <= ix < mx and 0 <= iy < my and 0 <= iz < mz:
-                                rt = min(vs.camera.time_idx, r_vol.num_timepoints - 1)
-                                r_val = (
-                                    r_vol.data[rt, iz, iy, ix]
-                                    if r_vol.num_timepoints > 1
-                                    else r_vol.data[iz, iy, ix]
-                                )
-                                if r_val > 0:
-                                    roi_names.append(r_state.name)
-
-            if roi_names:
-                val_str += f"  [{', '.join(roi_names)}]"
-
-            dpg.set_value("info_val", val_str)
+                dpg.set_value("info_val", val_str)
+            else:
+                dpg.set_value("info_val", "---")
+            # ---------------------------------
 
             ppm = viewer.get_pixels_per_mm()
             win_w, win_h = dpg.get_item_width(f"win_{viewer.tag}"), dpg.get_item_height(
                 f"win_{viewer.tag}"
             )
             if ppm > 0 and win_w and win_h:
-                dpg.set_value(
-                    "info_scale",
-                    f"{win_w / ppm:.0f} x {win_h / ppm:.0f} mm",
-                )
+                dpg.set_value("info_scale", f"{win_w / ppm:.0f} x {win_h / ppm:.0f} mm")
             dpg.set_value("info_ppm", f"{round(ppm,2):g} px/mm")
 
     def set_context_viewer(self, viewer):
