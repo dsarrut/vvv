@@ -781,13 +781,19 @@ class ViewState:
 
 
 class ROIState:
-    def __init__(self, volume_id, name, color):
-        self.volume_id = volume_id  # ID of the mask VolumeData in the controller
+    def __init__(
+        self, volume_id, name, color, source_mode="Ignore BG (val)", source_val=0.0
+    ):
+        self.volume_id = volume_id
         self.name = name
-        self.color = color  # [R, G, B]
+        self.color = color
         self.opacity = 0.5
         self.visible = True
-        self.is_contour = False  # Default to fill for Phase 2
+        self.is_contour = False
+
+        # We save the rules so history loads perfectly!
+        self.source_mode = source_mode
+        self.source_val = source_val
 
     def to_dict(self):
         return {
@@ -797,6 +803,8 @@ class ROIState:
             "opacity": self.opacity,
             "visible": self.visible,
             "is_contour": self.is_contour,
+            "source_mode": self.source_mode,
+            "source_val": self.source_val,
         }
 
     def from_dict(self, d):
@@ -805,6 +813,8 @@ class ROIState:
         self.opacity = d.get("opacity", self.opacity)
         self.visible = d.get("visible", self.visible)
         self.is_contour = d.get("is_contour", self.is_contour)
+        self.source_mode = d.get("source_mode", "Ignore BG (val)")
+        self.source_val = d.get("source_val", 0.0)
 
 
 class Controller:
@@ -961,7 +971,154 @@ class Controller:
             else:
                 mask_vol.data = np.zeros((0, 0, 0), dtype=mask_vol.data.dtype)
 
-    def load_binary_mask(self, base_id, filepath, name=None, color=[255, 50, 50]):
+    def load_binary_mask(
+        self,
+        base_id,
+        filepath,
+        name=None,
+        color=[255, 50, 50],
+        mode="Ignore BG (val)",
+        target_val=0.0,
+    ):
+        base_vol = self.volumes[base_id]
+        mask_vol = VolumeData(filepath)
+
+        # Apply rule to raw data BEFORE any resampling or cropping!
+        if mode == "Target FG (val)":
+            mask_vol.data = (mask_vol.data == target_val).astype(np.uint8)
+        else:
+            mask_vol.data = (mask_vol.data != target_val).astype(np.uint8)
+
+        # Update SITK image to ensure Resampler behaves correctly with the new binary data
+        new_img = sitk.GetImageFromArray(mask_vol.data)
+        new_img.SetSpacing(mask_vol.sitk_image.GetSpacing())
+        new_img.SetOrigin(mask_vol.sitk_image.GetOrigin())
+        new_img.SetDirection(mask_vol.sitk_image.GetDirection())
+        mask_vol.sitk_image = new_img
+
+        self.process_binary_mask(base_vol, mask_vol)
+
+        mask_id = str(self._next_image_id)
+        self._next_image_id += 1
+        self.volumes[mask_id] = mask_vol
+
+        if name is None:
+            name = os.path.basename(filepath)
+            for ext in [
+                ".nii.gz",
+                ".nii",
+                ".mhd",
+                ".mha",
+                ".nrrd",
+                ".dcm",
+                ".tif",
+                ".png",
+                ".jpg",
+            ]:
+                if name.lower().endswith(ext):
+                    name = name[: -len(ext)]
+                    break
+
+        roi_state = ROIState(
+            mask_id, name, color, source_mode=mode, source_val=target_val
+        )
+        self.view_states[base_id].rois[mask_id] = roi_state
+        self.view_states[base_id].is_data_dirty = True
+
+        return mask_id
+
+    def load_label_map(self, base_id, filepath, start_color_idx):
+        import json
+
+        # 1. Attempt to find a JSON sidecar dictionary
+        json_path = filepath.rsplit(".", 1)[0] + ".json"
+        if filepath.endswith(".nii.gz"):
+            json_path = filepath[:-7] + ".json"
+
+        label_dict = {}
+        if os.path.exists(json_path):
+            try:
+                with open(json_path, "r") as f:
+                    raw_dict = json.load(f)
+                    # Force integer keys in case JSON parsed them as strings
+                    label_dict = {int(k): str(v) for k, v in raw_dict.items()}
+            except Exception as e:
+                print(f"Failed to load JSON {json_path}: {e}")
+
+        # 2. Read the image quickly just to get the unique integer values
+        temp_img = sitk.ReadImage(filepath)
+        temp_data = sitk.GetArrayViewFromImage(temp_img)
+        unique_vals = np.unique(temp_data)
+
+        loaded_count = 0
+        from vvv.config import ROI_COLORS
+
+        base_name = os.path.basename(filepath)
+        for ext in [
+            ".nii.gz",
+            ".nii",
+            ".mhd",
+            ".mha",
+            ".nrrd",
+            ".dcm",
+            ".tif",
+            ".png",
+            ".jpg",
+        ]:
+            if base_name.lower().endswith(ext):
+                base_name = base_name[: -len(ext)]
+                break
+
+        # 3. Process every non-zero label as a distinct ROI
+        for val in unique_vals:
+            if val == 0:
+                continue  # 0 is strictly background in label maps
+
+            color = ROI_COLORS[(start_color_idx + loaded_count) % len(ROI_COLORS)]
+            roi_name = label_dict.get(int(val), f"{base_name} - Lbl {val}")
+
+            self.load_binary_mask(
+                base_id,
+                filepath,
+                name=roi_name,
+                color=color,
+                mode="Target FG (val)",
+                target_val=float(val),
+            )
+            loaded_count += 1
+
+        return loaded_count
+
+    def reload_roi(self, base_id, roi_id):
+        if base_id not in self.view_states or roi_id not in self.volumes:
+            return
+
+        mask_vol = self.volumes[roi_id]
+        roi_state = self.view_states[base_id].rois[roi_id]
+        was_reset = mask_vol.reload()
+
+        # Re-apply binarization rule after reloading from disk!
+        mode = getattr(roi_state, "source_mode", "Ignore BG (val)")
+        target_val = getattr(roi_state, "source_val", 0.0)
+
+        if mode == "Target FG (val)":
+            mask_vol.data = (mask_vol.data == target_val).astype(np.uint8)
+        else:
+            mask_vol.data = (mask_vol.data != target_val).astype(np.uint8)
+
+        new_img = sitk.GetImageFromArray(mask_vol.data)
+        new_img.SetSpacing(mask_vol.sitk_image.GetSpacing())
+        new_img.SetOrigin(mask_vol.sitk_image.GetOrigin())
+        new_img.SetDirection(mask_vol.sitk_image.GetDirection())
+        mask_vol.sitk_image = new_img
+
+        base_vol = self.volumes[base_id]
+        self.process_binary_mask(base_vol, mask_vol)
+
+        self.view_states[base_id].is_data_dirty = True
+        self.update_all_viewers_of_image(base_id)
+
+    def load_binary_mask_OLD(self, base_id, filepath, name=None, color=[255, 50, 50]):
         base_vol = self.volumes[base_id]
         mask_vol = VolumeData(filepath)
 
@@ -994,7 +1151,7 @@ class Controller:
 
         return mask_id
 
-    def reload_roi(self, base_id, roi_id):
+    def reload_roi_OLD(self, base_id, roi_id):
         if base_id not in self.view_states or roi_id not in self.volumes:
             return
 

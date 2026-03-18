@@ -1280,16 +1280,34 @@ class MainGUI:
             )
             return
 
-        file_paths = open_file_dialog("Load Binary Mask(s)", multiple=True)
+        roi_type = (
+            dpg.get_value("combo_roi_type")
+            if dpg.does_item_exist("combo_roi_type")
+            else "Binary Mask"
+        )
+
+        file_paths = open_file_dialog(f"Load {roi_type}(s)", multiple=True)
         if not file_paths:
             return
-
         if isinstance(file_paths, str):
             file_paths = [file_paths]
 
-        # Enqueue the non-blocking loader sequence
+        # Extract the explicit rules
+        mode = (
+            dpg.get_value("combo_roi_mode")
+            if dpg.does_item_exist("combo_roi_mode")
+            else "Ignore BG (val)"
+        )
+        val = (
+            dpg.get_value("input_roi_val")
+            if dpg.does_item_exist("input_roi_val")
+            else 0.0
+        )
+
         self.tasks.append(
-            load_batch_rois_sequence(self, self.controller, viewer.image_id, file_paths)
+            load_batch_rois_sequence(
+                self, self.controller, viewer.image_id, file_paths, roi_type, mode, val
+            )
         )
 
     def on_roi_toggle_visible(self, sender, app_data, user_data):
@@ -1360,6 +1378,11 @@ class MainGUI:
         viewer.view_state.is_data_dirty = True
         self.refresh_rois_ui()
         self.controller.update_all_viewers_of_image(viewer.image_id)
+
+    def on_roi_type_changed(self, sender, app_data, user_data):
+        if dpg.does_item_exist("group_roi_mode"):
+            # Only show the specific mask math rules if "Binary Mask" is selected
+            dpg.configure_item("group_roi_mode", show=(app_data == "Binary Mask"))
 
     def on_export_roi_stats_clicked(self, sender, app_data, user_data):
         viewer = self.context_viewer

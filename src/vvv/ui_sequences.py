@@ -39,7 +39,12 @@ def load_history_rois_sequence(gui, controller, img_id):
 
         if os.path.exists(roi_path):
             try:
-                new_roi_id = controller.load_binary_mask(img_id, roi_path)
+                # Safely extract the original rules from the history save
+                mode = roi_data["state"].get("source_mode", "Ignore BG (val)")
+                val = roi_data["state"].get("source_val", 0.0)
+                new_roi_id = controller.load_binary_mask(
+                    img_id, roi_path, mode=mode, target_val=val
+                )
                 vs.rois[new_roi_id].from_dict(roi_data["state"])
             except Exception as e:
                 print(f"Failed to restore ROI {filename}: {e}")
@@ -168,7 +173,85 @@ def load_batch_images_sequence(gui, controller, file_paths):
     yield
 
 
-def load_batch_rois_sequence(gui, controller, base_image_id, file_paths):
+def load_batch_rois_sequence(
+    gui,
+    controller,
+    base_image_id,
+    file_paths,
+    roi_type="Binary Mask",
+    mode="Ignore BG (val)",
+    val=0.0,
+):
+    total_files = len(file_paths)
+
+    with dpg.window(
+        tag="loading_modal",
+        modal=True,
+        show=True,
+        no_title_bar=True,
+        no_resize=True,
+        no_move=True,
+        width=350,
+        height=100,
+    ):
+        dpg.add_text(f"Loading {total_files} ROIs...", tag="loading_text")
+        dpg.add_spacer(height=5)
+        dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=0.0)
+
+    vp_width = max(dpg.get_viewport_client_width(), 800)
+    vp_height = max(dpg.get_viewport_client_height(), 600)
+    dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
+    yield
+
+    vs = controller.view_states[base_image_id]
+    color_idx = len(vs.rois)
+
+    for i, path in enumerate(file_paths):
+        if not os.path.exists(path):
+            continue
+
+        filename = os.path.basename(path)
+        if dpg.does_item_exist("loading_text"):
+            dpg.set_value(
+                "loading_text", f"Loading ROI ({i+1}/{total_files}):\n{filename}"
+            )
+        if dpg.does_item_exist("loading_progress"):
+            dpg.set_value("loading_progress", i / total_files)
+        yield
+
+        try:
+            if roi_type == "Binary Mask":
+                color = ROI_COLORS[color_idx % len(ROI_COLORS)]
+                controller.load_binary_mask(
+                    base_image_id, path, color=color, mode=mode, target_val=val
+                )
+                color_idx += 1
+            elif roi_type == "Label Map":
+                loaded = controller.load_label_map(base_image_id, path, color_idx)
+                color_idx += loaded
+        except Exception as e:
+            print(f"Failed to load ROI {filename}: {e}")
+        yield
+
+    if dpg.does_item_exist("loading_text"):
+        dpg.set_value("loading_text", "Applying ROIs...")
+    if dpg.does_item_exist("loading_progress"):
+        dpg.set_value("loading_progress", 1.0)
+    yield
+
+    vs = controller.view_states[base_image_id]
+    if vs.rois:
+        gui.active_roi_id = list(vs.rois.keys())[-1]
+
+    gui.refresh_rois_ui()
+    controller.update_all_viewers_of_image(base_image_id)
+
+    if dpg.does_item_exist("loading_modal"):
+        dpg.delete_item("loading_modal")
+    yield
+
+
+def load_batch_rois_sequence_OLD(gui, controller, base_image_id, file_paths):
     total_files = len(file_paths)
 
     with dpg.window(

@@ -103,6 +103,21 @@ def build_tab_rois(gui):
                 ["Binary Mask", "Label Map", "RT-Struct"],
                 default_value="Binary Mask",
                 width=-1,
+                tag="combo_roi_type",
+                callback=gui.on_roi_type_changed,
+            )
+
+        with dpg.group(horizontal=True, tag="group_roi_mode"):
+            dpg.add_text("Rule:")
+            dpg.add_combo(
+                ["Ignore BG (val)", "Target FG (val)"],
+                default_value="Ignore BG (val)",
+                tag="combo_roi_mode",
+                width=115,
+            )
+            dpg.add_text("Val:")
+            dpg.add_input_float(
+                default_value=0.0, step=1.0, width=-1, tag="input_roi_val"
             )
 
         dpg.add_spacer(height=10)
