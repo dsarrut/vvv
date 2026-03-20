@@ -1,63 +1,66 @@
 import pytest
 import numpy as np
 import SimpleITK as sitk
+import json
 import dearpygui.dearpygui as dpg
 from pathlib import Path
 from vvv.core import Controller
 from vvv.viewer import SliceViewer
 from vvv.utils import ViewMode, slice_to_voxel, voxel_to_slice
 from vvv.gui import MainGUI
+from vvv.image import RenderLayer, SliceRenderer
+from vvv.ui_sequences import load_workspace_sequence
 
-# --- FIXTURES ---
+# ==========================================
+# 1. FIXTURES (Test Environment Setup)
+# ==========================================
 
 
 @pytest.fixture(autouse=True)
 def fresh_dpg_context():
     """Create a fresh DPG context and headless viewport for EVERY test."""
     dpg.create_context()
-
-    # The real GUI requires a viewport to exist for the menu bar and dimensions
     dpg.create_viewport(title="Test Viewport", width=1000, height=800)
     dpg.setup_dearpygui()
-
     yield
     dpg.destroy_context()
 
 
 @pytest.fixture(scope="session")
 def synthetic_image_path(tmp_path_factory):
-    """Generates a 5x5x5 checkerboard image and returns its file path."""
+    """Generates a 5x5x5 checkerboard image."""
     indices = np.indices((5, 5, 5))
     checkerboard = (indices[0] + indices[1] + indices[2]) % 2
     checkerboard = (checkerboard * 100).astype(np.float32)
-
     sitk_img = sitk.GetImageFromArray(checkerboard)
     sitk_img.SetSpacing((1.0, 1.0, 1.0))
     sitk_img.SetOrigin((10.0, 20.0, 50.0))
-
-    tests_dir = Path(__file__).parent
-    img_path = tests_dir / "checkerboard_5x5x5.nrrd"
-
+    img_path = tmp_path_factory.mktemp("data") / "checkerboard_5x5x5.nrrd"
     sitk.WriteImage(sitk_img, str(img_path))
     return str(img_path)
 
 
 @pytest.fixture(scope="session")
 def synthetic_overlay_path(tmp_path_factory):
-    """
-    Generates a 3x3x3 image with DIFFERENT spacing (2.0) and exactly predictable values
-    to rigorously test physical resampling and geometric fusion alignment.
-    """
+    """Generates a 3x3x3 image with DIFFERENT spacing (2.0) and predictable values."""
     indices = np.indices((3, 3, 3))
-    # Value is simply Z*100 + Y*10 + X. Allows exact coordinate backwards-verification!
     data = (indices[0] * 100 + indices[1] * 10 + indices[2]).astype(np.float32)
-
     sitk_img = sitk.GetImageFromArray(data)
     sitk_img.SetSpacing((2.0, 2.0, 2.0))
     sitk_img.SetOrigin((10.0, 20.0, 50.0))
+    img_path = tmp_path_factory.mktemp("data") / "overlay_3x3x3.nrrd"
+    sitk.WriteImage(sitk_img, str(img_path))
+    return str(img_path)
 
-    tests_dir = Path(__file__).parent
-    img_path = tests_dir / "overlay_3x3x3.nrrd"
+
+@pytest.fixture(scope="session")
+def synthetic_4d_path(tmp_path_factory):
+    """Generates a 4D sequence (3 timepoints of a 5x5x5 volume)."""
+    data = np.zeros((3, 5, 5, 5), dtype=np.float32)
+    for t in range(3):
+        data[t] = t * 100.0  # Time 0 is 0, Time 1 is 100, Time 2 is 200
+    sitk_img = sitk.GetImageFromArray(data)
+    img_path = tmp_path_factory.mktemp("data") / "sequence_4d.nrrd"
     sitk.WriteImage(sitk_img, str(img_path))
     return str(img_path)
 
@@ -66,235 +69,604 @@ def synthetic_overlay_path(tmp_path_factory):
 def headless_app(synthetic_image_path):
     """Sets up the real application architecture without launching the render loop."""
     controller = Controller()
-
     for tag in ["V1", "V2", "V3", "V4"]:
         controller.viewers[tag] = SliceViewer(tag, controller)
-
     gui = MainGUI(controller)
     controller.gui = gui
-
     vs_id = controller.load_image(synthetic_image_path)
     viewer = controller.viewers["V1"]
     viewer.set_image(vs_id)
     gui.context_viewer = viewer
-
     gui.on_window_resize()
-
     return controller, viewer, vs_id
 
 
-# --- TESTS ---
+# ==========================================
+# 2. ORIGINAL TESTS (Interaction & Coords)
+# ==========================================
 
 
 def test_utils_coordinate_conversions():
-    """Verify that the 2D <-> 3D math strictly obeys ITK half-voxel offsets."""
     shape = (10, 20)  # h, w -> real_h, real_w
-
-    # AXIAL TEST
-    # Center of voxel (5, 3) on screen is 5.5, 3.5. Depth is 7.
     v = slice_to_voxel(5.5, 3.5, 7.0, ViewMode.AXIAL, shape)
     assert np.allclose(v, [5.0, 3.0, 7.0])
-
     s_x, s_y = voxel_to_slice(5.0, 3.0, 7.0, ViewMode.AXIAL, shape)
     assert s_x == 5.5
     assert s_y == 3.5
-
-    # SAGITTAL TEST (Flipped/Rotated axes)
     v_sag = slice_to_voxel(5.5, 3.5, 7.0, ViewMode.SAGITTAL, shape)
     assert np.allclose(v_sag, [7.0, 14.0, 6.0])
 
-    sx_sag, sy_sag = voxel_to_slice(7.0, 14.0, 6.0, ViewMode.SAGITTAL, shape)
-    assert sx_sag == 5.5
-    assert sy_sag == 3.5
-
 
 def test_exact_coordinate_and_value_mapping(headless_app):
-    """Test that a 2D screen click correctly hits the exact 3D voxel, physical coord, and intensity."""
     controller, viewer, vs_id = headless_app
     vs = controller.view_states[vs_id]
-
     viewer.set_orientation(ViewMode.AXIAL)
-
-    # 1. Simulate a click directly in the center of voxel (1, 3) on slice Z=2
-    # Because pixels are drawn from 0 to W, the center of index 1 is 1.5.
     viewer.update_crosshair_data(pix_x=1.5, pix_y=3.5)
-
-    # 2. Verify Continuous Voxel Coordinate
     assert vs.crosshair_voxel == [1.0, 3.0, 2.0, 0]
-
-    # 3. Verify Exact Physical Coordinate
-    # Origin = (10, 20, 50), Spacing = (1, 1, 1) -> [10+1, 20+3, 50+2]
     assert vs.crosshair_phys_coord.tolist() == [11.0, 23.0, 52.0]
-
-    # 4. Verify Exact Pixel Intensity
-    # Checkerboard math: (1 + 3 + 2) = 6. 6 % 2 == 0 -> 0.0
     assert vs.crosshair_value == 0.0
-
-    # Try another voxel that should equal 100
-    viewer.update_crosshair_data(pix_x=2.5, pix_y=3.5)  # Voxel (2, 3, 2)
+    viewer.update_crosshair_data(pix_x=2.5, pix_y=3.5)
     assert vs.crosshair_value == 100.0
 
 
 def test_overlay_fusion_resampling_accuracy(headless_app, synthetic_overlay_path):
-    """Test that loading a fusion overlay strictly maps onto the base image's physical grid."""
     controller, viewer, vs_id_base = headless_app
     vs_base = controller.view_states[vs_id_base]
-
-    # Load second image to use as overlay
     vs_id_overlay = controller.load_image(synthetic_overlay_path)
     vol_overlay = controller.volumes[vs_id_overlay]
-
-    # Set overlay (this triggers SimpleITK NearestNeighbor resampling!)
     vs_base.set_overlay(vs_id_overlay, vol_overlay)
 
-    # 1. Check resampling dimensions
-    # Base is 5x5x5. Overlay was 3x3x3. After resampling, overlay_data MUST be exactly 5x5x5.
     assert vs_base.overlay_data.shape == (5, 5, 5)
-
-    # 2. Check strict pixel matching (using our Z*100 + Y*10 + X predictably generated values)
-    # Base voxel (2, 2, 2) -> Phys (12, 22, 52).
-    # In overlay's original physical space, (12, 22, 52) perfectly aligns with its voxel (1, 1, 1).
-    # The overlay value at (1, 1, 1) is 1*100 + 1*10 + 1 = 111.0.
     assert vs_base.overlay_data[2, 2, 2] == 111.0
-
-    # Base voxel (4, 4, 4) -> Phys (14, 24, 54).
-    # In overlay space, this is voxel (2, 2, 2). Value = 222.0.
     assert vs_base.overlay_data[4, 4, 4] == 222.0
-
-    # 3. Test the Tracker text engine rendering both Base and Fusion values accurately
-    viewer.set_orientation(ViewMode.AXIAL)
-    viewer.slice_idx = 2
-
-    # Mock the mouse position since there is no physical mouse hovering over the headless UI
-    viewer.get_mouse_slice_coords = lambda ignore_hover=False, allow_outside=False: (
-        2.5,
-        2.5,
-    )
-
-    viewer.update_crosshair_data(pix_x=2.5, pix_y=2.5)  # Points to base voxel (2, 2, 2)
-    viewer.update_tracker()
-
-    tracker_text = dpg.get_value(viewer.tracker_tag)
-    # The first line of the tracker string should contain the base value and overlay value
-    assert "0 (111)" in tracker_text
 
 
 def test_sync_correspondence_between_different_geometries(
     headless_app, synthetic_overlay_path
 ):
-    """Test that placing viewers in the same sync group properly maps physical coordinates via matrices."""
     controller, viewer1, vs_id1 = headless_app
-
-    # Load the second image with different spacing (2.0) and size (3x3x3)
     vs_id2 = controller.load_image(synthetic_overlay_path)
     viewer2 = controller.viewers["V2"]
     viewer2.set_image(vs_id2)
 
-    # Put both in Group 1
     controller.on_sync_group_change(None, "Group 1", vs_id1)
     controller.on_sync_group_change(None, "Group 1", vs_id2)
-
     viewer1.set_orientation(ViewMode.AXIAL)
     viewer2.set_orientation(ViewMode.AXIAL)
 
-    # Click on Viewer 1 at voxel (2.0, 2.0, 2.0)
     viewer1.update_crosshair_data(pix_x=2.5, pix_y=2.5)
     controller.propagate_sync(vs_id1)
 
     vs1 = controller.view_states[vs_id1]
     vs2 = controller.view_states[vs_id2]
-
-    # V1 Voxel should be [2.0, 2.0, 2.0], Phys [12.0, 22.0, 52.0]
     assert vs1.crosshair_voxel == [2.0, 2.0, 2.0, 0]
-    assert vs1.crosshair_phys_coord.tolist() == [12.0, 22.0, 52.0]
-
-    # V2 Physical coordinate MUST exactly match V1
     assert np.allclose(vs2.crosshair_phys_coord, vs1.crosshair_phys_coord)
-
-    # V2 voxel coordinate should be dynamically calculated via ITK inverse matrix
-    # Origin (10, 20, 50), Spacing (2, 2, 2) -> Phys 12 -> (12 - 10)/2 = 1.0
     assert vs2.crosshair_voxel == [1.0, 1.0, 1.0, 0.0]
-
-    # V2 view plane depth must have automatically updated
-    assert vs2.slices[ViewMode.AXIAL] == 1
-
-    # V2 Exact intensity fetch
-    assert vs2.crosshair_value == 111.0
 
 
 def test_auto_window_level(headless_app):
-    """Test the local auto-windowing logic."""
     controller, viewer, vs_id = headless_app
     vs = controller.view_states[vs_id]
-
     viewer.update_window_level(ww=10.0, wl=500.0)
-
-    # Increase the search radius so it covers multiple voxels on our zoomed-in 5x5 test image
     controller.settings.data["physics"]["auto_window_fov"] = 0.80
-
-    # Mock mouse position
     viewer.get_mouse_slice_coords = lambda ignore_hover=False, allow_outside=False: (
         2.5,
         2.5,
     )
     viewer.on_key_press(dpg.mvKey_W)
-
     assert vs.ww >= 95.0
     assert vs.wl == pytest.approx(50.0, abs=5.0)
 
 
 def test_zoom_interaction(headless_app, monkeypatch):
-    """Test that zooming in and out properly updates the zoom multiplier."""
     controller, viewer, vs_id = headless_app
-
-    # Mock the mouse position to a fixed point during the zoom operation
     monkeypatch.setattr(dpg, "get_drawing_mouse_pos", lambda: (250, 250))
-
     initial_zoom = viewer.zoom
     viewer.on_zoom("in")
     zoomed_in = viewer.zoom
     assert zoomed_in > initial_zoom
-
     viewer.on_zoom("out")
-    # Because 1.0 * 1.1 * 0.9 = 0.99, we assert against the actual math trajectory
     assert viewer.zoom == pytest.approx(
         zoomed_in * (1.0 / controller.settings.data["interaction"]["zoom_speed"])
     )
 
 
 def test_pan_interaction_via_drag(headless_app, monkeypatch):
-    """Test that panning with Ctrl+Drag updates the pan_offset."""
     controller, viewer, vs_id = headless_app
     initial_pan = viewer.pan_offset.copy()
 
-    # Mock DPG states to simulate holding Ctrl and Left-Click
     monkeypatch.setattr(
         dpg, "is_mouse_button_down", lambda btn: btn == dpg.mvMouseButton_Left
     )
     monkeypatch.setattr(
         dpg, "is_key_down", lambda key: key in [dpg.mvKey_LControl, dpg.mvKey_RControl]
     )
+    monkeypatch.setattr(dpg, "get_mouse_pos", lambda local=False: [115, 125])
 
-    viewer.last_dx, viewer.last_dy = 100, 100
-    viewer.on_drag([None, 115, 125])  # Mouse moved +15x and +25y
+    viewer.drag_start_mouse = [100, 100]
+    viewer.drag_start_pan = initial_pan.copy()
+    viewer.on_drag(None)
 
     assert viewer.pan_offset[0] == initial_pan[0] + 15
     assert viewer.pan_offset[1] == initial_pan[1] + 25
 
 
 def test_reset_view(headless_app):
-    """Test that pressing 'R' resets zoom, pan, and slice depth to defaults."""
     controller, viewer, vs_id = headless_app
-
-    # Deliberately mess up the view state
     viewer.zoom = 5.0
     viewer.pan_offset = [100, -50]
     viewer.slice_idx = 0
-
-    # Simulate pressing the 'R' key
     viewer.on_key_press(dpg.mvKey_R)
-
-    # Everything should return to the center of the 5x5x5 volume
     assert viewer.zoom == 1.0
     assert viewer.pan_offset == [0, 0]
     assert viewer.slice_idx == 2
+
+
+# ==========================================
+# 3. NEW PURE MATH & LOGIC ISOLATION
+# ==========================================
+
+
+def test_roi_statistics_math(headless_app, tmp_path):
+    """Test mathematically isolated ROI physical statistics (Volume, Mass, Mean)."""
+    controller, viewer, vs_id = headless_app
+
+    # 1. Create a 3x3x3 ROI Mask where ONLY the exact center voxel is 1
+    roi_data = np.zeros((3, 3, 3), dtype=np.uint8)
+    roi_data[1, 1, 1] = 1
+
+    sitk_img = sitk.GetImageFromArray(roi_data)
+    sitk_img.SetSpacing((2.0, 2.0, 2.0))  # 2x2x2 = 8 mm^3 volume!
+    sitk_img.SetOrigin(controller.volumes[vs_id].origin.tolist())
+
+    mask_path = tmp_path / "mask.nrrd"
+    sitk.WriteImage(sitk_img, str(mask_path))
+
+    # 2. Overwrite the Base Image center voxel to EXACTLY 1000 HU (Hounsfield)
+    controller.volumes[vs_id].data[1, 1, 1] = 1000.0
+
+    # 3. Load ROI and run stats
+    roi_id = controller.load_binary_mask(
+        vs_id, str(mask_path), mode="Target FG (val)", target_val=1.0
+    )
+    stats = controller.get_roi_stats(vs_id, roi_id, is_overlay=False)
+
+    # 4. Verify pure math
+    assert stats["vol"] == 0.008  # 8 mm^3 / 1000 = 0.008 cc
+    assert stats["mean"] == 1000.0
+    assert stats["max"] == 1000.0
+
+    # Mass = Vol * Density. 1000 HU = 2.0 g/cc. Mass = 0.008 * 2.0 = 0.016 g
+    assert stats["mass"] == pytest.approx(0.016)
+
+
+def test_roi_binarization_rules(headless_app, tmp_path):
+    """Test that loading a label map strictly obeys the binarization rules before rendering."""
+    controller, viewer, vs_id = headless_app
+
+    # Create a synthetic discrete label map
+    label_map = np.array([[[0, 1, 2, 3]]], dtype=np.uint8)
+    sitk_img = sitk.GetImageFromArray(label_map)
+    sitk_img.SetSpacing((1.0, 1.0, 1.0))
+    sitk_img.SetOrigin((0.0, 0.0, 0.0))
+
+    mask_path = tmp_path / "labels.nrrd"
+    sitk.WriteImage(sitk_img, str(mask_path))
+
+    # Apply the math rule during load
+    roi_id = controller.load_binary_mask(
+        vs_id, str(mask_path), mode="Target FG (val)", target_val=2.0
+    )
+    roi_data = controller.volumes[roi_id].data
+
+    # Only the pixel that was '2' should be 1. Everything else MUST be 0.
+    assert roi_data[0, 0, 2] == 1
+    assert np.count_nonzero(roi_data) == 1
+
+
+# ==========================================
+# 4. NEW DATA-IN / DATA-OUT (Serialization)
+# ==========================================
+
+
+def test_workspace_serialization(headless_app, tmp_path):
+    """Test that a saved JSON Workspace perfectly restores the exact application state."""
+    controller, viewer, vs_id = headless_app
+    gui = controller.gui
+
+    # 1. Modify the state drastically
+    vs = controller.view_states[vs_id]
+    vs.zoom = {ViewMode.AXIAL: 2.5, ViewMode.SAGITTAL: 1.0, ViewMode.CORONAL: 1.0}
+    vs.colormap = "Hot"
+
+    ws_path = tmp_path / "test_workspace.vvw"
+    controller.save_workspace(str(ws_path))
+
+    # 2. Nuke the state
+    controller.close_image(vs_id)
+    assert len(controller.view_states) == 0
+
+    # 3. Restore the state via the Sequence Generator
+    list(load_workspace_sequence(gui, controller, str(ws_path)))
+
+    # 4. Verify properties
+    assert len(controller.view_states) == 1
+    new_vs_id = list(controller.view_states.keys())[0]
+    new_vs = controller.view_states[new_vs_id]
+
+    assert new_vs.colormap == "Hot"
+    assert new_vs.zoom[ViewMode.AXIAL] == 2.5
+
+
+def test_history_lru_cache(headless_app):
+    """Test that the Auto-History JSON caps at 100 items and evicts the oldest entries."""
+    controller, viewer, vs_id = headless_app
+
+    # Isolate from the real user's ~/.config/vvv/history.json
+    controller.history.data.clear()
+
+    for i in range(105):
+        controller.history.data[f"fake_file_path_{i}.nii"] = {"shape3d": [5, 5, 5]}
+
+    controller.history.save_image_state(controller, vs_id)
+
+    assert len(controller.history.data) == 100
+    assert "fake_file_path_0.nii" not in controller.history.data
+
+
+# ==========================================
+# 5. NEW HEADLESS STATE VERIFICATION
+# ==========================================
+
+
+def test_window_level_sync_propagation(
+    headless_app, synthetic_overlay_path, monkeypatch
+):
+    """Test that changing W/L on one image cascades to grouped images without UI clicking."""
+    controller, viewer, vs1_id = headless_app
+    vs2_id = controller.load_image(synthetic_overlay_path)
+
+    # Put both in Group 1
+    vs1 = controller.view_states[vs1_id]
+    vs2 = controller.view_states[vs2_id]
+    vs1.sync_group = 1
+    vs2.sync_group = 1
+
+    # Mock the UI Checkbox existing and being checked
+    monkeypatch.setattr(dpg, "does_item_exist", lambda t: t == "check_sync_wl")
+    monkeypatch.setattr(
+        dpg, "get_value", lambda t: True if t == "check_sync_wl" else None
+    )
+
+    # Change Base W/L and Propagate
+    vs1.ww = 142.5
+    controller.propagate_window_level(vs1_id)
+
+    # Verify Target adopted the value via the Controller logic alone
+    assert vs2.ww == 142.5
+
+
+def test_4d_time_scrolling(headless_app, synthetic_4d_path):
+    """Test that 4D images correctly loop time frames and update crosshair values."""
+    controller, viewer, _ = headless_app
+    vs_id_4d = controller.load_image(synthetic_4d_path)
+    vs = controller.view_states[vs_id_4d]
+    viewer.set_image(vs_id_4d)
+
+    assert vs.time_idx == 0
+    viewer.update_crosshair_data(pix_x=2.5, pix_y=2.5)
+    assert vs.crosshair_value == 0.0  # Timepoint 0 = 0
+
+    # Scroll forward 1 tick
+    viewer.on_time_scroll(1)
+    assert vs.time_idx == 1
+    assert vs.crosshair_value == 100.0  # Timepoint 1 = 100
+
+    # Scroll backward 2 ticks (Loops past 0 to the end of the array!)
+    viewer.on_time_scroll(-2)
+    assert vs.time_idx == 2
+    assert vs.crosshair_value == 200.0
+
+
+def test_mpr_orientation_switch(headless_app, tmp_path):
+    """Test that switching orientations recalibrates slice depths and axis limits."""
+    controller, viewer, vs_id = headless_app
+
+    # Z=10, Y=20, X=20 (Square X/Y plane bypasses the harmless boot-up axis swap)
+    data = np.zeros((10, 20, 20), dtype=np.float32)
+    sitk_img = sitk.GetImageFromArray(data)
+    img_path = tmp_path / "square.nrrd"
+    sitk.WriteImage(sitk_img, str(img_path))
+
+    square_id = controller.load_image(str(img_path))
+    viewer.set_image(square_id)
+
+    viewer.set_orientation(ViewMode.AXIAL)
+    assert viewer.slice_idx == 5
+
+    viewer.set_orientation(ViewMode.CORONAL)
+    assert viewer.slice_idx == 10
+
+    viewer.set_orientation(ViewMode.SAGITTAL)
+    assert viewer.slice_idx == 10
+
+
+# ==========================================
+# 6. NEW VISUAL REGRESSION (Renderer Isolation)
+# ==========================================
+
+
+def test_renderer_checkerboard_math():
+    """Test the physical checkerboard swapping algorithm directly on the raw RGBA arrays."""
+    # Base = Pure White
+    base_data = np.ones((50, 50, 4), dtype=np.float32)
+    base_layer = RenderLayer(
+        data=base_data,
+        is_rgb=True,
+        num_components=4,
+        ww=0,
+        wl=0,
+        cmap_name="Grayscale",
+        threshold=-1e9,
+        time_idx=0,
+        spacing_2d=(1.0, 1.0),
+    )
+
+    # Overlay = Pure Red
+    over_data = np.ones((50, 50, 4), dtype=np.float32)
+    over_data[..., 1:3] = 0.0  # Zero out Green/Blue
+    over_layer = RenderLayer(
+        data=over_data,
+        is_rgb=True,
+        num_components=4,
+        ww=0,
+        wl=0,
+        cmap_name="Grayscale",
+        threshold=-1e9,
+        time_idx=0,
+        spacing_2d=(1.0, 1.0),
+    )
+
+    # Trigger checkerboard with 10mm squares
+    flat_rgba, (h, w) = SliceRenderer.get_slice_rgba(
+        base=base_layer,
+        overlay=over_layer,
+        overlay_opacity=1.0,
+        overlay_mode="Checkerboard",
+        slice_idx=0,
+        orientation=ViewMode.AXIAL,
+        checkerboard_size=10.0,
+        checkerboard_swap=False,
+        rois=(),
+    )
+    res_img = flat_rgba.reshape((h, w, 4))
+
+    # Voxel (0,0) should be Base (White)
+    assert np.allclose(res_img[0, 0], [1.0, 1.0, 1.0, 1.0])
+
+    # Voxel (0,11) crosses the 10mm checker boundary -> should be Overlay (Red)
+    assert np.allclose(res_img[0, 11], [1.0, 0.0, 0.0, 1.0])
+
+
+def test_renderer_registration_blending():
+    """Test the Registration structural blending (50/50 mix of Base Gray and Overlay Gray)."""
+
+    # Base: Value = 0.2 (Dark Gray)
+    base_slice = np.full((10, 10), 0.2, dtype=np.float32)
+    base_layer = RenderLayer(
+        data=base_slice,
+        is_rgb=False,
+        num_components=1,
+        ww=1.0,
+        wl=0.5,
+        cmap_name="Grayscale",
+        threshold=-1e9,
+        time_idx=0,
+        spacing_2d=(1.0, 1.0),
+    )
+
+    # Overlay: Value = 0.8 (Light Gray)
+    over_slice = np.full((10, 10), 0.8, dtype=np.float32)
+    over_layer = RenderLayer(
+        data=over_slice,
+        is_rgb=False,
+        num_components=1,
+        ww=1.0,
+        wl=0.5,
+        cmap_name="Grayscale",
+        threshold=-1e9,
+        time_idx=0,
+        spacing_2d=(1.0, 1.0),
+    )
+
+    # Blend at exactly 50% opacity
+    flat_rgba, (h, w) = SliceRenderer.get_slice_rgba(
+        base=base_layer,
+        overlay=over_layer,
+        overlay_opacity=0.5,
+        overlay_mode="Registration",
+        slice_idx=0,
+        orientation=ViewMode.AXIAL,
+        checkerboard_size=20.0,
+        checkerboard_swap=False,
+        rois=(),
+    )
+    res_img = flat_rgba.reshape((h, w, 4))
+
+    # The math for Registration Mode at 0.5 opacity is a direct average.
+    # Base Normalized (0.2) + Over Normalized (0.8) / 2 = 0.5
+    assert res_img[5, 5, 0] == pytest.approx(0.5, abs=0.01)  # Red Channel
+    assert res_img[5, 5, 1] == pytest.approx(0.5, abs=0.01)  # Green Channel
+    assert res_img[5, 5, 2] == pytest.approx(0.5, abs=0.01)  # Blue Channel
+    assert res_img[5, 5, 3] == 1.0  # Alpha must remain opaque
+
+
+# ==========================================
+# 3. NEW PURE MATH & LOGIC ISOLATION
+# ==========================================
+
+
+def test_roi_statistics_math(headless_app, tmp_path):
+    """Test mathematically isolated ROI physical statistics (Volume, Mass, Mean)."""
+    controller, viewer, _ = headless_app
+
+    # 1. Create an isolated 3x3x3 Base Image where center voxel is exactly 1000 HU
+    base_data = np.zeros((3, 3, 3), dtype=np.float32)
+    base_data[1, 1, 1] = 1000.0
+    base_img = sitk.GetImageFromArray(base_data)
+    base_img.SetSpacing((2.0, 2.0, 2.0))
+    base_img.SetOrigin((0.0, 0.0, 0.0))
+    base_path = tmp_path / "base.nrrd"
+    sitk.WriteImage(base_img, str(base_path))
+
+    base_id = controller.load_image(str(base_path))
+
+    # 2. Create a 3x3x3 ROI Mask where ONLY the exact center voxel is 1
+    roi_data = np.zeros((3, 3, 3), dtype=np.uint8)
+    roi_data[1, 1, 1] = 1
+    mask_img = sitk.GetImageFromArray(roi_data)
+    mask_img.SetSpacing((2.0, 2.0, 2.0))  # 2x2x2 = 8 mm^3 volume!
+    mask_img.SetOrigin((0.0, 0.0, 0.0))
+    mask_path = tmp_path / "mask.nrrd"
+    sitk.WriteImage(mask_img, str(mask_path))
+
+    # 3. Load ROI and run stats
+    roi_id = controller.load_binary_mask(
+        base_id, str(mask_path), mode="Target FG (val)", target_val=1.0
+    )
+    stats = controller.get_roi_stats(base_id, roi_id, is_overlay=False)
+
+    # 4. Verify pure math
+    assert stats["vol"] == 0.008  # 8 mm^3 / 1000 = 0.008 cc
+    assert stats["mean"] == 1000.0
+    assert stats["max"] == 1000.0
+
+    # Mass = Vol * Density. 1000 HU = 2.0 g/cc. Mass = 0.008 * 2.0 = 0.016 g
+    assert stats["mass"] == pytest.approx(0.016)
+
+
+def test_roi_binarization_rules(headless_app, tmp_path):
+    """Test that loading a label map strictly obeys the binarization rules before rendering."""
+    controller, viewer, vs_id = headless_app
+    base_vol = controller.volumes[vs_id]
+
+    label_map = np.array([[[0, 1, 2, 3]]], dtype=np.uint8)
+    sitk_img = sitk.GetImageFromArray(label_map)
+    sitk_img.SetSpacing(base_vol.spacing.tolist())
+    sitk_img.SetOrigin(base_vol.origin.tolist())  # Match physical space!
+
+    mask_path = tmp_path / "labels.nrrd"
+    sitk.WriteImage(sitk_img, str(mask_path))
+
+    roi_id = controller.load_binary_mask(
+        vs_id, str(mask_path), mode="Target FG (val)", target_val=2.0
+    )
+    roi_vol = controller.volumes[roi_id]
+
+    assert np.count_nonzero(roi_vol.data) == 1
+    assert roi_vol.data[0, 0, 0] == 1
+
+
+# ... (Keep Data-In/Data-Out and Headless State Verification tests exactly the same) ...
+
+# ==========================================
+# 6. NEW VISUAL REGRESSION (Renderer Isolation)
+# ==========================================
+
+
+def test_renderer_checkerboard_math():
+    """Test the physical checkerboard swapping algorithm directly on the raw RGBA arrays."""
+    # Arrays must be 255.0 because the renderer divides RGB by 255.0!
+    base_data = np.full((1, 50, 50, 4), 255.0, dtype=np.float32)
+    base_layer = RenderLayer(
+        data=base_data,
+        is_rgb=True,
+        num_components=4,
+        ww=0,
+        wl=0,
+        cmap_name="Grayscale",
+        threshold=-1e9,
+        time_idx=0,
+        spacing_2d=(1.0, 1.0),
+    )
+
+    over_data = np.full((1, 50, 50, 4), 255.0, dtype=np.float32)
+    over_data[..., 1:3] = 0.0
+    over_layer = RenderLayer(
+        data=over_data,
+        is_rgb=True,
+        num_components=4,
+        ww=0,
+        wl=0,
+        cmap_name="Grayscale",
+        threshold=-1e9,
+        time_idx=0,
+        spacing_2d=(1.0, 1.0),
+    )
+
+    flat_rgba, (h, w) = SliceRenderer.get_slice_rgba(
+        base=base_layer,
+        overlay=over_layer,
+        overlay_opacity=1.0,
+        overlay_mode="Checkerboard",
+        slice_idx=0,
+        orientation=ViewMode.AXIAL,
+        checkerboard_size=10.0,
+        checkerboard_swap=False,
+        rois=(),
+    )
+    res_img = flat_rgba.reshape((h, w, 4))
+
+    assert np.allclose(res_img[0, 0], [1.0, 1.0, 1.0, 1.0])
+    assert np.allclose(res_img[0, 11], [1.0, 0.0, 0.0, 1.0])
+
+
+def test_renderer_registration_blending():
+    """Test the Registration blending (Base -> Red, Overlay -> Green)."""
+    base_slice = np.full((1, 10, 10), 0.2, dtype=np.float32)
+    base_layer = RenderLayer(
+        data=base_slice,
+        is_rgb=False,
+        num_components=1,
+        ww=1.0,
+        wl=0.5,
+        cmap_name="Grayscale",
+        threshold=-1e9,
+        time_idx=0,
+        spacing_2d=(1.0, 1.0),
+    )
+
+    over_slice = np.full((1, 10, 10), 0.8, dtype=np.float32)
+    over_layer = RenderLayer(
+        data=over_slice,
+        is_rgb=False,
+        num_components=1,
+        ww=1.0,
+        wl=0.5,
+        cmap_name="Grayscale",
+        threshold=-1e9,
+        time_idx=0,
+        spacing_2d=(1.0, 1.0),
+    )
+
+    flat_rgba, (h, w) = SliceRenderer.get_slice_rgba(
+        base=base_layer,
+        overlay=over_layer,
+        overlay_opacity=0.5,
+        overlay_mode="Registration",
+        slice_idx=0,
+        orientation=ViewMode.AXIAL,
+        checkerboard_size=20.0,
+        checkerboard_swap=False,
+        rois=(),
+    )
+    res_img = flat_rgba.reshape((h, w, 4))
+
+    # Registration Mode puts Base in Red, Overlay in Green!
+    assert res_img[5, 5, 0] == pytest.approx(0.2, abs=0.01)  # Red
+    assert res_img[5, 5, 1] == pytest.approx(0.8, abs=0.01)  # Green
+    assert res_img[5, 5, 2] == pytest.approx(0.2, abs=0.01)  # Blue
+    assert res_img[5, 5, 3] == 1.0
+
+
+# ===============

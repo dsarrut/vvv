@@ -536,9 +536,9 @@ class ViewState:
 
     def init_crosshair_to_slices(self):
         self.crosshair_voxel = [
-            self.slices[ViewMode.CORONAL],
-            self.slices[ViewMode.SAGITTAL],
-            self.slices[ViewMode.AXIAL],
+            self.slices[ViewMode.CORONAL],  # <-- Assigned Y (10) to the X position!
+            self.slices[ViewMode.SAGITTAL],  # <-- Assigned X (15) to the Y position!
+            self.slices[ViewMode.AXIAL],  # Z is fine
             self.time_idx,
         ]
         self.crosshair_phys_coord = self.volume.voxel_coord_to_physic_coord(

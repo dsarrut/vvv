@@ -308,7 +308,12 @@ class SliceRenderer:
             over_slice = SliceRenderer.extract_slice(
                 overlay_data, overlay_is_rgb, overlay_time_idx, slice_idx, orientation
             )
-            over_norm = SliceRenderer.normalize_wl(over_slice, overlay_ww, overlay_wl)
+            if overlay_is_rgb:
+                over_norm = np.clip(over_slice.astype(np.float32) / 255.0, 0.0, 1.0)
+            else:
+                over_norm = SliceRenderer.normalize_wl(
+                    over_slice, overlay_ww, overlay_wl
+                )
 
             if overlay_mode == "Registration":
                 res_rgba = SliceRenderer._blend_registration(
