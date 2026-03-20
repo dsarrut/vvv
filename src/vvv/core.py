@@ -1626,6 +1626,33 @@ class Controller:
             if self.gui:
                 self.gui.show_status_message(f"Reloaded: {vol.name}")
 
+    def reset_image_view(self, vs_id, hard=False):
+        """Resets the view and re-applies the boot-up synchronization logic."""
+        if vs_id not in self.view_states:
+            return
+
+        vs = self.view_states[vs_id]
+
+        if hard:
+            vs.hard_reset()
+        else:
+            vs.reset_view()
+
+        # Re-apply unifying math so it looks exactly like the initial load!
+        same_viewers = [v.tag for v in self.viewers.values() if v.image_id == vs_id]
+        if same_viewers:
+            self.unify_ppm(same_viewers)
+
+        # Force all linked viewers to perfectly re-center
+        for tag in same_viewers:
+            viewer = self.viewers[tag]
+            if hasattr(viewer, "needs_recenter"):
+                viewer.needs_recenter = True
+            viewer.is_geometry_dirty = True
+
+        if self.gui:
+            self.gui.update_sidebar_info(self.gui.context_viewer)
+
     def close_image(self, vs_id):
         if vs_id in self.view_states:
 

@@ -979,13 +979,16 @@ class SliceViewer:
         )
 
         if is_shift:
-            self.view_state.hard_reset()
+            # self.view_state.hard_reset()
+            self.controller.reset_image_view(self.image_id, hard=True)
+            self.controller.update_all_viewers_of_image(self.image_id)
             # Because W/L, colormaps, and overlays changed, we must push syncs
             self.controller.propagate_window_level(self.image_id)
             self.controller.propagate_colormap(self.image_id)
             self.controller.propagate_overlay_mode(self.image_id)
         else:
-            self.view_state.reset_view()
+            # self.view_state.reset_view()
+            self.controller.reset_image_view(self.image_id, hard=False)
 
         self.is_geometry_dirty = True
         self.controller.propagate_sync(self.image_id)
