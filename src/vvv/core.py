@@ -983,29 +983,32 @@ class Controller:
                             file_reader.SetFileName(file_names[0])
                             file_reader.ReadImageInformation()
 
-                            def get_tag(tag, default="---"):
+                            def get_tag(tag, default=""):
                                 return (
-                                    file_reader.GetMetaData(tag)
+                                    file_reader.GetMetaData(tag).strip()
                                     if file_reader.HasMetaDataKey(tag)
                                     else default
                                 )
 
                             # --- FORMAT DATE & TIME ---
-                            d_str = get_tag("0008|0020", "")
-                            t_str = get_tag("0008|0030", "")
+                            d_str = get_tag("0008|0020")
+                            t_str = get_tag("0008|0030")
                             fmt_date = d_str
                             if len(d_str) >= 8:
                                 fmt_date = f"{d_str[0:4]}-{d_str[4:6]}-{d_str[6:8]}"
                                 if len(t_str) >= 4:
                                     fmt_date += f" {t_str[0:2]}:{t_str[2:4]}"
 
-                            # --- FORMAT INJECTED DOSE ---
-                            dose_str = get_tag("0018|1074", "")
-                            if dose_str and dose_str != "---":
-                                try:
-                                    dose_str = f"{float(dose_str) / 1e6:.2f} MBq"
-                                except:
-                                    pass
+                            # --- FUZZY SEARCH FOR INJECTED DOSE (Nested Sequences) ---
+                            dose_str = ""
+                            for k in file_reader.GetMetaDataKeys():
+                                if "0018|1074" in k:  # Radionuclide Total Dose
+                                    raw_dose = file_reader.GetMetaData(k).strip()
+                                    try:
+                                        dose_str = f"{float(raw_dose) / 1e6:.2f} MBq"
+                                    except:
+                                        dose_str = raw_dose
+                                    break
 
                             size_tup = file_reader.GetSize()
                             x, y = size_tup[0], size_tup[1]
@@ -1015,11 +1018,11 @@ class Controller:
                                 "id": sid,
                                 "dir": d,
                                 "files": list(file_names),
-                                "patient_name": get_tag("0010|0010"),
-                                "study_desc": get_tag("0008|1030"),
-                                "series_desc": get_tag("0008|103e"),
-                                "modality": get_tag("0008|0060"),
-                                "date": fmt_date,
+                                "patient_name": get_tag("0010|0010", "Unknown"),
+                                "study_desc": get_tag("0008|1030", "Unknown"),
+                                "series_desc": get_tag("0008|103e", "Unknown"),
+                                "modality": get_tag("0008|0060", "Unknown"),
+                                "date": fmt_date if fmt_date else "Unknown",
                                 "spacing": f"{file_reader.GetSpacing()[0]:.2f} x {file_reader.GetSpacing()[1]:.2f}",
                                 "tags": [],
                                 "_base_z": z,
@@ -1027,31 +1030,47 @@ class Controller:
                                 "_base_y": y,
                             }
 
-                            # Expanded, Human-Readable Metadata Dictionary
+                            # --- CURATED MASTER TAG LIST ---
                             target_tags = {
-                                "0008|0020": ("Study Date", fmt_date),
-                                "0008|0060": ("Modality", get_tag("0008|0060")),
-                                "0008|1030": (
-                                    "Study Description",
-                                    get_tag("0008|1030"),
-                                ),
-                                "0008|103E": (
-                                    "Series Description",
-                                    get_tag("0008|103e"),
-                                ),
-                                "0010|0010": ("Patient Name", get_tag("0010|0010")),
-                                "0018|0050": ("Slice Thickness", get_tag("0018|0050")),
-                                "0018|1074": (
-                                    "Injected Dose",
-                                    dose_str if dose_str else "---",
-                                ),
-                                "0054|1001": ("Pixel Units", get_tag("0054|1001")),
-                                "0020|0011": ("Series Number", get_tag("0020|0011")),
-                                "0028|0010": ("Rows", get_tag("0028|0010")),
-                                "0028|0011": ("Columns", get_tag("0028|0011")),
+                                "0008|0008": "Image Type",
+                                "0008|0020": "Study Date",
+                                "0008|0030": "Study Time",
+                                "0008|0060": "Modality",
+                                "0008|0070": "Manufacturer",
+                                "0008|1030": "Study Description",
+                                "0008|103E": "Series Description",
+                                "0010|0010": "Patient Name",
+                                "0010|0020": "Patient ID",
+                                "0010|0030": "Patient Birth Date",
+                                "0010|0040": "Patient Sex",
+                                "0018|0015": "Body Part Examined",
+                                "0018|0050": "Slice Thickness",
+                                "0018|1074": "Radionuclide Total Dose",
+                                "0018|0031": "Radiopharmaceutical",
+                                "0020|0011": "Series Number",
+                                "0028|0010": "Rows",
+                                "0028|0011": "Columns",
                             }
-                            for tag, (name, val) in target_tags.items():
-                                series_info["tags"].append((tag, name, val))
+
+                            # ONLY append tags that actually contain data!
+                            for tag, name in target_tags.items():
+                                val = dose_str if tag == "0018|1074" else get_tag(tag)
+
+                                if val:
+                                    # Format standalone dates/times cleanly
+                                    if (
+                                        tag in ("0008|0020", "0010|0030")
+                                        and len(val) == 8
+                                    ):
+                                        val = f"{val[0:4]}-{val[4:6]}-{val[6:8]}"
+                                    elif tag == "0008|0030" and len(val) >= 4:
+                                        val = (
+                                            f"{val[0:2]}:{val[2:4]}:{val[4:6]}"
+                                            if len(val) >= 6
+                                            else f"{val[0:2]}:{val[2:4]}"
+                                        )
+
+                                    series_info["tags"].append((tag, name, val))
 
                             series_dict[sid] = series_info
                 except Exception as e:

@@ -131,6 +131,7 @@ class DicomBrowserWindow:
                     # Middle: Tags Table
                     with dpg.child_window(height=-45, border=True):
                         with dpg.table(
+                            tag="dicom_tags_table",
                             header_row=True,
                             resizable=True,
                             borders_innerH=True,
@@ -143,21 +144,6 @@ class DicomBrowserWindow:
                                 label="Name", width_fixed=True, init_width_or_weight=150
                             )
                             dpg.add_table_column(label="Value", width_stretch=True)
-                            # dpg.add_table_column(
-                            #    label="id_col", width_fixed=True, init_width_or_weight=1
-                            # )
-
-                            for i in range(15):
-                                with dpg.table_row(tag=f"dicom_row_{i}"):
-                                    dpg.add_text(
-                                        "---", tag=f"dicom_t_{i}", color=[150, 255, 150]
-                                    )
-                                    dpg.add_text(
-                                        "---",
-                                        tag=f"dicom_n_{i}",
-                                        color=self.gui.ui_cfg["colors"]["text_dim"],
-                                    )
-                                    dpg.add_text("---", tag=f"dicom_v_{i}")
 
                     dpg.add_spacer(height=5)
                     btn_open = dpg.add_button(
@@ -242,6 +228,42 @@ class DicomBrowserWindow:
             )
 
     def on_series_selected(self, sender, app_data, user_data):
+        # Deselect all others safely (Comparing Aliases and Integer IDs)
+        for child in dpg.get_item_children("dicom_series_list", 1):
+            if child != sender and dpg.get_item_alias(child) != sender:
+                dpg.set_value(child, False)
+
+        # Force active highlight (Essential for Keyboard arrows!)
+        if dpg.does_item_exist(sender):
+            dpg.set_value(sender, True)
+
+        self.active_series = self.scanned_series[user_data]
+        s = self.active_series
+
+        dpg.set_value("dicom_lbl_patient", s["patient_name"])
+        dpg.set_value("dicom_lbl_study", s["study_desc"])
+        dpg.set_value("dicom_lbl_size", s["size"])
+        dpg.set_value("dicom_lbl_spacing", s["spacing"])
+
+        first_file = os.path.basename(s["files"][0]) if s["files"] else "Unknown"
+        dir_path = os.path.dirname(s["files"][0]) if s["files"] else "Unknown"
+        dpg.set_value("dicom_lbl_file", first_file)
+        dpg.set_value("dicom_lbl_dir", dir_path)
+
+        # --- DYNAMIC TABLE POPULATION ---
+        if dpg.does_item_exist("dicom_tags_table"):
+            # Delete all existing rows
+            for row in dpg.get_item_children("dicom_tags_table", 1):
+                dpg.delete_item(row)
+
+            # Generate fresh rows only for tags that actually exist
+            for tag, name, val in s["tags"]:
+                with dpg.table_row(parent="dicom_tags_table"):
+                    dpg.add_text(tag, color=[150, 255, 150])
+                    dpg.add_text(name, color=self.gui.ui_cfg["colors"]["text_dim"])
+                    dpg.add_text(val)
+
+    def on_series_selected_OLD(self, sender, app_data, user_data):
         # Deselect all others
         for child in dpg.get_item_children("dicom_series_list", 1):
             if child != sender:
