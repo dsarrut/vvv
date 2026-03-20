@@ -91,6 +91,12 @@ def load_single_image_sequence(gui, controller, file_path):
         )
         target_viewer.set_image(img_id)
 
+        empty_viewers = [v for v in controller.viewers.values() if v.image_id is None]
+        if empty_viewers:
+            controller.default_viewers_orientation()
+            for v in empty_viewers:
+                v.set_image(img_id)
+
         same_image_viewers = [
             v.tag for v in controller.viewers.values() if v.image_id == img_id
         ]
@@ -138,7 +144,13 @@ def load_batch_images_sequence(gui, controller, file_paths):
 
     loaded_ids = []
     for i, path in enumerate(file_paths):
-        filename = os.path.basename(path)
+
+        if isinstance(path, (list, tuple)) and len(path) > 0:
+            filename = os.path.basename(os.path.dirname(path[0])) + " (DICOM Series)"
+            path = list(path)  # Force it to a list for VolumeData
+        else:
+            filename = os.path.basename(path)
+
         if dpg.does_item_exist("loading_text"):
             dpg.set_value("loading_text", f"Loading ({i+1}/{total_files}):\n{filename}")
         if dpg.does_item_exist("loading_progress"):
@@ -164,6 +176,13 @@ def load_batch_images_sequence(gui, controller, file_paths):
             gui.context_viewer if gui.context_viewer else controller.viewers["V1"]
         )
         target_viewer.set_image(loaded_ids[0])
+
+        empty_viewers = [v for v in controller.viewers.values() if v.image_id is None]
+        if empty_viewers:
+            controller.default_viewers_orientation()
+            for v in empty_viewers:
+                v.set_image(loaded_ids[0])
+
         gui.set_context_viewer(target_viewer)
         gui.refresh_image_list_ui()
         gui.refresh_rois_ui()
@@ -251,71 +270,6 @@ def load_batch_rois_sequence(
     yield
 
 
-def load_batch_rois_sequence_OLD(gui, controller, base_image_id, file_paths):
-    total_files = len(file_paths)
-
-    with dpg.window(
-        tag="loading_modal",
-        modal=True,
-        show=True,
-        no_title_bar=True,
-        no_resize=True,
-        no_move=True,
-        width=350,
-        height=100,
-    ):
-        dpg.add_text(f"Loading {total_files} ROIs...", tag="loading_text")
-        dpg.add_spacer(height=5)
-        dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=0.0)
-
-    vp_width = max(dpg.get_viewport_client_width(), 800)
-    vp_height = max(dpg.get_viewport_client_height(), 600)
-    dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
-    yield
-
-    vs = controller.view_states[base_image_id]
-    color_idx = len(vs.rois)
-
-    for i, path in enumerate(file_paths):
-        if not os.path.exists(path):
-            continue
-
-        filename = os.path.basename(path)
-        if dpg.does_item_exist("loading_text"):
-            dpg.set_value(
-                "loading_text", f"Loading ROI ({i+1}/{total_files}):\n{filename}"
-            )
-        if dpg.does_item_exist("loading_progress"):
-            dpg.set_value("loading_progress", i / total_files)
-        yield
-
-        color = ROI_COLORS[color_idx % len(ROI_COLORS)]
-        color_idx += 1
-
-        try:
-            controller.load_binary_mask(base_image_id, path, color=color)
-        except Exception as e:
-            print(f"Failed to load ROI {filename}: {e}")
-        yield
-
-    if dpg.does_item_exist("loading_text"):
-        dpg.set_value("loading_text", "Applying ROIs...")
-    if dpg.does_item_exist("loading_progress"):
-        dpg.set_value("loading_progress", 1.0)
-    yield
-
-    vs = controller.view_states[base_image_id]
-    if vs.rois:
-        gui.active_roi_id = list(vs.rois.keys())[-1]
-
-    gui.refresh_rois_ui()
-    controller.update_all_viewers_of_image(base_image_id)
-
-    if dpg.does_item_exist("loading_modal"):
-        dpg.delete_item("loading_modal")
-    yield
-
-
 def load_workspace_sequence(gui, controller, file_path):
     with open(file_path, "r") as f:
         data = json.load(f)
@@ -355,14 +309,22 @@ def load_workspace_sequence(gui, controller, file_path):
 
     for old_id, v_data in vols_data.items():
         raw_path = v_data["path"]
-        filename = os.path.basename(raw_path)
+
+        if isinstance(raw_path, list) and len(raw_path) > 0:
+            filename = (
+                os.path.basename(os.path.dirname(raw_path[0])) + " (DICOM Series)"
+            )
+        else:
+            filename = os.path.basename(raw_path)
 
         if dpg.does_item_exist("loading_text"):
             dpg.set_value("loading_text", f"Loading volume...\n{filename}")
             dpg.set_value("loading_progress", processed / total_vols)
         yield
 
-        if raw_path.startswith("4D:"):
+        if isinstance(raw_path, list):
+            full_path = [resolve_relative_path(p, workspace_dir) for p in raw_path]
+        elif isinstance(raw_path, str) and raw_path.startswith("4D:"):
             tokens = shlex.split(raw_path[3:].strip())
             abs_paths = [resolve_relative_path(p, workspace_dir) for p in tokens]
             full_path = "4D:" + " ".join(f'"{p}"' for p in abs_paths)

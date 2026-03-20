@@ -140,6 +140,20 @@ class InteractionManager:
             self.gui.on_open_file_clicked()
             return
 
+        # DICOM Browser Arrow Keys
+        dicom_win = getattr(self.gui, "dicom_window", None)
+        if (
+            dicom_win
+            and dpg.does_item_exist(dicom_win.window_tag)
+            and dpg.is_item_shown(dicom_win.window_tag)
+        ):
+            if app_data == dpg.mvKey_Up:
+                dicom_win.move_selection(-1)
+                return
+            elif app_data == dpg.mvKey_Down:
+                dicom_win.move_selection(1)
+                return
+
         # Pass everything else to the Active Tool
         self.active_tool.on_key_press(app_data)
 

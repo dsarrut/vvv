@@ -3,8 +3,7 @@ import json
 import os
 import time
 import threading
-import numpy as np
-from vvv.utils import ViewMode, fmt
+from vvv.utils import fmt
 from vvv.file_dialog import open_file_dialog, save_file_dialog
 from vvv.resources import load_fonts, setup_themes
 from vvv.core import WL_PRESETS, COLORMAPS
@@ -12,6 +11,7 @@ from vvv.ui_settings import SettingsWindow
 from vvv.ui_theme import build_ui_config, register_dynamic_themes
 from vvv.ui_tabs import build_tab_sync, build_tab_fusion, build_tab_rois
 from vvv.ui_interaction import InteractionManager
+from vvv.ui_dicom import DicomBrowserWindow
 from vvv.ui_sequences import (
     load_single_image_sequence,
     load_batch_images_sequence,
@@ -70,6 +70,7 @@ class MainGUI:
         setup_themes()
         register_dynamic_themes(self.ui_cfg, self.controller)
         self.settings_window = SettingsWindow(self.controller)
+        self.dicom_window = DicomBrowserWindow(self.controller, self)
         self.interaction = InteractionManager(self, self.controller)
 
         # go
@@ -126,9 +127,15 @@ class MainGUI:
                         label="Open Image(s)...", callback=self.on_open_file_clicked
                     )
                     dpg.add_menu_item(
+                        label="Open DICOM Browser...",
+                        callback=lambda: self.dicom_window.show(),
+                    )
+                    dpg.add_menu_item(
                         label="Open a 4D Sequence...",
                         callback=self.on_open_4d_sequence_clicked,
                     )
+
+                    dpg.add_separator()
 
                     dpg.add_menu_item(
                         label="Open Workspace...",
@@ -522,6 +529,13 @@ class MainGUI:
                             callback=self.on_image_viewer_toggle,
                         )
 
+                    btn_save = dpg.add_button(
+                        label="\uf0c7",
+                        width=20,  # Floppy disk icon
+                        callback=lambda s, a, u: self.on_save_image_clicked(u),
+                        user_data=vs_id,
+                    )
+
                     btn_reload = dpg.add_button(
                         label="\uf01e",
                         width=20,
@@ -536,6 +550,7 @@ class MainGUI:
                     )
 
                     if dpg.does_item_exist("icon_font_tag"):
+                        dpg.bind_item_font(btn_save, "icon_font_tag")
                         dpg.bind_item_font(btn_reload, "icon_font_tag")
                         dpg.bind_item_font(btn_close, "icon_font_tag")
                     if dpg.does_item_exist("delete_button_theme"):
@@ -1251,6 +1266,23 @@ class MainGUI:
             self.controller.settings.data["behavior"] = {}
 
         self.controller.settings.data["behavior"]["auto_save_history"] = app_data
+
+    def on_save_image_clicked(self, vs_id):
+        vol = self.controller.volumes[vs_id]
+        file_path = save_file_dialog("Save Image As", default_name=f"{vol.name}.nii.gz")
+
+        if file_path:
+            self.show_status_message(f"Saving {vol.name}...")
+
+            # Run in a thread so the UI doesn't freeze during heavy compression!
+            def _save():
+                try:
+                    self.controller.save_image(vs_id, file_path)
+                    self.show_status_message(f"Saved: {os.path.basename(file_path)}")
+                except Exception as e:
+                    self.show_message("Save Error", str(e))
+
+            threading.Thread(target=_save, daemon=True).start()
 
     def on_save_workspace_clicked(self, sender=None, app_data=None, user_data=None):
         file_path = save_file_dialog("Save VVV Workspace", default_name="workspace.vvw")

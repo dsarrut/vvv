@@ -373,43 +373,48 @@ class VolumeData:
         self.path = path
         self.file_paths = []
 
-        is_4d = False
-        if isinstance(path, str) and path.startswith("4D:"):
-            is_4d = True
-            path = path[3:].strip()
-
-        if is_4d:
-            if os.path.isdir(path):
-                valid_exts = (
-                    ".mhd",
-                    ".nii",
-                    ".nii.gz",
-                    ".nrrd",
-                    ".dcm",
-                    ".hdr",
-                    ".img",
-                )
-                self.file_paths = sorted(
-                    [
-                        os.path.join(path, f)
-                        for f in os.listdir(path)
-                        if f.lower().endswith(valid_exts)
-                    ]
-                )
-            elif "*" in path or "?" in path:
-                self.file_paths = sorted(glob.glob(path))
-            else:
-                tokens = shlex.split(path)
-                valid_files = [f for f in tokens if os.path.isfile(f)]
-                if valid_files:
-                    self.file_paths = sorted(valid_files)
-                else:
-                    self.file_paths = [path]
+        if isinstance(path, list):
+            self.file_paths = path
+            # Use the folder name as the volume name
+            self.name = os.path.basename(os.path.dirname(self.file_paths[0]))
         else:
-            self.file_paths = [path]
+            is_4d = False
+            if isinstance(path, str) and path.startswith("4D:"):
+                is_4d = True
+                path = path[3:].strip()
 
-        if not self.file_paths:
-            raise FileNotFoundError(f"No files found for path: {self.path}")
+            if is_4d:
+                if os.path.isdir(path):
+                    valid_exts = (
+                        ".mhd",
+                        ".nii",
+                        ".nii.gz",
+                        ".nrrd",
+                        ".dcm",
+                        ".hdr",
+                        ".img",
+                    )
+                    self.file_paths = sorted(
+                        [
+                            os.path.join(path, f)
+                            for f in os.listdir(path)
+                            if f.lower().endswith(valid_exts)
+                        ]
+                    )
+                elif "*" in path or "?" in path:
+                    self.file_paths = sorted(glob.glob(path))
+                else:
+                    tokens = shlex.split(path)
+                    valid_files = [f for f in tokens if os.path.isfile(f)]
+                    if valid_files:
+                        self.file_paths = sorted(valid_files)
+                    else:
+                        self.file_paths = [path]
+            else:
+                self.file_paths = [path]
+
+            if not self.file_paths:
+                raise FileNotFoundError(f"No files found for path: {self.path}")
 
         self.sitk_image = self.read_image_from_disk(self.file_paths)
         self.data = sitk.GetArrayViewFromImage(self.sitk_image)
@@ -443,32 +448,36 @@ class VolumeData:
 
             return sitk_img
         else:
-            imgs = []
-            base_size = None
-            for p in paths:
-                try:
-                    img = sitk.ReadImage(p)
-                    if base_size is None:
-                        base_size = img.GetSize()
-                        imgs.append(img)
-                    elif img.GetSize() == base_size:
-                        imgs.append(img)
-                    else:
-                        print(
-                            f"Warning: Skipping {os.path.basename(p)} - Size {img.GetSize()} mismatches base {base_size}"
-                        )
-                except Exception as e:
-                    print(f"Warning: Failed to read {os.path.basename(p)}")
+            # --- Try fast GDCM loading first ---
+            reader = sitk.ImageSeriesReader()
+            reader.SetFileNames(paths)
+            try:
+                return reader.Execute()
+            except Exception as e:
+                # Fallback to the old loop for 4D NIfTI/MHD sequences
+                imgs = []
+                base_size = None
+                for p in paths:
+                    try:
+                        img = sitk.ReadImage(p)
+                        if base_size is None:
+                            base_size = img.GetSize()
+                            imgs.append(img)
+                        elif img.GetSize() == base_size:
+                            imgs.append(img)
+                        else:
+                            print(
+                                f"Warning: Skipping {os.path.basename(p)} - Size mismatch"
+                            )
+                    except Exception as inner_e:
+                        print(f"Warning: Failed to read {os.path.basename(p)}")
 
-            if not imgs:
-                raise RuntimeError(
-                    "No valid images could be read from the provided paths."
-                )
+                if not imgs:
+                    raise RuntimeError(
+                        "No valid images could be read from the provided paths."
+                    )
 
-            if len(imgs) == 1:
-                return imgs[0]
-
-            return sitk.JoinSeries(imgs)
+                return sitk.JoinSeries(imgs)
 
     def read_image_metadata(self):
         self.pixel_type = self.sitk_image.GetPixelIDTypeAsString()

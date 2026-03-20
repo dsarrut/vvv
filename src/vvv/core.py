@@ -931,6 +931,149 @@ class Controller:
 
         return img_id
 
+    def save_image(self, vs_id, filepath):
+        """Exports the active volume to disk as a NIfTI, MHD, etc."""
+        if vs_id not in self.volumes:
+            return
+        import SimpleITK as sitk
+
+        vol = self.volumes[vs_id]
+        sitk.WriteImage(vol.sitk_image, filepath)
+
+    def scan_dicom_folder(self, folder_path, recursive=True):
+        """Scans a folder for DICOM series and YIELDS progress updates."""
+        import SimpleITK as sitk
+        import os
+
+        if not os.path.exists(folder_path):
+            yield (1.0, "Done", [])
+            return
+
+        # Use a dictionary to group slices by Series UID across multiple folders!
+        series_dict = {}
+        search_dirs = (
+            [x[0] for x in os.walk(folder_path, followlinks=True)]
+            if recursive
+            else [folder_path]
+        )
+        total_dirs = max(1, len(search_dirs))
+
+        reader = sitk.ImageSeriesReader()
+        file_reader = sitk.ImageFileReader()
+
+        # Silence the C++ GDCM Warnings
+        sitk.ProcessObject.SetGlobalWarningDisplay(False)
+
+        try:
+            for i, d in enumerate(search_dirs):
+                # YIELD PROGRESS to the UI Thread
+                yield (i / total_dirs, os.path.basename(d))
+
+                try:
+                    series_ids = reader.GetGDCMSeriesIDs(d)
+                    for sid in series_ids:
+                        file_names = reader.GetGDCMSeriesFileNames(d, sid)
+                        if not file_names:
+                            continue
+
+                        if sid in series_dict:
+                            # Series is split across multiple folders -> just append the files!
+                            series_dict[sid]["files"].extend(file_names)
+                        else:
+                            file_reader.SetFileName(file_names[0])
+                            file_reader.ReadImageInformation()
+
+                            def get_tag(tag, default="---"):
+                                return (
+                                    file_reader.GetMetaData(tag)
+                                    if file_reader.HasMetaDataKey(tag)
+                                    else default
+                                )
+
+                            # --- FORMAT DATE & TIME ---
+                            d_str = get_tag("0008|0020", "")
+                            t_str = get_tag("0008|0030", "")
+                            fmt_date = d_str
+                            if len(d_str) >= 8:
+                                fmt_date = f"{d_str[0:4]}-{d_str[4:6]}-{d_str[6:8]}"
+                                if len(t_str) >= 4:
+                                    fmt_date += f" {t_str[0:2]}:{t_str[2:4]}"
+
+                            # --- FORMAT INJECTED DOSE ---
+                            dose_str = get_tag("0018|1074", "")
+                            if dose_str and dose_str != "---":
+                                try:
+                                    dose_str = f"{float(dose_str) / 1e6:.2f} MBq"
+                                except:
+                                    pass
+
+                            size_tup = file_reader.GetSize()
+                            x, y = size_tup[0], size_tup[1]
+                            z = size_tup[2] if len(size_tup) > 2 else 1
+
+                            series_info = {
+                                "id": sid,
+                                "dir": d,
+                                "files": list(file_names),
+                                "patient_name": get_tag("0010|0010"),
+                                "study_desc": get_tag("0008|1030"),
+                                "series_desc": get_tag("0008|103e"),
+                                "modality": get_tag("0008|0060"),
+                                "date": fmt_date,
+                                "spacing": f"{file_reader.GetSpacing()[0]:.2f} x {file_reader.GetSpacing()[1]:.2f}",
+                                "tags": [],
+                                "_base_z": z,
+                                "_base_x": x,
+                                "_base_y": y,
+                            }
+
+                            # Expanded, Human-Readable Metadata Dictionary
+                            target_tags = {
+                                "0008|0020": ("Study Date", fmt_date),
+                                "0008|0060": ("Modality", get_tag("0008|0060")),
+                                "0008|1030": (
+                                    "Study Description",
+                                    get_tag("0008|1030"),
+                                ),
+                                "0008|103E": (
+                                    "Series Description",
+                                    get_tag("0008|103e"),
+                                ),
+                                "0010|0010": ("Patient Name", get_tag("0010|0010")),
+                                "0018|0050": ("Slice Thickness", get_tag("0018|0050")),
+                                "0018|1074": (
+                                    "Injected Dose",
+                                    dose_str if dose_str else "---",
+                                ),
+                                "0054|1001": ("Pixel Units", get_tag("0054|1001")),
+                                "0020|0011": ("Series Number", get_tag("0020|0011")),
+                                "0028|0010": ("Rows", get_tag("0028|0010")),
+                                "0028|0011": ("Columns", get_tag("0028|0011")),
+                            }
+                            for tag, (name, val) in target_tags.items():
+                                series_info["tags"].append((tag, name, val))
+
+                            series_dict[sid] = series_info
+                except Exception as e:
+                    pass
+        finally:
+            sitk.ProcessObject.SetGlobalWarningDisplay(True)
+
+        # Final post-processing to flatten the dictionary and fix the Z-Size
+        found_series = []
+        for sid, s in series_dict.items():
+            x, y, z_header = s.pop("_base_x"), s.pop("_base_y"), s.pop("_base_z")
+            file_count = len(s["files"])
+
+            # If there is only 1 file, trust the header Z size (Multi-frame DICOM).
+            # Otherwise, use the total number of files found for this Series UID.
+            z_dim = z_header if (z_header > 1 and file_count == 1) else file_count
+
+            s["size"] = f"{x} x {y} x {z_dim}"
+            found_series.append(s)
+
+        yield (1.0, "Done", found_series)
+
     def process_binary_mask(self, base_vol, mask_vol):
         """Helper to resample and autocrop a binary mask."""
         if (
@@ -1111,52 +1254,6 @@ class Controller:
         new_img.SetOrigin(mask_vol.sitk_image.GetOrigin())
         new_img.SetDirection(mask_vol.sitk_image.GetDirection())
         mask_vol.sitk_image = new_img
-
-        base_vol = self.volumes[base_id]
-        self.process_binary_mask(base_vol, mask_vol)
-
-        self.view_states[base_id].is_data_dirty = True
-        self.update_all_viewers_of_image(base_id)
-
-    def load_binary_mask_OLD(self, base_id, filepath, name=None, color=[255, 50, 50]):
-        base_vol = self.volumes[base_id]
-        mask_vol = VolumeData(filepath)
-
-        self.process_binary_mask(base_vol, mask_vol)
-
-        mask_id = str(self._next_image_id)
-        self._next_image_id += 1
-        self.volumes[mask_id] = mask_vol
-
-        if name is None:
-            name = os.path.basename(filepath)
-            for ext in [
-                ".nii.gz",
-                ".nii",
-                ".mhd",
-                ".mha",
-                ".nrrd",
-                ".dcm",
-                ".tif",
-                ".png",
-                ".jpg",
-            ]:
-                if name.lower().endswith(ext):
-                    name = name[: -len(ext)]
-                    break
-
-        roi_state = ROIState(mask_id, name, color)
-        self.view_states[base_id].rois[mask_id] = roi_state
-        self.view_states[base_id].is_data_dirty = True
-
-        return mask_id
-
-    def reload_roi_OLD(self, base_id, roi_id):
-        if base_id not in self.view_states or roi_id not in self.volumes:
-            return
-
-        mask_vol = self.volumes[roi_id]
-        was_reset = mask_vol.reload()
 
         base_vol = self.volumes[base_id]
         self.process_binary_mask(base_vol, mask_vol)
@@ -1431,8 +1528,10 @@ class Controller:
         for vs_id, vs in self.view_states.items():
             vol = self.volumes[vs_id]
 
-            # Handle 4D magic paths safely
-            if vol.path.startswith("4D:"):
+            # Handle 4D magic paths and DICOM list paths safely
+            if isinstance(vol.path, list):
+                safe_path = [get_relative_path(p, workspace_dir) for p in vol.path]
+            elif isinstance(vol.path, str) and vol.path.startswith("4D:"):
                 tokens = shlex.split(vol.path[3:].strip())
                 rel_paths = [get_relative_path(p, workspace_dir) for p in tokens]
                 safe_path = "4D:" + " ".join(f'"{p}"' for p in rel_paths)

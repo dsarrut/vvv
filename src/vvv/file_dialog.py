@@ -3,12 +3,14 @@ import sys
 import subprocess
 
 
-def open_file_dialog(title="Open File", multiple=False, is_workspace=False):
+def open_file_dialog(
+    title="Open", multiple=False, is_workspace=False, is_directory=False
+):
     """
     Native File Dialog wrapper.
     Vendored and adapted from 'crossfiledialog' by maikelwever
     https://github.com/maikelwever/crossfiledialog
-    Supports selecting single or multiple files.
+    Supports selecting single or multiple files, and directories.
     """
 
     # Determine the starting folder
@@ -37,24 +39,30 @@ def open_file_dialog(title="Open File", multiple=False, is_workspace=False):
             f"  activate\n"
             f"  try\n"
             f'    set defaultLoc to POSIX file "{start_dir}" as alias\n'
-            f"    set allowedExts to {mac_exts}\n"
         )
 
-        if multiple:
+        if is_directory:
             script += (
-                f'    set theFiles to choose file with prompt "{title}" default location defaultLoc of type allowedExts with multiple selections allowed\n'
-                f"    set pathList to {{}}\n"
-                f"    repeat with aFile in theFiles\n"
-                f"      set end of pathList to POSIX path of aFile\n"
-                f"    end repeat\n"
-                f"    set AppleScript's text item delimiters to linefeed\n"
-                f"    return pathList as text\n"
-            )
-        else:
-            script += (
-                f'    set theFile to choose file with prompt "{title}" default location defaultLoc of type allowedExts\n'
+                f'    set theFile to choose folder with prompt "{title}" default location defaultLoc\n'
                 f"    return POSIX path of theFile\n"
             )
+        else:
+            script += f"    set allowedExts to {mac_exts}\n"
+            if multiple:
+                script += (
+                    f'    set theFiles to choose file with prompt "{title}" default location defaultLoc of type allowedExts with multiple selections allowed\n'
+                    f"    set pathList to {{}}\n"
+                    f"    repeat with aFile in theFiles\n"
+                    f"      set end of pathList to POSIX path of aFile\n"
+                    f"    end repeat\n"
+                    f"    set AppleScript's text item delimiters to linefeed\n"
+                    f"    return pathList as text\n"
+                )
+            else:
+                script += (
+                    f'    set theFile to choose file with prompt "{title}" default location defaultLoc of type allowedExts\n'
+                    f"    return POSIX path of theFile\n"
+                )
 
         script += f"  end try\n" f"end tell"
 
@@ -79,9 +87,13 @@ def open_file_dialog(title="Open File", multiple=False, is_workspace=False):
                 "--file-selection",
                 f"--title={title}",
                 f"--filename={start_dir}",
-                zenity_filter,
-                "--file-filter=All Files | *",
             ]
+            if is_directory:
+                cmd.append("--directory")
+            else:
+                cmd.append(zenity_filter)
+                cmd.append("--file-filter=All Files | *")
+
             if multiple:
                 cmd.append("--multiple")
                 cmd.append("--separator=\n")
@@ -92,13 +104,21 @@ def open_file_dialog(title="Open File", multiple=False, is_workspace=False):
                 return path.splitlines() if multiple else path
         except FileNotFoundError:
             try:
-                cmd = [
-                    "kdialog",
-                    "--getopenfilename",
-                    start_dir,
-                    kdialog_filter,
-                    f"--title={title}",
-                ]
+                if is_directory:
+                    cmd = [
+                        "kdialog",
+                        "--getexistingdirectory",
+                        start_dir,
+                        f"--title={title}",
+                    ]
+                else:
+                    cmd = [
+                        "kdialog",
+                        "--getopenfilename",
+                        start_dir,
+                        kdialog_filter,
+                        f"--title={title}",
+                    ]
                 if multiple:
                     cmd.append("--multiple")
                     cmd.append("--separate-output")
@@ -111,23 +131,37 @@ def open_file_dialog(title="Open File", multiple=False, is_workspace=False):
                 return [] if multiple else None
 
     elif sys.platform == "win32":  # Windows
-        mult_str = "$true" if multiple else "$false"
-        out_str = (
-            "$f.FileNames -join [Environment]::NewLine" if multiple else "$f.FileName"
-        )
+        if is_directory:
+            script = (
+                f"Add-Type -AssemblyName System.Windows.Forms;"
+                f"$f = New-Object System.Windows.Forms.FolderBrowserDialog;"
+                f"$f.Description = '{title}';"
+                f"$f.SelectedPath = '{start_dir}';"
+                f"$form = New-Object System.Windows.Forms.Form;"
+                f"$form.TopMost = $true;"
+                f"if ($f.ShowDialog($form) -eq 'OK') {{ $f.SelectedPath }}"
+            )
+        else:
+            mult_str = "$true" if multiple else "$false"
+            out_str = (
+                "$f.FileNames -join [Environment]::NewLine"
+                if multiple
+                else "$f.FileName"
+            )
 
-        script = (
-            f"Add-Type -AssemblyName System.Windows.Forms;"
-            f"$f = New-Object System.Windows.Forms.OpenFileDialog;"
-            f"$f.Title = '{title}';"
-            f"$f.InitialDirectory = '{start_dir}';"
-            f"$f.Filter = '{win_filter}';"
-            f"$f.Multiselect = {mult_str};"
-            f"$f.ShowHelp = $true;"
-            f"$form = New-Object System.Windows.Forms.Form;"
-            f"$form.TopMost = $true;"
-            f"if ($f.ShowDialog($form) -eq 'OK') {{ {out_str} }}"
-        )
+            script = (
+                f"Add-Type -AssemblyName System.Windows.Forms;"
+                f"$f = New-Object System.Windows.Forms.OpenFileDialog;"
+                f"$f.Title = '{title}';"
+                f"$f.InitialDirectory = '{start_dir}';"
+                f"$f.Filter = '{win_filter}';"
+                f"$f.Multiselect = {mult_str};"
+                f"$f.ShowHelp = $true;"
+                f"$form = New-Object System.Windows.Forms.Form;"
+                f"$form.TopMost = $true;"
+                f"if ($f.ShowDialog($form) -eq 'OK') {{ {out_str} }}"
+            )
+
         try:
             result = subprocess.run(
                 ["powershell", "-Command", script],

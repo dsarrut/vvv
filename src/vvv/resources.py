@@ -45,6 +45,8 @@ def load_fonts():
                 dpg.add_font_chars([0xF06E])  # Eye icon open
                 dpg.add_font_chars([0xF070])  # Eye icon close
                 dpg.add_font_chars([0xF05B])  # ROI center
+                dpg.add_font_chars([0xF07C])  # folder
+                dpg.add_font_chars([0xF0C7])  # floppy disk
                 dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
         else:
             print("ERROR: Icon font file not found! Buttons will show '?'.")
