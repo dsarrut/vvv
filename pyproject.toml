@@ -17,6 +17,11 @@ dependencies = [
     "pyobjc-framework-Cocoa; sys_platform == 'darwin'"
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest"
+]
+
 [project.scripts]
 # This line creates the 'vvv' command in your shell
 vvv = "vvv.cli:main"
