@@ -202,6 +202,7 @@ def load_batch_rois_sequence(
     val=0.0,
 ):
     total_files = len(file_paths)
+    warnings = []
 
     with dpg.window(
         tag="loading_modal",
@@ -249,7 +250,8 @@ def load_batch_rois_sequence(
                 loaded = controller.load_label_map(base_image_id, path, color_idx)
                 color_idx += loaded
         except Exception as e:
-            print(f"Failed to load ROI {filename}: {e}")
+            warnings.append(f"- {filename}: {e}")
+            # print(f"Failed to load ROI {filename}: {e}")
         yield
 
     if dpg.does_item_exist("loading_text"):
@@ -268,6 +270,13 @@ def load_batch_rois_sequence(
     if dpg.does_item_exist("loading_modal"):
         dpg.delete_item("loading_modal")
     yield
+
+    if warnings:
+        gui.show_message(
+            "ROI Import Warning", "Some ROIs were skipped:\n\n" + "\n".join(warnings)
+        )
+        while dpg.does_item_exist("generic_message_modal"):
+            yield
 
 
 def load_workspace_sequence(gui, controller, file_path):

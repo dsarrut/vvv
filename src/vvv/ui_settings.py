@@ -49,7 +49,7 @@ class SettingsWindow:
             dpg.add_spacer(height=5)
 
             # Body Container
-            # FIX: Increased from -45 to -70 to guarantee the footer buttons don't get pushed off the bottom edge!
+            # Increased from -45 to -70 to guarantee the footer buttons don't get pushed off the bottom edge!
             with dpg.child_window(tag=self.tree_container, height=-70, border=False):
                 pass  # Populated dynamically below!
 

@@ -44,6 +44,7 @@ class MainGUI:
         self.roi_selectables = {}
         self.ui_cfg = None
         self.active_roi_id = None
+        self._is_roi_tab_active = None
 
         # --- DATA BINDING DICTIONARY ---
         # Maps DPG tag -> ViewState property name
@@ -630,6 +631,7 @@ class MainGUI:
             dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
             dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
             dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
 
             for roi_id, roi in viewer.view_state.rois.items():
                 with dpg.table_row():
@@ -654,7 +656,6 @@ class MainGUI:
                         callback=self.on_roi_selected,
                     )
                     self.roi_selectables[roi_id] = sel_id
-                    # ---------------------------------
 
                     btn_eye = dpg.add_button(
                         label=lbl_eye,
@@ -662,24 +663,33 @@ class MainGUI:
                         user_data=roi_id,
                         callback=self.on_roi_toggle_visible,
                     )
-
-                    btn_reload = dpg.add_button(
-                        label="\uf01e",
-                        width=20,
-                        user_data=roi_id,
-                        callback=self.on_roi_reload,
-                    )
                     btn_center = dpg.add_button(
                         label="\uf05b",
                         width=20,
                         user_data=roi_id,
                         callback=self.on_roi_center,
                     )
+                    btn_reload = dpg.add_button(
+                        label="\uf01e",
+                        width=20,
+                        user_data=roi_id,
+                        callback=self.on_roi_reload,
+                    )
+                    btn_close = dpg.add_button(
+                        label="\uf00d",
+                        width=20,
+                        user_data=roi_id,
+                        callback=self.on_roi_close,
+                    )
 
                     if dpg.does_item_exist("icon_font_tag"):
                         dpg.bind_item_font(btn_eye, "icon_font_tag")
                         dpg.bind_item_font(btn_reload, "icon_font_tag")
                         dpg.bind_item_font(btn_center, "icon_font_tag")
+                        dpg.bind_item_font(btn_close, "icon_font_tag")
+
+                    if dpg.does_item_exist("delete_button_theme"):
+                        dpg.bind_item_theme(btn_close, "delete_button_theme")
 
         dpg.set_y_scroll("roi_table", current_scroll)
         self.refresh_roi_detail_ui()
@@ -722,7 +732,7 @@ class MainGUI:
                     callback=self.on_roi_opacity_changed,
                 )
 
-            # --- THE FIX: DYNAMIC COLORED SLIDER THEME ---
+            # Dynamic colored slider theme
             theme_tag = "dynamic_roi_slider_theme"
             if dpg.does_item_exist(theme_tag):
                 dpg.delete_item(theme_tag)
@@ -737,7 +747,6 @@ class MainGUI:
                     dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, [r, g, b, 100])
                     dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, [r, g, b, 50])
             dpg.bind_item_theme("slider_roi_opacity", theme_tag)
-            # ---------------------------------------------
 
             """with dpg.group(horizontal=True):
                 dpg.add_text("Contour:")
@@ -1087,7 +1096,7 @@ class MainGUI:
             self.highlight_active_image_in_list(viewer.image_id)
             self.update_sidebar_info(viewer)
             self.update_sidebar_crosshair(viewer)
-            self.refresh_rois_ui()  # <--- ADD THIS LINE
+            self.refresh_rois_ui()
 
     # ==========================================
     # 4. EVENT HANDLERS
@@ -1517,6 +1526,27 @@ class MainGUI:
 
     def on_roi_stat_dropdown_changed(self, sender, app_data, user_data):
         self.update_roi_stats_ui()
+
+    def on_roi_close(self, sender, app_data, user_data):
+        roi_id = user_data
+        viewer = self.context_viewer
+        if not viewer or not viewer.image_id:
+            return
+
+        base_id = viewer.image_id
+
+        # Free memory and remove from backend
+        self.controller.close_roi(base_id, roi_id)
+
+        # If the deleted ROI was the currently active one, clear the detail pane
+        if getattr(self, "active_roi_id", None) == roi_id:
+            self.active_roi_id = None
+
+        # Refresh the UI to reflect the removal
+        self.refresh_rois_ui()
+
+        # Trigger an info refresh in case it was the last ROI (to disable the show/hide/export buttons)
+        self.update_sidebar_info(viewer)
 
     def on_tab_changed(self, sender, app_data, user_data):
         tab_tag = app_data

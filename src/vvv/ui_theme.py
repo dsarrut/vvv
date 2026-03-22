@@ -74,7 +74,7 @@ def register_dynamic_themes(ui_cfg, controller):
                 dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
                 dpg.add_theme_color(dpg.mvThemeCol_TextDisabled, cfg_c["text_muted"])
 
-            disabled_bg = [35, 35, 35, 255]  # Static dark grey
+            disabled_bg = [35, 35, 35, 255]  # Static dark grey # FIXME config
 
             # Explicit component targeting
             with dpg.theme_component(dpg.mvAll, enabled_state=False):
@@ -200,7 +200,7 @@ def register_dynamic_themes(ui_cfg, controller):
                     dpg.mvStyleVar_FramePadding, *cfg_l["pad_frame_readonly"]
                 )
 
-            # --- FIX: Keep W/L inputs completely transparent when disabled ---
+            # Keep W/L inputs completely transparent when disabled
             with dpg.theme_component(dpg.mvInputText, enabled_state=False):
                 dpg.add_theme_color(dpg.mvThemeCol_FrameBg, cfg_c["transparent"])
                 dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, cfg_c["transparent"])

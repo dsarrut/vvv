@@ -1160,6 +1160,10 @@ class Controller:
 
         self.process_binary_mask(base_vol, mask_vol)
 
+        # Safeguard warning
+        if mask_vol.data.size == 0:
+            raise ValueError("Outside the base image FOV (or completely empty).")
+
         mask_id = str(self._next_image_id)
         self._next_image_id += 1
         self.volumes[mask_id] = mask_vol
@@ -1653,6 +1657,19 @@ class Controller:
         if self.gui:
             self.gui.update_sidebar_info(self.gui.context_viewer)
 
+    def close_roi(self, base_id, roi_id):
+        """Safely removes an ROI from the view state and frees the volume memory."""
+        if base_id in self.view_states:
+            vs = self.view_states[base_id]
+            if roi_id in vs.rois:
+                del vs.rois[roi_id]
+                vs.is_data_dirty = True
+
+        if roi_id in self.volumes:
+            del self.volumes[roi_id]
+
+        self.update_all_viewers_of_image(base_id)
+
     def close_image(self, vs_id):
         if vs_id in self.view_states:
 
@@ -1669,6 +1686,12 @@ class Controller:
                     self.update_all_viewers_of_image(other_id)
 
             name = self.view_states[vs_id].volume.name
+
+            # Delete ROIs from memory before deleting the view state ---
+            for roi_id in list(self.view_states[vs_id].rois.keys()):
+                if roi_id in self.volumes:
+                    del self.volumes[roi_id]
+
             del self.view_states[vs_id]
             del self.volumes[vs_id]
 
@@ -1680,6 +1703,7 @@ class Controller:
 
             if self.gui:
                 self.gui.refresh_image_list_ui()
+                self.gui.refresh_rois_ui()
                 if self.gui.context_viewer:
                     self.gui.update_sidebar_info(self.gui.context_viewer)
                 self.gui.show_status_message(f"Closed: {name}")
