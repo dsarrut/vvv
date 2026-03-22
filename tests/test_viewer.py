@@ -203,7 +203,7 @@ def test_reset_view(headless_app):
 
 
 # ==========================================
-# 3. NEW PURE MATH & LOGIC ISOLATION
+# 3. PURE MATH & LOGIC ISOLATION
 # ==========================================
 
 
@@ -265,7 +265,7 @@ def test_roi_binarization_rules(headless_app, tmp_path):
 
 
 # ==========================================
-# 4. NEW DATA-IN / DATA-OUT (Serialization)
+# 4. DATA-IN / DATA-OUT (Serialization)
 # ==========================================
 
 
@@ -315,7 +315,7 @@ def test_history_lru_cache(headless_app):
 
 
 # ==========================================
-# 5. NEW HEADLESS STATE VERIFICATION
+# 5. HEADLESS STATE VERIFICATION
 # ==========================================
 
 
@@ -392,7 +392,7 @@ def test_mpr_orientation_switch(headless_app, tmp_path):
 
 
 # ==========================================
-# 6. NEW VISUAL REGRESSION (Renderer Isolation)
+# 6. VISUAL REGRESSION (Renderer Isolation)
 # ==========================================
 
 
@@ -502,7 +502,7 @@ def test_renderer_registration_blending():
 
 
 # ==========================================
-# 3. NEW PURE MATH & LOGIC ISOLATION
+# 3. PURE MATH & LOGIC ISOLATION
 # ==========================================
 
 
@@ -570,7 +570,7 @@ def test_roi_binarization_rules(headless_app, tmp_path):
 # ... (Keep Data-In/Data-Out and Headless State Verification tests exactly the same) ...
 
 # ==========================================
-# 6. NEW VISUAL REGRESSION (Renderer Isolation)
+# 6. VISUAL REGRESSION (Renderer Isolation)
 # ==========================================
 
 

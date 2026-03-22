@@ -93,8 +93,6 @@ def build_tab_rois(gui):
         dpg.add_spacer(height=5)
 
         # --- TOP: Load & Import ---
-        # dpg.add_text("ROI Management", color=cfg_c["text_header"])
-        # dpg.add_separator()
         with dpg.group(horizontal=True):
             dpg.add_button(
                 label="Load ROI...",

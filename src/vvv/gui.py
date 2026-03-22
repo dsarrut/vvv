@@ -220,10 +220,9 @@ class MainGUI:
         dpg.bind_item_theme("side_panel", "sidebar_bg_theme")
         dpg.bind_item_theme("top_panel", "left_panel_padding_theme")
 
-        # --- THE FIX: Target the two new panels instead of 'bottom_panel' ---
+        # Target the two new panels instead of 'bottom_panel'
         dpg.bind_item_theme("av_panel", "left_panel_padding_theme")
         dpg.bind_item_theme("ch_panel", "left_panel_padding_theme")
-        # --------------------------------------------------------------------
 
         dpg.bind_item_theme("image_info_group", "sleek_readonly_theme")
         dpg.bind_item_theme("image_crosshair_group", "sleek_readonly_theme")
