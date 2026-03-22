@@ -58,6 +58,7 @@ def build_ui_config(controller):
             "text_status_ok": [150, 255, 150],
             "text_muted": [150, 150, 150],
             "transparent": [0, 0, 0, 0],
+            "outdated": [255, 180, 50],
         },
     }
 
@@ -222,3 +223,8 @@ def register_dynamic_themes(ui_cfg, controller):
                 dpg.add_theme_style(
                     dpg.mvStyleVar_FramePadding, *cfg_l["pad_frame_sidebar"]
                 )
+
+    if not dpg.does_item_exist("outdated_item_theme"):
+        with dpg.theme(tag="outdated_item_theme"):
+            with dpg.theme_component(dpg.mvAll):
+                dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["outdated"])

@@ -1,9 +1,10 @@
-import SimpleITK as sitk
-import numpy as np
 import os
-from pathlib import Path
 import copy
 import json
+import time
+import numpy as np
+import SimpleITK as sitk
+from pathlib import Path
 from vvv.utils import ViewMode, slice_to_voxel
 from vvv.config import DEFAULT_SETTINGS, WL_PRESETS, COLORMAPS
 from vvv.image import VolumeData, SliceRenderer, RenderLayer
@@ -1286,6 +1287,10 @@ class Controller:
         self.view_states[base_id].is_data_dirty = True
         self.update_all_viewers_of_image(base_id)
 
+        if self.gui:
+            self.gui.refresh_rois_ui()
+            self.gui.show_status_message(f"Reloaded: {roi_state.name}")
+
     def center_on_roi(self, base_id, roi_id):
         if base_id not in self.view_states or roi_id not in self.volumes:
             return
@@ -1631,6 +1636,8 @@ class Controller:
 
             if self.gui:
                 self.gui.show_status_message(f"Reloaded: {vol.name}")
+                self.gui.refresh_image_list_ui()
+                self.gui.refresh_rois_ui()
 
     def reset_image_view(self, vs_id, hard=False):
         """Resets the view and re-applies the boot-up synchronization logic."""
@@ -1783,6 +1790,19 @@ class Controller:
 
         for vs in self.view_states.values():
             vs.is_data_dirty = False
+
+        # Check if files changed on disk, update UI if needed
+        outdated_changed = False
+        for vol in self.volumes.values():
+            if hasattr(vol, "is_outdated"):
+                was_outdated = vol._is_outdated
+                is_out = vol.is_outdated()
+                if is_out != was_outdated:
+                    outdated_changed = True
+
+        if outdated_changed and self.gui:
+            self.gui.refresh_image_list_ui()
+            self.gui.refresh_rois_ui()
 
     def propagate_sync(self, source_vs_id):
         source_vs = self.view_states[source_vs_id]

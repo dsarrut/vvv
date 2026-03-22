@@ -1,17 +1,17 @@
-import dearpygui.dearpygui as dpg
-import json
 import os
+import json
 import time
 import threading
 from vvv.utils import fmt
-from vvv.file_dialog import open_file_dialog, save_file_dialog
-from vvv.resources import load_fonts, setup_themes
-from vvv.core import WL_PRESETS, COLORMAPS
+import dearpygui.dearpygui as dpg
 from vvv.ui_settings import SettingsWindow
+from vvv.core import WL_PRESETS, COLORMAPS
+from vvv.ui_dicom import DicomBrowserWindow
+from vvv.ui_interaction import InteractionManager
+from vvv.resources import load_fonts, setup_themes
+from vvv.file_dialog import open_file_dialog, save_file_dialog
 from vvv.ui_theme import build_ui_config, register_dynamic_themes
 from vvv.ui_tabs import build_tab_sync, build_tab_fusion, build_tab_rois
-from vvv.ui_interaction import InteractionManager
-from vvv.ui_dicom import DicomBrowserWindow
 from vvv.ui_sequences import (
     load_single_image_sequence,
     load_batch_images_sequence,
@@ -530,7 +530,16 @@ class MainGUI:
                     else:
                         dpg.add_text("   ", color=transparent)
 
-                    lbl_id = dpg.add_text(f"{vs.volume.name}")
+                    is_outdated = getattr(vs.volume, "_is_outdated", False)
+                    name_str = f"{vs.volume.name} *" if is_outdated else vs.volume.name
+
+                    lbl_id = dpg.add_text(name_str)
+
+                    # Color it warning-orange if outdated
+                    cfg_c = self.ui_cfg["colors"]
+                    if is_outdated:
+                        dpg.configure_item(lbl_id, color=cfg_c["outdated"])
+
                     self.image_label_tags[vs_id] = lbl_id
 
                 with dpg.group(horizontal=True):
@@ -660,14 +669,24 @@ class MainGUI:
                     )
 
                     is_active = roi_id == getattr(self, "active_roi_id", None)
+
+                    roi_vol = self.controller.volumes.get(roi_id)
+                    is_outdated = (
+                        getattr(roi_vol, "_is_outdated", False) if roi_vol else False
+                    )
+                    label_str = f"{roi.name} *" if is_outdated else roi.name
+
                     # --- CAPTURE THE SELECTABLE ID ---
                     sel_id = dpg.add_selectable(
-                        label=roi.name,
+                        label=label_str,
                         default_value=is_active,
                         user_data=roi_id,
                         callback=self.on_roi_selected,
                     )
                     self.roi_selectables[roi_id] = sel_id
+
+                    if is_outdated and dpg.does_item_exist("outdated_item_theme"):
+                        dpg.bind_item_theme(sel_id, "outdated_item_theme")
 
                     btn_eye = dpg.add_button(
                         label=lbl_eye,
@@ -816,6 +835,21 @@ class MainGUI:
 
         self.update_roi_stats_ui()
 
+    def clear_roi_stats(self):
+        """Resets the ROI statistics display to default empty values."""
+        tags = [
+            "roi_stat_vol",
+            "roi_stat_mean",
+            "roi_stat_max",
+            "roi_stat_min",
+            "roi_stat_std",
+            "roi_stat_peak",
+            "roi_stat_mass",
+        ]
+        for tag in tags:
+            if dpg.does_item_exist(tag):
+                dpg.set_value(tag, "---")
+
     def update_roi_stats_ui(self):
         viewer = self.context_viewer
         active_id = getattr(self, "active_roi_id", None)
@@ -853,21 +887,6 @@ class MainGUI:
         dpg.set_value("roi_stat_std", f"{stats['std']:.2f}")
         dpg.set_value("roi_stat_peak", f"{stats['peak']:.2f}")
         dpg.set_value("roi_stat_mass", f"{stats['mass']:.2f} g")
-
-    def clear_roi_stats(self):
-        """Resets the ROI statistics display to default empty values."""
-        tags = [
-            "roi_stat_vol",
-            "roi_stat_mean",
-            "roi_stat_max",
-            "roi_stat_min",
-            "roi_stat_std",
-            "roi_stat_peak",
-            "roi_stat_mass",
-        ]
-        for tag in tags:
-            if dpg.does_item_exist(tag):
-                dpg.set_value(tag, "---")
 
     def update_sidebar_info(self, viewer):
         has_image = viewer is not None and viewer.image_id is not None

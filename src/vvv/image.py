@@ -3,6 +3,7 @@ import numpy as np
 import os
 import glob
 import shlex
+import time
 from dataclasses import dataclass
 from vvv.utils import ViewMode
 from .config import COLORMAPS
@@ -443,6 +444,11 @@ class VolumeData:
 
         self.read_image_metadata()
 
+        # Modification tracking
+        self.last_mtime = self._get_latest_mtime()
+        self._last_check_time = 0
+        self._is_outdated = False
+
     def read_image_from_disk(self, paths):
         if len(paths) == 1:
             sitk_img = sitk.ReadImage(paths[0])
@@ -527,6 +533,23 @@ class VolumeData:
             self.sitk_image.GetNumberOfPixels() * bytes_per_pixel / (1024 * 1024)
         )
 
+    def _get_latest_mtime(self):
+        try:
+            if self.file_paths and os.path.exists(self.file_paths[0]):
+                return os.path.getmtime(self.file_paths[0])
+        except:
+            pass
+        return 0
+
+    def is_outdated(self):
+        now = time.time()
+        # Throttled test (every 2 seconds) to guarantee 0 GUI lag!
+        if now - self._last_check_time > 2.0:
+            self._last_check_time = now
+            current_mtime = self._get_latest_mtime()
+            self._is_outdated = current_mtime > self.last_mtime
+        return self._is_outdated
+
     def get_physical_aspect_ratio(self, orientation):
         dx, dy, dz = self.spacing
         if orientation == ViewMode.AXIAL:
@@ -551,6 +574,10 @@ class VolumeData:
             self.sitk_image = new_sitk
             self.data = sitk.GetArrayViewFromImage(self.sitk_image)
             self.read_image_metadata()
+
+            self.last_mtime = self._get_latest_mtime()
+            self._is_outdated = False
+
             return False
         else:
             self.__init__(self.path)
