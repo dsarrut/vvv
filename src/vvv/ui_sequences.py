@@ -122,6 +122,7 @@ def load_single_image_sequence(gui, controller, file_path):
 
 def load_batch_images_sequence(gui, controller, file_paths):
     total_files = len(file_paths)
+    warnings = []
 
     with dpg.window(
         tag="loading_modal",
@@ -162,7 +163,7 @@ def load_batch_images_sequence(gui, controller, file_paths):
             loaded_ids.append(img_id)
             yield from load_history_rois_sequence(gui, controller, img_id)
         except Exception as e:
-            print(f"Failed to load {filename}: {e}")
+            warnings.append(f"- {filename}: {e}")
         yield
 
     if dpg.does_item_exist("loading_text"):
@@ -190,6 +191,14 @@ def load_batch_images_sequence(gui, controller, file_paths):
     if dpg.does_item_exist("loading_modal"):
         dpg.delete_item("loading_modal")
     yield
+
+    if warnings:
+        gui.show_message(
+            "Image Load Warning",
+            "Some images failed to load:\n\n" + "\n".join(warnings),
+        )
+        while dpg.does_item_exist("generic_message_modal"):
+            yield
 
 
 def load_batch_rois_sequence(
@@ -405,6 +414,7 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
     if not image_tasks:
         return
     total_files = len(image_tasks) + sum(1 for t in image_tasks if t["fusion"])
+    warnings = []
 
     with dpg.window(
         tag="loading_modal",
@@ -452,7 +462,8 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
 
             files_processed += 1
         except Exception as e:
-            gui.show_message("Load Error", f"Failed to load:\n{filename}")
+            # gui.show_message("Load Error", f"Failed to load:\n{filename}")
+            warnings.append(f"{filename}")
             yield
             continue
 
@@ -485,7 +496,8 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
                     base_vs.overlay_mode = task["fusion"]["mode"]
 
             except Exception as e:
-                gui.show_message("Overlay Error", f"Failed to load/fuse:\n{fuse_name}")
+                # gui.show_message("Overlay Error", f"Failed to load/fuse:\n{fuse_name}")
+                warnings.append(f"- Overlay: {fuse_name}")
                 yield
                 continue
 
@@ -540,3 +552,12 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
     if dpg.does_item_exist("loading_modal"):
         dpg.delete_item("loading_modal")
     yield
+
+    if warnings:
+        gui.show_message(
+            "Boot Sequence Warning",
+            "Some files provided via command line failed to load:\n\n"
+            + "\n".join(warnings),
+        )
+        while dpg.does_item_exist("generic_message_modal"):
+            yield
