@@ -256,6 +256,18 @@ class MainGUI:
             dpg.add_separator()
             with dpg.group(tag="image_info_group"):
                 self.create_labeled_field("", tag="info_name")
+
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Path:", color=cfg_c["text_dim"])
+                    btn_copy = dpg.add_button(
+                        label="\uf0c5", callback=self.on_copy_path_clicked
+                    )
+                    if dpg.does_item_exist("icon_font_tag"):
+                        dpg.bind_item_font(btn_copy, "icon_font_tag")
+                    if dpg.does_item_exist("icon_button_theme"):
+                        dpg.bind_item_theme(btn_copy, "icon_button_theme")
+                    dpg.add_input_text(tag="info_path", readonly=True, width=-1)
+
                 self.create_labeled_field("Type", tag="info_voxel_type")
                 self.create_labeled_field("Size", tag="info_size")
                 self.create_labeled_field("Spacing", tag="info_spacing")
@@ -910,6 +922,7 @@ class MainGUI:
         if not has_image:
             text_tags = [
                 "info_name",
+                "info_path",
                 "info_size",
                 "info_spacing",
                 "info_origin",
@@ -934,6 +947,23 @@ class MainGUI:
 
         vol = viewer.volume
         dpg.set_value("info_name", vol.name)
+        raw_path = (
+            vol.file_paths[0]
+            if isinstance(vol.file_paths, list) and vol.file_paths
+            else str(vol.path)
+        )
+
+        # 1. Resolve to a clean absolute path first
+        abs_path = os.path.abspath(os.path.expanduser(raw_path))
+
+        # 2. Check if it lives inside the user's home directory and replace it with ~
+        home_dir = os.path.expanduser("~")
+        if abs_path.startswith(home_dir):
+            display_path = "~" + abs_path[len(home_dir) :]
+        else:
+            display_path = abs_path
+
+        dpg.set_value("info_path", display_path)
         dpg.set_value("info_name_label", viewer.tag)
         dpg.set_value("info_voxel_type", f"{vol.pixel_type}")
         if vol.num_timepoints > 1:
@@ -978,23 +1008,15 @@ class MainGUI:
                     dpg.set_value(t, "RGB")
 
         if dpg.does_item_exist("combo_overlay_select"):
-            # 1. Check if the active image is already acting as an overlay for another image
-            is_acting_as_overlay = any(
-                other_vs.overlay_id == viewer.image_id
-                for other_vs in self.controller.view_states.values()
-            )
-
             options = ["None"]
             for vid, ovs in self.controller.view_states.items():
                 if vid != viewer.image_id:
-                    # 2. Prevent chains: Do not list images that already have their own overlay attached
-                    if ovs.overlay_id is None:
-                        options.append(f"{vid}: {ovs.volume.name}")
+                    options.append(f"{vid}: {ovs.volume.name}")
 
             dpg.configure_item("combo_overlay_select", items=options)
 
-            # 3. Lock the dropdown completely if this image is already an overlay
-            dpg.configure_item("combo_overlay_select", enabled=not is_acting_as_overlay)
+            # Always enable the dropdown (the early exit at the top already handles 'no image' states)
+            dpg.configure_item("combo_overlay_select", enabled=True)
 
             # Evaluate if we currently have an overlay
             current_sel = "None"
@@ -1357,6 +1379,12 @@ class MainGUI:
                     self.show_message("Save Error", str(e))
 
             threading.Thread(target=_save, daemon=True).start()
+
+    def on_copy_path_clicked(self, sender, app_data, user_data):
+        path = dpg.get_value("info_path")
+        if path and path != "---":
+            dpg.set_clipboard_text(path)
+            self.show_status_message("Path copied to clipboard!", color=[0, 255, 255])
 
     def on_save_workspace_clicked(self, sender=None, app_data=None, user_data=None):
         file_path = save_file_dialog("Save VVV Workspace", default_name="workspace.vvw")

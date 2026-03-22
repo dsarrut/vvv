@@ -733,7 +733,9 @@ class ViewState:
         resampler = sitk.ResampleImageFilter()
         resampler.SetReferenceImage(ref_img)
         resampler.SetInterpolator(sitk.sitkNearestNeighbor)
-        resampler.SetDefaultPixelValue(0)
+        # Use the actual image minimum for out-of-bounds padding ---
+        min_val = float(np.min(other_vol.data))
+        resampler.SetDefaultPixelValue(min_val)
 
         target_dim = other_vol.sitk_image.GetDimension()
 
