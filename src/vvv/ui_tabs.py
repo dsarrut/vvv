@@ -176,7 +176,7 @@ def build_tab_reg(gui):
         # --- TOP: File Management & Apply ---
         with dpg.group(horizontal=True):
             dpg.add_button(
-                label="Load .tfm",
+                label="Load .tfm/.txt",
                 width=80,
                 tag="btn_reg_load",
                 callback=gui.on_reg_load_clicked,
@@ -267,6 +267,8 @@ def build_tab_reg(gui):
                 width=-1,
                 format="%.2f mm",
                 speed=1.0,
+                min_value=-5000.0,
+                max_value=5000.0,
                 callback=gui.on_reg_manual_changed,
             )
         with dpg.group(horizontal=True):
@@ -276,6 +278,8 @@ def build_tab_reg(gui):
                 width=-1,
                 format="%.2f mm",
                 speed=1.0,
+                min_value=-5000.0,
+                max_value=5000.0,
                 callback=gui.on_reg_manual_changed,
             )
         with dpg.group(horizontal=True):
@@ -285,6 +289,8 @@ def build_tab_reg(gui):
                 width=-1,
                 format="%.2f mm",
                 speed=1.0,
+                min_value=-5000.0,
+                max_value=5000.0,
                 callback=gui.on_reg_manual_changed,
             )
 
@@ -298,6 +304,8 @@ def build_tab_reg(gui):
                 width=-1,
                 format="%.2f \u00b0",
                 speed=1.0,
+                min_value=-360.0,
+                max_value=360.0,
                 callback=gui.on_reg_manual_changed,
             )
         with dpg.group(horizontal=True):
@@ -307,6 +315,8 @@ def build_tab_reg(gui):
                 width=-1,
                 format="%.2f \u00b0",
                 speed=1.0,
+                min_value=-360.0,
+                max_value=360.0,
                 callback=gui.on_reg_manual_changed,
             )
         with dpg.group(horizontal=True):
@@ -316,6 +326,8 @@ def build_tab_reg(gui):
                 width=-1,
                 format="%.2f \u00b0",
                 speed=1.0,
+                min_value=-360.0,
+                max_value=360.0,
                 callback=gui.on_reg_manual_changed,
             )
 
