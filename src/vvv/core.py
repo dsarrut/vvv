@@ -1277,39 +1277,6 @@ class Controller:
 
         return loaded_count
 
-    def reload_roi(self, base_id, roi_id):
-        if base_id not in self.view_states or roi_id not in self.volumes:
-            return
-
-        mask_vol = self.volumes[roi_id]
-        roi_state = self.view_states[base_id].rois[roi_id]
-        was_reset = mask_vol.reload()
-
-        # Re-apply binarization rule after reloading from disk!
-        mode = getattr(roi_state, "source_mode", "Ignore BG (val)")
-        target_val = getattr(roi_state, "source_val", 0.0)
-
-        if mode == "Target FG (val)":
-            mask_vol.data = (mask_vol.data == target_val).astype(np.uint8)
-        else:
-            mask_vol.data = (mask_vol.data != target_val).astype(np.uint8)
-
-        new_img = sitk.GetImageFromArray(mask_vol.data)
-        new_img.SetSpacing(mask_vol.sitk_image.GetSpacing())
-        new_img.SetOrigin(mask_vol.sitk_image.GetOrigin())
-        new_img.SetDirection(mask_vol.sitk_image.GetDirection())
-        mask_vol.sitk_image = new_img
-
-        base_vol = self.volumes[base_id]
-        self.process_binary_mask(base_vol, mask_vol)
-
-        self.view_states[base_id].is_data_dirty = True
-        self.update_all_viewers_of_image(base_id)
-
-        if self.gui:
-            self.gui.refresh_rois_ui()
-            self.gui.show_status_message(f"Reloaded: {roi_state.name}")
-
     def center_on_roi(self, base_id, roi_id):
         if base_id not in self.view_states or roi_id not in self.volumes:
             return
@@ -1554,6 +1521,66 @@ class Controller:
                 viewer.draw_crosshair()
                 viewer.is_geometry_dirty = True
 
+    def reset_image_view(self, vs_id, hard=False):
+        """Resets the view and re-applies the boot-up synchronization logic."""
+        if vs_id not in self.view_states:
+            return
+
+        vs = self.view_states[vs_id]
+
+        if hard:
+            vs.hard_reset()
+        else:
+            vs.reset_view()
+
+        # Re-apply unifying math so it looks exactly like the initial load!
+        same_viewers = [v.tag for v in self.viewers.values() if v.image_id == vs_id]
+        if same_viewers:
+            self.unify_ppm(same_viewers)
+
+        # Force all linked viewers to perfectly re-center
+        for tag in same_viewers:
+            viewer = self.viewers[tag]
+            if hasattr(viewer, "needs_recenter"):
+                viewer.needs_recenter = True
+            viewer.is_geometry_dirty = True
+
+        if self.gui:
+            self.gui.update_sidebar_info(self.gui.context_viewer)
+
+    def reload_roi(self, base_id, roi_id):
+        if base_id not in self.view_states or roi_id not in self.volumes:
+            return
+
+        mask_vol = self.volumes[roi_id]
+        roi_state = self.view_states[base_id].rois[roi_id]
+        was_reset = mask_vol.reload()
+
+        # Re-apply binarization rule after reloading from disk!
+        mode = getattr(roi_state, "source_mode", "Ignore BG (val)")
+        target_val = getattr(roi_state, "source_val", 0.0)
+
+        if mode == "Target FG (val)":
+            mask_vol.data = (mask_vol.data == target_val).astype(np.uint8)
+        else:
+            mask_vol.data = (mask_vol.data != target_val).astype(np.uint8)
+
+        new_img = sitk.GetImageFromArray(mask_vol.data)
+        new_img.SetSpacing(mask_vol.sitk_image.GetSpacing())
+        new_img.SetOrigin(mask_vol.sitk_image.GetOrigin())
+        new_img.SetDirection(mask_vol.sitk_image.GetDirection())
+        mask_vol.sitk_image = new_img
+
+        base_vol = self.volumes[base_id]
+        self.process_binary_mask(base_vol, mask_vol)
+
+        self.view_states[base_id].is_data_dirty = True
+        self.update_all_viewers_of_image(base_id)
+
+        if self.gui:
+            self.gui.refresh_rois_ui()
+            self.gui.show_status_message(f"Reloaded: {roi_state.name}")
+
     def reload_settings(self):
         self.settings.reset()
         self.settings.load()
@@ -1562,6 +1589,48 @@ class Controller:
             if viewer.image_id:
                 viewer.draw_crosshair()
                 viewer.is_geometry_dirty = True
+
+    def reload_image(self, vs_id):
+        if vs_id in self.view_states:
+            vs = self.view_states[vs_id]
+            vol = vs.volume
+            was_reset = vol.reload()
+
+            if was_reset:
+                for viewer in self.viewers.values():
+                    if viewer.image_id == vs_id:
+                        viewer.set_image(vs_id)
+            else:
+                ix, iy, iz = [
+                    int(np.clip(np.floor(c + 0.5), 0, limit - 1))
+                    for c, limit in zip(
+                        vs.crosshair_voxel[:3],
+                        [vol.shape3d[2], vol.shape3d[1], vol.shape3d[0]],
+                    )
+                ]
+
+                if vol.num_timepoints > 1:
+                    vs.crosshair_value = vol.data[vs.time_idx, iz, iy, ix]
+                else:
+                    vs.crosshair_value = vol.data[iz, iy, ix]
+
+                vs.histogram_is_dirty = True
+                vs.is_data_dirty = True
+                self.update_all_viewers_of_image(vs_id)
+
+            for other_id, other_vs in self.view_states.items():
+                if other_vs.overlay_id == vs_id:
+                    other_vs.set_overlay(vs_id, vol)
+                    self.update_all_viewers_of_image(other_id)
+
+            if self.gui.context_viewer and self.gui.context_viewer.image_id == vs_id:
+                self.gui.update_sidebar_info(self.gui.context_viewer)
+                self.gui.update_sidebar_crosshair(self.gui.context_viewer)
+
+            if self.gui:
+                self.gui.show_status_message(f"Reloaded: {vol.name}")
+                self.gui.refresh_image_list_ui()
+                self.gui.refresh_rois_ui()
 
     def save_settings(self):
         return self.settings.save()
@@ -1615,75 +1684,6 @@ class Controller:
 
         with open(filepath, "w") as f:
             json.dump(data, f, indent=4)
-
-    def reload_image(self, vs_id):
-        if vs_id in self.view_states:
-            vs = self.view_states[vs_id]
-            vol = vs.volume
-            was_reset = vol.reload()
-
-            if was_reset:
-                for viewer in self.viewers.values():
-                    if viewer.image_id == vs_id:
-                        viewer.set_image(vs_id)
-            else:
-                ix, iy, iz = [
-                    int(np.clip(np.floor(c + 0.5), 0, limit - 1))
-                    for c, limit in zip(
-                        vs.crosshair_voxel[:3],
-                        [vol.shape3d[2], vol.shape3d[1], vol.shape3d[0]],
-                    )
-                ]
-
-                if vol.num_timepoints > 1:
-                    vs.crosshair_value = vol.data[vs.time_idx, iz, iy, ix]
-                else:
-                    vs.crosshair_value = vol.data[iz, iy, ix]
-
-                vs.histogram_is_dirty = True
-                vs.is_data_dirty = True
-                self.update_all_viewers_of_image(vs_id)
-
-            for other_id, other_vs in self.view_states.items():
-                if other_vs.overlay_id == vs_id:
-                    other_vs.set_overlay(vs_id, vol)
-                    self.update_all_viewers_of_image(other_id)
-
-            if self.gui.context_viewer and self.gui.context_viewer.image_id == vs_id:
-                self.gui.update_sidebar_info(self.gui.context_viewer)
-                self.gui.update_sidebar_crosshair(self.gui.context_viewer)
-
-            if self.gui:
-                self.gui.show_status_message(f"Reloaded: {vol.name}")
-                self.gui.refresh_image_list_ui()
-                self.gui.refresh_rois_ui()
-
-    def reset_image_view(self, vs_id, hard=False):
-        """Resets the view and re-applies the boot-up synchronization logic."""
-        if vs_id not in self.view_states:
-            return
-
-        vs = self.view_states[vs_id]
-
-        if hard:
-            vs.hard_reset()
-        else:
-            vs.reset_view()
-
-        # Re-apply unifying math so it looks exactly like the initial load!
-        same_viewers = [v.tag for v in self.viewers.values() if v.image_id == vs_id]
-        if same_viewers:
-            self.unify_ppm(same_viewers)
-
-        # Force all linked viewers to perfectly re-center
-        for tag in same_viewers:
-            viewer = self.viewers[tag]
-            if hasattr(viewer, "needs_recenter"):
-                viewer.needs_recenter = True
-            viewer.is_geometry_dirty = True
-
-        if self.gui:
-            self.gui.update_sidebar_info(self.gui.context_viewer)
 
     def close_roi(self, base_id, roi_id):
         """Safely removes an ROI from the view state and frees the volume memory."""

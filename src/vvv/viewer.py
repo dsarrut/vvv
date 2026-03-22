@@ -120,7 +120,7 @@ class SliceViewer:
         self.scale_bar_tag = f"scale_bar_node_{tag_id}"
         self.xh_initialized = False
 
-        # For the shortcut
+        # For the shortkey
         self._shortcut_map = None
 
         self.quad_w = 100
