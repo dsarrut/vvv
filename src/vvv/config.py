@@ -19,8 +19,8 @@ DEFAULT_SETTINGS = {
         "auto_window_overlay": "X",
         "scroll_up": "Up",
         "scroll_down": "Down",
-        "fast_scroll_up": 517,  # page up
-        "fast_scroll_down": 518,  # page down
+        "fast_scroll_up": 517,  # Page up
+        "fast_scroll_down": 518,  # Page down
         "zoom_in": "I",
         "zoom_out": "O",
         "reset_view": "R",

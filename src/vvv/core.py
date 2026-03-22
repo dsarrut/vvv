@@ -1,7 +1,6 @@
 import os
 import copy
 import json
-import time
 import numpy as np
 import SimpleITK as sitk
 from pathlib import Path
@@ -165,7 +164,7 @@ class CameraState:
         }
         self.crosshair_phys_coord = None
         self.crosshair_voxel = None
-        self.time_idx = 0  # for 4D images
+        self.time_idx = 0  # For 4D images
 
         # Visibility toggles (these are spatially relevant)
         self.show_axis = True
@@ -240,7 +239,7 @@ class DisplayState:
         self.ww = 2000.0
         self.wl = 270.0
         self.colormap = "Grayscale"
-        # voxels with value below this threshold are not display (black)
+        # Voxels with value below this threshold are not display (black)
         self.base_threshold = -1e8
         # FIXME : not really linear interpolation : draw squares pixels on large zoom
         self.interpolation_linear = False
@@ -251,7 +250,7 @@ class DisplayState:
         self.overlay_opacity = 0.5
         self.overlay_mode = "Alpha"  # Alpha, Registration, Checkboard, ...
         self.overlay_threshold = -1  # Not displayed if below this value
-        self.overlay_checkerboard_size = 20.0  # in mm
+        self.overlay_checkerboard_size = 20.0  # In mm
         self.overlay_checkerboard_swap = False
 
     def to_dict(self):
@@ -312,7 +311,7 @@ class ViewState:
         self.init_default_window_level()
 
     # ==========================================
-    # THE PROPERTY BRIDGE
+    # The property bridge
     # Routes top-level requests to the new sub-states
     # ==========================================
 
@@ -989,7 +988,7 @@ class Controller:
 
         try:
             for i, d in enumerate(search_dirs):
-                # YIELD PROGRESS to the UI Thread
+                # Yield progress to the UI Thread
                 yield (i / total_dirs, os.path.basename(d))
 
                 try:
@@ -1075,7 +1074,7 @@ class Controller:
                                 "0028|0011": "Columns",
                             }
 
-                            # ONLY append tags that actually contain data!
+                            # Only append tags that actually contain data
                             for tag, name in target_tags.items():
                                 val = dose_str if tag == "0018|1074" else get_tag(tag)
 
@@ -1702,7 +1701,7 @@ class Controller:
     def close_image(self, vs_id):
         if vs_id in self.view_states:
 
-            # history
+            # History
             self.history.save_image_state(self, vs_id)
 
             for viewer in self.viewers.values():

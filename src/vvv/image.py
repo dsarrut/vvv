@@ -32,7 +32,7 @@ class ROILayer:
     color: list  # [R, G, B] (0-255)
     opacity: float  # 0.0 to 1.0
     is_contour: bool = False  # FIXME Placeholder for Phase 5!
-    # position on the screen
+    # Position on the screen
     offset_x: int = 0
     offset_y: int = 0
 

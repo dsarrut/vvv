@@ -38,7 +38,7 @@ def create_checkerboard(output, grid_size, block_size, fg, bg, spacing):
     image.SetSpacing((spacing, spacing, spacing))
     image.SetOrigin((0.0, 0.0, 0.0))
 
-    # output filename ?
+    # Output filename ?
     if output == 'auto':
         output = f'checkerboard_{grid_size}x{grid_size}x{grid_size}.mha'
 

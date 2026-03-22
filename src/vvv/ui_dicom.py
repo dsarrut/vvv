@@ -62,7 +62,7 @@ class DicomBrowserWindow:
 
             # --- SPLIT LAYOUT ---
             with dpg.group(horizontal=True):
-                # LEFT PANEL: Series List
+                # Left panel: Series list
                 with dpg.child_window(width=350, height=-1, border=True):
                     with dpg.group(horizontal=True):
                         dpg.add_text(
@@ -82,7 +82,7 @@ class DicomBrowserWindow:
 
                     dpg.add_group(tag="dicom_series_list")
 
-                # RIGHT PANEL: Details & Action
+                # Right panel: Details & Action
                 with dpg.child_window(width=-1, height=-1, border=False):
 
                     with dpg.group(horizontal=True):

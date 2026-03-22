@@ -74,7 +74,7 @@ class MainGUI:
         self.dicom_window = DicomBrowserWindow(self.controller, self)
         self.interaction = InteractionManager(self, self.controller)
 
-        # go
+        # Go
         self.build_main_layout()
         self.register_handlers()
 

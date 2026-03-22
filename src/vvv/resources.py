@@ -21,7 +21,6 @@ def load_fonts():
 
     if not os.path.exists(main_font_path):
         if sys.platform == "darwin":
-            # main_font_path = "/System/Library/Fonts/Supplemental/Arial.ttf"
             main_font_path = "/System/Library/Fonts/Helvetica.ttc"  # Native macOS font
         elif sys.platform == "win32":
             main_font_path = "C:\\Windows\\Fonts\\segoeui.ttf"
@@ -45,8 +44,8 @@ def load_fonts():
                 dpg.add_font_chars([0xF06E])  # Eye icon open
                 dpg.add_font_chars([0xF070])  # Eye icon close
                 dpg.add_font_chars([0xF05B])  # ROI center
-                dpg.add_font_chars([0xF07C])  # folder
-                dpg.add_font_chars([0xF0C7])  # floppy disk
+                dpg.add_font_chars([0xF07C])  # Folder
+                dpg.add_font_chars([0xF0C7])  # Floppy disk
                 dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
         else:
             print("ERROR: Icon font file not found! Buttons will show '?'.")

@@ -13,7 +13,7 @@ class ViewportMapper:
         self.margin_left = margin_left
         self.margin_top = margin_top
         # pmin and pmax are recalculated dynamically
-        # every time the user zooms, pans, or resizes the application window.
+        # Every time the user zooms, pans, or resizes the application window.
         # = 2D bounding box on the screen
         self.pmin = [0, 0]
         self.pmax = [1, 1]
@@ -120,7 +120,7 @@ class SliceViewer:
         self.scale_bar_tag = f"scale_bar_node_{tag_id}"
         self.xh_initialized = False
 
-        # for the shortkey
+        # For the shortcut
         self._shortcut_map = None
 
         self.quad_w = 100
@@ -131,7 +131,7 @@ class SliceViewer:
         self.mapper = ViewportMapper()
         self.orientation = ViewMode.AXIAL
 
-        # for dynamic WL sensitivity
+        # For dynamic WL sensitivity
         self.drag_start_wl = None
 
         self.mouse_phys_coord = None

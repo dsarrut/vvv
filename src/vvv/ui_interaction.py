@@ -49,7 +49,7 @@ class NavigationTool:
             self.manager.gui.update_sidebar_crosshair(self.drag_viewer)
             self.manager.gui.update_sidebar_info(self.drag_viewer)
 
-            # CLEANUP ANCHORS
+            # Cleanup anchors
             self.drag_viewer.drag_start_mouse = None
             self.drag_viewer.drag_start_pan = None
             self.drag_viewer.drag_start_wl = None
@@ -112,7 +112,7 @@ class InteractionManager:
         return self.get_hovered_viewer() or self.gui.context_viewer
 
     # ==========================================
-    # DPG EVENT ROUTERS
+    # DPG event routers
     # ==========================================
 
     def on_mouse_click(self, sender, app_data, user_data):
