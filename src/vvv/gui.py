@@ -11,7 +11,7 @@ from vvv.ui_interaction import InteractionManager
 from vvv.resources import load_fonts, setup_themes
 from vvv.file_dialog import open_file_dialog, save_file_dialog
 from vvv.ui_theme import build_ui_config, register_dynamic_themes
-from vvv.ui_tabs import build_tab_sync, build_tab_fusion, build_tab_rois
+from vvv.ui_tabs import build_tab_sync, build_tab_fusion, build_tab_rois, build_tab_reg
 from vvv.ui_sequences import (
     load_single_image_sequence,
     load_batch_images_sequence,
@@ -45,6 +45,7 @@ class MainGUI:
         self.ui_cfg = None
         self.active_roi_id = None
         self._is_roi_tab_active = None
+        self._hide_av_panel = None
 
         # --- DATA BINDING DICTIONARY ---
         # Maps DPG tag -> ViewState property name
@@ -249,6 +250,7 @@ class MainGUI:
                 build_tab_sync(self)
                 build_tab_fusion(self)
                 build_tab_rois(self)
+                build_tab_reg(self)
 
     def build_sidebar_bottom(self):
         cfg_c = self.ui_cfg["colors"]
@@ -1233,7 +1235,7 @@ class MainGUI:
             )
 
             # --- THE COMPUTED LAYOUT ENGINE ---
-            is_roi = getattr(self, "_is_roi_tab_active", False)
+            hide_av = getattr(self, "_hide_av_panel", False)
 
             ch_h = cfg["panel_ch_h"]
             av_h = cfg["panel_av_h"]
@@ -1241,7 +1243,7 @@ class MainGUI:
 
             # DearPyGui vertically stacks items with an invisible 4px ItemSpacing gap.
             # We explicitly calculate the exact pixel height taken by everything else.
-            if is_roi:
+            if hide_av:
                 # Sequence: Spacer(5) + Gap(4) + TopPanel(top_h) + Gap(4) + Crosshair(ch_h) + Margin(10)
                 # 5 + 4 + 4 + 10 = 23 static pixels
                 top_h = l_h - ch_h - margin_bot - 13
@@ -1663,8 +1665,12 @@ class MainGUI:
         is_roi = tab_tag == "tab_rois"
         self._is_roi_tab_active = is_roi
 
+        # Hide the Active Viewer panel for the ROI and Reg tabs
+        hide_av = tab_tag in ["tab_rois", "tab_reg"]
+        self._hide_av_panel = hide_av
+
         if dpg.does_item_exist("av_panel"):
-            dpg.configure_item("av_panel", show=not is_roi)
+            dpg.configure_item("av_panel", show=not hide_av)
 
         self.on_window_resize()
 
@@ -1686,6 +1692,46 @@ class MainGUI:
             self.controller.settings.data["behavior"] = {}
         self.controller.settings.data["behavior"]["recent_files"] = []
         self.refresh_recent_menu()
+
+    # ==========================================
+    # REGISTRATION TAB HANDLERS
+    # ==========================================
+
+    def on_reg_load_clicked(self, sender, app_data, user_data):
+        print("Load .tfm clicked")
+
+    def on_reg_save_clicked(self, sender, app_data, user_data):
+        print("Save .tfm clicked")
+
+    def on_reg_reload_clicked(self, sender, app_data, user_data):
+        print("Reload .tfm clicked")
+
+    def on_reg_apply_toggled(self, sender, app_data, user_data):
+        print(f"Apply transform toggled: {app_data}")
+
+    def on_reg_step_changed(self, sender, app_data, user_data):
+        # Update the drag speed of the sliders based on Coarse/Fine
+        speed = 1.0 if app_data == "Coarse" else 0.1
+        for tag in [
+            "drag_reg_tx",
+            "drag_reg_ty",
+            "drag_reg_tz",
+            "drag_reg_rx",
+            "drag_reg_ry",
+            "drag_reg_rz",
+        ]:
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, speed=speed)
+
+    def on_reg_manual_changed(self, sender, app_data, user_data):
+        # Triggered whenever a slider is dragged or a value is typed
+        pass
+
+    def on_reg_reset_clicked(self, sender, app_data, user_data):
+        print("Reset transform clicked")
+
+    def on_reg_invert_clicked(self, sender, app_data, user_data):
+        print("Invert transform clicked")
 
     # ==========================================
     # 5. MODALS & POPUPS

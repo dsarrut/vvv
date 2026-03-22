@@ -165,3 +165,163 @@ def build_tab_rois(gui):
 
         with dpg.child_window(border=False, no_scrollbar=True):
             dpg.add_group(tag="roi_detail_container")
+
+
+def build_tab_reg(gui):
+    cfg_c = gui.ui_cfg["colors"]
+
+    with dpg.tab(label="Reg", tag="tab_reg"):
+        dpg.add_spacer(height=5)
+
+        # --- TOP: File Management & Apply ---
+        with dpg.group(horizontal=True):
+            dpg.add_button(
+                label="Load .tfm",
+                width=80,
+                tag="btn_reg_load",
+                callback=gui.on_reg_load_clicked,
+            )
+            dpg.add_button(
+                label="Save",
+                width=50,
+                tag="btn_reg_save",
+                callback=gui.on_reg_save_clicked,
+            )
+
+            btn_reload = dpg.add_button(
+                label="\uf01e",
+                width=20,
+                tag="btn_reg_reload",
+                callback=gui.on_reg_reload_clicked,
+            )
+            if dpg.does_item_exist("icon_font_tag"):
+                dpg.bind_item_font(btn_reload, "icon_font_tag")
+            if dpg.does_item_exist("icon_button_theme"):
+                dpg.bind_item_theme(btn_reload, "icon_button_theme")
+
+        with dpg.group(horizontal=True):
+            dpg.add_text("File: ")
+            dpg.add_text("None", tag="text_reg_filename", color=cfg_c["text_dim"])
+
+        dpg.add_spacer(height=5)
+        dpg.add_checkbox(
+            label="Apply Transform to Viewers",
+            tag="check_reg_apply",
+            callback=gui.on_reg_apply_toggled,
+        )
+        dpg.add_separator()
+
+        # --- MIDDLE: Read-Only Math (Matrix & CoR) ---
+        dpg.add_text("Affine Matrix (Read-Only)", color=cfg_c["text_header"])
+        with dpg.group(tag="group_reg_matrix"):
+            # A clean 4x4 table to display the matrix values
+            with dpg.table(
+                header_row=False,
+                borders_innerV=True,
+                borders_innerH=True,
+                resizable=False,
+            ):
+                for _ in range(4):
+                    dpg.add_table_column()
+                for r in range(4):
+                    with dpg.table_row():
+                        for c in range(4):
+                            dpg.add_text(
+                                "0.000",
+                                tag=f"txt_reg_m_{r}_{c}",
+                                color=cfg_c["text_dim"],
+                            )
+
+        dpg.add_spacer(height=5)
+        with dpg.group(horizontal=True):
+            dpg.add_text("CoR:", color=cfg_c["text_header"])
+            dpg.add_input_text(
+                tag="input_reg_cor",
+                readonly=True,
+                width=-1,
+                default_value="0.0, 0.0, 0.0",
+            )
+
+        dpg.add_separator()
+
+        # --- BOTTOM: Manual 6-DOF Tweaking ---
+        dpg.add_text("Manual Adjustment (Rigid)", color=cfg_c["text_header"])
+
+        with dpg.group(horizontal=True):
+            dpg.add_text("Step:")
+            dpg.add_radio_button(
+                items=["Coarse", "Fine"],
+                default_value="Coarse",
+                horizontal=True,
+                tag="radio_reg_step",
+                callback=gui.on_reg_step_changed,
+            )
+
+        dpg.add_spacer(height=5)
+
+        # Translation Drag Floats
+        with dpg.group(horizontal=True):
+            dpg.add_text("Tx ")
+            dpg.add_drag_float(
+                tag="drag_reg_tx",
+                width=-1,
+                format="%.2f mm",
+                speed=1.0,
+                callback=gui.on_reg_manual_changed,
+            )
+        with dpg.group(horizontal=True):
+            dpg.add_text("Ty ")
+            dpg.add_drag_float(
+                tag="drag_reg_ty",
+                width=-1,
+                format="%.2f mm",
+                speed=1.0,
+                callback=gui.on_reg_manual_changed,
+            )
+        with dpg.group(horizontal=True):
+            dpg.add_text("Tz ")
+            dpg.add_drag_float(
+                tag="drag_reg_tz",
+                width=-1,
+                format="%.2f mm",
+                speed=1.0,
+                callback=gui.on_reg_manual_changed,
+            )
+
+        dpg.add_spacer(height=5)
+
+        # Rotation Drag Floats (Euler)
+        with dpg.group(horizontal=True):
+            dpg.add_text("Rx ")
+            dpg.add_drag_float(
+                tag="drag_reg_rx",
+                width=-1,
+                format="%.2f \u00b0",
+                speed=1.0,
+                callback=gui.on_reg_manual_changed,
+            )
+        with dpg.group(horizontal=True):
+            dpg.add_text("Ry ")
+            dpg.add_drag_float(
+                tag="drag_reg_ry",
+                width=-1,
+                format="%.2f \u00b0",
+                speed=1.0,
+                callback=gui.on_reg_manual_changed,
+            )
+        with dpg.group(horizontal=True):
+            dpg.add_text("Rz ")
+            dpg.add_drag_float(
+                tag="drag_reg_rz",
+                width=-1,
+                format="%.2f \u00b0",
+                speed=1.0,
+                callback=gui.on_reg_manual_changed,
+            )
+
+        dpg.add_spacer(height=5)
+        with dpg.group(horizontal=True):
+            dpg.add_button(
+                label="Reset to Zero", width=120, callback=gui.on_reg_reset_clicked
+            )
+            dpg.add_button(label="Invert", width=-1, callback=gui.on_reg_invert_clicked)
