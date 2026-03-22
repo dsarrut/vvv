@@ -97,7 +97,10 @@ def build_tab_rois(gui):
         # dpg.add_separator()
         with dpg.group(horizontal=True):
             dpg.add_button(
-                label="Load ROI...", width=80, callback=gui.on_load_roi_clicked
+                label="Load ROI...",
+                width=80,
+                callback=gui.on_load_roi_clicked,
+                tag="btn_roi_load",
             )
             dpg.add_combo(
                 ["Binary Mask", "Label Map", "RT-Struct"],
@@ -124,15 +127,18 @@ def build_tab_rois(gui):
 
         # --- MIDDLE: The Master List ---
         with dpg.group(horizontal=True):
-            # dpg.add_text("Loaded Regions", color=cfg_c["text_header"])
-            # dpg.add_spacer(width=10)
-
             # Show/Hide All Buttons
             btn_show = dpg.add_button(
-                label="\uf06e", width=20, callback=gui.on_roi_show_all
+                label="\uf06e",
+                width=20,
+                callback=gui.on_roi_show_all,
+                tag="btn_roi_show_all",
             )
             btn_hide = dpg.add_button(
-                label="\uf070", width=20, callback=gui.on_roi_hide_all
+                label="\uf070",
+                width=20,
+                callback=gui.on_roi_hide_all,
+                tag="btn_roi_hide_all",
             )
             if dpg.does_item_exist("icon_font_tag"):
                 dpg.bind_item_font(btn_show, "icon_font_tag")
@@ -152,6 +158,7 @@ def build_tab_rois(gui):
             label="Export All Stats to JSON",
             width=-1,
             callback=gui.on_export_roi_stats_clicked,
+            tag="btn_roi_export_stats",
         )
         dpg.add_spacer(height=10)
 

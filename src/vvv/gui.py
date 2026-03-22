@@ -77,6 +77,9 @@ class MainGUI:
         self.build_main_layout()
         self.register_handlers()
 
+        # Force UI into the empty/disabled state on boot
+        self.update_sidebar_info(None)
+
     # ==========================================
     # 2. LAYOUT BUILDERS
     # ==========================================
@@ -847,15 +850,78 @@ class MainGUI:
                 dpg.set_value(tag, "---")
 
     def update_sidebar_info(self, viewer):
-        if not viewer or viewer.image_id is None:
-            for t in [
+        has_image = viewer is not None and viewer.image_id is not None
+        has_rois = has_image and len(viewer.view_state.rois) > 0
+
+        # Use a list of tuples to avoid boolean key collisions
+        ui_states = [
+            (
+                has_image,
+                [
+                    "check_axis",
+                    "check_grid",
+                    "check_tracker",
+                    "check_crosshair",
+                    "check_scalebar",
+                    "check_legend",
+                    "btn_roi_load",
+                    "combo_roi_type",
+                    "combo_roi_mode",
+                    "input_roi_val",
+                ],
+            ),
+            (
+                has_rois,
+                ["btn_roi_show_all", "btn_roi_hide_all", "btn_roi_export_stats"],
+            ),
+            (
+                False,
+                (
+                    [
+                        "combo_overlay_select",
+                        "slider_overlay_opacity",
+                        "input_overlay_threshold",
+                        "combo_overlay_mode",
+                        "info_window",
+                        "info_level",
+                        "info_base_threshold",
+                    ]
+                    if not has_image
+                    else []
+                ),
+            ),
+        ]
+
+        # Apply enabled/disabled states
+        for state, tags in ui_states:
+            for t in tags:
+                if dpg.does_item_exist(t):
+                    dpg.configure_item(t, enabled=state)
+
+        # Handle early exit UI clearing
+        if not has_image:
+            text_tags = [
                 "info_name",
                 "info_size",
                 "info_spacing",
                 "info_origin",
                 "info_memory",
-            ]:
-                dpg.set_value(t, "")
+                "info_voxel_type",
+                "info_matrix",
+                "text_fusion_base_image",
+                "info_val",
+                "info_vox",
+                "info_phys",
+                "info_ppm",
+                "info_scale",
+            ]
+            for t in text_tags:
+                if dpg.does_item_exist(t):
+                    dpg.set_value(t, "")
+
+            for t in ["group_checkerboard", "check_sync_wl"]:
+                if dpg.does_item_exist(t):
+                    dpg.configure_item(t, show=False)
             return
 
         vol = viewer.volume

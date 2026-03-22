@@ -4,7 +4,7 @@ This is VVV, a tentative successor to VV (https://github.com/open-vv)
 VVV is a software to view 3D/4D (medical) images.
 
 Goal
-- fast
+- fast, research-oriented, "minimalist"
 - command line + keyboard driven
 
 Features:
@@ -49,3 +49,4 @@ Features:
 ![Alt text](screenshots/rois.png?raw=true "vvv and open ROIs")
 
 ![Alt text](screenshots/dicom.png?raw=true "vvv and mini DICOM browser")
+

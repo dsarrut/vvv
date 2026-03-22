@@ -72,6 +72,51 @@ def register_dynamic_themes(ui_cfg, controller):
             with dpg.theme_component(dpg.mvAll):
                 dpg.add_theme_color(dpg.mvThemeCol_WindowBg, cfg_c["bg_window"])
                 dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
+                dpg.add_theme_color(dpg.mvThemeCol_TextDisabled, cfg_c["text_muted"])
+
+            disabled_bg = [35, 35, 35, 255]  # Static dark grey
+
+            # Explicit component targeting
+            with dpg.theme_component(dpg.mvAll, enabled_state=False):
+                dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["text_muted"])
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, disabled_bg)
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, disabled_bg)
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, disabled_bg)
+                dpg.add_theme_color(dpg.mvThemeCol_Button, disabled_bg)
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, disabled_bg)
+
+            with dpg.theme_component(dpg.mvCheckbox, enabled_state=False):
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, disabled_bg)
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, disabled_bg)
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, disabled_bg)
+                dpg.add_theme_color(dpg.mvThemeCol_CheckMark, cfg_c["text_muted"])
+
+            with dpg.theme_component(dpg.mvSliderFloat, enabled_state=False):
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, disabled_bg)
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, disabled_bg)
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, disabled_bg)
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, disabled_bg)
+                dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["text_muted"])
+
+            with dpg.theme_component(dpg.mvInputFloat, enabled_state=False):
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, disabled_bg)
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, disabled_bg)
+                dpg.add_theme_color(dpg.mvThemeCol_Button, disabled_bg)
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, disabled_bg)
+                dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["text_muted"])
+
+            with dpg.theme_component(dpg.mvCombo, enabled_state=False):
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, disabled_bg)
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, disabled_bg)
+                dpg.add_theme_color(dpg.mvThemeCol_Button, disabled_bg)
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, disabled_bg)
+                dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["text_muted"])
+
+            with dpg.theme_component(dpg.mvButton, enabled_state=False):
+                dpg.add_theme_color(dpg.mvThemeCol_Button, disabled_bg)
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, disabled_bg)
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, disabled_bg)
+                dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["text_muted"])
 
     if not dpg.does_item_exist("black_viewer_theme"):
         with dpg.theme(tag="black_viewer_theme"):
@@ -155,6 +200,15 @@ def register_dynamic_themes(ui_cfg, controller):
                     dpg.mvStyleVar_FramePadding, *cfg_l["pad_frame_readonly"]
                 )
 
+            # --- FIX: Keep W/L inputs completely transparent when disabled ---
+            with dpg.theme_component(dpg.mvInputText, enabled_state=False):
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, cfg_c["transparent"])
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, cfg_c["transparent"])
+                dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["text_dim"])
+                dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 0)
+                dpg.add_theme_style(
+                    dpg.mvStyleVar_FramePadding, *cfg_l["pad_frame_readonly"]
+                )
     if not dpg.does_item_exist("active_image_list_theme"):
         with dpg.theme(tag="active_image_list_theme"):
             with dpg.theme_component(dpg.mvText):
