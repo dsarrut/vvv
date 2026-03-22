@@ -1,9 +1,6 @@
 import dearpygui.dearpygui as dpg
 
 
-import dearpygui.dearpygui as dpg
-
-
 def build_tab_sync(gui):
     cfg_c = gui.ui_cfg["colors"]
     with dpg.tab(label="Sync", tag="tab_sync"):  # Reverted label
@@ -25,7 +22,7 @@ def build_tab_sync(gui):
 
 def build_tab_fusion(gui):
     cfg_c = gui.ui_cfg["colors"]
-    with dpg.tab(label="Overlay", tag="tab_fusion"):  # Reverted label
+    with dpg.tab(label="Fusion", tag="tab_fusion"):  # Reverted label
         dpg.add_spacer(height=5)
         dpg.add_text("Active Overlay", color=cfg_c["text_header"])
         dpg.add_separator()
@@ -39,49 +36,51 @@ def build_tab_fusion(gui):
                 dpg.add_text("Target ")
                 dpg.add_combo(
                     ["None"],
-                    tag="combo_overlay_select",
+                    tag="combo_fusion_select",
                     width=-1,
-                    callback=gui.on_overlay_selected,
+                    callback=gui.on_fusion_target_selected,
                 )
             with dpg.group(horizontal=True):
                 dpg.add_text("Opacity")
                 dpg.add_slider_float(
-                    tag="slider_overlay_opacity",
+                    tag="slider_fusion_opacity",
                     min_value=0.0,
                     max_value=1.0,
                     width=-1,
-                    callback=gui.on_opacity_changed,
+                    callback=gui.on_fusion_opacity_changed,
                 )
             with dpg.group(horizontal=True):
                 dpg.add_text("Min Thr")
                 dpg.add_input_float(
-                    tag="input_overlay_threshold",
+                    tag="input_fusion_threshold",
                     width=-1,
                     step=10,
-                    callback=gui.on_threshold_changed,
+                    callback=gui.on_fusion_threshold_changed,
                 )
             with dpg.group(horizontal=True):
                 dpg.add_text("Mode   ")
                 dpg.add_combo(
                     ["Alpha", "Registration", "Checkerboard"],
-                    tag="combo_overlay_mode",
+                    tag="combo_fusion_mode",
                     width=-1,
-                    callback=gui.on_overlay_mode_changed,
+                    callback=gui.on_fusion_mode_changed,
                 )
-            with dpg.group(horizontal=True, tag="group_checkerboard", show=False):
+            with dpg.group(
+                horizontal=True, tag="group_fusion_checkerboard", show=False
+            ):
                 dpg.add_text("Square ")
                 dpg.add_slider_float(
-                    tag="slider_chk_size",
+                    tag="slider_fusion_chk_size",
                     min_value=1.0,
                     max_value=200.0,
                     format="%.1f mm",
                     width=100,
-                    callback=gui.on_checkerboard_changed,
+                    callback=gui.on_fusion_checkerboard_changed,
                 )
                 dpg.add_checkbox(
                     label="Swap",
-                    tag="check_chk_swap",
-                    callback=gui.on_checkerboard_changed,
+                    tag="check_fusion_chk_swap",
+                    callback=gui.on_fusion_checkerboard_changed,
                 )
 
 

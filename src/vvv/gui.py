@@ -58,11 +58,11 @@ class MainGUI:
             "info_window": "ww",
             "info_level": "wl",
             "info_base_threshold": "base_threshold",
-            "slider_overlay_opacity": "overlay_opacity",
-            "input_overlay_threshold": "overlay_threshold",
-            "combo_overlay_mode": "overlay_mode",
-            "slider_chk_size": "overlay_checkerboard_size",
-            "check_chk_swap": "overlay_checkerboard_swap",
+            "slider_fusion_opacity": "overlay_opacity",
+            "input_fusion_threshold": "overlay_threshold",
+            "combo_fusion_mode": "overlay_mode",
+            "slider_fusion_chk_size": "overlay_checkerboard_size",
+            "check_fusion_chk_swap": "overlay_checkerboard_swap",
         }
 
         # Initialization pipeline
@@ -976,10 +976,10 @@ class MainGUI:
                 False,
                 (
                     [
-                        "combo_overlay_select",
-                        "slider_overlay_opacity",
-                        "input_overlay_threshold",
-                        "combo_overlay_mode",
+                        "combo_fusion_select",
+                        "slider_fusion_opacity",
+                        "input_fusion_threshold",
+                        "combo_fusion_mode",
                         "info_window",
                         "info_level",
                         "info_base_threshold",
@@ -1018,7 +1018,7 @@ class MainGUI:
                 if dpg.does_item_exist(t):
                     dpg.set_value(t, "")
 
-            for t in ["group_checkerboard", "check_sync_wl"]:
+            for t in ["group_fusion_checkerboard", "check_sync_wl"]:
                 if dpg.does_item_exist(t):
                     dpg.configure_item(t, show=False)
             return
@@ -1085,18 +1085,16 @@ class MainGUI:
                 if is_rgb:
                     dpg.set_value(t, "RGB")
 
-        if dpg.does_item_exist("combo_overlay_select"):
+        if dpg.does_item_exist("combo_fusion_select"):
             options = ["None"]
             for vid, ovs in self.controller.view_states.items():
                 if vid != viewer.image_id:
                     options.append(f"{vid}: {ovs.volume.name}")
 
-            dpg.configure_item("combo_overlay_select", items=options)
+            dpg.configure_item("combo_fusion_select", items=options)
+            dpg.configure_item("combo_fusion_select", enabled=True)
 
-            # Always enable the dropdown (the early exit at the top already handles 'no image' states)
-            dpg.configure_item("combo_overlay_select", enabled=True)
-
-            # Evaluate if we currently have an overlay
+            # Evaluate if we currently have an overlay (Backend concept)
             current_sel = "None"
             has_overlay = False
             if viewer.view_state.overlay_id:
@@ -1105,20 +1103,23 @@ class MainGUI:
                     viewer.view_state.overlay_id
                 ].volume.name
                 current_sel = f"{viewer.view_state.overlay_id}: {ovs_name}"
-            dpg.set_value("combo_overlay_select", current_sel)
 
-            # 3. Disable/Enable the controls dynamically
+            dpg.set_value("combo_fusion_select", current_sel)
+
+            # Disable/Enable the controls dynamically
             is_chk = viewer.view_state.overlay_mode == "Checkerboard"
             dpg.configure_item(
-                "slider_overlay_opacity", enabled=has_overlay and not is_chk
+                "slider_fusion_opacity", enabled=has_overlay and not is_chk
             )
-            dpg.configure_item("input_overlay_threshold", enabled=has_overlay)
-            if dpg.does_item_exist("combo_overlay_mode"):
-                dpg.configure_item("combo_overlay_mode", enabled=has_overlay)
+            dpg.configure_item("input_fusion_threshold", enabled=has_overlay)
+            if dpg.does_item_exist("combo_fusion_mode"):
+                dpg.configure_item("combo_fusion_mode", enabled=has_overlay)
 
             # Show/Hide the extra row
-            if dpg.does_item_exist("group_checkerboard"):
-                dpg.configure_item("group_checkerboard", show=has_overlay and is_chk)
+            if dpg.does_item_exist("group_fusion_checkerboard"):
+                dpg.configure_item(
+                    "group_fusion_checkerboard", show=has_overlay and is_chk
+                )
 
     def update_sidebar_crosshair(self, viewer):
         if not viewer or not viewer.view_state:
@@ -1373,7 +1374,7 @@ class MainGUI:
         if viewer and viewer.image_id and app_data:
             self.controller.propagate_window_level(viewer.image_id)
 
-    def on_overlay_selected(self, sender, app_data, user_data):
+    def on_fusion_target_selected(self, sender, app_data, user_data):
         viewer = self.context_viewer
         if not viewer or not viewer.view_state:
             return
@@ -1394,7 +1395,7 @@ class MainGUI:
 
             threading.Thread(target=_resample, daemon=True).start()
 
-    def on_overlay_mode_changed(self, sender, app_data, user_data):
+    def on_fusion_mode_changed(self, sender, app_data, user_data):
         viewer = self.context_viewer
         if not viewer or not viewer.view_state:
             return
@@ -1411,25 +1412,25 @@ class MainGUI:
         self.controller.propagate_overlay_mode(viewer.image_id)
         self.update_sidebar_info(viewer)
 
-    def on_checkerboard_changed(self, sender, app_data, user_data):
+    def on_fusion_checkerboard_changed(self, sender, app_data, user_data):
         viewer = self.context_viewer
         if not viewer or not viewer.view_state:
             return
 
-        if sender == "slider_chk_size":
+        if sender == "slider_fusion_chk_size":
             viewer.view_state.overlay_checkerboard_size = app_data
-        elif sender == "check_chk_swap":
+        elif sender == "check_fusion_chk_swap":
             viewer.view_state.overlay_checkerboard_swap = app_data
 
         viewer.view_state.is_data_dirty = True
         self.controller.propagate_overlay_mode(viewer.image_id)
 
-    def on_opacity_changed(self, sender, app_data, user_data):
+    def on_fusion_opacity_changed(self, sender, app_data, user_data):
         if self.context_viewer and self.context_viewer.view_state:
             self.context_viewer.view_state.overlay_opacity = app_data
             self.context_viewer.view_state.is_data_dirty = True
 
-    def on_threshold_changed(self, sender, app_data, user_data):
+    def on_fusion_threshold_changed(self, sender, app_data, user_data):
         if self.context_viewer and self.context_viewer.view_state:
             self.context_viewer.view_state.overlay_threshold = app_data
             self.context_viewer.view_state.is_data_dirty = True
