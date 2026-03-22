@@ -263,39 +263,6 @@ class DicomBrowserWindow:
                     dpg.add_text(name, color=self.gui.ui_cfg["colors"]["text_dim"])
                     dpg.add_text(val)
 
-    def on_series_selected_OLD(self, sender, app_data, user_data):
-        # Deselect all others
-        for child in dpg.get_item_children("dicom_series_list", 1):
-            if child != sender:
-                dpg.set_value(child, False)
-
-        self.active_series = self.scanned_series[user_data]
-        s = self.active_series
-
-        dpg.set_value("dicom_lbl_patient", s["patient_name"])
-        dpg.set_value("dicom_lbl_study", s["study_desc"])
-        dpg.set_value("dicom_lbl_size", s["size"])
-        dpg.set_value("dicom_lbl_spacing", s["spacing"])
-
-        first_file = os.path.basename(s["files"][0]) if s["files"] else "Unknown"
-        dir_path = os.path.dirname(s["files"][0]) if s["files"] else "Unknown"
-        dpg.set_value("dicom_lbl_file", first_file)
-        dpg.set_value("dicom_lbl_dir", dir_path)
-
-        # Clear all rows first
-        for i in range(15):
-            if dpg.does_item_exist(f"dicom_t_{i}"):
-                dpg.set_value(f"dicom_t_{i}", "---")
-                dpg.set_value(f"dicom_n_{i}", "---")
-                dpg.set_value(f"dicom_v_{i}", "---")
-
-        # Populate valid rows
-        for i, (tag, name, val) in enumerate(s["tags"]):
-            if dpg.does_item_exist(f"dicom_t_{i}"):
-                dpg.set_value(f"dicom_t_{i}", tag)
-                dpg.set_value(f"dicom_n_{i}", name)
-                dpg.set_value(f"dicom_v_{i}", val)
-
     def on_open_clicked(self):
         if not self.active_series:
             return
