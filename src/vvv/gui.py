@@ -80,6 +80,7 @@ class MainGUI:
 
         # Force UI into the empty/disabled state on boot
         self.update_sidebar_info(None)
+        self.refresh_recent_menu()
 
     # ==========================================
     # 2. LAYOUT BUILDERS
@@ -130,6 +131,8 @@ class MainGUI:
                     dpg.add_menu_item(
                         label="Open Image(s)...", callback=self.on_open_file_clicked
                     )
+                    with dpg.menu(label="Open Recent...", tag="menu_recent_files"):
+                        pass
                     dpg.add_menu_item(
                         label="Open DICOM Browser...",
                         callback=lambda: self.dicom_window.show(),
@@ -583,6 +586,7 @@ class MainGUI:
                         dpg.bind_item_theme(btn_reload, "icon_button_theme")
 
         self.refresh_sync_ui()
+        self.refresh_recent_menu()
         if self.context_viewer and self.context_viewer.image_id:
             self.highlight_active_image_in_list(self.context_viewer.image_id)
 
@@ -834,6 +838,61 @@ class MainGUI:
                         pass  # Empty placeholder to balance the table
 
         self.update_roi_stats_ui()
+
+    def refresh_recent_menu(self):
+        if not dpg.does_item_exist("menu_recent_files"):
+            return
+
+        dpg.delete_item("menu_recent_files", children_only=True)
+        recent = self.controller.settings.data.get("behavior", {}).get(
+            "recent_files", []
+        )
+
+        if not recent:
+            dpg.add_menu_item(
+                label="No recent files", parent="menu_recent_files", enabled=False
+            )
+            return
+
+        for path_str in recent:
+            # Safely attempt to decode DICOM lists
+            try:
+                path_obj = (
+                    json.loads(path_str) if path_str.startswith("[") else path_str
+                )
+            except:
+                path_obj = path_str
+
+            # Create a clean display name
+            if isinstance(path_obj, list) and len(path_obj) > 0:
+                display_name = (
+                    os.path.basename(os.path.dirname(path_obj[0])) + " (DICOM Series)"
+                )
+            elif isinstance(path_str, str) and path_str.startswith("4D:"):
+                import shlex
+
+                tokens = shlex.split(path_str[3:])
+                display_name = (
+                    "4D: " + os.path.basename(tokens[0]) + "..."
+                    if tokens
+                    else "4D Sequence"
+                )
+            else:
+                display_name = os.path.basename(path_str)
+
+            dpg.add_menu_item(
+                label=display_name,
+                parent="menu_recent_files",
+                user_data=path_obj,
+                callback=self.on_recent_file_clicked,
+            )
+
+        dpg.add_separator(parent="menu_recent_files")
+        dpg.add_menu_item(
+            label="Clear Recent Files",
+            parent="menu_recent_files",
+            callback=self.on_clear_recent_clicked,
+        )
 
     def clear_roi_stats(self):
         """Resets the ROI statistics display to default empty values."""
@@ -1607,6 +1666,25 @@ class MainGUI:
             dpg.configure_item("av_panel", show=not is_roi)
 
         self.on_window_resize()
+
+    def on_recent_file_clicked(self, sender, app_data, user_data):
+        path = user_data
+
+        # Route the request to the correct sequence loader based on the type
+        if isinstance(path, list):
+            self.tasks.append(load_batch_images_sequence(self, self.controller, [path]))
+        elif isinstance(path, str) and path.startswith("4D:"):
+            from vvv.ui_sequences import load_single_image_sequence
+
+            self.tasks.append(load_single_image_sequence(self, self.controller, path))
+        else:
+            self.tasks.append(load_batch_images_sequence(self, self.controller, [path]))
+
+    def on_clear_recent_clicked(self, sender, app_data, user_data):
+        if "behavior" not in self.controller.settings.data:
+            self.controller.settings.data["behavior"] = {}
+        self.controller.settings.data["behavior"]["recent_files"] = []
+        self.refresh_recent_menu()
 
     # ==========================================
     # 5. MODALS & POPUPS

@@ -929,6 +929,9 @@ class Controller:
                 # Restore the link! (opacity, mode, threshold are already restored in from_dict)
                 vs.set_overlay(op_id, op_vol)
 
+        if not is_auto_overlay:
+            self.add_recent_file(path)
+
         if self.gui:
             self.gui.refresh_image_list_ui()
 
@@ -942,6 +945,23 @@ class Controller:
 
         vol = self.volumes[vs_id]
         sitk.WriteImage(vol.sitk_image, filepath)
+
+    def add_recent_file(self, path):
+        """Adds a path to the recent files list in settings and caps it at 10."""
+        if "behavior" not in self.settings.data:
+            self.settings.data["behavior"] = {}
+
+        recent = self.settings.data["behavior"].get("recent_files", [])
+
+        # Convert list (DICOM series) to JSON string to make it hashable and storable
+        path_str = json.dumps(path) if isinstance(path, list) else path
+
+        if path_str in recent:
+            recent.remove(path_str)
+        recent.insert(0, path_str)
+
+        # Cap at 10
+        self.settings.data["behavior"]["recent_files"] = recent[:10]
 
     def scan_dicom_folder(self, folder_path, recursive=True):
         """Scans a folder for DICOM series and YIELDS progress updates."""
