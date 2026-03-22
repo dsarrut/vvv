@@ -353,7 +353,7 @@ class SliceViewer:
         slice_y = (rel_y / disp_h) * real_h
 
         v = slice_to_voxel(slice_x, slice_y, self.slice_idx, self.orientation, shape)
-        return self.volume.voxel_coord_to_physic_coord(v)
+        return self.view_state.get_world_phys_from_display_voxel(np.array(v))
 
     def get_mouse_slice_coords(self, ignore_hover=False, allow_outside=False):
         if not self.image_id or not self.volume:
@@ -423,9 +423,7 @@ class SliceViewer:
         if not win_w or not win_h:
             return
 
-        v = (
-            phys_coord - self.volume.origin + self.volume.spacing / 2
-        ) / self.volume.spacing
+        v = self.view_state.get_display_voxel_from_world_phys(phys_coord)
         shape = self.get_slice_shape()
         real_h, real_w = shape[0], shape[1]
         sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
@@ -604,8 +602,16 @@ class SliceViewer:
         else:
             if getattr(self.volume, "is_rgb", False):
                 return
+
+            # Make sure Auto-Window reads from the transformed buffer too!
+            display_data = (
+                self.view_state.base_display_data
+                if getattr(self.view_state, "base_display_data", None) is not None
+                else self.volume.data
+            )
+
             slice_data = SliceRenderer.get_raw_slice(
-                self.volume.data,
+                display_data,
                 getattr(self.volume, "is_rgb", False),
                 self.view_state.camera.time_idx,
                 self.slice_idx,
@@ -673,8 +679,15 @@ class SliceViewer:
             )
 
     def _package_base_layer(self):
+        # Use the display buffer if it exists, otherwise fall back to raw data
+        display_data = (
+            self.view_state.base_display_data
+            if getattr(self.view_state, "base_display_data", None) is not None
+            else self.volume.data
+        )
+
         return RenderLayer(
-            data=self.volume.data,
+            data=display_data,
             is_rgb=getattr(self.volume, "is_rgb", False),
             num_components=self.volume.num_components,
             ww=self.view_state.display.ww,
@@ -869,7 +882,7 @@ class SliceViewer:
         shape = self.get_slice_shape()
 
         v = slice_to_voxel(pix_x, pix_y, idx, self.orientation, shape)
-        phys = self.volume.voxel_coord_to_physic_coord(np.array(v))
+        phys = self.view_state.get_world_phys_from_display_voxel(np.array(v))
 
         col = self.controller.settings.data["colors"]["tracker_text"]
         dpg.configure_item(self.tracker_tag, color=col)

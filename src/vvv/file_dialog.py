@@ -4,13 +4,17 @@ import subprocess
 
 
 def open_file_dialog(
-    title="Open", multiple=False, is_workspace=False, is_directory=False
+    title="Open",
+    multiple=False,
+    is_workspace=False,
+    is_directory=False,
+    extensions=None,
 ):
     """
     Native File Dialog wrapper.
     Vendored and adapted from 'crossfiledialog' by maikelwever
     https://github.com/maikelwever/crossfiledialog
-    Supports selecting single or multiple files, and directories.
+    Supports selecting single or multiple files, directories, and custom extensions.
     """
 
     # Determine the starting folder
@@ -19,11 +23,22 @@ def open_file_dialog(
         start_dir = os.path.expanduser("~")
 
     # --- FILTER LOGIC ---
-    if is_workspace:
+    if extensions:
+        clean_exts = [e.lstrip(".") for e in extensions]
+        mac_exts = '{"' + '", "'.join(clean_exts) + '"}'
+        space_exts = " ".join([f"*.{e}" for e in clean_exts])
+        semi_exts = ";".join([f"*.{e}" for e in clean_exts])
+
+        zenity_filter = f"--file-filter=Supported Files | {space_exts}"
+        kdialog_filter = f"{space_exts} | Supported Files"
+        win_filter = f"Supported Files|{semi_exts}|All Files (*.*)|*.*"
+
+    elif is_workspace:
         mac_exts = '{"vvw", "json"}'
         zenity_filter = "--file-filter=Workspaces | *.vvw *.json"
         kdialog_filter = "*.vvw *.json | Workspaces"
         win_filter = "Workspaces|*.vvw;*.json|All Files (*.*)|*.*"
+
     else:
         mac_exts = '{"nii", "gz", "mhd", "mha", "nrrd", "dcm", "tif", "tiff", "png", "jpg", "jpeg"}'
         zenity_filter = "--file-filter=Medical Images | *.nii *.nii.gz *.mhd *.mha *.nrrd *.dcm *.tif *.tiff *.png *.jpg *.jpeg"
@@ -187,6 +202,17 @@ def save_file_dialog(title="Save File", default_name="workspace.vvw"):
     if not os.path.exists(start_dir):
         start_dir = os.path.expanduser("~")
 
+    # Extract the extension from the default name dynamically
+    ext_parts = default_name.split(".")
+    if len(ext_parts) > 1:
+        ext = ext_parts[-1]
+        if default_name.endswith(".nii.gz") or default_name.endswith(".tar.gz"):
+            ext = ext_parts[-2] + "." + ext_parts[-1]
+    else:
+        ext = "*"
+
+    filter_name = "VVV Workspace" if ext == "vvw" else "File"
+
     if sys.platform == "darwin":  # macOS
         script = (
             f"tell application (path to frontmost application as text)\n"
@@ -221,7 +247,7 @@ def save_file_dialog(title="Save File", default_name="workspace.vvw"):
                 "--confirm-overwrite",
                 f"--title={title}",
                 f"--filename={full_default}",
-                "--file-filter=VVV Workspace | *.vvw",
+                f"--file-filter={filter_name} | *.{ext}",
             ]
             result = subprocess.run(cmd, capture_output=True, text=True)
             path = result.stdout.strip()
@@ -233,7 +259,7 @@ def save_file_dialog(title="Save File", default_name="workspace.vvw"):
                     "kdialog",
                     "--getsavefilename",
                     full_default,
-                    "*.vvw | VVV Workspace",
+                    f"*.{ext} | {filter_name}",
                     f"--title={title}",
                 ]
                 result = subprocess.run(cmd, capture_output=True, text=True)
@@ -249,7 +275,7 @@ def save_file_dialog(title="Save File", default_name="workspace.vvw"):
             f"$f.Title = '{title}';"
             f"$f.InitialDirectory = '{start_dir}';"
             f"$f.FileName = '{default_name}';"
-            f"$f.Filter = 'VVV Workspace (*.vvw)|*.vvw|All Files (*.*)|*.*';"
+            f"$f.Filter = '{filter_name} (*.{ext})|*.{ext}|All Files (*.*)|*.*';"
             f"$form = New-Object System.Windows.Forms.Form;"
             f"$form.TopMost = $true;"
             f"if ($f.ShowDialog($form) -eq 'OK') {{ $f.FileName }}"

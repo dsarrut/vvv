@@ -173,6 +173,14 @@ def build_tab_reg(gui):
     with dpg.tab(label="Reg", tag="tab_reg"):
         dpg.add_spacer(height=5)
 
+        dpg.add_text(
+            "No Image Selected",
+            tag="text_reg_active_title",
+            color=cfg_c["text_active"],
+        )
+        dpg.add_separator()
+        dpg.add_spacer(height=5)
+
         # --- TOP: File Management & Apply ---
         with dpg.group(horizontal=True):
             dpg.add_button(
@@ -234,13 +242,9 @@ def build_tab_reg(gui):
 
         dpg.add_spacer(height=5)
         with dpg.group(horizontal=True):
-            dpg.add_text("CoR:", color=cfg_c["text_header"])
-            dpg.add_input_text(
-                tag="input_reg_cor",
-                readonly=True,
-                width=-1,
-                default_value="0.0, 0.0, 0.0",
-            )
+            dpg.add_text("CoR:")
+            dpg.add_input_text(tag="input_reg_cor", width=150, readonly=True)
+            dpg.add_button(label="Center", callback=gui.on_reg_center_cor_clicked)
 
         dpg.add_separator()
 

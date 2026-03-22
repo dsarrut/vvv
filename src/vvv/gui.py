@@ -2,6 +2,7 @@ import os
 import json
 import time
 import threading
+import numpy as np
 from vvv.utils import fmt
 import dearpygui.dearpygui as dpg
 from vvv.ui_settings import SettingsWindow
@@ -44,8 +45,11 @@ class MainGUI:
         self.roi_selectables = {}
         self.ui_cfg = None
         self.active_roi_id = None
+
+        # internal states
         self._is_roi_tab_active = None
         self._hide_av_panel = None
+        self._reg_debounce_timer = None
 
         # --- DATA BINDING DICTIONARY ---
         # Maps DPG tag -> ViewState property name
@@ -896,6 +900,300 @@ class MainGUI:
             callback=self.on_clear_recent_clicked,
         )
 
+    def _pan_viewers_by_delta(self, vs_id, dtx, dty, dtz):
+        """Translates the 2D cameras to perfectly match the physical 3D shift."""
+        from vvv.utils import ViewMode
+
+        for v in self.controller.viewers.values():
+            if v.image_id == vs_id:
+                ppm = v.get_pixels_per_mm()
+                if v.orientation == ViewMode.AXIAL:
+                    v.pan_offset[0] += dtx * ppm
+                    v.pan_offset[1] += dty * ppm
+                elif v.orientation == ViewMode.SAGITTAL:
+                    v.pan_offset[0] += -dty * ppm
+                    v.pan_offset[1] += -dtz * ppm
+                elif v.orientation == ViewMode.CORONAL:
+                    v.pan_offset[0] += dtx * ppm
+                    v.pan_offset[1] += -dtz * ppm
+
+    def pull_reg_sliders_from_transform(self):
+        """ONLY call this when loading a file, switching images, or resetting. NOT during drag!"""
+        viewer = self.context_viewer
+        if not viewer or not viewer.image_id:
+            return
+
+        vs = viewer.view_state
+        if vs and vs.transform:
+            params = vs.transform.GetParameters()
+            import math
+
+            dpg.set_value("drag_reg_rx", math.degrees(params[0]))
+            dpg.set_value("drag_reg_ry", math.degrees(params[1]))
+            dpg.set_value("drag_reg_rz", math.degrees(params[2]))
+            dpg.set_value("drag_reg_tx", params[3])
+            dpg.set_value("drag_reg_ty", params[4])
+            dpg.set_value("drag_reg_tz", params[5])
+        else:
+            for tag in [
+                "drag_reg_tx",
+                "drag_reg_ty",
+                "drag_reg_tz",
+                "drag_reg_rx",
+                "drag_reg_ry",
+                "drag_reg_rz",
+            ]:
+                if dpg.does_item_exist(tag):
+                    dpg.set_value(tag, 0.0)
+
+    def refresh_reg_ui(self):
+        """Updates text readouts only. Does NOT update sliders to prevent bouncing."""
+        viewer = self.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+
+        vs = viewer.view_state
+
+        vol = self.controller.volumes.get(viewer.image_id)
+        if dpg.does_item_exist("text_reg_active_title") and vol:
+            dpg.set_value("text_reg_active_title", f"{vol.name}")
+
+        if dpg.does_item_exist("text_reg_filename"):
+            dpg.set_value("text_reg_filename", vs.transform_file)
+
+        if dpg.does_item_exist("check_reg_apply"):
+            dpg.set_value("check_reg_apply", vs.transform_active)
+
+        if vs.transform:
+            matrix = np.array(vs.transform.GetMatrix()).reshape(3, 3)
+            center = vs.transform.GetCenter()
+            params = vs.transform.GetParameters()
+
+            # Update only the 4x4 read-only text matrix
+            for r in range(3):
+                for c in range(3):
+                    if dpg.does_item_exist(f"txt_reg_m_{r}_{c}"):
+                        dpg.set_value(f"txt_reg_m_{r}_{c}", f"{matrix[r, c]:.4f}")
+                if dpg.does_item_exist(f"txt_reg_m_{r}_3"):
+                    dpg.set_value(f"txt_reg_m_{r}_3", f"{params[r+3]:.2f}")
+
+            for c, val in enumerate(["0.000", "0.000", "0.000", "1.000"]):
+                if dpg.does_item_exist(f"txt_reg_m_3_{c}"):
+                    dpg.set_value(f"txt_reg_m_3_{c}", val)
+
+            if dpg.does_item_exist("input_reg_cor"):
+                dpg.set_value(
+                    "input_reg_cor",
+                    f"{center[0]:.1f}, {center[1]:.1f}, {center[2]:.1f}",
+                )
+        else:
+            for r in range(4):
+                for c in range(4):
+                    if dpg.does_item_exist(f"txt_reg_m_{r}_{c}"):
+                        dpg.set_value(
+                            f"txt_reg_m_{r}_{c}", "1.000" if r == c else "0.000"
+                        )
+            if vol and dpg.does_item_exist("input_reg_cor"):
+                center = self.controller._get_volume_physical_center(vol)
+                dpg.set_value(
+                    "input_reg_cor",
+                    f"{center[0]:.1f}, {center[1]:.1f}, {center[2]:.1f}",
+                )
+
+    def _trigger_debounced_rotation_update(self, active_image_id):
+        if getattr(self, "_reg_debounce_timer", None) is not None:
+            self._reg_debounce_timer.cancel()
+
+        def _do_resample():
+            self.show_status_message(
+                "Resampling Rotation...", duration=1.0, color=[255, 255, 0]
+            )
+
+            active_vs = self.controller.view_states.get(active_image_id)
+            if active_vs:
+                # This only runs if rotation is non-zero in core.py
+                active_vs.update_base_display_data()
+
+            # --- FUSION CALLBACKS MUTED FOR STANDALONE TESTING ---
+            # active_vol = self.controller.volumes.get(active_image_id)
+            # if active_vs and active_vs.overlay_id:
+            #     ov_vol = self.controller.volumes[active_vs.overlay_id]
+            #     ov_vs = self.controller.view_states[active_vs.overlay_id]
+            #     t_ov = ov_vs.transform if ov_vs.transform_active else None
+            #     active_vs.set_overlay(active_vs.overlay_id, ov_vol, t_ov)
+            #
+            # t_active = active_vs.transform if active_vs and active_vs.transform_active else None
+            # for base_id, base_vs in self.controller.view_states.items():
+            #     if base_vs.overlay_id == active_image_id:
+            #         base_vs.set_overlay(active_image_id, active_vol, t_active)
+            # -----------------------------------------------------
+
+            # CRITICAL FIX: Tell the main thread to actually redraw the new rotated buffer!
+            self.controller.update_all_viewers_of_image(active_image_id)
+            self.show_status_message("Transform applied", color=[150, 255, 150])
+
+        import threading
+
+        self._reg_debounce_timer = threading.Timer(0.3, _do_resample)
+        self._reg_debounce_timer.start()
+
+    def _apply_transform_and_keep_world_fixed(
+        self, viewer, new_state_val=None, skip_manual_update=False
+    ):
+        vs = viewer.view_state
+        vs_id = viewer.image_id
+
+        # 1. Anchor: Save current World Coordinate
+        world_pos = vs.get_world_phys_coord(vs.crosshair_voxel[:3])
+
+        # Track old rotation to know if we need to trigger the heavy resampler
+        old_rx, old_ry, old_rz = 0.0, 0.0, 0.0
+        old_tx, old_ty, old_tz = 0.0, 0.0, 0.0
+        if vs.transform and vs.transform_active:
+            trans = vs.transform.GetTranslation()
+            old_tx, old_ty, old_tz = trans[0], trans[1], trans[2]
+            old_rx = vs.transform.GetAngleX()
+            old_ry = vs.transform.GetAngleY()
+            old_rz = vs.transform.GetAngleZ()
+
+        # Update Checkbox State (From explicit clicks)
+        if new_state_val is not None:
+            vs.transform_active = new_state_val
+
+        # 2. Update Math from GUI sliders (SILENTLY)
+        if not skip_manual_update:
+            tx, ty, tz = (
+                dpg.get_value("drag_reg_tx"),
+                dpg.get_value("drag_reg_ty"),
+                dpg.get_value("drag_reg_tz"),
+            )
+            rx, ry, rz = (
+                dpg.get_value("drag_reg_rx"),
+                dpg.get_value("drag_reg_ry"),
+                dpg.get_value("drag_reg_rz"),
+            )
+            self.controller.update_transform_manual(vs_id, tx, ty, tz, rx, ry, rz)
+
+        # 3. Track New Transform State (ONLY if active!)
+        new_rx, new_ry, new_rz = 0.0, 0.0, 0.0
+        new_tx, new_ty, new_tz = 0.0, 0.0, 0.0
+        if vs.transform and vs.transform_active:
+            trans = vs.transform.GetTranslation()
+            new_tx, new_ty, new_tz = trans[0], trans[1], trans[2]
+            new_rx = vs.transform.GetAngleX()
+            new_ry = vs.transform.GetAngleY()
+            new_rz = vs.transform.GetAngleZ()
+
+        # 4. Fast Path: Reverse Mapping & Camera Pan
+        dtx, dty, dtz = new_tx - old_tx, new_ty - old_ty, new_tz - old_tz
+        if dtx != 0 or dty != 0 or dtz != 0:
+            self._pan_viewers_by_delta(vs_id, dtx, dty, dtz)
+
+        new_local_vox = vs.get_voxel_from_world_phys(world_pos)
+        sh = vs.volume.shape3d
+        from vvv.utils import ViewMode
+
+        vs.crosshair_voxel = [
+            new_local_vox[0],
+            new_local_vox[1],
+            new_local_vox[2],
+            vs.time_idx,
+        ]
+        vs.slices[ViewMode.AXIAL] = int(np.clip(new_local_vox[2], 0, sh[0] - 1))
+        vs.slices[ViewMode.SAGITTAL] = int(np.clip(new_local_vox[0], 0, sh[2] - 1))
+        vs.slices[ViewMode.CORONAL] = int(np.clip(new_local_vox[1], 0, sh[1] - 1))
+
+        for v in self.controller.viewers.values():
+            if v.image_id == vs_id:
+                v.needs_recenter = True
+
+        self.controller.update_all_viewers_of_image(vs_id)
+        self.update_sidebar_crosshair(viewer)
+
+        # 5. Heavy Path: Resample only if rotation changed AND the transform is actually active
+        rotation_changed = (
+            abs(new_rx - old_rx) > 1e-5
+            or abs(new_ry - old_ry) > 1e-5
+            or abs(new_rz - old_rz) > 1e-5
+        )
+
+        if rotation_changed or new_state_val is not None:
+            self._trigger_debounced_rotation_update(vs_id)
+
+    def _apply_transform_and_keep_world_fixed_OLD(
+        self, viewer, new_state_val=None, skip_manual_update=False
+    ):
+        vs = viewer.view_state
+        vs_id = viewer.image_id
+
+        # 1. Anchor: Save current World Coordinate
+        world_pos = vs.get_world_phys_from_display_voxel(vs.crosshair_voxel[:3])
+
+        # Track old rotation to know if we need to trigger the heavy resampler
+        old_rx, old_ry, old_rz = 0.0, 0.0, 0.0
+        if vs.transform and vs.transform_active:
+            old_rx = vs.transform.GetAngleX()
+            old_ry = vs.transform.GetAngleY()
+            old_rz = vs.transform.GetAngleZ()
+
+        # Update Checkbox State
+        if new_state_val is not None:
+            vs.transform_active = new_state_val
+
+        # 2. Update Math from GUI sliders
+        if not skip_manual_update:
+            tx, ty, tz = (
+                dpg.get_value("drag_reg_tx"),
+                dpg.get_value("drag_reg_ty"),
+                dpg.get_value("drag_reg_tz"),
+            )
+            rx, ry, rz = (
+                dpg.get_value("drag_reg_rx"),
+                dpg.get_value("drag_reg_ry"),
+                dpg.get_value("drag_reg_rz"),
+            )
+            self.controller.update_transform_manual(vs_id, tx, ty, tz, rx, ry, rz)
+
+        new_rx, new_ry, new_rz = 0.0, 0.0, 0.0
+        if vs.transform and vs.transform_active:
+            new_rx = vs.transform.GetAngleX()
+            new_ry = vs.transform.GetAngleY()
+            new_rz = vs.transform.GetAngleZ()
+
+        # 3. Fast Path: Reverse Mapping & Camera Pan
+        new_local_vox = vs.get_display_voxel_from_world_phys(world_pos)
+        sh = vs.volume.shape3d
+        from vvv.utils import ViewMode
+
+        vs.crosshair_voxel = [
+            new_local_vox[0],
+            new_local_vox[1],
+            new_local_vox[2],
+            vs.time_idx,
+        ]
+        vs.slices[ViewMode.AXIAL] = int(np.clip(new_local_vox[2], 0, sh[0] - 1))
+        vs.slices[ViewMode.SAGITTAL] = int(np.clip(new_local_vox[0], 0, sh[2] - 1))
+        vs.slices[ViewMode.CORONAL] = int(np.clip(new_local_vox[1], 0, sh[1] - 1))
+
+        # CRITICAL FIX for the Pan: Force the viewer to instantly center the camera on the newly shifted physics!
+        for v in self.controller.viewers.values():
+            if v.image_id == vs_id:
+                v.needs_recenter = True
+
+        self.controller.update_all_viewers_of_image(vs_id)
+        self.update_sidebar_crosshair(viewer)
+
+        # 4. Heavy Path: Resample only if rotation changed
+        rotation_changed = (
+            abs(new_rx - old_rx) > 1e-5
+            or abs(new_ry - old_ry) > 1e-5
+            or abs(new_rz - old_rz) > 1e-5
+        )
+
+        # If they clicked the checkbox OR changed rotation, trigger the buffer update
+        if rotation_changed or new_state_val is not None:
+            self._trigger_debounced_rotation_update(vs_id)
+
     def clear_roi_stats(self):
         """Resets the ROI statistics display to default empty values."""
         tags = [
@@ -1200,6 +1498,8 @@ class MainGUI:
             self.update_sidebar_info(viewer)
             self.update_sidebar_crosshair(viewer)
             self.refresh_rois_ui()
+            self.refresh_reg_ui()
+            self.pull_reg_sliders_from_transform()
 
     # ==========================================
     # 4. EVENT HANDLERS
@@ -1698,19 +1998,81 @@ class MainGUI:
     # ==========================================
 
     def on_reg_load_clicked(self, sender, app_data, user_data):
-        print("Load .tfm clicked")
+        viewer = self.context_viewer
+        if not viewer or not viewer.image_id:
+            return
+
+        file_path = open_file_dialog(
+            "Load Transform", multiple=False, extensions=[".tfm", ".txt"]
+        )
+        if file_path:
+            vs = viewer.view_state
+            world_pos = vs.get_world_phys_from_display_voxel(vs.crosshair_voxel[:3])
+
+            if self.controller.load_transform(viewer.image_id, file_path):
+                self.show_status_message(f"Loaded {os.path.basename(file_path)}")
+
+                new_local_vox = vs.get_display_voxel_from_world_phys(world_pos)
+                sh = vs.volume.shape3d
+                from vvv.utils import ViewMode
+
+                vs.crosshair_voxel = [
+                    new_local_vox[0],
+                    new_local_vox[1],
+                    new_local_vox[2],
+                    vs.time_idx,
+                ]
+                vs.slices[ViewMode.AXIAL] = int(np.clip(new_local_vox[2], 0, sh[0] - 1))
+                vs.slices[ViewMode.SAGITTAL] = int(
+                    np.clip(new_local_vox[0], 0, sh[2] - 1)
+                )
+                vs.slices[ViewMode.CORONAL] = int(
+                    np.clip(new_local_vox[1], 0, sh[1] - 1)
+                )
+
+                for v in self.controller.viewers.values():
+                    if v.image_id == viewer.image_id:
+                        v.needs_recenter = True
+
+                self.controller.update_all_viewers_of_image(viewer.image_id)
+                self.update_sidebar_crosshair(viewer)
+
+                self.refresh_reg_ui()
+                self.pull_reg_sliders_from_transform()
+                self._trigger_debounced_rotation_update(viewer.image_id)
+            else:
+                self.show_message("Error", "Failed to parse transform file.")
 
     def on_reg_save_clicked(self, sender, app_data, user_data):
-        print("Save .tfm clicked")
+        viewer = self.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+
+        vs = viewer.view_state
+        if not vs.transform:
+            self.show_status_message("No transform to save!", color=[255, 100, 100])
+            return
+
+        default_name = (
+            vs.transform_file if vs.transform_file != "None" else "matrix.tfm"
+        )
+        file_path = save_file_dialog("Save Transform", default_name=default_name)
+        if file_path:
+            self.controller.save_transform(viewer.image_id, file_path)
+            self.show_status_message(f"Saved: {os.path.basename(file_path)}")
+            self.refresh_reg_ui()
 
     def on_reg_reload_clicked(self, sender, app_data, user_data):
-        print("Reload .tfm clicked")
+        self.on_reg_load_clicked(sender, app_data, user_data)
 
     def on_reg_apply_toggled(self, sender, app_data, user_data):
-        print(f"Apply transform toggled: {app_data}")
+        viewer = self.context_viewer
+        if viewer and viewer.image_id:
+            self._apply_transform_and_keep_world_fixed(
+                viewer, new_state_val=app_data, skip_manual_update=True
+            )
 
     def on_reg_step_changed(self, sender, app_data, user_data):
-        # Update the drag speed of the sliders based on Coarse/Fine
         speed = 1.0 if app_data == "Coarse" else 0.1
         for tag in [
             "drag_reg_tx",
@@ -1724,14 +2086,93 @@ class MainGUI:
                 dpg.configure_item(tag, speed=speed)
 
     def on_reg_manual_changed(self, sender, app_data, user_data):
-        # Triggered whenever a slider is dragged or a value is typed
-        pass
+        viewer = self.context_viewer
+        if not viewer or not viewer.image_id:
+            return
+        self._apply_transform_and_keep_world_fixed(viewer)
+        self.refresh_reg_ui()
 
     def on_reg_reset_clicked(self, sender, app_data, user_data):
-        print("Reset transform clicked")
+        viewer = self.context_viewer
+        if not viewer or not viewer.image_id:
+            return
+
+        for tag in [
+            "drag_reg_tx",
+            "drag_reg_ty",
+            "drag_reg_tz",
+            "drag_reg_rx",
+            "drag_reg_ry",
+            "drag_reg_rz",
+        ]:
+            if dpg.does_item_exist(tag):
+                dpg.set_value(tag, 0.0)
+
+        self.on_reg_manual_changed(sender, app_data, user_data)
+        self.pull_reg_sliders_from_transform()
 
     def on_reg_invert_clicked(self, sender, app_data, user_data):
-        print("Invert transform clicked")
+        viewer = self.context_viewer
+        if not viewer or not viewer.image_id:
+            return
+
+        vs = viewer.view_state
+        if not vs.transform:
+            return
+
+        params = vs.transform.GetInverse().GetParameters()
+        import math
+
+        dpg.set_value("drag_reg_rx", math.degrees(params[0]))
+        dpg.set_value("drag_reg_ry", math.degrees(params[1]))
+        dpg.set_value("drag_reg_rz", math.degrees(params[2]))
+        dpg.set_value("drag_reg_tx", params[3])
+        dpg.set_value("drag_reg_ty", params[4])
+        dpg.set_value("drag_reg_tz", params[5])
+
+        self.on_reg_manual_changed(sender, app_data, user_data)
+        self.pull_reg_sliders_from_transform()
+
+    def on_reg_center_cor_clicked(self, sender, app_data, user_data):
+        """Snaps the crosshair and camera perfectly to the Center of Rotation."""
+        viewer = self.context_viewer
+        if not viewer or not viewer.image_id:
+            return
+
+        vs = viewer.view_state
+        vol = self.controller.volumes.get(viewer.image_id)
+
+        # 1. Get the CoR in absolute World Space
+        if vs.transform:
+            center = vs.transform.GetCenter()
+        else:
+            center = self.controller._get_volume_physical_center(vol)
+
+        # 2. Reverse map the World CoR to the local display voxel
+        new_local_vox = vs.get_display_voxel_from_world_phys(center)
+        sh = vol.shape3d
+        from vvv.utils import ViewMode
+
+        vs.crosshair_voxel = [
+            new_local_vox[0],
+            new_local_vox[1],
+            new_local_vox[2],
+            vs.time_idx,
+        ]
+        vs.slices[ViewMode.AXIAL] = int(np.clip(new_local_vox[2], 0, sh[0] - 1))
+        vs.slices[ViewMode.SAGITTAL] = int(np.clip(new_local_vox[0], 0, sh[2] - 1))
+        vs.slices[ViewMode.CORONAL] = int(np.clip(new_local_vox[1], 0, sh[1] - 1))
+
+        # 3. Force the viewer to pan the 2D camera to this new center
+        for v in self.controller.viewers.values():
+            if v.image_id == viewer.image_id:
+                v.needs_recenter = True
+
+        self.controller.update_all_viewers_of_image(viewer.image_id)
+        self.update_sidebar_crosshair(viewer)
+
+        # 4. Broadcast this jump to any fused overlays!
+        self.controller.propagate_sync(viewer.image_id)
 
     # ==========================================
     # 5. MODALS & POPUPS

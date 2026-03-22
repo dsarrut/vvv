@@ -302,6 +302,12 @@ class ViewState:
         # Derived value based on camera coords and display data
         self.crosshair_value = None
 
+        # Registration transform
+        self.transform = None
+        self.transform_file = "None"
+        self.transform_active = False
+        self.base_display_data = None
+
         self.hist_data_x = None
         self.hist_data_y = None
         self.histogram_is_dirty = True
@@ -511,6 +517,56 @@ class ViewState:
 
     # ==========================================
 
+    def get_world_phys_coord(self, voxel_orig):
+        """Strictly maps a RAW Original Voxel to World Physical Space."""
+        phys = self.volume.voxel_coord_to_physic_coord(np.array(voxel_orig))
+        if getattr(self, "transform_active", False) and getattr(
+            self, "transform", None
+        ):
+            phys = self.transform.TransformPoint(phys.tolist())
+        return np.array(phys)
+
+    def get_voxel_from_world_phys(self, world_phys):
+        """Strictly maps World Physical Space back to a RAW Original Voxel."""
+        phys = np.array(world_phys)
+        if getattr(self, "transform_active", False) and getattr(
+            self, "transform", None
+        ):
+            phys = np.array(self.transform.GetInverse().TransformPoint(phys.tolist()))
+        return self.volume.physic_coord_to_voxel_coord(phys)
+
+    def get_world_phys_from_display_voxel(self, voxel_disp):
+        """Maps the Visual Screen Voxel to World Space, respecting the Pan/Rotation illusions."""
+        phys = self.volume.voxel_coord_to_physic_coord(np.array(voxel_disp))
+        if getattr(self, "transform_active", False) and getattr(
+            self, "transform", None
+        ):
+            if getattr(self, "base_display_data", None) is not None:
+                # Buffer Space: Rotation is baked in. Only apply translation to find World.
+                t = np.array(self.transform.GetTranslation())
+                return phys + t
+            else:
+                # Fast Path (Camera Pan): Data hasn't moved, so apply the full transform.
+                return np.array(self.transform.TransformPoint(phys.tolist()))
+        return phys
+
+    def get_display_voxel_from_world_phys(self, world_phys):
+        """Maps World Space back to the Visual Screen Voxel to snap the crosshair correctly."""
+        phys = np.array(world_phys)
+        if getattr(self, "transform_active", False) and getattr(
+            self, "transform", None
+        ):
+            if getattr(self, "base_display_data", None) is not None:
+                # Buffer Space: Only reverse the translation.
+                t = np.array(self.transform.GetTranslation())
+                phys = phys - t
+            else:
+                # Fast Path (Camera Pan): Reverse the full transform.
+                phys = np.array(
+                    self.transform.GetInverse().TransformPoint(phys.tolist())
+                )
+        return self.volume.physic_coord_to_voxel_coord(phys)
+
     def is_ct_image(self, flat_data):
         if hasattr(self.volume.sitk_image, "GetMetaData"):
             try:
@@ -536,21 +592,26 @@ class ViewState:
 
     def init_crosshair_to_slices(self):
         self.crosshair_voxel = [
-            self.slices[ViewMode.CORONAL],  # <-- Assigned Y (10) to the X position!
-            self.slices[ViewMode.SAGITTAL],  # <-- Assigned X (15) to the Y position!
-            self.slices[ViewMode.AXIAL],  # Z is fine
+            self.slices[ViewMode.CORONAL],
+            self.slices[ViewMode.SAGITTAL],
+            self.slices[ViewMode.AXIAL],
             self.time_idx,
         ]
-        self.crosshair_phys_coord = self.volume.voxel_coord_to_physic_coord(
+        self.crosshair_phys_coord = self.get_world_phys_from_display_voxel(
             np.array(self.crosshair_voxel[:3])
         )
 
         v = self.crosshair_voxel
         ix, iy, iz = int(v[0]), int(v[1]), int(v[2])
+        display_data = (
+            self.base_display_data
+            if getattr(self, "base_display_data", None) is not None
+            else self.volume.data
+        )
         if self.volume.num_timepoints > 1:
-            self.crosshair_value = self.volume.data[self.time_idx, iz, iy, ix]
+            self.crosshair_value = display_data[self.time_idx, iz, iy, ix]
         else:
-            self.crosshair_value = self.volume.data[iz, iy, ix]
+            self.crosshair_value = display_data[iz, iy, ix]
 
     def init_default_window_level(self):
         total_pixels = self.volume.data.size
@@ -592,9 +653,10 @@ class ViewState:
 
         new_v = [vx, vy, vz, self.time_idx]
         self.crosshair_voxel = new_v
-        self.crosshair_phys_coord = self.volume.voxel_coord_to_physic_coord(
+        self.crosshair_phys_coord = self.get_world_phys_from_display_voxel(
             np.array(new_v[:3])
         )
+
         ix, iy, iz = [
             int(np.clip(np.floor(c + 0.5), 0, limit - 1))
             for c, limit in zip(
@@ -606,17 +668,22 @@ class ViewState:
                 ],
             )
         ]
+        display_data = (
+            self.base_display_data
+            if getattr(self, "base_display_data", None) is not None
+            else self.volume.data
+        )
         if self.volume.num_timepoints > 1:
-            self.crosshair_value = self.volume.data[self.time_idx, iz, iy, ix]
+            self.crosshair_value = display_data[self.time_idx, iz, iy, ix]
         else:
-            self.crosshair_value = self.volume.data[iz, iy, ix]
+            self.crosshair_value = display_data[iz, iy, ix]
 
     def update_crosshair_from_2d(self, slice_x, slice_y, slice_idx, orientation):
         shape = self.get_slice_shape(orientation)
-
         v = slice_to_voxel(slice_x, slice_y, slice_idx, orientation, shape)
+
         self.crosshair_voxel = [v[0], v[1], v[2], self.time_idx]
-        self.crosshair_phys_coord = self.volume.voxel_coord_to_physic_coord(
+        self.crosshair_phys_coord = self.get_world_phys_from_display_voxel(
             np.array(v[:3])
         )
 
@@ -631,10 +698,15 @@ class ViewState:
                 ],
             )
         ]
+        display_data = (
+            self.base_display_data
+            if getattr(self, "base_display_data", None) is not None
+            else self.volume.data
+        )
         if self.volume.num_timepoints > 1:
-            self.crosshair_value = self.volume.data[self.time_idx, iz, iy, ix]
+            self.crosshair_value = display_data[self.time_idx, iz, iy, ix]
         else:
-            self.crosshair_value = self.volume.data[iz, iy, ix]
+            self.crosshair_value = display_data[iz, iy, ix]
 
     def update_histogram(self):
         flat_data = self.volume.data.flatten()
@@ -702,7 +774,67 @@ class ViewState:
             self.ww = WL_PRESETS[preset_name]["ww"]
             self.wl = WL_PRESETS[preset_name]["wl"]
 
-    def set_overlay(self, other_vs_id, other_vol):
+    def update_base_display_data(self):
+        """Resamples the base image so the standalone viewer shows the transform visually.
+        Optimized: ONLY applies Rotation. Translation is handled by 2D Camera Pan in the UI.
+        """
+        if (
+            not getattr(self, "transform_active", False)
+            or getattr(self, "transform", None) is None
+        ):
+            self.base_display_data = None
+            return
+
+        rx = self.transform.GetAngleX()
+        ry = self.transform.GetAngleY()
+        rz = self.transform.GetAngleZ()
+
+        # FAST PATH: If purely translation, completely skip the heavy 3D resample!
+        if abs(rx) < 1e-6 and abs(ry) < 1e-6 and abs(rz) < 1e-6:
+            self.base_display_data = None
+            return
+
+        ref_img = sitk.Image(
+            int(self.volume.shape3d[2]),
+            int(self.volume.shape3d[1]),
+            int(self.volume.shape3d[0]),
+            sitk.sitkUInt8,
+        )
+        ref_img.SetSpacing(self.volume.spacing.tolist())
+        ref_img.SetOrigin(self.volume.origin.tolist())
+        ref_img.SetDirection(self.volume.matrix.flatten().tolist())
+
+        resampler = sitk.ResampleImageFilter()
+        resampler.SetReferenceImage(ref_img)
+        resampler.SetInterpolator(sitk.sitkLinear)
+
+        min_val = float(np.min(self.volume.data))
+        resampler.SetDefaultPixelValue(min_val)
+
+        # HEAVY PATH: Create a Rotation-Only transform matching the true CoR
+        rot_transform = sitk.Euler3DTransform()
+        rot_transform.SetCenter(self.transform.GetCenter())
+        rot_transform.SetRotation(rx, ry, rz)
+
+        resampler.SetTransform(rot_transform.GetInverse())
+
+        target_dim = self.volume.sitk_image.GetDimension()
+        if target_dim == 3:
+            resampled_img = resampler.Execute(self.volume.sitk_image)
+            self.base_display_data = sitk.GetArrayFromImage(resampled_img)
+        elif target_dim == 4:
+            resampled_volumes = []
+            for t in range(self.volume.num_timepoints):
+                size = list(self.volume.sitk_image.GetSize())
+                size[3] = 0
+                index = [0, 0, 0, t]
+                vol_3d = sitk.Extract(self.volume.sitk_image, size, index)
+                resampled_volumes.append(resampler.Execute(vol_3d))
+            self.base_display_data = sitk.GetArrayFromImage(
+                sitk.JoinSeries(resampled_volumes)
+            )
+
+    def set_overlay(self, other_vs_id, other_vol, other_transform=None):
         if other_vs_id is None or other_vol is None:
             self.overlay_id = None
             self.overlay_data = None
@@ -711,8 +843,17 @@ class ViewState:
 
         self.overlay_id = other_vs_id
 
+        has_base_transform = (
+            getattr(self, "transform_active", False)
+            and getattr(self, "transform", None) is not None
+        )
+        has_overlay_transform = other_transform is not None
+
+        # Do not early-exit if ANY transform is active!
         if (
-            np.allclose(self.volume.spacing, other_vol.spacing, atol=1e-4)
+            not has_base_transform
+            and not has_overlay_transform
+            and np.allclose(self.volume.spacing, other_vol.spacing, atol=1e-4)
             and np.allclose(self.volume.origin, other_vol.origin, atol=1e-4)
             and self.volume.shape3d == other_vol.shape3d
         ):
@@ -733,9 +874,19 @@ class ViewState:
         resampler = sitk.ResampleImageFilter()
         resampler.SetReferenceImage(ref_img)
         resampler.SetInterpolator(sitk.sitkNearestNeighbor)
-        # Use the actual image minimum for out-of-bounds padding ---
+
         min_val = float(np.min(other_vol.data))
         resampler.SetDefaultPixelValue(min_val)
+
+        # --- THE WORLD ENGINE: Chain Base & Overlay Transforms ---
+        if has_base_transform or has_overlay_transform:
+            comp = sitk.CompositeTransform(3)
+            if has_base_transform:
+                comp.AddTransform(self.transform)
+            if has_overlay_transform:
+                comp.AddTransform(other_transform.GetInverse())
+            resampler.SetTransform(comp)
+        # ---------------------------------------------------------
 
         target_dim = other_vol.sitk_image.GetDimension()
 
@@ -936,14 +1087,194 @@ class Controller:
 
         return img_id
 
-    def save_image(self, vs_id, filepath):
-        """Exports the active volume to disk as a NIfTI, MHD, etc."""
-        if vs_id not in self.volumes:
-            return
-        import SimpleITK as sitk
+    def load_label_map(self, base_id, filepath, start_color_idx):
+        import json
 
+        # 1. Attempt to find a JSON sidecar dictionary
+        json_path = filepath.rsplit(".", 1)[0] + ".json"
+        if filepath.endswith(".nii.gz"):
+            json_path = filepath[:-7] + ".json"
+
+        label_dict = {}
+        if os.path.exists(json_path):
+            try:
+                with open(json_path, "r") as f:
+                    raw_dict = json.load(f)
+                    # Force integer keys in case JSON parsed them as strings
+                    label_dict = {int(k): str(v) for k, v in raw_dict.items()}
+            except Exception as e:
+                print(f"Failed to load JSON {json_path}: {e}")
+
+        # 2. Read the image quickly just to get the unique integer values
+        temp_img = sitk.ReadImage(filepath)
+        temp_data = sitk.GetArrayViewFromImage(temp_img)
+        unique_vals = np.unique(temp_data)
+
+        loaded_count = 0
+        from vvv.config import ROI_COLORS
+
+        base_name = os.path.basename(filepath)
+        for ext in [
+            ".nii.gz",
+            ".nii",
+            ".mhd",
+            ".mha",
+            ".nrrd",
+            ".dcm",
+            ".tif",
+            ".png",
+            ".jpg",
+        ]:
+            if base_name.lower().endswith(ext):
+                base_name = base_name[: -len(ext)]
+                break
+
+        # 3. Process every non-zero label as a distinct ROI
+        for val in unique_vals:
+            if val == 0:
+                continue  # 0 is strictly background in label maps
+
+            color = ROI_COLORS[(start_color_idx + loaded_count) % len(ROI_COLORS)]
+            roi_name = label_dict.get(int(val), f"{base_name} - Lbl {val}")
+
+            self.load_binary_mask(
+                base_id,
+                filepath,
+                name=roi_name,
+                color=color,
+                mode="Target FG (val)",
+                target_val=float(val),
+            )
+            loaded_count += 1
+
+        return loaded_count
+
+    def load_binary_mask(
+        self,
+        base_id,
+        filepath,
+        name=None,
+        color=[255, 50, 50],
+        mode="Ignore BG (val)",
+        target_val=0.0,
+    ):
+        base_vol = self.volumes[base_id]
+        mask_vol = VolumeData(filepath)
+
+        # Apply rule to raw data BEFORE any resampling or cropping!
+        if mode == "Target FG (val)":
+            mask_vol.data = (mask_vol.data == target_val).astype(np.uint8)
+        else:
+            mask_vol.data = (mask_vol.data != target_val).astype(np.uint8)
+
+        # Update SITK image to ensure Resampler behaves correctly with the new binary data
+        new_img = sitk.GetImageFromArray(mask_vol.data)
+        new_img.SetSpacing(mask_vol.sitk_image.GetSpacing())
+        new_img.SetOrigin(mask_vol.sitk_image.GetOrigin())
+        new_img.SetDirection(mask_vol.sitk_image.GetDirection())
+        mask_vol.sitk_image = new_img
+
+        self.process_binary_mask(base_vol, mask_vol)
+
+        # Safeguard warning
+        if mask_vol.data.size == 0:
+            raise ValueError("Outside the base image FOV (or completely empty).")
+
+        mask_id = str(self._next_image_id)
+        self._next_image_id += 1
+        self.volumes[mask_id] = mask_vol
+
+        if name is None:
+            name = os.path.basename(filepath)
+            for ext in [
+                ".nii.gz",
+                ".nii",
+                ".mhd",
+                ".mha",
+                ".nrrd",
+                ".dcm",
+                ".tif",
+                ".png",
+                ".jpg",
+            ]:
+                if name.lower().endswith(ext):
+                    name = name[: -len(ext)]
+                    break
+
+        roi_state = ROIState(
+            mask_id, name, color, source_mode=mode, source_val=target_val
+        )
+        self.view_states[base_id].rois[mask_id] = roi_state
+        self.view_states[base_id].is_data_dirty = True
+
+        return mask_id
+
+        # ==========================================
+        # REGISTRATION & TRANSFORM MATH
+        # ==========================================
+
+    def load_transform(self, vs_id, filepath):
+        if vs_id not in self.view_states:
+            return False
+
+        vs = self.view_states[vs_id]
         vol = self.volumes[vs_id]
-        sitk.WriteImage(vol.sitk_image, filepath)
+        new_transform = sitk.Euler3DTransform()
+
+        try:
+            # 1. Try to parse as an Elastix Parameter File
+            with open(filepath, "r") as f:
+                content = f.read()
+
+            if "TransformParameters" in content and "CenterOfRotationPoint" in content:
+                import re
+
+                params = (
+                    re.search(r"\(TransformParameters(.*?)\)", content).group(1).split()
+                )
+                center = (
+                    re.search(r"\(CenterOfRotationPoint(.*?)\)", content)
+                    .group(1)
+                    .split()
+                )
+
+                # Elastix Euler is [rx, ry, rz, tx, ty, tz] (angles in radians)
+                new_transform.SetRotation(
+                    float(params[0]), float(params[1]), float(params[2])
+                )
+                new_transform.SetTranslation(
+                    (float(params[3]), float(params[4]), float(params[5]))
+                )
+                new_transform.SetCenter(
+                    (float(center[0]), float(center[1]), float(center[2]))
+                )
+            else:
+                # 2. Fallback to standard ITK Transform Reader
+                generic_transform = sitk.ReadTransform(filepath)
+                # Force it into an Euler3DTransform so our GUI sliders can interact with it
+                if generic_transform.GetDimension() == 3:
+                    new_transform.SetMatrix(generic_transform.GetMatrix())
+                    new_transform.SetTranslation(generic_transform.GetTranslation())
+                    if hasattr(generic_transform, "GetCenter"):
+                        new_transform.SetCenter(generic_transform.GetCenter())
+
+        except Exception as e:
+            print(f"Error loading transform: {e}")
+            return False
+
+        # 3. Failsafe: If Center of Rotation is exactly 0,0,0, fix it!
+        if np.allclose(new_transform.GetCenter(), [0, 0, 0]):
+            new_transform.SetCenter(self._get_volume_physical_center(vol).tolist())
+
+        vs.transform = new_transform
+        vs.transform_file = os.path.basename(filepath)
+        return True
+
+    def save_transform(self, vs_id, filepath):
+        vs = self.view_states.get(vs_id)
+        if vs and vs.transform:
+            sitk.WriteTransform(vs.transform, filepath)
+            vs.transform_file = os.path.basename(filepath)
 
     def add_recent_file(self, path):
         """Adds a path to the recent files list in settings and caps it at 10."""
@@ -1155,127 +1486,21 @@ class Controller:
             else:
                 mask_vol.data = np.zeros((0, 0, 0), dtype=mask_vol.data.dtype)
 
-    def load_binary_mask(
-        self,
-        base_id,
-        filepath,
-        name=None,
-        color=[255, 50, 50],
-        mode="Ignore BG (val)",
-        target_val=0.0,
-    ):
-        base_vol = self.volumes[base_id]
-        mask_vol = VolumeData(filepath)
+    def _get_volume_physical_center(self, vol):
+        """Calculates the exact physical center of an image volume for the CoR."""
+        cx = (vol.shape3d[2] - 1) / 2.0
+        cy = (vol.shape3d[1] - 1) / 2.0
+        cz = (vol.shape3d[0] - 1) / 2.0
+        return vol.voxel_coord_to_physic_coord(np.array([cx, cy, cz]))
 
-        # Apply rule to raw data BEFORE any resampling or cropping!
-        if mode == "Target FG (val)":
-            mask_vol.data = (mask_vol.data == target_val).astype(np.uint8)
-        else:
-            mask_vol.data = (mask_vol.data != target_val).astype(np.uint8)
+    def save_image(self, vs_id, filepath):
+        """Exports the active volume to disk as a NIfTI, MHD, etc."""
+        if vs_id not in self.volumes:
+            return
+        import SimpleITK as sitk
 
-        # Update SITK image to ensure Resampler behaves correctly with the new binary data
-        new_img = sitk.GetImageFromArray(mask_vol.data)
-        new_img.SetSpacing(mask_vol.sitk_image.GetSpacing())
-        new_img.SetOrigin(mask_vol.sitk_image.GetOrigin())
-        new_img.SetDirection(mask_vol.sitk_image.GetDirection())
-        mask_vol.sitk_image = new_img
-
-        self.process_binary_mask(base_vol, mask_vol)
-
-        # Safeguard warning
-        if mask_vol.data.size == 0:
-            raise ValueError("Outside the base image FOV (or completely empty).")
-
-        mask_id = str(self._next_image_id)
-        self._next_image_id += 1
-        self.volumes[mask_id] = mask_vol
-
-        if name is None:
-            name = os.path.basename(filepath)
-            for ext in [
-                ".nii.gz",
-                ".nii",
-                ".mhd",
-                ".mha",
-                ".nrrd",
-                ".dcm",
-                ".tif",
-                ".png",
-                ".jpg",
-            ]:
-                if name.lower().endswith(ext):
-                    name = name[: -len(ext)]
-                    break
-
-        roi_state = ROIState(
-            mask_id, name, color, source_mode=mode, source_val=target_val
-        )
-        self.view_states[base_id].rois[mask_id] = roi_state
-        self.view_states[base_id].is_data_dirty = True
-
-        return mask_id
-
-    def load_label_map(self, base_id, filepath, start_color_idx):
-        import json
-
-        # 1. Attempt to find a JSON sidecar dictionary
-        json_path = filepath.rsplit(".", 1)[0] + ".json"
-        if filepath.endswith(".nii.gz"):
-            json_path = filepath[:-7] + ".json"
-
-        label_dict = {}
-        if os.path.exists(json_path):
-            try:
-                with open(json_path, "r") as f:
-                    raw_dict = json.load(f)
-                    # Force integer keys in case JSON parsed them as strings
-                    label_dict = {int(k): str(v) for k, v in raw_dict.items()}
-            except Exception as e:
-                print(f"Failed to load JSON {json_path}: {e}")
-
-        # 2. Read the image quickly just to get the unique integer values
-        temp_img = sitk.ReadImage(filepath)
-        temp_data = sitk.GetArrayViewFromImage(temp_img)
-        unique_vals = np.unique(temp_data)
-
-        loaded_count = 0
-        from vvv.config import ROI_COLORS
-
-        base_name = os.path.basename(filepath)
-        for ext in [
-            ".nii.gz",
-            ".nii",
-            ".mhd",
-            ".mha",
-            ".nrrd",
-            ".dcm",
-            ".tif",
-            ".png",
-            ".jpg",
-        ]:
-            if base_name.lower().endswith(ext):
-                base_name = base_name[: -len(ext)]
-                break
-
-        # 3. Process every non-zero label as a distinct ROI
-        for val in unique_vals:
-            if val == 0:
-                continue  # 0 is strictly background in label maps
-
-            color = ROI_COLORS[(start_color_idx + loaded_count) % len(ROI_COLORS)]
-            roi_name = label_dict.get(int(val), f"{base_name} - Lbl {val}")
-
-            self.load_binary_mask(
-                base_id,
-                filepath,
-                name=roi_name,
-                color=color,
-                mode="Target FG (val)",
-                target_val=float(val),
-            )
-            loaded_count += 1
-
-        return loaded_count
+        vol = self.volumes[vs_id]
+        sitk.WriteImage(vol.sitk_image, filepath)
 
     def center_on_roi(self, base_id, roi_id):
         if base_id not in self.view_states or roi_id not in self.volumes:
@@ -1402,11 +1627,22 @@ class Controller:
         base_val = None
         mz, my, mx = vol.shape3d
         if 0 <= ix < mx and 0 <= iy < my and 0 <= iz < mz:
-            if vol.num_timepoints > 1:
-                t = min(t_idx, vol.num_timepoints - 1)
-                base_val = vol.data[t, iz, iy, ix]
+            t = min(t_idx, vol.num_timepoints - 1) if vol.num_timepoints > 1 else 0
+
+            # Read from the display buffer if active
+            display_data = getattr(vs, "base_display_data", None)
+            if display_data is not None:
+                base_val = (
+                    display_data[t, iz, iy, ix]
+                    if vol.num_timepoints > 1
+                    else display_data[iz, iy, ix]
+                )
             else:
-                base_val = vol.data[iz, iy, ix]
+                base_val = (
+                    vol.data[t, iz, iy, ix]
+                    if vol.num_timepoints > 1
+                    else vol.data[iz, iy, ix]
+                )
 
         if base_val is None:
             return None  # Mouse is completely outside the image bounds
@@ -1415,8 +1651,10 @@ class Controller:
         overlay_val = None
         if vs.overlay_id and vs.overlay_id in self.volumes:
             ov_vol = self.volumes[vs.overlay_id]
-            phys = vol.voxel_coord_to_physic_coord(np.array([ix, iy, iz]))
-            ov_vox = ov_vol.physic_coord_to_voxel_coord(phys)
+            ov_vs = self.view_states[vs.overlay_id]
+
+            world_phys = vs.get_world_phys_from_display_voxel(np.array([ix, iy, iz]))
+            ov_vox = ov_vs.get_voxel_from_world_phys(world_phys)
 
             ox, oy, oz = (
                 int(np.floor(ov_vox[0] + 0.5)),
@@ -1512,6 +1750,24 @@ class Controller:
             viewer.is_geometry_dirty = True
             if viewer.image_id:
                 viewer.draw_crosshair()
+
+    def update_transform_manual(self, vs_id, tx, ty, tz, rx_deg, ry_deg, rz_deg):
+        """Triggered by the GUI sliders to update the transform data model."""
+        vs = self.view_states.get(vs_id)
+        if not vs:
+            return
+
+        if not vs.transform:
+            vs.transform = sitk.Euler3DTransform()
+            vol = self.volumes[vs_id]
+            vs.transform.SetCenter(self._get_volume_physical_center(vol).tolist())
+
+        import math
+
+        vs.transform.SetTranslation((float(tx), float(ty), float(tz)))
+        vs.transform.SetRotation(
+            math.radians(rx_deg), math.radians(ry_deg), math.radians(rz_deg)
+        )
 
     def reset_settings(self):
         self.settings.reset()
@@ -1834,6 +2090,11 @@ class Controller:
                 if vs.sync_group == source_vs.sync_group
             ]
 
+        # Use the explicit display-aware method!
+        world_phys = source_vs.get_world_phys_from_display_voxel(
+            source_vs.crosshair_voxel[:3]
+        )
+
         for target_id in target_ids:
             target_vs = self.view_states[target_id]
 
@@ -1841,17 +2102,18 @@ class Controller:
                 source_vox = source_vs.crosshair_voxel
                 target_vs.crosshair_voxel = source_vox.copy()
                 target_vs.crosshair_phys_coord = (
-                    target_vs.volume.voxel_coord_to_physic_coord(source_vox[:3])
+                    target_vs.get_world_phys_from_display_voxel(source_vox[:3])
                 )
-
+                # ... [keep slices assignment]
                 target_vs.slices[ViewMode.AXIAL] = int(source_vox[2])
                 target_vs.slices[ViewMode.SAGITTAL] = int(source_vox[0])
                 target_vs.slices[ViewMode.CORONAL] = int(source_vox[1])
             else:
-                phys_pos = source_vs.crosshair_phys_coord
+                phys_pos = world_phys
                 target_vol = target_vs.volume
 
-                target_vox = target_vol.physic_coord_to_voxel_coord(phys_pos)
+                # Use the explicit display-aware mapping to find the new crosshair!
+                target_vox = target_vs.get_display_voxel_from_world_phys(phys_pos)
 
                 nt = target_vs.volume.num_timepoints
                 target_vs.time_idx = min(source_vs.time_idx, nt - 1)
