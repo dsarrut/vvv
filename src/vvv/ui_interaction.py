@@ -180,7 +180,7 @@ class InteractionManager:
 
             if self.gui.context_viewer and not is_dragging:
                 show_xh = (
-                    self.gui.context_viewer.view_state.show_crosshair
+                    self.gui.context_viewer.view_state.camera.show_crosshair
                     if self.gui.context_viewer.view_state
                     else False
                 )

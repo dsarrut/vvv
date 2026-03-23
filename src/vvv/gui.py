@@ -54,20 +54,20 @@ class MainGUI:
         # --- DATA BINDING DICTIONARY ---
         # Maps DPG tag -> ViewState property name
         self.bindings = {
-            "check_axis": "show_axis",
-            "check_grid": "show_grid",
-            "check_tracker": "show_tracker",
-            "check_crosshair": "show_crosshair",
-            "check_legend": "show_legend",
-            "check_scalebar": "show_scalebar",
-            "info_window": "ww",
-            "info_level": "wl",
-            "info_base_threshold": "base_threshold",
-            "slider_fusion_opacity": "overlay_opacity",
-            "input_fusion_threshold": "overlay_threshold",
-            "combo_fusion_mode": "overlay_mode",
-            "slider_fusion_chk_size": "overlay_checkerboard_size",
-            "check_fusion_chk_swap": "overlay_checkerboard_swap",
+            "check_axis": "camera.show_axis",
+            "check_grid": "camera.show_grid",
+            "check_tracker": "camera.show_tracker",
+            "check_crosshair": "camera.show_crosshair",
+            "check_legend": "camera.show_legend",
+            "check_scalebar": "camera.show_scalebar",
+            "info_window": "display.ww",
+            "info_level": "display.wl",
+            "info_base_threshold": "display.base_threshold",
+            "slider_fusion_opacity": "display.overlay_opacity",
+            "input_fusion_threshold": "display.overlay_threshold",
+            "combo_fusion_mode": "display.overlay_mode",
+            "slider_fusion_chk_size": "display.overlay_checkerboard_size",
+            "check_fusion_chk_swap": "display.overlay_checkerboard_swap",
         }
 
         # Initialization pipeline
@@ -482,7 +482,13 @@ class MainGUI:
             ) == "mvAppItemType::mvInputText" and dpg.is_item_focused(tag):
                 continue
 
-            val = getattr(vs, prop_name, None)
+            parts = prop_name.split(".")
+            val = vs
+            for p in parts:
+                val = getattr(val, p, None)
+                if val is None:
+                    break
+
             if val is not None:
                 current_ui_val = dpg.get_value(tag)
 
@@ -1046,7 +1052,7 @@ class MainGUI:
         # 1. Anchor: Save current World Coordinate
         is_buf = vs.base_display_data is not None
         world_pos = vs.space.display_to_world(
-            np.array(vs.crosshair_voxel[:3]), is_buffered=is_buf
+            np.array(vs.camera.crosshair_voxel[:3]), is_buffered=is_buf
         )
 
         # Track old rotation to know if we need to trigger the heavy resampler
@@ -1096,15 +1102,19 @@ class MainGUI:
         sh = vs.volume.shape3d
         from vvv.utils import ViewMode
 
-        vs.crosshair_voxel = [
+        vs.camera.crosshair_voxel = [
             new_local_vox[0],
             new_local_vox[1],
             new_local_vox[2],
-            vs.time_idx,
+            vs.camera.time_idx,
         ]
-        vs.slices[ViewMode.AXIAL] = int(np.clip(new_local_vox[2], 0, sh[0] - 1))
-        vs.slices[ViewMode.SAGITTAL] = int(np.clip(new_local_vox[0], 0, sh[2] - 1))
-        vs.slices[ViewMode.CORONAL] = int(np.clip(new_local_vox[1], 0, sh[1] - 1))
+        vs.camera.slices[ViewMode.AXIAL] = int(np.clip(new_local_vox[2], 0, sh[0] - 1))
+        vs.camera.slices[ViewMode.SAGITTAL] = int(
+            np.clip(new_local_vox[0], 0, sh[2] - 1)
+        )
+        vs.camera.slices[ViewMode.CORONAL] = int(
+            np.clip(new_local_vox[1], 0, sh[1] - 1)
+        )
 
         for v in self.controller.viewers.values():
             if v.image_id == vs_id:
@@ -1326,17 +1336,17 @@ class MainGUI:
             # Evaluate if we currently have an overlay (Backend concept)
             current_sel = "None"
             has_overlay = False
-            if viewer.view_state.overlay_id:
+            if viewer.view_state.display.overlay_id:
                 has_overlay = True
                 ovs_name = self.controller.view_states[
-                    viewer.view_state.overlay_id
+                    viewer.view_state.display.overlay_id
                 ].volume.name
-                current_sel = f"{viewer.view_state.overlay_id}: {ovs_name}"
+                current_sel = f"{viewer.view_state.display.overlay_id}: {ovs_name}"
 
             dpg.set_value("combo_fusion_select", current_sel)
 
             # Disable/Enable the controls dynamically
-            is_chk = viewer.view_state.overlay_mode == "Checkerboard"
+            is_chk = viewer.view_state.display.overlay_mode == "Checkerboard"
             dpg.configure_item(
                 "slider_fusion_opacity", enabled=has_overlay and not is_chk
             )
@@ -1355,21 +1365,21 @@ class MainGUI:
             return
         vs, vol = viewer.view_state, viewer.volume
 
-        if vs.crosshair_voxel is not None:
+        if vs.camera.crosshair_voxel is not None:
             if vol.num_timepoints > 1:
                 dpg.set_value(
                     "info_vox",
-                    f"{vs.crosshair_voxel[0]:.1f} {vs.crosshair_voxel[1]:.1f} "
-                    f"{vs.crosshair_voxel[2]:.1f} {vs.crosshair_voxel[3]}",
+                    f"{vs.camera.crosshair_voxel[0]:.1f} {vs.camera.crosshair_voxel[1]:.1f} "
+                    f"{vs.camera.crosshair_voxel[2]:.1f} {vs.camera.crosshair_voxel[3]}",
                 )
             else:
-                dpg.set_value("info_vox", fmt(vs.crosshair_voxel[:3], 1))
+                dpg.set_value("info_vox", fmt(vs.camera.crosshair_voxel[:3], 1))
 
-            dpg.set_value("info_phys", fmt(vs.crosshair_phys_coord, 1))
+            dpg.set_value("info_phys", fmt(vs.camera.crosshair_phys_coord, 1))
 
             # --- THE NEW CONSOLIDATED CALL ---
             info = self.controller.get_pixel_values_at_voxel(
-                viewer.image_id, vs.crosshair_voxel
+                viewer.image_id, vs.camera.crosshair_voxel
             )
             if info is not None:
                 val = info["base_val"]
@@ -1415,7 +1425,7 @@ class MainGUI:
 
         if self.context_viewer:
             show_xh = (
-                self.context_viewer.view_state.show_crosshair
+                self.context_viewer.view_state.camera.show_crosshair
                 if self.context_viewer.view_state
                 else False
             )
@@ -1542,8 +1552,8 @@ class MainGUI:
             new_thr = float(thr_str) if thr_str.strip() else -1e9
 
             self.context_viewer.view_state.display.ww = max(1e-20, new_ww)
-            self.context_viewer.view_state.wl = new_wl
-            self.context_viewer.view_state.base_threshold = new_thr
+            self.context_viewer.view_state.display.wl = new_wl
+            self.context_viewer.view_state.display.base_threshold = new_thr
 
             self.controller.propagate_window_level(self.context_viewer.image_id)
         except ValueError:
@@ -1630,10 +1640,7 @@ class MainGUI:
         viewer = self.context_viewer
         if not viewer or not viewer.view_state:
             return
-        viewer.view_state.overlay_mode = app_data
-        viewer.view_state.overlay_cmap_name = (
-            "Registration" if app_data == "Registration" else "Hot"
-        )
+        viewer.view_state.display.overlay_mode = app_data
         viewer.view_state.is_data_dirty = True
 
         if app_data == "Registration":
@@ -1649,21 +1656,21 @@ class MainGUI:
             return
 
         if sender == "slider_fusion_chk_size":
-            viewer.view_state.overlay_checkerboard_size = app_data
+            viewer.view_state.display.overlay_checkerboard_size = app_data
         elif sender == "check_fusion_chk_swap":
-            viewer.view_state.overlay_checkerboard_swap = app_data
+            viewer.view_state.display.overlay_checkerboard_swap = app_data
 
         viewer.view_state.is_data_dirty = True
         self.controller.propagate_overlay_mode(viewer.image_id)
 
     def on_fusion_opacity_changed(self, sender, app_data, user_data):
         if self.context_viewer and self.context_viewer.view_state:
-            self.context_viewer.view_state.overlay_opacity = app_data
+            self.context_viewer.view_state.display.overlay_opacity = app_data
             self.context_viewer.view_state.is_data_dirty = True
 
     def on_fusion_threshold_changed(self, sender, app_data, user_data):
         if self.context_viewer and self.context_viewer.view_state:
-            self.context_viewer.view_state.overlay_threshold = app_data
+            self.context_viewer.view_state.display.overlay_threshold = app_data
             self.context_viewer.view_state.is_data_dirty = True
 
     def on_toggle_auto_save(self, sender, app_data, user_data):
@@ -1938,7 +1945,7 @@ class MainGUI:
             vs = viewer.view_state
             is_buf = vs.base_display_data is not None
             world_pos = vs.space.display_to_world(
-                np.array(vs.crosshair_voxel[:3]), is_buffered=is_buf
+                np.array(vs.camera.crosshair_voxel[:3]), is_buffered=is_buf
             )
 
             if self.controller.load_transform(viewer.image_id, file_path):
@@ -1948,17 +1955,19 @@ class MainGUI:
                 sh = vs.volume.shape3d
                 from vvv.utils import ViewMode
 
-                vs.crosshair_voxel = [
+                vs.camera.crosshair_voxel = [
                     new_local_vox[0],
                     new_local_vox[1],
                     new_local_vox[2],
-                    vs.time_idx,
+                    vs.camera.time_idx,
                 ]
-                vs.slices[ViewMode.AXIAL] = int(np.clip(new_local_vox[2], 0, sh[0] - 1))
-                vs.slices[ViewMode.SAGITTAL] = int(
+                vs.camera.slices[ViewMode.AXIAL] = int(
+                    np.clip(new_local_vox[2], 0, sh[0] - 1)
+                )
+                vs.camera.slices[ViewMode.SAGITTAL] = int(
                     np.clip(new_local_vox[0], 0, sh[2] - 1)
                 )
-                vs.slices[ViewMode.CORONAL] = int(
+                vs.camera.slices[ViewMode.CORONAL] = int(
                     np.clip(new_local_vox[1], 0, sh[1] - 1)
                 )
 
@@ -2088,15 +2097,19 @@ class MainGUI:
         sh = vol.shape3d
         from vvv.utils import ViewMode
 
-        vs.crosshair_voxel = [
+        vs.camera.crosshair_voxel = [
             new_local_vox[0],
             new_local_vox[1],
             new_local_vox[2],
-            vs.time_idx,
+            vs.camera.time_idx,
         ]
-        vs.slices[ViewMode.AXIAL] = int(np.clip(new_local_vox[2], 0, sh[0] - 1))
-        vs.slices[ViewMode.SAGITTAL] = int(np.clip(new_local_vox[0], 0, sh[2] - 1))
-        vs.slices[ViewMode.CORONAL] = int(np.clip(new_local_vox[1], 0, sh[1] - 1))
+        vs.camera.slices[ViewMode.AXIAL] = int(np.clip(new_local_vox[2], 0, sh[0] - 1))
+        vs.camera.slices[ViewMode.SAGITTAL] = int(
+            np.clip(new_local_vox[0], 0, sh[2] - 1)
+        )
+        vs.camera.slices[ViewMode.CORONAL] = int(
+            np.clip(new_local_vox[1], 0, sh[1] - 1)
+        )
 
         # 3. Force the viewer to pan the 2D camera to this new center
         for v in self.controller.viewers.values():

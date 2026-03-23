@@ -1,15 +1,13 @@
 import pytest
 import numpy as np
 import SimpleITK as sitk
-import json
-import dearpygui.dearpygui as dpg
-from pathlib import Path
-from vvv.core import Controller
-from vvv.viewer import SliceViewer
-from vvv.utils import ViewMode, slice_to_voxel, voxel_to_slice
 from vvv.gui import MainGUI
-from vvv.image import RenderLayer, SliceRenderer
+from vvv.core import Controller
+import dearpygui.dearpygui as dpg
+from vvv.viewer import SliceViewer
 from vvv.ui_sequences import load_workspace_sequence
+from vvv.image import RenderLayer, SliceRenderer
+from vvv.utils import ViewMode, slice_to_voxel, voxel_to_slice
 
 # ==========================================
 # 1. FIXTURES (Test Environment Setup)
@@ -102,8 +100,8 @@ def test_exact_coordinate_and_value_mapping(headless_app):
     vs = controller.view_states[vs_id]
     viewer.set_orientation(ViewMode.AXIAL)
     viewer.update_crosshair_data(pix_x=1.5, pix_y=3.5)
-    assert vs.crosshair_voxel == [1.0, 3.0, 2.0, 0]
-    assert vs.crosshair_phys_coord.tolist() == [11.0, 23.0, 52.0]
+    assert vs.camera.crosshair_voxel == [1.0, 3.0, 2.0, 0]
+    assert vs.camera.crosshair_phys_coord.tolist() == [11.0, 23.0, 52.0]
     assert vs.crosshair_value == 0.0
     viewer.update_crosshair_data(pix_x=2.5, pix_y=3.5)
     assert vs.crosshair_value == 100.0
@@ -116,9 +114,9 @@ def test_overlay_fusion_resampling_accuracy(headless_app, synthetic_overlay_path
     vol_overlay = controller.volumes[vs_id_overlay]
     vs_base.set_overlay(vs_id_overlay, vol_overlay)
 
-    assert vs_base.overlay_data.shape == (5, 5, 5)
-    assert vs_base.overlay_data[2, 2, 2] == 111.0
-    assert vs_base.overlay_data[4, 4, 4] == 222.0
+    assert vs_base.display.overlay_data.shape == (5, 5, 5)
+    assert vs_base.display.overlay_data[2, 2, 2] == 111.0
+    assert vs_base.display.overlay_data[4, 4, 4] == 222.0
 
 
 def test_sync_correspondence_between_different_geometries(
@@ -139,9 +137,9 @@ def test_sync_correspondence_between_different_geometries(
 
     vs1 = controller.view_states[vs_id1]
     vs2 = controller.view_states[vs_id2]
-    assert vs1.crosshair_voxel == [2.0, 2.0, 2.0, 0]
-    assert np.allclose(vs2.crosshair_phys_coord, vs1.crosshair_phys_coord)
-    assert vs2.crosshair_voxel == [1.0, 1.0, 1.0, 0.0]
+    assert vs1.camera.crosshair_voxel == [2.0, 2.0, 2.0, 0]
+    assert np.allclose(vs2.camera.crosshair_phys_coord, vs1.camera.crosshair_phys_coord)
+    assert vs2.camera.crosshair_voxel == [1.0, 1.0, 1.0, 0.0]
 
 
 def test_auto_window_level(headless_app):
@@ -154,8 +152,8 @@ def test_auto_window_level(headless_app):
         2.5,
     )
     viewer.on_key_press(dpg.mvKey_W)
-    assert vs.ww >= 95.0
-    assert vs.wl == pytest.approx(50.0, abs=5.0)
+    assert vs.display.ww >= 95.0
+    assert vs.display.wl == pytest.approx(50.0, abs=5.0)
 
 
 def test_zoom_interaction(headless_app, monkeypatch):
@@ -276,8 +274,12 @@ def test_workspace_serialization(headless_app, tmp_path):
 
     # 1. Modify the state drastically
     vs = controller.view_states[vs_id]
-    vs.zoom = {ViewMode.AXIAL: 2.5, ViewMode.SAGITTAL: 1.0, ViewMode.CORONAL: 1.0}
-    vs.colormap = "Hot"
+    vs.camera.zoom = {
+        ViewMode.AXIAL: 2.5,
+        ViewMode.SAGITTAL: 1.0,
+        ViewMode.CORONAL: 1.0,
+    }
+    vs.display.colormap = "Hot"
 
     ws_path = tmp_path / "test_workspace.vvw"
     controller.save_workspace(str(ws_path))
@@ -294,8 +296,8 @@ def test_workspace_serialization(headless_app, tmp_path):
     new_vs_id = list(controller.view_states.keys())[0]
     new_vs = controller.view_states[new_vs_id]
 
-    assert new_vs.colormap == "Hot"
-    assert new_vs.zoom[ViewMode.AXIAL] == 2.5
+    assert new_vs.display.colormap == "Hot"
+    assert new_vs.camera.zoom[ViewMode.AXIAL] == 2.5
 
 
 def test_history_lru_cache(headless_app):
@@ -339,11 +341,11 @@ def test_window_level_sync_propagation(
     )
 
     # Change Base W/L and Propagate
-    vs1.ww = 142.5
+    vs1.display.ww = 142.5
     controller.propagate_window_level(vs1_id)
 
     # Verify Target adopted the value via the Controller logic alone
-    assert vs2.ww == 142.5
+    assert vs2.display.ww == 142.5
 
 
 def test_4d_time_scrolling(headless_app, synthetic_4d_path):
@@ -353,18 +355,18 @@ def test_4d_time_scrolling(headless_app, synthetic_4d_path):
     vs = controller.view_states[vs_id_4d]
     viewer.set_image(vs_id_4d)
 
-    assert vs.time_idx == 0
+    assert vs.camera.time_idx == 0
     viewer.update_crosshair_data(pix_x=2.5, pix_y=2.5)
     assert vs.crosshair_value == 0.0  # Timepoint 0 = 0
 
     # Scroll forward 1 tick
     viewer.on_time_scroll(1)
-    assert vs.time_idx == 1
+    assert vs.camera.time_idx == 1
     assert vs.crosshair_value == 100.0  # Timepoint 1 = 100
 
     # Scroll backward 2 ticks (Loops past 0 to the end of the array!)
     viewer.on_time_scroll(-2)
-    assert vs.time_idx == 2
+    assert vs.camera.time_idx == 2
     assert vs.crosshair_value == 200.0
 
 

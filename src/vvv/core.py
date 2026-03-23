@@ -320,202 +320,6 @@ class ViewState:
     # Routes top-level requests to the new sub-states
     # ==========================================
 
-    # --- Camera Properties ---
-    @property
-    def zoom(self):
-        return self.camera.zoom
-
-    @zoom.setter
-    def zoom(self, v):
-        self.camera.zoom = v
-
-    @property
-    def pan(self):
-        return self.camera.pan
-
-    @pan.setter
-    def pan(self, v):
-        self.camera.pan = v
-
-    @property
-    def slices(self):
-        return self.camera.slices
-
-    @slices.setter
-    def slices(self, v):
-        self.camera.slices = v
-
-    @property
-    def crosshair_phys_coord(self):
-        return self.camera.crosshair_phys_coord
-
-    @crosshair_phys_coord.setter
-    def crosshair_phys_coord(self, v):
-        self.camera.crosshair_phys_coord = v
-
-    @property
-    def crosshair_voxel(self):
-        return self.camera.crosshair_voxel
-
-    @crosshair_voxel.setter
-    def crosshair_voxel(self, v):
-        self.camera.crosshair_voxel = v
-
-    @property
-    def time_idx(self):
-        return self.camera.time_idx
-
-    @time_idx.setter
-    def time_idx(self, v):
-        self.camera.time_idx = v
-
-    @property
-    def show_axis(self):
-        return self.camera.show_axis
-
-    @show_axis.setter
-    def show_axis(self, v):
-        self.camera.show_axis = v
-
-    @property
-    def show_tracker(self):
-        return self.camera.show_tracker
-
-    @show_tracker.setter
-    def show_tracker(self, v):
-        self.camera.show_tracker = v
-
-    @property
-    def show_crosshair(self):
-        return self.camera.show_crosshair
-
-    @show_crosshair.setter
-    def show_crosshair(self, v):
-        self.camera.show_crosshair = v
-
-    @property
-    def show_scalebar(self):
-        return self.camera.show_scalebar
-
-    @show_scalebar.setter
-    def show_scalebar(self, v):
-        self.camera.show_scalebar = v
-
-    @property
-    def show_grid(self):
-        return self.camera.show_grid
-
-    @show_grid.setter
-    def show_grid(self, v):
-        self.camera.show_grid = v
-
-    # --- Display Properties ---
-    @property
-    def ww(self):
-        return self.display.ww
-
-    @ww.setter
-    def ww(self, v):
-        self.display.ww = v
-
-    @property
-    def wl(self):
-        return self.display.wl
-
-    @wl.setter
-    def wl(self, v):
-        self.display.wl = v
-
-    @property
-    def colormap(self):
-        return self.display.colormap
-
-    @colormap.setter
-    def colormap(self, v):
-        self.display.colormap = v
-
-    @property
-    def base_threshold(self):
-        return self.display.base_threshold
-
-    @base_threshold.setter
-    def base_threshold(self, v):
-        self.display.base_threshold = v
-
-    @property
-    def interpolation_linear(self):
-        return self.display.interpolation_linear
-
-    @interpolation_linear.setter
-    def interpolation_linear(self, v):
-        self.display.interpolation_linear = v
-
-    @property
-    def show_legend(self):
-        return self.camera.show_legend
-
-    @show_legend.setter
-    def show_legend(self, v):
-        self.camera.show_legend = v
-
-    @property
-    def overlay_id(self):
-        return self.display.overlay_id
-
-    @overlay_id.setter
-    def overlay_id(self, v):
-        self.display.overlay_id = v
-
-    @property
-    def overlay_data(self):
-        return self.display.overlay_data
-
-    @overlay_data.setter
-    def overlay_data(self, v):
-        self.display.overlay_data = v
-
-    @property
-    def overlay_opacity(self):
-        return self.display.overlay_opacity
-
-    @overlay_opacity.setter
-    def overlay_opacity(self, v):
-        self.display.overlay_opacity = v
-
-    @property
-    def overlay_mode(self):
-        return self.display.overlay_mode
-
-    @overlay_mode.setter
-    def overlay_mode(self, v):
-        self.display.overlay_mode = v
-
-    @property
-    def overlay_threshold(self):
-        return self.display.overlay_threshold
-
-    @overlay_threshold.setter
-    def overlay_threshold(self, v):
-        self.display.overlay_threshold = v
-
-    @property
-    def overlay_checkerboard_size(self):
-        return self.display.overlay_checkerboard_size
-
-    @overlay_checkerboard_size.setter
-    def overlay_checkerboard_size(self, v):
-        self.display.overlay_checkerboard_size = v
-
-    @property
-    def overlay_checkerboard_swap(self):
-        return self.display.overlay_checkerboard_swap
-
-    @overlay_checkerboard_swap.setter
-    def overlay_checkerboard_swap(self, v):
-        self.display.overlay_checkerboard_swap = v
-
-    # ==========================================
-
     def is_ct_image(self, flat_data):
         if hasattr(self.volume.sitk_image, "GetMetaData"):
             try:
@@ -540,24 +344,24 @@ class ViewState:
         return 1, 1
 
     def init_crosshair_to_slices(self):
-        self.crosshair_voxel = [
-            self.slices[ViewMode.CORONAL],
-            self.slices[ViewMode.SAGITTAL],
-            self.slices[ViewMode.AXIAL],
-            self.time_idx,
+        self.camera.crosshair_voxel = [
+            self.camera.slices[ViewMode.CORONAL],
+            self.camera.slices[ViewMode.SAGITTAL],
+            self.camera.slices[ViewMode.AXIAL],
+            self.camera.time_idx,
         ]
 
         is_buf = self.base_display_data is not None
-        self.crosshair_phys_coord = self.space.display_to_world(
-            np.array(self.crosshair_voxel[:3]), is_buf
+        self.camera.crosshair_phys_coord = self.space.display_to_world(
+            np.array(self.camera.crosshair_voxel[:3]), is_buf
         )
 
-        v = self.crosshair_voxel
+        v = self.camera.crosshair_voxel
         ix, iy, iz = int(v[0]), int(v[1]), int(v[2])
         display_data = self.base_display_data if is_buf else self.volume.data
 
         if self.volume.num_timepoints > 1:
-            self.crosshair_value = display_data[self.time_idx, iz, iy, ix]
+            self.crosshair_value = display_data[self.camera.time_idx, iz, iy, ix]
         else:
             self.crosshair_value = display_data[iz, iy, ix]
 
@@ -579,19 +383,17 @@ class ViewState:
             p1, p99 = np.percentile(sample_data, [1, 99])
             p2, p98 = np.percentile(sample_data, [2, 98])
 
-            self.ww = p98 - p2
-            self.wl = (p98 + p2) / 2
+            self.display.ww = p98 - p2
+            self.display.wl = (p98 + p2) / 2
 
-            # For extremely small values
-            if self.ww <= 1e-20:
-                self.ww = p99 - p1
-                if self.ww <= 1e-20:
-                    # If perfectly uniform, set width to 10% of the value
-                    self.ww = max(abs(p1) * 0.1, 1e-20)
-                    self.wl = (p99 + p1) / 2
+            if self.display.ww <= 1e-20:
+                self.display.ww = p99 - p1
+                if self.display.ww <= 1e-20:
+                    self.display.ww = max(abs(p1) * 0.1, 1e-20)
+                    self.display.wl = (p99 + p1) / 2
 
     def update_crosshair_from_slice_scroll(self, new_slice_idx, orientation):
-        vx, vy, vz = self.crosshair_voxel[:3]
+        vx, vy, vz = self.camera.crosshair_voxel[:3]
         if orientation == ViewMode.AXIAL:
             vz = new_slice_idx
         elif orientation == ViewMode.SAGITTAL:
@@ -599,11 +401,11 @@ class ViewState:
         elif orientation == ViewMode.CORONAL:
             vy = new_slice_idx
 
-        new_v = [vx, vy, vz, self.time_idx]
-        self.crosshair_voxel = new_v
+        new_v = [vx, vy, vz, self.camera.time_idx]
+        self.camera.crosshair_voxel = new_v
 
         is_buf = self.base_display_data is not None
-        self.crosshair_phys_coord = self.space.display_to_world(
+        self.camera.crosshair_phys_coord = self.space.display_to_world(
             np.array(new_v[:3]), is_buf
         )
 
@@ -621,7 +423,7 @@ class ViewState:
 
         display_data = self.base_display_data if is_buf else self.volume.data
         if self.volume.num_timepoints > 1:
-            self.crosshair_value = display_data[self.time_idx, iz, iy, ix]
+            self.crosshair_value = display_data[self.camera.time_idx, iz, iy, ix]
         else:
             self.crosshair_value = display_data[iz, iy, ix]
 
@@ -629,10 +431,12 @@ class ViewState:
         shape = self.get_slice_shape(orientation)
         v = slice_to_voxel(slice_x, slice_y, slice_idx, orientation, shape)
 
-        self.crosshair_voxel = [v[0], v[1], v[2], self.time_idx]
+        self.camera.crosshair_voxel = [v[0], v[1], v[2], self.camera.time_idx]
 
         is_buf = self.base_display_data is not None
-        self.crosshair_phys_coord = self.space.display_to_world(np.array(v[:3]), is_buf)
+        self.camera.crosshair_phys_coord = self.space.display_to_world(
+            np.array(v[:3]), is_buf
+        )
 
         ix, iy, iz = [
             int(np.clip(np.floor(c + 0.5), 0, limit - 1))
@@ -648,30 +452,29 @@ class ViewState:
 
         display_data = self.base_display_data if is_buf else self.volume.data
         if self.volume.num_timepoints > 1:
-            self.crosshair_value = display_data[self.time_idx, iz, iy, ix]
+            self.crosshair_value = display_data[self.camera.time_idx, iz, iy, ix]
         else:
             self.crosshair_value = display_data[iz, iy, ix]
 
     def update_histogram(self):
         flat_data = self.volume.data.flatten()
-        # Automatically determine 256 bins across the exact data range
         hist, bin_edges = np.histogram(flat_data, bins=256)
         self.hist_data_y = hist.astype(np.float32)
         self.hist_data_x = bin_edges[:-1].astype(np.float32)
         self.histogram_is_dirty = False
 
     def reset_view(self):
-        self.zoom = {
+        self.camera.zoom = {
             ViewMode.AXIAL: 1.0,
             ViewMode.SAGITTAL: 1.0,
             ViewMode.CORONAL: 1.0,
         }
-        self.pan = {
+        self.camera.pan = {
             ViewMode.AXIAL: [0, 0],
             ViewMode.SAGITTAL: [0, 0],
             ViewMode.CORONAL: [0, 0],
         }
-        self.slices = {
+        self.camera.slices = {
             ViewMode.AXIAL: self.volume.shape3d[0] // 2,
             ViewMode.SAGITTAL: self.volume.shape3d[2] // 2,
             ViewMode.CORONAL: self.volume.shape3d[1] // 2,
@@ -680,24 +483,10 @@ class ViewState:
         self.is_data_dirty = True
 
     def hard_reset(self):
-        """Completely resets the image to its initial load state."""
-        # 1. Reset Spatial properties (zoom, pan, slices)
-        self.reset_view()
-
-        # 2. Reset Camera UI toggles
-        self.show_axis = True
-        self.show_tracker = True
-        self.show_crosshair = True
-        self.show_scalebar = False
-        self.show_grid = False
-        self.show_legend = False
-
-        # 3. Nuke the DisplayState (Drops overlays, resets colormap, etc.)
+        # Cleanly reinitialize the sub-states!
+        self.camera = CameraState(self.volume)
         self.display = DisplayState()
-
-        # 4. Recalculate the optimal Window/Level from scratch
         self.init_default_window_level()
-
         self.is_data_dirty = True
 
     def apply_wl_preset(self, preset_name):
@@ -707,19 +496,18 @@ class ViewState:
             stride = max(1, self.volume.data.size // 100000)
             sample_data = self.volume.data.flatten()[::stride]
             p2, p98 = np.percentile(sample_data, [2, 98])
-            self.ww = max(1e-20, p98 - p2)
-            self.wl = (p98 + p2) / 2
+            self.display.ww = max(1e-20, p98 - p2)
+            self.display.wl = (p98 + p2) / 2
         elif "Min/Max" in preset_name:
             min_v = float(np.min(self.volume.data))
             max_v = float(np.max(self.volume.data))
-            self.ww = max(1e-20, max_v - min_v)
-            self.wl = (max_v + min_v) / 2
+            self.display.ww = max(1e-20, max_v - min_v)
+            self.display.wl = (max_v + min_v) / 2
         elif preset_name in WL_PRESETS and WL_PRESETS[preset_name] is not None:
-            self.ww = WL_PRESETS[preset_name]["ww"]
-            self.wl = WL_PRESETS[preset_name]["wl"]
+            self.display.ww = WL_PRESETS[preset_name]["ww"]
+            self.display.wl = WL_PRESETS[preset_name]["wl"]
 
     def update_base_display_data(self):
-        # FAST PATH: If no rotation, completely skip the heavy 3D resample!
         if not self.space.is_active or not self.space.has_rotation():
             self.base_display_data = None
             return
@@ -741,7 +529,6 @@ class ViewState:
         min_val = float(np.min(self.volume.data))
         resampler.SetDefaultPixelValue(min_val)
 
-        # HEAVY PATH: Pass only the rotation!
         rot_transform = self.space.get_rotation_only_transform()
         resampler.SetTransform(rot_transform.GetInverse())
 
@@ -763,17 +550,15 @@ class ViewState:
 
     def set_overlay(self, other_vs_id, other_vol, other_transform=None):
         if other_vs_id is None or other_vol is None:
-            self.overlay_id = None
-            self.overlay_data = None
+            self.display.overlay_id = None
+            self.display.overlay_data = None
             self.is_data_dirty = True
             return
 
-        self.overlay_id = other_vs_id
-
+        self.display.overlay_id = other_vs_id
         has_base_transform = self.space.is_active and self.space.transform is not None
         has_overlay_transform = other_transform is not None
 
-        # Do not early-exit if ANY transform is active!
         if (
             not has_base_transform
             and not has_overlay_transform
@@ -781,7 +566,7 @@ class ViewState:
             and np.allclose(self.volume.origin, other_vol.origin, atol=1e-4)
             and self.volume.shape3d == other_vol.shape3d
         ):
-            self.overlay_data = other_vol.data
+            self.display.overlay_data = other_vol.data
             self.is_data_dirty = True
             return
 
@@ -802,7 +587,6 @@ class ViewState:
         min_val = float(np.min(other_vol.data))
         resampler.SetDefaultPixelValue(min_val)
 
-        # --- THE WORLD ENGINE: Chain Base & Overlay Transforms ---
         if has_base_transform or has_overlay_transform:
             comp = sitk.CompositeTransform(3)
             if has_base_transform:
@@ -810,14 +594,11 @@ class ViewState:
             if has_overlay_transform:
                 comp.AddTransform(other_transform.GetInverse())
             resampler.SetTransform(comp)
-        # ---------------------------------------------------------
 
         target_dim = other_vol.sitk_image.GetDimension()
-
         if target_dim == 3:
             resampled_img = resampler.Execute(other_vol.sitk_image)
-            self.overlay_data = sitk.GetArrayFromImage(resampled_img)
-
+            self.display.overlay_data = sitk.GetArrayFromImage(resampled_img)
         elif target_dim == 4:
             resampled_volumes = []
             for t in range(other_vol.num_timepoints):
@@ -825,15 +606,12 @@ class ViewState:
                 size[3] = 0
                 index = [0, 0, 0, t]
                 vol_3d = sitk.Extract(other_vol.sitk_image, size, index)
-
-                res_3d = resampler.Execute(vol_3d)
-                resampled_volumes.append(res_3d)
-
-            resampled_4d = sitk.JoinSeries(resampled_volumes)
-            self.overlay_data = sitk.GetArrayFromImage(resampled_4d)
-
+                resampled_volumes.append(resampler.Execute(vol_3d))
+            self.display.overlay_data = sitk.GetArrayFromImage(
+                sitk.JoinSeries(resampled_volumes)
+            )
         else:
-            self.overlay_data = other_vol.data
+            self.display.overlay_data = other_vol.data
 
         self.is_data_dirty = True
 
@@ -853,8 +631,8 @@ class ViewState:
         else:
             preset = WL_PRESETS["CT: Soft Tissue"]
 
-        self.ww = preset["ww"]
-        self.wl = preset["wl"]
+        self.display.ww = preset["ww"]
+        self.display.wl = preset["wl"]
 
 
 class ROIState:
@@ -1444,8 +1222,8 @@ class Controller:
 
         vs = self.view_states[base_id]
 
-        vs.crosshair_voxel = [cx, cy, cz, vs.time_idx]
-        vs.crosshair_phys_coord = mask_vol.voxel_coord_to_physic_coord(
+        vs.camera.crosshair_voxel = [cx, cy, cz, vs.camera.time_idx]
+        vs.camera.crosshair_phys_coord = mask_vol.voxel_coord_to_physic_coord(
             np.array([cx, cy, cz])
         )
 
@@ -1545,7 +1323,7 @@ class Controller:
             )
         ]
 
-        t_idx = int(voxel_coord[3]) if len(voxel_coord) > 3 else vs.time_idx
+        t_idx = int(voxel_coord[3]) if len(voxel_coord) > 3 else vs.camera.time_idx
 
         # 2. Base Image Value
         base_val = None
@@ -1573,9 +1351,9 @@ class Controller:
 
         # 3. Fused Target Overlay Value (Calculated via physical coordinate mapping)
         overlay_val = None
-        if vs.overlay_id and vs.overlay_id in self.volumes:
-            ov_vol = self.volumes[vs.overlay_id]
-            ov_vs = self.view_states[vs.overlay_id]
+        if vs.display.overlay_id and vs.display.overlay_id in self.volumes:
+            ov_vol = self.volumes[vs.display.overlay_id]
+            ov_vs = self.view_states[vs.display.overlay_id]
 
             is_buf = vs.base_display_data is not None
             world_phys = vs.space.display_to_world(
@@ -1781,13 +1559,13 @@ class Controller:
                 ix, iy, iz = [
                     int(np.clip(np.floor(c + 0.5), 0, limit - 1))
                     for c, limit in zip(
-                        vs.crosshair_voxel[:3],
+                        vs.camera.crosshair_voxel[:3],
                         [vol.shape3d[2], vol.shape3d[1], vol.shape3d[0]],
                     )
                 ]
 
                 if vol.num_timepoints > 1:
-                    vs.crosshair_value = vol.data[vs.time_idx, iz, iy, ix]
+                    vs.crosshair_value = vol.data[vs.camera.time_idx, iz, iy, ix]
                 else:
                     vs.crosshair_value = vol.data[iz, iy, ix]
 
@@ -1796,7 +1574,7 @@ class Controller:
                 self.update_all_viewers_of_image(vs_id)
 
             for other_id, other_vs in self.view_states.items():
-                if other_vs.overlay_id == vs_id:
+                if other_vs.display.overlay_id == vs_id:
                     other_vs.set_overlay(vs_id, vol)
                     self.update_all_viewers_of_image(other_id)
 
@@ -1845,7 +1623,7 @@ class Controller:
             data["volumes"][vs_id] = {
                 "path": safe_path,
                 "sync_group": vs.sync_group,
-                "overlay_id": vs.overlay_id,
+                "overlay_id": vs.display.overlay_id,
                 "camera": vs.camera.to_dict(),
                 "display": vs.display.to_dict(),
             }
@@ -1886,7 +1664,7 @@ class Controller:
                     viewer.drop_image()
 
             for other_id, other_vs in self.view_states.items():
-                if other_vs.overlay_id == vs_id:
+                if other_vs.display.overlay_id == vs_id:
                     other_vs.set_overlay(None, None)
                     self.update_all_viewers_of_image(other_id)
 
@@ -1917,20 +1695,20 @@ class Controller:
         context_viewer = self.gui.context_viewer
         if not context_viewer or not context_viewer.view_state:
             return
-
         vs = context_viewer.view_state
+
         if user_data == "axis":
-            vs.show_axis = value
+            vs.camera.show_axis = value
         elif user_data == "grid":
-            vs.show_grid = value
+            vs.camera.show_grid = value
         elif user_data == "tracker":
-            vs.show_tracker = value
+            vs.camera.show_tracker = value
         elif user_data == "crosshair":
-            vs.show_crosshair = value
+            vs.camera.show_crosshair = value
         elif user_data == "scalebar":
-            vs.show_scalebar = value
+            vs.camera.show_scalebar = value
         elif user_data == "legend":
-            vs.show_legend = value
+            vs.camera.show_legend = value
 
         self.update_all_viewers_of_image(context_viewer.image_id)
 
@@ -2015,22 +1793,24 @@ class Controller:
         # Use the Black Box for the source!
         is_src_buf = source_vs.base_display_data is not None
         world_phys = source_vs.space.display_to_world(
-            np.array(source_vs.crosshair_voxel[:3]), is_buffered=is_src_buf
+            np.array(source_vs.camera.crosshair_voxel[:3]), is_buffered=is_src_buf
         )
 
         for target_id in target_ids:
             target_vs = self.view_states[target_id]
 
             if target_id == source_vs_id:
-                source_vox = source_vs.crosshair_voxel
-                target_vs.crosshair_voxel = source_vox.copy()
-                target_vs.crosshair_phys_coord = target_vs.space.display_to_world(
-                    np.array(source_vox[:3]), is_buffered=is_src_buf
+                source_vox = source_vs.camera.crosshair_voxel
+                target_vs.camera.crosshair_voxel = source_vox.copy()
+                target_vs.camera.crosshair_phys_coord = (
+                    target_vs.space.display_to_world(
+                        np.array(source_vox[:3]), is_buffered=is_src_buf
+                    )
                 )
                 # ... [keep slices assignment]
-                target_vs.slices[ViewMode.AXIAL] = int(source_vox[2])
-                target_vs.slices[ViewMode.SAGITTAL] = int(source_vox[0])
-                target_vs.slices[ViewMode.CORONAL] = int(source_vox[1])
+                target_vs.camera.slices[ViewMode.AXIAL] = int(source_vox[2])
+                target_vs.camera.slices[ViewMode.SAGITTAL] = int(source_vox[0])
+                target_vs.camera.slices[ViewMode.CORONAL] = int(source_vox[1])
             else:
                 phys_pos = world_phys
                 target_vol = target_vs.volume
@@ -2042,30 +1822,30 @@ class Controller:
                 )
 
                 nt = target_vs.volume.num_timepoints
-                target_vs.time_idx = min(source_vs.time_idx, nt - 1)
+                target_vs.camera.time_idx = min(source_vs.camera.time_idx, nt - 1)
 
-                target_vs.crosshair_voxel = [
+                target_vs.camera.crosshair_voxel = [
                     target_vox[0],
                     target_vox[1],
                     target_vox[2],
-                    target_vs.time_idx,
+                    target_vs.camera.time_idx,
                 ]
-                target_vs.crosshair_phys_coord = phys_pos
+                target_vs.camera.crosshair_phys_coord = phys_pos
 
-                target_vs.slices[ViewMode.AXIAL] = int(
+                target_vs.camera.slices[ViewMode.AXIAL] = int(
                     np.clip(np.floor(target_vox[2] + 0.5), 0, target_vol.shape3d[0] - 1)
                 )
-                target_vs.slices[ViewMode.SAGITTAL] = int(
+                target_vs.camera.slices[ViewMode.SAGITTAL] = int(
                     np.clip(np.floor(target_vox[0] + 0.5), 0, target_vol.shape3d[2] - 1)
                 )
-                target_vs.slices[ViewMode.CORONAL] = int(
+                target_vs.camera.slices[ViewMode.CORONAL] = int(
                     np.clip(np.floor(target_vox[1] + 0.5), 0, target_vol.shape3d[1] - 1)
                 )
 
             ix, iy, iz = [
                 int(np.clip(np.floor(c + 0.5), 0, limit - 1))
                 for c, limit in zip(
-                    target_vs.crosshair_voxel[:3],
+                    target_vs.camera.crosshair_voxel[:3],
                     [
                         target_vs.volume.shape3d[2],
                         target_vs.volume.shape3d[1],
@@ -2076,7 +1856,7 @@ class Controller:
 
             if target_vs.volume.num_timepoints > 1:
                 target_vs.crosshair_value = target_vs.volume.data[
-                    target_vs.time_idx, iz, iy, ix
+                    target_vs.camera.time_idx, iz, iy, ix
                 ]
             else:
                 target_vs.crosshair_value = target_vs.volume.data[iz, iy, ix]
@@ -2101,7 +1881,7 @@ class Controller:
                 if vs.sync_group == target_group and not getattr(
                     vs.volume, "is_rgb", False
                 ):
-                    vs.colormap = source_vs.colormap
+                    vs.display.colormap = source_vs.display.colormap
                     vs.is_data_dirty = True
         else:
             source_vs.is_data_dirty = True
@@ -2115,7 +1895,7 @@ class Controller:
                         and target_group != 0
                         and viewer.view_state.sync_group == target_group
                     )
-                    or viewer.view_state.overlay_id == source_vs_id
+                    or viewer.view_state.display.overlay_id == source_vs_id
                 ):
                     viewer.update_render()
                     viewer.is_geometry_dirty = True
@@ -2136,9 +1916,9 @@ class Controller:
                 if vs.sync_group == target_group and not getattr(
                     vs.volume, "is_rgb", False
                 ):
-                    vs.ww = source_vs.ww
-                    vs.wl = source_vs.wl
-                    vs.base_threshold = source_vs.base_threshold
+                    vs.display.ww = source_vs.display.ww
+                    vs.display.wl = source_vs.display.wl
+                    vs.display.base_threshold = source_vs.display.base_threshold
                     dirty_ids.add(target_id)
 
         # Perform a single pass to sync Window/Level across the flat Base <-> Overlay hierarchy
@@ -2146,17 +1926,23 @@ class Controller:
             t_vs = self.view_states[tid]
 
             # 1. Top-Down: If this image is a Base with a Registration overlay, push W/L down to the overlay
-            if t_vs.overlay_id and t_vs.overlay_mode == "Registration":
-                ovs = self.view_states.get(t_vs.overlay_id)
+            if t_vs.display.overlay_id and t_vs.display.overlay_mode == "Registration":
+                ovs = self.view_states.get(t_vs.display.overlay_id)
                 if ovs and not getattr(ovs.volume, "is_rgb", False):
-                    ovs.ww, ovs.wl = t_vs.ww, t_vs.wl
-                    dirty_ids.add(t_vs.overlay_id)
+                    ovs.display.ww, ovs.display.wl = t_vs.display.ww, t_vs.display.wl
+                    dirty_ids.add(t_vs.display.overlay_id)
 
             # 2. Bottom-Up: If this image is acting as an Overlay for a Base in Registration mode, push W/L up to the Base
             for base_id, base_vs in self.view_states.items():
-                if base_vs.overlay_id == tid and base_vs.overlay_mode == "Registration":
+                if (
+                    base_vs.display.overlay_id == tid
+                    and base_vs.display.overlay_mode == "Registration"
+                ):
                     if not getattr(base_vs.volume, "is_rgb", False):
-                        base_vs.ww, base_vs.wl = t_vs.ww, t_vs.wl
+                        base_vs.display.ww, base_vs.display.wl = (
+                            t_vs.display.ww,
+                            t_vs.display.wl,
+                        )
                         dirty_ids.add(base_id)
 
         for tid in dirty_ids:
@@ -2166,7 +1952,7 @@ class Controller:
             if viewer.view_state:
                 if (
                     viewer.image_id in dirty_ids
-                    or viewer.view_state.overlay_id in dirty_ids
+                    or viewer.view_state.display.overlay_id in dirty_ids
                 ):
                     viewer.update_render()
                     viewer.is_geometry_dirty = True
@@ -2203,9 +1989,13 @@ class Controller:
         if target_group != 0:
             for vs in self.view_states.values():
                 if vs.sync_group == target_group:
-                    vs.overlay_mode = source_vs.overlay_mode
-                    vs.overlay_checkerboard_size = source_vs.overlay_checkerboard_size
-                    vs.overlay_checkerboard_swap = source_vs.overlay_checkerboard_swap
+                    vs.display.overlay_mode = source_vs.display.overlay_mode
+                    vs.display.overlay_checkerboard_size = (
+                        source_vs.display.overlay_checkerboard_size
+                    )
+                    vs.display.overlay_checkerboard_swap = (
+                        source_vs.display.overlay_checkerboard_swap
+                    )
                     vs.is_data_dirty = True
         else:
             source_vs.is_data_dirty = True

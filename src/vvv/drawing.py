@@ -58,15 +58,15 @@ class OverlayDrawer:
         node_tag = viewer.crosshair_tag
 
         if (
-            not viewer.view_state.show_crosshair
-            or viewer.view_state.crosshair_voxel is None
+            not viewer.view_state.camera.show_crosshair
+            or viewer.view_state.camera.crosshair_voxel is None
         ):
             if dpg.does_item_exist(viewer.xh_line_h):
                 dpg.configure_item(viewer.xh_line_h, show=False)
                 dpg.configure_item(viewer.xh_line_v, show=False)
             return
 
-        vx, vy, vz = viewer.view_state.crosshair_voxel[:3]
+        vx, vy, vz = viewer.view_state.camera.crosshair_voxel[:3]
         shape = viewer.get_slice_shape()
         real_h, real_w = shape[0], shape[1]
 
@@ -266,7 +266,7 @@ class OverlayDrawer:
         if (
             not viewer.is_image_orientation()
             or not viewer.view_state
-            or not viewer.view_state.show_scalebar
+            or not viewer.view_state.camera.show_scalebar
         ):
             return
 
@@ -390,7 +390,7 @@ class OverlayDrawer:
             parent=viewer.legend_tag,
         )
 
-        ww, wl = viewer.view_state.display.ww, viewer.view_state.wl
+        ww, wl = viewer.view_state.display.ww, viewer.view_state.display.wl
         val_min = wl - ww / 2.0
         val_max = wl + ww / 2.0
         text_col = viewer.controller.settings.data["colors"]["tracker_text"]

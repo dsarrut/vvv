@@ -1,5 +1,4 @@
 import dearpygui.dearpygui as dpg
-import numpy as np
 from vvv.utils import *
 from vvv.core import SliceRenderer, RenderLayer
 from vvv.image import ROILayer
@@ -213,12 +212,12 @@ class SliceViewer:
 
     @property
     def show_legend(self):
-        return self.view_state.show_legend if self.view_state else False
+        return self.view_state.camera.show_legend if self.view_state else False
 
     @show_legend.setter
     def show_legend(self, value):
         if self.view_state:
-            self.view_state.show_legend = value
+            self.view_state.camera.show_legend = value
 
     def set_image(self, img_id):
         self.image_id = img_id
@@ -1042,11 +1041,11 @@ class SliceViewer:
         self.view_state.is_data_dirty = True
 
     def action_toggle_axis(self):
-        self.view_state.show_axis = not self.view_state.show_axis
+        self.view_state.camera.show_axis = not self.view_state.camera.show_axis
         self.view_state.is_data_dirty = True
 
     def action_toggle_scalebar(self):
-        self.view_state.show_scalebar = not self.view_state.show_scalebar
+        self.view_state.camera.show_scalebar = not self.view_state.camera.show_scalebar
         self.view_state.is_data_dirty = True
 
     def on_key_press(self, key):
