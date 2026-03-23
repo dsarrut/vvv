@@ -924,8 +924,8 @@ class MainGUI:
             return
 
         vs = viewer.view_state
-        if vs and vs.transform:
-            params = vs.transform.GetParameters()
+        if vs and vs.space.transform:
+            params = vs.space.get_parameters()
             import math
 
             dpg.set_value("drag_reg_rx", math.degrees(params[0]))
@@ -959,15 +959,15 @@ class MainGUI:
             dpg.set_value("text_reg_active_title", f"{vol.name}")
 
         if dpg.does_item_exist("text_reg_filename"):
-            dpg.set_value("text_reg_filename", vs.transform_file)
+            dpg.set_value("text_reg_filename", vs.space.transform_file)
 
         if dpg.does_item_exist("check_reg_apply"):
-            dpg.set_value("check_reg_apply", vs.transform_active)
+            dpg.set_value("check_reg_apply", vs.space.is_active)
 
-        if vs.transform:
-            matrix = np.array(vs.transform.GetMatrix()).reshape(3, 3)
-            center = vs.transform.GetCenter()
-            params = vs.transform.GetParameters()
+        if vs.space.transform:
+            matrix = np.array(vs.space.transform.GetMatrix()).reshape(3, 3)
+            center = vs.space.transform.GetCenter()
+            params = vs.space.get_parameters()
 
             # Update only the 4x4 read-only text matrix
             for r in range(3):
@@ -1019,10 +1019,10 @@ class MainGUI:
             # if active_vs and active_vs.overlay_id:
             #     ov_vol = self.controller.volumes[active_vs.overlay_id]
             #     ov_vs = self.controller.view_states[active_vs.overlay_id]
-            #     t_ov = ov_vs.transform if ov_vs.transform_active else None
+            #     t_ov = ov_vs.transform if ov_vs.space.is_active else None
             #     active_vs.set_overlay(active_vs.overlay_id, ov_vol, t_ov)
             #
-            # t_active = active_vs.transform if active_vs and active_vs.transform_active else None
+            # t_active = active_vs.transform if active_vs and active_vs.space.is_active else None
             # for base_id, base_vs in self.controller.view_states.items():
             #     if base_vs.overlay_id == active_image_id:
             #         base_vs.set_overlay(active_image_id, active_vol, t_active)
@@ -1044,21 +1044,24 @@ class MainGUI:
         vs_id = viewer.image_id
 
         # 1. Anchor: Save current World Coordinate
-        world_pos = vs.get_world_phys_coord(vs.crosshair_voxel[:3])
+        is_buf = vs.base_display_data is not None
+        world_pos = vs.space.display_to_world(
+            np.array(vs.crosshair_voxel[:3]), is_buffered=is_buf
+        )
 
         # Track old rotation to know if we need to trigger the heavy resampler
         old_rx, old_ry, old_rz = 0.0, 0.0, 0.0
         old_tx, old_ty, old_tz = 0.0, 0.0, 0.0
-        if vs.transform and vs.transform_active:
-            trans = vs.transform.GetTranslation()
+        if vs.space.transform and vs.space.is_active:
+            trans = vs.space.transform.GetTranslation()
             old_tx, old_ty, old_tz = trans[0], trans[1], trans[2]
-            old_rx = vs.transform.GetAngleX()
-            old_ry = vs.transform.GetAngleY()
-            old_rz = vs.transform.GetAngleZ()
+            old_rx = vs.space.transform.GetAngleX()
+            old_ry = vs.space.transform.GetAngleY()
+            old_rz = vs.space.transform.GetAngleZ()
 
         # Update Checkbox State (From explicit clicks)
         if new_state_val is not None:
-            vs.transform_active = new_state_val
+            vs.space.is_active = new_state_val
 
         # 2. Update Math from GUI sliders (SILENTLY)
         if not skip_manual_update:
@@ -1077,19 +1080,19 @@ class MainGUI:
         # 3. Track New Transform State (ONLY if active!)
         new_rx, new_ry, new_rz = 0.0, 0.0, 0.0
         new_tx, new_ty, new_tz = 0.0, 0.0, 0.0
-        if vs.transform and vs.transform_active:
-            trans = vs.transform.GetTranslation()
+        if vs.space.transform and vs.space.is_active:
+            trans = vs.space.transform.GetTranslation()
             new_tx, new_ty, new_tz = trans[0], trans[1], trans[2]
-            new_rx = vs.transform.GetAngleX()
-            new_ry = vs.transform.GetAngleY()
-            new_rz = vs.transform.GetAngleZ()
+            new_rx = vs.space.transform.GetAngleX()
+            new_ry = vs.space.transform.GetAngleY()
+            new_rz = vs.space.transform.GetAngleZ()
 
         # 4. Fast Path: Reverse Mapping & Camera Pan
         dtx, dty, dtz = new_tx - old_tx, new_ty - old_ty, new_tz - old_tz
         if dtx != 0 or dty != 0 or dtz != 0:
             self._pan_viewers_by_delta(vs_id, dtx, dty, dtz)
 
-        new_local_vox = vs.get_voxel_from_world_phys(world_pos)
+        new_local_vox = vs.space.world_to_display(world_pos, is_buffered=is_buf)
         sh = vs.volume.shape3d
         from vvv.utils import ViewMode
 
@@ -1120,27 +1123,34 @@ class MainGUI:
         if rotation_changed or new_state_val is not None:
             self._trigger_debounced_rotation_update(vs_id)
 
-    def _apply_transform_and_keep_world_fixed_OLD(
+    def _apply_transform_and_keep_world_fixed_BUG(
         self, viewer, new_state_val=None, skip_manual_update=False
     ):
         vs = viewer.view_state
         vs_id = viewer.image_id
 
         # 1. Anchor: Save current World Coordinate
-        world_pos = vs.get_world_phys_from_display_voxel(vs.crosshair_voxel[:3])
+        is_buf = vs.base_display_data is not None
+        world_pos = vs.space.display_to_world(
+            np.array(vs.crosshair_voxel[:3]), is_buffered=is_buf
+        )
 
-        # Track old rotation to know if we need to trigger the heavy resampler
-        old_rx, old_ry, old_rz = 0.0, 0.0, 0.0
-        if vs.transform and vs.transform_active:
-            old_rx = vs.transform.GetAngleX()
-            old_ry = vs.transform.GetAngleY()
-            old_rz = vs.transform.GetAngleZ()
+        new_rx, new_ry, new_rz = 0.0, 0.0, 0.0
+        new_tx, new_ty, new_tz = 0.0, 0.0, 0.0
+        if vs.space.transform and vs.space.is_active:
+            # --- FIX: Add .transform ---
+            trans = vs.space.transform.GetTranslation()
+            new_tx, new_ty, new_tz = trans[0], trans[1], trans[2]
+            new_rx = vs.space.transform.GetAngleX()
+            new_ry = vs.space.transform.GetAngleY()
+            new_rz = vs.space.transform.GetAngleZ()
+            # ---------------------------
 
-        # Update Checkbox State
+        # Update Checkbox State (From explicit clicks)
         if new_state_val is not None:
-            vs.transform_active = new_state_val
+            vs.space.is_active = new_state_val
 
-        # 2. Update Math from GUI sliders
+        # 2. Update Math from GUI sliders (SILENTLY)
         if not skip_manual_update:
             tx, ty, tz = (
                 dpg.get_value("drag_reg_tx"),
@@ -1154,14 +1164,24 @@ class MainGUI:
             )
             self.controller.update_transform_manual(vs_id, tx, ty, tz, rx, ry, rz)
 
+        # 3. Track New Transform State (ONLY if active!)
         new_rx, new_ry, new_rz = 0.0, 0.0, 0.0
-        if vs.transform and vs.transform_active:
-            new_rx = vs.transform.GetAngleX()
-            new_ry = vs.transform.GetAngleY()
-            new_rz = vs.transform.GetAngleZ()
+        new_tx, new_ty, new_tz = 0.0, 0.0, 0.0
+        if vs.space.transform and vs.space.is_active:
+            # --- FIX: Added .transform to all 4 lines ---
+            trans = vs.space.transform.GetTranslation()
+            new_tx, new_ty, new_tz = trans[0], trans[1], trans[2]
+            new_rx = vs.space.transform.GetAngleX()
+            new_ry = vs.space.transform.GetAngleY()
+            new_rz = vs.space.transform.GetAngleZ()
+            # --------------------------------------------
 
-        # 3. Fast Path: Reverse Mapping & Camera Pan
-        new_local_vox = vs.get_display_voxel_from_world_phys(world_pos)
+        # 4. Fast Path: Reverse Mapping & Camera Pan
+        dtx, dty, dtz = new_tx - old_tx, new_ty - old_ty, new_tz - old_tz
+        if dtx != 0 or dty != 0 or dtz != 0:
+            self._pan_viewers_by_delta(vs_id, dtx, dty, dtz)
+
+        new_local_vox = vs.space.world_to_display(world_pos, is_buffered=is_buf)
         sh = vs.volume.shape3d
         from vvv.utils import ViewMode
 
@@ -1175,7 +1195,6 @@ class MainGUI:
         vs.slices[ViewMode.SAGITTAL] = int(np.clip(new_local_vox[0], 0, sh[2] - 1))
         vs.slices[ViewMode.CORONAL] = int(np.clip(new_local_vox[1], 0, sh[1] - 1))
 
-        # CRITICAL FIX for the Pan: Force the viewer to instantly center the camera on the newly shifted physics!
         for v in self.controller.viewers.values():
             if v.image_id == vs_id:
                 v.needs_recenter = True
@@ -1183,14 +1202,13 @@ class MainGUI:
         self.controller.update_all_viewers_of_image(vs_id)
         self.update_sidebar_crosshair(viewer)
 
-        # 4. Heavy Path: Resample only if rotation changed
+        # 5. Heavy Path: Resample only if rotation changed AND the transform is actually active
         rotation_changed = (
             abs(new_rx - old_rx) > 1e-5
             or abs(new_ry - old_ry) > 1e-5
             or abs(new_rz - old_rz) > 1e-5
         )
 
-        # If they clicked the checkbox OR changed rotation, trigger the buffer update
         if rotation_changed or new_state_val is not None:
             self._trigger_debounced_rotation_update(vs_id)
 
@@ -2007,12 +2025,15 @@ class MainGUI:
         )
         if file_path:
             vs = viewer.view_state
-            world_pos = vs.get_world_phys_from_display_voxel(vs.crosshair_voxel[:3])
+            is_buf = vs.base_display_data is not None
+            world_pos = vs.space.display_to_world(
+                np.array(vs.crosshair_voxel[:3]), is_buffered=is_buf
+            )
 
             if self.controller.load_transform(viewer.image_id, file_path):
                 self.show_status_message(f"Loaded {os.path.basename(file_path)}")
 
-                new_local_vox = vs.get_display_voxel_from_world_phys(world_pos)
+                new_local_vox = vs.space.world_to_display(world_pos, is_buffered=is_buf)
                 sh = vs.volume.shape3d
                 from vvv.utils import ViewMode
 
@@ -2049,12 +2070,14 @@ class MainGUI:
             return
 
         vs = viewer.view_state
-        if not vs.transform:
+        if not vs.space.transform:
             self.show_status_message("No transform to save!", color=[255, 100, 100])
             return
 
         default_name = (
-            vs.transform_file if vs.transform_file != "None" else "matrix.tfm"
+            vs.space.transform_file
+            if vs.space.transform_file != "None"
+            else "matrix.tfm"
         )
         file_path = save_file_dialog("Save Transform", default_name=default_name)
         if file_path:
@@ -2117,10 +2140,10 @@ class MainGUI:
             return
 
         vs = viewer.view_state
-        if not vs.transform:
+        if not vs.space.transform:
             return
 
-        params = vs.transform.GetInverse().GetParameters()
+        params = vs.space.transform.GetInverse().GetParameters()
         import math
 
         dpg.set_value("drag_reg_rx", math.degrees(params[0]))
@@ -2143,13 +2166,14 @@ class MainGUI:
         vol = self.controller.volumes.get(viewer.image_id)
 
         # 1. Get the CoR in absolute World Space
-        if vs.transform:
-            center = vs.transform.GetCenter()
+        if vs.space.transform:
+            center = vs.space.GetCenter()
         else:
             center = self.controller._get_volume_physical_center(vol)
 
         # 2. Reverse map the World CoR to the local display voxel
-        new_local_vox = vs.get_display_voxel_from_world_phys(center)
+        is_buf = vs.base_display_data is not None
+        new_local_vox = vs.space.world_to_display(center, is_buffered=is_buf)
         sh = vol.shape3d
         from vvv.utils import ViewMode
 

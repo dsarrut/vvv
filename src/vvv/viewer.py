@@ -353,7 +353,8 @@ class SliceViewer:
         slice_y = (rel_y / disp_h) * real_h
 
         v = slice_to_voxel(slice_x, slice_y, self.slice_idx, self.orientation, shape)
-        return self.view_state.get_world_phys_from_display_voxel(np.array(v))
+        is_buf = self.view_state.base_display_data is not None
+        return self.view_state.space.display_to_world(np.array(v), is_buffered=is_buf)
 
     def get_mouse_slice_coords(self, ignore_hover=False, allow_outside=False):
         if not self.image_id or not self.volume:
@@ -423,7 +424,8 @@ class SliceViewer:
         if not win_w or not win_h:
             return
 
-        v = self.view_state.get_display_voxel_from_world_phys(phys_coord)
+        is_buf = self.view_state.base_display_data is not None
+        v = self.view_state.space.world_to_display(phys_coord, is_buffered=is_buf)
         shape = self.get_slice_shape()
         real_h, real_w = shape[0], shape[1]
         sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
@@ -882,7 +884,8 @@ class SliceViewer:
         shape = self.get_slice_shape()
 
         v = slice_to_voxel(pix_x, pix_y, idx, self.orientation, shape)
-        phys = self.view_state.get_world_phys_from_display_voxel(np.array(v))
+        is_buf = self.view_state.base_display_data is not None
+        phys = self.view_state.space.display_to_world(np.array(v), is_buffered=is_buf)
 
         col = self.controller.settings.data["colors"]["tracker_text"]
         dpg.configure_item(self.tracker_tag, color=col)

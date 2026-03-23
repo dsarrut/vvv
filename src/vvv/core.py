@@ -4,6 +4,7 @@ import json
 import numpy as np
 import SimpleITK as sitk
 from pathlib import Path
+from vvv.geometry import SpatialEngine
 from vvv.utils import ViewMode, slice_to_voxel
 from vvv.config import DEFAULT_SETTINGS, WL_PRESETS, COLORMAPS
 from vvv.image import VolumeData, SliceRenderer, RenderLayer
@@ -303,9 +304,7 @@ class ViewState:
         self.crosshair_value = None
 
         # Registration transform
-        self.transform = None
-        self.transform_file = "None"
-        self.transform_active = False
+        self.space = SpatialEngine(volume)
         self.base_display_data = None
 
         self.hist_data_x = None
@@ -517,56 +516,6 @@ class ViewState:
 
     # ==========================================
 
-    def get_world_phys_coord(self, voxel_orig):
-        """Strictly maps a RAW Original Voxel to World Physical Space."""
-        phys = self.volume.voxel_coord_to_physic_coord(np.array(voxel_orig))
-        if getattr(self, "transform_active", False) and getattr(
-            self, "transform", None
-        ):
-            phys = self.transform.TransformPoint(phys.tolist())
-        return np.array(phys)
-
-    def get_voxel_from_world_phys(self, world_phys):
-        """Strictly maps World Physical Space back to a RAW Original Voxel."""
-        phys = np.array(world_phys)
-        if getattr(self, "transform_active", False) and getattr(
-            self, "transform", None
-        ):
-            phys = np.array(self.transform.GetInverse().TransformPoint(phys.tolist()))
-        return self.volume.physic_coord_to_voxel_coord(phys)
-
-    def get_world_phys_from_display_voxel(self, voxel_disp):
-        """Maps the Visual Screen Voxel to World Space, respecting the Pan/Rotation illusions."""
-        phys = self.volume.voxel_coord_to_physic_coord(np.array(voxel_disp))
-        if getattr(self, "transform_active", False) and getattr(
-            self, "transform", None
-        ):
-            if getattr(self, "base_display_data", None) is not None:
-                # Buffer Space: Rotation is baked in. Only apply translation to find World.
-                t = np.array(self.transform.GetTranslation())
-                return phys + t
-            else:
-                # Fast Path (Camera Pan): Data hasn't moved, so apply the full transform.
-                return np.array(self.transform.TransformPoint(phys.tolist()))
-        return phys
-
-    def get_display_voxel_from_world_phys(self, world_phys):
-        """Maps World Space back to the Visual Screen Voxel to snap the crosshair correctly."""
-        phys = np.array(world_phys)
-        if getattr(self, "transform_active", False) and getattr(
-            self, "transform", None
-        ):
-            if getattr(self, "base_display_data", None) is not None:
-                # Buffer Space: Only reverse the translation.
-                t = np.array(self.transform.GetTranslation())
-                phys = phys - t
-            else:
-                # Fast Path (Camera Pan): Reverse the full transform.
-                phys = np.array(
-                    self.transform.GetInverse().TransformPoint(phys.tolist())
-                )
-        return self.volume.physic_coord_to_voxel_coord(phys)
-
     def is_ct_image(self, flat_data):
         if hasattr(self.volume.sitk_image, "GetMetaData"):
             try:
@@ -597,17 +546,16 @@ class ViewState:
             self.slices[ViewMode.AXIAL],
             self.time_idx,
         ]
-        self.crosshair_phys_coord = self.get_world_phys_from_display_voxel(
-            np.array(self.crosshair_voxel[:3])
+
+        is_buf = self.base_display_data is not None
+        self.crosshair_phys_coord = self.space.display_to_world(
+            np.array(self.crosshair_voxel[:3]), is_buf
         )
 
         v = self.crosshair_voxel
         ix, iy, iz = int(v[0]), int(v[1]), int(v[2])
-        display_data = (
-            self.base_display_data
-            if getattr(self, "base_display_data", None) is not None
-            else self.volume.data
-        )
+        display_data = self.base_display_data if is_buf else self.volume.data
+
         if self.volume.num_timepoints > 1:
             self.crosshair_value = display_data[self.time_idx, iz, iy, ix]
         else:
@@ -653,8 +601,10 @@ class ViewState:
 
         new_v = [vx, vy, vz, self.time_idx]
         self.crosshair_voxel = new_v
-        self.crosshair_phys_coord = self.get_world_phys_from_display_voxel(
-            np.array(new_v[:3])
+
+        is_buf = self.base_display_data is not None
+        self.crosshair_phys_coord = self.space.display_to_world(
+            np.array(new_v[:3]), is_buf
         )
 
         ix, iy, iz = [
@@ -668,11 +618,8 @@ class ViewState:
                 ],
             )
         ]
-        display_data = (
-            self.base_display_data
-            if getattr(self, "base_display_data", None) is not None
-            else self.volume.data
-        )
+
+        display_data = self.base_display_data if is_buf else self.volume.data
         if self.volume.num_timepoints > 1:
             self.crosshair_value = display_data[self.time_idx, iz, iy, ix]
         else:
@@ -683,9 +630,9 @@ class ViewState:
         v = slice_to_voxel(slice_x, slice_y, slice_idx, orientation, shape)
 
         self.crosshair_voxel = [v[0], v[1], v[2], self.time_idx]
-        self.crosshair_phys_coord = self.get_world_phys_from_display_voxel(
-            np.array(v[:3])
-        )
+
+        is_buf = self.base_display_data is not None
+        self.crosshair_phys_coord = self.space.display_to_world(np.array(v[:3]), is_buf)
 
         ix, iy, iz = [
             int(np.clip(np.floor(c + 0.5), 0, limit - 1))
@@ -698,11 +645,8 @@ class ViewState:
                 ],
             )
         ]
-        display_data = (
-            self.base_display_data
-            if getattr(self, "base_display_data", None) is not None
-            else self.volume.data
-        )
+
+        display_data = self.base_display_data if is_buf else self.volume.data
         if self.volume.num_timepoints > 1:
             self.crosshair_value = display_data[self.time_idx, iz, iy, ix]
         else:
@@ -775,22 +719,8 @@ class ViewState:
             self.wl = WL_PRESETS[preset_name]["wl"]
 
     def update_base_display_data(self):
-        """Resamples the base image so the standalone viewer shows the transform visually.
-        Optimized: ONLY applies Rotation. Translation is handled by 2D Camera Pan in the UI.
-        """
-        if (
-            not getattr(self, "transform_active", False)
-            or getattr(self, "transform", None) is None
-        ):
-            self.base_display_data = None
-            return
-
-        rx = self.transform.GetAngleX()
-        ry = self.transform.GetAngleY()
-        rz = self.transform.GetAngleZ()
-
-        # FAST PATH: If purely translation, completely skip the heavy 3D resample!
-        if abs(rx) < 1e-6 and abs(ry) < 1e-6 and abs(rz) < 1e-6:
+        # FAST PATH: If no rotation, completely skip the heavy 3D resample!
+        if not self.space.is_active or not self.space.has_rotation():
             self.base_display_data = None
             return
 
@@ -811,11 +741,8 @@ class ViewState:
         min_val = float(np.min(self.volume.data))
         resampler.SetDefaultPixelValue(min_val)
 
-        # HEAVY PATH: Create a Rotation-Only transform matching the true CoR
-        rot_transform = sitk.Euler3DTransform()
-        rot_transform.SetCenter(self.transform.GetCenter())
-        rot_transform.SetRotation(rx, ry, rz)
-
+        # HEAVY PATH: Pass only the rotation!
+        rot_transform = self.space.get_rotation_only_transform()
         resampler.SetTransform(rot_transform.GetInverse())
 
         target_dim = self.volume.sitk_image.GetDimension()
@@ -843,10 +770,7 @@ class ViewState:
 
         self.overlay_id = other_vs_id
 
-        has_base_transform = (
-            getattr(self, "transform_active", False)
-            and getattr(self, "transform", None) is not None
-        )
+        has_base_transform = self.space.is_active and self.space.transform is not None
         has_overlay_transform = other_transform is not None
 
         # Do not early-exit if ANY transform is active!
@@ -882,7 +806,7 @@ class ViewState:
         if has_base_transform or has_overlay_transform:
             comp = sitk.CompositeTransform(3)
             if has_base_transform:
-                comp.AddTransform(self.transform)
+                comp.AddTransform(self.space.transform)
             if has_overlay_transform:
                 comp.AddTransform(other_transform.GetInverse())
             resampler.SetTransform(comp)
@@ -1264,17 +1188,17 @@ class Controller:
 
         # 3. Failsafe: If Center of Rotation is exactly 0,0,0, fix it!
         if np.allclose(new_transform.GetCenter(), [0, 0, 0]):
-            new_transform.SetCenter(self._get_volume_physical_center(vol).tolist())
+            new_transform.SetCenter(vs.space.cor.tolist())
 
-        vs.transform = new_transform
-        vs.transform_file = os.path.basename(filepath)
+        vs.space.transform = new_transform
+        vs.space.transform_file = os.path.basename(filepath)
         return True
 
     def save_transform(self, vs_id, filepath):
         vs = self.view_states.get(vs_id)
-        if vs and vs.transform:
-            sitk.WriteTransform(vs.transform, filepath)
-            vs.transform_file = os.path.basename(filepath)
+        if vs and vs.space.transform:
+            sitk.WriteTransform(vs.space.transform, filepath)
+            vs.space.transform_file = os.path.basename(filepath)
 
     def add_recent_file(self, path):
         """Adds a path to the recent files list in settings and caps it at 10."""
@@ -1653,8 +1577,13 @@ class Controller:
             ov_vol = self.volumes[vs.overlay_id]
             ov_vs = self.view_states[vs.overlay_id]
 
-            world_phys = vs.get_world_phys_from_display_voxel(np.array([ix, iy, iz]))
-            ov_vox = ov_vs.get_voxel_from_world_phys(world_phys)
+            is_buf = vs.base_display_data is not None
+            world_phys = vs.space.display_to_world(
+                np.array([ix, iy, iz]), is_buffered=is_buf
+            )
+
+            is_ov_buf = ov_vs.base_display_data is not None
+            ov_vox = ov_vs.space.world_to_display(world_phys, is_buffered=is_ov_buf)
 
             ox, oy, oz = (
                 int(np.floor(ov_vox[0] + 0.5)),
@@ -1752,21 +1681,13 @@ class Controller:
                 viewer.draw_crosshair()
 
     def update_transform_manual(self, vs_id, tx, ty, tz, rx_deg, ry_deg, rz_deg):
-        """Triggered by the GUI sliders to update the transform data model."""
         vs = self.view_states.get(vs_id)
         if not vs:
             return
-
-        if not vs.transform:
-            vs.transform = sitk.Euler3DTransform()
-            vol = self.volumes[vs_id]
-            vs.transform.SetCenter(self._get_volume_physical_center(vol).tolist())
-
         import math
 
-        vs.transform.SetTranslation((float(tx), float(ty), float(tz)))
-        vs.transform.SetRotation(
-            math.radians(rx_deg), math.radians(ry_deg), math.radians(rz_deg)
+        vs.space.set_manual_transform(
+            tx, ty, tz, math.radians(rx_deg), math.radians(ry_deg), math.radians(rz_deg)
         )
 
     def reset_settings(self):
@@ -2091,8 +2012,10 @@ class Controller:
             ]
 
         # Use the explicit display-aware method!
-        world_phys = source_vs.get_world_phys_from_display_voxel(
-            source_vs.crosshair_voxel[:3]
+        # Use the Black Box for the source!
+        is_src_buf = source_vs.base_display_data is not None
+        world_phys = source_vs.space.display_to_world(
+            np.array(source_vs.crosshair_voxel[:3]), is_buffered=is_src_buf
         )
 
         for target_id in target_ids:
@@ -2101,8 +2024,8 @@ class Controller:
             if target_id == source_vs_id:
                 source_vox = source_vs.crosshair_voxel
                 target_vs.crosshair_voxel = source_vox.copy()
-                target_vs.crosshair_phys_coord = (
-                    target_vs.get_world_phys_from_display_voxel(source_vox[:3])
+                target_vs.crosshair_phys_coord = target_vs.space.display_to_world(
+                    np.array(source_vox[:3]), is_buffered=is_src_buf
                 )
                 # ... [keep slices assignment]
                 target_vs.slices[ViewMode.AXIAL] = int(source_vox[2])
@@ -2112,8 +2035,11 @@ class Controller:
                 phys_pos = world_phys
                 target_vol = target_vs.volume
 
-                # Use the explicit display-aware mapping to find the new crosshair!
-                target_vox = target_vs.get_display_voxel_from_world_phys(phys_pos)
+                # Use the Black Box for the target!
+                is_tgt_buf = target_vs.base_display_data is not None
+                target_vox = target_vs.space.world_to_display(
+                    phys_pos, is_buffered=is_tgt_buf
+                )
 
                 nt = target_vs.volume.num_timepoints
                 target_vs.time_idx = min(source_vs.time_idx, nt - 1)
