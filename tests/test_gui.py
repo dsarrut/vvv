@@ -131,7 +131,7 @@ def test_gui_roi_interactions(headless_gui_app, synthetic_volume_factory):
 
     # Load an ROI
     roi_path = synthetic_volume_factory("roi.nii.gz", val=1.0)
-    roi_id = controller.load_binary_mask(base_id, roi_path, name="TestROI")
+    roi_id = controller.roi.load_binary_mask(base_id, roi_path, name="TestROI")
 
     # Tell GUI which ROI is "active" in the list
     gui.active_roi_id = roi_id

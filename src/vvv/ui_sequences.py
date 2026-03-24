@@ -42,7 +42,7 @@ def load_history_rois_sequence(gui, controller, img_id):
                 # Safely extract the original rules from the history save
                 mode = roi_data["state"].get("source_mode", "Ignore BG (val)")
                 val = roi_data["state"].get("source_val", 0.0)
-                new_roi_id = controller.load_binary_mask(
+                new_roi_id = controller.roi.load_binary_mask(
                     img_id, roi_path, mode=mode, target_val=val
                 )
                 vs.rois[new_roi_id].from_dict(roi_data["state"])
@@ -251,7 +251,7 @@ def load_batch_rois_sequence(
         try:
             if roi_type == "Binary Mask":
                 color = ROI_COLORS[color_idx % len(ROI_COLORS)]
-                controller.load_binary_mask(
+                controller.roi.load_binary_mask(
                     base_image_id, path, color=color, mode=mode, target_val=val
                 )
                 color_idx += 1
@@ -382,7 +382,7 @@ def load_workspace_sequence(gui, controller, file_path):
             abs_path = resolve_relative_path(roi_data["path"], workspace_dir)
             if os.path.exists(abs_path):
                 try:
-                    new_roi_id = controller.load_binary_mask(base_id, abs_path)
+                    new_roi_id = controller.roi.load_binary_mask(base_id, abs_path)
                     controller.view_states[base_id].rois[new_roi_id].from_dict(
                         roi_data["state"]
                     )

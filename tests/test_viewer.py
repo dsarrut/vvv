@@ -224,10 +224,10 @@ def test_roi_statistics_math(headless_app, tmp_path):
     controller.volumes[vs_id].data[1, 1, 1] = 1000.0
 
     # 3. Load ROI and run stats
-    roi_id = controller.load_binary_mask(
+    roi_id = controller.roi.load_binary_mask(
         vs_id, str(mask_path), mode="Target FG (val)", target_val=1.0
     )
-    stats = controller.get_roi_stats(vs_id, roi_id, is_overlay=False)
+    stats = controller.roi.get_roi_stats(vs_id, roi_id, is_overlay=False)
 
     # 4. Verify pure math
     assert stats["vol"] == 0.008  # 8 mm^3 / 1000 = 0.008 cc
@@ -252,7 +252,7 @@ def test_roi_binarization_rules(headless_app, tmp_path):
     sitk.WriteImage(sitk_img, str(mask_path))
 
     # Apply the math rule during load
-    roi_id = controller.load_binary_mask(
+    roi_id = controller.roi.load_binary_mask(
         vs_id, str(mask_path), mode="Target FG (val)", target_val=2.0
     )
     roi_data = controller.volumes[roi_id].data
@@ -533,10 +533,10 @@ def test_roi_statistics_math(headless_app, tmp_path):
     sitk.WriteImage(mask_img, str(mask_path))
 
     # 3. Load ROI and run stats
-    roi_id = controller.load_binary_mask(
+    roi_id = controller.roi.load_binary_mask(
         base_id, str(mask_path), mode="Target FG (val)", target_val=1.0
     )
-    stats = controller.get_roi_stats(base_id, roi_id, is_overlay=False)
+    stats = controller.roi.get_roi_stats(base_id, roi_id, is_overlay=False)
 
     # 4. Verify pure math
     assert stats["vol"] == 0.008  # 8 mm^3 / 1000 = 0.008 cc
@@ -560,7 +560,7 @@ def test_roi_binarization_rules(headless_app, tmp_path):
     mask_path = tmp_path / "labels.nrrd"
     sitk.WriteImage(sitk_img, str(mask_path))
 
-    roi_id = controller.load_binary_mask(
+    roi_id = controller.roi.load_binary_mask(
         vs_id, str(mask_path), mode="Target FG (val)", target_val=2.0
     )
     roi_vol = controller.volumes[roi_id]

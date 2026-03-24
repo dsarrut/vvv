@@ -1176,7 +1176,7 @@ class MainGUI:
 
         is_overlay = image_source == "Active Overlay"
 
-        stats = self.controller.get_roi_stats(
+        stats = self.controller.roi.get_roi_stats(
             base_vs_id=viewer.image_id, roi_id=roi_id, is_overlay=is_overlay
         )
 
@@ -1868,12 +1868,12 @@ class MainGUI:
     def on_roi_reload(self, sender, app_data, user_data):
         roi_id = user_data
         base_id = self.context_viewer.image_id
-        self.controller.reload_roi(base_id, roi_id)
+        self.controller.roi.reload_roi(base_id, roi_id)
 
     def on_roi_center(self, sender, app_data, user_data):
         roi_id = user_data
         base_id = self.context_viewer.image_id
-        self.controller.center_on_roi(base_id, roi_id)
+        self.controller.roi.center_on_roi(base_id, roi_id)
 
     def on_roi_selected(self, sender, app_data, user_data):
         self.active_roi_id = user_data
@@ -1932,7 +1932,7 @@ class MainGUI:
 
         results = {}
         for r_id, r_state in viewer.view_state.rois.items():
-            stats = self.controller.get_roi_stats(
+            stats = self.controller.roi.get_roi_stats(
                 viewer.image_id, r_id, is_overlay=is_overlay
             )
             if stats:
@@ -1957,7 +1957,7 @@ class MainGUI:
         base_id = viewer.image_id
 
         # Free memory and remove from backend
-        self.controller.close_roi(base_id, roi_id)
+        self.controller.roi.close_roi(base_id, roi_id)
 
         # If the deleted ROI was the currently active one, clear the detail pane
         if getattr(self, "active_roi_id", None) == roi_id:
