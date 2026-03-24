@@ -369,7 +369,7 @@ class OverlayDrawer:
             parent=viewer.legend_tag,
         )
 
-        cmap = COLORMAPS.get(viewer.view_state.colormap, COLORMAPS["Grayscale"])
+        cmap = COLORMAPS.get(viewer.view_state.display.colormap, COLORMAPS["Grayscale"])
 
         for i in range(256):
             y = y_start + cb_height - (i / 255.0) * cb_height

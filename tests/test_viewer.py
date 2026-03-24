@@ -127,8 +127,8 @@ def test_sync_correspondence_between_different_geometries(
     viewer2 = controller.viewers["V2"]
     viewer2.set_image(vs_id2)
 
-    controller.on_sync_group_change(None, "Group 1", vs_id1)
-    controller.on_sync_group_change(None, "Group 1", vs_id2)
+    controller.gui.on_sync_group_change(None, "Group 1", vs_id1)
+    controller.gui.on_sync_group_change(None, "Group 1", vs_id2)
     viewer1.set_orientation(ViewMode.AXIAL)
     viewer2.set_orientation(ViewMode.AXIAL)
 

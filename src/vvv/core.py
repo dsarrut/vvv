@@ -1691,71 +1691,6 @@ class Controller:
                     self.gui.update_sidebar_info(self.gui.context_viewer)
                 self.gui.show_status_message(f"Closed: {name}")
 
-    def on_visibility_toggle(self, sender, value, user_data):
-        context_viewer = self.gui.context_viewer
-        if not context_viewer or not context_viewer.view_state:
-            return
-        vs = context_viewer.view_state
-
-        if user_data == "axis":
-            vs.camera.show_axis = value
-        elif user_data == "grid":
-            vs.camera.show_grid = value
-        elif user_data == "tracker":
-            vs.camera.show_tracker = value
-        elif user_data == "crosshair":
-            vs.camera.show_crosshair = value
-        elif user_data == "scalebar":
-            vs.camera.show_scalebar = value
-        elif user_data == "legend":
-            vs.camera.show_legend = value
-
-        self.update_all_viewers_of_image(context_viewer.image_id)
-
-    def on_sync_group_change(self, sender, value, user_data):
-        vs_id = user_data
-        vs = self.view_states[vs_id]
-
-        if value == "None":
-            vs.sync_group = 0
-            if self.gui:
-                self.gui.refresh_image_list_ui()
-            return
-
-        new_group_id = int(value.split(" ")[1])
-        vs.sync_group = new_group_id
-
-        master_vs_id = None
-        for other_id, other_vs in self.view_states.items():
-            if other_id != vs_id and other_vs.sync_group == new_group_id:
-                master_vs_id = other_id
-                break
-
-        group_viewer_tags = []
-        for v in self.viewers.values():
-            if v.view_state and v.view_state.sync_group == new_group_id:
-                group_viewer_tags.append(v.tag)
-
-        if not group_viewer_tags:
-            return
-
-        self.unify_ppm(group_viewer_tags)
-
-        if master_vs_id:
-            master_viewer = next(
-                (v for v in self.viewers.values() if v.image_id == master_vs_id), None
-            )
-            if master_viewer:
-                phys_center = master_viewer.get_center_physical_coord()
-                if phys_center is not None:
-                    for tag in group_viewer_tags:
-                        self.viewers[tag].center_on_physical_coord(phys_center)
-            self.propagate_sync(master_vs_id)
-
-        self.update_all_viewers_of_image(vs_id)
-        if self.gui:
-            self.gui.refresh_image_list_ui()
-
     def tick(self):
         for viewer in self.viewers.values():
             did_update = viewer.tick()
@@ -1869,11 +1804,10 @@ class Controller:
 
     def propagate_colormap(self, source_vs_id):
         source_vs = self.view_states[source_vs_id]
-        import dearpygui.dearpygui as dpg
 
         sync_wl = False
-        if dpg.does_item_exist("check_sync_wl"):
-            sync_wl = dpg.get_value("check_sync_wl")
+        if self.gui and hasattr(self.gui, "get_sync_wl_state"):
+            sync_wl = self.gui.get_sync_wl_state()
 
         target_group = source_vs.sync_group
         if sync_wl and target_group != 0:
@@ -1902,11 +1836,10 @@ class Controller:
 
     def propagate_window_level(self, source_vs_id):
         source_vs = self.view_states[source_vs_id]
-        import dearpygui.dearpygui as dpg
 
         sync_wl = False
-        if dpg.does_item_exist("check_sync_wl"):
-            sync_wl = dpg.get_value("check_sync_wl")
+        if self.gui and hasattr(self.gui, "get_sync_wl_state"):
+            sync_wl = self.gui.get_sync_wl_state()
 
         dirty_ids = {source_vs_id}
 

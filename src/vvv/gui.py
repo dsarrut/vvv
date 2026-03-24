@@ -347,14 +347,14 @@ class MainGUI:
                     dpg.add_checkbox(
                         label="Slice axis",
                         tag="check_axis",
-                        callback=self.controller.on_visibility_toggle,
+                        callback=self.on_visibility_toggle,
                         user_data="axis",
                         default_value=True,
                     )
                     dpg.add_checkbox(
                         label="Pixels grid",
                         tag="check_grid",
-                        callback=self.controller.on_visibility_toggle,
+                        callback=self.on_visibility_toggle,
                         user_data="grid",
                         default_value=False,
                     )
@@ -362,14 +362,14 @@ class MainGUI:
                     dpg.add_checkbox(
                         label="Mouse tracker",
                         tag="check_tracker",
-                        callback=self.controller.on_visibility_toggle,
+                        callback=self.on_visibility_toggle,
                         user_data="tracker",
                         default_value=True,
                     )
                     dpg.add_checkbox(
                         label="Crosshair",
                         tag="check_crosshair",
-                        callback=self.controller.on_visibility_toggle,
+                        callback=self.on_visibility_toggle,
                         user_data="crosshair",
                         default_value=True,
                     )
@@ -377,14 +377,14 @@ class MainGUI:
                     dpg.add_checkbox(
                         label="Scale bar",
                         tag="check_scalebar",
-                        callback=self.controller.on_visibility_toggle,
+                        callback=self.on_visibility_toggle,
                         user_data="scalebar",
                         default_value=False,
                     )
                     dpg.add_checkbox(
                         label="Legend",
                         tag="check_legend",
-                        callback=self.controller.on_visibility_toggle,
+                        callback=self.on_visibility_toggle,
                         user_data="legend",
                         default_value=False,
                     )
@@ -630,7 +630,7 @@ class MainGUI:
                         ),
                         width=100,
                         user_data=vs_id,
-                        callback=self.controller.on_sync_group_change,
+                        callback=self.on_sync_group_change,
                     )
 
         # Re-evaluate sidebar states (so the Sync W/L checkbox dynamically toggles on/off)
@@ -1148,6 +1148,12 @@ class MainGUI:
             if dpg.does_item_exist(tag):
                 dpg.set_value(tag, "---")
 
+    def get_sync_wl_state(self):
+        """Allows the backend to query the UI state without importing DearPyGui."""
+        if dpg.does_item_exist("check_sync_wl"):
+            return dpg.get_value("check_sync_wl")
+        return False
+
     def update_roi_stats_ui(self):
         viewer = self.context_viewer
         active_id = getattr(self, "active_roi_id", None)
@@ -1607,13 +1613,83 @@ class MainGUI:
             or getattr(viewer.volume, "is_rgb", False)
         ):
             return
-        viewer.view_state.colormap = user_data
+        viewer.view_state.display.colormap = user_data
         self.controller.propagate_colormap(viewer.image_id)
 
     def on_sync_wl_toggle(self, sender, app_data, user_data):
         viewer = self.context_viewer
         if viewer and viewer.image_id and app_data:
             self.controller.propagate_window_level(viewer.image_id)
+
+    def on_visibility_toggle(self, sender, value, user_data):
+        viewer = self.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+        vs = viewer.view_state
+
+        if user_data == "axis":
+            vs.camera.show_axis = value
+        elif user_data == "grid":
+            vs.camera.show_grid = value
+        elif user_data == "tracker":
+            vs.camera.show_tracker = value
+        elif user_data == "crosshair":
+            vs.camera.show_crosshair = value
+        elif user_data == "scalebar":
+            vs.camera.show_scalebar = value
+        elif user_data == "legend":
+            vs.camera.show_legend = value
+
+        self.controller.update_all_viewers_of_image(viewer.image_id)
+
+    def on_sync_group_change(self, sender, value, user_data):
+        vs_id = user_data
+        vs = self.controller.view_states[vs_id]
+
+        if value == "None":
+            vs.sync_group = 0
+            self.refresh_image_list_ui()
+            return
+
+        new_group_id = int(value.split(" ")[1])
+        vs.sync_group = new_group_id
+
+        master_vs_id = None
+        for other_id, other_vs in self.controller.view_states.items():
+            if other_id != vs_id and other_vs.sync_group == new_group_id:
+                master_vs_id = other_id
+                break
+
+        group_viewer_tags = []
+        for v in self.controller.viewers.values():
+            if v.view_state and v.view_state.sync_group == new_group_id:
+                group_viewer_tags.append(v.tag)
+
+        if not group_viewer_tags:
+            return
+
+        self.controller.unify_ppm(group_viewer_tags)
+
+        if master_vs_id:
+            master_viewer = next(
+                (
+                    v
+                    for v in self.controller.viewers.values()
+                    if v.image_id == master_vs_id
+                ),
+                None,
+            )
+            if master_viewer:
+                phys_center = master_viewer.get_center_physical_coord()
+                if phys_center is not None:
+                    for tag in group_viewer_tags:
+                        self.controller.viewers[tag].center_on_physical_coord(
+                            phys_center
+                        )
+            self.controller.propagate_sync(master_vs_id)
+
+        self.controller.update_all_viewers_of_image(vs_id)
+        self.refresh_image_list_ui()
 
     def on_fusion_target_selected(self, sender, app_data, user_data):
         viewer = self.context_viewer
