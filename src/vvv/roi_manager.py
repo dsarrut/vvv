@@ -16,8 +16,6 @@ class ROIState:
         self.opacity = 0.5
         self.visible = True
         self.is_contour = False
-
-        # We save the rules so history loads perfectly!
         self.source_mode = source_mode
         self.source_val = source_val
 
@@ -49,6 +47,41 @@ class ROIManager:
     def __init__(self, controller):
         self.controller = controller
 
+    # ==========================================
+    # INTERNAL HELPERS
+    # ==========================================
+
+    def _clean_roi_name(self, filepath):
+        """Strips common medical extensions to generate a clean display name."""
+        name = os.path.basename(filepath)
+        for ext in [
+            ".nii.gz",
+            ".nii",
+            ".mhd",
+            ".mha",
+            ".nrrd",
+            ".dcm",
+            ".tif",
+            ".png",
+            ".jpg",
+        ]:
+            if name.lower().endswith(ext):
+                return name[: -len(ext)]
+        return name
+
+    def _apply_binarization_rule(self, mask_vol, mode, target_val):
+        """Applies the target value rules and safely updates the SimpleITK header."""
+        if mode == "Target FG (val)":
+            mask_vol.data = (mask_vol.data == target_val).astype(np.uint8)
+        else:
+            mask_vol.data = (mask_vol.data != target_val).astype(np.uint8)
+
+        new_img = sitk.GetImageFromArray(mask_vol.data)
+        new_img.SetSpacing(mask_vol.sitk_image.GetSpacing())
+        new_img.SetOrigin(mask_vol.sitk_image.GetOrigin())
+        new_img.SetDirection(mask_vol.sitk_image.GetDirection())
+        mask_vol.sitk_image = new_img
+
     def process_binary_mask(self, base_vol, mask_vol):
         """Helper to resample and autocrop a binary mask."""
         if (
@@ -56,7 +89,6 @@ class ROIManager:
             or not np.allclose(mask_vol.spacing, base_vol.spacing, atol=1e-4)
             or not np.allclose(mask_vol.origin, base_vol.origin, atol=1e-4)
         ):
-
             resampler = sitk.ResampleImageFilter()
             resampler.SetReferenceImage(base_vol.sitk_image)
             resampler.SetInterpolator(sitk.sitkNearestNeighbor)
@@ -89,8 +121,11 @@ class ROIManager:
             else:
                 mask_vol.data = np.zeros((0, 0, 0), dtype=mask_vol.data.dtype)
 
+    # ==========================================
+    # PUBLIC ROI API
+    # ==========================================
+
     def load_label_map(self, base_id, filepath, start_color_idx):
-        # 1. Attempt to find a JSON sidecar dictionary
         json_path = filepath.rsplit(".", 1)[0] + ".json"
         if filepath.endswith(".nii.gz"):
             json_path = filepath[:-7] + ".json"
@@ -100,37 +135,20 @@ class ROIManager:
             try:
                 with open(json_path, "r") as f:
                     raw_dict = json.load(f)
-                    # Force integer keys in case JSON parsed them as strings
                     label_dict = {int(k): str(v) for k, v in raw_dict.items()}
             except Exception as e:
                 print(f"Failed to load JSON {json_path}: {e}")
 
-        # 2. Read the image quickly just to get the unique integer values
         temp_img = sitk.ReadImage(filepath)
         temp_data = sitk.GetArrayViewFromImage(temp_img)
         unique_vals = np.unique(temp_data)
 
         loaded_count = 0
-        base_name = os.path.basename(filepath)
-        for ext in [
-            ".nii.gz",
-            ".nii",
-            ".mhd",
-            ".mha",
-            ".nrrd",
-            ".dcm",
-            ".tif",
-            ".png",
-            ".jpg",
-        ]:
-            if base_name.lower().endswith(ext):
-                base_name = base_name[: -len(ext)]
-                break
+        base_name = self._clean_roi_name(filepath)
 
-        # 3. Process every non-zero label as a distinct ROI
         for val in unique_vals:
             if val == 0:
-                continue  # 0 is strictly background in label maps
+                continue
 
             color = ROI_COLORS[(start_color_idx + loaded_count) % len(ROI_COLORS)]
             roi_name = label_dict.get(int(val), f"{base_name} - Lbl {val}")
@@ -159,46 +177,19 @@ class ROIManager:
         base_vol = self.controller.volumes[base_id]
         mask_vol = VolumeData(filepath)
 
-        # Apply rule to raw data BEFORE any resampling or cropping!
-        if mode == "Target FG (val)":
-            mask_vol.data = (mask_vol.data == target_val).astype(np.uint8)
-        else:
-            mask_vol.data = (mask_vol.data != target_val).astype(np.uint8)
-
-        # Update SITK image to ensure Resampler behaves correctly with the new binary data
-        new_img = sitk.GetImageFromArray(mask_vol.data)
-        new_img.SetSpacing(mask_vol.sitk_image.GetSpacing())
-        new_img.SetOrigin(mask_vol.sitk_image.GetOrigin())
-        new_img.SetDirection(mask_vol.sitk_image.GetDirection())
-        mask_vol.sitk_image = new_img
-
+        # Apply rule BEFORE resampling
+        self._apply_binarization_rule(mask_vol, mode, target_val)
         self.process_binary_mask(base_vol, mask_vol)
 
-        # Safeguard warning
         if mask_vol.data.size == 0:
             raise ValueError("Outside the base image FOV (or completely empty).")
 
-        # FIX: Point to the controller's ID tracker
         mask_id = str(self.controller._next_image_id)
         self.controller._next_image_id += 1
         self.controller.volumes[mask_id] = mask_vol
 
         if name is None:
-            name = os.path.basename(filepath)
-            for ext in [
-                ".nii.gz",
-                ".nii",
-                ".mhd",
-                ".mha",
-                ".nrrd",
-                ".dcm",
-                ".tif",
-                ".png",
-                ".jpg",
-            ]:
-                if name.lower().endswith(ext):
-                    name = name[: -len(ext)]
-                    break
+            name = self._clean_roi_name(filepath)
 
         roi_state = ROIState(
             mask_id, name, color, source_mode=mode, source_val=target_val
@@ -218,7 +209,6 @@ class ROIManager:
         vs = self.controller.view_states[base_vs_id]
         roi_vol = self.controller.volumes[roi_id]
 
-        # 1. Calculate physical volume per voxel in cubic centimeters (cc)
         voxel_vol_mm3 = abs(np.prod(roi_vol.spacing))
         mask = roi_vol.data > 0
         voxel_count = np.count_nonzero(mask)
@@ -235,7 +225,6 @@ class ROIManager:
                 "mass": 0.0,
             }
 
-        # 2. Extract the target data (Base vs Resampled Overlay)
         if is_overlay:
             if not vs.display.overlay_id or vs.display.overlay_data is None:
                 return None
@@ -251,19 +240,15 @@ class ROIManager:
                 t = min(vs.camera.time_idx, base_vol.num_timepoints - 1)
                 target_data = target_data[t]
 
-        # 3. Crop the target image to match the ROI's bounding box
         if hasattr(roi_vol, "roi_bbox"):
             z0, z1, y0, y1, x0, x1 = roi_vol.roi_bbox
             if z0 != z1:
                 target_data = target_data[z0:z1, y0:y1, x0:x1]
 
         pixels = target_data[mask]
-
-        # 4. Compute advanced statistics
         mean_val = float(np.mean(pixels))
-        peak_val = float(np.percentile(pixels, 95))  # Robust P95 Peak
+        peak_val = float(np.percentile(pixels, 95))
 
-        # Mass assumes CT Hounsfield Units (Water = 0 = 1g/cc, Air = -1000 = 0g/cc)
         density_g_cc = (mean_val / 1000.0) + 1.0
         mass_g = vol_cc * density_g_cc
 
@@ -289,7 +274,7 @@ class ROIManager:
             return
 
         z0, z1, y0, y1, x0, x1 = mask_vol.roi_bbox
-        if z0 == z1:  # Empty mask
+        if z0 == z1:
             return
 
         cx = (x0 + x1 - 1) / 2.0
@@ -297,17 +282,14 @@ class ROIManager:
         cz = (z0 + z1 - 1) / 2.0
 
         vs = self.controller.view_states[base_id]
-
         vs.camera.crosshair_voxel = [cx, cy, cz, vs.camera.time_idx]
         vs.camera.crosshair_phys_coord = mask_vol.voxel_coord_to_physic_coord(
             np.array([cx, cy, cz])
         )
 
-        # FIX: Point to the controller's sync manager
         self.controller.sync.propagate_sync(base_id)
-
         target_group = vs.sync_group
-        # FIX: Point to the controller's viewers
+
         for viewer in self.controller.viewers.values():
             if viewer.image_id and viewer.view_state:
                 if viewer.image_id == base_id or (
@@ -325,28 +307,18 @@ class ROIManager:
 
         mask_vol = self.controller.volumes[roi_id]
         roi_state = self.controller.view_states[base_id].rois[roi_id]
-        was_reset = mask_vol.reload()
+        mask_vol.reload()
 
-        # Re-apply binarization rule after reloading from disk!
         mode = getattr(roi_state, "source_mode", "Ignore BG (val)")
         target_val = getattr(roi_state, "source_val", 0.0)
 
-        if mode == "Target FG (val)":
-            mask_vol.data = (mask_vol.data == target_val).astype(np.uint8)
-        else:
-            mask_vol.data = (mask_vol.data != target_val).astype(np.uint8)
-
-        new_img = sitk.GetImageFromArray(mask_vol.data)
-        new_img.SetSpacing(mask_vol.sitk_image.GetSpacing())
-        new_img.SetOrigin(mask_vol.sitk_image.GetOrigin())
-        new_img.SetDirection(mask_vol.sitk_image.GetDirection())
-        mask_vol.sitk_image = new_img
+        # Apply rule BEFORE resampling
+        self._apply_binarization_rule(mask_vol, mode, target_val)
 
         base_vol = self.controller.volumes[base_id]
         self.process_binary_mask(base_vol, mask_vol)
 
         self.controller.view_states[base_id].is_data_dirty = True
-        # FIX: Point to the controller's viewer update function
         self.controller.update_all_viewers_of_image(base_id)
 
         if self.controller.gui:
@@ -354,7 +326,6 @@ class ROIManager:
             self.controller.gui.show_status_message(f"Reloaded: {roi_state.name}")
 
     def close_roi(self, base_id, roi_id):
-        """Safely removes an ROI from the view state and frees the volume memory."""
         if base_id in self.controller.view_states:
             vs = self.controller.view_states[base_id]
             if roi_id in vs.rois:
@@ -364,5 +335,4 @@ class ROIManager:
         if roi_id in self.controller.volumes:
             del self.controller.volumes[roi_id]
 
-        # FIX: Point to the controller's viewer update function
         self.controller.update_all_viewers_of_image(base_id)
