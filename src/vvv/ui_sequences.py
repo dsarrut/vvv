@@ -457,7 +457,7 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
             yield from load_history_rois_sequence(gui, controller, base_id)
 
             if task.get("base_cmap"):
-                controller.view_states[base_id].colormap = task["base_cmap"]
+                controller.view_states[base_id].display.colormap = task["base_cmap"]
                 controller.view_states[base_id].is_data_dirty = True
 
             files_processed += 1
@@ -484,7 +484,7 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
                 files_processed += 1
 
                 fuse_vs = controller.view_states[fuse_id]
-                fuse_vs.colormap = task["fusion"]["cmap"]
+                fuse_vs.display.colormap = task["fusion"]["cmap"]
                 fuse_vs.is_data_dirty = True
 
                 base_vs = controller.view_states[base_id]
@@ -493,7 +493,7 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
                 base_vs.overlay_threshold = task["fusion"]["threshold"]
 
                 if "mode" in task["fusion"]:
-                    base_vs.overlay_mode = task["fusion"]["mode"]
+                    base_vs.display.overlay_mode = task["fusion"]["mode"]
 
             except Exception as e:
                 # gui.show_message("Overlay Error", f"Failed to load/fuse:\n{fuse_name}")
@@ -533,12 +533,10 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
     group_applied = False
     for img_id in loaded_ids:
         if sync or link_all:
-            controller.on_sync_group_change(None, "Group 1", img_id)
+            gui.on_sync_group_change(None, "Group 1", img_id)
             group_applied = True
         elif id_to_group.get(img_id, 0) > 0:
-            controller.on_sync_group_change(
-                None, f"Group {id_to_group[img_id]}", img_id
-            )
+            gui.on_sync_group_change(None, f"Group {id_to_group[img_id]}", img_id)
             group_applied = True
 
     if group_applied:
