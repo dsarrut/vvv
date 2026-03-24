@@ -267,39 +267,6 @@ def test_roi_binarization_rules(headless_app, tmp_path):
 # ==========================================
 
 
-def test_workspace_serialization(headless_app, tmp_path):
-    """Test that a saved JSON Workspace perfectly restores the exact application state."""
-    controller, viewer, vs_id = headless_app
-    gui = controller.gui
-
-    # 1. Modify the state drastically
-    vs = controller.view_states[vs_id]
-    vs.camera.zoom = {
-        ViewMode.AXIAL: 2.5,
-        ViewMode.SAGITTAL: 1.0,
-        ViewMode.CORONAL: 1.0,
-    }
-    vs.display.colormap = "Hot"
-
-    ws_path = tmp_path / "test_workspace.vvw"
-    controller.file.save_workspace(str(ws_path))
-
-    # 2. Nuke the state
-    controller.file.close_image(vs_id)
-    assert len(controller.view_states) == 0
-
-    # 3. Restore the state via the Sequence Generator
-    list(load_workspace_sequence(gui, controller, str(ws_path)))
-
-    # 4. Verify properties
-    assert len(controller.view_states) == 1
-    new_vs_id = list(controller.view_states.keys())[0]
-    new_vs = controller.view_states[new_vs_id]
-
-    assert new_vs.display.colormap == "Hot"
-    assert new_vs.camera.zoom[ViewMode.AXIAL] == 2.5
-
-
 def test_history_lru_cache(headless_app):
     """Test that the Auto-History JSON caps at 100 items and evicts the oldest entries."""
     controller, viewer, vs_id = headless_app
@@ -672,3 +639,112 @@ def test_renderer_registration_blending():
 
 
 # ===============
+def test_history_is_pure_and_restores_physics(headless_app):
+    """
+    Proves that HistoryManager ONLY saves physical/radiometric state,
+    and intentionally ignores Overlays and ROIs to prevent missing-file crashes.
+    """
+    controller, viewer, vs_id = headless_app
+    vs = controller.view_states[vs_id]
+
+    # 1. Simulate user zooming in and changing Window/Level
+    viewer.set_orientation(ViewMode.AXIAL)
+    vs.camera.zoom[ViewMode.AXIAL] = 3.5
+    vs.display.ww = 800.0
+
+    # 2. Simulate user adding an ROI (which history should IGNORE)
+    vs.rois["fake_roi_id"] = "I am a fake ROI state"
+
+    # 3. Save History
+    controller.history.save_image_state(controller, vs_id)
+
+    # 4. Read the raw history file directly
+    history_entry = controller.history.get_image_state(controller.volumes[vs_id])
+
+    # ASSERTIONS
+    assert history_entry is not None
+    assert history_entry["camera"]["zoom"]["AXIAL"] == 3.5  # Zoom was saved
+    assert history_entry["display"]["ww"] == 800.0  # W/L was saved
+    assert "rois" not in history_entry  # ROIs were safely ignored
+    assert "overlay_path" not in history_entry  # Overlays were safely ignored
+
+
+def test_workspace_strict_hierarchy_load(headless_app, synthetic_image_path, tmp_path):
+    """
+    Proves that the Workspace JSON saves everything (including ROIs) and
+    that the load sequence uses ID Mapping to prevent ID collisions.
+    """
+    controller, viewer, vs_id = headless_app
+
+    # Create a tiny Mock GUI to absorb the UI refresh calls without needing a real window
+    # Create a tiny Mock GUI to absorb the UI refresh calls without needing a real window
+    class MockGUI:
+        def __init__(self):
+            # Provide the dummy layout dictionary the viewer expects!
+            self.ui_cfg = {"layout": {"window_padding": 4}}
+
+        def show_status_message(self, msg):
+            pass
+
+        def refresh_image_list_ui(self):
+            pass
+
+        def refresh_rois_ui(self):
+            pass
+
+        def refresh_sync_ui(self):
+            pass
+
+        def on_window_resize(self):
+            pass
+
+        def set_context_viewer(self, v):
+            pass
+
+    controller.gui = MockGUI()
+
+    # 1. Setup a complex workspace state
+    viewer.zoom = 4.0
+    viewer.pan_offset = [10, 20]
+
+    # Add a mock ROI to the base image
+    fake_roi_id = "99"
+    controller.volumes[fake_roi_id] = type(
+        "MockVol", (), {"file_paths": [synthetic_image_path]}
+    )()
+    controller.view_states[vs_id].rois[fake_roi_id] = type(
+        "MockROI", (), {"to_dict": lambda self: {"name": "Test ROI"}}
+    )()
+    # 2. Save the Workspace
+    ws_path = tmp_path / "test_workspace.json"
+    controller.file.save_workspace(str(ws_path))
+
+    # 3. WIPE THE CONTROLLER COMPLETELY (Simulate a fresh boot)
+    controller.viewers["V1"].drop_image()
+    controller.view_states.clear()
+    controller.volumes.clear()
+    controller.next_image_id = (
+        100  # Force a completely different ID generation to test mapping!
+    )
+
+    # 4. Run the load sequence generator
+    generator = load_workspace_sequence(controller.gui, controller, str(ws_path))
+    for _ in generator:
+        pass  # Exhaust the generator
+
+    # ASSERTIONS
+    new_vs_id = list(controller.view_states.keys())[0]  # Should be '100', not '0'
+    assert new_vs_id != vs_id  # Proves ID mapping worked!
+
+    # Did the Viewer reconnect to the new ID?
+    assert controller.viewers["V1"].image_id == new_vs_id
+    assert controller.viewers["V1"].zoom == 4.0
+    assert controller.viewers["V1"].pan_offset == [10, 20]
+
+    # Did the ROI get queued for loading in the JSON?
+    import json
+
+    with open(ws_path, "r") as f:
+        saved_ws = json.load(f)
+    assert len(saved_ws["images"][vs_id]["rois"]) == 1
+    assert saved_ws["images"][vs_id]["rois"][0]["state"]["name"] == "Test ROI"

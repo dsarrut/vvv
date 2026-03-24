@@ -241,11 +241,18 @@ def load_batch_rois_sequence(
             yield
 
 
-def load_workspace_sequence(gui, controller, file_path):
-    with open(file_path, "r") as f:
-        data = json.load(f)
+def load_workspace_sequence(gui, controller, filepath):
+    """Safely restores a full workspace using ID mapping and strict hierarchy."""
+    import os
+    import json
+    from vvv.utils import ViewMode
 
-    workspace_dir = os.path.dirname(file_path)
+    try:
+        with open(filepath, "r") as f:
+            ws = json.load(f)
+    except Exception as e:
+        gui.show_status_message(f"Failed to load workspace: {e}")
+        return
 
     with dpg.window(
         tag="loading_modal",
@@ -257,7 +264,7 @@ def load_workspace_sequence(gui, controller, file_path):
         width=350,
         height=100,
     ):
-        dpg.add_text("Cleaning up current session...", tag="loading_text")
+        dpg.add_text("Loading Workspace Bases...", tag="loading_text")
         dpg.add_spacer(height=5)
         dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=0.0)
 
@@ -266,97 +273,103 @@ def load_workspace_sequence(gui, controller, file_path):
     dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
     yield
 
-    for vs_id in list(controller.view_states.keys()):
-        controller.file.close_image(vs_id)
+    if dpg.does_item_exist("loading_text"):
+        dpg.set_value("loading_text", "Loading Workspace Bases...")
     yield
 
-    prev_history = getattr(controller, "use_history", True)
-    controller.use_history = False
+    id_map = {}  # Maps old JSON vs_id to the newly assigned vs_id
 
-    id_mapping = {}
-    vols_data = data.get("volumes", {})
-    total_vols = max(1, len(vols_data))
-    processed = 0
-
-    for old_id, v_data in vols_data.items():
-        raw_path = v_data["path"]
-
-        if isinstance(raw_path, list) and len(raw_path) > 0:
-            filename = (
-                os.path.basename(os.path.dirname(raw_path[0])) + " (DICOM Series)"
-            )
-        else:
-            filename = os.path.basename(raw_path)
-
-        if dpg.does_item_exist("loading_text"):
-            dpg.set_value("loading_text", f"Loading volume...\n{filename}")
-            dpg.set_value("loading_progress", processed / total_vols)
-        yield
-
-        if isinstance(raw_path, list):
-            full_path = [resolve_relative_path(p, workspace_dir) for p in raw_path]
-        elif isinstance(raw_path, str) and raw_path.startswith("4D:"):
-            tokens = shlex.split(raw_path[3:].strip())
-            abs_paths = [resolve_relative_path(p, workspace_dir) for p in tokens]
-            full_path = "4D:" + " ".join(f'"{p}"' for p in abs_paths)
-        else:
-            full_path = resolve_relative_path(raw_path, workspace_dir)
-
-        try:
-            new_id = controller.file.load_image(full_path, is_auto_overlay=True)
-            id_mapping[old_id] = new_id
+    # PHASE 1: Load Base Images & Apply Intrinsic State
+    for old_id, img_data in ws.get("images", {}).items():
+        path = img_data.get("path")
+        if path and os.path.exists(path):
+            new_id = controller.file.load_image(path)
+            id_map[old_id] = new_id
 
             vs = controller.view_states[new_id]
-            vs.sync_group = v_data.get("sync_group", 0)
-            vs.camera.from_dict(v_data["camera"])
-            vs.display.from_dict(v_data["display"])
-            vs.is_data_dirty = True
-        except Exception as e:
-            print(f"Failed to load workspace volume: {full_path}")
-
-        processed += 1
+            vs.display.from_dict(img_data.get("display", {}))
+            vs.camera.from_dict(img_data.get("camera", {}))
+            vs.sync_group = img_data.get("sync_group", 0)
         yield
 
-    if dpg.does_item_exist("loading_text"):
-        dpg.set_value("loading_text", "Re-linking fusions and layouts...")
-        dpg.set_value("loading_progress", 1.0)
+    # PHASE 2: Map Viewers to the New Bases
+    for tag, v_data in ws.get("viewers", {}).items():
+        old_img_id = v_data.get("image_id")
+        if old_img_id in id_map:
+            new_id = id_map[old_img_id]
+            viewer = controller.viewers[tag]
+            viewer.set_image(new_id)
+            viewer.set_orientation(ViewMode[v_data["orientation"]])
+            viewer.zoom = v_data.get("zoom", 1.0)
+            viewer.pan_offset = v_data.get("pan_offset", [0, 0])
+            viewer.needs_recenter = v_data.get("needs_recenter", False)
     yield
 
-    for old_id, v_data in vols_data.items():
-        old_ov = v_data.get("overlay_id")
-        if old_ov and old_ov in id_mapping and old_id in id_mapping:
-            base_id = id_mapping[old_id]
-            over_id = id_mapping[old_ov]
-            controller.view_states[base_id].set_overlay(
-                over_id, controller.volumes[over_id]
-            )
+    if dpg.does_item_exist("loading_text"):
+        dpg.set_value("loading_text", "Restoring Overlays and ROIs...")
 
-        for roi_data in v_data.get("rois", []):
-            abs_path = resolve_relative_path(roi_data["path"], workspace_dir)
-            if os.path.exists(abs_path):
-                try:
-                    new_roi_id = controller.roi.load_binary_mask(base_id, abs_path)
-                    controller.view_states[base_id].rois[new_roi_id].from_dict(
-                        roi_data["state"]
-                    )
-                except Exception as e:
-                    print(f"Failed to load workspace ROI {abs_path}: {e}")
+    total_images = len(ws.get("images", {}))  # Get the total count!
+    current_image = 0
 
-    for v_tag, v_data in data.get("viewers", {}).items():
-        viewer = controller.viewers[v_tag]
-        old_img_id = v_data.get("image_id")
+    # PHASE 3: Load Overlays and ROIs
+    for old_id, img_data in ws.get("images", {}).items():
+        current_image += 1
+        if old_id not in id_map:
+            continue
+        new_id = id_map[old_id]
+        vs = controller.view_states[new_id]
 
-        if old_img_id and old_img_id in id_mapping:
-            viewer.set_image(id_mapping[old_img_id])
-        else:
-            viewer.drop_image()
+        # 3A: Overlay
+        ov_info = img_data.get("overlay")
+        if ov_info and os.path.exists(ov_info["path"]):
+            ov_id = controller.file.load_image(ov_info["path"])
+            controller.volumes[ov_id].is_overlay_only = True
+            ov_vs = controller.view_states[ov_id]
+            ov_vs.display.colormap = ov_info.get("colormap", "Grayscale")
+            vs.set_overlay(ov_id, controller.volumes[ov_id])
+            vs.display.overlay_mode = ov_info.get("mode", "Registration")
+            vs.display.overlay_opacity = ov_info.get("opacity", 0.5)
 
-        viewer.set_orientation(ViewMode[v_data.get("orientation", "AXIAL")])
+        # Update progress bar!
+        if dpg.does_item_exist("loading_progress"):
+            dpg.set_value("loading_progress", (current_image - 0.5) / total_images)
+        yield
 
-    controller.use_history = prev_history
+        # 3B: ROIs
+        for roi_data in img_data.get("rois", []):
+            r_path = roi_data.get("path")
+            r_state = roi_data.get("state", {})
+            if r_path and os.path.exists(r_path):
+                controller.roi.load_binary_mask(
+                    new_id,
+                    r_path,
+                    name=r_state.get("name"),
+                    color=r_state.get("color", [255, 0, 0]),
+                    mode=r_state.get("source_mode", "Ignore BG (val)"),
+                    target_val=r_state.get("source_val", 0.0),
+                )
+                latest_roi_id = list(vs.rois.keys())[-1]
+                vs.rois[latest_roi_id].opacity = r_state.get("opacity", 0.5)
+                vs.rois[latest_roi_id].visible = r_state.get("visible", True)
+                vs.rois[latest_roi_id].is_contour = r_state.get("is_contour", False)
+
+        # Update progress bar!
+        if dpg.does_item_exist("loading_progress"):
+            dpg.set_value("loading_progress", current_image / total_images)
+        yield
+
+    # PHASE 4: Finalize Synchronization
+    for new_id in id_map.values():
+        controller.sync.propagate_sync(new_id)
+        controller.update_all_viewers_of_image(new_id)
+
     gui.refresh_image_list_ui()
+    gui.refresh_rois_ui()
     gui.refresh_sync_ui()
-    gui.set_context_viewer(controller.viewers["V1"])
+    gui.on_window_resize()
+
+    if id_map:
+        gui.set_context_viewer(controller.viewers["V1"])
 
     if dpg.does_item_exist("loading_modal"):
         dpg.delete_item("loading_modal")

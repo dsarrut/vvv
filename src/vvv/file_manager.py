@@ -214,54 +214,72 @@ class FileManager:
         yield (1.0, "Done", found_series)
 
     def save_workspace(self, filepath):
-        import shlex
-        from vvv.utils import get_relative_path
+        workspace = {"viewers": {}, "images": {}}
 
-        workspace_dir = os.path.dirname(filepath)
-        data = {"volumes": {}, "viewers": {}}
+        # 1. Save Viewers
+        for tag, viewer in self.controller.viewers.items():
+            if viewer.image_id:
+                workspace["viewers"][tag] = {
+                    "image_id": viewer.image_id,
+                    "orientation": viewer.orientation.name,
+                    "zoom": viewer.zoom,
+                    "pan_offset": viewer.pan_offset,
+                    "needs_recenter": getattr(viewer, "needs_recenter", False),
+                }
 
-        # 1. Save all open volumes and their states
+        # 2. Save Images & ViewStates
         for vs_id, vs in self.controller.view_states.items():
+            # Skip images that are purely acting as overlays/ROIs to avoid duplicating them as bases
+            if getattr(self.controller.volumes[vs_id], "is_overlay_only", False):
+                continue
+
             vol = self.controller.volumes[vs_id]
 
-            # Handle 4D magic paths and DICOM list paths safely
-            if isinstance(vol.path, list):
-                safe_path = [get_relative_path(p, workspace_dir) for p in vol.path]
-            elif isinstance(vol.path, str) and vol.path.startswith("4D:"):
-                tokens = shlex.split(vol.path[3:].strip())
-                rel_paths = [get_relative_path(p, workspace_dir) for p in tokens]
-                safe_path = "4D:" + " ".join(f'"{p}"' for p in rel_paths)
-            else:
-                safe_path = get_relative_path(vol.path, workspace_dir)
+            # Extract Overlay Info
+            overlay_info = None
+            if (
+                vs.display.overlay_id
+                and vs.display.overlay_id in self.controller.volumes
+            ):
+                ov_vol = self.controller.volumes[vs.display.overlay_id]
+                overlay_info = {
+                    "path": os.path.abspath(ov_vol.file_paths[0]),
+                    "mode": vs.display.overlay_mode,
+                    "opacity": vs.display.overlay_opacity,
+                    "colormap": self.controller.view_states[
+                        vs.display.overlay_id
+                    ].display.colormap,
+                }
 
-            # Convert ROI paths to relative paths
-            rois_data = []
+            # Extract ROIs Info
+            rois_list = []
             for roi_id, roi_state in vs.rois.items():
                 if roi_id in self.controller.volumes:
                     r_vol = self.controller.volumes[roi_id]
                     if r_vol.file_paths:
-                        r_path = get_relative_path(r_vol.file_paths[0], workspace_dir)
-                        rois_data.append({"path": r_path, "state": roi_state.to_dict()})
+                        rois_list.append(
+                            {
+                                "path": os.path.abspath(r_vol.file_paths[0]),
+                                "state": roi_state.to_dict(),
+                            }
+                        )
 
-            data["volumes"][vs_id] = {
-                "path": safe_path,
+            workspace["images"][vs_id] = {
+                "path": os.path.abspath(vol.file_paths[0]),
                 "sync_group": vs.sync_group,
-                "overlay_id": vs.display.overlay_id,
-                "camera": vs.camera.to_dict(),
                 "display": vs.display.to_dict(),
-            }
-
-        # 2. Save which viewer is looking at what
-        for v_tag, viewer in self.controller.viewers.items():
-            data["viewers"][v_tag] = {
-                "image_id": viewer.image_id,
-                "orientation": (
-                    viewer.orientation.name if viewer.orientation else "AXIAL"
-                ),
+                "camera": vs.camera.to_dict(),
+                "overlay": overlay_info,
+                "rois": rois_list,
             }
 
         with open(filepath, "w") as f:
-            json.dump(data, f, indent=4)
+            json.dump(workspace, f, indent=4)
+
+        if self.controller.gui:
+            self.controller.gui.show_status_message(
+                f"Saved Workspace: {os.path.basename(filepath)}"
+            )
 
     def close_image(self, vs_id):
         if vs_id in self.controller.view_states:
