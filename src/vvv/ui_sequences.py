@@ -1,54 +1,9 @@
 import os
-import time
 import json
 import shlex
 import dearpygui.dearpygui as dpg
-
-from vvv.utils import ViewMode, resolve_relative_path, resolve_history_path_key
 from vvv.config import ROI_COLORS
-
-
-def load_history_rois_sequence(gui, controller, img_id):
-    """Yielding generator to animate the progress bar while restoring ROIs."""
-    if not controller.use_history:
-        return
-
-    vol = controller.volumes[img_id]
-    vs = controller.view_states[img_id]
-
-    history_entry = controller.history.get_image_state(vol)
-    if not history_entry or not history_entry.get("rois"):
-        return
-
-    rois = history_entry["rois"]
-    total_rois = len(rois)
-
-    for i, roi_data in enumerate(rois):
-        roi_path = resolve_history_path_key(roi_data["path"])
-        filename = os.path.basename(roi_path)
-
-        if dpg.does_item_exist("loading_text"):
-            dpg.set_value(
-                "loading_text", f"Restoring ROI ({i+1}/{total_rois}):\n{filename}"
-            )
-        if dpg.does_item_exist("loading_progress"):
-            dpg.set_value("loading_progress", i / total_rois)
-
-        time.sleep(0.05)
-        yield  # Forces the UI to visually update!
-
-        if os.path.exists(roi_path):
-            try:
-                # Safely extract the original rules from the history save
-                mode = roi_data["state"].get("source_mode", "Ignore BG (val)")
-                val = roi_data["state"].get("source_val", 0.0)
-                new_roi_id = controller.roi.load_binary_mask(
-                    img_id, roi_path, mode=mode, target_val=val
-                )
-                vs.rois[new_roi_id].from_dict(roi_data["state"])
-            except Exception as e:
-                print(f"Failed to restore ROI {filename}: {e}")
-        yield
+from vvv.utils import ViewMode, resolve_relative_path
 
 
 def load_single_image_sequence(gui, controller, file_path):
@@ -78,7 +33,6 @@ def load_single_image_sequence(gui, controller, file_path):
 
     try:
         img_id = controller.file.load_image(file_path)
-        yield from load_history_rois_sequence(gui, controller, img_id)
 
         if dpg.does_item_exist("loading_text"):
             dpg.set_value("loading_text", "Applying synchronization and layouts...")
@@ -161,7 +115,6 @@ def load_batch_images_sequence(gui, controller, file_paths):
         try:
             img_id = controller.file.load_image(path)
             loaded_ids.append(img_id)
-            yield from load_history_rois_sequence(gui, controller, img_id)
         except Exception as e:
             warnings.append(f"- {filename}: {e}")
         yield
@@ -314,7 +267,7 @@ def load_workspace_sequence(gui, controller, file_path):
     yield
 
     for vs_id in list(controller.view_states.keys()):
-        self.controller.file.close_image(vs_id)
+        controller.file.close_image(vs_id)
     yield
 
     prev_history = getattr(controller, "use_history", True)
@@ -453,8 +406,6 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
             base_id = controller.file.load_image(base_path)
             loaded_ids.append(base_id)
             id_to_group[base_id] = sync_group
-
-            yield from load_history_rois_sequence(gui, controller, base_id)
 
             if task.get("base_cmap"):
                 controller.view_states[base_id].display.colormap = task["base_cmap"]

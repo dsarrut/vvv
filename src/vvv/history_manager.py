@@ -36,34 +36,17 @@ class HistoryManager:
         primary_path = vol.file_paths[0]
         key = get_history_path_key(primary_path)
 
-        # Extract Overlay Path
-        overlay_path = None
-        if vs.display.overlay_id and vs.display.overlay_id in controller.volumes:
-            ov_path = controller.volumes[vs.display.overlay_id].file_paths[0]
-            overlay_path = get_history_path_key(ov_path)
-
         # Remove the key if it exists so we can push it to the "end" of the dictionary (LRU logic)
         if key in self.data:
             del self.data[key]
 
-        # Extract ROI paths and states
-        rois_list = []
-        for roi_id, roi_state in vs.rois.items():
-            if roi_id in controller.volumes:
-                r_vol = controller.volumes[roi_id]
-                if r_vol.file_paths:
-                    r_path = get_history_path_key(r_vol.file_paths[0])
-                    rois_list.append({"path": r_path, "state": roi_state.to_dict()})
-
-        # Cast NumPy arrays to native Python types
+        # Only save intrinsic physical and display state! No Overlays or ROIs.
         self.data[key] = {
             "shape3d": [int(x) for x in vol.shape3d],
             "spacing": [float(x) for x in vol.spacing],
             "origin": [float(x) for x in vol.origin],
             "camera": vs.camera.to_dict(),
             "display": vs.display.to_dict(),
-            "overlay_path": overlay_path,
-            "rois": rois_list,
         }
 
         # Enforce the 100 files limit by deleting the oldest item(s) at the front of the dict
@@ -82,14 +65,13 @@ class HistoryManager:
 
         entry = self.data[key]
 
-        # Strict Geometry Validation (No more mtime!)
+        # Strict Geometry Validation (If the image was cropped/resampled externally, drop history)
         if entry.get("shape3d") != list(volume.shape3d):
             return None
 
         if not np.allclose(entry.get("spacing"), volume.spacing, atol=1e-4):
             return None
 
-        # Validate origin (with a safe fallback if loading an old history file)
         if "origin" in entry:
             if not np.allclose(entry.get("origin"), volume.origin, atol=1e-4):
                 return None
