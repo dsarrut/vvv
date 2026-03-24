@@ -1,59 +1,16 @@
 import os
-import copy
 import json
 import numpy as np
 import SimpleITK as sitk
 from pathlib import Path
+from vvv.utils import ViewMode
 from vvv.roi_manager import ROIManager
-from vvv.geometry import SpatialEngine
 from vvv.file_manager import FileManager
 from vvv.sync_manager import SyncManager
-from vvv.state.view_state import ViewState, CameraState, DisplayState
-from vvv.utils import ViewMode, slice_to_voxel
+from vvv.utils import get_history_path_key
+from vvv.settings_manager import SettingsManager
+from vvv.image import SliceRenderer, RenderLayer
 from vvv.config import DEFAULT_SETTINGS, WL_PRESETS, COLORMAPS
-from vvv.image import VolumeData, SliceRenderer, RenderLayer
-from vvv.utils import get_history_path_key, resolve_history_path_key
-
-
-class SettingsManager:
-    def __init__(self):
-        if os.name == "nt":
-            self.config_dir = Path(os.getenv("APPDATA")) / "VVV"
-        else:
-            self.config_dir = Path.home() / ".config" / "vvv"
-
-        self.config_path = self.config_dir / ".vv_settings"
-        self.data = copy.deepcopy(DEFAULT_SETTINGS)
-        self.load()
-
-    def _deep_update(self, default_dict, user_dict):
-        for key, value in user_dict.items():
-            if (
-                isinstance(value, dict)
-                and key in default_dict
-                and isinstance(default_dict[key], dict)
-            ):
-                self._deep_update(default_dict[key], value)
-            else:
-                default_dict[key] = value
-
-    def load(self):
-        if self.config_path.exists():
-            try:
-                with open(self.config_path, "r") as f:
-                    user_settings = json.load(f)
-                    self._deep_update(self.data, user_settings)
-            except Exception as e:
-                print(f"Error loading settings: {e}")
-
-    def reset(self):
-        self.data = copy.deepcopy(DEFAULT_SETTINGS)
-
-    def save(self):
-        self.config_dir.mkdir(parents=True, exist_ok=True)
-        with open(self.config_path, "w") as f:
-            json.dump(self.data, f, indent=4)
-        return str(self.config_path)
 
 
 class HistoryManager:
