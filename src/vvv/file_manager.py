@@ -1,6 +1,7 @@
 import os
 import json
 from vvv.image import VolumeData
+from vvv.state.view_state import ViewState
 from vvv.utils import resolve_history_path_key
 
 
@@ -11,7 +12,6 @@ class FileManager:
         self.controller = controller
 
     def load_image(self, path, is_auto_overlay=False):
-        from vvv.core import ViewState
 
         img_id = str(self.controller.next_image_id)
         self.controller.next_image_id += 1
