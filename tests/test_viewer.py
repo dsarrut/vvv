@@ -71,7 +71,7 @@ def headless_app(synthetic_image_path):
         controller.viewers[tag] = SliceViewer(tag, controller)
     gui = MainGUI(controller)
     controller.gui = gui
-    vs_id = controller.load_image(synthetic_image_path)
+    vs_id = controller.file.load_image(synthetic_image_path)
     viewer = controller.viewers["V1"]
     viewer.set_image(vs_id)
     gui.context_viewer = viewer
@@ -110,7 +110,7 @@ def test_exact_coordinate_and_value_mapping(headless_app):
 def test_overlay_fusion_resampling_accuracy(headless_app, synthetic_overlay_path):
     controller, viewer, vs_id_base = headless_app
     vs_base = controller.view_states[vs_id_base]
-    vs_id_overlay = controller.load_image(synthetic_overlay_path)
+    vs_id_overlay = controller.file.load_image(synthetic_overlay_path)
     vol_overlay = controller.volumes[vs_id_overlay]
     vs_base.set_overlay(vs_id_overlay, vol_overlay)
 
@@ -123,7 +123,7 @@ def test_sync_correspondence_between_different_geometries(
     headless_app, synthetic_overlay_path
 ):
     controller, viewer1, vs_id1 = headless_app
-    vs_id2 = controller.load_image(synthetic_overlay_path)
+    vs_id2 = controller.file.load_image(synthetic_overlay_path)
     viewer2 = controller.viewers["V2"]
     viewer2.set_image(vs_id2)
 
@@ -282,10 +282,10 @@ def test_workspace_serialization(headless_app, tmp_path):
     vs.display.colormap = "Hot"
 
     ws_path = tmp_path / "test_workspace.vvw"
-    controller.save_workspace(str(ws_path))
+    controller.file.save_workspace(str(ws_path))
 
     # 2. Nuke the state
-    controller.close_image(vs_id)
+    controller.file.close_image(vs_id)
     assert len(controller.view_states) == 0
 
     # 3. Restore the state via the Sequence Generator
@@ -326,7 +326,7 @@ def test_window_level_sync_propagation(
 ):
     """Test that changing W/L on one image cascades to grouped images without UI clicking."""
     controller, viewer, vs1_id = headless_app
-    vs2_id = controller.load_image(synthetic_overlay_path)
+    vs2_id = controller.file.load_image(synthetic_overlay_path)
 
     # Put both in Group 1
     vs1 = controller.view_states[vs1_id]
@@ -351,7 +351,7 @@ def test_window_level_sync_propagation(
 def test_4d_time_scrolling(headless_app, synthetic_4d_path):
     """Test that 4D images correctly loop time frames and update crosshair values."""
     controller, viewer, _ = headless_app
-    vs_id_4d = controller.load_image(synthetic_4d_path)
+    vs_id_4d = controller.file.load_image(synthetic_4d_path)
     vs = controller.view_states[vs_id_4d]
     viewer.set_image(vs_id_4d)
 
@@ -380,7 +380,7 @@ def test_mpr_orientation_switch(headless_app, tmp_path):
     img_path = tmp_path / "square.nrrd"
     sitk.WriteImage(sitk_img, str(img_path))
 
-    square_id = controller.load_image(str(img_path))
+    square_id = controller.file.load_image(str(img_path))
     viewer.set_image(square_id)
 
     viewer.set_orientation(ViewMode.AXIAL)
@@ -521,7 +521,7 @@ def test_roi_statistics_math(headless_app, tmp_path):
     base_path = tmp_path / "base.nrrd"
     sitk.WriteImage(base_img, str(base_path))
 
-    base_id = controller.load_image(str(base_path))
+    base_id = controller.file.load_image(str(base_path))
 
     # 2. Create a 3x3x3 ROI Mask where ONLY the exact center voxel is 1
     roi_data = np.zeros((3, 3, 3), dtype=np.uint8)

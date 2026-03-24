@@ -77,7 +77,7 @@ def load_single_image_sequence(gui, controller, file_path):
         yield
 
     try:
-        img_id = controller.load_image(file_path)
+        img_id = controller.file.load_image(file_path)
         yield from load_history_rois_sequence(gui, controller, img_id)
 
         if dpg.does_item_exist("loading_text"):
@@ -159,7 +159,7 @@ def load_batch_images_sequence(gui, controller, file_paths):
         yield
 
         try:
-            img_id = controller.load_image(path)
+            img_id = controller.file.load_image(path)
             loaded_ids.append(img_id)
             yield from load_history_rois_sequence(gui, controller, img_id)
         except Exception as e:
@@ -314,7 +314,7 @@ def load_workspace_sequence(gui, controller, file_path):
     yield
 
     for vs_id in list(controller.view_states.keys()):
-        controller.close_image(vs_id)
+        self.controller.file.close_image(vs_id)
     yield
 
     prev_history = getattr(controller, "use_history", True)
@@ -350,7 +350,7 @@ def load_workspace_sequence(gui, controller, file_path):
             full_path = resolve_relative_path(raw_path, workspace_dir)
 
         try:
-            new_id = controller.load_image(full_path, is_auto_overlay=True)
+            new_id = controller.file.load_image(full_path, is_auto_overlay=True)
             id_mapping[old_id] = new_id
 
             vs = controller.view_states[new_id]
@@ -450,7 +450,7 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
         yield
 
         try:
-            base_id = controller.load_image(base_path)
+            base_id = controller.file.load_image(base_path)
             loaded_ids.append(base_id)
             id_to_group[base_id] = sync_group
 
@@ -478,7 +478,7 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
             yield
 
             try:
-                fuse_id = controller.load_image(fuse_path)
+                fuse_id = controller.file.load_image(fuse_path)
                 loaded_ids.append(fuse_id)
                 id_to_group[fuse_id] = sync_group
                 files_processed += 1

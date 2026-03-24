@@ -195,7 +195,7 @@ class DicomBrowserWindow:
 
     def _run_scan(self, folder, recurse):
         # Consume the generator yielded from core.py
-        for result in self.controller.scan_dicom_folder(folder, recursive=recurse):
+        for result in self.controller.file.scan_dicom_folder(folder, recursive=recurse):
             if len(result) == 2:
                 pct, dirname = result
                 if dpg.does_item_exist("dicom_scan_progress"):

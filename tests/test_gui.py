@@ -52,7 +52,7 @@ def headless_gui_app(synthetic_volume_factory):
     controller.gui = gui
 
     base_path = synthetic_volume_factory("base.nii.gz", val=100.0)
-    vs_id = controller.load_image(base_path)
+    vs_id = controller.file.load_image(base_path)
 
     viewer = controller.viewers["V1"]
     viewer.set_image(vs_id)
@@ -98,8 +98,8 @@ def test_gui_sync_between_images(headless_gui_app, synthetic_volume_factory):
     # Load two more images
     path2 = synthetic_volume_factory("img2.nii.gz", val=200.0)
     path3 = synthetic_volume_factory("img3.nii.gz", val=300.0)
-    vs2_id = controller.load_image(path2)
-    vs3_id = controller.load_image(path3)
+    vs2_id = controller.file.load_image(path2)
+    vs3_id = controller.file.load_image(path3)
 
     # 1. Simulate UI: Put Img1 and Img2 into "Group 1", leave Img3 in "None"
     gui.on_sync_group_change(sender=None, value="Group 1", user_data=vs1_id)
@@ -171,7 +171,7 @@ def test_gui_fusion_controls(headless_gui_app, synthetic_volume_factory, monkeyp
 
     # 2. Load Overlay Image
     ov_path = synthetic_volume_factory("overlay.nii.gz", val=500.0)
-    ov_id = controller.load_image(ov_path)
+    ov_id = controller.file.load_image(ov_path)
 
     # 3. Simulate UI: Select Overlay from Combo Box
     gui.on_fusion_target_selected(

@@ -184,8 +184,8 @@ class ROIManager:
         if mask_vol.data.size == 0:
             raise ValueError("Outside the base image FOV (or completely empty).")
 
-        mask_id = str(self.controller._next_image_id)
-        self.controller._next_image_id += 1
+        mask_id = str(self.controller.next_image_id)
+        self.controller.next_image_id += 1
         self.controller.volumes[mask_id] = mask_vol
 
         if name is None:

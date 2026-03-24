@@ -584,7 +584,7 @@ class MainGUI:
                     btn_close = dpg.add_button(
                         label="\uf00d",
                         width=20,
-                        callback=lambda s, a, u: self.controller.close_image(u),
+                        callback=lambda s, a, u: self.controller.file.close_image(u),
                         user_data=vs_id,
                     )
 
@@ -1787,7 +1787,7 @@ class MainGUI:
             if not file_path.endswith(".vvw"):
                 file_path += ".vvw"
 
-            self.controller.save_workspace(file_path)
+            self.controller.file.save_workspace(file_path)
             self.show_status_message(f"Workspace saved: {os.path.basename(file_path)}")
 
     def on_open_workspace_clicked(self, sender=None, app_data=None, user_data=None):
