@@ -133,7 +133,7 @@ def test_sync_correspondence_between_different_geometries(
     viewer2.set_orientation(ViewMode.AXIAL)
 
     viewer1.update_crosshair_data(pix_x=2.5, pix_y=2.5)
-    controller.propagate_sync(vs_id1)
+    controller.sync.propagate_sync(vs_id1)
 
     vs1 = controller.view_states[vs_id1]
     vs2 = controller.view_states[vs_id2]
@@ -342,7 +342,7 @@ def test_window_level_sync_propagation(
 
     # Change Base W/L and Propagate
     vs1.display.ww = 142.5
-    controller.propagate_window_level(vs1_id)
+    controller.sync.propagate_window_level(vs1_id)
 
     # Verify Target adopted the value via the Controller logic alone
     assert vs2.display.ww == 142.5

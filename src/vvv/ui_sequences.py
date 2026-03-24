@@ -101,7 +101,7 @@ def load_single_image_sequence(gui, controller, file_path):
             v.tag for v in controller.viewers.values() if v.image_id == img_id
         ]
         if same_image_viewers:
-            controller.unify_ppm(same_image_viewers)
+            controller.sync.unify_ppm(same_image_viewers)
 
         gui.set_context_viewer(target_viewer)
         gui.refresh_image_list_ui()
@@ -528,7 +528,7 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
             v.tag for v in controller.viewers.values() if v.image_id == img_id
         ]
         if same_viewers:
-            controller.unify_ppm(same_viewers)
+            controller.sync.unify_ppm(same_viewers)
 
     group_applied = False
     for img_id in loaded_ids:

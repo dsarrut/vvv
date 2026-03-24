@@ -264,7 +264,7 @@ class SliceViewer:
                 self.set_pixels_per_mm(old_ppm)
             if old_center is not None:
                 self.center_on_physical_coord(old_center)
-            self.controller.propagate_camera(self)
+            self.controller.sync.propagate_camera(self)
 
     def init_slice_texture(self):
         if not self.is_image_orientation() or not self.volume:
@@ -650,7 +650,7 @@ class SliceViewer:
                 ovs = self.controller.view_states[self.view_state.display.overlay_id]
                 ovs.display.ww = ww
                 ovs.display.wl = wl
-                self.controller.propagate_window_level(
+                self.controller.sync.propagate_window_level(
                     self.view_state.display.overlay_id
                 )
             else:
@@ -665,7 +665,7 @@ class SliceViewer:
             return
         self.view_state.display.ww = max(1e-20, ww)
         self.view_state.display.wl = wl
-        self.controller.propagate_window_level(self.image_id)
+        self.controller.sync.propagate_window_level(self.image_id)
 
     def update_crosshair_data(self, pix_x, pix_y):
         if self.view_state:
@@ -998,15 +998,15 @@ class SliceViewer:
             self.controller.reset_image_view(self.image_id, hard=True)
             self.controller.update_all_viewers_of_image(self.image_id)
             # Because W/L, colormaps, and overlays changed, we must push syncs
-            self.controller.propagate_window_level(self.image_id)
-            self.controller.propagate_colormap(self.image_id)
-            self.controller.propagate_overlay_mode(self.image_id)
+            self.controller.sync.propagate_window_level(self.image_id)
+            self.controller.sync.propagate_colormap(self.image_id)
+            self.controller.sync.propagate_overlay_mode(self.image_id)
         else:
             # self.view_state.reset_view()
             self.controller.reset_image_view(self.image_id, hard=False)
 
         self.is_geometry_dirty = True
-        self.controller.propagate_sync(self.image_id)
+        self.controller.sync.propagate_sync(self.image_id)
         self.controller.update_all_viewers_of_image(self.image_id)
 
         # If the active viewer was reset, force the sidebar to update its overlay/info text
@@ -1076,7 +1076,7 @@ class SliceViewer:
             self.slice_idx = self.num_slices - 1
 
         self.update_crosshair_from_slice()
-        self.controller.propagate_sync(self.image_id)
+        self.controller.sync.propagate_sync(self.image_id)
         self.view_state.is_data_dirty = True
 
     def on_time_scroll(self, delta):
@@ -1090,7 +1090,7 @@ class SliceViewer:
         self.view_state.camera.time_idx = (self.view_state.camera.time_idx + delta) % nt
 
         self.update_crosshair_from_slice()
-        self.controller.propagate_sync(self.image_id)
+        self.controller.sync.propagate_sync(self.image_id)
         self.view_state.is_data_dirty = True
 
     def on_drag(self, data):
@@ -1122,13 +1122,13 @@ class SliceViewer:
             px, py = self.get_mouse_slice_coords(ignore_hover=True, allow_outside=True)
             if px is not None:
                 self.update_crosshair_data(px, py)
-                self.controller.propagate_sync(self.image_id)
+                self.controller.sync.propagate_sync(self.image_id)
 
         elif is_ctrl and is_button:
             self.pan_offset[0] = self.drag_start_pan[0] + total_dx
             self.pan_offset[1] = self.drag_start_pan[1] + total_dy
             self.is_geometry_dirty = True
-            self.controller.propagate_camera(self)
+            self.controller.sync.propagate_camera(self)
 
         elif is_shift and is_button:
             # --- DYNAMIC SENSITIVITY FIX ---
@@ -1178,4 +1178,4 @@ class SliceViewer:
                 self.view_state.shared_ppm = base_scale * self.zoom
 
         self.is_geometry_dirty = True
-        self.controller.propagate_camera(self)
+        self.controller.sync.propagate_camera(self)

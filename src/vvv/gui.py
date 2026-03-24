@@ -1561,7 +1561,7 @@ class MainGUI:
             self.context_viewer.view_state.display.wl = new_wl
             self.context_viewer.view_state.display.base_threshold = new_thr
 
-            self.controller.propagate_window_level(self.context_viewer.image_id)
+            self.controller.sync.propagate_window_level(self.context_viewer.image_id)
         except ValueError:
             pass
 
@@ -1603,7 +1603,7 @@ class MainGUI:
         ):
             return
         viewer.view_state.apply_wl_preset(user_data)
-        self.controller.propagate_window_level(viewer.image_id)
+        self.controller.sync.propagate_window_level(viewer.image_id)
 
     def on_colormap_menu_clicked(self, sender, app_data, user_data):
         viewer = self.context_viewer
@@ -1614,12 +1614,12 @@ class MainGUI:
         ):
             return
         viewer.view_state.display.colormap = user_data
-        self.controller.propagate_colormap(viewer.image_id)
+        self.controller.sync.propagate_colormap(viewer.image_id)
 
     def on_sync_wl_toggle(self, sender, app_data, user_data):
         viewer = self.context_viewer
         if viewer and viewer.image_id and app_data:
-            self.controller.propagate_window_level(viewer.image_id)
+            self.controller.sync.propagate_window_level(viewer.image_id)
 
     def on_visibility_toggle(self, sender, value, user_data):
         viewer = self.context_viewer
@@ -1668,7 +1668,7 @@ class MainGUI:
         if not group_viewer_tags:
             return
 
-        self.controller.unify_ppm(group_viewer_tags)
+        self.controller.sync.unify_ppm(group_viewer_tags)
 
         if master_vs_id:
             master_viewer = next(
@@ -1686,7 +1686,7 @@ class MainGUI:
                         self.controller.viewers[tag].center_on_physical_coord(
                             phys_center
                         )
-            self.controller.propagate_sync(master_vs_id)
+            self.controller.sync.propagate_sync(master_vs_id)
 
         self.controller.update_all_viewers_of_image(vs_id)
         self.refresh_image_list_ui()
@@ -1720,10 +1720,10 @@ class MainGUI:
         viewer.view_state.is_data_dirty = True
 
         if app_data == "Registration":
-            self.controller.propagate_window_level(viewer.image_id)
+            self.controller.sync.propagate_window_level(viewer.image_id)
 
         # Pushes the sync to other viewers and forces the UI to show/hide the checkerboard sliders
-        self.controller.propagate_overlay_mode(viewer.image_id)
+        self.controller.sync.propagate_overlay_mode(viewer.image_id)
         self.update_sidebar_info(viewer)
 
     def on_fusion_checkerboard_changed(self, sender, app_data, user_data):
@@ -1737,7 +1737,7 @@ class MainGUI:
             viewer.view_state.display.overlay_checkerboard_swap = app_data
 
         viewer.view_state.is_data_dirty = True
-        self.controller.propagate_overlay_mode(viewer.image_id)
+        self.controller.sync.propagate_overlay_mode(viewer.image_id)
 
     def on_fusion_opacity_changed(self, sender, app_data, user_data):
         if self.context_viewer and self.context_viewer.view_state:
@@ -2196,7 +2196,7 @@ class MainGUI:
         self.update_sidebar_crosshair(viewer)
 
         # 4. Broadcast this jump to any fused overlays!
-        self.controller.propagate_sync(viewer.image_id)
+        self.controller.sync.propagate_sync(viewer.image_id)
 
     # ==========================================
     # 5. MODALS & POPUPS

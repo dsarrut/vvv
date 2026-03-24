@@ -9,6 +9,7 @@ from vvv.utils import ViewMode, slice_to_voxel
 from vvv.config import DEFAULT_SETTINGS, WL_PRESETS, COLORMAPS
 from vvv.image import VolumeData, SliceRenderer, RenderLayer
 from vvv.utils import get_history_path_key, resolve_history_path_key
+from vvv.sync_manager import SyncManager
 
 
 class SettingsManager:
@@ -680,8 +681,10 @@ class Controller:
         self.volumes = {}
         self.view_states = {}
         self.viewers = {}
+        self.sync = SyncManager(self)
         self.settings = SettingsManager()
         self.history = HistoryManager()
+
         self.use_history = True
         self._next_image_id = 0
 
@@ -703,14 +706,14 @@ class Controller:
 
         group_viewer_tags = [v.tag for v in self.viewers.values() if v.image_id]
         if group_viewer_tags:
-            self.unify_ppm(group_viewer_tags)
+            self.sync.unify_ppm(group_viewer_tags)
             master_viewer = self.viewers[group_viewer_tags[0]]
             phys_center = master_viewer.get_center_physical_coord()
             if phys_center is not None:
                 for tag in group_viewer_tags:
                     self.viewers[tag].center_on_physical_coord(phys_center)
 
-        self.propagate_sync(first_vs_id)
+        self.sync.propagate_sync(first_vs_id)
         if self.gui:
             self.gui.refresh_sync_ui()
             self.gui.refresh_image_list_ui()
@@ -1227,7 +1230,7 @@ class Controller:
             np.array([cx, cy, cz])
         )
 
-        self.propagate_sync(base_id)
+        self.sync.propagate_sync(base_id)
 
         target_group = vs.sync_group
         for viewer in self.viewers.values():
@@ -1409,26 +1412,6 @@ class Controller:
 
         return {"base_val": base_val, "overlay_val": overlay_val, "rois": roi_names}
 
-    def unify_ppm(self, target_viewer_tags):
-        valid_viewers = [
-            self.viewers[tag]
-            for tag in target_viewer_tags
-            if self.viewers[tag].view_state
-        ]
-        if not valid_viewers:
-            return
-
-        max_ppm = 0.0
-        for viewer in valid_viewers:
-            ppm = viewer.get_pixels_per_mm()
-            if ppm > max_ppm:
-                max_ppm = ppm
-
-        if max_ppm > 0:
-            for viewer in valid_viewers:
-                viewer.set_pixels_per_mm(max_ppm)
-                viewer.is_geometry_dirty = True
-
     def update_all_viewers_of_image(self, vs_id):
         for viewer in self.viewers.values():
             if viewer.image_id == vs_id:
@@ -1491,7 +1474,7 @@ class Controller:
         # Re-apply unifying math so it looks exactly like the initial load!
         same_viewers = [v.tag for v in self.viewers.values() if v.image_id == vs_id]
         if same_viewers:
-            self.unify_ppm(same_viewers)
+            self.sync.unify_ppm(same_viewers)
 
         # Force all linked viewers to perfectly re-center
         for tag in same_viewers:
@@ -1712,230 +1695,3 @@ class Controller:
         if outdated_changed and self.gui:
             self.gui.refresh_image_list_ui()
             self.gui.refresh_rois_ui()
-
-    def propagate_sync(self, source_vs_id):
-        source_vs = self.view_states[source_vs_id]
-        if source_vs.sync_group == 0:
-            target_ids = [source_vs_id]
-        else:
-            target_ids = [
-                tid
-                for tid, vs in self.view_states.items()
-                if vs.sync_group == source_vs.sync_group
-            ]
-
-        # Use the explicit display-aware method!
-        # Use the Black Box for the source!
-        is_src_buf = source_vs.base_display_data is not None
-        world_phys = source_vs.space.display_to_world(
-            np.array(source_vs.camera.crosshair_voxel[:3]), is_buffered=is_src_buf
-        )
-
-        for target_id in target_ids:
-            target_vs = self.view_states[target_id]
-
-            if target_id == source_vs_id:
-                source_vox = source_vs.camera.crosshair_voxel
-                target_vs.camera.crosshair_voxel = source_vox.copy()
-                target_vs.camera.crosshair_phys_coord = (
-                    target_vs.space.display_to_world(
-                        np.array(source_vox[:3]), is_buffered=is_src_buf
-                    )
-                )
-                # ... [keep slices assignment]
-                target_vs.camera.slices[ViewMode.AXIAL] = int(source_vox[2])
-                target_vs.camera.slices[ViewMode.SAGITTAL] = int(source_vox[0])
-                target_vs.camera.slices[ViewMode.CORONAL] = int(source_vox[1])
-            else:
-                phys_pos = world_phys
-                target_vol = target_vs.volume
-
-                # Use the Black Box for the target!
-                is_tgt_buf = target_vs.base_display_data is not None
-                target_vox = target_vs.space.world_to_display(
-                    phys_pos, is_buffered=is_tgt_buf
-                )
-
-                nt = target_vs.volume.num_timepoints
-                target_vs.camera.time_idx = min(source_vs.camera.time_idx, nt - 1)
-
-                target_vs.camera.crosshair_voxel = [
-                    target_vox[0],
-                    target_vox[1],
-                    target_vox[2],
-                    target_vs.camera.time_idx,
-                ]
-                target_vs.camera.crosshair_phys_coord = phys_pos
-
-                target_vs.camera.slices[ViewMode.AXIAL] = int(
-                    np.clip(np.floor(target_vox[2] + 0.5), 0, target_vol.shape3d[0] - 1)
-                )
-                target_vs.camera.slices[ViewMode.SAGITTAL] = int(
-                    np.clip(np.floor(target_vox[0] + 0.5), 0, target_vol.shape3d[2] - 1)
-                )
-                target_vs.camera.slices[ViewMode.CORONAL] = int(
-                    np.clip(np.floor(target_vox[1] + 0.5), 0, target_vol.shape3d[1] - 1)
-                )
-
-            ix, iy, iz = [
-                int(np.clip(np.floor(c + 0.5), 0, limit - 1))
-                for c, limit in zip(
-                    target_vs.camera.crosshair_voxel[:3],
-                    [
-                        target_vs.volume.shape3d[2],
-                        target_vs.volume.shape3d[1],
-                        target_vs.volume.shape3d[0],
-                    ],
-                )
-            ]
-
-            if target_vs.volume.num_timepoints > 1:
-                target_vs.crosshair_value = target_vs.volume.data[
-                    target_vs.camera.time_idx, iz, iy, ix
-                ]
-            else:
-                target_vs.crosshair_value = target_vs.volume.data[iz, iy, ix]
-
-            target_vs.is_data_dirty = True
-
-        for viewer in self.viewers.values():
-            if viewer.image_id in target_ids:
-                viewer.is_geometry_dirty = True
-
-    def propagate_colormap(self, source_vs_id):
-        source_vs = self.view_states[source_vs_id]
-
-        sync_wl = False
-        if self.gui and hasattr(self.gui, "get_sync_wl_state"):
-            sync_wl = self.gui.get_sync_wl_state()
-
-        target_group = source_vs.sync_group
-        if sync_wl and target_group != 0:
-            for target_id, vs in self.view_states.items():
-                if vs.sync_group == target_group and not getattr(
-                    vs.volume, "is_rgb", False
-                ):
-                    vs.display.colormap = source_vs.display.colormap
-                    vs.is_data_dirty = True
-        else:
-            source_vs.is_data_dirty = True
-
-        for viewer in self.viewers.values():
-            if viewer.view_state:
-                if (
-                    viewer.image_id == source_vs_id
-                    or (
-                        sync_wl
-                        and target_group != 0
-                        and viewer.view_state.sync_group == target_group
-                    )
-                    or viewer.view_state.display.overlay_id == source_vs_id
-                ):
-                    viewer.update_render()
-                    viewer.is_geometry_dirty = True
-
-    def propagate_window_level(self, source_vs_id):
-        source_vs = self.view_states[source_vs_id]
-
-        sync_wl = False
-        if self.gui and hasattr(self.gui, "get_sync_wl_state"):
-            sync_wl = self.gui.get_sync_wl_state()
-
-        dirty_ids = {source_vs_id}
-
-        target_group = source_vs.sync_group
-        if sync_wl and target_group != 0:
-            for target_id, vs in self.view_states.items():
-                if vs.sync_group == target_group and not getattr(
-                    vs.volume, "is_rgb", False
-                ):
-                    vs.display.ww = source_vs.display.ww
-                    vs.display.wl = source_vs.display.wl
-                    vs.display.base_threshold = source_vs.display.base_threshold
-                    dirty_ids.add(target_id)
-
-        # Perform a single pass to sync Window/Level across the flat Base <-> Overlay hierarchy
-        for tid in list(dirty_ids):
-            t_vs = self.view_states[tid]
-
-            # 1. Top-Down: If this image is a Base with a Registration overlay, push W/L down to the overlay
-            if t_vs.display.overlay_id and t_vs.display.overlay_mode == "Registration":
-                ovs = self.view_states.get(t_vs.display.overlay_id)
-                if ovs and not getattr(ovs.volume, "is_rgb", False):
-                    ovs.display.ww, ovs.display.wl = t_vs.display.ww, t_vs.display.wl
-                    dirty_ids.add(t_vs.display.overlay_id)
-
-            # 2. Bottom-Up: If this image is acting as an Overlay for a Base in Registration mode, push W/L up to the Base
-            for base_id, base_vs in self.view_states.items():
-                if (
-                    base_vs.display.overlay_id == tid
-                    and base_vs.display.overlay_mode == "Registration"
-                ):
-                    if not getattr(base_vs.volume, "is_rgb", False):
-                        base_vs.display.ww, base_vs.display.wl = (
-                            t_vs.display.ww,
-                            t_vs.display.wl,
-                        )
-                        dirty_ids.add(base_id)
-
-        for tid in dirty_ids:
-            self.view_states[tid].is_data_dirty = True
-
-        for viewer in self.viewers.values():
-            if viewer.view_state:
-                if (
-                    viewer.image_id in dirty_ids
-                    or viewer.view_state.display.overlay_id in dirty_ids
-                ):
-                    viewer.update_render()
-                    viewer.is_geometry_dirty = True
-
-    def propagate_camera(self, source_viewer):
-        if not source_viewer.view_state:
-            return
-        source_vs = source_viewer.view_state
-
-        if source_vs.sync_group == 0:
-            target_ids = [source_viewer.image_id]
-        else:
-            target_ids = [
-                tid
-                for tid, vs in self.view_states.items()
-                if vs.sync_group == source_vs.sync_group
-            ]
-
-        phys_center = source_viewer.get_center_physical_coord()
-        if phys_center is None:
-            return
-
-        target_ppm = source_viewer.get_pixels_per_mm()
-
-        for viewer in self.viewers.values():
-            if viewer.image_id in target_ids and viewer != source_viewer:
-                viewer.set_pixels_per_mm(target_ppm)
-                viewer.center_on_physical_coord(phys_center)
-
-    def propagate_overlay_mode(self, source_vs_id):
-        source_vs = self.view_states[source_vs_id]
-        target_group = source_vs.sync_group
-
-        if target_group != 0:
-            for vs in self.view_states.values():
-                if vs.sync_group == target_group:
-                    vs.display.overlay_mode = source_vs.display.overlay_mode
-                    vs.display.overlay_checkerboard_size = (
-                        source_vs.display.overlay_checkerboard_size
-                    )
-                    vs.display.overlay_checkerboard_swap = (
-                        source_vs.display.overlay_checkerboard_swap
-                    )
-                    vs.is_data_dirty = True
-        else:
-            source_vs.is_data_dirty = True
-
-        for viewer in self.viewers.values():
-            if viewer.view_state and (
-                viewer.image_id == source_vs_id
-                or viewer.view_state.sync_group == target_group
-            ):
-                viewer.update_render()

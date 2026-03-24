@@ -38,7 +38,7 @@ class NavigationTool:
                 px, py = viewer.get_mouse_slice_coords(ignore_hover=True)
                 if px is not None:
                     viewer.update_crosshair_data(px, py)
-                    self.manager.controller.propagate_sync(viewer.image_id)
+                    self.manager.controller.sync.propagate_sync(viewer.image_id)
 
     def on_drag(self, drag_data):
         if self.drag_viewer:
