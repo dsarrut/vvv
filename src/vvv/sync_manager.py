@@ -8,7 +8,41 @@ class SyncManager:
     def __init__(self, controller):
         self.controller = controller
 
-    def unify_ppm(self, target_viewer_tags):
+    # ==========================================
+    # INTERNAL HELPERS
+    # ==========================================
+
+    def _get_sync_group_vs_ids(self, source_vs_id):
+        """Returns all ViewState IDs in the same sync group as the source image."""
+        source_vs = self.controller.view_states.get(source_vs_id)
+        if not source_vs or source_vs.sync_group == 0:
+            return [source_vs_id]
+
+        return [
+            tid
+            for tid, vs in self.controller.view_states.items()
+            if vs.sync_group == source_vs.sync_group
+        ]
+
+    def _trigger_redraw(self, modified_ids):
+        """Flags images and viewers to redraw if they or their overlays were modified."""
+        for tid in modified_ids:
+            if tid in self.controller.view_states:
+                self.controller.view_states[tid].is_data_dirty = True
+
+        for viewer in self.controller.viewers.values():
+            if viewer.view_state and (
+                viewer.image_id in modified_ids
+                or viewer.view_state.display.overlay_id in modified_ids
+            ):
+                viewer.update_render()
+                viewer.is_geometry_dirty = True
+
+    # ==========================================
+    # PUBLIC SYNC METHODS
+    # ==========================================
+
+    def propagate_ppm(self, target_viewer_tags):
         valid_viewers = [
             self.controller.viewers[tag]
             for tag in target_viewer_tags
@@ -30,17 +64,9 @@ class SyncManager:
 
     def propagate_sync(self, source_vs_id):
         source_vs = self.controller.view_states[source_vs_id]
-        if source_vs.sync_group == 0:
-            target_ids = [source_vs_id]
-        else:
-            target_ids = [
-                tid
-                for tid, vs in self.controller.view_states.items()
-                if vs.sync_group == source_vs.sync_group
-            ]
+        target_ids = self._get_sync_group_vs_ids(source_vs_id)
 
         # Use the explicit display-aware method!
-        # Use the Black Box for the source!
         is_src_buf = source_vs.base_display_data is not None
         world_phys = source_vs.space.display_to_world(
             np.array(source_vs.camera.crosshair_voxel[:3]), is_buffered=is_src_buf
@@ -65,7 +91,6 @@ class SyncManager:
                 phys_pos = world_phys
                 target_vol = target_vs.volume
 
-                # Use the Black Box for the target!
                 is_tgt_buf = target_vs.base_display_data is not None
                 target_vox = target_vs.space.world_to_display(
                     phys_pos, is_buffered=is_tgt_buf
@@ -92,6 +117,7 @@ class SyncManager:
                     np.clip(np.floor(target_vox[1] + 0.5), 0, target_vol.shape3d[1] - 1)
                 )
 
+            # Update crosshair value
             ix, iy, iz = [
                 int(np.clip(np.floor(c + 0.5), 0, limit - 1))
                 for c, limit in zip(
@@ -111,11 +137,7 @@ class SyncManager:
             else:
                 target_vs.crosshair_value = target_vs.volume.data[iz, iy, ix]
 
-            target_vs.is_data_dirty = True
-
-        for viewer in self.controller.viewers.values():
-            if viewer.image_id in target_ids:
-                viewer.is_geometry_dirty = True
+        self._trigger_redraw(target_ids)
 
     def propagate_colormap(self, source_vs_id):
         source_vs = self.controller.view_states[source_vs_id]
@@ -124,30 +146,16 @@ class SyncManager:
         if self.controller.gui and hasattr(self.controller.gui, "get_sync_wl_state"):
             sync_wl = self.controller.gui.get_sync_wl_state()
 
-        target_group = source_vs.sync_group
-        if sync_wl and target_group != 0:
-            for target_id, vs in self.controller.view_states.items():
-                if vs.sync_group == target_group and not getattr(
-                    vs.volume, "is_rgb", False
-                ):
-                    vs.display.colormap = source_vs.display.colormap
-                    vs.is_data_dirty = True
-        else:
-            source_vs.is_data_dirty = True
+        target_ids = (
+            self._get_sync_group_vs_ids(source_vs_id) if sync_wl else [source_vs_id]
+        )
 
-        for viewer in self.controller.viewers.values():
-            if viewer.view_state:
-                if (
-                    viewer.image_id == source_vs_id
-                    or (
-                        sync_wl
-                        and target_group != 0
-                        and viewer.view_state.sync_group == target_group
-                    )
-                    or viewer.view_state.display.overlay_id == source_vs_id
-                ):
-                    viewer.update_render()
-                    viewer.is_geometry_dirty = True
+        for tid in target_ids:
+            vs = self.controller.view_states[tid]
+            if not getattr(vs.volume, "is_rgb", False):
+                vs.display.colormap = source_vs.display.colormap
+
+        self._trigger_redraw(target_ids)
 
     def propagate_window_level(self, source_vs_id):
         source_vs = self.controller.view_states[source_vs_id]
@@ -156,18 +164,17 @@ class SyncManager:
         if self.controller.gui and hasattr(self.controller.gui, "get_sync_wl_state"):
             sync_wl = self.controller.gui.get_sync_wl_state()
 
-        dirty_ids = {source_vs_id}
+        target_ids = (
+            self._get_sync_group_vs_ids(source_vs_id) if sync_wl else [source_vs_id]
+        )
+        dirty_ids = set(target_ids)
 
-        target_group = source_vs.sync_group
-        if sync_wl and target_group != 0:
-            for target_id, vs in self.controller.view_states.items():
-                if vs.sync_group == target_group and not getattr(
-                    vs.volume, "is_rgb", False
-                ):
-                    vs.display.ww = source_vs.display.ww
-                    vs.display.wl = source_vs.display.wl
-                    vs.display.base_threshold = source_vs.display.base_threshold
-                    dirty_ids.add(target_id)
+        for tid in target_ids:
+            vs = self.controller.view_states[tid]
+            if not getattr(vs.volume, "is_rgb", False):
+                vs.display.ww = source_vs.display.ww
+                vs.display.wl = source_vs.display.wl
+                vs.display.base_threshold = source_vs.display.base_threshold
 
         # Perform a single pass to sync Window/Level across the flat Base <-> Overlay hierarchy
         for tid in list(dirty_ids):
@@ -193,31 +200,13 @@ class SyncManager:
                         )
                         dirty_ids.add(base_id)
 
-        for tid in dirty_ids:
-            self.controller.view_states[tid].is_data_dirty = True
-
-        for viewer in self.controller.viewers.values():
-            if viewer.view_state:
-                if (
-                    viewer.image_id in dirty_ids
-                    or viewer.view_state.display.overlay_id in dirty_ids
-                ):
-                    viewer.update_render()
-                    viewer.is_geometry_dirty = True
+        self._trigger_redraw(list(dirty_ids))
 
     def propagate_camera(self, source_viewer):
         if not source_viewer.view_state:
             return
-        source_vs = source_viewer.view_state
 
-        if source_vs.sync_group == 0:
-            target_ids = [source_viewer.image_id]
-        else:
-            target_ids = [
-                tid
-                for tid, vs in self.controller.view_states.items()
-                if vs.sync_group == source_vs.sync_group
-            ]
+        target_ids = self._get_sync_group_vs_ids(source_viewer.image_id)
 
         phys_center = source_viewer.get_center_physical_coord()
         if phys_center is None:
@@ -232,25 +221,16 @@ class SyncManager:
 
     def propagate_overlay_mode(self, source_vs_id):
         source_vs = self.controller.view_states[source_vs_id]
-        target_group = source_vs.sync_group
+        target_ids = self._get_sync_group_vs_ids(source_vs_id)
 
-        if target_group != 0:
-            for vs in self.controller.view_states.values():
-                if vs.sync_group == target_group:
-                    vs.display.overlay_mode = source_vs.display.overlay_mode
-                    vs.display.overlay_checkerboard_size = (
-                        source_vs.display.overlay_checkerboard_size
-                    )
-                    vs.display.overlay_checkerboard_swap = (
-                        source_vs.display.overlay_checkerboard_swap
-                    )
-                    vs.is_data_dirty = True
-        else:
-            source_vs.is_data_dirty = True
+        for tid in target_ids:
+            vs = self.controller.view_states[tid]
+            vs.display.overlay_mode = source_vs.display.overlay_mode
+            vs.display.overlay_checkerboard_size = (
+                source_vs.display.overlay_checkerboard_size
+            )
+            vs.display.overlay_checkerboard_swap = (
+                source_vs.display.overlay_checkerboard_swap
+            )
 
-        for viewer in self.controller.viewers.values():
-            if viewer.view_state and (
-                viewer.image_id == source_vs_id
-                or viewer.view_state.sync_group == target_group
-            ):
-                viewer.update_render()
+        self._trigger_redraw(target_ids)

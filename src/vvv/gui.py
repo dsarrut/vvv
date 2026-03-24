@@ -1668,7 +1668,7 @@ class MainGUI:
         if not group_viewer_tags:
             return
 
-        self.controller.sync.unify_ppm(group_viewer_tags)
+        self.controller.sync.propagate_ppm(group_viewer_tags)
 
         if master_vs_id:
             master_viewer = next(

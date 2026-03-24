@@ -706,7 +706,7 @@ class Controller:
 
         group_viewer_tags = [v.tag for v in self.viewers.values() if v.image_id]
         if group_viewer_tags:
-            self.sync.unify_ppm(group_viewer_tags)
+            self.sync.propagate_ppm(group_viewer_tags)
             master_viewer = self.viewers[group_viewer_tags[0]]
             phys_center = master_viewer.get_center_physical_coord()
             if phys_center is not None:
@@ -1474,7 +1474,7 @@ class Controller:
         # Re-apply unifying math so it looks exactly like the initial load!
         same_viewers = [v.tag for v in self.viewers.values() if v.image_id == vs_id]
         if same_viewers:
-            self.sync.unify_ppm(same_viewers)
+            self.sync.propagate_ppm(same_viewers)
 
         # Force all linked viewers to perfectly re-center
         for tag in same_viewers:
