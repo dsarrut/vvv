@@ -96,7 +96,7 @@ def build_tab_rois(gui):
             dpg.add_button(
                 label="Load ROI...",
                 width=80,
-                callback=gui.on_load_roi_clicked,
+                callback=gui.roi_ui.on_load_roi_clicked,
                 tag="btn_roi_load",
             )
             dpg.add_combo(
@@ -104,7 +104,7 @@ def build_tab_rois(gui):
                 default_value="Binary Mask",
                 width=-1,
                 tag="combo_roi_type",
-                callback=gui.on_roi_type_changed,
+                callback=gui.roi_ui.on_roi_type_changed,
             )
 
         with dpg.group(horizontal=True, tag="group_roi_mode"):
@@ -128,13 +128,13 @@ def build_tab_rois(gui):
             btn_show = dpg.add_button(
                 label="\uf06e",
                 width=20,
-                callback=gui.on_roi_show_all,
+                callback=gui.roi_ui.on_roi_show_all,
                 tag="btn_roi_show_all",
             )
             btn_hide = dpg.add_button(
                 label="\uf070",
                 width=20,
-                callback=gui.on_roi_hide_all,
+                callback=gui.roi_ui.on_roi_hide_all,
                 tag="btn_roi_hide_all",
             )
             if dpg.does_item_exist("icon_font_tag"):
@@ -154,7 +154,7 @@ def build_tab_rois(gui):
         dpg.add_button(
             label="Export All Stats to JSON",
             width=-1,
-            callback=gui.on_export_roi_stats_clicked,
+            callback=gui.roi_ui.on_export_roi_stats_clicked,
             tag="btn_roi_export_stats",
         )
         dpg.add_spacer(height=10)
@@ -187,20 +187,20 @@ def build_tab_reg(gui):
                 label="Load .tfm/.txt",
                 width=80,
                 tag="btn_reg_load",
-                callback=gui.on_reg_load_clicked,
+                callback=gui.reg_ui.on_reg_load_clicked,
             )
             dpg.add_button(
                 label="Save",
                 width=50,
                 tag="btn_reg_save",
-                callback=gui.on_reg_save_clicked,
+                callback=gui.reg_ui.on_reg_save_clicked,
             )
 
             btn_reload = dpg.add_button(
                 label="\uf01e",
                 width=20,
                 tag="btn_reg_reload",
-                callback=gui.on_reg_reload_clicked,
+                callback=gui.reg_ui.on_reg_reload_clicked,
             )
             if dpg.does_item_exist("icon_font_tag"):
                 dpg.bind_item_font(btn_reload, "icon_font_tag")
@@ -215,7 +215,7 @@ def build_tab_reg(gui):
         dpg.add_checkbox(
             label="Apply Transform to Viewers",
             tag="check_reg_apply",
-            callback=gui.on_reg_apply_toggled,
+            callback=gui.reg_ui.on_reg_apply_toggled,
         )
         dpg.add_separator()
 
@@ -244,7 +244,9 @@ def build_tab_reg(gui):
         with dpg.group(horizontal=True):
             dpg.add_text("CoR:")
             dpg.add_input_text(tag="input_reg_cor", width=150, readonly=True)
-            dpg.add_button(label="Center", callback=gui.on_reg_center_cor_clicked)
+            dpg.add_button(
+                label="Center", callback=gui.reg_ui.on_reg_center_cor_clicked
+            )
 
         dpg.add_separator()
 
@@ -258,7 +260,7 @@ def build_tab_reg(gui):
                 default_value="Coarse",
                 horizontal=True,
                 tag="radio_reg_step",
-                callback=gui.on_reg_step_changed,
+                callback=gui.reg_ui.on_reg_step_changed,
             )
 
         dpg.add_spacer(height=5)
@@ -273,7 +275,7 @@ def build_tab_reg(gui):
                 speed=1.0,
                 min_value=-5000.0,
                 max_value=5000.0,
-                callback=gui.on_reg_manual_changed,
+                callback=gui.reg_ui.on_reg_manual_changed,
             )
         with dpg.group(horizontal=True):
             dpg.add_text("Ty ")
@@ -284,7 +286,7 @@ def build_tab_reg(gui):
                 speed=1.0,
                 min_value=-5000.0,
                 max_value=5000.0,
-                callback=gui.on_reg_manual_changed,
+                callback=gui.reg_ui.on_reg_manual_changed,
             )
         with dpg.group(horizontal=True):
             dpg.add_text("Tz ")
@@ -295,7 +297,7 @@ def build_tab_reg(gui):
                 speed=1.0,
                 min_value=-5000.0,
                 max_value=5000.0,
-                callback=gui.on_reg_manual_changed,
+                callback=gui.reg_ui.on_reg_manual_changed,
             )
 
         dpg.add_spacer(height=5)
@@ -310,7 +312,7 @@ def build_tab_reg(gui):
                 speed=1.0,
                 min_value=-360.0,
                 max_value=360.0,
-                callback=gui.on_reg_manual_changed,
+                callback=gui.reg_ui.on_reg_manual_changed,
             )
         with dpg.group(horizontal=True):
             dpg.add_text("Ry ")
@@ -321,7 +323,7 @@ def build_tab_reg(gui):
                 speed=1.0,
                 min_value=-360.0,
                 max_value=360.0,
-                callback=gui.on_reg_manual_changed,
+                callback=gui.reg_ui.on_reg_manual_changed,
             )
         with dpg.group(horizontal=True):
             dpg.add_text("Rz ")
@@ -332,12 +334,16 @@ def build_tab_reg(gui):
                 speed=1.0,
                 min_value=-360.0,
                 max_value=360.0,
-                callback=gui.on_reg_manual_changed,
+                callback=gui.reg_ui.on_reg_manual_changed,
             )
 
         dpg.add_spacer(height=5)
         with dpg.group(horizontal=True):
             dpg.add_button(
-                label="Reset to Zero", width=120, callback=gui.on_reg_reset_clicked
+                label="Reset to Zero",
+                width=120,
+                callback=gui.reg_ui.on_reg_reset_clicked,
             )
-            dpg.add_button(label="Invert", width=-1, callback=gui.on_reg_invert_clicked)
+            dpg.add_button(
+                label="Invert", width=-1, callback=gui.reg_ui.on_reg_invert_clicked
+            )

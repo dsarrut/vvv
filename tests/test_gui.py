@@ -126,18 +126,18 @@ def test_gui_roi_interactions(headless_gui_app, synthetic_volume_factory):
     gui.active_roi_id = roi_id
 
     # 1. Simulate Color Change (DPG uses normalized 0.0 - 1.0 floats for colors)
-    gui.on_roi_color_changed(
+    gui.roi_ui.on_roi_color_changed(
         sender=None, app_data=[1.0, 0.0, 0.0, 1.0], user_data=roi_id
     )
     assert vs.rois[roi_id].color == [255, 0, 0]
 
     # 2. Simulate Opacity Change Slider
-    gui.on_roi_opacity_changed(sender=None, app_data=0.35, user_data=roi_id)
+    gui.roi_ui.on_roi_opacity_changed(sender=None, app_data=0.35, user_data=roi_id)
     assert vs.rois[roi_id].opacity == 0.35
 
     # 3. Simulate Visibility "Eye" Icon Click
     assert vs.rois[roi_id].visible is True
-    gui.on_roi_toggle_visible(sender=None, app_data=None, user_data=roi_id)
+    gui.roi_ui.on_roi_toggle_visible(sender=None, app_data=None, user_data=roi_id)
     assert vs.rois[roi_id].visible is False
 
 
@@ -251,7 +251,7 @@ def test_gui_registration_sliders(headless_gui_app):
 
     # 3. Trigger the GUI update method
     vs.space.is_active = True  # Transform must be active to read it
-    gui._apply_transform_and_keep_world_fixed(viewer)
+    gui.reg_ui.apply_transform_and_keep_world_fixed(viewer)
 
     # 4. Assert the underlying SimpleITK Transform actually received the 15.0mm translation!
     translation = vs.space.transform.GetTranslation()
