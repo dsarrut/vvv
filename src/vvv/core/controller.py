@@ -289,10 +289,14 @@ class Controller:
         return {"base_val": base_val, "overlay_val": overlay_val, "rois": roi_names}
 
     def update_all_viewers_of_image(self, vs_id):
+        # 1. Flag the data as dirty so tick() handles the heavy blending
+        vs = self.view_states.get(vs_id)
+        if vs:
+            vs.is_data_dirty = True
+
+        # 2. Flag the geometry as dirty so tick() handles the crosshair drawing
         for viewer in self.viewers.values():
             if viewer.image_id == vs_id:
-                viewer.draw_crosshair()
-                viewer.update_render()
                 viewer.is_geometry_dirty = True
 
     def update_setting(self, keys, value):
@@ -311,11 +315,11 @@ class Controller:
 
         d[keys[-1]] = value
 
+        # ONLY SET FLAGS!
+        for vs in self.view_states.values():
+            vs.is_data_dirty = True
         for viewer in self.viewers.values():
-            viewer.update_render()
             viewer.is_geometry_dirty = True
-            if viewer.image_id:
-                viewer.draw_crosshair()
 
     def update_transform_manual(self, vs_id, tx, ty, tz, rx_deg, ry_deg, rz_deg):
         vs = self.view_states.get(vs_id)
@@ -329,11 +333,11 @@ class Controller:
 
     def reset_settings(self):
         self.settings.reset()
+        # ONLY SET FLAGS!
+        for vs in self.view_states.values():
+            vs.is_data_dirty = True
         for viewer in self.viewers.values():
-            viewer.update_render()
-            if viewer.image_id:
-                viewer.draw_crosshair()
-                viewer.is_geometry_dirty = True
+            viewer.is_geometry_dirty = True
 
     def reset_image_view(self, vs_id, hard=False):
         """Resets the view and re-applies the boot-up synchronization logic."""
@@ -365,11 +369,11 @@ class Controller:
     def reload_settings(self):
         self.settings.reset()
         self.settings.load()
+        # ONLY SET FLAGS!
+        for vs in self.view_states.values():
+            vs.is_data_dirty = True
         for viewer in self.viewers.values():
-            viewer.update_render()
-            if viewer.image_id:
-                viewer.draw_crosshair()
-                viewer.is_geometry_dirty = True
+            viewer.is_geometry_dirty = True
 
     def reload_image(self, vs_id):
         if vs_id in self.view_states:

@@ -35,7 +35,6 @@ class SyncManager:
                 viewer.image_id in modified_ids
                 or viewer.view_state.display.overlay_id in modified_ids
             ):
-                viewer.update_render()
                 viewer.is_geometry_dirty = True
 
     # ==========================================

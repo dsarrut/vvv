@@ -229,7 +229,6 @@ class SliceViewer:
 
         if self.view_state:
             self.view_state.is_data_dirty = True
-        self.update_render()
         self.is_geometry_dirty = True
 
     def set_current_slice_to_crosshair(self):
@@ -299,14 +298,16 @@ class SliceViewer:
 
     def drop_image(self):
         self.image_id = None
-        if dpg.does_item_exist(self.image_tag):
-            dpg.configure_item(self.image_tag, show=False)
 
+        # 1. Destroy the actual draw_image node so nothing points to the texture
+        if dpg.does_item_exist(self.img_node_tag):
+            dpg.delete_item(self.img_node_tag, children_only=True)
+            self.image_tag = None
+
+        # 2. Safely free the texture memory from the GPU registry
         if self.texture_tag and dpg.does_item_exist(self.texture_tag):
             dpg.delete_item(self.texture_tag)
             self.texture_tag = None
-
-        self.update_render()
 
     def is_image_orientation(self):
         return self.orientation in [ViewMode.AXIAL, ViewMode.SAGITTAL, ViewMode.CORONAL]
