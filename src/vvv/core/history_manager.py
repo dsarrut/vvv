@@ -2,7 +2,6 @@ import os
 import json
 import numpy as np
 from pathlib import Path
-from vvv.utils import get_history_path_key
 
 
 class HistoryManager:
@@ -16,6 +15,14 @@ class HistoryManager:
         self.data = {}
         self.max_history_files = 100  # Enforce limit
         self.load()
+
+    def _portable_key(self, path):
+        """Converts an absolute path to a portable ~ path."""
+        home = os.path.expanduser("~")
+        abs_p = os.path.abspath(path)
+        if abs_p.startswith(home):
+            return abs_p.replace(home, "~", 1)
+        return abs_p
 
     def load(self):
         if self.history_path.exists():
@@ -34,7 +41,7 @@ class HistoryManager:
         vs = controller.view_states[vs_id]
         vol = controller.volumes[vs_id]
         primary_path = vol.file_paths[0]
-        key = get_history_path_key(primary_path)
+        key = self._portable_key(primary_path)
 
         # Remove the key if it exists so we can push it to the "end" of the dictionary (LRU logic)
         if key in self.data:
@@ -58,7 +65,7 @@ class HistoryManager:
 
     def get_image_state(self, volume):
         primary_path = volume.file_paths[0]
-        key = get_history_path_key(primary_path)
+        key = self._portable_key(primary_path)
 
         if key not in self.data:
             return None

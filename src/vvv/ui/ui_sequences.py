@@ -278,16 +278,18 @@ def load_workspace_sequence(gui, controller, filepath):
 
     # PHASE 1: Load Base Images & Apply Intrinsic State
     for old_id, img_data in ws.get("images", {}).items():
-        path = img_data.get("path")
-        if path and os.path.exists(path):
-            new_id = controller.file.load_image(path)
-            id_map[old_id] = new_id
+        raw_path = img_data.get("path")
+        if raw_path:
+            path = os.path.expanduser(raw_path)
+            if os.path.exists(path):
+                new_id = controller.file.load_image(path)
+                id_map[old_id] = new_id
 
-            vs = controller.view_states[new_id]
-            vs.display.from_dict(img_data.get("display", {}))
-            vs.camera.from_dict(img_data.get("camera", {}))
-            vs.sync_group = img_data.get("sync_group", 0)
-        yield
+                vs = controller.view_states[new_id]
+                vs.display.from_dict(img_data.get("display", {}))
+                vs.camera.from_dict(img_data.get("camera", {}))
+                vs.sync_group = img_data.get("sync_group", 0)
+            yield
 
     # PHASE 2: Map Viewers to the New Bases
     for tag, v_data in ws.get("viewers", {}).items():
@@ -318,14 +320,16 @@ def load_workspace_sequence(gui, controller, filepath):
 
         # 3A: Overlay
         ov_info = img_data.get("overlay")
-        if ov_info and os.path.exists(ov_info["path"]):
-            ov_id = controller.file.load_image(ov_info["path"])
-            controller.volumes[ov_id].is_overlay_only = True
-            ov_vs = controller.view_states[ov_id]
-            ov_vs.display.colormap = ov_info.get("colormap", "Grayscale")
-            vs.set_overlay(ov_id, controller.volumes[ov_id])
-            vs.display.overlay_mode = ov_info.get("mode", "Registration")
-            vs.display.overlay_opacity = ov_info.get("opacity", 0.5)
+        if ov_info:
+            ov_path = os.path.expanduser(ov_info["path"])
+            if os.path.exists(ov_path):
+                ov_id = controller.file.load_image(ov_path)
+                controller.volumes[ov_id].is_overlay_only = True
+                ov_vs = controller.view_states[ov_id]
+                ov_vs.display.colormap = ov_info.get("colormap", "Grayscale")
+                vs.set_overlay(ov_id, controller.volumes[ov_id])
+                vs.display.overlay_mode = ov_info.get("mode", "Registration")
+                vs.display.overlay_opacity = ov_info.get("opacity", 0.5)
 
         # Update progress bar!
         if dpg.does_item_exist("loading_progress"):
@@ -334,7 +338,8 @@ def load_workspace_sequence(gui, controller, filepath):
 
         # 3B: ROIs
         for roi_data in img_data.get("rois", []):
-            r_path = roi_data.get("path")
+            raw_r_path = roi_data.get("path", "")
+            r_path = os.path.expanduser(raw_r_path)
             r_state = roi_data.get("state", {})
             if r_path and os.path.exists(r_path):
                 controller.roi.load_binary_mask(

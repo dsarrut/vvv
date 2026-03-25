@@ -422,6 +422,9 @@ class VolumeData:
             if not self.file_paths:
                 raise FileNotFoundError(f"No files found for path: {self.path}")
 
+            # path expansion
+            self.file_paths = [os.path.expanduser(p) for p in self.file_paths]
+
         self.sitk_image = self.read_image_from_disk(self.file_paths)
         self.data = sitk.GetArrayViewFromImage(self.sitk_image)
 
