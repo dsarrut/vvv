@@ -42,6 +42,10 @@ def load_single_image_sequence(gui, controller, file_path):
         )
         target_viewer.set_image(img_id)
 
+        target_viewer.set_orientation(
+            controller.view_states[img_id].camera.last_orientation
+        )
+
         empty_viewers = [v for v in controller.viewers.values() if v.image_id is None]
         if empty_viewers:
             controller.default_viewers_orientation()
@@ -127,6 +131,10 @@ def load_batch_images_sequence(gui, controller, file_paths):
             gui.context_viewer if gui.context_viewer else controller.viewers["V1"]
         )
         target_viewer.set_image(loaded_ids[0])
+
+        target_viewer.set_orientation(
+            controller.view_states[loaded_ids[0]].camera.last_orientation
+        )
 
         empty_viewers = [v for v in controller.viewers.values() if v.image_id is None]
         if empty_viewers:

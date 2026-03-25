@@ -255,6 +255,10 @@ class SliceViewer:
         old_center = self.get_center_physical_coord() if is_old_image else None
 
         self.orientation = orientation
+
+        if self.view_state:
+            self.view_state.camera.last_orientation = orientation
+
         if self.image_id:
             self.set_image(self.image_id)
 

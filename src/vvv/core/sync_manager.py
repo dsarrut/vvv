@@ -12,7 +12,7 @@ class SyncManager:
     # INTERNAL HELPERS
     # ==========================================
 
-    def _get_sync_group_vs_ids(self, source_vs_id):
+    def get_sync_group_vs_ids(self, source_vs_id):
         """Returns all ViewState IDs in the same sync group as the source image."""
         source_vs = self.controller.view_states.get(source_vs_id)
         if not source_vs or source_vs.sync_group == 0:
@@ -24,11 +24,16 @@ class SyncManager:
             if vs.sync_group == source_vs.sync_group
         ]
 
-    def _trigger_redraw(self, modified_ids):
+    def trigger_redraw(self, modified_ids):
         """Flags images and viewers to redraw if they or their overlays were modified."""
         for tid in modified_ids:
             if tid in self.controller.view_states:
                 self.controller.view_states[tid].is_data_dirty = True
+
+        # If any modified image is acting as an overlay, force its base image to redraw too!
+        for vs in self.controller.view_states.values():
+            if vs.display.overlay_id in modified_ids:
+                vs.is_data_dirty = True
 
         for viewer in self.controller.viewers.values():
             if viewer.view_state and (
@@ -63,7 +68,7 @@ class SyncManager:
 
     def propagate_sync(self, source_vs_id):
         source_vs = self.controller.view_states[source_vs_id]
-        target_ids = self._get_sync_group_vs_ids(source_vs_id)
+        target_ids = self.get_sync_group_vs_ids(source_vs_id)
 
         # Use the explicit display-aware method!
         is_src_buf = source_vs.base_display_data is not None
@@ -136,7 +141,7 @@ class SyncManager:
             else:
                 target_vs.crosshair_value = target_vs.volume.data[iz, iy, ix]
 
-        self._trigger_redraw(target_ids)
+        self.trigger_redraw(target_ids)
 
     def propagate_colormap(self, source_vs_id):
         source_vs = self.controller.view_states[source_vs_id]
@@ -154,7 +159,7 @@ class SyncManager:
                         vs.display.colormap = source_vs.display.colormap
                         dirty_ids.add(tid)
 
-        self._trigger_redraw(list(dirty_ids))
+        self.trigger_redraw(list(dirty_ids))
 
     def propagate_window_level(self, source_vs_id):
         source_vs = self.controller.view_states[source_vs_id]
@@ -200,13 +205,13 @@ class SyncManager:
                         )
                         dirty_ids.add(base_id)
 
-        self._trigger_redraw(list(dirty_ids))
+        self.trigger_redraw(list(dirty_ids))
 
     def propagate_camera(self, source_viewer):
         if not source_viewer.view_state:
             return
 
-        target_ids = self._get_sync_group_vs_ids(source_viewer.image_id)
+        target_ids = self.get_sync_group_vs_ids(source_viewer.image_id)
 
         phys_center = source_viewer.get_center_physical_coord()
         if phys_center is None:
@@ -221,7 +226,7 @@ class SyncManager:
 
     def propagate_overlay_mode(self, source_vs_id):
         source_vs = self.controller.view_states[source_vs_id]
-        target_ids = self._get_sync_group_vs_ids(source_vs_id)
+        target_ids = self.get_sync_group_vs_ids(source_vs_id)
 
         for tid in target_ids:
             vs = self.controller.view_states[tid]
@@ -233,4 +238,4 @@ class SyncManager:
                 source_vs.display.overlay_checkerboard_swap
             )
 
-        self._trigger_redraw(target_ids)
+        self.trigger_redraw(target_ids)

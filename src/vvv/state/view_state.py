@@ -27,6 +27,7 @@ class CameraState:
         self.crosshair_phys_coord = None
         self.crosshair_voxel = None
         self.time_idx = 0  # For 4D images
+        self.last_orientation = ViewMode.AXIAL
 
         # Visibility toggles (these are spatially relevant)
         self.show_axis = True
@@ -48,6 +49,7 @@ class CameraState:
             "show_scalebar": bool(self.show_scalebar),
             "show_grid": bool(self.show_grid),
             "show_legend": bool(self.show_legend),
+            "last_orientation": self.last_orientation.name,
             "crosshair_voxel": (
                 [float(x) for x in self.crosshair_voxel]
                 if self.crosshair_voxel
@@ -83,6 +85,9 @@ class CameraState:
         self.show_scalebar = d.get("show_scalebar", self.show_scalebar)
         self.show_grid = d.get("show_grid", self.show_grid)
         self.show_legend = d.get("show_legend", self.show_legend)
+
+        if "last_orientation" in d:
+            self.last_orientation = ViewMode[d["last_orientation"]]
 
         if "crosshair_voxel" in d:
             self.crosshair_voxel = d["crosshair_voxel"]

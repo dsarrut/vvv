@@ -35,14 +35,21 @@ class RoiUI:
             parent=container,
             header_row=False,
             resizable=False,
-            borders_innerH=True,
+            borders_innerH=False,
             scrollY=True,
         ):
-            for _ in range(6):
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
-            dpg.configure_item(
-                dpg.last_item(), width_stretch=True
-            )  # Make 2nd column stretch
+            # 1. Color Box
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+            # 2. ROI Name (This one stretches to fill all empty space!)
+            dpg.add_table_column(width_stretch=True)
+            # 3. Visible (Eye)
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+            # 4. Center Target
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+            # 5. Reload
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+            # 6. Close/Delete
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
 
             for roi_id, roi in viewer.view_state.rois.items():
                 with dpg.table_row():
