@@ -2,12 +2,12 @@ import pytest
 import threading
 import numpy as np
 import SimpleITK as sitk
-from vvv.gui import MainGUI
+from vvv.ui.gui import MainGUI
 from vvv.utils import ViewMode
-from vvv.core import Controller
 import dearpygui.dearpygui as dpg
-from vvv.viewer import SliceViewer
-from vvv.ui_sequences import create_boot_sequence
+from vvv.ui.viewer import SliceViewer
+from vvv.core.controller import Controller
+from vvv.ui.ui_sequences import create_boot_sequence
 
 # ==========================================
 # 1. FIXTURES (Headless GUI Setup)

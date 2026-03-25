@@ -1,12 +1,12 @@
-import SimpleITK as sitk
-import numpy as np
 import os
 import glob
 import shlex
 import time
-from dataclasses import dataclass
+import numpy as np
+import SimpleITK as sitk
 from vvv.utils import ViewMode
-from .config import COLORMAPS
+from vvv.config import COLORMAPS
+from dataclasses import dataclass
 
 
 @dataclass

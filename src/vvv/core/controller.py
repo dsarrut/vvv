@@ -3,13 +3,11 @@ import json
 import numpy as np
 import SimpleITK as sitk
 from vvv.utils import ViewMode
-from vvv.roi_manager import ROIManager
-from vvv.file_manager import FileManager
-from vvv.sync_manager import SyncManager
-from vvv.history_manager import HistoryManager
-from vvv.settings_manager import SettingsManager
-from vvv.image import SliceRenderer, RenderLayer
-from vvv.config import DEFAULT_SETTINGS, WL_PRESETS, COLORMAPS
+from vvv.core.roi_manager import ROIManager
+from vvv.core.file_manager import FileManager
+from vvv.core.sync_manager import SyncManager
+from vvv.core.history_manager import HistoryManager
+from vvv.core.settings_manager import SettingsManager
 
 
 class Controller:

@@ -2,8 +2,8 @@ import os
 import json
 import numpy as np
 import SimpleITK as sitk
-from vvv.image import VolumeData
 from vvv.config import ROI_COLORS
+from vvv.math.image import VolumeData
 
 
 class ROIState:

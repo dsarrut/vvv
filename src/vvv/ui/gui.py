@@ -5,15 +5,20 @@ import threading
 import numpy as np
 from vvv.utils import fmt
 import dearpygui.dearpygui as dpg
-from vvv.ui_settings import SettingsWindow
-from vvv.core import WL_PRESETS, COLORMAPS
-from vvv.ui_dicom import DicomBrowserWindow
-from vvv.ui_interaction import InteractionManager
+from vvv.config import WL_PRESETS, COLORMAPS
+from vvv.ui.ui_settings import SettingsWindow
+from vvv.ui.ui_dicom import DicomBrowserWindow
 from vvv.resources import load_fonts, setup_themes
-from vvv.file_dialog import open_file_dialog, save_file_dialog
-from vvv.ui_theme import build_ui_config, register_dynamic_themes
-from vvv.ui_tabs import build_tab_sync, build_tab_fusion, build_tab_rois, build_tab_reg
-from vvv.ui_sequences import (
+from vvv.ui.ui_interaction import InteractionManager
+from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
+from vvv.ui.ui_theme import build_ui_config, register_dynamic_themes
+from vvv.ui.ui_tabs import (
+    build_tab_sync,
+    build_tab_fusion,
+    build_tab_rois,
+    build_tab_reg,
+)
+from vvv.ui.ui_sequences import (
     load_single_image_sequence,
     load_batch_images_sequence,
     load_batch_rois_sequence,
@@ -1017,7 +1022,7 @@ class MainGUI:
 
             active_vs = self.controller.view_states.get(active_image_id)
             if active_vs:
-                # This only runs if rotation is non-zero in core.py
+                # This only runs if rotation is non-zero in controller.py
                 active_vs.update_base_display_data()
 
             # --- FUSION CALLBACKS MUTED FOR STANDALONE TESTING ---
@@ -1993,7 +1998,7 @@ class MainGUI:
         if isinstance(path, list):
             self.tasks.append(load_batch_images_sequence(self, self.controller, [path]))
         elif isinstance(path, str) and path.startswith("4D:"):
-            from vvv.ui_sequences import load_single_image_sequence
+            from vvv.ui.ui_sequences import load_single_image_sequence
 
             self.tasks.append(load_single_image_sequence(self, self.controller, path))
         else:

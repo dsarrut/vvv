@@ -1,9 +1,6 @@
 import os
-import json
-import shlex
 import dearpygui.dearpygui as dpg
 from vvv.config import ROI_COLORS
-from vvv.utils import ViewMode, resolve_relative_path
 
 
 def load_single_image_sequence(gui, controller, file_path):

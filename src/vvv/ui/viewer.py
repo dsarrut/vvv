@@ -1,8 +1,7 @@
-import dearpygui.dearpygui as dpg
 from vvv.utils import *
-from vvv.core import SliceRenderer, RenderLayer
-from vvv.image import ROILayer
-from vvv.drawing import OverlayDrawer
+import dearpygui.dearpygui as dpg
+from vvv.ui.drawing import OverlayDrawer
+from vvv.math.image import SliceRenderer, RenderLayer, ROILayer
 
 
 class ViewportMapper:
@@ -498,7 +497,7 @@ class SliceViewer:
         )
 
     def draw_crosshair(self):
-        """Proxy to the drawing module for external callers (e.g. core.py)."""
+        """Proxy to the drawing module for external callers (e.g. controller.py)."""
         self.drawer.draw_crosshair()
 
     def hide_everything(self):

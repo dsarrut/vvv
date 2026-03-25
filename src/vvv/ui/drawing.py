@@ -1,7 +1,7 @@
-import dearpygui.dearpygui as dpg
 import numpy as np
-from .utils import voxel_to_slice, ViewMode
-from .core import COLORMAPS
+from vvv.config import COLORMAPS
+import dearpygui.dearpygui as dpg
+from vvv.utils import voxel_to_slice
 
 
 class OverlayDrawer:

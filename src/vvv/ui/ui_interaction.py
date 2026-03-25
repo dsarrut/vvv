@@ -1,5 +1,5 @@
-import dearpygui.dearpygui as dpg
 from vvv.utils import ViewMode
+import dearpygui.dearpygui as dpg
 
 
 class NavigationTool:

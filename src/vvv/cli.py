@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import click
-import dearpygui.dearpygui as dpg
-import sys
 import os
 import re
-from .gui import MainGUI
-from .core import Controller
-from .viewer import SliceViewer
-from .resources import get_resource_path
+import sys
+import click
+from vvv.ui.gui import MainGUI
+import dearpygui.dearpygui as dpg
+from vvv.ui.viewer import SliceViewer
+from vvv.core.controller import Controller
+from vvv.resources import get_resource_path
 
 
 def set_macos_dock_info(name, icon_path=None):

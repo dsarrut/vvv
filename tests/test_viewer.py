@@ -1,12 +1,12 @@
 import pytest
 import numpy as np
 import SimpleITK as sitk
-from vvv.gui import MainGUI
-from vvv.core import Controller
+from vvv.ui.gui import MainGUI
 import dearpygui.dearpygui as dpg
-from vvv.viewer import SliceViewer
-from vvv.ui_sequences import load_workspace_sequence
-from vvv.image import RenderLayer, SliceRenderer
+from vvv.ui.viewer import SliceViewer
+from vvv.core.controller import Controller
+from vvv.math.image import RenderLayer, SliceRenderer
+from vvv.ui.ui_sequences import load_workspace_sequence
 from vvv.utils import ViewMode, slice_to_voxel, voxel_to_slice
 
 # ==========================================

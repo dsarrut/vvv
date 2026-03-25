@@ -1,7 +1,7 @@
 import os
-import dearpygui.dearpygui as dpg
 import threading
-from vvv.file_dialog import open_file_dialog
+import dearpygui.dearpygui as dpg
+from vvv.ui.file_dialog import open_file_dialog
 
 
 class DicomBrowserWindow:
@@ -194,7 +194,7 @@ class DicomBrowserWindow:
         ).start()
 
     def _run_scan(self, folder, recurse):
-        # Consume the generator yielded from core.py
+        # Consume the generator yielded from controller.py
         for result in self.controller.file.scan_dicom_folder(folder, recursive=recurse):
             if len(result) == 2:
                 pct, dirname = result
@@ -270,7 +270,7 @@ class DicomBrowserWindow:
         # Cast the SimpleITK tuple into a standard list
         file_list = list(self.active_series["files"])
 
-        from vvv.ui_sequences import load_batch_images_sequence
+        from vvv.ui.ui_sequences import load_batch_images_sequence
 
         self.gui.tasks.append(
             load_batch_images_sequence(self.gui, self.controller, [file_list])

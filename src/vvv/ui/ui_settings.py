@@ -1,7 +1,7 @@
-import dearpygui.dearpygui as dpg
-import json
 import os
-from .core import DEFAULT_SETTINGS
+import json
+import dearpygui.dearpygui as dpg
+from vvv.core.settings_manager import DEFAULT_SETTINGS
 
 
 class SettingsWindow:
