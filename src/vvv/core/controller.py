@@ -167,7 +167,7 @@ class Controller:
         # Cap at 10
         self.settings.data["behavior"]["recent_files"] = recent[:10]
 
-    def _get_volume_physical_center(self, vol):
+    def get_volume_physical_center(self, vol):
         """Calculates the exact physical center of an image volume for the CoR."""
         cx = (vol.shape3d[2] - 1) / 2.0
         cy = (vol.shape3d[1] - 1) / 2.0

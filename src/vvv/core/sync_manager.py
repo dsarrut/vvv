@@ -140,53 +140,54 @@ class SyncManager:
 
     def propagate_colormap(self, source_vs_id):
         source_vs = self.controller.view_states[source_vs_id]
+        dirty_ids = set([source_vs_id])
 
-        sync_wl = False
-        if self.controller.gui and hasattr(self.controller.gui, "get_sync_wl_state"):
-            sync_wl = self.controller.gui.get_sync_wl_state()
+        # Only broadcast if the SOURCE image has W/L Sync enabled
+        if source_vs.sync_group > 0 and source_vs.sync_wl:
+            for tid, vs in self.controller.view_states.items():
+                if (
+                    tid != source_vs_id
+                    and vs.sync_group == source_vs.sync_group
+                    and vs.sync_wl
+                ):
+                    if not getattr(vs.volume, "is_rgb", False):
+                        vs.display.colormap = source_vs.display.colormap
+                        dirty_ids.add(tid)
 
-        target_ids = (
-            self._get_sync_group_vs_ids(source_vs_id) if sync_wl else [source_vs_id]
-        )
-
-        for tid in target_ids:
-            vs = self.controller.view_states[tid]
-            if not getattr(vs.volume, "is_rgb", False):
-                vs.display.colormap = source_vs.display.colormap
-
-        self._trigger_redraw(target_ids)
+        self._trigger_redraw(list(dirty_ids))
 
     def propagate_window_level(self, source_vs_id):
         source_vs = self.controller.view_states[source_vs_id]
+        dirty_ids = set([source_vs_id])
 
-        sync_wl = False
-        if self.controller.gui and hasattr(self.controller.gui, "get_sync_wl_state"):
-            sync_wl = self.controller.gui.get_sync_wl_state()
+        # 1. GROUP SYNC (Horizontal)
+        # Only broadcast to the group if the SOURCE image has W/L Sync enabled!
+        if source_vs.sync_group > 0 and source_vs.sync_wl:
+            for vs_id, vs in self.controller.view_states.items():
+                if (
+                    vs_id != source_vs_id
+                    and vs.sync_group == source_vs.sync_group
+                    and vs.sync_wl
+                ):
+                    vs.display.ww = source_vs.display.ww
+                    vs.display.wl = source_vs.display.wl
+                    vs.display.base_threshold = source_vs.display.base_threshold
+                    vs.is_data_dirty = True
+                    dirty_ids.add(vs_id)
 
-        target_ids = (
-            self._get_sync_group_vs_ids(source_vs_id) if sync_wl else [source_vs_id]
-        )
-        dirty_ids = set(target_ids)
-
-        for tid in target_ids:
-            vs = self.controller.view_states[tid]
-            if not getattr(vs.volume, "is_rgb", False):
-                vs.display.ww = source_vs.display.ww
-                vs.display.wl = source_vs.display.wl
-                vs.display.base_threshold = source_vs.display.base_threshold
-
-        # Perform a single pass to sync Window/Level across the flat Base <-> Overlay hierarchy
+        # 2. OVERLAY SYNC (Vertical - Top-Down & Bottom-Up)
+        # This must run even if group sync is disabled, to keep Registration mode fusions linked.
         for tid in list(dirty_ids):
             t_vs = self.controller.view_states[tid]
 
-            # 1. Top-Down: If this image is a Base with a Registration overlay, push W/L down to the overlay
+            # Top-Down: Base -> Overlay
             if t_vs.display.overlay_id and t_vs.display.overlay_mode == "Registration":
                 ovs = self.controller.view_states.get(t_vs.display.overlay_id)
                 if ovs and not getattr(ovs.volume, "is_rgb", False):
                     ovs.display.ww, ovs.display.wl = t_vs.display.ww, t_vs.display.wl
                     dirty_ids.add(t_vs.display.overlay_id)
 
-            # 2. Bottom-Up: If this image is acting as an Overlay for a Base in Registration mode, push W/L up to the Base
+            # Bottom-Up: Overlay -> Base
             for base_id, base_vs in self.controller.view_states.items():
                 if (
                     base_vs.display.overlay_id == tid

@@ -84,7 +84,7 @@ class RegistrationUI:
                             f"txt_reg_m_{r}_{c}", "1.000" if r == c else "0.000"
                         )
             if vol and dpg.does_item_exist("input_reg_cor"):
-                center = self.controller._get_volume_physical_center(vol)
+                center = self.controller.get_volume_physical_center(vol)
                 dpg.set_value(
                     "input_reg_cor",
                     f"{center[0]:.1f}, {center[1]:.1f}, {center[2]:.1f}",
@@ -342,7 +342,7 @@ class RegistrationUI:
         if vs.space.transform:
             center = vs.space.GetCenter()
         else:
-            center = self.controller._get_volume_physical_center(vol)
+            center = self.controller.get_volume_physical_center(vol)
 
         is_buf = vs.base_display_data is not None
         new_local_vox = vs.space.world_to_display(center, is_buffered=is_buf)

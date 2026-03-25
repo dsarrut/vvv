@@ -274,24 +274,19 @@ def test_history_lru_cache(headless_app):
 # ==========================================
 
 
-def test_window_level_sync_propagation(
-    headless_app, synthetic_overlay_path, monkeypatch
-):
+def test_window_level_sync_propagation(headless_app, synthetic_overlay_path):
     """Test that changing W/L on one image cascades to grouped images without UI clicking."""
     controller, viewer, vs1_id = headless_app
     vs2_id = controller.file.load_image(synthetic_overlay_path)
 
-    # Put both in Group 1
     vs1 = controller.view_states[vs1_id]
     vs2 = controller.view_states[vs2_id]
+
+    # Put both in Group 1 and Opt-In to W/L Sync
     vs1.sync_group = 1
     vs2.sync_group = 1
-
-    # Mock the UI Checkbox existing and being checked
-    monkeypatch.setattr(dpg, "does_item_exist", lambda t: t == "check_sync_wl")
-    monkeypatch.setattr(
-        dpg, "get_value", lambda t: True if t == "check_sync_wl" else None
-    )
+    vs1.sync_wl = True
+    vs2.sync_wl = True
 
     # Change Base W/L and Propagate
     vs1.display.ww = 142.5

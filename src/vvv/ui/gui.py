@@ -15,6 +15,7 @@ from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 from vvv.ui.ui_theme import build_ui_config, register_dynamic_themes
 from vvv.ui.ui_tabs import (
     build_tab_sync,
+    refresh_sync_ui,
     build_tab_fusion,
     build_tab_rois,
     build_tab_reg,
@@ -394,13 +395,6 @@ class MainGUI:
                         user_data="legend",
                         default_value=False,
                     )
-                with dpg.table_row():
-                    dpg.add_checkbox(
-                        label="Sync W/L",
-                        tag="check_sync_wl",
-                        default_value=False,
-                        callback=self.on_sync_wl_toggle,
-                    )
 
     def build_viewer_grid(self):
         """Creates the 2x2 grid of slice viewers."""
@@ -609,11 +603,15 @@ class MainGUI:
             self.highlight_active_image_in_list(self.context_viewer.image_id)
 
     def refresh_sync_ui(self):
+        """Pass-through bridge to the delegated Sync UI."""
+        refresh_sync_ui(self)
+
+    def refresh_sync_ui_OLD(self):
         container = "sync_list_container"
         if not dpg.does_item_exist(container):
             return
         dpg.delete_item(container, children_only=True)
-        self.sync_label_tags.clear()  # <-- Clear the tags
+        self.sync_label_tags.clear()
 
         max_active_group = max(
             [vs.sync_group for vs in self.controller.view_states.values()] + [0]
@@ -621,27 +619,45 @@ class MainGUI:
         num_groups = max(3, len(self.controller.view_states), max_active_group)
         combo_items = ["None"] + [f"Group {i}" for i in range(1, num_groups + 1)]
 
-        with dpg.table(parent=container, header_row=False):
-            dpg.add_table_column(label="Image")
-            dpg.add_table_column(label="Group", width_fixed=True)
+        with dpg.table(
+            parent=container,
+            header_row=False,
+            borders_innerH=True,
+            policy=dpg.mvTable_SizingFixedFit,
+        ):
+            # Image Name
+            dpg.add_table_column(width_stretch=True)
+            # Group
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=80)
+            # W/L Checkbox
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
 
             for vs_id, vs in self.controller.view_states.items():
                 with dpg.table_row():
+                    # 1. Image Name
                     lbl_id = dpg.add_text(vs.volume.name)
-                    self.sync_label_tags[vs_id] = lbl_id  # <-- Track the label
+                    self.sync_label_tags[vs_id] = lbl_id
+
+                    # 2. Group Selection
                     dpg.add_combo(
                         items=combo_items,
                         default_value=(
                             "None" if not vs.sync_group else f"Group {vs.sync_group}"
                         ),
-                        width=100,
+                        width=80,
                         user_data=vs_id,
                         callback=self.on_sync_group_change,
                     )
 
-        # Re-evaluate sidebar states (so the Sync W/L checkbox dynamically toggles on/off)
-        if self.context_viewer:
-            self.update_sidebar_info(self.context_viewer)
+                    # 3. W/L Opt-in Checkbox
+                    is_rgb = getattr(vs.volume, "is_rgb", False)
+                    dpg.add_checkbox(
+                        label="W/L",
+                        default_value=vs.sync_wl,
+                        user_data=vs_id,
+                        callback=self.on_per_image_sync_wl_toggle,
+                        enabled=not is_rgb,  # Don't allow W/L sync on RGB images
+                    )
 
     def refresh_rois_ui(self):
         """Pass-through bridge to the delegated ROI UI."""
@@ -719,12 +735,6 @@ class MainGUI:
                     v.pan_offset[0] += dtx * ppm
                     v.pan_offset[1] += -dtz * ppm
 
-    def get_sync_wl_state(self):
-        """Allows the backend to query the UI state without importing DearPyGui."""
-        if dpg.does_item_exist("check_sync_wl"):
-            return dpg.get_value("check_sync_wl")
-        return False
-
     def update_sidebar_info(self, viewer):
         has_image = viewer is not None and viewer.image_id is not None
         has_rois = has_image and len(viewer.view_state.rois) > 0
@@ -796,7 +806,7 @@ class MainGUI:
                 if dpg.does_item_exist(t):
                     dpg.set_value(t, "")
 
-            for t in ["group_fusion_checkerboard", "check_sync_wl"]:
+            for t in ["group_fusion_checkerboard"]:
                 if dpg.does_item_exist(t):
                     dpg.configure_item(t, show=False)
             return
@@ -849,12 +859,6 @@ class MainGUI:
                     if vs.sync_group == group
                 )
                 can_sync_wl = members > 1
-
-            if dpg.does_item_exist("check_sync_wl"):
-                # Force uncheck it if it becomes invalid, and completely hide it from the UI
-                if not can_sync_wl:
-                    dpg.set_value("check_sync_wl", False)
-                dpg.configure_item("check_sync_wl", show=can_sync_wl)
 
         is_rgb = getattr(vol, "is_rgb", False)
         for t in ["info_window", "info_level", "info_base_threshold"]:
@@ -1152,11 +1156,6 @@ class MainGUI:
         viewer.view_state.display.colormap = user_data
         self.controller.sync.propagate_colormap(viewer.image_id)
 
-    def on_sync_wl_toggle(self, sender, app_data, user_data):
-        viewer = self.context_viewer
-        if viewer and viewer.image_id and app_data:
-            self.controller.sync.propagate_window_level(viewer.image_id)
-
     def on_visibility_toggle(self, sender, value, user_data):
         viewer = self.context_viewer
         if not viewer or not viewer.view_state:
@@ -1226,6 +1225,26 @@ class MainGUI:
 
         self.controller.update_all_viewers_of_image(vs_id)
         self.refresh_image_list_ui()
+
+    def on_per_image_sync_wl_toggle(self, sender, app_data, user_data):
+        vs_id = user_data
+        vs = self.controller.view_states[vs_id]
+        vs.sync_wl = app_data  # True or False
+
+        # If turned on, immediately try to inherit W/L from the group
+        if app_data and vs.sync_group > 0:
+            for other_vs in self.controller.view_states.values():
+                if (
+                    other_vs != vs
+                    and other_vs.sync_group == vs.sync_group
+                    and other_vs.sync_wl
+                ):
+                    vs.display.ww = other_vs.display.ww
+                    vs.display.wl = other_vs.display.wl
+                    vs.display.base_threshold = other_vs.display.base_threshold
+                    vs.is_data_dirty = True
+                    self.controller.update_all_viewers_of_image(vs_id)
+                    break
 
     def on_fusion_target_selected(self, sender, app_data, user_data):
         viewer = self.context_viewer

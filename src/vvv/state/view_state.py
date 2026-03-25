@@ -148,6 +148,7 @@ class ViewState:
         self.volume = volume
         self.is_data_dirty = True
         self.sync_group = 0
+        self.sync_wl = False
 
         self.camera = CameraState(volume)
         self.display = DisplayState()
