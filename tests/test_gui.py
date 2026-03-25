@@ -164,18 +164,20 @@ def test_gui_fusion_controls(headless_gui_app, synthetic_volume_factory, monkeyp
     ov_id = controller.file.load_image(ov_path)
 
     # 3. Simulate UI: Select Overlay from Combo Box
-    gui.on_fusion_target_selected(
+    gui.fusion_ui.on_fusion_target_selected(
         sender=None, app_data=f"{ov_id}: overlay", user_data=None
     )
     assert vs.display.overlay_id == ov_id
     assert vs.display.overlay_data is not None
 
     # 4. Simulate UI: Change Opacity
-    gui.on_fusion_opacity_changed(sender=None, app_data=0.75, user_data=None)
+    gui.fusion_ui.on_fusion_opacity_changed(sender=None, app_data=0.75, user_data=None)
     assert vs.display.overlay_opacity == 0.75
 
     # 5. Simulate UI: Change Mode to Checkerboard
-    gui.on_fusion_mode_changed(sender=None, app_data="Checkerboard", user_data=None)
+    gui.fusion_ui.on_fusion_mode_changed(
+        sender=None, app_data="Checkerboard", user_data=None
+    )
     assert vs.display.overlay_mode == "Checkerboard"
 
 

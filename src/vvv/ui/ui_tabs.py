@@ -103,7 +103,7 @@ def build_tab_fusion(gui):
                     ["None"],
                     tag="combo_fusion_select",
                     width=-1,
-                    callback=gui.on_fusion_target_selected,
+                    callback=gui.fusion_ui.on_fusion_target_selected,
                 )
             with dpg.group(horizontal=True):
                 dpg.add_text("Opacity")
@@ -112,7 +112,7 @@ def build_tab_fusion(gui):
                     min_value=0.0,
                     max_value=1.0,
                     width=-1,
-                    callback=gui.on_fusion_opacity_changed,
+                    callback=gui.fusion_ui.on_fusion_opacity_changed,
                 )
             with dpg.group(horizontal=True):
                 dpg.add_text("Min Thr")
@@ -120,7 +120,7 @@ def build_tab_fusion(gui):
                     tag="input_fusion_threshold",
                     width=-1,
                     step=10,
-                    callback=gui.on_fusion_threshold_changed,
+                    callback=gui.fusion_ui.on_fusion_threshold_changed,
                 )
             with dpg.group(horizontal=True):
                 dpg.add_text("Mode   ")
@@ -128,7 +128,7 @@ def build_tab_fusion(gui):
                     ["Alpha", "Registration", "Checkerboard"],
                     tag="combo_fusion_mode",
                     width=-1,
-                    callback=gui.on_fusion_mode_changed,
+                    callback=gui.fusion_ui.on_fusion_mode_changed,
                 )
             with dpg.group(
                 horizontal=True, tag="group_fusion_checkerboard", show=False
@@ -140,12 +140,12 @@ def build_tab_fusion(gui):
                     max_value=200.0,
                     format="%.1f mm",
                     width=100,
-                    callback=gui.on_fusion_checkerboard_changed,
+                    callback=gui.fusion_ui.on_fusion_checkerboard_changed,
                 )
                 dpg.add_checkbox(
                     label="Swap",
                     tag="check_fusion_chk_swap",
-                    callback=gui.on_fusion_checkerboard_changed,
+                    callback=gui.fusion_ui.on_fusion_checkerboard_changed,
                 )
 
 

@@ -5,6 +5,7 @@ import threading
 from vvv.utils import fmt
 from vvv.ui.ui_roi import RoiUI
 import dearpygui.dearpygui as dpg
+from vvv.ui.ui_fusion import FusionUI
 from vvv.config import WL_PRESETS, COLORMAPS
 from vvv.ui.ui_settings import SettingsWindow
 from vvv.ui.ui_dicom import DicomBrowserWindow
@@ -23,7 +24,6 @@ from vvv.ui.ui_tabs import (
 from vvv.ui.ui_sequences import (
     load_single_image_sequence,
     load_batch_images_sequence,
-    load_batch_rois_sequence,
     load_workspace_sequence,
     create_boot_sequence,
 )
@@ -83,6 +83,7 @@ class MainGUI:
         self.settings_window = SettingsWindow(self.controller)
         self.dicom_window = DicomBrowserWindow(self.controller, self)
         self.interaction = InteractionManager(self, self.controller)
+        self.fusion_ui = FusionUI(self, self.controller)
         self.roi_ui = RoiUI(self, self.controller)
         self.reg_ui = RegistrationUI(self, self.controller)
 
@@ -764,10 +765,6 @@ class MainGUI:
                 False,
                 (
                     [
-                        "combo_fusion_select",
-                        "slider_fusion_opacity",
-                        "input_fusion_threshold",
-                        "combo_fusion_mode",
                         "info_window",
                         "info_level",
                         "info_base_threshold",
@@ -795,7 +792,6 @@ class MainGUI:
                 "info_memory",
                 "info_voxel_type",
                 "info_matrix",
-                "text_fusion_base_image",
                 "info_val",
                 "info_vox",
                 "info_phys",
@@ -806,9 +802,7 @@ class MainGUI:
                 if dpg.does_item_exist(t):
                     dpg.set_value(t, "")
 
-            for t in ["group_fusion_checkerboard"]:
-                if dpg.does_item_exist(t):
-                    dpg.configure_item(t, show=False)
+            self.fusion_ui.refresh_fusion_ui()
             return
 
         vol = viewer.volume
@@ -846,62 +840,7 @@ class MainGUI:
         )
 
         # 1. Update Fusion tab base image name
-        if dpg.does_item_exist("text_fusion_base_image"):
-            dpg.set_value("text_fusion_base_image", vol.name)
-
-            # 2. Toggle the Sync W/L checkbox (Hide if alone or Group 0)
-            group = viewer.view_state.sync_group
-            can_sync_wl = False
-            if group != 0:
-                members = sum(
-                    1
-                    for vs in self.controller.view_states.values()
-                    if vs.sync_group == group
-                )
-                can_sync_wl = members > 1
-
-        is_rgb = getattr(vol, "is_rgb", False)
-        for t in ["info_window", "info_level", "info_base_threshold"]:
-            if dpg.does_item_exist(t):
-                dpg.configure_item(t, enabled=not is_rgb)
-                if is_rgb:
-                    dpg.set_value(t, "RGB")
-
-        if dpg.does_item_exist("combo_fusion_select"):
-            options = ["None"]
-            for vid, ovs in self.controller.view_states.items():
-                if vid != viewer.image_id:
-                    options.append(f"{vid}: {ovs.volume.name}")
-
-            dpg.configure_item("combo_fusion_select", items=options)
-            dpg.configure_item("combo_fusion_select", enabled=True)
-
-            # Evaluate if we currently have an overlay (Backend concept)
-            current_sel = "None"
-            has_overlay = False
-            if viewer.view_state.display.overlay_id:
-                has_overlay = True
-                ovs_name = self.controller.view_states[
-                    viewer.view_state.display.overlay_id
-                ].volume.name
-                current_sel = f"{viewer.view_state.display.overlay_id}: {ovs_name}"
-
-            dpg.set_value("combo_fusion_select", current_sel)
-
-            # Disable/Enable the controls dynamically
-            is_chk = viewer.view_state.display.overlay_mode == "Checkerboard"
-            dpg.configure_item(
-                "slider_fusion_opacity", enabled=has_overlay and not is_chk
-            )
-            dpg.configure_item("input_fusion_threshold", enabled=has_overlay)
-            if dpg.does_item_exist("combo_fusion_mode"):
-                dpg.configure_item("combo_fusion_mode", enabled=has_overlay)
-
-            # Show/Hide the extra row
-            if dpg.does_item_exist("group_fusion_checkerboard"):
-                dpg.configure_item(
-                    "group_fusion_checkerboard", show=has_overlay and is_chk
-                )
+        self.fusion_ui.refresh_fusion_ui()
 
     def update_sidebar_crosshair(self, viewer):
         if not viewer or not viewer.view_state:
@@ -1245,64 +1184,6 @@ class MainGUI:
                     vs.is_data_dirty = True
                     self.controller.update_all_viewers_of_image(vs_id)
                     break
-
-    def on_fusion_target_selected(self, sender, app_data, user_data):
-        viewer = self.context_viewer
-        if not viewer or not viewer.view_state:
-            return
-
-        if app_data == "None":
-            viewer.view_state.set_overlay(None, None)
-            self.update_sidebar_info(viewer)
-        else:
-            target_id = app_data.split(":")[0]
-            target_vol = self.controller.volumes[target_id]
-            self.show_status_message(f"Resampling overlay to physical grid...")
-
-            def _resample():
-                time.sleep(0.05)
-                viewer.view_state.set_overlay(target_id, target_vol)
-                self.show_status_message("Overlay applied")
-                self.update_sidebar_info(viewer)
-
-            threading.Thread(target=_resample, daemon=True).start()
-
-    def on_fusion_mode_changed(self, sender, app_data, user_data):
-        viewer = self.context_viewer
-        if not viewer or not viewer.view_state:
-            return
-        viewer.view_state.display.overlay_mode = app_data
-        viewer.view_state.is_data_dirty = True
-
-        if app_data == "Registration":
-            self.controller.sync.propagate_window_level(viewer.image_id)
-
-        # Pushes the sync to other viewers and forces the UI to show/hide the checkerboard sliders
-        self.controller.sync.propagate_overlay_mode(viewer.image_id)
-        self.update_sidebar_info(viewer)
-
-    def on_fusion_checkerboard_changed(self, sender, app_data, user_data):
-        viewer = self.context_viewer
-        if not viewer or not viewer.view_state:
-            return
-
-        if sender == "slider_fusion_chk_size":
-            viewer.view_state.display.overlay_checkerboard_size = app_data
-        elif sender == "check_fusion_chk_swap":
-            viewer.view_state.display.overlay_checkerboard_swap = app_data
-
-        viewer.view_state.is_data_dirty = True
-        self.controller.sync.propagate_overlay_mode(viewer.image_id)
-
-    def on_fusion_opacity_changed(self, sender, app_data, user_data):
-        if self.context_viewer and self.context_viewer.view_state:
-            self.context_viewer.view_state.display.overlay_opacity = app_data
-            self.context_viewer.view_state.is_data_dirty = True
-
-    def on_fusion_threshold_changed(self, sender, app_data, user_data):
-        if self.context_viewer and self.context_viewer.view_state:
-            self.context_viewer.view_state.display.overlay_threshold = app_data
-            self.context_viewer.view_state.is_data_dirty = True
 
     def on_toggle_auto_save(self, sender, app_data, user_data):
         # app_data holds the new boolean state of the checkbox
