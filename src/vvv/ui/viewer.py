@@ -276,6 +276,8 @@ class SliceViewer:
         if self.texture_tag == new_texture_tag:
             return
 
+        # If a new size/image is loaded, just create a new texture.
+        # (We safely orphan the old 1MB texture to prevent C++ race conditions)
         if not dpg.does_item_exist(new_texture_tag):
             with dpg.texture_registry():
                 dpg.add_dynamic_texture(
@@ -286,6 +288,7 @@ class SliceViewer:
                 )
 
         if dpg.does_item_exist(self.img_node_tag):
+            dpg.configure_item(self.img_node_tag, show=True)
             dpg.delete_item(self.img_node_tag, children_only=True)
             self.image_tag = dpg.draw_image(
                 new_texture_tag,
@@ -299,15 +302,9 @@ class SliceViewer:
     def drop_image(self):
         self.image_id = None
 
-        # 1. Destroy the actual draw_image node so nothing points to the texture
+        # Simply hide the node. Do not delete the texture!
         if dpg.does_item_exist(self.img_node_tag):
-            dpg.delete_item(self.img_node_tag, children_only=True)
-            self.image_tag = None
-
-        # 2. Safely free the texture memory from the GPU registry
-        if self.texture_tag and dpg.does_item_exist(self.texture_tag):
-            dpg.delete_item(self.texture_tag)
-            self.texture_tag = None
+            dpg.configure_item(self.img_node_tag, show=False)
 
     def is_image_orientation(self):
         return self.orientation in [ViewMode.AXIAL, ViewMode.SAGITTAL, ViewMode.CORONAL]
