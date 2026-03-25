@@ -9,20 +9,6 @@ from vvv.math.image import RenderLayer, SliceRenderer
 from vvv.ui.ui_sequences import load_workspace_sequence
 from vvv.utils import ViewMode, slice_to_voxel, voxel_to_slice
 
-# ==========================================
-# 1. FIXTURES (Test Environment Setup)
-# ==========================================
-
-
-@pytest.fixture(autouse=True)
-def fresh_dpg_context():
-    """Create a fresh DPG context and headless viewport for EVERY test."""
-    dpg.create_context()
-    dpg.create_viewport(title="Test Viewport", width=1000, height=800)
-    dpg.setup_dearpygui()
-    yield
-    dpg.destroy_context()
-
 
 @pytest.fixture(scope="session")
 def synthetic_image_path(tmp_path_factory):

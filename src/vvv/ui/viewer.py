@@ -143,10 +143,14 @@ class SliceViewer:
         self.drawer = OverlayDrawer(self)
         self.init_shortcut_dispatcher()
 
-        with dpg.texture_registry():
-            dpg.add_dynamic_texture(
-                width=1, height=1, default_value=np.zeros(4), tag=self.texture_tag
-            )
+        if not dpg.does_item_exist(self.texture_tag):
+            with dpg.texture_registry():
+                dpg.add_dynamic_texture(
+                    width=1,
+                    height=1,
+                    default_value=np.zeros(4, dtype=np.float32),
+                    tag=self.texture_tag,
+                )
 
     @property
     def view_state(self):
@@ -283,7 +287,7 @@ class SliceViewer:
                 dpg.add_dynamic_texture(
                     width=w,
                     height=h,
-                    default_value=np.zeros(w * h * 4),
+                    default_value=np.zeros(w * h * 4, dtype=np.float32),
                     tag=new_texture_tag,
                 )
 

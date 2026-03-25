@@ -9,20 +9,6 @@ from vvv.ui.viewer import SliceViewer
 from vvv.core.controller import Controller
 from vvv.ui.ui_sequences import create_boot_sequence
 
-# ==========================================
-# 1. FIXTURES (Headless GUI Setup)
-# ==========================================
-
-
-@pytest.fixture(autouse=True)
-def fresh_dpg_context():
-    """Create a fresh DPG context and headless viewport for EVERY test."""
-    dpg.create_context()
-    dpg.create_viewport(title="Test Viewport", width=1000, height=800)
-    dpg.setup_dearpygui()
-    yield
-    dpg.destroy_context()
-
 
 @pytest.fixture(scope="session")
 def synthetic_volume_factory(tmp_path_factory):
@@ -70,6 +56,7 @@ def headless_gui_app(synthetic_volume_factory):
 
 def test_gui_window_level_and_colormap(headless_gui_app):
     """Simulates a user typing into the W/L text boxes and using the colormap menu."""
+    print("Running test_gui_window_level_and_colormap")
     controller, gui, viewer, vs_id = headless_gui_app
     vs = viewer.view_state
 
@@ -78,6 +65,7 @@ def test_gui_window_level_and_colormap(headless_gui_app):
     dpg.set_value("info_level", "50.0")
 
     # 2. Simulate User Pressing Enter
+    print("Simulating WL change")
     gui.on_sidebar_wl_change()
 
     # 3. Assert Domain Math Updated
@@ -89,6 +77,7 @@ def test_gui_window_level_and_colormap(headless_gui_app):
 
     # 5. Assert Colormap Updated
     assert vs.display.colormap == "Hot"
+    print("after assess")
 
 
 def test_gui_sync_between_images(headless_gui_app, synthetic_volume_factory):
