@@ -5,22 +5,26 @@ def build_tab_sync(gui):
     cfg_c = gui.ui_cfg["colors"]
     with dpg.tab(label="Sync", tag="tab_sync"):
         dpg.add_spacer(height=5)
-        with dpg.group(horizontal=True):
-            dpg.add_button(
-                label="Link All", callback=lambda: gui.controller.link_all(), width=80
-            )
-            dpg.add_button(
-                label="Unlink All",
-                callback=lambda: gui.controller.unlink_all(),
-                width=80,
-            )
-        dpg.add_spacer(height=5)
         dpg.add_text("Sync Groups", color=cfg_c["text_header"])
         dpg.add_separator()
 
         # Give the container a defined width so columns lay out nicely
         with dpg.child_window(border=False, no_scrollbar=True):
             dpg.add_group(tag="sync_list_container")
+
+            dpg.add_separator()
+            dpg.add_spacer(height=5)
+            with dpg.group(horizontal=True):
+                dpg.add_button(
+                    label="Link All",
+                    callback=lambda: gui.controller.link_all(),
+                    width=80,
+                )
+                dpg.add_button(
+                    label="Unlink All",
+                    callback=lambda: gui.controller.unlink_all(),
+                    width=80,
+                )
 
 
 def refresh_sync_ui(gui):
@@ -86,6 +90,94 @@ def refresh_sync_ui(gui):
 
 
 def build_tab_fusion(gui):
+    cfg_c = gui.ui_cfg["colors"]
+    with dpg.tab(label="Fusion", tag="tab_fusion"):
+        dpg.add_spacer(height=5)
+        dpg.add_text("Active Fusion", color=cfg_c["text_header"])
+        dpg.add_separator()
+        with dpg.group(tag="image_fusion_group"):
+            with dpg.group(horizontal=True):
+                dpg.add_text("Base   ")
+                dpg.add_text(
+                    "-", tag="text_fusion_base_image", color=cfg_c["text_active"]
+                )
+            with dpg.group(horizontal=True):
+                dpg.add_text("Target ")
+                dpg.add_combo(
+                    ["None"],
+                    tag="combo_fusion_select",
+                    width=-1,
+                    callback=gui.fusion_ui.on_fusion_target_selected,
+                )
+            with dpg.group(horizontal=True):
+                dpg.add_text("Opacity")
+                dpg.add_slider_float(
+                    tag="slider_fusion_opacity",
+                    min_value=0.0,
+                    max_value=1.0,
+                    width=-1,
+                    callback=gui.fusion_ui.on_fusion_opacity_changed,
+                )
+
+            # --- NEW: W/L & Threshold Layout (Matches Active Viewer) ---
+            dim_color = cfg_c["text_dim"]
+            with dpg.group(horizontal=True):
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Window", color=dim_color)
+                    dpg.add_input_text(
+                        tag="fusion_info_window",
+                        width=65,
+                        on_enter=True,
+                        callback=gui.fusion_ui.on_fusion_wl_change,
+                    )
+                dpg.add_spacer(width=5)
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Level", color=dim_color)
+                    dpg.add_input_text(
+                        tag="fusion_info_level",
+                        width=65,
+                        on_enter=True,
+                        callback=gui.fusion_ui.on_fusion_wl_change,
+                    )
+
+            with dpg.group(horizontal=True):
+                dpg.add_text("Min Threshold", color=dim_color)
+                dpg.add_input_text(
+                    tag="fusion_info_threshold",
+                    width=65,
+                    on_enter=True,
+                    callback=gui.fusion_ui.on_fusion_wl_change,
+                )
+            # -----------------------------------------------------------
+
+            with dpg.group(horizontal=True):
+                dpg.add_text("Mode   ")
+                dpg.add_combo(
+                    ["Alpha", "Registration", "Checkerboard"],
+                    tag="combo_fusion_mode",
+                    width=-1,
+                    callback=gui.fusion_ui.on_fusion_mode_changed,
+                )
+            with dpg.group(
+                horizontal=True, tag="group_fusion_checkerboard", show=False
+            ):
+                dpg.add_text("Square ")
+                dpg.add_slider_float(
+                    tag="slider_fusion_chk_size",
+                    min_value=1.0,
+                    max_value=200.0,
+                    format="%.1f mm",
+                    width=100,
+                    callback=gui.fusion_ui.on_fusion_checkerboard_changed,
+                )
+                dpg.add_checkbox(
+                    label="Swap",
+                    tag="check_fusion_chk_swap",
+                    callback=gui.fusion_ui.on_fusion_checkerboard_changed,
+                )
+
+
+def build_tab_fusion_OLD(gui):
     cfg_c = gui.ui_cfg["colors"]
     with dpg.tab(label="Fusion", tag="tab_fusion"):  # Reverted label
         dpg.add_spacer(height=5)
@@ -155,6 +247,9 @@ def build_tab_rois(gui):
 
     with dpg.tab(label="ROIs", tag="tab_rois"):  # Reverted label
         dpg.add_spacer(height=5)
+
+        dpg.add_text("ROI", color=cfg_c["text_header"])
+        dpg.add_separator()
 
         # --- TOP: Load & Import ---
         with dpg.group(horizontal=True):
@@ -237,6 +332,9 @@ def build_tab_reg(gui):
 
     with dpg.tab(label="Reg", tag="tab_reg"):
         dpg.add_spacer(height=5)
+
+        dpg.add_text("Registration", color=cfg_c["text_header"])
+        dpg.add_separator()
 
         dpg.add_text(
             "No Image Selected",

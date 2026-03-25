@@ -14,7 +14,6 @@ class FusionUI:
         viewer = self.gui.context_viewer
         has_image = viewer is not None and viewer.image_id is not None
 
-        # 1. Clear UI if no image is selected
         if not has_image:
             if dpg.does_item_exist("text_fusion_base_image"):
                 dpg.set_value("text_fusion_base_image", "")
@@ -23,14 +22,15 @@ class FusionUI:
             for t in [
                 "combo_fusion_select",
                 "slider_fusion_opacity",
-                "input_fusion_threshold",
+                "fusion_info_window",
+                "fusion_info_level",
+                "fusion_info_threshold",
                 "combo_fusion_mode",
             ]:
                 if dpg.does_item_exist(t):
                     dpg.configure_item(t, enabled=False)
             return
 
-        # 2. Populate UI with the Active Image
         vol = viewer.volume
         if dpg.does_item_exist("text_fusion_base_image"):
             dpg.set_value("text_fusion_base_image", vol.name)
@@ -44,7 +44,6 @@ class FusionUI:
             dpg.configure_item("combo_fusion_select", items=options)
             dpg.configure_item("combo_fusion_select", enabled=True)
 
-            # Evaluate if we currently have an overlay (Backend concept)
             current_sel = "None"
             has_overlay = False
             if viewer.view_state.display.overlay_id:
@@ -56,22 +55,121 @@ class FusionUI:
 
             dpg.set_value("combo_fusion_select", current_sel)
 
-            # Disable/Enable the controls dynamically
             is_chk = viewer.view_state.display.overlay_mode == "Checkerboard"
             dpg.configure_item(
                 "slider_fusion_opacity", enabled=has_overlay and not is_chk
             )
-            dpg.configure_item("input_fusion_threshold", enabled=has_overlay)
-            if dpg.does_item_exist("combo_fusion_mode"):
-                dpg.configure_item("combo_fusion_mode", enabled=has_overlay)
 
-            # Show/Hide the extra row
+            # --- Enable/Disable New W/L Text Boxes ---
+            tags_to_enable = ["fusion_info_threshold", "combo_fusion_mode"]
+            if has_overlay:
+                ov_vs = self.controller.view_states[
+                    viewer.view_state.display.overlay_id
+                ]
+                is_ov_rgb = getattr(ov_vs.volume, "is_rgb", False)
+                if not is_ov_rgb:
+                    tags_to_enable.extend(["fusion_info_window", "fusion_info_level"])
+                else:
+                    dpg.set_value("fusion_info_window", "RGB")
+                    dpg.set_value("fusion_info_level", "RGB")
+
+            for t in [
+                "fusion_info_window",
+                "fusion_info_level",
+                "fusion_info_threshold",
+                "combo_fusion_mode",
+            ]:
+                if dpg.does_item_exist(t):
+                    dpg.configure_item(t, enabled=(t in tags_to_enable and has_overlay))
+
             if dpg.does_item_exist("group_fusion_checkerboard"):
                 dpg.configure_item(
                     "group_fusion_checkerboard", show=has_overlay and is_chk
                 )
 
+        # Ensure the text values are immediately correct
+        self.sync_fusion_ui()
+
+    def sync_fusion_ui(self):
+        """Called every frame to update the text boxes if they changed via hotkeys (e.g., 'X' Auto-Window)."""
+        viewer = self.gui.context_viewer
+        if (
+            not viewer
+            or not viewer.view_state
+            or not viewer.view_state.display.overlay_id
+        ):
+            return
+
+        ov_vs = self.controller.view_states.get(viewer.view_state.display.overlay_id)
+        if not ov_vs:
+            return
+
+        # 1. Overlay W/L (from Overlay's ViewState)
+        if not getattr(ov_vs.volume, "is_rgb", False):
+            if dpg.does_item_exist("fusion_info_window") and not dpg.is_item_focused(
+                "fusion_info_window"
+            ):
+                current_ww = dpg.get_value("fusion_info_window")
+                new_ww = f"{ov_vs.display.ww:g}"
+                if current_ww != new_ww:
+                    dpg.set_value("fusion_info_window", new_ww)
+
+            if dpg.does_item_exist("fusion_info_level") and not dpg.is_item_focused(
+                "fusion_info_level"
+            ):
+                current_wl = dpg.get_value("fusion_info_level")
+                new_wl = f"{ov_vs.display.wl:g}"
+                if current_wl != new_wl:
+                    dpg.set_value("fusion_info_level", new_wl)
+
+        # 2. Overlay Threshold (Now synced perfectly with Image B's Base Settings)
+        if dpg.does_item_exist("fusion_info_threshold") and not dpg.is_item_focused(
+            "fusion_info_threshold"
+        ):
+            current_thr = dpg.get_value("fusion_info_threshold")
+            new_thr = (
+                f"{ov_vs.display.base_threshold:g}"  # <--- Changed to read from ov_vs
+            )
+            if current_thr != new_thr:
+                dpg.set_value("fusion_info_threshold", new_thr)
+
     # --- Callbacks ---
+    def on_fusion_wl_change(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if (
+            not viewer
+            or not viewer.view_state
+            or not viewer.view_state.display.overlay_id
+        ):
+            return
+
+        try:
+            new_ww = float(dpg.get_value("fusion_info_window"))
+            new_wl = float(dpg.get_value("fusion_info_level"))
+
+            thr_str = dpg.get_value("fusion_info_threshold")
+            new_thr = float(thr_str) if thr_str.strip() else -1e9
+
+            ovs = self.controller.view_states[viewer.view_state.display.overlay_id]
+
+            # --- Update the properties directly on Image B! ---
+            ovs.display.base_threshold = new_thr
+
+            if not getattr(ovs.volume, "is_rgb", False):
+                ovs.display.ww = max(1e-20, new_ww)
+                ovs.display.wl = new_wl
+                self.controller.sync.propagate_window_level(
+                    viewer.view_state.display.overlay_id
+                )
+
+            # Mark both images to redraw
+            viewer.view_state.is_data_dirty = True
+            ovs.is_data_dirty = True
+
+            self.controller.update_all_viewers_of_image(viewer.image_id)
+        except ValueError:
+            pass
+
     def on_fusion_target_selected(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer
         if not viewer or not viewer.view_state:
@@ -103,7 +201,6 @@ class FusionUI:
         if app_data == "Registration":
             self.controller.sync.propagate_window_level(viewer.image_id)
 
-        # Pushes the sync to other viewers and forces the UI to show/hide the checkerboard sliders
         self.controller.sync.propagate_overlay_mode(viewer.image_id)
         self.refresh_fusion_ui()
 
@@ -123,9 +220,4 @@ class FusionUI:
     def on_fusion_opacity_changed(self, sender, app_data, user_data):
         if self.gui.context_viewer and self.gui.context_viewer.view_state:
             self.gui.context_viewer.view_state.display.overlay_opacity = app_data
-            self.gui.context_viewer.view_state.is_data_dirty = True
-
-    def on_fusion_threshold_changed(self, sender, app_data, user_data):
-        if self.gui.context_viewer and self.gui.context_viewer.view_state:
-            self.gui.context_viewer.view_state.display.overlay_threshold = app_data
             self.gui.context_viewer.view_state.is_data_dirty = True

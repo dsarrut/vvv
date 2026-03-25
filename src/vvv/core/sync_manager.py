@@ -185,24 +185,25 @@ class SyncManager:
         for tid in list(dirty_ids):
             t_vs = self.controller.view_states[tid]
 
-            # Top-Down: Base -> Overlay
+            # 1. Top-Down
             if t_vs.display.overlay_id and t_vs.display.overlay_mode == "Registration":
                 ovs = self.controller.view_states.get(t_vs.display.overlay_id)
                 if ovs and not getattr(ovs.volume, "is_rgb", False):
-                    ovs.display.ww, ovs.display.wl = t_vs.display.ww, t_vs.display.wl
+                    ovs.display.ww = t_vs.display.ww
+                    ovs.display.wl = t_vs.display.wl
+                    ovs.display.base_threshold = t_vs.display.base_threshold
                     dirty_ids.add(t_vs.display.overlay_id)
 
-            # Bottom-Up: Overlay -> Base
+            # 2. Bottom-Up
             for base_id, base_vs in self.controller.view_states.items():
                 if (
                     base_vs.display.overlay_id == tid
                     and base_vs.display.overlay_mode == "Registration"
                 ):
                     if not getattr(base_vs.volume, "is_rgb", False):
-                        base_vs.display.ww, base_vs.display.wl = (
-                            t_vs.display.ww,
-                            t_vs.display.wl,
-                        )
+                        base_vs.display.ww = t_vs.display.ww
+                        base_vs.display.wl = t_vs.display.wl
+                        base_vs.display.base_threshold = t_vs.display.base_threshold
                         dirty_ids.add(base_id)
 
         self.trigger_redraw(list(dirty_ids))

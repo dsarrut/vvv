@@ -718,7 +718,7 @@ class SliceViewer:
             ww=ovs.display.ww,
             wl=ovs.display.wl,
             cmap_name=ovs.display.colormap,
-            threshold=self.view_state.display.overlay_threshold,
+            threshold=ovs.display.base_threshold,
             time_idx=min(
                 self.view_state.camera.time_idx, ovs.volume.num_timepoints - 1
             ),

@@ -109,7 +109,6 @@ class DisplayState:
         self.overlay_data = None
         self.overlay_opacity = 0.5
         self.overlay_mode = "Alpha"
-        self.overlay_threshold = -1
         self.overlay_checkerboard_size = 20.0
         self.overlay_checkerboard_swap = False
 
@@ -122,7 +121,6 @@ class DisplayState:
             "interpolation_linear": bool(self.interpolation_linear),
             "overlay_opacity": float(self.overlay_opacity),
             "overlay_mode": str(self.overlay_mode),
-            "overlay_threshold": float(self.overlay_threshold),
             "overlay_checkerboard_size": float(self.overlay_checkerboard_size),
             "overlay_checkerboard_swap": bool(self.overlay_checkerboard_swap),
         }
@@ -137,7 +135,6 @@ class DisplayState:
         )
         self.overlay_opacity = d.get("overlay_opacity", self.overlay_opacity)
         self.overlay_mode = d.get("overlay_mode", self.overlay_mode)
-        self.overlay_threshold = d.get("overlay_threshold", self.overlay_threshold)
         self.overlay_checkerboard_size = d.get(
             "overlay_checkerboard_size", self.overlay_checkerboard_size
         )

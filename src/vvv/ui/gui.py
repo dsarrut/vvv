@@ -69,7 +69,6 @@ class MainGUI:
             "info_level": "display.wl",
             "info_base_threshold": "display.base_threshold",
             "slider_fusion_opacity": "display.overlay_opacity",
-            "input_fusion_threshold": "display.overlay_threshold",
             "combo_fusion_mode": "display.overlay_mode",
             "slider_fusion_chk_size": "display.overlay_checkerboard_size",
             "check_fusion_chk_swap": "display.overlay_checkerboard_swap",
@@ -512,6 +511,10 @@ class MainGUI:
                     if current_ui_val != val:
                         dpg.set_value(tag, val)
 
+        # Sync the Fusion overlay values (For when hotkeys like 'X' are used)
+        if hasattr(self, "fusion_ui"):
+            self.fusion_ui.sync_fusion_ui()
+
     def highlight_active_image_in_list(self, active_img_id):
         for img_id, label_tag in self.image_label_tags.items():
             if dpg.does_item_exist(label_tag):
@@ -739,7 +742,9 @@ class MainGUI:
     def update_sidebar_info(self, viewer):
         has_image = viewer is not None and viewer.image_id is not None
         has_rois = has_image and len(viewer.view_state.rois) > 0
+        is_rgb = getattr(viewer.volume, "is_rgb", False) if has_image else False
 
+        # Use a list of tuples to avoid boolean key collisions
         # Use a list of tuples to avoid boolean key collisions
         ui_states = [
             (
@@ -758,6 +763,15 @@ class MainGUI:
                 ],
             ),
             (
+                has_image
+                and not is_rgb,  # Explicitly enable W/L and Threshold if not RGB!
+                [
+                    "info_window",
+                    "info_level",
+                    "info_base_threshold",
+                ],
+            ),
+            (
                 has_rois,
                 ["btn_roi_show_all", "btn_roi_hide_all", "btn_roi_export_stats"],
             ),
@@ -765,9 +779,10 @@ class MainGUI:
                 False,
                 (
                     [
-                        "info_window",
-                        "info_level",
-                        "info_base_threshold",
+                        "combo_fusion_select",
+                        "slider_fusion_opacity",
+                        "input_fusion_threshold",
+                        "combo_fusion_mode",
                     ]
                     if not has_image
                     else []
