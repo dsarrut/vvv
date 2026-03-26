@@ -17,9 +17,6 @@ from vvv.ui.ui_theme import build_ui_config, register_dynamic_themes
 from vvv.ui.ui_tabs import (
     build_tab_sync,
     refresh_sync_ui,
-    build_tab_fusion,
-    build_tab_rois,
-    build_tab_reg,
 )
 from vvv.ui.ui_sequences import (
     load_single_image_sequence,
@@ -259,9 +256,9 @@ class MainGUI:
                     dpg.add_group(tag="image_list_container")
 
                 build_tab_sync(self)
-                build_tab_fusion(self)
-                build_tab_rois(self)
-                build_tab_reg(self)
+                self.fusion_ui.build_tab_fusion(self)
+                self.roi_ui.build_tab_rois(self)
+                self.reg_ui.build_tab_reg(self)
 
     def build_sidebar_bottom(self):
         cfg_c = self.ui_cfg["colors"]
