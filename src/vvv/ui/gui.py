@@ -15,6 +15,7 @@ from vvv.ui.ui_interaction import InteractionManager
 from vvv.ui.ui_sync import build_tab_sync, refresh_sync_ui
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 from vvv.ui.ui_theme import build_ui_config, register_dynamic_themes
+from vvv.ui.ui_notifications import show_message, show_status_message
 from vvv.ui.ui_image_list import build_tab_images, refresh_image_list_ui, highlight_active_image_in_list
 from vvv.ui.ui_sequences import (
     load_single_image_sequence,
@@ -1167,40 +1168,15 @@ class MainGUI:
     # 5. MODALS & POPUPS
     # ==========================================
 
+    # ==========================================
+    # 5. MODALS & POPUPS
+    # ==========================================
+
     def show_message(self, title, message):
-        modal_tag = "generic_message_modal"
-        if dpg.does_item_exist(modal_tag):
-            dpg.delete_item(modal_tag)
-
-        with dpg.window(
-                tag=modal_tag,
-                modal=True,
-                show=True,
-                label=title,
-                no_collapse=True,
-                width=450,
-        ):
-            dpg.add_text(message, wrap=430)
-            dpg.add_spacer(height=10)
-            with dpg.group(horizontal=True):
-                dpg.add_spacer(width=160)
-                dpg.add_button(
-                    label="OK", width=100, callback=lambda: dpg.delete_item(modal_tag)
-                )
-
-        vp_width = max(dpg.get_viewport_client_width(), 800)
-        vp_height = max(dpg.get_viewport_client_height(), 600)
-        dpg.set_item_pos(modal_tag, [vp_width // 2 - 225, vp_height // 2 - 100])
+        show_message(title, message)
 
     def show_status_message(self, message, duration=3.0, color=None):
-        if color is None:
-            color = self.ui_cfg["colors"]["text_status_ok"]
-
-        if dpg.does_item_exist("global_status_text"):
-            dpg.set_value("global_status_text", f"[{message}]")
-            dpg.configure_item("global_status_text", color=color)
-
-        self.status_message_expire_time = time.time() + duration
+        show_status_message(self, message, duration, color)
 
     def show_help_window(self):
         window_tag = "help_window"

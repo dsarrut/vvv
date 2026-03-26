@@ -2,28 +2,13 @@ import os
 import dearpygui.dearpygui as dpg
 from vvv.config import ROI_COLORS
 from vvv.ui.ui_sync import handle_sync_group_change
+from vvv.ui.ui_notifications import show_loading_modal, hide_loading_modal
 
 def load_single_image_sequence(gui, controller, file_path):
     is_4d = file_path.startswith("4D:")
+
     display_name = "4D Sequence" if is_4d else os.path.basename(file_path)
-
-    with dpg.window(
-        tag="loading_modal",
-        modal=True,
-        show=True,
-        no_title_bar=True,
-        no_resize=True,
-        no_move=True,
-        width=350,
-        height=100,
-    ):
-        dpg.add_text(f"Loading image...\n{display_name}", tag="loading_text")
-        dpg.add_spacer(height=5)
-        dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=0.5)
-
-    vp_width = max(dpg.get_viewport_client_width(), 800)
-    vp_height = max(dpg.get_viewport_client_height(), 600)
-    dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
+    show_loading_modal("Loading image...", display_name)
 
     for _ in range(3):
         yield
@@ -31,10 +16,7 @@ def load_single_image_sequence(gui, controller, file_path):
     try:
         img_id = controller.file.load_image(file_path)
 
-        if dpg.does_item_exist("loading_text"):
-            dpg.set_value("loading_text", "Applying synchronization and layouts...")
-        if dpg.does_item_exist("loading_progress"):
-            dpg.set_value("loading_progress", 1.0)
+        show_loading_modal("Loading image...", "Applying synchronization and layouts...", progress=1.0)
         yield
 
         target_viewer = (
@@ -74,28 +56,16 @@ def load_single_image_sequence(gui, controller, file_path):
         while dpg.does_item_exist("generic_message_modal"):
             yield
 
+    hide_loading_modal()
+
 
 def load_batch_images_sequence(gui, controller, file_paths):
     total_files = len(file_paths)
     warnings = []
 
-    with dpg.window(
-        tag="loading_modal",
-        modal=True,
-        show=True,
-        no_title_bar=True,
-        no_resize=True,
-        no_move=True,
-        width=350,
-        height=100,
-    ):
-        dpg.add_text(f"Loading {total_files} images...", tag="loading_text")
-        dpg.add_spacer(height=5)
-        dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=0.0)
+    display_name = f"Loading {total_files} images..."
+    show_loading_modal("Loading image...", display_name)
 
-    vp_width = max(dpg.get_viewport_client_width(), 800)
-    vp_height = max(dpg.get_viewport_client_height(), 600)
-    dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
     yield
 
     loaded_ids = []
@@ -107,10 +77,7 @@ def load_batch_images_sequence(gui, controller, file_paths):
         else:
             filename = os.path.basename(path)
 
-        if dpg.does_item_exist("loading_text"):
-            dpg.set_value("loading_text", f"Loading ({i+1}/{total_files}):\n{filename}")
-        if dpg.does_item_exist("loading_progress"):
-            dpg.set_value("loading_progress", i / total_files)
+        show_loading_modal("Loading image...", f"Loading ({i+1}/{total_files}):\n{filename}", progress=(i / total_files))
         yield
 
         try:
@@ -120,10 +87,7 @@ def load_batch_images_sequence(gui, controller, file_paths):
             warnings.append(f"- {filename}: {e}")
         yield
 
-    if dpg.does_item_exist("loading_text"):
-        dpg.set_value("loading_text", "Applying layouts...")
-    if dpg.does_item_exist("loading_progress"):
-        dpg.set_value("loading_progress", 1.0)
+    show_loading_modal("Loading image...", "Applying layouts...", progress=1.0)
     yield
 
     if loaded_ids:
@@ -158,6 +122,8 @@ def load_batch_images_sequence(gui, controller, file_paths):
         while dpg.does_item_exist("generic_message_modal"):
             yield
 
+    hide_loading_modal()
+
 
 def load_batch_rois_sequence(
     gui,
@@ -171,19 +137,8 @@ def load_batch_rois_sequence(
     total_files = len(file_paths)
     warnings = []
 
-    with dpg.window(
-        tag="loading_modal",
-        modal=True,
-        show=True,
-        no_title_bar=True,
-        no_resize=True,
-        no_move=True,
-        width=350,
-        height=100,
-    ):
-        dpg.add_text(f"Loading {total_files} ROIs...", tag="loading_text")
-        dpg.add_spacer(height=5)
-        dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=0.0)
+    display_name = f"Loading {total_files} ROIs..."
+    show_loading_modal("Loading image...", display_name)
 
     vp_width = max(dpg.get_viewport_client_width(), 800)
     vp_height = max(dpg.get_viewport_client_height(), 600)
@@ -198,12 +153,9 @@ def load_batch_rois_sequence(
             continue
 
         filename = os.path.basename(path)
-        if dpg.does_item_exist("loading_text"):
-            dpg.set_value(
-                "loading_text", f"Loading ROI ({i+1}/{total_files}):\n{filename}"
-            )
-        if dpg.does_item_exist("loading_progress"):
-            dpg.set_value("loading_progress", i / total_files)
+        show_loading_modal("Loading image...", f"Loading ROI ({i+1}/{total_files}):\n{filename}",
+                           progress=(i / total_files))
+
         yield
 
         try:
@@ -221,10 +173,7 @@ def load_batch_rois_sequence(
             # print(f"Failed to load ROI {filename}: {e}")
         yield
 
-    if dpg.does_item_exist("loading_text"):
-        dpg.set_value("loading_text", "Applying ROIs...")
-    if dpg.does_item_exist("loading_progress"):
-        dpg.set_value("loading_progress", 1.0)
+    show_loading_modal("Loading image...", "Applying ROIs...", progress=1.0)
     yield
 
     vs = controller.view_states[base_image_id]
@@ -245,6 +194,8 @@ def load_batch_rois_sequence(
         while dpg.does_item_exist("generic_message_modal"):
             yield
 
+    hide_loading_modal()
+
 
 def load_workspace_sequence(gui, controller, filepath):
     """Safely restores a full workspace using ID mapping and strict hierarchy."""
@@ -259,27 +210,15 @@ def load_workspace_sequence(gui, controller, filepath):
         gui.show_status_message(f"Failed to load workspace: {e}")
         return
 
-    with dpg.window(
-        tag="loading_modal",
-        modal=True,
-        show=True,
-        no_title_bar=True,
-        no_resize=True,
-        no_move=True,
-        width=350,
-        height=100,
-    ):
-        dpg.add_text("Loading Workspace Bases...", tag="loading_text")
-        dpg.add_spacer(height=5)
-        dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=0.0)
+    display_name = "Loading Workspace Bases..."
+    show_loading_modal("Loading image...", display_name)
 
     vp_width = max(dpg.get_viewport_client_width(), 800)
     vp_height = max(dpg.get_viewport_client_height(), 600)
     dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
     yield
 
-    if dpg.does_item_exist("loading_text"):
-        dpg.set_value("loading_text", "Loading Workspace Bases...")
+    show_loading_modal("Loading image...", "Loading Workspace Bases...")
     yield
 
     id_map = {}  # Maps old JSON vs_id to the newly assigned vs_id
@@ -312,9 +251,7 @@ def load_workspace_sequence(gui, controller, filepath):
             viewer.needs_recenter = v_data.get("needs_recenter", False)
     yield
 
-    if dpg.does_item_exist("loading_text"):
-        dpg.set_value("loading_text", "Restoring Overlays and ROIs...")
-
+    show_loading_modal("Loading image...", "Restoring Overlays and ROIs...")
     total_images = len(ws.get("images", {}))  # Get the total count!
     current_image = 0
 
@@ -339,9 +276,9 @@ def load_workspace_sequence(gui, controller, filepath):
                 vs.display.overlay_mode = ov_info.get("mode", "Registration")
                 vs.display.overlay_opacity = ov_info.get("opacity", 0.5)
 
-        # Update progress bar!
-        if dpg.does_item_exist("loading_progress"):
-            dpg.set_value("loading_progress", (current_image - 0.5) / total_images)
+        # Update progress bar
+        show_loading_modal("Loading image...", "Restoring Overlays...", progress=((current_image - 0.5) / total_images))
+
         yield
 
         # 3B: ROIs
@@ -363,7 +300,7 @@ def load_workspace_sequence(gui, controller, filepath):
                 vs.rois[latest_roi_id].visible = r_state.get("visible", True)
                 vs.rois[latest_roi_id].is_contour = r_state.get("is_contour", False)
 
-        # Update progress bar!
+        # Update progress bar
         if dpg.does_item_exist("loading_progress"):
             dpg.set_value("loading_progress", current_image / total_images)
         yield
@@ -385,6 +322,8 @@ def load_workspace_sequence(gui, controller, filepath):
         dpg.delete_item("loading_modal")
     yield
 
+    hide_loading_modal()
+
 
 def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=False):
     if not image_tasks:
@@ -392,19 +331,9 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
     total_files = len(image_tasks) + sum(1 for t in image_tasks if t["fusion"])
     warnings = []
 
-    with dpg.window(
-        tag="loading_modal",
-        modal=True,
-        show=True,
-        no_title_bar=True,
-        no_resize=True,
-        no_move=True,
-        width=350,
-        height=100,
-    ):
-        dpg.add_text("Initializing...", tag="loading_text")
-        dpg.add_spacer(height=5)
-        dpg.add_progress_bar(tag="loading_progress", width=-1, default_value=0.0)
+
+    display_name = "Initializing..."
+    show_loading_modal("Loading image...", display_name)
 
     vp_width = max(dpg.get_viewport_client_width(), 800)
     vp_height = max(dpg.get_viewport_client_height(), 600)
@@ -419,10 +348,9 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
         filename = os.path.basename(base_path)
         sync_group = task.get("sync_group", 0)
 
-        if dpg.does_item_exist("loading_text"):
-            dpg.set_value("loading_text", f"Loading base...\n{filename}")
-        if dpg.does_item_exist("loading_progress"):
-            dpg.set_value("loading_progress", files_processed / total_files)
+        show_loading_modal("Initializing...", f"Loading base...\n{filename}",
+                           progress=(files_processed / total_files))
+
         yield
 
         try:
@@ -445,10 +373,8 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
             fuse_path = task["fusion"]["path"]
             fuse_name = os.path.basename(fuse_path)
 
-            if dpg.does_item_exist("loading_text"):
-                dpg.set_value("loading_text", f"Resampling overlay...\n{fuse_name}")
-            if dpg.does_item_exist("loading_progress"):
-                dpg.set_value("loading_progress", files_processed / total_files)
+            show_loading_modal("Initializing...", f"Resampling overlay...\n{fuse_name}",
+                               progress=(files_processed / total_files))
             yield
 
             try:
@@ -475,10 +401,7 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
                 yield
                 continue
 
-    if dpg.does_item_exist("loading_text"):
-        dpg.set_value("loading_text", "Applying synchronization and layouts...")
-    if dpg.does_item_exist("loading_progress"):
-        dpg.set_value("loading_progress", 1.0)
+    show_loading_modal("Loading image...", "Applying synchronization and layouts...", progress=1.0)
     yield
 
     controller.default_viewers_orientation()
@@ -533,3 +456,5 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
         )
         while dpg.does_item_exist("generic_message_modal"):
             yield
+
+    hide_loading_modal()
