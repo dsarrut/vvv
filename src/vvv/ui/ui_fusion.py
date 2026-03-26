@@ -14,19 +14,28 @@ class FusionUI:
         viewer = self.gui.context_viewer
         has_image = viewer is not None and viewer.image_id is not None
 
+        # 1. Clear UI completely if no base image is selected
         if not has_image:
             if dpg.does_item_exist("text_fusion_base_image"):
                 dpg.set_value("text_fusion_base_image", "")
             if dpg.does_item_exist("group_fusion_checkerboard"):
                 dpg.configure_item("group_fusion_checkerboard", show=False)
+
+            # Empty out texts and disable
             for t in [
-                "combo_fusion_select",
-                "slider_fusion_opacity",
                 "fusion_info_window",
                 "fusion_info_level",
                 "fusion_info_threshold",
-                "combo_fusion_mode",
             ]:
+                if dpg.does_item_exist(t):
+                    dpg.set_value(t, "")
+                    dpg.configure_item(t, enabled=False)
+
+            if dpg.does_item_exist("slider_fusion_opacity"):
+                dpg.set_value("slider_fusion_opacity", 0.0)
+                dpg.configure_item("slider_fusion_opacity", enabled=False)
+
+            for t in ["combo_fusion_select", "combo_fusion_mode"]:
                 if dpg.does_item_exist(t):
                     dpg.configure_item(t, enabled=False)
             return
@@ -56,9 +65,12 @@ class FusionUI:
             dpg.set_value("combo_fusion_select", current_sel)
 
             is_chk = viewer.view_state.display.overlay_mode == "Checkerboard"
-            dpg.configure_item(
-                "slider_fusion_opacity", enabled=has_overlay and not is_chk
-            )
+            if dpg.does_item_exist("slider_fusion_opacity"):
+                dpg.configure_item(
+                    "slider_fusion_opacity", enabled=has_overlay and not is_chk
+                )
+                if not has_overlay:
+                    dpg.set_value("slider_fusion_opacity", 0.0)
 
             # --- Enable/Disable New W/L Text Boxes ---
             tags_to_enable = ["fusion_info_threshold", "combo_fusion_mode"]
@@ -72,6 +84,15 @@ class FusionUI:
                 else:
                     dpg.set_value("fusion_info_window", "RGB")
                     dpg.set_value("fusion_info_level", "RGB")
+            else:
+                # Explicitly wipe the text inputs clean if there is no fusion overlay
+                for t in [
+                    "fusion_info_window",
+                    "fusion_info_level",
+                    "fusion_info_threshold",
+                ]:
+                    if dpg.does_item_exist(t):
+                        dpg.set_value(t, "")
 
             for t in [
                 "fusion_info_window",
@@ -93,11 +114,21 @@ class FusionUI:
     def sync_fusion_ui(self):
         """Called every frame to update the text boxes if they changed via hotkeys (e.g., 'X' Auto-Window)."""
         viewer = self.gui.context_viewer
+
+        # If there is no active overlay, ensure the inputs stay empty
         if (
             not viewer
             or not viewer.view_state
             or not viewer.view_state.display.overlay_id
         ):
+            for t in [
+                "fusion_info_window",
+                "fusion_info_level",
+                "fusion_info_threshold",
+            ]:
+                if dpg.does_item_exist(t) and not dpg.is_item_focused(t):
+                    if dpg.get_value(t) != "":
+                        dpg.set_value(t, "")
             return
 
         ov_vs = self.controller.view_states.get(viewer.view_state.display.overlay_id)
@@ -127,9 +158,7 @@ class FusionUI:
             "fusion_info_threshold"
         ):
             current_thr = dpg.get_value("fusion_info_threshold")
-            new_thr = (
-                f"{ov_vs.display.base_threshold:g}"  # <--- Changed to read from ov_vs
-            )
+            new_thr = f"{ov_vs.display.base_threshold:g}"
             if current_thr != new_thr:
                 dpg.set_value("fusion_info_threshold", new_thr)
 
@@ -162,7 +191,6 @@ class FusionUI:
                     viewer.view_state.display.overlay_id
                 )
 
-            # Mark both images to redraw
             viewer.view_state.is_data_dirty = True
             ovs.is_data_dirty = True
 

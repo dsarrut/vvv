@@ -643,7 +643,7 @@ class SliceViewer:
         patch = slice_data[y0:y1, x0:x1]
 
         if target == "overlay":
-            thr = self.view_state.display.overlay_threshold
+            thr = self.view_state.display.base_threshold
             patch = patch[patch >= thr]
 
         if patch.size > 0:
