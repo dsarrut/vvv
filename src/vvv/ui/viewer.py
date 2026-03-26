@@ -1135,18 +1135,6 @@ class SliceViewer:
             self.is_geometry_dirty = True
             self.controller.sync.propagate_camera(self)
 
-        elif is_shift and is_button:
-            # --- DYNAMIC SENSITIVITY FIX ---
-            base_sens = self.controller.settings.data["interaction"][
-                "wl_drag_sensitivity"
-            ]
-            # Scale the sensitivity based on the initial window width (e.g., 0.5% per pixel dragged)
-            scale = max(self.drag_start_wl[0], 1e-20) * 0.005
-            sens = base_sens * scale
-            ww = max(1e-20, self.drag_start_wl[0] + total_dx * sens)
-            wl = self.drag_start_wl[1] - total_dy * sens
-            self.update_window_level(ww, wl)
-
     def on_zoom(self, direction):
         if (
             self.image_id is None

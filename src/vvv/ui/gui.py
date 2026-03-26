@@ -437,7 +437,7 @@ class MainGUI:
             dpg.add_mouse_release_handler(callback=self.interaction.on_mouse_release)
             dpg.add_key_press_handler(callback=self.interaction.on_key_press)
             dpg.add_mouse_click_handler(callback=self.interaction.on_mouse_click)
-            #dpg.add_mouse_move_handler(callback=self.interaction.on_mouse_move)
+            dpg.add_mouse_move_handler(callback=self.interaction.on_mouse_move)
 
     def cleanup(self, sender=None, app_data=None, user_data=None):
         # 1. Save auto-history for all currently open images
@@ -1226,7 +1226,7 @@ class MainGUI:
             dpg.add_text("Scroll Wheel       : Change slice")
             dpg.add_text("Ctrl + Scroll      : Zoom in/out")
             dpg.add_text("Ctrl + Drag        : Pan view")
-            dpg.add_text("Shift + Drag       : Adjust Window/Level (X/Y axis)")
+            dpg.add_text("Shift + Move       : Adjust Window/Level (X/Y axis)")
 
             dpg.add_spacer(height=15)
             dpg.add_text("Keyboard Shortcuts", color=active_col)
