@@ -12,12 +12,9 @@ from vvv.ui.ui_dicom import DicomBrowserWindow
 from vvv.ui.ui_registration import RegistrationUI
 from vvv.resources import load_fonts, setup_themes
 from vvv.ui.ui_interaction import InteractionManager
+from vvv.ui.ui_sync import build_tab_sync, refresh_sync_ui
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 from vvv.ui.ui_theme import build_ui_config, register_dynamic_themes
-from vvv.ui.ui_tabs import (
-    build_tab_sync,
-    refresh_sync_ui,
-)
 from vvv.ui.ui_sequences import (
     load_single_image_sequence,
     load_batch_images_sequence,
@@ -98,16 +95,16 @@ class MainGUI:
     def build_main_layout(self):
         """Constructs the root window and main subdivisions."""
         with dpg.window(
-            tag="PrimaryWindow",
-            menubar=False,
-            on_close=self.cleanup,
-            no_scrollbar=True,
-            no_scroll_with_mouse=True,
-            no_move=True,
-            no_resize=True,
-            no_collapse=True,
-            no_title_bar=True,
-            no_bring_to_front_on_focus=True,
+                tag="PrimaryWindow",
+                menubar=False,
+                on_close=self.cleanup,
+                no_scrollbar=True,
+                no_scroll_with_mouse=True,
+                no_move=True,
+                no_resize=True,
+                no_collapse=True,
+                no_title_bar=True,
+                no_bring_to_front_on_focus=True,
         ):
             self.build_menu_bar()
 
@@ -129,11 +126,11 @@ class MainGUI:
         cfg_l = self.ui_cfg["layout"]
 
         with dpg.child_window(
-            tag="menu_container",
-            height=cfg_l["menu_h"],
-            border=False,
-            menubar=True,
-            no_scrollbar=True,
+                tag="menu_container",
+                height=cfg_l["menu_h"],
+                border=False,
+                menubar=True,
+                no_scrollbar=True,
         ):
             with dpg.menu_bar(tag="main_menu_bar"):
                 with dpg.menu(label="File"):
@@ -218,11 +215,11 @@ class MainGUI:
 
         with dpg.group(tag="side_panel_outer"):
             with dpg.child_window(
-                width=cfg_l["side_panel_w"] - 4,
-                tag="side_panel",
-                no_scrollbar=True,
-                no_scroll_with_mouse=True,
-                border=True,
+                    width=cfg_l["side_panel_w"] - 4,
+                    tag="side_panel",
+                    no_scrollbar=True,
+                    no_scroll_with_mouse=True,
+                    border=True,
             ):
                 with dpg.group(indent=cfg_l["left_inner_m"]):
                     dpg.add_spacer(height=5)
@@ -244,9 +241,9 @@ class MainGUI:
         cfg_c = self.ui_cfg["colors"]
 
         with dpg.child_window(
-            tag="top_panel",
-            border=False,
-            no_scrollbar=True,
+                tag="top_panel",
+                border=False,
+                no_scrollbar=True,
         ):
             with dpg.tab_bar(tag="sidebar_tabs", callback=self.on_tab_changed):
                 with dpg.tab(label="Images", tag="tab_images"):
@@ -396,10 +393,10 @@ class MainGUI:
     def build_viewer_grid(self):
         """Creates the 2x2 grid of slice viewers."""
         with dpg.child_window(
-            tag="viewers_container",
-            border=False,
-            no_scrollbar=True,
-            no_scroll_with_mouse=True,
+                tag="viewers_container",
+                border=False,
+                no_scrollbar=True,
+                no_scroll_with_mouse=True,
         ):
             with dpg.group(horizontal=True):
                 self.build_viewer_widget("V1")
@@ -411,7 +408,7 @@ class MainGUI:
     def build_viewer_widget(self, tag):
         viewer = self.controller.viewers[tag]
         with dpg.child_window(
-            tag=f"win_{tag}", border=True, no_scrollbar=True, no_scroll_with_mouse=True
+                tag=f"win_{tag}", border=True, no_scrollbar=True, no_scroll_with_mouse=True
         ):
             with dpg.drawlist(tag=f"drawlist_{tag}", width=-1, height=-1):
                 dpg.add_draw_node(tag=viewer.img_node_tag)
@@ -475,7 +472,7 @@ class MainGUI:
 
             # Safeguard: Do not overwrite text inputs if the user is currently typing in them
             if dpg.get_item_type(
-                tag
+                    tag
             ) == "mvAppItemType::mvInputText" and dpg.is_item_focused(tag):
                 continue
 
@@ -607,59 +604,6 @@ class MainGUI:
         """Pass-through bridge to the delegated Sync UI."""
         refresh_sync_ui(self)
 
-    def refresh_sync_ui_OLD(self):
-        container = "sync_list_container"
-        if not dpg.does_item_exist(container):
-            return
-        dpg.delete_item(container, children_only=True)
-        self.sync_label_tags.clear()
-
-        max_active_group = max(
-            [vs.sync_group for vs in self.controller.view_states.values()] + [0]
-        )
-        num_groups = max(3, len(self.controller.view_states), max_active_group)
-        combo_items = ["None"] + [f"Group {i}" for i in range(1, num_groups + 1)]
-
-        with dpg.table(
-            parent=container,
-            header_row=False,
-            borders_innerH=True,
-            policy=dpg.mvTable_SizingFixedFit,
-        ):
-            # Image Name
-            dpg.add_table_column(width_stretch=True)
-            # Group
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=80)
-            # W/L Checkbox
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
-
-            for vs_id, vs in self.controller.view_states.items():
-                with dpg.table_row():
-                    # 1. Image Name
-                    lbl_id = dpg.add_text(vs.volume.name)
-                    self.sync_label_tags[vs_id] = lbl_id
-
-                    # 2. Group Selection
-                    dpg.add_combo(
-                        items=combo_items,
-                        default_value=(
-                            "None" if not vs.sync_group else f"Group {vs.sync_group}"
-                        ),
-                        width=80,
-                        user_data=vs_id,
-                        callback=self.on_sync_group_change,
-                    )
-
-                    # 3. W/L Opt-in Checkbox
-                    is_rgb = getattr(vs.volume, "is_rgb", False)
-                    dpg.add_checkbox(
-                        label="W/L",
-                        default_value=vs.sync_wl,
-                        user_data=vs_id,
-                        callback=self.on_per_image_sync_wl_toggle,
-                        enabled=not is_rgb,  # Don't allow W/L sync on RGB images
-                    )
-
     def refresh_rois_ui(self):
         """Pass-through bridge to the delegated ROI UI."""
         self.roi_ui.refresh_rois_ui()
@@ -691,7 +635,7 @@ class MainGUI:
             # Create a clean display name
             if isinstance(path_obj, list) and len(path_obj) > 0:
                 display_name = (
-                    os.path.basename(os.path.dirname(path_obj[0])) + " (DICOM Series)"
+                        os.path.basename(os.path.dirname(path_obj[0])) + " (DICOM Series)"
                 )
             elif isinstance(path_str, str) and path_str.startswith("4D:"):
                 import shlex
@@ -831,7 +775,7 @@ class MainGUI:
         # 2. Check if it lives inside the user's home directory and replace it with ~
         home_dir = os.path.expanduser("~")
         if abs_path.startswith(home_dir):
-            display_path = "~" + abs_path[len(home_dir) :]
+            display_path = "~" + abs_path[len(home_dir):]
         else:
             display_path = abs_path
 
@@ -900,7 +844,7 @@ class MainGUI:
             )
             if ppm > 0 and win_w and win_h:
                 dpg.set_value("info_scale", f"{win_w / ppm:.0f} x {win_h / ppm:.0f} mm")
-            dpg.set_value("info_ppm", f"{round(ppm,2):g} px/mm")
+            dpg.set_value("info_ppm", f"{round(ppm, 2):g} px/mm")
 
     def set_context_viewer(self, viewer):
         """Centralized helper to switch the Active Menu/Sidebar target."""
@@ -913,8 +857,8 @@ class MainGUI:
         # Safely deselect ROI if it doesn't belong to the new image
         if getattr(self, "active_roi_id", None):
             if (
-                viewer.view_state
-                and self.roi_ui.active_roi_id not in viewer.view_state.rois
+                    viewer.view_state
+                    and self.roi_ui.active_roi_id not in viewer.view_state.rois
             ):
                 self.roi_ui.active_roi_id = None
 
@@ -967,7 +911,7 @@ class MainGUI:
             dpg.set_item_height("side_panel", l_h)
 
             inner_w = (
-                l_w - cfg["gap_center"] - cfg["left_inner_m"] - cfg["right_inner_m"]
+                    l_w - cfg["gap_center"] - cfg["left_inner_m"] - cfg["right_inner_m"]
             )
 
             # --- THE COMPUTED LAYOUT ENGINE ---
@@ -1088,9 +1032,9 @@ class MainGUI:
     def on_wl_preset_menu_clicked(self, sender, app_data, user_data):
         viewer = self.context_viewer
         if (
-            not viewer
-            or not viewer.view_state
-            or getattr(viewer.volume, "is_rgb", False)
+                not viewer
+                or not viewer.view_state
+                or getattr(viewer.volume, "is_rgb", False)
         ):
             return
         viewer.view_state.apply_wl_preset(user_data)
@@ -1099,9 +1043,9 @@ class MainGUI:
     def on_colormap_menu_clicked(self, sender, app_data, user_data):
         viewer = self.context_viewer
         if (
-            not viewer
-            or not viewer.view_state
-            or getattr(viewer.volume, "is_rgb", False)
+                not viewer
+                or not viewer.view_state
+                or getattr(viewer.volume, "is_rgb", False)
         ):
             return
         viewer.view_state.display.colormap = user_data
@@ -1186,9 +1130,9 @@ class MainGUI:
         if app_data and vs.sync_group > 0:
             for other_vs in self.controller.view_states.values():
                 if (
-                    other_vs != vs
-                    and other_vs.sync_group == vs.sync_group
-                    and other_vs.sync_wl
+                        other_vs != vs
+                        and other_vs.sync_group == vs.sync_group
+                        and other_vs.sync_wl
                 ):
                     vs.display.ww = other_vs.display.ww
                     vs.display.wl = other_vs.display.wl
@@ -1293,12 +1237,12 @@ class MainGUI:
             dpg.delete_item(modal_tag)
 
         with dpg.window(
-            tag=modal_tag,
-            modal=True,
-            show=True,
-            label=title,
-            no_collapse=True,
-            width=450,
+                tag=modal_tag,
+                modal=True,
+                show=True,
+                label=title,
+                no_collapse=True,
+                width=450,
         ):
             dpg.add_text(message, wrap=430)
             dpg.add_spacer(height=10)
@@ -1331,13 +1275,13 @@ class MainGUI:
         ok_col = self.ui_cfg["colors"]["text_status_ok"]
 
         with dpg.window(
-            tag=window_tag,
-            show=True,
-            label="Shortcuts & Controls",
-            width=520,  # Slightly wider to accommodate longer shortcut names
-            height=600,  # Slightly taller for the new entry
-            no_collapse=False,
-            on_close=lambda: dpg.delete_item(window_tag),
+                tag=window_tag,
+                show=True,
+                label="Shortcuts & Controls",
+                width=520,  # Slightly wider to accommodate longer shortcut names
+                height=600,  # Slightly taller for the new entry
+                no_collapse=False,
+                on_close=lambda: dpg.delete_item(window_tag),
         ):
             dpg.add_spacer(height=5)
             dpg.add_text("Mouse Controls", color=active_col)
@@ -1391,7 +1335,7 @@ class MainGUI:
                 return str(k)
 
             with dpg.table(
-                header_row=False, borders_innerH=True, policy=dpg.mvTable_SizingFixedFit
+                    header_row=False, borders_innerH=True, policy=dpg.mvTable_SizingFixedFit
             ):
                 dpg.add_table_column(
                     width_fixed=True, init_width_or_weight=140

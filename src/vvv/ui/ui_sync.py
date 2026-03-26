@@ -1,7 +1,7 @@
 import dearpygui.dearpygui as dpg
 
-
 def build_tab_sync(gui):
+    """Builds the static layout for the Synchronization tab."""
     cfg_c = gui.ui_cfg["colors"]
     with dpg.tab(label="Sync", tag="tab_sync"):
         dpg.add_spacer(height=5)
@@ -87,5 +87,3 @@ def refresh_sync_ui(gui):
                 )
 
             dpg.add_spacer(height=4)  # Tiny gap between image blocks
-
-
