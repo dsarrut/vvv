@@ -378,10 +378,6 @@ class RegistrationUI:
             np.clip(new_local_vox[1], 0, sh[1] - 1)
         )
 
-        for v in self.controller.viewers.values():
-            if v.image_id == vs_id:
-                v.needs_recenter = True
-
         self.controller.update_all_viewers_of_image(vs_id)
 
         # THE FUSION BROADCAST
