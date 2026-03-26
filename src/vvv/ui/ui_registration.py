@@ -125,77 +125,44 @@ class RegistrationUI:
 
             dpg.add_spacer(height=5)
 
+            # Helper to generate a clean row with [-] [Slider] [+]
+            def build_slider_row(label, tag, fmt, min_v, max_v):
+                with dpg.group(horizontal=True):
+                    dpg.add_text(label)
+                    dpg.add_button(
+                        label="-",
+                        width=20,
+                        user_data={"tag": tag, "dir": -1},
+                        callback=gui.reg_ui.on_reg_step_button_clicked,
+                    )
+                    # width=-35 leaves exactly enough room for the + button on the right
+                    dpg.add_drag_float(
+                        tag=tag,
+                        width=-35,
+                        format=fmt,
+                        speed=1.0,
+                        min_value=min_v,
+                        max_value=max_v,
+                        callback=gui.reg_ui.on_reg_manual_changed,
+                    )
+                    dpg.add_button(
+                        label="+",
+                        width=20,
+                        user_data={"tag": tag, "dir": 1},
+                        callback=gui.reg_ui.on_reg_step_button_clicked,
+                    )
+
             # Translation Drag Floats
-            with dpg.group(horizontal=True):
-                dpg.add_text("Tx ")
-                dpg.add_drag_float(
-                    tag="drag_reg_tx",
-                    width=-1,
-                    format="%.2f mm",
-                    speed=1.0,
-                    min_value=-5000.0,
-                    max_value=5000.0,
-                    callback=gui.reg_ui.on_reg_manual_changed,
-                )
-            with dpg.group(horizontal=True):
-                dpg.add_text("Ty ")
-                dpg.add_drag_float(
-                    tag="drag_reg_ty",
-                    width=-1,
-                    format="%.2f mm",
-                    speed=1.0,
-                    min_value=-5000.0,
-                    max_value=5000.0,
-                    callback=gui.reg_ui.on_reg_manual_changed,
-                )
-            with dpg.group(horizontal=True):
-                dpg.add_text("Tz ")
-                dpg.add_drag_float(
-                    tag="drag_reg_tz",
-                    width=-1,
-                    format="%.2f mm",
-                    speed=1.0,
-                    min_value=-5000.0,
-                    max_value=5000.0,
-                    callback=gui.reg_ui.on_reg_manual_changed,
-                )
+            build_slider_row("Tx ", "drag_reg_tx", "%.2f mm", -5000.0, 5000.0)
+            build_slider_row("Ty ", "drag_reg_ty", "%.2f mm", -5000.0, 5000.0)
+            build_slider_row("Tz ", "drag_reg_tz", "%.2f mm", -5000.0, 5000.0)
 
             dpg.add_spacer(height=5)
 
             # Rotation Drag Floats (Euler)
-            with dpg.group(horizontal=True):
-                dpg.add_text("Rx ")
-                dpg.add_drag_float(
-                    tag="drag_reg_rx",
-                    width=-1,
-                    format="%.2f \u00b0",
-                    speed=1.0,
-                    min_value=-360.0,
-                    max_value=360.0,
-                    callback=gui.reg_ui.on_reg_manual_changed,
-                )
-            with dpg.group(horizontal=True):
-                dpg.add_text("Ry ")
-                dpg.add_drag_float(
-                    tag="drag_reg_ry",
-                    width=-1,
-                    format="%.2f \u00b0",
-                    speed=1.0,
-                    min_value=-360.0,
-                    max_value=360.0,
-                    callback=gui.reg_ui.on_reg_manual_changed,
-                )
-            with dpg.group(horizontal=True):
-                dpg.add_text("Rz ")
-                dpg.add_drag_float(
-                    tag="drag_reg_rz",
-                    width=-1,
-                    format="%.2f \u00b0",
-                    speed=1.0,
-                    min_value=-360.0,
-                    max_value=360.0,
-                    callback=gui.reg_ui.on_reg_manual_changed,
-                )
+            build_slider_row("Rx ", "drag_reg_rx", "%.2f \u00b0", -360.0, 360.0)
+            build_slider_row("Ry ", "drag_reg_ry", "%.2f \u00b0", -360.0, 360.0)
+            build_slider_row("Rz ", "drag_reg_rz", "%.2f \u00b0", -360.0, 360.0)
 
             dpg.add_spacer(height=5)
             with dpg.group(horizontal=True):
@@ -471,6 +438,21 @@ class RegistrationUI:
 
     def on_reg_reload_clicked(self, sender, app_data, user_data):
         self.on_reg_load_clicked(sender, app_data, user_data)
+
+    def on_reg_step_button_clicked(self, sender, app_data, user_data):
+        """Handles the + and - buttons next to the manual registration sliders."""
+        target_tag = user_data["tag"]
+        direction = user_data["dir"]
+
+        # Respect the Coarse (1.0) or Fine (0.1) radio button selection
+        step_str = dpg.get_value("radio_reg_step")
+        step_size = 1.0 if step_str == "Coarse" else 0.1
+
+        current_val = dpg.get_value(target_tag)
+        dpg.set_value(target_tag, current_val + (step_size * direction))
+
+        # Immediately trigger the transform update
+        self.on_reg_manual_changed(sender, app_data, user_data)
 
     def on_reg_apply_toggled(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer
