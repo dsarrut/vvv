@@ -5,6 +5,7 @@ from vvv.ui.gui import MainGUI
 import dearpygui.dearpygui as dpg
 from vvv.ui.viewer import SliceViewer
 from vvv.core.controller import Controller
+from vvv.ui.ui_sync import handle_sync_group_change
 from vvv.math.image import RenderLayer, SliceRenderer
 from vvv.ui.ui_sequences import load_workspace_sequence
 from vvv.utils import ViewMode, slice_to_voxel, voxel_to_slice
@@ -113,8 +114,8 @@ def test_sync_correspondence_between_different_geometries(
     viewer2 = controller.viewers["V2"]
     viewer2.set_image(vs_id2)
 
-    controller.gui.on_sync_group_change(None, "Group 1", vs_id1)
-    controller.gui.on_sync_group_change(None, "Group 1", vs_id2)
+    handle_sync_group_change(controller.gui, None, "Group 1", vs_id1)
+    handle_sync_group_change(controller.gui, None, "Group 1", vs_id2)
     viewer1.set_orientation(ViewMode.AXIAL)
     viewer2.set_orientation(ViewMode.AXIAL)
 

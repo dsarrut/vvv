@@ -15,6 +15,7 @@ from vvv.ui.ui_interaction import InteractionManager
 from vvv.ui.ui_sync import build_tab_sync, refresh_sync_ui
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 from vvv.ui.ui_theme import build_ui_config, register_dynamic_themes
+from vvv.ui.ui_image_list import build_tab_images, refresh_image_list_ui, highlight_active_image_in_list
 from vvv.ui.ui_sequences import (
     load_single_image_sequence,
     load_batch_images_sequence,
@@ -246,12 +247,7 @@ class MainGUI:
                 no_scrollbar=True,
         ):
             with dpg.tab_bar(tag="sidebar_tabs", callback=self.on_tab_changed):
-                with dpg.tab(label="Images", tag="tab_images"):
-                    dpg.add_spacer(height=5)
-                    dpg.add_text("Loaded Images", color=cfg_c["text_header"])
-                    dpg.add_separator()
-                    dpg.add_group(tag="image_list_container")
-
+                build_tab_images(self)
                 build_tab_sync(self)
                 self.fusion_ui.build_tab_fusion(self)
                 self.roi_ui.build_tab_rois(self)
@@ -441,6 +437,7 @@ class MainGUI:
             dpg.add_mouse_release_handler(callback=self.interaction.on_mouse_release)
             dpg.add_key_press_handler(callback=self.interaction.on_key_press)
             dpg.add_mouse_click_handler(callback=self.interaction.on_mouse_click)
+            #dpg.add_mouse_move_handler(callback=self.interaction.on_mouse_move)
 
     def cleanup(self, sender=None, app_data=None, user_data=None):
         # 1. Save auto-history for all currently open images
@@ -510,6 +507,9 @@ class MainGUI:
             self.fusion_ui.sync_fusion_ui()
 
     def highlight_active_image_in_list(self, active_img_id):
+        highlight_active_image_in_list(self, active_img_id)
+
+    def highlight_active_image_in_list_OLD(self, active_img_id):
         for img_id, label_tag in self.image_label_tags.items():
             if dpg.does_item_exist(label_tag):
                 if img_id == active_img_id:
@@ -525,6 +525,9 @@ class MainGUI:
                     dpg.bind_item_theme(label_tag, "")
 
     def refresh_image_list_ui(self):
+        refresh_image_list_ui(self)
+
+    def refresh_image_list_ui_OLD(self):
         container = "image_list_container"
         if not dpg.does_item_exist(container):
             return
@@ -1072,74 +1075,7 @@ class MainGUI:
 
         self.controller.update_all_viewers_of_image(viewer.image_id)
 
-    def on_sync_group_change(self, sender, value, user_data):
-        vs_id = user_data
-        vs = self.controller.view_states[vs_id]
 
-        if value == "None":
-            vs.sync_group = 0
-            self.refresh_image_list_ui()
-            return
-
-        new_group_id = int(value.split(" ")[1])
-        vs.sync_group = new_group_id
-
-        master_vs_id = None
-        for other_id, other_vs in self.controller.view_states.items():
-            if other_id != vs_id and other_vs.sync_group == new_group_id:
-                master_vs_id = other_id
-                break
-
-        group_viewer_tags = []
-        for v in self.controller.viewers.values():
-            if v.view_state and v.view_state.sync_group == new_group_id:
-                group_viewer_tags.append(v.tag)
-
-        if not group_viewer_tags:
-            return
-
-        self.controller.sync.propagate_ppm(group_viewer_tags)
-
-        if master_vs_id:
-            master_viewer = next(
-                (
-                    v
-                    for v in self.controller.viewers.values()
-                    if v.image_id == master_vs_id
-                ),
-                None,
-            )
-            if master_viewer:
-                phys_center = master_viewer.get_center_physical_coord()
-                if phys_center is not None:
-                    for tag in group_viewer_tags:
-                        self.controller.viewers[tag].center_on_physical_coord(
-                            phys_center
-                        )
-            self.controller.sync.propagate_sync(master_vs_id)
-
-        self.controller.update_all_viewers_of_image(vs_id)
-        self.refresh_image_list_ui()
-
-    def on_per_image_sync_wl_toggle(self, sender, app_data, user_data):
-        vs_id = user_data
-        vs = self.controller.view_states[vs_id]
-        vs.sync_wl = app_data  # True or False
-
-        # If turned on, immediately try to inherit W/L from the group
-        if app_data and vs.sync_group > 0:
-            for other_vs in self.controller.view_states.values():
-                if (
-                        other_vs != vs
-                        and other_vs.sync_group == vs.sync_group
-                        and other_vs.sync_wl
-                ):
-                    vs.display.ww = other_vs.display.ww
-                    vs.display.wl = other_vs.display.wl
-                    vs.display.base_threshold = other_vs.display.base_threshold
-                    vs.is_data_dirty = True
-                    self.controller.update_all_viewers_of_image(vs_id)
-                    break
 
     def on_toggle_auto_save(self, sender, app_data, user_data):
         # app_data holds the new boolean state of the checkbox

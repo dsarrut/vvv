@@ -1,7 +1,7 @@
 import os
 import dearpygui.dearpygui as dpg
 from vvv.config import ROI_COLORS
-
+from vvv.ui.ui_sync import handle_sync_group_change
 
 def load_single_image_sequence(gui, controller, file_path):
     is_4d = file_path.startswith("4D:")
@@ -507,10 +507,10 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
     group_applied = False
     for img_id in loaded_ids:
         if sync or link_all:
-            gui.on_sync_group_change(None, "Group 1", img_id)
+            handle_sync_group_change(gui, None, "Group 1", img_id)
             group_applied = True
         elif id_to_group.get(img_id, 0) > 0:
-            gui.on_sync_group_change(None, f"Group {id_to_group[img_id]}", img_id)
+            handle_sync_group_change(gui, None, f"Group {id_to_group[img_id]}", img_id)
             group_applied = True
 
     if group_applied:

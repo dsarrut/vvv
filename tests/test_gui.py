@@ -8,6 +8,7 @@ import dearpygui.dearpygui as dpg
 from vvv.ui.viewer import SliceViewer
 from vvv.core.controller import Controller
 from vvv.ui.ui_sequences import create_boot_sequence
+from vvv.ui.ui_sync import handle_sync_group_change, handle_sync_wl_toggle
 
 
 @pytest.fixture(scope="session")
@@ -91,16 +92,16 @@ def test_gui_sync_between_images(headless_gui_app, synthetic_volume_factory):
     vs3_id = controller.file.load_image(path3)
 
     # 1. Simulate UI: Put Img1 and Img2 into "Group 1", leave Img3 in "None"
-    gui.on_sync_group_change(sender=None, value="Group 1", user_data=vs1_id)
-    gui.on_sync_group_change(sender=None, value="Group 1", user_data=vs2_id)
+    handle_sync_group_change(controller.gui, None, "Group 1", vs1_id)
+    handle_sync_group_change(controller.gui, None, "Group 1", vs2_id)
 
     assert controller.view_states[vs1_id].sync_group == 1
     assert controller.view_states[vs2_id].sync_group == 1
     assert controller.view_states[vs3_id].sync_group == 0
 
     # 2. Simulate UI: Check the "Sync W/L" box
-    gui.on_per_image_sync_wl_toggle(sender=None, app_data=True, user_data=vs1_id)
-    gui.on_per_image_sync_wl_toggle(sender=None, app_data=True, user_data=vs2_id)
+    handle_sync_wl_toggle(gui, None, True, vs1_id)
+    handle_sync_wl_toggle(gui, None, True, vs2_id)
 
     # 3. Simulate UI: Change W/L on Img1
     dpg.set_value("info_window", "999.0")
