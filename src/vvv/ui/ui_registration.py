@@ -284,7 +284,9 @@ class RegistrationUI:
 
         def _do_resample():
             self.gui.show_status_message(
-                "Resampling Rotation...", duration=1.0, color=[255, 255, 0]
+                "Resampling Rotation...",
+                duration=1.0,
+                color=self.gui.ui_cfg["colors"]["working"],
             )
             active_vs = self.controller.view_states.get(active_image_id)
             if active_vs:
@@ -306,7 +308,9 @@ class RegistrationUI:
                     v.view_state.is_data_dirty = True
 
             self.controller.update_all_viewers_of_image(active_image_id)
-            self.gui.show_status_message("Transform applied", color=[150, 255, 150])
+            self.gui.show_status_message(
+                "Transform applied", color=self.gui.ui_cfg["colors"]["text_status_ok"]
+            )
 
         self._reg_debounce_timer = threading.Timer(0.3, _do_resample)
         self._reg_debounce_timer.start()
@@ -422,7 +426,9 @@ class RegistrationUI:
 
         vs = viewer.view_state
         if not vs.space.transform:
-            self.gui.show_status_message("No transform to save!", color=[255, 100, 100])
+            self.gui.show_status_message(
+                "No transform to save!", color=self.gui.ui_cfg["colors"]["warning"]
+            )
             return
 
         default_name = (

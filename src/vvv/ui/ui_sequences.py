@@ -4,6 +4,7 @@ from vvv.config import ROI_COLORS
 from vvv.ui.ui_sync import handle_sync_group_change
 from vvv.ui.ui_notifications import show_loading_modal, hide_loading_modal
 
+
 def load_single_image_sequence(gui, controller, file_path):
     is_4d = file_path.startswith("4D:")
 
@@ -16,7 +17,9 @@ def load_single_image_sequence(gui, controller, file_path):
     try:
         img_id = controller.file.load_image(file_path)
 
-        show_loading_modal("Loading image...", "Applying synchronization and layouts...", progress=1.0)
+        show_loading_modal(
+            "Loading image...", "Applying synchronization and layouts...", progress=1.0
+        )
         yield
 
         target_viewer = (
@@ -77,7 +80,11 @@ def load_batch_images_sequence(gui, controller, file_paths):
         else:
             filename = os.path.basename(path)
 
-        show_loading_modal("Loading image...", f"Loading ({i+1}/{total_files}):\n{filename}", progress=(i / total_files))
+        show_loading_modal(
+            "Loading image...",
+            f"Loading ({i+1}/{total_files}):\n{filename}",
+            progress=(i / total_files),
+        )
         yield
 
         try:
@@ -153,8 +160,11 @@ def load_batch_rois_sequence(
             continue
 
         filename = os.path.basename(path)
-        show_loading_modal("Loading image...", f"Loading ROI ({i+1}/{total_files}):\n{filename}",
-                           progress=(i / total_files))
+        show_loading_modal(
+            "Loading image...",
+            f"Loading ROI ({i+1}/{total_files}):\n{filename}",
+            progress=(i / total_files),
+        )
 
         yield
 
@@ -198,6 +208,156 @@ def load_batch_rois_sequence(
 
 
 def load_workspace_sequence(gui, controller, filepath):
+    """Safely restores a full workspace using ID mapping and strict hierarchy."""
+    import os
+    import json
+    from vvv.utils import ViewMode
+
+    try:
+        with open(filepath, "r") as f:
+            ws = json.load(f)
+    except Exception as e:
+        gui.show_status_message(f"Failed to load workspace: {e}")
+        return
+
+    display_name = "Loading Workspace Bases..."
+    show_loading_modal("Loading image...", display_name)
+
+    vp_width = max(dpg.get_viewport_client_width(), 800)
+    vp_height = max(dpg.get_viewport_client_height(), 600)
+    dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
+    yield
+
+    show_loading_modal("Loading image...", "Loading Workspace Bases...")
+    yield
+
+    id_map = {}  # Maps old JSON vs_id to the newly assigned vs_id
+    path_map = (
+        {}
+    )  # THE FIX: Maps absolute file paths to new vs_id to prevent duplicates!
+
+    # PHASE 1: Load Base Images & Apply Intrinsic State
+    for old_id, img_data in ws.get("images", {}).items():
+        raw_path = img_data.get("path")
+        if raw_path:
+            path = os.path.expanduser(raw_path)
+            if os.path.exists(path):
+                # Only load the image if we haven't already loaded it in this workspace!
+                if path not in path_map:
+                    new_id = controller.file.load_image(path)
+                    path_map[path] = new_id
+                else:
+                    new_id = path_map[path]
+
+                id_map[old_id] = new_id
+
+                vs = controller.view_states[new_id]
+                vs.display.from_dict(img_data.get("display", {}))
+                vs.camera.from_dict(img_data.get("camera", {}))
+                vs.sync_group = img_data.get("sync_group", 0)
+            yield
+
+    # PHASE 2: Map Viewers to the New Bases
+    for tag, v_data in ws.get("viewers", {}).items():
+        old_img_id = v_data.get("image_id")
+        if old_img_id in id_map:
+            new_id = id_map[old_img_id]
+            viewer = controller.viewers[tag]
+            viewer.set_image(new_id)
+            viewer.set_orientation(ViewMode[v_data["orientation"]])
+            viewer.zoom = v_data.get("zoom", 1.0)
+            viewer.pan_offset = v_data.get("pan_offset", [0, 0])
+            viewer.needs_recenter = v_data.get("needs_recenter", False)
+    yield
+
+    show_loading_modal("Loading image...", "Restoring Overlays and ROIs...")
+    total_images = len(ws.get("images", {}))
+    current_image = 0
+
+    # PHASE 3: Load Overlays and ROIs
+    for old_id, img_data in ws.get("images", {}).items():
+        current_image += 1
+        if old_id not in id_map:
+            continue
+        new_id = id_map[old_id]
+        vs = controller.view_states[new_id]
+
+        # 3A: Overlay
+        ov_info = img_data.get("overlay")
+        if ov_info:
+            ov_path = os.path.expanduser(ov_info["path"])
+            if os.path.exists(ov_path):
+                # THE FIX: Use the deduplication map!
+                if ov_path in path_map:
+                    ov_id = path_map[ov_path]
+                else:
+                    ov_id = controller.file.load_image(ov_path)
+                    path_map[ov_path] = ov_id
+                    controller.volumes[ov_id].is_overlay_only = True
+
+                ov_vs = controller.view_states[ov_id]
+                ov_vs.display.colormap = ov_info.get("colormap", "Grayscale")
+
+                # THE FIX: Pass the controller to trigger the 3D resample!
+                vs.set_overlay(ov_id, controller.volumes[ov_id], controller)
+
+                vs.display.overlay_mode = ov_info.get("mode", "Registration")
+                vs.display.overlay_opacity = ov_info.get("opacity", 0.5)
+
+        # Update progress bar
+        show_loading_modal(
+            "Loading image...",
+            "Restoring Overlays...",
+            progress=((current_image - 0.5) / total_images),
+        )
+
+        yield
+
+        # 3B: ROIs
+        for roi_data in img_data.get("rois", []):
+            raw_r_path = roi_data.get("path", "")
+            r_path = os.path.expanduser(raw_r_path)
+            r_state = roi_data.get("state", {})
+            if r_path and os.path.exists(r_path):
+                controller.roi.load_binary_mask(
+                    new_id,
+                    r_path,
+                    name=r_state.get("name"),
+                    color=r_state.get("color", [255, 0, 0]),
+                    mode=r_state.get("source_mode", "Ignore BG (val)"),
+                    target_val=r_state.get("source_val", 0.0),
+                )
+                latest_roi_id = list(vs.rois.keys())[-1]
+                vs.rois[latest_roi_id].opacity = r_state.get("opacity", 0.5)
+                vs.rois[latest_roi_id].visible = r_state.get("visible", True)
+                vs.rois[latest_roi_id].is_contour = r_state.get("is_contour", False)
+
+        # Update progress bar
+        if dpg.does_item_exist("loading_progress"):
+            dpg.set_value("loading_progress", current_image / total_images)
+        yield
+
+    # PHASE 4: Finalize Synchronization
+    for new_id in id_map.values():
+        controller.sync.propagate_sync(new_id)
+        controller.update_all_viewers_of_image(new_id)
+
+    gui.refresh_image_list_ui()
+    gui.refresh_rois_ui()
+    gui.refresh_sync_ui()
+    gui.on_window_resize()
+
+    if id_map:
+        gui.set_context_viewer(controller.viewers["V1"])
+
+    if dpg.does_item_exist("loading_modal"):
+        dpg.delete_item("loading_modal")
+    yield
+
+    hide_loading_modal()
+
+
+def load_workspace_sequence_OLD(gui, controller, filepath):
     """Safely restores a full workspace using ID mapping and strict hierarchy."""
     import os
     import json
@@ -277,7 +437,11 @@ def load_workspace_sequence(gui, controller, filepath):
                 vs.display.overlay_opacity = ov_info.get("opacity", 0.5)
 
         # Update progress bar
-        show_loading_modal("Loading image...", "Restoring Overlays...", progress=((current_image - 0.5) / total_images))
+        show_loading_modal(
+            "Loading image...",
+            "Restoring Overlays...",
+            progress=((current_image - 0.5) / total_images),
+        )
 
         yield
 
@@ -331,7 +495,6 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
     total_files = len(image_tasks) + sum(1 for t in image_tasks if t["fusion"])
     warnings = []
 
-
     display_name = "Initializing..."
     show_loading_modal("Loading image...", display_name)
 
@@ -348,8 +511,11 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
         filename = os.path.basename(base_path)
         sync_group = task.get("sync_group", 0)
 
-        show_loading_modal("Initializing...", f"Loading base...\n{filename}",
-                           progress=(files_processed / total_files))
+        show_loading_modal(
+            "Initializing...",
+            f"Loading base...\n{filename}",
+            progress=(files_processed / total_files),
+        )
 
         yield
 
@@ -373,8 +539,11 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
             fuse_path = task["fusion"]["path"]
             fuse_name = os.path.basename(fuse_path)
 
-            show_loading_modal("Initializing...", f"Resampling overlay...\n{fuse_name}",
-                               progress=(files_processed / total_files))
+            show_loading_modal(
+                "Initializing...",
+                f"Resampling overlay...\n{fuse_name}",
+                progress=(files_processed / total_files),
+            )
             yield
 
             try:
@@ -401,7 +570,9 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
                 yield
                 continue
 
-    show_loading_modal("Loading image...", "Applying synchronization and layouts...", progress=1.0)
+    show_loading_modal(
+        "Loading image...", "Applying synchronization and layouts...", progress=1.0
+    )
     yield
 
     controller.default_viewers_orientation()

@@ -59,6 +59,8 @@ def build_ui_config(controller):
             "text_muted": [150, 150, 150],
             "transparent": [0, 0, 0, 0],
             "outdated": [255, 180, 50],
+            "working": [255, 180, 50],
+            "warning": [255, 100, 100],
         },
     }
 
