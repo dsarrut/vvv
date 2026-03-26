@@ -50,6 +50,9 @@ def refresh_image_list_ui(gui):
 
                 lbl_id = dpg.add_text(name_str)
 
+                with dpg.tooltip(lbl_id):
+                    dpg.add_text(vs.volume.get_human_readable_file_path())
+
                 # Color it warning-orange if outdated
                 cfg_c = gui.ui_cfg["colors"]
                 if is_outdated:

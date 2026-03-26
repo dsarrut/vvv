@@ -7,7 +7,7 @@ import SimpleITK as sitk
 from vvv.utils import ViewMode
 from vvv.config import COLORMAPS
 from dataclasses import dataclass
-
+from vvv.utils import get_history_path_key
 
 @dataclass
 class RenderLayer:
@@ -492,6 +492,14 @@ class VolumeData:
                     )
 
                 return sitk.JoinSeries(imgs)
+
+    def get_human_readable_file_path(self):
+        import os
+        raw_path = self.file_paths[0] if isinstance(self.file_paths, list) and self.file_paths else str(
+            self.path)
+        n = os.path.abspath(os.path.expanduser(raw_path))
+        n = get_history_path_key(n)
+        return n
 
     def read_image_metadata(self):
         self.pixel_type = self.sitk_image.GetPixelIDTypeAsString()

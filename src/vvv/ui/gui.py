@@ -61,6 +61,7 @@ class MainGUI:
             "check_crosshair": "camera.show_crosshair",
             "check_legend": "camera.show_legend",
             "check_scalebar": "camera.show_scalebar",
+            "check_filename": "camera.show_filename",
             "info_window": "display.ww",
             "info_level": "display.wl",
             "info_base_threshold": "display.base_threshold",
@@ -264,7 +265,7 @@ class MainGUI:
             with dpg.group(tag="image_info_group"):
                 self.create_labeled_field("", tag="info_name")
 
-                with dpg.group(horizontal=True):
+                ''' with dpg.group(horizontal=True):
                     dpg.add_text("Path:", color=cfg_c["text_dim"])
                     btn_copy = dpg.add_button(
                         label="\uf0c5", callback=self.on_copy_path_clicked
@@ -273,7 +274,7 @@ class MainGUI:
                         dpg.bind_item_font(btn_copy, "icon_font_tag")
                     if dpg.does_item_exist("icon_button_theme"):
                         dpg.bind_item_theme(btn_copy, "icon_button_theme")
-                    dpg.add_input_text(tag="info_path", readonly=True, width=-1)
+                    dpg.add_input_text(tag="info_path", readonly=True, width=-1)'''
 
                 self.create_labeled_field("Type", tag="info_voxel_type")
                 self.create_labeled_field("Size", tag="info_size")
@@ -386,6 +387,14 @@ class MainGUI:
                         user_data="legend",
                         default_value=False,
                     )
+                with dpg.table_row():
+                    dpg.add_checkbox(
+                        label="Filename",
+                        tag="check_filename",
+                        callback=self.on_visibility_toggle,
+                        user_data="filename",
+                        default_value=False,
+                    )
 
     def build_viewer_grid(self):
         """Creates the 2x2 grid of slice viewers."""
@@ -430,6 +439,10 @@ class MainGUI:
 
             col = self.controller.settings.data["colors"]["tracker_text"]
             dpg.add_text("", tag=viewer.tracker_tag, color=col, pos=[5, 5])
+
+            # filename
+            dpg.add_text("", tag=f"filename_text_{tag}", color=col, show=False)
+
 
     def register_handlers(self):
         with dpg.handler_registry():
@@ -510,99 +523,8 @@ class MainGUI:
     def highlight_active_image_in_list(self, active_img_id):
         highlight_active_image_in_list(self, active_img_id)
 
-    def highlight_active_image_in_list_OLD(self, active_img_id):
-        for img_id, label_tag in self.image_label_tags.items():
-            if dpg.does_item_exist(label_tag):
-                if img_id == active_img_id:
-                    dpg.bind_item_theme(label_tag, "active_image_list_theme")
-                else:
-                    dpg.bind_item_theme(label_tag, "")
-
-        for img_id, label_tag in self.sync_label_tags.items():
-            if dpg.does_item_exist(label_tag):
-                if img_id == active_img_id:
-                    dpg.bind_item_theme(label_tag, "active_image_list_theme")
-                else:
-                    dpg.bind_item_theme(label_tag, "")
-
     def refresh_image_list_ui(self):
         refresh_image_list_ui(self)
-
-    def refresh_image_list_ui_OLD(self):
-        container = "image_list_container"
-        if not dpg.does_item_exist(container):
-            return
-
-        dpg.delete_item(container, children_only=True)
-        self.image_label_tags.clear()
-
-        muted_col = self.ui_cfg["colors"]["text_muted"]
-        transparent = self.ui_cfg["colors"]["transparent"]
-
-        for vs_id, vs in self.controller.view_states.items():
-            with dpg.group(parent=container):
-                with dpg.group(horizontal=True):
-                    if vs.sync_group > 0:
-                        dpg.add_text(f"[{vs.sync_group}]", color=muted_col)
-                    else:
-                        dpg.add_text("   ", color=transparent)
-
-                    is_outdated = getattr(vs.volume, "_is_outdated", False)
-                    name_str = f"{vs.volume.name} *" if is_outdated else vs.volume.name
-
-                    lbl_id = dpg.add_text(name_str)
-
-                    # Color it warning-orange if outdated
-                    cfg_c = self.ui_cfg["colors"]
-                    if is_outdated:
-                        dpg.configure_item(lbl_id, color=cfg_c["outdated"])
-
-                    self.image_label_tags[vs_id] = lbl_id
-
-                with dpg.group(horizontal=True):
-                    dpg.add_spacer(width=10)
-                    for v_tag in ["V1", "V2", "V3", "V4"]:
-                        is_active = self.controller.viewers[v_tag].image_id == vs_id
-                        dpg.add_checkbox(
-                            label="",
-                            default_value=is_active,
-                            user_data={"img_id": vs_id, "v_tag": v_tag},
-                            callback=self.on_image_viewer_toggle,
-                        )
-
-                    btn_save = dpg.add_button(
-                        label="\uf0c7",
-                        width=20,  # Floppy disk icon
-                        callback=lambda s, a, u: self.on_save_image_clicked(u),
-                        user_data=vs_id,
-                    )
-
-                    btn_reload = dpg.add_button(
-                        label="\uf01e",
-                        width=20,
-                        callback=lambda s, a, u: self.controller.reload_image(u),
-                        user_data=vs_id,
-                    )
-                    btn_close = dpg.add_button(
-                        label="\uf00d",
-                        width=20,
-                        callback=lambda s, a, u: self.controller.file.close_image(u),
-                        user_data=vs_id,
-                    )
-
-                    if dpg.does_item_exist("icon_font_tag"):
-                        dpg.bind_item_font(btn_save, "icon_font_tag")
-                        dpg.bind_item_font(btn_reload, "icon_font_tag")
-                        dpg.bind_item_font(btn_close, "icon_font_tag")
-                    if dpg.does_item_exist("delete_button_theme"):
-                        dpg.bind_item_theme(btn_close, "delete_button_theme")
-                    if dpg.does_item_exist("icon_button_theme"):
-                        dpg.bind_item_theme(btn_reload, "icon_button_theme")
-
-        self.refresh_sync_ui()
-        self.refresh_recent_menu()
-        if self.context_viewer and self.context_viewer.image_id:
-            self.highlight_active_image_in_list(self.context_viewer.image_id)
 
     def refresh_sync_ui(self):
         """Pass-through bridge to the delegated Sync UI."""
@@ -772,6 +694,8 @@ class MainGUI:
             if isinstance(vol.file_paths, list) and vol.file_paths
             else str(vol.path)
         )
+        #with dpg.tooltip("info_name"):
+        #    dpg.add_text(vol.get_human_readable_file_path())
 
         # 1. Resolve to a clean absolute path first
         abs_path = os.path.abspath(os.path.expanduser(raw_path))
@@ -783,7 +707,7 @@ class MainGUI:
         else:
             display_path = abs_path
 
-        dpg.set_value("info_path", display_path)
+        #dpg.set_value("info_path", display_path)
         dpg.set_value("info_name_label", viewer.tag)
         dpg.set_value("info_voxel_type", f"{vol.pixel_type}")
         if vol.num_timepoints > 1:
@@ -1073,6 +997,8 @@ class MainGUI:
             vs.camera.show_scalebar = value
         elif user_data == "legend":
             vs.camera.show_legend = value
+        elif user_data == "filename":
+            vs.camera.show_filename = value
 
         self.controller.update_all_viewers_of_image(viewer.image_id)
 

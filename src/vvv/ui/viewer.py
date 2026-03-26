@@ -111,6 +111,7 @@ class SliceViewer:
         self.axis_a_tag = f"axes_node_A_{tag_id}"
         self.axis_b_tag = f"axes_node_B_{tag_id}"
         self.tracker_tag = f"tracker_{tag_id}"
+        self.filename_text_tag = f"filename_text_{tag_id}"
         self.crosshair_tag = f"crosshair_node_{tag_id}"
         self.legend_tag = f"legend_node_{tag_id}"
         self.xh_line_h = f"xh_h_{tag_id}"
@@ -512,14 +513,10 @@ class SliceViewer:
         self.view_state.camera.show_crosshair = new_state
         self.view_state.camera.show_tracker = new_state
         self.view_state.camera.show_scalebar = new_state
+        self.view_state.camera.show_filename = new_state
         self.view_state.camera.show_grid = False
 
-        dpg.set_value("check_axis", new_state)
-        dpg.set_value("check_crosshair", new_state)
-        dpg.set_value("check_tracker", new_state)
-        dpg.set_value("check_scalebar", new_state)
-        dpg.set_value("check_grid", False)
-
+        self.view_state.is_data_dirty = True
         self.controller.update_all_viewers_of_image(self.image_id)
 
     def tick(self):
@@ -683,6 +680,25 @@ class SliceViewer:
             self.view_state.update_crosshair_from_slice_scroll(
                 self.slice_idx, self.orientation
             )
+
+    def update_filename_overlay(self):
+        if not self.image_id or not self.view_state or not self.volume:
+            dpg.configure_item(self.filename_text_tag, show=False)
+            return
+
+        show_fname = getattr(self.view_state.camera, "show_filename", False)
+        if not show_fname or not self.is_image_orientation():
+            dpg.configure_item(self.filename_text_tag, show=False)
+            return
+
+        dpg.configure_item(self.filename_text_tag, show=True)
+        f_name = self.volume.get_human_readable_file_path()
+        dpg.set_value(self.filename_text_tag, f_name)
+
+        # Center it dynamically at the top of the viewer!
+        ts = dpg.get_item_rect_size(self.filename_text_tag)
+        tw = ts[0] if ts[0] > 0 else len(f_name) * 7
+        dpg.set_item_pos(self.filename_text_tag, [max(5, (self.quad_w - tw) // 2), 5])
 
     def _package_base_layer(self):
         # Use the display buffer if it exists, otherwise fall back to raw data
@@ -860,6 +876,7 @@ class SliceViewer:
         self.drawer.draw_legend()
         self.drawer.draw_crosshair()
         self.update_tracker()
+        self.update_filename_overlay()
 
     def update_tracker(self):
         if (
@@ -977,6 +994,7 @@ class SliceViewer:
             "view_histogram": self.action_view_histogram,
             "toggle_interp": self.action_toggle_interp,
             "toggle_legend": self.action_toggle_legend,
+            "toggle_filename": self.action_toggle_filename,
             "toggle_grid": self.action_toggle_grid,
             "toggle_axis": self.action_toggle_axis,
             "toggle_scalebar": self.action_toggle_scalebar,
@@ -1053,6 +1071,12 @@ class SliceViewer:
         self.view_state.camera.show_scalebar = not self.view_state.camera.show_scalebar
         self.view_state.is_data_dirty = True
 
+    def action_toggle_filename(self):
+        current = getattr(self.view_state.camera, "show_filename", False)
+        self.view_state.camera.show_filename = not current
+        self.view_state.is_data_dirty = True
+        self.controller.update_all_viewers_of_image(self.image_id)
+
     def on_key_press(self, key):
         if not self.view_state:
             return
@@ -1060,6 +1084,10 @@ class SliceViewer:
         shortcuts = self.controller.settings.data["shortcuts"]
         for action_name, action_func in self._shortcut_map.items():
             val = shortcuts.get(action_name)
+
+            if val is None and action_name == "toggle_filename":
+                val = dpg.mvKey_F
+
             mapped_key = (
                 getattr(dpg, f"mvKey_{val}", val) if isinstance(val, str) else val
             )
