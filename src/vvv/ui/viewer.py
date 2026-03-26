@@ -727,6 +727,51 @@ class SliceViewer:
             return None
 
         ovs = self.controller.view_states[self.view_state.display.overlay_id]
+
+        # --- THE FUSION FIX: Calculate Relative Pixel Shift ---
+        base_vs = self.view_state
+        base_tx, base_ty, base_tz = 0.0, 0.0, 0.0
+        if base_vs.space.transform and base_vs.space.is_active:
+            base_tx, base_ty, base_tz = base_vs.space.transform.GetTranslation()
+
+        ov_tx, ov_ty, ov_tz = 0.0, 0.0, 0.0
+        if ovs.space.transform and ovs.space.is_active:
+            ov_tx, ov_ty, ov_tz = ovs.space.transform.GetTranslation()
+
+        # How many mm has the overlay moved LIVE relative to the base?
+        live_dx = ov_tx - base_tx
+        live_dy = ov_ty - base_ty
+        live_dz = ov_tz - base_tz
+
+        # Subtract the translation that is ALREADY baked into the 3D array!
+        baked_dx, baked_dy, baked_dz = getattr(
+            self.view_state.display, "baked_overlay_translation", (0.0, 0.0, 0.0)
+        )
+
+        dx_mm = live_dx - baked_dx
+        dy_mm = live_dy - baked_dy
+        dz_mm = live_dz - baked_dz
+
+        sp_x, sp_y, sp_z = self.volume.spacing
+
+        px_x = dx_mm / sp_x if sp_x else 0
+        px_y = dy_mm / sp_y if sp_y else 0
+        px_z = dz_mm / sp_z if sp_z else 0
+
+        off_x, off_y, off_slice = 0, 0, 0
+        if self.orientation == ViewMode.AXIAL:
+            off_x = int(round(px_x))
+            off_y = int(round(px_y))
+            off_slice = int(round(px_z))
+        elif self.orientation == ViewMode.CORONAL:
+            off_x = int(round(px_x))
+            off_y = int(round(-px_z))
+            off_slice = int(round(px_y))
+        elif self.orientation == ViewMode.SAGITTAL:
+            off_x = int(round(-px_y))
+            off_y = int(round(-px_z))
+            off_slice = int(round(px_x))
+
         return RenderLayer(
             data=self.view_state.display.overlay_data,
             is_rgb=getattr(ovs.volume, "is_rgb", False),
@@ -739,6 +784,9 @@ class SliceViewer:
                 self.view_state.camera.time_idx, ovs.volume.num_timepoints - 1
             ),
             spacing_2d=self.volume.get_physical_aspect_ratio(self.orientation),
+            offset_x=off_x,
+            offset_y=off_y,
+            offset_slice=off_slice,
         )
 
     def _package_roi_layers(self):

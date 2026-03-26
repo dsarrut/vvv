@@ -111,6 +111,8 @@ class DisplayState:
         self.overlay_mode = "Alpha"
         self.overlay_checkerboard_size = 20.0
         self.overlay_checkerboard_swap = False
+        # for registration
+        self.baked_overlay_translation = (0.0, 0.0, 0.0)
 
     def to_dict(self):
         return {
@@ -395,7 +397,70 @@ class ViewState:
                 sitk.JoinSeries(resampled_volumes)
             )
 
-    def set_overlay(self, other_vs_id, other_vol, other_transform=None):
+    def update_overlay_display_data(self, controller):
+        if (
+            not self.display.overlay_id
+            or self.display.overlay_id not in controller.view_states
+        ):
+            return
+
+        ovs = controller.view_states[self.display.overlay_id]
+        other_vol = ovs.volume
+
+        resampler = sitk.ResampleImageFilter()
+        resampler.SetReferenceImage(self.volume.sitk_image)
+        resampler.SetInterpolator(sitk.sitkLinear)
+        resampler.SetDefaultPixelValue(np.min(other_vol.data).item())
+
+        # Build the exact mapping from Base Physical to Overlay Physical
+        composite = sitk.CompositeTransform(3)
+        if ovs.space.transform and ovs.space.is_active:
+            composite.AddTransform(ovs.space.transform.GetInverse())
+        if self.space.transform and self.space.is_active:
+            composite.AddTransform(self.space.transform)
+
+        resampler.SetTransform(composite)
+
+        # Execute Resample
+        target_dim = other_vol.sitk_image.GetDimension()
+        if target_dim == 3:
+            resampled_img = resampler.Execute(other_vol.sitk_image)
+            self.display.overlay_data = sitk.GetArrayFromImage(resampled_img)
+        else:
+            self.display.overlay_data = other_vol.data
+
+        # Record what was baked in so the 2D shift can subtract it!
+        baked_tx, baked_ty, baked_tz = 0.0, 0.0, 0.0
+        if ovs.space.transform and ovs.space.is_active:
+            baked_tx, baked_ty, baked_tz = ovs.space.transform.GetTranslation()
+
+        base_tx, base_ty, base_tz = 0.0, 0.0, 0.0
+        if self.space.transform and self.space.is_active:
+            base_tx, base_ty, base_tz = self.space.transform.GetTranslation()
+
+        self.display.baked_overlay_translation = (
+            baked_tx - base_tx,
+            baked_ty - base_ty,
+            baked_tz - base_tz,
+        )
+        self.is_data_dirty = True
+
+    def set_overlay(self, overlay_id, other_vol, controller=None):
+        if overlay_id is None or other_vol is None:
+            self.display.overlay_id = None
+            self.display.overlay_data = None
+            self.display.baked_overlay_translation = (0.0, 0.0, 0.0)
+            self.is_data_dirty = True
+            return
+
+        self.display.overlay_id = overlay_id
+        self.display.overlay_opacity = 0.5
+        self.display.overlay_mode = "Registration"
+
+        if controller:
+            self.update_overlay_display_data(controller)
+
+    def set_overlay_OLD(self, other_vs_id, other_vol, other_transform=None):
         if other_vs_id is None or other_vol is None:
             self.display.overlay_id = None
             self.display.overlay_data = None

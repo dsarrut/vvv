@@ -16,7 +16,11 @@ from vvv.ui.ui_sync import build_tab_sync, refresh_sync_ui
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 from vvv.ui.ui_theme import build_ui_config, register_dynamic_themes
 from vvv.ui.ui_notifications import show_message, show_status_message
-from vvv.ui.ui_image_list import build_tab_images, refresh_image_list_ui, highlight_active_image_in_list
+from vvv.ui.ui_image_list import (
+    build_tab_images,
+    refresh_image_list_ui,
+    highlight_active_image_in_list,
+)
 from vvv.ui.ui_sequences import (
     load_single_image_sequence,
     load_batch_images_sequence,
@@ -50,7 +54,6 @@ class MainGUI:
         # internal states
         self._is_roi_tab_active = None
         self._hide_av_panel = None
-        self._reg_debounce_timer = None
 
         # --- DATA BINDING DICTIONARY ---
         # Maps DPG tag -> ViewState property name
@@ -98,16 +101,16 @@ class MainGUI:
     def build_main_layout(self):
         """Constructs the root window and main subdivisions."""
         with dpg.window(
-                tag="PrimaryWindow",
-                menubar=False,
-                on_close=self.cleanup,
-                no_scrollbar=True,
-                no_scroll_with_mouse=True,
-                no_move=True,
-                no_resize=True,
-                no_collapse=True,
-                no_title_bar=True,
-                no_bring_to_front_on_focus=True,
+            tag="PrimaryWindow",
+            menubar=False,
+            on_close=self.cleanup,
+            no_scrollbar=True,
+            no_scroll_with_mouse=True,
+            no_move=True,
+            no_resize=True,
+            no_collapse=True,
+            no_title_bar=True,
+            no_bring_to_front_on_focus=True,
         ):
             self.build_menu_bar()
 
@@ -129,11 +132,11 @@ class MainGUI:
         cfg_l = self.ui_cfg["layout"]
 
         with dpg.child_window(
-                tag="menu_container",
-                height=cfg_l["menu_h"],
-                border=False,
-                menubar=True,
-                no_scrollbar=True,
+            tag="menu_container",
+            height=cfg_l["menu_h"],
+            border=False,
+            menubar=True,
+            no_scrollbar=True,
         ):
             with dpg.menu_bar(tag="main_menu_bar"):
                 with dpg.menu(label="File"):
@@ -218,11 +221,11 @@ class MainGUI:
 
         with dpg.group(tag="side_panel_outer"):
             with dpg.child_window(
-                    width=cfg_l["side_panel_w"] - 4,
-                    tag="side_panel",
-                    no_scrollbar=True,
-                    no_scroll_with_mouse=True,
-                    border=True,
+                width=cfg_l["side_panel_w"] - 4,
+                tag="side_panel",
+                no_scrollbar=True,
+                no_scroll_with_mouse=True,
+                border=True,
             ):
                 with dpg.group(indent=cfg_l["left_inner_m"]):
                     dpg.add_spacer(height=5)
@@ -244,9 +247,9 @@ class MainGUI:
         cfg_c = self.ui_cfg["colors"]
 
         with dpg.child_window(
-                tag="top_panel",
-                border=False,
-                no_scrollbar=True,
+            tag="top_panel",
+            border=False,
+            no_scrollbar=True,
         ):
             with dpg.tab_bar(tag="sidebar_tabs", callback=self.on_tab_changed):
                 build_tab_images(self)
@@ -265,7 +268,7 @@ class MainGUI:
             with dpg.group(tag="image_info_group"):
                 self.create_labeled_field("", tag="info_name")
 
-                ''' with dpg.group(horizontal=True):
+                """ with dpg.group(horizontal=True):
                     dpg.add_text("Path:", color=cfg_c["text_dim"])
                     btn_copy = dpg.add_button(
                         label="\uf0c5", callback=self.on_copy_path_clicked
@@ -274,7 +277,7 @@ class MainGUI:
                         dpg.bind_item_font(btn_copy, "icon_font_tag")
                     if dpg.does_item_exist("icon_button_theme"):
                         dpg.bind_item_theme(btn_copy, "icon_button_theme")
-                    dpg.add_input_text(tag="info_path", readonly=True, width=-1)'''
+                    dpg.add_input_text(tag="info_path", readonly=True, width=-1)"""
 
                 self.create_labeled_field("Type", tag="info_voxel_type")
                 self.create_labeled_field("Size", tag="info_size")
@@ -399,10 +402,10 @@ class MainGUI:
     def build_viewer_grid(self):
         """Creates the 2x2 grid of slice viewers."""
         with dpg.child_window(
-                tag="viewers_container",
-                border=False,
-                no_scrollbar=True,
-                no_scroll_with_mouse=True,
+            tag="viewers_container",
+            border=False,
+            no_scrollbar=True,
+            no_scroll_with_mouse=True,
         ):
             with dpg.group(horizontal=True):
                 self.build_viewer_widget("V1")
@@ -414,7 +417,7 @@ class MainGUI:
     def build_viewer_widget(self, tag):
         viewer = self.controller.viewers[tag]
         with dpg.child_window(
-                tag=f"win_{tag}", border=True, no_scrollbar=True, no_scroll_with_mouse=True
+            tag=f"win_{tag}", border=True, no_scrollbar=True, no_scroll_with_mouse=True
         ):
             with dpg.drawlist(tag=f"drawlist_{tag}", width=-1, height=-1):
                 dpg.add_draw_node(tag=viewer.img_node_tag)
@@ -442,7 +445,6 @@ class MainGUI:
 
             # filename
             dpg.add_text("", tag=f"filename_text_{tag}", color=col, show=False)
-
 
     def register_handlers(self):
         with dpg.handler_registry():
@@ -483,7 +485,7 @@ class MainGUI:
 
             # Safeguard: Do not overwrite text inputs if the user is currently typing in them
             if dpg.get_item_type(
-                    tag
+                tag
             ) == "mvAppItemType::mvInputText" and dpg.is_item_focused(tag):
                 continue
 
@@ -561,7 +563,7 @@ class MainGUI:
             # Create a clean display name
             if isinstance(path_obj, list) and len(path_obj) > 0:
                 display_name = (
-                        os.path.basename(os.path.dirname(path_obj[0])) + " (DICOM Series)"
+                    os.path.basename(os.path.dirname(path_obj[0])) + " (DICOM Series)"
                 )
             elif isinstance(path_str, str) and path_str.startswith("4D:"):
                 import shlex
@@ -589,7 +591,7 @@ class MainGUI:
             callback=self.on_clear_recent_clicked,
         )
 
-    def _pan_viewers_by_delta(self, vs_id, dtx, dty, dtz):
+    def pan_viewers_by_delta(self, vs_id, dtx, dty, dtz):
         """Translates the 2D cameras to perfectly match the physical 3D shift."""
         from vvv.utils import ViewMode
 
@@ -694,7 +696,7 @@ class MainGUI:
             if isinstance(vol.file_paths, list) and vol.file_paths
             else str(vol.path)
         )
-        #with dpg.tooltip("info_name"):
+        # with dpg.tooltip("info_name"):
         #    dpg.add_text(vol.get_human_readable_file_path())
 
         # 1. Resolve to a clean absolute path first
@@ -703,11 +705,11 @@ class MainGUI:
         # 2. Check if it lives inside the user's home directory and replace it with ~
         home_dir = os.path.expanduser("~")
         if abs_path.startswith(home_dir):
-            display_path = "~" + abs_path[len(home_dir):]
+            display_path = "~" + abs_path[len(home_dir) :]
         else:
             display_path = abs_path
 
-        #dpg.set_value("info_path", display_path)
+        # dpg.set_value("info_path", display_path)
         dpg.set_value("info_name_label", viewer.tag)
         dpg.set_value("info_voxel_type", f"{vol.pixel_type}")
         if vol.num_timepoints > 1:
@@ -785,8 +787,8 @@ class MainGUI:
         # Safely deselect ROI if it doesn't belong to the new image
         if getattr(self, "active_roi_id", None):
             if (
-                    viewer.view_state
-                    and self.roi_ui.active_roi_id not in viewer.view_state.rois
+                viewer.view_state
+                and self.roi_ui.active_roi_id not in viewer.view_state.rois
             ):
                 self.roi_ui.active_roi_id = None
 
@@ -839,7 +841,7 @@ class MainGUI:
             dpg.set_item_height("side_panel", l_h)
 
             inner_w = (
-                    l_w - cfg["gap_center"] - cfg["left_inner_m"] - cfg["right_inner_m"]
+                l_w - cfg["gap_center"] - cfg["left_inner_m"] - cfg["right_inner_m"]
             )
 
             # --- THE COMPUTED LAYOUT ENGINE ---
@@ -960,9 +962,9 @@ class MainGUI:
     def on_wl_preset_menu_clicked(self, sender, app_data, user_data):
         viewer = self.context_viewer
         if (
-                not viewer
-                or not viewer.view_state
-                or getattr(viewer.volume, "is_rgb", False)
+            not viewer
+            or not viewer.view_state
+            or getattr(viewer.volume, "is_rgb", False)
         ):
             return
         viewer.view_state.apply_wl_preset(user_data)
@@ -971,9 +973,9 @@ class MainGUI:
     def on_colormap_menu_clicked(self, sender, app_data, user_data):
         viewer = self.context_viewer
         if (
-                not viewer
-                or not viewer.view_state
-                or getattr(viewer.volume, "is_rgb", False)
+            not viewer
+            or not viewer.view_state
+            or getattr(viewer.volume, "is_rgb", False)
         ):
             return
         viewer.view_state.display.colormap = user_data
@@ -1001,8 +1003,6 @@ class MainGUI:
             vs.camera.show_filename = value
 
         self.controller.update_all_viewers_of_image(viewer.image_id)
-
-
 
     def on_toggle_auto_save(self, sender, app_data, user_data):
         # app_data holds the new boolean state of the checkbox
@@ -1113,13 +1113,13 @@ class MainGUI:
         ok_col = self.ui_cfg["colors"]["text_status_ok"]
 
         with dpg.window(
-                tag=window_tag,
-                show=True,
-                label="Shortcuts & Controls",
-                width=520,  # Slightly wider to accommodate longer shortcut names
-                height=600,  # Slightly taller for the new entry
-                no_collapse=False,
-                on_close=lambda: dpg.delete_item(window_tag),
+            tag=window_tag,
+            show=True,
+            label="Shortcuts & Controls",
+            width=520,  # Slightly wider to accommodate longer shortcut names
+            height=600,  # Slightly taller for the new entry
+            no_collapse=False,
+            on_close=lambda: dpg.delete_item(window_tag),
         ):
             dpg.add_spacer(height=5)
             dpg.add_text("Mouse Controls", color=active_col)
@@ -1173,7 +1173,7 @@ class MainGUI:
                 return str(k)
 
             with dpg.table(
-                    header_row=False, borders_innerH=True, policy=dpg.mvTable_SizingFixedFit
+                header_row=False, borders_innerH=True, policy=dpg.mvTable_SizingFixedFit
             ):
                 dpg.add_table_column(
                     width_fixed=True, init_width_or_weight=140

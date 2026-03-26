@@ -12,6 +12,7 @@ class RegistrationUI:
     def __init__(self, gui, controller):
         self.gui = gui
         self.controller = controller
+        self._reg_debounce_timer = None
 
     @staticmethod
     def build_tab_reg(gui):
@@ -74,10 +75,10 @@ class RegistrationUI:
             with dpg.group(tag="group_reg_matrix"):
                 # A clean 4x4 table to display the matrix values
                 with dpg.table(
-                        header_row=False,
-                        borders_innerV=True,
-                        borders_innerH=True,
-                        resizable=False,
+                    header_row=False,
+                    borders_innerV=True,
+                    borders_innerH=True,
+                    resizable=False,
                 ):
                     for _ in range(4):
                         dpg.add_table_column()
@@ -286,6 +287,24 @@ class RegistrationUI:
             active_vs = self.controller.view_states.get(active_image_id)
             if active_vs:
                 active_vs.update_base_display_data()
+
+                # --- THE BASE IMAGE BOUNCE ---
+                # If the image we just moved is Image A, and it holds an overlay (Image B),
+                # we must un-crop Image B because Image A's physical grid just shifted!
+                if active_vs.display.overlay_id:
+                    active_vs.update_overlay_display_data(self.controller)
+                    active_vs.is_data_dirty = True
+
+            # --- THE ROTATION & CROPPING BOUNCE ---
+            for v in self.controller.viewers.values():
+                if (
+                    v.view_state
+                    and getattr(v.view_state.display, "overlay_id", None)
+                    == active_image_id
+                ):
+                    v.view_state.update_overlay_display_data(self.controller)
+                    v.view_state.is_data_dirty = True
+
             self.controller.update_all_viewers_of_image(active_image_id)
             self.gui.show_status_message("Transform applied", color=[150, 255, 150])
 
@@ -339,7 +358,7 @@ class RegistrationUI:
 
         dtx, dty, dtz = new_tx - old_tx, new_ty - old_ty, new_tz - old_tz
         if dtx != 0 or dty != 0 or dtz != 0:
-            self.gui._pan_viewers_by_delta(vs_id, dtx, dty, dtz)
+            self.gui.pan_viewers_by_delta(vs_id, dtx, dty, dtz)
 
         new_local_vox = vs.space.world_to_display(world_pos, is_buffered=is_buf)
         sh = vs.volume.shape3d
@@ -364,6 +383,14 @@ class RegistrationUI:
                 v.needs_recenter = True
 
         self.controller.update_all_viewers_of_image(vs_id)
+
+        # THE FUSION BROADCAST
+        # Tap any OTHER viewer on the shoulder and tell its 2D renderer to redraw.
+        # This allows V1 (Base A) to instantly update the overlay of Image B!
+        for v in self.controller.viewers.values():
+            if v.image_id != vs_id:
+                v.view_state.is_data_dirty = True
+
         self.gui.update_sidebar_crosshair(viewer)
 
         rotation_changed = (
@@ -372,6 +399,17 @@ class RegistrationUI:
             or abs(new_rz - old_rz) > 1e-5
         )
         if rotation_changed or new_state_val is not None:
+            self.trigger_debounced_rotation_update(vs_id)
+
+        transform_changed = (
+            abs(new_rx - old_rx) > 1e-5
+            or abs(new_ry - old_ry) > 1e-5
+            or abs(new_rz - old_rz) > 1e-5
+            or abs(new_tx - old_tx) > 1e-5
+            or abs(new_ty - old_ty) > 1e-5
+            or abs(new_tz - old_tz) > 1e-5
+        )
+        if transform_changed or new_state_val is not None:
             self.trigger_debounced_rotation_update(vs_id)
 
     # --- Callbacks ---
@@ -525,7 +563,7 @@ class RegistrationUI:
         vol = self.controller.volumes.get(viewer.image_id)
 
         if vs.space.transform:
-            center = vs.space.GetCenter()
+            ccenter = vs.space.transform.GetCenter()
         else:
             center = self.controller.get_volume_physical_center(vol)
 

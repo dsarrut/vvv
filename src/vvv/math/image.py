@@ -9,6 +9,7 @@ from vvv.config import COLORMAPS
 from dataclasses import dataclass
 from vvv.utils import get_history_path_key
 
+
 @dataclass
 class RenderLayer:
     """Bundles all necessary rendering parameters for a single image layer."""
@@ -21,7 +22,11 @@ class RenderLayer:
     cmap_name: str
     threshold: float
     time_idx: int
-    spacing_2d: tuple  # <--- ADDED: Physical pixel dimensions (width_mm, height_mm)
+    spacing_2d: tuple
+    # offset: used to move the image when associated matrix is modified
+    offset_x: int = 0
+    offset_y: int = 0
+    offset_slice: int = 0
 
 
 @dataclass
@@ -128,6 +133,26 @@ class SliceRenderer:
             res_rgba = np.where(mask_rgba & b_mask, [0.0, 0.0, 0.0, 0.0], res_rgba)
 
         return res_rgba
+
+    @staticmethod
+    def _shift_2d_array(arr, dx, dy):
+        """Rapidly translates a 2D NumPy array by pixel offsets without wrapping."""
+        if dx == 0 and dy == 0:
+            return arr
+
+        h, w = arr.shape[:2]
+        # Fill empty space with the minimum value (usually 0) so it doesn't create artifacts
+        res = np.full_like(arr, np.min(arr))
+
+        src_y0, src_y1 = max(0, -dy), min(h, h - dy)
+        src_x0, src_x1 = max(0, -dx), min(w, w - dx)
+        dst_y0, dst_y1 = max(0, dy), min(h, h + dy)
+        dst_x0, dst_x1 = max(0, dx), min(w, w + dx)
+
+        if src_y0 < src_y1 and src_x0 < src_x1:
+            res[dst_y0:dst_y1, dst_x0:dst_x1] = arr[src_y0:src_y1, src_x0:src_x1]
+
+        return res
 
     @staticmethod
     def _apply_rois(base_rgba, rois):
@@ -295,7 +320,6 @@ class SliceRenderer:
                 mask = base_slice <= base_threshold
                 base_rgba[mask] = [0.0, 0.0, 0.0, 0.0]
 
-        # --- THE FIX: We no longer return early here! ---
         res_rgba = base_rgba
 
         if overlay_data is not None and overlay_opacity > 0.0:
@@ -306,9 +330,27 @@ class SliceRenderer:
                 if overlay_data.ndim == 3:
                     overlay_data = overlay_data[np.newaxis, ...]
 
-            over_slice = SliceRenderer.extract_slice(
-                overlay_data, overlay_is_rgb, overlay_time_idx, slice_idx, orientation
-            )
+            target_slice = slice_idx - overlay.offset_slice
+
+            # Ensure we don't extract outside the 3D volume boundaries!
+            if 0 <= target_slice < max_s:
+                over_slice = SliceRenderer.extract_slice(
+                    overlay_data,
+                    overlay_is_rgb,
+                    overlay_time_idx,
+                    target_slice,
+                    orientation,
+                )
+
+                # Apply the 2D in-plane shift
+                if overlay.offset_x != 0 or overlay.offset_y != 0:
+                    over_slice = SliceRenderer._shift_2d_array(
+                        over_slice, overlay.offset_x, overlay.offset_y
+                    )
+            else:
+                # If the image was translated completely out of the slice bounds, return empty air (zeros)
+                over_slice = np.zeros_like(base_slice)
+
             if overlay_is_rgb:
                 over_norm = np.clip(over_slice.astype(np.float32) / 255.0, 0.0, 1.0)
             else:
@@ -495,8 +537,12 @@ class VolumeData:
 
     def get_human_readable_file_path(self):
         import os
-        raw_path = self.file_paths[0] if isinstance(self.file_paths, list) and self.file_paths else str(
-            self.path)
+
+        raw_path = (
+            self.file_paths[0]
+            if isinstance(self.file_paths, list) and self.file_paths
+            else str(self.path)
+        )
         n = os.path.abspath(os.path.expanduser(raw_path))
         n = get_history_path_key(n)
         return n

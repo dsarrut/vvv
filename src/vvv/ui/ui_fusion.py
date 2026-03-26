@@ -81,7 +81,7 @@ class FusionUI:
                         callback=gui.fusion_ui.on_fusion_mode_changed,
                     )
                 with dpg.group(
-                        horizontal=True, tag="group_fusion_checkerboard", show=False
+                    horizontal=True, tag="group_fusion_checkerboard", show=False
                 ):
                     dpg.add_text("Square ")
                     dpg.add_slider_float(
@@ -297,13 +297,14 @@ class FusionUI:
         else:
             target_id = app_data.split(":")[0]
             target_vol = self.controller.volumes[target_id]
-            self.gui.show_status_message(f"Resampling overlay to physical grid...")
 
             def _resample():
-                time.sleep(0.05)
-                viewer.view_state.set_overlay(target_id, target_vol)
+                # time.sleep(0.05)
+                self.gui.show_status_message(f"Resampling overlay to physical grid...")
+                viewer.view_state.set_overlay(target_id, target_vol, self.controller)
+                self.controller.update_all_viewers_of_image(viewer.image_id)
                 self.gui.show_status_message("Overlay applied")
-                self.refresh_fusion_ui()
+                # self.refresh_fusion_ui() # FIXME needed ?
 
             threading.Thread(target=_resample, daemon=True).start()
 
