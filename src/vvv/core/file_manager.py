@@ -24,6 +24,7 @@ class FileManager:
             if self.controller.use_history
             else None
         )
+
         if history_entry:
             vs.camera.from_dict(history_entry["camera"])
             vs.display.from_dict(history_entry["display"])
@@ -31,10 +32,17 @@ class FileManager:
             # Re-derive the crosshair_value based on restored voxel
             if vs.camera.crosshair_voxel is not None:
                 ix, iy, iz = [int(v) for v in vs.camera.crosshair_voxel[:3]]
-                if vol.num_timepoints > 1:
-                    vs.crosshair_value = vol.data[vs.camera.time_idx, iz, iy, ix]
+                max_z, max_y, max_x = vol.shape3d
+
+                # Only apply the saved crosshair if it strictly fits inside the new volume
+                if 0 <= iz < max_z and 0 <= iy < max_y and 0 <= ix < max_x:
+                    if vol.num_timepoints > 1:
+                        vs.crosshair_value = vol.data[vs.camera.time_idx, iz, iy, ix]
+                    else:
+                        vs.crosshair_value = vol.data[iz, iy, ix]
                 else:
-                    vs.crosshair_value = vol.data[iz, iy, ix]
+                    # Ignore the out-of-bounds history!
+                    vs.camera.crosshair_voxel = None
 
             vs.is_data_dirty = True
 
@@ -214,10 +222,7 @@ class FileManager:
         yield (1.0, "Done", found_series)
 
     def save_workspace(self, filepath):
-        workspace = {
-            "viewers": {},
-            "images": {}
-        }
+        workspace = {"viewers": {}, "images": {}}
 
         # for home as ~
         def portable_path(p):
@@ -235,7 +240,7 @@ class FileManager:
                     "orientation": viewer.orientation.name,
                     "zoom": viewer.zoom,
                     "pan_offset": viewer.pan_offset,
-                    "needs_recenter": getattr(viewer, "needs_recenter", False)
+                    "needs_recenter": getattr(viewer, "needs_recenter", False),
                 }
 
         # 2. Save Images & ViewStates
@@ -247,13 +252,18 @@ class FileManager:
 
             # Extract Overlay Info
             overlay_info = None
-            if vs.display.overlay_id and vs.display.overlay_id in self.controller.volumes:
+            if (
+                vs.display.overlay_id
+                and vs.display.overlay_id in self.controller.volumes
+            ):
                 ov_vol = self.controller.volumes[vs.display.overlay_id]
                 overlay_info = {
                     "path": portable_path(ov_vol.file_paths[0]),  # <--- UPDATED
                     "mode": vs.display.overlay_mode,
                     "opacity": vs.display.overlay_opacity,
-                    "colormap": self.controller.view_states[vs.display.overlay_id].display.colormap
+                    "colormap": self.controller.view_states[
+                        vs.display.overlay_id
+                    ].display.colormap,
                 }
 
             # Extract ROIs Info
@@ -262,10 +272,14 @@ class FileManager:
                 if roi_id in self.controller.volumes:
                     r_vol = self.controller.volumes[roi_id]
                     if r_vol.file_paths:
-                        rois_list.append({
-                            "path": portable_path(r_vol.file_paths[0]),  # <--- UPDATED
-                            "state": roi_state.to_dict()
-                        })
+                        rois_list.append(
+                            {
+                                "path": portable_path(
+                                    r_vol.file_paths[0]
+                                ),  # <--- UPDATED
+                                "state": roi_state.to_dict(),
+                            }
+                        )
 
             workspace["images"][vs_id] = {
                 "path": portable_path(vol.file_paths[0]),  # <--- UPDATED
@@ -273,14 +287,16 @@ class FileManager:
                 "display": vs.display.to_dict(),
                 "camera": vs.camera.to_dict(),
                 "overlay": overlay_info,
-                "rois": rois_list
+                "rois": rois_list,
             }
 
         with open(filepath, "w") as f:
             json.dump(workspace, f, indent=4)
 
         if self.controller.gui:
-            self.controller.gui.show_status_message(f"Saved Workspace: {os.path.basename(filepath)}")
+            self.controller.gui.show_status_message(
+                f"Saved Workspace: {os.path.basename(filepath)}"
+            )
 
     def close_image(self, vs_id):
         if vs_id in self.controller.view_states:
