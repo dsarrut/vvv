@@ -9,6 +9,16 @@ from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 class RegistrationUI:
     """Delegated UI handler for the Registration tab."""
 
+    # Consolidation: Define slider tags once to avoid copy-pasting lists of strings
+    SLIDER_TAGS = [
+        "drag_reg_rx",
+        "drag_reg_ry",
+        "drag_reg_rz",
+        "drag_reg_tx",
+        "drag_reg_ty",
+        "drag_reg_tz",
+    ]
+
     def __init__(self, gui, controller):
         self.gui = gui
         self.controller = controller
@@ -73,7 +83,6 @@ class RegistrationUI:
             # --- MIDDLE: Read-Only Math (Matrix & CoR) ---
             dpg.add_text("Affine Matrix (Read-Only)", color=cfg_c["text_header"])
             with dpg.group(tag="group_reg_matrix"):
-                # A clean 4x4 table to display the matrix values
                 with dpg.table(
                     header_row=False,
                     borders_innerV=True,
@@ -199,6 +208,32 @@ class RegistrationUI:
                     label="Invert", width=-1, callback=gui.reg_ui.on_reg_invert_clicked
                 )
 
+    # --- Consolidation Helper ---
+    def _snap_viewer_to_world_pos(self, viewer, world_pos):
+        """Calculates the new local voxel coordinates and updates the camera slices to stay pinned to a world point."""
+        vs = viewer.view_state
+        is_buf = vs.base_display_data is not None
+        new_local_vox = vs.space.world_to_display(world_pos, is_buffered=is_buf)
+        sh = vs.volume.shape3d
+
+        from vvv.utils import ViewMode
+
+        vs.camera.crosshair_voxel = [
+            new_local_vox[0],
+            new_local_vox[1],
+            new_local_vox[2],
+            vs.camera.time_idx,
+        ]
+        vs.camera.slices[ViewMode.AXIAL] = int(np.clip(new_local_vox[2], 0, sh[0] - 1))
+        vs.camera.slices[ViewMode.SAGITTAL] = int(
+            np.clip(new_local_vox[0], 0, sh[2] - 1)
+        )
+        vs.camera.slices[ViewMode.CORONAL] = int(
+            np.clip(new_local_vox[1], 0, sh[1] - 1)
+        )
+
+    # ----------------------------
+
     def pull_reg_sliders_from_transform(self):
         """ONLY call this when loading a file, switching images, or resetting. NOT during drag!"""
         viewer = self.gui.context_viewer
@@ -208,21 +243,21 @@ class RegistrationUI:
         vs = viewer.view_state
         if vs and vs.space.transform:
             params = vs.space.get_parameters()
-            dpg.set_value("drag_reg_rx", math.degrees(params[0]))
-            dpg.set_value("drag_reg_ry", math.degrees(params[1]))
-            dpg.set_value("drag_reg_rz", math.degrees(params[2]))
-            dpg.set_value("drag_reg_tx", params[3])
-            dpg.set_value("drag_reg_ty", params[4])
-            dpg.set_value("drag_reg_tz", params[5])
+            # Map params directly to the SLIDER_TAGS list order (rx, ry, rz, tx, ty, tz)
+            vals = [
+                math.degrees(params[0]),
+                math.degrees(params[1]),
+                math.degrees(params[2]),
+                params[3],
+                params[4],
+                params[5],
+            ]
+
+            for tag, val in zip(self.SLIDER_TAGS, vals):
+                if dpg.does_item_exist(tag):
+                    dpg.set_value(tag, val)
         else:
-            for tag in [
-                "drag_reg_tx",
-                "drag_reg_ty",
-                "drag_reg_tz",
-                "drag_reg_rx",
-                "drag_reg_ry",
-                "drag_reg_rz",
-            ]:
+            for tag in self.SLIDER_TAGS:
                 if dpg.does_item_exist(tag):
                     dpg.set_value(tag, 0.0)
 
@@ -289,13 +324,11 @@ class RegistrationUI:
                 active_vs.update_base_display_data()
 
                 # --- THE BASE IMAGE BOUNCE ---
-                # If the image we just moved is Image A, and it holds an overlay (Image B),
-                # we must un-crop Image B because Image A's physical grid just shifted!
                 if active_vs.display.overlay_id:
                     active_vs.update_overlay_display_data(self.controller)
                     active_vs.is_data_dirty = True
 
-            # --- THE ROTATION & CROPPING BOUNCE ---
+            # --- THE OVERLAY IMAGE BOUNCE ---
             for v in self.controller.viewers.values():
                 if (
                     v.view_state
@@ -322,14 +355,15 @@ class RegistrationUI:
             np.array(vs.camera.crosshair_voxel[:3]), is_buffered=is_buf
         )
 
-        old_rx, old_ry, old_rz = 0.0, 0.0, 0.0
         old_tx, old_ty, old_tz = 0.0, 0.0, 0.0
         if vs.space.transform and vs.space.is_active:
             trans = vs.space.transform.GetTranslation()
             old_tx, old_ty, old_tz = trans[0], trans[1], trans[2]
-            old_rx = vs.space.transform.GetAngleX()
-            old_ry = vs.space.transform.GetAngleY()
-            old_rz = vs.space.transform.GetAngleZ()
+
+        # Store old parameters to check if debouncer needs to fire
+        old_params = (
+            vs.space.get_parameters() if vs.space.transform else (0, 0, 0, 0, 0, 0)
+        )
 
         if new_state_val is not None:
             vs.space.is_active = new_state_val
@@ -347,64 +381,36 @@ class RegistrationUI:
             )
             self.controller.update_transform_manual(vs_id, tx, ty, tz, rx, ry, rz)
 
-        new_rx, new_ry, new_rz = 0.0, 0.0, 0.0
         new_tx, new_ty, new_tz = 0.0, 0.0, 0.0
         if vs.space.transform and vs.space.is_active:
             trans = vs.space.transform.GetTranslation()
             new_tx, new_ty, new_tz = trans[0], trans[1], trans[2]
-            new_rx = vs.space.transform.GetAngleX()
-            new_ry = vs.space.transform.GetAngleY()
-            new_rz = vs.space.transform.GetAngleZ()
 
+        # 1. Handle Visual 2D panning shifts
         dtx, dty, dtz = new_tx - old_tx, new_ty - old_ty, new_tz - old_tz
         if dtx != 0 or dty != 0 or dtz != 0:
             self.gui.pan_viewers_by_delta(vs_id, dtx, dty, dtz)
 
-        new_local_vox = vs.space.world_to_display(world_pos, is_buffered=is_buf)
-        sh = vs.volume.shape3d
-        from vvv.utils import ViewMode
-
-        vs.camera.crosshair_voxel = [
-            new_local_vox[0],
-            new_local_vox[1],
-            new_local_vox[2],
-            vs.camera.time_idx,
-        ]
-        vs.camera.slices[ViewMode.AXIAL] = int(np.clip(new_local_vox[2], 0, sh[0] - 1))
-        vs.camera.slices[ViewMode.SAGITTAL] = int(
-            np.clip(new_local_vox[0], 0, sh[2] - 1)
-        )
-        vs.camera.slices[ViewMode.CORONAL] = int(
-            np.clip(new_local_vox[1], 0, sh[1] - 1)
-        )
+        # 2. Pin crosshair to physical space
+        self._snap_viewer_to_world_pos(viewer, world_pos)
 
         self.controller.update_all_viewers_of_image(vs_id)
 
-        # THE FUSION BROADCAST
-        # Tap any OTHER viewer on the shoulder and tell its 2D renderer to redraw.
-        # This allows V1 (Base A) to instantly update the overlay of Image B!
+        # 3. THE FUSION BROADCAST
         for v in self.controller.viewers.values():
             if v.image_id != vs_id:
                 v.view_state.is_data_dirty = True
 
         self.gui.update_sidebar_crosshair(viewer)
 
-        rotation_changed = (
-            abs(new_rx - old_rx) > 1e-5
-            or abs(new_ry - old_ry) > 1e-5
-            or abs(new_rz - old_rz) > 1e-5
+        # 4. Trigger 3D Resample Debouncer
+        new_params = (
+            vs.space.get_parameters() if vs.space.transform else (0, 0, 0, 0, 0, 0)
         )
-        if rotation_changed or new_state_val is not None:
-            self.trigger_debounced_rotation_update(vs_id)
+        transform_changed = any(
+            abs(n - o) > 1e-5 for n, o in zip(new_params, old_params)
+        )
 
-        transform_changed = (
-            abs(new_rx - old_rx) > 1e-5
-            or abs(new_ry - old_ry) > 1e-5
-            or abs(new_rz - old_rz) > 1e-5
-            or abs(new_tx - old_tx) > 1e-5
-            or abs(new_ty - old_ty) > 1e-5
-            or abs(new_tz - old_tz) > 1e-5
-        )
         if transform_changed or new_state_val is not None:
             self.trigger_debounced_rotation_update(vs_id)
 
@@ -427,25 +433,7 @@ class RegistrationUI:
             if self.controller.load_transform(viewer.image_id, file_path):
                 self.gui.show_status_message(f"Loaded {os.path.basename(file_path)}")
 
-                new_local_vox = vs.space.world_to_display(world_pos, is_buffered=is_buf)
-                sh = vs.volume.shape3d
-                from vvv.utils import ViewMode
-
-                vs.camera.crosshair_voxel = [
-                    new_local_vox[0],
-                    new_local_vox[1],
-                    new_local_vox[2],
-                    vs.camera.time_idx,
-                ]
-                vs.camera.slices[ViewMode.AXIAL] = int(
-                    np.clip(new_local_vox[2], 0, sh[0] - 1)
-                )
-                vs.camera.slices[ViewMode.SAGITTAL] = int(
-                    np.clip(new_local_vox[0], 0, sh[2] - 1)
-                )
-                vs.camera.slices[ViewMode.CORONAL] = int(
-                    np.clip(new_local_vox[1], 0, sh[1] - 1)
-                )
+                self._snap_viewer_to_world_pos(viewer, world_pos)
 
                 for v in self.controller.viewers.values():
                     if v.image_id == viewer.image_id:
@@ -493,14 +481,7 @@ class RegistrationUI:
 
     def on_reg_step_changed(self, sender, app_data, user_data):
         speed = 1.0 if app_data == "Coarse" else 0.1
-        for tag in [
-            "drag_reg_tx",
-            "drag_reg_ty",
-            "drag_reg_tz",
-            "drag_reg_rx",
-            "drag_reg_ry",
-            "drag_reg_rz",
-        ]:
+        for tag in self.SLIDER_TAGS:
             if dpg.does_item_exist(tag):
                 dpg.configure_item(tag, speed=speed)
 
@@ -516,14 +497,7 @@ class RegistrationUI:
         if not viewer or not viewer.image_id:
             return
 
-        for tag in [
-            "drag_reg_tx",
-            "drag_reg_ty",
-            "drag_reg_tz",
-            "drag_reg_rx",
-            "drag_reg_ry",
-            "drag_reg_rz",
-        ]:
+        for tag in self.SLIDER_TAGS:
             if dpg.does_item_exist(tag):
                 dpg.set_value(tag, 0.0)
 
@@ -540,12 +514,18 @@ class RegistrationUI:
             return
 
         params = vs.space.transform.GetInverse().GetParameters()
-        dpg.set_value("drag_reg_rx", math.degrees(params[0]))
-        dpg.set_value("drag_reg_ry", math.degrees(params[1]))
-        dpg.set_value("drag_reg_rz", math.degrees(params[2]))
-        dpg.set_value("drag_reg_tx", params[3])
-        dpg.set_value("drag_reg_ty", params[4])
-        dpg.set_value("drag_reg_tz", params[5])
+        vals = [
+            math.degrees(params[0]),
+            math.degrees(params[1]),
+            math.degrees(params[2]),
+            params[3],
+            params[4],
+            params[5],
+        ]
+
+        for tag, val in zip(self.SLIDER_TAGS, vals):
+            if dpg.does_item_exist(tag):
+                dpg.set_value(tag, val)
 
         self.on_reg_manual_changed(sender, app_data, user_data)
         self.pull_reg_sliders_from_transform()
@@ -558,29 +538,12 @@ class RegistrationUI:
         vs = viewer.view_state
         vol = self.controller.volumes.get(viewer.image_id)
 
-        if vs.space.transform:
-            ccenter = vs.space.transform.GetCenter()
-        else:
-            center = self.controller.get_volume_physical_center(vol)
-
-        is_buf = vs.base_display_data is not None
-        new_local_vox = vs.space.world_to_display(center, is_buffered=is_buf)
-        sh = vol.shape3d
-        from vvv.utils import ViewMode
-
-        vs.camera.crosshair_voxel = [
-            new_local_vox[0],
-            new_local_vox[1],
-            new_local_vox[2],
-            vs.camera.time_idx,
-        ]
-        vs.camera.slices[ViewMode.AXIAL] = int(np.clip(new_local_vox[2], 0, sh[0] - 1))
-        vs.camera.slices[ViewMode.SAGITTAL] = int(
-            np.clip(new_local_vox[0], 0, sh[2] - 1)
+        center = (
+            vs.space.transform.GetCenter()
+            if vs.space.transform
+            else self.controller.get_volume_physical_center(vol)
         )
-        vs.camera.slices[ViewMode.CORONAL] = int(
-            np.clip(new_local_vox[1], 0, sh[1] - 1)
-        )
+        self._snap_viewer_to_world_pos(viewer, center)
 
         for v in self.controller.viewers.values():
             if v.image_id == viewer.image_id:
