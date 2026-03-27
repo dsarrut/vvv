@@ -108,9 +108,16 @@ class RegistrationUI:
             dpg.add_spacer(height=5)
             with dpg.group(horizontal=True):
                 dpg.add_text("CoR:")
-                dpg.add_input_text(tag="input_reg_cor", width=150, readonly=True)
+                dpg.add_input_text(tag="input_reg_cor", width=125, readonly=True)
+                b = dpg.add_button(
+                    label="\uf05b ", callback=gui.reg_ui.on_reg_center_cor_clicked
+                )
+                if dpg.does_item_exist("icon_font_tag"):
+                    dpg.bind_item_font(b, "icon_font_tag")
+                # Sets the CoR to the current crosshair
                 dpg.add_button(
-                    label="Center", callback=gui.reg_ui.on_reg_center_cor_clicked
+                    label="Set",
+                    callback=gui.reg_ui.on_reg_cor_to_crosshair_clicked,
                 )
 
             # --- BOTTOM: Manual 6-DOF Tweaking ---
@@ -561,3 +568,45 @@ class RegistrationUI:
         self.controller.update_all_viewers_of_image(viewer.image_id)
         self.gui.update_sidebar_crosshair(viewer)
         self.controller.sync.propagate_sync(viewer.image_id)
+
+    def on_reg_cor_to_crosshair_clicked(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.image_id:
+            return
+
+        vs = viewer.view_state
+        if not vs.space.transform:
+            import SimpleITK as sitk
+
+            vs.space.transform = sitk.Euler3DTransform()
+
+        new_center = vs.camera.crosshair_phys_coord
+        if new_center is None:
+            return
+
+        new_center_tuple = (
+            float(new_center[0]),
+            float(new_center[1]),
+            float(new_center[2]),
+        )
+
+        # Mathematical Magic: Keep the image visually identical while shifting the rotation pivot!
+        # T_new = OldTransform(C_new) - C_new
+        mapped_center = vs.space.transform.TransformPoint(new_center_tuple)
+        new_translation = (
+            mapped_center[0] - new_center_tuple[0],
+            mapped_center[1] - new_center_tuple[1],
+            mapped_center[2] - new_center_tuple[2],
+        )
+
+        # Update the transform under the hood
+        vs.space.transform.SetCenter(new_center_tuple)
+        vs.space.transform.SetTranslation(new_translation)
+
+        # Pull the newly calculated translations to the GUI sliders
+        self.pull_reg_sliders_from_transform()
+        self.refresh_reg_ui()
+
+        # Since the visual output is mathematically identical, we don't even need to trigger
+        # a 3D resample. We just update the numbers!
+        self.gui.show_status_message("CoR snapped to Crosshair")
