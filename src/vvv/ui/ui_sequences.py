@@ -298,7 +298,7 @@ def load_workspace_sequence(gui, controller, filepath):
                 ov_vs = controller.view_states[ov_id]
                 ov_vs.display.colormap = ov_info.get("colormap", "Grayscale")
 
-                # THE FIX: Pass the controller to trigger the 3D resample!
+                # Pass the controller to trigger the 3D resample
                 vs.set_overlay(ov_id, controller.volumes[ov_id], controller)
 
                 vs.display.overlay_mode = ov_info.get("mode", "Registration")
@@ -557,7 +557,7 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
                 fuse_vs.is_data_dirty = True
 
                 base_vs = controller.view_states[base_id]
-                base_vs.set_overlay(fuse_id, fuse_vs.volume)
+                base_vs.set_overlay(fuse_id, fuse_vs.volume, controller)
                 base_vs.overlay_opacity = task["fusion"]["opacity"]
                 base_vs.overlay_threshold = task["fusion"]["threshold"]
 
