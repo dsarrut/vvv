@@ -39,10 +39,9 @@ class RegistrationUI:
                 tag="text_reg_active_title",
                 color=cfg_c["text_active"],
             )
-            dpg.add_separator()
-            dpg.add_spacer(height=5)
 
             # --- TOP: File Management & Apply ---
+            dpg.add_spacer(height=10)
             with dpg.group(horizontal=True):
                 dpg.add_button(
                     label="Load .tfm/.txt",
@@ -72,16 +71,16 @@ class RegistrationUI:
                 dpg.add_text("File: ")
                 dpg.add_text("None", tag="text_reg_filename", color=cfg_c["text_dim"])
 
-            dpg.add_spacer(height=5)
             dpg.add_checkbox(
                 label="Apply Transform to Viewers",
                 tag="check_reg_apply",
                 callback=gui.reg_ui.on_reg_apply_toggled,
             )
-            dpg.add_separator()
 
             # --- MIDDLE: Read-Only Math (Matrix & CoR) ---
-            dpg.add_text("Affine Matrix (Read-Only)", color=cfg_c["text_header"])
+            dpg.add_spacer(height=10)
+            dpg.add_text("Affine Matrix", color=cfg_c["text_header"])
+            dpg.add_separator()
             with dpg.group(tag="group_reg_matrix"):
                 with dpg.table(
                     header_row=False,
@@ -108,11 +107,10 @@ class RegistrationUI:
                     label="Center", callback=gui.reg_ui.on_reg_center_cor_clicked
                 )
 
-            dpg.add_separator()
-
             # --- BOTTOM: Manual 6-DOF Tweaking ---
+            dpg.add_spacer(height=10)
             dpg.add_text("Manual Adjustment (Rigid)", color=cfg_c["text_header"])
-
+            dpg.add_separator()
             with dpg.group(horizontal=True):
                 dpg.add_text("Step:")
                 dpg.add_radio_button(
@@ -167,7 +165,7 @@ class RegistrationUI:
             dpg.add_spacer(height=5)
             with dpg.group(horizontal=True):
                 dpg.add_button(
-                    label="Reset to Zero",
+                    label="Reset to ID",
                     width=120,
                     callback=gui.reg_ui.on_reg_reset_clicked,
                 )
