@@ -183,7 +183,71 @@ class Controller:
         vol = self.volumes[vs_id]
         sitk.WriteImage(vol.sitk_image, filepath)
 
-    def get_pixel_values_at_voxel(self, vs_id, voxel_coord):
+    def get_pixel_values_at_phys(self, vs_id, phys_coord, time_idx):
+        """
+        Calculates the Base value, Fused Target value, and intersecting ROIs.
+        Uses pure Physical World Coordinates to map backwards through any active transforms,
+        guaranteeing perfect accuracy even when the visual buffer is heavily resampled.
+        """
+        vs = self.view_states.get(vs_id)
+        if not vs:
+            return None
+
+        vol = self.volumes[vs_id]
+
+        # 1. Base Image Value (World -> Original Voxel Array)
+        base_val = None
+        # is_buffered=False forces it to ignore the resampled UI bounding box and use the raw array!
+        base_vox = vs.space.world_to_display(phys_coord, is_buffered=False)
+        ix, iy, iz = [int(np.floor(c + 0.5)) for c in base_vox[:3]]
+
+        mz, my, mx = vol.shape3d
+        if 0 <= ix < mx and 0 <= iy < my and 0 <= iz < mz:
+            t = min(time_idx, vol.num_timepoints - 1) if vol.num_timepoints > 1 else 0
+            base_val = (
+                vol.data[t, iz, iy, ix]
+                if vol.num_timepoints > 1
+                else vol.data[iz, iy, ix]
+            )
+
+        # 2. Fused Target Overlay Value
+        overlay_val = None
+        if vs.display.overlay_id and vs.display.overlay_id in self.volumes:
+            ov_vol = self.volumes[vs.display.overlay_id]
+            ov_vs = self.view_states[vs.display.overlay_id]
+
+            # Use the overlay's own spatial engine to map the world point into its original array
+            ov_vox = ov_vs.space.world_to_display(phys_coord, is_buffered=False)
+            ox, oy, oz = [int(np.floor(c + 0.5)) for c in ov_vox[:3]]
+            omz, omy, omx = ov_vol.shape3d
+
+            if 0 <= ox < omx and 0 <= oy < omy and 0 <= oz < omz:
+                ot = min(time_idx, ov_vol.num_timepoints - 1)
+                overlay_val = (
+                    ov_vol.data[ot, oz, oy, ox]
+                    if ov_vol.num_timepoints > 1
+                    else ov_vol.data[oz, oy, ox]
+                )
+
+        # 3. Intersecting ROIs (ROIs share the Base Image's spatial grid)
+        roi_names = []
+        for r_id, r_state in vs.rois.items():
+            r_vol = self.volumes.get(r_id)
+            if r_vol:
+                rmz, rmy, rmx = r_vol.shape3d
+                if 0 <= ix < rmx and 0 <= iy < rmy and 0 <= iz < rmz:
+                    rt = min(time_idx, r_vol.num_timepoints - 1)
+                    r_val = (
+                        r_vol.data[rt, iz, iy, ix]
+                        if r_vol.num_timepoints > 1
+                        else r_vol.data[iz, iy, ix]
+                    )
+                    if r_val > 0:
+                        roi_names.append(r_state.name)
+
+        return {"base_val": base_val, "overlay_val": overlay_val, "rois": roi_names}
+
+    def get_pixel_values_at_voxel_OLD(self, vs_id, voxel_coord):
         """
         Calculates the Base value, Fused Target value, and intersecting ROIs for a specific voxel.
         Centralizes the math for both the floating mouse tracker and the sidebar crosshair!

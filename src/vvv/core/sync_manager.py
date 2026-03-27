@@ -70,6 +70,77 @@ class SyncManager:
         source_vs = self.controller.view_states[source_vs_id]
         target_ids = self.get_sync_group_vs_ids(source_vs_id)
 
+        # Use the explicit display-aware method to get the true World Coordinate
+        is_src_buf = source_vs.base_display_data is not None
+        world_phys = source_vs.space.display_to_world(
+            np.array(source_vs.camera.crosshair_voxel[:3]), is_buffered=is_src_buf
+        )
+
+        for target_id in target_ids:
+            target_vs = self.controller.view_states[target_id]
+
+            if target_id == source_vs_id:
+                source_vox = source_vs.camera.crosshair_voxel
+                target_vs.camera.crosshair_voxel = source_vox.copy()
+                target_vs.camera.crosshair_phys_coord = world_phys
+
+                target_vs.camera.slices[ViewMode.AXIAL] = int(source_vox[2])
+                target_vs.camera.slices[ViewMode.SAGITTAL] = int(source_vox[0])
+                target_vs.camera.slices[ViewMode.CORONAL] = int(source_vox[1])
+            else:
+                phys_pos = world_phys
+                target_vol = target_vs.volume
+
+                is_tgt_buf = target_vs.base_display_data is not None
+                target_vox = target_vs.space.world_to_display(
+                    phys_pos, is_buffered=is_tgt_buf
+                )
+
+                nt = target_vs.volume.num_timepoints
+                target_vs.camera.time_idx = min(source_vs.camera.time_idx, nt - 1)
+
+                target_vs.camera.crosshair_voxel = [
+                    target_vox[0],
+                    target_vox[1],
+                    target_vox[2],
+                    target_vs.camera.time_idx,
+                ]
+                target_vs.camera.crosshair_phys_coord = phys_pos
+
+                target_vs.camera.slices[ViewMode.AXIAL] = int(
+                    np.clip(np.floor(target_vox[2] + 0.5), 0, target_vol.shape3d[0] - 1)
+                )
+                target_vs.camera.slices[ViewMode.SAGITTAL] = int(
+                    np.clip(np.floor(target_vox[0] + 0.5), 0, target_vol.shape3d[2] - 1)
+                )
+                target_vs.camera.slices[ViewMode.CORONAL] = int(
+                    np.clip(np.floor(target_vox[1] + 0.5), 0, target_vol.shape3d[1] - 1)
+                )
+
+            # --- THE FIX: Pure Physical Coordinates for Value Lookup ---
+            # By passing is_buffered=False, we force the SpatialEngine to map the world coordinate
+            # backwards through any active transforms straight into the original RAW array!
+            raw_vox = target_vs.space.world_to_display(
+                target_vs.camera.crosshair_phys_coord, is_buffered=False
+            )
+            ix, iy, iz = [int(np.floor(c + 0.5)) for c in raw_vox[:3]]
+
+            mz, my, mx = target_vs.volume.shape3d
+            if 0 <= ix < mx and 0 <= iy < my and 0 <= iz < mz:
+                t = min(target_vs.camera.time_idx, target_vs.volume.num_timepoints - 1)
+                if target_vs.volume.num_timepoints > 1:
+                    target_vs.crosshair_value = target_vs.volume.data[t, iz, iy, ix]
+                else:
+                    target_vs.crosshair_value = target_vs.volume.data[iz, iy, ix]
+            else:
+                target_vs.crosshair_value = None
+
+        self.trigger_redraw(target_ids)
+
+    def propagate_sync_OLD(self, source_vs_id):
+        source_vs = self.controller.view_states[source_vs_id]
+        target_ids = self.get_sync_group_vs_ids(source_vs_id)
+
         # Use the explicit display-aware method!
         is_src_buf = source_vs.base_display_data is not None
         world_phys = source_vs.space.display_to_world(

@@ -959,8 +959,8 @@ class SliceViewer:
         col = self.controller.settings.data["colors"]["tracker_text"]
         dpg.configure_item(self.tracker_tag, color=col)
 
-        info = self.controller.get_pixel_values_at_voxel(
-            self.image_id, [v[0], v[1], v[2], self.view_state.camera.time_idx]
+        info = self.controller.get_pixel_values_at_phys(
+            self.image_id, phys, self.view_state.camera.time_idx
         )
 
         if info is not None:
@@ -973,11 +973,14 @@ class SliceViewer:
                 phys,
             )
 
-            val_str = (
-                f"{val[0]:g} {val[1]:g} {val[2]:g}"
-                if getattr(self.volume, "is_rgb", False)
-                else f"{val:g}"
-            )
+            if val is None:
+                val_str = "-"
+            else:
+                val_str = (
+                    f"{val[0]:g} {val[1]:g} {val[2]:g}"
+                    if getattr(self.volume, "is_rgb", False)
+                    else f"{val:g}"
+                )
             text_lines = [f"{val_str}"]
 
             if info["overlay_val"] is not None:

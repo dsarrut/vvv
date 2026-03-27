@@ -746,16 +746,19 @@ class MainGUI:
             dpg.set_value("info_phys", fmt(vs.camera.crosshair_phys_coord, 1))
 
             # --- THE NEW CONSOLIDATED CALL ---
-            info = self.controller.get_pixel_values_at_voxel(
-                viewer.image_id, vs.camera.crosshair_voxel
+            info = self.controller.get_pixel_values_at_phys(
+                viewer.image_id, vs.camera.crosshair_phys_coord, vs.camera.time_idx
             )
             if info is not None:
                 val = info["base_val"]
-                val_str = (
-                    f"{val[0]:g} {val[1]:g} {val[2]:g}"
-                    if getattr(vol, "is_rgb", False)
-                    else f"{val:g}"
-                )
+                if val is None:
+                    val_str = "-"
+                else:
+                    val_str = (
+                        f"{val[0]:g} {val[1]:g} {val[2]:g}"
+                        if getattr(vol, "is_rgb", False)
+                        else f"{val:g}"
+                    )
 
                 if info["overlay_val"] is not None:
                     val_str += f" ({info['overlay_val']:g})"

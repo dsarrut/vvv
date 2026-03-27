@@ -357,10 +357,10 @@ class RegistrationUI:
             trans = vs.space.transform.GetTranslation()
             new_tx, new_ty, new_tz = trans[0], trans[1], trans[2]
 
-        # 1. Handle Visual 2D panning shifts
+        """# 1. Handle Visual 2D panning shifts
         dtx, dty, dtz = new_tx - old_tx, new_ty - old_ty, new_tz - old_tz
         if dtx != 0 or dty != 0 or dtz != 0:
-            self.gui.pan_viewers_by_delta(vs_id, dtx, dty, dtz)
+            self.gui.pan_viewers_by_delta(vs_id, dtx, dty, dtz)"""
 
         # 2. Pin crosshair to physical space
         self._snap_viewer_to_world_pos(viewer, world_pos)
@@ -382,7 +382,9 @@ class RegistrationUI:
             abs(n - o) > 1e-5 for n, o in zip(new_params, old_params)
         )
 
-        if transform_changed or new_state_val is not None:
+        # Only trigger resampling if the transform is actively applied to the viewer,
+        # OR if the user just toggled the "Apply Transform" checkbox.
+        if (transform_changed and vs.space.is_active) or new_state_val is not None:
             self.trigger_debounced_rotation_update(vs_id)
 
     # --- Callbacks ---
