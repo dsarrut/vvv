@@ -99,7 +99,7 @@ def test_overlay_fusion_resampling_accuracy(headless_app, synthetic_overlay_path
     vs_base = controller.view_states[vs_id_base]
     vs_id_overlay = controller.file.load_image(synthetic_overlay_path)
     vol_overlay = controller.volumes[vs_id_overlay]
-    vs_base.set_overlay(vs_id_overlay, vol_overlay)
+    vs_base.set_overlay(vs_id_overlay, vol_overlay, controller)
 
     assert vs_base.display.overlay_data.shape == (5, 5, 5)
     assert vs_base.display.overlay_data[2, 2, 2] == 111.0
