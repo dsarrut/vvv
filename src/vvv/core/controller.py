@@ -96,6 +96,205 @@ class Controller:
         new_transform = sitk.Euler3DTransform()
 
         try:
+            # --- 1. Hand-parse simple text arrays (9 matrix numbers + optional 3 translation) ---
+            if filepath.lower().endswith(".mat") or filepath.lower().endswith(".txt"):
+                try:
+                    arr = np.loadtxt(filepath).flatten()
+
+                    if len(arr) >= 9:
+                        # Extract the raw 3x3 matrix from the text file
+                        R = np.array(arr[:9]).reshape(3, 3)
+
+                        # THE FIX: Snap it back to perfect orthogonality using SVD!
+                        # (This corrects any tiny rounding errors caused by saving to 6 decimal places)
+                        U, _, Vt = np.linalg.svd(R)
+                        R_ortho = U @ Vt
+
+                        # Ensure it's a true rotation (determinant must be +1, not -1 reflection)
+                        if np.linalg.det(R_ortho) < 0:
+                            U[:, -1] *= -1
+                            R_ortho = U @ Vt
+
+                        rot_matrix = R_ortho.flatten().tolist()
+                        trans_vec = (
+                            arr[9:12].tolist() if len(arr) >= 12 else [0.0, 0.0, 0.0]
+                        )
+
+                        new_transform.SetMatrix(rot_matrix)
+                        new_transform.SetTranslation(trans_vec)
+
+                        new_transform.SetCenter(
+                            self.get_volume_physical_center(vol).tolist()
+                        )
+
+                        vs.space.transform = new_transform
+                        vs.space.transform_file = os.path.basename(filepath)
+                        return True
+                except Exception as e:
+                    print(f"Failed to parse custom text matrix: {e}")
+                    pass  # Fall through to standard Elastix/ITK parsers
+
+            # --- 2. Try to parse as an Elastix Parameter File ---
+            with open(filepath, "r") as f:
+                content = f.read()
+
+            if "TransformParameters" in content and "CenterOfRotationPoint" in content:
+                import re
+
+                params = (
+                    re.search(r"\(TransformParameters(.*?)\)", content).group(1).split()
+                )
+                center = (
+                    re.search(r"\(CenterOfRotationPoint(.*?)\)", content)
+                    .group(1)
+                    .split()
+                )
+
+                new_transform.SetRotation(
+                    float(params[0]), float(params[1]), float(params[2])
+                )
+                new_transform.SetTranslation(
+                    (float(params[3]), float(params[4]), float(params[5]))
+                )
+                new_transform.SetCenter(
+                    (float(center[0]), float(center[1]), float(center[2]))
+                )
+            else:
+                # --- 3. Fallback to standard ITK Transform Reader ---
+                generic_transform = sitk.ReadTransform(filepath)
+                if generic_transform.GetDimension() == 3:
+                    new_transform.SetMatrix(generic_transform.GetMatrix())
+                    new_transform.SetTranslation(generic_transform.GetTranslation())
+                    if hasattr(generic_transform, "GetCenter"):
+                        new_transform.SetCenter(generic_transform.GetCenter())
+
+        except Exception as e:
+            print(f"Error loading transform: {e}")
+            return False
+
+        # Failsafe: If Center of Rotation is exactly 0,0,0, fix it!
+        if np.allclose(new_transform.GetCenter(), [0, 0, 0]):
+            new_transform.SetCenter(self.get_volume_physical_center(vol).tolist())
+
+        vs.space.transform = new_transform
+        vs.space.transform_file = os.path.basename(filepath)
+        return True
+
+    def load_transform_OLD(self, vs_id, filepath):
+        if vs_id not in self.view_states:
+            return False
+
+        vs = self.view_states[vs_id]
+        vol = self.volumes[vs_id]
+        new_transform = sitk.Euler3DTransform()
+
+        try:
+            # --- 1. Hand-parse simple text arrays (9 matrix numbers + optional 3 translation) ---
+            if filepath.lower().endswith(".mat") or filepath.lower().endswith(".txt"):
+                try:
+                    # np.loadtxt ignores formatting and just grabs all the numbers in the file!
+                    arr = np.loadtxt(filepath).flatten()
+
+                    if len(arr) >= 9:
+                        rot_matrix = arr[:9].tolist()
+                        trans_vec = (
+                            arr[9:12].tolist() if len(arr) >= 12 else [0.0, 0.0, 0.0]
+                        )
+
+                        new_transform.SetMatrix(rot_matrix)
+                        new_transform.SetTranslation(trans_vec)
+
+                        # Set CoR back to logical center if loading a raw matrix
+                        new_transform.SetCenter(
+                            self.get_volume_physical_center(vol).tolist()
+                        )
+
+                        vs.space.transform = new_transform
+                        vs.space.transform_file = os.path.basename(filepath)
+                        return True
+                except Exception:
+                    pass  # Fall through to standard Elastix/ITK parsers if np.loadtxt fails
+
+            # --- 2. Try to parse as an Elastix Parameter File ---
+            with open(filepath, "r") as f:
+                content = f.read()
+
+            if "TransformParameters" in content and "CenterOfRotationPoint" in content:
+                import re
+
+                params = (
+                    re.search(r"\(TransformParameters(.*?)\)", content).group(1).split()
+                )
+                center = (
+                    re.search(r"\(CenterOfRotationPoint(.*?)\)", content)
+                    .group(1)
+                    .split()
+                )
+
+                # Elastix Euler is [rx, ry, rz, tx, ty, tz] (angles in radians)
+                new_transform.SetRotation(
+                    float(params[0]), float(params[1]), float(params[2])
+                )
+                new_transform.SetTranslation(
+                    (float(params[3]), float(params[4]), float(params[5]))
+                )
+                new_transform.SetCenter(
+                    (float(center[0]), float(center[1]), float(center[2]))
+                )
+            else:
+                # --- 3. Fallback to standard ITK Transform Reader ---
+                generic_transform = sitk.ReadTransform(filepath)
+                if generic_transform.GetDimension() == 3:
+                    new_transform.SetMatrix(generic_transform.GetMatrix())
+                    new_transform.SetTranslation(generic_transform.GetTranslation())
+                    if hasattr(generic_transform, "GetCenter"):
+                        new_transform.SetCenter(generic_transform.GetCenter())
+
+        except Exception as e:
+            print(f"Error loading transform: {e}")
+            return False
+
+        # Failsafe: If Center of Rotation is exactly 0,0,0, fix it!
+        if np.allclose(new_transform.GetCenter(), [0, 0, 0]):
+            new_transform.SetCenter(self.get_volume_physical_center(vol).tolist())
+
+        vs.space.transform = new_transform
+        vs.space.transform_file = os.path.basename(filepath)
+        return True
+
+    def save_transform(self, vs_id, filepath):
+        vs = self.view_states.get(vs_id)
+        if vs and vs.space.transform:
+            try:
+                # If the user specifically asks for a .mat or .txt file, write pure numbers
+                if filepath.lower().endswith(".mat") or filepath.lower().endswith(
+                    ".txt"
+                ):
+                    mat = vs.space.transform.GetMatrix()  # Tuple of 9
+                    trans = vs.space.transform.GetTranslation()  # Tuple of 3
+
+                    with open(filepath, "w") as f:
+                        f.write(f"{mat[0]:.6f} {mat[1]:.6f} {mat[2]:.6f}\n")
+                        f.write(f"{mat[3]:.6f} {mat[4]:.6f} {mat[5]:.6f}\n")
+                        f.write(f"{mat[6]:.6f} {mat[7]:.6f} {mat[8]:.6f}\n")
+                        f.write(f"{trans[0]:.6f} {trans[1]:.6f} {trans[2]:.6f}\n")
+                else:
+                    # Otherwise use standard SimpleITK .tfm format
+                    sitk.WriteTransform(vs.space.transform, filepath)
+
+                vs.space.transform_file = os.path.basename(filepath)
+            except Exception as e:
+                print(f"Failed to save transform: {e}")
+
+    def load_transform_OLD(self, vs_id, filepath):
+        if vs_id not in self.view_states:
+            return False
+
+        vs = self.view_states[vs_id]
+        vol = self.volumes[vs_id]
+        new_transform = sitk.Euler3DTransform()
+
+        try:
             # 1. Try to parse as an Elastix Parameter File
             with open(filepath, "r") as f:
                 content = f.read()
@@ -144,7 +343,7 @@ class Controller:
         vs.space.transform_file = os.path.basename(filepath)
         return True
 
-    def save_transform(self, vs_id, filepath):
+    def save_transform_OLD(self, vs_id, filepath):
         vs = self.view_states.get(vs_id)
         if vs and vs.space.transform:
             sitk.WriteTransform(vs.space.transform, filepath)

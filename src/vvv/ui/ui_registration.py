@@ -9,7 +9,7 @@ from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 class RegistrationUI:
     """Delegated UI handler for the Registration tab."""
 
-    # Consolidation: Define slider tags once to avoid copy-pasting lists of strings
+    # Define slider tags once to avoid copy-pasting lists of strings
     SLIDER_TAGS = [
         "drag_reg_rx",
         "drag_reg_ry",
@@ -44,8 +44,8 @@ class RegistrationUI:
             dpg.add_spacer(height=10)
             with dpg.group(horizontal=True):
                 dpg.add_button(
-                    label="Load .tfm/.txt",
-                    width=80,
+                    label="Load",
+                    width=50,
                     tag="btn_reg_load",
                     callback=gui.reg_ui.on_reg_load_clicked,
                 )
@@ -54,6 +54,12 @@ class RegistrationUI:
                     width=50,
                     tag="btn_reg_save",
                     callback=gui.reg_ui.on_reg_save_clicked,
+                )
+                dpg.add_button(
+                    label="Save As",
+                    width=65,
+                    tag="btn_reg_save_as",
+                    callback=gui.reg_ui.on_reg_save_as_clicked,
                 )
 
                 btn_reload = dpg.add_button(
@@ -109,7 +115,9 @@ class RegistrationUI:
 
             # --- BOTTOM: Manual 6-DOF Tweaking ---
             dpg.add_spacer(height=10)
-            dpg.add_text("Manual Adjustment (Rigid)", color=cfg_c["text_header"])
+            dpg.add_text(
+                "Rigid Adjustment (Euler R = Rz Ry Rx)", color=cfg_c["text_header"]
+            )
             dpg.add_separator()
             with dpg.group(horizontal=True):
                 dpg.add_text("Step:")
@@ -133,7 +141,6 @@ class RegistrationUI:
                         user_data={"tag": tag, "dir": -1},
                         callback=gui.reg_ui.on_reg_step_button_clicked,
                     )
-                    # width=-35 leaves exactly enough room for the + button on the right
                     dpg.add_drag_float(
                         tag=tag,
                         width=-35,
@@ -173,7 +180,6 @@ class RegistrationUI:
                     label="Invert", width=-1, callback=gui.reg_ui.on_reg_invert_clicked
                 )
 
-    # --- Consolidation Helper ---
     def _snap_viewer_to_world_pos(self, viewer, world_pos):
         """Calculates the new local voxel coordinates and updates the camera slices to stay pinned to a world point."""
         vs = viewer.view_state
@@ -197,8 +203,6 @@ class RegistrationUI:
             np.clip(new_local_vox[1], 0, sh[1] - 1)
         )
 
-    # ----------------------------
-
     def pull_reg_sliders_from_transform(self):
         """ONLY call this when loading a file, switching images, or resetting. NOT during drag!"""
         viewer = self.gui.context_viewer
@@ -208,7 +212,6 @@ class RegistrationUI:
         vs = viewer.view_state
         if vs and vs.space.transform:
             params = vs.space.get_parameters()
-            # Map params directly to the SLIDER_TAGS list order (rx, ry, rz, tx, ty, tz)
             vals = [
                 math.degrees(params[0]),
                 math.degrees(params[1]),
@@ -289,13 +292,10 @@ class RegistrationUI:
             active_vs = self.controller.view_states.get(active_image_id)
             if active_vs:
                 active_vs.update_base_display_data()
-
-                # --- THE BASE IMAGE BOUNCE ---
                 if active_vs.display.overlay_id:
                     active_vs.update_overlay_display_data(self.controller)
                     active_vs.is_data_dirty = True
 
-            # --- THE OVERLAY IMAGE BOUNCE ---
             for v in self.controller.viewers.values():
                 if (
                     v.view_state
@@ -325,14 +325,12 @@ class RegistrationUI:
         )
 
         old_tx, old_ty, old_tz = 0.0, 0.0, 0.0
+        old_rx, old_ry, old_rz = 0.0, 0.0, 0.0
         if vs.space.transform and vs.space.is_active:
             trans = vs.space.transform.GetTranslation()
             old_tx, old_ty, old_tz = trans[0], trans[1], trans[2]
-
-        # Store old parameters to check if debouncer needs to fire
-        old_params = (
-            vs.space.get_parameters() if vs.space.transform else (0, 0, 0, 0, 0, 0)
-        )
+            params = vs.space.get_parameters()
+            old_rx, old_ry, old_rz = params[0], params[1], params[2]
 
         if new_state_val is not None:
             vs.space.is_active = new_state_val
@@ -351,33 +349,29 @@ class RegistrationUI:
             self.controller.update_transform_manual(vs_id, tx, ty, tz, rx, ry, rz)
 
         new_tx, new_ty, new_tz = 0.0, 0.0, 0.0
+        new_rx, new_ry, new_rz = 0.0, 0.0, 0.0
         if vs.space.transform and vs.space.is_active:
             trans = vs.space.transform.GetTranslation()
             new_tx, new_ty, new_tz = trans[0], trans[1], trans[2]
+            params = vs.space.get_parameters()
+            new_rx, new_ry, new_rz = params[0], params[1], params[2]
 
-        """# 1. Handle Visual 2D panning shifts
-        dtx, dty, dtz = new_tx - old_tx, new_ty - old_ty, new_tz - old_tz
-        if dtx != 0 or dty != 0 or dtz != 0:
-            self.gui.pan_viewers_by_delta(vs_id, dtx, dty, dtz)"""
-
-        # 2. Pin crosshair to physical space
         self._snap_viewer_to_world_pos(viewer, world_pos)
-
         self.controller.update_all_viewers_of_image(vs_id)
 
-        # 3. THE FUSION BROADCAST
         for v in self.controller.viewers.values():
             if v.image_id != vs_id and v.view_state:
                 v.view_state.is_data_dirty = True
 
         self.gui.update_sidebar_crosshair(viewer)
 
-        # 4. Trigger 3D Resample Debouncer
-        new_params = (
-            vs.space.get_parameters() if vs.space.transform else (0, 0, 0, 0, 0, 0)
-        )
-        transform_changed = any(
-            abs(n - o) > 1e-5 for n, o in zip(new_params, old_params)
+        transform_changed = (
+            abs(new_rx - old_rx) > 1e-5
+            or abs(new_ry - old_ry) > 1e-5
+            or abs(new_rz - old_rz) > 1e-5
+            or abs(new_tx - old_tx) > 1e-5
+            or abs(new_ty - old_ty) > 1e-5
+            or abs(new_tz - old_tz) > 1e-5
         )
 
         # Only trigger resampling if the transform is actively applied to the viewer,
@@ -392,7 +386,7 @@ class RegistrationUI:
             return
 
         file_path = open_file_dialog(
-            "Load Transform", multiple=False, extensions=[".tfm", ".txt"]
+            "Load Transform", multiple=False, extensions=[".tfm", ".txt", ".mat"]
         )
         if file_path:
             vs = viewer.view_state
@@ -402,6 +396,8 @@ class RegistrationUI:
             )
 
             if self.controller.load_transform(viewer.image_id, file_path):
+                # Dynamically remember the exact file path for "Save"
+                vs.space._full_transform_path = file_path
                 self.gui.show_status_message(f"Loaded {os.path.basename(file_path)}")
 
                 self._snap_viewer_to_world_pos(viewer, world_pos)
@@ -431,19 +427,55 @@ class RegistrationUI:
             )
             return
 
+        # If we already have a loaded path, overwrite it seamlessly
+        full_path = getattr(vs.space, "_full_transform_path", None)
+        if full_path and os.path.exists(os.path.dirname(full_path)):
+            self.controller.save_transform(viewer.image_id, full_path)
+            self.gui.show_status_message(f"Saved: {os.path.basename(full_path)}")
+            self.refresh_reg_ui()
+        else:
+            # Fallback to Save As
+            self.on_reg_save_as_clicked(sender, app_data, user_data)
+
+    def on_reg_save_as_clicked(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+
+        vs = viewer.view_state
+        if not vs.space.transform:
+            self.gui.show_status_message(
+                "No transform to save!", color=self.gui.ui_cfg["colors"]["warning"]
+            )
+            return
+
         default_name = (
             vs.space.transform_file
             if vs.space.transform_file != "None"
             else "matrix.tfm"
         )
-        file_path = save_file_dialog("Save Transform", default_name=default_name)
+        file_path = save_file_dialog("Save Transform As", default_name=default_name)
         if file_path:
             self.controller.save_transform(viewer.image_id, file_path)
+            # Update the tracked path so future "Save" clicks overwrite this new file!
+            vs.space._full_transform_path = file_path
             self.gui.show_status_message(f"Saved: {os.path.basename(file_path)}")
             self.refresh_reg_ui()
 
     def on_reg_reload_clicked(self, sender, app_data, user_data):
-        self.on_reg_load_clicked(sender, app_data, user_data)
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+
+        full_path = getattr(viewer.view_state.space, "_full_transform_path", None)
+        if full_path and os.path.exists(full_path):
+            if self.controller.load_transform(viewer.image_id, full_path):
+                self.refresh_reg_ui()
+                self.pull_reg_sliders_from_transform()
+                self.trigger_debounced_rotation_update(viewer.image_id)
+                self.gui.show_status_message(f"Reloaded: {os.path.basename(full_path)}")
+        else:
+            self.on_reg_load_clicked(sender, app_data, user_data)
 
     def on_reg_step_button_clicked(self, sender, app_data, user_data):
         """Handles the + and - buttons next to the manual registration sliders."""
@@ -453,7 +485,6 @@ class RegistrationUI:
         # Respect the Coarse (1.0) or Fine (0.1) radio button selection
         step_str = dpg.get_value("radio_reg_step")
         step_size = 1.0 if step_str == "Coarse" else 0.1
-
         current_val = dpg.get_value(target_tag)
         dpg.set_value(target_tag, current_val + (step_size * direction))
 
@@ -484,11 +515,9 @@ class RegistrationUI:
         viewer = self.gui.context_viewer
         if not viewer or not viewer.image_id:
             return
-
         for tag in self.SLIDER_TAGS:
             if dpg.does_item_exist(tag):
                 dpg.set_value(tag, 0.0)
-
         self.on_reg_manual_changed(sender, app_data, user_data)
         self.pull_reg_sliders_from_transform()
 
@@ -496,11 +525,9 @@ class RegistrationUI:
         viewer = self.gui.context_viewer
         if not viewer or not viewer.image_id:
             return
-
         vs = viewer.view_state
         if not vs.space.transform:
             return
-
         params = vs.space.transform.GetInverse().GetParameters()
         vals = [
             math.degrees(params[0]),
@@ -510,11 +537,9 @@ class RegistrationUI:
             params[4],
             params[5],
         ]
-
         for tag, val in zip(self.SLIDER_TAGS, vals):
             if dpg.does_item_exist(tag):
                 dpg.set_value(tag, val)
-
         self.on_reg_manual_changed(sender, app_data, user_data)
         self.pull_reg_sliders_from_transform()
 
@@ -522,21 +547,17 @@ class RegistrationUI:
         viewer = self.gui.context_viewer
         if not viewer or not viewer.image_id:
             return
-
         vs = viewer.view_state
         vol = self.controller.volumes.get(viewer.image_id)
-
         center = (
             vs.space.transform.GetCenter()
             if vs.space.transform
             else self.controller.get_volume_physical_center(vol)
         )
         self._snap_viewer_to_world_pos(viewer, center)
-
         for v in self.controller.viewers.values():
             if v.image_id == viewer.image_id:
                 v.needs_recenter = True
-
         self.controller.update_all_viewers_of_image(viewer.image_id)
         self.gui.update_sidebar_crosshair(viewer)
         self.controller.sync.propagate_sync(viewer.image_id)
