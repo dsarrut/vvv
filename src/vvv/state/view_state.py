@@ -195,9 +195,9 @@ class ViewState:
 
     def init_crosshair_to_slices(self):
         self.camera.crosshair_voxel = [
-            self.camera.slices[ViewMode.CORONAL],
-            self.camera.slices[ViewMode.SAGITTAL],
-            self.camera.slices[ViewMode.AXIAL],
+            self.camera.slices[ViewMode.SAGITTAL],  # X
+            self.camera.slices[ViewMode.CORONAL],  # Y
+            self.camera.slices[ViewMode.AXIAL],  # Z
             self.camera.time_idx,
         ]
 
