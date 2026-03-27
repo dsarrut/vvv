@@ -369,7 +369,7 @@ class RegistrationUI:
 
         # 3. THE FUSION BROADCAST
         for v in self.controller.viewers.values():
-            if v.image_id != vs_id:
+            if v.image_id != vs_id and v.view_state:
                 v.view_state.is_data_dirty = True
 
         self.gui.update_sidebar_crosshair(viewer)
