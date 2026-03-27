@@ -531,7 +531,7 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
             files_processed += 1
         except Exception as e:
             # gui.show_message("Load Error", f"Failed to load:\n{filename}")
-            warnings.append(f"{filename}")
+            warnings.append(f"{filename} ({e})")
             yield
             continue
 
