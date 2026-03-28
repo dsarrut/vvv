@@ -1162,7 +1162,7 @@ class MainGUI:
                 "view_sagittal": "Sagittal View",
                 "view_coronal": "Coronal View",
                 "view_histogram": "Histogram View",
-                "toggle_interp": "Toggle strip pixels at zoom",
+                "toggle_pixelated_zoom": "Toggle Pixelated Zoom",
                 "toggle_grid": "Toggle Voxel Grid",
                 "toggle_legend": "Toggle Legend",
                 "hide_all": "Show/Hide Overlays",

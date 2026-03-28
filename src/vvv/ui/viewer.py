@@ -541,7 +541,7 @@ class SliceViewer:
         if (
             not self.view_state
             or not self.volume
-            or self.view_state.display.interpolation_linear
+            or not self.view_state.display.pixelated_zoom
         ):
             return False
 
@@ -1043,7 +1043,7 @@ class SliceViewer:
             "view_sagittal": lambda: self.set_orientation(ViewMode.SAGITTAL),
             "view_coronal": lambda: self.set_orientation(ViewMode.CORONAL),
             "view_histogram": self.action_view_histogram,
-            "toggle_interp": self.action_toggle_interp,
+            "toggle_pixelated_zoom": self.action_toggle_pixelated_zoom,
             "toggle_legend": self.action_toggle_legend,
             "toggle_filename": self.action_toggle_filename,
             "toggle_grid": self.action_toggle_grid,
@@ -1100,9 +1100,9 @@ class SliceViewer:
     def action_view_histogram(self):
         self.set_orientation(ViewMode.HISTOGRAM)
 
-    def action_toggle_interp(self):
-        self.view_state.display.interpolation_linear = (
-            not self.view_state.display.interpolation_linear
+    def action_toggle_pixelated_zoom(self):
+        self.view_state.display.pixelated_zoom = (
+            not self.view_state.display.pixelated_zoom
         )
         self.view_state.is_data_dirty = True
 

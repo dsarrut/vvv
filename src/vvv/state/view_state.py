@@ -103,7 +103,7 @@ class DisplayState:
         self.wl = 270.0
         self.colormap = "Grayscale"
         self.base_threshold = -1e8
-        self.interpolation_linear = False
+        self.pixelated_zoom = True
 
         self.overlay_id = None
         self.overlay_data = None
@@ -120,7 +120,7 @@ class DisplayState:
             "wl": float(self.wl),
             "colormap": str(self.colormap),
             "base_threshold": float(self.base_threshold),
-            "interpolation_linear": bool(self.interpolation_linear),
+            "pixelated_zoom": bool(self.pixelated_zoom),
             "overlay_opacity": float(self.overlay_opacity),
             "overlay_mode": str(self.overlay_mode),
             "overlay_checkerboard_size": float(self.overlay_checkerboard_size),
@@ -132,9 +132,11 @@ class DisplayState:
         self.wl = d.get("wl", self.wl)
         self.colormap = d.get("colormap", self.colormap)
         self.base_threshold = d.get("base_threshold", self.base_threshold)
-        self.interpolation_linear = d.get(
-            "interpolation_linear", self.interpolation_linear
-        )
+        if "interpolation_linear" in d:
+            # If loading an old workspace, flip the old linear value to match the new logic
+            self.pixelated_zoom = not d["interpolation_linear"]
+        else:
+            self.pixelated_zoom = d.get("pixelated_zoom", self.pixelated_zoom)
         self.overlay_opacity = d.get("overlay_opacity", self.overlay_opacity)
         self.overlay_mode = d.get("overlay_mode", self.overlay_mode)
         self.overlay_checkerboard_size = d.get(
@@ -374,6 +376,7 @@ class ViewState:
         resampler = sitk.ResampleImageFilter()
         resampler.SetReferenceImage(ref_img)
         resampler.SetInterpolator(sitk.sitkLinear)
+        # resampler.SetInterpolator(sitk.sitkNearestNeighbor)
 
         min_val = float(np.min(self.volume.data))
         resampler.SetDefaultPixelValue(min_val)
