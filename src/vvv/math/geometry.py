@@ -103,7 +103,10 @@ class SpatialEngine:
         if not self.transform:
             return None
         rot_t = sitk.Euler3DTransform()
-        rot_t.SetCenter(self.cor.tolist())
+
+        # Respect the user's custom CoR
+        rot_t.SetCenter(self.transform.GetCenter())
+
         rot_t.SetRotation(
             self.transform.GetAngleX(),
             self.transform.GetAngleY(),

@@ -286,7 +286,7 @@ class RegistrationUI:
                     f"{center[0]:.1f}, {center[1]:.1f}, {center[2]:.1f}",
                 )
 
-    def trigger_debounced_rotation_update(self, active_image_id):
+    def trigger_debounced_rotation_update(self, active_image_id, immediate=False):
         if getattr(self, "_reg_debounce_timer", None) is not None:
             self._reg_debounce_timer.cancel()
 
@@ -317,8 +317,12 @@ class RegistrationUI:
                 "Transform applied", color=self.gui.ui_cfg["colors"]["text_status_ok"]
             )
 
-        self._reg_debounce_timer = threading.Timer(0.3, _do_resample)
-        self._reg_debounce_timer.start()
+        # Execute instantly if requested
+        if immediate:
+            _do_resample()
+        else:
+            self._reg_debounce_timer = threading.Timer(0.3, _do_resample)
+            self._reg_debounce_timer.start()
 
     def apply_transform_and_keep_world_fixed(
         self, viewer, new_state_val=None, skip_manual_update=False
@@ -590,8 +594,6 @@ class RegistrationUI:
             float(new_center[2]),
         )
 
-        # Mathematical Magic: Keep the image visually identical while shifting the rotation pivot!
-        # T_new = OldTransform(C_new) - C_new
         mapped_center = vs.space.transform.TransformPoint(new_center_tuple)
         new_translation = (
             mapped_center[0] - new_center_tuple[0],
@@ -599,14 +601,13 @@ class RegistrationUI:
             mapped_center[2] - new_center_tuple[2],
         )
 
-        # Update the transform under the hood
         vs.space.transform.SetCenter(new_center_tuple)
         vs.space.transform.SetTranslation(new_translation)
 
-        # Pull the newly calculated translations to the GUI sliders
         self.pull_reg_sliders_from_transform()
         self.refresh_reg_ui()
 
-        # Since the visual output is mathematically identical, we don't even need to trigger
-        # a 3D resample. We just update the numbers!
+        # Instantly sync the 3D buffer so the math doesn't glitch
+        self.trigger_debounced_rotation_update(viewer.image_id, immediate=True)
+
         self.gui.show_status_message("CoR snapped to Crosshair")

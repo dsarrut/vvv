@@ -376,7 +376,6 @@ class ViewState:
         resampler = sitk.ResampleImageFilter()
         resampler.SetReferenceImage(ref_img)
         resampler.SetInterpolator(sitk.sitkLinear)
-        # resampler.SetInterpolator(sitk.sitkNearestNeighbor)
 
         min_val = float(np.min(self.volume.data))
         resampler.SetDefaultPixelValue(min_val)
