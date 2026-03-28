@@ -730,3 +730,77 @@ def test_workspace_strict_hierarchy_load(headless_app, synthetic_image_path, tmp
         saved_ws = json.load(f)
     assert len(saved_ws["images"][vs_id]["rois"]) == 1
     assert saved_ws["images"][vs_id]["rois"][0]["state"]["name"] == "Test ROI"
+
+# ==========================================
+# 7. ORIENTATION & REGISTRATION MATH
+# ==========================================
+
+def test_image_straightening_and_orientation_parsing(headless_app, tmp_path):
+    """Test that oblique images are parsed for strings and then physically straightened on load."""
+    controller, viewer, _ = headless_app
+
+    # 1. Create a synthetic image rotated 45 degrees (oblique)
+    img = sitk.GetImageFromArray(np.ones((5, 5, 5), dtype=np.float32))
+    img.SetSpacing((1.0, 1.0, 1.0))
+    angle = np.pi / 4.0
+    direction = [
+        np.cos(angle), -np.sin(angle), 0.0,
+        np.sin(angle), np.cos(angle), 0.0,
+        0.0, 0.0, 1.0
+    ]
+    img.SetDirection(direction)
+
+    path = str(tmp_path / "oblique.nrrd")
+    sitk.WriteImage(img, path)
+
+    # 2. Load it through the system
+    vs_id = controller.file.load_image(path)
+    vol = controller.volumes[vs_id]
+
+    # 3. Assert the string was captured correctly BEFORE straightening
+    assert vol.matrix_display_str == "Oblique"
+    assert "0.707107" in vol.matrix_tooltip_str  # cos(45 deg)
+
+    # 4. Assert the underlying ITK image was successfully forced to the Identity Matrix!
+    assert np.allclose(vol.sitk_image.GetDirection(), np.eye(3).flatten(), atol=1e-4)
+
+
+def test_orthogonal_flip_orientation(headless_app, tmp_path):
+    """Test that a pure axis swap/flip generates a clean 3x3 text string."""
+    controller, viewer, _ = headless_app
+
+    # 1. Create an image with an inverted X-axis
+    img = sitk.GetImageFromArray(np.ones((5, 5, 5), dtype=np.float32))
+    img.SetDirection([-1.0, 0.0, 0.0,   0.0, 1.0, 0.0,   0.0, 0.0, 1.0])
+
+    path = str(tmp_path / "flipped.nrrd")
+    sitk.WriteImage(img, path)
+
+    # 2. Load it
+    vs_id = controller.file.load_image(path)
+    vol = controller.volumes[vs_id]
+
+    # 3. Assert the clean matrix string
+    assert "-1 0 0 ; 0 1 0 ; 0 0 1" in vol.matrix_display_str
+
+
+def test_spatial_engine_registration_mapping(headless_app):
+    """Test that the SpatialEngine applies the Registration Matrix ON TOP of the Base physical coordinates."""
+    controller, viewer, vs_id = headless_app
+    vs = controller.view_states[vs_id]
+
+    # 1. Base origin is (10, 20, 50), spacing (1, 1, 1).
+    # Voxel (0,0,0) natively maps to World Phys (10, 20, 50).
+    base_phys = vs.space.raw_voxel_to_phys(np.array([0, 0, 0]))
+    assert np.allclose(base_phys, [10.0, 20.0, 50.0])
+
+    # 2. Activate a Registration Translation (Move it +100mm on X)
+    vs.space.set_manual_transform(tx=100.0, ty=0.0, tz=0.0, rx_rad=0.0, ry_rad=0.0, rz_rad=0.0)
+    vs.space.is_active = True
+
+    # 3. Ask the camera where voxel (0,0,0) is in the World now
+    # Since it is a fast-path pan (is_buffered=False), it should apply the full transform!
+    world_pt = vs.space.display_to_world(np.array([0, 0, 0]), is_buffered=False)
+
+    # Assert the registration shift sits perfectly on top of the native origin!
+    assert np.allclose(world_pt, [110.0, 20.0, 50.0])
