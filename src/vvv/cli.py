@@ -58,36 +58,87 @@ def set_macos_dock_info(name, icon_path=None):
     except ImportError:
         pass
 
-
 def parse_cli_arguments(datasets):
     """
     Parses raw command line arguments into structured image tasks.
     Handles shell-expanded 4D sequences, sync groups, and comma-separated fusion parameters.
+    Automatically breaks 4D sequences if image size/spacing changes.
     """
-    # 1. Re-group shell-split arguments (4D sequences and comma spaces)
+    import numpy as np
+    import SimpleITK as sitk
+
+    def get_info(path):
+        """Ultra-fast header peek without loading pixel data."""
+        try:
+            reader = sitk.ImageFileReader()
+            reader.SetFileName(path)
+            reader.ReadImageInformation()
+            return reader.GetSize(), reader.GetSpacing()
+        except:
+            return None, None
+
     grouped_datasets = []
     buf = []
     in_4d = False
+    ref_size = None
+    ref_spacing = None
 
+    def flush():
+        nonlocal buf, in_4d, ref_size, ref_spacing
+        if buf:
+            grouped_datasets.append(" ".join(buf))
+            buf = []
+        in_4d = False
+        ref_size = None
+        ref_spacing = None
+
+    # 1. Re-group shell-split arguments dynamically
     for item in datasets:
-        if item.startswith("4D:") or item.startswith("4d:") or item == "4D:":
+        is_4d_tag = item.upper() in ["4D:", "4D"]
+        clean_item = item.rstrip(",:")
+
+        # If the previous item ended with a comma, or a colon (like '1:'), it's an overlay or group modifier!
+        expecting_more = len(buf) > 0 and (
+                buf[-1].endswith(",") or (buf[-1].endswith(":") and not buf[-1].upper().startswith("4D"))
+        )
+
+        if is_4d_tag:
+            # If we hit a second 4D tag, close out the first one immediately!
+            if in_4d and not expecting_more:
+                flush()
             in_4d = True
+            buf.append(item)
+            continue
 
-        buf.append(item)
-
-        if in_4d:
-            # Swallow expanded files until we hit a comma (overlay trigger)
-            if item.endswith(","):
-                grouped_datasets.append(" ".join(buf))
-                buf = []
-                in_4d = False
+        if in_4d and not expecting_more:
+            if os.path.isfile(clean_item):
+                size, spacing = get_info(clean_item)
+                if size is not None:
+                    if ref_size is None:
+                        # First valid file sets the shape rules for the 4D sequence!
+                        ref_size = size
+                        ref_spacing = spacing
+                        buf.append(item)
+                    else:
+                        # Check if the new file belongs to the same 4D sequence
+                        if size == ref_size and np.allclose(spacing, ref_spacing, atol=1e-3):
+                            buf.append(item)
+                        else:
+                            # SHAPE MISMATCH! The 4D sequence ended. Start a new standard image task.
+                            flush()
+                            buf.append(item)
+                else:
+                    buf.append(item)
+            else:
+                # Not a file? Just append (e.g., wildcards that didn't expand)
+                buf.append(item)
         else:
-            if not (item.endswith(",") or item.endswith(":")):
-                grouped_datasets.append(" ".join(buf))
-                buf = []
+            # Not in 4D, OR we are expecting more (like an overlay parameter)
+            if not expecting_more and len(buf) > 0:
+                flush()
+            buf.append(item)
 
-    if buf:
-        grouped_datasets.append(" ".join(buf))
+    flush()
 
     # 2. Parse the composite strings into tasks
     image_tasks = []
@@ -149,6 +200,7 @@ def parse_cli_arguments(datasets):
         image_tasks.append(task)
 
     return image_tasks
+
 
 
 @click.command()

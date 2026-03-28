@@ -428,7 +428,7 @@ class VolumeData:
             self.name = os.path.basename(os.path.dirname(self.file_paths[0]))
         else:
             is_4d = False
-            if isinstance(path, str) and path.startswith("4D:"):
+            if isinstance(path, str) and path.upper().startswith("4D:"):
                 is_4d = True
                 path = path[3:].strip()
 

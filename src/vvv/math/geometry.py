@@ -27,16 +27,21 @@ class SpatialEngine:
     # 1. CORE GEOMETRY (The Absolute Truth via ITK)
     # ==========================================
     def raw_voxel_to_phys(self, voxel):
-        # SimpleITK natively handles Origin, Spacing, and Direction Matrix perfectly!
+        # Handle 3D coordinates, but pad for 4D images to prevent ITK dimension mismatch!
         idx = [float(voxel[0]), float(voxel[1]), float(voxel[2])]
+        if self.volume.sitk_image.GetDimension() == 4:
+            idx.append(0.0)  # Pad the time dimension
+
         phys = self.volume.sitk_image.TransformContinuousIndexToPhysicalPoint(idx)
-        return np.array(phys)
+        return np.array(phys[:3])  # Only return the X, Y, Z physical coordinates
 
     def phys_to_raw_voxel(self, phys):
-        # SimpleITK natively reverse-maps back to the exact floating-point array index
         pt = [float(phys[0]), float(phys[1]), float(phys[2])]
+        if self.volume.sitk_image.GetDimension() == 4:
+            pt.append(0.0)  # Pad the time dimension
+
         idx = self.volume.sitk_image.TransformPhysicalPointToContinuousIndex(pt)
-        return np.array(idx)
+        return np.array(idx[:3])
 
     # ==========================================
     # 2. DISPLAY MAPPING (The Visual Illusions)

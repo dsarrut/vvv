@@ -1,9 +1,21 @@
 import numpy as np
 import SimpleITK as sitk
 
+
 def extract_orientation_strings(raw_img):
-    """Extracts the original matrix and formats it for the GUI."""
-    orig_mat = np.array(raw_img.GetDirection()).reshape(3, 3)
+    """Extracts the original matrix and formats it for the GUI. Handles 3D and 4D."""
+    raw_dir = raw_img.GetDirection()
+
+    # Safely extract the 3x3 spatial component regardless of 3D (9) or 4D (16)
+    if len(raw_dir) == 16:
+        m = np.array(raw_dir)
+        orig_mat = np.array(
+            [[m[0], m[1], m[2]], [m[4], m[5], m[6]], [m[8], m[9], m[10]]]
+        )
+    elif len(raw_dir) == 9:
+        orig_mat = np.array(raw_dir).reshape(3, 3)
+    else:
+        orig_mat = np.eye(3)
 
     # 1. Generate the exact 3x3 tooltip string
     tooltip_str = (
@@ -15,9 +27,13 @@ def extract_orientation_strings(raw_img):
     # 2. Generate the compact sidebar string
     if np.allclose(orig_mat, np.eye(3), atol=1e-4):
         display_str = "ID"
-    elif np.allclose(np.abs(orig_mat).sum(axis=0), 1.0, atol=1e-4) and \
-            np.allclose(np.abs(orig_mat).sum(axis=1), 1.0, atol=1e-4):
-        def fmt_val(v): return "1" if v > 0.5 else "-1" if v < -0.5 else "0"
+    elif np.allclose(np.abs(orig_mat).sum(axis=0), 1.0, atol=1e-4) and np.allclose(
+        np.abs(orig_mat).sum(axis=1), 1.0, atol=1e-4
+    ):
+
+        def fmt_val(v):
+            return "1" if v > 0.5 else "-1" if v < -0.5 else "0"
+
         rows = [" ".join(fmt_val(x) for x in row) for row in orig_mat]
         display_str = " ; ".join(rows)
     else:
@@ -32,6 +48,10 @@ def straighten_image(img, filename="image"):
     straight bounding box aligned with the physical axes.
     """
     dim = img.GetDimension()
+
+    if dim == 4:
+        return img
+
     identity_dir = np.eye(dim).flatten()
     current_dir = np.array(img.GetDirection())
 
@@ -40,7 +60,10 @@ def straighten_image(img, filename="image"):
         return img
 
     import itertools
-    print(f"Oblique orientation detected in {filename}. Straightening to physical grid...")
+
+    print(
+        f"Oblique orientation detected in {filename}. Straightening to physical grid..."
+    )
 
     size = img.GetSize()
     corners = list(itertools.product(*[(0, s) for s in size]))
