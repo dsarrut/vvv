@@ -8,6 +8,7 @@ from vvv.utils import ViewMode
 from vvv.config import COLORMAPS
 from dataclasses import dataclass
 from vvv.utils import get_history_path_key
+from vvv.math.image_utils import straighten_image, extract_orientation_strings
 
 
 @dataclass
@@ -469,8 +470,14 @@ class VolumeData:
 
         # --- NEW INTERCEPT: Load, Straighten, then Extract ---
         raw_sitk_image = self.read_image_from_disk(self.file_paths)
-        self._parse_original_matrix(raw_sitk_image)
-        self.sitk_image = self._straighten_image(raw_sitk_image)
+
+        self.matrix_display_str, self.matrix_tooltip_str = extract_orientation_strings(
+            raw_sitk_image
+        )
+
+        self.sitk_image = straighten_image(
+            raw_sitk_image, os.path.basename(self.file_paths[0])
+        )
         self.data = sitk.GetArrayViewFromImage(self.sitk_image)
 
         is_4d = self.sitk_image.GetDimension() == 4 and self.data.shape[0] > 1
@@ -496,84 +503,6 @@ class VolumeData:
         self.last_mtime = self._get_latest_mtime()
         self._last_check_time = 0
         self._is_outdated = False
-
-    def _parse_original_matrix(self, raw_img):
-        """Extracts the original matrix and formats it for the GUI."""
-        orig_mat = np.array(raw_img.GetDirection()).reshape(3, 3)
-
-        # 1. Generate the exact 3x3 tooltip string (always available for copying)
-        self.matrix_tooltip_str = (
-            f"{orig_mat[0,0]:.6g}  {orig_mat[0,1]:.6g}  {orig_mat[0,2]:.6g}\n"
-            f"{orig_mat[1,0]:.6g}  {orig_mat[1,1]:.6g}  {orig_mat[1,2]:.6g}\n"
-            f"{orig_mat[2,0]:.6g}  {orig_mat[2,1]:.6g}  {orig_mat[2,2]:.6g}"
-        )
-
-        # 2. Generate the compact sidebar string
-        if np.allclose(orig_mat, np.eye(3), atol=1e-4):
-            self.matrix_display_str = "ID"
-
-        # Check if it is a pure orthogonal flip/swap (Sum of absolute rows & cols == 1)
-        elif np.allclose(np.abs(orig_mat).sum(axis=0), 1.0, atol=1e-4) and np.allclose(
-            np.abs(orig_mat).sum(axis=1), 1.0, atol=1e-4
-        ):
-
-            # Format cleanly as integers: 1 0 0 ; 0 -1 0 ; 0 0 1
-            def fmt_val(v):
-                return "1" if v > 0.5 else "-1" if v < -0.5 else "0"
-
-            rows = [" ".join(fmt_val(x) for x in row) for row in orig_mat]
-            self.matrix_display_str = " ; ".join(rows)
-
-        else:
-            self.matrix_display_str = "Oblique"
-
-    def _straighten_image(self, img):
-        """
-        Intercepts oblique/rotated images on load and warps them into a perfectly
-        straight bounding box aligned with the physical axes, preserving all data.
-        """
-        dim = img.GetDimension()
-        identity_dir = np.eye(dim).flatten()
-        current_dir = np.array(img.GetDirection())
-
-        # If the image is already perfectly aligned with the world, do nothing!
-        if np.allclose(current_dir, identity_dir, atol=1e-4):
-            return img
-
-        import itertools
-
-        print(
-            f"Oblique orientation detected in {os.path.basename(self.file_paths[0])}. Straightening to physical grid..."
-        )
-
-        # 1. Find the physical coordinates of all 8 corners of the rotated volume
-        size = img.GetSize()
-        corners = list(itertools.product(*[(0, s) for s in size]))
-        phys_corners = np.array([img.TransformIndexToPhysicalPoint(c) for c in corners])
-
-        # 2. Calculate the new perfectly straight Bounding Box
-        min_phys = np.min(phys_corners, axis=0)
-        max_phys = np.max(phys_corners, axis=0)
-
-        spacing = np.array(img.GetSpacing())
-        new_size = np.ceil((max_phys - min_phys) / spacing).astype(int)
-
-        # 3. Set up the resampler to pour the tilted data into the straight box
-        resampler = sitk.ResampleImageFilter()
-        resampler.SetOutputDirection(identity_dir.tolist())
-        resampler.SetOutputOrigin(min_phys.tolist())
-        resampler.SetOutputSpacing(spacing.tolist())
-        resampler.SetSize(new_size.tolist())
-        resampler.SetInterpolator(sitk.sitkLinear)
-
-        # Safely grab the lowest value to use as the empty background (e.g. -1000 for CT)
-        try:
-            bg_val = float(sitk.GetArrayViewFromImage(img).min())
-        except Exception:
-            bg_val = 0.0
-        resampler.SetDefaultPixelValue(bg_val)
-
-        return resampler.Execute(img)
 
     def read_image_from_disk(self, paths):
         if len(paths) == 1:
@@ -704,8 +633,11 @@ class VolumeData:
         return (self.inverse_matrix @ (phys - self.origin)) / self.spacing
 
     def reload(self):
+        from vvv.math.image_utils import straighten_image
+
         new_sitk = self.read_image_from_disk(self.file_paths)
-        new_sitk = self._straighten_image(new_sitk)
+        new_sitk = straighten_image(new_sitk, os.path.basename(self.file_paths[0]))
+
         new_shape = new_sitk.GetSize()
         current_shape = self.sitk_image.GetSize()
 
