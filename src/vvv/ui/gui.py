@@ -284,6 +284,8 @@ class MainGUI:
                 self.create_labeled_field("Spacing", tag="info_spacing")
                 self.create_labeled_field("Origin", tag="info_origin")
                 self.create_labeled_field("Matrix", tag="info_matrix")
+                with dpg.tooltip("info_matrix"):
+                    dpg.add_text("...", tag="info_matrix_tooltip")
                 self.build_window_level_controls()
                 dpg.add_input_text(tag="info_memory", readonly=True, width=-1)
                 dpg.add_spacer(height=5)
@@ -719,7 +721,9 @@ class MainGUI:
         dpg.set_value("info_size", size_str)
         dpg.set_value("info_spacing", fmt(vol.spacing, 4))
         dpg.set_value("info_origin", fmt(vol.origin, 2))
-        dpg.set_value("info_matrix", fmt(vol.matrix, 1))
+        dpg.set_value("info_matrix", vol.matrix_display_str)
+        if dpg.does_item_exist("info_matrix_tooltip"):
+            dpg.set_value("info_matrix_tooltip", vol.matrix_tooltip_str)
         dpg.set_value(
             "info_memory",
             f"{vol.sitk_image.GetNumberOfPixels():,} voxels    {vol.memory_mb:g} MB",
