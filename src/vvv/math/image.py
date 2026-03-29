@@ -505,6 +505,13 @@ class VolumeData:
         self._is_outdated = False
 
     def read_image_from_disk(self, paths):
+        # Fabio Format Router
+        filename = os.path.basename(paths[0])
+        ext = os.path.splitext(filename.lower())[1]
+
+        if ext in (".edf", ".cbf"):
+            return self._read_via_fabio(paths)
+
         if len(paths) == 1:
             sitk_img = sitk.ReadImage(paths[0])
             dim = sitk_img.GetDimension()
@@ -544,6 +551,43 @@ class VolumeData:
                     )
 
                 return sitk.JoinSeries(imgs)
+
+    def _read_via_fabio(self, paths):
+        """
+        Lazy-loads fabio to read synchrotron/detector formats,
+        stacks the 2D slices, and rebuilds them as a 3D SimpleITK object.
+        """
+        # 1. Lazy Import (Only happens if a user actually loads an edf file)
+        try:
+            import fabio
+        except ImportError:
+            raise ImportError("fabio is required to read edf/cbf files.")
+
+        # 2. Read and collect the raw NumPy arrays
+        slices = []
+        for path in paths:
+            img = fabio.open(path)
+            slices.append(img.data)
+
+        # 3. Stack into a 3D numpy array.
+        # Fabio data is typically 2D (Y, X).
+        # Stacking them gives (Z, Y, X) which matches SimpleITK
+        if len(slices) == 1:
+            # If it's just one slice, pad it to 3D so VVV's spatial engine doesn't crash
+            vol_array = np.expand_dims(slices[0], axis=0)
+        else:
+            vol_array = np.stack(slices, axis=0)
+
+        # 4. Rebuild as a SimpleITK Image
+        sitk_img = sitk.GetImageFromArray(vol_array)
+
+        # Fabio headers are highly format-dependent (and often lack physical spacing).
+        # We default to 1.0 spacing, but the raw pixel geometry is fully preserved.
+        sitk_img.SetSpacing((1.0, 1.0, 1.0))
+        sitk_img.SetOrigin((0.0, 0.0, 0.0))
+        sitk_img.SetDirection(np.eye(3).flatten().tolist())
+
+        return sitk_img
 
     def get_human_readable_file_path(self):
         import os
