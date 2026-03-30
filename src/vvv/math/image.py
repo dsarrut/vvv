@@ -418,6 +418,17 @@ class SliceRenderer:
 class VolumeData:
     """Stores the immutable medical image data and physical metadata."""
 
+    SEQUENCE_PREFIXES = (
+        "4D:",
+        "4D",
+        "3D:",
+        "3D",
+        "SEQ:",
+        "SEQ",
+        "SEQUENCE:",
+        "SEQUENCE",
+    )
+
     def __init__(self, path):
         self.path = path
         self.file_paths = []
@@ -428,7 +439,9 @@ class VolumeData:
             self.name = os.path.basename(os.path.dirname(self.file_paths[0]))
         else:
             is_4d = False
-            if isinstance(path, str) and path.upper().startswith("4D:"):
+            if isinstance(path, str) and path.upper().startswith(
+                self.SEQUENCE_PREFIXES
+            ):
                 is_4d = True
                 path = path[3:].strip()
 
@@ -468,7 +481,7 @@ class VolumeData:
             # path expansion
             self.file_paths = [os.path.expanduser(p) for p in self.file_paths]
 
-        # --- NEW INTERCEPT: Load, Straighten, then Extract ---
+        # Load, Straighten, then Extract
         raw_sitk_image = self.read_image_from_disk(self.file_paths)
 
         self.matrix_display_str, self.matrix_tooltip_str = extract_orientation_strings(
@@ -516,8 +529,27 @@ class VolumeData:
         filename = os.path.basename(paths[0])
         ext = os.path.splitext(filename.lower())[1]
 
-        if ext in (".his", ".edf", ".cbf"):
+        if ext in (".edf", ".hst", ".cbf"):
             return self._read_via_fabio(paths)
+
+        # --- 1. Custom HIS Router & Sequence Stacker ---
+        if ext == ".his":
+            if len(paths) == 1:
+                return self._read_custom_his(paths[0])
+            else:
+                print(f"Stacking {len(paths)} HIS projections into a 3D Volume...")
+                slices = []
+                for p in paths:
+                    img = self._read_custom_his(p)
+                    slices.append(sitk.GetArrayFromImage(img))
+
+                # Stack the (1, Y, X) arrays into a (Z, Y, X) volume!
+                stacked_vol = np.concatenate(slices, axis=0)
+
+                final_img = sitk.GetImageFromArray(stacked_vol)
+                final_img.SetSpacing(img.GetSpacing())
+                final_img.SetOrigin(img.GetOrigin())
+                return final_img
 
         # --- 2. Standard Load Logic ---
         if len(paths) == 1:
@@ -693,6 +725,65 @@ class VolumeData:
         print(
             f"Salvaged via Smart XDR Fallback (Dtype: {dtype_str}): {os.path.basename(path)}"
         )
+        return sitk_img
+
+    def _read_custom_his(self, path):
+        """
+        Pure Python parser for Heimann HIS format (Elekta).
+        Instantly maps the 68-byte header and extracts the uncompressed payload.
+        """
+        import struct
+        import os
+        import numpy as np
+        import SimpleITK as sitk
+
+        with open(path, "rb") as f:
+            header = f.read(68)
+
+        # 1. Check Magic Signature (0, 112, 68, 0)
+        if len(header) < 68 or header[:4] != b"\x00\x70\x44\x00":
+            raise ValueError(f"Not a valid Heimann HIS file: {os.path.basename(path)}")
+
+        # 2. Extract Header Info (Strictly Little-Endian '<H' for unsigned short)
+        extra_header_size = struct.unpack("<H", header[10:12])[0]
+
+        ulx = struct.unpack("<H", header[12:14])[0]
+        uly = struct.unpack("<H", header[14:16])[0]
+        brx = struct.unpack("<H", header[16:18])[0]
+        bry = struct.unpack("<H", header[18:20])[0]
+
+        nrframes = struct.unpack("<H", header[20:22])[0]
+
+        # ITK dimensions based on C++ source
+        dim_x = bry - uly + 1
+        dim_y = brx - ulx + 1
+
+        # 3. Calculate Spacing
+        spacing_x = 409.6 / dim_x
+        spacing_y = 409.6 / dim_y
+
+        # 4. Extract Binary Payload
+        data_offset = 68 + extra_header_size
+        raw_array = np.fromfile(
+            path, dtype="<u2", offset=data_offset
+        )  # <u2 = 16-bit uint
+
+        # 5. Reshape and Pad to 3D
+        if nrframes > 1:
+            vol_array = raw_array.reshape((nrframes, dim_y, dim_x))
+        else:
+            vol_array = raw_array.reshape(
+                (1, dim_y, dim_x)
+            )  # Pad 2D projection to 3D for VVV
+
+        # 6. Build SimpleITK Image
+        sitk_img = sitk.GetImageFromArray(vol_array)
+        sitk_img.SetSpacing((spacing_x, spacing_y, 1.0))
+
+        origin_x = -0.5 * (dim_x - 1) * spacing_x
+        origin_y = -0.5 * (dim_y - 1) * spacing_y
+        sitk_img.SetOrigin((origin_x, origin_y, 0.0))
+
         return sitk_img
 
     def get_human_readable_file_path(self):

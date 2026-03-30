@@ -9,6 +9,7 @@ from vvv.ui.gui import MainGUI
 import dearpygui.dearpygui as dpg
 from vvv.ui.viewer import SliceViewer
 from vvv.core.controller import Controller
+from vvv.math.image import VolumeData
 from vvv.resources import get_resource_path
 
 
@@ -93,13 +94,14 @@ def parse_cli_arguments(datasets):
         ref_spacing = None
 
     # 1. Re-group shell-split arguments dynamically
+    seq_prefixes = VolumeData.SEQUENCE_PREFIXES
     for item in datasets:
-        is_4d_tag = item.upper() in ["4D:", "4D"]
+        is_4d_tag = item.upper() in seq_prefixes
         clean_item = item.rstrip(",:")
 
         # If the previous item ended with a comma, or a colon (like '1:'), it's an overlay or group modifier!
         expecting_more = len(buf) > 0 and (
-                buf[-1].endswith(",") or (buf[-1].endswith(":") and not buf[-1].upper().startswith("4D"))
+                buf[-1].endswith(",") or (buf[-1].endswith(":") and not buf[-1].upper().startswith(seq_prefixes))
         )
 
         if is_4d_tag:
