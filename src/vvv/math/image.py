@@ -896,8 +896,8 @@ class VolumeData:
 
     def is_outdated(self):
         now = time.time()
-        # Throttled test (every 2 seconds) to guarantee 0 GUI lag!
-        if now - self._last_check_time > 2.0:
+        # Throttled test (every 5 seconds) to guarantee 0 GUI lag!
+        if now - self._last_check_time > 5.0:
             self._last_check_time = now
             current_mtime = self._get_latest_mtime()
             self._is_outdated = current_mtime > self.last_mtime
