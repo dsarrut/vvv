@@ -223,7 +223,7 @@ def main(no_history, datasets, linkall, sync):
 
     # --- Setup Application ---
     icon_png = get_resource_path(os.path.join("icons", "py_vv.png"))
-    icon_ico = get_resource_path(os.path.join("icons", "icon.ico"))
+    icon_ico = get_resource_path(os.path.join("icons", "py_vv.ico"))
     set_macos_dock_info("VVV", icon_path=icon_png)
 
     dpg.create_context()
