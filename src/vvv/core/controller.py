@@ -202,16 +202,30 @@ class Controller:
         for r_id, r_state in vs.rois.items():
             r_vol = self.volumes.get(r_id)
             if r_vol:
-                rmz, rmy, rmx = r_vol.shape3d
-                if 0 <= ix < rmx and 0 <= iy < rmy and 0 <= iz < rmz:
-                    rt = min(time_idx, r_vol.num_timepoints - 1)
-                    r_val = (
-                        r_vol.data[rt, iz, iy, ix]
-                        if r_vol.num_timepoints > 1
-                        else r_vol.data[iz, iy, ix]
-                    )
-                    if r_val > 0:
-                        roi_names.append(r_state.name)
+                if hasattr(r_vol, "roi_bbox"):
+                    # The array is cropped! We must subtract the bounding box offsets
+                    z0, z1, y0, y1, x0, x1 = r_vol.roi_bbox
+                    if x0 <= ix < x1 and y0 <= iy < y1 and z0 <= iz < z1:
+                        rt = min(time_idx, r_vol.num_timepoints - 1)
+                        r_val = (
+                            r_vol.data[rt, iz - z0, iy - y0, ix - x0]
+                            if r_vol.num_timepoints > 1
+                            else r_vol.data[iz - z0, iy - y0, ix - x0]
+                        )
+                        if r_val > 0:
+                            roi_names.append(r_state.name)
+                else:
+                    # Fallback for uncropped arrays
+                    rmz, rmy, rmx = r_vol.shape3d
+                    if 0 <= ix < rmx and 0 <= iy < rmy and 0 <= iz < rmz:
+                        rt = min(time_idx, r_vol.num_timepoints - 1)
+                        r_val = (
+                            r_vol.data[rt, iz, iy, ix]
+                            if r_vol.num_timepoints > 1
+                            else r_vol.data[iz, iy, ix]
+                        )
+                        if r_val > 0:
+                            roi_names.append(r_state.name)
 
         return {"base_val": base_val, "overlay_val": overlay_val, "rois": roi_names}
 
