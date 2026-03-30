@@ -215,11 +215,12 @@ class Controller:
 
         return {"base_val": base_val, "overlay_val": overlay_val, "rois": roi_names}
 
-    def update_all_viewers_of_image(self, vs_id):
+    def update_all_viewers_of_image(self, vs_id, data_dirty=True):
         # 1. Flag the data as dirty so tick() handles the heavy blending
-        vs = self.view_states.get(vs_id)
-        if vs:
-            vs.is_data_dirty = True
+        if data_dirty:
+            vs = self.view_states.get(vs_id)
+            if vs:
+                vs.is_data_dirty = True
 
         # 2. Flag the geometry as dirty so tick() handles the crosshair drawing
         for viewer in self.viewers.values():

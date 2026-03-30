@@ -98,6 +98,7 @@ class SliceViewer:
         self.active_grid_node = None
 
         self.is_geometry_dirty = True
+        self.is_viewer_data_dirty = True
         self.needs_recenter = None
         self.last_rgba_flat = None
 
@@ -517,7 +518,7 @@ class SliceViewer:
         self.view_state.camera.show_grid = False
 
         self.view_state.is_data_dirty = True
-        self.controller.update_all_viewers_of_image(self.image_id)
+        self.controller.update_all_viewers_of_image(self.image_id, data_dirty=False)
 
     def tick(self):
         if not self.view_state:
@@ -528,6 +529,7 @@ class SliceViewer:
         if self.view_state.is_data_dirty:
             self.update_render()
             self.is_geometry_dirty = True
+            self.is_viewer_data_dirty = False
             did_update_data = True
 
         if self.is_geometry_dirty:
@@ -1112,21 +1114,20 @@ class SliceViewer:
 
     def action_toggle_grid(self):
         self.view_state.camera.show_grid = not self.view_state.camera.show_grid
-        self.view_state.is_data_dirty = True
+        self.is_geometry_dirty = True
 
     def action_toggle_axis(self):
         self.view_state.camera.show_axis = not self.view_state.camera.show_axis
-        self.view_state.is_data_dirty = True
+        self.is_geometry_dirty = True
 
     def action_toggle_scalebar(self):
         self.view_state.camera.show_scalebar = not self.view_state.camera.show_scalebar
-        self.view_state.is_data_dirty = True
+        self.is_geometry_dirty = True
 
     def action_toggle_filename(self):
         current = getattr(self.view_state.camera, "show_filename", False)
         self.view_state.camera.show_filename = not current
-        self.view_state.is_data_dirty = True
-        self.controller.update_all_viewers_of_image(self.image_id)
+        self.controller.update_all_viewers_of_image(self.image_id, data_dirty=False)
 
     def on_key_press(self, key):
         if not self.view_state:
@@ -1161,7 +1162,7 @@ class SliceViewer:
 
         self.update_crosshair_from_slice()
         self.controller.sync.propagate_sync(self.image_id)
-        self.view_state.is_data_dirty = True
+        self.is_viewer_data_dirty = True
 
     def on_time_scroll(self, delta):
         if self.image_id is None or not self.view_state or not self.volume:

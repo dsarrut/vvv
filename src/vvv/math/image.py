@@ -213,11 +213,13 @@ class SliceRenderer:
         t = min(time_idx, data.shape[0] - 1)
 
         if orientation == ViewMode.AXIAL:
-            return data[t, slice_idx, ...]
+            return np.ascontiguousarray(data[t, slice_idx, ...])
         elif orientation == ViewMode.SAGITTAL:
-            return np.flipud(np.fliplr(data[t, :, :, slice_idx, ...]))
+            return np.ascontiguousarray(
+                np.flipud(np.fliplr(data[t, :, :, slice_idx, ...]))
+            )
         elif orientation == ViewMode.CORONAL:
-            return np.flipud(data[t, :, slice_idx, ...])
+            return np.ascontiguousarray(np.flipud(data[t, :, slice_idx, ...]))
         return None
 
     @staticmethod
