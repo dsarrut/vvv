@@ -552,7 +552,6 @@ class VolumeData:
             if len(paths) == 1:
                 return self._read_custom_his(paths[0])
             else:
-                print(f"Stacking {len(paths)} HIS projections into a 3D Volume...")
                 slices = []
                 for p in paths:
                     img = self._read_custom_his(p)
@@ -632,7 +631,7 @@ class VolumeData:
     def _read_custom_avs_xdr(self, path):
         """
         Pure Python parser for AVS Field / open-vv XDR files.
-        Features a Numba JIT compiler for fast NKI Decompression.
+        Features Numba JIT, Endianness swapping, and binary Coordinate extraction.
         """
         import re
         import os
@@ -657,19 +656,55 @@ class VolumeData:
         dim3 = int(re.search(r"dim3\s*=\s*(\d+)", header).group(1))
         expected_elements = dim1 * dim2 * dim3
 
-        # 2. Extract Spacing if present
-        spacing = (1.0, 1.0, 1.0)
+        # 2. Extract Field Type & Binary Coordinates
+        field_match = re.search(r"field\s*=\s*(\w+)", header, re.IGNORECASE)
+        field_type = field_match.group(1).lower() if field_match else "uniform"
+
+        coord_bytes = 0
+        if field_type == "rectilinear":
+            coord_bytes = (
+                dim1 + dim2 + dim3
+            ) * 4  # 32-bit float for every slice/row/col
+        elif field_type == "uniform":
+            coord_bytes = 6 * 4  # 3 dims * 2 floats (min/max)
+
+        file_size = os.path.getsize(path)
+
+        spacing = [1.0, 1.0, 1.0]
+        origin = [0.0, 0.0, 0.0]
+
+        # Sneak to the end of the file to grab the physical coordinates!
+        if coord_bytes > 0 and file_size > coord_bytes:
+            try:
+                # XDR always uses Big-Endian floats (>f4)
+                pts = np.fromfile(path, dtype=">f4", offset=file_size - coord_bytes)
+                if field_type == "rectilinear" and len(pts) == (dim1 + dim2 + dim3):
+                    p_x, p_y, p_z = (
+                        pts[0:dim1],
+                        pts[dim1 : dim1 + dim2],
+                        pts[dim1 + dim2 :],
+                    )
+                    # AVS stores in cm. Multiply by 10 to convert to ITK's mm.
+                    spacing[0] = 10.0 * (p_x[-1] - p_x[0]) / max(1, dim1 - 1)
+                    spacing[1] = 10.0 * (p_y[-1] - p_y[0]) / max(1, dim2 - 1)
+                    spacing[2] = 10.0 * (p_z[-1] - p_z[0]) / max(1, dim3 - 1)
+                    origin = [10.0 * p_x[0], 10.0 * p_y[0], 10.0 * p_z[0]]
+                elif field_type == "uniform" and len(pts) == 6:
+                    spacing[0] = 10.0 * (pts[1] - pts[0]) / max(1, dim1 - 1)
+                    spacing[1] = 10.0 * (pts[3] - pts[2]) / max(1, dim2 - 1)
+                    spacing[2] = 10.0 * (pts[5] - pts[4]) / max(1, dim3 - 1)
+                    origin = [10.0 * pts[0], 10.0 * pts[2], 10.0 * pts[4]]
+            except Exception as e:
+                print(f"Warning: Failed to parse AVS coordinates - {e}")
+
+        # Override with explicit spacing if provided in comments (rare but possible)
         spacing_match = re.search(
             r"#.*spacing=\s*([\d\.]+)\s+([\d\.]+)\s+([\d\.]+)", header, re.IGNORECASE
         )
         if spacing_match:
-            spacing = (
-                float(spacing_match.group(1)),
-                float(spacing_match.group(2)),
-                float(spacing_match.group(3)),
-            )
+            spacing = [float(spacing_match.group(i)) for i in (1, 2, 3)]
 
-        # 3. Check for NKI Compression!
+        # 3. Check for NKI Compression
         nki_compression = False
         nki_match = re.search(r"nki_compression\s*=\s*(\d+)", header)
         if nki_match and int(nki_match.group(1)) > 0:
@@ -681,27 +716,20 @@ class VolumeData:
             import struct
             from vvv.math.nki_decompress import nki_private_decompress
 
-            # Read the entire compressed payload as a raw byte array
             raw_comp_array = np.fromfile(path, dtype=np.uint8, offset=data_offset)
-
-            # Extract the NKI header struct (first 8 bytes)
             org_size, nki_mode = struct.unpack("<II", raw_comp_array[:8].tobytes())
-
-            # Execute the high-speed Numba decompressor
             decompressed_1d = nki_private_decompress(raw_comp_array, org_size, nki_mode)
 
             if decompressed_1d.size < expected_elements:
                 raise ValueError(
                     f"Decompression yielded {decompressed_1d.size} pixels, expected {expected_elements}"
                 )
-
             vol_array = decompressed_1d[:expected_elements].reshape((dim3, dim2, dim1))
             dtype_str = "NKI Compressed (int16)"
-
         else:
-            # --- Standard Uncompressed XDR Fallback ---
-            file_size = os.path.getsize(path)
-            data_bytes = file_size - data_offset
+            # Standard Uncompressed XDR Fallback
+            # CRITICAL: Subtract coord_bytes so our deduction math remains perfectly accurate!
+            data_bytes = file_size - data_offset - coord_bytes
 
             if expected_elements > 0:
                 actual_bytes_per_voxel = data_bytes // expected_elements
@@ -716,7 +744,7 @@ class VolumeData:
                     dtype_str = ">f8"
                 elif actual_bytes_per_voxel == 0:
                     raise ValueError(
-                        f"File severely truncated! Expected {expected_elements} elements but only have {data_bytes} bytes."
+                        f"File truncated! Expected {expected_elements} elements but only have {data_bytes} bytes."
                     )
                 else:
                     dtype_str = ">i2"
@@ -732,14 +760,16 @@ class VolumeData:
 
             vol_array = raw_array[:expected_elements].reshape((dim3, dim2, dim1))
 
+        # 4. Force Native Byte Order
+        vol_array = vol_array.astype(vol_array.dtype.newbyteorder("="))
+
         # 5. Build the SimpleITK Image
         sitk_img = sitk.GetImageFromArray(vol_array)
-        sitk_img.SetSpacing(spacing)
-        sitk_img.SetOrigin((0.0, 0.0, 0.0))
 
-        print(
-            f"Salvaged via Smart XDR Fallback (Dtype: {dtype_str}): {os.path.basename(path)}"
-        )
+        # --- THE FIX: Cast numpy.float32 to native Python float! ---
+        sitk_img.SetSpacing([float(s) for s in spacing])
+        sitk_img.SetOrigin([float(o) for o in origin])
+
         return sitk_img
 
     def _read_custom_his(self, path):
