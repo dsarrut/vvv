@@ -505,52 +505,45 @@ class VolumeData:
         self._is_outdated = False
 
     def read_image_from_disk(self, paths):
-        # Fabio Format Router
+        """
+        Master router for loading images. Handles standard ITK formats,
+        synchrotron/detector formats via fabio, and a custom XDR fallback.
+        """
+        import os
+        import SimpleITK as sitk
+
+        # --- 1. Fabio Format Router (Extensions we KNOW SimpleITK fails on) ---
         filename = os.path.basename(paths[0])
         ext = os.path.splitext(filename.lower())[1]
 
-        if ext in (".edf", ".cbf"):
+        if ext in (".his", ".edf", ".cbf"):
             return self._read_via_fabio(paths)
 
+        # --- 2. Standard Load Logic ---
         if len(paths) == 1:
-            sitk_img = sitk.ReadImage(paths[0])
-            dim = sitk_img.GetDimension()
-
-            if dim == 2:
-                sitk_img = sitk.JoinSeries([sitk_img])
-
-            return sitk_img
-        else:
-            # --- Try fast GDCM loading first ---
-            reader = sitk.ImageSeriesReader()
-            reader.SetFileNames(paths)
+            # A. SINGLE FILE
             try:
-                return reader.Execute()
-            except Exception as e:
-                # Fallback to the old loop for 4D NIfTI/MHD sequences
-                imgs = []
-                base_size = None
-                for p in paths:
-                    try:
-                        img = sitk.ReadImage(p)
-                        if base_size is None:
-                            base_size = img.GetSize()
-                            imgs.append(img)
-                        elif img.GetSize() == base_size:
-                            imgs.append(img)
-                        else:
-                            print(
-                                f"Warning: Skipping {os.path.basename(p)} - Size mismatch"
-                            )
-                    except Exception as inner_e:
-                        print(f"Warning: Failed to read {os.path.basename(p)}")
-
-                if not imgs:
+                # 99% of images (NIfTI, DICOM, MHD) load perfectly here
+                return sitk.ReadImage(paths[0])
+            except RuntimeError as sitk_error:
+                # ITK threw an error (likely "Could not create IO object")
+                # Attempt to salvage the file using our pure Python AVS/XDR parser!
+                try:
+                    return self._read_custom_avs_xdr(paths[0])
+                except Exception as xdr_error:
+                    # If XDR also fails, it's truly a bad file. Surface the original ITK error.
                     raise RuntimeError(
-                        "No valid images could be read from the provided paths."
+                        f"ITK Failed: {sitk_error}\nFallback Failed: {xdr_error}"
                     )
-
-                return sitk.JoinSeries(imgs)
+        else:
+            # B. MULTIPLE FILES (DICOM Folder or 4D Sequence)
+            # SimpleITK has a dedicated reader for cleanly stacking multiple files
+            try:
+                reader = sitk.ImageSeriesReader()
+                reader.SetFileNames(paths)
+                return reader.Execute()
+            except RuntimeError as sitk_error:
+                raise RuntimeError(f"Failed to load image series: {sitk_error}")
 
     def _read_via_fabio(self, paths):
         """
@@ -587,6 +580,119 @@ class VolumeData:
         sitk_img.SetOrigin((0.0, 0.0, 0.0))
         sitk_img.SetDirection(np.eye(3).flatten().tolist())
 
+        return sitk_img
+
+    def _read_custom_avs_xdr(self, path):
+        """
+        Pure Python parser for AVS Field / open-vv XDR files.
+        Features a Numba JIT compiler for fast NKI Decompression.
+        """
+        import re
+        import os
+        import numpy as np
+        import SimpleITK as sitk
+
+        with open(path, "rb") as f:
+            chunk = f.read(4096)
+
+        delim_idx = chunk.find(b"\x0c\x0c")
+        if delim_idx == -1:
+            raise ValueError("Missing AVS form-feed delimiter.")
+
+        header = chunk[:delim_idx].decode("ascii", errors="ignore")
+
+        if "ndim=" not in header:
+            raise ValueError("Missing required AVS signature tags.")
+
+        # 1. Extract Dimensions
+        dim1 = int(re.search(r"dim1\s*=\s*(\d+)", header).group(1))
+        dim2 = int(re.search(r"dim2\s*=\s*(\d+)", header).group(1))
+        dim3 = int(re.search(r"dim3\s*=\s*(\d+)", header).group(1))
+        expected_elements = dim1 * dim2 * dim3
+
+        # 2. Extract Spacing if present
+        spacing = (1.0, 1.0, 1.0)
+        spacing_match = re.search(
+            r"#.*spacing=\s*([\d\.]+)\s+([\d\.]+)\s+([\d\.]+)", header, re.IGNORECASE
+        )
+        if spacing_match:
+            spacing = (
+                float(spacing_match.group(1)),
+                float(spacing_match.group(2)),
+                float(spacing_match.group(3)),
+            )
+
+        # 3. Check for NKI Compression!
+        nki_compression = False
+        nki_match = re.search(r"nki_compression\s*=\s*(\d+)", header)
+        if nki_match and int(nki_match.group(1)) > 0:
+            nki_compression = True
+
+        data_offset = delim_idx + 2
+
+        if nki_compression:
+            import struct
+            from vvv.math.nki_decompress import nki_private_decompress
+
+            # Read the entire compressed payload as a raw byte array
+            raw_comp_array = np.fromfile(path, dtype=np.uint8, offset=data_offset)
+
+            # Extract the NKI header struct (first 8 bytes)
+            org_size, nki_mode = struct.unpack("<II", raw_comp_array[:8].tobytes())
+
+            # Execute the high-speed Numba decompressor
+            decompressed_1d = nki_private_decompress(raw_comp_array, org_size, nki_mode)
+
+            if decompressed_1d.size < expected_elements:
+                raise ValueError(
+                    f"Decompression yielded {decompressed_1d.size} pixels, expected {expected_elements}"
+                )
+
+            vol_array = decompressed_1d[:expected_elements].reshape((dim3, dim2, dim1))
+            dtype_str = "NKI Compressed (int16)"
+
+        else:
+            # --- Standard Uncompressed XDR Fallback ---
+            file_size = os.path.getsize(path)
+            data_bytes = file_size - data_offset
+
+            if expected_elements > 0:
+                actual_bytes_per_voxel = data_bytes // expected_elements
+
+                if actual_bytes_per_voxel == 1:
+                    dtype_str = ">u1"
+                elif actual_bytes_per_voxel == 2:
+                    dtype_str = ">i2"
+                elif actual_bytes_per_voxel == 4:
+                    dtype_str = ">i4" if "int" in header.lower() else ">f4"
+                elif actual_bytes_per_voxel == 8:
+                    dtype_str = ">f8"
+                elif actual_bytes_per_voxel == 0:
+                    raise ValueError(
+                        f"File severely truncated! Expected {expected_elements} elements but only have {data_bytes} bytes."
+                    )
+                else:
+                    dtype_str = ">i2"
+            else:
+                raise ValueError("Calculated dimensions are zero.")
+
+            raw_array = np.fromfile(path, dtype=dtype_str, offset=data_offset)
+
+            if raw_array.size < expected_elements:
+                raise ValueError(
+                    f"Array missing data! Expected {expected_elements}, got {raw_array.size}"
+                )
+
+            vol_array = raw_array[:expected_elements].reshape((dim3, dim2, dim1))
+
+        # 5. Build the SimpleITK Image
+        sitk_img = sitk.GetImageFromArray(vol_array)
+        sitk_img.SetSpacing(spacing)
+        sitk_img.SetOrigin((0.0, 0.0, 0.0))
+
+        print(
+            f"Salvaged via Smart XDR Fallback (Dtype: {dtype_str}): {os.path.basename(path)}"
+        )
         return sitk_img
 
     def get_human_readable_file_path(self):
