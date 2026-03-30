@@ -235,8 +235,20 @@ class SliceRenderer:
     def normalize_wl(slice_data, ww, wl):
         if ww <= 0:
             return np.zeros_like(slice_data, dtype=np.float32)
+
         min_val = wl - ww / 2.0
-        return np.clip((slice_data - min_val) / ww, 0.0, 1.0)
+
+        # 1. Create one float32 copy to hold our calculations
+        norm = slice_data.astype(np.float32)
+
+        # 2. Use in-place operators ( -=, /= ) to modify the existing memory block!
+        norm -= min_val
+        norm /= ww
+
+        # 3. Clip in-place (out=norm means it doesn't create a new array)
+        np.clip(norm, 0.0, 1.0, out=norm)
+
+        return norm
 
     @staticmethod
     def get_slice_rgba(
@@ -414,7 +426,8 @@ class SliceRenderer:
             res_rgba = SliceRenderer._apply_rois(res_rgba, rois)
 
         # Ensure absolute Float32 strictness before sending to the DPG GPU texture buffer!
-        return res_rgba.astype(np.float32).flatten(), (h, w)
+        # return res_rgba.astype(np.float32).flatten(), (h, w)
+        return np.ascontiguousarray(res_rgba, dtype=np.float32).ravel(), (h, w)
 
 
 class VolumeData:
