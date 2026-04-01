@@ -1,18 +1,15 @@
 import dearpygui.dearpygui as dpg
 
+
 def build_tab_sync(gui):
     """Builds the static layout for the Synchronization tab."""
     cfg_c = gui.ui_cfg["colors"]
     with dpg.tab(label="Sync", tag="tab_sync"):
         dpg.add_spacer(height=5)
         dpg.add_text("Sync Groups", color=cfg_c["text_header"])
-        dpg.add_separator()
 
         # Give the container a defined width so columns lay out nicely
         with dpg.child_window(border=False, no_scrollbar=True):
-            dpg.add_group(tag="sync_list_container")
-
-            dpg.add_separator()
             dpg.add_spacer(height=5)
             with dpg.group(horizontal=True):
                 dpg.add_button(
@@ -25,6 +22,9 @@ def build_tab_sync(gui):
                     callback=lambda: gui.controller.unlink_all(),
                     width=80,
                 )
+            dpg.add_spacer(height=5)
+            dpg.add_separator()
+            dpg.add_group(tag="sync_list_container")
 
 
 def refresh_sync_ui(gui):

@@ -230,6 +230,22 @@ class SliceViewer:
 
     def set_image(self, img_id):
         self.image_id = img_id
+
+        # If this image was hidden, it missed the sync events.
+        # We force an active group member to push its state to us before we render!
+        if self.view_state and self.view_state.sync_group > 0:
+            master_id = None
+            for other_v in self.controller.viewers.values():
+                if other_v != self and other_v.image_id and other_v.view_state:
+                    if other_v.view_state.sync_group == self.view_state.sync_group:
+                        master_id = other_v.image_id
+                        break
+            if master_id:
+                self.controller.sync.propagate_sync(master_id)
+                self.controller.sync.propagate_window_level(master_id)
+                self.controller.sync.propagate_colormap(master_id)
+                self.controller.sync.propagate_overlay_mode(master_id)
+
         self.set_current_slice_to_crosshair()
         self.init_slice_texture()
 

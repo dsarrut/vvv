@@ -172,3 +172,19 @@ temp/
 .aider*
 tests/*.nrrd
 data/
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Virtual environments
+venv*/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+
+# Build artifacts
+dist/
+*.egg-info/

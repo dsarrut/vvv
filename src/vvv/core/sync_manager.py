@@ -12,17 +12,30 @@ class SyncManager:
     # INTERNAL HELPERS
     # ==========================================
 
-    def get_sync_group_vs_ids(self, source_vs_id):
+    def get_sync_group_vs_ids(self, source_vs_id, active_only=False):
         """Returns all ViewState IDs in the same sync group as the source image."""
         source_vs = self.controller.view_states.get(source_vs_id)
         if not source_vs or source_vs.sync_group == 0:
             return [source_vs_id]
 
-        return [
+        group_ids = [
             tid
             for tid, vs in self.controller.view_states.items()
             if vs.sync_group == source_vs.sync_group
         ]
+
+        # Filter out any image that is not currently visible on the screen
+        if active_only:
+            active_set = {source_vs_id}  # Always include the source
+            for viewer in self.controller.viewers.values():
+                if viewer.image_id:
+                    active_set.add(viewer.image_id)
+                    # Also keep the overlay active if it's being displayed!
+                    if viewer.view_state and viewer.view_state.display.overlay_id:
+                        active_set.add(viewer.view_state.display.overlay_id)
+            group_ids = [tid for tid in group_ids if tid in active_set]
+
+        return group_ids
 
     def trigger_redraw(self, modified_ids):
         """Flags images and viewers to redraw if they or their overlays were modified."""
@@ -68,7 +81,7 @@ class SyncManager:
 
     def propagate_sync(self, source_vs_id):
         source_vs = self.controller.view_states[source_vs_id]
-        target_ids = self.get_sync_group_vs_ids(source_vs_id)
+        target_ids = self.get_sync_group_vs_ids(source_vs_id, active_only=True)
 
         # Use the explicit display-aware method to get the true World Coordinate
         is_src_buf = source_vs.base_display_data is not None
@@ -143,15 +156,18 @@ class SyncManager:
 
         # Only broadcast if the SOURCE image has W/L Sync enabled
         if source_vs.sync_group > 0 and source_vs.sync_wl:
-            for tid, vs in self.controller.view_states.items():
-                if (
-                    tid != source_vs_id
-                    and vs.sync_group == source_vs.sync_group
-                    and vs.sync_wl
-                ):
-                    if not getattr(vs.volume, "is_rgb", False):
-                        vs.display.colormap = source_vs.display.colormap
-                        dirty_ids.add(tid)
+            # Get ONLY the visible images in the group!
+            target_ids = self.get_sync_group_vs_ids(source_vs_id)
+
+            # Loop over the filtered list instead of all view_states
+            for tid in target_ids:
+                if tid == source_vs_id:
+                    continue
+
+                vs = self.controller.view_states[tid]
+                if vs.sync_wl and not getattr(vs.volume, "is_rgb", False):
+                    vs.display.colormap = source_vs.display.colormap
+                    dirty_ids.add(tid)
 
         self.trigger_redraw(list(dirty_ids))
 
@@ -160,22 +176,24 @@ class SyncManager:
         dirty_ids = set([source_vs_id])
 
         # 1. GROUP SYNC (Horizontal)
-        # Only broadcast to the group if the SOURCE image has W/L Sync enabled!
         if source_vs.sync_group > 0 and source_vs.sync_wl:
-            for vs_id, vs in self.controller.view_states.items():
-                if (
-                    vs_id != source_vs_id
-                    and vs.sync_group == source_vs.sync_group
-                    and vs.sync_wl
-                ):
+            # Get ONLY the visible images in the group!
+            target_ids = self.get_sync_group_vs_ids(source_vs_id)
+
+            # Loop over the filtered list instead of all view_states
+            for tid in target_ids:
+                if tid == source_vs_id:
+                    continue
+
+                vs = self.controller.view_states[tid]
+                if vs.sync_wl:
                     vs.display.ww = source_vs.display.ww
                     vs.display.wl = source_vs.display.wl
                     vs.display.base_threshold = source_vs.display.base_threshold
                     vs.is_data_dirty = True
-                    dirty_ids.add(vs_id)
+                    dirty_ids.add(tid)
 
         # 2. OVERLAY SYNC (Vertical - Top-Down & Bottom-Up)
-        # This must run even if group sync is disabled, to keep Registration mode fusions linked.
         for tid in list(dirty_ids):
             t_vs = self.controller.view_states[tid]
 
@@ -206,7 +224,9 @@ class SyncManager:
         if not source_viewer.view_state:
             return
 
-        target_ids = self.get_sync_group_vs_ids(source_viewer.image_id)
+        target_ids = self.get_sync_group_vs_ids(
+            source_viewer.image_id, active_only=True
+        )
 
         phys_center = source_viewer.get_center_physical_coord()
         if phys_center is None:
