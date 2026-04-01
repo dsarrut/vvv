@@ -145,14 +145,18 @@ class SliceViewer:
         self.drawer = OverlayDrawer(self)
         self.init_shortcut_dispatcher()
 
+        if not dpg.does_item_exist("global_texture_registry"):
+            with dpg.texture_registry(show=False, tag="global_texture_registry"):
+                pass
+
         if not dpg.does_item_exist(self.texture_tag):
-            with dpg.texture_registry():
-                dpg.add_dynamic_texture(
-                    width=1,
-                    height=1,
-                    default_value=np.zeros(4, dtype=np.float32),
-                    tag=self.texture_tag,
-                )
+            dpg.add_dynamic_texture(
+                width=1,
+                height=1,
+                default_value=np.zeros(4, dtype=np.float32),
+                tag=self.texture_tag,
+                parent="global_texture_registry",
+            )
 
     @property
     def view_state(self):
@@ -281,33 +285,47 @@ class SliceViewer:
         shape = self.get_slice_shape()
         h, w = shape[0], shape[1]
 
-        new_texture_tag = f"tex_{self.tag}_{self.image_id}_{self.orientation}_{w}x{h}"
+        # 1. Generate a unique tag based on the viewer and the specific dimensions
+        new_texture_tag = f"tex_{self.tag}_{w}x{h}"
 
-        if self.texture_tag == new_texture_tag:
+        # 2. If the current texture tag perfectly matches the new one, reuse the VRAM
+        if self.texture_tag == new_texture_tag and dpg.does_item_exist(
+            self.texture_tag
+        ):
             return
 
-        # If a new size/image is loaded, just create a new texture.
-        # (We safely orphan the old 1MB texture to prevent C++ race conditions)
-        if not dpg.does_item_exist(new_texture_tag):
-            with dpg.texture_registry():
-                dpg.add_dynamic_texture(
-                    width=w,
-                    height=h,
-                    default_value=np.zeros(w * h * 4, dtype=np.float32),
-                    tag=new_texture_tag,
-                )
-
+        # 3. If the size changed, cleanly delete the old drawing command
         if dpg.does_item_exist(self.img_node_tag):
             dpg.configure_item(self.img_node_tag, show=True)
             dpg.delete_item(self.img_node_tag, children_only=True)
+
+        # 4. Schedule the old, incorrectly sized texture for deletion
+        if self.texture_tag != new_texture_tag and dpg.does_item_exist(
+            self.texture_tag
+        ):
+            dpg.delete_item(self.texture_tag)
+
+        # 5. Create the new texture buffer with the new unique alias
+        if not dpg.does_item_exist(new_texture_tag):
+            dpg.add_dynamic_texture(
+                width=w,
+                height=h,
+                default_value=np.zeros(w * h * 4, dtype=np.float32),
+                tag=new_texture_tag,
+                parent="global_texture_registry",
+            )
+
+        # 6. Update the viewer's state to track the new texture
+        self.texture_tag = new_texture_tag
+
+        # 7. Re-bind the image quad to the screen
+        if dpg.does_item_exist(self.img_node_tag):
             self.image_tag = dpg.draw_image(
-                new_texture_tag,
+                self.texture_tag,
                 self.current_pmin,
                 self.current_pmax,
                 parent=self.img_node_tag,
             )
-
-        self.texture_tag = new_texture_tag
 
     def drop_image(self):
         self.image_id = None

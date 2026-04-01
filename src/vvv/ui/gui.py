@@ -1217,6 +1217,11 @@ class MainGUI:
 
     def run(self, boot_generator=None):
         dpg.setup_dearpygui()
+
+        if not dpg.does_item_exist("global_texture_registry"):
+            with dpg.texture_registry(show=False, tag="global_texture_registry"):
+                pass
+
         dpg.show_viewport()
         dpg.set_primary_window("PrimaryWindow", True)
 
