@@ -344,7 +344,6 @@ def load_workspace_sequence(gui, controller, filepath):
 
     gui.refresh_image_list_ui()
     gui.refresh_rois_ui()
-    gui.refresh_sync_ui()
     gui.on_window_resize()
 
     if id_map:
@@ -466,17 +465,11 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
         if same_viewers:
             controller.sync.propagate_ppm(same_viewers)
 
-    group_applied = False
     for img_id in loaded_ids:
         if sync or link_all:
             handle_sync_group_change(gui, None, "Group 1", img_id)
-            group_applied = True
         elif id_to_group.get(img_id, 0) > 0:
             handle_sync_group_change(gui, None, f"Group {id_to_group[img_id]}", img_id)
-            group_applied = True
-
-    if group_applied:
-        gui.refresh_sync_ui()
 
     gui.on_window_resize()
     gui.set_context_viewer(controller.viewers["V1"])

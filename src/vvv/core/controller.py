@@ -54,14 +54,12 @@ class Controller:
 
         self.sync.propagate_sync(first_vs_id)
         if self.gui:
-            self.gui.refresh_sync_ui()
             self.gui.refresh_image_list_ui()
 
     def unlink_all(self):
         for vs in self.view_states.values():
             vs.sync_group = 0
         if self.gui:
-            self.gui.refresh_sync_ui()
             self.gui.refresh_image_list_ui()
 
     def default_viewers_orientation(self):

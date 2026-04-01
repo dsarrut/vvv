@@ -12,7 +12,6 @@ from vvv.ui.ui_dicom import DicomBrowserWindow
 from vvv.ui.ui_registration import RegistrationUI
 from vvv.resources import load_fonts, setup_themes
 from vvv.ui.ui_interaction import InteractionManager
-from vvv.ui.ui_sync import build_tab_sync, refresh_sync_ui
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 from vvv.ui.ui_theme import build_ui_config, register_dynamic_themes
 from vvv.ui.ui_notifications import show_message, show_status_message
@@ -253,7 +252,6 @@ class MainGUI:
         ):
             with dpg.tab_bar(tag="sidebar_tabs", callback=self.on_tab_changed):
                 build_tab_images(self)
-                build_tab_sync(self)
                 self.fusion_ui.build_tab_fusion(self)
                 self.roi_ui.build_tab_rois(self)
                 self.reg_ui.build_tab_reg(self)
@@ -529,10 +527,6 @@ class MainGUI:
 
     def refresh_image_list_ui(self):
         refresh_image_list_ui(self)
-
-    def refresh_sync_ui(self):
-        """Pass-through bridge to the delegated Sync UI."""
-        refresh_sync_ui(self)
 
     def refresh_rois_ui(self):
         """Pass-through bridge to the delegated ROI UI."""
