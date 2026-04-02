@@ -1016,14 +1016,13 @@ class MainGUI:
         elif user_data == "legend":
             vs.camera.show_legend = value
         elif user_data == "filename":
-            # Ignore the True/False value, just cycle the backend integer
             current = getattr(vs.camera, "show_filename", 0)
             vs.camera.show_filename = (current + 1) % 3
-
-            # Force the selectable's internal state to False so it doesn't get a permanent blue background
             dpg.set_value(sender, False)
 
-        self.controller.update_all_viewers_of_image(viewer.image_id)
+        # It tells the controller to find every viewer (V1-V4) showing this
+        # specific image and flip their 'dirty' flags.
+        self.controller.update_all_viewers_of_image(viewer.image_id, data_dirty=False)
 
     def on_toggle_auto_save(self, sender, app_data, user_data):
         # app_data holds the new boolean state of the checkbox
