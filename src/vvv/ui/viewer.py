@@ -231,20 +231,26 @@ class SliceViewer:
     def set_image(self, img_id):
         self.image_id = img_id
 
-        # If this image was hidden, it missed the sync events.
-        # We force an active group member to push its state to us before we render!
+        # Instead of looking for an active viewer, we look for ANY image
+        # in the same sync group to act as the "Source of Truth".
         if self.view_state and self.view_state.sync_group > 0:
-            master_id = None
-            for other_v in self.controller.viewers.values():
-                if other_v != self and other_v.image_id and other_v.view_state:
-                    if other_v.view_state.sync_group == self.view_state.sync_group:
-                        master_id = other_v.image_id
-                        break
-            if master_id:
-                self.controller.sync.propagate_sync(master_id)
-                self.controller.sync.propagate_window_level(master_id)
-                self.controller.sync.propagate_colormap(master_id)
-                self.controller.sync.propagate_overlay_mode(master_id)
+            target_group = self.view_state.sync_group
+            master_vs_id = None
+
+            for vs_id, vs in self.controller.view_states.items():
+                # Find another image in the same group that isn't us
+                if vs_id != self.image_id and vs.sync_group == target_group:
+                    master_vs_id = vs_id
+                    break
+
+            if master_vs_id:
+                # Force the SyncManager to propagate the state from the
+                # "Source of Truth" to our newly displayed image.
+                self.controller.sync.propagate_sync(master_vs_id)
+                self.controller.sync.propagate_camera_to_viewer(master_vs_id, self)
+                # Ensure radiometric groups (A, B, C) are also handled
+                self.controller.sync.propagate_window_level(master_vs_id)
+                self.controller.sync.propagate_colormap(master_vs_id)
 
         self.set_current_slice_to_crosshair()
         self.init_slice_texture()

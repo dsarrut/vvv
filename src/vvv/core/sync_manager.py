@@ -207,6 +207,26 @@ class SyncManager:
 
         self.trigger_redraw(list(dirty_ids))
 
+    def propagate_camera_to_viewer(self, source_vs_id, target_viewer):
+        """Specialized helper to push camera state to a single specific viewer."""
+        source_vs = self.controller.view_states.get(source_vs_id)
+        if not source_vs:
+            return
+
+        # Find any viewer currently showing the source image to get the 'live' physical center
+        source_viewer = next(
+            (v for v in self.controller.viewers.values() if v.image_id == source_vs_id),
+            None,
+        )
+
+        if source_viewer:
+            phys_center = source_viewer.get_center_physical_coord()
+            target_ppm = source_viewer.get_pixels_per_mm()
+
+            if phys_center is not None:
+                target_viewer.set_pixels_per_mm(target_ppm)
+                target_viewer.center_on_physical_coord(phys_center)
+
     def propagate_camera(self, source_viewer):
         if not source_viewer.view_state:
             return
