@@ -93,6 +93,7 @@ class MainGUI:
         # Force UI into the empty/disabled state on boot
         self.update_sidebar_info(None)
         self.refresh_recent_menu()
+        self.controller.ui_needs_refresh = True
 
     # ==========================================
     # 2. LAYOUT BUILDERS
@@ -1256,6 +1257,13 @@ class MainGUI:
                     next(self.tasks[0])
                 except StopIteration:
                     self.tasks.pop(0)
+
+            if getattr(self.controller, "ui_needs_refresh", False):
+                self.refresh_image_list_ui()
+                if hasattr(self, "refresh_sync_ui"):
+                    self.refresh_sync_ui()
+                self.refresh_rois_ui()
+                self.controller.ui_needs_refresh = False
 
             self.interaction.update_trackers()
             self.sync_bound_ui()

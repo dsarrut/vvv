@@ -44,7 +44,6 @@ def load_single_image_sequence(gui, controller, file_path):
             controller.sync.propagate_ppm(same_image_viewers)
 
         gui.set_context_viewer(target_viewer)
-        gui.refresh_image_list_ui()
         gui.refresh_rois_ui()
 
         if dpg.does_item_exist("loading_modal"):
@@ -114,7 +113,6 @@ def load_batch_images_sequence(gui, controller, file_paths):
                 v.set_image(loaded_ids[0])
 
         gui.set_context_viewer(target_viewer)
-        gui.refresh_image_list_ui()
         gui.refresh_rois_ui()
 
     if dpg.does_item_exist("loading_modal"):
@@ -342,7 +340,6 @@ def load_workspace_sequence(gui, controller, filepath):
         controller.sync.propagate_sync(new_id)
         controller.update_all_viewers_of_image(new_id)
 
-    gui.refresh_image_list_ui()
     gui.refresh_rois_ui()
     gui.on_window_resize()
 
@@ -473,7 +470,6 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
 
     gui.on_window_resize()
     gui.set_context_viewer(controller.viewers["V1"])
-    gui.refresh_image_list_ui()
     gui.refresh_rois_ui()
 
     if dpg.does_item_exist("loading_modal"):

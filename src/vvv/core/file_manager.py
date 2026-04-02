@@ -63,9 +63,7 @@ class FileManager:
         if not is_auto_overlay:
             self.controller.add_recent_file(path)
 
-        if self.controller.gui:
-            self.controller.gui.refresh_image_list_ui()
-
+        self.controller.ui_needs_refresh = True
         return img_id
 
     def scan_dicom_folder(self, folder_path, recursive=True):
@@ -329,8 +327,9 @@ class FileManager:
                     if viewer.image_id is None:
                         viewer.set_image(first_vs_id)
 
+            self.controller.ui_needs_refresh = True
+
             if self.controller.gui:
-                self.controller.gui.refresh_image_list_ui()
                 self.controller.gui.refresh_rois_ui()
                 if self.controller.gui.context_viewer:
                     self.controller.gui.update_sidebar_info(

@@ -26,6 +26,8 @@ class Controller:
         self.use_history = True
         self.next_image_id = 0
 
+        self.ui_needs_refresh = False
+
     def get_next_image_id(self, current_id):
         if not self.view_states:
             return None
@@ -52,14 +54,12 @@ class Controller:
                     self.viewers[tag].center_on_physical_coord(phys_center)
 
         self.sync.propagate_sync(first_vs_id)
-        if self.gui:
-            self.gui.refresh_image_list_ui()
+        self.ui_needs_refresh = True
 
     def unlink_all(self):
         for vs in self.view_states.values():
             vs.sync_group = 0
-        if self.gui:
-            self.gui.refresh_image_list_ui()
+        self.ui_needs_refresh = True
 
     def link_all_wl(self):
         if not self.view_states:
@@ -69,14 +69,12 @@ class Controller:
             vs.sync_wl_group = 1
         self.sync.propagate_window_level(first_vs_id)
         self.sync.propagate_colormap(first_vs_id)
-        if self.gui and hasattr(self.gui, "refresh_sync_ui"):
-            self.gui.refresh_sync_ui()
+        self.ui_needs_refresh = True
 
     def unlink_all_wl(self):
         for vs in self.view_states.values():
             vs.sync_wl_group = 0
-        if self.gui and hasattr(self.gui, "refresh_sync_ui"):
-            self.gui.refresh_sync_ui()
+        self.ui_needs_refresh = True
 
     def default_viewers_orientation(self):
         n = len(self.view_states)
@@ -325,7 +323,7 @@ class Controller:
     def reload_settings(self):
         self.settings.reset()
         self.settings.load()
-        # ONLY SET FLAGS!
+
         for vs in self.view_states.values():
             vs.is_data_dirty = True
         for viewer in self.viewers.values():
@@ -370,8 +368,8 @@ class Controller:
 
             if self.gui:
                 self.gui.show_status_message(f"Reloaded: {vol.name}")
-                self.gui.refresh_image_list_ui()
-                self.gui.refresh_rois_ui()
+
+            self.ui_needs_refresh = True
 
     def save_settings(self):
         return self.settings.save()
@@ -402,6 +400,5 @@ class Controller:
                 if is_out != was_outdated:
                     outdated_changed = True
 
-        if outdated_changed and self.gui:
-            self.gui.refresh_image_list_ui()
-            self.gui.refresh_rois_ui()
+        if outdated_changed:
+            self.ui_needs_refresh = True
