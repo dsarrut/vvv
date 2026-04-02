@@ -62,6 +62,23 @@ class Controller:
         if self.gui:
             self.gui.refresh_image_list_ui()
 
+    def link_all_wl(self):
+        if not self.view_states:
+            return
+        first_vs_id = next(iter(self.view_states))
+        for vs in self.view_states.values():
+            vs.sync_wl_group = 1
+        self.sync.propagate_window_level(first_vs_id)
+        self.sync.propagate_colormap(first_vs_id)
+        if self.gui and hasattr(self.gui, "refresh_sync_ui"):
+            self.gui.refresh_sync_ui()
+
+    def unlink_all_wl(self):
+        for vs in self.view_states.values():
+            vs.sync_wl_group = 0
+        if self.gui and hasattr(self.gui, "refresh_sync_ui"):
+            self.gui.refresh_sync_ui()
+
     def default_viewers_orientation(self):
         n = len(self.view_states)
         if n == 1:

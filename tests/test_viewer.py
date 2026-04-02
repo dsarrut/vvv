@@ -286,8 +286,8 @@ def test_window_level_sync_propagation(headless_app, synthetic_overlay_path):
     # Put both in Group 1 and Opt-In to W/L Sync
     vs1.sync_group = 1
     vs2.sync_group = 1
-    vs1.sync_wl = True
-    vs2.sync_wl = True
+    vs1.sync_wl_group = 1
+    vs2.sync_wl_group = 1
 
     # Change Base W/L and Propagate
     vs1.display.ww = 142.5
@@ -731,9 +731,11 @@ def test_workspace_strict_hierarchy_load(headless_app, synthetic_image_path, tmp
     assert len(saved_ws["images"][vs_id]["rois"]) == 1
     assert saved_ws["images"][vs_id]["rois"][0]["state"]["name"] == "Test ROI"
 
+
 # ==========================================
 # 7. ORIENTATION & REGISTRATION MATH
 # ==========================================
+
 
 def test_image_straightening_and_orientation_parsing(headless_app, tmp_path):
     """Test that oblique images are parsed for strings and then physically straightened on load."""
@@ -744,9 +746,15 @@ def test_image_straightening_and_orientation_parsing(headless_app, tmp_path):
     img.SetSpacing((1.0, 1.0, 1.0))
     angle = np.pi / 4.0
     direction = [
-        np.cos(angle), -np.sin(angle), 0.0,
-        np.sin(angle), np.cos(angle), 0.0,
-        0.0, 0.0, 1.0
+        np.cos(angle),
+        -np.sin(angle),
+        0.0,
+        np.sin(angle),
+        np.cos(angle),
+        0.0,
+        0.0,
+        0.0,
+        1.0,
     ]
     img.SetDirection(direction)
 
@@ -771,7 +779,7 @@ def test_orthogonal_flip_orientation(headless_app, tmp_path):
 
     # 1. Create an image with an inverted X-axis
     img = sitk.GetImageFromArray(np.ones((5, 5, 5), dtype=np.float32))
-    img.SetDirection([-1.0, 0.0, 0.0,   0.0, 1.0, 0.0,   0.0, 0.0, 1.0])
+    img.SetDirection([-1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0])
 
     path = str(tmp_path / "flipped.nrrd")
     sitk.WriteImage(img, path)
@@ -795,7 +803,9 @@ def test_spatial_engine_registration_mapping(headless_app):
     assert np.allclose(base_phys, [10.0, 20.0, 50.0])
 
     # 2. Activate a Registration Translation (Move it +100mm on X)
-    vs.space.set_manual_transform(tx=100.0, ty=0.0, tz=0.0, rx_rad=0.0, ry_rad=0.0, rz_rad=0.0)
+    vs.space.set_manual_transform(
+        tx=100.0, ty=0.0, tz=0.0, rx_rad=0.0, ry_rad=0.0, rz_rad=0.0
+    )
     vs.space.is_active = True
 
     # 3. Ask the camera where voxel (0,0,0) is in the World now
