@@ -8,8 +8,8 @@ import click
 from vvv.ui.gui import MainGUI
 import dearpygui.dearpygui as dpg
 from vvv.ui.viewer import SliceViewer
-from vvv.core.controller import Controller
 from vvv.math.image import VolumeData
+from vvv.core.controller import Controller
 from vvv.resources import get_resource_path
 
 
@@ -219,6 +219,7 @@ def main(no_history, datasets, linkall, sync):
     """Entry point for the VVV command line interface."""
 
     # Parse the tasks cleanly
+    datasets = [ds for ds in datasets if ds.strip()]
     image_tasks = parse_cli_arguments(datasets)
 
     # --- Setup Application ---
