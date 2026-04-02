@@ -81,6 +81,11 @@ class SyncManager:
 
     def propagate_sync(self, source_vs_id):
         source_vs = self.controller.view_states[source_vs_id]
+
+        if source_vs.camera.crosshair_voxel is None:
+            # If the source has no crosshair yet, we can't sync others to it.
+            return
+
         target_ids = self.get_sync_group_vs_ids(source_vs_id, active_only=True)
 
         # Use the explicit display-aware method to get the true World Coordinate
