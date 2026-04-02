@@ -1170,22 +1170,22 @@ class SliceViewer:
 
     def action_toggle_legend(self):
         self.show_legend = not self.show_legend
-        # Broadcast to all viewers showing this image!
+        # Broadcast to all viewers showing this image
         self.controller.update_all_viewers_of_image(self.image_id, data_dirty=False)
 
     def action_toggle_grid(self):
         self.view_state.camera.show_grid = not self.view_state.camera.show_grid
-        # Broadcast to all viewers showing this image!
+        # Broadcast to all viewers showing this image
         self.controller.update_all_viewers_of_image(self.image_id, data_dirty=False)
 
     def action_toggle_axis(self):
         self.view_state.camera.show_axis = not self.view_state.camera.show_axis
-        # Broadcast to all viewers showing this image!
+        # Broadcast to all viewers showing this image
         self.controller.update_all_viewers_of_image(self.image_id, data_dirty=False)
 
     def action_toggle_scalebar(self):
         self.view_state.camera.show_scalebar = not self.view_state.camera.show_scalebar
-        # Broadcast to all viewers showing this image!
+        # Broadcast to all viewers showing this image
         self.controller.update_all_viewers_of_image(self.image_id, data_dirty=False)
 
     def action_toggle_filename(self):
