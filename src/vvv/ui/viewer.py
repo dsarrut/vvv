@@ -548,7 +548,7 @@ class SliceViewer:
         self.view_state.camera.show_crosshair = new_state
         self.view_state.camera.show_tracker = new_state
         self.view_state.camera.show_scalebar = new_state
-        self.view_state.camera.show_filename = new_state
+        self.view_state.camera.show_filename = 1 if new_state else 0
         self.view_state.camera.show_grid = False
 
         self.view_state.is_data_dirty = True
@@ -722,19 +722,39 @@ class SliceViewer:
             dpg.configure_item(self.filename_text_tag, show=False)
             return
 
-        show_fname = getattr(self.view_state.camera, "show_filename", False)
-        if not show_fname or not self.is_image_orientation():
+        # Read state safely, defaulting to 0
+        show_state = getattr(self.view_state.camera, "show_filename", 0)
+        if isinstance(show_state, bool):
+            show_state = 1 if show_state else 0
+
+        if show_state == 0 or not self.is_image_orientation():
             dpg.configure_item(self.filename_text_tag, show=False)
             return
 
         dpg.configure_item(self.filename_text_tag, show=True)
-        f_name = self.volume.get_human_readable_file_path()
+
+        # Look up the 1-based index to match the UI tab
+        try:
+            img_idx = list(self.controller.view_states.keys()).index(self.image_id) + 1
+        except ValueError:
+            img_idx = "?"
+
+        # Generate the text based on the current state
+        if show_state == 1:
+            f_name = f"[{img_idx}] {self.volume.name}"
+        else:
+            f_name = f"[{img_idx}] {self.volume.get_human_readable_file_path()}"
+
         dpg.set_value(self.filename_text_tag, f_name)
 
-        # Center it dynamically at the top of the viewer!
-        ts = dpg.get_item_rect_size(self.filename_text_tag)
-        tw = ts[0] if ts[0] > 0 else len(f_name) * 7
-        dpg.set_item_pos(self.filename_text_tag, [max(5, (self.quad_w - tw) // 2), 5])
+        # THE FIX: Calculate width manually based on string length.
+        # (This prevents the 1-frame centering lag caused by get_item_rect_size)
+        tw = len(f_name) * 7.2  # 7.2 pixels per char is the standard ImGui font average
+
+        # Center it dynamically at the top of the viewer
+        dpg.set_item_pos(
+            self.filename_text_tag, [max(5, int((self.quad_w - tw) / 2)), 5]
+        )
 
     def _package_base_layer(self):
         # Use the display buffer if it exists, otherwise fall back to raw data
@@ -1159,8 +1179,11 @@ class SliceViewer:
         self.is_geometry_dirty = True
 
     def action_toggle_filename(self):
-        current = getattr(self.view_state.camera, "show_filename", False)
-        self.view_state.camera.show_filename = not current
+        current = getattr(self.view_state.camera, "show_filename", 0)
+        if isinstance(current, bool):
+            current = 1 if current else 0
+
+        self.view_state.camera.show_filename = (current + 1) % 3
         self.controller.update_all_viewers_of_image(self.image_id, data_dirty=False)
 
     def on_key_press(self, key):

@@ -44,7 +44,7 @@ DEFAULT_SETTINGS = {
         "wl_drag_sensitivity": 2.0,
         "active_viewer_mode": "hybrid",
     },
-    "layout": {"window_width": 1200, "window_height": 1000, "side_panel_width": 315},
+    "layout": {"window_width": 1200, "window_height": 1000, "side_panel_width": 320},
     "behavior": {
         "auto_save_history": True,
     },

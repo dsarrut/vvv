@@ -61,13 +61,16 @@ def refresh_image_list_ui(gui):
     num_groups = max(3, len(gui.controller.view_states), max_active_group)
     combo_items = ["---"] + [f"G {i}" for i in range(1, num_groups + 1)]
 
-    for vs_id, vs in gui.controller.view_states.items():
+    # 1. ADD ENUMERATE HERE
+    for idx, (vs_id, vs) in enumerate(gui.controller.view_states.items(), start=1):
         with dpg.group(parent=container):
 
             # --- LINE 1: Image Name ---
             with dpg.group(horizontal=True):
                 is_outdated = getattr(vs.volume, "_is_outdated", False)
-                name_str = f"{vs.volume.name} *" if is_outdated else vs.volume.name
+                # 2. INJECT [idx] INTO THE NAME STRING
+                base_name = f"[{idx}] {vs.volume.name}"
+                name_str = f"{base_name} *" if is_outdated else base_name
                 lbl_id = dpg.add_text(name_str)
 
                 with dpg.tooltip(lbl_id):

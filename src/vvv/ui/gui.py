@@ -391,12 +391,11 @@ class MainGUI:
                         default_value=False,
                     )
                 with dpg.table_row():
-                    dpg.add_checkbox(
-                        label="Filename",
+                    dpg.add_selectable(
+                        label="Filename: Off",
                         tag="check_filename",
                         callback=self.on_visibility_toggle,
                         user_data="filename",
-                        default_value=False,
                     )
 
     def build_viewer_grid(self):
@@ -515,8 +514,19 @@ class MainGUI:
 
                 # Direct assignment for sliders, checkboxes, and combos
                 else:
-                    if current_ui_val != val:
-                        dpg.set_value(tag, val)
+                    # --- THE TRI-STATE FIX ---
+                    if tag == "check_filename":
+                        states = ["Filename: Off", "Filename: Short", "Filename: Full"]
+                        dpg.configure_item(tag, label=states[val])
+                    else:
+                        # SAFEGUARD: If UI is a boolean checkbox but the value is an int, coerce to bool
+                        if isinstance(current_ui_val, bool) and not isinstance(
+                            val, bool
+                        ):
+                            val = bool(val)
+
+                        if current_ui_val != val:
+                            dpg.set_value(tag, val)
 
         # Sync the Fusion overlay values (For when hotkeys like 'X' are used)
         if hasattr(self, "fusion_ui"):
@@ -1001,7 +1011,12 @@ class MainGUI:
         elif user_data == "legend":
             vs.camera.show_legend = value
         elif user_data == "filename":
-            vs.camera.show_filename = value
+            # Ignore the True/False value, just cycle the backend integer
+            current = getattr(vs.camera, "show_filename", 0)
+            vs.camera.show_filename = (current + 1) % 3
+
+            # Force the selectable's internal state to False so it doesn't get a permanent blue background
+            dpg.set_value(sender, False)
 
         self.controller.update_all_viewers_of_image(viewer.image_id)
 
