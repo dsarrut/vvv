@@ -2,6 +2,22 @@ import os
 import sys
 import subprocess
 
+# Global variable to remember the last directory used in this session
+_last_visited_dir = None
+
+
+def _update_last_visited_dir(paths, is_directory=False):
+    """Helper to update the cached directory after a successful dialog selection."""
+    global _last_visited_dir
+    if not paths:
+        return
+    # Grab the first path if multiple were selected
+    first_path = paths[0] if isinstance(paths, list) else paths
+    if is_directory:
+        _last_visited_dir = first_path
+    else:
+        _last_visited_dir = os.path.dirname(first_path)
+
 
 def open_file_dialog(
     title="Open",
@@ -16,11 +32,15 @@ def open_file_dialog(
     https://github.com/maikelwever/crossfiledialog
     Supports selecting single or multiple files, directories, and custom extensions.
     """
+    global _last_visited_dir
 
-    # Determine the starting folder
-    start_dir = os.getcwd()
-    if not os.path.exists(start_dir):
-        start_dir = os.path.expanduser("~")
+    # Determine the starting folder based on history
+    if _last_visited_dir and os.path.exists(_last_visited_dir):
+        start_dir = _last_visited_dir
+    else:
+        start_dir = os.getcwd()
+        if not os.path.exists(start_dir):
+            start_dir = os.path.expanduser("~")
 
     # --- FILTER LOGIC ---
     if extensions:
@@ -40,12 +60,10 @@ def open_file_dialog(
         win_filter = "Workspaces|*.vvw;*.json|All Files (*.*)|*.*"
 
     else:
-        mac_exts = '{"nii", "gz", "mhd", "mha", "nrrd", "dcm", "tif", "tiff", "png", "jpg", "jpeg"}'
-        zenity_filter = "--file-filter=Medical Images | *.nii *.nii.gz *.mhd *.mha *.nrrd *.dcm *.tif *.tiff *.png *.jpg *.jpeg"
-        kdialog_filter = (
-            "*.nii *.nii.gz *.mhd *.mha *.nrrd *.dcm *.tif *.png *.jpg | Medical Images"
-        )
-        win_filter = "Medical Images|*.nii;*.nii.gz;*.mhd;*.mha;*.nrrd;*.dcm;*.tif;*.tiff;*.png;*.jpg;*.jpeg|All Files (*.*)|*.*"
+        mac_exts = '{"nii", "gz", "mhd", "mha", "nrrd", "dcm", "tif", "tiff", "png", "jpg", "jpeg", "his", "SCAN"}'
+        zenity_filter = "--file-filter=Medical Images | *.nii *.nii.gz *.mhd *.mha *.nrrd *.dcm *.tif *.tiff *.png *.jpg *.jpeg *.his *SCAN"
+        kdialog_filter = "*.nii *.nii.gz *.mhd *.mha *.nrrd *.dcm *.tif *.png *.jpg *.his *SCAN| Medical Images"
+        win_filter = "Medical Images|*.nii;*.nii.gz;*.mhd;*.mha;*.nrrd;*.dcm;*.tif;*.tiff;*.png;*.jpg;*.jpeg;*.his;*SCAN|All Files (*.*)|*.*"
     # --------------------
 
     if sys.platform == "darwin":  # macOS
@@ -88,7 +106,10 @@ def open_file_dialog(
             path = result.stdout.strip()
             if not path:
                 return [] if multiple else None
-            return path.splitlines() if multiple else path
+
+            final_paths = path.splitlines() if multiple else path
+            _update_last_visited_dir(final_paths, is_directory)
+            return final_paths
         except Exception:
             return [] if multiple else None
 
@@ -116,7 +137,9 @@ def open_file_dialog(
             result = subprocess.run(cmd, capture_output=True, text=True)
             path = result.stdout.strip()
             if path:
-                return path.splitlines() if multiple else path
+                final_paths = path.splitlines() if multiple else path
+                _update_last_visited_dir(final_paths, is_directory)
+                return final_paths
         except FileNotFoundError:
             try:
                 if is_directory:
@@ -141,7 +164,9 @@ def open_file_dialog(
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 path = result.stdout.strip()
                 if path:
-                    return path.splitlines() if multiple else path
+                    final_paths = path.splitlines() if multiple else path
+                    _update_last_visited_dir(final_paths, is_directory)
+                    return final_paths
             except FileNotFoundError:
                 return [] if multiple else None
 
@@ -187,7 +212,10 @@ def open_file_dialog(
             path = result.stdout.strip()
             if not path:
                 return [] if multiple else None
-            return path.splitlines() if multiple else path
+
+            final_paths = path.splitlines() if multiple else path
+            _update_last_visited_dir(final_paths, is_directory)
+            return final_paths
         except Exception:
             return [] if multiple else None
 
@@ -198,9 +226,15 @@ def save_file_dialog(title="Save File", default_name="workspace.vvw"):
     """
     Native 'Save As' File Dialog wrapper.
     """
-    start_dir = os.getcwd()
-    if not os.path.exists(start_dir):
-        start_dir = os.path.expanduser("~")
+    global _last_visited_dir
+
+    # Determine the starting folder based on history
+    if _last_visited_dir and os.path.exists(_last_visited_dir):
+        start_dir = _last_visited_dir
+    else:
+        start_dir = os.getcwd()
+        if not os.path.exists(start_dir):
+            start_dir = os.path.expanduser("~")
 
     # Extract the extension from the default name dynamically
     ext_parts = default_name.split(".")
@@ -229,6 +263,8 @@ def save_file_dialog(title="Save File", default_name="workspace.vvw"):
                 ["osascript", "-e", script], capture_output=True, text=True
             )
             path = result.stdout.strip()
+            if path:
+                _update_last_visited_dir(path, is_directory=False)
             return path if path else None
         except Exception:
             return None
@@ -251,6 +287,8 @@ def save_file_dialog(title="Save File", default_name="workspace.vvw"):
             ]
             result = subprocess.run(cmd, capture_output=True, text=True)
             path = result.stdout.strip()
+            if path:
+                _update_last_visited_dir(path, is_directory=False)
             return path if path else None
         except FileNotFoundError:
             try:
@@ -264,6 +302,8 @@ def save_file_dialog(title="Save File", default_name="workspace.vvw"):
                 ]
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 path = result.stdout.strip()
+                if path:
+                    _update_last_visited_dir(path, is_directory=False)
                 return path if path else None
             except FileNotFoundError:
                 return None
@@ -288,6 +328,8 @@ def save_file_dialog(title="Save File", default_name="workspace.vvw"):
                 creationflags=0x08000000,
             )
             path = result.stdout.strip()
+            if path:
+                _update_last_visited_dir(path, is_directory=False)
             return path if path else None
         except Exception:
             return None
