@@ -8,7 +8,8 @@ from vvv.utils import ViewMode, slice_to_voxel
 class CameraState:
     """Stores all transient spatial and navigation parameters."""
 
-    def __init__(self, volume):
+    def __init__(self, volume, parent_vs=None):
+        self._parent = parent_vs
         self.zoom = {
             ViewMode.AXIAL: 1.0,
             ViewMode.SAGITTAL: 1.0,
@@ -26,16 +27,103 @@ class CameraState:
         }
         self.crosshair_phys_coord = None
         self.crosshair_voxel = None
-        self.time_idx = 0  # For 4D images
         self.last_orientation = ViewMode.AXIAL
 
-        # Visibility toggles (these are spatially relevant)
-        self.show_axis = True
-        self.show_tracker = True
-        self.show_crosshair = True
-        self.show_scalebar = False
-        self.show_grid = False
-        self.show_legend = False
+        # Protected internal variables
+        self._time_idx = 0
+        self._show_axis = True
+        self._show_tracker = True
+        self._show_crosshair = True
+        self._show_scalebar = False
+        self._show_grid = False
+        self._show_legend = False
+        self._show_filename = 0
+
+    def _flag_geom(self):
+        if self._parent:
+            self._parent.is_geometry_dirty = True
+
+    # --- Properties ---
+    @property
+    def time_idx(self):
+        return self._time_idx
+
+    @time_idx.setter
+    def time_idx(self, v):
+        if self._time_idx != v:
+            self._time_idx = v
+            if self._parent:
+                self._parent.is_data_dirty = True
+
+    @property
+    def show_axis(self):
+        return self._show_axis
+
+    @show_axis.setter
+    def show_axis(self, v):
+        if self._show_axis != v:
+            self._show_axis = v
+            self._flag_geom()
+
+    @property
+    def show_tracker(self):
+        return self._show_tracker
+
+    @show_tracker.setter
+    def show_tracker(self, v):
+        if self._show_tracker != v:
+            self._show_tracker = v
+            self._flag_geom()
+
+    @property
+    def show_crosshair(self):
+        return self._show_crosshair
+
+    @show_crosshair.setter
+    def show_crosshair(self, v):
+        if self._show_crosshair != v:
+            self._show_crosshair = v
+            self._flag_geom()
+
+    @property
+    def show_scalebar(self):
+        return self._show_scalebar
+
+    @show_scalebar.setter
+    def show_scalebar(self, v):
+        if self._show_scalebar != v:
+            self._show_scalebar = v
+            self._flag_geom()
+
+    @property
+    def show_grid(self):
+        return self._show_grid
+
+    @show_grid.setter
+    def show_grid(self, v):
+        if self._show_grid != v:
+            self._show_grid = v
+            self._flag_geom()
+
+    @property
+    def show_legend(self):
+        return self._show_legend
+
+    @show_legend.setter
+    def show_legend(self, v):
+        if self._show_legend != v:
+            self._show_legend = v
+            self._flag_geom()
+
+    @property
+    def show_filename(self):
+        return self._show_filename
+
+    @show_filename.setter
+    def show_filename(self, v):
+        if self._show_filename != v:
+            self._show_filename = v
+            self._flag_geom()
 
     def to_dict(self):
         return {
@@ -49,6 +137,7 @@ class CameraState:
             "show_scalebar": bool(self.show_scalebar),
             "show_grid": bool(self.show_grid),
             "show_legend": bool(self.show_legend),
+            "show_filename": int(self.show_filename),
             "last_orientation": self.last_orientation.name,
             "crosshair_voxel": (
                 [float(x) for x in self.crosshair_voxel]
@@ -78,6 +167,7 @@ class CameraState:
         if "slices" in d:
             self.slices.update(parse_dict(d["slices"]))
 
+        # Using the setters!
         self.time_idx = d.get("time_idx", self.time_idx)
         self.show_axis = d.get("show_axis", self.show_axis)
         self.show_tracker = d.get("show_tracker", self.show_tracker)
@@ -85,6 +175,7 @@ class CameraState:
         self.show_scalebar = d.get("show_scalebar", self.show_scalebar)
         self.show_grid = d.get("show_grid", self.show_grid)
         self.show_legend = d.get("show_legend", self.show_legend)
+        self.show_filename = d.get("show_filename", self.show_filename)
 
         if "last_orientation" in d:
             self.last_orientation = ViewMode[d["last_orientation"]]
@@ -98,21 +189,126 @@ class CameraState:
 class DisplayState:
     """Stores all radiometric and rendering properties."""
 
-    def __init__(self):
-        self.ww = 2000.0
-        self.wl = 270.0
-        self.colormap = "Grayscale"
-        self.base_threshold = -1e8
-        self.pixelated_zoom = True
+    def __init__(self, parent_vs=None):
+        self._parent = parent_vs
+        self._ww = 2000.0
+        self._wl = 270.0
+        self._colormap = "Grayscale"
+        self._base_threshold = -1e8
+        self._pixelated_zoom = True
+        self._overlay_id = None
+        self._overlay_opacity = 0.5
+        self._overlay_mode = "Alpha"
+        self._overlay_checkerboard_size = 20.0
+        self._overlay_checkerboard_swap = False
 
-        self.overlay_id = None
         self.overlay_data = None
-        self.overlay_opacity = 0.5
-        self.overlay_mode = "Alpha"
-        self.overlay_checkerboard_size = 20.0
-        self.overlay_checkerboard_swap = False
-        # for registration
         self.baked_overlay_translation = (0.0, 0.0, 0.0)
+
+    def _flag_data(self):
+        if self._parent:
+            self._parent.is_data_dirty = True
+
+    # --- Properties ---
+    @property
+    def ww(self):
+        return self._ww
+
+    @ww.setter
+    def ww(self, v):
+        if self._ww != v:
+            self._ww = v
+            self._flag_data()
+
+    @property
+    def wl(self):
+        return self._wl
+
+    @wl.setter
+    def wl(self, v):
+        if self._wl != v:
+            self._wl = v
+            self._flag_data()
+
+    @property
+    def colormap(self):
+        return self._colormap
+
+    @colormap.setter
+    def colormap(self, v):
+        if self._colormap != v:
+            self._colormap = v
+            self._flag_data()
+
+    @property
+    def base_threshold(self):
+        return self._base_threshold
+
+    @base_threshold.setter
+    def base_threshold(self, v):
+        if self._base_threshold != v:
+            self._base_threshold = v
+            self._flag_data()
+
+    @property
+    def pixelated_zoom(self):
+        return self._pixelated_zoom
+
+    @pixelated_zoom.setter
+    def pixelated_zoom(self, v):
+        if self._pixelated_zoom != v:
+            self._pixelated_zoom = v
+            self._flag_data()
+
+    @property
+    def overlay_id(self):
+        return self._overlay_id
+
+    @overlay_id.setter
+    def overlay_id(self, v):
+        if self._overlay_id != v:
+            self._overlay_id = v
+            self._flag_data()
+
+    @property
+    def overlay_opacity(self):
+        return self._overlay_opacity
+
+    @overlay_opacity.setter
+    def overlay_opacity(self, v):
+        if self._overlay_opacity != v:
+            self._overlay_opacity = v
+            self._flag_data()
+
+    @property
+    def overlay_mode(self):
+        return self._overlay_mode
+
+    @overlay_mode.setter
+    def overlay_mode(self, v):
+        if self._overlay_mode != v:
+            self._overlay_mode = v
+            self._flag_data()
+
+    @property
+    def overlay_checkerboard_size(self):
+        return self._overlay_checkerboard_size
+
+    @overlay_checkerboard_size.setter
+    def overlay_checkerboard_size(self, v):
+        if self._overlay_checkerboard_size != v:
+            self._overlay_checkerboard_size = v
+            self._flag_data()
+
+    @property
+    def overlay_checkerboard_swap(self):
+        return self._overlay_checkerboard_swap
+
+    @overlay_checkerboard_swap.setter
+    def overlay_checkerboard_swap(self, v):
+        if self._overlay_checkerboard_swap != v:
+            self._overlay_checkerboard_swap = v
+            self._flag_data()
 
     def to_dict(self):
         return {
@@ -133,7 +329,6 @@ class DisplayState:
         self.colormap = d.get("colormap", self.colormap)
         self.base_threshold = d.get("base_threshold", self.base_threshold)
         if "interpolation_linear" in d:
-            # If loading an old workspace, flip the old linear value to match the new logic
             self.pixelated_zoom = not d["interpolation_linear"]
         else:
             self.pixelated_zoom = d.get("pixelated_zoom", self.pixelated_zoom)
@@ -152,12 +347,17 @@ class ViewState:
 
     def __init__(self, volume):
         self.volume = volume
-        self.is_data_dirty = True
-        self.sync_group = 0
-        self.sync_wl = False
 
-        self.camera = CameraState(volume)
-        self.display = DisplayState()
+        # Self-managed state flags
+        self.is_data_dirty = True
+        self.is_geometry_dirty = True
+
+        # Link children to self
+        self.camera = CameraState(volume, parent_vs=self)
+        self.display = DisplayState(parent_vs=self)
+
+        self.sync_group = 0
+        self.sync_wl_group = 0  # Radiometric group support
         self.rois = {}
 
         self.crosshair_value = None
@@ -197,9 +397,9 @@ class ViewState:
 
     def init_crosshair_to_slices(self):
         self.camera.crosshair_voxel = [
-            self.camera.slices[ViewMode.SAGITTAL],  # X
-            self.camera.slices[ViewMode.CORONAL],  # Y
-            self.camera.slices[ViewMode.AXIAL],  # Z
+            self.camera.slices[ViewMode.SAGITTAL],
+            self.camera.slices[ViewMode.CORONAL],
+            self.camera.slices[ViewMode.AXIAL],
             self.camera.time_idx,
         ]
 
@@ -335,8 +535,8 @@ class ViewState:
         self.is_data_dirty = True
 
     def hard_reset(self):
-        self.camera = CameraState(self.volume)
-        self.display = DisplayState()
+        self.camera = CameraState(self.volume, parent_vs=self)
+        self.display = DisplayState(parent_vs=self)
         self.init_default_window_level()
         self.is_data_dirty = True
 

@@ -1,7 +1,6 @@
 import os
 import json
 import numpy as np
-import SimpleITK as sitk
 from vvv.utils import ViewMode
 from vvv.core.roi_manager import ROIManager
 from vvv.core.file_manager import FileManager
@@ -383,8 +382,16 @@ class Controller:
             if did_update and self.gui and viewer == self.gui.context_viewer:
                 self.gui.update_sidebar_crosshair(viewer)
 
-        for vs in self.view_states.values():
+        # --- THE BRIDGE ---
+        for vs_id, vs in self.view_states.items():
+            # If the properties flipped the geometry flag, broadcast it!
+            if getattr(vs, "is_geometry_dirty", False):
+                for viewer in self.viewers.values():
+                    if viewer.image_id == vs_id:
+                        viewer.is_geometry_dirty = True
+
             vs.is_data_dirty = False
+            vs.is_geometry_dirty = False
 
         # Check if files changed on disk, update UI if needed
         outdated_changed = False
