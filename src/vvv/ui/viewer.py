@@ -141,6 +141,9 @@ class SliceViewer:
         self.axes_nodes = None
         self.active_axes_idx = 0
 
+        self.drag_start_mouse = None
+        self.drag_start_pan = None
+
         # Sub-modules
         self.drawer = OverlayDrawer(self)
         self.init_shortcut_dispatcher()
@@ -1263,6 +1266,20 @@ class SliceViewer:
         self.controller.sync.propagate_sync(self.image_id)
         self.view_state.is_data_dirty = True
 
+    def on_mouse_down(self):
+        if (
+            self.image_id is None
+            or not self.is_image_orientation()
+            or not self.view_state
+        ):
+            return
+
+        # 1. Capture the absolute starting mouse position for Pan/Zoom
+        self.drag_start_mouse = dpg.get_mouse_pos(local=False)
+
+        # 2. Snapshot the current pan so the drag delta can be added to it
+        self.drag_start_pan = list(self.pan_offset)
+
     def on_drag(self, data):
         if (
             self.image_id is None
@@ -1278,7 +1295,6 @@ class SliceViewer:
 
         total_dx = current_pos[0] - self.drag_start_mouse[0]
         total_dy = current_pos[1] - self.drag_start_mouse[1]
-        # ----------------------------------
 
         is_button = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
         is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(

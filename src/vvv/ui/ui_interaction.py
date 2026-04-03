@@ -21,10 +21,8 @@ class NavigationTool:
         self.drag_viewer = viewer
         self.manager.gui.set_context_viewer(viewer)
 
-        # --- THE BULLETPROOF ANCHOR ---
-        self.drag_viewer.drag_start_mouse = dpg.get_mouse_pos(local=False)
-        self.drag_viewer.drag_start_pan = list(self.drag_viewer.pan_offset)
-        # ---------------------------------
+        # Trigger the viewer's anchor
+        self.drag_viewer.on_mouse_down()
 
         if viewer.orientation != ViewMode.HISTOGRAM:
             if not dpg.is_key_down(dpg.mvKey_LShift) and not dpg.is_key_down(
@@ -34,7 +32,6 @@ class NavigationTool:
                 if px is not None:
                     viewer.update_crosshair_data(px, py)
                     self.manager.controller.sync.propagate_sync(viewer.image_id)
-
 
     def on_drag(self, drag_data):
         if self.drag_viewer:
@@ -119,7 +116,7 @@ class InteractionManager:
         current_pos = app_data
 
         # Initialize the tracker on the first frame
-        if not hasattr(self, 'last_mouse_pos'):
+        if not hasattr(self, "last_mouse_pos"):
             self.last_mouse_pos = current_pos
             return
 
@@ -129,7 +126,9 @@ class InteractionManager:
         self.last_mouse_pos = current_pos
 
         # Check for Shift (handling cross-platform key codes)
-        is_shift = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(dpg.mvKey_RShift)
+        is_shift = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(
+            dpg.mvKey_RShift
+        )
 
         if is_shift:
             viewer = self.get_hovered_viewer()
@@ -139,7 +138,9 @@ class InteractionManager:
             vs = viewer.view_state
 
             # THE EXACT SAME BEHAVIOR & MATH FROM YOUR OLD DRAG METHOD
-            base_sens = self.controller.settings.data["interaction"].get("wl_drag_sensitivity", 1.0)
+            base_sens = self.controller.settings.data["interaction"].get(
+                "wl_drag_sensitivity", 1.0
+            )
             scale = max(vs.display.ww, 1e-20) * 0.005
             sens = base_sens * scale
 
@@ -148,7 +149,6 @@ class InteractionManager:
 
             viewer.update_window_level(ww, wl)
             self.gui.update_sidebar_info(viewer)
-
 
     def on_mouse_drag(self, sender, app_data, user_data):
         if isinstance(app_data, int):
