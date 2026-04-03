@@ -8,6 +8,28 @@ from vvv.utils import ViewMode, slice_to_voxel
 class CameraState:
     """Stores all transient spatial and navigation parameters."""
 
+    # 1. Type Hints (Keeps PyCharm/VSCode autocomplete happy!)
+    time_idx: int
+    show_axis: bool
+    show_tracker: bool
+    show_crosshair: bool
+    show_scalebar: bool
+    show_grid: bool
+    show_legend: bool
+    show_filename: int
+
+    # 2. The exact fields that should trigger a GEOMETRY redraw
+    _GEOM_FIELDS = {
+        "time_idx",
+        "show_axis",
+        "show_tracker",
+        "show_crosshair",
+        "show_scalebar",
+        "show_grid",
+        "show_legend",
+        "show_filename",
+    }
+
     def __init__(self, volume, parent_vs=None):
         self._parent = parent_vs
         self.zoom = {
@@ -25,105 +47,34 @@ class CameraState:
             ViewMode.SAGITTAL: volume.shape3d[2] // 2,
             ViewMode.CORONAL: volume.shape3d[1] // 2,
         }
-        self.crosshair_phys_coord = None
+
+        # Non-flagged attributes
         self.crosshair_voxel = None
+        self.crosshair_phys_coord = None
         self.last_orientation = ViewMode.AXIAL
 
-        # Protected internal variables
-        self._time_idx = 0
-        self._show_axis = True
-        self._show_tracker = True
-        self._show_crosshair = True
-        self._show_scalebar = False
-        self._show_grid = False
-        self._show_legend = False
-        self._show_filename = 0
+        # Default values for flagged attributes
+        self.time_idx = 0
+        self.show_axis = True
+        self.show_tracker = True
+        self.show_crosshair = True
+        self.show_scalebar = False
+        self.show_grid = False
+        self.show_legend = False
+        self.show_filename = 0
 
-    def _flag_geom(self):
-        if self._parent:
-            self._parent.is_geometry_dirty = True
+    def __setattr__(self, name, value):
+        # Intercept assignments: if it's a GEOM field AND the value is actually changing
+        if name in self._GEOM_FIELDS and getattr(self, name, object()) != value:
+            object.__setattr__(self, name, value)  # Set the value
 
-    # --- Properties ---
-    @property
-    def time_idx(self):
-        return self._time_idx
+            # Flag the parent automatically
+            if getattr(self, "_parent", None):
+                self._parent.is_geometry_dirty = True
+            return
 
-    @time_idx.setter
-    def time_idx(self, v):
-        if self._time_idx != v:
-            self._time_idx = v
-            if self._parent:
-                self._parent.is_data_dirty = True
-
-    @property
-    def show_axis(self):
-        return self._show_axis
-
-    @show_axis.setter
-    def show_axis(self, v):
-        if self._show_axis != v:
-            self._show_axis = v
-            self._flag_geom()
-
-    @property
-    def show_tracker(self):
-        return self._show_tracker
-
-    @show_tracker.setter
-    def show_tracker(self, v):
-        if self._show_tracker != v:
-            self._show_tracker = v
-            self._flag_geom()
-
-    @property
-    def show_crosshair(self):
-        return self._show_crosshair
-
-    @show_crosshair.setter
-    def show_crosshair(self, v):
-        if self._show_crosshair != v:
-            self._show_crosshair = v
-            self._flag_geom()
-
-    @property
-    def show_scalebar(self):
-        return self._show_scalebar
-
-    @show_scalebar.setter
-    def show_scalebar(self, v):
-        if self._show_scalebar != v:
-            self._show_scalebar = v
-            self._flag_geom()
-
-    @property
-    def show_grid(self):
-        return self._show_grid
-
-    @show_grid.setter
-    def show_grid(self, v):
-        if self._show_grid != v:
-            self._show_grid = v
-            self._flag_geom()
-
-    @property
-    def show_legend(self):
-        return self._show_legend
-
-    @show_legend.setter
-    def show_legend(self, v):
-        if self._show_legend != v:
-            self._show_legend = v
-            self._flag_geom()
-
-    @property
-    def show_filename(self):
-        return self._show_filename
-
-    @show_filename.setter
-    def show_filename(self, v):
-        if self._show_filename != v:
-            self._show_filename = v
-            self._flag_geom()
+        # Standard assignment for everything else (like dictionaries and _parent)
+        object.__setattr__(self, name, value)
 
     def to_dict(self):
         return {
@@ -189,126 +140,63 @@ class CameraState:
 class DisplayState:
     """Stores all radiometric and rendering properties."""
 
+    # 1. Type Hints
+    ww: float
+    wl: float
+    colormap: str
+    base_threshold: float
+    overlay_id: str
+    overlay_opacity: float
+    overlay_mode: str
+    overlay_checkerboard_size: float
+    overlay_checkerboard_swap: bool
+    pixelated_zoom: bool
+
+    # 2. The exact fields that should trigger a DATA redraw
+    _DATA_FIELDS = {
+        "ww",
+        "wl",
+        "colormap",
+        "base_threshold",
+        "overlay_id",
+        "overlay_opacity",
+        "overlay_mode",
+        "overlay_checkerboard_size",
+        "overlay_checkerboard_swap",
+        "pixelated_zoom",
+    }
+
     def __init__(self, parent_vs=None):
         self._parent = parent_vs
-        self._ww = 2000.0
-        self._wl = 270.0
-        self._colormap = "Grayscale"
-        self._base_threshold = -1e8
-        self._pixelated_zoom = True
-        self._overlay_id = None
-        self._overlay_opacity = 0.5
-        self._overlay_mode = "Alpha"
-        self._overlay_checkerboard_size = 20.0
-        self._overlay_checkerboard_swap = False
 
+        # Non-flagged attributes
         self.overlay_data = None
         self.baked_overlay_translation = (0.0, 0.0, 0.0)
 
-    def _flag_data(self):
-        if self._parent:
-            self._parent.is_data_dirty = True
+        # Default values for flagged attributes
+        self.ww = 1.0
+        self.wl = 0.5
+        self.colormap = "Grayscale"
+        self.base_threshold = -1e9
+        self.overlay_id = None
+        self.overlay_opacity = 0.5
+        self.overlay_mode = "Registration"
+        self.overlay_checkerboard_size = 20.0
+        self.overlay_checkerboard_swap = False
+        self.pixelated_zoom = False
 
-    # --- Properties ---
-    @property
-    def ww(self):
-        return self._ww
+    def __setattr__(self, name, value):
+        # Intercept assignments: if it's a DATA field AND the value is actually changing
+        if name in self._DATA_FIELDS and getattr(self, name, object()) != value:
+            object.__setattr__(self, name, value)  # Set the value
 
-    @ww.setter
-    def ww(self, v):
-        if self._ww != v:
-            self._ww = v
-            self._flag_data()
+            # Flag the parent automatically
+            if getattr(self, "_parent", None):
+                self._parent.is_data_dirty = True
+            return
 
-    @property
-    def wl(self):
-        return self._wl
-
-    @wl.setter
-    def wl(self, v):
-        if self._wl != v:
-            self._wl = v
-            self._flag_data()
-
-    @property
-    def colormap(self):
-        return self._colormap
-
-    @colormap.setter
-    def colormap(self, v):
-        if self._colormap != v:
-            self._colormap = v
-            self._flag_data()
-
-    @property
-    def base_threshold(self):
-        return self._base_threshold
-
-    @base_threshold.setter
-    def base_threshold(self, v):
-        if self._base_threshold != v:
-            self._base_threshold = v
-            self._flag_data()
-
-    @property
-    def pixelated_zoom(self):
-        return self._pixelated_zoom
-
-    @pixelated_zoom.setter
-    def pixelated_zoom(self, v):
-        if self._pixelated_zoom != v:
-            self._pixelated_zoom = v
-            self._flag_data()
-
-    @property
-    def overlay_id(self):
-        return self._overlay_id
-
-    @overlay_id.setter
-    def overlay_id(self, v):
-        if self._overlay_id != v:
-            self._overlay_id = v
-            self._flag_data()
-
-    @property
-    def overlay_opacity(self):
-        return self._overlay_opacity
-
-    @overlay_opacity.setter
-    def overlay_opacity(self, v):
-        if self._overlay_opacity != v:
-            self._overlay_opacity = v
-            self._flag_data()
-
-    @property
-    def overlay_mode(self):
-        return self._overlay_mode
-
-    @overlay_mode.setter
-    def overlay_mode(self, v):
-        if self._overlay_mode != v:
-            self._overlay_mode = v
-            self._flag_data()
-
-    @property
-    def overlay_checkerboard_size(self):
-        return self._overlay_checkerboard_size
-
-    @overlay_checkerboard_size.setter
-    def overlay_checkerboard_size(self, v):
-        if self._overlay_checkerboard_size != v:
-            self._overlay_checkerboard_size = v
-            self._flag_data()
-
-    @property
-    def overlay_checkerboard_swap(self):
-        return self._overlay_checkerboard_swap
-
-    @overlay_checkerboard_swap.setter
-    def overlay_checkerboard_swap(self, v):
-        if self._overlay_checkerboard_swap != v:
-            self._overlay_checkerboard_swap = v
-            self._flag_data()
+        # Standard assignment for everything else
+        object.__setattr__(self, name, value)
 
     def to_dict(self):
         return {
