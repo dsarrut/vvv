@@ -93,7 +93,11 @@ class SliceRenderer:
         op_mask[over_slice < threshold] = 0.0
         op_mask = op_mask[..., None]
 
-        return base_rgba * (1.0 - op_mask) + over_rgba * op_mask
+        # Use in-place operators to avoid allocating 4 intermediate arrays
+        base_rgba *= 1.0 - op_mask
+        base_rgba += over_rgba * op_mask
+
+        return base_rgba
 
     @staticmethod
     def _blend_checkerboard(
@@ -237,17 +241,12 @@ class SliceRenderer:
             return np.zeros_like(slice_data, dtype=np.float32)
 
         min_val = wl - ww / 2.0
-
-        # 1. Create one float32 copy to hold our calculations
         norm = slice_data.astype(np.float32)
-
-        # 2. Use in-place operators ( -=, /= ) to modify the existing memory block!
         norm -= min_val
         norm /= ww
 
-        # 3. Clip in-place (out=norm means it doesn't create a new array)
+        # Clip and return as [0.0, 1.0] float for math, OR...
         np.clip(norm, 0.0, 1.0, out=norm)
-
         return norm
 
     @staticmethod

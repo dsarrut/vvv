@@ -914,6 +914,15 @@ class SliceViewer:
         return active_rois
 
     def update_render(self):
+        win_tag = f"win_{self.tag}"
+        if self.quad_w <= 1 or not dpg.does_item_exist(win_tag):
+            return
+
+        # Safely bypass DearPyGui's internal KeyError bug
+        state = dpg.get_item_state(win_tag)
+        if state and not state.get("visible", True):
+            return
+
         if self.image_id is None or not self.volume or not self.view_state:
             return
 
