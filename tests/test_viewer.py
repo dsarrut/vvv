@@ -664,6 +664,7 @@ def test_workspace_strict_hierarchy_load(headless_app, synthetic_image_path, tmp
         def __init__(self):
             # Provide the dummy layout dictionary the viewer expects!
             self.ui_cfg = {"layout": {"window_padding": 4}}
+            self.context_viewer = None
 
         def show_status_message(self, msg):
             pass
@@ -681,6 +682,12 @@ def test_workspace_strict_hierarchy_load(headless_app, synthetic_image_path, tmp
             pass
 
         def set_context_viewer(self, v):
+            pass
+
+        def update_sidebar_info(self, v):
+            pass
+
+        def update_sidebar_crosshair(self, v):
             pass
 
     controller.gui = MockGUI()
