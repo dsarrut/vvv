@@ -171,6 +171,7 @@ class DisplayState:
 
         # Non-flagged attributes
         self.overlay_data = None
+        self._sitk_overlay_cache = None
         self.baked_overlay_translation = (0.0, 0.0, 0.0)
 
         # Default values for flagged attributes
@@ -251,6 +252,7 @@ class ViewState:
         self.crosshair_value = None
         self.space = SpatialEngine(volume)
         self.base_display_data = None
+        self._sitk_base_cache = None
 
         self.hist_data_x = None
         self.hist_data_y = None
@@ -474,7 +476,8 @@ class ViewState:
         target_dim = self.volume.sitk_image.GetDimension()
         if target_dim == 3:
             resampled_img = resampler.Execute(self.volume.sitk_image)
-            self.base_display_data = sitk.GetArrayFromImage(resampled_img)
+            self._sitk_base_cache = resampled_img
+            self.base_display_data = sitk.GetArrayViewFromImage(resampled_img)
         elif target_dim == 4:
             resampled_volumes = []
             for t in range(self.volume.num_timepoints):
@@ -483,9 +486,9 @@ class ViewState:
                 index = [0, 0, 0, t]
                 vol_3d = sitk.Extract(self.volume.sitk_image, size, index)
                 resampled_volumes.append(resampler.Execute(vol_3d))
-            self.base_display_data = sitk.GetArrayFromImage(
-                sitk.JoinSeries(resampled_volumes)
-            )
+            joined_img = sitk.JoinSeries(resampled_volumes)
+            self._sitk_base_cache = joined_img
+            self.base_display_data = sitk.GetArrayViewFromImage(joined_img)
 
     def update_overlay_display_data(self, controller):
         if (
@@ -515,8 +518,10 @@ class ViewState:
         target_dim = other_vol.sitk_image.GetDimension()
         if target_dim == 3:
             resampled_img = resampler.Execute(other_vol.sitk_image)
-            self.display.overlay_data = sitk.GetArrayFromImage(resampled_img)
+            self.display._sitk_overlay_cache = resampled_img
+            self.display.overlay_data = sitk.GetArrayViewFromImage(resampled_img)
         else:
+            self.display._sitk_overlay_cache = None
             self.display.overlay_data = other_vol.data
 
         # Record what was baked in so the 2D shift can subtract it!
@@ -539,6 +544,7 @@ class ViewState:
         if overlay_id is None or other_vol is None:
             self.display.overlay_id = None
             self.display.overlay_data = None
+            self.display._sitk_overlay_cache = None
             self.display.baked_overlay_translation = (0.0, 0.0, 0.0)
             self.is_data_dirty = True
             return
