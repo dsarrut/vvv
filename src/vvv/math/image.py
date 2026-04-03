@@ -250,7 +250,192 @@ class SliceRenderer:
         return norm
 
     @staticmethod
+    def _extract_layer(
+        layer_data,
+        is_rgb,
+        time_idx,
+        slice_idx,
+        orientation,
+        max_s,
+        offset_x=0,
+        offset_y=0,
+    ):
+        """Safely pads dimensions, extracts the 2D slice, and applies 2D shifts."""
+        if slice_idx < 0 or slice_idx >= max_s:
+            return None
+
+        # 1. Pad dimensions to ensure 4D (Time, Z, Y, X)
+        if is_rgb and layer_data.ndim == 4:
+            layer_data = layer_data[np.newaxis, ...]
+        elif not is_rgb and layer_data.ndim == 3:
+            layer_data = layer_data[np.newaxis, ...]
+
+        # 2. Extract
+        sliced = SliceRenderer.extract_slice(
+            layer_data, is_rgb, time_idx, slice_idx, orientation
+        )
+
+        # 3. Apply optional 2D Pan/Shift
+        if offset_x != 0 or offset_y != 0:
+            sliced = SliceRenderer._shift_2d_array(sliced, offset_x, offset_y)
+
+        return sliced
+
+    @staticmethod
+    def _colorize_layer(
+        slice_data, is_rgb, num_components, ww, wl, cmap_name, threshold
+    ):
+        """Applies Window/Level, Colormaps, and Alpha channels."""
+        if is_rgb:
+            norm = np.clip(slice_data.astype(np.float32) / 255.0, 0.0, 1.0)
+            if num_components == 3:
+                alpha = np.ones((*norm.shape[:-1], 1), dtype=np.float32)
+                rgba = np.concatenate([norm, alpha], axis=-1)
+            else:
+                rgba = norm
+            return rgba, norm
+        else:
+            norm = SliceRenderer.normalize_wl(slice_data, ww, wl)
+            lut = COLORMAPS.get(cmap_name, COLORMAPS["Grayscale"])
+            rgba = lut[(norm * 255).astype(np.uint8)]
+
+            if threshold > -1e8:
+                rgba[slice_data <= threshold] = [0.0, 0.0, 0.0, 0.0]
+
+            return rgba, norm
+
+    @staticmethod
     def get_slice_rgba(
+        base: RenderLayer,
+        overlay: RenderLayer,
+        overlay_opacity: float,
+        overlay_mode: str,
+        slice_idx: int,
+        orientation: int,
+        checkerboard_size: float = 20.0,
+        checkerboard_swap: bool = False,
+        rois=(),
+    ):
+        if orientation == ViewMode.HISTOGRAM:
+            return np.array([0, 0, 0, 255], dtype=np.float32), (1, 1)
+
+        axis_map = {
+            ViewMode.AXIAL: (1, 2, 3),
+            ViewMode.SAGITTAL: (3, 1, 2),
+            ViewMode.CORONAL: (2, 1, 3),
+        }
+        if orientation not in axis_map:
+            return np.zeros(4, dtype=np.float32), (1, 1)
+
+        # Calculate max slices based on base image orientation
+        s_ax, h_ax, w_ax = axis_map[orientation]
+
+        # Account for RGB padding when calculating dimensions
+        base_shape = base.data.shape
+        if base.is_rgb and len(base_shape) == 4:
+            base_shape = (1,) + base_shape
+        elif not base.is_rgb and len(base_shape) == 3:
+            base_shape = (1,) + base_shape
+
+        max_s, h, w = base_shape[s_ax], base_shape[h_ax], base_shape[w_ax]
+
+        # --- 1. BASE LAYER ---
+        base_slice = SliceRenderer._extract_layer(
+            base.data, base.is_rgb, base.time_idx, slice_idx, orientation, max_s
+        )
+
+        if base_slice is None:  # Out of bounds
+            black_slice = np.zeros((h, w, 4), dtype=np.float32)
+            black_slice[:, :, 3] = 1.0
+            return black_slice.flatten(), (h, w)
+
+        base_rgba, base_norm = SliceRenderer._colorize_layer(
+            base_slice,
+            base.is_rgb,
+            base.num_components,
+            base.ww,
+            base.wl,
+            base.cmap_name,
+            base.threshold,
+        )
+
+        res_rgba = base_rgba
+
+        # --- 2. OVERLAY LAYER ---
+        if overlay is not None and overlay.data is not None and overlay_opacity > 0.0:
+            target_slice = slice_idx - overlay.offset_slice
+
+            over_slice = SliceRenderer._extract_layer(
+                overlay.data,
+                overlay.is_rgb,
+                overlay.time_idx,
+                target_slice,
+                orientation,
+                max_s,
+                overlay.offset_x,
+                overlay.offset_y,
+            )
+
+            if over_slice is None:
+                # Overlay is out of bounds, but base is visible. Render transparent space.
+                over_slice = np.zeros_like(base_slice)
+
+            over_rgba, over_norm = SliceRenderer._colorize_layer(
+                over_slice,
+                overlay.is_rgb,
+                overlay.num_components,
+                overlay.ww,
+                overlay.wl,
+                overlay.cmap_name,
+                overlay.threshold,
+            )
+
+            # --- Compositing Router ---
+            if overlay_mode == "Registration":
+                res_rgba = SliceRenderer._blend_registration(
+                    base_rgba,
+                    base_norm,
+                    over_slice,
+                    over_norm,
+                    base.is_rgb,
+                    overlay.is_rgb,
+                    overlay_opacity,
+                    overlay.threshold,
+                    base.threshold,
+                    base_slice,
+                )
+            elif overlay_mode == "Alpha":
+                res_rgba = SliceRenderer._blend_alpha(
+                    base_rgba,
+                    over_slice,
+                    over_norm,
+                    overlay.cmap_name,
+                    overlay_opacity,
+                    overlay.threshold,
+                )
+            elif overlay_mode == "Checkerboard":
+                res_rgba = SliceRenderer._blend_checkerboard(
+                    base_rgba,
+                    over_rgba,
+                    over_slice,
+                    base_slice,
+                    overlay.threshold,
+                    base.threshold,
+                    base.spacing_2d,
+                    checkerboard_size,
+                    checkerboard_swap,
+                    base.is_rgb,
+                    overlay.is_rgb,
+                )
+
+        # --- 3. ROIs & FINAL EXPORT ---
+        if rois:
+            res_rgba = SliceRenderer._apply_rois(res_rgba, rois)
+
+        return res_rgba.astype(np.float32).flatten(), (h, w)
+
+    @staticmethod
+    def get_slice_rgba_OLD(
         base: RenderLayer,
         overlay: RenderLayer,  # Can be None if no overlay is active
         overlay_opacity: float,
@@ -425,8 +610,8 @@ class SliceRenderer:
             res_rgba = SliceRenderer._apply_rois(res_rgba, rois)
 
         # Ensure absolute Float32 strictness before sending to the DPG GPU texture buffer!
-        # return res_rgba.astype(np.float32).flatten(), (h, w)
-        return np.ascontiguousarray(res_rgba, dtype=np.float32).ravel(), (h, w)
+        # return np.ascontiguousarray(res_rgba, dtype=np.float32).ravel(), (h, w)
+        return res_rgba.astype(np.float32).flatten(), (h, w)
 
 
 class VolumeData:

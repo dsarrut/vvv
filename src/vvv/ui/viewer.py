@@ -566,10 +566,11 @@ class SliceViewer:
 
         did_update_data = False
 
-        if self.view_state.is_data_dirty:
+        if self.view_state.is_data_dirty or self.is_viewer_data_dirty:
+            # Reset it so update_render can re-flag it if needed
+            self.is_viewer_data_dirty = False
             self.update_render()
             self.is_geometry_dirty = True
-            self.is_viewer_data_dirty = False
             did_update_data = True
 
         if self.is_geometry_dirty:
@@ -606,7 +607,8 @@ class SliceViewer:
         )
 
         m = self.controller.settings.data["physics"]["voxel_strip_threshold"]
-        return 0 < (end_x - start_x) * (end_y - start_y) < m
+        is_active = 0 < (end_x - start_x) * (end_y - start_y) < m
+        return is_active
 
     def apply_local_auto_window(self, fov_fraction=0.20, target="base"):
         if self.image_id is None or not self.volume:
@@ -915,12 +917,16 @@ class SliceViewer:
 
     def update_render(self):
         win_tag = f"win_{self.tag}"
+
+        # If the window is too small or doesn't exist, flag to try again next frame
         if self.quad_w <= 1 or not dpg.does_item_exist(win_tag):
+            self.is_viewer_data_dirty = True
             return
 
-        # Safely bypass DearPyGui's internal KeyError bug
         state = dpg.get_item_state(win_tag)
+        # If the window is hidden behind a tab, flag to try again when visible
         if state and not state.get("visible", True):
+            self.is_viewer_data_dirty = True
             return
 
         if self.image_id is None or not self.volume or not self.view_state:
@@ -970,7 +976,10 @@ class SliceViewer:
         shape = self.get_slice_shape()
         h, w = shape[0], shape[1]
 
-        if self.should_use_voxels_strips() and hasattr(self, "last_rgba_flat"):
+        if (
+            self.should_use_voxels_strips()
+            and getattr(self, "last_rgba_flat", None) is not None
+        ):
             dpg.configure_item(self.image_tag, show=False)
             self.drawer.draw_voxels_as_strips(self.last_rgba_flat, h, w)
         else:

@@ -183,7 +183,7 @@ class DisplayState:
         self.overlay_mode = "Registration"
         self.overlay_checkerboard_size = 20.0
         self.overlay_checkerboard_swap = False
-        self.pixelated_zoom = False
+        self.pixelated_zoom = True
 
     def __setattr__(self, name, value):
         # Intercept assignments: if it's a DATA field AND the value is actually changing
