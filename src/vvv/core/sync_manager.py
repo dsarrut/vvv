@@ -266,3 +266,48 @@ class SyncManager:
             )
 
         self.trigger_redraw(target_ids)
+
+    def link_all(self):
+        """Assigns all currently loaded images to spatial sync group 1."""
+        if not self.controller.view_states:
+            return
+
+        for vs in self.controller.view_states.values():
+            vs.sync_group = 1
+
+        # Trigger the sync propagation logic you built in Step 2
+        # (Assuming the first loaded view state acts as the master)
+        first_vs_id = list(self.controller.view_states.keys())[0]
+        self.controller.set_sync_group(first_vs_id, 1)
+        self.controller.ui_needs_refresh = True
+
+    def unlink_all(self):
+        """Removes all images from spatial sync groups."""
+        for vs in self.controller.view_states.values():
+            vs.sync_group = 0
+
+        for vs_id in self.controller.view_states.keys():
+            self.controller.update_all_viewers_of_image(vs_id)
+        self.controller.ui_needs_refresh = True
+
+    def link_all_wl(self):
+        """Assigns all currently loaded images to Window/Level sync group 1."""
+        for vs in self.controller.view_states.values():
+            vs.sync_wl_group = 1  # Changed from sync_wl to sync_wl_group
+
+        for vs_id in self.controller.view_states.keys():
+            self.controller.update_all_viewers_of_image(vs_id)
+
+        # Flag the GUI to refresh the sync tab
+        self.controller.ui_needs_refresh = True
+
+    def unlink_all_wl(self):
+        """Removes all images from Window/Level sync groups."""
+        for vs in self.controller.view_states.values():
+            vs.sync_wl_group = 0  # Changed from sync_wl to sync_wl_group
+
+        for vs_id in self.controller.view_states.keys():
+            self.controller.update_all_viewers_of_image(vs_id)
+
+        # Flag the GUI to refresh the sync tab
+        self.controller.ui_needs_refresh = True

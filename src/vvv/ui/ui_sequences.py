@@ -1,7 +1,6 @@
 import os
 import dearpygui.dearpygui as dpg
 from vvv.config import ROI_COLORS
-from vvv.ui.ui_sync import handle_sync_group_change
 from vvv.ui.ui_notifications import show_loading_modal, hide_loading_modal
 
 
@@ -464,9 +463,9 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
 
     for img_id in loaded_ids:
         if sync or link_all:
-            handle_sync_group_change(gui, None, "Group 1", img_id)
+            controller.set_sync_group(img_id, 1)
         elif id_to_group.get(img_id, 0) > 0:
-            handle_sync_group_change(gui, None, f"Group {id_to_group[img_id]}", img_id)
+            controller.set_sync_group(img_id, id_to_group[img_id])
 
     gui.on_window_resize()
     gui.set_context_viewer(controller.viewers["V1"])

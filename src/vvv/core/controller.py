@@ -38,43 +38,16 @@ class Controller:
         return keys[next_idx]
 
     def link_all(self):
-        if not self.view_states:
-            return
-        first_vs_id = next(iter(self.view_states))
-        for vs in self.view_states.values():
-            vs.sync_group = 1
-
-        group_viewer_tags = [v.tag for v in self.viewers.values() if v.image_id]
-        if group_viewer_tags:
-            self.sync.propagate_ppm(group_viewer_tags)
-            master_viewer = self.viewers[group_viewer_tags[0]]
-            phys_center = master_viewer.get_center_physical_coord()
-            if phys_center is not None:
-                for tag in group_viewer_tags:
-                    self.viewers[tag].center_on_physical_coord(phys_center)
-
-        self.sync.propagate_sync(first_vs_id)
-        self.ui_needs_refresh = True
+        self.sync.link_all()
 
     def unlink_all(self):
-        for vs in self.view_states.values():
-            vs.sync_group = 0
-        self.ui_needs_refresh = True
+        self.sync.unlink_all()
 
     def link_all_wl(self):
-        if not self.view_states:
-            return
-        first_vs_id = next(iter(self.view_states))
-        for vs in self.view_states.values():
-            vs.sync_wl_group = 1
-        self.sync.propagate_window_level(first_vs_id)
-        self.sync.propagate_colormap(first_vs_id)
-        self.ui_needs_refresh = True
+        self.sync.link_all_wl()
 
     def unlink_all_wl(self):
-        for vs in self.view_states.values():
-            vs.sync_wl_group = 0
-        self.ui_needs_refresh = True
+        self.sync.unlink_all_wl()
 
     def default_viewers_orientation(self):
         n = len(self.view_states)
@@ -240,6 +213,52 @@ class Controller:
                             roi_names.append(r_state.name)
 
         return {"base_val": base_val, "overlay_val": overlay_val, "rois": roi_names}
+
+    def set_sync_group(self, vs_id, group_id):
+        """
+        Programmatically sets the spatial sync group for an image and propagates
+        the geometry from an existing group master to it.
+        """
+        vs = self.view_states.get(vs_id)
+        if not vs:
+            return
+
+        vs.sync_group = group_id
+
+        # Find the "Source of Truth" for this new group
+        master_vs_id = None
+        for other_id, other_vs in self.view_states.items():
+            if other_id != vs_id and other_vs.sync_group == group_id:
+                master_vs_id = other_id
+                break
+
+        # Find all viewers currently displaying any image in this group
+        group_viewer_tags = [
+            v.tag
+            for v in self.viewers.values()
+            if v.view_state and v.view_state.sync_group == group_id
+        ]
+
+        if not group_viewer_tags:
+            return
+
+        self.sync.propagate_ppm(group_viewer_tags)
+
+        # Snap the newly synced viewers to the master's physical center
+        if master_vs_id:
+            master_viewer = next(
+                (v for v in self.viewers.values() if v.image_id == master_vs_id),
+                None,
+            )
+            if master_viewer:
+                phys_center = master_viewer.get_center_physical_coord()
+                if phys_center is not None:
+                    for tag in group_viewer_tags:
+                        self.viewers[tag].center_on_physical_coord(phys_center)
+            self.sync.propagate_sync(master_vs_id)
+
+        self.update_all_viewers_of_image(vs_id)
+        self.ui_needs_refresh = True
 
     def update_all_viewers_of_image(self, vs_id, data_dirty=True):
         # 1. Flag the data as dirty so tick() handles the heavy blending
