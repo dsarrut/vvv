@@ -266,6 +266,14 @@ class SliceViewer:
             self.view_state.is_data_dirty = True
         self.is_geometry_dirty = True
 
+        if self.controller:
+            self.controller.ui_needs_refresh = True
+
+            # If this viewer is the active one, refresh the sidebar!
+            if self.controller.gui and self.controller.gui.context_viewer == self:
+                self.controller.gui.update_sidebar_info(self)
+                self.controller.gui.update_sidebar_crosshair(self)
+
     def set_current_slice_to_crosshair(self):
         if not self.view_state or not self.volume:
             return
@@ -355,9 +363,16 @@ class SliceViewer:
     def drop_image(self):
         self.image_id = None
 
-        # Simply hide the node. Do not delete the texture!
+        # Simply hide the node. Do not delete the texture
         if dpg.does_item_exist(self.img_node_tag):
             dpg.configure_item(self.img_node_tag, show=False)
+
+        if self.controller:
+            self.controller.ui_needs_refresh = True
+            # If we just dropped the image of the active viewer, clear the sidebar!
+            if self.controller.gui and self.controller.gui.context_viewer == self:
+                self.controller.gui.update_sidebar_info(self)
+                self.controller.gui.update_sidebar_crosshair(self)
 
     def is_image_orientation(self):
         return self.orientation in [ViewMode.AXIAL, ViewMode.SAGITTAL, ViewMode.CORONAL]
