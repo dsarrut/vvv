@@ -49,9 +49,7 @@ def refresh_image_list_ui(gui):
         with dpg.group(parent=container):
             # --- LINE 1: Image Name ---
             with dpg.group(horizontal=True):
-                is_outdated = getattr(vs.volume, "_is_outdated", False)
-                base_name = f"[{idx}] {vs.volume.name}"
-                name_str = f"{base_name} *" if is_outdated else base_name
+                name_str, is_outdated = gui.controller.get_image_display_name(vs_id)
                 lbl_id = dpg.add_text(name_str)
 
                 with dpg.tooltip(lbl_id):

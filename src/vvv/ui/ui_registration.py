@@ -245,7 +245,19 @@ class RegistrationUI:
         vol = self.controller.volumes.get(viewer.image_id)
 
         if dpg.does_item_exist("text_reg_active_title") and vol:
-            dpg.set_value("text_reg_active_title", f"{vol.name}")
+            name_str, is_outdated = self.controller.get_image_display_name(
+                viewer.image_id
+            )
+            dpg.set_value("text_reg_active_title", name_str)
+
+            # Apply orange if modified, default active color if not
+            col = (
+                self.gui.ui_cfg["colors"]["outdated"]
+                if is_outdated
+                else self.gui.ui_cfg["colors"]["text_active"]
+            )
+            dpg.configure_item("text_reg_active_title", color=col)
+
         if dpg.does_item_exist("text_reg_filename"):
             dpg.set_value("text_reg_filename", vs.space.transform_file)
         if dpg.does_item_exist("check_reg_apply"):

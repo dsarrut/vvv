@@ -158,6 +158,22 @@ class Controller:
         cz = (vol.shape3d[0] - 1) / 2.0
         return vol.voxel_coord_to_physic_coord(np.array([cx, cy, cz]))
 
+    def get_image_display_name(self, vs_id):
+        """Returns a formatted display name (e.g., '(1) name.mhd') and an is_outdated boolean."""
+        try:
+            idx = list(self.view_states.keys()).index(vs_id) + 1
+        except ValueError:
+            idx = "?"
+
+        vol = self.volumes.get(vs_id)
+        if not vol:
+            return f"({idx}) Unknown", False
+
+        is_outdated = getattr(vol, "_is_outdated", False)
+        base_name = f"({idx}) {vol.name}"
+        name_str = f"{base_name} *" if is_outdated else base_name
+        return name_str, is_outdated
+
     def save_image(self, vs_id, filepath):
         """Exports the active volume to disk as a NIfTI, MHD, etc."""
         if vs_id not in self.volumes:

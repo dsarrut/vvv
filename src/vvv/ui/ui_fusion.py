@@ -41,7 +41,7 @@ class FusionUI:
                         callback=gui.fusion_ui.on_fusion_opacity_changed,
                     )
 
-                # --- NEW: W/L & Threshold Layout (Matches Active Viewer) ---
+                # W/L & Threshold Layout (Matches Active Viewer)
                 dim_color = cfg_c["text_dim"]
                 with dpg.group(horizontal=True):
                     with dpg.group(horizontal=True):
@@ -70,7 +70,6 @@ class FusionUI:
                         on_enter=True,
                         callback=gui.fusion_ui.on_fusion_wl_change,
                     )
-                # -----------------------------------------------------------
 
                 with dpg.group(horizontal=True):
                     dpg.add_text("Mode   ")
@@ -129,8 +128,19 @@ class FusionUI:
             return
 
         vol = viewer.volume
+
         if dpg.does_item_exist("text_fusion_base_image"):
-            dpg.set_value("text_fusion_base_image", vol.name)
+            name_str, is_outdated = self.controller.get_image_display_name(
+                viewer.image_id
+            )
+            dpg.set_value("text_fusion_base_image", name_str)
+
+            col = (
+                self.gui.ui_cfg["colors"]["outdated"]
+                if is_outdated
+                else self.gui.ui_cfg["colors"]["text_active"]
+            )
+            dpg.configure_item("text_fusion_base_image", color=col)
 
         if dpg.does_item_exist("combo_fusion_select"):
             options = ["None"]
@@ -160,7 +170,7 @@ class FusionUI:
                 if not has_overlay:
                     dpg.set_value("slider_fusion_opacity", 0.0)
 
-            # --- Enable/Disable New W/L Text Boxes ---
+            # Enable/Disable New W/L Text Boxes
             tags_to_enable = ["fusion_info_threshold", "combo_fusion_mode"]
             if has_overlay:
                 ov_vs = self.controller.view_states[
@@ -250,7 +260,7 @@ class FusionUI:
             if current_thr != new_thr:
                 dpg.set_value("fusion_info_threshold", new_thr)
 
-    # --- Callbacks ---
+    # Callbacks
     def on_fusion_wl_change(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer
         if (
@@ -269,7 +279,7 @@ class FusionUI:
 
             ovs = self.controller.view_states[viewer.view_state.display.overlay_id]
 
-            # --- Update the properties directly on Image B! ---
+            # Update the properties directly on Image B!
             ovs.display.base_threshold = new_thr
 
             if not getattr(ovs.volume, "is_rgb", False):

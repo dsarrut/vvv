@@ -34,7 +34,6 @@ def load_single_image_sequence(gui, controller, file_path):
             img_id = future.result()
         except Exception as e:
             load_error = e
-    # -----------------------------------------------------------
 
     if load_error:
         if dpg.does_item_exist("loading_modal"):
@@ -129,10 +128,9 @@ def load_batch_images_sequence(gui, controller, file_paths):
                         progress=(completed / total_files),
                     )
 
-            # MAGIC: Let DearPyGui render a frame while the background threads work!
+            # Let DearPyGui render a frame while the background threads work!
             yield
             time.sleep(0.01)
-            # -----------------------------------------------
 
     show_loading_modal("Loading image...", "Applying layouts...", progress=1.0)
     yield

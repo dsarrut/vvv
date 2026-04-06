@@ -63,21 +63,13 @@ def refresh_sync_ui(gui):
 
     sp_items = ["None"] + [f"Grp {i}" for i in range(1, num_sp_groups + 1)]
 
-    # Calculate W/L Groups (A, B, C...)
-    max_wl_group = max(
-        [getattr(vs, "sync_wl_group", 0) for vs in gui.controller.view_states.values()]
-        + [0]
-    )
-    num_wl_groups = max(3, len(gui.controller.view_states), max_wl_group)
     wl_items = ["None"] + [f"Grp {chr(64 + i)}" for i in range(1, num_wl_groups + 1)]
 
     for idx, (vs_id, vs) in enumerate(gui.controller.view_states.items(), start=1):
         with dpg.group(parent=container):
             # --- LINE 1: Image Name ---
             with dpg.group(horizontal=True):
-                is_outdated = getattr(vs.volume, "_is_outdated", False)
-                base_name = f"[{idx}] {vs.volume.name}"
-                name_str = f"{base_name} *" if is_outdated else base_name
+                name_str, is_outdated = gui.controller.get_image_display_name(vs_id)
                 lbl_id = dpg.add_text(name_str)
 
                 with dpg.tooltip(lbl_id):

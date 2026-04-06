@@ -759,17 +759,16 @@ class SliceViewer:
 
         dpg.configure_item(self.filename_text_tag, show=True)
 
-        # Look up the 1-based index to match the UI tab
-        try:
-            img_idx = list(self.controller.view_states.keys()).index(self.image_id) + 1
-        except ValueError:
-            img_idx = "?"
-
-        # Generate the text based on the current state
         if show_state == 1:
-            f_name = f"[{img_idx}] {self.volume.name}"
+            f_name, _ = self.controller.get_image_display_name(self.image_id)
         else:
-            f_name = f"[{img_idx}] {self.volume.get_human_readable_file_path()}"
+            try:
+                img_idx = (
+                    list(self.controller.view_states.keys()).index(self.image_id) + 1
+                )
+            except ValueError:
+                img_idx = "?"
+            f_name = f"({img_idx}) {self.volume.get_human_readable_file_path()}"
 
         dpg.set_value(self.filename_text_tag, f_name)
 

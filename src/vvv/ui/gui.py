@@ -1263,6 +1263,12 @@ class MainGUI:
                 if hasattr(self, "refresh_sync_ui"):
                     self.refresh_sync_ui()
                 self.refresh_rois_ui()
+
+                if hasattr(self, "fusion_ui"):
+                    self.fusion_ui.refresh_fusion_ui()
+                if hasattr(self, "reg_ui"):
+                    self.reg_ui.refresh_reg_ui()
+
                 self.controller.ui_needs_refresh = False
 
             self.interaction.update_trackers()
