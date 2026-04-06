@@ -321,7 +321,6 @@ class FusionUI:
             target_vol = self.controller.volumes[target_id]
 
             def _resample():
-                # time.sleep(0.05)
                 self.gui.show_status_message(f"Resampling overlay to physical grid...")
                 viewer.view_state.set_overlay(target_id, target_vol, self.controller)
                 self.controller.update_all_viewers_of_image(viewer.image_id)

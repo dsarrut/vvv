@@ -517,7 +517,7 @@ class MainGUI:
 
                 # Direct assignment for sliders, checkboxes, and combos
                 else:
-                    # --- THE TRI-STATE FIX ---
+                    # TRI-STATE
                     if tag == "check_filename":
                         states = ["Filename: Off", "Filename: Short", "Filename: Full"]
                         dpg.configure_item(tag, label=states[val])

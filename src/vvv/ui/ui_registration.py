@@ -355,6 +355,9 @@ class RegistrationUI:
             params = vs.space.get_parameters()
             old_rx, old_ry, old_rz = params[0], params[1], params[2]
 
+        # --- 1. Record the crosshair's starting voxel ---
+        old_vox = list(vs.camera.crosshair_voxel[:3])
+
         if new_state_val is not None:
             vs.space.is_active = new_state_val
 
@@ -380,6 +383,42 @@ class RegistrationUI:
             new_rx, new_ry, new_rz = params[0], params[1], params[2]
 
         self._snap_viewer_to_world_pos(viewer, world_pos)
+
+        # --- 2. Calculate the difference and Counter-Pan the Viewers! ---
+        new_vox = list(vs.camera.crosshair_voxel[:3])
+
+        from vvv.utils import voxel_to_slice
+
+        for v in self.controller.viewers.values():
+            if v.image_id == vs_id:
+                shape = v.get_slice_shape()
+                sw, sh = v.volume.get_physical_aspect_ratio(v.orientation)
+
+                old_tx_slice, old_ty_slice = voxel_to_slice(
+                    old_vox[0], old_vox[1], old_vox[2], v.orientation, shape
+                )
+                new_tx_slice, new_ty_slice = voxel_to_slice(
+                    new_vox[0], new_vox[1], new_vox[2], v.orientation, shape
+                )
+
+                target_w = v.quad_w - v.mapper.margin_left
+                target_h = v.quad_h - v.mapper.margin_top
+                mm_w, mm_h = shape[1] * sw, shape[0] * sh
+
+                if mm_w > 0 and mm_h > 0:
+                    base_scale = min(target_w / mm_w, target_h / mm_h)
+                    final_scale = base_scale * v.zoom
+
+                    # Convert the voxel difference into exact screen pixels
+                    dx_screen = (old_tx_slice - new_tx_slice) * sw * final_scale
+                    dy_screen = (old_ty_slice - new_ty_slice) * sh * final_scale
+
+                    # Shift the camera to perfectly counteract the crosshair movement
+                    v.pan_offset[0] += dx_screen
+                    v.pan_offset[1] += dy_screen
+                    v.is_geometry_dirty = True
+        # ----------------------------------------------------------------
+
         self.controller.update_all_viewers_of_image(vs_id)
 
         for v in self.controller.viewers.values():
@@ -397,8 +436,6 @@ class RegistrationUI:
             or abs(new_tz - old_tz) > 1e-5
         )
 
-        # Only trigger resampling if the transform is actively applied to the viewer,
-        # OR if the user just toggled the "Apply Transform" checkbox.
         if (transform_changed and vs.space.is_active) or new_state_val is not None:
             self.trigger_debounced_rotation_update(vs_id)
 

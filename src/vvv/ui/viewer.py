@@ -772,7 +772,7 @@ class SliceViewer:
 
         dpg.set_value(self.filename_text_tag, f_name)
 
-        # THE FIX: Calculate width manually based on string length.
+        # Calculate width manually based on string length.
         # (This prevents the 1-frame centering lag caused by get_item_rect_size)
         tw = len(f_name) * 7.2  # 7.2 pixels per char is the standard ImGui font average
 

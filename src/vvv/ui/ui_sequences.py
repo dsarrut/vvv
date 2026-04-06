@@ -21,7 +21,7 @@ def load_single_image_sequence(gui, controller, file_path):
     img_id = None
     load_error = None
 
-    # --- THE NON-BLOCKING FIX FOR SINGLE FILES & 4D SEQUENCES ---
+    # NON-BLOCKING FOR SINGLE FILES & 4D SEQUENCES
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(controller.file.load_image, file_path)
 

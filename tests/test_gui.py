@@ -163,10 +163,11 @@ def test_gui_fusion_controls(headless_gui_app, synthetic_volume_factory, monkeyp
     # 2. Load Overlay Image
     ov_path = synthetic_volume_factory("overlay.nii.gz", val=500.0)
     ov_id = controller.file.load_image(ov_path)
+    opt_name, _ = controller.get_image_display_name(ov_id)
 
     # 3. Simulate UI: Select Overlay from Combo Box
     gui.fusion_ui.on_fusion_target_selected(
-        sender=None, app_data=f"{ov_id}: overlay", user_data=None
+        sender=None, app_data=opt_name, user_data=None
     )
     assert vs.display.overlay_id == ov_id
     assert vs.display.overlay_data is not None
