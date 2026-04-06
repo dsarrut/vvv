@@ -27,7 +27,7 @@ class RoiUI:
             with dpg.group(horizontal=True):
                 dpg.add_button(
                     label="Load ROI...",
-                    width=80,
+                    width=130,
                     callback=gui.roi_ui.on_load_roi_clicked,
                     tag="btn_roi_load",
                 )
@@ -45,11 +45,13 @@ class RoiUI:
                     ["Ignore BG (val)", "Target FG (val)"],
                     default_value="Ignore BG (val)",
                     tag="combo_roi_mode",
-                    width=115,
+                    width=130,
                 )
+
+            with dpg.group(horizontal=True, tag="group_roi_mode2"):
                 dpg.add_text("Val:")
                 dpg.add_input_float(
-                    default_value=0.0, step=1.0, width=-1, tag="input_roi_val"
+                    default_value=0.0, step=1.0, width=140, tag="input_roi_val"
                 )
 
             dpg.add_spacer(height=10)

@@ -82,6 +82,7 @@ def refresh_sync_ui(gui):
 
             # --- LINE 2: Dropdowns ---
             with dpg.group(horizontal=True, horizontal_spacing=8):
+                dpg.add_spacer(width=17)
                 dpg.add_text("Sync:", color=gui.ui_cfg["colors"]["text_dim"])
                 dpg.add_combo(
                     items=sp_items,

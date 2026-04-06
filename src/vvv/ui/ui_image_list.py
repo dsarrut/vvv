@@ -62,6 +62,7 @@ def refresh_image_list_ui(gui):
 
             # --- LINE 2: Controls ---
             with dpg.group(horizontal=True, horizontal_spacing=3):
+                dpg.add_spacer(width=17)
                 # 1. Viewers
                 for v_tag in ["V1", "V2", "V3", "V4"]:
                     is_active = gui.controller.viewers[v_tag].image_id == vs_id
