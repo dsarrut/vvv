@@ -148,8 +148,8 @@ class Controller:
             recent.remove(path_str)
         recent.insert(0, path_str)
 
-        # Cap at 10
-        self.settings.data["behavior"]["recent_files"] = recent[:10]
+        # Cap at 20
+        self.settings.data["behavior"]["recent_files"] = recent[:20]
 
     def get_volume_physical_center(self, vol):
         """Calculates the exact physical center of an image volume for the CoR."""
