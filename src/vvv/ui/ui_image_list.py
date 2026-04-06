@@ -66,7 +66,7 @@ def refresh_image_list_ui(gui):
                 for v_tag in ["V1", "V2", "V3", "V4"]:
                     is_active = gui.controller.viewers[v_tag].image_id == vs_id
                     cb = dpg.add_checkbox(
-                        label=f"{v_tag[-1]}##{vs_id}_{v_tag}",
+                        label=f"##{vs_id}_{v_tag}",
                         default_value=is_active,
                         user_data={"img_id": vs_id, "v_tag": v_tag},
                         callback=gui.on_image_viewer_toggle,
@@ -75,7 +75,7 @@ def refresh_image_list_ui(gui):
                     with dpg.tooltip(cb):
                         dpg.add_text(f"Toggle in {v_tag}")
 
-                dpg.add_spacer(width=10)
+                dpg.add_spacer(width=5)
 
                 # 3. Action Buttons
                 btn_save = dpg.add_button(
@@ -105,6 +105,8 @@ def refresh_image_list_ui(gui):
                     dpg.bind_item_theme(btn_close, "delete_button_theme")
                 if dpg.does_item_exist("icon_button_theme"):
                     dpg.bind_item_theme(btn_reload, "icon_button_theme")
+
+        dpg.add_spacer(height=2, parent=container)
 
     gui.refresh_recent_menu()
     if gui.context_viewer and gui.context_viewer.image_id:

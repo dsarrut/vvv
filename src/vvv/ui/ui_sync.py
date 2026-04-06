@@ -105,6 +105,7 @@ def refresh_sync_ui(gui):
                     callback=lambda s, a, u: handle_wl_group_change(gui, s, a, u),
                     enabled=not is_rgb,
                 )
+            dpg.add_spacer(height=2, parent=container)
 
     if gui.context_viewer and gui.context_viewer.image_id:
         gui.highlight_active_image_in_list(gui.context_viewer.image_id)
