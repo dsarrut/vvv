@@ -170,6 +170,58 @@ class ROIManager:
         base_id,
         filepath,
         name=None,
+        color=None,
+        mode="Ignore BG (val)",
+        target_val=0.0,
+    ):
+        if color is None:
+            color = [255, 50, 50]
+
+        base_vol = self.controller.volumes[base_id]
+
+        # 1. THE FAST PATH: Instantiate and crop natively in C++ via SimpleITK
+        mask_vol = VolumeData(
+            filepath, is_roi=True, roi_mode=mode, roi_target_val=target_val
+        )
+
+        # 2. Apply the final binarization rule to ensure the remaining pixels are exactly 0 and 1
+        self._apply_binarization_rule(mask_vol, mode, target_val)
+
+        if mask_vol.data.size == 0:
+            raise ValueError("Outside the base image FOV (or completely empty).")
+
+        # 3. Calculate the exact bounding box using Physics instead of heavy array resampling
+        # Map the ROI's new physical origin back to the Base Image's voxel grid
+        start_vox = base_vol.physic_coord_to_voxel_coord(mask_vol.origin)
+        x0, y0, z0 = [int(round(v)) for v in start_vox]
+
+        # The size is just the shape of the newly cropped array!
+        mz, my, mx = mask_vol.shape3d
+        z1, y1, x1 = z0 + mz, y0 + my, x0 + mx
+
+        mask_vol.roi_bbox = (z0, z1, y0, y1, x0, x1)
+
+        # 4. Register the Volume and State
+        mask_id = str(self.controller.next_image_id)
+        self.controller.next_image_id += 1
+        self.controller.volumes[mask_id] = mask_vol
+
+        if name is None:
+            name = self._clean_roi_name(filepath)
+
+        roi_state = ROIState(
+            mask_id, name, color, source_mode=mode, source_val=target_val
+        )
+        self.controller.view_states[base_id].rois[mask_id] = roi_state
+        self.controller.view_states[base_id].is_data_dirty = True
+
+        return mask_id
+
+    def load_binary_mask_OLD(
+        self,
+        base_id,
+        filepath,
+        name=None,
         color=[255, 50, 50],
         mode="Ignore BG (val)",
         target_val=0.0,

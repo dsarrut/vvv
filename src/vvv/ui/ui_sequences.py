@@ -225,6 +225,115 @@ def load_batch_rois_sequence(
     mode="Ignore BG (val)",
     val=0.0,
 ):
+    import time
+    import concurrent.futures
+
+    total_files = len(file_paths)
+    warnings = []
+
+    display_name = f"Loading {total_files} ROIs..."
+    show_loading_modal("Loading image...", display_name)
+
+    vp_width = max(dpg.get_viewport_client_width(), 800)
+    vp_height = max(dpg.get_viewport_client_height(), 600)
+    dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
+    yield
+
+    vs = controller.view_states[base_image_id]
+    color_idx = len(vs.rois)
+    valid_paths = [p for p in file_paths if os.path.exists(p)]
+    total_files = len(valid_paths)
+
+    if roi_type == "Binary Mask" and total_files > 0:
+        # --- THE PARALLEL LOADER FOR ROIs ---
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(total_files, 8)
+        ) as executor:
+            future_to_path = {}
+            for i, path in enumerate(valid_paths):
+                # Pre-calculate colors so they don't get mixed up in asynchronous execution
+                color = ROI_COLORS[(color_idx + i) % len(ROI_COLORS)]
+                future = executor.submit(
+                    controller.roi.load_binary_mask,
+                    base_image_id,
+                    path,
+                    None,
+                    color,
+                    mode,
+                    val,
+                )
+                future_to_path[future] = path
+
+            futures = list(future_to_path.keys())
+            completed = 0
+
+            while completed < total_files:
+                for i, future in enumerate(futures):
+                    if future is not None and future.done():
+                        path = future_to_path[future]
+                        filename = os.path.basename(path)
+                        try:
+                            future.result()
+                        except Exception as e:
+                            warnings.append(f"- {filename}: {e}")
+
+                        futures[i] = None
+                        completed += 1
+
+                        show_loading_modal(
+                            "Loading image...",
+                            f"Loaded ROI ({completed}/{total_files}):\n{filename}",
+                            progress=(completed / total_files),
+                        )
+
+                # MAGIC: Let DearPyGui render a frame!
+                yield
+                time.sleep(0.01)
+
+    elif roi_type == "Label Map":
+        # Label maps unpack into multiple ROIs dynamically, safer to keep sequential
+        for i, path in enumerate(valid_paths):
+            filename = os.path.basename(path)
+            try:
+                loaded = controller.roi.load_label_map(base_image_id, path, color_idx)
+                color_idx += loaded
+            except Exception as e:
+                warnings.append(f"- {filename}: {e}")
+            yield
+
+    show_loading_modal("Loading image...", "Applying ROIs...", progress=1.0)
+    yield
+
+    vs = controller.view_states[base_image_id]
+    if vs.rois:
+        gui.active_roi_id = list(vs.rois.keys())[-1]
+
+    gui.refresh_rois_ui()
+    controller.update_all_viewers_of_image(base_image_id)
+
+    if dpg.does_item_exist("loading_modal"):
+        dpg.delete_item("loading_modal")
+    yield
+
+    if warnings:
+        gui.show_message(
+            "ROI Import Warning", "Some ROIs were skipped:\n\n" + "\n".join(warnings)
+        )
+        while dpg.does_item_exist("generic_message_modal"):
+            yield
+
+    hide_loading_modal()
+
+
+def load_batch_rois_sequence_OLD(
+    gui,
+    controller,
+    base_image_id,
+    file_paths,
+    roi_type="Binary Mask",
+    mode="Ignore BG (val)",
+    val=0.0,
+):
     total_files = len(file_paths)
     warnings = []
 
@@ -292,6 +401,172 @@ def load_batch_rois_sequence(
 
 
 def load_workspace_sequence(gui, controller, filepath):
+    """Safely restores a full workspace using ID mapping, strict hierarchy, and Parallel Loading."""
+    import os
+    import json
+    import time
+    import concurrent.futures
+    from vvv.utils import ViewMode
+
+    try:
+        with open(filepath, "r") as f:
+            ws = json.load(f)
+    except Exception as e:
+        gui.show_status_message(f"Failed to load workspace: {e}")
+        return
+
+    display_name = "Reading Workspace Data..."
+    show_loading_modal("Loading image...", display_name)
+
+    vp_width = max(dpg.get_viewport_client_width(), 800)
+    vp_height = max(dpg.get_viewport_client_height(), 600)
+    dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
+    yield
+
+    # --- PHASE 1: GATHER ALL UNIQUE FILES TO LOAD ---
+    paths_to_load = set()
+    for old_id, img_data in ws.get("images", {}).items():
+        # Add Base Image
+        raw_path = img_data.get("path")
+        if raw_path:
+            p = os.path.expanduser(raw_path)
+            if os.path.exists(p):
+                paths_to_load.add(p)
+
+        # Add Fusion Overlay
+        ov_info = img_data.get("overlay")
+        if ov_info:
+            ov_path = os.path.expanduser(ov_info["path"])
+            if os.path.exists(ov_path):
+                paths_to_load.add(ov_path)
+
+    paths_list = list(paths_to_load)
+    total_files = len(paths_list)
+    path_map = {}  # Maps absolute file paths to the newly generated vs_id
+    warnings = []
+
+    # --- PHASE 2: PARALLEL LOAD ALL IMAGES & OVERLAYS ---
+    if total_files > 0:
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(total_files, 8)
+        ) as executor:
+            future_to_path = {
+                executor.submit(controller.file.load_image, p): p for p in paths_list
+            }
+            futures = list(future_to_path.keys())
+            completed = 0
+
+            while completed < total_files:
+                for i, future in enumerate(futures):
+                    if future is not None and future.done():
+                        p = future_to_path[future]
+                        try:
+                            new_id = future.result()
+                            path_map[p] = new_id
+                        except Exception as e:
+                            warnings.append(f"- {os.path.basename(p)}: {e}")
+
+                        futures[i] = None
+                        completed += 1
+
+                        show_loading_modal(
+                            "Loading image...",
+                            f"Restoring Images & Overlays ({completed}/{total_files})",
+                            progress=(completed / total_files),
+                        )
+                # MAGIC: Keep DearPyGui alive!
+                yield
+                time.sleep(0.01)
+
+    # --- PHASE 3: APPLY STATES SYNCHRONOUSLY ---
+    id_map = {}
+    for old_id, img_data in ws.get("images", {}).items():
+        raw_path = img_data.get("path")
+        if raw_path:
+            p = os.path.expanduser(raw_path)
+            if p in path_map:
+                new_id = path_map[p]
+                id_map[old_id] = new_id
+
+                vs = controller.view_states[new_id]
+                vs.display.from_dict(img_data.get("display", {}))
+                vs.camera.from_dict(img_data.get("camera", {}))
+                vs.sync_group = img_data.get("sync_group", 0)
+
+                # Apply Overlays immediately since they are already loaded in RAM
+                ov_info = img_data.get("overlay")
+                if ov_info:
+                    ov_path = os.path.expanduser(ov_info["path"])
+                    if ov_path in path_map:
+                        ov_id = path_map[ov_path]
+                        controller.volumes[ov_id].is_overlay_only = True
+                        ov_vs = controller.view_states[ov_id]
+                        ov_vs.display.colormap = ov_info.get("colormap", "Grayscale")
+
+                        vs.set_overlay(ov_id, controller.volumes[ov_id], controller)
+                        vs.display.overlay_mode = ov_info.get("mode", "Registration")
+                        vs.display.overlay_opacity = ov_info.get("opacity", 0.5)
+
+    # --- PHASE 4: MAP VIEWERS ---
+    for tag, v_data in ws.get("viewers", {}).items():
+        old_img_id = v_data.get("image_id")
+        if old_img_id in id_map:
+            new_id = id_map[old_img_id]
+            viewer = controller.viewers[tag]
+            viewer.set_image(new_id)
+            viewer.set_orientation(ViewMode[v_data["orientation"]])
+            viewer.zoom = v_data.get("zoom", 1.0)
+            viewer.pan_offset = v_data.get("pan_offset", [0, 0])
+            viewer.needs_recenter = v_data.get("needs_recenter", False)
+    yield
+
+    show_loading_modal("Loading image...", "Restoring ROIs...")
+
+    # --- PHASE 5: RESTORE ROIs (Synchronous since there's fewer of them and already cropped) ---
+    for old_id, img_data in ws.get("images", {}).items():
+        if old_id not in id_map:
+            continue
+        new_id = id_map[old_id]
+        vs = controller.view_states[new_id]
+
+        for roi_data in img_data.get("rois", []):
+            raw_r_path = roi_data.get("path", "")
+            r_path = os.path.expanduser(raw_r_path)
+            r_state = roi_data.get("state", {})
+            if r_path and os.path.exists(r_path):
+                controller.roi.load_binary_mask(
+                    new_id,
+                    r_path,
+                    name=r_state.get("name"),
+                    color=r_state.get("color", [255, 0, 0]),
+                    mode=r_state.get("source_mode", "Ignore BG (val)"),
+                    target_val=r_state.get("source_val", 0.0),
+                )
+                latest_roi_id = list(vs.rois.keys())[-1]
+                vs.rois[latest_roi_id].opacity = r_state.get("opacity", 0.5)
+                vs.rois[latest_roi_id].visible = r_state.get("visible", True)
+                vs.rois[latest_roi_id].is_contour = r_state.get("is_contour", False)
+        yield
+
+    # --- PHASE 6: FINALIZE ---
+    for new_id in id_map.values():
+        controller.sync.propagate_sync(new_id)
+        controller.update_all_viewers_of_image(new_id)
+
+    gui.refresh_rois_ui()
+    gui.on_window_resize()
+
+    if id_map:
+        gui.set_context_viewer(controller.viewers["V1"])
+
+    if dpg.does_item_exist("loading_modal"):
+        dpg.delete_item("loading_modal")
+    yield
+
+    hide_loading_modal()
+
+
+def load_workspace_sequence_OLD(gui, controller, filepath):
     """Safely restores a full workspace using ID mapping and strict hierarchy."""
     import os
     import json

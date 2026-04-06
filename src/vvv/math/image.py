@@ -628,7 +628,9 @@ class VolumeData:
         "SEQUENCE",
     )
 
-    def __init__(self, path):
+    def __init__(
+        self, path, is_roi=False, roi_mode="Ignore BG (val)", roi_target_val=0.0
+    ):
         self.path = path
         self.file_paths = []
 
@@ -683,6 +685,12 @@ class VolumeData:
         # Load, Straighten, then Extract
         raw_sitk_image = self.read_image_from_disk(self.file_paths)
 
+        # Crop before straightening
+        if is_roi:
+            raw_sitk_image = self._crop_raw_sitk_image(
+                raw_sitk_image, roi_mode, roi_target_val
+            )
+
         self.matrix_display_str, self.matrix_tooltip_str = extract_orientation_strings(
             raw_sitk_image
         )
@@ -721,8 +729,6 @@ class VolumeData:
         Master router for loading images. Handles standard ITK formats,
         synchrotron/detector formats via fabio, and a custom XDR fallback.
         """
-        import os
-        import SimpleITK as sitk
 
         # --- 1. Fabio Format Router (Extensions we KNOW SimpleITK fails on) ---
         filename = os.path.basename(paths[0])
@@ -818,9 +824,6 @@ class VolumeData:
         Features Numba JIT, Endianness swapping, and binary Coordinate extraction.
         """
         import re
-        import os
-        import numpy as np
-        import SimpleITK as sitk
 
         with open(path, "rb") as f:
             chunk = f.read(4096)
@@ -962,9 +965,6 @@ class VolumeData:
         Instantly maps the 68-byte header and extracts the uncompressed payload.
         """
         import struct
-        import os
-        import numpy as np
-        import SimpleITK as sitk
 
         with open(path, "rb") as f:
             header = f.read(68)
@@ -1016,8 +1016,6 @@ class VolumeData:
         return sitk_img
 
     def get_human_readable_file_path(self):
-        import os
-
         raw_path = (
             self.file_paths[0]
             if isinstance(self.file_paths, list) and self.file_paths
@@ -1026,6 +1024,33 @@ class VolumeData:
         n = os.path.abspath(os.path.expanduser(raw_path))
         n = get_history_path_key(n)
         return n
+
+    def _crop_raw_sitk_image(self, sitk_img, mode="Ignore BG (val)", target_val=0.0):
+        """Uses ITK's C++ engine to instantly crop empty space before heavy resampling."""
+
+        # 1. Create a binary mask of the actual data
+        if mode == "Target FG (val)":
+            binary_mask = sitk_img == float(target_val)
+        else:
+            binary_mask = sitk_img != float(target_val)
+
+        # 2. Find the bounding box in milliseconds
+        stats = sitk.LabelShapeStatisticsImageFilter()
+        stats.Execute(binary_mask)
+
+        if stats.HasLabel(1):
+            bbox = stats.GetBoundingBox(
+                1
+            )  # Returns (x_start, y_start, z_start, x_size, y_size, z_size)
+            dim = sitk_img.GetDimension()
+
+            # 3. Crop the raw image (this automatically recalculates the physical Origin!)
+            roi_filter = sitk.RegionOfInterestImageFilter()
+            roi_filter.SetIndex(bbox[:dim])
+            roi_filter.SetSize(bbox[dim:])
+            return roi_filter.Execute(sitk_img)
+
+        return sitk_img
 
     def read_image_metadata(self):
         self.pixel_type = self.sitk_image.GetPixelIDTypeAsString()
