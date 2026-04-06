@@ -146,7 +146,9 @@ class FusionUI:
             options = ["None"]
             for vid, ovs in self.controller.view_states.items():
                 if vid != viewer.image_id:
-                    options.append(f"{vid}: {ovs.volume.name}")
+                    # Use the new helper for the dropdown options
+                    opt_name, _ = self.controller.get_image_display_name(vid)
+                    options.append(opt_name)
 
             dpg.configure_item("combo_fusion_select", items=options)
             dpg.configure_item("combo_fusion_select", enabled=True)
@@ -155,10 +157,11 @@ class FusionUI:
             has_overlay = False
             if viewer.view_state.display.overlay_id:
                 has_overlay = True
-                ovs_name = self.controller.view_states[
+                # Use the new helper for the currently selected item
+                opt_name, _ = self.controller.get_image_display_name(
                     viewer.view_state.display.overlay_id
-                ].volume.name
-                current_sel = f"{viewer.view_state.display.overlay_id}: {ovs_name}"
+                )
+                current_sel = opt_name
 
             dpg.set_value("combo_fusion_select", current_sel)
 
@@ -305,7 +308,16 @@ class FusionUI:
             viewer.view_state.set_overlay(None, None)
             self.refresh_fusion_ui()
         else:
-            target_id = app_data.split(":")[0]
+            target_id = None
+            for vid in self.controller.view_states.keys():
+                opt_name, _ = self.controller.get_image_display_name(vid)
+                if opt_name == app_data:
+                    target_id = vid
+                    break
+
+            if not target_id:
+                return
+
             target_vol = self.controller.volumes[target_id]
 
             def _resample():
@@ -314,7 +326,7 @@ class FusionUI:
                 viewer.view_state.set_overlay(target_id, target_vol, self.controller)
                 self.controller.update_all_viewers_of_image(viewer.image_id)
                 self.gui.show_status_message("Overlay applied")
-                # self.refresh_fusion_ui() # FIXME needed ?
+                self.refresh_fusion_ui()
 
             threading.Thread(target=_resample, daemon=True).start()
 
