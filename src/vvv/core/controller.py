@@ -335,6 +335,12 @@ class Controller:
 
         d[keys[-1]] = value
 
+        if self.gui and keys[0] == "layout":
+            from vvv.ui.ui_theme import build_ui_config
+
+            self.gui.ui_cfg = build_ui_config(self)
+            self.gui.on_window_resize()
+
         # ONLY SET FLAGS!
         for vs in self.view_states.values():
             vs.is_data_dirty = True
