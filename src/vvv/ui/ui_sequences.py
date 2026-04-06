@@ -61,6 +61,93 @@ def load_single_image_sequence(gui, controller, file_path):
 
 
 def load_batch_images_sequence(gui, controller, file_paths):
+    import time
+    import concurrent.futures
+
+    total_files = len(file_paths)
+    warnings = []
+
+    display_name = f"Loading {total_files} images..."
+    show_loading_modal("Loading image...", display_name)
+    yield
+
+    loaded_ids = []
+    clean_paths = []
+    for path in file_paths:
+        if isinstance(path, (list, tuple)) and len(path) > 0:
+            clean_paths.append(list(path))  # Force it to a list for VolumeData
+        else:
+            clean_paths.append(path)
+
+    # --- THE PARALLEL LOADER & REAL PROGRESS BAR ---
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=min(total_files, 8)
+    ) as executor:
+        # Submit all tasks simultaneously
+        futures = [executor.submit(controller.file.load_image, p) for p in clean_paths]
+
+        completed = 0
+        while completed < total_files:
+            for i, future in enumerate(futures):
+                if future is not None and future.done():
+                    try:
+                        img_id = future.result()
+                        loaded_ids.append(img_id)
+                    except Exception as e:
+                        warnings.append(f"- Failed: {e}")
+
+                    futures[i] = None  # Mark as processed
+                    completed += 1
+
+                    show_loading_modal(
+                        "Loading image...",
+                        f"Loaded ({completed}/{total_files})",
+                        progress=(completed / total_files),
+                    )
+
+            # MAGIC: Let DearPyGui render a frame while the background threads work!
+            yield
+            time.sleep(0.01)
+            # -----------------------------------------------
+
+    show_loading_modal("Loading image...", "Applying layouts...", progress=1.0)
+    yield
+
+    if loaded_ids:
+        target_viewer = (
+            gui.context_viewer if gui.context_viewer else controller.viewers["V1"]
+        )
+        target_viewer.set_image(loaded_ids[0])
+
+        target_viewer.set_orientation(
+            controller.view_states[loaded_ids[0]].camera.last_orientation
+        )
+
+        empty_viewers = [v for v in controller.viewers.values() if v.image_id is None]
+        if empty_viewers:
+            controller.default_viewers_orientation()
+            for v in empty_viewers:
+                v.set_image(loaded_ids[0])
+
+        gui.set_context_viewer(target_viewer)
+        gui.refresh_rois_ui()
+
+    if dpg.does_item_exist("loading_modal"):
+        dpg.delete_item("loading_modal")
+    yield
+
+    if warnings:
+        gui.show_message(
+            "Image Load Warning",
+            "Some images failed to load:\n\n" + "\n".join(warnings),
+        )
+        while dpg.does_item_exist("generic_message_modal"):
+            yield
+
+    hide_loading_modal()
+
+
+def load_batch_images_sequence_OLD(gui, controller, file_paths):
     total_files = len(file_paths)
     warnings = []
 
@@ -353,6 +440,160 @@ def load_workspace_sequence(gui, controller, filepath):
 
 
 def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=False):
+    import time
+    import concurrent.futures
+
+    if not image_tasks:
+        return
+
+    total_files = len(image_tasks) + sum(1 for t in image_tasks if t["fusion"])
+    warnings = []
+
+    display_name = "Initializing..."
+    show_loading_modal("Loading image...", display_name)
+
+    vp_width = max(dpg.get_viewport_client_width(), 800)
+    vp_height = max(dpg.get_viewport_client_height(), 600)
+    dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
+    yield
+
+    loaded_ids = []
+    id_to_group = {}
+
+    # 1. Gather all file paths that need loading
+    jobs = []
+    for task in image_tasks:
+        jobs.append(task["base"])
+        if task["fusion"]:
+            jobs.append(task["fusion"]["path"])
+
+    job_results = {}
+
+    # --- THE PARALLEL LOADER & REAL PROGRESS BAR ---
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=min(total_files, 8)
+    ) as executor:
+        future_to_path = {
+            executor.submit(controller.file.load_image, path): path for path in jobs
+        }
+        futures = list(future_to_path.keys())
+
+        completed = 0
+        while completed < total_files:
+            for i, future in enumerate(futures):
+                if future is not None and future.done():
+                    path = future_to_path[future]
+                    try:
+                        img_id = future.result()
+                        job_results[path] = img_id
+                    except Exception as e:
+                        warnings.append(f"- {os.path.basename(path)}: {e}")
+
+                    futures[i] = None
+                    completed += 1
+
+                    show_loading_modal(
+                        "Initializing...",
+                        f"Loaded {os.path.basename(path)} ({completed}/{total_files})",
+                        progress=(completed / total_files),
+                    )
+
+            # MAGIC: Let DearPyGui render a frame!
+            yield
+            time.sleep(0.01)
+    # -----------------------------------------------
+
+    show_loading_modal(
+        "Loading image...", "Applying synchronization and layouts...", progress=1.0
+    )
+    yield
+
+    # 3. Now wire up the loaded data into the ViewStates synchronously
+    for task in image_tasks:
+        base_path = task["base"]
+        if base_path not in job_results:
+            continue
+
+        base_id = job_results[base_path]
+        loaded_ids.append(base_id)
+        id_to_group[base_id] = task.get("sync_group", 0)
+
+        if task.get("base_cmap"):
+            controller.view_states[base_id].display.colormap = task["base_cmap"]
+            controller.view_states[base_id].is_data_dirty = True
+
+        if task["fusion"]:
+            fuse_path = task["fusion"]["path"]
+            if fuse_path in job_results:
+                fuse_id = job_results[fuse_path]
+                loaded_ids.append(fuse_id)
+                id_to_group[fuse_id] = task.get("sync_group", 0)
+
+                fuse_vs = controller.view_states[fuse_id]
+                fuse_vs.display.colormap = task["fusion"]["cmap"]
+                fuse_vs.is_data_dirty = True
+
+                base_vs = controller.view_states[base_id]
+                base_vs.set_overlay(fuse_id, fuse_vs.volume, controller)
+                base_vs.overlay_opacity = task["fusion"]["opacity"]
+                base_vs.overlay_threshold = task["fusion"]["threshold"]
+
+                if "mode" in task["fusion"]:
+                    base_vs.display.overlay_mode = task["fusion"]["mode"]
+
+    controller.default_viewers_orientation()
+
+    for i, img_id in enumerate(loaded_ids):
+        if i == 0:
+            for tag in ["V1", "V2", "V3", "V4"]:
+                controller.viewers[tag].set_image(img_id)
+        elif i == 1:
+            controller.viewers["V3"].set_image(img_id)
+            controller.viewers["V4"].set_image(img_id)
+        elif i == 2:
+            controller.viewers["V2"].set_image(loaded_ids[1])
+            controller.viewers["V3"].set_image(img_id)
+            controller.viewers["V4"].set_image(img_id)
+        elif i >= 3:
+            controller.viewers["V4"].set_image(img_id)
+
+    for img_id in loaded_ids:
+        same_viewers = [
+            v.tag for v in controller.viewers.values() if v.image_id == img_id
+        ]
+        if same_viewers:
+            controller.sync.propagate_ppm(same_viewers)
+
+    for img_id in loaded_ids:
+        if sync or link_all:
+            controller.set_sync_group(img_id, 1)
+        elif id_to_group.get(img_id, 0) > 0:
+            controller.set_sync_group(img_id, id_to_group[img_id])
+
+    gui.on_window_resize()
+
+    if "V1" in controller.viewers:
+        gui.set_context_viewer(controller.viewers["V1"])
+
+    gui.refresh_rois_ui()
+
+    if dpg.does_item_exist("loading_modal"):
+        dpg.delete_item("loading_modal")
+    yield
+
+    if warnings:
+        gui.show_message(
+            "Boot Sequence Warning",
+            "Some files provided via command line failed to load:\n\n"
+            + "\n".join(warnings),
+        )
+        while dpg.does_item_exist("generic_message_modal"):
+            yield
+
+    hide_loading_modal()
+
+
+def create_boot_sequence_OLD(gui, controller, image_tasks, sync=False, link_all=False):
     if not image_tasks:
         return
     total_files = len(image_tasks) + sum(1 for t in image_tasks if t["fusion"])

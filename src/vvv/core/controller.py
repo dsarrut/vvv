@@ -1,7 +1,9 @@
 import os
 import json
 import numpy as np
+import concurrent.futures
 from vvv.utils import ViewMode
+from vvv.math.image import VolumeData
 from vvv.core.roi_manager import ROIManager
 from vvv.core.file_manager import FileManager
 from vvv.core.sync_manager import SyncManager
@@ -71,6 +73,35 @@ class Controller:
             self.viewers["V2"].set_orientation(ViewMode.AXIAL)
             self.viewers["V3"].set_orientation(ViewMode.AXIAL)
             self.viewers["V4"].set_orientation(ViewMode.AXIAL)
+
+    def load_volumes_parallel(self, file_paths):
+        """
+        Loads multiple VolumeData objects simultaneously using a thread pool.
+        Returns a dictionary mapping the original file path to the loaded VolumeData object.
+        """
+        loaded_volumes = {}
+
+        # Determine optimal thread count (default is usually fine, but you can cap it to prevent I/O choking)
+        max_workers = min(len(file_paths), 8)
+
+        # Spin up the thread pool
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all paths to the executor simultaneously
+            future_to_path = {
+                executor.submit(VolumeData, path): path for path in file_paths
+            }
+
+            # Collect them as soon as they individually finish
+            for future in concurrent.futures.as_completed(future_to_path):
+                path = future_to_path[future]
+                try:
+                    vol = future.result()
+                    loaded_volumes[path] = vol
+                    # If you have a logger, this is a great place to log: f"Successfully loaded {vol.name}"
+                except Exception as exc:
+                    print(f"CRITICAL: Failed to load {path}. Error: {exc}")
+
+        return loaded_volumes
 
     def load_transform(self, vs_id, filepath):
         if vs_id not in self.view_states:
