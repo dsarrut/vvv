@@ -217,40 +217,6 @@ class ROIManager:
 
         return mask_id
 
-    def load_binary_mask_OLD(
-        self,
-        base_id,
-        filepath,
-        name=None,
-        color=[255, 50, 50],
-        mode="Ignore BG (val)",
-        target_val=0.0,
-    ):
-        base_vol = self.controller.volumes[base_id]
-        mask_vol = VolumeData(filepath)
-
-        # Apply rule BEFORE resampling
-        self._apply_binarization_rule(mask_vol, mode, target_val)
-        self.process_binary_mask(base_vol, mask_vol)
-
-        if mask_vol.data.size == 0:
-            raise ValueError("Outside the base image FOV (or completely empty).")
-
-        mask_id = str(self.controller.next_image_id)
-        self.controller.next_image_id += 1
-        self.controller.volumes[mask_id] = mask_vol
-
-        if name is None:
-            name = self._clean_roi_name(filepath)
-
-        roi_state = ROIState(
-            mask_id, name, color, source_mode=mode, source_val=target_val
-        )
-        self.controller.view_states[base_id].rois[mask_id] = roi_state
-        self.controller.view_states[base_id].is_data_dirty = True
-
-        return mask_id
-
     def get_roi_stats(self, base_vs_id, roi_id, is_overlay=False):
         if (
             base_vs_id not in self.controller.view_states
