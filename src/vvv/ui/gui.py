@@ -422,8 +422,8 @@ class MainGUI:
             tag=f"win_{tag}", border=True, no_scrollbar=True, no_scroll_with_mouse=True
         ):
             with dpg.drawlist(tag=f"drawlist_{tag}", width=-1, height=-1):
-                dpg.add_draw_node(tag=viewer.img_node_tag)
-                dpg.draw_image(viewer.texture_tag, [0, 0], [1, 1], tag=viewer.image_tag)
+                with dpg.draw_node(tag=viewer.img_node_tag):
+                    dpg.draw_image(viewer.texture_tag, [0, 0], [1, 1], tag=viewer.image_tag)
 
                 dpg.add_draw_node(tag=viewer.strips_a_tag)
                 dpg.add_draw_node(tag=viewer.strips_b_tag)

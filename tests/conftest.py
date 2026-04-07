@@ -29,7 +29,7 @@ def fresh_dpg_context():
     for alias in list(dpg.get_aliases()):
         alias_str = str(alias)
         if dpg.does_item_exist(alias_str):
-            if alias_str.startswith("tex_"):
+            if alias_str.startswith("tex_") or alias_str == "global_texture_registry":
                 continue  # Protect textures from OpenGL Segfaults
             try:
                 dpg.delete_item(alias_str)

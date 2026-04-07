@@ -322,23 +322,11 @@ class SliceViewer:
         new_texture_tag = f"tex_{self.tag}_{w}x{h}"
 
         # 2. If the current texture tag perfectly matches the new one, reuse the VRAM
-        if self.texture_tag == new_texture_tag and dpg.does_item_exist(
-            self.texture_tag
-        ):
+        if self.texture_tag == new_texture_tag and dpg.does_item_exist(self.texture_tag):
             return
 
-        # 3. If the size changed, cleanly delete the old drawing command
-        if dpg.does_item_exist(self.img_node_tag):
-            dpg.configure_item(self.img_node_tag, show=True)
-            dpg.delete_item(self.img_node_tag, children_only=True)
-
-        # 4. Schedule the old, incorrectly sized texture for deletion
-        if self.texture_tag != new_texture_tag and dpg.does_item_exist(
-            self.texture_tag
-        ):
-            dpg.delete_item(self.texture_tag)
-
-        # 5. Create the new texture buffer with the new unique alias
+        # 3. Create the new texture buffer if it doesn't exist yet
+        # (This acts as a memory pool. If you load another 512x512 image later, it instantly reuses this!)
         if not dpg.does_item_exist(new_texture_tag):
             dpg.add_dynamic_texture(
                 width=w,
@@ -348,17 +336,17 @@ class SliceViewer:
                 parent="global_texture_registry",
             )
 
-        # 6. Update the viewer's state to track the new texture
+        # 4. Update the viewer's state to track the new texture
         self.texture_tag = new_texture_tag
 
-        # 7. Re-bind the image quad to the screen
+        # 5. NEVER delete nodes or textures mid-frame!
+        # Just tell the existing, permanent drawing command to swap its texture source.
+        if dpg.does_item_exist(self.image_tag):
+            dpg.configure_item(self.image_tag, texture_tag=self.texture_tag)
+
         if dpg.does_item_exist(self.img_node_tag):
-            self.image_tag = dpg.draw_image(
-                self.texture_tag,
-                self.current_pmin,
-                self.current_pmax,
-                parent=self.img_node_tag,
-            )
+            dpg.configure_item(self.img_node_tag, show=True)
+
 
     def drop_image(self):
         self.image_id = None
