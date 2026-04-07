@@ -927,8 +927,6 @@ class MainGUI:
             viewer.set_image(img_id)
             self.update_sidebar_info(viewer)
 
-        self.refresh_image_list_ui()
-
     def on_sidebar_wl_change(self):
         if not self.context_viewer or self.context_viewer.image_id is None:
             return

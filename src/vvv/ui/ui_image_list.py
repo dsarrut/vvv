@@ -112,7 +112,3 @@ def refresh_image_list_ui(gui):
     gui.refresh_recent_menu()
     if gui.context_viewer and gui.context_viewer.image_id:
         gui.highlight_active_image_in_list(gui.context_viewer.image_id)
-
-    # Keep the invisible Sync tab locked to the new array state!
-    if hasattr(gui, "refresh_sync_ui"):
-        gui.refresh_sync_ui()
