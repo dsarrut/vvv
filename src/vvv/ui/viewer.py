@@ -277,6 +277,11 @@ class SliceViewer:
     def set_current_slice_to_crosshair(self):
         if not self.view_state or not self.volume:
             return
+
+        # Abort if history safely wiped the out-of-bounds crosshair
+        if self.view_state.camera.crosshair_voxel is None:
+            return
+
         vx, vy, vz = self.view_state.camera.crosshair_voxel[:3]
         if self.orientation == ViewMode.AXIAL:
             self.slice_idx = int(np.clip(vz, 0, self.volume.shape3d[0] - 1))
