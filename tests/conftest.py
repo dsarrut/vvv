@@ -1,6 +1,7 @@
 import pytest
 import dearpygui.dearpygui as dpg
 
+
 @pytest.fixture(scope="session", autouse=True)
 def boot_dpg_engine():
     """Boots the C++ engine exactly ONCE for the entire pytest session."""
@@ -9,6 +10,7 @@ def boot_dpg_engine():
     dpg.setup_dearpygui()
     yield
     # The OS will safely reclaim all memory when the pytest process finishes
+
 
 @pytest.fixture(autouse=True)
 def fresh_dpg_context():
@@ -29,8 +31,8 @@ def fresh_dpg_context():
     for alias in list(dpg.get_aliases()):
         alias_str = str(alias)
         if dpg.does_item_exist(alias_str):
-            if alias_str.startswith("tex_"):
-                continue  # Protect textures from OpenGL Segfaults
+            if alias_str.startswith("tex_") or alias_str == "global_texture_registry":
+                continue
             try:
                 dpg.delete_item(alias_str)
             except Exception:
