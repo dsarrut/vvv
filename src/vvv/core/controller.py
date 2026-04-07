@@ -202,8 +202,7 @@ class Controller:
         ix, iy, iz = [int(np.floor(c + 0.5)) for c in base_vox[:3]]
 
         mz, my, mx = vol.shape3d
-
-        if vol.data is not None and 0 <= ix < mx and 0 <= iy < my and 0 <= iz < mz:
+        if 0 <= ix < mx and 0 <= iy < my and 0 <= iz < mz:
             t = min(time_idx, vol.num_timepoints - 1) if vol.num_timepoints > 1 else 0
             base_val = (
                 vol.data[t, iz, iy, ix]
