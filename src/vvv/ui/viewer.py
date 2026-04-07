@@ -357,9 +357,27 @@ class SliceViewer:
     def drop_image(self):
         self.image_id = None
 
-        # Simply hide the node. Do not delete the texture
-        if dpg.does_item_exist(self.img_node_tag):
-            dpg.configure_item(self.img_node_tag, show=False)
+        # Hide ALL overlay nodes and text, not just the image! ---
+        nodes_to_hide = [
+            self.img_node_tag,
+            self.strips_a_tag,
+            self.strips_b_tag,
+            self.grid_a_tag,
+            self.grid_b_tag,
+            self.axis_a_tag,
+            self.axis_b_tag,
+            self.scale_bar_tag,
+            self.crosshair_tag,
+            self.legend_tag,
+            self.filename_text_tag,
+        ]
+
+        for node_tag in nodes_to_hide:
+            if dpg.does_item_exist(node_tag):
+                dpg.configure_item(node_tag, show=False)
+
+        if dpg.does_item_exist(self.tracker_tag):
+            dpg.set_value(self.tracker_tag, "")
 
         if self.controller:
             self.controller.ui_needs_refresh = True
