@@ -332,12 +332,6 @@ class SliceViewer:
             dpg.configure_item(self.img_node_tag, show=True)
             dpg.delete_item(self.img_node_tag, children_only=True)
 
-        # 4. Schedule the old, incorrectly sized texture for deletion
-        if self.texture_tag != new_texture_tag and dpg.does_item_exist(
-            self.texture_tag
-        ):
-            dpg.delete_item(self.texture_tag)
-
         # 5. Create the new texture buffer with the new unique alias
         if not dpg.does_item_exist(new_texture_tag):
             dpg.add_dynamic_texture(
