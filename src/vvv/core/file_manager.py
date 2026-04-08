@@ -230,9 +230,13 @@ class FileManager:
                 return abs_p.replace(home, "~", 1)
             return abs_p
 
+        # Track all image IDs currently assigned to a viewer
+        active_viewer_ids = set()
+
         # 1. Save Viewers
         for tag, viewer in self.controller.viewers.items():
             if viewer.image_id:
+                active_viewer_ids.add(viewer.image_id)
                 workspace["viewers"][tag] = {
                     "image_id": viewer.image_id,
                     "orientation": viewer.orientation.name,
@@ -243,7 +247,11 @@ class FileManager:
 
         # 2. Save Images & ViewStates
         for vs_id, vs in self.controller.view_states.items():
-            if getattr(self.controller.volumes[vs_id], "is_overlay_only", False):
+            # Never skip an image if it occupies a Viewer
+            is_overlay = getattr(
+                self.controller.volumes[vs_id], "is_overlay_only", False
+            )
+            if is_overlay and vs_id not in active_viewer_ids:
                 continue
 
             vol = self.controller.volumes[vs_id]
@@ -256,7 +264,7 @@ class FileManager:
             ):
                 ov_vol = self.controller.volumes[vs.display.overlay_id]
                 overlay_info = {
-                    "path": portable_path(ov_vol.file_paths[0]),  # <--- UPDATED
+                    "path": portable_path(ov_vol.file_paths[0]),
                     "mode": vs.display.overlay_mode,
                     "opacity": vs.display.overlay_opacity,
                     "colormap": self.controller.view_states[
@@ -272,15 +280,13 @@ class FileManager:
                     if r_vol.file_paths:
                         rois_list.append(
                             {
-                                "path": portable_path(
-                                    r_vol.file_paths[0]
-                                ),  # <--- UPDATED
+                                "path": portable_path(r_vol.file_paths[0]),
                                 "state": roi_state.to_dict(),
                             }
                         )
 
             workspace["images"][vs_id] = {
-                "path": portable_path(vol.file_paths[0]),  # <--- UPDATED
+                "path": portable_path(vol.file_paths[0]),
                 "sync_group": vs.sync_group,
                 "display": vs.display.to_dict(),
                 "camera": vs.camera.to_dict(),
