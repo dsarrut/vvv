@@ -135,7 +135,7 @@ class SyncManager:
                     np.clip(np.floor(target_vox[1] + 0.5), 0, target_vol.shape3d[1] - 1)
                 )
 
-            # --- THE FIX: Pure Physical Coordinates for Value Lookup ---
+            # --- Pure Physical Coordinates for Value Lookup ---
             # By passing is_buffered=False, we force the SpatialEngine to map the world coordinate
             # backwards through any active transforms straight into the original RAW array!
             raw_vox = target_vs.space.world_to_display(

@@ -342,6 +342,7 @@ class RegistrationUI:
         vs = viewer.view_state
         vs_id = viewer.image_id
 
+        # 1. Capture the exact crosshair world position
         is_buf = vs.base_display_data is not None
         world_pos = vs.space.display_to_world(
             np.array(vs.camera.crosshair_voxel[:3]), is_buffered=is_buf
@@ -355,63 +356,79 @@ class RegistrationUI:
             params = vs.space.get_parameters()
             old_rx, old_ry, old_rz = params[0], params[1], params[2]
 
-        # --- 1. Record the crosshair's starting voxel ---
+        # Capture RAW voxel coordinate BEFORE transform
+        old_raw_vox = vs.space.world_to_display(world_pos, is_buffered=False)
         old_vox = list(vs.camera.crosshair_voxel[:3])
 
         if new_state_val is not None:
             vs.space.is_active = new_state_val
 
         if not skip_manual_update:
-            tx, ty, tz = (
-                dpg.get_value("drag_reg_tx"),
-                dpg.get_value("drag_reg_ty"),
-                dpg.get_value("drag_reg_tz"),
+            new_tx = dpg.get_value("drag_reg_tx")
+            new_ty = dpg.get_value("drag_reg_ty")
+            new_tz = dpg.get_value("drag_reg_tz")
+            new_rx = dpg.get_value("drag_reg_rx")
+            new_ry = dpg.get_value("drag_reg_ry")
+            new_rz = dpg.get_value("drag_reg_rz")
+            self.controller.update_transform_manual(
+                vs_id, new_tx, new_ty, new_tz, new_rx, new_ry, new_rz
             )
-            rx, ry, rz = (
-                dpg.get_value("drag_reg_rx"),
-                dpg.get_value("drag_reg_ry"),
-                dpg.get_value("drag_reg_rz"),
-            )
-            self.controller.update_transform_manual(vs_id, tx, ty, tz, rx, ry, rz)
+        else:
+            if vs.space.transform and vs.space.is_active:
+                trans = vs.space.transform.GetTranslation()
+                new_tx, new_ty, new_tz = trans[0], trans[1], trans[2]
+                params = vs.space.get_parameters()
+                new_rx, new_ry, new_rz = params[0], params[1], params[2]
+            else:
+                new_tx, new_ty, new_tz = 0.0, 0.0, 0.0
+                new_rx, new_ry, new_rz = 0.0, 0.0, 0.0
 
-        new_tx, new_ty, new_tz = 0.0, 0.0, 0.0
-        new_rx, new_ry, new_rz = 0.0, 0.0, 0.0
-        if vs.space.transform and vs.space.is_active:
-            trans = vs.space.transform.GetTranslation()
-            new_tx, new_ty, new_tz = trans[0], trans[1], trans[2]
-            params = vs.space.get_parameters()
-            new_rx, new_ry, new_rz = params[0], params[1], params[2]
+        # Capture RAW voxel coordinate AFTER transform
+        new_raw_vox = vs.space.world_to_display(world_pos, is_buffered=False)
 
-        self._snap_viewer_to_world_pos(viewer, world_pos)
+        # Bypass the frozen buffer mapping
+        # We manually apply the raw voxel delta directly to the crosshair,
+        # forcing it to counter-shift in the opposite direction of the pan.
+        delta_vox = new_raw_vox - old_raw_vox
 
-        # --- 2. Calculate the difference and Counter-Pan the Viewers! ---
-        new_vox = list(vs.camera.crosshair_voxel[:3])
+        new_vx = old_vox[0] + delta_vox[0]
+        new_vy = old_vox[1] + delta_vox[1]
+        new_vz = old_vox[2] + delta_vox[2]
+
+        vs.camera.crosshair_voxel = [new_vx, new_vy, new_vz, vs.camera.time_idx]
+
+        from vvv.utils import ViewMode
+
+        raw_sh = vs.volume.shape3d
+        vs.camera.slices[ViewMode.AXIAL] = int(np.clip(new_vz, 0, raw_sh[0] - 1))
+        vs.camera.slices[ViewMode.SAGITTAL] = int(np.clip(new_vx, 0, raw_sh[2] - 1))
+        vs.camera.slices[ViewMode.CORONAL] = int(np.clip(new_vy, 0, raw_sh[1] - 1))
+        # -------------------------------------------------------
 
         from vvv.utils import voxel_to_slice
 
+        # --- Calculate the difference and Counter-Pan! ---
         for v in self.controller.viewers.values():
             if v.image_id == vs_id:
                 shape = v.get_slice_shape()
-                sw, sh = v.volume.get_physical_aspect_ratio(v.orientation)
 
                 old_tx_slice, old_ty_slice = voxel_to_slice(
-                    old_vox[0], old_vox[1], old_vox[2], v.orientation, shape
+                    old_raw_vox[0], old_raw_vox[1], old_raw_vox[2], v.orientation, shape
                 )
                 new_tx_slice, new_ty_slice = voxel_to_slice(
-                    new_vox[0], new_vox[1], new_vox[2], v.orientation, shape
+                    new_raw_vox[0], new_raw_vox[1], new_raw_vox[2], v.orientation, shape
                 )
 
-                target_w = v.quad_w - v.mapper.margin_left
-                target_h = v.quad_h - v.mapper.margin_top
-                mm_w, mm_h = shape[1] * sw, shape[0] * sh
+                if shape[1] > 0 and shape[0] > 0:
+                    # Query the mapper directly to bypass float/integer scaling discrepancies
+                    old_screen_x = (old_tx_slice / shape[1]) * v.mapper.disp_w
+                    old_screen_y = (old_ty_slice / shape[0]) * v.mapper.disp_h
 
-                if mm_w > 0 and mm_h > 0:
-                    base_scale = min(target_w / mm_w, target_h / mm_h)
-                    final_scale = base_scale * v.zoom
+                    new_screen_x = (new_tx_slice / shape[1]) * v.mapper.disp_w
+                    new_screen_y = (new_ty_slice / shape[0]) * v.mapper.disp_h
 
-                    # Convert the voxel difference into exact screen pixels
-                    dx_screen = (old_tx_slice - new_tx_slice) * sw * final_scale
-                    dy_screen = (old_ty_slice - new_ty_slice) * sh * final_scale
+                    dx_screen = old_screen_x - new_screen_x
+                    dy_screen = old_screen_y - new_screen_y
 
                     # Shift the camera to perfectly counteract the crosshair movement
                     v.pan_offset[0] += dx_screen
@@ -421,8 +438,9 @@ class RegistrationUI:
 
         self.controller.update_all_viewers_of_image(vs_id)
 
+        # Force Live Rendering on ALL ViewStates
         for v in self.controller.viewers.values():
-            if v.image_id != vs_id and v.view_state:
+            if v.view_state:
                 v.view_state.is_data_dirty = True
 
         self.gui.update_sidebar_crosshair(viewer)

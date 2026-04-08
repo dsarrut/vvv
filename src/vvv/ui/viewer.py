@@ -826,7 +826,7 @@ class SliceViewer:
 
         ovs = self.controller.view_states[self.view_state.display.overlay_id]
 
-        # --- THE FUSION FIX: Calculate Relative Pixel Shift ---
+        # ---Calculate Relative Pixel Shift ---
         base_vs = self.view_state
         base_tx, base_ty, base_tz = 0.0, 0.0, 0.0
         if base_vs.space.transform and base_vs.space.is_active:
