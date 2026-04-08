@@ -342,59 +342,35 @@ class RegistrationUI:
         vs = viewer.view_state
         vs_id = viewer.image_id
 
-        # 1. Capture the exact crosshair world position
+        # 1. Capture crosshair world position & RAW voxel BEFORE change
         is_buf = vs.base_display_data is not None
         world_pos = vs.space.display_to_world(
             np.array(vs.camera.crosshair_voxel[:3]), is_buffered=is_buf
         )
-
-        old_tx, old_ty, old_tz = 0.0, 0.0, 0.0
-        old_rx, old_ry, old_rz = 0.0, 0.0, 0.0
-        if vs.space.transform and vs.space.is_active:
-            trans = vs.space.transform.GetTranslation()
-            old_tx, old_ty, old_tz = trans[0], trans[1], trans[2]
-            params = vs.space.get_parameters()
-            old_rx, old_ry, old_rz = params[0], params[1], params[2]
-
-        # Capture RAW voxel coordinate BEFORE transform
         old_raw_vox = vs.space.world_to_display(world_pos, is_buffered=False)
         old_vox = list(vs.camera.crosshair_voxel[:3])
 
+        # 2. Update Transform State
         if new_state_val is not None:
             vs.space.is_active = new_state_val
 
         if not skip_manual_update:
-            new_tx = dpg.get_value("drag_reg_tx")
-            new_ty = dpg.get_value("drag_reg_ty")
-            new_tz = dpg.get_value("drag_reg_tz")
-            new_rx = dpg.get_value("drag_reg_rx")
-            new_ry = dpg.get_value("drag_reg_ry")
-            new_rz = dpg.get_value("drag_reg_rz")
+            # Map SLIDER_TAGS (rx, ry, rz, tx, ty, tz) directly into the controller
+            vals = [dpg.get_value(t) for t in self.SLIDER_TAGS]
             self.controller.update_transform_manual(
-                vs_id, new_tx, new_ty, new_tz, new_rx, new_ry, new_rz
+                vs_id, vals[3], vals[4], vals[5], vals[0], vals[1], vals[2]
             )
-        else:
-            if vs.space.transform and vs.space.is_active:
-                trans = vs.space.transform.GetTranslation()
-                new_tx, new_ty, new_tz = trans[0], trans[1], trans[2]
-                params = vs.space.get_parameters()
-                new_rx, new_ry, new_rz = params[0], params[1], params[2]
-            else:
-                new_tx, new_ty, new_tz = 0.0, 0.0, 0.0
-                new_rx, new_ry, new_rz = 0.0, 0.0, 0.0
 
-        # Capture RAW voxel coordinate AFTER transform
+        # 3. Capture RAW voxel AFTER change & calculate true physical delta
         new_raw_vox = vs.space.world_to_display(world_pos, is_buffered=False)
-
-        # Bypass the frozen buffer mapping
-        # We manually apply the raw voxel delta directly to the crosshair,
-        # forcing it to counter-shift in the opposite direction of the pan.
         delta_vox = new_raw_vox - old_raw_vox
 
-        new_vx = old_vox[0] + delta_vox[0]
-        new_vy = old_vox[1] + delta_vox[1]
-        new_vz = old_vox[2] + delta_vox[2]
-
+        # 4. Shift crosshair manually to stay pinned to anatomy (bypasses frozen buffer)
+        new_vx, new_vy, new_vz = (
+            old_vox[0] + delta_vox[0],
+            old_vox[1] + delta_vox[1],
+            old_vox[2] + delta_vox[2],
+        )
         vs.camera.crosshair_voxel = [new_vx, new_vy, new_vz, vs.camera.time_idx]
 
         from vvv.utils import ViewMode
@@ -403,58 +379,59 @@ class RegistrationUI:
         vs.camera.slices[ViewMode.AXIAL] = int(np.clip(new_vz, 0, raw_sh[0] - 1))
         vs.camera.slices[ViewMode.SAGITTAL] = int(np.clip(new_vx, 0, raw_sh[2] - 1))
         vs.camera.slices[ViewMode.CORONAL] = int(np.clip(new_vy, 0, raw_sh[1] - 1))
-        # -------------------------------------------------------
 
-        from vvv.utils import voxel_to_slice
+        # 5. Process all Viewers (Counter-Pan matching Render Engine Flips)
+        # We define dx, dy, dz as old - new
+        dx = old_raw_vox[0] - new_raw_vox[0]
+        dy = old_raw_vox[1] - new_raw_vox[1]
+        dz = old_raw_vox[2] - new_raw_vox[2]
 
-        # --- Calculate the difference and Counter-Pan! ---
+        # --- THE FIX: Prevent Double-Dipping on Shared Orientations ---
+        updated_orientations = set()
+
         for v in self.controller.viewers.values():
             if v.image_id == vs_id:
                 shape = v.get_slice_shape()
 
-                old_tx_slice, old_ty_slice = voxel_to_slice(
-                    old_raw_vox[0], old_raw_vox[1], old_raw_vox[2], v.orientation, shape
-                )
-                new_tx_slice, new_ty_slice = voxel_to_slice(
-                    new_raw_vox[0], new_raw_vox[1], new_raw_vox[2], v.orientation, shape
-                )
+                # Only apply the math if we haven't already updated this shared orientation!
+                if (
+                    shape[1] > 0
+                    and shape[0] > 0
+                    and v.orientation not in updated_orientations
+                ):
 
-                if shape[1] > 0 and shape[0] > 0:
-                    # Query the mapper directly to bypass float/integer scaling discrepancies
-                    old_screen_x = (old_tx_slice / shape[1]) * v.mapper.disp_w
-                    old_screen_y = (old_ty_slice / shape[0]) * v.mapper.disp_h
+                    # Map the raw physical deltas to the EXACT screen space orientations
+                    if v.orientation == ViewMode.AXIAL:
+                        shift_x_vox = dx
+                        shift_y_vox = dy
+                    elif v.orientation == ViewMode.CORONAL:
+                        shift_x_vox = dx
+                        shift_y_vox = -dz  # Z is vertically flipped on screen
+                    elif v.orientation == ViewMode.SAGITTAL:
+                        shift_x_vox = -dy  # Y is horizontally flipped on screen
+                        shift_y_vox = -dz  # Z is vertically flipped on screen
+                    else:
+                        shift_x_vox, shift_y_vox = 0, 0
 
-                    new_screen_x = (new_tx_slice / shape[1]) * v.mapper.disp_w
-                    new_screen_y = (new_ty_slice / shape[0]) * v.mapper.disp_h
+                    # Apply proportional screen shift dynamically
+                    v.pan_offset[0] += (shift_x_vox / shape[1]) * v.mapper.disp_w
+                    v.pan_offset[1] += (shift_y_vox / shape[0]) * v.mapper.disp_h
 
-                    dx_screen = old_screen_x - new_screen_x
-                    dy_screen = old_screen_y - new_screen_y
+                    # Mark this orientation as successfully updated
+                    updated_orientations.add(v.orientation)
 
-                    # Shift the camera to perfectly counteract the crosshair movement
-                    v.pan_offset[0] += dx_screen
-                    v.pan_offset[1] += dy_screen
-                    v.is_geometry_dirty = True
-        # ----------------------------------------------------------------
+                # We always flag geometry as dirty so the viewer redraws
+                v.is_geometry_dirty = True
 
-        self.controller.update_all_viewers_of_image(vs_id)
-
-        # Force Live Rendering on ALL ViewStates
-        for v in self.controller.viewers.values():
+            # Force Live Rendering on ALL ViewStates for dynamic overlay offsets
             if v.view_state:
                 v.view_state.is_data_dirty = True
 
+        self.controller.update_all_viewers_of_image(vs_id)
         self.gui.update_sidebar_crosshair(viewer)
 
-        transform_changed = (
-            abs(new_rx - old_rx) > 1e-5
-            or abs(new_ry - old_ry) > 1e-5
-            or abs(new_rz - old_rz) > 1e-5
-            or abs(new_tx - old_tx) > 1e-5
-            or abs(new_ty - old_ty) > 1e-5
-            or abs(new_tz - old_tz) > 1e-5
-        )
-
-        if (transform_changed and vs.space.is_active) or new_state_val is not None:
+        # 6. Trigger 3D resample
+        if vs.space.is_active or new_state_val is not None:
             self.trigger_debounced_rotation_update(vs_id)
 
     # --- Callbacks ---
