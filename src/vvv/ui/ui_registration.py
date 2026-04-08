@@ -303,36 +303,41 @@ class RegistrationUI:
             self._reg_debounce_timer.cancel()
 
         def _do_resample():
-            self.gui.show_status_message(
-                "Resampling Rotation...",
-                duration=1.0,
-                color=self.gui.ui_cfg["colors"]["working"],
-            )
-            active_vs = self.controller.view_states.get(active_image_id)
-            if active_vs:
-                active_vs.update_base_display_data()
-                if active_vs.display.overlay_id:
-                    active_vs.update_overlay_display_data(self.controller)
-                    active_vs.is_data_dirty = True
+            with dpg.mutex():
+                active_vs = self.controller.view_states.get(active_image_id)
+                if active_vs:
+                    active_vs.update_base_display_data()
+                    if active_vs.display.overlay_id:
+                        active_vs.update_overlay_display_data(self.controller)
+                        active_vs.is_data_dirty = True
 
-            for v in self.controller.viewers.values():
-                if (
-                    v.view_state
-                    and getattr(v.view_state.display, "overlay_id", None)
-                    == active_image_id
-                ):
-                    v.view_state.update_overlay_display_data(self.controller)
-                    v.view_state.is_data_dirty = True
+                for v in self.controller.viewers.values():
+                    if (
+                        v.view_state
+                        and getattr(v.view_state.display, "overlay_id", None)
+                        == active_image_id
+                    ):
+                        v.view_state.update_overlay_display_data(self.controller)
+                        v.view_state.is_data_dirty = True
 
-            self.controller.update_all_viewers_of_image(active_image_id)
-            self.gui.show_status_message(
-                "Transform applied", color=self.gui.ui_cfg["colors"]["text_status_ok"]
-            )
+                self.controller.update_all_viewers_of_image(active_image_id)
+
+        # Trigger the "Working..." UI message safely on the MAIN thread
+        self.gui.show_status_message(
+            "Resampling Rotation...",
+            duration=1.0,
+            color=self.gui.ui_cfg["colors"]["working"],
+        )
 
         # Execute instantly if requested
         if immediate:
             _do_resample()
+            # It is safe to update UI here because 'immediate' runs on the main thread
+            self.gui.show_status_message(
+                "Transform applied", color=self.gui.ui_cfg["colors"]["text_status_ok"]
+            )
         else:
+            # Spin up the background thread purely for the math
             self._reg_debounce_timer = threading.Timer(0.3, _do_resample)
             self._reg_debounce_timer.start()
 
