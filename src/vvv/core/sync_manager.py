@@ -251,6 +251,21 @@ class SyncManager:
                 viewer.set_pixels_per_mm(target_ppm)
                 viewer.center_on_physical_coord(phys_center)
 
+    def propagate_tracker(self, source_viewer, phys):
+        """Pushes the active mouse physical coordinate to all synced sister viewers."""
+        if not source_viewer.view_state:
+            return
+
+        target_ids = self.get_sync_group_vs_ids(
+            source_viewer.image_id, active_only=True
+        )
+
+        for viewer in self.controller.viewers.values():
+            if viewer.image_id in target_ids and viewer != source_viewer:
+                # Only broadcast to viewers displaying DIFFERENT images
+                if viewer.image_id != source_viewer.image_id:
+                    viewer.update_tracker(external_phys=phys, is_external=True)
+
     def propagate_overlay_mode(self, source_vs_id):
         source_vs = self.controller.view_states[source_vs_id]
         target_ids = self.get_sync_group_vs_ids(source_vs_id)

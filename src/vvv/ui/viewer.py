@@ -1040,7 +1040,7 @@ class SliceViewer:
         self.update_tracker()
         self.update_filename_overlay()
 
-    def update_tracker(self):
+    def update_tracker(self, external_phys=None, is_external=False):
         if (
             self.image_id is None
             or not self.view_state
@@ -1049,6 +1049,7 @@ class SliceViewer:
             or not self.is_image_orientation()
         ):
             dpg.set_value(self.tracker_tag, "")
+            self._external_tracker_active = False
             return
 
         is_dragging = False
@@ -1056,23 +1057,57 @@ class SliceViewer:
             active_tool = self.controller.gui.interaction.active_tool
             is_dragging = getattr(active_tool, "drag_viewer", None) == self
 
-        pix_x, pix_y = self.get_mouse_slice_coords(
-            ignore_hover=is_dragging, allow_outside=is_dragging
-        )
-        if pix_x is None:
-            dpg.set_value(self.tracker_tag, "")
-            return
+        phys = external_phys
+        v = None
 
-        idx = self.slice_idx
-        shape = self.get_slice_shape()
+        if not is_external:
+            # 1. LOCAL VIEWER: Check our own mouse
+            pix_x, pix_y = self.get_mouse_slice_coords(
+                ignore_hover=is_dragging, allow_outside=is_dragging
+            )
+            if pix_x is None:
+                # If we are currently displaying an external tracker, do not wipe it!
+                if getattr(self, "_external_tracker_active", False):
+                    return
 
-        v = slice_to_voxel(pix_x, pix_y, idx, self.orientation, shape)
-        is_buf = self.view_state.base_display_data is not None
-        phys = self.view_state.space.display_to_world(np.array(v), is_buffered=is_buf)
+                dpg.set_value(self.tracker_tag, "")
+
+                # Only broadcast the "clear" signal the exact frame the mouse leaves
+                if getattr(self, "_was_hovered", False):
+                    self._was_hovered = False
+                    if self.view_state.sync_group > 0 and not is_dragging:
+                        self.controller.sync.propagate_tracker(self, None)
+                return
+
+            self._was_hovered = True
+            self._external_tracker_active = False
+
+            idx = self.slice_idx
+            shape = self.get_slice_shape()
+            v = slice_to_voxel(pix_x, pix_y, idx, self.orientation, shape)
+            is_buf = self.view_state.base_display_data is not None
+            phys = self.view_state.space.display_to_world(
+                np.array(v), is_buffered=is_buf
+            )
+
+            # Broadcast our physical location to synced viewers
+            if self.view_state.sync_group > 0:
+                self.controller.sync.propagate_tracker(self, phys)
+        else:
+            # 2. EXTERNAL COMMAND: We are a passive viewer receiving an update
+            if phys is None:
+                dpg.set_value(self.tracker_tag, "")
+                self._external_tracker_active = False
+                return
+
+            self._external_tracker_active = True
+            is_buf = self.view_state.base_display_data is not None
+            v = self.view_state.space.world_to_display(phys, is_buffered=is_buf)
 
         col = self.controller.settings.data["colors"]["tracker_text"]
         dpg.configure_item(self.tracker_tag, color=col)
 
+        # Look up the value at the physical coordinate
         info = self.controller.get_pixel_values_at_phys(
             self.image_id, phys, self.view_state.camera.time_idx
         )
@@ -1080,12 +1115,12 @@ class SliceViewer:
         if info is not None:
             val = info["base_val"]
 
-            # Maintain backward compatibility for scripts relying on mouse_value
-            self.mouse_value, self.mouse_voxel, self.mouse_phys_coord = (
-                val,
-                [v[0], v[1], v[2], self.view_state.camera.time_idx],
-                phys,
-            )
+            if not is_external:
+                self.mouse_value, self.mouse_voxel, self.mouse_phys_coord = (
+                    val,
+                    [v[0], v[1], v[2], self.view_state.camera.time_idx],
+                    phys,
+                )
 
             if val is None:
                 val_str = "-"
@@ -1103,17 +1138,21 @@ class SliceViewer:
             if info["rois"]:
                 text_lines[0] += f"  {', '.join(info['rois'])}"
 
-            if self.volume.num_timepoints > 1:
-                text_lines.append(
-                    f"{v[0]:.1f} {v[1]:.1f} {v[2]:.1f} {self.view_state.camera.time_idx}"
-                )
+            # Format the text differently depending on if we are active or passive
+            if is_external:
+                dpg.set_value(self.tracker_tag, text_lines[0])
             else:
-                text_lines.append(fmt(v, 1))
+                if self.volume.num_timepoints > 1:
+                    text_lines.append(
+                        f"{v[0]:.1f} {v[1]:.1f} {v[2]:.1f} {self.view_state.camera.time_idx}"
+                    )
+                else:
+                    text_lines.append(fmt(v, 1))
 
-            text_lines.append(f"{fmt(phys, 1)} mm")
-            dpg.set_value(self.tracker_tag, "\n".join(text_lines))
+                text_lines.append(f"{fmt(phys, 1)} mm")
+                dpg.set_value(self.tracker_tag, "\n".join(text_lines))
         else:
-            dpg.set_value(self.tracker_tag, "Out of image")
+            dpg.set_value(self.tracker_tag, "Out of image" if not is_external else "")
 
         win_h = self.quad_h
         ts = dpg.get_item_rect_size(self.tracker_tag)
