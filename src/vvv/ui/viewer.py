@@ -256,11 +256,16 @@ class SliceViewer:
                 self.controller.sync.propagate_colormap(master_vs_id)
 
         self.set_current_slice_to_crosshair()
-        self.init_slice_texture()
 
+        # Calculate geometry BEFORE creating the texture
+        # This guarantees the ViewportMapper has the perfect bounding box ready.
         win_w = dpg.get_item_width(f"win_{self.tag}")
         win_h = dpg.get_item_height(f"win_{self.tag}")
         self.resize(win_w, win_h)
+
+        # When the new draw_image node is instantiated here, it will instantly
+        # pull the correct dimensions, completely bypassing the 1-frame DPG bug.
+        self.init_slice_texture()
 
         if self.view_state:
             self.view_state.is_data_dirty = True
@@ -1038,6 +1043,11 @@ class SliceViewer:
         else:
             dpg.configure_item(self.axis_a_tag, show=False)
             dpg.configure_item(self.axis_b_tag, show=False)
+
+        # Unhide the overlay nodes that drop_image() disabled
+        for tag in [self.scale_bar_tag, self.legend_tag, self.crosshair_tag]:
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, show=True)
 
         self.drawer.draw_scale_bar()
         self.drawer.draw_legend()
