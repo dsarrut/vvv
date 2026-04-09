@@ -300,6 +300,8 @@ def load_workspace_sequence(gui, controller, filepath):
     dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
     yield
 
+    warnings = []
+
     # --- PHASE 1: GATHER ALL UNIQUE FILES TO LOAD ---
     paths_to_load = set()
     for old_id, img_data in ws.get("images", {}).items():
@@ -309,6 +311,8 @@ def load_workspace_sequence(gui, controller, filepath):
             p = os.path.expanduser(raw_path)
             if os.path.exists(p):
                 paths_to_load.add(p)
+            else:
+                warnings.append(f"Missing File: {os.path.basename(raw_path)}")
 
         # Add Fusion Overlay
         ov_info = img_data.get("overlay")
@@ -316,11 +320,12 @@ def load_workspace_sequence(gui, controller, filepath):
             ov_path = os.path.expanduser(ov_info["path"])
             if os.path.exists(ov_path):
                 paths_to_load.add(ov_path)
+            else:
+                warnings.append(f"Missing Overlay: {os.path.basename(ov_info['path'])}")
 
     paths_list = list(paths_to_load)
     total_files = len(paths_list)
     path_map = {}  # Maps absolute file paths to the newly generated vs_id
-    warnings = []
 
     # --- PHASE 2: PARALLEL LOAD ALL IMAGES & OVERLAYS ---
     if total_files > 0:
@@ -439,6 +444,16 @@ def load_workspace_sequence(gui, controller, filepath):
     if dpg.does_item_exist("loading_modal"):
         dpg.delete_item("loading_modal")
     yield
+
+    # SHOW WORKSPACE WARNINGS
+    if warnings:
+        gui.show_message(
+            "Workspace Warnings",
+            "Some files could not be found or loaded:\n\n" + "\n".join(warnings),
+        )
+        # Yield while the modal is open so the UI doesn't freeze
+        while dpg.does_item_exist("generic_message_modal"):
+            yield
 
     hide_loading_modal()
 
