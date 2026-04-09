@@ -326,6 +326,12 @@ class SliceViewer:
         # 1. Generate a unique tag based on the viewer and the specific dimensions
         new_texture_tag = f"tex_{self.tag}_{w}x{h}"
 
+        # Always unhide the parent canvas
+        # drop_image() hides this node. If the new fallback image matches the old size,
+        # we will hit the early return below. We MUST explicitly unhide it here!
+        if dpg.does_item_exist(self.img_node_tag):
+            dpg.configure_item(self.img_node_tag, show=True)
+
         # 2. If the current texture tag perfectly matches the new one, reuse the VRAM
         if self.texture_tag == new_texture_tag and dpg.does_item_exist(
             self.texture_tag
@@ -334,7 +340,6 @@ class SliceViewer:
 
         # 3. If the size changed, cleanly delete the old drawing command
         if dpg.does_item_exist(self.img_node_tag):
-            dpg.configure_item(self.img_node_tag, show=True)
             dpg.delete_item(self.img_node_tag, children_only=True)
 
         # 5. Create the new texture buffer with the new unique alias

@@ -407,6 +407,12 @@ class Controller:
             vol = vs.volume
             was_reset = vol.reload()
 
+            if getattr(vs, "base_display_data", None) is not None:
+                vs.base_display_data = None
+            if getattr(vs.display, "overlay_data", None) is not None:
+                vs.display.overlay_data = None
+
+
             if was_reset:
                 for viewer in self.viewers.values():
                     if viewer.image_id == vs_id:

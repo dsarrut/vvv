@@ -958,13 +958,20 @@ class VolumeData:
         current_shape = self.sitk_image.GetSize()
 
         if new_shape == current_shape:
+            # Create the new view FIRST, then swap atomically
+            new_data = sitk.GetArrayViewFromImage(new_sitk)
+
+            # Keep a temporary reference to prevent instantaneous C++ free
+            old_sitk = self.sitk_image
+
             self.sitk_image = new_sitk
-            self.data = sitk.GetArrayViewFromImage(self.sitk_image)
+            self.data = new_data
             self.read_image_metadata()
 
             self.last_mtime = self._get_latest_mtime()
             self._is_outdated = False
 
+            # old_sitk safely drops out of scope here
             return False
         else:
             self.__init__(self.path)
