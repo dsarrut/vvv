@@ -332,7 +332,6 @@ class FileManager:
                 for viewer in self.controller.viewers.values():
                     if viewer.image_id is None:
                         viewer.set_image(first_vs_id)
-                        viewer.needs_recenter = True
 
             self.controller.ui_needs_refresh = True
 

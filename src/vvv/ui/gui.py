@@ -911,9 +911,12 @@ class MainGUI:
             dpg.set_item_width("viewers_container", quad_w * 2)
             dpg.set_item_height("viewers_container", quad_h * 2)
 
-        for viewer in self.controller.viewers.values():
-            viewer.resize(quad_w, quad_h)
-            viewer.is_geometry_dirty = True
+        # Only adjust the container boundaries. The Viewers will autonomously
+        # detect the size change in their next tick() and recalculate their math.
+        for tag in ["V1", "V2", "V3", "V4"]:
+            if dpg.does_item_exist(f"win_{tag}"):
+                dpg.set_item_width(f"win_{tag}", quad_w)
+                dpg.set_item_height(f"win_{tag}", quad_h)
 
     def on_image_viewer_toggle(self, sender, value, user_data):
         img_id, v_tag = user_data["img_id"], user_data["v_tag"]

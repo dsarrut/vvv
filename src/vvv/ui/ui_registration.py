@@ -462,10 +462,6 @@ class RegistrationUI:
 
                 self._snap_viewer_to_world_pos(viewer, world_pos)
 
-                for v in self.controller.viewers.values():
-                    if v.image_id == viewer.image_id:
-                        v.needs_recenter = True
-
                 self.controller.update_all_viewers_of_image(viewer.image_id)
                 self.gui.update_sidebar_crosshair(viewer)
 

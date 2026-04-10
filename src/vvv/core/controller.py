@@ -412,7 +412,6 @@ class Controller:
             if getattr(vs.display, "overlay_data", None) is not None:
                 vs.display.overlay_data = None
 
-
             if was_reset:
                 for viewer in self.viewers.values():
                     if viewer.image_id == vs_id:
@@ -435,10 +434,46 @@ class Controller:
                 vs.is_data_dirty = True
                 self.update_all_viewers_of_image(vs_id)
 
+            # --- 1. If the reloaded image acts as an overlay on OTHER images ---
             for other_id, other_vs in self.view_states.items():
                 if other_vs.display.overlay_id == vs_id:
-                    other_vs.set_overlay(vs_id, vol)
+                    # CACHE existing fusion settings before the memory swap
+                    old_mode = getattr(other_vs.display, "overlay_mode", "Alpha")
+                    old_opacity = getattr(other_vs.display, "overlay_opacity", 0.5)
+
+                    other_vs.set_overlay(vs_id, vol, self)
+
+                    # RESTORE the settings
+                    other_vs.display.overlay_mode = old_mode
+                    other_vs.display.overlay_opacity = old_opacity
+
+                    if hasattr(other_vs, "update_overlay_display_data"):
+                        other_vs.update_overlay_display_data(self)
+
                     self.update_all_viewers_of_image(other_id)
+
+            # --- 2. If the reloaded image is the BASE image and HAS an overlay ---
+            if (
+                getattr(vs.display, "overlay_id", None)
+                and vs.display.overlay_id in self.volumes
+            ):
+                ov_vol = self.volumes[vs.display.overlay_id]
+
+                # CACHE existing fusion settings before the memory swap
+                old_mode = getattr(vs.display, "overlay_mode", "Alpha")
+                old_opacity = getattr(vs.display, "overlay_opacity", 0.5)
+
+                vs.set_overlay(vs.display.overlay_id, ov_vol, self)
+
+                # RESTORE the settings
+                vs.display.overlay_mode = old_mode
+                vs.display.overlay_opacity = old_opacity
+
+                if hasattr(vs, "update_overlay_display_data"):
+                    vs.update_overlay_display_data(self)
+
+                self.update_all_viewers_of_image(vs_id)
+            # ------------------------------------------------------------------------------
 
             if self.gui.context_viewer and self.gui.context_viewer.image_id == vs_id:
                 self.gui.update_sidebar_info(self.gui.context_viewer)

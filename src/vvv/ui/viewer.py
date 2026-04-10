@@ -232,6 +232,9 @@ class SliceViewer:
             self.view_state.camera.show_legend = value
 
     def set_image(self, img_id):
+        # 1. Detect if this is a genuinely new image
+        is_new_image = self.image_id != img_id
+
         self.image_id = img_id
 
         # Instead of looking for an active viewer, we look for ANY image
@@ -241,35 +244,31 @@ class SliceViewer:
             master_vs_id = None
 
             for vs_id, vs in self.controller.view_states.items():
-                # Find another image in the same group that isn't us
                 if vs_id != self.image_id and vs.sync_group == target_group:
                     master_vs_id = vs_id
                     break
 
             if master_vs_id:
-                # Force the SyncManager to propagate the state from the
-                # "Source of Truth" to our newly displayed image.
                 self.controller.sync.propagate_sync(master_vs_id)
                 self.controller.sync.propagate_camera_to_viewer(master_vs_id, self)
-                # Ensure radiometric groups (A, B, C) are also handled
                 self.controller.sync.propagate_window_level(master_vs_id)
                 self.controller.sync.propagate_colormap(master_vs_id)
 
+        # 2. Autonomously flag for a camera reset if the underlying ID changed
+        if is_new_image:
+            self.needs_recenter = True
+
         self.set_current_slice_to_crosshair()
 
-        # Calculate geometry BEFORE creating the texture
-        # This guarantees the ViewportMapper has the perfect bounding box ready.
-        win_w = dpg.get_item_width(f"win_{self.tag}")
-        win_h = dpg.get_item_height(f"win_{self.tag}")
-        self.resize(win_w, win_h)
+        # --- THE STRUCTURAL FIX ---
+        # We NO LONGER check dpg.get_item_width here or initialize textures!
+        # Asking for sizes before the GPU renders causes the 0x0 Black Screen bug.
+        # We leave it to the tick() loop to handle safely.
+        # --------------------------
 
-        # When the new draw_image node is instantiated here, it will instantly
-        # pull the correct dimensions, completely bypassing the 1-frame DPG bug.
-        self.init_slice_texture()
-
+        self.is_geometry_dirty = True
         if self.view_state:
             self.view_state.is_data_dirty = True
-        self.is_geometry_dirty = True
 
         if self.controller:
             self.controller.ui_needs_refresh = True
@@ -310,9 +309,6 @@ class SliceViewer:
 
         if self.image_id:
             self.set_image(self.image_id)
-
-        if self.controller.gui:
-            self.controller.gui.on_window_resize()
 
         if self.is_image_orientation():
             if old_ppm and old_ppm > 0:
@@ -607,9 +603,41 @@ class SliceViewer:
 
     def tick(self):
         if not self.view_state:
+            # If the image was closed/dropped, clear the tracker memory
+            self.last_drawn_image_id = None
             return False
 
         did_update_data = False
+
+        # ==========================================
+        # STRUCTURAL FIX: REACTIVE LAYOUT ENGINE
+        # ==========================================
+        win_w = dpg.get_item_width(f"win_{self.tag}")
+        win_h = dpg.get_item_height(f"win_{self.tag}")
+
+        size_changed = win_w != getattr(self, "last_w", 0) or win_h != getattr(
+            self, "last_h", 0
+        )
+        image_changed = self.image_id != getattr(self, "last_drawn_image_id", None)
+
+        # 1. Did the window size or active image change? (Fixes the CLI boot Black Screen)
+        if (size_changed or image_changed) and win_w > 0 and win_h > 0:
+            self.last_w = win_w
+            self.last_h = win_h
+            self.last_drawn_image_id = self.image_id
+
+            self.resize(win_w, win_h)
+            self.init_slice_texture()  # Safely rebuild/unhide texture at the correct size
+            self.is_geometry_dirty = True
+
+        # 2. Do we have a new image to center? (Fixes the V4 Pan/Half-Crosshair bug)
+        if getattr(self, "needs_recenter", False) and win_w > 0 and win_h > 0:
+            self.zoom = 1.0
+            # By passing the size to resize(), it will internally trigger
+            # calculate_pan_to_center_crosshair() perfectly on target.
+            self.resize(win_w, win_h)
+            self.is_geometry_dirty = True
+        # ==========================================
 
         if self.view_state.is_data_dirty or self.is_viewer_data_dirty:
             # Reset it so update_render can re-flag it if needed
