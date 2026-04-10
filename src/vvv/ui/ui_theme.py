@@ -16,7 +16,7 @@ def build_ui_config(controller):
         "layout": {
             "panel_av_h": av_h,
             "panel_ch_h": ch_h,
-            "roi_detail_h": 220,
+            "roi_detail_h": 300,
             "roi_detail_bottom_margin": 10,
             "sidebar_margin_bot": 10,
             "sidebar_top_spacer": 5,
