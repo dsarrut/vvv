@@ -603,7 +603,6 @@ class SliceViewer:
 
     def tick(self):
         if not self.view_state:
-            # If the image was closed/dropped, clear the tracker memory
             self.last_drawn_image_id = None
             return False
 
@@ -618,22 +617,31 @@ class SliceViewer:
         size_changed = win_w != getattr(self, "last_w", 0) or win_h != getattr(
             self, "last_h", 0
         )
-        image_changed = self.image_id != getattr(self, "last_drawn_image_id", None)
 
-        # 1. Did the window size or active image change? (Fixes the CLI boot Black Screen)
-        if (size_changed or image_changed) and win_w > 0 and win_h > 0:
+        # 1. Detect if the image has changed since the last frame
+        image_changed = self.image_id != getattr(self, "last_drawn_image_id", None)
+        orientation_changed = self.orientation != getattr(
+            self, "last_orientation", None
+        )
+
+        # 2. If either the window size OR the image changed, force a geometry refresh
+        if (
+            (size_changed or image_changed or orientation_changed)
+            and win_w > 0
+            and win_h > 0
+        ):
             self.last_w = win_w
             self.last_h = win_h
             self.last_drawn_image_id = self.image_id
+            self.last_orientation = self.orientation  # Track the new orientation
 
+            # resize() now pulls the fresh dx, dy, dz for the NEW orientation
             self.resize(win_w, win_h)
-            self.init_slice_texture()  # Safely rebuild/unhide texture at the correct size
+            self.init_slice_texture()
             self.is_geometry_dirty = True
 
-        # 2. Do we have a new image to center? (Fixes the V4 Pan/Half-Crosshair bug)
+        # 2. Do we have a new image to center?
         if getattr(self, "needs_recenter", False) and win_w > 0 and win_h > 0:
-            # By passing the size to resize(), it will internally trigger
-            # calculate_pan_to_center_crosshair() perfectly on target.
             self.resize(win_w, win_h)
             self.is_geometry_dirty = True
         # ==========================================
