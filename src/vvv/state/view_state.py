@@ -181,7 +181,7 @@ class DisplayState:
         self.base_threshold = -1e9
         self.overlay_id = None
         self.overlay_opacity = 0.5
-        self.overlay_mode = "Registration"
+        self.overlay_mode = "Alpha"
         self.overlay_checkerboard_size = 20.0
         self.overlay_checkerboard_swap = False
         self.pixelated_zoom = True

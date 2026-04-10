@@ -308,16 +308,16 @@ class Controller:
         self.ui_needs_refresh = True
 
     def update_all_viewers_of_image(self, vs_id, data_dirty=True):
-        # 1. Flag the data as dirty so tick() handles the heavy blending
-        if data_dirty:
-            vs = self.view_states.get(vs_id)
-            if vs:
-                vs.is_data_dirty = True
+        if vs_id in self.view_states and data_dirty:
+            self.view_states[vs_id].is_data_dirty = True
+            # The Viewer's tick() loop will inherently notice this and flag its own geometry!
 
-        # 2. Flag the geometry as dirty so tick() handles the crosshair drawing
-        for viewer in self.viewers.values():
-            if viewer.image_id == vs_id:
-                viewer.is_geometry_dirty = True
+        # We ONLY manually target viewers if the data itself didn't change
+        # (e.g., the user just toggled the 'Show Grid' checkbox in the UI)
+        if not data_dirty:
+            for v in self.viewers.values():
+                if v.image_id == vs_id:
+                    v.is_geometry_dirty = True
 
     def update_setting(self, keys, value):
         if not keys or keys[-1] is None:

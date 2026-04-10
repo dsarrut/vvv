@@ -632,7 +632,6 @@ class SliceViewer:
 
         # 2. Do we have a new image to center? (Fixes the V4 Pan/Half-Crosshair bug)
         if getattr(self, "needs_recenter", False) and win_w > 0 and win_h > 0:
-            self.zoom = 1.0
             # By passing the size to resize(), it will internally trigger
             # calculate_pan_to_center_crosshair() perfectly on target.
             self.resize(win_w, win_h)

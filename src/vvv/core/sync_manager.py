@@ -38,22 +38,15 @@ class SyncManager:
         return group_ids
 
     def trigger_redraw(self, modified_ids):
-        """Flags images and viewers to redraw if they or their overlays were modified."""
+        """Flags images to redraw. Viewers will autonomously react to this!"""
         for tid in modified_ids:
             if tid in self.controller.view_states:
                 self.controller.view_states[tid].is_data_dirty = True
 
-        # If any modified image is acting as an overlay, force its base image to redraw too!
+        # If any modified image is acting as an overlay, force its base image to redraw too
         for vs in self.controller.view_states.values():
             if vs.display.overlay_id in modified_ids:
                 vs.is_data_dirty = True
-
-        for viewer in self.controller.viewers.values():
-            if viewer.view_state and (
-                viewer.image_id in modified_ids
-                or viewer.view_state.display.overlay_id in modified_ids
-            ):
-                viewer.is_geometry_dirty = True
 
     # ==========================================
     # PUBLIC SYNC METHODS
