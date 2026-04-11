@@ -63,6 +63,10 @@ class CameraState:
         self.show_legend = False
         self.show_filename = 0
 
+        # State-Only Sync Targets
+        self.target_ppm = None
+        self.target_center = None
+
     def __setattr__(self, name, value):
         # Intercept assignments: if it's a GEOM field AND the value is actually changing
         if name in self._GEOM_FIELDS and getattr(self, name, object()) != value:

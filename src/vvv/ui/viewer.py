@@ -144,6 +144,10 @@ class SliceViewer:
         self.drag_start_mouse = None
         self.drag_start_pan = None
 
+        # State-Only Sync Trackers
+        self.last_consumed_ppm = None
+        self.last_consumed_center = None
+
         # Sub-modules
         self.drawer = OverlayDrawer(self)
         self.init_shortcut_dispatcher()
@@ -259,12 +263,6 @@ class SliceViewer:
             self.needs_recenter = True
 
         self.set_current_slice_to_crosshair()
-
-        # --- THE STRUCTURAL FIX ---
-        # We NO LONGER check dpg.get_item_width here or initialize textures!
-        # Asking for sizes before the GPU renders causes the 0x0 Black Screen bug.
-        # We leave it to the tick() loop to handle safely.
-        # --------------------------
 
         self.is_geometry_dirty = True
         if self.view_state:
@@ -648,7 +646,46 @@ class SliceViewer:
         if getattr(self, "needs_recenter", False) and win_w > 0 and win_h > 0:
             self.resize(win_w, win_h)
             self.is_geometry_dirty = True
-        # ==========================================
+
+        # --- 3. STATE-ONLY CAMERA SYNC ---
+        vs_ppm = getattr(self.view_state.camera, "target_ppm", None)
+        vs_center = getattr(self.view_state.camera, "target_center", None)
+
+        last_ppm = getattr(self, "last_consumed_ppm", None)
+        ppm_changed = False
+        if vs_ppm is not None:
+            if last_ppm is None:
+                ppm_changed = True
+            else:
+                ppm_changed = abs(vs_ppm - last_ppm) > 1e-5
+
+        last_center = getattr(self, "last_consumed_center", None)
+        center_changed = False
+        if vs_center is not None:
+            if last_center is None:
+                center_changed = True
+            else:
+                center_changed = (
+                    abs(vs_center[0] - last_center[0]) > 1e-5
+                    or abs(vs_center[1] - last_center[1]) > 1e-5
+                    or abs(vs_center[2] - last_center[2]) > 1e-5
+                )
+
+        if (ppm_changed or center_changed) and win_w > 0 and win_h > 0:
+            self.resize(
+                win_w, win_h
+            )  # Ensure coordinate mapper is perfectly calibrated first
+
+            if ppm_changed:
+                self.set_pixels_per_mm(vs_ppm)
+                self.last_consumed_ppm = vs_ppm
+            if center_changed:
+                self.center_on_physical_coord(vs_center)
+                self.last_consumed_center = list(vs_center)
+
+            self.needs_recenter = False  # Safely override the boot-up flag!
+            self.is_geometry_dirty = True
+        # ---------------------------------
 
         if self.view_state.is_data_dirty or self.is_viewer_data_dirty:
             # Reset it so update_render can re-flag it if needed
@@ -1439,6 +1476,10 @@ class SliceViewer:
             self.pan_offset[1] = self.drag_start_pan[1] + total_dy
             self.is_geometry_dirty = True
             self.controller.sync.propagate_camera(self)
+            # Prevent self-snapping
+            cent = self.get_center_physical_coord()
+            if cent is not None:
+                self.last_consumed_center = list(cent)
 
     def on_zoom(self, direction):
         if (
@@ -1477,3 +1518,9 @@ class SliceViewer:
 
         self.is_geometry_dirty = True
         self.controller.sync.propagate_camera(self)
+
+        # Prevent self-snapping
+        self.last_consumed_ppm = self.get_pixels_per_mm()
+        cent = self.get_center_physical_coord()
+        if cent is not None:
+            self.last_consumed_center = list(cent)

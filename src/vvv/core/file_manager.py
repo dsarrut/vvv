@@ -338,9 +338,4 @@ class FileManager:
             self.controller.ui_needs_refresh = True
 
             if self.controller.gui:
-                self.controller.gui.refresh_rois_ui()
-                if self.controller.gui.context_viewer:
-                    self.controller.gui.update_sidebar_info(
-                        self.controller.gui.context_viewer
-                    )
                 self.controller.gui.show_status_message(f"Closed: {name}")

@@ -99,7 +99,10 @@ class FusionUI:
 
     def refresh_fusion_ui(self):
         viewer = self.gui.context_viewer
-        has_image = viewer is not None and viewer.image_id is not None
+        # UI should only consider the viewer "active" if the ViewState actually exists in memory!
+        has_image = (
+            viewer is not None and getattr(viewer, "view_state", None) is not None
+        )
 
         # 1. Clear UI completely if no base image is selected
         if not has_image:
@@ -155,7 +158,7 @@ class FusionUI:
 
             current_sel = "None"
             has_overlay = False
-            if viewer.view_state.display.overlay_id:
+            if viewer.view_state and viewer.view_state.display.overlay_id:
                 has_overlay = True
                 # Use the new helper for the currently selected item
                 opt_name, _ = self.controller.get_image_display_name(

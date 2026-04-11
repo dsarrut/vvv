@@ -621,8 +621,14 @@ class MainGUI:
                     v.pan_offset[1] += -dtz * ppm
 
     def update_sidebar_info(self, viewer):
-        has_image = viewer is not None and viewer.image_id is not None
-        has_rois = has_image and len(viewer.view_state.rois) > 0
+        has_image = (
+            viewer is not None and getattr(viewer, "view_state", None) is not None
+        )
+        has_rois = (
+            has_image
+            and viewer.view_state is not None
+            and len(viewer.view_state.rois) > 0
+        )
         is_rgb = getattr(viewer.volume, "is_rgb", False) if has_image else False
 
         # Use a list of tuples to avoid boolean key collisions
@@ -785,7 +791,7 @@ class MainGUI:
                 dpg.set_value("info_val", "---")
             # ---------------------------------
 
-            ppm = viewer.get_pixels_per_mm()
+            ppm = vs.camera.target_ppm
             win_w, win_h = dpg.get_item_width(f"win_{viewer.tag}"), dpg.get_item_height(
                 f"win_{viewer.tag}"
             )
@@ -1019,10 +1025,6 @@ class MainGUI:
             current = getattr(vs.camera, "show_filename", 0)
             vs.camera.show_filename = (current + 1) % 3
             dpg.set_value(sender, False)
-
-        # It tells the controller to find every viewer (V1-V4) showing this
-        # specific image and flip their 'dirty' flags.
-        self.controller.update_all_viewers_of_image(viewer.image_id, data_dirty=False)
 
     def on_toggle_auto_save(self, sender, app_data, user_data):
         # app_data holds the new boolean state of the checkbox
@@ -1267,6 +1269,9 @@ class MainGUI:
                     self.fusion_ui.refresh_fusion_ui()
                 if hasattr(self, "reg_ui"):
                     self.reg_ui.refresh_reg_ui()
+
+                # Safely update the sidebar between frames when the DPG stack is completely empty!
+                self.update_sidebar_info(self.context_viewer)
 
                 self.controller.ui_needs_refresh = False
 

@@ -52,26 +52,6 @@ class SyncManager:
     # PUBLIC SYNC METHODS
     # ==========================================
 
-    def propagate_ppm(self, target_viewer_tags):
-        valid_viewers = [
-            self.controller.viewers[tag]
-            for tag in target_viewer_tags
-            if self.controller.viewers[tag].view_state
-        ]
-        if not valid_viewers:
-            return
-
-        max_ppm = 0.0
-        for viewer in valid_viewers:
-            ppm = viewer.get_pixels_per_mm()
-            if ppm > max_ppm:
-                max_ppm = ppm
-
-        if max_ppm > 0:
-            for viewer in valid_viewers:
-                viewer.set_pixels_per_mm(max_ppm)
-                viewer.is_geometry_dirty = True
-
     def propagate_sync(self, source_vs_id):
         source_vs = self.controller.view_states[source_vs_id]
 
@@ -205,25 +185,21 @@ class SyncManager:
 
         self.trigger_redraw(list(dirty_ids))
 
-    def propagate_camera_to_viewer(self, source_vs_id, target_viewer):
-        """Specialized helper to push camera state to a single specific viewer."""
-        source_vs = self.controller.view_states.get(source_vs_id)
-        if not source_vs:
+    def propagate_ppm(self, target_viewer_tags):
+        valid_viewers = [
+            self.controller.viewers[tag]
+            for tag in target_viewer_tags
+            if self.controller.viewers[tag].view_state
+        ]
+        if not valid_viewers:
             return
 
-        # Find any viewer currently showing the source image to get the 'live' physical center
-        source_viewer = next(
-            (v for v in self.controller.viewers.values() if v.image_id == source_vs_id),
-            None,
-        )
+        max_ppm = max([v.get_pixels_per_mm() for v in valid_viewers] + [0])
 
-        if source_viewer:
-            phys_center = source_viewer.get_center_physical_coord()
-            target_ppm = source_viewer.get_pixels_per_mm()
-
-            if phys_center is not None:
-                target_viewer.set_pixels_per_mm(target_ppm)
-                target_viewer.center_on_physical_coord(phys_center)
+        if max_ppm > 0:
+            # State-Only: Just write the target to the shared memory!
+            for viewer in valid_viewers:
+                viewer.view_state.camera.target_ppm = max_ppm
 
     def propagate_camera(self, source_viewer):
         if not source_viewer.view_state:
@@ -232,17 +208,46 @@ class SyncManager:
         target_ids = self.get_sync_group_vs_ids(
             source_viewer.image_id, active_only=True
         )
-
         phys_center = source_viewer.get_center_physical_coord()
         if phys_center is None:
             return
 
         target_ppm = source_viewer.get_pixels_per_mm()
 
-        for viewer in self.controller.viewers.values():
-            if viewer.image_id in target_ids and viewer != source_viewer:
-                viewer.set_pixels_per_mm(target_ppm)
-                viewer.center_on_physical_coord(phys_center)
+        # State-Only: Just write the targets to the synced ViewStates!
+        for tid in target_ids:
+            vs = self.controller.view_states[tid]
+            vs.camera.target_ppm = target_ppm
+            vs.camera.target_center = phys_center
+
+    def propagate_camera_to_viewer(self, source_vs_id, target_viewer):
+        source_vs = self.controller.view_states.get(source_vs_id)
+        if not source_vs or not target_viewer.view_state:
+            return
+
+        # State-Only: If the master has an active target, naturally inherit it
+        if getattr(source_vs.camera, "target_ppm", None) is not None:
+            target_viewer.view_state.camera.target_ppm = source_vs.camera.target_ppm
+            target_viewer.view_state.camera.target_center = (
+                source_vs.camera.target_center
+            )
+        else:
+            # If the master hasn't moved yet, extract its starting point
+            source_viewer = next(
+                (
+                    v
+                    for v in self.controller.viewers.values()
+                    if v.image_id == source_vs_id
+                ),
+                None,
+            )
+            if source_viewer:
+                target_viewer.view_state.camera.target_ppm = (
+                    source_viewer.get_pixels_per_mm()
+                )
+                target_viewer.view_state.camera.target_center = (
+                    source_viewer.get_center_physical_coord()
+                )
 
     def propagate_tracker(self, source_viewer, phys):
         """Pushes the active mouse physical coordinate to all synced sister viewers."""
