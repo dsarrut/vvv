@@ -301,10 +301,7 @@ class Controller:
                 None,
             )
             if master_viewer:
-                phys_center = master_viewer.get_center_physical_coord()
-                if phys_center is not None:
-                    for tag in group_viewer_tags:
-                        self.viewers[tag].center_on_physical_coord(phys_center)
+                self.sync.propagate_camera(master_viewer)
             self.sync.propagate_sync(master_vs_id)
 
         self.update_all_viewers_of_image(vs_id)
@@ -418,7 +415,9 @@ class Controller:
             if was_reset:
                 for viewer in self.viewers.values():
                     if viewer.image_id == vs_id:
-                        viewer.set_image(vs_id)
+                        # State-Only: Flag the viewer to recalculate from scratch on its next tick
+                        viewer.needs_recenter = True
+                        viewer.is_geometry_dirty = True
             else:
                 ix, iy, iz = [
                     int(np.clip(np.floor(c + 0.5), 0, limit - 1))
