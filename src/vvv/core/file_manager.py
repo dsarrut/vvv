@@ -308,9 +308,10 @@ class FileManager:
             # History
             self.controller.history.save_image_state(self.controller, vs_id)
 
-            for viewer in self.controller.viewers.values():
-                if viewer.image_id == vs_id:
-                    viewer.drop_image()
+            # State-Only: Wipe from layout dict
+            for tag, current_id in self.controller.layout.items():
+                if current_id == vs_id:
+                    self.controller.layout[tag] = None
 
             for other_id, other_vs in self.controller.view_states.items():
                 if other_vs.display.overlay_id == vs_id:
@@ -327,11 +328,12 @@ class FileManager:
             del self.controller.view_states[vs_id]
             del self.controller.volumes[vs_id]
 
+            # State-Only Fallback: Give empty viewers the next available image
             if self.controller.view_states:
                 first_vs_id = next(iter(self.controller.view_states))
-                for viewer in self.controller.viewers.values():
-                    if viewer.image_id is None:
-                        viewer.set_image(first_vs_id)
+                for tag, current_id in self.controller.layout.items():
+                    if current_id is None:
+                        self.controller.layout[tag] = first_vs_id
 
             self.controller.ui_needs_refresh = True
 

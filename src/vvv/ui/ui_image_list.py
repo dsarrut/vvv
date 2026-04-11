@@ -65,7 +65,7 @@ def refresh_image_list_ui(gui):
                 dpg.add_spacer(width=17)
                 # 1. Viewers
                 for v_tag in ["V1", "V2", "V3", "V4"]:
-                    is_active = gui.controller.viewers[v_tag].image_id == vs_id
+                    is_active = gui.controller.layout[v_tag] == vs_id
                     cb = dpg.add_checkbox(
                         label=f"##{vs_id}_{v_tag}",
                         default_value=is_active,

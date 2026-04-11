@@ -52,20 +52,19 @@ def load_single_image_sequence(gui, controller, file_path):
     )
     yield
 
-    target_viewer = (
-        gui.context_viewer if gui.context_viewer else controller.viewers["V1"]
-    )
-    target_viewer.set_image(img_id)
+    target_tag = gui.context_viewer.tag if gui.context_viewer else "V1"
+    controller.layout[target_tag] = img_id
 
+    target_viewer = controller.viewers[target_tag]
     target_viewer.set_orientation(
         controller.view_states[img_id].camera.last_orientation
     )
 
-    empty_viewers = [v for v in controller.viewers.values() if v.image_id is None]
-    if empty_viewers:
+    if None in controller.layout.values():
         controller.default_viewers_orientation()
-        for v in empty_viewers:
-            v.set_image(img_id)
+        for tag, current_id in controller.layout.items():
+            if current_id is None:
+                controller.layout[tag] = img_id
 
     same_image_viewers = [
         v.tag for v in controller.viewers.values() if v.image_id == img_id
@@ -136,20 +135,19 @@ def load_batch_images_sequence(gui, controller, file_paths):
     yield
 
     if loaded_ids:
-        target_viewer = (
-            gui.context_viewer if gui.context_viewer else controller.viewers["V1"]
-        )
-        target_viewer.set_image(loaded_ids[0])
+        target_tag = gui.context_viewer.tag if gui.context_viewer else "V1"
+        controller.layout[target_tag] = loaded_ids[0]
 
+        target_viewer = controller.viewers[target_tag]
         target_viewer.set_orientation(
             controller.view_states[loaded_ids[0]].camera.last_orientation
         )
 
-        empty_viewers = [v for v in controller.viewers.values() if v.image_id is None]
-        if empty_viewers:
+        if None in controller.layout.values():
             controller.default_viewers_orientation()
-            for v in empty_viewers:
-                v.set_image(loaded_ids[0])
+            for tag, current_id in controller.layout.items():
+                if current_id is None:
+                    controller.layout[tag] = loaded_ids[0]
 
         gui.set_context_viewer(target_viewer)
         gui.refresh_rois_ui()
@@ -394,12 +392,19 @@ def load_workspace_sequence(gui, controller, filepath):
         old_img_id = v_data.get("image_id")
         if old_img_id in id_map:
             new_id = id_map[old_img_id]
+
+            # 1. Update the global layout state
+            controller.layout[tag] = new_id
+
+            # 2. Force the mount immediately so we can safely overwrite the default boot-up flags
             viewer = controller.viewers[tag]
             viewer.set_image(new_id)
+
+            # 3. Restore the exact physical view parameters saved in the JSON
             viewer.set_orientation(ViewMode[v_data["orientation"]])
             viewer.zoom = v_data.get("zoom", 1.0)
             viewer.pan_offset = v_data.get("pan_offset", [0, 0])
-            viewer.needs_recenter = v_data.get("needs_recenter", False)
+            viewer.needs_recenter = False
     yield
 
     show_loading_modal("Loading image...", "Restoring ROIs...")
@@ -517,7 +522,7 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
                         progress=(completed / total_files),
                     )
 
-            # MAGIC: Let DearPyGui render a frame!
+            # Let DearPyGui render a frame
             yield
             time.sleep(0.01)
     # -----------------------------------------------
@@ -565,16 +570,16 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
     for i, img_id in enumerate(loaded_ids):
         if i == 0:
             for tag in ["V1", "V2", "V3", "V4"]:
-                controller.viewers[tag].set_image(img_id)
+                controller.layout[tag] = img_id
         elif i == 1:
-            controller.viewers["V3"].set_image(img_id)
-            controller.viewers["V4"].set_image(img_id)
+            controller.layout["V3"] = img_id
+            controller.layout["V4"] = img_id
         elif i == 2:
-            controller.viewers["V2"].set_image(loaded_ids[1])
-            controller.viewers["V3"].set_image(img_id)
-            controller.viewers["V4"].set_image(img_id)
+            controller.layout["V2"] = loaded_ids[1]
+            controller.layout["V3"] = img_id
+            controller.layout["V4"] = img_id
         elif i >= 3:
-            controller.viewers["V4"].set_image(img_id)
+            controller.layout["V4"] = img_id
 
     for img_id in loaded_ids:
         same_viewers = [

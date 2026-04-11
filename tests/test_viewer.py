@@ -721,6 +721,9 @@ def test_workspace_strict_hierarchy_load(headless_app, synthetic_image_path, tmp
     for _ in generator:
         pass  # Exhaust the generator
 
+    # The layout dict is updated, but viewers need 1 frame to react to it.
+    controller.tick()
+
     # ASSERTIONS
     new_vs_id = list(controller.view_states.keys())[0]  # Should be '100', not '0'
     assert new_vs_id != vs_id  # Proves ID mapping worked!

@@ -602,15 +602,19 @@ class SliceViewer:
         self.controller.update_all_viewers_of_image(self.image_id, data_dirty=False)
 
     def tick(self):
+        target_id = self.controller.layout.get(self.tag)
+        if target_id != self.image_id:
+            if target_id is None:
+                self.drop_image()
+            else:
+                self.set_image(target_id)
+
         if not self.view_state:
             self.last_drawn_image_id = None
             return False
 
         did_update_data = False
 
-        # ==========================================
-        # STRUCTURAL FIX: REACTIVE LAYOUT ENGINE
-        # ==========================================
         win_w = dpg.get_item_width(f"win_{self.tag}")
         win_h = dpg.get_item_height(f"win_{self.tag}")
 

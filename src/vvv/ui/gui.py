@@ -920,15 +920,13 @@ class MainGUI:
 
     def on_image_viewer_toggle(self, sender, value, user_data):
         img_id, v_tag = user_data["img_id"], user_data["v_tag"]
-        viewer = self.controller.viewers[v_tag]
 
-        if not value and viewer.image_id == img_id:
+        if not value and self.controller.layout[v_tag] == img_id:
             dpg.set_value(sender, True)
             return
 
         if value:
-            viewer.set_image(img_id)
-            self.update_sidebar_info(viewer)
+            self.controller.layout[v_tag] = img_id
 
     def on_sidebar_wl_change(self):
         if not self.context_viewer or self.context_viewer.image_id is None:
