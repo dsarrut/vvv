@@ -433,10 +433,10 @@ class ViewState:
         self.camera = CameraState(self.volume, parent_vs=self)
         self.display = DisplayState(parent_vs=self)
         self.init_default_window_level()
-        
+
         # Mandatory: Rule 4 requires crosshair initialization
         self.init_crosshair_to_slices()
-        
+
         self.is_data_dirty = True
         self.is_geometry_dirty = True
 
@@ -561,7 +561,7 @@ class ViewState:
 
         self.display.overlay_id = overlay_id
         self.display.overlay_opacity = 0.5
-        self.display.overlay_mode = "Registration"
+        self.display.overlay_mode = "Alpha"
 
         if controller:
             self.update_overlay_display_data(controller)
