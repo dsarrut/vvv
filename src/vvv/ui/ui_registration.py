@@ -311,14 +311,10 @@ class RegistrationUI:
                         active_vs.update_overlay_display_data(self.controller)
                         active_vs.is_data_dirty = True
 
-                for v in self.controller.viewers.values():
-                    if (
-                        v.view_state
-                        and getattr(v.view_state.display, "overlay_id", None)
-                        == active_image_id
-                    ):
-                        v.view_state.update_overlay_display_data(self.controller)
-                        v.view_state.is_data_dirty = True
+                for vs in self.controller.view_states.values():
+                    if vs.display.overlay_id == active_image_id:
+                        vs.update_overlay_display_data(self.controller)
+                        vs.is_data_dirty = True
 
                 self.controller.update_all_viewers_of_image(active_image_id)
 
@@ -465,7 +461,7 @@ class RegistrationUI:
                 self.controller.update_all_viewers_of_image(viewer.image_id)
                 self.gui.update_sidebar_crosshair(viewer)
 
-                self.refresh_reg_ui()
+                self.controller.ui_needs_refresh = True
                 self.pull_reg_sliders_from_transform()
                 self.trigger_debounced_rotation_update(viewer.image_id)
             else:
@@ -488,7 +484,7 @@ class RegistrationUI:
         if full_path and os.path.exists(os.path.dirname(full_path)):
             self.controller.save_transform(viewer.image_id, full_path)
             self.gui.show_status_message(f"Saved: {os.path.basename(full_path)}")
-            self.refresh_reg_ui()
+            self.controller.ui_needs_refresh = True
         else:
             # Fallback to Save As
             self.on_reg_save_as_clicked(sender, app_data, user_data)
@@ -516,7 +512,7 @@ class RegistrationUI:
             # Update the tracked path so future "Save" clicks overwrite this new file!
             vs.space._full_transform_path = file_path
             self.gui.show_status_message(f"Saved: {os.path.basename(file_path)}")
-            self.refresh_reg_ui()
+            self.controller.ui_needs_refresh = True
 
     def on_reg_reload_clicked(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer
@@ -526,7 +522,7 @@ class RegistrationUI:
         full_path = getattr(viewer.view_state.space, "_full_transform_path", None)
         if full_path and os.path.exists(full_path):
             if self.controller.load_transform(viewer.image_id, full_path):
-                self.refresh_reg_ui()
+                self.controller.ui_needs_refresh = True
                 self.pull_reg_sliders_from_transform()
                 self.trigger_debounced_rotation_update(viewer.image_id)
                 self.gui.show_status_message(f"Reloaded: {os.path.basename(full_path)}")
@@ -565,7 +561,7 @@ class RegistrationUI:
         if not viewer or not viewer.image_id:
             return
         self.apply_transform_and_keep_world_fixed(viewer)
-        self.refresh_reg_ui()
+        self.controller.ui_needs_refresh = True
 
     def on_reg_reset_clicked(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer
@@ -654,7 +650,7 @@ class RegistrationUI:
         vs.space.transform.SetTranslation(new_translation)
 
         self.pull_reg_sliders_from_transform()
-        self.refresh_reg_ui()
+        self.controller.ui_needs_refresh = True
 
         # Instantly sync the 3D buffer so the math doesn't glitch
         self.trigger_debounced_rotation_update(viewer.image_id, immediate=True)
