@@ -1121,7 +1121,7 @@ class SliceViewer:
         self.update_tracker()
         self.update_filename_overlay()
 
-    def update_tracker(self, external_phys=None, is_external=False):
+    def update_tracker(self):
         if (
             self.image_id is None
             or not self.view_state
@@ -1138,28 +1138,12 @@ class SliceViewer:
             active_tool = self.controller.gui.interaction.active_tool
             is_dragging = getattr(active_tool, "drag_viewer", None) == self
 
-        phys = external_phys
-        v = None
+        # 1. LOCAL VIEWER: Are we the active hover source?
+        pix_x, pix_y = self.get_mouse_slice_coords(
+            ignore_hover=is_dragging, allow_outside=is_dragging
+        )
 
-        if not is_external:
-            # 1. LOCAL VIEWER: Check our own mouse
-            pix_x, pix_y = self.get_mouse_slice_coords(
-                ignore_hover=is_dragging, allow_outside=is_dragging
-            )
-            if pix_x is None:
-                # If we are currently displaying an external tracker, do not wipe it!
-                if getattr(self, "_external_tracker_active", False):
-                    return
-
-                dpg.set_value(self.tracker_tag, "")
-
-                # Only broadcast the "clear" signal the exact frame the mouse leaves
-                if getattr(self, "_was_hovered", False):
-                    self._was_hovered = False
-                    if self.view_state.sync_group > 0 and not is_dragging:
-                        self.controller.sync.propagate_tracker(self, None)
-                return
-
+        if pix_x is not None:
             self._was_hovered = True
             self._external_tracker_active = False
 
@@ -1171,20 +1155,34 @@ class SliceViewer:
                 np.array(v), is_buffered=is_buf
             )
 
-            # Broadcast our physical location to synced viewers
+            # Clear our own passive target so we don't fight ourselves
+            self.view_state.camera.target_tracker_phys = None
+
             if self.view_state.sync_group > 0:
                 self.controller.sync.propagate_tracker(self, phys)
+
+            is_external = False
         else:
-            # 2. EXTERNAL COMMAND: We are a passive viewer receiving an update
+            # 2. PASSIVE VIEWER: We are not hovered, check memory for a target!
+
+            # Send the "clear" signal exactly once when the mouse leaves us
+            if getattr(self, "_was_hovered", False):
+                self._was_hovered = False
+                if self.view_state.sync_group > 0 and not is_dragging:
+                    self.controller.sync.propagate_tracker(self, None)
+
+            phys = self.view_state.camera.target_tracker_phys
             if phys is None:
                 dpg.set_value(self.tracker_tag, "")
                 self._external_tracker_active = False
                 return
 
             self._external_tracker_active = True
+            is_external = True
             is_buf = self.view_state.base_display_data is not None
             v = self.view_state.space.world_to_display(phys, is_buffered=is_buf)
 
+        # --- The drawing logic remains exactly the same! ---
         col = self.controller.settings.data["colors"]["tracker_text"]
         dpg.configure_item(self.tracker_tag, color=col)
 

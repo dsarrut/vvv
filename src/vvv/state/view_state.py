@@ -66,6 +66,7 @@ class CameraState:
         # State-Only Sync Targets
         self.target_ppm = None
         self.target_center = None
+        self.target_tracker_phys = None
 
     def __setattr__(self, name, value):
         # Intercept assignments: if it's a GEOM field AND the value is actually changing
