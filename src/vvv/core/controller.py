@@ -416,7 +416,7 @@ class Controller:
                 for viewer in self.viewers.values():
                     if viewer.image_id == vs_id:
                         # State-Only: Flag the viewer to recalculate from scratch on its next tick
-                        viewer.needs_recenter = True
+                        viewer.needs_recenter = True  # required
                         viewer.is_geometry_dirty = True
             else:
                 ix, iy, iz = [
@@ -477,10 +477,6 @@ class Controller:
                 self.update_all_viewers_of_image(vs_id)
             # ------------------------------------------------------------------------------
 
-            if self.gui.context_viewer and self.gui.context_viewer.image_id == vs_id:
-                self.gui.update_sidebar_info(self.gui.context_viewer)
-                self.gui.update_sidebar_crosshair(self.gui.context_viewer)
-
             if self.gui:
                 self.gui.show_status_message(f"Reloaded: {vol.name}")
 
@@ -491,9 +487,7 @@ class Controller:
 
     def tick(self):
         for viewer in self.viewers.values():
-            did_update = viewer.tick()
-            if did_update and self.gui and viewer == self.gui.context_viewer:
-                self.gui.update_sidebar_crosshair(viewer)
+            viewer.tick()
 
         # --- THE BRIDGE ---
         for vs_id, vs in self.view_states.items():
