@@ -6,6 +6,23 @@ from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 
 
 class RoiUI:
+    """
+    ARCHITECTURE MANDATES (UI Components):
+    1. REACTIVE REFRESH ONLY: This class must only rebuild its ROI list when 
+       'refresh_rois_ui' is called by the MainGUI. Trigger refreshes via 
+       'self.controller.ui_needs_refresh = True'.
+
+    2. STATE-DRIVEN BUILDING: The ROI table must be a direct reflection of 
+       the 'ViewState.rois' dictionary.
+
+    3. ONE-WAY DATA FLOW: Callbacks (visibility toggle, color change) must 
+       update the 'ViewState' directly. The UI will reflect these changes 
+       automatically on the next reactive frame.
+
+    4. DECOUPLED LOGIC: Keep ROI math (statistics, binarization) in the 
+       'ROIManager' or 'math' modules. This class is purely for layout.
+    """
+
     def __init__(self, gui, controller):
         self.gui = gui
         self.controller = controller

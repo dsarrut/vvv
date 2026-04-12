@@ -12,7 +12,31 @@ from vvv.core.settings_manager import SettingsManager
 
 
 class Controller:
-    """The central manager."""
+    """
+    The Central Manager and State-Only Bridge for VVV.
+
+    ARCHITECTURE MANDATES (State-Only / Reactive):
+    1. THE CONTROLLER AS A BRIDGE: This class is a "dumb" coordinator. It must NOT 
+       micromanage Viewers or the GUI. Its primary job is to sync data flags between 
+       the central 'ViewState' (Data) and the 'SliceViewer' (View).
+
+    2. TICK LOOP PRIORITY: Inside the tick() loop, the Viewers (View) must always 
+       execute BEFORE the Bridge (Sync). The Bridge must broadcast 'is_geometry_dirty' 
+       and 'is_data_dirty' to all relevant Viewers BEFORE resetting the source flags.
+
+    3. NO IMPERATIVE UI CALLS: Never call 'gui.refresh_rois_ui()' or 'dpg.set_value()' 
+       from this class or any of its Managers (FileManager, SyncManager, etc.). 
+       Instead, set 'self.ui_needs_refresh = True' and let the MainGUI handle it 
+       reactively in the next frame.
+
+    4. THREAD SAFETY: Background threads (threading.Thread) must NEVER call UI functions. 
+       To report a status update from a thread, set 'self.status_message = "..."' 
+       and 'self.ui_needs_refresh = True'.
+
+    5. GEOMETRY UPDATES: To force a viewer re-center, DO NOT set 'viewer.needs_recenter'. 
+       Instead, set 'vs.camera.target_center = world_pos'. The Viewers watch this 
+       central data and re-calibrate themselves autonomously.
+    """
 
     def __init__(self):
         self.gui = None

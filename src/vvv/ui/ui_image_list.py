@@ -1,5 +1,21 @@
 import dearpygui.dearpygui as dpg
 
+"""
+ARCHITECTURE MANDATES (UI Components):
+1. REACTIVE REFRESH ONLY: This module must never refresh itself. It must only 
+   rebuild when MainGUI calls 'refresh_image_list_ui', triggered by the 
+   'controller.ui_needs_refresh' flag.
+
+2. STATE-DRIVEN BUILDING: Every checkbox and text field must pull its 
+   current state directly from the 'Controller' data during the refresh cycle.
+
+3. ONE-WAY DATA FLOW: UI callbacks must only update the 'Controller' or 
+   'ViewState'. They must NOT manually update other UI elements.
+
+4. THREAD SAFETY: No code in this module should ever be called from a 
+   background thread.
+"""
+
 
 def build_tab_images(gui):
     """Builds the static layout for the Images tab."""

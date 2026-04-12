@@ -7,7 +7,26 @@ from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 
 
 class RegistrationUI:
-    """Delegated UI handler for the Registration tab."""
+    """
+    Delegated UI handler for the Registration tab.
+
+    ARCHITECTURE MANDATES (UI Components):
+    1. REACTIVE REFRESH ONLY: Never call 'refresh_reg_ui' imperatively from 
+       within this class. Always set 'self.controller.ui_needs_refresh = True' 
+       and let the MainGUI tick loop handle the rebuild.
+
+    2. STATE-DRIVEN BUILDING: Sliders and input fields must pull their 
+       'default_value' from the underlying 'SpatialEngine' transform during 
+       the refresh cycle.
+
+    3. ONE-WAY DATA FLOW: Callbacks should exclusively update the transform 
+       parameters in the 'Controller'. Do not manually set values of other 
+       widgets within a callback.
+
+    4. THREAD SAFETY: Registration resampling often happens in background 
+       threads. Ensure those threads NEVER call UI functions. Use 
+       'controller.status_message' for asynchronous reporting.
+    """
 
     # Define slider tags once to avoid copy-pasting lists of strings
     SLIDER_TAGS = [

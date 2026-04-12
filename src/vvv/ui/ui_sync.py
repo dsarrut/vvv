@@ -1,5 +1,20 @@
 import dearpygui.dearpygui as dpg
 
+"""
+ARCHITECTURE MANDATES (UI Components):
+1. REACTIVE REFRESH ONLY: This module must only rebuild the sync matrix 
+   when 'refresh_sync_ui' is called by the MainGUI. Trigger refreshes via 
+   'gui.controller.ui_needs_refresh = True'.
+
+2. STATE-DRIVEN BUILDING: Group dropdowns and link buttons must pull their 
+   current state directly from 'ViewState.sync_group' and 
+   'ViewState.sync_wl_group'.
+
+3. ONE-WAY DATA FLOW: Callbacks must update the synchronization groups in 
+   the 'Controller' or 'ViewState'. Do not manually update labels or colors 
+   within the callback.
+"""
+
 
 def build_tab_sync(gui):
     """Builds the static layout for the Synchronization matrix tab."""

@@ -237,7 +237,32 @@ class DisplayState:
 
 
 class ViewState:
-    """Stores all transient UI and camera parameters."""
+    """
+    The exclusive Source of Truth for an image's presentation state.
+
+    ARCHITECTURE MANDATES (State-Only / Reactive):
+    1. SOURCE OF TRUTH: This class owns all spatial and radiometric state. Viewers 
+       must never store their own permanent state; they must only reflect what 
+       is stored here during their 60fps tick loop.
+
+    2. AUTOMATIC FLAGGING: Monitored fields in CameraState and DisplayState use 
+       __setattr__ to automatically flip 'is_geometry_dirty = True' when changed. 
+       Always use standard assignments (e.g., vs.camera.time_idx = 5) to trigger 
+       this reactive update.
+
+    3. DECOUPLING: This class must remain ignorant of UI implementation details. 
+       It communicates purely through two high-level flags:
+       - 'is_data_dirty': Underlying pixel data or overlays changed.
+       - 'is_geometry_dirty': Camera, pan, zoom, or presentation settings changed.
+
+    4. SERIALIZABILITY: All state must remain serializable. Maintain the 'to_dict' 
+       and 'from_dict' methods strictly to ensure workspace saves and history 
+       restoration remain pixel-perfect.
+
+    5. SAFE COORDINATES: To maintain physical sync across the application, 
+       never allow 'camera.crosshair_voxel' to remain None after initialization. 
+       Use 'init_crosshair_to_slices()' during resets to provide a valid baseline.
+    """
 
     def __init__(self, volume):
         self.volume = volume
