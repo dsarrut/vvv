@@ -1,8 +1,8 @@
 import os
 import json
 import time
-import numpy as np
 import threading
+import numpy as np
 from vvv.utils import fmt
 from vvv.ui.ui_roi import RoiUI
 import dearpygui.dearpygui as dpg
@@ -756,11 +756,19 @@ class MainGUI:
         phys = vs.camera.crosshair_phys_coord
 
         # Bulletproof Validation (Rule 2)
-        if phys is None or np.isscalar(phys) or len(phys) < 3:
+        if (
+            phys is None
+            or np.isscalar(phys)
+            or len(np.shape(phys)) == 0
+            or len(phys) < 3
+        ):
             dpg.set_value("info_phys", "---")
+            dpg.set_value("info_vox", "---")
+            dpg.set_value("info_val", "---")
             return
 
         try:
+            # 1. Update Voxel & Physical Coords
             if vs.camera.crosshair_voxel is not None:
                 if vol.num_timepoints > 1:
                     dpg.set_value(
@@ -771,15 +779,13 @@ class MainGUI:
                 else:
                     dpg.set_value("info_vox", fmt(vs.camera.crosshair_voxel[:3], 1))
 
-                dpg.set_value("info_phys", fmt(phys, 1))
-        except Exception:
-            dpg.set_value("info_phys", "---")
-            dpg.set_value("info_vox", "---")
+            dpg.set_value("info_phys", fmt(phys, 1))
 
-            # --- THE NEW CONSOLIDATED CALL ---
+            # 2. Update Pixel Value (The Consolidated Call)
             info = self.controller.get_pixel_values_at_phys(
-                viewer.image_id, vs.camera.crosshair_phys_coord, vs.camera.time_idx
+                viewer.image_id, phys, vs.camera.time_idx
             )
+
             if info is not None:
                 val = info["base_val"]
                 if val is None:
@@ -800,9 +806,8 @@ class MainGUI:
                 dpg.set_value("info_val", val_str)
             else:
                 dpg.set_value("info_val", "---")
-                # ---------------------------------
 
-            # Fallback to the active viewer's math if no sync targets have been generated yet
+            # 3. Update FOV and PPM
             ppm = getattr(vs.camera, "target_ppm", None)
             if ppm is None:
                 ppm = viewer.get_pixels_per_mm()
@@ -811,12 +816,17 @@ class MainGUI:
                 f"win_{viewer.tag}"
             )
 
-            # Now safely check if ppm is valid
             if ppm and ppm > 0 and win_w and win_h:
                 dpg.set_value("info_scale", f"{win_w / ppm:.0f} x {win_h / ppm:.0f} mm")
 
             if ppm is not None:
                 dpg.set_value("info_ppm", f"{round(ppm, 2):g} px/mm")
+
+        except Exception:
+            # If ANY math fails during rapid mouse manipulation, safely default to "---"
+            dpg.set_value("info_phys", "---")
+            dpg.set_value("info_vox", "---")
+            dpg.set_value("info_val", "---")
 
     def set_context_viewer(self, viewer):
         """Centralized helper to switch the Active Menu/Sidebar target."""
