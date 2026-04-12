@@ -1315,9 +1315,9 @@ class SliceViewer:
         self.controller.sync.propagate_sync(self.image_id)
         self.controller.update_all_viewers_of_image(self.image_id)
 
-        # If the active viewer was reset, force the sidebar to update its overlay/info text
+        # If the active viewer was reset, flag the UI for a reactive refresh
         if self.controller.gui and self.controller.gui.context_viewer == self:
-            self.controller.gui.update_sidebar_info(self)
+            self.controller.ui_needs_refresh = True
 
     def action_center_view(self):
         self.needs_recenter = True
