@@ -383,14 +383,9 @@ class Controller:
             self.sync.propagate_ppm(same_viewers)
 
         # Force all linked viewers to perfectly re-center
-        for tag in same_viewers:
-            viewer = self.viewers[tag]
-            if hasattr(viewer, "needs_recenter"):
-                viewer.needs_recenter = True
-            viewer.is_geometry_dirty = True
-
-        if self.gui:
-            self.gui.update_sidebar_info(self.gui.context_viewer)
+        vs.camera.target_center = vs.camera.crosshair_phys_coord
+        vs.is_geometry_dirty = True
+        self.ui_needs_refresh = True
 
     def reload_settings(self):
         self.settings.reset()
@@ -413,11 +408,8 @@ class Controller:
                 vs.display.overlay_data = None
 
             if was_reset:
-                for viewer in self.viewers.values():
-                    if viewer.image_id == vs_id:
-                        # State-Only: Flag the viewer to recalculate from scratch on its next tick
-                        viewer.needs_recenter = True  # required
-                        viewer.is_geometry_dirty = True
+                vs.camera.target_center = vs.camera.crosshair_phys_coord
+                vs.is_geometry_dirty = True
             else:
                 ix, iy, iz = [
                     int(np.clip(np.floor(c + 0.5), 0, limit - 1))
