@@ -16,25 +16,25 @@ class Controller:
     The Central Manager and State-Only Bridge for VVV.
 
     ARCHITECTURE MANDATES (State-Only / Reactive):
-    1. THE CONTROLLER AS A BRIDGE: This class is a "dumb" coordinator. It must NOT 
-       micromanage Viewers or the GUI. Its primary job is to sync data flags between 
+    1. THE CONTROLLER AS A BRIDGE: This class is a "dumb" coordinator. It must NOT
+       micromanage Viewers or the GUI. Its primary job is to sync data flags between
        the central 'ViewState' (Data) and the 'SliceViewer' (View).
 
-    2. TICK LOOP PRIORITY: Inside the tick() loop, the Viewers (View) must always 
-       execute BEFORE the Bridge (Sync). The Bridge must broadcast 'is_geometry_dirty' 
+    2. TICK LOOP PRIORITY: Inside the tick() loop, the Viewers (View) must always
+       execute BEFORE the Bridge (Sync). The Bridge must broadcast 'is_geometry_dirty'
        and 'is_data_dirty' to all relevant Viewers BEFORE resetting the source flags.
 
-    3. NO IMPERATIVE UI CALLS: Never call 'gui.refresh_rois_ui()' or 'dpg.set_value()' 
-       from this class or any of its Managers (FileManager, SyncManager, etc.). 
-       Instead, set 'self.ui_needs_refresh = True' and let the MainGUI handle it 
+    3. NO IMPERATIVE UI CALLS: Never call 'gui.refresh_rois_ui()' or 'dpg.set_value()'
+       from this class or any of its Managers (FileManager, SyncManager, etc.).
+       Instead, set 'self.ui_needs_refresh = True' and let the MainGUI handle it
        reactively in the next frame.
 
-    4. THREAD SAFETY: Background threads (threading.Thread) must NEVER call UI functions. 
-       To report a status update from a thread, set 'self.status_message = "..."' 
+    4. THREAD SAFETY: Background threads (threading.Thread) must NEVER call UI functions.
+       To report a status update from a thread, set 'self.status_message = "..."'
        and 'self.ui_needs_refresh = True'.
 
-    5. GEOMETRY UPDATES: To force a viewer re-center, DO NOT set 'viewer.needs_recenter'. 
-       Instead, set 'vs.camera.target_center = world_pos'. The Viewers watch this 
+    5. GEOMETRY UPDATES: To force a viewer re-center, DO NOT set 'viewer.needs_recenter'.
+       Instead, set 'vs.camera.target_center = world_pos'. The Viewers watch this
        central data and re-calibrate themselves autonomously.
     """
 
@@ -347,10 +347,13 @@ class Controller:
     def update_all_viewers_of_image(self, vs_id, data_dirty=True):
         if vs_id in self.view_states and data_dirty:
             self.view_states[vs_id].is_data_dirty = True
-            # The Viewer's tick() loop will inherently notice this and flag its own geometry!
 
-        # We ONLY manually target viewers if the data itself didn't change
-        # (e.g., the user just toggled the 'Show Grid' checkbox in the UI)
+            # GUARDRAIL 3: Instantly push the data flag to viewers to prevent them
+            # from rendering tombstoned C++ memory during the 1-frame Bridge gap!
+            for v in self.viewers.values():
+                if v.image_id == vs_id:
+                    v.is_viewer_data_dirty = True
+
         if not data_dirty:
             for v in self.viewers.values():
                 if v.image_id == vs_id:
@@ -437,12 +440,27 @@ class Controller:
         if vs_id in self.view_states:
             vs = self.view_states[vs_id]
             vol = vs.volume
-            was_reset = vol.reload()
 
-            if getattr(vs, "base_display_data", None) is not None:
-                vs.base_display_data = None
-            if getattr(vs.display, "overlay_data", None) is not None:
-                vs.display.overlay_data = None
+            # =========================================================================
+            # GUARDRAIL 2: THE TOMBSTONE PATTERN
+            # We MUST sever all NumPy views to the C++ memory BEFORE reloading.
+            # If the 60fps loop reads a zero-copy view while ITK frees it -> Segfault!
+            # =========================================================================
+
+            # 1. Sever the active image's caches
+            vs.base_display_data = None
+            vs._sitk_base_cache = None
+            vs.display.overlay_data = None
+            vs.display._sitk_overlay_cache = None
+
+            # 2. Sever ANY OTHER image that is currently using this as an overlay!
+            for other_vs in self.view_states.values():
+                if getattr(other_vs.display, "overlay_id", None) == vs_id:
+                    other_vs.display.overlay_data = None
+                    other_vs.display._sitk_overlay_cache = None
+
+            # Now that all C++ pointers are safely tombstoned, it is safe to mutate!
+            was_reset = vol.reload()
 
             if was_reset:
                 vs.camera.target_center = vs.camera.crosshair_phys_coord
@@ -465,16 +483,14 @@ class Controller:
                 vs.is_data_dirty = True
                 self.update_all_viewers_of_image(vs_id)
 
-            # --- 1. If the reloaded image acts as an overlay on OTHER images ---
+            # --- 1. Rebuild overlays on OTHER images ---
             for other_id, other_vs in self.view_states.items():
-                if other_vs.display.overlay_id == vs_id:
-                    # CACHE existing fusion settings before the memory swap
+                if getattr(other_vs.display, "overlay_id", None) == vs_id:
                     old_mode = getattr(other_vs.display, "overlay_mode", "Alpha")
                     old_opacity = getattr(other_vs.display, "overlay_opacity", 0.5)
 
                     other_vs.set_overlay(vs_id, vol, self)
 
-                    # RESTORE the settings
                     other_vs.display.overlay_mode = old_mode
                     other_vs.display.overlay_opacity = old_opacity
 
@@ -483,20 +499,18 @@ class Controller:
 
                     self.update_all_viewers_of_image(other_id)
 
-            # --- 2. If the reloaded image is the BASE image and HAS an overlay ---
+            # --- 2. Rebuild overlays on THIS image ---
             if (
                 getattr(vs.display, "overlay_id", None)
                 and vs.display.overlay_id in self.volumes
             ):
                 ov_vol = self.volumes[vs.display.overlay_id]
 
-                # CACHE existing fusion settings before the memory swap
                 old_mode = getattr(vs.display, "overlay_mode", "Alpha")
                 old_opacity = getattr(vs.display, "overlay_opacity", 0.5)
 
                 vs.set_overlay(vs.display.overlay_id, ov_vol, self)
 
-                # RESTORE the settings
                 vs.display.overlay_mode = old_mode
                 vs.display.overlay_opacity = old_opacity
 
