@@ -160,12 +160,9 @@ def handle_wl_group_change(gui, sender, value, user_data):
             break
 
     if master_vs_id:
-        master_vs = gui.controller.view_states[master_vs_id]
-        vs.display.ww = master_vs.display.ww
-        vs.display.wl = master_vs.display.wl
-        vs.display.base_threshold = master_vs.display.base_threshold
-        vs.display.colormap = master_vs.display.colormap
-        vs.is_data_dirty = True
-        gui.controller.update_all_viewers_of_image(vs_id)
+        # State-Only Fix: Let the SyncManager handle the robust broadcast!
+        # This ensures it hits not just the base image, but any active overlays as well.
+        gui.controller.sync.propagate_window_level(master_vs_id)
+        gui.controller.sync.propagate_colormap(master_vs_id)
 
     gui.controller.ui_needs_refresh = True

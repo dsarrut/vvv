@@ -303,11 +303,16 @@ class SyncManager:
 
     def link_all_wl(self):
         """Assigns all currently loaded images to Window/Level sync group 1."""
-        for vs in self.controller.view_states.values():
-            vs.sync_wl_group = 1  # Changed from sync_wl to sync_wl_group
+        if not self.controller.view_states:
+            return
 
-        for vs_id in self.controller.view_states.keys():
-            self.controller.update_all_viewers_of_image(vs_id)
+        for vs in self.controller.view_states.values():
+            vs.sync_wl_group = 1
+
+        # State-Only Fix: Instantly broadcast the W/L and Colormap to the whole group!
+        first_vs_id = list(self.controller.view_states.keys())[0]
+        self.propagate_window_level(first_vs_id)
+        self.propagate_colormap(first_vs_id)
 
         # Flag the GUI to refresh the sync tab
         self.controller.ui_needs_refresh = True
