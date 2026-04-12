@@ -88,6 +88,55 @@ def test_chaos_monkey_survives_the_storm(headless_gui_app):
         # ADD THIS: Pull all grouped images back to the center!
         controller.sync.propagate_sync(vid)
 
+    def action_random_fusion():
+        """Randomly mounts, unmounts, or alters an overlay on a base image."""
+        vid_base = random.choice(vs_ids)
+        vid_overlay = random.choice([v for v in vs_ids if v != vid_base])
+        vs = controller.view_states[vid_base]
+
+        # 50% chance to remove overlay if it exists, 50% chance to add/modify it
+        if (
+            getattr(vs.display, "overlay_id", None) == vid_overlay
+            and random.random() > 0.5
+        ):
+            vs.set_overlay(None, None, controller)
+        else:
+            vs.set_overlay(vid_overlay, controller.volumes[vid_overlay], controller)
+            vs.display.overlay_mode = random.choice(
+                ["Alpha", "Registration", "Checkerboard"]
+            )
+            vs.display.overlay_opacity = random.uniform(0.1, 1.0)
+            # Force the UI to refresh the new texture
+            controller.update_all_viewers_of_image(vid_base)
+
+    def action_random_registration():
+        """Violently shifts the spatial matrix of an image."""
+        vid = random.choice(vs_ids)
+        tx, ty, tz = (
+            random.uniform(-50, 50),
+            random.uniform(-50, 50),
+            random.uniform(-50, 50),
+        )
+        # Only applying translation to avoid complex rotation math assertions in this test
+        controller.update_transform_manual(vid, tx, ty, tz, 0.0, 0.0, 0.0)
+
+        # The monkey forces the sync manager to resolve the new spatial reality
+        controller.view_states[vid].is_geometry_dirty = True
+        for v in viewers:
+            if v.image_id == vid:
+                controller.sync.propagate_camera(v)
+        controller.sync.propagate_sync(vid)
+
+    def action_reload_image():
+        """Simulates the user rapidly hitting 'Reload' on an active memory buffer."""
+        vid = random.choice(vs_ids)
+        controller.reload_image(vid)
+
+        # The monkey must broadcast that the image was reset to the sync group
+        controller.sync.propagate_window_level(vid)
+        controller.sync.propagate_colormap(vid)
+        controller.sync.propagate_sync(vid)
+
     arsenal = [
         action_random_pan,
         action_random_zoom,
@@ -97,6 +146,9 @@ def test_chaos_monkey_survives_the_storm(headless_gui_app):
         action_random_wl_sync,
         action_random_window_level,
         action_hard_reset,
+        action_random_fusion,
+        action_random_registration,
+        action_reload_image,
     ]
 
     # 3. RELEASE THE MONKEY
