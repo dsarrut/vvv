@@ -433,7 +433,7 @@ class RegistrationUI:
                 v.view_state.is_data_dirty = True
 
         self.controller.update_all_viewers_of_image(vs_id)
-        self.gui.update_sidebar_crosshair(viewer)
+        self.controller.ui_needs_refresh = True
 
         # 6. Trigger 3D resample
         if vs.space.is_active or new_state_val is not None:
@@ -611,12 +611,16 @@ class RegistrationUI:
             else self.controller.get_volume_physical_center(vol)
         )
         self._snap_viewer_to_world_pos(viewer, center)
-        for v in self.controller.viewers.values():
-            if v.image_id == viewer.image_id:
-                v.needs_recenter = True
+        # State-Only Camera Snapping
+        target_ids = self.controller.sync.get_sync_group_vs_ids(
+            viewer.image_id, active_only=True
+        )
+        for tid in target_ids:
+            self.controller.view_states[tid].camera.target_center = center
+
         self.controller.update_all_viewers_of_image(viewer.image_id)
-        self.gui.update_sidebar_crosshair(viewer)
         self.controller.sync.propagate_sync(viewer.image_id)
+        self.controller.ui_needs_refresh = True
 
     def on_reg_cor_to_crosshair_clicked(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer

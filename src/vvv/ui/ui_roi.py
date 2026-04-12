@@ -527,7 +527,7 @@ class RoiUI:
         vs = self.gui.context_viewer.view_state
         vs.rois[user_data].visible = not vs.rois[user_data].visible
         vs.is_data_dirty = True
-        self.refresh_rois_ui()
+        self.controller.ui_needs_refresh = True
         self.controller.update_all_viewers_of_image(self.gui.context_viewer.image_id)
 
     def on_roi_color_changed(self, sender, app_data, user_data):
@@ -563,7 +563,7 @@ class RoiUI:
         for roi in viewer.view_state.rois.values():
             roi.visible = True
         viewer.view_state.is_data_dirty = True
-        self.refresh_rois_ui()
+        self.controller.ui_needs_refresh = True
         self.controller.update_all_viewers_of_image(viewer.image_id)
 
     def on_roi_hide_all(self, sender, app_data, user_data):
@@ -573,7 +573,7 @@ class RoiUI:
         for roi in viewer.view_state.rois.values():
             roi.visible = False
         viewer.view_state.is_data_dirty = True
-        self.refresh_rois_ui()
+        self.controller.ui_needs_refresh = True
         self.controller.update_all_viewers_of_image(viewer.image_id)
 
     def on_roi_type_changed(self, sender, app_data, user_data):
@@ -626,5 +626,4 @@ class RoiUI:
         if getattr(self, "active_roi_id", None) == user_data:
             self.active_roi_id = None
 
-        self.refresh_rois_ui()
-        self.gui.update_sidebar_info(viewer)
+        self.controller.ui_needs_refresh = True

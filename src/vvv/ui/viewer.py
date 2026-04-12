@@ -271,11 +271,6 @@ class SliceViewer:
         if self.controller:
             self.controller.ui_needs_refresh = True
 
-            # If this viewer is the active one, refresh the sidebar!
-            if self.controller.gui and self.controller.gui.context_viewer == self:
-                self.controller.gui.update_sidebar_info(self)
-                self.controller.gui.update_sidebar_crosshair(self)
-
     def set_current_slice_to_crosshair(self):
         if not self.view_state or not self.volume:
             return
@@ -390,10 +385,6 @@ class SliceViewer:
 
         if self.controller:
             self.controller.ui_needs_refresh = True
-            # If we just dropped the image of the active viewer, clear the sidebar!
-            if self.controller.gui and self.controller.gui.context_viewer == self:
-                self.controller.gui.update_sidebar_info(self)
-                self.controller.gui.update_sidebar_crosshair(self)
 
     def is_image_orientation(self):
         return self.orientation in [ViewMode.AXIAL, ViewMode.SAGITTAL, ViewMode.CORONAL]
@@ -597,7 +588,6 @@ class SliceViewer:
         self.view_state.camera.show_grid = False
 
         self.view_state.is_data_dirty = True
-        self.controller.update_all_viewers_of_image(self.image_id, data_dirty=False)
 
     def tick(self):
         target_id = self.controller.layout.get(self.tag)
@@ -1299,11 +1289,9 @@ class SliceViewer:
     def action_next_image(self):
         next_id = self.controller.get_next_image_id(self.image_id)
         if next_id and next_id != self.image_id:
-            self.set_image(next_id)
-            if self.controller.gui:
-                self.controller.gui.refresh_image_list_ui()
-                if self.controller.gui.context_viewer == self:
-                    self.controller.gui.update_sidebar_info(self)
+            # State-Only: Just tell the layout dictionary we want a new image!
+            self.controller.layout[self.tag] = next_id
+            self.controller.ui_needs_refresh = True
 
     def action_reset_view(self):
         # Check if either Left Shift or Right Shift is currently held down
@@ -1334,12 +1322,7 @@ class SliceViewer:
     def action_center_view(self):
         self.needs_recenter = True
         self.is_geometry_dirty = True
-        if self.view_state.sync_group != 0:
-            group_id = self.view_state.sync_group
-            for v in self.controller.viewers.values():
-                if v.view_state and v.view_state.sync_group == group_id:
-                    v.needs_recenter = True
-                    v.is_geometry_dirty = True
+        self.controller.sync.propagate_camera(self)
 
     def action_view_histogram(self):
         self.set_orientation(ViewMode.HISTOGRAM)
@@ -1352,31 +1335,21 @@ class SliceViewer:
 
     def action_toggle_legend(self):
         self.show_legend = not self.show_legend
-        # Broadcast to all viewers showing this image
-        self.controller.update_all_viewers_of_image(self.image_id, data_dirty=False)
 
     def action_toggle_grid(self):
         self.view_state.camera.show_grid = not self.view_state.camera.show_grid
-        # Broadcast to all viewers showing this image
-        self.controller.update_all_viewers_of_image(self.image_id, data_dirty=False)
 
     def action_toggle_axis(self):
         self.view_state.camera.show_axis = not self.view_state.camera.show_axis
-        # Broadcast to all viewers showing this image
-        self.controller.update_all_viewers_of_image(self.image_id, data_dirty=False)
 
     def action_toggle_scalebar(self):
         self.view_state.camera.show_scalebar = not self.view_state.camera.show_scalebar
-        # Broadcast to all viewers showing this image
-        self.controller.update_all_viewers_of_image(self.image_id, data_dirty=False)
 
     def action_toggle_filename(self):
         current = getattr(self.view_state.camera, "show_filename", 0)
         if isinstance(current, bool):
             current = 1 if current else 0
-
         self.view_state.camera.show_filename = (current + 1) % 3
-        self.controller.update_all_viewers_of_image(self.image_id, data_dirty=False)
 
     def on_key_press(self, key):
         if not self.view_state:
@@ -1498,23 +1471,6 @@ class SliceViewer:
         dx, dy = self.mapper.calculate_zoom_pan_delta(mx, my, oz, self.zoom)
         self.pan_offset[0] += dx
         self.pan_offset[1] += dy
-
-        if self.view_state.sync_group == 0:
-            win_w = self.quad_w
-            win_h = self.quad_h
-            if win_w and win_h:
-                sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
-                shape = self.get_slice_shape()
-                real_w, real_h = shape[1], shape[0]
-
-                mm_w, mm_h = real_w * sw, real_h * sh
-                target_w, target_h = (
-                    win_w - self.mapper.margin_left,
-                    win_h - self.mapper.margin_top,
-                )
-
-                base_scale = min(target_w / mm_w, target_h / mm_h)
-                self.view_state.shared_ppm = base_scale * self.zoom
 
         self.is_geometry_dirty = True
         self.controller.sync.propagate_camera(self)

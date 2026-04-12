@@ -309,7 +309,7 @@ class FusionUI:
 
         if app_data == "None":
             viewer.view_state.set_overlay(None, None)
-            self.refresh_fusion_ui()
+            self.controller.ui_needs_refresh = True
         else:
             target_id = None
             for vid in self.controller.view_states.keys():
@@ -328,7 +328,7 @@ class FusionUI:
                 viewer.view_state.set_overlay(target_id, target_vol, self.controller)
                 self.controller.update_all_viewers_of_image(viewer.image_id)
                 self.gui.show_status_message("Overlay applied")
-                self.refresh_fusion_ui()
+                self.controller.ui_needs_refresh = True
 
             threading.Thread(target=_resample, daemon=True).start()
 
@@ -343,7 +343,7 @@ class FusionUI:
             self.controller.sync.propagate_window_level(viewer.image_id)
 
         self.controller.sync.propagate_overlay_mode(viewer.image_id)
-        self.refresh_fusion_ui()
+        self.controller.ui_needs_refresh = True
 
     def on_fusion_checkerboard_changed(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer

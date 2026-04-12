@@ -306,15 +306,14 @@ class ROIManager:
         )
 
         self.controller.sync.propagate_sync(base_id)
-        target_group = vs.sync_group
 
-        for viewer in self.controller.viewers.values():
-            if viewer.image_id and viewer.view_state:
-                if viewer.image_id == base_id or (
-                    target_group != 0 and viewer.view_state.sync_group == target_group
-                ):
-                    viewer.needs_recenter = True
-                    viewer.is_geometry_dirty = True
+        # State-Only: Write the target center to the synced ViewStates!
+        target_ids = self.controller.sync.get_sync_group_vs_ids(
+            base_id, active_only=True
+        )
+        for tid in target_ids:
+            t_vs = self.controller.view_states[tid]
+            t_vs.camera.target_center = vs.camera.crosshair_phys_coord
 
     def reload_roi(self, base_id, roi_id):
         if (
@@ -340,7 +339,6 @@ class ROIManager:
         self.controller.update_all_viewers_of_image(base_id)
 
         if self.controller.gui:
-            self.controller.gui.refresh_rois_ui()
             self.controller.gui.show_status_message(f"Reloaded: {roi_state.name}")
 
     def close_roi(self, base_id, roi_id):

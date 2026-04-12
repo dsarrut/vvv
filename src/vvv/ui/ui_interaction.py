@@ -39,9 +39,6 @@ class NavigationTool:
 
     def on_release(self, button):
         if self.drag_viewer:
-            self.manager.gui.update_sidebar_crosshair(self.drag_viewer)
-            self.manager.gui.update_sidebar_info(self.drag_viewer)
-
             # Cleanup anchors
             self.drag_viewer.drag_start_mouse = None
             self.drag_viewer.drag_start_pan = None
@@ -148,7 +145,6 @@ class InteractionManager:
             wl = vs.display.wl - dy * sens
 
             viewer.update_window_level(ww, wl)
-            self.gui.update_sidebar_info(viewer)
 
     def on_mouse_drag(self, sender, app_data, user_data):
         if isinstance(app_data, int):

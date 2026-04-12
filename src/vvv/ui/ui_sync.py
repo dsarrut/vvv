@@ -119,7 +119,7 @@ def handle_sync_group_change(gui, sender, value, user_data):
     new_group_id = 0 if value == "None" else int(value.split(" ")[1])
 
     gui.controller.set_sync_group(vs_id, new_group_id)
-    gui.refresh_sync_ui()
+    gui.controller.ui_needs_refresh = True
 
 
 def handle_wl_group_change(gui, sender, value, user_data):
@@ -129,7 +129,7 @@ def handle_wl_group_change(gui, sender, value, user_data):
 
     if value == "None":
         vs.sync_wl_group = 0
-        gui.refresh_sync_ui()
+        gui.controller.ui_needs_refresh = True
         return
 
     # Parse "Grp A" -> 1, "Grp B" -> 2
@@ -153,4 +153,4 @@ def handle_wl_group_change(gui, sender, value, user_data):
         vs.is_data_dirty = True
         gui.controller.update_all_viewers_of_image(vs_id)
 
-    gui.refresh_sync_ui()
+    gui.controller.ui_needs_refresh = True

@@ -789,15 +789,23 @@ class MainGUI:
                 dpg.set_value("info_val", val_str)
             else:
                 dpg.set_value("info_val", "---")
-            # ---------------------------------
+                # ---------------------------------
 
-            ppm = vs.camera.target_ppm
+            # Fallback to the active viewer's math if no sync targets have been generated yet
+            ppm = getattr(vs.camera, "target_ppm", None)
+            if ppm is None:
+                ppm = viewer.get_pixels_per_mm()
+
             win_w, win_h = dpg.get_item_width(f"win_{viewer.tag}"), dpg.get_item_height(
                 f"win_{viewer.tag}"
             )
-            if ppm > 0 and win_w and win_h:
+
+            # Now safely check if ppm is valid
+            if ppm and ppm > 0 and win_w and win_h:
                 dpg.set_value("info_scale", f"{win_w / ppm:.0f} x {win_h / ppm:.0f} mm")
-            dpg.set_value("info_ppm", f"{round(ppm, 2):g} px/mm")
+
+            if ppm is not None:
+                dpg.set_value("info_ppm", f"{round(ppm, 2):g} px/mm")
 
     def set_context_viewer(self, viewer):
         """Centralized helper to switch the Active Menu/Sidebar target."""
