@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import numpy as np
 import threading
 from vvv.utils import fmt
 from vvv.ui.ui_roi import RoiUI
@@ -752,18 +753,28 @@ class MainGUI:
         if not viewer or not viewer.view_state:
             return
         vs, vol = viewer.view_state, viewer.volume
+        phys = vs.camera.crosshair_phys_coord
 
-        if vs.camera.crosshair_voxel is not None:
-            if vol.num_timepoints > 1:
-                dpg.set_value(
-                    "info_vox",
-                    f"{vs.camera.crosshair_voxel[0]:.1f} {vs.camera.crosshair_voxel[1]:.1f} "
-                    f"{vs.camera.crosshair_voxel[2]:.1f} {vs.camera.crosshair_voxel[3]}",
-                )
-            else:
-                dpg.set_value("info_vox", fmt(vs.camera.crosshair_voxel[:3], 1))
+        # Bulletproof Validation (Rule 2)
+        if phys is None or np.isscalar(phys) or len(phys) < 3:
+            dpg.set_value("info_phys", "---")
+            return
 
-            dpg.set_value("info_phys", fmt(vs.camera.crosshair_phys_coord, 1))
+        try:
+            if vs.camera.crosshair_voxel is not None:
+                if vol.num_timepoints > 1:
+                    dpg.set_value(
+                        "info_vox",
+                        f"{vs.camera.crosshair_voxel[0]:.1f} {vs.camera.crosshair_voxel[1]:.1f} "
+                        f"{vs.camera.crosshair_voxel[2]:.1f} {vs.camera.crosshair_voxel[3]}",
+                    )
+                else:
+                    dpg.set_value("info_vox", fmt(vs.camera.crosshair_voxel[:3], 1))
+
+                dpg.set_value("info_phys", fmt(phys, 1))
+        except Exception:
+            dpg.set_value("info_phys", "---")
+            dpg.set_value("info_vox", "---")
 
             # --- THE NEW CONSOLIDATED CALL ---
             info = self.controller.get_pixel_values_at_phys(
@@ -1288,7 +1299,7 @@ class MainGUI:
 
             self.interaction.update_trackers()
             self.sync_bound_ui()
-            
+
             if hasattr(self, "dicom_window") and self.dicom_window:
                 self.dicom_window.tick()
 
