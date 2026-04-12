@@ -203,17 +203,19 @@ class InteractionManager:
             ):
                 self.gui.set_context_viewer(hover_viewer)
 
+        # 1. Update viewer text individually
         for viewer in self.controller.viewers.values():
             viewer.update_tracker()
 
-            if self.gui.context_viewer and not is_dragging:
-                show_xh = (
-                    self.gui.context_viewer.view_state.camera.show_crosshair
-                    if self.gui.context_viewer.view_state
-                    else False
-                )
-                theme = "active_black_viewer_theme" if show_xh else "black_viewer_theme"
-                dpg.bind_item_theme(f"win_{self.gui.context_viewer.tag}", theme)
-                
-                # State-Only: Instead of calling the GUI directly, we just flag the controller!
-                self.controller.ui_needs_refresh = True
+        # 2. OUTSIDE THE LOOP: Update the master UI state safely
+        if self.gui.context_viewer and not is_dragging:
+            show_xh = (
+                self.gui.context_viewer.view_state.camera.show_crosshair
+                if self.gui.context_viewer.view_state
+                else False
+            )
+            theme = "active_black_viewer_theme" if show_xh else "black_viewer_theme"
+            dpg.bind_item_theme(f"win_{self.gui.context_viewer.tag}", theme)
+
+            # High-frequency 60fps text updates MUST be done directly, not via the heavy UI refresh flag!
+            self.gui.update_sidebar_crosshair(self.gui.context_viewer)

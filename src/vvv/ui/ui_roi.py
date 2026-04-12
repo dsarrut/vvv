@@ -106,8 +106,10 @@ class RoiUI:
             return
 
         current_scroll = 0.0
-        if dpg.does_item_exist("roi_table"):
-            current_scroll = dpg.get_y_scroll("roi_table")
+        # Dynamically find the existing table to safely save its scroll state
+        children = dpg.get_item_children(container, 1)
+        if children:
+            current_scroll = dpg.get_y_scroll(children[0])
 
         dpg.delete_item(container, children_only=True)
         self.roi_selectables.clear()
@@ -118,14 +120,14 @@ class RoiUI:
             self.refresh_roi_detail_ui()
             return
 
+        # Let DPG generate a dynamic UUID for the table to prevent mid-frame caching collisions!
         with dpg.table(
-            tag="roi_table",
             parent=container,
             header_row=False,
             resizable=False,
             borders_innerH=False,
             scrollY=True,
-        ):
+        ) as new_table_id:
             # 1. Color Box
             dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
             # 2. ROI Name (This one stretches to fill all empty space!)
@@ -204,7 +206,8 @@ class RoiUI:
                     if dpg.does_item_exist("delete_button_theme"):
                         dpg.bind_item_theme(btn_close, "delete_button_theme")
 
-        dpg.set_y_scroll("roi_table", current_scroll)
+        # Safely re-apply the scroll position to the new dynamic ID
+        dpg.set_y_scroll(new_table_id, current_scroll)
         self.refresh_roi_detail_ui()
 
     def refresh_roi_detail_ui(self):
