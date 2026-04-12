@@ -1050,11 +1050,9 @@ class MainGUI:
 
             # Run in a thread so the UI doesn't freeze during heavy compression!
             def _save():
-                try:
-                    self.controller.save_image(vs_id, file_path)
-                    self.show_status_message(f"Saved: {os.path.basename(file_path)}")
-                except Exception as e:
-                    self.show_message("Save Error", str(e))
+                self.controller.save_image(vs_id, file_path)
+                self.controller.status_message = f"Saved: {os.path.basename(file_path)}"
+                self.controller.ui_needs_refresh = True
 
             threading.Thread(target=_save, daemon=True).start()
 
@@ -1280,6 +1278,11 @@ class MainGUI:
 
                 # Safely update the sidebar between frames when the DPG stack is completely empty!
                 self.update_sidebar_info(self.context_viewer)
+
+                # Check for asynchronous status updates
+                if getattr(self.controller, "status_message", None):
+                    self.show_status_message(self.controller.status_message)
+                    self.controller.status_message = None
 
                 self.controller.ui_needs_refresh = False
 
