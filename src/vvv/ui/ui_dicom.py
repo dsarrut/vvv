@@ -15,6 +15,29 @@ class DicomBrowserWindow:
         self.scanned_series = []
         self.active_series = None
 
+        # Asynchronous State
+        self.scan_progress = 0.0
+        self.scan_status_text = ""
+        self.scan_finished = False
+
+    def tick(self):
+        if not dpg.does_item_exist(self.window_tag) or not dpg.is_item_shown(self.window_tag):
+            return
+
+        if self.scan_finished:
+            if dpg.does_item_exist(self.window_tag):
+                dpg.configure_item("dicom_scan_progress", show=False)
+                dpg.set_value("dicom_scan_status", f"  ({len(self.scanned_series)} found)")
+                dpg.configure_item("dicom_btn_scan", enabled=True)
+                self._populate_series_list()
+            self.scan_finished = False
+            return
+
+        # Update progress and status text while scanning
+        if dpg.does_item_exist("dicom_scan_progress"):
+            dpg.set_value("dicom_scan_progress", self.scan_progress)
+            dpg.set_value("dicom_scan_status", self.scan_status_text)
+
     def show(self):
         if dpg.does_item_exist(self.window_tag):
             dpg.focus_item(self.window_tag)
@@ -198,18 +221,13 @@ class DicomBrowserWindow:
         for result in self.controller.file.scan_dicom_folder(folder, recursive=recurse):
             if len(result) == 2:
                 pct, dirname = result
-                if dpg.does_item_exist("dicom_scan_progress"):
-                    dpg.set_value("dicom_scan_progress", pct)
-                    dpg.set_value("dicom_scan_status", f"  Scanning: {dirname[:20]}...")
+                self.scan_progress = pct
+                self.scan_status_text = f"  Scanning: {dirname[:20]}..."
             elif len(result) == 3:
                 _, _, self.scanned_series = result
 
-        # Safely wrap up UI from thread
-        if dpg.does_item_exist(self.window_tag):
-            dpg.configure_item("dicom_scan_progress", show=False)
-            dpg.set_value("dicom_scan_status", f"  ({len(self.scanned_series)} found)")
-            dpg.configure_item("dicom_btn_scan", enabled=True)
-            self._populate_series_list()
+        # Signal completion
+        self.scan_finished = True
 
     def _populate_series_list(self):
         if not dpg.does_item_exist("dicom_series_list"):

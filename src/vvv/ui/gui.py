@@ -1288,6 +1288,10 @@ class MainGUI:
 
             self.interaction.update_trackers()
             self.sync_bound_ui()
+            
+            if hasattr(self, "dicom_window") and self.dicom_window:
+                self.dicom_window.tick()
+
             self.controller.tick()
 
             dpg.render_dearpygui_frame()
