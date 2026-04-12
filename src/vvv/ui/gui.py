@@ -1211,13 +1211,11 @@ class MainGUI:
                     return f"Shift + {k}"
                 return str(k)
 
-            with dpg.table(
-                header_row=False, borders_innerH=True, policy=dpg.mvTable_SizingFixedFit
-            ):
-                dpg.add_table_column(
-                    width_fixed=True, init_width_or_weight=140
-                )  # Wider for "Shift + R"
+            # Removed the conflicting policy=dpg.mvTable_SizingFixedFit!
+            with dpg.table(header_row=False, borders_innerH=True):
+                dpg.add_table_column(width_fixed=True, init_width_or_weight=140)
                 dpg.add_table_column(width_stretch=True)
+
                 for key_id, desc in descriptions.items():
                     # Map the virtual "hard_reset" action to the physical "reset_view" key
                     lookup_key = "reset_view" if key_id == "hard_reset" else key_id
