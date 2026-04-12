@@ -484,12 +484,19 @@ class Controller:
 
         # --- THE BRIDGE ---
         for vs_id, vs in self.view_states.items():
-            # If the properties flipped the geometry flag, broadcast it!
+            # 1. Broadcast Geometry Dirty
             if getattr(vs, "is_geometry_dirty", False):
                 for viewer in self.viewers.values():
                     if viewer.image_id == vs_id:
                         viewer.is_geometry_dirty = True
 
+            # 2. Broadcast Data Dirty
+            if getattr(vs, "is_data_dirty", False):
+                for viewer in self.viewers.values():
+                    if viewer.image_id == vs_id:
+                        viewer.is_viewer_data_dirty = True
+
+            # 3. Safe Reset (ONLY after all viewers in the loop have been flagged)
             vs.is_data_dirty = False
             vs.is_geometry_dirty = False
 
