@@ -73,7 +73,7 @@ def load_single_image_sequence(gui, controller, file_path):
         controller.sync.propagate_ppm(same_image_viewers)
 
     gui.set_context_viewer(target_viewer)
-    gui.refresh_rois_ui()
+    controller.ui_needs_refresh = True
 
     if dpg.does_item_exist("loading_modal"):
         dpg.delete_item("loading_modal")
@@ -150,7 +150,7 @@ def load_batch_images_sequence(gui, controller, file_paths):
                     controller.layout[tag] = loaded_ids[0]
 
         gui.set_context_viewer(target_viewer)
-        gui.refresh_rois_ui()
+        controller.ui_needs_refresh = True
 
     if dpg.does_item_exist("loading_modal"):
         dpg.delete_item("loading_modal")
@@ -259,7 +259,7 @@ def load_batch_rois_sequence(
     if vs.rois:
         gui.active_roi_id = list(vs.rois.keys())[-1]
 
-    gui.refresh_rois_ui()
+    controller.ui_needs_refresh = True
     controller.update_all_viewers_of_image(base_image_id)
 
     if dpg.does_item_exist("loading_modal"):
@@ -396,14 +396,11 @@ def load_workspace_sequence(gui, controller, filepath):
             # 1. Update the global layout state
             controller.layout[tag] = new_id
 
-            # 2. Force the mount immediately so we can safely overwrite the default boot-up flags
+            # 2. Force the mount immediately so we can safely override the default boot-up re-center flag.
+            # This ensures the viewer uses the exact zoom/pan we restored in Phase 3.
             viewer = controller.viewers[tag]
             viewer.set_image(new_id)
-
-            # 3. Restore the exact physical view parameters saved in the JSON
-            viewer.set_orientation(ViewMode[v_data["orientation"]])
-            viewer.zoom = v_data.get("zoom", 1.0)
-            viewer.pan_offset = v_data.get("pan_offset", [0, 0])
+            viewer.orientation = ViewMode[v_data["orientation"]]
             viewer.needs_recenter = False
     yield
 
@@ -440,7 +437,7 @@ def load_workspace_sequence(gui, controller, filepath):
         controller.sync.propagate_sync(new_id)
         controller.update_all_viewers_of_image(new_id)
 
-    gui.refresh_rois_ui()
+    controller.ui_needs_refresh = True
     gui.on_window_resize()
 
     if id_map:
@@ -599,7 +596,7 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
     if "V1" in controller.viewers:
         gui.set_context_viewer(controller.viewers["V1"])
 
-    gui.refresh_rois_ui()
+    controller.ui_needs_refresh = True
 
     if dpg.does_item_exist("loading_modal"):
         dpg.delete_item("loading_modal")
