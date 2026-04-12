@@ -433,7 +433,12 @@ class ViewState:
         self.camera = CameraState(self.volume, parent_vs=self)
         self.display = DisplayState(parent_vs=self)
         self.init_default_window_level()
+        
+        # Mandatory: Rule 4 requires crosshair initialization
+        self.init_crosshair_to_slices()
+        
         self.is_data_dirty = True
+        self.is_geometry_dirty = True
 
     def apply_wl_preset(self, preset_name):
         if getattr(self.volume, "is_rgb", False) or preset_name == "Custom":

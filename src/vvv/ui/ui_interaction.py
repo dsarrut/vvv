@@ -214,4 +214,6 @@ class InteractionManager:
                 )
                 theme = "active_black_viewer_theme" if show_xh else "black_viewer_theme"
                 dpg.bind_item_theme(f"win_{self.gui.context_viewer.tag}", theme)
-                self.gui.update_sidebar_crosshair(self.gui.context_viewer)
+                
+                # State-Only: Instead of calling the GUI directly, we just flag the controller!
+                self.controller.ui_needs_refresh = True
