@@ -624,6 +624,11 @@ class SliceViewer:
             else:
                 self.set_image(target_id)
 
+        # 1. SHIELD CHECK: Abort the frame if the image is undergoing a violent geometry rebuild
+        if not self.view_state or getattr(self.view_state, "is_loading", False):
+            self.last_drawn_image_id = None
+            return False
+
         if not self.view_state:
             self.last_drawn_image_id = None
             return False
@@ -643,16 +648,20 @@ class SliceViewer:
             self, "last_orientation", None
         )
 
-        # 2. If either the window size OR the image changed, force a geometry refresh
+        current_shape = self.get_slice_shape()
+        shape_changed = current_shape != getattr(self, "last_drawn_shape", None)
+
+        # 2. If either the window size OR the image OR the shape changed, force a geometry refresh
         if (
-            (size_changed or image_changed or orientation_changed)
+            (size_changed or image_changed or orientation_changed or shape_changed)
             and win_w > 0
             and win_h > 0
         ):
             self.last_w = win_w
             self.last_h = win_h
             self.last_drawn_image_id = self.image_id
-            self.last_orientation = self.orientation  # Track the new orientation
+            self.last_orientation = self.orientation
+            self.last_drawn_shape = current_shape
 
             # resize() now pulls the fresh dx, dy, dz for the NEW orientation
             self.resize(win_w, win_h)
