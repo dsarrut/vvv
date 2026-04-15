@@ -48,72 +48,67 @@ class SliceRenderer:
 
     @staticmethod
     def _blend_registration(
-        base_rgba,
-        base_norm,
-        over_slice,
-        over_norm,
-        base_is_rgb,
-        over_is_rgb,
-        opacity,
-        threshold,
-        base_threshold,
-        base_slice,
+            base_rgba, base_norm, over_slice, over_norm,
+            base_is_rgb, over_is_rgb, opacity, threshold,
+            base_threshold, base_slice
     ):
-        """Handles grayscale/RGB structural mixing for Registration mode."""
         base_reg = np.mean(base_norm[..., :3], axis=-1) if base_is_rgb else base_norm
         over_reg = np.mean(over_norm[..., :3], axis=-1) if over_is_rgb else over_norm
 
         W = np.full(over_slice.shape, opacity, dtype=np.float32)
         W[over_slice < threshold] = 0.0
+        m1 = W <= 0.5
+
+        # --- IN-PLACE OPTIMIZATION ---
+        # Multiply W by 2.0 in-place. W is now equivalent to your old "W2" variable!
+        np.multiply(W, 2.0, out=W)
 
         res_rgba = np.zeros((*base_reg.shape, 4), dtype=np.float32)
-        m1 = W <= 0.5
-        W2 = W * 2.0
 
-        res_rgba[..., 0] = np.where(
-            m1, base_reg, base_reg * (2.0 - W2) + over_reg * (W2 - 1.0)
-        )
-        res_rgba[..., 1] = np.where(m1, base_reg * (1.0 - W2) + over_reg * W2, over_reg)
+        # Red & Green channel math (using W which is now scaled by 2)
+        res_rgba[..., 0] = np.where(m1, base_reg, base_reg * (2.0 - W) + over_reg * (W - 1.0))
+        res_rgba[..., 1] = np.where(m1, base_reg * (1.0 - W) + over_reg * W, over_reg)
         res_rgba[..., 2] = res_rgba[..., 0]
         res_rgba[..., 3] = 1.0
 
+        # Apply base threshold directly (assigning a scalar 0.0 is highly optimized in NumPy)
         if base_threshold > -1e8 and not base_is_rgb:
             mask = base_slice <= base_threshold
-            res_rgba[mask] = [0.0, 0.0, 0.0, 0.0]
+            res_rgba[mask] = 0.0
 
         return res_rgba
 
     @staticmethod
     def _blend_alpha(base_rgba, over_slice, over_norm, cmap_name, opacity, threshold):
-        """Handles standard opacity-based colormap overlays."""
         over_lut = COLORMAPS.get(cmap_name, COLORMAPS["Hot"])
+
+        # over_rgba is newly allocated here, meaning it is safe to overwrite it
         over_rgba = over_lut[(over_norm * 255).astype(np.uint8)]
 
         op_mask = np.full(over_slice.shape, opacity, dtype=np.float32)
         op_mask[over_slice < threshold] = 0.0
         op_mask = op_mask[..., None]
 
-        # Use in-place operators to avoid allocating 4 intermediate arrays
-        base_rgba *= 1.0 - op_mask
-        base_rgba += over_rgba * op_mask
+        # --- THE IN-PLACE OPTIMIZATION ---
+        # Instead of: base_rgba = base_rgba * (1.0 - op_mask) + over_rgba * op_mask
+
+        # 1. Scale base image down (modifies base_rgba memory directly)
+        np.multiply(base_rgba, 1.0 - op_mask, out=base_rgba)
+
+        # 2. Scale overlay image down (modifies over_rgba memory directly)
+        np.multiply(over_rgba, op_mask, out=over_rgba)
+
+        # 3. Add them together (writes final result into base_rgba)
+        np.add(base_rgba, over_rgba, out=base_rgba)
 
         return base_rgba
 
     @staticmethod
     def _blend_checkerboard(
-        base_rgba,
-        over_rgba,
-        over_slice,
-        base_slice,
-        overlay_threshold,
-        base_threshold,
-        spacing_2d,
-        chk_size,
-        swap,
-        is_base_rgb,
-        is_over_rgb,
+            base_rgba, over_rgba, over_slice, base_slice,
+            overlay_threshold, base_threshold, spacing_2d,
+            chk_size, swap, is_base_rgb, is_over_rgb
     ):
-        """Handles spatial grid swapping between base and overlay."""
         h, w = base_rgba.shape[:2]
         grid_y, grid_x = np.ogrid[:h, :w]
         space_w, space_h = spacing_2d
@@ -127,15 +122,23 @@ class SliceRenderer:
             mask = ~mask
         mask_rgba = mask[..., None]
 
-        res_rgba = np.where(mask_rgba, base_rgba, over_rgba)
+        # --- IN-PLACE OPTIMIZATION ---
+        # 1. Allocate the canvas exactly ONCE (using the overlay as the base)
+        res_rgba = np.copy(over_rgba)
 
+        # 2. Paste the base image over it where the checkerboard mask is True
+        np.copyto(res_rgba, base_rgba, where=mask_rgba)
+
+        # 3. Apply Thresholds via in-place overwriting
         if overlay_threshold > -1e8 and not is_over_rgb:
             o_mask = (over_slice < overlay_threshold)[..., None]
-            res_rgba = np.where(~mask_rgba & o_mask, base_rgba, res_rgba)
+            # Revert to base image where the overlay is below the threshold
+            np.copyto(res_rgba, base_rgba, where=(~mask_rgba & o_mask))
 
         if base_threshold > -1e8 and not is_base_rgb:
             b_mask = (base_slice <= base_threshold)[..., None]
-            res_rgba = np.where(mask_rgba & b_mask, [0.0, 0.0, 0.0, 0.0], res_rgba)
+            # Blank out the pixels (0.0) where the base image is below threshold
+            res_rgba[mask_rgba & b_mask] = 0.0
 
         return res_rgba
 
@@ -251,14 +254,14 @@ class SliceRenderer:
 
     @staticmethod
     def _extract_layer(
-        layer_data,
-        is_rgb,
-        time_idx,
-        slice_idx,
-        orientation,
-        max_s,
-        offset_x=0,
-        offset_y=0,
+            layer_data,
+            is_rgb,
+            time_idx,
+            slice_idx,
+            orientation,
+            max_s,
+            offset_x=0,
+            offset_y=0,
     ):
         """Safely pads dimensions, extracts the 2D slice, and applies 2D shifts."""
         if slice_idx < 0 or slice_idx >= max_s:
@@ -283,7 +286,7 @@ class SliceRenderer:
 
     @staticmethod
     def _colorize_layer(
-        slice_data, is_rgb, num_components, ww, wl, cmap_name, threshold
+            slice_data, is_rgb, num_components, ww, wl, cmap_name, threshold
     ):
         """Applies Window/Level, Colormaps, and Alpha channels."""
         if is_rgb:
@@ -306,15 +309,15 @@ class SliceRenderer:
 
     @staticmethod
     def get_slice_rgba(
-        base: RenderLayer,
-        overlay: RenderLayer,
-        overlay_opacity: float,
-        overlay_mode: str,
-        slice_idx: int,
-        orientation: int,
-        checkerboard_size: float = 20.0,
-        checkerboard_swap: bool = False,
-        rois=(),
+            base: RenderLayer,
+            overlay: RenderLayer,
+            overlay_opacity: float,
+            overlay_mode: str,
+            slice_idx: int,
+            orientation: int,
+            checkerboard_size: float = 20.0,
+            checkerboard_swap: bool = False,
+            rois=(),
     ):
         if orientation == ViewMode.HISTOGRAM:
             return np.array([0, 0, 0, 255], dtype=np.float32), (1, 1)
@@ -450,7 +453,7 @@ class VolumeData:
     )
 
     def __init__(
-        self, path, is_roi=False, roi_mode="Ignore BG (val)", roi_target_val=0.0
+            self, path, is_roi=False, roi_mode="Ignore BG (val)", roi_target_val=0.0
     ):
         self.path = path
         self.file_paths = []
@@ -462,7 +465,7 @@ class VolumeData:
         else:
             is_4d = False
             if isinstance(path, str) and path.upper().startswith(
-                self.SEQUENCE_PREFIXES
+                    self.SEQUENCE_PREFIXES
             ):
                 is_4d = True
                 path = path[3:].strip()
@@ -671,8 +674,8 @@ class VolumeData:
         coord_bytes = 0
         if field_type == "rectilinear":
             coord_bytes = (
-                dim1 + dim2 + dim3
-            ) * 4  # 32-bit float for every slice/row/col
+                                  dim1 + dim2 + dim3
+                          ) * 4  # 32-bit float for every slice/row/col
         elif field_type == "uniform":
             coord_bytes = 6 * 4  # 3 dims * 2 floats (min/max)
 
@@ -689,8 +692,8 @@ class VolumeData:
                 if field_type == "rectilinear" and len(pts) == (dim1 + dim2 + dim3):
                     p_x, p_y, p_z = (
                         pts[0:dim1],
-                        pts[dim1 : dim1 + dim2],
-                        pts[dim1 + dim2 :],
+                        pts[dim1: dim1 + dim2],
+                        pts[dim1 + dim2:],
                     )
                     # AVS stores in cm. Multiply by 10 to convert to ITK's mm.
                     spacing[0] = 10.0 * (p_x[-1] - p_x[0]) / max(1, dim1 - 1)
@@ -913,7 +916,7 @@ class VolumeData:
 
         bytes_per_pixel = self.bytes_per_component * self.num_components
         self.memory_mb = (
-            self.sitk_image.GetNumberOfPixels() * bytes_per_pixel / (1024 * 1024)
+                self.sitk_image.GetNumberOfPixels() * bytes_per_pixel / (1024 * 1024)
         )
 
     def _get_latest_mtime(self):
