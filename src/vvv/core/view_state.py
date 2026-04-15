@@ -1,9 +1,9 @@
 import numpy as np
 import SimpleITK as sitk
 from vvv.config import WL_PRESETS
+from contextlib import contextmanager
 from vvv.math.geometry import SpatialEngine
 from vvv.utils import ViewMode, slice_to_voxel
-
 
 class CameraState:
     """Stores all transient spatial and navigation parameters."""
@@ -80,6 +80,7 @@ class CameraState:
 
         # Standard assignment for everything else (like dictionaries and _parent)
         object.__setattr__(self, name, value)
+
 
     def to_dict(self):
         return {
@@ -270,6 +271,7 @@ class ViewState:
         # Self-managed state flags
         self.is_data_dirty = True
         self.is_geometry_dirty = True
+        self.is_loading = False
 
         # Link children to self
         self.camera = CameraState(volume, parent_vs=self)
@@ -291,6 +293,16 @@ class ViewState:
 
         self.init_crosshair_to_slices()
         self.init_default_window_level()
+
+    @contextmanager
+    def loading_shield(self):
+        """A context manager that guarantees the viewer shield is raised and lowered safely."""
+        self.is_loading = True
+        try:
+            yield
+        finally:
+            self.is_loading = False
+
 
     def is_ct_image(self, flat_data):
         if hasattr(self.volume.sitk_image, "GetMetaData"):

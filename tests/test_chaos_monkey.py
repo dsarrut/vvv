@@ -137,6 +137,38 @@ def test_chaos_monkey_survives_the_storm(headless_gui_app):
         controller.sync.propagate_colormap(vid)
         controller.sync.propagate_sync(vid)
 
+    def action_shape_shift_reload():
+        """Violently changes the image dimensions in memory and forces a reactive rebuild."""
+        import SimpleITK as sitk
+
+        vid = random.choice(vs_ids)
+        vol = controller.volumes[vid]
+
+        # 1. Generate a wild new physical shape (Z, Y, X)
+        new_shape = (
+            random.randint(5, 60),
+            random.randint(20, 250),
+            random.randint(20, 250)
+        )
+        mock_img = sitk.GetImageFromArray(np.zeros(new_shape, dtype=np.float32))
+
+        # 2. TOMBSTONE: Drop the numpy view before overwriting the ITK image!
+        vol.data = None
+
+        # 3. Inject the mutant C++ memory
+        vol.sitk_image = mock_img
+        vol.data = sitk.GetArrayViewFromImage(mock_img)
+        vol.read_image_metadata()
+        vol._is_outdated = True
+
+        # 4. Force the Controller to deal with the chaos
+        controller.reload_image(vid)
+
+        # The monkey must broadcast that the image was reset
+        controller.sync.propagate_window_level(vid)
+        controller.sync.propagate_colormap(vid)
+        controller.sync.propagate_sync(vid)
+
     arsenal = [
         action_random_pan,
         action_random_zoom,
@@ -149,6 +181,7 @@ def test_chaos_monkey_survives_the_storm(headless_gui_app):
         action_random_fusion,
         action_random_registration,
         action_reload_image,
+        action_shape_shift_reload,
     ]
 
     # 3. RELEASE THE MONKEY
