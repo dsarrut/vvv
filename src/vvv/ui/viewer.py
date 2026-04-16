@@ -624,62 +624,46 @@ class SliceViewer:
             else:
                 self.set_image(target_id)
 
-        # 1. SHIELD CHECK: Abort the frame if the image is undergoing a violent geometry rebuild
+        # 1. SHIELD CHECK
         if not self.view_state or getattr(self.view_state, "is_loading", False):
             self.last_drawn_image_id = None
             return False
 
         did_update_data = False
-
         win_w = dpg.get_item_width(f"win_{self.tag}")
         win_h = dpg.get_item_height(f"win_{self.tag}")
 
-        size_changed = win_w != getattr(self, "last_w", 0) or win_h != getattr(
-            self, "last_h", 0
-        )
+        if win_w <= 0 or win_h <= 0:
+            return False
 
-        # 1. Detect if the image has changed since the last frame
+        # --- 2. GATHER TRIGGERS ---
+        size_changed = win_w != getattr(self, "last_w", 0) or win_h != getattr(self, "last_h", 0)
         image_changed = self.image_id != getattr(self, "last_drawn_image_id", None)
-        orientation_changed = self.orientation != getattr(
-            self, "last_orientation", None
-        )
-
+        orientation_changed = self.orientation != getattr(self, "last_orientation", None)
         current_shape = self.get_slice_shape()
         shape_changed = current_shape != getattr(self, "last_drawn_shape", None)
 
-        # 2. If either the window size OR the image OR the shape changed, force a geometry refresh
-        if (
-            (size_changed or image_changed or orientation_changed or shape_changed)
-            and win_w > 0
-            and win_h > 0
-        ):
+        if size_changed or image_changed or orientation_changed or shape_changed:
             self.last_w = win_w
             self.last_h = win_h
             self.last_drawn_image_id = self.image_id
             self.last_orientation = self.orientation
             self.last_drawn_shape = current_shape
 
-            # resize() now pulls the fresh dx, dy, dz for the NEW orientation
-            self.resize(win_w, win_h)
+            # This is the only DPG call allowed early, as it defines the texture tag
+            # needed by update_render()
             self.init_slice_texture()
             self.is_geometry_dirty = True
 
-        # 2. Do we have a new image to center?
-        if getattr(self, "needs_recenter", False) and win_w > 0 and win_h > 0:
-            self.resize(win_w, win_h)
+        if getattr(self, "needs_recenter", False):
             self.is_geometry_dirty = True
 
-        # --- 3. STATE-ONLY CAMERA SYNC ---
+        # --- 3. PURE MATH: STATE-ONLY CAMERA SYNC ---
         vs_ppm = getattr(self.view_state.camera, "target_ppm", None)
         vs_center = getattr(self.view_state.camera, "target_center", None)
 
         last_ppm = getattr(self, "last_consumed_ppm", None)
-        ppm_changed = False
-        if vs_ppm is not None:
-            if last_ppm is None:
-                ppm_changed = True
-            else:
-                ppm_changed = abs(vs_ppm - last_ppm) > 1e-5
+        ppm_changed = (vs_ppm is not None) and (last_ppm is None or abs(vs_ppm - last_ppm) > 1e-5)
 
         last_center = getattr(self, "last_consumed_center", None)
         center_changed = False
@@ -688,16 +672,12 @@ class SliceViewer:
                 center_changed = True
             else:
                 center_changed = (
-                    abs(vs_center[0] - last_center[0]) > 1e-5
-                    or abs(vs_center[1] - last_center[1]) > 1e-5
-                    or abs(vs_center[2] - last_center[2]) > 1e-5
+                        abs(vs_center[0] - last_center[0]) > 1e-5
+                        or abs(vs_center[1] - last_center[1]) > 1e-5
+                        or abs(vs_center[2] - last_center[2]) > 1e-5
                 )
 
-        if (ppm_changed or center_changed) and win_w > 0 and win_h > 0:
-            self.resize(
-                win_w, win_h
-            )  # Ensure coordinate mapper is perfectly calibrated first
-
+        if ppm_changed or center_changed:
             if ppm_changed:
                 self.set_pixels_per_mm(vs_ppm)
                 self.last_consumed_ppm = vs_ppm
@@ -705,19 +685,20 @@ class SliceViewer:
                 self.center_on_physical_coord(vs_center)
                 self.last_consumed_center = list(vs_center)
 
-            self.needs_recenter = False  # Safely override the boot-up flag!
+            self.needs_recenter = False
             self.is_geometry_dirty = True
-        # ---------------------------------
 
+        # --- 4. DATA UPDATE (Calculates Texture & Arrays) ---
         if self.view_state.is_data_dirty or self.is_viewer_data_dirty:
-            # Reset it so update_render can re-flag it if needed
             self.is_viewer_data_dirty = False
             self.update_render()
             self.is_geometry_dirty = True
             did_update_data = True
 
+        # --- 5. THE ONE AND ONLY RESIZE CALL ---
         if self.is_geometry_dirty:
-            self.resize(self.quad_w, self.quad_h)
+            # All math is resolved. Push final pan/zoom and window bounds to DPG once.
+            self.resize(win_w, win_h)
             self.update_stuff_in_image_only()
             self.is_geometry_dirty = False
 
@@ -1056,6 +1037,7 @@ class SliceViewer:
                     )
                 )
         return active_rois
+
 
     def update_render(self):
         win_tag = f"win_{self.tag}"
