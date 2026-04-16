@@ -4,6 +4,7 @@ import threading
 import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
+from vvv.utils import ViewMode, voxel_to_slice
 
 
 class RegistrationUI:
@@ -11,20 +12,20 @@ class RegistrationUI:
     Delegated UI handler for the Registration tab.
 
     ARCHITECTURE MANDATES (UI Components):
-    1. REACTIVE REFRESH ONLY: Never call 'refresh_reg_ui' imperatively from 
-       within this class. Always set 'self.controller.ui_needs_refresh = True' 
+    1. REACTIVE REFRESH ONLY: Never call 'refresh_reg_ui' imperatively from
+       within this class. Always set 'self.controller.ui_needs_refresh = True'
        and let the MainGUI tick loop handle the rebuild.
 
-    2. STATE-DRIVEN BUILDING: Sliders and input fields must pull their 
-       'default_value' from the underlying 'SpatialEngine' transform during 
+    2. STATE-DRIVEN BUILDING: Sliders and input fields must pull their
+       'default_value' from the underlying 'SpatialEngine' transform during
        the refresh cycle.
 
-    3. ONE-WAY DATA FLOW: Callbacks should exclusively update the transform 
-       parameters in the 'Controller'. Do not manually set values of other 
+    3. ONE-WAY DATA FLOW: Callbacks should exclusively update the transform
+       parameters in the 'Controller'. Do not manually set values of other
        widgets within a callback.
 
-    4. THREAD SAFETY: Registration resampling often happens in background 
-       threads. Ensure those threads NEVER call UI functions. Use 
+    4. THREAD SAFETY: Registration resampling often happens in background
+       threads. Ensure those threads NEVER call UI functions. Use
        'controller.status_message' for asynchronous reporting.
     """
 
@@ -318,6 +319,11 @@ class RegistrationUI:
                 )
 
     def trigger_debounced_rotation_update(self, active_image_id, immediate=False):
+        """
+        [ASYNC_BOUNDARY]: Fires a background threading.Timer.
+        Math happens off-main-thread to keep the UI from freezing.
+        """
+
         if getattr(self, "_reg_debounce_timer", None) is not None:
             self._reg_debounce_timer.cancel()
 
@@ -357,44 +363,60 @@ class RegistrationUI:
             self._reg_debounce_timer.start()
 
     def apply_transform_and_keep_world_fixed(
-            self, viewer, new_state_val=None, skip_manual_update=False
+        self, viewer, new_state_val=None, skip_manual_update=False
     ):
         vs = viewer.view_state
         vs_id = viewer.image_id
 
-        # 1. Capture absolute world state BEFORE the change
+        # 1. Capture the WORLD position of the crosshair anchor BEFORE the change
+        # This is our absolute anatomical reference point.
         is_buf = vs.base_display_data is not None
         anchor_world_pos = vs.space.display_to_world(
             np.array(vs.camera.crosshair_voxel[:3]), is_buffered=is_buf
         )
 
-        # 2. Update Transform State
+        # 2. Update the Transform State
         if new_state_val is not None:
             vs.space.is_active = new_state_val
 
         if not skip_manual_update:
+            # Pull slider values (Rx, Ry, Rz, Tx, Ty, Tz) into the SpatialEngine
             vals = [dpg.get_value(t) for t in self.SLIDER_TAGS]
             self.controller.update_transform_manual(
                 vs_id, vals[3], vals[4], vals[5], vals[0], vals[1], vals[2]
             )
 
-        # 3. Update Crosshair (Local Voxel) to maintain the exact same World position
+        # 3. Update Crosshair (Local Voxel) to stay pinned to the same World anatomy
+        # world_to_display now uses the updated transform matrix.
         new_local_vox = vs.space.world_to_display(anchor_world_pos, is_buffered=is_buf)
-        vs.camera.crosshair_voxel = [new_local_vox[0], new_local_vox[1], new_local_vox[2], vs.camera.time_idx]
+        vs.camera.crosshair_voxel = [
+            new_local_vox[0],
+            new_local_vox[1],
+            new_local_vox[2],
+            vs.camera.time_idx,
+        ]
 
         from vvv.utils import ViewMode
-        raw_sh = vs.volume.shape3d
-        vs.camera.slices[ViewMode.AXIAL] = int(np.clip(new_local_vox[2], 0, raw_sh[0] - 1))
-        vs.camera.slices[ViewMode.SAGITTAL] = int(np.clip(new_local_vox[0], 0, raw_sh[2] - 1))
-        vs.camera.slices[ViewMode.CORONAL] = int(np.clip(new_local_vox[1], 0, raw_sh[1] - 1))
 
-        # 4. Absolute Pan Recalculation
-        # This keeps the image fixed relative to the crosshair without differential drift
+        raw_sh = vs.volume.shape3d
+        vs.camera.slices[ViewMode.AXIAL] = int(
+            np.clip(new_local_vox[2], 0, raw_sh[0] - 1)
+        )
+        vs.camera.slices[ViewMode.SAGITTAL] = int(
+            np.clip(new_local_vox[0], 0, raw_sh[2] - 1)
+        )
+        vs.camera.slices[ViewMode.CORONAL] = int(
+            np.clip(new_local_vox[1], 0, raw_sh[1] - 1)
+        )
+
+        # 4. ABSOLUTE RE-CENTERING (Anti-Drift Guardrail)
+        # We tell the view_state: "Make sure this physical point stays centered."
+        # This forces the viewer.tick() to solve for the pan_offset on the next frame.
         target_ids = self.controller.sync.get_sync_group_vs_ids(vs_id, active_only=True)
         for tid in target_ids:
             self.controller.view_states[tid].camera.target_center = anchor_world_pos
 
-        # 5. Force Dirty Flags
+        # 5. Flag Dirty Flags for Redraw
         for v in self.controller.viewers.values():
             if v.image_id == vs_id:
                 v.is_geometry_dirty = True
@@ -404,12 +426,9 @@ class RegistrationUI:
         self.controller.update_all_viewers_of_image(vs_id)
         self.controller.ui_needs_refresh = True
 
-        # 6. Trigger 3D resample if active
-        # We trigger this for ANY change when active to ensure the 3D buffer
-        # stays in sync with the slider values.
+        # 6. Trigger 3D resample if rotation is involved
         if vs.space.is_active or new_state_val is not None:
             self.trigger_debounced_rotation_update(vs_id)
-
 
     # --- Callbacks ---
     def on_reg_load_clicked(self, sender, app_data, user_data):

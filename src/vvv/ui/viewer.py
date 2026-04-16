@@ -93,26 +93,26 @@ class SliceViewer:
     An autonomous rendering agent for a single viewport.
 
     ARCHITECTURE MANDATES (State-Only / Reactive):
-    1. AUTONOMOUS TICK: This class is driven by a 60fps tick() loop. It must 
+    1. AUTONOMOUS TICK: This class is driven by a 60fps tick() loop. It must
        independently detect state changes by watching its assigned 'ViewState'.
        It should never wait for external commands to redraw.
 
-    2. STATE-READ-ONLY: Viewers must never be the Source of Truth for permanent 
-       state. Any user interaction (pan, zoom, slice change) must be written 
-       immediately to the 'ViewState'. On the next tick, the viewer will 
+    2. STATE-READ-ONLY: Viewers must never be the Source of Truth for permanent
+       state. Any user interaction (pan, zoom, slice change) must be written
+       immediately to the 'ViewState'. On the next tick, the viewer will
        reactively render that new state.
 
-    3. DIRTY FLAG SYNC: 
-       - 'is_viewer_data_dirty': Triggered when pixel data or overlays change. 
+    3. DIRTY FLAG SYNC:
+       - 'is_viewer_data_dirty': Triggered when pixel data or overlays change.
          Requires a full texture re-upload to the GPU.
-       - 'is_geometry_dirty': Triggered when camera, zoom, or pan change. 
+       - 'is_geometry_dirty': Triggered when camera, zoom, or pan change.
          Requires recalculating 2D coordinate mapping but NOT a texture upload.
 
-    4. DECOUPLED RENDERING: All drawing logic is delegated to the 'OverlayDrawer'. 
+    4. DECOUPLED RENDERING: All drawing logic is delegated to the 'OverlayDrawer'.
        The viewer focuses on coordinate math and state synchronization.
 
-    5. NO IMPERATIVE PINGS: Never call GUI update functions directly from this 
-       class. If the viewer changes something that the UI needs to know about 
+    5. NO IMPERATIVE PINGS: Never call GUI update functions directly from this
+       class. If the viewer changes something that the UI needs to know about
        (e.g., crosshair value), it must set 'controller.ui_needs_refresh = True'.
     """
 
@@ -626,10 +626,6 @@ class SliceViewer:
 
         # 1. SHIELD CHECK: Abort the frame if the image is undergoing a violent geometry rebuild
         if not self.view_state or getattr(self.view_state, "is_loading", False):
-            self.last_drawn_image_id = None
-            return False
-
-        if not self.view_state:
             self.last_drawn_image_id = None
             return False
 

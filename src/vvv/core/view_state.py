@@ -543,6 +543,11 @@ class ViewState:
             self.base_display_data = sitk.GetArrayViewFromImage(joined_img)
 
     def update_overlay_display_data(self, controller):
+        """
+        [ASYNC_BOUNDARY]: SimpleITK ResampleImageFilter.Execute()
+        Releases the GIL. The Tombstone Pattern here is the only thing
+        preventing the 60fps tick from reading dead memory.
+        """
         if (
             not self.display.overlay_id
             or self.display.overlay_id not in controller.view_states

@@ -104,6 +104,9 @@ class Controller:
 
     def load_volumes_parallel(self, file_paths):
         """
+        [ASYNC_BOUNDARY]: Uses a ThreadPoolExecutor.
+        Multiple background threads are hitting the disk and SimpleITK simultaneously.
+
         Loads multiple VolumeData objects simultaneously using a thread pool.
         Returns a dictionary mapping the original file path to the loaded VolumeData object.
         """
@@ -443,6 +446,12 @@ class Controller:
         vs = self.view_states[vs_id]
         vol = vs.volume
 
+        if self.gui:
+            self.gui.show_status_message(
+                f"Reloading {vol.name} ...",
+                color=self.gui.ui_cfg["colors"]["working"],
+            )
+
         with vs.loading_shield():
             # 1. Snapshot the world before the reload
             old_state = self._capture_pre_reload_state(vs, vol)
@@ -450,11 +459,13 @@ class Controller:
             # 2. Safely destroy C++ bindings to prevent Segfaults
             self._tombstone_image_memory(vs_id, vs, vol)
 
-            # 3. Hit the disk
+            # 3. Read the disk
             was_reset = vol.reload()
 
             # 4. Resolve the new spatial reality
-            shape_changed = self._resolve_reloaded_geometry(vs_id, vs, vol, old_state, was_reset)
+            shape_changed = self._resolve_reloaded_geometry(
+                vs_id, vs, vol, old_state, was_reset
+            )
 
             # 5. Re-link Fusions/Overlays
             self._rebuild_dependent_overlays(vs_id, vs, vol, old_state)
@@ -501,9 +512,12 @@ class Controller:
 
     def _resolve_reloaded_geometry(self, vs_id, vs, vol, old_state, was_reset):
         """Checks if the image dimensions changed and re-aligns the UI accordingly."""
-        shape_changed = old_state["shape"] is not None and old_state["shape"] != getattr(vol, "shape3d", None)
-        spacing_changed = old_state["spacing"] is not None and not np.allclose(old_state["spacing"],
-                                                                               getattr(vol, "spacing", [0, 0, 0]))
+        shape_changed = old_state["shape"] is not None and old_state[
+            "shape"
+        ] != getattr(vol, "shape3d", None)
+        spacing_changed = old_state["spacing"] is not None and not np.allclose(
+            old_state["spacing"], getattr(vol, "spacing", [0, 0, 0])
+        )
 
         if shape_changed or spacing_changed:
             vs.hard_reset()
@@ -575,7 +589,6 @@ class Controller:
             if hasattr(vs, "update_overlay_display_data"):
                 vs.update_overlay_display_data(self)
             self.update_all_viewers_of_image(vs_id)
-
 
     def save_settings(self):
         return self.settings.save()
