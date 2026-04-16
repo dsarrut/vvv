@@ -181,28 +181,26 @@ class ROIManager:
         vs = self.controller.view_states[base_id]
 
         # [ASYNC_BOUNDARY]: Shield the viewer during C++ binarization and cropping
-        # to prevent the 60fps tick from accessing transient memory.
         with vs.loading_shield():
-            # 1. THE FAST PATH: Instantiate and crop natively in C++ via SimpleITK
+            # 1. Instantiate the raw ROI data
             mask_vol = VolumeData(
                 filepath, is_roi=True, roi_mode=mode, roi_target_val=target_val
             )
 
-            # 2. Apply the final binarization rule to ensure pixels are exactly 0 and 1
+            # 2. Apply binarization rule BEFORE resampling to avoid interpolation artifacts
             self._apply_binarization_rule(mask_vol, mode, target_val)
 
             if mask_vol.data.size == 0:
-                raise ValueError("Outside the base image FOV (or completely empty).")
+                raise ValueError("Completely empty ROI.")
 
-            # 3. Calculate the exact bounding box using Physics
-            start_vox = base_vol.physic_coord_to_voxel_coord(mask_vol.origin)
-            x0, y0, z0 = [int(round(v)) for v in start_vox]
+            # 3. SAFELY RESAMPLE AND AUTOCROP
+            # This handles mismatched spacing, differing origins, and differing orientations,
+            # and automatically calculates mask_vol.roi_bbox.
+            self.process_binary_mask(base_vol, mask_vol)
 
-            # The size is the shape of the newly cropped array
-            mz, my, mx = mask_vol.shape3d
-            z1, y1, x1 = z0 + mz, y0 + my, x0 + mx
-
-            mask_vol.roi_bbox = (z0, z1, y0, y1, x0, x1)
+            # Check if resampling pushed the ROI completely out of bounds
+            if mask_vol.data.size == 0:
+                raise ValueError("ROI is completely outside the base image FOV.")
 
         # 4. Register the Volume and State
         mask_id = str(self.controller.next_image_id)
