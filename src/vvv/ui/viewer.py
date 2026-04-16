@@ -268,16 +268,33 @@ class SliceViewer:
 
         self.image_id = img_id
 
-        # Instead of looking for an active viewer, we look for ANY image
-        # in the same sync group to act as the "Source of Truth".
+        # --- BUG FIX #2: WIPE STALE MEMORY ---
+        # Clear the old tracking variables so the viewer evaluates the incoming
+        # synced camera state as genuinely "new" on the very next tick.
+        if is_new_image:
+            self.last_consumed_ppm = None
+            self.last_consumed_center = None
+
+        # Look for a master image in the same sync group to act as the "Source of Truth"
         if self.view_state and self.view_state.sync_group > 0:
             target_group = self.view_state.sync_group
             master_vs_id = None
 
-            for vs_id, vs in self.controller.view_states.items():
-                if vs_id != self.image_id and vs.sync_group == target_group:
+            # --- BUG FIX #1: PRIORITIZE ACTIVE VIEWERS ---
+            # We must prioritize a master that is actively being rendered on screen!
+            # Otherwise, we might pull coordinates from a hidden image that hasn't updated its camera yet.
+            active_vs_ids = [v.image_id for v in self.controller.viewers.values() if v.image_id]
+            for vs_id in active_vs_ids:
+                if vs_id != self.image_id and self.controller.view_states[vs_id].sync_group == target_group:
                     master_vs_id = vs_id
                     break
+
+            # Fallback: If no active viewer is showing a synced image, just pick any from the group
+            if not master_vs_id:
+                for vs_id, vs in self.controller.view_states.items():
+                    if vs_id != self.image_id and vs.sync_group == target_group:
+                        master_vs_id = vs_id
+                        break
 
             if master_vs_id:
                 self.controller.sync.propagate_sync(master_vs_id)
@@ -297,6 +314,7 @@ class SliceViewer:
 
         if self.controller:
             self.controller.ui_needs_refresh = True
+
 
     def set_current_slice_to_crosshair(self):
         if not self.view_state or not self.volume:
