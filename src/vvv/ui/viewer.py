@@ -377,6 +377,7 @@ class SliceViewer:
         self.texture_tag = new_texture_tag
 
         # 7. Re-bind the image quad to the screen
+        # print(f"[DEBUG Frame] Creating image node at pmin={self.current_pmin}, pmax={self.current_pmax}")
         if dpg.does_item_exist(self.img_node_tag):
             self.image_tag = dpg.draw_image(
                 self.texture_tag,
@@ -579,6 +580,7 @@ class SliceViewer:
             canvas_w, canvas_h, real_w, real_h, sw, sh, self.zoom, self.pan_offset
         )
 
+        # print(f"[DEBUG Frame] Creating image node at pmin={self.current_pmin}, pmax={self.current_pmax}")
         if dpg.does_item_exist(self.image_tag):
             dpg.configure_item(self.image_tag, pmin=pmin, pmax=pmax)
 
@@ -624,7 +626,6 @@ class SliceViewer:
             else:
                 self.set_image(target_id)
 
-        # 1. SHIELD CHECK
         if not self.view_state or getattr(self.view_state, "is_loading", False):
             self.last_drawn_image_id = None
             return False
@@ -636,29 +637,29 @@ class SliceViewer:
         if win_w <= 0 or win_h <= 0:
             return False
 
-        # --- 2. GATHER TRIGGERS ---
+        # --- 1. STATE TRIGGERS ---
         size_changed = win_w != getattr(self, "last_w", 0) or win_h != getattr(self, "last_h", 0)
         image_changed = self.image_id != getattr(self, "last_drawn_image_id", None)
         orientation_changed = self.orientation != getattr(self, "last_orientation", None)
         current_shape = self.get_slice_shape()
         shape_changed = current_shape != getattr(self, "last_drawn_shape", None)
 
-        if size_changed or image_changed or orientation_changed or shape_changed:
+        rebuild_texture = image_changed or orientation_changed or shape_changed
+
+        if size_changed:
+            self.last_w = win_w
+            self.last_h = win_h
+            self.is_geometry_dirty = True
+
+        if rebuild_texture:
             self.last_w = win_w
             self.last_h = win_h
             self.last_drawn_image_id = self.image_id
             self.last_orientation = self.orientation
             self.last_drawn_shape = current_shape
+            self.is_viewer_data_dirty = True
 
-            # This is the only DPG call allowed early, as it defines the texture tag
-            # needed by update_render()
-            self.init_slice_texture()
-            self.is_geometry_dirty = True
-
-        if getattr(self, "needs_recenter", False):
-            self.is_geometry_dirty = True
-
-        # --- 3. PURE MATH: STATE-ONLY CAMERA SYNC ---
+        # --- 2. CAMERA SYNC MATH ---
         vs_ppm = getattr(self.view_state.camera, "target_ppm", None)
         vs_center = getattr(self.view_state.camera, "target_center", None)
 
@@ -684,21 +685,40 @@ class SliceViewer:
             if center_changed:
                 self.center_on_physical_coord(vs_center)
                 self.last_consumed_center = list(vs_center)
-
             self.needs_recenter = False
             self.is_geometry_dirty = True
 
-        # --- 4. DATA UPDATE (Calculates Texture & Arrays) ---
+        # --- 3. PRE-CALCULATE PERFECT BOUNDS FOR STARTUP ---
+        if rebuild_texture or getattr(self, "needs_recenter", False):
+            layout = self.controller.gui.ui_cfg["layout"]
+            pad = layout.get("viewport_padding", 4) * 2
+            canvas_w = win_w - pad
+            canvas_h = win_h - pad
+            sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
+
+            if getattr(self, "needs_recenter", False):
+                self.pan_offset = self.calculate_pan_to_center_crosshair(canvas_w, canvas_h)
+                self.needs_recenter = False
+
+            self.mapper.update(canvas_w, canvas_h, current_shape[1], current_shape[0], sw, sh, self.zoom,
+                               self.pan_offset)
+
+        # --- 4. ATOMIC UI CREATION ---
+        if rebuild_texture:
+            self.init_slice_texture()
+
+            # --- 5. DATA UPLOAD ---
         if self.view_state.is_data_dirty or self.is_viewer_data_dirty:
             self.is_viewer_data_dirty = False
-            self.update_render()
+            self.update_render()  # Will no longer abort on Frame 1!
             self.is_geometry_dirty = True
             did_update_data = True
 
-        # --- 5. THE ONE AND ONLY RESIZE CALL ---
+        # --- 6. GEOMETRY PUSH ---
         if self.is_geometry_dirty:
-            # All math is resolved. Push final pan/zoom and window bounds to DPG once.
-            self.resize(win_w, win_h)
+            # ONLY call resize if we didn't just create the node via draw_image
+            if not rebuild_texture:
+                self.resize(win_w, win_h)
             self.update_stuff_in_image_only()
             self.is_geometry_dirty = False
 
@@ -1047,11 +1067,11 @@ class SliceViewer:
             self.is_viewer_data_dirty = True
             return
 
-        state = dpg.get_item_state(win_tag)
+        '''state = dpg.get_item_state(win_tag)
         # If the window is hidden behind a tab, flag to try again when visible
         if state and not state.get("visible", True):
             self.is_viewer_data_dirty = True
-            return
+            return'''
 
         if self.image_id is None or not self.volume or not self.view_state:
             return
