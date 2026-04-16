@@ -83,43 +83,114 @@ class ROIManager:
         mask_vol.sitk_image = new_img
 
     def process_binary_mask(self, base_vol, mask_vol):
-        """Helper to resample and autocrop a binary mask."""
-        if (
-            mask_vol.shape3d != base_vol.shape3d
-            or not np.allclose(mask_vol.spacing, base_vol.spacing, atol=1e-4)
-            or not np.allclose(mask_vol.origin, base_vol.origin, atol=1e-4)
-        ):
-            resampler = sitk.ResampleImageFilter()
-            resampler.SetReferenceImage(base_vol.sitk_image)
-            resampler.SetInterpolator(sitk.sitkNearestNeighbor)
-            resampler.SetDefaultPixelValue(0)
+        """Helper to natively crop, align, and resample a binary mask."""
 
-            mask_vol.sitk_image = resampler.Execute(mask_vol.sitk_image)
-            mask_vol.data = sitk.GetArrayFromImage(mask_vol.sitk_image)
-            mask_vol.shape3d = base_vol.shape3d
-            mask_vol.spacing = base_vol.spacing
-            mask_vol.origin = base_vol.origin
-
-        # 3D Autocrop
+        # --- 1. NATIVE CROP FIRST ---
+        # Strip away millions of empty background voxels before doing any heavy math
         coords = np.argwhere(mask_vol.data > 0)
-        if coords.size > 0:
+        if coords.size == 0:
+            mask_vol.roi_bbox = (0, 0, 0, 0, 0, 0)
+            return
+
+        if mask_vol.data.ndim == 4:
+            z0, y0, x0 = coords[:, 1:].min(axis=0)
+            z1, y1, x1 = coords[:, 1:].max(axis=0) + 1
+            mask_vol.data = mask_vol.data[:, z0:z1, y0:y1, x0:x1]
+        else:
+            z0, y0, x0 = coords.min(axis=0)
+            z1, y1, x1 = coords.max(axis=0) + 1
+            mask_vol.data = mask_vol.data[z0:z1, y0:y1, x0:x1]
+
+        # Update the SimpleITK image to reflect this small, dense block of data
+        new_origin = mask_vol.sitk_image.TransformIndexToPhysicalPoint((int(x0), int(y0), int(z0)))
+
+        cropped_sitk = sitk.GetImageFromArray(mask_vol.data)
+        cropped_sitk.SetSpacing(mask_vol.sitk_image.GetSpacing())
+        cropped_sitk.SetDirection(mask_vol.sitk_image.GetDirection())
+        cropped_sitk.SetOrigin(new_origin)
+        mask_vol.sitk_image = cropped_sitk
+
+        # --- 2. CHECK FOR PERFECT ALIGNMENT ---
+        spacing_match = np.allclose(mask_vol.spacing, base_vol.spacing, atol=1e-4)
+        dir_match = np.allclose(mask_vol.sitk_image.GetDirection(), base_vol.sitk_image.GetDirection(), atol=1e-4)
+
+        if spacing_match and dir_match:
+            base_idx = base_vol.sitk_image.TransformPhysicalPointToContinuousIndex(new_origin)
+            if np.allclose(base_idx, np.round(base_idx), atol=1e-3):
+                # FAST PATH: It perfectly aligns! Just calculate the offset.
+                bx, by, bz = [int(round(v)) for v in base_idx]
+                sz, sy, sx = mask_vol.data.shape[-3:]
+                mask_vol.roi_bbox = (bz, bz + sz, by, by + sy, bx, bx + sx)
+                return
+
+        # --- 3. TARGETED SUB-GRID RESAMPLING ---
+        # Find the physical corners of our tiny cropped ROI
+        sz, sy, sx = mask_vol.data.shape[-3:]
+        corners = [
+            (0, 0, 0), (sx, 0, 0), (0, sy, 0), (sx, sy, 0),
+            (0, 0, sz), (sx, 0, sz), (0, sy, sz), (sx, sy, sz)
+        ]
+
+        base_indices = []
+        for c in corners:
+            phys_pt = mask_vol.sitk_image.TransformIndexToPhysicalPoint(c)
+            base_indices.append(base_vol.sitk_image.TransformPhysicalPointToContinuousIndex(phys_pt))
+
+        base_indices = np.array(base_indices)
+
+        # Calculate the bounding box IN THE BASE IMAGE that covers the ROI
+        # Pad by 1 voxel to ensure interpolation doesn't clip the edges
+        min_idx = np.floor(base_indices.min(axis=0)).astype(int) - 1
+        max_idx = np.ceil(base_indices.max(axis=0)).astype(int) + 2
+
+        base_sz, base_sy, base_sx = base_vol.shape3d
+        min_x, max_x = max(0, min_idx[0]), min(base_sx, max_idx[0])
+        min_y, max_y = max(0, min_idx[1]), min(base_sy, max_idx[1])
+        min_z, max_z = max(0, min_idx[2]), min(base_sz, max_idx[2])
+
+        if min_x >= max_x or min_y >= max_y or min_z >= max_z:
+            mask_vol.roi_bbox = (0, 0, 0, 0, 0, 0)
+            return
+
+        # Slice a tiny sub-grid out of the base image metadata
+        ref_image = base_vol.sitk_image[min_x:max_x, min_y:max_y, min_z:max_z]
+
+        resampler = sitk.ResampleImageFilter()
+        resampler.SetReferenceImage(ref_image)
+        resampler.SetInterpolator(sitk.sitkNearestNeighbor)
+        resampler.SetDefaultPixelValue(0)
+
+        # Execute resampling ONLY on the tiny grid
+        mask_vol.sitk_image = resampler.Execute(mask_vol.sitk_image)
+        mask_vol.data = sitk.GetArrayFromImage(mask_vol.sitk_image)
+
+        # --- 4. FINAL TIGHT CROP ---
+        # Resampling might have introduced a border of 0s. Clean it up.
+        coords2 = np.argwhere(mask_vol.data > 0)
+        if coords2.size > 0:
             if mask_vol.data.ndim == 4:
-                z0, y0, x0 = coords[:, 1:].min(axis=0)
-                z1, y1, x1 = coords[:, 1:].max(axis=0) + 1
+                z0, y0, x0 = coords2[:, 1:].min(axis=0)
+                z1, y1, x1 = coords2[:, 1:].max(axis=0) + 1
                 mask_vol.data = mask_vol.data[:, z0:z1, y0:y1, x0:x1]
             else:
-                z0, y0, x0 = coords.min(axis=0)
-                z1, y1, x1 = coords.max(axis=0) + 1
+                z0, y0, x0 = coords2.min(axis=0)
+                z1, y1, x1 = coords2.max(axis=0) + 1
                 mask_vol.data = mask_vol.data[z0:z1, y0:y1, x0:x1]
-            mask_vol.roi_bbox = (z0, z1, y0, y1, x0, x1)
+
+            # The final bounding box is the base slice offset + the final crop offset
+            mask_vol.roi_bbox = (
+                min_z + z0, min_z + z1,
+                min_y + y0, min_y + y1,
+                min_x + x0, min_x + x1
+            )
         else:
             mask_vol.roi_bbox = (0, 0, 0, 0, 0, 0)
-            if mask_vol.data.ndim == 4:
-                mask_vol.data = np.zeros(
-                    (mask_vol.data.shape[0], 0, 0, 0), dtype=mask_vol.data.dtype
-                )
-            else:
-                mask_vol.data = np.zeros((0, 0, 0), dtype=mask_vol.data.dtype)
+
+        # Sync metadata properties
+        mask_vol.shape3d = base_vol.shape3d
+        mask_vol.spacing = base_vol.spacing
+        mask_vol.origin = base_vol.origin
+
 
     # ==========================================
     # PUBLIC ROI API
