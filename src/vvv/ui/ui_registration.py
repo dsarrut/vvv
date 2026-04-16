@@ -4,6 +4,7 @@ import threading
 import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
+from vvv.utils import ViewMode, voxel_to_slice
 
 
 class RegistrationUI:
@@ -11,20 +12,20 @@ class RegistrationUI:
     Delegated UI handler for the Registration tab.
 
     ARCHITECTURE MANDATES (UI Components):
-    1. REACTIVE REFRESH ONLY: Never call 'refresh_reg_ui' imperatively from 
-       within this class. Always set 'self.controller.ui_needs_refresh = True' 
+    1. REACTIVE REFRESH ONLY: Never call 'refresh_reg_ui' imperatively from
+       within this class. Always set 'self.controller.ui_needs_refresh = True'
        and let the MainGUI tick loop handle the rebuild.
 
-    2. STATE-DRIVEN BUILDING: Sliders and input fields must pull their 
-       'default_value' from the underlying 'SpatialEngine' transform during 
+    2. STATE-DRIVEN BUILDING: Sliders and input fields must pull their
+       'default_value' from the underlying 'SpatialEngine' transform during
        the refresh cycle.
 
-    3. ONE-WAY DATA FLOW: Callbacks should exclusively update the transform 
-       parameters in the 'Controller'. Do not manually set values of other 
+    3. ONE-WAY DATA FLOW: Callbacks should exclusively update the transform
+       parameters in the 'Controller'. Do not manually set values of other
        widgets within a callback.
 
-    4. THREAD SAFETY: Registration resampling often happens in background 
-       threads. Ensure those threads NEVER call UI functions. Use 
+    4. THREAD SAFETY: Registration resampling often happens in background
+       threads. Ensure those threads NEVER call UI functions. Use
        'controller.status_message' for asynchronous reporting.
     """
 
@@ -318,6 +319,11 @@ class RegistrationUI:
                 )
 
     def trigger_debounced_rotation_update(self, active_image_id, immediate=False):
+        """
+        [ASYNC_BOUNDARY]: Fires a background threading.Timer.
+        Math happens off-main-thread to keep the UI from freezing.
+        """
+
         if getattr(self, "_reg_debounce_timer", None) is not None:
             self._reg_debounce_timer.cancel()
 
@@ -362,95 +368,65 @@ class RegistrationUI:
         vs = viewer.view_state
         vs_id = viewer.image_id
 
-        # 1. Capture crosshair world position & RAW voxel BEFORE change
+        # 1. Capture the WORLD position of the crosshair anchor BEFORE the change
+        # This is our absolute anatomical reference point.
         is_buf = vs.base_display_data is not None
-        world_pos = vs.space.display_to_world(
+        anchor_world_pos = vs.space.display_to_world(
             np.array(vs.camera.crosshair_voxel[:3]), is_buffered=is_buf
         )
-        old_raw_vox = vs.space.world_to_display(world_pos, is_buffered=False)
-        old_vox = list(vs.camera.crosshair_voxel[:3])
 
-        # 2. Update Transform State
+        # 2. Update the Transform State
         if new_state_val is not None:
             vs.space.is_active = new_state_val
 
         if not skip_manual_update:
-            # Map SLIDER_TAGS (rx, ry, rz, tx, ty, tz) directly into the controller
+            # Pull slider values (Rx, Ry, Rz, Tx, Ty, Tz) into the SpatialEngine
             vals = [dpg.get_value(t) for t in self.SLIDER_TAGS]
             self.controller.update_transform_manual(
                 vs_id, vals[3], vals[4], vals[5], vals[0], vals[1], vals[2]
             )
 
-        # 3. Capture RAW voxel AFTER change & calculate true physical delta
-        new_raw_vox = vs.space.world_to_display(world_pos, is_buffered=False)
-        delta_vox = new_raw_vox - old_raw_vox
-
-        # 4. Shift crosshair manually to stay pinned to anatomy (bypasses frozen buffer)
-        new_vx, new_vy, new_vz = (
-            old_vox[0] + delta_vox[0],
-            old_vox[1] + delta_vox[1],
-            old_vox[2] + delta_vox[2],
-        )
-        vs.camera.crosshair_voxel = [new_vx, new_vy, new_vz, vs.camera.time_idx]
+        # 3. Update Crosshair (Local Voxel) to stay pinned to the same World anatomy
+        # world_to_display now uses the updated transform matrix.
+        new_local_vox = vs.space.world_to_display(anchor_world_pos, is_buffered=is_buf)
+        vs.camera.crosshair_voxel = [
+            new_local_vox[0],
+            new_local_vox[1],
+            new_local_vox[2],
+            vs.camera.time_idx,
+        ]
 
         from vvv.utils import ViewMode
 
         raw_sh = vs.volume.shape3d
-        vs.camera.slices[ViewMode.AXIAL] = int(np.clip(new_vz, 0, raw_sh[0] - 1))
-        vs.camera.slices[ViewMode.SAGITTAL] = int(np.clip(new_vx, 0, raw_sh[2] - 1))
-        vs.camera.slices[ViewMode.CORONAL] = int(np.clip(new_vy, 0, raw_sh[1] - 1))
+        vs.camera.slices[ViewMode.AXIAL] = int(
+            np.clip(new_local_vox[2], 0, raw_sh[0] - 1)
+        )
+        vs.camera.slices[ViewMode.SAGITTAL] = int(
+            np.clip(new_local_vox[0], 0, raw_sh[2] - 1)
+        )
+        vs.camera.slices[ViewMode.CORONAL] = int(
+            np.clip(new_local_vox[1], 0, raw_sh[1] - 1)
+        )
 
-        # 5. Process all Viewers (Counter-Pan matching Render Engine Flips)
-        # We define dx, dy, dz as old - new
-        dx = old_raw_vox[0] - new_raw_vox[0]
-        dy = old_raw_vox[1] - new_raw_vox[1]
-        dz = old_raw_vox[2] - new_raw_vox[2]
+        # 4. ABSOLUTE RE-CENTERING (Anti-Drift Guardrail)
+        # We tell the view_state: "Make sure this physical point stays centered."
+        # This forces the viewer.tick() to solve for the pan_offset on the next frame.
+        target_ids = self.controller.sync.get_sync_group_vs_ids(vs_id, active_only=True)
+        for tid in target_ids:
+            self.controller.view_states[tid].camera.target_center = anchor_world_pos
 
-        # --- THE FIX: Prevent Double-Dipping on Shared Orientations ---
-        updated_orientations = set()
-
+        # 5. Flag Dirty Flags for Redraw
         for v in self.controller.viewers.values():
             if v.image_id == vs_id:
-                shape = v.get_slice_shape()
-
-                # Only apply the math if we haven't already updated this shared orientation!
-                if (
-                    shape[1] > 0
-                    and shape[0] > 0
-                    and v.orientation not in updated_orientations
-                ):
-
-                    # Map the raw physical deltas to the EXACT screen space orientations
-                    if v.orientation == ViewMode.AXIAL:
-                        shift_x_vox = dx
-                        shift_y_vox = dy
-                    elif v.orientation == ViewMode.CORONAL:
-                        shift_x_vox = dx
-                        shift_y_vox = -dz  # Z is vertically flipped on screen
-                    elif v.orientation == ViewMode.SAGITTAL:
-                        shift_x_vox = -dy  # Y is horizontally flipped on screen
-                        shift_y_vox = -dz  # Z is vertically flipped on screen
-                    else:
-                        shift_x_vox, shift_y_vox = 0, 0
-
-                    # Apply proportional screen shift dynamically
-                    v.pan_offset[0] += (shift_x_vox / shape[1]) * v.mapper.disp_w
-                    v.pan_offset[1] += (shift_y_vox / shape[0]) * v.mapper.disp_h
-
-                    # Mark this orientation as successfully updated
-                    updated_orientations.add(v.orientation)
-
-                # We always flag geometry as dirty so the viewer redraws
                 v.is_geometry_dirty = True
-
-            # Force Live Rendering on ALL ViewStates for dynamic overlay offsets
             if v.view_state:
                 v.view_state.is_data_dirty = True
 
         self.controller.update_all_viewers_of_image(vs_id)
         self.controller.ui_needs_refresh = True
 
-        # 6. Trigger 3D resample
+        # 6. Trigger 3D resample if rotation is involved
         if vs.space.is_active or new_state_val is not None:
             self.trigger_debounced_rotation_update(vs_id)
 

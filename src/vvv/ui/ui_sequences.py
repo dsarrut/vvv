@@ -166,24 +166,27 @@ def load_batch_images_sequence(gui, controller, file_paths):
 
     hide_loading_modal()
 
-
 def load_batch_rois_sequence(
-    gui,
-    controller,
-    base_image_id,
-    file_paths,
-    roi_type="Binary Mask",
-    mode="Ignore BG (val)",
-    val=0.0,
+        gui,
+        controller,
+        base_image_id,
+        file_paths,
+        roi_type="Binary Mask",
+        mode="Ignore BG (val)",
+        val=0.0,
 ):
-    import time
-    import concurrent.futures
+    import os
 
-    total_files = len(file_paths)
+    # 1. Filter valid paths BEFORE initializing the UI so the total count is accurate
+    valid_paths = [p for p in file_paths if os.path.exists(p)]
+    total_files = len(valid_paths)
+
+    if total_files == 0:
+        gui.show_status_message("No valid ROI files found.")
+        return
+
     warnings = []
-
-    display_name = f"Loading {total_files} ROIs..."
-    show_loading_modal("Loading image...", display_name)
+    show_loading_modal("Loading ROIs...", f"Preparing {total_files} file(s)...")
 
     vp_width = max(dpg.get_viewport_client_width(), 800)
     vp_height = max(dpg.get_viewport_client_height(), 600)
@@ -192,80 +195,51 @@ def load_batch_rois_sequence(
 
     vs = controller.view_states[base_image_id]
     color_idx = len(vs.rois)
-    valid_paths = [p for p in file_paths if os.path.exists(p)]
-    total_files = len(valid_paths)
 
-    if roi_type == "Binary Mask" and total_files > 0:
-        # --- THE PARALLEL LOADER FOR ROIs ---
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=min(total_files, 8)
-        ) as executor:
-            future_to_path = {}
-            for i, path in enumerate(valid_paths):
-                # Pre-calculate colors so they don't get mixed up in asynchronous execution
-                color = ROI_COLORS[(color_idx + i) % len(ROI_COLORS)]
-                future = executor.submit(
-                    controller.roi.load_binary_mask,
-                    base_image_id,
-                    path,
-                    None,
-                    color,
-                    mode,
-                    val,
+    # 2. Unified Loading Loop
+    for i, path in enumerate(valid_paths, 1):
+        filename = os.path.basename(path)
+        prefix = "Label Map" if roi_type == "Label Map" else "ROI"
+
+        # Update UI Frame
+        show_loading_modal(
+            "Loading ROIs...",
+            f"Loading {prefix} ({i}/{total_files}):\n{filename}",
+            progress=(i / total_files),
+        )
+        yield  # Flush UI to screen
+
+        # Execute Math
+        try:
+            if roi_type == "Binary Mask":
+                color = ROI_COLORS[color_idx % len(ROI_COLORS)]
+                controller.roi.load_binary_mask(
+                    base_image_id, path, name=None, color=color, mode=mode, target_val=val
                 )
-                future_to_path[future] = path
+                color_idx += 1
+            elif roi_type == "Label Map":
+                loaded_count = controller.roi.load_label_map(
+                    base_image_id, path, color_idx
+                )
+                color_idx += loaded_count
+        except Exception as e:
+            warnings.append(f"- {filename}: {e}")
 
-            futures = list(future_to_path.keys())
-            completed = 0
-
-            while completed < total_files:
-                for i, future in enumerate(futures):
-                    if future is not None and future.done():
-                        path = future_to_path[future]
-                        filename = os.path.basename(path)
-                        try:
-                            future.result()
-                        except Exception as e:
-                            warnings.append(f"- {filename}: {e}")
-
-                        futures[i] = None
-                        completed += 1
-
-                        show_loading_modal(
-                            "Loading image...",
-                            f"Loaded ROI ({completed}/{total_files}):\n{filename}",
-                            progress=(completed / total_files),
-                        )
-
-                # MAGIC: Let DearPyGui render a frame!
-                yield
-                time.sleep(0.01)
-
-    elif roi_type == "Label Map":
-        # Label maps unpack into multiple ROIs dynamically, safer to keep sequential
-        for i, path in enumerate(valid_paths):
-            filename = os.path.basename(path)
-            try:
-                loaded = controller.roi.load_label_map(base_image_id, path, color_idx)
-                color_idx += loaded
-            except Exception as e:
-                warnings.append(f"- {filename}: {e}")
-            yield
-
-    show_loading_modal("Loading image...", "Applying ROIs...", progress=1.0)
+    # 3. Finalize & Cleanup
+    show_loading_modal("Loading ROIs...", "Applying changes...", progress=1.0)
     yield
 
-    vs = controller.view_states[base_image_id]
     if vs.rois:
         gui.active_roi_id = list(vs.rois.keys())[-1]
 
     controller.ui_needs_refresh = True
     controller.update_all_viewers_of_image(base_image_id)
 
-    if dpg.does_item_exist("loading_modal"):
-        dpg.delete_item("loading_modal")
+    # Let the helper cleanly destroy the modal
+    hide_loading_modal()
     yield
 
+    # 4. Display warnings safely after the loading modal is gone
     if warnings:
         gui.show_message(
             "ROI Import Warning", "Some ROIs were skipped:\n\n" + "\n".join(warnings)
@@ -273,7 +247,6 @@ def load_batch_rois_sequence(
         while dpg.does_item_exist("generic_message_modal"):
             yield
 
-    hide_loading_modal()
 
 
 def load_workspace_sequence(gui, controller, filepath):
@@ -407,17 +380,45 @@ def load_workspace_sequence(gui, controller, filepath):
     show_loading_modal("Loading image...", "Restoring ROIs...")
 
     # --- PHASE 5: RESTORE ROIs (Synchronous since there's fewer of them and already cropped) ---
+    # 1. Gather all valid ROIs first to calculate total progress
+    valid_rois_to_load = []
     for old_id, img_data in ws.get("images", {}).items():
-        if old_id not in id_map:
-            continue
-        new_id = id_map[old_id]
-        vs = controller.view_states[new_id]
+        if old_id in id_map:
+            new_id = id_map[old_id]
+            for roi_data in img_data.get("rois", []):
+                raw_r_path = roi_data.get("path", "")
+                r_path = os.path.expanduser(raw_r_path)
+                if r_path and os.path.exists(r_path):
+                    valid_rois_to_load.append({
+                        "new_id": new_id,
+                        "path": r_path,
+                        "state": roi_data.get("state", {})
+                    })
+                elif r_path:
+                    warnings.append(f"Missing ROI: {os.path.basename(raw_r_path)}")
 
-        for roi_data in img_data.get("rois", []):
-            raw_r_path = roi_data.get("path", "")
-            r_path = os.path.expanduser(raw_r_path)
-            r_state = roi_data.get("state", {})
-            if r_path and os.path.exists(r_path):
+    total_rois = len(valid_rois_to_load)
+
+    if total_rois == 0:
+        show_loading_modal("Loading image...", "Restoring ROIs...")
+        yield
+    else:
+        # 2. Iterate and update the progress bar for each ROI
+        for i, roi_task in enumerate(valid_rois_to_load, 1):
+            show_loading_modal(
+                "Loading image...",
+                f"Restoring ROIs ({i}/{total_rois})",
+                progress=(i / total_rois)
+            )
+            # MAGIC: Let DearPyGui render a frame to update the progress bar!
+            yield
+
+            new_id = roi_task["new_id"]
+            r_path = roi_task["path"]
+            r_state = roi_task["state"]
+            vs = controller.view_states[new_id]
+
+            try:
                 controller.roi.load_binary_mask(
                     new_id,
                     r_path,
@@ -426,11 +427,13 @@ def load_workspace_sequence(gui, controller, filepath):
                     mode=r_state.get("source_mode", "Ignore BG (val)"),
                     target_val=r_state.get("source_val", 0.0),
                 )
+                # Apply restored states to the newly created ROI
                 latest_roi_id = list(vs.rois.keys())[-1]
                 vs.rois[latest_roi_id].opacity = r_state.get("opacity", 0.5)
                 vs.rois[latest_roi_id].visible = r_state.get("visible", True)
                 vs.rois[latest_roi_id].is_contour = r_state.get("is_contour", False)
-        yield
+            except Exception as e:
+                warnings.append(f"- Failed to load ROI {os.path.basename(r_path)}: {e}")
 
     # --- PHASE 6: FINALIZE ---
     for new_id in id_map.values():

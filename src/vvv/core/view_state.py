@@ -500,6 +500,11 @@ class ViewState:
             self.base_display_data = None
             return
 
+        # The Tombstone Pattern
+        self.base_display_data = None
+        old_cache = self._sitk_base_cache
+        self._sitk_base_cache = None
+
         ref_img = sitk.Image(
             int(self.volume.shape3d[2]),
             int(self.volume.shape3d[1]),
@@ -538,6 +543,11 @@ class ViewState:
             self.base_display_data = sitk.GetArrayViewFromImage(joined_img)
 
     def update_overlay_display_data(self, controller):
+        """
+        [ASYNC_BOUNDARY]: SimpleITK ResampleImageFilter.Execute()
+        Releases the GIL. The Tombstone Pattern here is the only thing
+        preventing the 60fps tick from reading dead memory.
+        """
         if (
             not self.display.overlay_id
             or self.display.overlay_id not in controller.view_states
@@ -546,6 +556,12 @@ class ViewState:
 
         ovs = controller.view_states[self.display.overlay_id]
         other_vol = ovs.volume
+
+        # The Tombstone Pattern
+        # Sever the Numpy view BEFORE releasing the GIL to SimpleITK!
+        self.display.overlay_data = None
+        old_cache = self.display._sitk_overlay_cache  # Keep alive until end of scope
+        self.display._sitk_overlay_cache = None
 
         resampler = sitk.ResampleImageFilter()
         resampler.SetReferenceImage(self.volume.sitk_image)

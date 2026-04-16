@@ -104,6 +104,9 @@ class Controller:
 
     def load_volumes_parallel(self, file_paths):
         """
+        [ASYNC_BOUNDARY]: Uses a ThreadPoolExecutor.
+        Multiple background threads are hitting the disk and SimpleITK simultaneously.
+
         Loads multiple VolumeData objects simultaneously using a thread pool.
         Returns a dictionary mapping the original file path to the loaded VolumeData object.
         """
@@ -443,6 +446,12 @@ class Controller:
         vs = self.view_states[vs_id]
         vol = vs.volume
 
+        if self.gui:
+            self.gui.show_status_message(
+                f"Reloading {vol.name} ...",
+                color=self.gui.ui_cfg["colors"]["working"],
+            )
+
         with vs.loading_shield():
             # 1. Snapshot the world before the reload
             old_state = self._capture_pre_reload_state(vs, vol)
@@ -450,11 +459,13 @@ class Controller:
             # 2. Safely destroy C++ bindings to prevent Segfaults
             self._tombstone_image_memory(vs_id, vs, vol)
 
-            # 3. Hit the disk
+            # 3. Read the disk
             was_reset = vol.reload()
 
             # 4. Resolve the new spatial reality
-            shape_changed = self._resolve_reloaded_geometry(vs_id, vs, vol, old_state, was_reset)
+            shape_changed = self._resolve_reloaded_geometry(
+                vs_id, vs, vol, old_state, was_reset
+            )
 
             # 5. Re-link Fusions/Overlays
             self._rebuild_dependent_overlays(vs_id, vs, vol, old_state)
@@ -501,9 +512,12 @@ class Controller:
 
     def _resolve_reloaded_geometry(self, vs_id, vs, vol, old_state, was_reset):
         """Checks if the image dimensions changed and re-aligns the UI accordingly."""
-        shape_changed = old_state["shape"] is not None and old_state["shape"] != getattr(vol, "shape3d", None)
-        spacing_changed = old_state["spacing"] is not None and not np.allclose(old_state["spacing"],
-                                                                               getattr(vol, "spacing", [0, 0, 0]))
+        shape_changed = old_state["shape"] is not None and old_state[
+            "shape"
+        ] != getattr(vol, "shape3d", None)
+        spacing_changed = old_state["spacing"] is not None and not np.allclose(
+            old_state["spacing"], getattr(vol, "spacing", [0, 0, 0])
+        )
 
         if shape_changed or spacing_changed:
             vs.hard_reset()
@@ -575,140 +589,6 @@ class Controller:
             if hasattr(vs, "update_overlay_display_data"):
                 vs.update_overlay_display_data(self)
             self.update_all_viewers_of_image(vs_id)
-
-    def reload_image_OLD(self, vs_id):
-        if vs_id not in self.view_states:
-            return
-
-        vs = self.view_states[vs_id]
-        vol = vs.volume
-
-        # The viewer is shielded for the duration of this block.
-        # It drops automatically when the block ends or if an error occurs.
-        with vs.loading_shield():
-
-            # 1. Capture old geometry to detect ANY physical change
-            old_shape = getattr(vol, "shape3d", None)
-            old_spacing = getattr(vol, "spacing", None)
-
-            # 2. Save UX State so synced groups don't tear during Chaos Monkey tests!
-            old_ww = vs.display.ww
-            old_wl = vs.display.wl
-            old_cmap = vs.display.colormap
-            old_overlay_id = vs.display.overlay_id
-            old_overlay_mode = getattr(vs.display, "overlay_mode", "Alpha")
-            old_overlay_opacity = getattr(vs.display, "overlay_opacity", 0.5)
-
-            # =========================================================================
-            # THE TOMBSTONE PATTERN (ANTI-SEGFAULT)
-            # =========================================================================
-            vs.base_display_data = None
-            vs._sitk_base_cache = None
-            vs.display.overlay_data = None
-            vs.display._sitk_overlay_cache = None
-
-            # The VolumeData object itself holds a zero-copy pointer
-            # We MUST destroy it before ITK hits the disk.
-            vol.data = None
-
-            for other_vs in self.view_states.values():
-                if getattr(other_vs.display, "overlay_id", None) == vs_id:
-                    other_vs.display.overlay_data = None
-                    other_vs.display._sitk_overlay_cache = None
-
-            # Instantly push the drop to the viewers so DPG stops rendering the dead memory
-            for v in self.viewers.values():
-                v.is_viewer_data_dirty = True
-
-            # Now it is completely safe to let ITK destroy the C++ memory
-            was_reset = vol.reload()
-
-            # =========================================================================
-            # THE GEOMETRY SHIELD (Anti-Crash & Anti-Shearing)
-            # =========================================================================
-            shape_changed = old_shape is not None and old_shape != getattr(vol, "shape3d", None)
-            spacing_changed = old_spacing is not None and not np.allclose(old_spacing, getattr(vol, "spacing", [0, 0, 0]))
-
-            if shape_changed or spacing_changed:
-                # The physical math or array size changed! Reset the SpatialEngine.
-                vs.hard_reset()
-
-                # RESTORE UX State to prevent sync tearing
-                vs.display.ww = old_ww
-                vs.display.wl = old_wl
-                vs.display.colormap = old_cmap
-
-                # Drop invalid ROIs
-                for r_id in list(vs.rois.keys()):
-                    if self.volumes.get(r_id) and self.volumes[r_id].shape3d != vol.shape3d:
-                        del vs.rois[r_id]
-
-                # Destroys the old GPU texture so DPG doesn't read past memory bounds on redraw.
-                for v in self.viewers.values():
-                    if v.image_id == vs_id:
-                        v.drop_image()
-                        v.last_drawn_image_id = None
-                        v.set_image(vs_id)
-
-                self.sync.propagate_window_level(vs_id)
-                self.sync.propagate_colormap(vs_id)
-                self.sync.propagate_sync(vs_id)
-
-            else:
-                # --- Normal Reload (Geometry perfectly matched) ---
-                if was_reset:
-                    vs.camera.target_center = vs.camera.crosshair_phys_coord
-                else:
-                    ix, iy, iz = [
-                        int(np.clip(np.floor(c + 0.5), 0, limit - 1))
-                        for c, limit in zip(
-                            vs.camera.crosshair_voxel[:3],
-                            [vol.shape3d[2], vol.shape3d[1], vol.shape3d[0]],
-                        )
-                    ]
-                    if vol.num_timepoints > 1:
-                        vs.crosshair_value = vol.data[vs.camera.time_idx, iz, iy, ix]
-                    else:
-                        vs.crosshair_value = vol.data[iz, iy, ix]
-
-            vs.histogram_is_dirty = True
-            vs.is_data_dirty = True
-            vs.is_geometry_dirty = True
-            self.update_all_viewers_of_image(vs_id)
-
-            # =========================================================================
-            # REBUILD OVERLAYS
-            # =========================================================================
-            # 1. Fix images that rely on us
-            for other_id, other_vs in self.view_states.items():
-                if getattr(other_vs.display, "overlay_id", None) == vs_id:
-                    old_m = getattr(other_vs.display, "overlay_mode", "Alpha")
-                    old_o = getattr(other_vs.display, "overlay_opacity", 0.5)
-                    other_vs.set_overlay(vs_id, vol, self)
-                    other_vs.display.overlay_mode = old_m
-                    other_vs.display.overlay_opacity = old_o
-                    if hasattr(other_vs, "update_overlay_display_data"):
-                        other_vs.update_overlay_display_data(self)
-                    self.update_all_viewers_of_image(other_id)
-
-            # 2. Fix our own overlays (which hard_reset wiped out!)
-            if old_overlay_id and old_overlay_id in self.volumes:
-                ov_vol = self.volumes[old_overlay_id]
-                vs.set_overlay(old_overlay_id, ov_vol, self)
-                vs.display.overlay_mode = old_overlay_mode
-                vs.display.overlay_opacity = old_overlay_opacity
-                if hasattr(vs, "update_overlay_display_data"):
-                    vs.update_overlay_display_data(self)
-                self.update_all_viewers_of_image(vs_id)
-
-            if self.gui:
-                self.gui.show_status_message(f"Reloaded: {vol.name}")
-                # State-Only Reactive Pattern: Flag the GUI to rebuild safely on the next frame
-                if shape_changed and hasattr(self.gui, "rois_need_refresh"):
-                    self.gui.rois_need_refresh = True
-
-            vs.is_loading = False
-        self.ui_needs_refresh = True
 
     def save_settings(self):
         return self.settings.save()
