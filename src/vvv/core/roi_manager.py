@@ -166,6 +166,61 @@ class ROIManager:
         return loaded_count
 
     def load_binary_mask(
+            self,
+            base_id,
+            filepath,
+            name=None,
+            color=None,
+            mode="Ignore BG (val)",
+            target_val=0.0,
+    ):
+        if color is None:
+            color = [255, 50, 50]
+
+        base_vol = self.controller.volumes[base_id]
+        vs = self.controller.view_states[base_id]
+
+        # [ASYNC_BOUNDARY]: Shield the viewer during C++ binarization and cropping
+        # to prevent the 60fps tick from accessing transient memory.
+        with vs.loading_shield():
+            # 1. THE FAST PATH: Instantiate and crop natively in C++ via SimpleITK
+            mask_vol = VolumeData(
+                filepath, is_roi=True, roi_mode=mode, roi_target_val=target_val
+            )
+
+            # 2. Apply the final binarization rule to ensure pixels are exactly 0 and 1
+            self._apply_binarization_rule(mask_vol, mode, target_val)
+
+            if mask_vol.data.size == 0:
+                raise ValueError("Outside the base image FOV (or completely empty).")
+
+            # 3. Calculate the exact bounding box using Physics
+            start_vox = base_vol.physic_coord_to_voxel_coord(mask_vol.origin)
+            x0, y0, z0 = [int(round(v)) for v in start_vox]
+
+            # The size is the shape of the newly cropped array
+            mz, my, mx = mask_vol.shape3d
+            z1, y1, x1 = z0 + mz, y0 + my, x0 + mx
+
+            mask_vol.roi_bbox = (z0, z1, y0, y1, x0, x1)
+
+        # 4. Register the Volume and State
+        mask_id = str(self.controller.next_image_id)
+        self.controller.next_image_id += 1
+        self.controller.volumes[mask_id] = mask_vol
+
+        if name is None:
+            name = self._clean_roi_name(filepath)
+
+        roi_state = ROIState(
+            mask_id, name, color, source_mode=mode, source_val=target_val
+        )
+        vs.rois[mask_id] = roi_state
+        vs.is_data_dirty = True
+
+        return mask_id
+
+    def load_binary_mask_OLD(
         self,
         base_id,
         filepath,
@@ -324,22 +379,31 @@ class ROIManager:
 
         mask_vol = self.controller.volumes[roi_id]
         roi_state = self.controller.view_states[base_id].rois[roi_id]
-        mask_vol.reload()
-
-        mode = getattr(roi_state, "source_mode", "Ignore BG (val)")
-        target_val = getattr(roi_state, "source_val", 0.0)
-
-        # Apply rule BEFORE resampling
-        self._apply_binarization_rule(mask_vol, mode, target_val)
-
-        base_vol = self.controller.volumes[base_id]
-        self.process_binary_mask(base_vol, mask_vol)
-
-        self.controller.view_states[base_id].is_data_dirty = True
-        self.controller.update_all_viewers_of_image(base_id)
 
         if self.controller.gui:
-            self.controller.gui.show_status_message(f"Reloaded: {roi_state.name}")
+            self.controller.gui.show_status_message(
+                f"Reloading: {roi_state.name} ...",
+                color=self.controller.gui.ui_cfg["colors"]["working"],
+            )
+
+        vs = self.controller.view_states[base_id]
+        with vs.loading_shield():
+            mask_vol.reload()
+
+            mode = getattr(roi_state, "source_mode", "Ignore BG (val)")
+            target_val = getattr(roi_state, "source_val", 0.0)
+
+            # Apply rule BEFORE resampling
+            self._apply_binarization_rule(mask_vol, mode, target_val)
+
+            base_vol = self.controller.volumes[base_id]
+            self.process_binary_mask(base_vol, mask_vol)
+
+            self.controller.view_states[base_id].is_data_dirty = True
+            self.controller.update_all_viewers_of_image(base_id)
+
+            if self.controller.gui:
+                self.controller.gui.show_status_message(f"Reloaded: {roi_state.name}")
 
     def close_roi(self, base_id, roi_id):
         if base_id in self.controller.view_states:
