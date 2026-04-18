@@ -345,6 +345,7 @@ class MainGUI:
             # dpg.add_text("(< val = black)", color=self.ui_cfg["colors"]["text_dim"])
 
     def build_visibility_controls(self):
+        dim_col = self.ui_cfg["colors"]["text_dim"]
         with dpg.group(tag="visibility_controls"):
             with dpg.table(header_row=False, policy=dpg.mvTable_SizingFixedFit):
                 dpg.add_table_column()
@@ -395,18 +396,24 @@ class MainGUI:
                         default_value=False,
                     )
                 with dpg.table_row():
-                    dpg.add_selectable(
-                        label="Filename: Off",
-                        tag="check_filename",
-                        callback=self.on_visibility_toggle,
-                        user_data="filename",
-                    )
-                    dpg.add_selectable(
-                        label="Interp: Linear",
-                        tag="check_interpolation",
-                        callback=self.on_visibility_toggle,
-                        user_data="interpolation",
-                    )
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("Filename:", color=dim_col)
+                        dpg.add_selectable(
+                            label="Off",
+                            tag="check_filename",
+                            callback=self.on_visibility_toggle,
+                            user_data="filename",
+                            width=45,
+                        )
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("Interp:", color=dim_col)
+                        dpg.add_selectable(
+                            label="Linear",
+                            tag="check_interpolation",
+                            callback=self.on_visibility_toggle,
+                            user_data="interpolation",
+                            width=55,
+                        )
 
     def build_viewer_grid(self):
         """Creates the 2x2 grid of slice viewers."""
@@ -520,7 +527,7 @@ class MainGUI:
                 else:
                     # TRI-STATE
                     if tag == "check_filename":
-                        states = ["Filename: Off", "Filename: Short", "Filename: Full"]
+                        states = ["Off", "Short", "Full"]
                         dpg.configure_item(tag, label=states[val])
                     else:
                         # SAFEGUARD: If UI is a boolean checkbox but the value is an int, coerce to bool
@@ -539,11 +546,11 @@ class MainGUI:
         # Sync Interpolation mode text
         if dpg.does_item_exist("check_interpolation"):
             if vs.display.use_voxel_strips:
-                dpg.configure_item("check_interpolation", label="Interp: Stripe")
+                dpg.configure_item("check_interpolation", label="Stripe")
             elif vs.display.pixelated_zoom:
-                dpg.configure_item("check_interpolation", label="Interp: NN")
+                dpg.configure_item("check_interpolation", label="NN")
             else:
-                dpg.configure_item("check_interpolation", label="Interp: Linear")
+                dpg.configure_item("check_interpolation", label="Linear")
 
     def highlight_active_image_in_list(self, active_img_id):
         highlight_active_image_in_list(self, active_img_id)
