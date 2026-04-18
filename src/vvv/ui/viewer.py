@@ -29,7 +29,8 @@ class ViewportMapper:
     def update(
         self, quad_w, quad_h, real_w, real_h, spacing_w, spacing_h, zoom, pan_offset
     ):
-        mm_w, mm_h = real_w * spacing_w, real_h * spacing_h
+        mm_w = max(1e-5, real_w * spacing_w)
+        mm_h = max(1e-5, real_h * spacing_h)
         target_w, target_h = quad_w - self.margin_left, quad_h - self.margin_top
 
         base_scale = min(target_w / mm_w, target_h / mm_h)
@@ -61,7 +62,8 @@ class ViewportMapper:
     def calculate_center_pan(
         self, tx, ty, quad_w, quad_h, real_w, real_h, spacing_w, spacing_h, zoom
     ):
-        mm_w, mm_h = real_w * spacing_w, real_h * spacing_h
+        mm_w = max(1e-5, real_w * spacing_w)
+        mm_h = max(1e-5, real_h * spacing_h)
         target_w, target_h = quad_w - self.margin_left, quad_h - self.margin_top
 
         base_scale = min(target_w / mm_w, target_h / mm_h)
@@ -77,6 +79,7 @@ class ViewportMapper:
         return [(quad_w / 2) - cx_zero_pan_x, (quad_h / 2) - cx_zero_pan_y]
 
     def calculate_zoom_pan_delta(self, mouse_x, mouse_y, old_zoom, new_zoom):
+        old_zoom = max(1e-5, old_zoom)
         ratio = new_zoom / old_zoom
         ow, oh = self.disp_w, self.disp_h
         dw, dh = (ow * ratio) - ow, (oh * ratio) - oh
@@ -283,9 +286,14 @@ class SliceViewer:
             # --- BUG FIX #1: PRIORITIZE ACTIVE VIEWERS ---
             # We must prioritize a master that is actively being rendered on screen!
             # Otherwise, we might pull coordinates from a hidden image that hasn't updated its camera yet.
-            active_vs_ids = [v.image_id for v in self.controller.viewers.values() if v.image_id]
+            active_vs_ids = [
+                v.image_id for v in self.controller.viewers.values() if v.image_id
+            ]
             for vs_id in active_vs_ids:
-                if vs_id != self.image_id and self.controller.view_states[vs_id].sync_group == target_group:
+                if (
+                    vs_id != self.image_id
+                    and self.controller.view_states[vs_id].sync_group == target_group
+                ):
                     master_vs_id = vs_id
                     break
 
@@ -314,7 +322,6 @@ class SliceViewer:
 
         if self.controller:
             self.controller.ui_needs_refresh = True
-
 
     def set_current_slice_to_crosshair(self):
         if not self.view_state or not self.volume:
@@ -487,8 +494,11 @@ class SliceViewer:
         shape = self.get_slice_shape()
         real_h, real_w = shape[0], shape[1]
 
-        mx, my = dpg.get_drawing_mouse_pos()
-        return self.mapper.screen_to_image(mx, my, real_w, real_h, allow_outside)
+        try:
+            mx, my = dpg.get_drawing_mouse_pos()
+            return self.mapper.screen_to_image(mx, my, real_w, real_h, allow_outside)
+        except Exception:
+            return None, None
 
     def get_pixels_per_mm(self):
         if not self.view_state or not self.volume:
@@ -656,9 +666,13 @@ class SliceViewer:
             return False
 
         # --- 1. STATE TRIGGERS ---
-        size_changed = win_w != getattr(self, "last_w", 0) or win_h != getattr(self, "last_h", 0)
+        size_changed = win_w != getattr(self, "last_w", 0) or win_h != getattr(
+            self, "last_h", 0
+        )
         image_changed = self.image_id != getattr(self, "last_drawn_image_id", None)
-        orientation_changed = self.orientation != getattr(self, "last_orientation", None)
+        orientation_changed = self.orientation != getattr(
+            self, "last_orientation", None
+        )
         current_shape = self.get_slice_shape()
         shape_changed = current_shape != getattr(self, "last_drawn_shape", None)
 
@@ -682,7 +696,9 @@ class SliceViewer:
         vs_center = getattr(self.view_state.camera, "target_center", None)
 
         last_ppm = getattr(self, "last_consumed_ppm", None)
-        ppm_changed = (vs_ppm is not None) and (last_ppm is None or abs(vs_ppm - last_ppm) > 1e-5)
+        ppm_changed = (vs_ppm is not None) and (
+            last_ppm is None or abs(vs_ppm - last_ppm) > 1e-5
+        )
 
         last_center = getattr(self, "last_consumed_center", None)
         center_changed = False
@@ -691,9 +707,9 @@ class SliceViewer:
                 center_changed = True
             else:
                 center_changed = (
-                        abs(vs_center[0] - last_center[0]) > 1e-5
-                        or abs(vs_center[1] - last_center[1]) > 1e-5
-                        or abs(vs_center[2] - last_center[2]) > 1e-5
+                    abs(vs_center[0] - last_center[0]) > 1e-5
+                    or abs(vs_center[1] - last_center[1]) > 1e-5
+                    or abs(vs_center[2] - last_center[2]) > 1e-5
                 )
 
         if ppm_changed or center_changed:
@@ -715,11 +731,21 @@ class SliceViewer:
             sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
 
             if getattr(self, "needs_recenter", False):
-                self.pan_offset = self.calculate_pan_to_center_crosshair(canvas_w, canvas_h)
+                self.pan_offset = self.calculate_pan_to_center_crosshair(
+                    canvas_w, canvas_h
+                )
                 self.needs_recenter = False
 
-            self.mapper.update(canvas_w, canvas_h, current_shape[1], current_shape[0], sw, sh, self.zoom,
-                               self.pan_offset)
+            self.mapper.update(
+                canvas_w,
+                canvas_h,
+                current_shape[1],
+                current_shape[0],
+                sw,
+                sh,
+                self.zoom,
+                self.pan_offset,
+            )
 
         # --- 4. ATOMIC UI CREATION ---
         if rebuild_texture:
@@ -933,6 +959,10 @@ class SliceViewer:
             else self.volume.data
         )
 
+        # Tombstone failsafe: Prevent the renderer from choking on dead memory
+        if display_data is None:
+            display_data = np.zeros((1, 1, 1), dtype=np.float32)
+
         return RenderLayer(
             data=display_data,
             is_rgb=getattr(self.volume, "is_rgb", False),
@@ -1020,8 +1050,8 @@ class SliceViewer:
             if not roi_state.visible or roi_state.opacity <= 0.0:
                 continue
 
-            roi_vol = self.controller.volumes[roi_id]
-            if not hasattr(roi_vol, "roi_bbox"):
+            roi_vol = self.controller.volumes.get(roi_id)
+            if not roi_vol or not hasattr(roi_vol, "roi_bbox"):
                 continue
 
             z0, z1, y0, y1, x0, x1 = roi_vol.roi_bbox
@@ -1076,7 +1106,6 @@ class SliceViewer:
                 )
         return active_rois
 
-
     def update_render(self):
         win_tag = f"win_{self.tag}"
 
@@ -1085,11 +1114,11 @@ class SliceViewer:
             self.is_viewer_data_dirty = True
             return
 
-        '''state = dpg.get_item_state(win_tag)
+        """state = dpg.get_item_state(win_tag)
         # If the window is hidden behind a tab, flag to try again when visible
         if state and not state.get("visible", True):
             self.is_viewer_data_dirty = True
-            return'''
+            return"""
 
         if self.image_id is None or not self.volume or not self.view_state:
             return
@@ -1516,7 +1545,10 @@ class SliceViewer:
         mx, my = dpg.get_drawing_mouse_pos()
         oz = self.zoom
         speed = self.controller.settings.data["interaction"]["zoom_speed"]
-        self.zoom = self.zoom * (speed if direction == "in" else (1.0 / speed))
+        new_zoom = max(
+            1e-5, self.zoom * (speed if direction == "in" else (1.0 / speed))
+        )
+        self.zoom = new_zoom
 
         dx, dy = self.mapper.calculate_zoom_pan_delta(mx, my, oz, self.zoom)
         self.pan_offset[0] += dx
