@@ -917,7 +917,8 @@ class SliceViewer:
 
         if target == "overlay":
             thr = self.view_state.display.base_threshold
-            patch = patch[patch >= thr]
+            if thr is not None:
+                patch = patch[patch >= thr]
 
         if patch.size > 0:
             p_min, p_max = np.percentile(patch, [2, 98])

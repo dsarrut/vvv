@@ -68,7 +68,6 @@ class MainGUI:
             "check_filename": "camera.show_filename",
             "drag_ww": "display.ww",
             "drag_wl": "display.wl",
-            "drag_min_threshold": "display.base_threshold",
             "combo_colormap": "display.colormap",
             "slider_fusion_opacity": "display.overlay_opacity",
             "combo_fusion_mode": "display.overlay_mode",

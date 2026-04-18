@@ -79,11 +79,32 @@ class IntensitiesUI:
                     callback=gui.intensities_ui.on_colormap_changed,
                 )
 
-            build_slider_row(
-                "Min Thr:",
-                "drag_min_threshold",
-                gui.intensities_ui.on_threshold_changed,
-            )
+            with dpg.group(horizontal=True):
+                dpg.add_checkbox(
+                    tag="check_min_threshold",
+                    callback=gui.intensities_ui.on_threshold_toggle,
+                )
+                dpg.add_text("Min Thr:")
+                dpg.add_button(
+                    label="-",
+                    width=20,
+                    user_data={"tag": "drag_min_threshold", "dir": -1},
+                    callback=gui.intensities_ui.on_step_button_clicked,
+                )
+                dpg.add_drag_float(
+                    tag="drag_min_threshold",
+                    width=-35,
+                    speed=1.0,
+                    min_value=-1e9,
+                    max_value=1e9,
+                    callback=gui.intensities_ui.on_threshold_changed,
+                )
+                dpg.add_button(
+                    label="+",
+                    width=20,
+                    user_data={"tag": "drag_min_threshold", "dir": 1},
+                    callback=gui.intensities_ui.on_step_button_clicked,
+                )
 
     def refresh_intensities_ui(self):
         viewer = self.gui.context_viewer
@@ -93,27 +114,58 @@ class IntensitiesUI:
             and viewer.volume is not None
         )
 
+        is_rgb = getattr(viewer.volume, "is_rgb", False) if has_image else False
+        thr = viewer.view_state.display.base_threshold if has_image else None
+        has_thr = thr is not None
+
         tags = [
             "combo_wl_presets",
             "drag_ww",
             "drag_wl",
             "combo_colormap",
-            "drag_min_threshold",
         ]
 
         for t in tags:
             if dpg.does_item_exist(t):
                 dpg.configure_item(
                     t,
-                    enabled=(has_image and not getattr(viewer.volume, "is_rgb", False)),
+                    enabled=(has_image and not is_rgb),
                 )
+
+        if dpg.does_item_exist("check_min_threshold"):
+            dpg.set_value("check_min_threshold", has_thr)
+            dpg.configure_item(
+                "check_min_threshold", enabled=(has_image and not is_rgb)
+            )
+
+        if dpg.does_item_exist("drag_min_threshold"):
+            if has_thr and not dpg.is_item_active("drag_min_threshold"):
+                dpg.set_value("drag_min_threshold", thr)
+            dpg.configure_item(
+                "drag_min_threshold", enabled=(has_image and not is_rgb and has_thr)
+            )
+
+        # Dynamically scale the slider drag speed based on the current window width
+        dynamic_speed = (
+            max(0.1, viewer.view_state.display.ww * 0.005) if has_image else 1.0
+        )
+        for t in ["drag_ww", "drag_wl", "drag_min_threshold"]:
+            if dpg.does_item_exist(t):
+                dpg.configure_item(t, speed=dynamic_speed)
 
     def on_step_button_clicked(self, sender, app_data, user_data):
         target_tag = user_data["tag"]
         direction = user_data["dir"]
 
         current_val = dpg.get_value(target_tag)
-        step_size = 1.0
+
+        viewer = self.gui.context_viewer
+        step_size = (
+            max(0.1, viewer.view_state.display.ww * 0.02)
+            if (viewer and viewer.view_state)
+            else 1.0
+        )
+
         new_val = current_val + (step_size * direction)
 
         if target_tag == "drag_ww":
@@ -133,6 +185,19 @@ class IntensitiesUI:
         if not viewer or not viewer.view_state:
             return
         viewer.view_state.apply_wl_preset(app_data)
+        self.controller.sync.propagate_window_level(viewer.image_id)
+        self.controller.ui_needs_refresh = True
+
+    def on_threshold_toggle(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+        is_enabled = app_data
+        if is_enabled:
+            val = dpg.get_value("drag_min_threshold")
+            viewer.view_state.display.base_threshold = val
+        else:
+            viewer.view_state.display.base_threshold = None
         self.controller.sync.propagate_window_level(viewer.image_id)
         self.controller.ui_needs_refresh = True
 
@@ -166,4 +231,6 @@ class IntensitiesUI:
         if not viewer or not viewer.view_state:
             return
         viewer.view_state.display.base_threshold = app_data
+        if dpg.does_item_exist("check_min_threshold"):
+            dpg.set_value("check_min_threshold", True)
         self.controller.sync.propagate_window_level(viewer.image_id)

@@ -372,7 +372,7 @@ def test_renderer_checkerboard_math():
         ww=0,
         wl=0,
         cmap_name="Grayscale",
-        threshold=-1e9,
+        threshold=None,
         time_idx=0,
         spacing_2d=(1.0, 1.0),
     )
@@ -387,7 +387,7 @@ def test_renderer_checkerboard_math():
         ww=0,
         wl=0,
         cmap_name="Grayscale",
-        threshold=-1e9,
+        threshold=None,
         time_idx=0,
         spacing_2d=(1.0, 1.0),
     )
@@ -425,7 +425,7 @@ def test_renderer_registration_blending():
         ww=1.0,
         wl=0.5,
         cmap_name="Grayscale",
-        threshold=-1e9,
+        threshold=None,
         time_idx=0,
         spacing_2d=(1.0, 1.0),
     )
@@ -439,7 +439,7 @@ def test_renderer_registration_blending():
         ww=1.0,
         wl=0.5,
         cmap_name="Grayscale",
-        threshold=-1e9,
+        threshold=None,
         time_idx=0,
         spacing_2d=(1.0, 1.0),
     )
@@ -550,7 +550,7 @@ def test_renderer_checkerboard_math():
         ww=0,
         wl=0,
         cmap_name="Grayscale",
-        threshold=-1e9,
+        threshold=None,
         time_idx=0,
         spacing_2d=(1.0, 1.0),
     )
@@ -564,7 +564,7 @@ def test_renderer_checkerboard_math():
         ww=0,
         wl=0,
         cmap_name="Grayscale",
-        threshold=-1e9,
+        threshold=None,
         time_idx=0,
         spacing_2d=(1.0, 1.0),
     )
@@ -596,7 +596,7 @@ def test_renderer_registration_blending():
         ww=1.0,
         wl=0.5,
         cmap_name="Grayscale",
-        threshold=-1e9,
+        threshold=None,
         time_idx=0,
         spacing_2d=(1.0, 1.0),
     )
@@ -609,7 +609,7 @@ def test_renderer_registration_blending():
         ww=1.0,
         wl=0.5,
         cmap_name="Grayscale",
-        threshold=-1e9,
+        threshold=None,
         time_idx=0,
         spacing_2d=(1.0, 1.0),
     )

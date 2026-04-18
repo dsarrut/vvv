@@ -188,7 +188,7 @@ class DisplayState:
         self.ww = 1.0
         self.wl = 0.5
         self.colormap = "Grayscale"
-        self.base_threshold = -1e9
+        self.base_threshold = None
         self.overlay_id = None
         self.overlay_opacity = 0.5
         self.overlay_mode = "Alpha"
@@ -215,7 +215,9 @@ class DisplayState:
             "ww": float(self.ww),
             "wl": float(self.wl),
             "colormap": str(self.colormap),
-            "base_threshold": float(self.base_threshold),
+            "base_threshold": (
+                float(self.base_threshold) if self.base_threshold is not None else None
+            ),
             "pixelated_zoom": bool(self.pixelated_zoom),
             "use_voxel_strips": bool(self.use_voxel_strips),
             "overlay_opacity": float(self.overlay_opacity),

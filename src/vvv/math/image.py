@@ -313,7 +313,7 @@ class SliceRenderer:
             lut = COLORMAPS.get(cmap_name, COLORMAPS["Grayscale"])
             rgba = lut[(norm * 255).astype(np.uint8)]
 
-            if threshold > -1e8:
+            if threshold is not None:
                 rgba[slice_data <= threshold] = [0.0, 0.0, 0.0, 0.0]
 
             return rgba, norm

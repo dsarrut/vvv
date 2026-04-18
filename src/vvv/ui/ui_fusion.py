@@ -271,7 +271,11 @@ class FusionUI:
             "fusion_info_threshold"
         ):
             current_thr = dpg.get_value("fusion_info_threshold")
-            new_thr = f"{ov_vs.display.base_threshold:g}"
+            new_thr = (
+                f"{ov_vs.display.base_threshold:g}"
+                if ov_vs.display.base_threshold is not None
+                else ""
+            )
             if current_thr != new_thr:
                 dpg.set_value("fusion_info_threshold", new_thr)
 
@@ -290,7 +294,7 @@ class FusionUI:
             new_wl = float(dpg.get_value("fusion_info_level"))
 
             thr_str = dpg.get_value("fusion_info_threshold")
-            new_thr = float(thr_str) if thr_str.strip() else -1e9
+            new_thr = float(thr_str) if thr_str.strip() else None
 
             ovs = self.controller.view_states.get(viewer.view_state.display.overlay_id)
             if not ovs:
