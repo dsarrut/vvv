@@ -34,7 +34,7 @@ class SpatialEngine:
         if not getattr(self.volume, "sitk_image", None):
             return self.volume.voxel_coord_to_physic_coord(np.array(voxel[:3]))
 
-        # Handle 3D coordinates, but pad for 4D images to prevent ITK dimension mismatch!
+        # Handle 3D coordinates, but pad for 4D images to prevent ITK dimension mismatch.
         idx = [float(voxel[0]), float(voxel[1]), float(voxel[2])]
         dim = self.volume.sitk_image.GetDimension()
         if dim == 4:

@@ -30,7 +30,7 @@ class SyncManager:
             for viewer in self.controller.viewers.values():
                 if viewer.image_id:
                     active_set.add(viewer.image_id)
-                    # Also keep the overlay active if it's being displayed!
+                    # Also keep the overlay active if it's being displayed.
                     if viewer.view_state and viewer.view_state.display.overlay_id:
                         active_set.add(viewer.view_state.display.overlay_id)
             group_ids = [tid for tid in group_ids if tid in active_set]
@@ -38,7 +38,7 @@ class SyncManager:
         return group_ids
 
     def trigger_redraw(self, modified_ids):
-        """Flags images to redraw. Viewers will autonomously react to this!"""
+        """Flags images to redraw. Viewers will autonomously react to this."""
         for tid in modified_ids:
             vs = self.controller.view_states.get(tid)
             if vs:
@@ -113,7 +113,7 @@ class SyncManager:
 
             # --- Pure Physical Coordinates for Value Lookup ---
             # By passing is_buffered=False, we force the SpatialEngine to map the world coordinate
-            # backwards through any active transforms straight into the original RAW array!
+            # backwards through any active transforms straight into the original RAW array.
             raw_vox = target_vs.space.world_to_display(
                 target_vs.camera.crosshair_phys_coord, is_buffered=False
             )
@@ -206,7 +206,7 @@ class SyncManager:
         max_ppm = max([v.get_pixels_per_mm() for v in valid_viewers] + [0])
 
         if max_ppm > 0:
-            # State-Only: Just write the target to the shared memory!
+            # State-Only: Just write the target to the shared memory.
             for viewer in valid_viewers:
                 viewer.view_state.camera.target_ppm = max_ppm
 
@@ -223,7 +223,7 @@ class SyncManager:
 
         target_ppm = source_viewer.get_pixels_per_mm()
 
-        # State-Only: Just write the targets to the synced ViewStates!
+        # State-Only: Just write the targets to the synced ViewStates.
         for tid in target_ids:
             vs = self.controller.view_states.get(tid)
             if not vs:
@@ -268,7 +268,7 @@ class SyncManager:
             source_viewer.image_id, active_only=True
         )
 
-        # State-Only: Write the physical coordinate to synced ViewStates!
+        # State-Only: Write the physical coordinate to synced ViewStates.
         for tid in target_ids:
             if tid != source_viewer.image_id:
                 vs = self.controller.view_states.get(tid)
@@ -326,7 +326,7 @@ class SyncManager:
         for vs in self.controller.view_states.values():
             vs.sync_wl_group = 1
 
-        # State-Only Fix: Instantly broadcast the W/L and Colormap to the whole group!
+        # State-Only: Instantly broadcast the W/L and Colormap to the whole group.
         first_vs_id = next(iter(self.controller.view_states))
         self.propagate_window_level(first_vs_id)
         self.propagate_colormap(first_vs_id)

@@ -47,7 +47,7 @@ class HistoryManager:
         if key in self.data:
             del self.data[key]
 
-        # Only save intrinsic physical and display state! No Overlays or ROIs.
+        # Only save intrinsic physical and display state. No Overlays or ROIs.
         self.data[key] = {
             "shape3d": [int(x) for x in vol.shape3d],
             "spacing": [float(x) for x in vol.spacing],

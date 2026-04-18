@@ -22,7 +22,7 @@ class TransformIO:
                     # Extract the raw 3x3 matrix from the text file
                     R = np.array(arr[:9]).reshape(3, 3)
 
-                    # Snap it back to perfect orthogonality using SVD!
+                    # Snap it back to perfect orthogonality using SVD.
                     U, _, Vt = np.linalg.svd(R)
                     R_ortho = U @ Vt
 
@@ -77,7 +77,7 @@ class TransformIO:
             if hasattr(generic_transform, "GetCenter"):
                 new_transform.SetCenter(generic_transform.GetCenter())
 
-        # Failsafe: If Center of Rotation is exactly 0,0,0, fix it!
+        # Failsafe: If Center of Rotation is exactly 0,0,0, fix it.
         if (
             np.allclose(new_transform.GetCenter(), [0, 0, 0])
             and fallback_center is not None

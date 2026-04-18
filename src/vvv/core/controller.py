@@ -238,7 +238,7 @@ class Controller:
         try:
             # 1. Base Image Value (World -> Original Voxel Array)
             base_val = None
-            # is_buffered=False forces it to ignore the resampled UI bounding box and use the raw array!
+            # is_buffered=False forces it to ignore the resampled UI bounding box and use the raw array.
             base_vox = vs.space.world_to_display(phys_coord, is_buffered=False)
             ix, iy, iz = [int(np.floor(c + 0.5)) for c in base_vox[:3]]
 
@@ -355,8 +355,8 @@ class Controller:
         if vs_id in self.view_states and data_dirty:
             self.view_states[vs_id].is_data_dirty = True
 
-            # GUARDRAIL 3: Instantly push the data flag to viewers to prevent them
-            # from rendering tombstoned C++ memory during the 1-frame Bridge gap!
+            # GUARDRAIL 3: Push the data flag to viewers to prevent them
+            # from rendering tombstoned C++ memory during the 1-frame Bridge gap.
             for v in self.viewers.values():
                 if v.image_id == vs_id:
                     v.is_viewer_data_dirty = True
@@ -425,7 +425,7 @@ class Controller:
         else:
             vs.reset_view()
 
-        # Re-apply unifying math so it looks exactly like the initial load!
+        # Re-apply unifying math so it looks exactly like the initial load.
         same_viewers = [v.tag for v in self.viewers.values() if v.image_id == vs_id]
         if same_viewers:
             self.sync.propagate_ppm(same_viewers)

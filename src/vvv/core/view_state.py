@@ -603,7 +603,7 @@ class ViewState:
             self.display._sitk_overlay_cache = None
             self.display.overlay_data = other_vol.data
 
-        # Record what was baked in so the 2D shift can subtract it!
+        # Record what was baked in so the 2D shift can subtract it.
         baked_tx, baked_ty, baked_tz = 0.0, 0.0, 0.0
         if ovs.space.transform and ovs.space.is_active:
             baked_tx, baked_ty, baked_tz = ovs.space.transform.GetTranslation()

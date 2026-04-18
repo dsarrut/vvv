@@ -37,7 +37,7 @@ class ROILayer:
     data: np.ndarray  # The 2D slice of the mask
     color: list  # [R, G, B] (0-255)
     opacity: float  # 0.0 to 1.0
-    is_contour: bool = False  # FIXME Placeholder for Phase 5!
+    is_contour: bool = False  # Placeholder for Phase 5.
     # Position on the screen
     offset_x: int = 0
     offset_y: int = 0
@@ -65,12 +65,12 @@ class SliceRenderer:
         base_reg = np.mean(base_norm[..., :3], axis=-1) if base_is_rgb else base_norm
         over_reg = np.mean(over_norm[..., :3], axis=-1) if over_is_rgb else over_norm
 
-        # Extract threshold mask directly from the pre-computed alpha channel!
+        # Extract threshold mask directly from the pre-computed alpha channel.
         W = over_rgba[..., 3] * opacity
         m1 = W <= 0.5
 
         # --- IN-PLACE OPTIMIZATION ---
-        # Multiply W by 2.0 in-place. W is now equivalent to your old "W2" variable!
+        # Multiply W by 2.0 in-place. W is now equivalent to the old "W2" variable.
         np.multiply(W, 2.0, out=W)
 
         res_rgba = np.zeros((*base_reg.shape, 4), dtype=np.float32)
@@ -207,7 +207,7 @@ class SliceRenderer:
             g = roi.color[1] / 255.0
             b = roi.color[2] / 255.0
 
-            # Only do math on the specific patch where the organ lives!
+            # Only do math on the specific patch where the organ lives.
             base_sub = base_rgba[dst_y0:dst_y1, dst_x0:dst_x1]
 
             base_sub[mask, 0] = base_sub[mask, 0] * inv_alpha + r * alpha
@@ -567,7 +567,7 @@ class VolumeData:
                     img = self._read_custom_his(p)
                     slices.append(sitk.GetArrayFromImage(img))
 
-                # Stack the (1, Y, X) arrays into a (Z, Y, X) volume!
+                # Stack the (1, Y, X) arrays into a (Z, Y, X) volume.
                 stacked_vol = np.concatenate(slices, axis=0)
 
                 final_img = sitk.GetImageFromArray(stacked_vol)
@@ -586,7 +586,7 @@ class VolumeData:
                 return img
             except RuntimeError as sitk_error:
                 # ITK threw an error (likely "Could not create IO object")
-                # Attempt to salvage the file using our pure Python AVS/XDR parser!
+                # Attempt to salvage the file using our pure Python AVS/XDR parser.
                 try:
                     img = self._read_custom_avs_xdr(paths[0])
                     if img.GetDimension() == 2:
@@ -689,7 +689,7 @@ class VolumeData:
         spacing = [1.0, 1.0, 1.0]
         origin = [0.0, 0.0, 0.0]
 
-        # Sneak to the end of the file to grab the physical coordinates!
+        # Sneak to the end of the file to grab the physical coordinates.
         if coord_bytes > 0 and file_size > coord_bytes:
             try:
                 # XDR always uses Big-Endian floats (>f4)
@@ -744,7 +744,7 @@ class VolumeData:
             dtype_str = "NKI Compressed (int16)"
         else:
             # Standard Uncompressed XDR Fallback
-            # CRITICAL: Subtract coord_bytes so our deduction math remains perfectly accurate!
+            # Subtract coord_bytes so our deduction math remains perfectly accurate.
             data_bytes = file_size - data_offset - coord_bytes
 
             if expected_elements > 0:
@@ -782,7 +782,7 @@ class VolumeData:
         # 5. Build the SimpleITK Image
         sitk_img = sitk.GetImageFromArray(vol_array)
 
-        # --- THE FIX: Cast numpy.float32 to native Python float! ---
+        # Cast numpy.float32 to native Python float.
         sitk_img.SetSpacing([float(s) for s in spacing])
         sitk_img.SetOrigin([float(o) for o in origin])
 
@@ -876,7 +876,7 @@ class VolumeData:
             )  # Returns (x_start, y_start, z_start, x_size, y_size, z_size)
             dim = sitk_img.GetDimension()
 
-            # 3. Crop the raw image (this automatically recalculates the physical Origin!)
+            # 3. Crop the raw image (this automatically recalculates the physical Origin).
             roi_filter = sitk.RegionOfInterestImageFilter()
             roi_filter.SetIndex(bbox[:dim])
             roi_filter.SetSize(bbox[dim:])
@@ -944,7 +944,7 @@ class VolumeData:
 
     def is_outdated(self):
         now = time.time()
-        # Throttled test (every 5 seconds) to guarantee 0 GUI lag!
+        # Throttled test (every 5 seconds) to guarantee 0 GUI lag.
         if now - self._last_check_time > 5.0:
             self._last_check_time = now
             current_mtime = self._get_latest_mtime()
