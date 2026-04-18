@@ -207,13 +207,17 @@ class Controller:
 
     def save_image(self, vs_id, filepath):
         """Exports the active volume to disk as a NIfTI, MHD, etc."""
-        if vs_id not in self.volumes:
+        if vs_id not in self.volumes: # Guard against invalid vs_id
+            print(f"Error: Volume {vs_id} not found for saving.")
             return
         import SimpleITK as sitk
 
         vol = self.volumes[vs_id]
+        if vol.data is None: # Guard against tombstoned or unloaded data
+            print(f"Error: Volume {vs_id} has no data loaded.")
+            return
         sitk.WriteImage(vol.sitk_image, filepath)
-
+        
     def get_pixel_values_at_phys(self, vs_id, phys_coord, time_idx):
         """
         Calculates the Base value, Fused Target value, and intersecting ROIs.
@@ -378,18 +382,18 @@ class Controller:
 
         d[keys[-1]] = value
 
-        if self.gui and keys[0] == "layout":
+        if self.gui and keys[0] == "layout": # Only rebuild the UI if layout settings change
             from vvv.ui.ui_theme import build_ui_config
 
             self.gui.ui_cfg = build_ui_config(self)
             self.gui.on_window_resize()
 
-        # ONLY SET FLAGS!
-        for vs in self.view_states.values():
-            vs.is_data_dirty = True
+        # Reactive update: flag all viewers for geometry/data refresh
         for viewer in self.viewers.values():
-            viewer.is_geometry_dirty = True
-
+            if viewer.view_state: # Ensure viewer has an associated view_state
+                viewer.view_state.is_data_dirty = True
+            viewer.is_geometry_dirty = True # Geometry flags can be set directly on viewer
+            
     def update_transform_manual(self, vs_id, tx, ty, tz, rx_deg, ry_deg, rz_deg):
         vs = self.view_states.get(vs_id)
         if not vs:
@@ -402,10 +406,10 @@ class Controller:
 
     def reset_settings(self):
         self.settings.reset()
-        # ONLY SET FLAGS!
-        for vs in self.view_states.values():
-            vs.is_data_dirty = True
+        # Reactive update
         for viewer in self.viewers.values():
+            if viewer.view_state:
+                viewer.view_state.is_data_dirty = True
             viewer.is_geometry_dirty = True
 
     def reset_image_view(self, vs_id, hard=False):
@@ -434,9 +438,10 @@ class Controller:
         self.settings.reset()
         self.settings.load()
 
-        for vs in self.view_states.values():
-            vs.is_data_dirty = True
+        # Reactive update
         for viewer in self.viewers.values():
+            if viewer.view_state:
+                viewer.view_state.is_data_dirty = True
             viewer.is_geometry_dirty = True
 
     def reload_image(self, vs_id):
@@ -503,8 +508,8 @@ class Controller:
 
         for other_vs in self.view_states.values():
             if getattr(other_vs.display, "overlay_id", None) == vs_id:
-                other_vs.display.overlay_data = None
-                other_vs.display._sitk_overlay_cache = None
+                other_vs.display.overlay_data = None # Sever the other viewstate's overlay if it points to us
+                other_vs.display._sitk_overlay_cache = None # Also sever the cache
 
         # Instantly blind the viewers so DPG doesn't read dead memory
         for v in self.viewers.values():
@@ -597,24 +602,23 @@ class Controller:
         for viewer in self.viewers.values():
             viewer.tick()
 
-        # --- THE BRIDGE ---
+        # --- THE REACTIVE BRIDGE ---
+        # Optimized: Consolidate geometry and data checks into a single loop
         for vs_id, vs in self.view_states.items():
-            # 1. Broadcast Geometry Dirty
-            if getattr(vs, "is_geometry_dirty", False):
-                for viewer in self.viewers.values():
-                    if viewer.image_id == vs_id:
-                        viewer.is_geometry_dirty = True
+            # Broadcast flags from central ViewState to all Viewers displaying it
+            is_geom = getattr(vs, "is_geometry_dirty", False)
+            is_data = getattr(vs, "is_data_dirty", False)
+            
+            if is_geom or is_data:
+                for v in self.viewers.values():
+                    if v.image_id == vs_id:
+                        if is_geom: v.is_geometry_dirty = True
+                        if is_data: v.is_viewer_data_dirty = True
 
-            # 2. Broadcast Data Dirty
-            if getattr(vs, "is_data_dirty", False):
-                for viewer in self.viewers.values():
-                    if viewer.image_id == vs_id:
-                        viewer.is_viewer_data_dirty = True
-
-            # 3. Safe Reset (ONLY after all viewers in the loop have been flagged)
+            # Safe Reset (ONLY after all viewers in the loop have been flagged)
             vs.is_data_dirty = False
             vs.is_geometry_dirty = False
-
+            
         # Check if files changed on disk, update UI if needed
         outdated_changed = False
         for vol in self.volumes.values():
