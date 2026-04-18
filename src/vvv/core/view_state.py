@@ -579,8 +579,20 @@ class ViewState:
         old_cache = self.display._sitk_overlay_cache  # Keep alive until end of scope
         self.display._sitk_overlay_cache = None
 
+        # Build a safe 3D reference image to prevent ITK dimension mismatch exceptions
+        # when mixing 3D and 4D volumes during fusion.
+        ref_img = sitk.Image(
+            int(self.volume.shape3d[2]),
+            int(self.volume.shape3d[1]),
+            int(self.volume.shape3d[0]),
+            sitk.sitkUInt8,
+        )
+        ref_img.SetSpacing(self.volume.spacing.tolist())
+        ref_img.SetOrigin(self.volume.origin.tolist())
+        ref_img.SetDirection(self.volume.matrix.flatten().tolist())
+
         resampler = sitk.ResampleImageFilter()
-        resampler.SetReferenceImage(self.volume.sitk_image)
+        resampler.SetReferenceImage(ref_img)
         resampler.SetInterpolator(sitk.sitkLinear)
         resampler.SetDefaultPixelValue(np.min(other_vol.data).item())
 
@@ -599,6 +611,17 @@ class ViewState:
             resampled_img = resampler.Execute(other_vol.sitk_image)
             self.display._sitk_overlay_cache = resampled_img
             self.display.overlay_data = sitk.GetArrayViewFromImage(resampled_img)
+        elif target_dim == 4:
+            resampled_volumes = []
+            for t in range(other_vol.num_timepoints):
+                size = list(other_vol.sitk_image.GetSize())
+                size[3] = 0
+                index = [0, 0, 0, t]
+                vol_3d = sitk.Extract(other_vol.sitk_image, size, index)
+                resampled_volumes.append(resampler.Execute(vol_3d))
+            joined_img = sitk.JoinSeries(resampled_volumes)
+            self.display._sitk_overlay_cache = joined_img
+            self.display.overlay_data = sitk.GetArrayViewFromImage(joined_img)
         else:
             self.display._sitk_overlay_cache = None
             self.display.overlay_data = other_vol.data

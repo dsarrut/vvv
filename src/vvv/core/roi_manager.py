@@ -168,8 +168,19 @@ class ROIManager:
             mask_vol.roi_bbox = (0, 0, 0, 0, 0, 0)
             return
 
-        # Slice a tiny sub-grid out of the base image metadata
-        ref_image = base_vol.sitk_image[min_x:max_x, min_y:max_y, min_z:max_z]
+        # Build a pure 3D reference grid to prevent SimpleITK dimension mismatches
+        ref_image = sitk.Image(
+            int(max_x - min_x),
+            int(max_y - min_y),
+            int(max_z - min_z),
+            sitk.sitkUInt8,
+        )
+        ref_origin = base_vol.voxel_coord_to_physic_coord(
+            np.array([min_x, min_y, min_z])
+        )
+        ref_image.SetSpacing(base_vol.spacing.tolist())
+        ref_image.SetOrigin(ref_origin.tolist())
+        ref_image.SetDirection(base_vol.matrix.flatten().tolist())
 
         resampler = sitk.ResampleImageFilter()
         resampler.SetReferenceImage(ref_image)
