@@ -401,6 +401,12 @@ class MainGUI:
                         callback=self.on_visibility_toggle,
                         user_data="filename",
                     )
+                    dpg.add_selectable(
+                        label="Interp: Linear",
+                        tag="check_interpolation",
+                        callback=self.on_visibility_toggle,
+                        user_data="interpolation",
+                    )
 
     def build_viewer_grid(self):
         """Creates the 2x2 grid of slice viewers."""
@@ -530,6 +536,15 @@ class MainGUI:
         if hasattr(self, "fusion_ui"):
             self.fusion_ui.sync_fusion_ui()
 
+        # Sync Interpolation mode text
+        if dpg.does_item_exist("check_interpolation"):
+            if vs.display.use_voxel_strips:
+                dpg.configure_item("check_interpolation", label="Interp: Stripe")
+            elif vs.display.pixelated_zoom:
+                dpg.configure_item("check_interpolation", label="Interp: NN")
+            else:
+                dpg.configure_item("check_interpolation", label="Interp: Linear")
+
     def highlight_active_image_in_list(self, active_img_id):
         highlight_active_image_in_list(self, active_img_id)
 
@@ -636,6 +651,8 @@ class MainGUI:
                     "check_crosshair",
                     "check_scalebar",
                     "check_legend",
+                    "check_filename",
+                    "check_interpolation",
                     "btn_roi_load",
                     "combo_roi_type",
                     "combo_roi_mode",
@@ -1052,6 +1069,17 @@ class MainGUI:
             current = getattr(vs.camera, "show_filename", 0)
             vs.camera.show_filename = (current + 1) % 3
             dpg.set_value(sender, False)
+        elif user_data == "interpolation":
+            if vs.display.use_voxel_strips:
+                vs.display.use_voxel_strips = False
+                vs.display.pixelated_zoom = False
+            elif vs.display.pixelated_zoom:
+                vs.display.pixelated_zoom = False
+                vs.display.use_voxel_strips = True
+            else:
+                vs.display.pixelated_zoom = True
+                vs.display.use_voxel_strips = False
+            dpg.set_value(sender, False)
 
     def on_toggle_auto_save(self, sender, app_data, user_data):
         # app_data holds the new boolean state of the checkbox
@@ -1202,7 +1230,8 @@ class MainGUI:
                 "view_sagittal": "Sagittal View",
                 "view_coronal": "Coronal View",
                 "view_histogram": "Histogram View",
-                "toggle_pixelated_zoom": "Toggle Pixelated Zoom",
+                "toggle_interp": "Toggle Pixelated Zoom (NN)",
+                "toggle_strips": "Toggle Voxel Strips",
                 "toggle_grid": "Toggle Voxel Grid",
                 "toggle_legend": "Toggle Legend",
                 "hide_all": "Show/Hide Overlays",

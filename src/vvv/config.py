@@ -30,6 +30,7 @@ DEFAULT_SETTINGS = {
         "view_coronal": "F3",
         "view_histogram": "F4",
         "toggle_interp": "K",
+        "toggle_strips": "M",
         "toggle_legend": "L",
         "toggle_grid": "G",
         "toggle_axis": "A",
@@ -44,10 +45,7 @@ DEFAULT_SETTINGS = {
         "wl_drag_sensitivity": 2.0,
         "active_viewer_mode": "hybrid",
     },
-    "layout": {
-        "window_width": 1200,
-        "window_height": 1000,
-        "side_panel_width": 300},
+    "layout": {"window_width": 1200, "window_height": 1000, "side_panel_width": 300},
     "behavior": {
         "auto_save_history": True,
     },

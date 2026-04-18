@@ -159,6 +159,7 @@ class DisplayState:
     overlay_checkerboard_size: float
     overlay_checkerboard_swap: bool
     pixelated_zoom: bool
+    use_voxel_strips: bool
 
     # 2. The exact fields that should trigger a DATA redraw
     _DATA_FIELDS = {
@@ -172,6 +173,7 @@ class DisplayState:
         "overlay_checkerboard_size",
         "overlay_checkerboard_swap",
         "pixelated_zoom",
+        "use_voxel_strips",
     }
 
     def __init__(self, parent_vs=None):
@@ -192,7 +194,8 @@ class DisplayState:
         self.overlay_mode = "Alpha"
         self.overlay_checkerboard_size = 20.0
         self.overlay_checkerboard_swap = False
-        self.pixelated_zoom = True
+        self.pixelated_zoom = False
+        self.use_voxel_strips = False
 
     def __setattr__(self, name, value):
         # Intercept assignments: if it's a DATA field AND the value is actually changing
@@ -214,6 +217,7 @@ class DisplayState:
             "colormap": str(self.colormap),
             "base_threshold": float(self.base_threshold),
             "pixelated_zoom": bool(self.pixelated_zoom),
+            "use_voxel_strips": bool(self.use_voxel_strips),
             "overlay_opacity": float(self.overlay_opacity),
             "overlay_mode": str(self.overlay_mode),
             "overlay_checkerboard_size": float(self.overlay_checkerboard_size),
@@ -229,6 +233,7 @@ class DisplayState:
             self.pixelated_zoom = not d["interpolation_linear"]
         else:
             self.pixelated_zoom = d.get("pixelated_zoom", self.pixelated_zoom)
+        self.use_voxel_strips = d.get("use_voxel_strips", self.use_voxel_strips)
         self.overlay_opacity = d.get("overlay_opacity", self.overlay_opacity)
         self.overlay_mode = d.get("overlay_mode", self.overlay_mode)
         self.overlay_checkerboard_size = d.get(
