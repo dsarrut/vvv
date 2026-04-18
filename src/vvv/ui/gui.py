@@ -590,7 +590,12 @@ class MainGUI:
             elif isinstance(path_str, str) and path_str.startswith("4D:"):
                 import shlex
 
-                tokens = shlex.split(path_str[3:])
+                path_for_shlex = (
+                    path_str[3:].replace("\\", "\\\\")
+                    if os.name == "nt"
+                    else path_str[3:]
+                )
+                tokens = shlex.split(path_for_shlex)
                 display_name = (
                     "4D: " + os.path.basename(tokens[0]) + "..."
                     if tokens

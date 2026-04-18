@@ -23,7 +23,8 @@ def load_fonts():
         if sys.platform == "darwin":
             main_font_path = "/System/Library/Fonts/Helvetica.ttc"  # Native macOS font
         elif sys.platform == "win32":
-            main_font_path = "C:\\Windows\\Fonts\\segoeui.ttf"
+            windir = os.environ.get("WINDIR", "C:\\Windows")
+            main_font_path = os.path.join(windir, "Fonts", "segoeui.ttf")
         else:
             main_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 

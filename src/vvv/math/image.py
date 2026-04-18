@@ -487,7 +487,11 @@ class VolumeData:
                 elif "*" in path or "?" in path:
                     self.file_paths = sorted(glob.glob(path))
                 else:
-                    tokens = shlex.split(path)
+                    # shlex.split strips backslashes by default (POSIX mode). Double escape them for Windows!
+                    path_for_shlex = (
+                        path.replace("\\", "\\\\") if os.name == "nt" else path
+                    )
+                    tokens = shlex.split(path_for_shlex)
                     valid_files = [f for f in tokens if os.path.isfile(f)]
                     if valid_files:
                         self.file_paths = sorted(valid_files)

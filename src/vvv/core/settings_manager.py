@@ -7,8 +7,9 @@ from vvv.config import DEFAULT_SETTINGS
 
 class SettingsManager:
     def __init__(self):
-        if os.name == "nt":
-            self.config_dir = Path(os.getenv("APPDATA")) / "VVV"
+        appdata = os.getenv("APPDATA")
+        if os.name == "nt" and appdata:
+            self.config_dir = Path(appdata) / "VVV"
         else:
             self.config_dir = Path.home() / ".config" / "vvv"
 
