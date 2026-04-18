@@ -943,6 +943,8 @@ class SliceViewer:
             return
         self.view_state.display.ww = max(1e-20, ww)
         self.view_state.display.wl = wl
+        if dpg.does_item_exist("combo_wl_presets"):
+            dpg.set_value("combo_wl_presets", "Custom")
         self.controller.sync.propagate_window_level(self.image_id)
 
     def update_crosshair_data(self, pix_x, pix_y):

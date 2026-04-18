@@ -7,9 +7,9 @@ from vvv.utils import fmt
 from vvv.ui.ui_roi import RoiUI
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_fusion import FusionUI
-from vvv.config import WL_PRESETS, COLORMAPS
 from vvv.ui.ui_settings import SettingsWindow
 from vvv.ui.ui_dicom import DicomBrowserWindow
+from vvv.ui.ui_intensities import IntensitiesUI
 from vvv.ui.ui_registration import RegistrationUI
 from vvv.resources import load_fonts, setup_themes
 from vvv.ui.ui_interaction import InteractionManager
@@ -66,9 +66,10 @@ class MainGUI:
             "check_legend": "camera.show_legend",
             "check_scalebar": "camera.show_scalebar",
             "check_filename": "camera.show_filename",
-            "info_window": "display.ww",
-            "info_level": "display.wl",
-            "info_base_threshold": "display.base_threshold",
+            "drag_ww": "display.ww",
+            "drag_wl": "display.wl",
+            "drag_min_threshold": "display.base_threshold",
+            "combo_colormap": "display.colormap",
             "slider_fusion_opacity": "display.overlay_opacity",
             "combo_fusion_mode": "display.overlay_mode",
             "slider_fusion_chk_size": "display.overlay_checkerboard_size",
@@ -84,6 +85,7 @@ class MainGUI:
         self.dicom_window = DicomBrowserWindow(self.controller, self)
         self.interaction = InteractionManager(self, self.controller)
         self.fusion_ui = FusionUI(self, self.controller)
+        self.intensities_ui = IntensitiesUI(self, self.controller)
         self.roi_ui = RoiUI(self, self.controller)
         self.reg_ui = RegistrationUI(self, self.controller)
 
@@ -187,22 +189,6 @@ class MainGUI:
                     )
                     dpg.add_menu_item(label="Exit", callback=self.cleanup)
 
-                with dpg.menu(label="Window/Level"):
-                    for preset_name in WL_PRESETS.keys():
-                        dpg.add_menu_item(
-                            label=preset_name,
-                            user_data=preset_name,
-                            callback=self.on_wl_preset_menu_clicked,
-                        )
-
-                with dpg.menu(label="Colormap"):
-                    for cmap_name in COLORMAPS.keys():
-                        dpg.add_menu_item(
-                            label=cmap_name,
-                            user_data=cmap_name,
-                            callback=self.on_colormap_menu_clicked,
-                        )
-
                 with dpg.menu(label="Help"):
                     dpg.add_menu_item(
                         label="Shortcuts & Controls", callback=self.show_help_window
@@ -257,6 +243,7 @@ class MainGUI:
                 build_tab_images(self)
                 build_tab_sync(self)  # <--- ADD IT BACK HERE
                 self.fusion_ui.build_tab_fusion(self)
+                self.intensities_ui.build_tab_intensities(self)
                 self.roi_ui.build_tab_rois(self)
                 self.reg_ui.build_tab_reg(self)
 
@@ -288,7 +275,6 @@ class MainGUI:
                 self.create_labeled_field("Matrix", tag="info_matrix")
                 with dpg.tooltip("info_matrix"):
                     dpg.add_text("...", tag="info_matrix_tooltip")
-                self.build_window_level_controls()
                 dpg.add_input_text(tag="info_memory", readonly=True, width=-1)
                 dpg.add_spacer(height=5)
                 self.build_visibility_controls()
@@ -312,37 +298,6 @@ class MainGUI:
                 f"{label}:" if label else "", tag=f"{tag}_label", color=dim_col
             )
             dpg.add_input_text(tag=tag, readonly=True, width=-1)
-
-    def build_window_level_controls(self):
-        dim_color = self.ui_cfg["colors"]["text_dim"]
-        with dpg.group(horizontal=True):
-            with dpg.group(horizontal=True):
-                dpg.add_text("Window", color=dim_color)
-                dpg.add_input_text(
-                    tag="info_window",
-                    width=65,
-                    on_enter=True,
-                    callback=lambda: self.on_sidebar_wl_change(),
-                )
-            dpg.add_spacer(width=5)
-            with dpg.group(horizontal=True):
-                dpg.add_text("Level", color=dim_color)
-                dpg.add_input_text(
-                    tag="info_level",
-                    width=65,
-                    on_enter=True,
-                    callback=lambda: self.on_sidebar_wl_change(),
-                )
-
-        with dpg.group(horizontal=True):
-            dpg.add_text("Min Threshold", color=dim_color)
-            dpg.add_input_text(
-                tag="info_base_threshold",
-                width=65,
-                on_enter=True,
-                callback=lambda: self.on_sidebar_wl_change(),
-            )
-            # dpg.add_text("(< val = black)", color=self.ui_cfg["colors"]["text_dim"])
 
     def build_visibility_controls(self):
         dim_col = self.ui_cfg["colors"]["text_dim"]
@@ -497,6 +452,11 @@ class MainGUI:
             if dpg.get_item_type(
                 tag
             ) == "mvAppItemType::mvInputText" and dpg.is_item_focused(tag):
+                continue
+
+            if dpg.get_item_type(
+                tag
+            ) == "mvAppItemType::mvDragFloat" and dpg.is_item_active(tag):
                 continue
 
             parts = prop_name.split(".")
@@ -669,15 +629,6 @@ class MainGUI:
                     "combo_roi_type",
                     "combo_roi_mode",
                     "input_roi_val",
-                ],
-            ),
-            (
-                has_image
-                and not is_rgb,  # Explicitly enable W/L and Threshold if not RGB!
-                [
-                    "info_window",
-                    "info_level",
-                    "info_base_threshold",
                 ],
             ),
             (
@@ -990,24 +941,6 @@ class MainGUI:
         if value:
             self.controller.layout[v_tag] = img_id
 
-    def on_sidebar_wl_change(self):
-        if not self.context_viewer or not self.context_viewer.view_state:
-            return
-        try:
-            new_ww = float(dpg.get_value("info_window"))
-            new_wl = float(dpg.get_value("info_level"))
-
-            thr_str = dpg.get_value("info_base_threshold")
-            new_thr = float(thr_str) if thr_str.strip() else -1e9
-
-            self.context_viewer.view_state.display.ww = max(1e-20, new_ww)
-            self.context_viewer.view_state.display.wl = new_wl
-            self.context_viewer.view_state.display.base_threshold = new_thr
-
-            self.controller.sync.propagate_window_level(self.context_viewer.image_id)
-        except ValueError:
-            pass
-
     def on_open_file_clicked(self, sender=None, app_data=None, user_data=None):
         file_paths = open_file_dialog("Open Medical Image(s)", multiple=True)
         if not file_paths:
@@ -1036,28 +969,6 @@ class MainGUI:
             self.tasks.append(
                 load_single_image_sequence(self, self.controller, magic_path_string)
             )
-
-    def on_wl_preset_menu_clicked(self, sender, app_data, user_data):
-        viewer = self.context_viewer
-        if (
-            not viewer
-            or not viewer.view_state
-            or getattr(viewer.volume, "is_rgb", False)
-        ):
-            return
-        viewer.view_state.apply_wl_preset(user_data)
-        self.controller.sync.propagate_window_level(viewer.image_id)
-
-    def on_colormap_menu_clicked(self, sender, app_data, user_data):
-        viewer = self.context_viewer
-        if (
-            not viewer
-            or not viewer.view_state
-            or getattr(viewer.volume, "is_rgb", False)
-        ):
-            return
-        viewer.view_state.display.colormap = user_data
-        self.controller.sync.propagate_colormap(viewer.image_id)
 
     def on_visibility_toggle(self, sender, value, user_data):
         viewer = self.context_viewer
@@ -1333,6 +1244,8 @@ class MainGUI:
                     self.fusion_ui.refresh_fusion_ui()
                 if hasattr(self, "reg_ui"):
                     self.reg_ui.refresh_reg_ui()
+                if hasattr(self, "intensities_ui"):
+                    self.intensities_ui.refresh_intensities_ui()
 
                 # Safely update the sidebar between frames when the DPG stack is completely empty!
                 self.update_sidebar_info(self.context_viewer)

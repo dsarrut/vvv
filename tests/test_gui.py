@@ -62,19 +62,20 @@ def test_gui_window_level_and_colormap(headless_gui_app):
     vs = viewer.view_state
 
     # 1. Simulate User Typing W/L
-    dpg.set_value("info_window", "450.5")
-    dpg.set_value("info_level", "50.0")
+    dpg.set_value("drag_ww", 450.5)
+    dpg.set_value("drag_wl", 50.0)
 
     # 2. Simulate User Pressing Enter
     print("Simulating WL change")
-    gui.on_sidebar_wl_change()
+    gui.intensities_ui.on_ww_changed(None, 450.5, None)
+    gui.intensities_ui.on_wl_changed(None, 50.0, None)
 
     # 3. Assert Domain Math Updated
     assert vs.display.ww == 450.5
     assert vs.display.wl == 50.0
 
     # 4. Simulate Colormap Menu Click
-    gui.on_colormap_menu_clicked(sender=None, app_data=None, user_data="Hot")
+    gui.intensities_ui.on_colormap_changed(None, "Hot", None)
 
     # 5. Assert Colormap Updated
     assert vs.display.colormap == "Hot"
@@ -104,10 +105,10 @@ def test_gui_sync_between_images(headless_gui_app, synthetic_volume_factory):
     handle_wl_group_change(gui, None, "G A", vs2_id)
 
     # 3. Simulate UI: Change W/L on Img1
-    dpg.set_value("info_window", "999.0")
-    dpg.set_value("info_level", "50.0")
-    dpg.set_value("info_base_threshold", "-1000.0")
-    gui.on_sidebar_wl_change()
+    dpg.set_value("drag_ww", 999.0)
+    dpg.set_value("drag_wl", 50.0)
+    gui.intensities_ui.on_ww_changed(None, 999.0, None)
+    gui.intensities_ui.on_wl_changed(None, 50.0, None)
 
     # 4. Assert: Img2 synced, Img3 ignored it
     assert controller.view_states[vs1_id].display.ww == 999.0
