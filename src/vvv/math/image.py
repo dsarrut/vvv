@@ -56,20 +56,17 @@ class SliceRenderer:
     def _blend_registration(
         base_rgba,
         base_norm,
-        over_slice,
+        over_rgba,
         over_norm,
         base_is_rgb,
         over_is_rgb,
         opacity,
-        threshold,
-        base_threshold,
-        base_slice,
     ):
         base_reg = np.mean(base_norm[..., :3], axis=-1) if base_is_rgb else base_norm
         over_reg = np.mean(over_norm[..., :3], axis=-1) if over_is_rgb else over_norm
 
-        W = np.full(over_slice.shape, opacity, dtype=np.float32)
-        W[over_slice < threshold] = 0.0
+        # Extract threshold mask directly from the pre-computed alpha channel!
+        W = over_rgba[..., 3] * opacity
         m1 = W <= 0.5
 
         # --- IN-PLACE OPTIMIZATION ---
@@ -87,22 +84,16 @@ class SliceRenderer:
         res_rgba[..., 3] = 1.0
 
         # Apply base threshold directly (assigning a scalar 0.0 is highly optimized in NumPy)
-        if base_threshold > -1e8 and not base_is_rgb:
-            mask = base_slice <= base_threshold
+        if not base_is_rgb:
+            mask = base_rgba[..., 3] == 0.0
             res_rgba[mask] = 0.0
 
         return res_rgba
 
     @staticmethod
-    def _blend_alpha(base_rgba, over_slice, over_norm, cmap_name, opacity, threshold):
-        over_lut = COLORMAPS.get(cmap_name, COLORMAPS["Hot"])
-
-        # over_rgba is newly allocated here, meaning it is safe to overwrite it
-        over_rgba = over_lut[(over_norm * 255).astype(np.uint8)]
-
-        op_mask = np.full(over_slice.shape, opacity, dtype=np.float32)
-        op_mask[over_slice < threshold] = 0.0
-        op_mask = op_mask[..., None]
+    def _blend_alpha(base_rgba, over_rgba, opacity):
+        # Alpha channel of over_rgba already contains 0.0 where thresholded, and 1.0 otherwise.
+        op_mask = over_rgba[..., 3:4] * opacity
 
         # --- THE IN-PLACE OPTIMIZATION ---
         # Instead of: base_rgba = base_rgba * (1.0 - op_mask) + over_rgba * op_mask
@@ -122,10 +113,6 @@ class SliceRenderer:
     def _blend_checkerboard(
         base_rgba,
         over_rgba,
-        over_slice,
-        base_slice,
-        overlay_threshold,
-        base_threshold,
         spacing_2d,
         chk_size,
         swap,
@@ -153,14 +140,12 @@ class SliceRenderer:
         np.copyto(res_rgba, base_rgba, where=mask_rgba)
 
         # 3. Apply Thresholds via in-place overwriting
-        if overlay_threshold > -1e8 and not is_over_rgb:
-            o_mask = (over_slice < overlay_threshold)[..., None]
-            # Revert to base image where the overlay is below the threshold
+        if not is_over_rgb:
+            o_mask = over_rgba[..., 3:4] == 0.0
             np.copyto(res_rgba, base_rgba, where=(~mask_rgba & o_mask))
 
-        if base_threshold > -1e8 and not is_base_rgb:
-            b_mask = (base_slice <= base_threshold)[..., None]
-            # Blank out the pixels (0.0) where the base image is below threshold
+        if not is_base_rgb:
+            b_mask = base_rgba[..., 3:4] == 0.0
             res_rgba[mask_rgba & b_mask] = 0.0
 
         return res_rgba
@@ -419,32 +404,22 @@ class SliceRenderer:
                 res_rgba = SliceRenderer._blend_registration(
                     base_rgba,
                     base_norm,
-                    over_slice,
+                    over_rgba,
                     over_norm,
                     base.is_rgb,
                     overlay.is_rgb,
                     overlay_opacity,
-                    overlay.threshold,
-                    base.threshold,
-                    base_slice,
                 )
             elif overlay_mode == "Alpha":
                 res_rgba = SliceRenderer._blend_alpha(
                     base_rgba,
-                    over_slice,
-                    over_norm,
-                    overlay.cmap_name,
+                    over_rgba,
                     overlay_opacity,
-                    overlay.threshold,
                 )
             elif overlay_mode == "Checkerboard":
                 res_rgba = SliceRenderer._blend_checkerboard(
                     base_rgba,
                     over_rgba,
-                    over_slice,
-                    base_slice,
-                    overlay.threshold,
-                    base.threshold,
                     base.spacing_2d,
                     checkerboard_size,
                     checkerboard_swap,
