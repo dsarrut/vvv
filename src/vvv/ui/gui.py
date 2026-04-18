@@ -460,7 +460,10 @@ class MainGUI:
 
     def cleanup(self, sender=None, app_data=None, user_data=None):
         # 1. Save auto-history for all currently open images
-        if hasattr(self.controller, "history"):
+        auto_save = self.controller.settings.data.get("behavior", {}).get(
+            "auto_save_history", True
+        )
+        if auto_save and hasattr(self.controller, "history"):
             for vs_id in list(self.controller.view_states.keys()):
                 self.controller.history.save_image_state(self.controller, vs_id)
 
@@ -506,9 +509,9 @@ class MainGUI:
                 if isinstance(current_ui_val, str) and isinstance(val, (float, int)):
                     # Skip WW/WL if the image is RGB
                     if getattr(viewer.volume, "is_rgb", False) and prop_name in [
-                        "ww",
-                        "wl",
-                        "base_threshold",
+                        "display.ww",
+                        "display.wl",
+                        "display.base_threshold",
                     ]:
                         continue
 
@@ -632,8 +635,6 @@ class MainGUI:
         )
         is_rgb = getattr(viewer.volume, "is_rgb", False) if has_image else False
 
-        # Use a list of tuples to avoid boolean key collisions
-        # Use a list of tuples to avoid boolean key collisions
         ui_states = [
             (
                 has_image,
@@ -741,9 +742,15 @@ class MainGUI:
         dpg.set_value("info_matrix", vol.matrix_display_str)
         if dpg.does_item_exist("info_matrix_tooltip"):
             dpg.set_value("info_matrix_tooltip", vol.matrix_tooltip_str)
+
+        num_pixels = (
+            vol.sitk_image.GetNumberOfPixels()
+            if getattr(vol, "sitk_image", None)
+            else getattr(vol.data, "size", 0)
+        )
         dpg.set_value(
             "info_memory",
-            f"{vol.sitk_image.GetNumberOfPixels():,} voxels    {vol.memory_mb:g} MB",
+            f"{num_pixels:,} voxels    {vol.memory_mb:g} MB",
         )
 
         # 1. Update Fusion tab base image name
@@ -837,7 +844,7 @@ class MainGUI:
             dpg.bind_item_theme(f"win_{self.context_viewer.tag}", "black_viewer_theme")
 
         # Safely deselect ROI if it doesn't belong to the new image
-        if getattr(self, "active_roi_id", None):
+        if getattr(self.roi_ui, "active_roi_id", None):
             if (
                 viewer.view_state
                 and self.roi_ui.active_roi_id not in viewer.view_state.rois
@@ -964,7 +971,7 @@ class MainGUI:
             self.controller.layout[v_tag] = img_id
 
     def on_sidebar_wl_change(self):
-        if not self.context_viewer or self.context_viewer.image_id is None:
+        if not self.context_viewer or not self.context_viewer.view_state:
             return
         try:
             new_ww = float(dpg.get_value("info_window"))
