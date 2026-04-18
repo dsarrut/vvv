@@ -356,7 +356,7 @@ class SliceRenderer:
         if base_slice is None:  # Out of bounds
             black_slice = np.zeros((h, w, 4), dtype=np.float32)
             black_slice[:, :, 3] = 1.0
-            return black_slice.flatten(), (h, w)
+            return black_slice.ravel(), (h, w)
 
         base_rgba, base_norm = SliceRenderer._colorize_layer(
             base_slice,
@@ -431,7 +431,7 @@ class SliceRenderer:
         if rois:
             res_rgba = SliceRenderer._apply_rois(res_rgba, rois)
 
-        return res_rgba.astype(np.float32).flatten(), (h, w)
+        return res_rgba.astype(np.float32, copy=False).ravel(), (h, w)
 
 
 class VolumeData:
