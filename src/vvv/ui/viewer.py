@@ -35,10 +35,10 @@ class ViewportMapper:
 
         base_scale = min(target_w / mm_w, target_h / mm_h)
         final_scale = base_scale * zoom
-        new_w, new_h = int(mm_w * final_scale), int(mm_h * final_scale)
+        new_w, new_h = mm_w * final_scale, mm_h * final_scale
 
-        off_x = (target_w - new_w) // 2 + self.margin_left + pan_offset[0]
-        off_y = (target_h - new_h) // 2 + self.margin_top + pan_offset[1]
+        off_x = (target_w - new_w) / 2.0 + self.margin_left + pan_offset[0]
+        off_y = (target_h - new_h) / 2.0 + self.margin_top + pan_offset[1]
 
         self.pmin = [off_x, off_y]
         self.pmax = [off_x + new_w, off_y + new_h]
@@ -68,15 +68,15 @@ class ViewportMapper:
 
         base_scale = min(target_w / mm_w, target_h / mm_h)
         final_scale = base_scale * zoom
-        new_w, new_h = int(mm_w * final_scale), int(mm_h * final_scale)
+        new_w, new_h = mm_w * final_scale, mm_h * final_scale
 
-        origin_x = (target_w - new_w) // 2 + self.margin_left
-        origin_y = (target_h - new_h) // 2 + self.margin_top
+        origin_x = (target_w - new_w) / 2.0 + self.margin_left
+        origin_y = (target_h - new_h) / 2.0 + self.margin_top
 
         cx_zero_pan_x = (tx / real_w) * new_w + origin_x
         cx_zero_pan_y = (ty / real_h) * new_h + origin_y
 
-        return [(quad_w / 2) - cx_zero_pan_x, (quad_h / 2) - cx_zero_pan_y]
+        return [(quad_w / 2.0) - cx_zero_pan_x, (quad_h / 2.0) - cx_zero_pan_y]
 
     def calculate_zoom_pan_delta(self, mouse_x, mouse_y, old_zoom, new_zoom):
         old_zoom = max(1e-5, old_zoom)
@@ -85,8 +85,8 @@ class ViewportMapper:
         dw, dh = (ow * ratio) - ow, (oh * ratio) - oh
         rx, ry = mouse_x - self.pmin[0], mouse_y - self.pmin[1]
 
-        dx = -(rx * (ratio - 1)) + (dw / 2)
-        dy = -(ry * (ratio - 1)) + (dh / 2)
+        dx = -(rx * (ratio - 1)) + (dw / 2.0)
+        dy = -(ry * (ratio - 1)) + (dh / 2.0)
 
         return dx, dy
 
