@@ -5,10 +5,13 @@ from contextlib import contextmanager
 from vvv.math.geometry import SpatialEngine
 from vvv.utils import ViewMode, slice_to_voxel
 
+_SENTINEL = object()
+
+
 class CameraState:
     """Stores all transient spatial and navigation parameters."""
 
-    # 1. Type Hints (Keeps PyCharm/VSCode autocomplete happy!)
+    # 1. Type Hints (Keeps PyCharm/VSCode autocomplete happy)
     time_idx: int
     show_axis: bool
     show_tracker: bool
@@ -70,7 +73,7 @@ class CameraState:
 
     def __setattr__(self, name, value):
         # Intercept assignments: if it's a GEOM field AND the value is actually changing
-        if name in self._GEOM_FIELDS and getattr(self, name, object()) != value:
+        if name in self._GEOM_FIELDS and getattr(self, name, _SENTINEL) != value:
             object.__setattr__(self, name, value)  # Set the value
 
             # Flag the parent automatically
@@ -80,7 +83,6 @@ class CameraState:
 
         # Standard assignment for everything else (like dictionaries and _parent)
         object.__setattr__(self, name, value)
-
 
     def to_dict(self):
         return {
@@ -194,7 +196,7 @@ class DisplayState:
 
     def __setattr__(self, name, value):
         # Intercept assignments: if it's a DATA field AND the value is actually changing
-        if name in self._DATA_FIELDS and getattr(self, name, object()) != value:
+        if name in self._DATA_FIELDS and getattr(self, name, _SENTINEL) != value:
             object.__setattr__(self, name, value)  # Set the value
 
             # Flag the parent automatically
@@ -242,26 +244,26 @@ class ViewState:
     The exclusive Source of Truth for an image's presentation state.
 
     ARCHITECTURE MANDATES (State-Only / Reactive):
-    1. SOURCE OF TRUTH: This class owns all spatial and radiometric state. Viewers 
-       must never store their own permanent state; they must only reflect what 
+    1. SOURCE OF TRUTH: This class owns all spatial and radiometric state. Viewers
+       must never store their own permanent state; they must only reflect what
        is stored here during their 60fps tick loop.
 
-    2. AUTOMATIC FLAGGING: Monitored fields in CameraState and DisplayState use 
-       __setattr__ to automatically flip 'is_geometry_dirty = True' when changed. 
-       Always use standard assignments (e.g., vs.camera.time_idx = 5) to trigger 
+    2. AUTOMATIC FLAGGING: Monitored fields in CameraState and DisplayState use
+       __setattr__ to automatically flip 'is_geometry_dirty = True' when changed.
+       Always use standard assignments (e.g., vs.camera.time_idx = 5) to trigger
        this reactive update.
 
-    3. DECOUPLING: This class must remain ignorant of UI implementation details. 
+    3. DECOUPLING: This class must remain ignorant of UI implementation details.
        It communicates purely through two high-level flags:
        - 'is_data_dirty': Underlying pixel data or overlays changed.
        - 'is_geometry_dirty': Camera, pan, zoom, or presentation settings changed.
 
-    4. SERIALIZABILITY: All state must remain serializable. Maintain the 'to_dict' 
-       and 'from_dict' methods strictly to ensure workspace saves and history 
+    4. SERIALIZABILITY: All state must remain serializable. Maintain the 'to_dict'
+       and 'from_dict' methods strictly to ensure workspace saves and history
        restoration remain pixel-perfect.
 
-    5. SAFE COORDINATES: To maintain physical sync across the application, 
-       never allow 'camera.crosshair_voxel' to remain None after initialization. 
+    5. SAFE COORDINATES: To maintain physical sync across the application,
+       never allow 'camera.crosshair_voxel' to remain None after initialization.
        Use 'init_crosshair_to_slices()' during resets to provide a valid baseline.
     """
 
@@ -303,8 +305,9 @@ class ViewState:
         finally:
             self.is_loading = False
 
-
     def is_ct_image(self, flat_data):
+        if flat_data is None or flat_data.size == 0:
+            return False
         if hasattr(self.volume.sitk_image, "GetMetaData"):
             try:
                 modality = self.volume.sitk_image.GetMetaData("Modality")
@@ -345,12 +348,15 @@ class ViewState:
         display_data = self.base_display_data if is_buf else self.volume.data
 
         if self.volume.num_timepoints > 1:
-            self.crosshair_value = display_data[self.camera.time_idx, iz, iy, ix]
+            t_idx = min(self.camera.time_idx, self.volume.num_timepoints - 1)
+            self.crosshair_value = display_data[t_idx, iz, iy, ix]
         else:
             self.crosshair_value = display_data[iz, iy, ix]
 
     def init_default_window_level(self):
-        total_pixels = self.volume.data.size
+        total_pixels = getattr(self.volume.data, "size", 0)
+        if total_pixels == 0:
+            return
         max_sample_size = 100000
 
         if total_pixels > max_sample_size:
@@ -377,6 +383,9 @@ class ViewState:
                     self.display.wl = (p99 + p1) / 2
 
     def update_crosshair_from_slice_scroll(self, new_slice_idx, orientation):
+        if self.camera.crosshair_voxel is None:
+            self.init_crosshair_to_slices()
+
         vx, vy, vz = self.camera.crosshair_voxel[:3]
         if orientation == ViewMode.AXIAL:
             vz = new_slice_idx
@@ -407,7 +416,8 @@ class ViewState:
 
         display_data = self.base_display_data if is_buf else self.volume.data
         if self.volume.num_timepoints > 1:
-            self.crosshair_value = display_data[self.camera.time_idx, iz, iy, ix]
+            t_idx = min(self.camera.time_idx, self.volume.num_timepoints - 1)
+            self.crosshair_value = display_data[t_idx, iz, iy, ix]
         else:
             self.crosshair_value = display_data[iz, iy, ix]
 
@@ -436,7 +446,8 @@ class ViewState:
 
         display_data = self.base_display_data if is_buf else self.volume.data
         if self.volume.num_timepoints > 1:
-            self.crosshair_value = display_data[self.camera.time_idx, iz, iy, ix]
+            t_idx = min(self.camera.time_idx, self.volume.num_timepoints - 1)
+            self.crosshair_value = display_data[t_idx, iz, iy, ix]
         else:
             self.crosshair_value = display_data[iz, iy, ix]
 
@@ -480,8 +491,13 @@ class ViewState:
     def apply_wl_preset(self, preset_name):
         if getattr(self.volume, "is_rgb", False) or preset_name == "Custom":
             return
+
+        total_pixels = getattr(self.volume.data, "size", 0)
+        if total_pixels == 0:
+            return
+
         if "Optimal" in preset_name:
-            stride = max(1, self.volume.data.size // 100000)
+            stride = max(1, total_pixels // 100000)
             sample_data = self.volume.data.flatten()[::stride]
             p2, p98 = np.percentile(sample_data, [2, 98])
             self.display.ww = max(1e-20, p98 - p2)
@@ -620,6 +636,8 @@ class ViewState:
             self.update_overlay_display_data(controller)
 
     def set_ct_window_level(self, flat_data):
+        if flat_data is None or flat_data.size == 0:
+            return
         p5, p95 = np.percentile(flat_data, [5, 95])
         data_range = p95 - p5
         image_shape = self.volume.data.shape
