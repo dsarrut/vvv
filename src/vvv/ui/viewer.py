@@ -31,14 +31,17 @@ class ViewportMapper:
     ):
         mm_w = max(1e-5, real_w * spacing_w)
         mm_h = max(1e-5, real_h * spacing_h)
-        target_w, target_h = quad_w - self.margin_left, quad_h - self.margin_top
+        target_w, target_h = (
+            quad_w - self.margin_left * 2.0,
+            quad_h - self.margin_top * 2.0,
+        )
 
         base_scale = min(target_w / mm_w, target_h / mm_h)
         final_scale = base_scale * zoom
         new_w, new_h = mm_w * final_scale, mm_h * final_scale
 
-        off_x = (target_w - new_w) / 2.0 + self.margin_left + pan_offset[0]
-        off_y = (target_h - new_h) / 2.0 + self.margin_top + pan_offset[1]
+        off_x = (target_w - new_w) / 2.0 + pan_offset[0]
+        off_y = (target_h - new_h) / 2.0 + pan_offset[1]
 
         self.pmin = [off_x, off_y]
         self.pmax = [off_x + new_w, off_y + new_h]
@@ -64,19 +67,22 @@ class ViewportMapper:
     ):
         mm_w = max(1e-5, real_w * spacing_w)
         mm_h = max(1e-5, real_h * spacing_h)
-        target_w, target_h = quad_w - self.margin_left, quad_h - self.margin_top
+        target_w, target_h = (
+            quad_w - self.margin_left * 2.0,
+            quad_h - self.margin_top * 2.0,
+        )
 
         base_scale = min(target_w / mm_w, target_h / mm_h)
         final_scale = base_scale * zoom
         new_w, new_h = mm_w * final_scale, mm_h * final_scale
 
-        origin_x = (target_w - new_w) / 2.0 + self.margin_left
-        origin_y = (target_h - new_h) / 2.0 + self.margin_top
+        origin_x = (target_w - new_w) / 2.0
+        origin_y = (target_h - new_h) / 2.0
 
         cx_zero_pan_x = (tx / real_w) * new_w + origin_x
         cx_zero_pan_y = (ty / real_h) * new_h + origin_y
 
-        return [(quad_w / 2.0) - cx_zero_pan_x, (quad_h / 2.0) - cx_zero_pan_y]
+        return [(target_w / 2.0) - cx_zero_pan_x, (target_h / 2.0) - cx_zero_pan_y]
 
     def calculate_zoom_pan_delta(self, mouse_x, mouse_y, old_zoom, new_zoom):
         old_zoom = max(1e-5, old_zoom)
@@ -469,7 +475,8 @@ class SliceViewer:
         if not win_w or not win_h:
             return None
 
-        cx, cy = win_w / 2, win_h / 2
+        cx = (win_w - self.mapper.margin_left * 2.0) / 2.0
+        cy = (win_h - self.mapper.margin_top * 2.0) / 2.0
         shape = self.get_slice_shape()
         real_h, real_w = shape[0], shape[1]
         sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
@@ -501,7 +508,9 @@ class SliceViewer:
 
         try:
             mx, my = dpg.get_drawing_mouse_pos()
-            return self.mapper.screen_to_image(mx, my, real_w, real_h, allow_outside)
+            return self.mapper.screen_to_image(
+                mx + 0.5, my + 0.5, real_w, real_h, allow_outside
+            )
         except Exception:
             return None, None
 
@@ -520,8 +529,8 @@ class SliceViewer:
 
         mm_w, mm_h = real_w * sw, real_h * sh
         target_w, target_h = (
-            win_w - self.mapper.margin_left,
-            win_h - self.mapper.margin_top,
+            win_w - self.mapper.margin_left * 2.0,
+            win_h - self.mapper.margin_top * 2.0,
         )
 
         base_scale = min(target_w / mm_w, target_h / mm_h)
@@ -542,8 +551,8 @@ class SliceViewer:
 
         mm_w, mm_h = real_w * sw, real_h * sh
         target_w, target_h = (
-            win_w - self.mapper.margin_left,
-            win_h - self.mapper.margin_top,
+            win_w - self.mapper.margin_left * 2.0,
+            win_h - self.mapper.margin_top * 2.0,
         )
 
         base_scale = min(target_w / mm_w, target_h / mm_h)
@@ -773,18 +782,19 @@ class SliceViewer:
                 self.pan_offset,
             )
 
-        # --- Inject Pixelated Zoom Dependency ---
-        if self.is_geometry_dirty and pixelated:
-            self.is_viewer_data_dirty = True
-
         # --- 4. ATOMIC UI CREATION ---
         if rebuild_texture:
             self.init_slice_texture()
 
             # --- 5. DATA UPLOAD ---
-        if self.view_state.is_data_dirty or self.is_viewer_data_dirty:
+        needs_reblend = self.view_state.is_data_dirty or self.is_viewer_data_dirty
+        needs_nn_remap = (
+            self.is_geometry_dirty and pixelated and not self.should_use_voxels_strips()
+        )
+
+        if needs_reblend or needs_nn_remap:
             self.is_viewer_data_dirty = False
-            self.update_render()  # Will no longer abort on Frame 1!
+            self.update_render(force_reblend=needs_reblend)
             self.is_geometry_dirty = True
             did_update_data = True
 
@@ -802,8 +812,10 @@ class SliceViewer:
         """Extracts the exact viewport region and upscales using pure Nearest Neighbor math."""
         h, w = rgba_img.shape[:2]
 
-        screen_x = np.arange(canvas_w)
-        screen_y = np.arange(canvas_h)
+        # Shift the sampling point to the exact geometric center of each screen pixel.
+        # This prevents float boundaries from rapidly flipping indices during sub-pixel zooms.
+        screen_x = np.arange(canvas_w) + 0.5
+        screen_y = np.arange(canvas_h) + 0.5
 
         disp_w = max(1e-5, pmax[0] - pmin[0])
         disp_h = max(1e-5, pmax[1] - pmin[1])
@@ -812,8 +824,9 @@ class SliceViewer:
         ix = (screen_x - pmin[0]) * w / disp_w
         iy = (screen_y - pmin[1]) * h / disp_h
 
-        ix = np.floor(ix).astype(np.int32)
-        iy = np.floor(iy).astype(np.int32)
+        # Add a tiny epsilon to prevent float64 boundary jitter (e.g., 3.9999999 dropping to 3)
+        ix = np.floor(ix + 1e-5).astype(np.int32)
+        iy = np.floor(iy + 1e-5).astype(np.int32)
 
         valid_x = (ix >= 0) & (ix < w)
         valid_y = (iy >= 0) & (iy < h)
@@ -1137,7 +1150,7 @@ class SliceViewer:
                 )
         return active_rois
 
-    def update_render(self):
+    def update_render(self, force_reblend=True):
         win_tag = f"win_{self.tag}"
 
         # If the window is too small or doesn't exist, flag to try again next frame
@@ -1168,25 +1181,27 @@ class SliceViewer:
             if dpg.does_item_exist(plot_tag):
                 dpg.configure_item(plot_tag, show=False)
 
-        # 1. Cleanly package all layers
-        base_layer = self._package_base_layer()
-        overlay_layer = self._package_overlay_layer()
-        active_rois = self._package_roi_layers()
+        if force_reblend or getattr(self, "last_rgba_flat", None) is None:
+            # 1. Cleanly package all layers
+            base_layer = self._package_base_layer()
+            overlay_layer = self._package_overlay_layer()
+            active_rois = self._package_roi_layers()
 
-        # 2. Render
-        rgba_flat, _ = SliceRenderer.get_slice_rgba(
-            base=base_layer,
-            overlay=overlay_layer,
-            overlay_opacity=self.view_state.display.overlay_opacity,
-            overlay_mode=self.view_state.display.overlay_mode,
-            slice_idx=self.slice_idx,
-            orientation=self.orientation,
-            checkerboard_size=self.view_state.display.overlay_checkerboard_size,
-            checkerboard_swap=self.view_state.display.overlay_checkerboard_swap,
-            rois=active_rois,
-        )
-
-        self.last_rgba_flat = rgba_flat
+            # 2. Render
+            rgba_flat, _ = SliceRenderer.get_slice_rgba(
+                base=base_layer,
+                overlay=overlay_layer,
+                overlay_opacity=self.view_state.display.overlay_opacity,
+                overlay_mode=self.view_state.display.overlay_mode,
+                slice_idx=self.slice_idx,
+                orientation=self.orientation,
+                checkerboard_size=self.view_state.display.overlay_checkerboard_size,
+                checkerboard_swap=self.view_state.display.overlay_checkerboard_swap,
+                rois=active_rois,
+            )
+            self.last_rgba_flat = rgba_flat
+        else:
+            rgba_flat = self.last_rgba_flat
 
         # ---- APPLY NEAREST NEIGHBOR SCREEN MAPPING ----
         if (
@@ -1654,7 +1669,7 @@ class SliceViewer:
         )
         self.zoom = new_zoom
 
-        dx, dy = self.mapper.calculate_zoom_pan_delta(mx, my, oz, self.zoom)
+        dx, dy = self.mapper.calculate_zoom_pan_delta(mx + 0.5, my + 0.5, oz, self.zoom)
         self.pan_offset[0] += dx
         self.pan_offset[1] += dy
 
