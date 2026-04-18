@@ -229,10 +229,7 @@ class DisplayState:
         self.wl = d.get("wl", self.wl)
         self.colormap = d.get("colormap", self.colormap)
         self.base_threshold = d.get("base_threshold", self.base_threshold)
-        if "interpolation_linear" in d:
-            self.pixelated_zoom = not d["interpolation_linear"]
-        else:
-            self.pixelated_zoom = d.get("pixelated_zoom", self.pixelated_zoom)
+        self.pixelated_zoom = d.get("pixelated_zoom", self.pixelated_zoom)
         self.use_voxel_strips = d.get("use_voxel_strips", self.use_voxel_strips)
         self.overlay_opacity = d.get("overlay_opacity", self.overlay_opacity)
         self.overlay_mode = d.get("overlay_mode", self.overlay_mode)

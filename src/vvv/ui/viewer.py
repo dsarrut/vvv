@@ -786,7 +786,7 @@ class SliceViewer:
         if rebuild_texture:
             self.init_slice_texture()
 
-            # --- 5. DATA UPLOAD ---
+        # --- 5. DATA UPLOAD ---
         needs_reblend = self.view_state.is_data_dirty or self.is_viewer_data_dirty
         needs_nn_remap = (
             self.is_geometry_dirty and pixelated and not self.should_use_voxels_strips()
