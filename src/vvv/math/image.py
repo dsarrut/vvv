@@ -46,11 +46,24 @@ class ROILayer:
 class SliceRenderer:
     """Pure utility to generate renderable RGBA arrays using a streamlined pipeline."""
 
+    _AXIS_MAP = {
+        ViewMode.AXIAL: (1, 2, 3),
+        ViewMode.SAGITTAL: (3, 1, 2),
+        ViewMode.CORONAL: (2, 1, 3),
+    }
+
     @staticmethod
     def _blend_registration(
-            base_rgba, base_norm, over_slice, over_norm,
-            base_is_rgb, over_is_rgb, opacity, threshold,
-            base_threshold, base_slice
+        base_rgba,
+        base_norm,
+        over_slice,
+        over_norm,
+        base_is_rgb,
+        over_is_rgb,
+        opacity,
+        threshold,
+        base_threshold,
+        base_slice,
     ):
         base_reg = np.mean(base_norm[..., :3], axis=-1) if base_is_rgb else base_norm
         over_reg = np.mean(over_norm[..., :3], axis=-1) if over_is_rgb else over_norm
@@ -66,7 +79,9 @@ class SliceRenderer:
         res_rgba = np.zeros((*base_reg.shape, 4), dtype=np.float32)
 
         # Red & Green channel math (using W which is now scaled by 2)
-        res_rgba[..., 0] = np.where(m1, base_reg, base_reg * (2.0 - W) + over_reg * (W - 1.0))
+        res_rgba[..., 0] = np.where(
+            m1, base_reg, base_reg * (2.0 - W) + over_reg * (W - 1.0)
+        )
         res_rgba[..., 1] = np.where(m1, base_reg * (1.0 - W) + over_reg * W, over_reg)
         res_rgba[..., 2] = res_rgba[..., 0]
         res_rgba[..., 3] = 1.0
@@ -105,9 +120,17 @@ class SliceRenderer:
 
     @staticmethod
     def _blend_checkerboard(
-            base_rgba, over_rgba, over_slice, base_slice,
-            overlay_threshold, base_threshold, spacing_2d,
-            chk_size, swap, is_base_rgb, is_over_rgb
+        base_rgba,
+        over_rgba,
+        over_slice,
+        base_slice,
+        overlay_threshold,
+        base_threshold,
+        spacing_2d,
+        chk_size,
+        swap,
+        is_base_rgb,
+        is_over_rgb,
     ):
         h, w = base_rgba.shape[:2]
         grid_y, grid_x = np.ogrid[:h, :w]
@@ -210,24 +233,27 @@ class SliceRenderer:
 
     @staticmethod
     def extract_slice(data, is_rgb, time_idx, slice_idx, orientation):
-        if is_rgb:
-            if data.ndim == 4:
-                data = data[np.newaxis, ...]
-        else:
-            if data.ndim == 3:
-                data = data[np.newaxis, ...]
+        try:
+            if is_rgb:
+                if data.ndim == 4:
+                    data = data[np.newaxis, ...]
+            else:
+                if data.ndim == 3:
+                    data = data[np.newaxis, ...]
 
-        t = min(time_idx, data.shape[0] - 1)
+            t = min(time_idx, data.shape[0] - 1)
 
-        if orientation == ViewMode.AXIAL:
-            return np.ascontiguousarray(data[t, slice_idx, ...])
-        elif orientation == ViewMode.SAGITTAL:
-            return np.ascontiguousarray(
-                np.flipud(np.fliplr(data[t, :, :, slice_idx, ...]))
-            )
-        elif orientation == ViewMode.CORONAL:
-            return np.ascontiguousarray(np.flipud(data[t, :, slice_idx, ...]))
-        return None
+            if orientation == ViewMode.AXIAL:
+                return np.ascontiguousarray(data[t, slice_idx, ...])
+            elif orientation == ViewMode.SAGITTAL:
+                return np.ascontiguousarray(
+                    np.flipud(np.fliplr(data[t, :, :, slice_idx, ...]))
+                )
+            elif orientation == ViewMode.CORONAL:
+                return np.ascontiguousarray(np.flipud(data[t, :, slice_idx, ...]))
+            return None
+        except IndexError:
+            return None  # Safe fallback if UI requests a slice out of bounds
 
     @staticmethod
     def get_raw_slice(data, is_rgb, time_idx, slice_idx, orientation):
@@ -254,14 +280,14 @@ class SliceRenderer:
 
     @staticmethod
     def _extract_layer(
-            layer_data,
-            is_rgb,
-            time_idx,
-            slice_idx,
-            orientation,
-            max_s,
-            offset_x=0,
-            offset_y=0,
+        layer_data,
+        is_rgb,
+        time_idx,
+        slice_idx,
+        orientation,
+        max_s,
+        offset_x=0,
+        offset_y=0,
     ):
         """Safely pads dimensions, extracts the 2D slice, and applies 2D shifts."""
         if slice_idx < 0 or slice_idx >= max_s:
@@ -286,7 +312,7 @@ class SliceRenderer:
 
     @staticmethod
     def _colorize_layer(
-            slice_data, is_rgb, num_components, ww, wl, cmap_name, threshold
+        slice_data, is_rgb, num_components, ww, wl, cmap_name, threshold
     ):
         """Applies Window/Level, Colormaps, and Alpha channels."""
         if is_rgb:
@@ -309,29 +335,24 @@ class SliceRenderer:
 
     @staticmethod
     def get_slice_rgba(
-            base: RenderLayer,
-            overlay: RenderLayer,
-            overlay_opacity: float,
-            overlay_mode: str,
-            slice_idx: int,
-            orientation: int,
-            checkerboard_size: float = 20.0,
-            checkerboard_swap: bool = False,
-            rois=(),
+        base: RenderLayer,
+        overlay: RenderLayer,
+        overlay_opacity: float,
+        overlay_mode: str,
+        slice_idx: int,
+        orientation: int,
+        checkerboard_size: float = 20.0,
+        checkerboard_swap: bool = False,
+        rois=(),
     ):
         if orientation == ViewMode.HISTOGRAM:
             return np.array([0, 0, 0, 255], dtype=np.float32), (1, 1)
 
-        axis_map = {
-            ViewMode.AXIAL: (1, 2, 3),
-            ViewMode.SAGITTAL: (3, 1, 2),
-            ViewMode.CORONAL: (2, 1, 3),
-        }
-        if orientation not in axis_map:
+        if orientation not in SliceRenderer._AXIS_MAP:
             return np.zeros(4, dtype=np.float32), (1, 1)
 
         # Calculate max slices based on base image orientation
-        s_ax, h_ax, w_ax = axis_map[orientation]
+        s_ax, h_ax, w_ax = SliceRenderer._AXIS_MAP[orientation]
 
         # Account for RGB padding when calculating dimensions
         base_shape = base.data.shape
@@ -453,7 +474,7 @@ class VolumeData:
     )
 
     def __init__(
-            self, path, is_roi=False, roi_mode="Ignore BG (val)", roi_target_val=0.0
+        self, path, is_roi=False, roi_mode="Ignore BG (val)", roi_target_val=0.0
     ):
         self.path = path
         self.file_paths = []
@@ -465,7 +486,7 @@ class VolumeData:
         else:
             is_4d = False
             if isinstance(path, str) and path.upper().startswith(
-                    self.SEQUENCE_PREFIXES
+                self.SEQUENCE_PREFIXES
             ):
                 is_4d = True
                 path = path[3:].strip()
@@ -584,12 +605,18 @@ class VolumeData:
             # A. SINGLE FILE
             try:
                 # 99% of images (NIfTI, DICOM, MHD) load perfectly here
-                return sitk.ReadImage(paths[0])
+                img = sitk.ReadImage(paths[0])
+                if img.GetDimension() == 2:
+                    img = sitk.JoinSeries([img])
+                return img
             except RuntimeError as sitk_error:
                 # ITK threw an error (likely "Could not create IO object")
                 # Attempt to salvage the file using our pure Python AVS/XDR parser!
                 try:
-                    return self._read_custom_avs_xdr(paths[0])
+                    img = self._read_custom_avs_xdr(paths[0])
+                    if img.GetDimension() == 2:
+                        img = sitk.JoinSeries([img])
+                    return img
                 except Exception as xdr_error:
                     # If XDR also fails, it's truly a bad file. Surface the original ITK error.
                     raise RuntimeError(
@@ -601,7 +628,10 @@ class VolumeData:
             try:
                 reader = sitk.ImageSeriesReader()
                 reader.SetFileNames(paths)
-                return reader.Execute()
+                img = reader.Execute()
+                if img.GetDimension() == 2:
+                    img = sitk.JoinSeries([img])
+                return img
             except RuntimeError as sitk_error:
                 raise RuntimeError(f"Failed to load image series: {sitk_error}")
 
@@ -674,8 +704,8 @@ class VolumeData:
         coord_bytes = 0
         if field_type == "rectilinear":
             coord_bytes = (
-                                  dim1 + dim2 + dim3
-                          ) * 4  # 32-bit float for every slice/row/col
+                dim1 + dim2 + dim3
+            ) * 4  # 32-bit float for every slice/row/col
         elif field_type == "uniform":
             coord_bytes = 6 * 4  # 3 dims * 2 floats (min/max)
 
@@ -692,8 +722,8 @@ class VolumeData:
                 if field_type == "rectilinear" and len(pts) == (dim1 + dim2 + dim3):
                     p_x, p_y, p_z = (
                         pts[0:dim1],
-                        pts[dim1: dim1 + dim2],
-                        pts[dim1 + dim2:],
+                        pts[dim1 : dim1 + dim2],
+                        pts[dim1 + dim2 :],
                     )
                     # AVS stores in cm. Multiply by 10 to convert to ITK's mm.
                     spacing[0] = 10.0 * (p_x[-1] - p_x[0]) / max(1, dim1 - 1)
@@ -851,6 +881,9 @@ class VolumeData:
 
     def _crop_raw_sitk_image(self, sitk_img, mode="Ignore BG (val)", target_val=0.0):
         """Uses ITK's C++ engine to instantly crop empty space before heavy resampling."""
+        # 0. Guard against RGB/Vector images crashing the mathematical threshold filter
+        if sitk_img.GetNumberOfComponentsPerPixel() > 1:
+            return sitk_img
 
         # 1. Create a binary mask of the actual data
         if mode == "Target FG (val)":
@@ -892,7 +925,14 @@ class VolumeData:
         else:
             self.matrix = np.eye(3)
 
-        self.inverse_matrix = np.linalg.inv(self.matrix)
+        try:
+            self.inverse_matrix = np.linalg.inv(self.matrix)
+        except np.linalg.LinAlgError:
+            print(
+                f"Warning: Singular spatial matrix detected in {self.name}. Falling back to Identity."
+            )
+            self.matrix = np.eye(3)
+            self.inverse_matrix = np.eye(3)
 
         self.spacing = np.array(self.sitk_image.GetSpacing()[:3])
         self.origin = np.array(self.sitk_image.GetOrigin()[:3])
@@ -916,7 +956,7 @@ class VolumeData:
 
         bytes_per_pixel = self.bytes_per_component * self.num_components
         self.memory_mb = (
-                self.sitk_image.GetNumberOfPixels() * bytes_per_pixel / (1024 * 1024)
+            self.sitk_image.GetNumberOfPixels() * bytes_per_pixel / (1024 * 1024)
         )
 
     def _get_latest_mtime(self):
@@ -954,13 +994,17 @@ class VolumeData:
     def reload(self):
         from vvv.math.image_utils import straighten_image
 
-        new_sitk = self.read_image_from_disk(self.file_paths)
-        new_sitk = straighten_image(new_sitk, os.path.basename(self.file_paths[0]))
+        try:
+            new_sitk = self.read_image_from_disk(self.file_paths)
+            new_sitk = straighten_image(new_sitk, os.path.basename(self.file_paths[0]))
+        except Exception as e:
+            print(f"Warning: Failed to reload {self.name}. Error: {e}")
+            return False
 
         new_shape = new_sitk.GetSize()
-        current_shape = self.sitk_image.GetSize()
+        current_shape = self.sitk_image.GetSize() if self.sitk_image else None
 
-        if new_shape == current_shape:
+        if current_shape and new_shape == current_shape:
             # Create the new view FIRST, then swap atomically
             new_data = sitk.GetArrayViewFromImage(new_sitk)
 
