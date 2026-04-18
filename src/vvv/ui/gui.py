@@ -459,18 +459,9 @@ class MainGUI:
             dpg.add_mouse_move_handler(callback=self.interaction.on_mouse_move)
 
     def cleanup(self, sender=None, app_data=None, user_data=None):
-        # 1. Save auto-history for all currently open images
-        auto_save = self.controller.settings.data.get("behavior", {}).get(
-            "auto_save_history", True
-        )
-        if auto_save and hasattr(self.controller, "history"):
-            for vs_id in list(self.controller.view_states.keys()):
-                self.controller.history.save_image_state(self.controller, vs_id)
-
-        # 2. Save standard settings (like layout dimensions, etc.)
-        self.controller.save_settings()
-
-        # 3. Terminate UI
+        # Terminate UI.
+        # Note: History and Settings are automatically safely saved at the end of run()
+        # when is_dearpygui_running() evaluates to False.
         dpg.stop_dearpygui()
 
     # ==========================================

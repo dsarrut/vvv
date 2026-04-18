@@ -163,7 +163,6 @@ class SyncManager:
                     vs.display.ww = source_vs.display.ww
                     vs.display.wl = source_vs.display.wl
                     vs.display.base_threshold = source_vs.display.base_threshold
-                    vs.is_data_dirty = True
                     dirty_ids.add(vs_id)
 
         # 2. OVERLAY SYNC (Vertical - Top-Down & Bottom-Up)
