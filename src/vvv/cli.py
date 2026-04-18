@@ -59,6 +59,7 @@ def set_macos_dock_info(name, icon_path=None):
     except ImportError:
         pass
 
+
 def parse_cli_arguments(datasets):
     """
     Parses raw command line arguments into structured image tasks.
@@ -101,8 +102,14 @@ def parse_cli_arguments(datasets):
 
         # If the previous item ended with a comma, or a colon (like '1:'), it's an overlay or group modifier!
         expecting_more = len(buf) > 0 and (
-                buf[-1].endswith(",") or (buf[-1].endswith(":") and not buf[-1].upper().startswith(seq_prefixes))
+            buf[-1].endswith(",")
+            or (buf[-1].endswith(":") and not buf[-1].upper().startswith(seq_prefixes))
         )
+
+        # Explicit sequence breakers (useful if the next image matches dimensions but should be standalone)
+        if item.lower() in ("//", "::", "stop:", "end:"):
+            flush()
+            continue
 
         if is_4d_tag:
             # If we hit a second 4D tag, close out the first one immediately!
@@ -123,7 +130,9 @@ def parse_cli_arguments(datasets):
                         buf.append(item)
                     else:
                         # Check if the new file belongs to the same 4D sequence
-                        if size == ref_size and np.allclose(spacing, ref_spacing, atol=1e-3):
+                        if size == ref_size and np.allclose(
+                            spacing, ref_spacing, atol=1e-3
+                        ):
                             buf.append(item)
                         else:
                             # SHAPE MISMATCH! The 4D sequence ended. Start a new standard image task.
@@ -202,7 +211,6 @@ def parse_cli_arguments(datasets):
         image_tasks.append(task)
 
     return image_tasks
-
 
 
 @click.command()
