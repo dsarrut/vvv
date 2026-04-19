@@ -1,6 +1,7 @@
 import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.config import WL_PRESETS, COLORMAPS
+from vvv.ui.ui_components import build_stepped_slider
 
 
 class IntensitiesUI:
@@ -13,31 +14,6 @@ class IntensitiesUI:
     @staticmethod
     def build_tab_intensities(gui):
         cfg_c = gui.ui_cfg["colors"]
-
-        def build_slider_row(label, tag, callback, min_val=None):
-            with dpg.group(horizontal=True):
-                dpg.add_text(label)
-                dpg.add_button(
-                    label="-",
-                    width=20,
-                    user_data={"tag": tag, "dir": -1},
-                    callback=gui.intensities_ui.on_step_button_clicked,
-                )
-                kwargs = {
-                    "tag": tag,
-                    "width": -35,
-                    "speed": 1.0,
-                    "callback": callback,
-                }
-                kwargs["min_value"] = min_val if min_val is not None else -1e9
-                kwargs["max_value"] = 1e9
-                dpg.add_drag_float(**kwargs)
-                dpg.add_button(
-                    label="+",
-                    width=20,
-                    user_data={"tag": tag, "dir": 1},
-                    callback=gui.intensities_ui.on_step_button_clicked,
-                )
 
         with dpg.tab(label="Intensities", tag="tab_intensities"):
             dpg.add_spacer(height=5)
@@ -54,16 +30,18 @@ class IntensitiesUI:
                     callback=gui.intensities_ui.on_preset_changed,
                 )
 
-            build_slider_row(
+            build_stepped_slider(
                 "Window: ",
                 "drag_ww",
-                gui.intensities_ui.on_ww_changed,
+                callback=gui.intensities_ui.on_ww_changed,
+                step_callback=gui.intensities_ui.on_step_button_clicked,
                 min_val=1e-5,
             )
-            build_slider_row(
+            build_stepped_slider(
                 "Level:  ",
                 "drag_wl",
-                gui.intensities_ui.on_wl_changed,
+                callback=gui.intensities_ui.on_wl_changed,
+                step_callback=gui.intensities_ui.on_step_button_clicked,
             )
 
             dpg.add_spacer(height=10)
@@ -80,39 +58,15 @@ class IntensitiesUI:
                     callback=gui.intensities_ui.on_colormap_changed,
                 )
 
-            with dpg.group(horizontal=True):
-                dpg.add_checkbox(
-                    tag="check_min_threshold",
-                    enabled=False,
-                    callback=gui.intensities_ui.on_threshold_toggle,
-                )
-                dpg.add_text("Min Thr:")
-                dpg.add_button(
-                    label="-",
-                    width=20,
-                    tag="btn_min_threshold_minus",
-                    user_data={"tag": "drag_min_threshold", "dir": -1},
-                    enabled=False,
-                    callback=gui.intensities_ui.on_step_button_clicked,
-                )
-                dpg.add_drag_float(
-                    tag="drag_min_threshold",
-                    width=-35,
-                    speed=1.0,
-                    min_value=-1e9,
-                    max_value=1e9,
-                    default_value=0.0,
-                    enabled=False,
-                    callback=gui.intensities_ui.on_threshold_changed,
-                )
-                dpg.add_button(
-                    label="+",
-                    width=20,
-                    tag="btn_min_threshold_plus",
-                    user_data={"tag": "drag_min_threshold", "dir": 1},
-                    enabled=False,
-                    callback=gui.intensities_ui.on_step_button_clicked,
-                )
+            build_stepped_slider(
+                "Min Thr:",
+                "drag_min_threshold",
+                callback=gui.intensities_ui.on_threshold_changed,
+                step_callback=gui.intensities_ui.on_step_button_clicked,
+                has_checkbox=True,
+                check_tag="check_min_threshold",
+                check_cb=gui.intensities_ui.on_threshold_toggle,
+            )
 
             dpg.add_spacer(height=5)
             with dpg.group(horizontal=True):
@@ -157,10 +111,10 @@ class IntensitiesUI:
 
             thr_enabled = has_image and not is_rgb and has_thr
             dpg.configure_item("drag_min_threshold", enabled=thr_enabled)
-            if dpg.does_item_exist("btn_min_threshold_minus"):
-                dpg.configure_item("btn_min_threshold_minus", enabled=thr_enabled)
-            if dpg.does_item_exist("btn_min_threshold_plus"):
-                dpg.configure_item("btn_min_threshold_plus", enabled=thr_enabled)
+            if dpg.does_item_exist("btn_drag_min_threshold_minus"):
+                dpg.configure_item("btn_drag_min_threshold_minus", enabled=thr_enabled)
+            if dpg.does_item_exist("btn_drag_min_threshold_plus"):
+                dpg.configure_item("btn_drag_min_threshold_plus", enabled=thr_enabled)
 
         if dpg.does_item_exist("text_intensities_minmax"):
             if not has_image or is_rgb:
