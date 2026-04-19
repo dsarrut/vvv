@@ -11,6 +11,7 @@ from vvv.ui.ui_settings import SettingsWindow
 from vvv.ui.ui_dicom import DicomBrowserWindow
 from vvv.ui.ui_intensities import IntensitiesUI
 from vvv.ui.ui_registration import RegistrationUI
+from vvv.ui.ui_contours import ContoursUI
 from vvv.resources import load_fonts, setup_themes
 from vvv.ui.ui_interaction import InteractionManager
 from vvv.ui.ui_components import build_section_title
@@ -75,6 +76,7 @@ class MainGUI:
             "combo_fusion_mode": "display.overlay_mode",
             "slider_fusion_chk_size": "display.overlay_checkerboard_size",
             "check_fusion_chk_swap": "display.overlay_checkerboard_swap",
+            "check_show_contour": "camera.show_contour",
         }
 
         # Initialization pipeline
@@ -89,6 +91,7 @@ class MainGUI:
         self.intensities_ui = IntensitiesUI(self, self.controller)
         self.roi_ui = RoiUI(self, self.controller)
         self.reg_ui = RegistrationUI(self, self.controller)
+        self.contours_ui = ContoursUI(self, self.controller)
 
         # Go
         self.build_main_layout()
@@ -254,6 +257,7 @@ class MainGUI:
                 self.intensities_ui.build_tab_intensities(self)
                 self.roi_ui.build_tab_rois(self)
                 self.reg_ui.build_tab_reg(self)
+                self.contours_ui.build_tab_contours(self)
 
     def build_sidebar_bottom(self):
         cfg_c = self.ui_cfg["colors"]
@@ -416,6 +420,7 @@ class MainGUI:
                 dpg.add_draw_node(tag=viewer.scale_bar_tag)
                 dpg.add_draw_node(tag=viewer.crosshair_tag)
                 dpg.add_draw_node(tag=viewer.legend_tag)
+                dpg.add_draw_node(tag=viewer.contour_node_tag)
 
             col = self.controller.settings.data["colors"]["tracker_text"]
             dpg.add_text("", tag=viewer.tracker_tag, color=col, pos=[5, 5])
@@ -631,6 +636,7 @@ class MainGUI:
                     "check_legend",
                     "check_filename",
                     "check_interpolation",
+                    "check_show_contour",
                     "btn_roi_load",
                     "combo_roi_type",
                     "combo_roi_mode",
@@ -848,6 +854,8 @@ class MainGUI:
             self.reg_ui.pull_reg_sliders_from_transform()
             if hasattr(self, "intensities_ui"):
                 self.intensities_ui.refresh_intensities_ui()
+            if hasattr(self, "contours_ui"):
+                self.contours_ui.refresh_contours_ui()
 
     # ==========================================
     # 4. EVENT HANDLERS
@@ -1281,6 +1289,8 @@ class MainGUI:
                     self.reg_ui.refresh_reg_ui()
                 if hasattr(self, "intensities_ui"):
                     self.intensities_ui.refresh_intensities_ui()
+                if hasattr(self, "contours_ui"):
+                    self.contours_ui.refresh_contours_ui()
 
                 # Safely update the sidebar between frames when the DPG stack is completely empty!
                 self.update_sidebar_info(self.context_viewer)

@@ -520,3 +520,60 @@ class OverlayDrawer:
                 fill=[255, 255, 255, 255],
                 parent=viewer.legend_tag,
             )
+
+    def draw_contours(self):
+        viewer = self.viewer
+
+        if (
+            not viewer.is_image_orientation()
+            or not viewer.view_state
+            or not viewer.volume
+        ):
+            if dpg.does_item_exist(viewer.contour_node_tag):
+                dpg.configure_item(viewer.contour_node_tag, show=False)
+            return
+
+        if not getattr(viewer.view_state.camera, "show_contour", True):
+            if dpg.does_item_exist(viewer.contour_node_tag):
+                dpg.configure_item(viewer.contour_node_tag, show=False)
+            return
+
+        node = viewer.contour_node_tag
+        if not dpg.does_item_exist(node):
+            return
+
+        # Build the dummy polygon strictly in physical MM space (done only once per image)
+        current_state = (viewer.image_id, viewer.orientation)
+        if getattr(self, "_last_contour_image", None) != current_state:
+            dpg.delete_item(node, children_only=True)
+
+            sw, sh = viewer.volume.get_physical_aspect_ratio(viewer.orientation)
+            shape = viewer.get_slice_shape()
+            mm_w, mm_h = shape[1] * sw, shape[0] * sh
+            cx, cy = mm_w / 2.0, mm_h / 2.0
+            sx, sy = mm_w * 0.25, mm_h * 0.25
+
+            pts = [
+                [cx - sx, cy - sy],
+                [cx + sx, cy - sy],
+                [cx + sx, cy + sy],
+                [cx - sx, cy + sy],
+                [cx - sx, cy - sy],
+            ]
+            dpg.draw_polyline(pts, color=[0, 255, 0, 255], thickness=3.0, parent=node)
+            self._last_contour_image = current_state
+
+        # Hardware Matrix Architecture Transformation (Offloads 100% of Pan/Zoom math to the GPU)
+        sw, sh = viewer.volume.get_physical_aspect_ratio(viewer.orientation)
+        shape = viewer.get_slice_shape()
+        mm_w, mm_h = max(1e-5, shape[1] * sw), max(1e-5, shape[0] * sh)
+        pmin, pmax = viewer.current_pmin, viewer.current_pmax
+
+        scale_x = (pmax[0] - pmin[0]) / mm_w
+        scale_y = (pmax[1] - pmin[1]) / mm_h
+
+        scale_mat = dpg.create_scale_matrix([scale_x, scale_y, 1.0])
+        trans_mat = dpg.create_translation_matrix([pmin[0], pmin[1], 0.0])
+        dpg.apply_transform(node, trans_mat * scale_mat)
+
+        dpg.configure_item(node, show=True)
