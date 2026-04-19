@@ -31,15 +31,35 @@ class OverlayDrawer:
         if vox_w <= 0 or vox_h <= 0:
             return
 
+        win_w, win_h = viewer.quad_w, viewer.quad_h
+        if not win_w or not win_h:
+            return
+
         color = viewer.controller.settings.data["colors"]["grid"]
 
-        for x in range(w + 1):
-            lx = pmin[0] + x * vox_w
-            dpg.draw_line([lx, pmin[1]], [lx, pmax[1]], color=color, parent=back_node)
+        # Only draw lines that are actually on screen
+        start_x = max(0, int(-pmin[0] / vox_w))
+        end_x = min(w, int((win_w - pmin[0]) / vox_w) + 1)
+        start_y = max(0, int(-pmin[1] / vox_h))
+        end_y = min(h, int((win_h - pmin[1]) / vox_h) + 1)
 
-        for y in range(h + 1):
+        for x in range(start_x, end_x + 1):
+            lx = pmin[0] + x * vox_w
+            dpg.draw_line(
+                [lx, max(0, pmin[1])],
+                [lx, min(win_h, pmax[1])],
+                color=color,
+                parent=back_node,
+            )
+
+        for y in range(start_y, end_y + 1):
             ly = pmin[1] + y * vox_h
-            dpg.draw_line([pmin[0], ly], [pmax[0], ly], color=color, parent=back_node)
+            dpg.draw_line(
+                [max(0, pmin[0]), ly],
+                [min(win_w, pmax[0]), ly],
+                color=color,
+                parent=back_node,
+            )
 
         dpg.configure_item(back_node, show=True)
         if dpg.does_item_exist(viewer.active_grid_node):
@@ -68,7 +88,9 @@ class OverlayDrawer:
 
         vx, vy, vz = viewer.view_state.camera.crosshair_voxel[:3]
         shape = viewer.get_slice_shape()
-        real_h, real_w = shape[0], shape[1]
+
+        # Failsafe against zero-division from corrupted or 0-dimension images
+        real_h, real_w = max(1, shape[0]), max(1, shape[1])
 
         tx, ty = voxel_to_slice(vx, vy, vz, viewer.orientation, shape)
         pmin, pmax = viewer.current_pmin, viewer.current_pmax
@@ -79,7 +101,13 @@ class OverlayDrawer:
 
         color = viewer.controller.settings.data["colors"]["crosshair"]
 
-        if not viewer.xh_initialized:
+        # Check both initialization state AND physical existence in case the UI context was wiped
+        if not viewer.xh_initialized or not dpg.does_item_exist(viewer.xh_line_v):
+            if dpg.does_item_exist(viewer.xh_line_v):
+                dpg.delete_item(viewer.xh_line_v)
+            if dpg.does_item_exist(viewer.xh_line_h):
+                dpg.delete_item(viewer.xh_line_h)
+
             dpg.draw_line(
                 [screen_x, pmin[1]],
                 [screen_x, pmin[1] + disp_h],
@@ -115,7 +143,11 @@ class OverlayDrawer:
         viewer = self.viewer
         node_a, node_b = viewer.strips_a_tag, viewer.strips_b_tag
         back_node = node_b if viewer.active_strips_node == node_a else node_a
-        dpg.delete_item(back_node, children_only=True)
+
+        if dpg.does_item_exist(back_node):
+            dpg.delete_item(back_node, children_only=True)
+        else:
+            return
 
         pmin, pmax = viewer.current_pmin, viewer.current_pmax
         if h == 0 or w == 0:
@@ -161,13 +193,24 @@ class OverlayDrawer:
             if viewer.axes_nodes:
                 dpg.configure_item(viewer.axes_nodes[0], show=False)
                 dpg.configure_item(viewer.axes_nodes[1], show=False)
+            self._last_axes_state = None
             return
+
+        current_state = viewer.orientation
+        if getattr(self, "_last_axes_state", None) == current_state:
+            dpg.configure_item(viewer.axes_nodes[viewer.active_axes_idx], show=True)
+            return
+        self._last_axes_state = current_state
 
         back_idx = 1 - viewer.active_axes_idx
         back_node = viewer.axes_nodes[back_idx]
         front_node = viewer.axes_nodes[viewer.active_axes_idx]
 
-        dpg.delete_item(back_node, children_only=True)
+        if dpg.does_item_exist(back_node):
+            dpg.delete_item(back_node, children_only=True)
+        else:
+            return
+
         labels, directions = viewer.get_axis_labels()
         axis_colors = viewer.controller.settings.data["colors"]
 
@@ -215,6 +258,11 @@ class OverlayDrawer:
         viewer = self.viewer
         if not viewer.view_state:
             return
+
+        # Guard against tombstone memory drops mid-frame
+        if getattr(viewer.volume, "data", None) is None:
+            return
+
         plot_tag = f"plot_{viewer.tag}"
 
         if not dpg.does_item_exist(plot_tag):
@@ -261,13 +309,15 @@ class OverlayDrawer:
 
     def draw_scale_bar(self):
         viewer = self.viewer
-        dpg.delete_item(viewer.scale_bar_tag, children_only=True)
 
         if (
             not viewer.is_image_orientation()
             or not viewer.view_state
             or not viewer.view_state.camera.show_scalebar
         ):
+            if dpg.does_item_exist(viewer.scale_bar_tag):
+                dpg.delete_item(viewer.scale_bar_tag, children_only=True)
+            self._last_sb_state = None
             return
 
         win_w, win_h = viewer.quad_w, viewer.quad_h
@@ -276,6 +326,16 @@ class OverlayDrawer:
 
         ppm = viewer.get_pixels_per_mm()
         if ppm <= 0:
+            return
+
+        current_state = (win_w, win_h, ppm)
+        if getattr(self, "_last_sb_state", None) == current_state:
+            return
+        self._last_sb_state = current_state
+
+        if dpg.does_item_exist(viewer.scale_bar_tag):
+            dpg.delete_item(viewer.scale_bar_tag, children_only=True)
+        else:
             return
 
         target_px = win_w * 0.15
@@ -335,16 +395,21 @@ class OverlayDrawer:
 
     def draw_legend(self):
         viewer = self.viewer
-        dpg.delete_item(viewer.legend_tag, children_only=True)
 
         if (
             not viewer.is_image_orientation()
             or not viewer.view_state
             or not viewer.show_legend
         ):
+            if dpg.does_item_exist(viewer.legend_tag):
+                dpg.delete_item(viewer.legend_tag, children_only=True)
+            self._last_leg_state = None
             return
 
         if getattr(viewer.volume, "is_rgb", False):
+            if dpg.does_item_exist(viewer.legend_tag):
+                dpg.delete_item(viewer.legend_tag, children_only=True)
+            self._last_leg_state = None
             return
 
         win_w = viewer.quad_w
@@ -355,6 +420,20 @@ class OverlayDrawer:
         cb_width = 15
         cb_height = int(win_h * 0.4)
         if cb_height < 50:
+            return
+
+        ww, wl = viewer.view_state.display.ww, viewer.view_state.display.wl
+        cmap = viewer.view_state.display.colormap
+        cv = viewer.view_state.crosshair_value
+
+        current_state = (win_h, ww, wl, cmap, cv)
+        if getattr(self, "_last_leg_state", None) == current_state:
+            return
+        self._last_leg_state = current_state
+
+        if dpg.does_item_exist(viewer.legend_tag):
+            dpg.delete_item(viewer.legend_tag, children_only=True)
+        else:
             return
 
         x_start = win_w - cb_width - 55

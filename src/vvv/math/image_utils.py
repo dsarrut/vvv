@@ -55,7 +55,7 @@ def straighten_image(img, filename="image"):
     identity_dir = np.eye(dim).flatten()
     current_dir = np.array(img.GetDirection())
 
-    # If the image is already perfectly aligned, do nothing!
+    # If the image is already perfectly aligned, do nothing.
     if np.allclose(current_dir, identity_dir, atol=1e-4):
         return img
 

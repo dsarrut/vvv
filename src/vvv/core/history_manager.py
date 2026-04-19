@@ -6,8 +6,9 @@ from pathlib import Path
 
 class HistoryManager:
     def __init__(self):
-        if os.name == "nt":
-            self.config_dir = Path(os.getenv("APPDATA")) / "VVV"
+        appdata = os.getenv("APPDATA")
+        if os.name == "nt" and appdata:
+            self.config_dir = Path(appdata) / "VVV"
         else:
             self.config_dir = Path.home() / ".config" / "vvv"
 
@@ -47,7 +48,7 @@ class HistoryManager:
         if key in self.data:
             del self.data[key]
 
-        # Only save intrinsic physical and display state! No Overlays or ROIs.
+        # Only save intrinsic physical and display state. No Overlays or ROIs.
         self.data[key] = {
             "shape3d": [int(x) for x in vol.shape3d],
             "spacing": [float(x) for x in vol.spacing],

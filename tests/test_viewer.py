@@ -106,6 +106,20 @@ def test_overlay_fusion_resampling_accuracy(headless_app, synthetic_overlay_path
     assert vs_base.display.overlay_data[4, 4, 4] == 222.0
 
 
+def test_4d_base_with_3d_overlay_fusion(
+    headless_app, synthetic_4d_path, synthetic_overlay_path
+):
+    """Test that fusing a 3D overlay onto a 4D sequence doesn't crash the SimpleITK resampler."""
+    controller, viewer, _ = headless_app
+    vs_id_4d = controller.file.load_image(synthetic_4d_path)
+    vs_id_overlay = controller.file.load_image(synthetic_overlay_path)
+
+    # Attempt the fusion (This should NOT raise a RuntimeError due to dimension mismatch!)
+    base_vs = controller.view_states[vs_id_4d]
+    base_vs.set_overlay(vs_id_overlay, controller.volumes[vs_id_overlay], controller)
+    assert base_vs.display.overlay_data is not None
+
+
 def test_sync_correspondence_between_different_geometries(
     headless_app, synthetic_overlay_path
 ):
@@ -358,7 +372,7 @@ def test_renderer_checkerboard_math():
         ww=0,
         wl=0,
         cmap_name="Grayscale",
-        threshold=-1e9,
+        threshold=None,
         time_idx=0,
         spacing_2d=(1.0, 1.0),
     )
@@ -373,7 +387,7 @@ def test_renderer_checkerboard_math():
         ww=0,
         wl=0,
         cmap_name="Grayscale",
-        threshold=-1e9,
+        threshold=None,
         time_idx=0,
         spacing_2d=(1.0, 1.0),
     )
@@ -411,7 +425,7 @@ def test_renderer_registration_blending():
         ww=1.0,
         wl=0.5,
         cmap_name="Grayscale",
-        threshold=-1e9,
+        threshold=None,
         time_idx=0,
         spacing_2d=(1.0, 1.0),
     )
@@ -425,7 +439,7 @@ def test_renderer_registration_blending():
         ww=1.0,
         wl=0.5,
         cmap_name="Grayscale",
-        threshold=-1e9,
+        threshold=None,
         time_idx=0,
         spacing_2d=(1.0, 1.0),
     )
@@ -536,7 +550,7 @@ def test_renderer_checkerboard_math():
         ww=0,
         wl=0,
         cmap_name="Grayscale",
-        threshold=-1e9,
+        threshold=None,
         time_idx=0,
         spacing_2d=(1.0, 1.0),
     )
@@ -550,7 +564,7 @@ def test_renderer_checkerboard_math():
         ww=0,
         wl=0,
         cmap_name="Grayscale",
-        threshold=-1e9,
+        threshold=None,
         time_idx=0,
         spacing_2d=(1.0, 1.0),
     )
@@ -582,7 +596,7 @@ def test_renderer_registration_blending():
         ww=1.0,
         wl=0.5,
         cmap_name="Grayscale",
-        threshold=-1e9,
+        threshold=None,
         time_idx=0,
         spacing_2d=(1.0, 1.0),
     )
@@ -595,7 +609,7 @@ def test_renderer_registration_blending():
         ww=1.0,
         wl=0.5,
         cmap_name="Grayscale",
-        threshold=-1e9,
+        threshold=None,
         time_idx=0,
         spacing_2d=(1.0, 1.0),
     )

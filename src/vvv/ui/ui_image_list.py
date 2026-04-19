@@ -1,4 +1,5 @@
 import dearpygui.dearpygui as dpg
+from vvv.ui.ui_components import build_section_title
 
 """
 ARCHITECTURE MANDATES (UI Components):
@@ -22,9 +23,7 @@ def build_tab_images(gui):
     cfg_c = gui.ui_cfg["colors"]
     with dpg.tab(label="Images", tag="tab_images"):
         dpg.add_spacer(height=5)
-        with dpg.group(horizontal=True):
-            dpg.add_text("Loaded Images", color=cfg_c["text_header"])
-        dpg.add_separator()
+        build_section_title("Loaded Images", cfg_c["text_header"])
         with dpg.child_window(border=False, height=-1):
             dpg.add_group(tag="image_list_container")
 
@@ -89,8 +88,6 @@ def refresh_image_list_ui(gui):
                         callback=gui.on_image_viewer_toggle,
                     )
                     dpg.bind_item_theme(cb, "muted_checkbox_theme")
-                    with dpg.tooltip(cb):
-                        dpg.add_text(f"Toggle in {v_tag}")
 
                 dpg.add_spacer(width=5)
 

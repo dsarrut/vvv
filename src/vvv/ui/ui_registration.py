@@ -5,6 +5,7 @@ import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 from vvv.utils import ViewMode, voxel_to_slice
+from vvv.ui.ui_components import build_stepped_slider, build_section_title
 
 
 class RegistrationUI:
@@ -51,8 +52,7 @@ class RegistrationUI:
         with dpg.tab(label="Reg", tag="tab_reg"):
             dpg.add_spacer(height=5)
 
-            dpg.add_text("Registration", color=cfg_c["text_header"])
-            dpg.add_separator()
+            build_section_title("Registration", cfg_c["text_header"])
 
             dpg.add_text(
                 "No Image Selected",
@@ -105,8 +105,7 @@ class RegistrationUI:
 
             # --- MIDDLE: Read-Only Math (Matrix & CoR) ---
             dpg.add_spacer(height=10)
-            dpg.add_text("Affine Matrix", color=cfg_c["text_header"])
-            dpg.add_separator()
+            build_section_title("Affine Matrix", cfg_c["text_header"])
             with dpg.group(tag="group_reg_matrix"):
                 with dpg.table(
                     header_row=False,
@@ -142,10 +141,9 @@ class RegistrationUI:
 
             # --- BOTTOM: Manual 6-DOF Tweaking ---
             dpg.add_spacer(height=10)
-            dpg.add_text(
-                "Rigid Adjustment (Euler R = Rz Ry Rx)", color=cfg_c["text_header"]
+            build_section_title(
+                "Rigid Adjustment (Euler R = Rz Ry Rx)", cfg_c["text_header"]
             )
-            dpg.add_separator()
             with dpg.group(horizontal=True):
                 dpg.add_text("Step:")
                 dpg.add_radio_button(
@@ -158,43 +156,65 @@ class RegistrationUI:
 
             dpg.add_spacer(height=5)
 
-            # Helper to generate a clean row with [-] [Slider] [+]
-            def build_slider_row(label, tag, fmt, min_v, max_v):
-                with dpg.group(horizontal=True):
-                    dpg.add_text(label)
-                    dpg.add_button(
-                        label="-",
-                        width=20,
-                        user_data={"tag": tag, "dir": -1},
-                        callback=gui.reg_ui.on_reg_step_button_clicked,
-                    )
-                    dpg.add_drag_float(
-                        tag=tag,
-                        width=-35,
-                        format=fmt,
-                        speed=1.0,
-                        min_value=min_v,
-                        max_value=max_v,
-                        callback=gui.reg_ui.on_reg_manual_changed,
-                    )
-                    dpg.add_button(
-                        label="+",
-                        width=20,
-                        user_data={"tag": tag, "dir": 1},
-                        callback=gui.reg_ui.on_reg_step_button_clicked,
-                    )
-
             # Translation Drag Floats
-            build_slider_row("Tx ", "drag_reg_tx", "%.2f mm", -5000.0, 5000.0)
-            build_slider_row("Ty ", "drag_reg_ty", "%.2f mm", -5000.0, 5000.0)
-            build_slider_row("Tz ", "drag_reg_tz", "%.2f mm", -5000.0, 5000.0)
+            build_stepped_slider(
+                "Tx ",
+                "drag_reg_tx",
+                callback=gui.reg_ui.on_reg_manual_changed,
+                step_callback=gui.reg_ui.on_reg_step_button_clicked,
+                min_val=-5000.0,
+                max_val=5000.0,
+                format="%.2f mm",
+            )
+            build_stepped_slider(
+                "Ty ",
+                "drag_reg_ty",
+                callback=gui.reg_ui.on_reg_manual_changed,
+                step_callback=gui.reg_ui.on_reg_step_button_clicked,
+                min_val=-5000.0,
+                max_val=5000.0,
+                format="%.2f mm",
+            )
+            build_stepped_slider(
+                "Tz ",
+                "drag_reg_tz",
+                callback=gui.reg_ui.on_reg_manual_changed,
+                step_callback=gui.reg_ui.on_reg_step_button_clicked,
+                min_val=-5000.0,
+                max_val=5000.0,
+                format="%.2f mm",
+            )
 
             dpg.add_spacer(height=5)
 
             # Rotation Drag Floats (Euler)
-            build_slider_row("Rx ", "drag_reg_rx", "%.2f \u00b0", -360.0, 360.0)
-            build_slider_row("Ry ", "drag_reg_ry", "%.2f \u00b0", -360.0, 360.0)
-            build_slider_row("Rz ", "drag_reg_rz", "%.2f \u00b0", -360.0, 360.0)
+            build_stepped_slider(
+                "Rx ",
+                "drag_reg_rx",
+                callback=gui.reg_ui.on_reg_manual_changed,
+                step_callback=gui.reg_ui.on_reg_step_button_clicked,
+                min_val=-360.0,
+                max_val=360.0,
+                format="%.2f \u00b0",
+            )
+            build_stepped_slider(
+                "Ry ",
+                "drag_reg_ry",
+                callback=gui.reg_ui.on_reg_manual_changed,
+                step_callback=gui.reg_ui.on_reg_step_button_clicked,
+                min_val=-360.0,
+                max_val=360.0,
+                format="%.2f \u00b0",
+            )
+            build_stepped_slider(
+                "Rz ",
+                "drag_reg_rz",
+                callback=gui.reg_ui.on_reg_manual_changed,
+                step_callback=gui.reg_ui.on_reg_step_button_clicked,
+                min_val=-360.0,
+                max_val=360.0,
+                format="%.2f \u00b0",
+            )
 
             dpg.add_spacer(height=5)
             with dpg.group(horizontal=True):

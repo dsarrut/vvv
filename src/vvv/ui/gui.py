@@ -7,12 +7,13 @@ from vvv.utils import fmt
 from vvv.ui.ui_roi import RoiUI
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_fusion import FusionUI
-from vvv.config import WL_PRESETS, COLORMAPS
 from vvv.ui.ui_settings import SettingsWindow
 from vvv.ui.ui_dicom import DicomBrowserWindow
+from vvv.ui.ui_intensities import IntensitiesUI
 from vvv.ui.ui_registration import RegistrationUI
 from vvv.resources import load_fonts, setup_themes
 from vvv.ui.ui_interaction import InteractionManager
+from vvv.ui.ui_components import build_section_title
 from vvv.ui.ui_sync import build_tab_sync, refresh_sync_ui
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 from vvv.ui.ui_theme import build_ui_config, register_dynamic_themes
@@ -66,9 +67,9 @@ class MainGUI:
             "check_legend": "camera.show_legend",
             "check_scalebar": "camera.show_scalebar",
             "check_filename": "camera.show_filename",
-            "info_window": "display.ww",
-            "info_level": "display.wl",
-            "info_base_threshold": "display.base_threshold",
+            "drag_ww": "display.ww",
+            "drag_wl": "display.wl",
+            "combo_colormap": "display.colormap",
             "slider_fusion_opacity": "display.overlay_opacity",
             "combo_fusion_mode": "display.overlay_mode",
             "slider_fusion_chk_size": "display.overlay_checkerboard_size",
@@ -84,6 +85,7 @@ class MainGUI:
         self.dicom_window = DicomBrowserWindow(self.controller, self)
         self.interaction = InteractionManager(self, self.controller)
         self.fusion_ui = FusionUI(self, self.controller)
+        self.intensities_ui = IntensitiesUI(self, self.controller)
         self.roi_ui = RoiUI(self, self.controller)
         self.reg_ui = RegistrationUI(self, self.controller)
 
@@ -187,22 +189,6 @@ class MainGUI:
                     )
                     dpg.add_menu_item(label="Exit", callback=self.cleanup)
 
-                with dpg.menu(label="Window/Level"):
-                    for preset_name in WL_PRESETS.keys():
-                        dpg.add_menu_item(
-                            label=preset_name,
-                            user_data=preset_name,
-                            callback=self.on_wl_preset_menu_clicked,
-                        )
-
-                with dpg.menu(label="Colormap"):
-                    for cmap_name in COLORMAPS.keys():
-                        dpg.add_menu_item(
-                            label=cmap_name,
-                            user_data=cmap_name,
-                            callback=self.on_colormap_menu_clicked,
-                        )
-
                 with dpg.menu(label="Help"):
                     dpg.add_menu_item(
                         label="Shortcuts & Controls", callback=self.show_help_window
@@ -257,6 +243,7 @@ class MainGUI:
                 build_tab_images(self)
                 build_tab_sync(self)  # <--- ADD IT BACK HERE
                 self.fusion_ui.build_tab_fusion(self)
+                self.intensities_ui.build_tab_intensities(self)
                 self.roi_ui.build_tab_rois(self)
                 self.reg_ui.build_tab_reg(self)
 
@@ -265,8 +252,7 @@ class MainGUI:
 
         # --- Panel 1: Active Viewer ---
         with dpg.child_window(tag="av_panel", border=False, no_scrollbar=True):
-            dpg.add_text("Active Viewer", color=cfg_c["text_header"])
-            dpg.add_separator()
+            build_section_title("Active Viewer", cfg_c["text_header"])
             with dpg.group(tag="image_info_group"):
                 self.create_labeled_field("", tag="info_name")
 
@@ -288,15 +274,13 @@ class MainGUI:
                 self.create_labeled_field("Matrix", tag="info_matrix")
                 with dpg.tooltip("info_matrix"):
                     dpg.add_text("...", tag="info_matrix_tooltip")
-                self.build_window_level_controls()
                 dpg.add_input_text(tag="info_memory", readonly=True, width=-1)
                 dpg.add_spacer(height=5)
                 self.build_visibility_controls()
 
         # --- Panel 2: Crosshair ---
         with dpg.child_window(tag="ch_panel", border=False, no_scrollbar=True):
-            dpg.add_text("Crosshair", color=cfg_c["text_header"])
-            dpg.add_separator()
+            build_section_title("Crosshair", cfg_c["text_header"])
             with dpg.group(tag="image_crosshair_group"):
                 self.create_labeled_field("Value", tag="info_val")
                 self.create_labeled_field("Voxel", tag="info_vox")
@@ -313,38 +297,8 @@ class MainGUI:
             )
             dpg.add_input_text(tag=tag, readonly=True, width=-1)
 
-    def build_window_level_controls(self):
-        dim_color = self.ui_cfg["colors"]["text_dim"]
-        with dpg.group(horizontal=True):
-            with dpg.group(horizontal=True):
-                dpg.add_text("Window", color=dim_color)
-                dpg.add_input_text(
-                    tag="info_window",
-                    width=65,
-                    on_enter=True,
-                    callback=lambda: self.on_sidebar_wl_change(),
-                )
-            dpg.add_spacer(width=5)
-            with dpg.group(horizontal=True):
-                dpg.add_text("Level", color=dim_color)
-                dpg.add_input_text(
-                    tag="info_level",
-                    width=65,
-                    on_enter=True,
-                    callback=lambda: self.on_sidebar_wl_change(),
-                )
-
-        with dpg.group(horizontal=True):
-            dpg.add_text("Min Threshold", color=dim_color)
-            dpg.add_input_text(
-                tag="info_base_threshold",
-                width=65,
-                on_enter=True,
-                callback=lambda: self.on_sidebar_wl_change(),
-            )
-            # dpg.add_text("(< val = black)", color=self.ui_cfg["colors"]["text_dim"])
-
     def build_visibility_controls(self):
+        dim_col = self.ui_cfg["colors"]["text_dim"]
         with dpg.group(tag="visibility_controls"):
             with dpg.table(header_row=False, policy=dpg.mvTable_SizingFixedFit):
                 dpg.add_table_column()
@@ -395,12 +349,24 @@ class MainGUI:
                         default_value=False,
                     )
                 with dpg.table_row():
-                    dpg.add_selectable(
-                        label="Filename: Off",
-                        tag="check_filename",
-                        callback=self.on_visibility_toggle,
-                        user_data="filename",
-                    )
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("Filename:", color=dim_col)
+                        dpg.add_selectable(
+                            label="Off",
+                            tag="check_filename",
+                            callback=self.on_visibility_toggle,
+                            user_data="filename",
+                            width=45,
+                        )
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("Interp:", color=dim_col)
+                        dpg.add_selectable(
+                            label="Linear",
+                            tag="check_interpolation",
+                            callback=self.on_visibility_toggle,
+                            user_data="interpolation",
+                            width=55,
+                        )
 
     def build_viewer_grid(self):
         """Creates the 2x2 grid of slice viewers."""
@@ -459,15 +425,9 @@ class MainGUI:
             dpg.add_mouse_move_handler(callback=self.interaction.on_mouse_move)
 
     def cleanup(self, sender=None, app_data=None, user_data=None):
-        # 1. Save auto-history for all currently open images
-        if hasattr(self.controller, "history"):
-            for vs_id in list(self.controller.view_states.keys()):
-                self.controller.history.save_image_state(self.controller, vs_id)
-
-        # 2. Save standard settings (like layout dimensions, etc.)
-        self.controller.save_settings()
-
-        # 3. Terminate UI
+        # Terminate UI.
+        # Note: History and Settings are automatically safely saved at the end of run()
+        # when is_dearpygui_running() evaluates to False.
         dpg.stop_dearpygui()
 
     # ==========================================
@@ -492,6 +452,11 @@ class MainGUI:
             ) == "mvAppItemType::mvInputText" and dpg.is_item_focused(tag):
                 continue
 
+            if dpg.get_item_type(
+                tag
+            ) == "mvAppItemType::mvDragFloat" and dpg.is_item_active(tag):
+                continue
+
             parts = prop_name.split(".")
             val = vs
             for p in parts:
@@ -506,9 +471,9 @@ class MainGUI:
                 if isinstance(current_ui_val, str) and isinstance(val, (float, int)):
                     # Skip WW/WL if the image is RGB
                     if getattr(viewer.volume, "is_rgb", False) and prop_name in [
-                        "ww",
-                        "wl",
-                        "base_threshold",
+                        "display.ww",
+                        "display.wl",
+                        "display.base_threshold",
                     ]:
                         continue
 
@@ -520,7 +485,7 @@ class MainGUI:
                 else:
                     # TRI-STATE
                     if tag == "check_filename":
-                        states = ["Filename: Off", "Filename: Short", "Filename: Full"]
+                        states = ["Off", "Short", "Full"]
                         dpg.configure_item(tag, label=states[val])
                     else:
                         # SAFEGUARD: If UI is a boolean checkbox but the value is an int, coerce to bool
@@ -535,6 +500,15 @@ class MainGUI:
         # Sync the Fusion overlay values (For when hotkeys like 'X' are used)
         if hasattr(self, "fusion_ui"):
             self.fusion_ui.sync_fusion_ui()
+
+        # Sync Interpolation mode text
+        if dpg.does_item_exist("check_interpolation"):
+            if vs.display.use_voxel_strips:
+                dpg.configure_item("check_interpolation", label="Stripe")
+            elif vs.display.pixelated_zoom:
+                dpg.configure_item("check_interpolation", label="NN")
+            else:
+                dpg.configure_item("check_interpolation", label="Linear")
 
     def highlight_active_image_in_list(self, active_img_id):
         highlight_active_image_in_list(self, active_img_id)
@@ -581,7 +555,12 @@ class MainGUI:
             elif isinstance(path_str, str) and path_str.startswith("4D:"):
                 import shlex
 
-                tokens = shlex.split(path_str[3:])
+                path_for_shlex = (
+                    path_str[3:].replace("\\", "\\\\")
+                    if os.name == "nt"
+                    else path_str[3:]
+                )
+                tokens = shlex.split(path_for_shlex)
                 display_name = (
                     "4D: " + os.path.basename(tokens[0]) + "..."
                     if tokens
@@ -632,8 +611,6 @@ class MainGUI:
         )
         is_rgb = getattr(viewer.volume, "is_rgb", False) if has_image else False
 
-        # Use a list of tuples to avoid boolean key collisions
-        # Use a list of tuples to avoid boolean key collisions
         ui_states = [
             (
                 has_image,
@@ -644,19 +621,12 @@ class MainGUI:
                     "check_crosshair",
                     "check_scalebar",
                     "check_legend",
+                    "check_filename",
+                    "check_interpolation",
                     "btn_roi_load",
                     "combo_roi_type",
                     "combo_roi_mode",
                     "input_roi_val",
-                ],
-            ),
-            (
-                has_image
-                and not is_rgb,  # Explicitly enable W/L and Threshold if not RGB!
-                [
-                    "info_window",
-                    "info_level",
-                    "info_base_threshold",
                 ],
             ),
             (
@@ -741,9 +711,15 @@ class MainGUI:
         dpg.set_value("info_matrix", vol.matrix_display_str)
         if dpg.does_item_exist("info_matrix_tooltip"):
             dpg.set_value("info_matrix_tooltip", vol.matrix_tooltip_str)
+
+        num_pixels = (
+            vol.sitk_image.GetNumberOfPixels()
+            if getattr(vol, "sitk_image", None)
+            else getattr(vol.data, "size", 0)
+        )
         dpg.set_value(
             "info_memory",
-            f"{vol.sitk_image.GetNumberOfPixels():,} voxels    {vol.memory_mb:g} MB",
+            f"{num_pixels:,} voxels    {vol.memory_mb:g} MB",
         )
 
         # 1. Update Fusion tab base image name
@@ -837,7 +813,7 @@ class MainGUI:
             dpg.bind_item_theme(f"win_{self.context_viewer.tag}", "black_viewer_theme")
 
         # Safely deselect ROI if it doesn't belong to the new image
-        if getattr(self, "active_roi_id", None):
+        if getattr(self.roi_ui, "active_roi_id", None):
             if (
                 viewer.view_state
                 and self.roi_ui.active_roi_id not in viewer.view_state.rois
@@ -862,6 +838,8 @@ class MainGUI:
             self.refresh_rois_ui()
             self.reg_ui.refresh_reg_ui()
             self.reg_ui.pull_reg_sliders_from_transform()
+            if hasattr(self, "intensities_ui"):
+                self.intensities_ui.refresh_intensities_ui()
 
     # ==========================================
     # 4. EVENT HANDLERS
@@ -963,24 +941,6 @@ class MainGUI:
         if value:
             self.controller.layout[v_tag] = img_id
 
-    def on_sidebar_wl_change(self):
-        if not self.context_viewer or self.context_viewer.image_id is None:
-            return
-        try:
-            new_ww = float(dpg.get_value("info_window"))
-            new_wl = float(dpg.get_value("info_level"))
-
-            thr_str = dpg.get_value("info_base_threshold")
-            new_thr = float(thr_str) if thr_str.strip() else -1e9
-
-            self.context_viewer.view_state.display.ww = max(1e-20, new_ww)
-            self.context_viewer.view_state.display.wl = new_wl
-            self.context_viewer.view_state.display.base_threshold = new_thr
-
-            self.controller.sync.propagate_window_level(self.context_viewer.image_id)
-        except ValueError:
-            pass
-
     def on_open_file_clicked(self, sender=None, app_data=None, user_data=None):
         file_paths = open_file_dialog("Open Medical Image(s)", multiple=True)
         if not file_paths:
@@ -1010,28 +970,6 @@ class MainGUI:
                 load_single_image_sequence(self, self.controller, magic_path_string)
             )
 
-    def on_wl_preset_menu_clicked(self, sender, app_data, user_data):
-        viewer = self.context_viewer
-        if (
-            not viewer
-            or not viewer.view_state
-            or getattr(viewer.volume, "is_rgb", False)
-        ):
-            return
-        viewer.view_state.apply_wl_preset(user_data)
-        self.controller.sync.propagate_window_level(viewer.image_id)
-
-    def on_colormap_menu_clicked(self, sender, app_data, user_data):
-        viewer = self.context_viewer
-        if (
-            not viewer
-            or not viewer.view_state
-            or getattr(viewer.volume, "is_rgb", False)
-        ):
-            return
-        viewer.view_state.display.colormap = user_data
-        self.controller.sync.propagate_colormap(viewer.image_id)
-
     def on_visibility_toggle(self, sender, value, user_data):
         viewer = self.context_viewer
         if not viewer or not viewer.view_state:
@@ -1053,6 +991,17 @@ class MainGUI:
         elif user_data == "filename":
             current = getattr(vs.camera, "show_filename", 0)
             vs.camera.show_filename = (current + 1) % 3
+            dpg.set_value(sender, False)
+        elif user_data == "interpolation":
+            if vs.display.use_voxel_strips:
+                vs.display.use_voxel_strips = False
+                vs.display.pixelated_zoom = False
+            elif vs.display.pixelated_zoom:
+                vs.display.pixelated_zoom = False
+                vs.display.use_voxel_strips = True
+            else:
+                vs.display.pixelated_zoom = True
+                vs.display.use_voxel_strips = False
             dpg.set_value(sender, False)
 
     def on_toggle_auto_save(self, sender, app_data, user_data):
@@ -1204,7 +1153,8 @@ class MainGUI:
                 "view_sagittal": "Sagittal View",
                 "view_coronal": "Coronal View",
                 "view_histogram": "Histogram View",
-                "toggle_pixelated_zoom": "Toggle Pixelated Zoom",
+                "toggle_interp": "Toggle Pixelated Zoom (NN)",
+                "toggle_strips": "Toggle Voxel Strips",
                 "toggle_grid": "Toggle Voxel Grid",
                 "toggle_legend": "Toggle Legend",
                 "hide_all": "Show/Hide Overlays",
@@ -1294,6 +1244,8 @@ class MainGUI:
                     self.fusion_ui.refresh_fusion_ui()
                 if hasattr(self, "reg_ui"):
                     self.reg_ui.refresh_reg_ui()
+                if hasattr(self, "intensities_ui"):
+                    self.intensities_ui.refresh_intensities_ui()
 
                 # Safely update the sidebar between frames when the DPG stack is completely empty!
                 self.update_sidebar_info(self.context_viewer)

@@ -27,26 +27,53 @@ class SpatialEngine:
     # 1. CORE GEOMETRY (The Absolute Truth via ITK)
     # ==========================================
     def raw_voxel_to_phys(self, voxel):
-        # Handle 3D coordinates, but pad for 4D images to prevent ITK dimension mismatch!
+        if voxel is None or len(voxel) < 3:
+            return np.array([0.0, 0.0, 0.0])
+
+        # Tombstone fallback: Use pure Python math if C++ memory is temporarily detached
+        if not getattr(self.volume, "sitk_image", None):
+            return self.volume.voxel_coord_to_physic_coord(np.array(voxel[:3]))
+
+        # Handle 3D coordinates, but pad for 4D images to prevent ITK dimension mismatch.
         idx = [float(voxel[0]), float(voxel[1]), float(voxel[2])]
-        if self.volume.sitk_image.GetDimension() == 4:
+        dim = self.volume.sitk_image.GetDimension()
+        if dim == 4:
             idx.append(0.0)  # Pad the time dimension
+        elif dim == 2:
+            idx = idx[:2]  # Strip Z for 2D images
 
         phys = self.volume.sitk_image.TransformContinuousIndexToPhysicalPoint(idx)
+        if len(phys) == 2:
+            return np.array([phys[0], phys[1], 0.0])
         return np.array(phys[:3])  # Only return the X, Y, Z physical coordinates
 
     def phys_to_raw_voxel(self, phys):
+        if phys is None or len(phys) < 3:
+            return np.array([0.0, 0.0, 0.0])
+
+        # Tombstone fallback
+        if not getattr(self.volume, "sitk_image", None):
+            return self.volume.physic_coord_to_voxel_coord(np.array(phys[:3]))
+
         pt = [float(phys[0]), float(phys[1]), float(phys[2])]
-        if self.volume.sitk_image.GetDimension() == 4:
+        dim = self.volume.sitk_image.GetDimension()
+        if dim == 4:
             pt.append(0.0)  # Pad the time dimension
+        elif dim == 2:
+            pt = pt[:2]  # Strip Z for 2D images
 
         idx = self.volume.sitk_image.TransformPhysicalPointToContinuousIndex(pt)
+        if len(idx) == 2:
+            return np.array([idx[0], idx[1], 0.0])
         return np.array(idx[:3])
 
     # ==========================================
     # 2. DISPLAY MAPPING (The Visual Illusions)
     # ==========================================
     def display_to_world(self, display_voxel, is_buffered=False):
+        if display_voxel is None:
+            return None
+
         phys = self.raw_voxel_to_phys(display_voxel)
 
         if self.is_active and self.transform:
@@ -62,18 +89,24 @@ class SpatialEngine:
         return phys
 
     def world_to_display(self, world_phys, is_buffered=False):
+        if world_phys is None:
+            return None
+
         phys = np.array(world_phys)
 
         if self.is_active and self.transform:
-            if is_buffered:
-                # Buffer Space: Only reverse the translation.
-                t = np.array(self.transform.GetTranslation())
-                phys = phys - t
-            else:
-                # Fast Path (Camera Pan): Reverse the full Registration transform.
-                phys = np.array(
-                    self.transform.GetInverse().TransformPoint(phys.tolist())
-                )
+            try:
+                if is_buffered:
+                    # Buffer Space: Only reverse the translation.
+                    t = np.array(self.transform.GetTranslation())
+                    phys = phys - t
+                else:
+                    # Fast Path (Camera Pan): Reverse the full Registration transform.
+                    phys = np.array(
+                        self.transform.GetInverse().TransformPoint(phys.tolist())
+                    )
+            except Exception:
+                pass  # Failsafe against singular inverse matrices
 
         return self.phys_to_raw_voxel(phys)
 
@@ -106,7 +139,10 @@ class SpatialEngine:
 
     def get_rotation_only_transform(self):
         if not self.transform:
-            return None
+            return (
+                sitk.Euler3DTransform()
+            )  # Return identity instead of None to prevent AttributeError downstream
+
         rot_t = sitk.Euler3DTransform()
 
         # Respect the user's custom CoR

@@ -29,15 +29,19 @@ class ViewportMapper:
     def update(
         self, quad_w, quad_h, real_w, real_h, spacing_w, spacing_h, zoom, pan_offset
     ):
-        mm_w, mm_h = real_w * spacing_w, real_h * spacing_h
-        target_w, target_h = quad_w - self.margin_left, quad_h - self.margin_top
+        mm_w = max(1e-5, real_w * spacing_w)
+        mm_h = max(1e-5, real_h * spacing_h)
+        target_w, target_h = (
+            quad_w - self.margin_left * 2.0,
+            quad_h - self.margin_top * 2.0,
+        )
 
         base_scale = min(target_w / mm_w, target_h / mm_h)
         final_scale = base_scale * zoom
-        new_w, new_h = int(mm_w * final_scale), int(mm_h * final_scale)
+        new_w, new_h = mm_w * final_scale, mm_h * final_scale
 
-        off_x = (target_w - new_w) // 2 + self.margin_left + pan_offset[0]
-        off_y = (target_h - new_h) // 2 + self.margin_top + pan_offset[1]
+        off_x = (target_w - new_w) / 2.0 + pan_offset[0]
+        off_y = (target_h - new_h) / 2.0 + pan_offset[1]
 
         self.pmin = [off_x, off_y]
         self.pmax = [off_x + new_w, off_y + new_h]
@@ -61,29 +65,34 @@ class ViewportMapper:
     def calculate_center_pan(
         self, tx, ty, quad_w, quad_h, real_w, real_h, spacing_w, spacing_h, zoom
     ):
-        mm_w, mm_h = real_w * spacing_w, real_h * spacing_h
-        target_w, target_h = quad_w - self.margin_left, quad_h - self.margin_top
+        mm_w = max(1e-5, real_w * spacing_w)
+        mm_h = max(1e-5, real_h * spacing_h)
+        target_w, target_h = (
+            quad_w - self.margin_left * 2.0,
+            quad_h - self.margin_top * 2.0,
+        )
 
         base_scale = min(target_w / mm_w, target_h / mm_h)
         final_scale = base_scale * zoom
-        new_w, new_h = int(mm_w * final_scale), int(mm_h * final_scale)
+        new_w, new_h = mm_w * final_scale, mm_h * final_scale
 
-        origin_x = (target_w - new_w) // 2 + self.margin_left
-        origin_y = (target_h - new_h) // 2 + self.margin_top
+        origin_x = (target_w - new_w) / 2.0
+        origin_y = (target_h - new_h) / 2.0
 
         cx_zero_pan_x = (tx / real_w) * new_w + origin_x
         cx_zero_pan_y = (ty / real_h) * new_h + origin_y
 
-        return [(quad_w / 2) - cx_zero_pan_x, (quad_h / 2) - cx_zero_pan_y]
+        return [(target_w / 2.0) - cx_zero_pan_x, (target_h / 2.0) - cx_zero_pan_y]
 
     def calculate_zoom_pan_delta(self, mouse_x, mouse_y, old_zoom, new_zoom):
+        old_zoom = max(1e-5, old_zoom)
         ratio = new_zoom / old_zoom
         ow, oh = self.disp_w, self.disp_h
         dw, dh = (ow * ratio) - ow, (oh * ratio) - oh
         rx, ry = mouse_x - self.pmin[0], mouse_y - self.pmin[1]
 
-        dx = -(rx * (ratio - 1)) + (dw / 2)
-        dy = -(ry * (ratio - 1)) + (dh / 2)
+        dx = -(rx * (ratio - 1)) + (dw / 2.0)
+        dy = -(ry * (ratio - 1)) + (dh / 2.0)
 
         return dx, dy
 
@@ -283,9 +292,14 @@ class SliceViewer:
             # --- BUG FIX #1: PRIORITIZE ACTIVE VIEWERS ---
             # We must prioritize a master that is actively being rendered on screen!
             # Otherwise, we might pull coordinates from a hidden image that hasn't updated its camera yet.
-            active_vs_ids = [v.image_id for v in self.controller.viewers.values() if v.image_id]
+            active_vs_ids = [
+                v.image_id for v in self.controller.viewers.values() if v.image_id
+            ]
             for vs_id in active_vs_ids:
-                if vs_id != self.image_id and self.controller.view_states[vs_id].sync_group == target_group:
+                if (
+                    vs_id != self.image_id
+                    and self.controller.view_states[vs_id].sync_group == target_group
+                ):
                     master_vs_id = vs_id
                     break
 
@@ -314,7 +328,6 @@ class SliceViewer:
 
         if self.controller:
             self.controller.ui_needs_refresh = True
-
 
     def set_current_slice_to_crosshair(self):
         if not self.view_state or not self.volume:
@@ -355,19 +368,24 @@ class SliceViewer:
                 self.center_on_physical_coord(old_center)
             self.controller.sync.propagate_camera(self)
 
-    def init_slice_texture(self):
+    def ensure_texture_exists(self):
         if not self.is_image_orientation() or not self.volume:
-            return
+            return False
 
         shape = self.get_slice_shape()
         h, w = shape[0], shape[1]
 
+        if self.view_state and self.view_state.display.pixelated_zoom:
+            # Instead of the original image size, the texture size becomes the exact screen canvas size!
+            layout = self.controller.gui.ui_cfg["layout"]
+            pad = layout.get("viewport_padding", 4) * 2
+            w = int(max(1, self.quad_w - pad))
+            h = int(max(1, self.quad_h - pad))
+
         # 1. Generate a unique tag based on the viewer and the specific dimensions
         new_texture_tag = f"tex_{self.tag}_{w}x{h}"
 
-        # Always unhide the parent canvas
-        # drop_image() hides this node. If the new fallback image matches the old size,
-        # we will hit the early return below. We MUST explicitly unhide it here!
+        # Always unhide the parent canvas.
         if dpg.does_item_exist(self.img_node_tag):
             dpg.configure_item(self.img_node_tag, show=True)
 
@@ -375,13 +393,13 @@ class SliceViewer:
         if self.texture_tag == new_texture_tag and dpg.does_item_exist(
             self.texture_tag
         ):
-            return
+            return False
 
-        # 3. If the size changed, cleanly delete the old drawing command
-        if dpg.does_item_exist(self.img_node_tag):
-            dpg.delete_item(self.img_node_tag, children_only=True)
+        # --- FIX: Clean up the old texture from VRAM to prevent memory leaks and clear Linux ghosting ---
+        if self.texture_tag and self.texture_tag != new_texture_tag:
+            if dpg.does_item_exist(self.texture_tag):
+                dpg.delete_item(self.texture_tag)
 
-        # 5. Create the new texture buffer with the new unique alias
         if not dpg.does_item_exist(new_texture_tag):
             dpg.add_dynamic_texture(
                 width=w,
@@ -393,9 +411,14 @@ class SliceViewer:
 
         # 6. Update the viewer's state to track the new texture
         self.texture_tag = new_texture_tag
+        return True
+
+    def bind_texture_to_node(self):
+        # 3. If the size changed, cleanly delete the old drawing command
+        if dpg.does_item_exist(self.img_node_tag):
+            dpg.delete_item(self.img_node_tag, children_only=True)
 
         # 7. Re-bind the image quad to the screen
-        # print(f"[DEBUG Frame] Creating image node at pmin={self.current_pmin}, pmax={self.current_pmax}")
         if dpg.does_item_exist(self.img_node_tag):
             self.image_tag = dpg.draw_image(
                 self.texture_tag,
@@ -457,7 +480,8 @@ class SliceViewer:
         if not win_w or not win_h:
             return None
 
-        cx, cy = win_w / 2, win_h / 2
+        cx = (win_w - self.mapper.margin_left * 2.0) / 2.0
+        cy = (win_h - self.mapper.margin_top * 2.0) / 2.0
         shape = self.get_slice_shape()
         real_h, real_w = shape[0], shape[1]
         sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
@@ -487,8 +511,13 @@ class SliceViewer:
         shape = self.get_slice_shape()
         real_h, real_w = shape[0], shape[1]
 
-        mx, my = dpg.get_drawing_mouse_pos()
-        return self.mapper.screen_to_image(mx, my, real_w, real_h, allow_outside)
+        try:
+            mx, my = dpg.get_drawing_mouse_pos()
+            return self.mapper.screen_to_image(
+                mx + 0.5, my + 0.5, real_w, real_h, allow_outside
+            )
+        except Exception:
+            return None, None
 
     def get_pixels_per_mm(self):
         if not self.view_state or not self.volume:
@@ -505,8 +534,8 @@ class SliceViewer:
 
         mm_w, mm_h = real_w * sw, real_h * sh
         target_w, target_h = (
-            win_w - self.mapper.margin_left,
-            win_h - self.mapper.margin_top,
+            win_w - self.mapper.margin_left * 2.0,
+            win_h - self.mapper.margin_top * 2.0,
         )
 
         base_scale = min(target_w / mm_w, target_h / mm_h)
@@ -527,8 +556,8 @@ class SliceViewer:
 
         mm_w, mm_h = real_w * sw, real_h * sh
         target_w, target_h = (
-            win_w - self.mapper.margin_left,
-            win_h - self.mapper.margin_top,
+            win_w - self.mapper.margin_left * 2.0,
+            win_h - self.mapper.margin_top * 2.0,
         )
 
         base_scale = min(target_w / mm_w, target_h / mm_h)
@@ -574,8 +603,8 @@ class SliceViewer:
         # The true rendering canvas is now 8 pixels smaller due to the 4px WindowPadding
         layout = self.controller.gui.ui_cfg["layout"]
         pad = layout.get("viewport_padding", 4) * 2
-        canvas_w = quad_w - pad
-        canvas_h = quad_h - pad
+        canvas_w = int(max(1, quad_w - pad))
+        canvas_h = int(max(1, quad_h - pad))
 
         if dpg.does_item_exist(f"drawlist_{self.tag}"):
             dpg.set_item_width(f"drawlist_{self.tag}", canvas_w)
@@ -598,9 +627,14 @@ class SliceViewer:
             canvas_w, canvas_h, real_w, real_h, sw, sh, self.zoom, self.pan_offset
         )
 
-        # print(f"[DEBUG Frame] Creating image node at pmin={self.current_pmin}, pmax={self.current_pmax}")
         if dpg.does_item_exist(self.image_tag):
-            dpg.configure_item(self.image_tag, pmin=pmin, pmax=pmax)
+            if self.view_state.display.pixelated_zoom:
+                # Lock the Quad to the window and let Python do the math instead of the GPU
+                dpg.configure_item(
+                    self.image_tag, pmin=[0, 0], pmax=[canvas_w, canvas_h]
+                )
+            else:
+                dpg.configure_item(self.image_tag, pmin=pmin, pmax=pmax)
 
     def calculate_pan_to_center_crosshair(self, win_w, win_h):
         if (
@@ -656,25 +690,41 @@ class SliceViewer:
             return False
 
         # --- 1. STATE TRIGGERS ---
-        size_changed = win_w != getattr(self, "last_w", 0) or win_h != getattr(self, "last_h", 0)
+        size_changed = win_w != getattr(self, "last_w", 0) or win_h != getattr(
+            self, "last_h", 0
+        )
         image_changed = self.image_id != getattr(self, "last_drawn_image_id", None)
-        orientation_changed = self.orientation != getattr(self, "last_orientation", None)
+        orientation_changed = self.orientation != getattr(
+            self, "last_orientation", None
+        )
         current_shape = self.get_slice_shape()
         shape_changed = current_shape != getattr(self, "last_drawn_shape", None)
 
-        rebuild_texture = image_changed or orientation_changed or shape_changed
+        pixelated = self.view_state.display.pixelated_zoom if self.view_state else False
+        pixelated_changed = pixelated != getattr(self, "last_pixelated", None)
+
+        # If pixelated zoom is active, size_changed MUST trigger a texture rebuild
+        # because the texture dimension literally matches the screen dimension.
+        rebuild_texture = (
+            image_changed
+            or orientation_changed
+            or shape_changed
+            or pixelated_changed
+            or (pixelated and size_changed)
+        )
 
         if size_changed:
             self.last_w = win_w
             self.last_h = win_h
+            self.quad_w = int(win_w)
+            self.quad_h = int(win_h)
             self.is_geometry_dirty = True
 
         if rebuild_texture:
-            self.last_w = win_w
-            self.last_h = win_h
             self.last_drawn_image_id = self.image_id
             self.last_orientation = self.orientation
             self.last_drawn_shape = current_shape
+            self.last_pixelated = pixelated
             self.is_viewer_data_dirty = True
 
         # --- 2. CAMERA SYNC MATH ---
@@ -682,7 +732,9 @@ class SliceViewer:
         vs_center = getattr(self.view_state.camera, "target_center", None)
 
         last_ppm = getattr(self, "last_consumed_ppm", None)
-        ppm_changed = (vs_ppm is not None) and (last_ppm is None or abs(vs_ppm - last_ppm) > 1e-5)
+        ppm_changed = (vs_ppm is not None) and (
+            last_ppm is None or abs(vs_ppm - last_ppm) > 1e-5
+        )
 
         last_center = getattr(self, "last_consumed_center", None)
         center_changed = False
@@ -691,9 +743,9 @@ class SliceViewer:
                 center_changed = True
             else:
                 center_changed = (
-                        abs(vs_center[0] - last_center[0]) > 1e-5
-                        or abs(vs_center[1] - last_center[1]) > 1e-5
-                        or abs(vs_center[2] - last_center[2]) > 1e-5
+                    abs(vs_center[0] - last_center[0]) > 1e-5
+                    or abs(vs_center[1] - last_center[1]) > 1e-5
+                    or abs(vs_center[2] - last_center[2]) > 1e-5
                 )
 
         if ppm_changed or center_changed:
@@ -706,71 +758,99 @@ class SliceViewer:
             self.needs_recenter = False
             self.is_geometry_dirty = True
 
-        # --- 3. PRE-CALCULATE PERFECT BOUNDS FOR STARTUP ---
-        if rebuild_texture or getattr(self, "needs_recenter", False):
+        # --- 3. PRE-CALCULATE PERFECT BOUNDS ---
+        if (
+            rebuild_texture
+            or getattr(self, "needs_recenter", False)
+            or self.is_geometry_dirty
+        ):
             layout = self.controller.gui.ui_cfg["layout"]
             pad = layout.get("viewport_padding", 4) * 2
-            canvas_w = win_w - pad
-            canvas_h = win_h - pad
+            canvas_w = int(max(1, win_w - pad))
+            canvas_h = int(max(1, win_h - pad))
             sw, sh = self.volume.get_physical_aspect_ratio(self.orientation)
 
             if getattr(self, "needs_recenter", False):
-                self.pan_offset = self.calculate_pan_to_center_crosshair(canvas_w, canvas_h)
+                self.pan_offset = self.calculate_pan_to_center_crosshair(
+                    canvas_w, canvas_h
+                )
                 self.needs_recenter = False
 
-            self.mapper.update(canvas_w, canvas_h, current_shape[1], current_shape[0], sw, sh, self.zoom,
-                               self.pan_offset)
+            self.mapper.update(
+                canvas_w,
+                canvas_h,
+                current_shape[1],
+                current_shape[0],
+                sw,
+                sh,
+                self.zoom,
+                self.pan_offset,
+            )
 
-        # --- 4. ATOMIC UI CREATION ---
+        # --- 4. ATOMIC UI CREATION (Part 1: Texture) ---
+        texture_changed = False
         if rebuild_texture:
-            self.init_slice_texture()
+            texture_changed = self.ensure_texture_exists()
 
-            # --- 5. DATA UPLOAD ---
-        if self.view_state.is_data_dirty or self.is_viewer_data_dirty:
+        # --- 5. DATA UPLOAD ---
+        needs_reblend = self.view_state.is_data_dirty or self.is_viewer_data_dirty
+        needs_nn_remap = (
+            self.is_geometry_dirty and pixelated and not self.should_use_voxels_strips()
+        )
+
+        if needs_reblend or needs_nn_remap:
             self.is_viewer_data_dirty = False
-            self.update_render()  # Will no longer abort on Frame 1!
+            self.update_render(force_reblend=needs_reblend)
             self.is_geometry_dirty = True
             did_update_data = True
+
+        # --- 4. ATOMIC UI CREATION (Part 2: Binding) ---
+        if rebuild_texture and texture_changed:
+            self.bind_texture_to_node()
 
         # --- 6. GEOMETRY PUSH ---
         if self.is_geometry_dirty:
             # ONLY call resize if we didn't just create the node via draw_image
-            if not rebuild_texture:
+            if not (rebuild_texture and texture_changed):
                 self.resize(win_w, win_h)
             self.update_stuff_in_image_only()
             self.is_geometry_dirty = False
 
         return did_update_data
 
-    def should_use_voxels_strips(self):
-        if (
-            not self.view_state
-            or not self.volume
-            or not self.view_state.display.pixelated_zoom
-        ):
-            return False
+    def _get_screen_mapped_texture(self, rgba_img, pmin, pmax, canvas_w, canvas_h):
+        """Extracts the exact viewport region and upscales using pure Nearest Neighbor math."""
+        h, w = rgba_img.shape[:2]
 
-        win_w, win_h = self.quad_w, self.quad_h
-        if not win_w or not win_h:
-            return False
+        # Shift the sampling point to the exact geometric center of each screen pixel.
+        # This prevents float boundaries from rapidly flipping indices during sub-pixel zooms.
+        screen_x = np.arange(canvas_w) + 0.5
+        screen_y = np.arange(canvas_h) + 0.5
 
-        pmin, pmax = self.current_pmin, self.current_pmax
-        shape = self.get_slice_shape()
+        disp_w = max(1e-5, pmax[0] - pmin[0])
+        disp_h = max(1e-5, pmax[1] - pmin[1])
 
-        vox_w, vox_h = (pmax[0] - pmin[0]) / shape[1], (pmax[1] - pmin[1]) / shape[0]
-        if vox_w <= 0 or vox_h <= 0:
-            return False
+        # Map screen pixels back to image index
+        ix = (screen_x - pmin[0]) * w / disp_w
+        iy = (screen_y - pmin[1]) * h / disp_h
 
-        start_x, end_x = max(0, int(-pmin[0] / vox_w)), min(
-            shape[1], int((win_w - pmin[0]) / vox_w) + 1
-        )
-        start_y, end_y = max(0, int(-pmin[1] / vox_h)), min(
-            shape[0], int((win_h - pmin[1]) / vox_h) + 1
-        )
+        # Add a tiny epsilon to prevent float64 boundary jitter (e.g., 3.9999999 dropping to 3)
+        ix = np.floor(ix + 1e-5).astype(np.int32)
+        iy = np.floor(iy + 1e-5).astype(np.int32)
 
-        m = self.controller.settings.data["physics"]["voxel_strip_threshold"]
-        is_active = 0 < (end_x - start_x) * (end_y - start_y) < m
-        return is_active
+        valid_x = (ix >= 0) & (ix < w)
+        valid_y = (iy >= 0) & (iy < h)
+
+        ix = np.clip(ix, 0, w - 1)
+        iy = np.clip(iy, 0, h - 1)
+
+        IY, IX = np.meshgrid(iy, ix, indexing="ij")
+        mapped = rgba_img[IY, IX]
+
+        valid_mask = valid_x[None, :] & valid_y[:, None]
+        mapped[~valid_mask] = 0.0
+
+        return mapped
 
     def apply_local_auto_window(self, fov_fraction=0.20, target="base"):
         if self.image_id is None or not self.volume:
@@ -847,7 +927,8 @@ class SliceViewer:
 
         if target == "overlay":
             thr = self.view_state.display.base_threshold
-            patch = patch[patch >= thr]
+            if thr is not None:
+                patch = patch[patch >= thr]
 
         if patch.size > 0:
             p_min, p_max = np.percentile(patch, [2, 98])
@@ -873,6 +954,8 @@ class SliceViewer:
             return
         self.view_state.display.ww = max(1e-20, ww)
         self.view_state.display.wl = wl
+        if dpg.does_item_exist("combo_wl_presets"):
+            dpg.set_value("combo_wl_presets", "Custom")
         self.controller.sync.propagate_window_level(self.image_id)
 
     def update_crosshair_data(self, pix_x, pix_y):
@@ -932,6 +1015,10 @@ class SliceViewer:
             if getattr(self.view_state, "base_display_data", None) is not None
             else self.volume.data
         )
+
+        # Tombstone failsafe: Prevent the renderer from choking on dead memory
+        if display_data is None:
+            display_data = np.zeros((1, 1, 1), dtype=np.float32)
 
         return RenderLayer(
             data=display_data,
@@ -1020,8 +1107,8 @@ class SliceViewer:
             if not roi_state.visible or roi_state.opacity <= 0.0:
                 continue
 
-            roi_vol = self.controller.volumes[roi_id]
-            if not hasattr(roi_vol, "roi_bbox"):
+            roi_vol = self.controller.volumes.get(roi_id)
+            if not roi_vol or not hasattr(roi_vol, "roi_bbox"):
                 continue
 
             z0, z1, y0, y1, x0, x1 = roi_vol.roi_bbox
@@ -1076,8 +1163,7 @@ class SliceViewer:
                 )
         return active_rois
 
-
-    def update_render(self):
+    def update_render(self, force_reblend=True):
         win_tag = f"win_{self.tag}"
 
         # If the window is too small or doesn't exist, flag to try again next frame
@@ -1085,11 +1171,11 @@ class SliceViewer:
             self.is_viewer_data_dirty = True
             return
 
-        '''state = dpg.get_item_state(win_tag)
+        """state = dpg.get_item_state(win_tag)
         # If the window is hidden behind a tab, flag to try again when visible
         if state and not state.get("visible", True):
             self.is_viewer_data_dirty = True
-            return'''
+            return"""
 
         if self.image_id is None or not self.volume or not self.view_state:
             return
@@ -1108,28 +1194,77 @@ class SliceViewer:
             if dpg.does_item_exist(plot_tag):
                 dpg.configure_item(plot_tag, show=False)
 
-        # 1. Cleanly package all layers
-        base_layer = self._package_base_layer()
-        overlay_layer = self._package_overlay_layer()
-        active_rois = self._package_roi_layers()
+        if force_reblend or getattr(self, "last_rgba_flat", None) is None:
+            # 1. Cleanly package all layers
+            base_layer = self._package_base_layer()
+            overlay_layer = self._package_overlay_layer()
+            active_rois = self._package_roi_layers()
 
-        # 2. Render
-        rgba_flat, _ = SliceRenderer.get_slice_rgba(
-            base=base_layer,
-            overlay=overlay_layer,
-            overlay_opacity=self.view_state.display.overlay_opacity,
-            overlay_mode=self.view_state.display.overlay_mode,
-            slice_idx=self.slice_idx,
-            orientation=self.orientation,
-            checkerboard_size=self.view_state.display.overlay_checkerboard_size,
-            checkerboard_swap=self.view_state.display.overlay_checkerboard_swap,
-            rois=active_rois,
+            # 2. Render
+            rgba_flat, _ = SliceRenderer.get_slice_rgba(
+                base=base_layer,
+                overlay=overlay_layer,
+                overlay_opacity=self.view_state.display.overlay_opacity,
+                overlay_mode=self.view_state.display.overlay_mode,
+                slice_idx=self.slice_idx,
+                orientation=self.orientation,
+                checkerboard_size=self.view_state.display.overlay_checkerboard_size,
+                checkerboard_swap=self.view_state.display.overlay_checkerboard_swap,
+                rois=active_rois,
+            )
+            self.last_rgba_flat = rgba_flat
+        else:
+            rgba_flat = self.last_rgba_flat
+
+        # ---- APPLY NEAREST NEIGHBOR SCREEN MAPPING ----
+        if (
+            self.view_state.display.pixelated_zoom
+            and not self.should_use_voxels_strips()
+        ):
+            layout = self.controller.gui.ui_cfg["layout"]
+            pad = layout.get("viewport_padding", 4) * 2
+            canvas_w = int(max(1, self.quad_w - pad))
+            canvas_h = int(max(1, self.quad_h - pad))
+
+            shape = self.get_slice_shape()
+            rgba_2d = rgba_flat.reshape((shape[0], shape[1], 4))
+            rgba_mapped = self._get_screen_mapped_texture(
+                rgba_2d, self.current_pmin, self.current_pmax, canvas_w, canvas_h
+            )
+            rgba_flat = rgba_mapped.ravel()
+
+        if dpg.does_item_exist(self.texture_tag):
+            dpg.set_value(self.texture_tag, rgba_flat)
+
+    def should_use_voxels_strips(self):
+        if (
+            not self.view_state
+            or not self.volume
+            or not self.view_state.display.use_voxel_strips
+        ):
+            return False
+
+        win_w, win_h = self.quad_w, self.quad_h
+        if not win_w or not win_h:
+            return False
+
+        pmin, pmax = self.current_pmin, self.current_pmax
+        shape = self.get_slice_shape()
+
+        vox_w, vox_h = (pmax[0] - pmin[0]) / shape[1], (pmax[1] - pmin[1]) / shape[0]
+        if vox_w <= 0 or vox_h <= 0:
+            return False
+
+        start_x, end_x = max(0, int(-pmin[0] / vox_w)), min(
+            shape[1], int((win_w - pmin[0]) / vox_w) + 1
+        )
+        start_y, end_y = max(0, int(-pmin[1] / vox_h)), min(
+            shape[0], int((win_h - pmin[1]) / vox_h) + 1
         )
 
-        self.last_rgba_flat = rgba_flat
-
-        if dpg.does_item_exist(self.image_tag):
-            dpg.set_value(self.texture_tag, rgba_flat)
+        m = self.controller.settings.data["physics"]["voxel_strip_threshold"]
+        is_active = 0 < (end_x - start_x) * (end_y - start_y) < m
+        return is_active
 
     def update_stuff_in_image_only(self):
         if not self.is_image_orientation() or not self.view_state or not self.volume:
@@ -1142,12 +1277,27 @@ class SliceViewer:
             self.should_use_voxels_strips()
             and getattr(self, "last_rgba_flat", None) is not None
         ):
-            dpg.configure_item(self.image_tag, show=False)
+            if dpg.does_item_exist(self.image_tag):
+                dpg.configure_item(self.image_tag, show=False)
             self.drawer.draw_voxels_as_strips(self.last_rgba_flat, h, w)
         else:
             if dpg.does_item_exist(self.active_strips_node):
                 dpg.configure_item(self.active_strips_node, show=False)
-            dpg.configure_item(self.image_tag, show=True)
+
+            if dpg.does_item_exist(self.image_tag):
+                dpg.configure_item(self.image_tag, show=True)
+                if self.view_state.display.pixelated_zoom:
+                    layout = self.controller.gui.ui_cfg["layout"]
+                    pad = layout.get("viewport_padding", 4) * 2
+                    canvas_w = int(max(1, self.quad_w - pad))
+                    canvas_h = int(max(1, self.quad_h - pad))
+                    dpg.configure_item(
+                        self.image_tag, pmin=[0, 0], pmax=[canvas_w, canvas_h]
+                    )
+                else:
+                    dpg.configure_item(
+                        self.image_tag, pmin=self.current_pmin, pmax=self.current_pmax
+                    )
 
         if self.view_state.camera.show_grid:
             self.drawer.draw_voxel_grid(h, w)
@@ -1271,7 +1421,7 @@ class SliceViewer:
 
             # Format the text differently depending on if we are active or passive
             if is_external:
-                dpg.set_value(self.tracker_tag, text_lines[0])
+                final_text = text_lines[0]
             else:
                 if self.volume.num_timepoints > 1:
                     text_lines.append(
@@ -1281,15 +1431,18 @@ class SliceViewer:
                     text_lines.append(fmt(v, 1))
 
                 text_lines.append(f"{fmt(phys, 1)} mm")
-                dpg.set_value(self.tracker_tag, "\n".join(text_lines))
+                final_text = "\n".join(text_lines)
+
+            dpg.set_value(self.tracker_tag, final_text)
+            est_h = final_text.count("\n") * 16 + 25
         else:
             dpg.set_value(self.tracker_tag, "Out of image" if not is_external else "")
+            est_h = 25
 
         win_h = self.quad_h
-        ts = dpg.get_item_rect_size(self.tracker_tag)
         dpg.set_item_pos(
             self.tracker_tag,
-            [8, win_h - (ts[1] if ts[1] > 0 else 80) - 15],
+            [8, max(5, win_h - est_h - 15)],
         )
 
     # --- ACTIONS & KEYBINDING DISPATCHER ---
@@ -1327,7 +1480,8 @@ class SliceViewer:
             "view_sagittal": lambda: self.set_orientation(ViewMode.SAGITTAL),
             "view_coronal": lambda: self.set_orientation(ViewMode.CORONAL),
             "view_histogram": self.action_view_histogram,
-            "toggle_pixelated_zoom": self.action_toggle_pixelated_zoom,
+            "toggle_interp": self.action_toggle_pixelated_zoom,
+            "toggle_strips": self.action_toggle_strips,
             "toggle_legend": self.action_toggle_legend,
             "toggle_filename": self.action_toggle_filename,
             "toggle_grid": self.action_toggle_grid,
@@ -1378,8 +1532,18 @@ class SliceViewer:
         self.set_orientation(ViewMode.HISTOGRAM)
 
     def action_toggle_pixelated_zoom(self):
-        self.view_state.display.pixelated_zoom = (
-            not self.view_state.display.pixelated_zoom
+        if self.view_state.display.use_voxel_strips:
+            self.view_state.display.use_voxel_strips = False
+            self.view_state.display.pixelated_zoom = False
+        else:
+            self.view_state.display.pixelated_zoom = (
+                not self.view_state.display.pixelated_zoom
+            )
+        self.view_state.is_data_dirty = True
+
+    def action_toggle_strips(self):
+        self.view_state.display.use_voxel_strips = (
+            not self.view_state.display.use_voxel_strips
         )
         self.view_state.is_data_dirty = True
 
@@ -1516,9 +1680,12 @@ class SliceViewer:
         mx, my = dpg.get_drawing_mouse_pos()
         oz = self.zoom
         speed = self.controller.settings.data["interaction"]["zoom_speed"]
-        self.zoom = self.zoom * (speed if direction == "in" else (1.0 / speed))
+        new_zoom = max(
+            1e-5, self.zoom * (speed if direction == "in" else (1.0 / speed))
+        )
+        self.zoom = new_zoom
 
-        dx, dy = self.mapper.calculate_zoom_pan_delta(mx, my, oz, self.zoom)
+        dx, dy = self.mapper.calculate_zoom_pan_delta(mx + 0.5, my + 0.5, oz, self.zoom)
         self.pan_offset[0] += dx
         self.pan_offset[1] += dy
 

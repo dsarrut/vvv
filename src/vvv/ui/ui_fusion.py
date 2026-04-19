@@ -1,6 +1,7 @@
 import time
 import threading
 import dearpygui.dearpygui as dpg
+from vvv.ui.ui_components import build_section_title
 
 
 class FusionUI:
@@ -15,8 +16,7 @@ class FusionUI:
         cfg_c = gui.ui_cfg["colors"]
         with dpg.tab(label="Fusion", tag="tab_fusion"):
             dpg.add_spacer(height=5)
-            dpg.add_text("Active Fusion", color=cfg_c["text_header"])
-            dpg.add_separator()
+            build_section_title("Active Fusion", cfg_c["text_header"])
             with dpg.group(tag="image_fusion_group"):
                 with dpg.group(horizontal=True):
                     dpg.add_text("Base   ")
@@ -101,7 +101,9 @@ class FusionUI:
         viewer = self.gui.context_viewer
         # UI should only consider the viewer "active" if the ViewState actually exists in memory!
         has_image = (
-            viewer is not None and getattr(viewer, "view_state", None) is not None
+            viewer is not None
+            and getattr(viewer, "view_state", None) is not None
+            and viewer.volume is not None
         )
 
         # 1. Clear UI completely if no base image is selected
@@ -158,7 +160,11 @@ class FusionUI:
 
             current_sel = "None"
             has_overlay = False
-            if viewer.view_state and viewer.view_state.display.overlay_id:
+            # Check if overlay is set AND actively exists in memory (guard against stale history references)
+            if (
+                viewer.view_state
+                and viewer.view_state.display.overlay_id in self.controller.view_states
+            ):
                 has_overlay = True
                 # Use the new helper for the currently selected item
                 opt_name, _ = self.controller.get_image_display_name(
@@ -179,15 +185,18 @@ class FusionUI:
             # Enable/Disable New W/L Text Boxes
             tags_to_enable = ["fusion_info_threshold", "combo_fusion_mode"]
             if has_overlay:
-                ov_vs = self.controller.view_states[
+                ov_vs = self.controller.view_states.get(
                     viewer.view_state.display.overlay_id
-                ]
-                is_ov_rgb = getattr(ov_vs.volume, "is_rgb", False)
-                if not is_ov_rgb:
-                    tags_to_enable.extend(["fusion_info_window", "fusion_info_level"])
-                else:
-                    dpg.set_value("fusion_info_window", "RGB")
-                    dpg.set_value("fusion_info_level", "RGB")
+                )
+                if ov_vs and ov_vs.volume:
+                    is_ov_rgb = getattr(ov_vs.volume, "is_rgb", False)
+                    if not is_ov_rgb:
+                        tags_to_enable.extend(
+                            ["fusion_info_window", "fusion_info_level"]
+                        )
+                    else:
+                        dpg.set_value("fusion_info_window", "RGB")
+                        dpg.set_value("fusion_info_level", "RGB")
             else:
                 # Explicitly wipe the text inputs clean if there is no fusion overlay
                 for t in [
@@ -262,7 +271,11 @@ class FusionUI:
             "fusion_info_threshold"
         ):
             current_thr = dpg.get_value("fusion_info_threshold")
-            new_thr = f"{ov_vs.display.base_threshold:g}"
+            new_thr = (
+                f"{ov_vs.display.base_threshold:g}"
+                if ov_vs.display.base_threshold is not None
+                else ""
+            )
             if current_thr != new_thr:
                 dpg.set_value("fusion_info_threshold", new_thr)
 
@@ -281,9 +294,11 @@ class FusionUI:
             new_wl = float(dpg.get_value("fusion_info_level"))
 
             thr_str = dpg.get_value("fusion_info_threshold")
-            new_thr = float(thr_str) if thr_str.strip() else -1e9
+            new_thr = float(thr_str) if thr_str.strip() else None
 
-            ovs = self.controller.view_states[viewer.view_state.display.overlay_id]
+            ovs = self.controller.view_states.get(viewer.view_state.display.overlay_id)
+            if not ovs:
+                return
 
             # Update the properties directly on Image B!
             ovs.display.base_threshold = new_thr
@@ -324,7 +339,11 @@ class FusionUI:
             target_vol = self.controller.volumes[target_id]
 
             self.gui.show_status_message("Resampling overlay to physical grid...")
+
             def _resample():
+                # Guard against user rapidly closing the image while the thread boots
+                if not viewer.view_state or viewer.image_id is None:
+                    return
                 viewer.view_state.set_overlay(target_id, target_vol, self.controller)
                 self.controller.update_all_viewers_of_image(viewer.image_id)
                 self.controller.status_message = "Overlay applied"

@@ -1,3 +1,4 @@
+import math
 from vvv.utils import ViewMode
 import dearpygui.dearpygui as dpg
 
@@ -134,17 +135,18 @@ class InteractionManager:
 
             vs = viewer.view_state
 
-            # THE EXACT SAME BEHAVIOR & MATH FROM YOUR OLD DRAG METHOD
             base_sens = self.controller.settings.data["interaction"].get(
                 "wl_drag_sensitivity", 1.0
             )
-            scale = max(vs.display.ww, 1e-20) * 0.005
-            sens = base_sens * scale
 
-            ww = max(1e-20, vs.display.ww + dx * sens)
-            wl = vs.display.wl - dy * sens
+            # Exponential scaling for Window Width (Prevents "dead zones" at small widths)
+            ww_multiplier = math.exp(dx * base_sens * 0.005)
+            new_ww = max(1e-5, vs.display.ww * ww_multiplier)
 
-            viewer.update_window_level(ww, wl)
+            # Linear scaling for Level, proportional to the newly calculated width
+            new_wl = vs.display.wl - (dy * new_ww * base_sens * 0.002)
+
+            viewer.update_window_level(new_ww, new_wl)
 
     def on_mouse_drag(self, sender, app_data, user_data):
         if isinstance(app_data, int):

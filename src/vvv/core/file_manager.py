@@ -57,7 +57,7 @@ class FileManager:
                 # Load the overlay quietly in the background
                 op_id = self.load_image(op_path, is_auto_overlay=True)
                 op_vol = self.controller.volumes[op_id]
-                # Restore the link! (opacity, mode, threshold are already restored in from_dict)
+                # Restore the link (opacity, mode, threshold are already restored in from_dict).
                 vs.set_overlay(op_id, op_vol)
 
         if not is_auto_overlay:
@@ -103,7 +103,7 @@ class FileManager:
                             continue
 
                         if sid in series_dict:
-                            # Series is split across multiple folders -> just append the files!
+                            # Series is split across multiple folders -> just append the files.
                             series_dict[sid]["files"].extend(file_names)
                         else:
                             file_reader.SetFileName(file_names[0])

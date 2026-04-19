@@ -1,4 +1,5 @@
 import dearpygui.dearpygui as dpg
+from vvv.ui.ui_components import build_section_title
 
 """
 ARCHITECTURE MANDATES (UI Components):
@@ -21,6 +22,7 @@ def build_tab_sync(gui):
     cfg_c = gui.ui_cfg["colors"]
     with dpg.tab(label="Sync", tag="tab_sync"):
         dpg.add_spacer(height=5)
+        build_section_title("Synchronization", cfg_c["text_header"])
 
         with dpg.group(horizontal=True):
             dpg.add_button(
@@ -46,6 +48,7 @@ def build_tab_sync(gui):
                 width=95,
             )
 
+        dpg.add_spacer(height=10)
         dpg.add_separator()
         with dpg.child_window(border=False, height=-1):
             dpg.add_group(tag="sync_list_container")

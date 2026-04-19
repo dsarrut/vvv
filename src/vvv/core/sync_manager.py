@@ -30,7 +30,7 @@ class SyncManager:
             for viewer in self.controller.viewers.values():
                 if viewer.image_id:
                     active_set.add(viewer.image_id)
-                    # Also keep the overlay active if it's being displayed!
+                    # Also keep the overlay active if it's being displayed.
                     if viewer.view_state and viewer.view_state.display.overlay_id:
                         active_set.add(viewer.view_state.display.overlay_id)
             group_ids = [tid for tid in group_ids if tid in active_set]
@@ -38,10 +38,11 @@ class SyncManager:
         return group_ids
 
     def trigger_redraw(self, modified_ids):
-        """Flags images to redraw. Viewers will autonomously react to this!"""
+        """Flags images to redraw. Viewers will autonomously react to this."""
         for tid in modified_ids:
-            if tid in self.controller.view_states:
-                self.controller.view_states[tid].is_data_dirty = True
+            vs = self.controller.view_states.get(tid)
+            if vs:
+                vs.is_data_dirty = True
 
         # If any modified image is acting as an overlay, force its base image to redraw too
         for vs in self.controller.view_states.values():
@@ -53,9 +54,9 @@ class SyncManager:
     # ==========================================
 
     def propagate_sync(self, source_vs_id):
-        source_vs = self.controller.view_states[source_vs_id]
+        source_vs = self.controller.view_states.get(source_vs_id)
 
-        if source_vs.camera.crosshair_voxel is None:
+        if not source_vs or source_vs.camera.crosshair_voxel is None:
             # If the source has no crosshair yet, we can't sync others to it.
             return
 
@@ -68,7 +69,9 @@ class SyncManager:
         )
 
         for target_id in target_ids:
-            target_vs = self.controller.view_states[target_id]
+            target_vs = self.controller.view_states.get(target_id)
+            if not target_vs:
+                continue
 
             if target_id == source_vs_id:
                 source_vox = source_vs.camera.crosshair_voxel
@@ -110,7 +113,7 @@ class SyncManager:
 
             # --- Pure Physical Coordinates for Value Lookup ---
             # By passing is_buffered=False, we force the SpatialEngine to map the world coordinate
-            # backwards through any active transforms straight into the original RAW array!
+            # backwards through any active transforms straight into the original RAW array.
             raw_vox = target_vs.space.world_to_display(
                 target_vs.camera.crosshair_phys_coord, is_buffered=False
             )
@@ -119,17 +122,20 @@ class SyncManager:
             mz, my, mx = target_vs.volume.shape3d
             if 0 <= ix < mx and 0 <= iy < my and 0 <= iz < mz:
                 t = min(target_vs.camera.time_idx, target_vs.volume.num_timepoints - 1)
-                if target_vs.volume.num_timepoints > 1:
-                    target_vs.crosshair_value = target_vs.volume.data[t, iz, iy, ix]
-                else:
-                    target_vs.crosshair_value = target_vs.volume.data[iz, iy, ix]
+                target_vs.crosshair_value = (
+                    target_vs.volume.data[t, iz, iy, ix]
+                    if target_vs.volume.num_timepoints > 1
+                    else target_vs.volume.data[iz, iy, ix]
+                )
             else:
                 target_vs.crosshair_value = None
 
         self.trigger_redraw(target_ids)
 
     def propagate_colormap(self, source_vs_id):
-        source_vs = self.controller.view_states[source_vs_id]
+        source_vs = self.controller.view_states.get(source_vs_id)
+        if not source_vs:
+            return
         dirty_ids = set([source_vs_id])
 
         # --- NEW DECOUPLED W/L LOGIC ---
@@ -144,7 +150,9 @@ class SyncManager:
         self.trigger_redraw(list(dirty_ids))
 
     def propagate_window_level(self, source_vs_id):
-        source_vs = self.controller.view_states[source_vs_id]
+        source_vs = self.controller.view_states.get(source_vs_id)
+        if not source_vs:
+            return
         dirty_ids = set([source_vs_id])
 
         # 1. GROUP SYNC (Horizontal) - NEW DECOUPLED W/L LOGIC
@@ -155,12 +163,13 @@ class SyncManager:
                     vs.display.ww = source_vs.display.ww
                     vs.display.wl = source_vs.display.wl
                     vs.display.base_threshold = source_vs.display.base_threshold
-                    vs.is_data_dirty = True
                     dirty_ids.add(vs_id)
 
         # 2. OVERLAY SYNC (Vertical - Top-Down & Bottom-Up)
         for tid in list(dirty_ids):
-            t_vs = self.controller.view_states[tid]
+            t_vs = self.controller.view_states.get(tid)
+            if not t_vs:
+                continue
 
             # 1. Top-Down
             if t_vs.display.overlay_id and t_vs.display.overlay_mode == "Registration":
@@ -197,7 +206,7 @@ class SyncManager:
         max_ppm = max([v.get_pixels_per_mm() for v in valid_viewers] + [0])
 
         if max_ppm > 0:
-            # State-Only: Just write the target to the shared memory!
+            # State-Only: Just write the target to the shared memory.
             for viewer in valid_viewers:
                 viewer.view_state.camera.target_ppm = max_ppm
 
@@ -214,9 +223,11 @@ class SyncManager:
 
         target_ppm = source_viewer.get_pixels_per_mm()
 
-        # State-Only: Just write the targets to the synced ViewStates!
+        # State-Only: Just write the targets to the synced ViewStates.
         for tid in target_ids:
-            vs = self.controller.view_states[tid]
+            vs = self.controller.view_states.get(tid)
+            if not vs:
+                continue
             vs.camera.target_ppm = target_ppm
             vs.camera.target_center = phys_center
 
@@ -257,17 +268,23 @@ class SyncManager:
             source_viewer.image_id, active_only=True
         )
 
-        # State-Only: Write the physical coordinate to synced ViewStates!
+        # State-Only: Write the physical coordinate to synced ViewStates.
         for tid in target_ids:
             if tid != source_viewer.image_id:
-                self.controller.view_states[tid].camera.target_tracker_phys = phys
+                vs = self.controller.view_states.get(tid)
+                if vs:
+                    vs.camera.target_tracker_phys = phys
 
     def propagate_overlay_mode(self, source_vs_id):
-        source_vs = self.controller.view_states[source_vs_id]
+        source_vs = self.controller.view_states.get(source_vs_id)
+        if not source_vs:
+            return
         target_ids = self.get_sync_group_vs_ids(source_vs_id)
 
         for tid in target_ids:
-            vs = self.controller.view_states[tid]
+            vs = self.controller.view_states.get(tid)
+            if not vs:
+                continue
             vs.display.overlay_mode = source_vs.display.overlay_mode
             vs.display.overlay_checkerboard_size = (
                 source_vs.display.overlay_checkerboard_size
@@ -288,7 +305,7 @@ class SyncManager:
 
         # Trigger the sync propagation logic you built in Step 2
         # (Assuming the first loaded view state acts as the master)
-        first_vs_id = list(self.controller.view_states.keys())[0]
+        first_vs_id = next(iter(self.controller.view_states))
         self.controller.set_sync_group(first_vs_id, 1)
         self.controller.ui_needs_refresh = True
 
@@ -309,8 +326,8 @@ class SyncManager:
         for vs in self.controller.view_states.values():
             vs.sync_wl_group = 1
 
-        # State-Only Fix: Instantly broadcast the W/L and Colormap to the whole group!
-        first_vs_id = list(self.controller.view_states.keys())[0]
+        # State-Only: Instantly broadcast the W/L and Colormap to the whole group.
+        first_vs_id = next(iter(self.controller.view_states))
         self.propagate_window_level(first_vs_id)
         self.propagate_colormap(first_vs_id)
 

@@ -102,7 +102,9 @@ class ROIManager:
             mask_vol.data = mask_vol.data[z0:z1, y0:y1, x0:x1]
 
         # Update the SimpleITK image to reflect this small, dense block of data
-        new_origin = mask_vol.sitk_image.TransformIndexToPhysicalPoint((int(x0), int(y0), int(z0)))
+        new_origin = mask_vol.sitk_image.TransformIndexToPhysicalPoint(
+            (int(x0), int(y0), int(z0))
+        )
 
         cropped_sitk = sitk.GetImageFromArray(mask_vol.data)
         cropped_sitk.SetSpacing(mask_vol.sitk_image.GetSpacing())
@@ -112,12 +114,18 @@ class ROIManager:
 
         # --- 2. CHECK FOR PERFECT ALIGNMENT ---
         spacing_match = np.allclose(mask_vol.spacing, base_vol.spacing, atol=1e-4)
-        dir_match = np.allclose(mask_vol.sitk_image.GetDirection(), base_vol.sitk_image.GetDirection(), atol=1e-4)
+        dir_match = np.allclose(
+            mask_vol.sitk_image.GetDirection(),
+            base_vol.sitk_image.GetDirection(),
+            atol=1e-4,
+        )
 
         if spacing_match and dir_match:
-            base_idx = base_vol.sitk_image.TransformPhysicalPointToContinuousIndex(new_origin)
+            base_idx = base_vol.sitk_image.TransformPhysicalPointToContinuousIndex(
+                new_origin
+            )
             if np.allclose(base_idx, np.round(base_idx), atol=1e-3):
-                # FAST PATH: It perfectly aligns! Just calculate the offset.
+                # FAST PATH: It perfectly aligns. Just calculate the offset.
                 bx, by, bz = [int(round(v)) for v in base_idx]
                 sz, sy, sx = mask_vol.data.shape[-3:]
                 mask_vol.roi_bbox = (bz, bz + sz, by, by + sy, bx, bx + sx)
@@ -127,14 +135,22 @@ class ROIManager:
         # Find the physical corners of our tiny cropped ROI
         sz, sy, sx = mask_vol.data.shape[-3:]
         corners = [
-            (0, 0, 0), (sx, 0, 0), (0, sy, 0), (sx, sy, 0),
-            (0, 0, sz), (sx, 0, sz), (0, sy, sz), (sx, sy, sz)
+            (0, 0, 0),
+            (sx, 0, 0),
+            (0, sy, 0),
+            (sx, sy, 0),
+            (0, 0, sz),
+            (sx, 0, sz),
+            (0, sy, sz),
+            (sx, sy, sz),
         ]
 
         base_indices = []
         for c in corners:
             phys_pt = mask_vol.sitk_image.TransformIndexToPhysicalPoint(c)
-            base_indices.append(base_vol.sitk_image.TransformPhysicalPointToContinuousIndex(phys_pt))
+            base_indices.append(
+                base_vol.sitk_image.TransformPhysicalPointToContinuousIndex(phys_pt)
+            )
 
         base_indices = np.array(base_indices)
 
@@ -152,8 +168,19 @@ class ROIManager:
             mask_vol.roi_bbox = (0, 0, 0, 0, 0, 0)
             return
 
-        # Slice a tiny sub-grid out of the base image metadata
-        ref_image = base_vol.sitk_image[min_x:max_x, min_y:max_y, min_z:max_z]
+        # Build a pure 3D reference grid to prevent SimpleITK dimension mismatches
+        ref_image = sitk.Image(
+            int(max_x - min_x),
+            int(max_y - min_y),
+            int(max_z - min_z),
+            sitk.sitkUInt8,
+        )
+        ref_origin = base_vol.voxel_coord_to_physic_coord(
+            np.array([min_x, min_y, min_z])
+        )
+        ref_image.SetSpacing(base_vol.spacing.tolist())
+        ref_image.SetOrigin(ref_origin.tolist())
+        ref_image.SetDirection(base_vol.matrix.flatten().tolist())
 
         resampler = sitk.ResampleImageFilter()
         resampler.SetReferenceImage(ref_image)
@@ -179,9 +206,12 @@ class ROIManager:
 
             # The final bounding box is the base slice offset + the final crop offset
             mask_vol.roi_bbox = (
-                min_z + z0, min_z + z1,
-                min_y + y0, min_y + y1,
-                min_x + x0, min_x + x1
+                min_z + z0,
+                min_z + z1,
+                min_y + y0,
+                min_y + y1,
+                min_x + x0,
+                min_x + x1,
             )
         else:
             mask_vol.roi_bbox = (0, 0, 0, 0, 0, 0)
@@ -190,7 +220,6 @@ class ROIManager:
         mask_vol.shape3d = base_vol.shape3d
         mask_vol.spacing = base_vol.spacing
         mask_vol.origin = base_vol.origin
-
 
     # ==========================================
     # PUBLIC ROI API
@@ -237,13 +266,13 @@ class ROIManager:
         return loaded_count
 
     def load_binary_mask(
-            self,
-            base_id,
-            filepath,
-            name=None,
-            color=None,
-            mode="Ignore BG (val)",
-            target_val=0.0,
+        self,
+        base_id,
+        filepath,
+        name=None,
+        color=None,
+        mode="Ignore BG (val)",
+        target_val=0.0,
     ):
         if color is None:
             color = [255, 50, 50]
@@ -288,7 +317,6 @@ class ROIManager:
         vs.is_data_dirty = True
 
         return mask_id
-
 
     def get_roi_stats(self, base_vs_id, roi_id, is_overlay=False):
         if (
@@ -380,7 +408,7 @@ class ROIManager:
 
         self.controller.sync.propagate_sync(base_id)
 
-        # State-Only: Write the target center to the synced ViewStates!
+        # State-Only: Write the target center to the synced ViewStates.
         target_ids = self.controller.sync.get_sync_group_vs_ids(
             base_id, active_only=True
         )

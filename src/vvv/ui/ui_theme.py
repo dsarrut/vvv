@@ -101,6 +101,12 @@ def register_dynamic_themes(ui_cfg, controller):
                 dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, disabled_bg)
                 dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["text_muted"])
 
+            with dpg.theme_component(dpg.mvDragFloat, enabled_state=False):
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, disabled_bg)
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, disabled_bg)
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, disabled_bg)
+                dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["text_muted"])
+
             with dpg.theme_component(dpg.mvInputFloat, enabled_state=False):
                 dpg.add_theme_color(dpg.mvThemeCol_FrameBg, disabled_bg)
                 dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, disabled_bg)
