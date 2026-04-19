@@ -368,9 +368,9 @@ class SliceViewer:
                 self.center_on_physical_coord(old_center)
             self.controller.sync.propagate_camera(self)
 
-    def init_slice_texture(self):
+    def ensure_texture_exists(self):
         if not self.is_image_orientation() or not self.volume:
-            return
+            return False
 
         shape = self.get_slice_shape()
         h, w = shape[0], shape[1]
@@ -393,13 +393,13 @@ class SliceViewer:
         if self.texture_tag == new_texture_tag and dpg.does_item_exist(
             self.texture_tag
         ):
-            return
+            return False
 
-        # 3. If the size changed, cleanly delete the old drawing command
-        if dpg.does_item_exist(self.img_node_tag):
-            dpg.delete_item(self.img_node_tag, children_only=True)
+        # --- FIX: Clean up the old texture from VRAM to prevent memory leaks and clear Linux ghosting ---
+        if self.texture_tag and self.texture_tag != new_texture_tag:
+            if dpg.does_item_exist(self.texture_tag):
+                dpg.delete_item(self.texture_tag)
 
-        # 5. Create the new texture buffer with the new unique alias
         if not dpg.does_item_exist(new_texture_tag):
             dpg.add_dynamic_texture(
                 width=w,
@@ -411,9 +411,14 @@ class SliceViewer:
 
         # 6. Update the viewer's state to track the new texture
         self.texture_tag = new_texture_tag
+        return True
+
+    def bind_texture_to_node(self):
+        # 3. If the size changed, cleanly delete the old drawing command
+        if dpg.does_item_exist(self.img_node_tag):
+            dpg.delete_item(self.img_node_tag, children_only=True)
 
         # 7. Re-bind the image quad to the screen
-        # print(f"[DEBUG Frame] Creating image node at pmin={self.current_pmin}, pmax={self.current_pmax}")
         if dpg.does_item_exist(self.img_node_tag):
             self.image_tag = dpg.draw_image(
                 self.texture_tag,
@@ -782,9 +787,10 @@ class SliceViewer:
                 self.pan_offset,
             )
 
-        # --- 4. ATOMIC UI CREATION ---
+        # --- 4. ATOMIC UI CREATION (Part 1: Texture) ---
+        texture_changed = False
         if rebuild_texture:
-            self.init_slice_texture()
+            texture_changed = self.ensure_texture_exists()
 
         # --- 5. DATA UPLOAD ---
         needs_reblend = self.view_state.is_data_dirty or self.is_viewer_data_dirty
@@ -798,10 +804,14 @@ class SliceViewer:
             self.is_geometry_dirty = True
             did_update_data = True
 
+        # --- 4. ATOMIC UI CREATION (Part 2: Binding) ---
+        if rebuild_texture and texture_changed:
+            self.bind_texture_to_node()
+
         # --- 6. GEOMETRY PUSH ---
         if self.is_geometry_dirty:
             # ONLY call resize if we didn't just create the node via draw_image
-            if not rebuild_texture:
+            if not (rebuild_texture and texture_changed):
                 self.resize(win_w, win_h)
             self.update_stuff_in_image_only()
             self.is_geometry_dirty = False
@@ -1223,7 +1233,7 @@ class SliceViewer:
             )
             rgba_flat = rgba_mapped.ravel()
 
-        if dpg.does_item_exist(self.image_tag):
+        if dpg.does_item_exist(self.texture_tag):
             dpg.set_value(self.texture_tag, rgba_flat)
 
     def should_use_voxels_strips(self):
