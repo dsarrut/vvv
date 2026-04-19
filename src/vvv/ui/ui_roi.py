@@ -1,6 +1,7 @@
 import os
 import json
 import dearpygui.dearpygui as dpg
+from vvv.ui.ui_components import build_section_title
 from vvv.ui.ui_sequences import load_batch_rois_sequence
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 
@@ -8,18 +9,18 @@ from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 class RoiUI:
     """
     ARCHITECTURE MANDATES (UI Components):
-    1. REACTIVE REFRESH ONLY: This class must only rebuild its ROI list when 
-       'refresh_rois_ui' is called by the MainGUI. Trigger refreshes via 
+    1. REACTIVE REFRESH ONLY: This class must only rebuild its ROI list when
+       'refresh_rois_ui' is called by the MainGUI. Trigger refreshes via
        'self.controller.ui_needs_refresh = True'.
 
-    2. STATE-DRIVEN BUILDING: The ROI table must be a direct reflection of 
+    2. STATE-DRIVEN BUILDING: The ROI table must be a direct reflection of
        the 'ViewState.rois' dictionary.
 
-    3. ONE-WAY DATA FLOW: Callbacks (visibility toggle, color change) must 
-       update the 'ViewState' directly. The UI will reflect these changes 
+    3. ONE-WAY DATA FLOW: Callbacks (visibility toggle, color change) must
+       update the 'ViewState' directly. The UI will reflect these changes
        automatically on the next reactive frame.
 
-    4. DECOUPLED LOGIC: Keep ROI math (statistics, binarization) in the 
+    4. DECOUPLED LOGIC: Keep ROI math (statistics, binarization) in the
        'ROIManager' or 'math' modules. This class is purely for layout.
     """
 
@@ -37,8 +38,7 @@ class RoiUI:
         with dpg.tab(label="ROIs", tag="tab_rois"):  # Reverted label
             dpg.add_spacer(height=5)
 
-            dpg.add_text("ROI", color=cfg_c["text_header"])
-            dpg.add_separator()
+            build_section_title("ROI", cfg_c["text_header"])
 
             # --- TOP: Load & Import ---
             with dpg.group(horizontal=True):
@@ -111,8 +111,7 @@ class RoiUI:
             dpg.add_spacer(height=10)
 
             # --- BOTTOM: The Detail Panel ---
-            dpg.add_text("Selected ROI Properties", color=cfg_c["text_header"])
-            dpg.add_separator()
+            build_section_title("Selected ROI Properties", cfg_c["text_header"])
 
             with dpg.child_window(border=False, no_scrollbar=True):
                 dpg.add_group(tag="roi_detail_container")
@@ -358,7 +357,6 @@ class RoiUI:
                         dpg.add_text("---", tag="roi_stat_mass")
 
         self.update_roi_stats_ui()
-
 
     def clear_roi_stats(self):
         tags = [

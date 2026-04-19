@@ -1,6 +1,7 @@
 import time
 import threading
 import dearpygui.dearpygui as dpg
+from vvv.ui.ui_components import build_section_title
 
 
 class FusionUI:
@@ -15,8 +16,7 @@ class FusionUI:
         cfg_c = gui.ui_cfg["colors"]
         with dpg.tab(label="Fusion", tag="tab_fusion"):
             dpg.add_spacer(height=5)
-            dpg.add_text("Active Fusion", color=cfg_c["text_header"])
-            dpg.add_separator()
+            build_section_title("Active Fusion", cfg_c["text_header"])
             with dpg.group(tag="image_fusion_group"):
                 with dpg.group(horizontal=True):
                     dpg.add_text("Base   ")

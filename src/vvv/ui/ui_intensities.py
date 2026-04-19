@@ -1,7 +1,7 @@
 import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.config import WL_PRESETS, COLORMAPS
-from vvv.ui.ui_components import build_stepped_slider
+from vvv.ui.ui_components import build_stepped_slider, build_section_title
 
 
 class IntensitiesUI:
@@ -17,8 +17,7 @@ class IntensitiesUI:
 
         with dpg.tab(label="Intensities", tag="tab_intensities"):
             dpg.add_spacer(height=5)
-            dpg.add_text("Window / Level", color=cfg_c["text_header"])
-            dpg.add_separator()
+            build_section_title("Window / Level", cfg_c["text_header"])
 
             with dpg.group(horizontal=True):
                 dpg.add_text("Preset: ")
@@ -45,8 +44,7 @@ class IntensitiesUI:
             )
 
             dpg.add_spacer(height=10)
-            dpg.add_text("Colormap & Threshold", color=cfg_c["text_header"])
-            dpg.add_separator()
+            build_section_title("Colormap & Threshold", cfg_c["text_header"])
 
             with dpg.group(horizontal=True):
                 dpg.add_text("Map:    ")

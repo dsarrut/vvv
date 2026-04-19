@@ -13,6 +13,7 @@ from vvv.ui.ui_intensities import IntensitiesUI
 from vvv.ui.ui_registration import RegistrationUI
 from vvv.resources import load_fonts, setup_themes
 from vvv.ui.ui_interaction import InteractionManager
+from vvv.ui.ui_components import build_section_title
 from vvv.ui.ui_sync import build_tab_sync, refresh_sync_ui
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 from vvv.ui.ui_theme import build_ui_config, register_dynamic_themes
@@ -251,8 +252,7 @@ class MainGUI:
 
         # --- Panel 1: Active Viewer ---
         with dpg.child_window(tag="av_panel", border=False, no_scrollbar=True):
-            dpg.add_text("Active Viewer", color=cfg_c["text_header"])
-            dpg.add_separator()
+            build_section_title("Active Viewer", cfg_c["text_header"])
             with dpg.group(tag="image_info_group"):
                 self.create_labeled_field("", tag="info_name")
 
@@ -280,8 +280,7 @@ class MainGUI:
 
         # --- Panel 2: Crosshair ---
         with dpg.child_window(tag="ch_panel", border=False, no_scrollbar=True):
-            dpg.add_text("Crosshair", color=cfg_c["text_header"])
-            dpg.add_separator()
+            build_section_title("Crosshair", cfg_c["text_header"])
             with dpg.group(tag="image_crosshair_group"):
                 self.create_labeled_field("Value", tag="info_val")
                 self.create_labeled_field("Voxel", tag="info_vox")

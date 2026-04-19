@@ -1,6 +1,12 @@
 import dearpygui.dearpygui as dpg
 
 
+def build_section_title(label, color):
+    """A reusable UI component for a section title with a horizontal separator."""
+    dpg.add_text(label, color=color)
+    dpg.add_separator()
+
+
 def build_stepped_slider(
     label,
     tag,

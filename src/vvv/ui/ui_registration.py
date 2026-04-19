@@ -5,7 +5,7 @@ import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 from vvv.utils import ViewMode, voxel_to_slice
-from vvv.ui.ui_components import build_stepped_slider
+from vvv.ui.ui_components import build_stepped_slider, build_section_title
 
 
 class RegistrationUI:
@@ -52,8 +52,7 @@ class RegistrationUI:
         with dpg.tab(label="Reg", tag="tab_reg"):
             dpg.add_spacer(height=5)
 
-            dpg.add_text("Registration", color=cfg_c["text_header"])
-            dpg.add_separator()
+            build_section_title("Registration", cfg_c["text_header"])
 
             dpg.add_text(
                 "No Image Selected",
@@ -106,8 +105,7 @@ class RegistrationUI:
 
             # --- MIDDLE: Read-Only Math (Matrix & CoR) ---
             dpg.add_spacer(height=10)
-            dpg.add_text("Affine Matrix", color=cfg_c["text_header"])
-            dpg.add_separator()
+            build_section_title("Affine Matrix", cfg_c["text_header"])
             with dpg.group(tag="group_reg_matrix"):
                 with dpg.table(
                     header_row=False,
@@ -143,10 +141,9 @@ class RegistrationUI:
 
             # --- BOTTOM: Manual 6-DOF Tweaking ---
             dpg.add_spacer(height=10)
-            dpg.add_text(
-                "Rigid Adjustment (Euler R = Rz Ry Rx)", color=cfg_c["text_header"]
+            build_section_title(
+                "Rigid Adjustment (Euler R = Rz Ry Rx)", cfg_c["text_header"]
             )
-            dpg.add_separator()
             with dpg.group(horizontal=True):
                 dpg.add_text("Step:")
                 dpg.add_radio_button(
