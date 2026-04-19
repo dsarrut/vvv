@@ -1305,8 +1305,6 @@ class SliceViewer:
             dpg.configure_item(self.active_grid_node, show=False)
 
         if self.view_state.camera.show_axis:
-            dpg.configure_item(self.axes_nodes[0], show=True)
-            dpg.configure_item(self.axes_nodes[1], show=True)
             self.drawer.draw_orientation_axes()
         else:
             dpg.configure_item(self.axis_a_tag, show=False)

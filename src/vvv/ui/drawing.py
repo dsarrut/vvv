@@ -199,6 +199,9 @@ class OverlayDrawer:
         current_state = viewer.orientation
         if getattr(self, "_last_axes_state", None) == current_state:
             dpg.configure_item(viewer.axes_nodes[viewer.active_axes_idx], show=True)
+            dpg.configure_item(
+                viewer.axes_nodes[1 - viewer.active_axes_idx], show=False
+            )
             return
         self._last_axes_state = current_state
 
