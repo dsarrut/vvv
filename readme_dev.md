@@ -1,8 +1,8 @@
 # Developer Guide: VVV Architecture
 
-This application is a highly optimized medical image viewer built with Python, SimpleITK, and DearPyGui (DPG).
+This application is an optimized medical image viewer built with Python, SimpleITK, and DearPyGui (DPG).
 
-The architecture follows a strict **Model-View-Controller (MVC)** pattern. To maintain peak performance while handling massive 3D and 4D volumetric datasets, the application separates the heavy immutable physical data from the transient UI viewing state, and uses "dirty flags" to ensure the GPU only updates what has actually changed.
+The architecture follows a **Model-View-Controller (MVC)** pattern. To maintain performance while handling 3D and 4D volumetric datasets, the application separates the immutable physical data from the transient UI viewing state, and uses "dirty flags" to ensure the GPU only updates what has actually changed.
 
 ---
 
@@ -10,12 +10,12 @@ The architecture follows a strict **Model-View-Controller (MVC)** pattern. To ma
 
 ### 1. The Headless Backend (`config.py`, `math/image.py`, `core.py`)
 
-**Rule:** *These files must remain completely framework-agnostic. They do not know DearPyGui exists and handle pure data, state, and math.*
+**Rule:** *These files must remain framework-agnostic. They do not know DearPyGui exists and handle pure data, state, and math.*
 
 * **`config.py` (The Data Constants):** The single source of truth for hardcoded application defaults. Contains `DEFAULT_SETTINGS` (shortcuts, colors, layout), `WL_PRESETS`, and the mathematical generators for `COLORMAPS`.
 * **`math/image.py` (The Pipeline):**
     * **`VolumeData`:** The immutable source of truth for a loaded image. Manages the SimpleITK image, 4D stacking (`sitk.JoinSeries`), and the zero-copy NumPy array. Stores physical metadata and handles 3D spatial math (voxels to millimeters).
-    * **`SliceRenderer`:** A stateless, highly-optimized utility. It slices 3D/4D NumPy arrays, applies Window/Level transfer functions, processes overlay blending modes (like Alpha, Registration, and Checkerboard), and packs the final 1D RGBA arrays for the GPU.
+    * **`SliceRenderer`:** A stateless, optimized utility. It slices 3D/4D NumPy arrays, applies Window/Level transfer functions, processes overlay blending modes (like Alpha, Registration, and Checkerboard), and packs the final 1D RGBA arrays for the GPU.
 * **`core.py` (The Brain):** Manages the central `Controller` state. It holds the active `ViewStates` (camera, display settings) and orchestrates loading files, saving workspaces, and dispatching synchronization commands between viewers.
 
 ### 2. The View (`gui.py`, `viewer.py`, `ui/`)
@@ -23,7 +23,7 @@ The architecture follows a strict **Model-View-Controller (MVC)** pattern. To ma
 **Rule:** *The UI layer listens to the Controller and dispatches commands back to it. It does not perform physical data manipulation directly.*
 
 * **`gui.py` (The Window Manager):** Initializes the DearPyGui context, manages the global layout engine (`on_window_resize`), and runs the main render loop. It delegates tab building and specific business logic to the modular `ui_*.py` files.
-* **`viewer.py` (`SliceViewer`):** Represents a single 2D viewport. It maps screen pixels to physical coordinates, manages zooming/panning math, and acts as the bridge between DearPyGui's `drawlist` and the `SliceRenderer`.
+* **`viewer.py` (`SliceViewer`):** Represents a single 2D viewport. It maps screen pixels to physical coordinates, manages zooming/panning math, and acts as the bridge between DearPyGui's `drawlist` and the `SliceRenderer`. It also manages the advanced rendering pipeline for interpolations: standard **Linear**, true **Nearest Neighbor** (pixelated zoom achieved by dynamically matching the GPU texture to the exact screen canvas size), and **Voxel Strips** (bypassing textures entirely to render geometric primitives at massive zoom levels).
 * **The `ui/` Sub-modules:** To prevent `gui.py` from becoming a "God Object", specific domains are extracted into their own files:
     * `ui_sync.py`, `ui_fusion.py`, `ui_roi.py`, `ui_image_list.py`: These build specific sidebar tabs and handle the callbacks for their respective inputs. Callbacks should modify the `ViewState` directly or set `controller.ui_needs_refresh = True` to trigger UI updates.
     * `ui_notifications.py`: The central hub for all popups, progress bars (`show_loading_modal`), and top-bar status text.
@@ -37,15 +37,16 @@ When a user adjusts a slider or pans the image, the application follows a strict
 1.  **Input & Mutation:** The user interacts with a UI element. The corresponding callback in a `ui/` module or `gui.py` updates a property on the `ViewState` (e.g., `view_state.display.ww`) or sets a flag on the controller (e.g., `controller.ui_needs_refresh = True`).
 2.  **Synchronization:** If a `ViewState` property was changed, the `SyncManager` may be invoked to propagate that change to other viewers in the same sync group.
 3.  **The `tick()` Assessment:** During the main render loop in `gui.py`, `controller.tick()` is called. Each viewer checks its dirty flags:
-    *   *If `is_geometry_dirty`:* Recalculates the ViewportMapper bounding boxes.
-    *   *If `is_data_dirty`:* Forces the `SliceRenderer` to slice the NumPy array, apply the W/L, and push the new 1D RGBA array to the GPU texture registry.
+    *   *If `is_geometry_dirty`:* Recalculates the ViewportMapper bounding boxes. If Nearest Neighbor interpolation is active, this also triggers a precise software-side screen mapping recalculation.
+    *   *Texture Rebuilds:* If the image size, orientation, or interpolation mode changes, the viewer safely purges old GPU textures and atomically binds a newly sized dynamic texture to prevent OpenGL ghosting.
+    *   *If `is_data_dirty` (or Texture Rebuilt):* Forces the `SliceRenderer` to slice the NumPy array, apply the W/L, and push the new 1D RGBA array to the active GPU texture.
     *   If `controller.ui_needs_refresh` is true, the relevant UI panels are rebuilt.
 
 ---
 
 ## Spatial Nomenclature
 
-To prevent coordinate math bugs, this application strictly defines spatial terms:
+To prevent coordinate math bugs, this application defines spatial terms:
 
 * **Voxel (`voxel_x`, `voxel_y`, `voxel_z`, `time_idx`):** The 3D/4D integer indices of the NumPy array (e.g., `[512, 512, 120, 0]`). Used exclusively to extract physical pixel values.
 * **Physical (`phys_x`, `phys_y`, `phys_z`):** The real-world spatial coordinates in millimeters, calculated using the image's spacing and origin. Used for cross-image synchronization and overlay registration.

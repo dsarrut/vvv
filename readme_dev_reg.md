@@ -9,7 +9,11 @@ Dynamic Pivot (CoR): Allows users to snap the Center of Rotation to any crosshai
 
 Robust Transform I/O: Reads/writes .tfm, .mat, and .txt files. Automatically applies SVD (Singular Value Decomposition) to correct rounding errors in imported rotation matrices.
 
-Performance Toggles: Uses a 0.3s debouncer for smooth slider dragging
+World-Fixed Anchoring: When manually adjusting rigid parameters, the viewer automatically calculates the camera pan and slice shifts required to keep the crosshair pinned to the exact same anatomical physical point. This prevents the image from flying off-screen during heavy rotation.
+
+Seamless File Management: Automatically tracks the origin path of loaded transforms, enabling quick "Save" overwrites without re-opening the file dialog.
+
+Performance Toggles: Uses a 0.3s background thread debouncer (`trigger_debounced_rotation_update`) for smooth slider dragging. The heavy 3D ITK resampling happens strictly off the main thread to keep the 60fps DearPyGui render loop completely fluid.
 
 2. Limitations
 Quantitative Data Loss on Oblique Load: Because the "Straighten on Load" strategy uses a 3D resampler, it slightly interpolates the raw voxel values of tilted images. For rigorous quantitative tasks, analyzing this interpolated array instead of the raw scanner data could introduce inaccuracies.
@@ -27,4 +31,7 @@ SpatialEngine (The Math Layer): Wraps SimpleITK's native TransformContinuousInde
 
 ViewState (The Visual Bridge): Owns the update_base_display_data methods, triggering the heavy ITK 3D resamplers only when the math needs to be baked into 2D display arrays.
 
-RegistrationUI & Controller: Handles user interactions, debouncing timers, and file parsing.
+RegistrationUI & Controller: Handles user interactions, debouncing timers, and file parsing adhering to strict UI architecture mandates:
+- **Reactive Refresh Only:** Never imperatively updates UI widgets. Sets `controller.ui_needs_refresh = True` and lets the main render loop rebuild the view.
+- **State-Driven Building:** Sliders and inputs always pull their `default_value` directly from the `SpatialEngine`'s transform matrix.
+- **Thread Safety:** Background ITK resampling threads never invoke UI functions directly, ensuring absolute thread safety via asynchronous status messages.
