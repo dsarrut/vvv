@@ -52,6 +52,7 @@ class MainGUI:
         self.image_label_tags = {}
         self.sync_label_tags = {}
         self.ui_cfg = None
+        self.current_workspace_path = None
 
         # internal states
         self._is_roi_tab_active = None
@@ -160,15 +161,6 @@ class MainGUI:
 
                     dpg.add_separator()
 
-                    dpg.add_menu_item(
-                        label="Open Workspace...",
-                        callback=self.on_open_workspace_clicked,
-                    )
-                    dpg.add_menu_item(
-                        label="Save Workspace As...",
-                        callback=self.on_save_workspace_clicked,
-                    )
-
                     # Fetch the current setting state
                     auto_save = self.controller.settings.data.get("behavior", {}).get(
                         "auto_save_history", True
@@ -188,6 +180,22 @@ class MainGUI:
                         callback=lambda: self.settings_window.show(),
                     )
                     dpg.add_menu_item(label="Exit", callback=self.cleanup)
+
+                with dpg.menu(label="Workspace"):
+                    dpg.add_menu_item(
+                        label="Open Workspace...",
+                        callback=self.on_open_workspace_clicked,
+                    )
+                    dpg.add_menu_item(
+                        label="Save Workspace As...",
+                        callback=self.on_save_workspace_clicked,
+                    )
+                    dpg.add_menu_item(
+                        label="Save Workspace",
+                        tag="menu_save_workspace",
+                        show=False,
+                        callback=self.on_save_workspace_current_clicked,
+                    )
 
                 with dpg.menu(label="Help"):
                     dpg.add_menu_item(
@@ -1041,6 +1049,8 @@ class MainGUI:
                 file_path += ".vvw"
 
             self.controller.file.save_workspace(file_path)
+            self.current_workspace_path = file_path
+            self.update_workspace_menu_state()
             self.show_status_message(f"Workspace saved: {os.path.basename(file_path)}")
 
     def on_open_workspace_clicked(self, sender=None, app_data=None, user_data=None):
@@ -1049,8 +1059,31 @@ class MainGUI:
         )
 
         if file_path:
+            self.current_workspace_path = file_path
+            self.update_workspace_menu_state()
             # open_file_dialog returns a string when multiple=False
             self.tasks.append(load_workspace_sequence(self, self.controller, file_path))
+
+    def on_save_workspace_current_clicked(
+        self, sender=None, app_data=None, user_data=None
+    ):
+        if self.current_workspace_path:
+            self.controller.file.save_workspace(self.current_workspace_path)
+            self.show_status_message(
+                f"Workspace saved: {os.path.basename(self.current_workspace_path)}"
+            )
+
+    def update_workspace_menu_state(self):
+        if dpg.does_item_exist("menu_save_workspace"):
+            if self.current_workspace_path:
+                display_name = os.path.basename(self.current_workspace_path)
+                dpg.configure_item(
+                    "menu_save_workspace",
+                    show=True,
+                    label=f"Save Workspace ({display_name})",
+                )
+            else:
+                dpg.configure_item("menu_save_workspace", show=False)
 
     def on_tab_changed(self, sender, app_data, user_data):
         tab_tag = app_data
@@ -1199,6 +1232,8 @@ class MainGUI:
 
     def load_workspace_sequence(self, file_path):
         """Wrapper to pass the CLI workspace request into the external Sequence Manager."""
+        self.current_workspace_path = file_path
+        self.update_workspace_menu_state()
         return load_workspace_sequence(self, self.controller, file_path)
 
     def create_boot_sequence(self, image_tasks, sync=False, link_all=False):
