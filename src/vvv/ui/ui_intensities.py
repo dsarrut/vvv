@@ -1,3 +1,4 @@
+import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.config import WL_PRESETS, COLORMAPS
 
@@ -82,13 +83,16 @@ class IntensitiesUI:
             with dpg.group(horizontal=True):
                 dpg.add_checkbox(
                     tag="check_min_threshold",
+                    enabled=False,
                     callback=gui.intensities_ui.on_threshold_toggle,
                 )
                 dpg.add_text("Min Thr:")
                 dpg.add_button(
                     label="-",
                     width=20,
+                    tag="btn_min_threshold_minus",
                     user_data={"tag": "drag_min_threshold", "dir": -1},
+                    enabled=False,
                     callback=gui.intensities_ui.on_step_button_clicked,
                 )
                 dpg.add_drag_float(
@@ -97,14 +101,23 @@ class IntensitiesUI:
                     speed=1.0,
                     min_value=-1e9,
                     max_value=1e9,
+                    default_value=0.0,
+                    enabled=False,
                     callback=gui.intensities_ui.on_threshold_changed,
                 )
                 dpg.add_button(
                     label="+",
                     width=20,
+                    tag="btn_min_threshold_plus",
                     user_data={"tag": "drag_min_threshold", "dir": 1},
+                    enabled=False,
                     callback=gui.intensities_ui.on_step_button_clicked,
                 )
+
+            dpg.add_spacer(height=5)
+            with dpg.group(horizontal=True):
+                dpg.add_text("Image Range:", color=cfg_c["text_dim"])
+                dpg.add_text("---", tag="text_intensities_minmax")
 
     def refresh_intensities_ui(self):
         viewer = self.gui.context_viewer
@@ -141,9 +154,27 @@ class IntensitiesUI:
         if dpg.does_item_exist("drag_min_threshold"):
             if has_thr and not dpg.is_item_active("drag_min_threshold"):
                 dpg.set_value("drag_min_threshold", thr)
-            dpg.configure_item(
-                "drag_min_threshold", enabled=(has_image and not is_rgb and has_thr)
-            )
+
+            thr_enabled = has_image and not is_rgb and has_thr
+            dpg.configure_item("drag_min_threshold", enabled=thr_enabled)
+            if dpg.does_item_exist("btn_min_threshold_minus"):
+                dpg.configure_item("btn_min_threshold_minus", enabled=thr_enabled)
+            if dpg.does_item_exist("btn_min_threshold_plus"):
+                dpg.configure_item("btn_min_threshold_plus", enabled=thr_enabled)
+
+        if dpg.does_item_exist("text_intensities_minmax"):
+            if not has_image or is_rgb:
+                dpg.set_value("text_intensities_minmax", "---")
+            else:
+                vol = viewer.volume
+                if not hasattr(vol, "_cached_min_val"):
+                    # Lazy evaluation of image min and max
+                    vol._cached_min_val = float(np.min(vol.data))
+                    vol._cached_max_val = float(np.max(vol.data))
+
+                min_v = vol._cached_min_val
+                max_v = vol._cached_max_val
+                dpg.set_value("text_intensities_minmax", f"{min_v:g} to {max_v:g}")
 
         # Dynamically scale the slider drag speed based on the current window width
         dynamic_speed = (

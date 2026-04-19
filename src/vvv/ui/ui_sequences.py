@@ -166,14 +166,15 @@ def load_batch_images_sequence(gui, controller, file_paths):
 
     hide_loading_modal()
 
+
 def load_batch_rois_sequence(
-        gui,
-        controller,
-        base_image_id,
-        file_paths,
-        roi_type="Binary Mask",
-        mode="Ignore BG (val)",
-        val=0.0,
+    gui,
+    controller,
+    base_image_id,
+    file_paths,
+    roi_type="Binary Mask",
+    mode="Ignore BG (val)",
+    val=0.0,
 ):
     import os
 
@@ -214,7 +215,12 @@ def load_batch_rois_sequence(
             if roi_type == "Binary Mask":
                 color = ROI_COLORS[color_idx % len(ROI_COLORS)]
                 controller.roi.load_binary_mask(
-                    base_image_id, path, name=None, color=color, mode=mode, target_val=val
+                    base_image_id,
+                    path,
+                    name=None,
+                    color=color,
+                    mode=mode,
+                    target_val=val,
                 )
                 color_idx += 1
             elif roi_type == "Label Map":
@@ -246,7 +252,6 @@ def load_batch_rois_sequence(
         )
         while dpg.does_item_exist("generic_message_modal"):
             yield
-
 
 
 def load_workspace_sequence(gui, controller, filepath):
@@ -389,11 +394,13 @@ def load_workspace_sequence(gui, controller, filepath):
                 raw_r_path = roi_data.get("path", "")
                 r_path = os.path.expanduser(raw_r_path)
                 if r_path and os.path.exists(r_path):
-                    valid_rois_to_load.append({
-                        "new_id": new_id,
-                        "path": r_path,
-                        "state": roi_data.get("state", {})
-                    })
+                    valid_rois_to_load.append(
+                        {
+                            "new_id": new_id,
+                            "path": r_path,
+                            "state": roi_data.get("state", {}),
+                        }
+                    )
                 elif r_path:
                     warnings.append(f"Missing ROI: {os.path.basename(raw_r_path)}")
 
@@ -408,7 +415,7 @@ def load_workspace_sequence(gui, controller, filepath):
             show_loading_modal(
                 "Loading image...",
                 f"Restoring ROIs ({i}/{total_rois})",
-                progress=(i / total_rois)
+                progress=(i / total_rois),
             )
             # MAGIC: Let DearPyGui render a frame to update the progress bar!
             yield
@@ -544,6 +551,10 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
 
         if task.get("base_cmap"):
             controller.view_states[base_id].display.colormap = task["base_cmap"]
+            if task.get("base_threshold") is not None:
+                controller.view_states[base_id].display.base_threshold = task[
+                    "base_threshold"
+                ]
             controller.view_states[base_id].is_data_dirty = True
 
         if task["fusion"]:
@@ -557,10 +568,12 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
                 fuse_vs.display.colormap = task["fusion"]["cmap"]
                 fuse_vs.is_data_dirty = True
 
+                if task["fusion"].get("threshold") is not None:
+                    fuse_vs.display.base_threshold = task["fusion"]["threshold"]
+
                 base_vs = controller.view_states[base_id]
                 base_vs.set_overlay(fuse_id, fuse_vs.volume, controller)
-                base_vs.overlay_opacity = task["fusion"]["opacity"]
-                base_vs.overlay_threshold = task["fusion"]["threshold"]
+                base_vs.display.overlay_opacity = task["fusion"]["opacity"]
 
                 if "mode" in task["fusion"]:
                     base_vs.display.overlay_mode = task["fusion"]["mode"]

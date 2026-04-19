@@ -1221,7 +1221,7 @@ class SliceViewer:
             rgba_mapped = self._get_screen_mapped_texture(
                 rgba_2d, self.current_pmin, self.current_pmax, canvas_w, canvas_h
             )
-            rgba_flat = rgba_mapped.flatten()
+            rgba_flat = rgba_mapped.ravel()
 
         if dpg.does_item_exist(self.image_tag):
             dpg.set_value(self.texture_tag, rgba_flat)
@@ -1411,7 +1411,7 @@ class SliceViewer:
 
             # Format the text differently depending on if we are active or passive
             if is_external:
-                dpg.set_value(self.tracker_tag, text_lines[0])
+                final_text = text_lines[0]
             else:
                 if self.volume.num_timepoints > 1:
                     text_lines.append(
@@ -1421,15 +1421,18 @@ class SliceViewer:
                     text_lines.append(fmt(v, 1))
 
                 text_lines.append(f"{fmt(phys, 1)} mm")
-                dpg.set_value(self.tracker_tag, "\n".join(text_lines))
+                final_text = "\n".join(text_lines)
+
+            dpg.set_value(self.tracker_tag, final_text)
+            est_h = final_text.count("\n") * 16 + 25
         else:
             dpg.set_value(self.tracker_tag, "Out of image" if not is_external else "")
+            est_h = 25
 
         win_h = self.quad_h
-        ts = dpg.get_item_rect_size(self.tracker_tag)
         dpg.set_item_pos(
             self.tracker_tag,
-            [8, win_h - (ts[1] if ts[1] > 0 else 80) - 15],
+            [8, max(5, win_h - est_h - 15)],
         )
 
     # --- ACTIONS & KEYBINDING DISPATCHER ---

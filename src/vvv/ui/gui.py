@@ -839,6 +839,8 @@ class MainGUI:
             self.refresh_rois_ui()
             self.reg_ui.refresh_reg_ui()
             self.reg_ui.pull_reg_sliders_from_transform()
+            if hasattr(self, "intensities_ui"):
+                self.intensities_ui.refresh_intensities_ui()
 
     # ==========================================
     # 4. EVENT HANDLERS

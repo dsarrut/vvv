@@ -89,8 +89,6 @@ def refresh_image_list_ui(gui):
                         callback=gui.on_image_viewer_toggle,
                     )
                     dpg.bind_item_theme(cb, "muted_checkbox_theme")
-                    with dpg.tooltip(cb):
-                        dpg.add_text(f"Toggle in {v_tag}")
 
                 dpg.add_spacer(width=5)
 
