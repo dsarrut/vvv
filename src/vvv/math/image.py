@@ -607,6 +607,7 @@ class VolumeData:
             try:
                 reader = sitk.ImageSeriesReader()
                 reader.SetFileNames(paths)
+                reader.ForceOrthogonalDirectionOff()
                 img = reader.Execute()
                 if img.GetDimension() == 2:
                     img = sitk.JoinSeries([img])
