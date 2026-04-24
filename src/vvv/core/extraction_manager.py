@@ -6,29 +6,23 @@ from vvv.math.image import SliceRenderer
 
 
 class ExtractionManager:
+    """Core backend for progressive contour extraction and lazy evaluation."""
+
     def __init__(self, controller):
         self.controller = controller
 
     def _get_or_create_preview_roi(self, img_id, vs, color):
         """Retrieves or initializes the transient Draft ROI inside the ViewState."""
-        # Check if the dictionary exists (failsafe)
-        if not hasattr(vs, "contours"):
-            vs.contours = {}
-
-        # 1. Find the existing draft in this image's specific storage
+        # Find existing draft in the image's own contours
         roi = next(
             (c for c in vs.contours.values() if getattr(c, "is_draft", False)), None
         )
 
         if not roi:
-            # 2. Create a new one if it doesn't exist
-            from vvv.math.contours import ContourROI
-
             roi = ContourROI(name="Draft Preview", color=color, thickness=2.0)
             roi.is_draft = True
             roi.last_computed_threshold = None
-
-            # Register it with the ContourManager so it gets an ID and triggers a redraw
+            # Add to the image's permanent dictionary via the manager
             self.controller.contours.add_contour(img_id, roi)
         else:
             roi.color = color
@@ -36,9 +30,6 @@ class ExtractionManager:
 
     def clear_preview(self, img_id, vs):
         """Removes the draft ROI from the image's state."""
-        if not hasattr(vs, "contours"):
-            return False
-
         roi = next(
             (c for c in vs.contours.values() if getattr(c, "is_draft", False)), None
         )
@@ -76,8 +67,14 @@ class ExtractionManager:
     def extract_full_volume(
         self, img_id, vol, vs, threshold_val, color, on_progress, on_complete, on_error
     ):
-        draft_roi = self._preview_rois.get(img_id)
+        """Hijacks the Draft ROI, completes the missing slices, and finalizes it."""
 
+        # FIX: Find the draft ROI in the state, not a private dictionary
+        draft_roi = next(
+            (c for c in vs.contours.values() if getattr(c, "is_draft", False)), None
+        )
+
+        # If no draft exists or threshold changed, create/reset it
         if (
             not draft_roi
             or getattr(draft_roi, "last_computed_threshold", None) != threshold_val
@@ -88,9 +85,6 @@ class ExtractionManager:
             draft_roi.id = self.controller.contours.add_contour(img_id, draft_roi)
             for ori in [ViewMode.AXIAL, ViewMode.CORONAL, ViewMode.SAGITTAL]:
                 draft_roi.polygons[ori] = {}
-
-        if img_id in self._preview_rois:
-            del self._preview_rois[img_id]
 
         def _background_extract():
             mask_3d = (vol.data >= threshold_val).astype(np.uint8)
@@ -114,7 +108,7 @@ class ExtractionManager:
             for ori, max_slices in ori_map.items():
                 sw, sh = vol.get_physical_aspect_ratio(ori)
                 for s_idx in range(max_slices):
-                    # PROGRESSIVE BAKE
+                    # PROGRESSIVE BAKE: Skip slices already computed during preview
                     if s_idx not in draft_roi.polygons[ori]:
                         slice_mask = SliceRenderer.get_raw_slice(
                             mask_3d, False, 0, s_idx, ori
@@ -129,6 +123,7 @@ class ExtractionManager:
                     if slices_processed % 10 == 0:
                         on_progress(slices_processed, total_slices)
 
+            # FINALIZE: Transition from Draft to permanent ROI
             draft_roi.name = name_str
             draft_roi.is_draft = False
 
