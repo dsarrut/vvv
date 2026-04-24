@@ -1,20 +1,64 @@
+import time
 import numpy as np
 import threading
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import build_section_title, build_stepped_slider
-from vvv.utils import ViewMode
-from vvv.math.contours import ContourROI, extract_2d_contours_from_slice
-from vvv.math.image import SliceRenderer
 
 
 class ExtractionUI:
-    """Handles the Interactive Thresholding and Extraction workflow."""
+    """Handles the Interactive Thresholding UI elements and user input."""
 
     def __init__(self, gui, controller):
         self.gui = gui
         self.controller = controller
-        # Dictionary mapping image_id to a single ContourROI object
-        self._preview_rois = {}
+
+        self._debounce_timer = None
+        self._last_visible_targets = frozenset()
+
+        # --- NEW: Per-Image State Tracking ---
+        # Format: { image_id: {"enabled": False, "threshold": 0.0} }
+        self._image_states = {}
+        self._current_image_id = None
+
+        # Start the UI Scroll-Watcher Daemon
+        threading.Thread(target=self._scroll_monitor_daemon, daemon=True).start()
+
+    def _scroll_monitor_daemon(self):
+        while True:
+            time.sleep(0.05)
+            try:
+                if not dpg.is_dearpygui_running():
+                    break
+                # Only run preview if BOTH the master toggle and live preview are checked
+                if dpg.does_item_exist("check_ext_enable") and dpg.get_value(
+                    "check_ext_enable"
+                ):
+                    if dpg.does_item_exist("check_ext_preview") and dpg.get_value(
+                        "check_ext_preview"
+                    ):
+                        targets = self._get_visible_targets()
+                        if targets and targets != self._last_visible_targets:
+                            self._run_preview_extraction(clear_cache=False)
+            except Exception:
+                pass
+
+    def _get_visible_targets(self):
+        viewer = self.gui.context_viewer
+        if not viewer:
+            return frozenset()
+
+        targets = set()
+        img_id = viewer.image_id
+        for v in self.controller.viewers.values():
+            if v.image_id == img_id and v.is_image_orientation():
+                targets.add((v.orientation, v.slice_idx))
+        return frozenset(targets)
+
+    def _trigger_redraw(self, img_id):
+        """Helper to instantly flag all relevant viewers for DearPyGui redraw."""
+        for v in self.controller.viewers.values():
+            if v.image_id == img_id:
+                v.is_geometry_dirty = True
 
     def build_tab_extraction(self, gui):
         cfg_c = gui.ui_cfg["colors"]
@@ -23,7 +67,15 @@ class ExtractionUI:
             dpg.add_spacer(height=5)
             build_section_title("Interactive Threshold", cfg_c["text_header"])
 
-            # -- Single Threshold Slider --
+            # --- NEW: Master Enable Toggle (Off by default) ---
+            dpg.add_checkbox(
+                label="Enable Thresholding",
+                tag="check_ext_enable",
+                default_value=False,
+                callback=self.on_enable_toggle,
+            )
+            dpg.add_spacer(height=5)
+
             build_stepped_slider(
                 "Threshold:",
                 "drag_ext_threshold",
@@ -35,17 +87,15 @@ class ExtractionUI:
 
             dpg.add_spacer(height=5)
 
-            # -- Live Preview Controls --
             with dpg.group(horizontal=True):
                 dpg.add_checkbox(
                     label="Live Preview",
                     tag="check_ext_preview",
-                    default_value=False,
+                    default_value=True,
                     callback=self.on_threshold_drag,
                 )
-
                 dpg.add_color_edit(
-                    (255, 255, 0, 255),  # Default Yellow
+                    (255, 255, 0, 255),
                     tag="color_ext_preview",
                     no_inputs=True,
                     no_label=True,
@@ -59,7 +109,6 @@ class ExtractionUI:
             dpg.add_separator()
             dpg.add_spacer(height=5)
 
-            # -- Action --
             dpg.add_button(
                 label="Extract to ROI",
                 tag="btn_ext_extract",
@@ -68,7 +117,6 @@ class ExtractionUI:
                 callback=self.on_extract_clicked,
             )
 
-            # -- Progress --
             dpg.add_spacer(height=5)
             dpg.add_progress_bar(
                 tag="prog_ext", default_value=0.0, width=-1, show=False
@@ -83,41 +131,81 @@ class ExtractionUI:
             and viewer.volume is not None
         )
 
+        # 1. Base enable/disable fallback if no image is loaded
+        if not has_image:
+            tags_to_disable = [
+                "check_ext_enable",
+                "drag_ext_threshold",
+                "btn_ext_extract",
+                "btn_drag_ext_threshold_minus",
+                "btn_drag_ext_threshold_plus",
+                "check_ext_preview",
+            ]
+            for tag in tags_to_disable:
+                if dpg.does_item_exist(tag):
+                    dpg.configure_item(tag, enabled=False)
+            return
+
+        vol = viewer.volume
+        img_id = viewer.image_id
+        current_data_id = id(vol.data)
+
+        # Lazy Min/Max
+        if (
+            not hasattr(vol, "_cached_min_val")
+            or getattr(vol, "_cached_data_id", None) != current_data_id
+        ):
+            vol._cached_min_val = float(np.min(vol.data))
+            vol._cached_max_val = float(np.max(vol.data))
+            vol._cached_data_id = current_data_id
+
+        min_v = vol._cached_min_val
+        max_v = vol._cached_max_val
+
+        # --- 2. State Initialization & Synchronization ---
+        # Initialize memory for new images (Defaults to OFF, threshold at minimum)
+        if img_id not in self._image_states:
+            self._image_states[img_id] = {"enabled": False, "threshold": min_v}
+
+        state = self._image_states[img_id]
+
+        # Context Switch Detection: Did the user click a different image tab?
+        if self._current_image_id != img_id:
+            self._current_image_id = img_id
+            # Push the saved Python state to the physical UI widgets
+            dpg.set_value("check_ext_enable", state["enabled"])
+            dpg.set_value("drag_ext_threshold", state["threshold"])
+
+        # --- 3. Update Widget Bounds & Constraints ---
+        dpg.configure_item("check_ext_enable", enabled=True)
+        dpg.configure_item("drag_ext_threshold", min_value=min_v, max_value=max_v)
+        dpg.configure_item(
+            "drag_ext_threshold", speed=max(0.1, viewer.view_state.display.ww * 0.005)
+        )
+
+        # Lock UI elements if the master toggle is Off
+        is_active = state["enabled"]
         tags_to_toggle = [
             "drag_ext_threshold",
             "btn_ext_extract",
             "btn_drag_ext_threshold_minus",
             "btn_drag_ext_threshold_plus",
+            "check_ext_preview",
         ]
 
         for tag in tags_to_toggle:
             if dpg.does_item_exist(tag):
-                dpg.configure_item(tag, enabled=has_image)
+                dpg.configure_item(tag, enabled=is_active)
 
-        if has_image:
-            vol = viewer.volume
+    def on_enable_toggle(self, sender, app_data, user_data):
+        """Triggered when the master 'Enable Thresholding' box is checked/unchecked."""
+        viewer = self.gui.context_viewer
+        if viewer and viewer.image_id in self._image_states:
+            # Save the new state
+            self._image_states[viewer.image_id]["enabled"] = app_data
 
-            # Lazy min/max computation
-            current_data_id = id(vol.data)
-            if (
-                not hasattr(vol, "_cached_min_val")
-                or getattr(vol, "_cached_data_id", None) != current_data_id
-            ):
-                vol._cached_min_val = float(np.min(vol.data))
-                vol._cached_max_val = float(np.max(vol.data))
-                vol._cached_data_id = current_data_id
-
-            min_v = vol._cached_min_val
-            max_v = vol._cached_max_val
-
-            dpg.configure_item("drag_ext_threshold", min_value=min_v, max_value=max_v)
-
-            speed = max(0.1, viewer.view_state.display.ww * 0.005)
-            dpg.configure_item("drag_ext_threshold", speed=speed)
-
-            # Initialize slider to the minimum value so it doesn't default to 0 for weird image types
-            if dpg.get_value("drag_ext_threshold") == 0.0:
-                dpg.set_value("drag_ext_threshold", min_v)
+        self.refresh_extraction_ui()
+        self._run_preview_extraction(clear_cache=True)
 
     def on_step_button_clicked(self, sender, app_data, user_data):
         target_tag = user_data["tag"]
@@ -130,7 +218,6 @@ class ExtractionUI:
             if (viewer and viewer.view_state)
             else 1.0
         )
-
         new_val = current_val + (step_size * direction)
 
         if viewer and hasattr(viewer.volume, "_cached_min_val"):
@@ -139,149 +226,107 @@ class ExtractionUI:
             )
 
         dpg.set_value(target_tag, new_val)
-        self.on_threshold_drag(sender, new_val, user_data)
-
-    def _get_or_create_preview_roi(self, image_id, vs):
-        if image_id not in self._preview_rois:
-            color = [int(c) for c in dpg.get_value("color_ext_preview")[:3]]
-            roi = ContourROI(name="Live Preview", color=color, thickness=2.0)
-            self._preview_rois[image_id] = roi
-            vs.contour_rois.append(roi)
-        else:
-            color = [int(c) for c in dpg.get_value("color_ext_preview")[:3]]
-            self._preview_rois[image_id].color = color
-
-        return self._preview_rois[image_id]
+        self._run_preview_extraction(clear_cache=True)
 
     def on_threshold_drag(self, sender, app_data, user_data):
+        if self._debounce_timer is not None:
+            self._debounce_timer.cancel()
+
+        self._debounce_timer = threading.Timer(
+            0.1, lambda: self._run_preview_extraction(clear_cache=True)
+        )
+        self._debounce_timer.start()
+
+    def _run_preview_extraction(self, clear_cache=False):
         viewer = self.gui.context_viewer
         if not viewer or not viewer.view_state or not viewer.volume:
             return
 
-        vs = viewer.view_state
-        vol = viewer.volume
         img_id = viewer.image_id
 
-        roi = self._get_or_create_preview_roi(img_id, vs)
+        # Save the current slider value to memory
+        threshold_val = dpg.get_value("drag_ext_threshold")
+        if img_id in self._image_states:
+            self._image_states[img_id]["threshold"] = threshold_val
 
-        # 1. ALWAYS clear previous polygons entirely
-        for ori in roi.polygons:
-            roi.polygons[ori].clear()
+        # If the master toggle is OFF or preview is OFF, wipe the screen
+        is_enabled = dpg.get_value("check_ext_enable")
+        show_preview = dpg.get_value("check_ext_preview")
 
-        # 2. Force ALL viewers of this image to redraw to clear old geometry
-        for v in self.controller.viewers.values():
-            if v.image_id == img_id:
-                v.is_geometry_dirty = True
-
-        if not dpg.get_value("check_ext_preview"):
-            self.controller.ui_needs_refresh = True
+        if not is_enabled or not show_preview:
+            if self.controller.extraction.clear_preview(img_id, viewer.view_state):
+                self._trigger_redraw(img_id)
             return
 
-        threshold_val = dpg.get_value("drag_ext_threshold")
+        visible_targets = self._get_visible_targets()
+        color = [int(c) for c in dpg.get_value("color_ext_preview")[:3]]
 
-        visible_targets = []
-        for v in self.controller.viewers.values():
-            if v.image_id == img_id and v.is_image_orientation():
-                visible_targets.append((v, v.orientation, v.slice_idx))
-
-        for v, ori, s_idx in visible_targets:
-            sw, sh = vol.get_physical_aspect_ratio(ori)
-            slice_data = SliceRenderer.get_raw_slice(vol.data, False, 0, s_idx, ori)
-
-            mask_2d = (slice_data >= threshold_val).astype(np.uint8)
-            if np.any(mask_2d):
-                polys = extract_2d_contours_from_slice(mask_2d, sw, sh)
-                roi.polygons[ori][s_idx] = polys
-
+        self.controller.status_message = "Updating Preview Slice..."
         self.controller.ui_needs_refresh = True
+
+        extracted_any = self.controller.extraction.update_preview(
+            img_id,
+            viewer.volume,
+            viewer.view_state,
+            threshold_val,
+            visible_targets,
+            color,
+            clear_cache,
+        )
+
+        self._last_visible_targets = visible_targets
+
+        if extracted_any or clear_cache:
+            self._trigger_redraw(img_id)
+            self.controller.status_message = "Live Preview Active"
+            self.controller.ui_needs_refresh = True
 
     def on_extract_clicked(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer
         if not viewer or not viewer.view_state or not viewer.volume:
             return
 
-        vs = viewer.view_state
-        vol = viewer.volume
-        threshold_val = dpg.get_value("drag_ext_threshold")
+        img_id = viewer.image_id
 
-        # Hide live preview instances before starting heavy math
-        if viewer.image_id in self._preview_rois:
-            roi = self._preview_rois[viewer.image_id]
-            roi.polygons = {
-                ViewMode.AXIAL: {},
-                ViewMode.SAGITTAL: {},
-                ViewMode.CORONAL: {},
-            }
-            for v in self.controller.viewers.values():
-                if v.image_id == viewer.image_id:
-                    v.is_geometry_dirty = True
+        if self.controller.extraction.clear_preview(img_id, viewer.view_state):
+            self._trigger_redraw(img_id)
+
+        self.controller.status_message = "Extracting Full 3D Volume..."
+        self.controller.ui_needs_refresh = True
 
         dpg.configure_item("prog_ext", show=True, default_value=0.0)
         dpg.configure_item(
-            "text_prog_ext", show=True, default_value="Binarizing 3D Volume..."
+            "text_prog_ext", show=True, default_value="Binarizing Volume..."
         )
 
-        def _background_extract():
-            mask_3d = (vol.data >= threshold_val).astype(np.uint8)
-            name_str = f"Iso [>= {threshold_val:g}]"
+        threshold_val = dpg.get_value("drag_ext_threshold")
+        color = [int(c) for c in dpg.get_value("color_ext_preview")[:3]]
 
-            if not np.any(mask_3d):
-                self.controller.status_message = (
-                    "Extraction Failed: Threshold resulted in empty mask."
-                )
-                self.controller.ui_needs_refresh = True
-                dpg.configure_item("prog_ext", show=False)
-                dpg.configure_item("text_prog_ext", show=False)
-                return
+        def _on_progress(processed, total):
+            dpg.set_value("prog_ext", processed / total)
+            dpg.set_value("text_prog_ext", f"Extracting: {processed} / {total}")
+            self._trigger_redraw(img_id)
 
-            color = [int(c) for c in dpg.get_value("color_ext_preview")[:3]]
-            baked_roi = ContourROI(name=name_str, color=color)
-
-            for ori in [ViewMode.AXIAL, ViewMode.CORONAL, ViewMode.SAGITTAL]:
-                baked_roi.polygons[ori] = {}
-
-            shape = vol.shape3d
-            ori_map = {
-                ViewMode.AXIAL: shape[0],
-                ViewMode.CORONAL: shape[1],
-                ViewMode.SAGITTAL: shape[2],
-            }
-            total_slices = sum(ori_map.values())
-            slices_processed = 0
-
-            for ori, max_slices in ori_map.items():
-                sw, sh = vol.get_physical_aspect_ratio(ori)
-
-                for s_idx in range(max_slices):
-                    slice_mask = SliceRenderer.get_raw_slice(
-                        mask_3d, False, 0, s_idx, ori
-                    )
-
-                    if np.any(slice_mask):
-                        polys = extract_2d_contours_from_slice(slice_mask, sw, sh)
-                        baked_roi.polygons[ori][s_idx] = polys
-
-                    slices_processed += 1
-
-                    if slices_processed % 10 == 0:
-                        dpg.set_value("prog_ext", slices_processed / total_slices)
-                        dpg.set_value(
-                            "text_prog_ext",
-                            f"Extracting: {slices_processed} / {total_slices}",
-                        )
-                        for v in self.controller.viewers.values():
-                            if v.image_id == viewer.image_id:
-                                v.is_geometry_dirty = True
-
-            vs.contour_rois.append(baked_roi)
-
-            for v in self.controller.viewers.values():
-                if v.image_id == viewer.image_id:
-                    v.is_geometry_dirty = True
-
+        def _on_complete(roi_name):
             dpg.configure_item("prog_ext", show=False)
             dpg.configure_item("text_prog_ext", show=False)
-            self.controller.status_message = f"Extracted Contour ROI: {baked_roi.name}"
+            self._trigger_redraw(img_id)
+            self.controller.status_message = f"Finished! Added: {roi_name}"
             self.controller.ui_needs_refresh = True
 
-        threading.Thread(target=_background_extract, daemon=True).start()
+        def _on_error(msg):
+            dpg.configure_item("prog_ext", show=False)
+            dpg.configure_item("text_prog_ext", show=False)
+            self.controller.status_message = msg
+            self.controller.ui_needs_refresh = True
+
+        self.controller.extraction.extract_full_volume(
+            img_id,
+            viewer.volume,
+            viewer.view_state,
+            threshold_val,
+            color,
+            _on_progress,
+            _on_complete,
+            _on_error,
+        )

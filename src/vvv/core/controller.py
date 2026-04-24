@@ -9,6 +9,7 @@ from vvv.core.file_manager import FileManager
 from vvv.core.sync_manager import SyncManager
 from vvv.core.history_manager import HistoryManager
 from vvv.core.settings_manager import SettingsManager
+from vvv.core.extraction_manager import ExtractionManager
 
 
 class Controller:
@@ -51,6 +52,7 @@ class Controller:
         self.roi = ROIManager(self)
         self.settings = SettingsManager()
         self.history = HistoryManager()
+        self.extraction = ExtractionManager(self)
 
         self.use_history = True
         self.next_image_id = 0
