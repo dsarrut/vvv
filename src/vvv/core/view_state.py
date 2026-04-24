@@ -20,7 +20,6 @@ class CameraState:
     show_grid: bool
     show_legend: bool
     show_filename: int
-    show_contour: bool
 
     # 2. The exact fields that should trigger a GEOMETRY redraw
     _GEOM_FIELDS = {
@@ -32,7 +31,6 @@ class CameraState:
         "show_grid",
         "show_legend",
         "show_filename",
-        "show_contour",
     }
 
     def __init__(self, volume, parent_vs=None):
@@ -67,7 +65,6 @@ class CameraState:
         self.show_grid = False
         self.show_legend = False
         self.show_filename = 0
-        self.show_contour = True
 
         # State-Only Sync Targets
         self.target_ppm = None
@@ -100,7 +97,6 @@ class CameraState:
             "show_grid": bool(self.show_grid),
             "show_legend": bool(self.show_legend),
             "show_filename": int(self.show_filename),
-            "show_contour": bool(getattr(self, "show_contour", True)),
             "last_orientation": self.last_orientation.name,
             "crosshair_voxel": (
                 [float(x) for x in self.crosshair_voxel]
@@ -139,7 +135,6 @@ class CameraState:
         self.show_grid = d.get("show_grid", self.show_grid)
         self.show_legend = d.get("show_legend", self.show_legend)
         self.show_filename = d.get("show_filename", self.show_filename)
-        self.show_contour = d.get("show_contour", getattr(self, "show_contour", True))
 
         if "last_orientation" in d:
             self.last_orientation = ViewMode[d["last_orientation"]]
@@ -291,6 +286,7 @@ class ViewState:
         self.sync_group = 0
         self.sync_wl_group = 0  # Radiometric group support
         self.rois = {}
+        self.contour_rois = []
 
         self.crosshair_value = None
         self.space = SpatialEngine(volume)

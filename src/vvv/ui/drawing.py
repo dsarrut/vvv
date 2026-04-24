@@ -542,28 +542,39 @@ class OverlayDrawer:
         if not dpg.does_item_exist(node):
             return
 
-        # Build the dummy polygon strictly in physical MM space (done only once per image)
-        current_state = (viewer.image_id, viewer.orientation)
+        contour_rois = getattr(viewer.view_state, "contour_rois", [])
+
+        # Count total polygons on this slice to determine if we need to rebuild
+        total_polys = sum(
+            len(roi.polygons[viewer.orientation].get(viewer.slice_idx, []))
+            for roi in contour_rois
+            if roi.visible
+        )
+
+        current_state = (
+            viewer.image_id,
+            viewer.orientation,
+            viewer.slice_idx,
+            len(contour_rois),
+            total_polys,
+        )
+
         if getattr(self, "_last_contour_image", None) != current_state:
             dpg.delete_item(node, children_only=True)
 
-            sw, sh = viewer.volume.get_physical_aspect_ratio(viewer.orientation)
-            shape = viewer.get_slice_shape()
-            mm_w, mm_h = shape[1] * sw, shape[0] * sh
-            cx, cy = mm_w / 2.0, mm_h / 2.0
-            sx, sy = mm_w * 0.25, mm_h * 0.25
-
-            pts = [
-                [cx - sx, cy - sy],
-                [cx + sx, cy - sy],
-                [cx + sx, cy + sy],
-                [cx - sx, cy + sy],
-                [cx - sx, cy - sy],
-            ]
-            dpg.draw_polyline(pts, color=[0, 255, 0, 255], thickness=3.0, parent=node)
+            for roi in contour_rois:
+                if not roi.visible:
+                    continue
+                polys = roi.polygons[viewer.orientation].get(viewer.slice_idx, [])
+                for poly in polys:
+                    dpg.draw_polyline(
+                        poly,
+                        color=roi.color,
+                        thickness=roi.thickness,
+                        parent=node,
+                    )
             self._last_contour_image = current_state
 
-        # Hardware Matrix Architecture Transformation (Offloads 100% of Pan/Zoom math to the GPU)
         sw, sh = viewer.volume.get_physical_aspect_ratio(viewer.orientation)
         shape = viewer.get_slice_shape()
         mm_w, mm_h = max(1e-5, shape[1] * sw), max(1e-5, shape[0] * sh)
