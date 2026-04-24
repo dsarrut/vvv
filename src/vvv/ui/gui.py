@@ -7,11 +7,12 @@ from vvv.utils import fmt
 from vvv.ui.ui_roi import RoiUI
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_fusion import FusionUI
+from vvv.ui.ui_contours import ContoursUI
+from vvv.ui.ui_extraction import ExtractionUI
 from vvv.ui.ui_settings import SettingsWindow
 from vvv.ui.ui_dicom import DicomBrowserWindow
 from vvv.ui.ui_intensities import IntensitiesUI
 from vvv.ui.ui_registration import RegistrationUI
-from vvv.ui.ui_contours import ContoursUI
 from vvv.resources import load_fonts, setup_themes
 from vvv.ui.ui_interaction import InteractionManager
 from vvv.ui.ui_components import build_section_title
@@ -92,6 +93,7 @@ class MainGUI:
         self.roi_ui = RoiUI(self, self.controller)
         self.reg_ui = RegistrationUI(self, self.controller)
         self.contours_ui = ContoursUI(self, self.controller)
+        self.extraction_ui = ExtractionUI(self, self.controller)
 
         # Go
         self.build_main_layout()
@@ -252,12 +254,13 @@ class MainGUI:
         ):
             with dpg.tab_bar(tag="sidebar_tabs", callback=self.on_tab_changed):
                 build_tab_images(self)
-                build_tab_sync(self)  # <--- ADD IT BACK HERE
+                build_tab_sync(self)
                 self.fusion_ui.build_tab_fusion(self)
                 self.intensities_ui.build_tab_intensities(self)
                 self.roi_ui.build_tab_rois(self)
                 self.reg_ui.build_tab_reg(self)
-                self.contours_ui.build_tab_contours(self)
+                # self.contours_ui.build_tab_contours(self) # Tab for debug
+                self.extraction_ui.build_tab_extraction(self)
 
     def build_sidebar_bottom(self):
         cfg_c = self.ui_cfg["colors"]
