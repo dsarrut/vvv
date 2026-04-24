@@ -21,6 +21,32 @@ class ContourROI:
         }
 
 
+def extract_2d_contours_from_slice(slice2d, sw=1.0, sh=1.0):
+    """
+    Extracts 2D contours from a single 2D binary mask slice.
+    sw, sh: physical spacing aspect ratios to scale the coordinates to millimeters.
+    """
+    try:
+        from skimage import measure
+    except ImportError:
+        print(
+            "scikit-image is required for contour extraction. Install with: pip install scikit-image"
+        )
+        return []
+
+    contours = measure.find_contours(slice2d, 0.5)
+
+    if not contours:
+        return []
+
+    # skimage returns (row, col) which translates to (y, x).
+    # We swap to (x, y) and apply the physical scaling.
+    return [
+        [[float(pt[1] * sw), float(pt[0] * sh)] for pt in contour]
+        for contour in contours
+    ]
+
+
 def extract_contours_from_mask(mask_3d, volume):
     """
     Extracts 2D contours for all slices in all orientations from a 3D binary mask.
@@ -29,14 +55,6 @@ def extract_contours_from_mask(mask_3d, volume):
     Returns a populated ContourROI.
     """
     import random
-
-    try:
-        from skimage import measure
-    except ImportError:
-        print(
-            "scikit-image is required for contour extraction. Install with: pip install scikit-image"
-        )
-        return ContourROI(name="Error", color=[255, 0, 0, 255])
 
     color = [
         random.randint(50, 255),
@@ -61,11 +79,8 @@ def extract_contours_from_mask(mask_3d, volume):
             if slice2d is None or not np.any(slice2d):
                 continue
 
-            contours = measure.find_contours(slice2d, 0.5)
-            if contours:
-                roi.polygons[orient][slice_idx] = [
-                    [[float(pt[1] * sw), float(pt[0] * sh)] for pt in contour]
-                    for contour in contours
-                ]
+            polygons = extract_2d_contours_from_slice(slice2d, sw, sh)
+            if polygons:
+                roi.polygons[orient][slice_idx] = polygons
 
     return roi

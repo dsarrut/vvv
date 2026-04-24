@@ -51,6 +51,15 @@ class ContoursUI:
                 width=-1,
             )
 
+            # --- NEW: Progress UI Elements (Hidden by default) ---
+            dpg.add_spacer(height=5)
+            dpg.add_progress_bar(
+                tag="progress_contour_extract", default_value=0.0, width=-1, show=False
+            )
+            dpg.add_text(
+                "", tag="text_contour_progress", color=cfg_c["text_dim"], show=False
+            )
+
     def refresh_contours_ui(self):
         viewer = self.gui.context_viewer
         has_image = (
@@ -62,7 +71,6 @@ class ContoursUI:
         if dpg.does_item_exist("drag_contour_threshold"):
             dpg.configure_item("drag_contour_threshold", enabled=has_image)
 
-            # Dynamically scale the slider drag speed based on the current window width
             if has_image:
                 dynamic_speed = max(0.1, viewer.view_state.display.ww * 0.005)
                 dpg.configure_item("drag_contour_threshold", speed=dynamic_speed)
@@ -81,22 +89,18 @@ class ContoursUI:
         vs = viewer.view_state
         vol = viewer.volume
 
-        # 1. Create a 3D binary mask with a random sphere
-        shape = vol.shape3d  # (z, y, x)
+        shape = vol.shape3d
         mask_3d = np.zeros(shape, dtype=np.uint8)
 
-        # Center and radius
         cz = random.randint(shape[0] // 4, 3 * shape[0] // 4)
         cy = random.randint(shape[1] // 4, 3 * shape[1] // 4)
         cx = random.randint(shape[2] // 4, 3 * shape[2] // 4)
         r = random.randint(max(1, min(shape) // 10), max(2, min(shape) // 4))
 
-        # Draw sphere
         Z, Y, X = np.ogrid[: shape[0], : shape[1], : shape[2]]
         dist_sq = (Z - cz) ** 2 + (Y - cy) ** 2 + (X - cx) ** 2
         mask_3d[dist_sq <= r**2] = 1
 
-        # 2. Extract contours in a background thread
         self.gui.show_status_message("Extracting 3D contours...")
 
         def _extract():
@@ -106,7 +110,7 @@ class ContoursUI:
 
             if roi.name == "Error":
                 self.controller.status_message = (
-                    "Extraction Failed: scikit-image is missing!"
+                    "Extraction Failed: scikit-image missing!"
                 )
                 self.controller.ui_needs_refresh = True
                 return
@@ -131,44 +135,112 @@ class ContoursUI:
         vol = viewer.volume
         threshold_val = dpg.get_value("drag_contour_threshold")
 
-        self.gui.show_status_message(f"Thresholding at {threshold_val:g}...")
+        mask_3d = (vol.data >= threshold_val).astype(np.uint8)
+        if not np.any(mask_3d):
+            self.gui.show_status_message(
+                "Threshold resulted in empty mask.", color=[255, 100, 100]
+            )
+            return
 
-        def _extract():
-            # 1. Create the binary mask by evaluating the numpy array against the threshold
-            mask_3d = (vol.data >= threshold_val).astype(np.uint8)
+        from vvv.math.contours import ContourROI, extract_2d_contours_from_slice
+        from vvv.math.image import SliceRenderer
 
-            # Check if mask is completely empty before passing to the extractor
-            if not np.any(mask_3d):
-                self.controller.status_message = (
-                    "Extraction Failed: Threshold resulted in empty mask."
-                )
-                self.controller.ui_needs_refresh = True
-                return
+        roi = ContourROI(name=f"Thr: {threshold_val:g}", color=[255, 255, 0])
 
-            self.controller.status_message = "Extracting contours..."
+        for ori in [ViewMode.AXIAL, ViewMode.CORONAL, ViewMode.SAGITTAL]:
+            if ori not in roi.polygons:
+                roi.polygons[ori] = {}
 
-            # 2. Extract contours
-            from vvv.math.contours import extract_contours_from_mask
+        # --- PHASE 1: IMMEDIATE PASS (Visible Slices) ---
+        visible_targets = []
+        for v in self.controller.viewers.values():
+            if v.image_id == viewer.image_id and v.is_image_orientation():
+                visible_targets.append((v.orientation, v.slice_idx))
 
-            roi = extract_contours_from_mask(mask_3d, vol)
+        for ori, s_idx in visible_targets:
+            # FIX: Grab the physical aspect ratio to prevent offsets!
+            sw, sh = vol.get_physical_aspect_ratio(ori)
 
-            if roi.name == "Error":
-                self.controller.status_message = (
-                    "Extraction Failed: scikit-image is missing!"
-                )
-                self.controller.ui_needs_refresh = True
-                return
+            slice_mask = SliceRenderer.get_raw_slice(mask_3d, False, 0, s_idx, ori)
 
-            # Give it a procedural name based on the threshold
-            roi.name = f"Thr: {threshold_val:g}"
-            vs.contour_rois.append(roi)
+            if np.any(slice_mask):
+                # FIX: Pass sw and sh into the extractor
+                polys = extract_2d_contours_from_slice(slice_mask, sw, sh)
+                roi.polygons[ori][s_idx] = polys
 
-            # Trigger a redraw on all viewers currently looking at this image
+        vs.contour_rois.append(roi)
+        for v in self.controller.viewers.values():
+            if v.image_id == viewer.image_id:
+                v.is_geometry_dirty = True
+
+        self.controller.ui_needs_refresh = True
+        self.gui.show_status_message(
+            "Visible contours extracted. Processing background..."
+        )
+
+        # --- PHASE 2: BACKGROUND PASS ---
+        shape = vol.shape3d
+        ori_map = {
+            ViewMode.AXIAL: shape[0],
+            ViewMode.CORONAL: shape[1],
+            ViewMode.SAGITTAL: shape[2],
+        }
+
+        total_slices = sum(ori_map.values())
+
+        # Unhide the progress UI
+        dpg.configure_item("progress_contour_extract", show=True, default_value=0.0)
+        dpg.configure_item(
+            "text_contour_progress", show=True, default_value="Starting extraction..."
+        )
+
+        def _background_extract():
+            slices_processed = 0
+
+            for ori, max_slices in ori_map.items():
+                # FIX: Grab the physical aspect ratio for the background loop too!
+                sw, sh = vol.get_physical_aspect_ratio(ori)
+
+                for s_idx in range(max_slices):
+                    if (ori, s_idx) in visible_targets:
+                        slices_processed += 1
+                        continue
+
+                    slice_mask = SliceRenderer.get_raw_slice(
+                        mask_3d, False, 0, s_idx, ori
+                    )
+
+                    if np.any(slice_mask):
+                        # FIX: Pass sw and sh
+                        polys = extract_2d_contours_from_slice(slice_mask, sw, sh)
+                        roi.polygons[ori][s_idx] = polys
+
+                    slices_processed += 1
+
+                    # Update progress UI every 10 slices to avoid choking the DPG message queue
+                    if slices_processed % 10 == 0:
+                        dpg.set_value(
+                            "progress_contour_extract", slices_processed / total_slices
+                        )
+                        dpg.set_value(
+                            "text_contour_progress",
+                            f"Processing: {slices_processed} / {total_slices}",
+                        )
+
+                        for v in self.controller.viewers.values():
+                            if v.image_id == viewer.image_id:
+                                v.is_geometry_dirty = True
+
+            # Final cleanup
             for v in self.controller.viewers.values():
                 if v.image_id == viewer.image_id:
                     v.is_geometry_dirty = True
 
-            self.controller.ui_needs_refresh = True
-            self.controller.status_message = f"Added ContourROI: {roi.name}"
+            # Hide the progress UI when finished
+            dpg.configure_item("progress_contour_extract", show=False)
+            dpg.configure_item("text_contour_progress", show=False)
 
-        threading.Thread(target=_extract, daemon=True).start()
+            self.controller.status_message = "Background contour extraction complete."
+            self.controller.ui_needs_refresh = True
+
+        threading.Thread(target=_background_extract, daemon=True).start()
