@@ -32,11 +32,40 @@ class ContoursUI:
             dpg.add_button(
                 label="Add Random Contours",
                 callback=gui.contours_ui.on_add_random_contours,
+                width=-1,
+            )
+
+            dpg.add_spacer(height=10)
+            build_section_title("Threshold Extraction", cfg_c["text_header"])
+
+            with dpg.group(horizontal=True):
+                dpg.add_text("Threshold:")
+                dpg.add_drag_float(
+                    tag="drag_contour_threshold", width=-1, default_value=0.0
+                )
+
+            dpg.add_spacer(height=5)
+            dpg.add_button(
+                label="Extract 3D Contours",
+                callback=gui.contours_ui.on_extract_threshold_contours,
+                width=-1,
             )
 
     def refresh_contours_ui(self):
-        # State is entirely controlled via `gui.bindings` and `gui.update_sidebar_info`
-        pass
+        viewer = self.gui.context_viewer
+        has_image = (
+            viewer is not None
+            and getattr(viewer, "view_state", None) is not None
+            and viewer.volume is not None
+        )
+
+        if dpg.does_item_exist("drag_contour_threshold"):
+            dpg.configure_item("drag_contour_threshold", enabled=has_image)
+
+            # Dynamically scale the slider drag speed based on the current window width
+            if has_image:
+                dynamic_speed = max(0.1, viewer.view_state.display.ww * 0.005)
+                dpg.configure_item("drag_contour_threshold", speed=dynamic_speed)
 
     def on_toggle_contour(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer
@@ -82,11 +111,63 @@ class ContoursUI:
                 self.controller.ui_needs_refresh = True
                 return
 
+            roi.name = "Random Sphere"
             vs.contour_rois.append(roi)
 
             for v in self.controller.viewers.values():
                 if v.image_id == viewer.image_id:
                     v.is_geometry_dirty = True
+            self.controller.ui_needs_refresh = True
+            self.controller.status_message = f"Added ContourROI: {roi.name}"
+
+        threading.Thread(target=_extract, daemon=True).start()
+
+    def on_extract_threshold_contours(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state or not viewer.volume:
+            return
+
+        vs = viewer.view_state
+        vol = viewer.volume
+        threshold_val = dpg.get_value("drag_contour_threshold")
+
+        self.gui.show_status_message(f"Thresholding at {threshold_val:g}...")
+
+        def _extract():
+            # 1. Create the binary mask by evaluating the numpy array against the threshold
+            mask_3d = (vol.data >= threshold_val).astype(np.uint8)
+
+            # Check if mask is completely empty before passing to the extractor
+            if not np.any(mask_3d):
+                self.controller.status_message = (
+                    "Extraction Failed: Threshold resulted in empty mask."
+                )
+                self.controller.ui_needs_refresh = True
+                return
+
+            self.controller.status_message = "Extracting contours..."
+
+            # 2. Extract contours
+            from vvv.math.contours import extract_contours_from_mask
+
+            roi = extract_contours_from_mask(mask_3d, vol)
+
+            if roi.name == "Error":
+                self.controller.status_message = (
+                    "Extraction Failed: scikit-image is missing!"
+                )
+                self.controller.ui_needs_refresh = True
+                return
+
+            # Give it a procedural name based on the threshold
+            roi.name = f"Thr: {threshold_val:g}"
+            vs.contour_rois.append(roi)
+
+            # Trigger a redraw on all viewers currently looking at this image
+            for v in self.controller.viewers.values():
+                if v.image_id == viewer.image_id:
+                    v.is_geometry_dirty = True
+
             self.controller.ui_needs_refresh = True
             self.controller.status_message = f"Added ContourROI: {roi.name}"
 
