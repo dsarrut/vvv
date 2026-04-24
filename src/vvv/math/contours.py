@@ -6,14 +6,15 @@ from vvv.math.image import SliceRenderer
 class ContourROI:
     """Manages a set of 2D polygons representing an anatomical structure."""
 
-    def __init__(self, name, color, thickness=1.5):
+    def __init__(self, name, color, thickness=1, linked_roi_id=None):
+        self.id = None  # Will be assigned by the ContourManager
+        self.linked_roi_id = linked_roi_id
+
         self.name = name
         self.color = color
         self.visible = True
         self.thickness = thickness
 
-        # Mapping: Orientation -> Slice Index -> List of Polygons
-        # A Polygon is a list of 2D points [[x, y], [x, y], ...] in physical millimeters relative to the slice.
         self.polygons = {
             ViewMode.AXIAL: {},
             ViewMode.SAGITTAL: {},

@@ -282,11 +282,12 @@ class ViewState:
         # Link children to self
         self.camera = CameraState(volume, parent_vs=self)
         self.display = DisplayState(parent_vs=self)
+        self.extraction = ExtractionState(parent_vs=self)
 
         self.sync_group = 0
         self.sync_wl_group = 0  # Radiometric group support
         self.rois = {}
-        self.contour_rois = []
+        self.contours = {}
 
         self.crosshair_value = None
         self.space = SpatialEngine(volume)
@@ -683,3 +684,29 @@ class ViewState:
 
         self.display.ww = preset["ww"]
         self.display.wl = preset["wl"]
+
+
+class ExtractionState:
+    """Stores parameters for interactive contour thresholding."""
+
+    is_enabled: bool
+    threshold: float
+    show_preview: bool
+    preview_color: list
+
+    _DATA_FIELDS = {"is_enabled", "threshold", "show_preview", "preview_color"}
+
+    def __init__(self, parent_vs=None):
+        self._parent = parent_vs
+        self.is_enabled = False
+        self.threshold = 0.0
+        self.show_preview = True
+        self.preview_color = (255, 255, 0, 255)
+
+    def __setattr__(self, name, value):
+        if name in self._DATA_FIELDS and getattr(self, name, _SENTINEL) != value:
+            object.__setattr__(self, name, value)
+            if getattr(self, "_parent", None):
+                self._parent.is_geometry_dirty = True
+            return
+        object.__setattr__(self, name, value)

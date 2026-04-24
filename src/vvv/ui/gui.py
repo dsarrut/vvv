@@ -859,6 +859,8 @@ class MainGUI:
                 self.intensities_ui.refresh_intensities_ui()
             if hasattr(self, "contours_ui"):
                 self.contours_ui.refresh_contours_ui()
+            if hasattr(self, "extraction_ui"):
+                self.extraction_ui.refresh_extraction_ui()
 
     # ==========================================
     # 4. EVENT HANDLERS
@@ -1294,6 +1296,8 @@ class MainGUI:
                     self.intensities_ui.refresh_intensities_ui()
                 if hasattr(self, "contours_ui"):
                     self.contours_ui.refresh_contours_ui()
+                if hasattr(self, "extraction_ui"):
+                    self.extraction_ui.refresh_extraction_ui()
 
                 # Safely update the sidebar between frames when the DPG stack is completely empty!
                 self.update_sidebar_info(self.context_viewer)

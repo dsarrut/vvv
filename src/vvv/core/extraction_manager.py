@@ -6,52 +6,58 @@ from vvv.math.image import SliceRenderer
 
 
 class ExtractionManager:
-    """Core backend for contour extraction, caching, and background processing."""
-
     def __init__(self, controller):
         self.controller = controller
-        # Smart Cache State
-        self._preview_rois = {}
-        self._last_threshold = None
 
-    def _get_or_create_preview_roi(self, image_id, vs, color):
-        """Retrieves or initializes the transient Live Preview ROI."""
-        if image_id not in self._preview_rois:
-            roi = ContourROI(name="Live Preview", color=color, thickness=2.0)
-            self._preview_rois[image_id] = roi
-            vs.contour_rois.append(roi)
+    def _get_or_create_preview_roi(self, img_id, vs, color):
+        """Retrieves or initializes the transient Draft ROI inside the ViewState."""
+        # Check if the dictionary exists (failsafe)
+        if not hasattr(vs, "contours"):
+            vs.contours = {}
+
+        # 1. Find the existing draft in this image's specific storage
+        roi = next(
+            (c for c in vs.contours.values() if getattr(c, "is_draft", False)), None
+        )
+
+        if not roi:
+            # 2. Create a new one if it doesn't exist
+            from vvv.math.contours import ContourROI
+
+            roi = ContourROI(name="Draft Preview", color=color, thickness=2.0)
+            roi.is_draft = True
+            roi.last_computed_threshold = None
+
+            # Register it with the ContourManager so it gets an ID and triggers a redraw
+            self.controller.contours.add_contour(img_id, roi)
         else:
-            self._preview_rois[image_id].color = color
-        return self._preview_rois[image_id]
+            roi.color = color
+        return roi
 
-    def clear_preview(self, image_id, vs):
-        """Wipes the preview memory and polygons from the screen."""
-        if image_id in self._preview_rois:
-            roi = self._preview_rois[image_id]
-            roi.polygons = {
-                ViewMode.AXIAL: {},
-                ViewMode.SAGITTAL: {},
-                ViewMode.CORONAL: {},
-            }
-            self._last_threshold = None
+    def clear_preview(self, img_id, vs):
+        """Removes the draft ROI from the image's state."""
+        if not hasattr(vs, "contours"):
+            return False
+
+        roi = next(
+            (c for c in vs.contours.values() if getattr(c, "is_draft", False)), None
+        )
+        if roi:
+            self.controller.contours.remove_contour(img_id, roi.id)
             return True
         return False
 
-    def update_preview(
-        self, img_id, vol, vs, threshold_val, visible_targets, color, clear_cache=False
-    ):
-        """The Smart Engine: Extracts only the missing slices for the preview."""
+    def update_preview(self, img_id, vol, vs, threshold_val, visible_targets, color):
+        """The Lazy Engine: Called by drawing.py to compute missing slices on the fly."""
         roi = self._get_or_create_preview_roi(img_id, vs, color)
 
-        # Clear cache if slider moved
-        if clear_cache or self._last_threshold != threshold_val:
+        # Clear draft if the slider moved
+        if getattr(roi, "last_computed_threshold", None) != threshold_val:
             for ori in roi.polygons:
                 roi.polygons[ori].clear()
-            self._last_threshold = threshold_val
+            roi.last_computed_threshold = threshold_val
 
         extracted_any = False
-
-        # Only process slices that aren't already in the dictionary
         for ori, s_idx in visible_targets:
             if s_idx not in roi.polygons[ori]:
                 sw, sh = vol.get_physical_aspect_ratio(ori)
@@ -62,8 +68,7 @@ class ExtractionManager:
                     polys = extract_2d_contours_from_slice(mask_2d, sw, sh)
                     roi.polygons[ori][s_idx] = polys
                 else:
-                    roi.polygons[ori][s_idx] = []  # Cache empty state
-
+                    roi.polygons[ori][s_idx] = []
                 extracted_any = True
 
         return extracted_any
@@ -71,26 +76,30 @@ class ExtractionManager:
     def extract_full_volume(
         self, img_id, vol, vs, threshold_val, color, on_progress, on_complete, on_error
     ):
-        """Spawns a background thread for full 3D extraction and uses cache to skip work."""
+        draft_roi = self._preview_rois.get(img_id)
 
-        # 1. Grab the preview cache and verify it matches the current threshold
-        # (If the user dragged the slider and instantly hit 'Extract', the cache is obsolete)
-        cached_preview = self._preview_rois.get(img_id)
-        use_cache = (cached_preview is not None) and (
-            self._last_threshold == threshold_val
-        )
+        if (
+            not draft_roi
+            or getattr(draft_roi, "last_computed_threshold", None) != threshold_val
+        ):
+            draft_roi = ContourROI(name="Processing...", color=color)
+            draft_roi.is_draft = True
+            draft_roi.last_computed_threshold = threshold_val
+            draft_roi.id = self.controller.contours.add_contour(img_id, draft_roi)
+            for ori in [ViewMode.AXIAL, ViewMode.CORONAL, ViewMode.SAGITTAL]:
+                draft_roi.polygons[ori] = {}
+
+        if img_id in self._preview_rois:
+            del self._preview_rois[img_id]
 
         def _background_extract():
             mask_3d = (vol.data >= threshold_val).astype(np.uint8)
             name_str = f"Iso [>= {threshold_val:g}]"
 
             if not np.any(mask_3d):
+                self.controller.contours.remove_contour(img_id, draft_roi.id)
                 on_error("Extraction Failed: Empty mask.")
                 return
-
-            baked_roi = ContourROI(name=name_str, color=color)
-            for ori in [ViewMode.AXIAL, ViewMode.CORONAL, ViewMode.SAGITTAL]:
-                baked_roi.polygons[ori] = {}
 
             shape = vol.shape3d
             ori_map = {
@@ -105,33 +114,26 @@ class ExtractionManager:
             for ori, max_slices in ori_map.items():
                 sw, sh = vol.get_physical_aspect_ratio(ori)
                 for s_idx in range(max_slices):
-
-                    # --- THE SMART CACHE RE-USE ---
-                    if use_cache and s_idx in cached_preview.polygons[ori]:
-                        # Instantly copy the existing polygons from memory (0 ms)
-                        baked_roi.polygons[ori][s_idx] = cached_preview.polygons[ori][
-                            s_idx
-                        ]
-                    else:
-                        # Slice wasn't previewed, so we do the heavy math
+                    # PROGRESSIVE BAKE
+                    if s_idx not in draft_roi.polygons[ori]:
                         slice_mask = SliceRenderer.get_raw_slice(
                             mask_3d, False, 0, s_idx, ori
                         )
                         if np.any(slice_mask):
                             polys = extract_2d_contours_from_slice(slice_mask, sw, sh)
-                            baked_roi.polygons[ori][s_idx] = polys
+                            draft_roi.polygons[ori][s_idx] = polys
                         else:
-                            baked_roi.polygons[ori][s_idx] = []  # Save empty state
+                            draft_roi.polygons[ori][s_idx] = []
 
                     slices_processed += 1
-
-                    # Ping the UI safely through the callback
                     if slices_processed % 10 == 0:
                         on_progress(slices_processed, total_slices)
 
-            # Finalize
-            vs.contour_rois.append(baked_roi)
-            on_complete(baked_roi.name)
+            draft_roi.name = name_str
+            draft_roi.is_draft = False
 
-        # Start thread
+            vs.is_geometry_dirty = True
+            self.controller.update_all_viewers_of_image(img_id, data_dirty=False)
+            on_complete(draft_roi.name)
+
         threading.Thread(target=_background_extract, daemon=True).start()
