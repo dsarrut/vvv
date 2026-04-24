@@ -15,12 +15,10 @@ class ExtractionUI:
         self._debounce_timer = None
         self._last_visible_targets = frozenset()
 
-        # --- NEW: Per-Image State Tracking ---
         # Format: { image_id: {"enabled": False, "threshold": 0.0} }
         self._image_states = {}
         self._current_image_id = None
 
-        # Start the UI Scroll-Watcher Daemon
         threading.Thread(target=self._scroll_monitor_daemon, daemon=True).start()
 
     def _scroll_monitor_daemon(self):
@@ -29,7 +27,6 @@ class ExtractionUI:
             try:
                 if not dpg.is_dearpygui_running():
                     break
-                # Only run preview if BOTH the master toggle and live preview are checked
                 if dpg.does_item_exist("check_ext_enable") and dpg.get_value(
                     "check_ext_enable"
                 ):
@@ -55,7 +52,6 @@ class ExtractionUI:
         return frozenset(targets)
 
     def _trigger_redraw(self, img_id):
-        """Helper to instantly flag all relevant viewers for DearPyGui redraw."""
         for v in self.controller.viewers.values():
             if v.image_id == img_id:
                 v.is_geometry_dirty = True
@@ -67,7 +63,6 @@ class ExtractionUI:
             dpg.add_spacer(height=5)
             build_section_title("Interactive Threshold", cfg_c["text_header"])
 
-            # --- NEW: Master Enable Toggle (Off by default) ---
             dpg.add_checkbox(
                 label="Enable Thresholding",
                 tag="check_ext_enable",
@@ -131,7 +126,6 @@ class ExtractionUI:
             and viewer.volume is not None
         )
 
-        # 1. Base enable/disable fallback if no image is loaded
         if not has_image:
             tags_to_disable = [
                 "check_ext_enable",
@@ -144,13 +138,13 @@ class ExtractionUI:
             for tag in tags_to_disable:
                 if dpg.does_item_exist(tag):
                     dpg.configure_item(tag, enabled=False)
+            self._current_image_id = None
             return
 
         vol = viewer.volume
         img_id = viewer.image_id
         current_data_id = id(vol.data)
 
-        # Lazy Min/Max
         if (
             not hasattr(vol, "_cached_min_val")
             or getattr(vol, "_cached_data_id", None) != current_data_id
@@ -162,29 +156,37 @@ class ExtractionUI:
         min_v = vol._cached_min_val
         max_v = vol._cached_max_val
 
-        # --- 2. State Initialization & Synchronization ---
-        # Initialize memory for new images (Defaults to OFF, threshold at minimum)
+        # --- TWO-WAY STATE SYNCHRONIZATION ---
+
+        # 1. Initialize memory if this image has never been seen (Default 0.0, Disabled)
         if img_id not in self._image_states:
-            self._image_states[img_id] = {"enabled": False, "threshold": min_v}
+            self._image_states[img_id] = {"enabled": False, "threshold": 0.0}
 
-        state = self._image_states[img_id]
-
-        # Context Switch Detection: Did the user click a different image tab?
+        # 2. Context Switch: Apply memory to the UI
         if self._current_image_id != img_id:
             self._current_image_id = img_id
-            # Push the saved Python state to the physical UI widgets
-            dpg.set_value("check_ext_enable", state["enabled"])
-            dpg.set_value("drag_ext_threshold", state["threshold"])
 
-        # --- 3. Update Widget Bounds & Constraints ---
+            # Apply constraints before setting value to prevent clamping errors
+            dpg.configure_item("drag_ext_threshold", min_value=min_v, max_value=max_v)
+
+            dpg.set_value("check_ext_enable", self._image_states[img_id]["enabled"])
+            dpg.set_value("drag_ext_threshold", self._image_states[img_id]["threshold"])
+
+        # 3. Same Image: Constantly save UI changes back to memory
+        else:
+            self._image_states[img_id]["enabled"] = dpg.get_value("check_ext_enable")
+            self._image_states[img_id]["threshold"] = dpg.get_value(
+                "drag_ext_threshold"
+            )
+
+        # Set physical speed
         dpg.configure_item("check_ext_enable", enabled=True)
-        dpg.configure_item("drag_ext_threshold", min_value=min_v, max_value=max_v)
         dpg.configure_item(
             "drag_ext_threshold", speed=max(0.1, viewer.view_state.display.ww * 0.005)
         )
 
-        # Lock UI elements if the master toggle is Off
-        is_active = state["enabled"]
+        # Lock elements if master toggle is off
+        is_active = self._image_states[img_id]["enabled"]
         tags_to_toggle = [
             "drag_ext_threshold",
             "btn_ext_extract",
@@ -198,12 +200,6 @@ class ExtractionUI:
                 dpg.configure_item(tag, enabled=is_active)
 
     def on_enable_toggle(self, sender, app_data, user_data):
-        """Triggered when the master 'Enable Thresholding' box is checked/unchecked."""
-        viewer = self.gui.context_viewer
-        if viewer and viewer.image_id in self._image_states:
-            # Save the new state
-            self._image_states[viewer.image_id]["enabled"] = app_data
-
         self.refresh_extraction_ui()
         self._run_preview_extraction(clear_cache=True)
 
@@ -243,22 +239,17 @@ class ExtractionUI:
             return
 
         img_id = viewer.image_id
-
-        # Save the current slider value to memory
-        threshold_val = dpg.get_value("drag_ext_threshold")
-        if img_id in self._image_states:
-            self._image_states[img_id]["threshold"] = threshold_val
-
-        # If the master toggle is OFF or preview is OFF, wipe the screen
         is_enabled = dpg.get_value("check_ext_enable")
         show_preview = dpg.get_value("check_ext_preview")
 
+        # If toggle is OFF, wipe the preview instantly
         if not is_enabled or not show_preview:
             if self.controller.extraction.clear_preview(img_id, viewer.view_state):
                 self._trigger_redraw(img_id)
             return
 
         visible_targets = self._get_visible_targets()
+        threshold_val = dpg.get_value("drag_ext_threshold")
         color = [int(c) for c in dpg.get_value("color_ext_preview")[:3]]
 
         self.controller.status_message = "Updating Preview Slice..."
@@ -288,9 +279,6 @@ class ExtractionUI:
 
         img_id = viewer.image_id
 
-        if self.controller.extraction.clear_preview(img_id, viewer.view_state):
-            self._trigger_redraw(img_id)
-
         self.controller.status_message = "Extracting Full 3D Volume..."
         self.controller.ui_needs_refresh = True
 
@@ -310,7 +298,10 @@ class ExtractionUI:
         def _on_complete(roi_name):
             dpg.configure_item("prog_ext", show=False)
             dpg.configure_item("text_prog_ext", show=False)
-            self._trigger_redraw(img_id)
+
+            if self.controller.extraction.clear_preview(img_id, viewer.view_state):
+                self._trigger_redraw(img_id)
+
             self.controller.status_message = f"Finished! Added: {roi_name}"
             self.controller.ui_needs_refresh = True
 

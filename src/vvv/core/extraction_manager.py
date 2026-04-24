@@ -71,7 +71,14 @@ class ExtractionManager:
     def extract_full_volume(
         self, img_id, vol, vs, threshold_val, color, on_progress, on_complete, on_error
     ):
-        """Spawns a background thread for full 3D extraction and reports back via callbacks."""
+        """Spawns a background thread for full 3D extraction and uses cache to skip work."""
+
+        # 1. Grab the preview cache and verify it matches the current threshold
+        # (If the user dragged the slider and instantly hit 'Extract', the cache is obsolete)
+        cached_preview = self._preview_rois.get(img_id)
+        use_cache = (cached_preview is not None) and (
+            self._last_threshold == threshold_val
+        )
 
         def _background_extract():
             mask_3d = (vol.data >= threshold_val).astype(np.uint8)
@@ -98,13 +105,23 @@ class ExtractionManager:
             for ori, max_slices in ori_map.items():
                 sw, sh = vol.get_physical_aspect_ratio(ori)
                 for s_idx in range(max_slices):
-                    slice_mask = SliceRenderer.get_raw_slice(
-                        mask_3d, False, 0, s_idx, ori
-                    )
 
-                    if np.any(slice_mask):
-                        polys = extract_2d_contours_from_slice(slice_mask, sw, sh)
-                        baked_roi.polygons[ori][s_idx] = polys
+                    # --- THE SMART CACHE RE-USE ---
+                    if use_cache and s_idx in cached_preview.polygons[ori]:
+                        # Instantly copy the existing polygons from memory (0 ms)
+                        baked_roi.polygons[ori][s_idx] = cached_preview.polygons[ori][
+                            s_idx
+                        ]
+                    else:
+                        # Slice wasn't previewed, so we do the heavy math
+                        slice_mask = SliceRenderer.get_raw_slice(
+                            mask_3d, False, 0, s_idx, ori
+                        )
+                        if np.any(slice_mask):
+                            polys = extract_2d_contours_from_slice(slice_mask, sw, sh)
+                            baked_roi.polygons[ori][s_idx] = polys
+                        else:
+                            baked_roi.polygons[ori][s_idx] = []  # Save empty state
 
                     slices_processed += 1
 
