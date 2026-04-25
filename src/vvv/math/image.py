@@ -145,8 +145,10 @@ class SliceRenderer:
             np.copyto(res_rgba, base_rgba, where=(~mask_rgba & o_mask))
 
         if not is_base_rgb:
-            b_mask = base_rgba[..., 3:4] == 0.0
-            res_rgba[mask_rgba & b_mask] = 0.0
+            # FIX: Drop the trailing dimension so the mask is purely 2D (H, W).
+            # NumPy will now successfully apply it across all 4 RGBA channels!
+            b_mask = base_rgba[..., 3] == 0.0
+            res_rgba[mask & b_mask] = 0.0
 
         return res_rgba
 
