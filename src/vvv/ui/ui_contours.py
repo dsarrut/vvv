@@ -17,7 +17,7 @@ class ContoursUI:
     @staticmethod
     def build_tab_contours(gui):
         cfg_c = gui.ui_cfg["colors"]
-        with dpg.tab(label="Contours", tag="tab_contours"):
+        with dpg.group(tag="tab_contours", show=False):
             dpg.add_spacer(height=5)
             build_section_title("Vector Engine", cfg_c["text_header"])
 

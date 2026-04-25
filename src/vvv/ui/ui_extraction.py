@@ -15,7 +15,7 @@ class ExtractionUI:
     def build_tab_extraction(self, gui):
         cfg_c = gui.ui_cfg["colors"]
 
-        with dpg.tab(label="Extract", tag="tab_extraction"):
+        with dpg.group(tag="tab_extraction", show=False):
             dpg.add_spacer(height=5)
             build_section_title("Interactive Threshold", cfg_c["text_header"])
 

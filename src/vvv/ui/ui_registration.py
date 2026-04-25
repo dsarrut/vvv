@@ -49,7 +49,7 @@ class RegistrationUI:
     def build_tab_reg(gui):
         cfg_c = gui.ui_cfg["colors"]
 
-        with dpg.tab(label="Reg", tag="tab_reg"):
+        with dpg.group(tag="tab_reg", show=False):
             dpg.add_spacer(height=5)
 
             build_section_title("Registration", cfg_c["text_header"])

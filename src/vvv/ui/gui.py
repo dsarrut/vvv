@@ -217,12 +217,23 @@ class MainGUI:
         dpg.bind_item_theme("menu_container", "floating_menu_theme")
 
     def build_sidebar(self):
-        """Constructs the left side panel."""
+        """Constructs the left side panel with the new Vertical Navigation."""
         cfg_l = self.ui_cfg["layout"]
 
-        with dpg.group(tag="side_panel_outer"):
+        # We define the width of the new vertical tab bar here
+        nav_w = cfg_l["nav_panel_w"]
+
+        with dpg.group(tag="side_panel_outer", horizontal=True, horizontal_spacing=5):
+            # --- 1. The Vertical Navigation Column ---
             with dpg.child_window(
-                width=cfg_l["side_panel_w"] - 4,
+                tag="nav_panel", width=nav_w, no_scrollbar=True, border=False
+            ):
+                dpg.add_spacer(height=10)
+                self.build_vertical_nav()
+
+            # --- 2. The Main Tool Panel (Shifted Right) ---
+            with dpg.child_window(
+                width=cfg_l["side_panel_w"] - nav_w - 2,
                 tag="side_panel",
                 no_scrollbar=True,
                 no_scroll_with_mouse=True,
@@ -233,34 +244,60 @@ class MainGUI:
                     self.build_sidebar_top()
                     self.build_sidebar_bottom()
 
-        # Bind Sidebar Themes
+        # Themes
         dpg.bind_item_theme("side_panel", "sidebar_bg_theme")
+        dpg.bind_item_theme("nav_panel", "sidebar_bg_theme")
         dpg.bind_item_theme("top_panel", "left_panel_padding_theme")
-
-        # Target the two new panels instead of 'bottom_panel'
         dpg.bind_item_theme("av_panel", "left_panel_padding_theme")
         dpg.bind_item_theme("ch_panel", "left_panel_padding_theme")
-
         dpg.bind_item_theme("image_info_group", "sleek_readonly_theme")
         dpg.bind_item_theme("image_crosshair_group", "sleek_readonly_theme")
 
-    def build_sidebar_top(self):
-        cfg_c = self.ui_cfg["colors"]
+        self.on_nav_clicked("nav_btn_tab_images", None, "tab_images")
 
+    def build_vertical_nav(self):
+        """Creates the vertical tool buttons."""
+
+        self.nav_items = [
+            ("Images", "tab_images"),
+            ("Sync", "tab_sync"),
+            ("Fusion", "tab_fusion"),
+            ("Intensity", "tab_intensities"),
+            ("ROIs", "tab_rois"),
+            ("Reg", "tab_reg"),
+            ("Threshold", "tab_extraction"),
+        ]
+
+        for i, (name, tag) in enumerate(self.nav_items):
+            btn = dpg.add_button(
+                label=name,
+                tag=f"nav_btn_{tag}",
+                width=-1,
+                height=45,  # Nice, tap-friendly height
+                user_data=tag,
+                callback=self.on_nav_clicked,
+            )
+            dpg.bind_item_theme(btn, "theme_rounded_nav")
+            # Highlight the first tool by default using your existing active theme
+            if i == 0 and dpg.does_item_exist("active_nav_button_theme"):
+                dpg.bind_item_theme(btn, "active_nav_button_theme")
+
+    def build_sidebar_top(self):
+        """Builds the content containers without the native tab_bar."""
         with dpg.child_window(
             tag="top_panel",
             border=False,
             no_scrollbar=True,
         ):
-            with dpg.tab_bar(tag="sidebar_tabs", callback=self.on_tab_changed):
-                build_tab_images(self)
-                build_tab_sync(self)
-                self.fusion_ui.build_tab_fusion(self)
-                self.intensities_ui.build_tab_intensities(self)
-                self.roi_ui.build_tab_rois(self)
-                self.reg_ui.build_tab_reg(self)
-                # self.contours_ui.build_tab_contours(self) # Tab for debug
-                self.extraction_ui.build_tab_extraction(self)
+            # The native dpg.tab_bar is completely gone!
+            # We just load the groups directly.
+            build_tab_images(self)
+            build_tab_sync(self)
+            self.fusion_ui.build_tab_fusion(self)
+            self.intensities_ui.build_tab_intensities(self)
+            self.roi_ui.build_tab_rois(self)
+            self.reg_ui.build_tab_reg(self)
+            self.extraction_ui.build_tab_extraction(self)
 
     def build_sidebar_bottom(self):
         cfg_c = self.ui_cfg["colors"]
@@ -866,9 +903,45 @@ class MainGUI:
     # 4. EVENT HANDLERS
     # ==========================================
 
+    def on_nav_clicked(self, sender, app_data, user_data):
+        """Replaces on_tab_changed. Handles hiding/showing the content groups."""
+        target_tab_tag = user_data
+
+        # 1. Update Button Highlighting & Show/Hide Content
+        for name, tag in self.nav_items:
+            btn_tag = f"nav_btn_{tag}"
+
+            # Button theme
+            if dpg.does_item_exist(btn_tag):
+                dpg.bind_item_theme(btn_tag, "theme_rounded_nav")
+
+            # Show the selected tool group, hide the rest
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, show=(tag == target_tab_tag))
+
+        # Highlight the clicked button
+        if dpg.does_item_exist("active_nav_button_theme"):
+            dpg.bind_item_theme(sender, "active_nav_button_theme")
+
+        # 2. Trigger the old UI layout logic
+        is_roi = target_tab_tag == "tab_rois"
+        self._is_roi_tab_active = is_roi
+
+        hide_av = target_tab_tag in ["tab_rois", "tab_reg"]
+        self._hide_av_panel = hide_av
+
+        if dpg.does_item_exist("av_panel"):
+            dpg.configure_item("av_panel", show=not hide_av)
+
+        self.on_window_resize()
+
     def on_window_resize(self):
-        window_w = dpg.get_viewport_client_width()
-        window_h = dpg.get_viewport_client_height()
+        try:
+            window_w = dpg.get_viewport_client_width()
+            window_h = dpg.get_viewport_client_height()
+        except Exception:
+            return
+
         if not window_w or not window_h:
             return
 
@@ -880,6 +953,8 @@ class MainGUI:
             dpg.set_item_width("menu_container", window_w - m_l - m_r)
 
         panels_y = m_t + cfg["menu_h"] + cfg["menu_m_bottom"]
+        nav_w = cfg["nav_panel_w"]  # MUST match the width defined in build_sidebar
+
         l_x, l_w, l_h = (
             cfg["left_m_left"],
             cfg["side_panel_w"],
@@ -888,29 +963,27 @@ class MainGUI:
 
         if dpg.does_item_exist("side_panel_outer"):
             dpg.set_item_pos("side_panel_outer", [l_x, panels_y])
-            dpg.set_item_width("side_panel", l_w - cfg["gap_center"])
+
+            # Size the Nav Column
+            if dpg.does_item_exist("nav_panel"):
+                dpg.set_item_height("nav_panel", l_h)
+
+            # Size the Tool Column
+            dpg.set_item_width("side_panel", l_w - nav_w - 2)
             dpg.set_item_height("side_panel", l_h)
 
-            inner_w = (
-                l_w - cfg["gap_center"] - cfg["left_inner_m"] - cfg["right_inner_m"]
-            )
+            # Recalculate inner width for all the sliders to adapt!
+            inner_w = l_w - nav_w - 2 - cfg["left_inner_m"] - cfg["right_inner_m"]
 
             # --- THE COMPUTED LAYOUT ENGINE ---
             hide_av = getattr(self, "_hide_av_panel", False)
-
             ch_h = cfg["panel_ch_h"]
             av_h = cfg["panel_av_h"]
             margin_bot = cfg["sidebar_margin_bot"]
 
-            # DearPyGui vertically stacks items with an invisible 4px ItemSpacing gap.
-            # We explicitly calculate the exact pixel height taken by everything else.
             if hide_av:
-                # Sequence: Spacer(5) + Gap(4) + TopPanel(top_h) + Gap(4) + Crosshair(ch_h) + Margin(10)
-                # 5 + 4 + 4 + 10 = 23 static pixels
                 top_h = l_h - ch_h - margin_bot - 13
             else:
-                # Sequence: Spacer(5) + Gap(4) + TopPanel(top_h) + Gap(4) + ActiveViewer(av_h) + Gap(4) + Crosshair(ch_h) + Margin(10)
-                # 5 + 4 + 4 + 4 + 10 = 27 static pixels
                 top_h = l_h - av_h - ch_h - margin_bot - 17
 
             top_h = max(100, top_h)
@@ -919,9 +992,7 @@ class MainGUI:
                 dpg.set_item_width("top_panel", inner_w)
                 dpg.set_item_height("top_panel", top_h)
 
-            # We explicitly calculate the list height and set it BEFORE the frame renders!
             if dpg.does_item_exist("roi_list_window"):
-                # Total Top Panel Height MINUS the Detail Panel MINUS the static text/buttons (~195px)
                 list_h = top_h - cfg["roi_detail_h"] - 195
                 dpg.set_item_width("roi_list_window", inner_w)
                 dpg.set_item_height("roi_list_window", max(50, list_h))
@@ -933,9 +1004,8 @@ class MainGUI:
             if dpg.does_item_exist("ch_panel"):
                 dpg.set_item_width("ch_panel", inner_w)
                 dpg.set_item_height("ch_panel", ch_h)
-            # ----------------------------------
 
-        r_x = l_x + l_w
+        r_x = l_x + l_w + cfg["gap_center"]
         avail_w = window_w - r_x - cfg["right_m_right"]
         avail_h = window_h - panels_y - cfg["right_m_bottom"]
         quad_w, quad_h = avail_w // 2, avail_h // 2
@@ -945,8 +1015,6 @@ class MainGUI:
             dpg.set_item_width("viewers_container", quad_w * 2)
             dpg.set_item_height("viewers_container", quad_h * 2)
 
-        # Only adjust the container boundaries. The Viewers will autonomously
-        # detect the size change in their next tick() and recalculate their math.
         for tag in ["V1", "V2", "V3", "V4"]:
             if dpg.does_item_exist(f"win_{tag}"):
                 dpg.set_item_width(f"win_{tag}", quad_w)

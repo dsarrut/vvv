@@ -35,7 +35,7 @@ class RoiUI:
         cfg_c = gui.ui_cfg["colors"]
         cfg_l = gui.ui_cfg["layout"]
 
-        with dpg.tab(label="ROIs", tag="tab_rois"):  # Reverted label
+        with dpg.group(tag="tab_rois", show=False):
             dpg.add_spacer(height=5)
 
             build_section_title("ROI", cfg_c["text_header"])

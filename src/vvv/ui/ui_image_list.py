@@ -21,7 +21,7 @@ ARCHITECTURE MANDATES (UI Components):
 def build_tab_images(gui):
     """Builds the static layout for the Images tab."""
     cfg_c = gui.ui_cfg["colors"]
-    with dpg.tab(label="Images", tag="tab_images"):
+    with dpg.group(tag="tab_images", show=False):
         dpg.add_spacer(height=5)
         build_section_title("Loaded Images", cfg_c["text_header"])
         with dpg.child_window(border=False, height=-1):
