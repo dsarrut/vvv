@@ -702,6 +702,11 @@ class ExtractionState:
         self.threshold = 0.0
         self.show_preview = True
         self.preview_color = (255, 255, 0, 255)
+        self.computed_counts = {
+            ViewMode.AXIAL: 0,
+            ViewMode.SAGITTAL: 0,
+            ViewMode.CORONAL: 0,
+        }
 
     def __setattr__(self, name, value):
         if name in self._DATA_FIELDS and getattr(self, name, _SENTINEL) != value:

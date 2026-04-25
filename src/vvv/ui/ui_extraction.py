@@ -1,6 +1,7 @@
 import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import build_section_title, build_stepped_slider
+from vvv.core.view_state import ViewMode
 
 
 class ExtractionUI:
@@ -66,6 +67,12 @@ class ExtractionUI:
                 callback=self.on_extract_clicked,
             )
 
+            with dpg.group(tag="group_ext_stats"):
+                dpg.add_text("Computed Slices:", color=gui.ui_cfg["colors"]["text_dim"])
+                dpg.add_text("Axial: 0/0", tag="text_ext_stat_ax")
+                dpg.add_text("Sagittal: 0/0", tag="text_ext_stat_sag")
+                dpg.add_text("Coronal: 0/0", tag="text_ext_stat_cor")
+
             dpg.add_spacer(height=5)
             dpg.add_progress_bar(
                 tag="prog_ext", default_value=0.0, width=-1, show=False
@@ -74,32 +81,29 @@ class ExtractionUI:
 
     def refresh_extraction_ui(self):
         viewer = self.gui.context_viewer
-        if not viewer or not viewer.view_state:
-            self._current_image_id = None
-            return
+        has_image = (
+            viewer is not None
+            and getattr(viewer, "view_state", None) is not None
+            and getattr(viewer.view_state, "extraction", None) is not None
+            and viewer.volume is not None
+        )
 
-        ext_state = viewer.view_state.extraction
-        img_id = viewer.image_id
+        # 1. Fallback if no image is loaded
+        if not has_image:
+            tags_to_disable = [
+                "check_ext_enable",
+                "drag_ext_threshold",
+                "btn_ext_extract",
+                "btn_drag_ext_threshold_minus",
+                "btn_drag_ext_threshold_plus",
+                "check_ext_preview",
+                "color_ext_preview",
+            ]
+            for tag in tags_to_disable:
+                if dpg.does_item_exist(tag):
+                    dpg.configure_item(tag, enabled=False)
 
-        # CONTEXT SWITCH: Snap UI widgets to this image's unique state
-        if self._current_image_id != img_id:
-            self._current_image_id = img_id
-            dpg.set_value("check_ext_enable", ext_state.is_enabled)
-            dpg.set_value("drag_ext_threshold", ext_state.threshold)
-            dpg.set_value("check_ext_preview", ext_state.show_preview)
-            dpg.set_value("color_ext_preview", list(ext_state.preview_color))
-
-        # CONTINUOUS SYNC: Lock UI elements based on Enable flag
-        dpg.configure_item("check_ext_enable", enabled=True)
-        tags_to_toggle = [
-            "drag_ext_threshold",
-            "btn_ext_extract",
-            "check_ext_preview",
-            "color_ext_preview",
-        ]
-        for tag in tags_to_toggle:
-            if dpg.does_item_exist(tag):
-                dpg.configure_item(tag, enabled=ext_state.is_enabled)
+            dpg.configure_item("group_ext_stats", show=False)
             self._current_image_id = None
             return
 
@@ -107,7 +111,7 @@ class ExtractionUI:
         ext_state = viewer.view_state.extraction
         img_id = viewer.image_id
 
-        # 2. Update dynamic constraints (Min/Max and Speed)
+        # 2. Dynamic constraints (Min/Max and Speed)
         current_data_id = id(vol.data)
         if (
             not hasattr(vol, "_cached_min_val")
@@ -117,7 +121,6 @@ class ExtractionUI:
             vol._cached_max_val = float(np.max(vol.data))
             vol._cached_data_id = current_data_id
 
-        # Ensure the minimum allows 0.0 to prevent clipping of default values
         safe_min = min(0.0, vol._cached_min_val)
         dpg.configure_item(
             "drag_ext_threshold", min_value=safe_min, max_value=vol._cached_max_val
@@ -126,7 +129,7 @@ class ExtractionUI:
             "drag_ext_threshold", speed=max(0.1, viewer.view_state.display.ww * 0.005)
         )
 
-        # 3. CONTEXT SWITCH: If active image changed, snap UI to the new image's state
+        # 3. CONTEXT SWITCH: Snap UI to this image's unique state
         if self._current_image_id != img_id:
             self._current_image_id = img_id
             dpg.set_value("check_ext_enable", ext_state.is_enabled)
@@ -134,7 +137,7 @@ class ExtractionUI:
             dpg.set_value("check_ext_preview", ext_state.show_preview)
             dpg.set_value("color_ext_preview", list(ext_state.preview_color))
 
-        # 4. CONTINUOUS SYNC: Ensure UI reflects state if not being actively interacted with
+        # 4. CONTINUOUS SYNC
         else:
             if dpg.get_value("check_ext_enable") != ext_state.is_enabled:
                 dpg.set_value("check_ext_enable", ext_state.is_enabled)
@@ -148,6 +151,20 @@ class ExtractionUI:
             ui_col = [int(c) for c in dpg.get_value("color_ext_preview")[:4]]
             if ui_col != list(ext_state.preview_color):
                 dpg.set_value("color_ext_preview", list(ext_state.preview_color))
+
+        # --- UPDATE COMPUTED STATS ---
+        counts = ext_state.computed_counts
+        sh = vol.shape3d
+
+        dpg.set_value("text_ext_stat_ax", f"Axial: {counts[ViewMode.AXIAL]}/{sh[0]}")
+        dpg.set_value(
+            "text_ext_stat_cor", f"Coronal: {counts[ViewMode.CORONAL]}/{sh[1]}"
+        )
+        dpg.set_value(
+            "text_ext_stat_sag", f"Sagittal: {counts[ViewMode.SAGITTAL]}/{sh[2]}"
+        )
+
+        dpg.configure_item("group_ext_stats", show=ext_state.is_enabled)
 
         # 5. UI LOCKING: Enable components only if master thresholding is enabled
         dpg.configure_item("check_ext_enable", enabled=True)
@@ -245,6 +262,9 @@ class ExtractionUI:
         def _on_complete(roi_name):
             dpg.configure_item("prog_ext", show=False)
             dpg.configure_item("text_prog_ext", show=False)
+            # Auto-disable the tool upon completion
+            ext_state.is_enabled = False
+            ext_state.computed_counts = {k: 0 for k in ext_state.computed_counts}
             self.controller.status_message = f"Finished! Added: {roi_name}"
             self.controller.ui_needs_refresh = True
 

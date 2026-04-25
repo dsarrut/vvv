@@ -47,6 +47,10 @@ class ExtractionManager:
             for ori in roi.polygons:
                 roi.polygons[ori].clear()
             roi.last_computed_threshold = threshold_val
+            # Reset state counts
+            vs.extraction.computed_counts = {
+                k: 0 for k in vs.extraction.computed_counts
+            }
 
         extracted_any = False
         for ori, s_idx in visible_targets:
@@ -60,7 +64,11 @@ class ExtractionManager:
                     roi.polygons[ori][s_idx] = polys
                 else:
                     roi.polygons[ori][s_idx] = []
+                vs.extraction.computed_counts[ori] = len(roi.polygons[ori])
                 extracted_any = True
+
+        if extracted_any:
+            self.controller.ui_needs_refresh = True
 
         return extracted_any
 
@@ -86,6 +94,12 @@ class ExtractionManager:
             for ori in [ViewMode.AXIAL, ViewMode.CORONAL, ViewMode.SAGITTAL]:
                 draft_roi.polygons[ori] = {}
 
+        # Calculate how many slices are already done to adjust the progress bar
+        initial_done = sum(
+            len(vs.contours[draft_roi.id].polygons[o])
+            for o in vs.extraction.computed_counts
+        )
+
         def _background_extract():
             mask_3d = (vol.data >= threshold_val).astype(np.uint8)
             name_str = f"Iso [>= {threshold_val:g}]"
@@ -103,7 +117,8 @@ class ExtractionManager:
             }
 
             total_slices = sum(ori_map.values())
-            slices_processed = 0
+            to_compute = total_slices - initial_done
+            computed_now = 0
 
             for ori, max_slices in ori_map.items():
                 sw, sh = vol.get_physical_aspect_ratio(ori)
@@ -119,9 +134,10 @@ class ExtractionManager:
                         else:
                             draft_roi.polygons[ori][s_idx] = []
 
-                    slices_processed += 1
-                    if slices_processed % 10 == 0:
-                        on_progress(slices_processed, total_slices)
+                        computed_now += 1
+                        # Progress bar reflects ONLY the remaining work
+                        if computed_now % 10 == 0:
+                            on_progress(computed_now, to_compute)
 
             # FINALIZE: Transition from Draft to permanent ROI
             draft_roi.name = name_str
