@@ -349,6 +349,8 @@ def load_workspace_sequence(gui, controller, filepath):
                 vs = controller.view_states[new_id]
                 vs.display.from_dict(img_data.get("display", {}))
                 vs.camera.from_dict(img_data.get("camera", {}))
+                if "extraction" in img_data:
+                    vs.extraction.from_dict(img_data["extraction"])
                 vs.sync_group = img_data.get("sync_group", 0)
 
                 # Apply Overlays immediately since they are already loaded in RAM

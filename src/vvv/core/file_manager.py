@@ -290,6 +290,7 @@ class FileManager:
                 "sync_group": vs.sync_group,
                 "display": vs.display.to_dict(),
                 "camera": vs.camera.to_dict(),
+                "extraction": vs.extraction.to_dict(),
                 "overlay": overlay_info,
                 "rois": rois_list,
             }

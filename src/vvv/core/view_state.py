@@ -726,3 +726,25 @@ class ExtractionState:
                 self._parent.is_geometry_dirty = True
             return
         object.__setattr__(self, name, value)
+
+    def to_dict(self):
+        return {
+            "is_enabled": bool(self.is_enabled),
+            "threshold": float(self.threshold),
+            "show_preview": bool(self.show_preview),
+            "preview_color": list(self.preview_color),
+            "subpixel_accurate": bool(self.subpixel_accurate),
+            "preview_thickness": float(getattr(self, "preview_thickness", 1.0)),
+        }
+
+    def from_dict(self, d):
+        if not d:
+            return
+        self.is_enabled = d.get("is_enabled", self.is_enabled)
+        self.threshold = d.get("threshold", self.threshold)
+        self.show_preview = d.get("show_preview", self.show_preview)
+        self.preview_color = d.get("preview_color", self.preview_color)
+        self.subpixel_accurate = d.get("subpixel_accurate", self.subpixel_accurate)
+        self.preview_thickness = d.get(
+            "preview_thickness", getattr(self, "preview_thickness", 1.0)
+        )
