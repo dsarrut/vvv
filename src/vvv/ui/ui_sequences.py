@@ -332,7 +332,7 @@ def load_workspace_sequence(gui, controller, filepath):
                             f"Restoring Images & Overlays ({completed}/{total_files})",
                             progress=(completed / total_files),
                         )
-                # MAGIC: Keep DearPyGui alive!
+                # Keep DearPyGui alive
                 yield
                 time.sleep(0.01)
 

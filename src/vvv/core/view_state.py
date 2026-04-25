@@ -696,7 +696,7 @@ class ExtractionState:
     subpixel_accurate: bool
     preview_thickness: float
 
-    _DATA_FIELDS = {
+    _GEOM_FIELDS = {
         "is_enabled",
         "threshold",
         "show_preview",
@@ -713,14 +713,9 @@ class ExtractionState:
         self.preview_color = (255, 255, 0, 255)
         self.subpixel_accurate = True
         self.preview_thickness = 1.0
-        self.computed_counts = {
-            ViewMode.AXIAL: 0,
-            ViewMode.SAGITTAL: 0,
-            ViewMode.CORONAL: 0,
-        }
 
     def __setattr__(self, name, value):
-        if name in self._DATA_FIELDS and getattr(self, name, _SENTINEL) != value:
+        if name in self._GEOM_FIELDS and getattr(self, name, _SENTINEL) != value:
             object.__setattr__(self, name, value)
             if getattr(self, "_parent", None):
                 self._parent.is_geometry_dirty = True

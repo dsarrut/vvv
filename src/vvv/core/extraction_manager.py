@@ -45,7 +45,7 @@ class ExtractionManager:
         return False
 
     def update_preview(self, img_id, vol, vs, threshold_val, visible_targets, color):
-        """The Lazy Engine: Called by drawing.py to compute missing slices on the fly."""
+        """The Lazy Engine: Computes missing slices on the fly."""
         roi = self._get_or_create_preview_roi(img_id, vs, color)
 
         # Clear draft if the slider OR the subpixel flag moved
@@ -59,9 +59,6 @@ class ExtractionManager:
                 roi.polygons[ori].clear()
             roi.last_computed_threshold = threshold_val
             roi.last_computed_subpixel = vs.extraction.subpixel_accurate
-            vs.extraction.computed_counts = {
-                k: 0 for k in vs.extraction.computed_counts
-            }
 
         extracted_any = False
         for ori, s_idx in visible_targets:
@@ -87,105 +84,7 @@ class ExtractionManager:
                     else:
                         roi.polygons[ori][s_idx] = []
 
-                vs.extraction.computed_counts[ori] = len(roi.polygons[ori])
                 extracted_any = True
 
         if extracted_any:
             self.controller.ui_needs_refresh = True
-
-    def extract_full_volume(
-        self, img_id, vol, vs, threshold_val, color, on_progress, on_complete, on_error
-    ):
-        """Hijacks the Draft ROI, completes the missing slices, and finalizes it."""
-
-        # FIX: Find the draft ROI in the state, not a private dictionary
-        draft_roi = next(
-            (c for c in vs.contours.values() if getattr(c, "is_draft", False)), None
-        )
-
-        # If no draft exists, or threshold/flag changed, create/reset it
-        if (
-            not draft_roi
-            or getattr(draft_roi, "last_computed_threshold", None) != threshold_val
-            or getattr(draft_roi, "last_computed_subpixel", None)
-            != vs.extraction.subpixel_accurate
-        ):
-
-            draft_roi = ContourROI(name="Processing...", color=color)
-            draft_roi.is_draft = True
-            draft_roi.last_computed_threshold = threshold_val
-            draft_roi.last_computed_subpixel = vs.extraction.subpixel_accurate
-            draft_roi.id = self.controller.contours.add_contour(img_id, draft_roi)
-            for ori in [ViewMode.AXIAL, ViewMode.CORONAL, ViewMode.SAGITTAL]:
-                draft_roi.polygons[ori] = {}
-
-        # Capture the state flag before passing it to the thread
-        is_subpixel = vs.extraction.subpixel_accurate
-
-        # Calculate how many slices are already done to adjust the progress bar
-        initial_done = sum(
-            len(vs.contours[draft_roi.id].polygons[o])
-            for o in vs.extraction.computed_counts
-        )
-
-        def _background_extract():
-            mask_3d = (vol.data >= threshold_val).astype(np.uint8)
-            name_str = f"Iso [>= {threshold_val:g}]"
-
-            if not np.any(mask_3d):
-                self.controller.contours.remove_contour(img_id, draft_roi.id)
-                on_error("Extraction Failed: Empty mask.")
-                return
-
-            shape = vol.shape3d
-            ori_map = {
-                ViewMode.AXIAL: shape[0],
-                ViewMode.CORONAL: shape[1],
-                ViewMode.SAGITTAL: shape[2],
-            }
-
-            total_slices = sum(ori_map.values())
-            to_compute = total_slices - initial_done
-            computed_now = 0
-
-            for ori, max_slices in ori_map.items():
-                sw, sh = vol.get_physical_aspect_ratio(ori)
-                for s_idx in range(max_slices):
-                    if s_idx not in draft_roi.polygons[ori]:
-                        # FAST CHECK: Only process if the binary mask says there is data here
-                        slice_mask = SliceRenderer.get_raw_slice(
-                            mask_3d, False, 0, s_idx, ori
-                        )
-
-                        if np.any(slice_mask):
-                            if is_subpixel:
-                                # Fetch the raw floats for the math
-                                slice_data = SliceRenderer.get_raw_slice(
-                                    vol.data, False, 0, s_idx, ori
-                                )
-                                polys = extract_2d_contours_from_slice(
-                                    slice_data, threshold_val, sw, sh
-                                )
-                            else:
-                                polys = extract_2d_contours_from_slice(
-                                    slice_mask, 0.5, sw, sh
-                                )
-
-                            draft_roi.polygons[ori][s_idx] = polys
-                        else:
-                            draft_roi.polygons[ori][s_idx] = []
-
-                        computed_now += 1
-                        # Progress bar reflects ONLY the remaining work
-                        if computed_now % 10 == 0:
-                            on_progress(computed_now, to_compute)
-
-            # FINALIZE: Transition from Draft to permanent ROI
-            draft_roi.name = name_str
-            draft_roi.is_draft = False
-
-            vs.is_geometry_dirty = True
-            self.controller.update_all_viewers_of_image(img_id, data_dirty=False)
-            on_complete(draft_roi.name)
-
-        threading.Thread(target=_background_extract, daemon=True).start()

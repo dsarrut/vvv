@@ -538,17 +538,7 @@ class OverlayDrawer:
                 dpg.configure_item(viewer.contour_node_tag, show=False)
             return
 
-        # Computes the virtual contour on the fly if the user scrolls or moves the slider!
         ext = getattr(viewer.view_state, "extraction", None)
-        if ext and ext.is_enabled and ext.show_preview:
-            viewer.controller.extraction.update_preview(
-                viewer.image_id,
-                viewer.volume,
-                viewer.view_state,
-                ext.threshold,
-                [(viewer.orientation, viewer.slice_idx)],
-                ext.preview_color,
-            )
 
         node = viewer.contour_node_tag
         if not dpg.does_item_exist(node):

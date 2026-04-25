@@ -1325,6 +1325,19 @@ class SliceViewer:
         self.drawer.draw_scale_bar()
         self.drawer.draw_legend()
         self.drawer.draw_crosshair()
+
+        # Ensure extraction preview is computed before delegating to the View drawer
+        ext = getattr(self.view_state, "extraction", None)
+        if ext and ext.is_enabled and ext.show_preview:
+            self.controller.extraction.update_preview(
+                self.image_id,
+                self.volume,
+                self.view_state,
+                ext.threshold,
+                [(self.orientation, self.slice_idx)],
+                ext.preview_color,
+            )
+
         self.drawer.draw_contours()
         self.update_tracker()
         self.update_filename_overlay()
