@@ -695,7 +695,13 @@ class ExtractionState:
     preview_color: list
     subpixel_accurate: bool
 
-    _DATA_FIELDS = {"is_enabled", "threshold", "show_preview", "preview_color"}
+    _DATA_FIELDS = {
+        "is_enabled",
+        "threshold",
+        "show_preview",
+        "preview_color",
+        "subpixel_accurate",
+    }
 
     def __init__(self, parent_vs=None):
         self._parent = parent_vs
