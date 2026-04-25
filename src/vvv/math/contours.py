@@ -22,26 +22,24 @@ class ContourROI:
         }
 
 
-def extract_2d_contours_from_slice(slice2d, sw=1.0, sh=1.0):
+def extract_2d_contours_from_slice(slice2d, threshold, sw=1.0, sh=1.0):
     """
-    Extracts 2D contours from a single 2D binary mask slice.
-    sw, sh: physical spacing aspect ratios to scale the coordinates to millimeters.
+    Extracts 2D contours using marching squares.
+    Accepts the exact threshold to allow for true sub-pixel linear interpolation.
     """
     try:
         from skimage import measure
     except ImportError:
-        print(
-            "scikit-image is required for contour extraction. Install with: pip install scikit-image"
-        )
+        print("scikit-image is required for contour extraction...")
         return []
 
-    contours = measure.find_contours(slice2d, 0.5)
+    # FIX: Use the REAL threshold provided by the manager!
+    contours = measure.find_contours(slice2d, threshold)
 
     if not contours:
         return []
 
-    # skimage returns (row, col) which translates to (y, x).
-    # We swap to (x, y) and apply the physical scaling.
+    # Apply physical millimeter scaling
     return [
         [[float(pt[1] * sw), float(pt[0] * sh)] for pt in contour]
         for contour in contours

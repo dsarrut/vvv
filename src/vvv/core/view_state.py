@@ -693,6 +693,7 @@ class ExtractionState:
     threshold: float
     show_preview: bool
     preview_color: list
+    subpixel_accurate: bool
 
     _DATA_FIELDS = {"is_enabled", "threshold", "show_preview", "preview_color"}
 
@@ -702,6 +703,7 @@ class ExtractionState:
         self.threshold = 0.0
         self.show_preview = True
         self.preview_color = (255, 255, 0, 255)
+        self.subpixel_accurate = True
         self.computed_counts = {
             ViewMode.AXIAL: 0,
             ViewMode.SAGITTAL: 0,

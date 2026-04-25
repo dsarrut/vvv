@@ -44,6 +44,13 @@ class ExtractionUI:
                     tag="check_ext_preview",
                     callback=self.on_threshold_drag,
                 )
+
+                dpg.add_checkbox(
+                    label="Sub-Pixel",
+                    tag="check_ext_subpixel",
+                    callback=self.on_threshold_drag,
+                )
+
                 dpg.add_color_edit(
                     (255, 255, 0, 255),
                     tag="color_ext_preview",
@@ -135,6 +142,7 @@ class ExtractionUI:
             dpg.set_value("check_ext_enable", ext_state.is_enabled)
             dpg.set_value("drag_ext_threshold", ext_state.threshold)
             dpg.set_value("check_ext_preview", ext_state.show_preview)
+            dpg.set_value("check_ext_subpixel", ext_state.subpixel_accurate)
             dpg.set_value("color_ext_preview", list(ext_state.preview_color))
 
         # 4. CONTINUOUS SYNC
@@ -147,6 +155,9 @@ class ExtractionUI:
 
             if dpg.get_value("check_ext_preview") != ext_state.show_preview:
                 dpg.set_value("check_ext_preview", ext_state.show_preview)
+
+            if dpg.get_value("check_ext_subpixel") != ext_state.subpixel_accurate:
+                dpg.set_value("check_ext_subpixel", ext_state.subpixel_accurate)
 
             ui_col = [int(c) for c in dpg.get_value("color_ext_preview")[:4]]
             if ui_col != list(ext_state.preview_color):
@@ -213,6 +224,10 @@ class ExtractionUI:
                 self.controller.extraction.clear_preview(
                     viewer.image_id, viewer.view_state
                 )
+
+        elif sender == "check_ext_subpixel":
+            viewer.view_state.extraction.subpixel_accurate = app_data
+
         else:
             viewer.view_state.extraction.threshold = dpg.get_value("drag_ext_threshold")
 
