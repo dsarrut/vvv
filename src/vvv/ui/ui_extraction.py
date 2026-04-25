@@ -74,32 +74,6 @@ class ExtractionUI:
                     callback=self.on_threshold_drag,
                 )
 
-            dpg.add_spacer(height=15)
-            dpg.add_separator()
-            dpg.add_spacer(height=5)
-
-            # --- HIDDEN: 3D Extraction & Progress ---
-            dpg.add_button(
-                label="Extract to ROI",
-                tag="btn_ext_extract",
-                width=-1,
-                height=30,
-                callback=self.on_extract_clicked,
-                show=False,  # Hidden for now
-            )
-
-            with dpg.group(tag="group_ext_stats", show=False):  # Hidden for now
-                dpg.add_text("Computed Slices:", color=gui.ui_cfg["colors"]["text_dim"])
-                dpg.add_text("Axial: 0/0", tag="text_ext_stat_ax")
-                dpg.add_text("Sagittal: 0/0", tag="text_ext_stat_sag")
-                dpg.add_text("Coronal: 0/0", tag="text_ext_stat_cor")
-
-            dpg.add_spacer(height=5)
-            dpg.add_progress_bar(
-                tag="prog_ext", default_value=0.0, width=-1, show=False
-            )
-            dpg.add_text("", tag="text_prog_ext", color=cfg_c["text_dim"], show=False)
-
     def refresh_extraction_ui(self):
         viewer = self.gui.context_viewer
         has_image = (
@@ -188,7 +162,6 @@ class ExtractionUI:
         # Actionable controls that require the Master Switch to be ON
         locked_when_disabled = [
             "drag_ext_threshold",
-            "btn_ext_extract",
             "btn_drag_ext_threshold_minus",
             "btn_drag_ext_threshold_plus",
         ]
@@ -268,7 +241,3 @@ class ExtractionUI:
 
         viewer.view_state.extraction.threshold = new_val
         self.controller.ui_needs_refresh = True
-
-    # (on_extract_clicked remains in the file but is no longer exposed to the UI)
-    def on_extract_clicked(self, sender, app_data, user_data):
-        pass
