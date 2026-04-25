@@ -557,12 +557,23 @@ class OverlayDrawer:
         contour_dict = getattr(viewer.view_state, "contours", {})
         contour_rois = list(contour_dict.values())
 
-        # Count total polygons on this slice to determine if we need to rebuild
-        total_polys = sum(
-            len(roi.polygons[viewer.orientation].get(viewer.slice_idx, []))
-            for roi in contour_rois
-            if roi.visible
-        )
+        # --- THE FIX: ROBUST CACHE INVALIDATION ---
+        # We must track colors, thickness, and exact math states so DPG knows when to redraw!
+        total_polys = 0
+        roi_visual_states = []
+
+        for roi in contour_rois:
+            if roi.visible:
+                poly_list = roi.polygons[viewer.orientation].get(viewer.slice_idx, [])
+                total_polys += len(poly_list)
+
+                # Track visual properties to break the cache if they change
+                roi_visual_states.append(
+                    (roi.id, tuple(roi.color), getattr(roi, "thickness", 1.0))
+                )
+
+        # Also track the mathematical state of the preview
+        ext_math_state = (ext.threshold, ext.subpixel_accurate) if ext else None
 
         current_state = (
             viewer.image_id,
@@ -570,6 +581,8 @@ class OverlayDrawer:
             viewer.slice_idx,
             len(contour_rois),
             total_polys,
+            tuple(roi_visual_states),  # Triggers redraw if ANY color changes
+            ext_math_state,  # Triggers redraw if Subpixel changes
         )
 
         if getattr(self, "_last_contour_image", None) != current_state:
