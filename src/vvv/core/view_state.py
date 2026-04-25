@@ -694,6 +694,7 @@ class ExtractionState:
     show_preview: bool
     preview_color: list
     subpixel_accurate: bool
+    preview_thickness: float
 
     _DATA_FIELDS = {
         "is_enabled",
@@ -701,6 +702,7 @@ class ExtractionState:
         "show_preview",
         "preview_color",
         "subpixel_accurate",
+        "preview_thickness",
     }
 
     def __init__(self, parent_vs=None):
@@ -710,6 +712,7 @@ class ExtractionState:
         self.show_preview = True
         self.preview_color = (255, 255, 0, 255)
         self.subpixel_accurate = True
+        self.preview_thickness = 1.0
         self.computed_counts = {
             ViewMode.AXIAL: 0,
             ViewMode.SAGITTAL: 0,

@@ -13,20 +13,25 @@ class ExtractionManager:
 
     def _get_or_create_preview_roi(self, img_id, vs, color):
         """Retrieves or initializes the transient Draft ROI inside the ViewState."""
-        # Find existing draft in the image's own contours
         roi = next(
             (c for c in vs.contours.values() if getattr(c, "is_draft", False)), None
         )
 
         if not roi:
-            roi = ContourROI(name="Draft Preview", color=color, thickness=2.0)
+            # Create with state thickness
+            roi = ContourROI(
+                name="Draft Preview",
+                color=color,
+                thickness=vs.extraction.preview_thickness,
+            )
             roi.is_draft = True
             roi.last_computed_threshold = None
             roi.last_computed_subpixel = None
-            # Add to the image's permanent dictionary via the manager
             self.controller.contours.add_contour(img_id, roi)
         else:
+            # Update with state thickness
             roi.color = color
+            roi.thickness = vs.extraction.preview_thickness
         return roi
 
     def clear_preview(self, img_id, vs):

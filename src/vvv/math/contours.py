@@ -33,15 +33,15 @@ def extract_2d_contours_from_slice(slice2d, threshold, sw=1.0, sh=1.0):
         print("scikit-image is required for contour extraction...")
         return []
 
-    # FIX: Use the REAL threshold provided by the manager!
+    # Use the REAL threshold provided by the manager
     contours = measure.find_contours(slice2d, threshold)
 
     if not contours:
         return []
 
-    # Apply physical millimeter scaling
+    # Add 0.5 to align skimage pixel centers with OpenGL top-left edges
     return [
-        [[float(pt[1] * sw), float(pt[0] * sh)] for pt in contour]
+        [[float((pt[1] + 0.5) * sw), float((pt[0] + 0.5) * sh)] for pt in contour]
         for contour in contours
     ]
 

@@ -10,7 +10,6 @@ class ExtractionUI:
     def __init__(self, gui, controller):
         self.gui = gui
         self.controller = controller
-        # --- Context Switch Tracker ---
         self._current_image_id = None
 
     def build_tab_extraction(self, gui):
@@ -62,19 +61,34 @@ class ExtractionUI:
                     callback=self.on_threshold_drag,
                 )
 
+            # --- NEW: Thickness Slider ---
+            dpg.add_spacer(height=5)
+            with dpg.group(horizontal=True):
+                dpg.add_text("Thickness:")
+                dpg.add_slider_float(
+                    tag="drag_ext_thickness",
+                    width=-1,
+                    min_value=0.5,
+                    max_value=10.0,
+                    default_value=2.0,
+                    callback=self.on_threshold_drag,
+                )
+
             dpg.add_spacer(height=15)
             dpg.add_separator()
             dpg.add_spacer(height=5)
 
+            # --- HIDDEN: 3D Extraction & Progress ---
             dpg.add_button(
                 label="Extract to ROI",
                 tag="btn_ext_extract",
                 width=-1,
                 height=30,
                 callback=self.on_extract_clicked,
+                show=False,  # Hidden for now
             )
 
-            with dpg.group(tag="group_ext_stats"):
+            with dpg.group(tag="group_ext_stats", show=False):  # Hidden for now
                 dpg.add_text("Computed Slices:", color=gui.ui_cfg["colors"]["text_dim"])
                 dpg.add_text("Axial: 0/0", tag="text_ext_stat_ax")
                 dpg.add_text("Sagittal: 0/0", tag="text_ext_stat_sag")
@@ -95,22 +109,19 @@ class ExtractionUI:
             and viewer.volume is not None
         )
 
-        # 1. Fallback if no image is loaded
         if not has_image:
             tags_to_disable = [
                 "check_ext_enable",
                 "drag_ext_threshold",
-                "btn_ext_extract",
-                "btn_drag_ext_threshold_minus",
-                "btn_drag_ext_threshold_plus",
                 "check_ext_preview",
                 "color_ext_preview",
+                "check_ext_subpixel",
+                "drag_ext_thickness",
             ]
             for tag in tags_to_disable:
                 if dpg.does_item_exist(tag):
                     dpg.configure_item(tag, enabled=False)
 
-            dpg.configure_item("group_ext_stats", show=False)
             self._current_image_id = None
             return
 
@@ -118,7 +129,7 @@ class ExtractionUI:
         ext_state = viewer.view_state.extraction
         img_id = viewer.image_id
 
-        # 2. Dynamic constraints (Min/Max and Speed)
+        # Constraints
         current_data_id = id(vol.data)
         if (
             not hasattr(vol, "_cached_min_val")
@@ -136,7 +147,7 @@ class ExtractionUI:
             "drag_ext_threshold", speed=max(0.1, viewer.view_state.display.ww * 0.005)
         )
 
-        # 3. CONTEXT SWITCH: Snap UI to this image's unique state
+        # Context Switch Snap
         if self._current_image_id != img_id:
             self._current_image_id = img_id
             dpg.set_value("check_ext_enable", ext_state.is_enabled)
@@ -144,6 +155,7 @@ class ExtractionUI:
             dpg.set_value("check_ext_preview", ext_state.show_preview)
             dpg.set_value("check_ext_subpixel", ext_state.subpixel_accurate)
             dpg.set_value("color_ext_preview", list(ext_state.preview_color))
+            dpg.set_value("drag_ext_thickness", ext_state.preview_thickness)
 
         # 4. CONTINUOUS SYNC
         else:
@@ -153,57 +165,66 @@ class ExtractionUI:
             if not dpg.is_item_active("drag_ext_threshold"):
                 dpg.set_value("drag_ext_threshold", ext_state.threshold)
 
+            if not dpg.is_item_active("drag_ext_thickness"):
+                dpg.set_value("drag_ext_thickness", ext_state.preview_thickness)
+
             if dpg.get_value("check_ext_preview") != ext_state.show_preview:
                 dpg.set_value("check_ext_preview", ext_state.show_preview)
 
             if dpg.get_value("check_ext_subpixel") != ext_state.subpixel_accurate:
                 dpg.set_value("check_ext_subpixel", ext_state.subpixel_accurate)
 
-            ui_col = [int(c) for c in dpg.get_value("color_ext_preview")[:4]]
+            # --- FIX: Safe Float/Int Color Syncing ---
+            raw_ui_col = dpg.get_value("color_ext_preview")[:4]
+            ui_scale = 255.0 if all(c <= 1.0 for c in raw_ui_col) else 1.0
+            ui_col = [int(c * ui_scale) for c in raw_ui_col]
+
             if ui_col != list(ext_state.preview_color):
                 dpg.set_value("color_ext_preview", list(ext_state.preview_color))
 
-        # --- UPDATE COMPUTED STATS ---
-        counts = ext_state.computed_counts
-        sh = vol.shape3d
-
-        dpg.set_value("text_ext_stat_ax", f"Axial: {counts[ViewMode.AXIAL]}/{sh[0]}")
-        dpg.set_value(
-            "text_ext_stat_cor", f"Coronal: {counts[ViewMode.CORONAL]}/{sh[1]}"
-        )
-        dpg.set_value(
-            "text_ext_stat_sag", f"Sagittal: {counts[ViewMode.SAGITTAL]}/{sh[2]}"
-        )
-
-        dpg.configure_item("group_ext_stats", show=ext_state.is_enabled)
-
-        # 5. UI LOCKING: Enable components only if master thresholding is enabled
+        # --- FIX: UI LOCKING RULES ---
+        # Keep everything enabled so the user can configure their preferences
+        # BEFORE turning the Live Preview on!
         dpg.configure_item("check_ext_enable", enabled=True)
-        tags_to_toggle = [
+
+        tags_for_master_toggle = [
             "drag_ext_threshold",
-            "btn_ext_extract",
             "btn_drag_ext_threshold_minus",
             "btn_drag_ext_threshold_plus",
             "check_ext_preview",
-            "color_ext_preview",
+            "check_ext_subpixel",
+            "color_ext_preview",  # Unlocked!
+            "drag_ext_thickness",  # Unlocked!
         ]
-        for tag in tags_to_toggle:
+        for tag in tags_for_master_toggle:
             if dpg.does_item_exist(tag):
-                dpg.configure_item(tag, enabled=ext_state.is_enabled)
+                # The slider itself is locked if the master switch is off,
+                # but color, subpixel, and thickness remain configurable anytime.
+                if tag in [
+                    "color_ext_preview",
+                    "drag_ext_thickness",
+                    "check_ext_subpixel",
+                ]:
+                    dpg.configure_item(tag, enabled=True)
+                else:
+                    dpg.configure_item(tag, enabled=ext_state.is_enabled)
 
-    # --- Callbacks: View -> Model ---
+        # Color and Thickness are locked if Live Preview is hidden OR if tool is disabled
+        preview_active = ext_state.is_enabled and ext_state.show_preview
+        if dpg.does_item_exist("color_ext_preview"):
+            dpg.configure_item("color_ext_preview", enabled=preview_active)
+        if dpg.does_item_exist("drag_ext_thickness"):
+            dpg.configure_item("drag_ext_thickness", enabled=preview_active)
+
+    # --- Callbacks ---
 
     def on_enable_toggle(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer
         if not viewer or not viewer.view_state:
             return
-
         viewer.view_state.extraction.is_enabled = app_data
-
-        # Cleanup the Live Preview from the ContourManager if disabled
         if not app_data:
             self.controller.extraction.clear_preview(viewer.image_id, viewer.view_state)
-
         self.controller.ui_needs_refresh = True
 
     def on_threshold_drag(self, sender, app_data, user_data):
@@ -212,7 +233,6 @@ class ExtractionUI:
             return
 
         if sender == "color_ext_preview":
-            # Check if DPG is sending normalized floats (0.0-1.0) or ints (0-255)
             scale = 255.0 if all(c <= 1.0 for c in app_data) else 1.0
             viewer.view_state.extraction.preview_color = [
                 int(c * scale) for c in app_data[:4]
@@ -227,6 +247,9 @@ class ExtractionUI:
 
         elif sender == "check_ext_subpixel":
             viewer.view_state.extraction.subpixel_accurate = app_data
+
+        elif sender == "drag_ext_thickness":
+            viewer.view_state.extraction.preview_thickness = app_data
 
         else:
             viewer.view_state.extraction.threshold = dpg.get_value("drag_ext_threshold")
@@ -253,49 +276,6 @@ class ExtractionUI:
         viewer.view_state.extraction.threshold = new_val
         self.controller.ui_needs_refresh = True
 
+    # (on_extract_clicked remains in the file but is no longer exposed to the UI)
     def on_extract_clicked(self, sender, app_data, user_data):
-        viewer = self.gui.context_viewer
-        if not viewer or not viewer.view_state or not viewer.volume:
-            return
-
-        img_id = viewer.image_id
-        ext_state = viewer.view_state.extraction
-
-        self.controller.status_message = "Extracting Full 3D Volume..."
-        self.controller.ui_needs_refresh = True
-
-        dpg.configure_item("prog_ext", show=True, default_value=0.0)
-        dpg.configure_item(
-            "text_prog_ext", show=True, default_value="Binarizing Volume..."
-        )
-
-        def _on_progress(processed, total):
-            dpg.set_value("prog_ext", processed / total)
-            dpg.set_value("text_prog_ext", f"Extracting: {processed} / {total}")
-            self.controller.update_all_viewers_of_image(img_id, data_dirty=False)
-
-        def _on_complete(roi_name):
-            dpg.configure_item("prog_ext", show=False)
-            dpg.configure_item("text_prog_ext", show=False)
-            # Auto-disable the tool upon completion
-            ext_state.is_enabled = False
-            ext_state.computed_counts = {k: 0 for k in ext_state.computed_counts}
-            self.controller.status_message = f"Finished! Added: {roi_name}"
-            self.controller.ui_needs_refresh = True
-
-        def _on_error(msg):
-            dpg.configure_item("prog_ext", show=False)
-            dpg.configure_item("text_prog_ext", show=False)
-            self.controller.status_message = msg
-            self.controller.ui_needs_refresh = True
-
-        self.controller.extraction.extract_full_volume(
-            img_id,
-            viewer.volume,
-            viewer.view_state,
-            ext_state.threshold,
-            ext_state.preview_color,
-            _on_progress,
-            _on_complete,
-            _on_error,
-        )
+        pass
