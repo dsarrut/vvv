@@ -182,39 +182,32 @@ class ExtractionUI:
             if ui_col != list(ext_state.preview_color):
                 dpg.set_value("color_ext_preview", list(ext_state.preview_color))
 
-        # --- FIX: UI LOCKING RULES ---
-        # Keep everything enabled so the user can configure their preferences
-        # BEFORE turning the Live Preview on!
+        # 5. UI LOCKING RULES
         dpg.configure_item("check_ext_enable", enabled=True)
 
-        tags_for_master_toggle = [
+        # Actionable controls that require the Master Switch to be ON
+        locked_when_disabled = [
             "drag_ext_threshold",
+            "btn_ext_extract",
             "btn_drag_ext_threshold_minus",
             "btn_drag_ext_threshold_plus",
+        ]
+
+        # Preferences that can be configured at any time
+        always_enabled = [
             "check_ext_preview",
             "check_ext_subpixel",
-            "color_ext_preview",  # Unlocked!
-            "drag_ext_thickness",  # Unlocked!
+            "color_ext_preview",
+            "drag_ext_thickness",  # (If you added the thickness slider)
         ]
-        for tag in tags_for_master_toggle:
-            if dpg.does_item_exist(tag):
-                # The slider itself is locked if the master switch is off,
-                # but color, subpixel, and thickness remain configurable anytime.
-                if tag in [
-                    "color_ext_preview",
-                    "drag_ext_thickness",
-                    "check_ext_subpixel",
-                ]:
-                    dpg.configure_item(tag, enabled=True)
-                else:
-                    dpg.configure_item(tag, enabled=ext_state.is_enabled)
 
-        # Color and Thickness are locked if Live Preview is hidden OR if tool is disabled
-        preview_active = ext_state.is_enabled and ext_state.show_preview
-        if dpg.does_item_exist("color_ext_preview"):
-            dpg.configure_item("color_ext_preview", enabled=preview_active)
-        if dpg.does_item_exist("drag_ext_thickness"):
-            dpg.configure_item("drag_ext_thickness", enabled=preview_active)
+        for tag in locked_when_disabled:
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, enabled=ext_state.is_enabled)
+
+        for tag in always_enabled:
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, enabled=True)
 
     # --- Callbacks ---
 
