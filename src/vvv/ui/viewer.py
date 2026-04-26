@@ -396,10 +396,9 @@ class SliceViewer:
         ):
             return False
 
-        # --- FIX: Clean up the old texture from VRAM to prevent memory leaks and clear Linux ghosting ---
+        # Store the old texture for safe deletion in the binding phase
         if self.texture_tag and self.texture_tag != new_texture_tag:
-            if dpg.does_item_exist(self.texture_tag):
-                dpg.delete_item(self.texture_tag)
+            self._old_texture_to_delete = self.texture_tag
 
         if not dpg.does_item_exist(new_texture_tag):
             dpg.add_dynamic_texture(
@@ -415,15 +414,19 @@ class SliceViewer:
         return True
 
     def bind_texture_to_node(self):
-        # Delete the old standalone image_tag if it exists outside img_node_tag
-        if dpg.does_item_exist(self.image_tag):
-            dpg.delete_item(self.image_tag)
-
-        # 3. If the size changed, cleanly delete the old drawing command
+        # 1. Cleanly delete the old drawing command
         if dpg.does_item_exist(self.img_node_tag):
             dpg.delete_item(self.img_node_tag, children_only=True)
 
-        # 7. Re-bind the image quad to the screen
+        # 2. Safely defer deleting the old texture from VRAM until the next frame
+        old_tex = getattr(self, "_old_texture_to_delete", None)
+        if old_tex:
+            if not hasattr(self, "_textures_to_delete"):
+                self._textures_to_delete = []
+            self._textures_to_delete.append(old_tex)
+        self._old_texture_to_delete = None
+
+        # 3. Re-bind the image quad to the screen
         if dpg.does_item_exist(self.img_node_tag):
             self.image_tag = dpg.draw_image(
                 self.texture_tag,
@@ -678,6 +681,13 @@ class SliceViewer:
         self.view_state.is_data_dirty = True
 
     def tick(self):
+        # Safely clean up textures from the previous frame
+        if hasattr(self, "_textures_to_delete") and self._textures_to_delete:
+            for tex in self._textures_to_delete:
+                if dpg.does_item_exist(tex):
+                    dpg.delete_item(tex)
+            self._textures_to_delete.clear()
+
         target_id = self.controller.layout.get(self.tag)
         if target_id != self.image_id:
             if target_id is None:

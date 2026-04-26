@@ -12,6 +12,7 @@ dependencies = [
     "SimpleITK",
     "dearpygui",
     "numpy",
+    "scikit-image",
     "pytest",
     "setproctitle",
     "pyobjc-framework-Cocoa; sys_platform == 'darwin'"
