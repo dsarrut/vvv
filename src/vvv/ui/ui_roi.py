@@ -174,9 +174,7 @@ class RoiUI:
                     is_active = roi_id == self.active_roi_id
 
                     roi_vol = self.controller.volumes.get(roi_id)
-                    is_outdated = (
-                        getattr(roi_vol, "_is_outdated", False) if roi_vol else False
-                    )
+                    is_outdated = roi_vol._is_outdated if roi_vol else False
                     label_str = f"{roi.name} *" if is_outdated else roi.name
 
                     sel_id = dpg.add_selectable(
@@ -256,16 +254,8 @@ class RoiUI:
             # --- NEW SECTION: ROI Geometry & Loading Mode ---
             if roi_vol:
                 # 1. Loading Rule (FG vs BG)
-                mode_str = (
-                    roi_state.source_mode
-                    if hasattr(roi_state, "source_mode")
-                    else "Unknown"
-                )
-                val_str = (
-                    f"{roi_state.source_val:g}"
-                    if hasattr(roi_state, "source_val")
-                    else "?"
-                )
+                mode_str = roi_state.source_mode
+                val_str = f"{roi_state.source_val:g}"
 
                 with dpg.group(horizontal=True):
                     dpg.add_text("Rule:", color=dim_col)

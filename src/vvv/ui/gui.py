@@ -331,18 +331,6 @@ class MainGUI:
             build_section_title("Active Viewer", cfg_c["text_header"])
             with dpg.group(tag="image_info_group"):
                 self.create_labeled_field("", tag="info_name")
-
-                """ with dpg.group(horizontal=True):
-                    dpg.add_text("Path:", color=cfg_c["text_dim"])
-                    btn_copy = dpg.add_button(
-                        label="\uf0c5", callback=self.on_copy_path_clicked
-                    )
-                    if dpg.does_item_exist("icon_font_tag"):
-                        dpg.bind_item_font(btn_copy, "icon_font_tag")
-                    if dpg.does_item_exist("icon_button_theme"):
-                        dpg.bind_item_theme(btn_copy, "icon_button_theme")
-                    dpg.add_input_text(tag="info_path", readonly=True, width=-1)"""
-
                 self.create_labeled_field("Type", tag="info_voxel_type")
                 self.create_labeled_field("Size", tag="info_size")
                 self.create_labeled_field("Spacing", tag="info_spacing")
@@ -574,9 +562,8 @@ class MainGUI:
                         if current_ui_val != val:
                             dpg.set_value(tag, val)
 
-        # Sync the Fusion overlay values (For when hotkeys like 'X' are used)
-        if hasattr(self, "fusion_ui"):
-            self.fusion_ui.sync_fusion_ui()
+        # Sync the Fusion overlay values
+        self.fusion_ui.sync_fusion_ui()
 
         # Sync Interpolation mode text
         if dpg.does_item_exist("check_interpolation"):
@@ -736,7 +723,6 @@ class MainGUI:
         if not has_image:
             text_tags = [
                 "info_name",
-                "info_path",
                 "info_size",
                 "info_spacing",
                 "info_origin",
@@ -758,25 +744,6 @@ class MainGUI:
 
         vol = viewer.volume
         dpg.set_value("info_name", vol.name)
-        raw_path = (
-            vol.file_paths[0]
-            if isinstance(vol.file_paths, list) and vol.file_paths
-            else str(vol.path)
-        )
-        # with dpg.tooltip("info_name"):
-        #    dpg.add_text(vol.get_human_readable_file_path())
-
-        # 1. Resolve to a clean absolute path first
-        abs_path = os.path.abspath(os.path.expanduser(raw_path))
-
-        # 2. Check if it lives inside the user's home directory and replace it with ~
-        home_dir = os.path.expanduser("~")
-        if abs_path.startswith(home_dir):
-            display_path = "~" + abs_path[len(home_dir) :]
-        else:
-            display_path = abs_path
-
-        # dpg.set_value("info_path", display_path)
         dpg.set_value("info_name_label", viewer.tag)
         dpg.set_value("info_voxel_type", f"{vol.pixel_type}")
         if vol.num_timepoints > 1:
@@ -913,15 +880,10 @@ class MainGUI:
             self.highlight_active_image_in_list(viewer.image_id)
             self.update_sidebar_info(viewer)
             self.update_sidebar_crosshair(viewer)
-            self.refresh_rois_ui()
-            self.reg_ui.refresh_reg_ui()
             self.reg_ui.pull_reg_sliders_from_transform()
-            if hasattr(self, "intensities_ui"):
-                self.intensities_ui.refresh_intensities_ui()
-            if hasattr(self, "contours_ui"):
-                self.contours_ui.refresh_contours_ui()
-            if hasattr(self, "extraction_ui"):
-                self.extraction_ui.refresh_extraction_ui()
+
+            # Defer full panel refresh to next frame loop
+            self.controller.ui_needs_refresh = True
 
     # ==========================================
     # 4. EVENT HANDLERS
@@ -1153,12 +1115,6 @@ class MainGUI:
 
             threading.Thread(target=_save, daemon=True).start()
 
-    def on_copy_path_clicked(self, sender, app_data, user_data):
-        path = dpg.get_value("info_path")
-        if path and path != "---":
-            dpg.set_clipboard_text(path)
-            self.show_status_message("Path copied to clipboard!", color=[0, 255, 255])
-
     def on_save_workspace_clicked(self, sender=None, app_data=None, user_data=None):
         file_path = save_file_dialog("Save VVV Workspace", default_name="workspace.vvw")
 
@@ -1203,23 +1159,6 @@ class MainGUI:
                 )
             else:
                 dpg.configure_item("menu_save_workspace", show=False)
-
-    def on_tab_changed(self, sender, app_data, user_data):
-        tab_tag = app_data
-        if isinstance(app_data, int):
-            tab_tag = dpg.get_item_alias(app_data) or app_data
-
-        is_roi = tab_tag == "tab_rois"
-        self._is_roi_tab_active = is_roi
-
-        # Hide the Active Viewer panel for the ROI and Reg tabs
-        hide_av = tab_tag in ["tab_rois", "tab_reg"]
-        self._hide_av_panel = hide_av
-
-        if dpg.does_item_exist("av_panel"):
-            dpg.configure_item("av_panel", show=not hide_av)
-
-        self.on_window_resize()
 
     def on_recent_file_clicked(self, sender, app_data, user_data):
         path = user_data
@@ -1373,6 +1312,20 @@ class MainGUI:
         """Wrapper to pass the CLI boot request into the external Sequence Manager."""
         return create_boot_sequence(self, self.controller, image_tasks, sync, link_all)
 
+    def _refresh_all_ui_panels(self):
+        """Consolidated handler to rebuild all dynamic side panels."""
+        self.refresh_image_list_ui()
+        self.refresh_sync_ui()
+        self.refresh_rois_ui()
+        self.fusion_ui.refresh_fusion_ui()
+        self.reg_ui.refresh_reg_ui()
+        self.intensities_ui.refresh_intensities_ui()
+        self.contours_ui.refresh_contours_ui()
+        self.extraction_ui.refresh_extraction_ui()
+
+        # Safely update the sidebar between frames when the DPG stack is completely empty!
+        self.update_sidebar_info(self.context_viewer)
+
     def run(self, boot_generator=None):
         dpg.setup_dearpygui()
 
@@ -1406,24 +1359,7 @@ class MainGUI:
                     self.tasks.pop(0)
 
             if getattr(self.controller, "ui_needs_refresh", False):
-                self.refresh_image_list_ui()
-                if hasattr(self, "refresh_sync_ui"):
-                    self.refresh_sync_ui()
-                self.refresh_rois_ui()
-
-                if hasattr(self, "fusion_ui"):
-                    self.fusion_ui.refresh_fusion_ui()
-                if hasattr(self, "reg_ui"):
-                    self.reg_ui.refresh_reg_ui()
-                if hasattr(self, "intensities_ui"):
-                    self.intensities_ui.refresh_intensities_ui()
-                if hasattr(self, "contours_ui"):
-                    self.contours_ui.refresh_contours_ui()
-                if hasattr(self, "extraction_ui"):
-                    self.extraction_ui.refresh_extraction_ui()
-
-                # Safely update the sidebar between frames when the DPG stack is completely empty!
-                self.update_sidebar_info(self.context_viewer)
+                self._refresh_all_ui_panels()
 
                 # Check for asynchronous status updates
                 if getattr(self.controller, "status_message", None):
@@ -1435,8 +1371,7 @@ class MainGUI:
             self.interaction.update_trackers()
             self.sync_bound_ui()
 
-            if hasattr(self, "dicom_window") and self.dicom_window:
-                self.dicom_window.tick()
+            self.dicom_window.tick()
 
             self.controller.tick()
 

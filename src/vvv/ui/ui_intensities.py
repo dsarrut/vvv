@@ -73,13 +73,9 @@ class IntensitiesUI:
 
     def refresh_intensities_ui(self):
         viewer = self.gui.context_viewer
-        has_image = (
-            viewer is not None
-            and getattr(viewer, "view_state", None) is not None
-            and viewer.volume is not None
-        )
+        has_image = bool(viewer and viewer.view_state and viewer.volume)
 
-        is_rgb = getattr(viewer.volume, "is_rgb", False) if has_image else False
+        is_rgb = viewer.volume.is_rgb if has_image else False
         thr = viewer.view_state.display.base_threshold if has_image else None
         has_thr = thr is not None
 

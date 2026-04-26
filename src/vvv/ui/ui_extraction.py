@@ -76,12 +76,7 @@ class ExtractionUI:
 
     def refresh_extraction_ui(self):
         viewer = self.gui.context_viewer
-        has_image = (
-            viewer is not None
-            and getattr(viewer, "view_state", None) is not None
-            and getattr(viewer.view_state, "extraction", None) is not None
-            and viewer.volume is not None
-        )
+        has_image = bool(viewer and viewer.view_state and viewer.volume)
 
         if not has_image:
             tags_to_disable = [

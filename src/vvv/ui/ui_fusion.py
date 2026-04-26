@@ -99,12 +99,7 @@ class FusionUI:
 
     def refresh_fusion_ui(self):
         viewer = self.gui.context_viewer
-        # UI should only consider the viewer "active" if the ViewState actually exists in memory!
-        has_image = (
-            viewer is not None
-            and getattr(viewer, "view_state", None) is not None
-            and viewer.volume is not None
-        )
+        has_image = bool(viewer and viewer.view_state and viewer.volume)
 
         # 1. Clear UI completely if no base image is selected
         if not has_image:
@@ -189,7 +184,7 @@ class FusionUI:
                     viewer.view_state.display.overlay_id
                 )
                 if ov_vs and ov_vs.volume:
-                    is_ov_rgb = getattr(ov_vs.volume, "is_rgb", False)
+                    is_ov_rgb = ov_vs.volume.is_rgb
                     if not is_ov_rgb:
                         tags_to_enable.extend(
                             ["fusion_info_window", "fusion_info_level"]
@@ -249,7 +244,7 @@ class FusionUI:
             return
 
         # 1. Overlay W/L (from Overlay's ViewState)
-        if not getattr(ov_vs.volume, "is_rgb", False):
+        if not ov_vs.volume.is_rgb:
             if dpg.does_item_exist("fusion_info_window") and not dpg.is_item_focused(
                 "fusion_info_window"
             ):
@@ -303,7 +298,7 @@ class FusionUI:
             # Update the properties directly on Image B!
             ovs.display.base_threshold = new_thr
 
-            if not getattr(ovs.volume, "is_rgb", False):
+            if not ovs.volume.is_rgb:
                 ovs.display.ww = max(1e-20, new_ww)
                 ovs.display.wl = new_wl
                 self.controller.sync.propagate_window_level(
