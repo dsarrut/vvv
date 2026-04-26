@@ -737,7 +737,6 @@ class VolumeData:
 
         if nki_compression:
             import struct
-            from vvv.math.nki_decompress import nki_private_decompress
             from vvv.maths.nki_decompress import nki_private_decompress
 
             raw_comp_array = np.fromfile(path, dtype=np.uint8, offset=data_offset)
