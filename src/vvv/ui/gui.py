@@ -202,11 +202,6 @@ class MainGUI:
                         callback=self.on_save_workspace_current_clicked,
                     )
 
-                with dpg.menu(label="Help"):
-                    dpg.add_menu_item(
-                        label="Shortcuts & Controls", callback=self.show_help_window
-                    )
-
                 dpg.add_spacer(width=20)
                 dpg.add_text(
                     "",
@@ -1276,6 +1271,7 @@ class MainGUI:
         window_tag = "help_window"
         if dpg.does_item_exist(window_tag):
             dpg.delete_item(window_tag)
+            return
 
         active_col = self.ui_cfg["colors"]["text_active"]
         ok_col = self.ui_cfg["colors"]["text_status_ok"]

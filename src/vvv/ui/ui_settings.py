@@ -11,9 +11,9 @@ class SettingsWindow:
         self.tree_container = "settings_tree_container"
 
     def show(self):
-        # If it's already open, just bring it to the front
+        # If it's already open, close it (Toggle behavior)
         if dpg.does_item_exist(self.window_tag):
-            dpg.focus_item(self.window_tag)
+            dpg.delete_item(self.window_tag)
             return
 
         with dpg.window(
