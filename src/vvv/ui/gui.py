@@ -225,11 +225,17 @@ class MainGUI:
 
         with dpg.group(tag="side_panel_outer", horizontal=True, horizontal_spacing=5):
             # --- 1. The Vertical Navigation Column ---
-            with dpg.child_window(
-                tag="nav_panel", width=nav_w, no_scrollbar=True, border=False
-            ):
-                dpg.add_spacer(height=10)
-                self.build_vertical_nav()
+            with dpg.group():
+                with dpg.child_window(
+                    tag="nav_panel", width=nav_w, no_scrollbar=True, border=False
+                ):
+                    dpg.add_spacer(height=10)
+                    self.build_vertical_nav()
+
+                with dpg.child_window(
+                    tag="nav_panel_bottom", width=nav_w, no_scrollbar=True, border=False
+                ):
+                    pass
 
             # --- 2. The Main Tool Panel (Shifted Right) ---
             with dpg.child_window(
@@ -246,7 +252,8 @@ class MainGUI:
 
         # Themes
         dpg.bind_item_theme("side_panel", "sidebar_bg_theme")
-        dpg.bind_item_theme("nav_panel", "sidebar_bg_theme")
+        dpg.bind_item_theme("nav_panel", "nav_panel_bg_theme")
+        dpg.bind_item_theme("nav_panel_bottom", "nav_panel_bg_theme")
         dpg.bind_item_theme("top_panel", "left_panel_padding_theme")
         dpg.bind_item_theme("av_panel", "left_panel_padding_theme")
         dpg.bind_item_theme("ch_panel", "left_panel_padding_theme")
@@ -257,6 +264,7 @@ class MainGUI:
 
     def build_vertical_nav(self):
         """Creates the vertical tool buttons."""
+        cfg_l = self.ui_cfg["layout"]
 
         self.nav_items = [
             ("Images", "tab_images"),
@@ -273,7 +281,7 @@ class MainGUI:
                 label=name,
                 tag=f"nav_btn_{tag}",
                 width=-1,
-                height=45,  # Nice, tap-friendly height
+                height=cfg_l["nav_btn_h"],
                 user_data=tag,
                 callback=self.on_nav_clicked,
             )
@@ -281,6 +289,35 @@ class MainGUI:
             # Highlight the first tool by default using your existing active theme
             if i == 0 and dpg.does_item_exist("active_nav_button_theme"):
                 dpg.bind_item_theme(btn, "active_nav_button_theme")
+
+        # --- System & Utility Buttons ---
+        dpg.add_spacer(height=5, parent="nav_panel_bottom")
+
+        btn_settings = dpg.add_button(
+            label="\uf013",
+            width=-1,
+            height=cfg_l["nav_btn_h"],
+            callback=lambda: self.settings_window.show(),
+            parent="nav_panel_bottom",
+        )
+        dpg.bind_item_theme(btn_settings, "theme_rounded_nav")
+        if dpg.does_item_exist("icon_font_tag"):
+            dpg.bind_item_font(btn_settings, "icon_font_tag")
+        with dpg.tooltip(btn_settings):
+            dpg.add_text("Settings")
+
+        btn_help = dpg.add_button(
+            label="\uf059",
+            width=-1,
+            height=cfg_l["nav_btn_h"],
+            callback=self.show_help_window,
+            parent="nav_panel_bottom",
+        )
+        dpg.bind_item_theme(btn_help, "theme_rounded_nav")
+        if dpg.does_item_exist("icon_font_tag"):
+            dpg.bind_item_font(btn_help, "icon_font_tag")
+        with dpg.tooltip(btn_help):
+            dpg.add_text("Help & Shortcuts")
 
     def build_sidebar_top(self):
         """Builds the content containers without the native tab_bar."""
@@ -966,7 +1003,11 @@ class MainGUI:
 
             # Size the Nav Column
             if dpg.does_item_exist("nav_panel"):
-                dpg.set_item_height("nav_panel", l_h)
+                bottom_h = (cfg["nav_btn_h"] * 4) + 25
+                # Subtract 8px for the default vertical group spacing to prevent overflow
+                dpg.set_item_height("nav_panel", max(10, l_h - bottom_h - 8))
+            if dpg.does_item_exist("nav_panel_bottom"):
+                dpg.set_item_height("nav_panel_bottom", bottom_h)
 
             # Size the Tool Column
             dpg.set_item_width("side_panel", l_w - nav_w - 2)
@@ -1202,6 +1243,19 @@ class MainGUI:
         self.controller.settings.data["behavior"]["recent_files"] = []
         self.refresh_recent_menu()
 
+    def on_global_reset_clicked(self, sender=None, app_data=None, user_data=None):
+        for vs_id in self.controller.view_states:
+            self.controller.reset_image_view(vs_id, hard=False)
+        self.controller.ui_needs_refresh = True
+
+    def on_global_center_clicked(self, sender=None, app_data=None, user_data=None):
+        if self.context_viewer:
+            self.context_viewer.action_center_view()
+        else:
+            for v in self.controller.viewers.values():
+                if v.image_id:
+                    v.action_center_view()
+
     # ==========================================
     # 5. MODALS & POPUPS
     # ==========================================
@@ -1330,6 +1384,9 @@ class MainGUI:
 
         dpg.show_viewport()
         dpg.set_primary_window("PrimaryWindow", True)
+
+        # Force the initial layout calculation now that the viewport has physical dimensions!
+        self.on_window_resize()
 
         for _ in range(3):
             dpg.render_dearpygui_frame()

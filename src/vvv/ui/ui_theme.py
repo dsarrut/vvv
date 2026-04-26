@@ -29,6 +29,7 @@ def build_ui_config(controller):
             "menu_m_right": 0,
             "side_panel_w": controller.settings.data["layout"]["side_panel_width"],
             "nav_panel_w": controller.settings.data["layout"]["nav_panel_width"],
+            "nav_btn_h": 35,
             "gap_center": shared_margin,
             "left_m_left": shared_margin,
             "left_m_bottom": shared_margin,
@@ -201,6 +202,13 @@ def register_dynamic_themes(ui_cfg, controller):
                 dpg.add_theme_color(dpg.mvThemeCol_Border, cfg_c["border_black"])
                 dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 1)
                 dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, cfg_l["rounding"])
+
+    if not dpg.does_item_exist("nav_panel_bg_theme"):
+        with dpg.theme(tag="nav_panel_bg_theme"):
+            with dpg.theme_component(dpg.mvChildWindow):
+                dpg.add_theme_color(dpg.mvThemeCol_ChildBg, cfg_c["bg_window"])
+                dpg.add_theme_color(dpg.mvThemeCol_Border, cfg_c["transparent"])
+                dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 0)
 
     if not dpg.does_item_exist("sleek_readonly_theme"):
         with dpg.theme(tag="sleek_readonly_theme"):

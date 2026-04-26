@@ -46,7 +46,7 @@ DEFAULT_SETTINGS = {
         "active_viewer_mode": "hybrid",
     },
     "layout": {
-        "window_width": 1300,
+        "window_width": 1400,
         "window_height": 1000,
         "side_panel_width": 380,
         "nav_panel_width": 75,
