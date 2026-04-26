@@ -108,6 +108,27 @@ class RoiUI:
                 with dpg.tooltip(btn_hide):
                     dpg.add_text("Hide All")
 
+                dpg.add_spacer(width=5)
+                dpg.add_text("Op:")
+                dpg.add_slider_float(
+                    tag="slider_roi_global_opacity",
+                    width=60,
+                    min_value=0.0,
+                    max_value=1.0,
+                    default_value=0.5,
+                    callback=gui.roi_ui.on_roi_global_opacity_changed,
+                )
+                dpg.add_spacer(width=2)
+                dpg.add_text("Thk:")
+                dpg.add_slider_float(
+                    tag="slider_roi_global_thickness",
+                    width=60,
+                    min_value=0.5,
+                    max_value=10.0,
+                    default_value=1.0,
+                    callback=gui.roi_ui.on_roi_global_thickness_changed,
+                )
+
             dpg.add_separator()
 
             with dpg.child_window(
@@ -558,6 +579,26 @@ class RoiUI:
         viewer.view_state.is_geometry_dirty = True
         self.controller.ui_needs_refresh = True
         self.controller.update_all_viewers_of_image(viewer.image_id)
+
+    def on_roi_global_opacity_changed(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+        for roi in viewer.view_state.rois.values():
+            roi.opacity = app_data
+        viewer.view_state.is_data_dirty = True
+        self.controller.ui_needs_refresh = True
+        self.controller.update_all_viewers_of_image(viewer.image_id)
+
+    def on_roi_global_thickness_changed(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+        for roi in viewer.view_state.rois.values():
+            roi.thickness = app_data
+        viewer.view_state.is_geometry_dirty = True
+        self.controller.ui_needs_refresh = True
+        self.controller.update_all_viewers_of_image(viewer.image_id, data_dirty=False)
 
     def on_roi_type_changed(self, sender, app_data, user_data):
         if dpg.does_item_exist("group_roi_mode"):
