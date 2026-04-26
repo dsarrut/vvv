@@ -738,6 +738,7 @@ class VolumeData:
         if nki_compression:
             import struct
             from vvv.math.nki_decompress import nki_private_decompress
+            from vvv.maths.nki_decompress import nki_private_decompress
 
             raw_comp_array = np.fromfile(path, dtype=np.uint8, offset=data_offset)
             org_size, nki_mode = struct.unpack("<II", raw_comp_array[:8].tobytes())
@@ -974,7 +975,7 @@ class VolumeData:
         return (self.inverse_matrix @ (phys - self.origin)) / self.spacing
 
     def reload(self):
-        from vvv.math.image_utils import straighten_image
+        from vvv.maths.image_utils import straighten_image
 
         try:
             new_sitk = self.read_image_from_disk(self.file_paths)
