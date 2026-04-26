@@ -49,6 +49,7 @@ def load_fonts():
                 dpg.add_font_chars([0xF0C7])  # Floppy disk
                 dpg.add_font_chars([0xF013])  # Settings Cog
                 dpg.add_font_chars([0xF059])  # Help / Question Circle
+                dpg.add_font_chars([0xF040])  # Pencil (Contour Mode)
                 dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
         else:
             print("ERROR: Icon font file not found! Buttons will show '?'.")

@@ -159,7 +159,11 @@ class RoiUI:
 
             for roi_id, roi in viewer.view_state.rois.items():
                 with dpg.table_row():
-                    lbl_eye = "\uf06e" if roi.visible else "\uf070"
+                    if roi.visible:
+                        lbl_eye = "\uf040" if roi.is_contour else "\uf06e"
+                    else:
+                        lbl_eye = "\uf070"
+
                     dpg.add_color_edit(
                         default_value=roi.color + [255],
                         no_inputs=True,
@@ -408,6 +412,13 @@ class RoiUI:
             if dpg.does_item_exist("combo_roi_type")
             else "Binary Mask"
         )
+
+        if roi_type in ["Label Map", "RT-Struct"]:
+            self.gui.show_message(
+                "Not Implemented", f"Loading '{roi_type}' is not implemented yet."
+            )
+            return
+
         file_paths = open_file_dialog(f"Load {roi_type}(s)", multiple=True)
         if not file_paths:
             return
@@ -439,8 +450,23 @@ class RoiUI:
 
     def on_roi_toggle_visible(self, sender, app_data, user_data):
         vs = self.gui.context_viewer.view_state
-        vs.rois[user_data].visible = not vs.rois[user_data].visible
+        roi = vs.rois[user_data]
+
+        # Tri-state toggle: Raster -> Contour -> Hidden -> Raster
+        if roi.visible and not roi.is_contour:
+            roi.visible = True
+            roi.is_contour = True
+            for ori in roi.polygons:
+                roi.polygons[ori].clear()
+        elif roi.visible and roi.is_contour:
+            roi.visible = False
+            roi.is_contour = False
+        else:
+            roi.visible = True
+            roi.is_contour = False
+
         vs.is_data_dirty = True
+        vs.is_geometry_dirty = True
         self.controller.ui_needs_refresh = True
         self.controller.update_all_viewers_of_image(self.gui.context_viewer.image_id)
 
