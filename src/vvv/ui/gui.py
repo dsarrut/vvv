@@ -1111,7 +1111,30 @@ class MainGUI:
 
     def on_save_image_clicked(self, vs_id):
         vol = self.controller.volumes[vs_id]
-        file_path = save_file_dialog("Save Image As", default_name=f"{vol.name}.nii.gz")
+
+        start_dir = None
+        if vol.file_paths and os.path.exists(vol.file_paths[0]):
+            start_dir = os.path.dirname(os.path.abspath(vol.file_paths[0]))
+
+        default_name = vol.name
+        valid_exts = [
+            ".nii",
+            ".nii.gz",
+            ".mhd",
+            ".mha",
+            ".nrrd",
+            ".dcm",
+            ".tif",
+            ".png",
+            ".jpg",
+            ".his",
+        ]
+        if not any(default_name.lower().endswith(ext) for ext in valid_exts):
+            default_name += ".nii.gz"
+
+        file_path = save_file_dialog(
+            "Save Image As", default_name=default_name, start_dir=start_dir
+        )
 
         if file_path:
             self.show_status_message(f"Saving {vol.name}...")

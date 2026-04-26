@@ -552,7 +552,7 @@ class OverlayDrawer:
             if r_state.visible and getattr(r_state, "is_contour", False):
                 contour_rois.append(r_state)
 
-        # --- THE FIX: ROBUST CACHE INVALIDATION ---
+        # ROBUST CACHE INVALIDATION
         # We must track colors, thickness, and exact math states so DPG knows when to redraw!
         total_polys = 0
         roi_visual_states = []
@@ -568,7 +568,11 @@ class OverlayDrawer:
                 )
 
         # Also track the mathematical state of the preview
-        ext_math_state = (ext.threshold, ext.subpixel_accurate) if ext else None
+        ext_math_state = (
+            (ext.threshold_min, ext.threshold_max, ext.subpixel_accurate)
+            if ext
+            else None
+        )
 
         current_state = (
             viewer.image_id,

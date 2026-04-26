@@ -19,6 +19,10 @@ def build_stepped_slider(
     has_checkbox=False,
     check_tag=None,
     check_cb=None,
+    has_color=False,
+    color_tag=None,
+    color_cb=None,
+    color_default=(255, 0, 0, 255),
 ):
     """A reusable UI component for a slider with + and - step buttons."""
 
@@ -47,6 +51,18 @@ def build_stepped_slider(
     with dpg.group(horizontal=True):
         if has_checkbox:
             dpg.add_checkbox(tag=check_tag, enabled=False, callback=check_cb)
+
+        if has_color:
+            dpg.add_color_edit(
+                default_value=color_default,
+                tag=color_tag,
+                callback=color_cb,
+                no_inputs=True,
+                no_label=True,
+                no_alpha=True,
+                width=20,
+                height=20,
+            )
 
         dpg.add_text(label)
 

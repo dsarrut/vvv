@@ -690,17 +690,21 @@ class ExtractionState:
     """Stores parameters for interactive contour thresholding."""
 
     is_enabled: bool
-    threshold: float
+    threshold_min: float
+    threshold_max: float
     show_preview: bool
-    preview_color: list
+    preview_color_min: list
+    preview_color_max: list
     subpixel_accurate: bool
     preview_thickness: float
 
     _GEOM_FIELDS = {
         "is_enabled",
-        "threshold",
+        "threshold_min",
+        "threshold_max",
         "show_preview",
-        "preview_color",
+        "preview_color_min",
+        "preview_color_max",
         "subpixel_accurate",
         "preview_thickness",
     }
@@ -708,11 +712,18 @@ class ExtractionState:
     def __init__(self, parent_vs=None):
         self._parent = parent_vs
         self.is_enabled = False
-        self.threshold = 0.0
+        self.threshold_min = 0.0
+        self.threshold_max = 100000.0
         self.show_preview = True
-        self.preview_color = (255, 255, 0, 255)
+        self.preview_color_min = (255, 0, 0, 255)
+        self.preview_color_max = (0, 0, 255, 255)
         self.subpixel_accurate = True
         self.preview_thickness = 1.0
+
+        self.gen_bg_mode = "Constant"
+        self.gen_bg_val = 0.0
+        self.gen_fg_mode = "Constant"
+        self.gen_fg_val = 1.0
 
     def __setattr__(self, name, value):
         if name in self._GEOM_FIELDS and getattr(self, name, _SENTINEL) != value:
@@ -725,21 +736,45 @@ class ExtractionState:
     def to_dict(self):
         return {
             "is_enabled": bool(self.is_enabled),
-            "threshold": float(self.threshold),
+            "threshold_min": float(self.threshold_min),
+            "threshold_max": float(self.threshold_max),
             "show_preview": bool(self.show_preview),
-            "preview_color": list(self.preview_color),
+            "preview_color_min": list(self.preview_color_min),
+            "preview_color_max": list(self.preview_color_max),
             "subpixel_accurate": bool(self.subpixel_accurate),
             "preview_thickness": float(getattr(self, "preview_thickness", 1.0)),
+            "gen_bg_mode": str(self.gen_bg_mode),
+            "gen_bg_val": float(self.gen_bg_val),
+            "gen_fg_mode": str(self.gen_fg_mode),
+            "gen_fg_val": float(self.gen_fg_val),
         }
 
     def from_dict(self, d):
         if not d:
             return
+
+        # 1. Dictionary Schema Migrations (Map old keys to new keys)
+        if "threshold" in d and "threshold_min" not in d:
+            d["threshold_min"] = d["threshold"]
+
+        if "preview_color" in d:
+            if "preview_color_min" not in d:
+                d["preview_color_min"] = d["preview_color"]
+            if "preview_color_max" not in d:
+                d["preview_color_max"] = d["preview_color"]
+
+        # 2. Safe Assignments (Only ever reference current self.attributes!)
         self.is_enabled = d.get("is_enabled", self.is_enabled)
-        self.threshold = d.get("threshold", self.threshold)
+        self.threshold_min = d.get("threshold_min", self.threshold_min)
+        self.threshold_max = d.get("threshold_max", self.threshold_max)
         self.show_preview = d.get("show_preview", self.show_preview)
-        self.preview_color = d.get("preview_color", self.preview_color)
+        self.preview_color_min = d.get("preview_color_min", self.preview_color_min)
+        self.preview_color_max = d.get("preview_color_max", self.preview_color_max)
         self.subpixel_accurate = d.get("subpixel_accurate", self.subpixel_accurate)
         self.preview_thickness = d.get(
             "preview_thickness", getattr(self, "preview_thickness", 1.0)
         )
+        self.gen_bg_mode = d.get("gen_bg_mode", self.gen_bg_mode)
+        self.gen_bg_val = d.get("gen_bg_val", self.gen_bg_val)
+        self.gen_fg_mode = d.get("gen_fg_mode", self.gen_fg_mode)
+        self.gen_fg_val = d.get("gen_fg_val", self.gen_fg_val)

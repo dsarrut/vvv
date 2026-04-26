@@ -222,19 +222,20 @@ def open_file_dialog(
     return [] if multiple else None
 
 
-def save_file_dialog(title="Save File", default_name="workspace.vvw"):
+def save_file_dialog(title="Save File", default_name="workspace.vvw", start_dir=None):
     """
     Native 'Save As' File Dialog wrapper.
     """
     global _last_visited_dir
 
     # Determine the starting folder based on history
-    if _last_visited_dir and os.path.exists(_last_visited_dir):
-        start_dir = _last_visited_dir
-    else:
-        start_dir = os.getcwd()
-        if not os.path.exists(start_dir):
-            start_dir = os.path.expanduser("~")
+    if not start_dir or not os.path.exists(start_dir):
+        if _last_visited_dir and os.path.exists(_last_visited_dir):
+            start_dir = _last_visited_dir
+        else:
+            start_dir = os.getcwd()
+            if not os.path.exists(start_dir):
+                start_dir = os.path.expanduser("~")
 
     # Extract the extension from the default name dynamically
     ext_parts = default_name.split(".")

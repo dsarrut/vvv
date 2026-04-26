@@ -1347,9 +1347,9 @@ class SliceViewer:
                 self.image_id,
                 self.volume,
                 self.view_state,
-                ext.threshold,
+                ext.threshold_min,
+                ext.threshold_max,
                 [(self.orientation, self.slice_idx)],
-                ext.preview_color,
             )
 
         self.controller.roi.update_roi_contours(self)
