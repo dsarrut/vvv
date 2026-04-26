@@ -185,9 +185,10 @@ class ExtractionUI:
         dpg.set_value("text_ext_bg_range", f"< {min_v:g}   OR   > {max_v:g}")
         dpg.set_value("text_ext_fg_range", f"[{min_v:g}  ...  {max_v:g}]")
 
-        safe_min = min(0.0, vol._cached_min_val)
         for tag in ["drag_ext_threshold_min", "drag_ext_threshold_max"]:
-            dpg.configure_item(tag, min_value=safe_min, max_value=vol._cached_max_val)
+            dpg.configure_item(
+                tag, min_value=vol._cached_min_val, max_value=vol._cached_max_val
+            )
             dpg.configure_item(
                 tag, speed=max(0.1, viewer.view_state.display.ww * 0.005)
             )
@@ -195,6 +196,13 @@ class ExtractionUI:
         # Context Switch Snap
         if self._current_image_id != img_id:
             self._current_image_id = img_id
+
+            # Auto-clamp state to the new image's physical bounds if out of bounds
+            if ext_state.threshold_min < vol._cached_min_val:
+                ext_state.threshold_min = vol._cached_min_val
+            if ext_state.threshold_max > vol._cached_max_val:
+                ext_state.threshold_max = vol._cached_max_val
+
             dpg.set_value("check_ext_enable", ext_state.is_enabled)
             dpg.set_value("drag_ext_threshold_min", ext_state.threshold_min)
             dpg.set_value("drag_ext_threshold_max", ext_state.threshold_max)
@@ -290,9 +298,7 @@ class ExtractionUI:
             "color_ext_preview_max",
             "drag_ext_thickness",  # (If you added the thickness slider)
             "combo_ext_bg_mode",
-            "input_ext_bg_val",
             "combo_ext_fg_mode",
-            "input_ext_fg_val",
             "btn_ext_create",
         ]
 
@@ -347,12 +353,28 @@ class ExtractionUI:
 
         elif sender == "drag_ext_threshold_min":
             val = dpg.get_value("drag_ext_threshold_min")
+            if hasattr(viewer.volume, "_cached_min_val"):
+                val = float(
+                    np.clip(
+                        val,
+                        viewer.volume._cached_min_val,
+                        viewer.volume._cached_max_val,
+                    )
+                )
             if val > viewer.view_state.extraction.threshold_max:
                 viewer.view_state.extraction.threshold_max = val
             viewer.view_state.extraction.threshold_min = val
 
         elif sender == "drag_ext_threshold_max":
             val = dpg.get_value("drag_ext_threshold_max")
+            if hasattr(viewer.volume, "_cached_min_val"):
+                val = float(
+                    np.clip(
+                        val,
+                        viewer.volume._cached_min_val,
+                        viewer.volume._cached_max_val,
+                    )
+                )
             if val < viewer.view_state.extraction.threshold_min:
                 viewer.view_state.extraction.threshold_min = val
             viewer.view_state.extraction.threshold_max = val
