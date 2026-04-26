@@ -199,6 +199,9 @@ class OverlayDrawer:
         current_state = viewer.orientation
         if getattr(self, "_last_axes_state", None) == current_state:
             dpg.configure_item(viewer.axes_nodes[viewer.active_axes_idx], show=True)
+            dpg.configure_item(
+                viewer.axes_nodes[1 - viewer.active_axes_idx], show=False
+            )
             return
         self._last_axes_state = current_state
 
@@ -517,3 +520,87 @@ class OverlayDrawer:
                 fill=[255, 255, 255, 255],
                 parent=viewer.legend_tag,
             )
+
+    def draw_contours(self):
+        viewer = self.viewer
+
+        if (
+            not viewer.is_image_orientation()
+            or not viewer.view_state
+            or not viewer.volume
+        ):
+            if dpg.does_item_exist(viewer.contour_node_tag):
+                dpg.configure_item(viewer.contour_node_tag, show=False)
+            return
+
+        if not getattr(viewer.view_state.camera, "show_contour", True):
+            if dpg.does_item_exist(viewer.contour_node_tag):
+                dpg.configure_item(viewer.contour_node_tag, show=False)
+            return
+
+        ext = getattr(viewer.view_state, "extraction", None)
+
+        node = viewer.contour_node_tag
+        if not dpg.does_item_exist(node):
+            return
+
+        contour_dict = getattr(viewer.view_state, "contours", {})
+        contour_rois = list(contour_dict.values())
+
+        # --- THE FIX: ROBUST CACHE INVALIDATION ---
+        # We must track colors, thickness, and exact math states so DPG knows when to redraw!
+        total_polys = 0
+        roi_visual_states = []
+
+        for roi in contour_rois:
+            if roi.visible:
+                poly_list = roi.polygons[viewer.orientation].get(viewer.slice_idx, [])
+                total_polys += len(poly_list)
+
+                # Track visual properties to break the cache if they change
+                roi_visual_states.append(
+                    (roi.id, tuple(roi.color), getattr(roi, "thickness", 1.0))
+                )
+
+        # Also track the mathematical state of the preview
+        ext_math_state = (ext.threshold, ext.subpixel_accurate) if ext else None
+
+        current_state = (
+            viewer.image_id,
+            viewer.orientation,
+            viewer.slice_idx,
+            len(contour_rois),
+            total_polys,
+            tuple(roi_visual_states),  # Triggers redraw if ANY color changes
+            ext_math_state,  # Triggers redraw if Subpixel changes
+        )
+
+        if getattr(self, "_last_contour_image", None) != current_state:
+            dpg.delete_item(node, children_only=True)
+
+            for roi in contour_rois:
+                if not roi.visible:
+                    continue
+                polys = roi.polygons[viewer.orientation].get(viewer.slice_idx, [])
+                for poly in polys:
+                    dpg.draw_polyline(
+                        poly,
+                        color=roi.color,
+                        thickness=roi.thickness,
+                        parent=node,
+                    )
+            self._last_contour_image = current_state
+
+        sw, sh = viewer.volume.get_physical_aspect_ratio(viewer.orientation)
+        shape = viewer.get_slice_shape()
+        mm_w, mm_h = max(1e-5, shape[1] * sw), max(1e-5, shape[0] * sh)
+        pmin, pmax = viewer.current_pmin, viewer.current_pmax
+
+        scale_x = (pmax[0] - pmin[0]) / mm_w
+        scale_y = (pmax[1] - pmin[1]) / mm_h
+
+        scale_mat = dpg.create_scale_matrix([scale_x, scale_y, 1.0])
+        trans_mat = dpg.create_translation_matrix([pmin[0], pmin[1], 0.0])
+        dpg.apply_transform(node, trans_mat * scale_mat)
+
+        dpg.configure_item(node, show=True)

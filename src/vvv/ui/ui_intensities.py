@@ -119,10 +119,15 @@ class IntensitiesUI:
                 dpg.set_value("text_intensities_minmax", "---")
             else:
                 vol = viewer.volume
-                if not hasattr(vol, "_cached_min_val"):
+                current_data_id = id(vol.data)
+                if (
+                    not hasattr(vol, "_cached_min_val")
+                    or getattr(vol, "_cached_data_id", None) != current_data_id
+                ):
                     # Lazy evaluation of image min and max
                     vol._cached_min_val = float(np.min(vol.data))
                     vol._cached_max_val = float(np.max(vol.data))
+                    vol._cached_data_id = current_data_id
 
                 min_v = vol._cached_min_val
                 max_v = vol._cached_max_val

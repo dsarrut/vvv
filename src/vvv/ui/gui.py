@@ -7,6 +7,8 @@ from vvv.utils import fmt
 from vvv.ui.ui_roi import RoiUI
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_fusion import FusionUI
+from vvv.ui.ui_contours import ContoursUI
+from vvv.ui.ui_extraction import ExtractionUI
 from vvv.ui.ui_settings import SettingsWindow
 from vvv.ui.ui_dicom import DicomBrowserWindow
 from vvv.ui.ui_intensities import IntensitiesUI
@@ -52,6 +54,7 @@ class MainGUI:
         self.image_label_tags = {}
         self.sync_label_tags = {}
         self.ui_cfg = None
+        self.current_workspace_path = None
 
         # internal states
         self._is_roi_tab_active = None
@@ -74,6 +77,7 @@ class MainGUI:
             "combo_fusion_mode": "display.overlay_mode",
             "slider_fusion_chk_size": "display.overlay_checkerboard_size",
             "check_fusion_chk_swap": "display.overlay_checkerboard_swap",
+            "check_show_contour": "camera.show_contour",
         }
 
         # Initialization pipeline
@@ -88,6 +92,8 @@ class MainGUI:
         self.intensities_ui = IntensitiesUI(self, self.controller)
         self.roi_ui = RoiUI(self, self.controller)
         self.reg_ui = RegistrationUI(self, self.controller)
+        self.contours_ui = ContoursUI(self, self.controller)
+        self.extraction_ui = ExtractionUI(self, self.controller)
 
         # Go
         self.build_main_layout()
@@ -160,15 +166,6 @@ class MainGUI:
 
                     dpg.add_separator()
 
-                    dpg.add_menu_item(
-                        label="Open Workspace...",
-                        callback=self.on_open_workspace_clicked,
-                    )
-                    dpg.add_menu_item(
-                        label="Save Workspace As...",
-                        callback=self.on_save_workspace_clicked,
-                    )
-
                     # Fetch the current setting state
                     auto_save = self.controller.settings.data.get("behavior", {}).get(
                         "auto_save_history", True
@@ -188,6 +185,22 @@ class MainGUI:
                         callback=lambda: self.settings_window.show(),
                     )
                     dpg.add_menu_item(label="Exit", callback=self.cleanup)
+
+                with dpg.menu(label="Workspace"):
+                    dpg.add_menu_item(
+                        label="Open Workspace...",
+                        callback=self.on_open_workspace_clicked,
+                    )
+                    dpg.add_menu_item(
+                        label="Save Workspace As...",
+                        callback=self.on_save_workspace_clicked,
+                    )
+                    dpg.add_menu_item(
+                        label="Save Workspace",
+                        tag="menu_save_workspace",
+                        show=False,
+                        callback=self.on_save_workspace_current_clicked,
+                    )
 
                 with dpg.menu(label="Help"):
                     dpg.add_menu_item(
@@ -241,11 +254,13 @@ class MainGUI:
         ):
             with dpg.tab_bar(tag="sidebar_tabs", callback=self.on_tab_changed):
                 build_tab_images(self)
-                build_tab_sync(self)  # <--- ADD IT BACK HERE
+                build_tab_sync(self)
                 self.fusion_ui.build_tab_fusion(self)
                 self.intensities_ui.build_tab_intensities(self)
                 self.roi_ui.build_tab_rois(self)
                 self.reg_ui.build_tab_reg(self)
+                # self.contours_ui.build_tab_contours(self) # Tab for debug
+                self.extraction_ui.build_tab_extraction(self)
 
     def build_sidebar_bottom(self):
         cfg_c = self.ui_cfg["colors"]
@@ -408,6 +423,7 @@ class MainGUI:
                 dpg.add_draw_node(tag=viewer.scale_bar_tag)
                 dpg.add_draw_node(tag=viewer.crosshair_tag)
                 dpg.add_draw_node(tag=viewer.legend_tag)
+                dpg.add_draw_node(tag=viewer.contour_node_tag)
 
             col = self.controller.settings.data["colors"]["tracker_text"]
             dpg.add_text("", tag=viewer.tracker_tag, color=col, pos=[5, 5])
@@ -623,6 +639,7 @@ class MainGUI:
                     "check_legend",
                     "check_filename",
                     "check_interpolation",
+                    "check_show_contour",
                     "btn_roi_load",
                     "combo_roi_type",
                     "combo_roi_mode",
@@ -840,6 +857,10 @@ class MainGUI:
             self.reg_ui.pull_reg_sliders_from_transform()
             if hasattr(self, "intensities_ui"):
                 self.intensities_ui.refresh_intensities_ui()
+            if hasattr(self, "contours_ui"):
+                self.contours_ui.refresh_contours_ui()
+            if hasattr(self, "extraction_ui"):
+                self.extraction_ui.refresh_extraction_ui()
 
     # ==========================================
     # 4. EVENT HANDLERS
@@ -1041,6 +1062,8 @@ class MainGUI:
                 file_path += ".vvw"
 
             self.controller.file.save_workspace(file_path)
+            self.current_workspace_path = file_path
+            self.update_workspace_menu_state()
             self.show_status_message(f"Workspace saved: {os.path.basename(file_path)}")
 
     def on_open_workspace_clicked(self, sender=None, app_data=None, user_data=None):
@@ -1049,8 +1072,31 @@ class MainGUI:
         )
 
         if file_path:
+            self.current_workspace_path = file_path
+            self.update_workspace_menu_state()
             # open_file_dialog returns a string when multiple=False
             self.tasks.append(load_workspace_sequence(self, self.controller, file_path))
+
+    def on_save_workspace_current_clicked(
+        self, sender=None, app_data=None, user_data=None
+    ):
+        if self.current_workspace_path:
+            self.controller.file.save_workspace(self.current_workspace_path)
+            self.show_status_message(
+                f"Workspace saved: {os.path.basename(self.current_workspace_path)}"
+            )
+
+    def update_workspace_menu_state(self):
+        if dpg.does_item_exist("menu_save_workspace"):
+            if self.current_workspace_path:
+                display_name = os.path.basename(self.current_workspace_path)
+                dpg.configure_item(
+                    "menu_save_workspace",
+                    show=True,
+                    label=f"Save Workspace ({display_name})",
+                )
+            else:
+                dpg.configure_item("menu_save_workspace", show=False)
 
     def on_tab_changed(self, sender, app_data, user_data):
         tab_tag = app_data
@@ -1199,6 +1245,8 @@ class MainGUI:
 
     def load_workspace_sequence(self, file_path):
         """Wrapper to pass the CLI workspace request into the external Sequence Manager."""
+        self.current_workspace_path = file_path
+        self.update_workspace_menu_state()
         return load_workspace_sequence(self, self.controller, file_path)
 
     def create_boot_sequence(self, image_tasks, sync=False, link_all=False):
@@ -1246,6 +1294,10 @@ class MainGUI:
                     self.reg_ui.refresh_reg_ui()
                 if hasattr(self, "intensities_ui"):
                     self.intensities_ui.refresh_intensities_ui()
+                if hasattr(self, "contours_ui"):
+                    self.contours_ui.refresh_contours_ui()
+                if hasattr(self, "extraction_ui"):
+                    self.extraction_ui.refresh_extraction_ui()
 
                 # Safely update the sidebar between frames when the DPG stack is completely empty!
                 self.update_sidebar_info(self.context_viewer)

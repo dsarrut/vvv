@@ -149,6 +149,7 @@ class SliceViewer:
         self.axis_b_tag = f"axes_node_B_{tag_id}"
         self.tracker_tag = f"tracker_{tag_id}"
         self.filename_text_tag = f"filename_text_{tag_id}"
+        self.contour_node_tag = f"contour_node_{tag_id}"
         self.crosshair_tag = f"crosshair_node_{tag_id}"
         self.legend_tag = f"legend_node_{tag_id}"
         self.xh_line_h = f"xh_h_{tag_id}"
@@ -414,6 +415,10 @@ class SliceViewer:
         return True
 
     def bind_texture_to_node(self):
+        # Delete the old standalone image_tag if it exists outside img_node_tag
+        if dpg.does_item_exist(self.image_tag):
+            dpg.delete_item(self.image_tag)
+
         # 3. If the size changed, cleanly delete the old drawing command
         if dpg.does_item_exist(self.img_node_tag):
             dpg.delete_item(self.img_node_tag, children_only=True)
@@ -433,6 +438,7 @@ class SliceViewer:
         # Hide ALL overlay nodes and text, not just the image! ---
         nodes_to_hide = [
             self.img_node_tag,
+            self.contour_node_tag,
             self.strips_a_tag,
             self.strips_b_tag,
             self.grid_a_tag,
@@ -667,6 +673,7 @@ class SliceViewer:
         self.view_state.camera.show_scalebar = new_state
         self.view_state.camera.show_filename = 1 if new_state else 0
         self.view_state.camera.show_grid = False
+        self.view_state.camera.show_contour = new_state
 
         self.view_state.is_data_dirty = True
 
@@ -1305,8 +1312,6 @@ class SliceViewer:
             dpg.configure_item(self.active_grid_node, show=False)
 
         if self.view_state.camera.show_axis:
-            dpg.configure_item(self.axes_nodes[0], show=True)
-            dpg.configure_item(self.axes_nodes[1], show=True)
             self.drawer.draw_orientation_axes()
         else:
             dpg.configure_item(self.axis_a_tag, show=False)
@@ -1320,6 +1325,20 @@ class SliceViewer:
         self.drawer.draw_scale_bar()
         self.drawer.draw_legend()
         self.drawer.draw_crosshair()
+
+        # Ensure extraction preview is computed before delegating to the View drawer
+        ext = getattr(self.view_state, "extraction", None)
+        if ext and ext.is_enabled and ext.show_preview:
+            self.controller.extraction.update_preview(
+                self.image_id,
+                self.volume,
+                self.view_state,
+                ext.threshold,
+                [(self.orientation, self.slice_idx)],
+                ext.preview_color,
+            )
+
+        self.drawer.draw_contours()
         self.update_tracker()
         self.update_filename_overlay()
 
