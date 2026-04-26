@@ -202,11 +202,6 @@ class MainGUI:
                         callback=self.on_save_workspace_current_clicked,
                     )
 
-                with dpg.menu(label="Help"):
-                    dpg.add_menu_item(
-                        label="Shortcuts & Controls", callback=self.show_help_window
-                    )
-
                 dpg.add_spacer(width=20)
                 dpg.add_text(
                     "",
@@ -217,12 +212,21 @@ class MainGUI:
         dpg.bind_item_theme("menu_container", "floating_menu_theme")
 
     def build_sidebar(self):
-        """Constructs the left side panel."""
+        """Constructs the left side panel with the new Vertical Navigation."""
         cfg_l = self.ui_cfg["layout"]
+        nav_w = cfg_l["nav_panel_w"]
 
-        with dpg.group(tag="side_panel_outer"):
+        with dpg.group(tag="side_panel_outer", horizontal=True, horizontal_spacing=5):
+            # --- 1. The Vertical Navigation Column ---
             with dpg.child_window(
-                width=cfg_l["side_panel_w"] - 4,
+                tag="nav_panel", width=nav_w, no_scrollbar=True, border=False
+            ):
+                pass
+            self.build_vertical_nav()
+
+            # --- 2. The Main Tool Panel (Shifted Right) ---
+            with dpg.child_window(
+                width=cfg_l["side_panel_w"] - nav_w - 2,
                 tag="side_panel",
                 no_scrollbar=True,
                 no_scroll_with_mouse=True,
@@ -233,34 +237,92 @@ class MainGUI:
                     self.build_sidebar_top()
                     self.build_sidebar_bottom()
 
-        # Bind Sidebar Themes
+        # Themes
         dpg.bind_item_theme("side_panel", "sidebar_bg_theme")
+        dpg.bind_item_theme("nav_panel", "nav_panel_bg_theme")
         dpg.bind_item_theme("top_panel", "left_panel_padding_theme")
-
-        # Target the two new panels instead of 'bottom_panel'
         dpg.bind_item_theme("av_panel", "left_panel_padding_theme")
         dpg.bind_item_theme("ch_panel", "left_panel_padding_theme")
-
         dpg.bind_item_theme("image_info_group", "sleek_readonly_theme")
         dpg.bind_item_theme("image_crosshair_group", "sleek_readonly_theme")
 
-    def build_sidebar_top(self):
-        cfg_c = self.ui_cfg["colors"]
+        self.on_nav_clicked("nav_btn_tab_images", None, "tab_images")
 
+    def build_vertical_nav(self):
+        """Creates the vertical tool buttons."""
+        cfg_l = self.ui_cfg["layout"]
+
+        dpg.push_container_stack("nav_panel")
+
+        self.nav_items = [
+            ("Images", "tab_images"),
+            ("Sync", "tab_sync"),
+            ("Fusion", "tab_fusion"),
+            ("Intensity", "tab_intensities"),
+            ("ROIs", "tab_rois"),
+            ("Reg", "tab_reg"),
+            ("Threshold", "tab_extraction"),
+        ]
+
+        with dpg.group(tag="nav_top_group"):
+            for i, (name, tag) in enumerate(self.nav_items):
+                btn = dpg.add_button(
+                    label=name,
+                    tag=f"nav_btn_{tag}",
+                    width=-1,
+                    height=cfg_l["nav_btn_h"],
+                    user_data=tag,
+                    callback=self.on_nav_clicked,
+                )
+                dpg.bind_item_theme(btn, "theme_rounded_nav")
+                # Highlight the first tool by default using your existing active theme
+                if i == 0 and dpg.does_item_exist("active_nav_button_theme"):
+                    dpg.bind_item_theme(btn, "active_nav_button_theme")
+
+        # --- System & Utility Buttons ---
+        with dpg.group(tag="nav_bot_group"):
+            btn_settings = dpg.add_button(
+                label="\uf013",
+                width=-1,
+                height=cfg_l["nav_btn_h"],
+                callback=lambda: self.settings_window.show(),
+            )
+            dpg.bind_item_theme(btn_settings, "theme_rounded_nav")
+            if dpg.does_item_exist("icon_font_tag"):
+                dpg.bind_item_font(btn_settings, "icon_font_tag")
+            with dpg.tooltip(btn_settings):
+                dpg.add_text("Settings")
+
+            btn_help = dpg.add_button(
+                label="\uf059",
+                width=-1,
+                height=cfg_l["nav_btn_h"],
+                callback=self.show_help_window,
+            )
+            dpg.bind_item_theme(btn_help, "theme_rounded_nav")
+            if dpg.does_item_exist("icon_font_tag"):
+                dpg.bind_item_font(btn_help, "icon_font_tag")
+            with dpg.tooltip(btn_help):
+                dpg.add_text("Help & Shortcuts")
+
+        dpg.pop_container_stack()
+
+    def build_sidebar_top(self):
+        """Builds the content containers without the native tab_bar."""
         with dpg.child_window(
             tag="top_panel",
             border=False,
             no_scrollbar=True,
         ):
-            with dpg.tab_bar(tag="sidebar_tabs", callback=self.on_tab_changed):
-                build_tab_images(self)
-                build_tab_sync(self)
-                self.fusion_ui.build_tab_fusion(self)
-                self.intensities_ui.build_tab_intensities(self)
-                self.roi_ui.build_tab_rois(self)
-                self.reg_ui.build_tab_reg(self)
-                # self.contours_ui.build_tab_contours(self) # Tab for debug
-                self.extraction_ui.build_tab_extraction(self)
+            # The native dpg.tab_bar is completely gone!
+            # We just load the groups directly.
+            build_tab_images(self)
+            build_tab_sync(self)
+            self.fusion_ui.build_tab_fusion(self)
+            self.intensities_ui.build_tab_intensities(self)
+            self.roi_ui.build_tab_rois(self)
+            self.reg_ui.build_tab_reg(self)
+            self.extraction_ui.build_tab_extraction(self)
 
     def build_sidebar_bottom(self):
         cfg_c = self.ui_cfg["colors"]
@@ -270,18 +332,6 @@ class MainGUI:
             build_section_title("Active Viewer", cfg_c["text_header"])
             with dpg.group(tag="image_info_group"):
                 self.create_labeled_field("", tag="info_name")
-
-                """ with dpg.group(horizontal=True):
-                    dpg.add_text("Path:", color=cfg_c["text_dim"])
-                    btn_copy = dpg.add_button(
-                        label="\uf0c5", callback=self.on_copy_path_clicked
-                    )
-                    if dpg.does_item_exist("icon_font_tag"):
-                        dpg.bind_item_font(btn_copy, "icon_font_tag")
-                    if dpg.does_item_exist("icon_button_theme"):
-                        dpg.bind_item_theme(btn_copy, "icon_button_theme")
-                    dpg.add_input_text(tag="info_path", readonly=True, width=-1)"""
-
                 self.create_labeled_field("Type", tag="info_voxel_type")
                 self.create_labeled_field("Size", tag="info_size")
                 self.create_labeled_field("Spacing", tag="info_spacing")
@@ -513,9 +563,8 @@ class MainGUI:
                         if current_ui_val != val:
                             dpg.set_value(tag, val)
 
-        # Sync the Fusion overlay values (For when hotkeys like 'X' are used)
-        if hasattr(self, "fusion_ui"):
-            self.fusion_ui.sync_fusion_ui()
+        # Sync the Fusion overlay values
+        self.fusion_ui.sync_fusion_ui()
 
         # Sync Interpolation mode text
         if dpg.does_item_exist("check_interpolation"):
@@ -648,7 +697,14 @@ class MainGUI:
             ),
             (
                 has_rois,
-                ["btn_roi_show_all", "btn_roi_hide_all", "btn_roi_export_stats"],
+                [
+                    "btn_roi_show_all",
+                    "btn_roi_contour_all",
+                    "btn_roi_hide_all",
+                    "btn_roi_export_stats",
+                    "slider_roi_global_opacity",
+                    "slider_roi_global_thickness",
+                ],
             ),
             (
                 False,
@@ -675,7 +731,6 @@ class MainGUI:
         if not has_image:
             text_tags = [
                 "info_name",
-                "info_path",
                 "info_size",
                 "info_spacing",
                 "info_origin",
@@ -697,25 +752,6 @@ class MainGUI:
 
         vol = viewer.volume
         dpg.set_value("info_name", vol.name)
-        raw_path = (
-            vol.file_paths[0]
-            if isinstance(vol.file_paths, list) and vol.file_paths
-            else str(vol.path)
-        )
-        # with dpg.tooltip("info_name"):
-        #    dpg.add_text(vol.get_human_readable_file_path())
-
-        # 1. Resolve to a clean absolute path first
-        abs_path = os.path.abspath(os.path.expanduser(raw_path))
-
-        # 2. Check if it lives inside the user's home directory and replace it with ~
-        home_dir = os.path.expanduser("~")
-        if abs_path.startswith(home_dir):
-            display_path = "~" + abs_path[len(home_dir) :]
-        else:
-            display_path = abs_path
-
-        # dpg.set_value("info_path", display_path)
         dpg.set_value("info_name_label", viewer.tag)
         dpg.set_value("info_voxel_type", f"{vol.pixel_type}")
         if vol.num_timepoints > 1:
@@ -852,23 +888,54 @@ class MainGUI:
             self.highlight_active_image_in_list(viewer.image_id)
             self.update_sidebar_info(viewer)
             self.update_sidebar_crosshair(viewer)
-            self.refresh_rois_ui()
-            self.reg_ui.refresh_reg_ui()
             self.reg_ui.pull_reg_sliders_from_transform()
-            if hasattr(self, "intensities_ui"):
-                self.intensities_ui.refresh_intensities_ui()
-            if hasattr(self, "contours_ui"):
-                self.contours_ui.refresh_contours_ui()
-            if hasattr(self, "extraction_ui"):
-                self.extraction_ui.refresh_extraction_ui()
+
+            # Defer full panel refresh to next frame loop
+            self.controller.ui_needs_refresh = True
 
     # ==========================================
     # 4. EVENT HANDLERS
     # ==========================================
 
+    def on_nav_clicked(self, sender, app_data, user_data):
+        """Replaces on_tab_changed. Handles hiding/showing the content groups."""
+        target_tab_tag = user_data
+
+        # 1. Update Button Highlighting & Show/Hide Content
+        for name, tag in self.nav_items:
+            btn_tag = f"nav_btn_{tag}"
+
+            # Button theme
+            if dpg.does_item_exist(btn_tag):
+                dpg.bind_item_theme(btn_tag, "theme_rounded_nav")
+
+            # Show the selected tool group, hide the rest
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, show=(tag == target_tab_tag))
+
+        # Highlight the clicked button
+        if dpg.does_item_exist("active_nav_button_theme"):
+            dpg.bind_item_theme(sender, "active_nav_button_theme")
+
+        # 2. Trigger the old UI layout logic
+        is_roi = target_tab_tag == "tab_rois"
+        self._is_roi_tab_active = is_roi
+
+        hide_av = target_tab_tag in ["tab_rois", "tab_reg"]
+        self._hide_av_panel = hide_av
+
+        if dpg.does_item_exist("av_panel"):
+            dpg.configure_item("av_panel", show=not hide_av)
+
+        self.on_window_resize()
+
     def on_window_resize(self):
-        window_w = dpg.get_viewport_client_width()
-        window_h = dpg.get_viewport_client_height()
+        try:
+            window_w = dpg.get_viewport_client_width()
+            window_h = dpg.get_viewport_client_height()
+        except Exception:
+            return
+
         if not window_w or not window_h:
             return
 
@@ -880,6 +947,8 @@ class MainGUI:
             dpg.set_item_width("menu_container", window_w - m_l - m_r)
 
         panels_y = m_t + cfg["menu_h"] + cfg["menu_m_bottom"]
+        nav_w = cfg["nav_panel_w"]  # MUST match the width defined in build_sidebar
+
         l_x, l_w, l_h = (
             cfg["left_m_left"],
             cfg["side_panel_w"],
@@ -888,29 +957,36 @@ class MainGUI:
 
         if dpg.does_item_exist("side_panel_outer"):
             dpg.set_item_pos("side_panel_outer", [l_x, panels_y])
-            dpg.set_item_width("side_panel", l_w - cfg["gap_center"])
+
+            # --- Size the Nav Column ---
+            if dpg.does_item_exist("nav_panel"):
+                dpg.set_item_height("nav_panel", l_h)
+
+                if dpg.does_item_exist("nav_top_group"):
+                    dpg.set_item_pos("nav_top_group", [4, 1])  # 1px perfect nudge down
+
+                bot_h = (
+                    2 * cfg["nav_btn_h"]
+                ) + 8  # 2 buttons (35px) + 1 gap (8px) = 78px
+                if dpg.does_item_exist("nav_bot_group"):
+                    dpg.set_item_pos("nav_bot_group", [4, l_h - bot_h])
+
+            # Size the Tool Column
+            dpg.set_item_width("side_panel", l_w - nav_w - 2)
             dpg.set_item_height("side_panel", l_h)
 
-            inner_w = (
-                l_w - cfg["gap_center"] - cfg["left_inner_m"] - cfg["right_inner_m"]
-            )
+            # Recalculate inner width for all the sliders to adapt!
+            inner_w = l_w - nav_w - 2 - cfg["left_inner_m"] - cfg["right_inner_m"]
 
             # --- THE COMPUTED LAYOUT ENGINE ---
             hide_av = getattr(self, "_hide_av_panel", False)
-
             ch_h = cfg["panel_ch_h"]
             av_h = cfg["panel_av_h"]
             margin_bot = cfg["sidebar_margin_bot"]
 
-            # DearPyGui vertically stacks items with an invisible 4px ItemSpacing gap.
-            # We explicitly calculate the exact pixel height taken by everything else.
             if hide_av:
-                # Sequence: Spacer(5) + Gap(4) + TopPanel(top_h) + Gap(4) + Crosshair(ch_h) + Margin(10)
-                # 5 + 4 + 4 + 10 = 23 static pixels
                 top_h = l_h - ch_h - margin_bot - 13
             else:
-                # Sequence: Spacer(5) + Gap(4) + TopPanel(top_h) + Gap(4) + ActiveViewer(av_h) + Gap(4) + Crosshair(ch_h) + Margin(10)
-                # 5 + 4 + 4 + 4 + 10 = 27 static pixels
                 top_h = l_h - av_h - ch_h - margin_bot - 17
 
             top_h = max(100, top_h)
@@ -919,9 +995,7 @@ class MainGUI:
                 dpg.set_item_width("top_panel", inner_w)
                 dpg.set_item_height("top_panel", top_h)
 
-            # We explicitly calculate the list height and set it BEFORE the frame renders!
             if dpg.does_item_exist("roi_list_window"):
-                # Total Top Panel Height MINUS the Detail Panel MINUS the static text/buttons (~195px)
                 list_h = top_h - cfg["roi_detail_h"] - 195
                 dpg.set_item_width("roi_list_window", inner_w)
                 dpg.set_item_height("roi_list_window", max(50, list_h))
@@ -933,24 +1007,25 @@ class MainGUI:
             if dpg.does_item_exist("ch_panel"):
                 dpg.set_item_width("ch_panel", inner_w)
                 dpg.set_item_height("ch_panel", ch_h)
-            # ----------------------------------
 
-        r_x = l_x + l_w
+        r_x = l_x + l_w + cfg["gap_center"]
         avail_w = window_w - r_x - cfg["right_m_right"]
         avail_h = window_h - panels_y - cfg["right_m_bottom"]
         quad_w, quad_h = avail_w // 2, avail_h // 2
 
         if dpg.does_item_exist("viewers_container"):
             dpg.set_item_pos("viewers_container", [r_x, panels_y])
-            dpg.set_item_width("viewers_container", quad_w * 2)
-            dpg.set_item_height("viewers_container", quad_h * 2)
+            dpg.set_item_width("viewers_container", avail_w)
+            dpg.set_item_height("viewers_container", avail_h)
 
-        # Only adjust the container boundaries. The Viewers will autonomously
-        # detect the size change in their next tick() and recalculate their math.
-        for tag in ["V1", "V2", "V3", "V4"]:
+        for i, tag in enumerate(["V1", "V2", "V3", "V4"]):
             if dpg.does_item_exist(f"win_{tag}"):
-                dpg.set_item_width(f"win_{tag}", quad_w)
-                dpg.set_item_height(f"win_{tag}", quad_h)
+                # Distribute remainder pixels to the bottom/right viewers
+                # to prevent 1px truncation gaps when the window size is odd!
+                w = quad_w if i in [0, 2] else avail_w - quad_w
+                h = quad_h if i in [0, 1] else avail_h - quad_h
+                dpg.set_item_width(f"win_{tag}", w)
+                dpg.set_item_height(f"win_{tag}", h)
 
     def on_image_viewer_toggle(self, sender, value, user_data):
         img_id, v_tag = user_data["img_id"], user_data["v_tag"]
@@ -1047,12 +1122,6 @@ class MainGUI:
 
             threading.Thread(target=_save, daemon=True).start()
 
-    def on_copy_path_clicked(self, sender, app_data, user_data):
-        path = dpg.get_value("info_path")
-        if path and path != "---":
-            dpg.set_clipboard_text(path)
-            self.show_status_message("Path copied to clipboard!", color=[0, 255, 255])
-
     def on_save_workspace_clicked(self, sender=None, app_data=None, user_data=None):
         file_path = save_file_dialog("Save VVV Workspace", default_name="workspace.vvw")
 
@@ -1098,23 +1167,6 @@ class MainGUI:
             else:
                 dpg.configure_item("menu_save_workspace", show=False)
 
-    def on_tab_changed(self, sender, app_data, user_data):
-        tab_tag = app_data
-        if isinstance(app_data, int):
-            tab_tag = dpg.get_item_alias(app_data) or app_data
-
-        is_roi = tab_tag == "tab_rois"
-        self._is_roi_tab_active = is_roi
-
-        # Hide the Active Viewer panel for the ROI and Reg tabs
-        hide_av = tab_tag in ["tab_rois", "tab_reg"]
-        self._hide_av_panel = hide_av
-
-        if dpg.does_item_exist("av_panel"):
-            dpg.configure_item("av_panel", show=not hide_av)
-
-        self.on_window_resize()
-
     def on_recent_file_clicked(self, sender, app_data, user_data):
         path = user_data
 
@@ -1134,6 +1186,19 @@ class MainGUI:
         self.controller.settings.data["behavior"]["recent_files"] = []
         self.refresh_recent_menu()
 
+    def on_global_reset_clicked(self, sender=None, app_data=None, user_data=None):
+        for vs_id in self.controller.view_states:
+            self.controller.reset_image_view(vs_id, hard=False)
+        self.controller.ui_needs_refresh = True
+
+    def on_global_center_clicked(self, sender=None, app_data=None, user_data=None):
+        if self.context_viewer:
+            self.context_viewer.action_center_view()
+        else:
+            for v in self.controller.viewers.values():
+                if v.image_id:
+                    v.action_center_view()
+
     # ==========================================
     # 5. MODALS & POPUPS
     # ==========================================
@@ -1152,6 +1217,7 @@ class MainGUI:
         window_tag = "help_window"
         if dpg.does_item_exist(window_tag):
             dpg.delete_item(window_tag)
+            return
 
         active_col = self.ui_cfg["colors"]["text_active"]
         ok_col = self.ui_cfg["colors"]["text_status_ok"]
@@ -1253,6 +1319,20 @@ class MainGUI:
         """Wrapper to pass the CLI boot request into the external Sequence Manager."""
         return create_boot_sequence(self, self.controller, image_tasks, sync, link_all)
 
+    def _refresh_all_ui_panels(self):
+        """Consolidated handler to rebuild all dynamic side panels."""
+        self.refresh_image_list_ui()
+        self.refresh_sync_ui()
+        self.refresh_rois_ui()
+        self.fusion_ui.refresh_fusion_ui()
+        self.reg_ui.refresh_reg_ui()
+        self.intensities_ui.refresh_intensities_ui()
+        self.contours_ui.refresh_contours_ui()
+        self.extraction_ui.refresh_extraction_ui()
+
+        # Safely update the sidebar between frames when the DPG stack is completely empty!
+        self.update_sidebar_info(self.context_viewer)
+
     def run(self, boot_generator=None):
         dpg.setup_dearpygui()
 
@@ -1262,6 +1342,9 @@ class MainGUI:
 
         dpg.show_viewport()
         dpg.set_primary_window("PrimaryWindow", True)
+
+        # Force the initial layout calculation now that the viewport has physical dimensions!
+        self.on_window_resize()
 
         for _ in range(3):
             dpg.render_dearpygui_frame()
@@ -1283,24 +1366,7 @@ class MainGUI:
                     self.tasks.pop(0)
 
             if getattr(self.controller, "ui_needs_refresh", False):
-                self.refresh_image_list_ui()
-                if hasattr(self, "refresh_sync_ui"):
-                    self.refresh_sync_ui()
-                self.refresh_rois_ui()
-
-                if hasattr(self, "fusion_ui"):
-                    self.fusion_ui.refresh_fusion_ui()
-                if hasattr(self, "reg_ui"):
-                    self.reg_ui.refresh_reg_ui()
-                if hasattr(self, "intensities_ui"):
-                    self.intensities_ui.refresh_intensities_ui()
-                if hasattr(self, "contours_ui"):
-                    self.contours_ui.refresh_contours_ui()
-                if hasattr(self, "extraction_ui"):
-                    self.extraction_ui.refresh_extraction_ui()
-
-                # Safely update the sidebar between frames when the DPG stack is completely empty!
-                self.update_sidebar_info(self.context_viewer)
+                self._refresh_all_ui_panels()
 
                 # Check for asynchronous status updates
                 if getattr(self.controller, "status_message", None):
@@ -1312,8 +1378,7 @@ class MainGUI:
             self.interaction.update_trackers()
             self.sync_bound_ui()
 
-            if hasattr(self, "dicom_window") and self.dicom_window:
-                self.dicom_window.tick()
+            self.dicom_window.tick()
 
             self.controller.tick()
 

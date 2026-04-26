@@ -15,8 +15,7 @@ class IntensitiesUI:
     def build_tab_intensities(gui):
         cfg_c = gui.ui_cfg["colors"]
 
-        with dpg.tab(label="Intensities", tag="tab_intensities"):
-            dpg.add_spacer(height=5)
+        with dpg.group(tag="tab_intensities", show=False):
             build_section_title("Window / Level", cfg_c["text_header"])
 
             with dpg.group(horizontal=True):
@@ -73,13 +72,9 @@ class IntensitiesUI:
 
     def refresh_intensities_ui(self):
         viewer = self.gui.context_viewer
-        has_image = (
-            viewer is not None
-            and getattr(viewer, "view_state", None) is not None
-            and viewer.volume is not None
-        )
+        has_image = bool(viewer and viewer.view_state and viewer.volume)
 
-        is_rgb = getattr(viewer.volume, "is_rgb", False) if has_image else False
+        is_rgb = viewer.volume.is_rgb if has_image else False
         thr = viewer.view_state.display.base_threshold if has_image else None
         has_thr = thr is not None
 

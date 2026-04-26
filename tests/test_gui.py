@@ -138,10 +138,24 @@ def test_gui_roi_interactions(headless_gui_app, synthetic_volume_factory):
     gui.roi_ui.on_roi_opacity_changed(sender=None, app_data=0.35, user_data=roi_id)
     assert vs.rois[roi_id].opacity == 0.35
 
-    # 3. Simulate Visibility "Eye" Icon Click
+    # 3. Simulate Visibility "Eye" Icon Click (Tri-State Toggle)
     assert vs.rois[roi_id].visible is True
+    assert vs.rois[roi_id].is_contour is False
+
+    # Click 1: Raster -> Contour
+    gui.roi_ui.on_roi_toggle_visible(sender=None, app_data=None, user_data=roi_id)
+    assert vs.rois[roi_id].visible is True
+    assert vs.rois[roi_id].is_contour is True
+
+    # Click 2: Contour -> Hidden
     gui.roi_ui.on_roi_toggle_visible(sender=None, app_data=None, user_data=roi_id)
     assert vs.rois[roi_id].visible is False
+    assert vs.rois[roi_id].is_contour is False
+
+    # Click 3: Hidden -> Raster
+    gui.roi_ui.on_roi_toggle_visible(sender=None, app_data=None, user_data=roi_id)
+    assert vs.rois[roi_id].visible is True
+    assert vs.rois[roi_id].is_contour is False
 
 
 def test_gui_fusion_controls(headless_gui_app, synthetic_volume_factory, monkeypatch):

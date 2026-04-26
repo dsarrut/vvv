@@ -1111,7 +1111,11 @@ class SliceViewer:
     def _package_roi_layers(self):
         active_rois = []
         for roi_id, roi_state in self.view_state.rois.items():
-            if not roi_state.visible or roi_state.opacity <= 0.0:
+            if (
+                not roi_state.visible
+                or roi_state.opacity <= 0.0
+                or getattr(roi_state, "is_contour", False)
+            ):
                 continue
 
             roi_vol = self.controller.volumes.get(roi_id)
@@ -1337,6 +1341,8 @@ class SliceViewer:
                 [(self.orientation, self.slice_idx)],
                 ext.preview_color,
             )
+
+        self.controller.roi.update_roi_contours(self)
 
         self.drawer.draw_contours()
         self.update_tracker()

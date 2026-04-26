@@ -2,6 +2,7 @@ import os
 import json
 import numpy as np
 import SimpleITK as sitk
+from vvv.utils import ViewMode
 from vvv.config import ROI_COLORS
 from vvv.math.image import VolumeData
 
@@ -18,6 +19,12 @@ class ROIState:
         self.is_contour = False
         self.source_mode = source_mode
         self.source_val = source_val
+        self.thickness = 1.0
+        self.polygons = {
+            ViewMode.AXIAL: {},
+            ViewMode.SAGITTAL: {},
+            ViewMode.CORONAL: {},
+        }
 
     def to_dict(self):
         return {
@@ -436,6 +443,9 @@ class ROIManager:
         with vs.loading_shield():
             mask_vol.reload()
 
+            for ori in roi_state.polygons:
+                roi_state.polygons[ori].clear()
+
             mode = getattr(roi_state, "source_mode", "Ignore BG (val)")
             target_val = getattr(roi_state, "source_val", 0.0)
 
@@ -462,3 +472,97 @@ class ROIManager:
             del self.controller.volumes[roi_id]
 
         self.controller.update_all_viewers_of_image(base_id)
+
+    def update_roi_contours(self, viewer):
+        """Extracts 2D marching squares for all contour ROIs on the current slice."""
+        vs = viewer.view_state
+        if not vs:
+            return
+
+        ori = viewer.orientation
+        s_idx = viewer.slice_idx
+
+        needs_update = False
+        for roi_state in vs.rois.values():
+            if roi_state.visible and roi_state.is_contour:
+                if s_idx not in roi_state.polygons[ori]:
+                    needs_update = True
+                    break
+
+        if not needs_update:
+            return
+
+        sw, sh = viewer.volume.get_physical_aspect_ratio(ori)
+        base_z, base_y, base_x = viewer.volume.shape3d
+        from vvv.math.contours import extract_2d_contours_from_slice
+
+        extracted_any = False
+        for roi_id, roi_state in vs.rois.items():
+            if not roi_state.visible or not roi_state.is_contour:
+                continue
+
+            if s_idx in roi_state.polygons[ori]:
+                continue
+
+            roi_vol = self.controller.volumes.get(roi_id)
+            if not roi_vol or not hasattr(roi_vol, "roi_bbox"):
+                roi_state.polygons[ori][s_idx] = []
+                continue
+
+            z0, z1, y0, y1, x0, x1 = roi_vol.roi_bbox
+            if z0 == z1:
+                roi_state.polygons[ori][s_idx] = []
+                continue
+
+            t_idx = min(vs.camera.time_idx, roi_vol.num_timepoints - 1)
+            roi_slice = None
+            offset_x, offset_y = 0, 0
+
+            # Isolate the exact 2D slice for this orientation
+            if ori == ViewMode.AXIAL:
+                if z0 <= s_idx < z1:
+                    if roi_vol.data.ndim == 4:
+                        roi_slice = roi_vol.data[t_idx, s_idx - z0, :, :]
+                    else:
+                        roi_slice = roi_vol.data[s_idx - z0, :, :]
+                    offset_x, offset_y = x0, y0
+            elif ori == ViewMode.CORONAL:
+                if y0 <= s_idx < y1:
+                    if roi_vol.data.ndim == 4:
+                        roi_slice = np.flipud(roi_vol.data[t_idx, :, s_idx - y0, :])
+                    else:
+                        roi_slice = np.flipud(roi_vol.data[:, s_idx - y0, :])
+                    offset_x = x0
+                    offset_y = base_z - z1
+            elif ori == ViewMode.SAGITTAL:
+                if x0 <= s_idx < x1:
+                    if roi_vol.data.ndim == 4:
+                        roi_slice = np.flipud(
+                            np.fliplr(roi_vol.data[t_idx, :, :, s_idx - x0])
+                        )
+                    else:
+                        roi_slice = np.flipud(np.fliplr(roi_vol.data[:, :, s_idx - x0]))
+                    offset_x = base_y - y1
+                    offset_y = base_z - z1
+
+            if roi_slice is not None and roi_slice.size > 0:
+                mask_2d = (roi_slice > 0).astype(np.uint8)
+                polys = extract_2d_contours_from_slice(mask_2d, 0.5, sw, sh)
+
+                # Shift the polygons to accurately overlay on the base image coordinates
+                shifted_polys = []
+                for poly in polys:
+                    shifted_poly = []
+                    for pt in poly:
+                        shifted_poly.append(
+                            [pt[0] + offset_x * sw, pt[1] + offset_y * sh]
+                        )
+                    shifted_polys.append(shifted_poly)
+                roi_state.polygons[ori][s_idx] = shifted_polys
+            else:
+                roi_state.polygons[ori][s_idx] = []
+
+            extracted_any = True
+
+        if extracted_any:
+            self.controller.ui_needs_refresh = True

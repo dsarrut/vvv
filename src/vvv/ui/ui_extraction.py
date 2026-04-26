@@ -15,8 +15,7 @@ class ExtractionUI:
     def build_tab_extraction(self, gui):
         cfg_c = gui.ui_cfg["colors"]
 
-        with dpg.tab(label="Extract", tag="tab_extraction"):
-            dpg.add_spacer(height=5)
+        with dpg.group(tag="tab_extraction", show=False):
             build_section_title("Interactive Threshold", cfg_c["text_header"])
 
             dpg.add_checkbox(
@@ -51,7 +50,7 @@ class ExtractionUI:
                 )
 
                 dpg.add_color_edit(
-                    (255, 255, 0, 255),
+                    (255, 0, 0, 255),
                     tag="color_ext_preview",
                     no_inputs=True,
                     no_label=True,
@@ -76,12 +75,7 @@ class ExtractionUI:
 
     def refresh_extraction_ui(self):
         viewer = self.gui.context_viewer
-        has_image = (
-            viewer is not None
-            and getattr(viewer, "view_state", None) is not None
-            and getattr(viewer.view_state, "extraction", None) is not None
-            and viewer.volume is not None
-        )
+        has_image = bool(viewer and viewer.view_state and viewer.volume)
 
         if not has_image:
             tags_to_disable = [

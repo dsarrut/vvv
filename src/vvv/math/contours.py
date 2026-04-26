@@ -33,53 +33,21 @@ def extract_2d_contours_from_slice(slice2d, threshold, sw=1.0, sh=1.0):
         print("scikit-image is required for contour extraction...")
         return []
 
-    # Use the REAL threshold provided by the manager
-    contours = measure.find_contours(slice2d, threshold)
+    # Pad the slice to ensure contours touching the image borders form closed loops
+    pad_val = slice2d.min()
+    if pad_val >= threshold:
+        pad_val = threshold - 1.0  # Force a background value below the threshold
+
+    padded_slice = np.pad(
+        slice2d, pad_width=1, mode="constant", constant_values=pad_val
+    )
+    contours = measure.find_contours(padded_slice, threshold)
 
     if not contours:
         return []
 
-    # Add 0.5 to align skimage pixel centers with OpenGL top-left edges
+    # Offset by -0.5 (-1.0 for the padding + 0.5 for OpenGL alignment)
     return [
-        [[float((pt[1] + 0.5) * sw), float((pt[0] + 0.5) * sh)] for pt in contour]
+        [[float((pt[1] - 0.5) * sw), float((pt[0] - 0.5) * sh)] for pt in contour]
         for contour in contours
     ]
-
-
-def extract_contours_from_mask(mask_3d, volume):
-    """
-    Extracts 2D contours for all slices in all orientations from a 3D binary mask.
-    mask_3d: 3D numpy array (z, y, x)
-    volume: VolumeData instance to get aspect ratios and slice shapes.
-    Returns a populated ContourROI.
-    """
-    import random
-
-    color = [
-        random.randint(50, 255),
-        random.randint(50, 255),
-        random.randint(50, 255),
-        255,
-    ]
-    roi = ContourROI(name="Auto_Contour", color=color)
-
-    for orient in [ViewMode.AXIAL, ViewMode.SAGITTAL, ViewMode.CORONAL]:
-        sw, sh = volume.get_physical_aspect_ratio(orient)
-
-        if orient == ViewMode.AXIAL:
-            max_slice = volume.shape3d[0]
-        elif orient == ViewMode.SAGITTAL:
-            max_slice = volume.shape3d[2]
-        else:
-            max_slice = volume.shape3d[1]
-
-        for slice_idx in range(max_slice):
-            slice2d = SliceRenderer.get_raw_slice(mask_3d, False, 0, slice_idx, orient)
-            if slice2d is None or not np.any(slice2d):
-                continue
-
-            polygons = extract_2d_contours_from_slice(slice2d, sw, sh)
-            if polygons:
-                roi.polygons[orient][slice_idx] = polygons
-
-    return roi

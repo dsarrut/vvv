@@ -21,12 +21,15 @@ def build_ui_config(controller):
             "sidebar_margin_bot": 10,
             "sidebar_top_spacer": 5,
             "sidebar_item_gap": item_gap,
+            "gap_center": 5,
             "menu_h": 27,
             "menu_m_top": 0,
             "menu_m_bottom": 5 + shared_margin,
             "menu_m_left": 0,
             "menu_m_right": 0,
             "side_panel_w": controller.settings.data["layout"]["side_panel_width"],
+            "nav_panel_w": controller.settings.data["layout"]["nav_panel_width"],
+            "nav_btn_h": 35,
             "gap_center": shared_margin,
             "left_m_left": shared_margin,
             "left_m_bottom": shared_margin,
@@ -200,6 +203,14 @@ def register_dynamic_themes(ui_cfg, controller):
                 dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 1)
                 dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, cfg_l["rounding"])
 
+    if not dpg.does_item_exist("nav_panel_bg_theme"):
+        with dpg.theme(tag="nav_panel_bg_theme"):
+            with dpg.theme_component(dpg.mvChildWindow):
+                dpg.add_theme_color(dpg.mvThemeCol_ChildBg, cfg_c["bg_window"])
+                dpg.add_theme_color(dpg.mvThemeCol_Border, cfg_c["transparent"])
+                dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 0)
+                dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 4, 0)
+
     if not dpg.does_item_exist("sleek_readonly_theme"):
         with dpg.theme(tag="sleek_readonly_theme"):
             with dpg.theme_component(dpg.mvInputText):
@@ -236,3 +247,18 @@ def register_dynamic_themes(ui_cfg, controller):
         with dpg.theme(tag="outdated_item_theme"):
             with dpg.theme_component(dpg.mvAll):
                 dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["outdated"])
+
+    if not dpg.does_item_exist("theme_rounded_nav"):
+        with dpg.theme(tag="theme_rounded_nav"):
+            with dpg.theme_component(dpg.mvButton):
+                dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 6)
+
+    if not dpg.does_item_exist("active_nav_button_theme"):
+        with dpg.theme(tag="active_nav_button_theme"):
+            with dpg.theme_component(dpg.mvButton):
+                dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 6)
+                dpg.add_theme_color(dpg.mvThemeCol_Button, cfg_c["bg_menu_active"])
+                dpg.add_theme_color(
+                    dpg.mvThemeCol_ButtonHovered, cfg_c["bg_menu_active"]
+                )
+                dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["text_active"])

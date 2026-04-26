@@ -35,9 +35,7 @@ class RoiUI:
         cfg_c = gui.ui_cfg["colors"]
         cfg_l = gui.ui_cfg["layout"]
 
-        with dpg.tab(label="ROIs", tag="tab_rois"):  # Reverted label
-            dpg.add_spacer(height=5)
-
+        with dpg.group(tag="tab_rois", show=False):
             build_section_title("ROI", cfg_c["text_header"])
 
             # --- TOP: Load & Import ---
@@ -82,6 +80,12 @@ class RoiUI:
                     callback=gui.roi_ui.on_roi_show_all,
                     tag="btn_roi_show_all",
                 )
+                btn_contour = dpg.add_button(
+                    label="\uf040",
+                    width=20,
+                    callback=gui.roi_ui.on_roi_contour_all,
+                    tag="btn_roi_contour_all",
+                )
                 btn_hide = dpg.add_button(
                     label="\uf070",
                     width=20,
@@ -90,14 +94,57 @@ class RoiUI:
                 )
                 if dpg.does_item_exist("icon_font_tag"):
                     dpg.bind_item_font(btn_show, "icon_font_tag")
+                    dpg.bind_item_font(btn_contour, "icon_font_tag")
                     dpg.bind_item_font(btn_hide, "icon_font_tag")
+
+                with dpg.tooltip(btn_show):
+                    dpg.add_text("Show All (Raster)")
+
+                with dpg.tooltip(btn_contour):
+                    dpg.add_text("Show All (Contour)")
+
+                with dpg.tooltip(btn_hide):
+                    dpg.add_text("Hide All")
+
+                dpg.add_spacer(width=5)
+                dpg.add_text("Op:")
+                dpg.add_slider_float(
+                    tag="slider_roi_global_opacity",
+                    width=60,
+                    min_value=0.0,
+                    max_value=1.0,
+                    default_value=0.5,
+                    callback=gui.roi_ui.on_roi_global_opacity_changed,
+                )
+                dpg.add_spacer(width=2)
+                dpg.add_text("Thk:")
+                dpg.add_slider_float(
+                    tag="slider_roi_global_thickness",
+                    width=60,
+                    min_value=0.5,
+                    max_value=10.0,
+                    default_value=1.0,
+                    callback=gui.roi_ui.on_roi_global_thickness_changed,
+                )
 
             dpg.add_separator()
 
             with dpg.child_window(
                 tag="roi_list_window", height=150, border=False, no_scrollbar=True
             ):
-                dpg.add_group(tag="roi_list_container")
+                with dpg.table(
+                    tag="roi_list_table",
+                    header_row=False,
+                    resizable=False,
+                    borders_innerH=False,
+                    scrollY=True,
+                ):
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+                    dpg.add_table_column(width_stretch=True)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
 
             dpg.add_spacer(height=5)
 
@@ -117,17 +164,14 @@ class RoiUI:
                 dpg.add_group(tag="roi_detail_container")
 
     def refresh_rois_ui(self):
-        container = "roi_list_container"
-        if not dpg.does_item_exist(container):
+        table_id = "roi_list_table"
+        if not dpg.does_item_exist(table_id):
             return
 
-        current_scroll = 0.0
-        # Dynamically find the existing table to safely save its scroll state
-        children = dpg.get_item_children(container, 1)
-        if children:
-            current_scroll = dpg.get_y_scroll(children[0])
+        current_scroll = dpg.get_y_scroll(table_id)
 
-        dpg.delete_item(container, children_only=True)
+        # Delete ONLY the rows (slot=1), leaving the table and scrollbar perfectly intact!
+        dpg.delete_item(table_id, children_only=True, slot=1)
         self.roi_selectables.clear()
 
         viewer = self.gui.context_viewer
@@ -136,94 +180,75 @@ class RoiUI:
             self.refresh_roi_detail_ui()
             return
 
-        # Let DPG generate a dynamic UUID for the table to prevent mid-frame caching collisions!
-        with dpg.table(
-            parent=container,
-            header_row=False,
-            resizable=False,
-            borders_innerH=False,
-            scrollY=True,
-        ) as new_table_id:
-            # 1. Color Box
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
-            # 2. ROI Name (This one stretches to fill all empty space!)
-            dpg.add_table_column(width_stretch=True)
-            # 3. Visible (Eye)
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
-            # 4. Center Target
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
-            # 5. Reload
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
-            # 6. Close/Delete
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+        for roi_id, roi in viewer.view_state.rois.items():
+            with dpg.table_row(parent=table_id):
+                if roi.visible:
+                    lbl_eye = "\uf040" if roi.is_contour else "\uf06e"
+                else:
+                    lbl_eye = "\uf070"
 
-            for roi_id, roi in viewer.view_state.rois.items():
-                with dpg.table_row():
-                    lbl_eye = "\uf06e" if roi.visible else "\uf070"
-                    dpg.add_color_edit(
-                        default_value=roi.color + [255],
-                        no_inputs=True,
-                        no_label=True,
-                        no_alpha=True,
-                        width=20,
-                        height=20,
-                        user_data=roi_id,
-                        callback=self.on_roi_color_changed,
-                    )
+                dpg.add_color_edit(
+                    default_value=roi.color + [255],
+                    no_inputs=True,
+                    no_label=True,
+                    no_alpha=True,
+                    width=20,
+                    height=20,
+                    user_data=roi_id,
+                    callback=self.on_roi_color_changed,
+                )
 
-                    is_active = roi_id == self.active_roi_id
+                is_active = roi_id == self.active_roi_id
 
-                    roi_vol = self.controller.volumes.get(roi_id)
-                    is_outdated = (
-                        getattr(roi_vol, "_is_outdated", False) if roi_vol else False
-                    )
-                    label_str = f"{roi.name} *" if is_outdated else roi.name
+                roi_vol = self.controller.volumes.get(roi_id)
+                is_outdated = roi_vol._is_outdated if roi_vol else False
+                label_str = f"{roi.name} *" if is_outdated else roi.name
 
-                    sel_id = dpg.add_selectable(
-                        label=label_str,
-                        default_value=is_active,
-                        user_data=roi_id,
-                        callback=self.on_roi_selected,
-                    )
-                    self.roi_selectables[roi_id] = sel_id
+                sel_id = dpg.add_selectable(
+                    label=label_str,
+                    default_value=is_active,
+                    user_data=roi_id,
+                    callback=self.on_roi_selected,
+                )
+                self.roi_selectables[roi_id] = sel_id
 
-                    if is_outdated and dpg.does_item_exist("outdated_item_theme"):
-                        dpg.bind_item_theme(sel_id, "outdated_item_theme")
+                if is_outdated and dpg.does_item_exist("outdated_item_theme"):
+                    dpg.bind_item_theme(sel_id, "outdated_item_theme")
 
-                    btn_eye = dpg.add_button(
-                        label=lbl_eye,
-                        width=20,
-                        user_data=roi_id,
-                        callback=self.on_roi_toggle_visible,
-                    )
-                    btn_center = dpg.add_button(
-                        label="\uf05b",
-                        width=20,
-                        user_data=roi_id,
-                        callback=self.on_roi_center,
-                    )
-                    btn_reload = dpg.add_button(
-                        label="\uf01e",
-                        width=20,
-                        user_data=roi_id,
-                        callback=self.on_roi_reload,
-                    )
-                    btn_close = dpg.add_button(
-                        label="\uf00d",
-                        width=20,
-                        user_data=roi_id,
-                        callback=self.on_roi_close,
-                    )
+                btn_eye = dpg.add_button(
+                    label=lbl_eye,
+                    width=20,
+                    user_data=roi_id,
+                    callback=self.on_roi_toggle_visible,
+                )
+                btn_center = dpg.add_button(
+                    label="\uf05b",
+                    width=20,
+                    user_data=roi_id,
+                    callback=self.on_roi_center,
+                )
+                btn_reload = dpg.add_button(
+                    label="\uf01e",
+                    width=20,
+                    user_data=roi_id,
+                    callback=self.on_roi_reload,
+                )
+                btn_close = dpg.add_button(
+                    label="\uf00d",
+                    width=20,
+                    user_data=roi_id,
+                    callback=self.on_roi_close,
+                )
 
-                    if dpg.does_item_exist("icon_font_tag"):
-                        for btn in [btn_eye, btn_reload, btn_center, btn_close]:
-                            dpg.bind_item_font(btn, "icon_font_tag")
+                if dpg.does_item_exist("icon_font_tag"):
+                    for btn in [btn_eye, btn_reload, btn_center, btn_close]:
+                        dpg.bind_item_font(btn, "icon_font_tag")
 
-                    if dpg.does_item_exist("delete_button_theme"):
-                        dpg.bind_item_theme(btn_close, "delete_button_theme")
+                if dpg.does_item_exist("delete_button_theme"):
+                    dpg.bind_item_theme(btn_close, "delete_button_theme")
 
-        # Safely re-apply the scroll position to the new dynamic ID
-        dpg.set_y_scroll(new_table_id, current_scroll)
+        # Safely re-apply the scroll position
+        dpg.set_y_scroll(table_id, current_scroll)
         self.refresh_roi_detail_ui()
 
     def refresh_roi_detail_ui(self):
@@ -256,16 +281,8 @@ class RoiUI:
             # --- NEW SECTION: ROI Geometry & Loading Mode ---
             if roi_vol:
                 # 1. Loading Rule (FG vs BG)
-                mode_str = (
-                    roi_state.source_mode
-                    if hasattr(roi_state, "source_mode")
-                    else "Unknown"
-                )
-                val_str = (
-                    f"{roi_state.source_val:g}"
-                    if hasattr(roi_state, "source_val")
-                    else "?"
-                )
+                mode_str = roi_state.source_mode
+                val_str = f"{roi_state.source_val:g}"
 
                 with dpg.group(horizontal=True):
                     dpg.add_text("Rule:", color=dim_col)
@@ -287,16 +304,30 @@ class RoiUI:
 
             # --- EXISTING SECTION: Opacity & Analysis ---
             with dpg.group(horizontal=True):
-                dpg.add_text("Opacity:")
-                dpg.add_slider_float(
-                    default_value=roi_state.opacity,
-                    min_value=0.0,
-                    max_value=1.0,
-                    width=-1,
-                    tag="slider_roi_opacity",
-                    user_data=self.active_roi_id,
-                    callback=self.on_roi_opacity_changed,
-                )
+                if roi_state.is_contour:
+                    dpg.add_text("Thickness:")
+                    active_slider_tag = "slider_roi_thickness"
+                    dpg.add_slider_float(
+                        default_value=getattr(roi_state, "thickness", 1.0),
+                        min_value=0.5,
+                        max_value=10.0,
+                        width=-1,
+                        tag=active_slider_tag,
+                        user_data=self.active_roi_id,
+                        callback=self.on_roi_thickness_changed,
+                    )
+                else:
+                    dpg.add_text("Opacity:")
+                    active_slider_tag = "slider_roi_opacity"
+                    dpg.add_slider_float(
+                        default_value=roi_state.opacity,
+                        min_value=0.0,
+                        max_value=1.0,
+                        width=-1,
+                        tag=active_slider_tag,
+                        user_data=self.active_roi_id,
+                        callback=self.on_roi_opacity_changed,
+                    )
 
             # Theme code remains the same...
             theme_tag = "dynamic_roi_slider_theme"
@@ -312,7 +343,7 @@ class RoiUI:
                     )
                     dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, [r, g, b, 100])
                     dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, [r, g, b, 50])
-            dpg.bind_item_theme("slider_roi_opacity", theme_tag)
+            dpg.bind_item_theme(active_slider_tag, theme_tag)
 
             dpg.add_spacer(height=5)
 
@@ -418,6 +449,13 @@ class RoiUI:
             if dpg.does_item_exist("combo_roi_type")
             else "Binary Mask"
         )
+
+        if roi_type in ["Label Map", "RT-Struct"]:
+            self.gui.show_message(
+                "Not Implemented", f"Loading '{roi_type}' is not implemented yet."
+            )
+            return
+
         file_paths = open_file_dialog(f"Load {roi_type}(s)", multiple=True)
         if not file_paths:
             return
@@ -449,8 +487,23 @@ class RoiUI:
 
     def on_roi_toggle_visible(self, sender, app_data, user_data):
         vs = self.gui.context_viewer.view_state
-        vs.rois[user_data].visible = not vs.rois[user_data].visible
+        roi = vs.rois[user_data]
+
+        # Tri-state toggle: Raster -> Contour -> Hidden -> Raster
+        if roi.visible and not roi.is_contour:
+            roi.visible = True
+            roi.is_contour = True
+            for ori in roi.polygons:
+                roi.polygons[ori].clear()
+        elif roi.visible and roi.is_contour:
+            roi.visible = False
+            roi.is_contour = False
+        else:
+            roi.visible = True
+            roi.is_contour = False
+
         vs.is_data_dirty = True
+        vs.is_geometry_dirty = True
         self.controller.ui_needs_refresh = True
         self.controller.update_all_viewers_of_image(self.gui.context_viewer.image_id)
 
@@ -466,6 +519,14 @@ class RoiUI:
         vs.rois[user_data].opacity = app_data
         vs.is_data_dirty = True
         self.controller.update_all_viewers_of_image(self.gui.context_viewer.image_id)
+
+    def on_roi_thickness_changed(self, sender, app_data, user_data):
+        vs = self.gui.context_viewer.view_state
+        vs.rois[user_data].thickness = app_data
+        vs.is_geometry_dirty = True
+        self.controller.update_all_viewers_of_image(
+            self.gui.context_viewer.image_id, data_dirty=False
+        )
 
     def on_roi_reload(self, sender, app_data, user_data):
         self.controller.roi.reload_roi(self.gui.context_viewer.image_id, user_data)
@@ -486,7 +547,9 @@ class RoiUI:
             return
         for roi in viewer.view_state.rois.values():
             roi.visible = True
+            roi.is_contour = False
         viewer.view_state.is_data_dirty = True
+        viewer.view_state.is_geometry_dirty = True
         self.controller.ui_needs_refresh = True
         self.controller.update_all_viewers_of_image(viewer.image_id)
 
@@ -497,8 +560,43 @@ class RoiUI:
         for roi in viewer.view_state.rois.values():
             roi.visible = False
         viewer.view_state.is_data_dirty = True
+        viewer.view_state.is_geometry_dirty = True
         self.controller.ui_needs_refresh = True
         self.controller.update_all_viewers_of_image(viewer.image_id)
+
+    def on_roi_contour_all(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+        for roi in viewer.view_state.rois.values():
+            roi.visible = True
+            roi.is_contour = True
+            for ori in roi.polygons:
+                roi.polygons[ori].clear()
+        viewer.view_state.is_data_dirty = True
+        viewer.view_state.is_geometry_dirty = True
+        self.controller.ui_needs_refresh = True
+        self.controller.update_all_viewers_of_image(viewer.image_id)
+
+    def on_roi_global_opacity_changed(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+        for roi in viewer.view_state.rois.values():
+            roi.opacity = app_data
+        viewer.view_state.is_data_dirty = True
+        self.controller.ui_needs_refresh = True
+        self.controller.update_all_viewers_of_image(viewer.image_id)
+
+    def on_roi_global_thickness_changed(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+        for roi in viewer.view_state.rois.values():
+            roi.thickness = app_data
+        viewer.view_state.is_geometry_dirty = True
+        self.controller.ui_needs_refresh = True
+        self.controller.update_all_viewers_of_image(viewer.image_id, data_dirty=False)
 
     def on_roi_type_changed(self, sender, app_data, user_data):
         if dpg.does_item_exist("group_roi_mode"):

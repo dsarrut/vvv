@@ -547,19 +547,24 @@ class OverlayDrawer:
         contour_dict = getattr(viewer.view_state, "contours", {})
         contour_rois = list(contour_dict.values())
 
+        # Include ROIs in contour mode
+        for r_id, r_state in viewer.view_state.rois.items():
+            if r_state.visible and getattr(r_state, "is_contour", False):
+                contour_rois.append(r_state)
+
         # --- THE FIX: ROBUST CACHE INVALIDATION ---
         # We must track colors, thickness, and exact math states so DPG knows when to redraw!
         total_polys = 0
         roi_visual_states = []
 
         for roi in contour_rois:
-            if roi.visible:
+            if getattr(roi, "visible", True):
                 poly_list = roi.polygons[viewer.orientation].get(viewer.slice_idx, [])
                 total_polys += len(poly_list)
 
                 # Track visual properties to break the cache if they change
                 roi_visual_states.append(
-                    (roi.id, tuple(roi.color), getattr(roi, "thickness", 1.0))
+                    (id(roi), tuple(roi.color), getattr(roi, "thickness", 1.0))
                 )
 
         # Also track the mathematical state of the preview

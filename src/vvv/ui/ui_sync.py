@@ -20,8 +20,7 @@ ARCHITECTURE MANDATES (UI Components):
 def build_tab_sync(gui):
     """Builds the static layout for the Synchronization matrix tab."""
     cfg_c = gui.ui_cfg["colors"]
-    with dpg.tab(label="Sync", tag="tab_sync"):
-        dpg.add_spacer(height=5)
+    with dpg.group(tag="tab_sync", show=False):
         build_section_title("Synchronization", cfg_c["text_header"])
 
         with dpg.group(horizontal=True):
@@ -113,8 +112,8 @@ def refresh_sync_ui(gui):
                 )
 
                 dpg.add_text("W/L:", color=gui.ui_cfg["colors"]["text_dim"])
-                wl_val = getattr(vs, "sync_wl_group", 0)
-                is_rgb = getattr(vs.volume, "is_rgb", False)
+                wl_val = vs.sync_wl_group
+                is_rgb = vs.volume.is_rgb
 
                 dpg.add_combo(
                     items=wl_items,
@@ -158,7 +157,7 @@ def handle_wl_group_change(gui, sender, value, user_data):
     # Auto-pull W/L from an existing master in this group
     master_vs_id = None
     for other_id, other_vs in gui.controller.view_states.items():
-        if other_id != vs_id and getattr(other_vs, "sync_wl_group", 0) == new_group_id:
+        if other_id != vs_id and other_vs.sync_wl_group == new_group_id:
             master_vs_id = other_id
             break
 
