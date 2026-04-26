@@ -16,7 +16,6 @@ class ExtractionUI:
         cfg_c = gui.ui_cfg["colors"]
 
         with dpg.group(tag="tab_extraction", show=False):
-            dpg.add_spacer(height=5)
             build_section_title("Interactive Threshold", cfg_c["text_header"])
 
             dpg.add_checkbox(
@@ -51,7 +50,7 @@ class ExtractionUI:
                 )
 
                 dpg.add_color_edit(
-                    (255, 255, 0, 255),
+                    (255, 0, 0, 255),
                     tag="color_ext_preview",
                     no_inputs=True,
                     no_label=True,

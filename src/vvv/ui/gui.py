@@ -217,12 +217,12 @@ class MainGUI:
         nav_w = cfg_l["nav_panel_w"]
 
         with dpg.group(tag="side_panel_outer", horizontal=True, horizontal_spacing=5):
-            # --- 1. The Vertical Navigation Column (Single Window) ---
+            # --- 1. The Vertical Navigation Column ---
             with dpg.child_window(
                 tag="nav_panel", width=nav_w, no_scrollbar=True, border=False
             ):
-                dpg.add_spacer(height=10)
-                self.build_vertical_nav()
+                pass
+            self.build_vertical_nav()
 
             # --- 2. The Main Tool Panel (Shifted Right) ---
             with dpg.child_window(
@@ -252,6 +252,8 @@ class MainGUI:
         """Creates the vertical tool buttons."""
         cfg_l = self.ui_cfg["layout"]
 
+        dpg.push_container_stack("nav_panel")
+
         self.nav_items = [
             ("Images", "tab_images"),
             ("Sync", "tab_sync"),
@@ -262,49 +264,48 @@ class MainGUI:
             ("Threshold", "tab_extraction"),
         ]
 
-        for i, (name, tag) in enumerate(self.nav_items):
-            btn = dpg.add_button(
-                label=name,
-                tag=f"nav_btn_{tag}",
-                width=-1,
-                height=cfg_l["nav_btn_h"],
-                user_data=tag,
-                callback=self.on_nav_clicked,
-            )
-            dpg.bind_item_theme(btn, "theme_rounded_nav")
-            # Highlight the first tool by default using your existing active theme
-            if i == 0 and dpg.does_item_exist("active_nav_button_theme"):
-                dpg.bind_item_theme(btn, "active_nav_button_theme")
-
-        # --- The Dynamic Spring Spacer ---
-        dpg.add_spacer(tag="nav_dynamic_spacer")
-        dpg.add_separator()
-        dpg.add_spacer(height=2)
+        with dpg.group(tag="nav_top_group"):
+            for i, (name, tag) in enumerate(self.nav_items):
+                btn = dpg.add_button(
+                    label=name,
+                    tag=f"nav_btn_{tag}",
+                    width=-1,
+                    height=cfg_l["nav_btn_h"],
+                    user_data=tag,
+                    callback=self.on_nav_clicked,
+                )
+                dpg.bind_item_theme(btn, "theme_rounded_nav")
+                # Highlight the first tool by default using your existing active theme
+                if i == 0 and dpg.does_item_exist("active_nav_button_theme"):
+                    dpg.bind_item_theme(btn, "active_nav_button_theme")
 
         # --- System & Utility Buttons ---
-        btn_settings = dpg.add_button(
-            label="\uf013",
-            width=-1,
-            height=cfg_l["nav_btn_h"],
-            callback=lambda: self.settings_window.show(),
-        )
-        dpg.bind_item_theme(btn_settings, "theme_rounded_nav")
-        if dpg.does_item_exist("icon_font_tag"):
-            dpg.bind_item_font(btn_settings, "icon_font_tag")
-        with dpg.tooltip(btn_settings):
-            dpg.add_text("Settings")
+        with dpg.group(tag="nav_bot_group"):
+            btn_settings = dpg.add_button(
+                label="\uf013",
+                width=-1,
+                height=cfg_l["nav_btn_h"],
+                callback=lambda: self.settings_window.show(),
+            )
+            dpg.bind_item_theme(btn_settings, "theme_rounded_nav")
+            if dpg.does_item_exist("icon_font_tag"):
+                dpg.bind_item_font(btn_settings, "icon_font_tag")
+            with dpg.tooltip(btn_settings):
+                dpg.add_text("Settings")
 
-        btn_help = dpg.add_button(
-            label="\uf059",
-            width=-1,
-            height=cfg_l["nav_btn_h"],
-            callback=self.show_help_window,
-        )
-        dpg.bind_item_theme(btn_help, "theme_rounded_nav")
-        if dpg.does_item_exist("icon_font_tag"):
-            dpg.bind_item_font(btn_help, "icon_font_tag")
-        with dpg.tooltip(btn_help):
-            dpg.add_text("Help & Shortcuts")
+            btn_help = dpg.add_button(
+                label="\uf059",
+                width=-1,
+                height=cfg_l["nav_btn_h"],
+                callback=self.show_help_window,
+            )
+            dpg.bind_item_theme(btn_help, "theme_rounded_nav")
+            if dpg.does_item_exist("icon_font_tag"):
+                dpg.bind_item_font(btn_help, "icon_font_tag")
+            with dpg.tooltip(btn_help):
+                dpg.add_text("Help & Shortcuts")
+
+        dpg.pop_container_stack()
 
     def build_sidebar_top(self):
         """Builds the content containers without the native tab_bar."""
@@ -959,21 +960,16 @@ class MainGUI:
 
             # --- Size the Nav Column ---
             if dpg.does_item_exist("nav_panel"):
-                # Force the column to the absolute bottom of the screen
                 dpg.set_item_height("nav_panel", l_h)
 
-                # Calculate the exact pixels needed for the spring spacer
-                num_top_btns = len(self.nav_items)
-                btn_h = cfg["nav_btn_h"]
-                spacing = 8  # DPG default item spacing
+                if dpg.does_item_exist("nav_top_group"):
+                    dpg.set_item_pos("nav_top_group", [4, 1])  # 1px perfect nudge down
 
-                used_h_top = 10 + (num_top_btns * btn_h) + (num_top_btns * spacing)
-                used_h_bot = 5 + (2 * btn_h) + (2 * spacing)  # Separator + 2 Buttons
-
-                spacer_h = l_h - used_h_top - used_h_bot
-
-                if dpg.does_item_exist("nav_dynamic_spacer"):
-                    dpg.configure_item("nav_dynamic_spacer", height=max(5, spacer_h))
+                bot_h = (
+                    2 * cfg["nav_btn_h"]
+                ) + 8  # 2 buttons (35px) + 1 gap (8px) = 78px
+                if dpg.does_item_exist("nav_bot_group"):
+                    dpg.set_item_pos("nav_bot_group", [4, l_h - bot_h])
 
             # Size the Tool Column
             dpg.set_item_width("side_panel", l_w - nav_w - 2)
@@ -1019,13 +1015,17 @@ class MainGUI:
 
         if dpg.does_item_exist("viewers_container"):
             dpg.set_item_pos("viewers_container", [r_x, panels_y])
-            dpg.set_item_width("viewers_container", quad_w * 2)
-            dpg.set_item_height("viewers_container", quad_h * 2)
+            dpg.set_item_width("viewers_container", avail_w)
+            dpg.set_item_height("viewers_container", avail_h)
 
-        for tag in ["V1", "V2", "V3", "V4"]:
+        for i, tag in enumerate(["V1", "V2", "V3", "V4"]):
             if dpg.does_item_exist(f"win_{tag}"):
-                dpg.set_item_width(f"win_{tag}", quad_w)
-                dpg.set_item_height(f"win_{tag}", quad_h)
+                # Distribute remainder pixels to the bottom/right viewers
+                # to prevent 1px truncation gaps when the window size is odd!
+                w = quad_w if i in [0, 2] else avail_w - quad_w
+                h = quad_h if i in [0, 1] else avail_h - quad_h
+                dpg.set_item_width(f"win_{tag}", w)
+                dpg.set_item_height(f"win_{tag}", h)
 
     def on_image_viewer_toggle(self, sender, value, user_data):
         img_id, v_tag = user_data["img_id"], user_data["v_tag"]

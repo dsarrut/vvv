@@ -16,7 +16,6 @@ class IntensitiesUI:
         cfg_c = gui.ui_cfg["colors"]
 
         with dpg.group(tag="tab_intensities", show=False):
-            dpg.add_spacer(height=5)
             build_section_title("Window / Level", cfg_c["text_header"])
 
             with dpg.group(horizontal=True):

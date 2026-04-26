@@ -209,6 +209,7 @@ def register_dynamic_themes(ui_cfg, controller):
                 dpg.add_theme_color(dpg.mvThemeCol_ChildBg, cfg_c["bg_window"])
                 dpg.add_theme_color(dpg.mvThemeCol_Border, cfg_c["transparent"])
                 dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 0)
+                dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 4, 0)
 
     if not dpg.does_item_exist("sleek_readonly_theme"):
         with dpg.theme(tag="sleek_readonly_theme"):

@@ -15,7 +15,6 @@ class FusionUI:
     def build_tab_fusion(gui):
         cfg_c = gui.ui_cfg["colors"]
         with dpg.group(tag="tab_fusion", show=False):
-            dpg.add_spacer(height=5)
             build_section_title("Active Fusion", cfg_c["text_header"])
             with dpg.group(tag="image_fusion_group"):
                 with dpg.group(horizontal=True):

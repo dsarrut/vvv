@@ -36,8 +36,6 @@ class RoiUI:
         cfg_l = gui.ui_cfg["layout"]
 
         with dpg.group(tag="tab_rois", show=False):
-            dpg.add_spacer(height=5)
-
             build_section_title("ROI", cfg_c["text_header"])
 
             # --- TOP: Load & Import ---

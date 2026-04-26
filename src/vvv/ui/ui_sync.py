@@ -21,7 +21,6 @@ def build_tab_sync(gui):
     """Builds the static layout for the Synchronization matrix tab."""
     cfg_c = gui.ui_cfg["colors"]
     with dpg.group(tag="tab_sync", show=False):
-        dpg.add_spacer(height=5)
         build_section_title("Synchronization", cfg_c["text_header"])
 
         with dpg.group(horizontal=True):
