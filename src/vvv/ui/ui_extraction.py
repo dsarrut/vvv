@@ -179,6 +179,12 @@ class ExtractionUI:
             vol._cached_max_val = float(np.max(vol.data))
             vol._cached_data_id = current_data_id
 
+        # Auto-clamp state to the physical bounds (handles file reloads and switching)
+        if ext_state.threshold_min < vol._cached_min_val:
+            ext_state.threshold_min = vol._cached_min_val
+        if ext_state.threshold_max > vol._cached_max_val:
+            ext_state.threshold_max = vol._cached_max_val
+
         # Dynamic Range Texts
         min_v = ext_state.threshold_min
         max_v = ext_state.threshold_max
@@ -196,12 +202,6 @@ class ExtractionUI:
         # Context Switch Snap
         if self._current_image_id != img_id:
             self._current_image_id = img_id
-
-            # Auto-clamp state to the new image's physical bounds if out of bounds
-            if ext_state.threshold_min < vol._cached_min_val:
-                ext_state.threshold_min = vol._cached_min_val
-            if ext_state.threshold_max > vol._cached_max_val:
-                ext_state.threshold_max = vol._cached_max_val
 
             dpg.set_value("check_ext_enable", ext_state.is_enabled)
             dpg.set_value("drag_ext_threshold_min", ext_state.threshold_min)

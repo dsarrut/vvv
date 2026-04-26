@@ -222,6 +222,13 @@ class Controller:
             return
         sitk.WriteImage(vol.sitk_image, filepath)
 
+        # Update internal state so the UI reflects the new filename and path
+        vol.path = filepath
+        vol.file_paths = [filepath]
+        vol.name = os.path.basename(filepath)
+        vol.last_mtime = vol._get_latest_mtime()
+        vol._is_outdated = False
+
     def get_pixel_values_at_phys(self, vs_id, phys_coord, time_idx):
         """
         Calculates the Base value, Fused Target value, and intersecting ROIs.
