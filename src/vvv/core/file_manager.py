@@ -1,6 +1,6 @@
 import os
 import json
-from vvv.math.image import VolumeData
+from vvv.maths.image import VolumeData
 from vvv.core.view_state import ViewState
 from vvv.utils import resolve_history_path_key
 

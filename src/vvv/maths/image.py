@@ -8,7 +8,7 @@ from vvv.utils import ViewMode
 from vvv.config import COLORMAPS
 from dataclasses import dataclass
 from vvv.utils import get_history_path_key
-from vvv.math.image_utils import straighten_image, extract_orientation_strings
+from vvv.maths.image_utils import straighten_image, extract_orientation_strings
 
 
 @dataclass
@@ -145,7 +145,7 @@ class SliceRenderer:
             np.copyto(res_rgba, base_rgba, where=(~mask_rgba & o_mask))
 
         if not is_base_rgb:
-            # FIX: Drop the trailing dimension so the mask is purely 2D (H, W).
+            # Drop the trailing dimension so the mask is purely 2D (H, W).
             # NumPy will now successfully apply it across all 4 RGBA channels!
             b_mask = base_rgba[..., 3] == 0.0
             res_rgba[mask & b_mask] = 0.0

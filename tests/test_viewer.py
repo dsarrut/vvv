@@ -6,7 +6,7 @@ import dearpygui.dearpygui as dpg
 from vvv.ui.viewer import SliceViewer
 from vvv.core.controller import Controller
 from vvv.ui.ui_sync import handle_sync_group_change
-from vvv.math.image import RenderLayer, SliceRenderer
+from vvv.maths.image import RenderLayer, SliceRenderer
 from vvv.ui.ui_sequences import load_workspace_sequence
 from vvv.utils import ViewMode, slice_to_voxel, voxel_to_slice
 

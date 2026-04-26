@@ -1,8 +1,8 @@
 import pytest
 import numpy as np
 import SimpleITK as sitk
-from vvv.math.image import VolumeData
-from vvv.math.geometry import SpatialEngine
+from vvv.maths.image import VolumeData
+from vvv.maths.geometry import SpatialEngine
 
 
 def test_load_2d_rgb_rgba_images(tmp_path):

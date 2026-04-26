@@ -1,6 +1,6 @@
 import numpy as np
 from vvv.utils import ViewMode
-from vvv.math.image import SliceRenderer
+from vvv.maths.image import SliceRenderer
 
 
 class ContourROI:

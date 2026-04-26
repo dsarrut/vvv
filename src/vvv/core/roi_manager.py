@@ -4,7 +4,7 @@ import numpy as np
 import SimpleITK as sitk
 from vvv.utils import ViewMode
 from vvv.config import ROI_COLORS
-from vvv.math.image import VolumeData
+from vvv.maths.image import VolumeData
 
 
 class ROIState:
@@ -494,7 +494,7 @@ class ROIManager:
 
         sw, sh = viewer.volume.get_physical_aspect_ratio(ori)
         base_z, base_y, base_x = viewer.volume.shape3d
-        from vvv.math.contours import extract_2d_contours_from_slice
+        from vvv.maths.contours import extract_2d_contours_from_slice
 
         extracted_any = False
         for roi_id, roi_state in vs.rois.items():
