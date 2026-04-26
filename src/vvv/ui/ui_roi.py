@@ -97,7 +97,19 @@ class RoiUI:
             with dpg.child_window(
                 tag="roi_list_window", height=150, border=False, no_scrollbar=True
             ):
-                dpg.add_group(tag="roi_list_container")
+                with dpg.table(
+                    tag="roi_list_table",
+                    header_row=False,
+                    resizable=False,
+                    borders_innerH=False,
+                    scrollY=True,
+                ):
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+                    dpg.add_table_column(width_stretch=True)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
 
             dpg.add_spacer(height=5)
 
@@ -117,17 +129,14 @@ class RoiUI:
                 dpg.add_group(tag="roi_detail_container")
 
     def refresh_rois_ui(self):
-        container = "roi_list_container"
-        if not dpg.does_item_exist(container):
+        table_id = "roi_list_table"
+        if not dpg.does_item_exist(table_id):
             return
 
-        current_scroll = 0.0
-        # Dynamically find the existing table to safely save its scroll state
-        children = dpg.get_item_children(container, 1)
-        if children:
-            current_scroll = dpg.get_y_scroll(children[0])
+        current_scroll = dpg.get_y_scroll(table_id)
 
-        dpg.delete_item(container, children_only=True)
+        # Delete ONLY the rows (slot=1), leaving the table and scrollbar perfectly intact!
+        dpg.delete_item(table_id, children_only=True, slot=1)
         self.roi_selectables.clear()
 
         viewer = self.gui.context_viewer
@@ -136,96 +145,75 @@ class RoiUI:
             self.refresh_roi_detail_ui()
             return
 
-        # Let DPG generate a dynamic UUID for the table to prevent mid-frame caching collisions!
-        with dpg.table(
-            parent=container,
-            header_row=False,
-            resizable=False,
-            borders_innerH=False,
-            scrollY=True,
-        ) as new_table_id:
-            # 1. Color Box
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
-            # 2. ROI Name (This one stretches to fill all empty space!)
-            dpg.add_table_column(width_stretch=True)
-            # 3. Visible (Eye)
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
-            # 4. Center Target
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
-            # 5. Reload
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
-            # 6. Close/Delete
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+        for roi_id, roi in viewer.view_state.rois.items():
+            with dpg.table_row(parent=table_id):
+                if roi.visible:
+                    lbl_eye = "\uf040" if roi.is_contour else "\uf06e"
+                else:
+                    lbl_eye = "\uf070"
 
-            for roi_id, roi in viewer.view_state.rois.items():
-                with dpg.table_row():
-                    if roi.visible:
-                        lbl_eye = "\uf040" if roi.is_contour else "\uf06e"
-                    else:
-                        lbl_eye = "\uf070"
+                dpg.add_color_edit(
+                    default_value=roi.color + [255],
+                    no_inputs=True,
+                    no_label=True,
+                    no_alpha=True,
+                    width=20,
+                    height=20,
+                    user_data=roi_id,
+                    callback=self.on_roi_color_changed,
+                )
 
-                    dpg.add_color_edit(
-                        default_value=roi.color + [255],
-                        no_inputs=True,
-                        no_label=True,
-                        no_alpha=True,
-                        width=20,
-                        height=20,
-                        user_data=roi_id,
-                        callback=self.on_roi_color_changed,
-                    )
+                is_active = roi_id == self.active_roi_id
 
-                    is_active = roi_id == self.active_roi_id
+                roi_vol = self.controller.volumes.get(roi_id)
+                is_outdated = roi_vol._is_outdated if roi_vol else False
+                label_str = f"{roi.name} *" if is_outdated else roi.name
 
-                    roi_vol = self.controller.volumes.get(roi_id)
-                    is_outdated = roi_vol._is_outdated if roi_vol else False
-                    label_str = f"{roi.name} *" if is_outdated else roi.name
+                sel_id = dpg.add_selectable(
+                    label=label_str,
+                    default_value=is_active,
+                    user_data=roi_id,
+                    callback=self.on_roi_selected,
+                )
+                self.roi_selectables[roi_id] = sel_id
 
-                    sel_id = dpg.add_selectable(
-                        label=label_str,
-                        default_value=is_active,
-                        user_data=roi_id,
-                        callback=self.on_roi_selected,
-                    )
-                    self.roi_selectables[roi_id] = sel_id
+                if is_outdated and dpg.does_item_exist("outdated_item_theme"):
+                    dpg.bind_item_theme(sel_id, "outdated_item_theme")
 
-                    if is_outdated and dpg.does_item_exist("outdated_item_theme"):
-                        dpg.bind_item_theme(sel_id, "outdated_item_theme")
+                btn_eye = dpg.add_button(
+                    label=lbl_eye,
+                    width=20,
+                    user_data=roi_id,
+                    callback=self.on_roi_toggle_visible,
+                )
+                btn_center = dpg.add_button(
+                    label="\uf05b",
+                    width=20,
+                    user_data=roi_id,
+                    callback=self.on_roi_center,
+                )
+                btn_reload = dpg.add_button(
+                    label="\uf01e",
+                    width=20,
+                    user_data=roi_id,
+                    callback=self.on_roi_reload,
+                )
+                btn_close = dpg.add_button(
+                    label="\uf00d",
+                    width=20,
+                    user_data=roi_id,
+                    callback=self.on_roi_close,
+                )
 
-                    btn_eye = dpg.add_button(
-                        label=lbl_eye,
-                        width=20,
-                        user_data=roi_id,
-                        callback=self.on_roi_toggle_visible,
-                    )
-                    btn_center = dpg.add_button(
-                        label="\uf05b",
-                        width=20,
-                        user_data=roi_id,
-                        callback=self.on_roi_center,
-                    )
-                    btn_reload = dpg.add_button(
-                        label="\uf01e",
-                        width=20,
-                        user_data=roi_id,
-                        callback=self.on_roi_reload,
-                    )
-                    btn_close = dpg.add_button(
-                        label="\uf00d",
-                        width=20,
-                        user_data=roi_id,
-                        callback=self.on_roi_close,
-                    )
+                if dpg.does_item_exist("icon_font_tag"):
+                    for btn in [btn_eye, btn_reload, btn_center, btn_close]:
+                        dpg.bind_item_font(btn, "icon_font_tag")
 
-                    if dpg.does_item_exist("icon_font_tag"):
-                        for btn in [btn_eye, btn_reload, btn_center, btn_close]:
-                            dpg.bind_item_font(btn, "icon_font_tag")
+                if dpg.does_item_exist("delete_button_theme"):
+                    dpg.bind_item_theme(btn_close, "delete_button_theme")
 
-                    if dpg.does_item_exist("delete_button_theme"):
-                        dpg.bind_item_theme(btn_close, "delete_button_theme")
-
-        # Safely re-apply the scroll position to the new dynamic ID
-        dpg.set_y_scroll(new_table_id, current_scroll)
+        # Safely re-apply the scroll position
+        dpg.set_y_scroll(table_id, current_scroll)
         self.refresh_roi_detail_ui()
 
     def refresh_roi_detail_ui(self):
