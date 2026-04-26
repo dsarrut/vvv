@@ -219,23 +219,15 @@ class MainGUI:
     def build_sidebar(self):
         """Constructs the left side panel with the new Vertical Navigation."""
         cfg_l = self.ui_cfg["layout"]
-
-        # We define the width of the new vertical tab bar here
         nav_w = cfg_l["nav_panel_w"]
 
         with dpg.group(tag="side_panel_outer", horizontal=True, horizontal_spacing=5):
-            # --- 1. The Vertical Navigation Column ---
-            with dpg.group():
-                with dpg.child_window(
-                    tag="nav_panel", width=nav_w, no_scrollbar=True, border=False
-                ):
-                    dpg.add_spacer(height=10)
-                    self.build_vertical_nav()
-
-                with dpg.child_window(
-                    tag="nav_panel_bottom", width=nav_w, no_scrollbar=True, border=False
-                ):
-                    pass
+            # --- 1. The Vertical Navigation Column (Single Window) ---
+            with dpg.child_window(
+                tag="nav_panel", width=nav_w, no_scrollbar=True, border=False
+            ):
+                dpg.add_spacer(height=10)
+                self.build_vertical_nav()
 
             # --- 2. The Main Tool Panel (Shifted Right) ---
             with dpg.child_window(
@@ -253,7 +245,6 @@ class MainGUI:
         # Themes
         dpg.bind_item_theme("side_panel", "sidebar_bg_theme")
         dpg.bind_item_theme("nav_panel", "nav_panel_bg_theme")
-        dpg.bind_item_theme("nav_panel_bottom", "nav_panel_bg_theme")
         dpg.bind_item_theme("top_panel", "left_panel_padding_theme")
         dpg.bind_item_theme("av_panel", "left_panel_padding_theme")
         dpg.bind_item_theme("ch_panel", "left_panel_padding_theme")
@@ -290,15 +281,17 @@ class MainGUI:
             if i == 0 and dpg.does_item_exist("active_nav_button_theme"):
                 dpg.bind_item_theme(btn, "active_nav_button_theme")
 
-        # --- System & Utility Buttons ---
-        dpg.add_spacer(height=5, parent="nav_panel_bottom")
+        # --- The Dynamic Spring Spacer ---
+        dpg.add_spacer(tag="nav_dynamic_spacer")
+        dpg.add_separator()
+        dpg.add_spacer(height=2)
 
+        # --- System & Utility Buttons ---
         btn_settings = dpg.add_button(
             label="\uf013",
             width=-1,
             height=cfg_l["nav_btn_h"],
             callback=lambda: self.settings_window.show(),
-            parent="nav_panel_bottom",
         )
         dpg.bind_item_theme(btn_settings, "theme_rounded_nav")
         if dpg.does_item_exist("icon_font_tag"):
@@ -311,7 +304,6 @@ class MainGUI:
             width=-1,
             height=cfg_l["nav_btn_h"],
             callback=self.show_help_window,
-            parent="nav_panel_bottom",
         )
         dpg.bind_item_theme(btn_help, "theme_rounded_nav")
         if dpg.does_item_exist("icon_font_tag"):
@@ -1001,13 +993,23 @@ class MainGUI:
         if dpg.does_item_exist("side_panel_outer"):
             dpg.set_item_pos("side_panel_outer", [l_x, panels_y])
 
-            # Size the Nav Column
+            # --- Size the Nav Column ---
             if dpg.does_item_exist("nav_panel"):
-                bottom_h = (cfg["nav_btn_h"] * 4) + 25
-                # Subtract 8px for the default vertical group spacing to prevent overflow
-                dpg.set_item_height("nav_panel", max(10, l_h - bottom_h - 8))
-            if dpg.does_item_exist("nav_panel_bottom"):
-                dpg.set_item_height("nav_panel_bottom", bottom_h)
+                # Force the column to the absolute bottom of the screen
+                dpg.set_item_height("nav_panel", l_h)
+
+                # Calculate the exact pixels needed for the spring spacer
+                num_top_btns = len(self.nav_items)
+                btn_h = cfg["nav_btn_h"]
+                spacing = 8  # DPG default item spacing
+
+                used_h_top = 10 + (num_top_btns * btn_h) + (num_top_btns * spacing)
+                used_h_bot = 5 + (2 * btn_h) + (2 * spacing)  # Separator + 2 Buttons
+
+                spacer_h = l_h - used_h_top - used_h_bot
+
+                if dpg.does_item_exist("nav_dynamic_spacer"):
+                    dpg.configure_item("nav_dynamic_spacer", height=max(5, spacer_h))
 
             # Size the Tool Column
             dpg.set_item_width("side_panel", l_w - nav_w - 2)
