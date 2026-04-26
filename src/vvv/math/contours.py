@@ -33,15 +33,22 @@ def extract_2d_contours_from_slice(slice2d, threshold, sw=1.0, sh=1.0):
         print("scikit-image is required for contour extraction...")
         return []
 
-    # Use the REAL threshold provided by the manager
-    contours = measure.find_contours(slice2d, threshold)
+    # Pad the slice to ensure contours touching the image borders form closed loops
+    pad_val = slice2d.min()
+    if pad_val >= threshold:
+        pad_val = threshold - 1.0  # Force a background value below the threshold
+
+    padded_slice = np.pad(
+        slice2d, pad_width=1, mode="constant", constant_values=pad_val
+    )
+    contours = measure.find_contours(padded_slice, threshold)
 
     if not contours:
         return []
 
-    # Add 0.5 to align skimage pixel centers with OpenGL top-left edges
+    # Offset by -0.5 (-1.0 for the padding + 0.5 for OpenGL alignment)
     return [
-        [[float((pt[1] + 0.5) * sw), float((pt[0] + 0.5) * sh)] for pt in contour]
+        [[float((pt[1] - 0.5) * sw), float((pt[0] - 0.5) * sh)] for pt in contour]
         for contour in contours
     ]
 
@@ -78,7 +85,7 @@ def extract_contours_from_mask(mask_3d, volume):
             if slice2d is None or not np.any(slice2d):
                 continue
 
-            polygons = extract_2d_contours_from_slice(slice2d, sw, sh)
+            polygons = extract_2d_contours_from_slice(slice2d, 0.5, sw, sh)
             if polygons:
                 roi.polygons[orient][slice_idx] = polygons
 

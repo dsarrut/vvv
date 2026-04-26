@@ -82,6 +82,12 @@ class RoiUI:
                     callback=gui.roi_ui.on_roi_show_all,
                     tag="btn_roi_show_all",
                 )
+                btn_contour = dpg.add_button(
+                    label="\uf040",
+                    width=20,
+                    callback=gui.roi_ui.on_roi_contour_all,
+                    tag="btn_roi_contour_all",
+                )
                 btn_hide = dpg.add_button(
                     label="\uf070",
                     width=20,
@@ -90,7 +96,17 @@ class RoiUI:
                 )
                 if dpg.does_item_exist("icon_font_tag"):
                     dpg.bind_item_font(btn_show, "icon_font_tag")
+                    dpg.bind_item_font(btn_contour, "icon_font_tag")
                     dpg.bind_item_font(btn_hide, "icon_font_tag")
+
+                with dpg.tooltip(btn_show):
+                    dpg.add_text("Show All (Raster)")
+
+                with dpg.tooltip(btn_contour):
+                    dpg.add_text("Show All (Contour)")
+
+                with dpg.tooltip(btn_hide):
+                    dpg.add_text("Hide All")
 
             dpg.add_separator()
 
@@ -269,16 +285,30 @@ class RoiUI:
 
             # --- EXISTING SECTION: Opacity & Analysis ---
             with dpg.group(horizontal=True):
-                dpg.add_text("Opacity:")
-                dpg.add_slider_float(
-                    default_value=roi_state.opacity,
-                    min_value=0.0,
-                    max_value=1.0,
-                    width=-1,
-                    tag="slider_roi_opacity",
-                    user_data=self.active_roi_id,
-                    callback=self.on_roi_opacity_changed,
-                )
+                if roi_state.is_contour:
+                    dpg.add_text("Thickness:")
+                    active_slider_tag = "slider_roi_thickness"
+                    dpg.add_slider_float(
+                        default_value=getattr(roi_state, "thickness", 1.0),
+                        min_value=0.5,
+                        max_value=10.0,
+                        width=-1,
+                        tag=active_slider_tag,
+                        user_data=self.active_roi_id,
+                        callback=self.on_roi_thickness_changed,
+                    )
+                else:
+                    dpg.add_text("Opacity:")
+                    active_slider_tag = "slider_roi_opacity"
+                    dpg.add_slider_float(
+                        default_value=roi_state.opacity,
+                        min_value=0.0,
+                        max_value=1.0,
+                        width=-1,
+                        tag=active_slider_tag,
+                        user_data=self.active_roi_id,
+                        callback=self.on_roi_opacity_changed,
+                    )
 
             # Theme code remains the same...
             theme_tag = "dynamic_roi_slider_theme"
@@ -294,7 +324,7 @@ class RoiUI:
                     )
                     dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, [r, g, b, 100])
                     dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, [r, g, b, 50])
-            dpg.bind_item_theme("slider_roi_opacity", theme_tag)
+            dpg.bind_item_theme(active_slider_tag, theme_tag)
 
             dpg.add_spacer(height=5)
 
@@ -471,6 +501,14 @@ class RoiUI:
         vs.is_data_dirty = True
         self.controller.update_all_viewers_of_image(self.gui.context_viewer.image_id)
 
+    def on_roi_thickness_changed(self, sender, app_data, user_data):
+        vs = self.gui.context_viewer.view_state
+        vs.rois[user_data].thickness = app_data
+        vs.is_geometry_dirty = True
+        self.controller.update_all_viewers_of_image(
+            self.gui.context_viewer.image_id, data_dirty=False
+        )
+
     def on_roi_reload(self, sender, app_data, user_data):
         self.controller.roi.reload_roi(self.gui.context_viewer.image_id, user_data)
 
@@ -490,7 +528,9 @@ class RoiUI:
             return
         for roi in viewer.view_state.rois.values():
             roi.visible = True
+            roi.is_contour = False
         viewer.view_state.is_data_dirty = True
+        viewer.view_state.is_geometry_dirty = True
         self.controller.ui_needs_refresh = True
         self.controller.update_all_viewers_of_image(viewer.image_id)
 
@@ -501,6 +541,21 @@ class RoiUI:
         for roi in viewer.view_state.rois.values():
             roi.visible = False
         viewer.view_state.is_data_dirty = True
+        viewer.view_state.is_geometry_dirty = True
+        self.controller.ui_needs_refresh = True
+        self.controller.update_all_viewers_of_image(viewer.image_id)
+
+    def on_roi_contour_all(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+        for roi in viewer.view_state.rois.values():
+            roi.visible = True
+            roi.is_contour = True
+            for ori in roi.polygons:
+                roi.polygons[ori].clear()
+        viewer.view_state.is_data_dirty = True
+        viewer.view_state.is_geometry_dirty = True
         self.controller.ui_needs_refresh = True
         self.controller.update_all_viewers_of_image(viewer.image_id)
 

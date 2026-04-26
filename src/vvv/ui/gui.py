@@ -696,7 +696,7 @@ class MainGUI:
             ),
             (
                 has_rois,
-                ["btn_roi_show_all", "btn_roi_hide_all", "btn_roi_export_stats"],
+                ["btn_roi_show_all", "btn_roi_contour_all", "btn_roi_hide_all", "btn_roi_export_stats"],
             ),
             (
                 False,
