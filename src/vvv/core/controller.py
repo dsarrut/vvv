@@ -3,7 +3,7 @@ import json
 import numpy as np
 import concurrent.futures
 from vvv.utils import ViewMode
-from vvv.math.image import VolumeData
+from vvv.maths.image import VolumeData
 from vvv.core.roi_manager import ROIManager
 from vvv.core.file_manager import FileManager
 from vvv.core.sync_manager import SyncManager
@@ -147,7 +147,7 @@ class Controller:
         fallback_center = self.get_volume_physical_center(vol).tolist()
 
         try:
-            from vvv.math.transform_io import TransformIO
+            from vvv.maths.transform_io import TransformIO
 
             new_transform = TransformIO.read_transform(filepath, fallback_center)
 
@@ -162,7 +162,7 @@ class Controller:
         vs = self.view_states.get(vs_id)
         if vs and vs.space.transform:
             try:
-                from vvv.math.transform_io import TransformIO
+                from vvv.maths.transform_io import TransformIO
 
                 TransformIO.write_transform(vs.space.transform, filepath)
                 vs.space.transform_file = os.path.basename(filepath)

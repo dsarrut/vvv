@@ -1033,11 +1033,24 @@ class MainGUI:
         img_id, v_tag = user_data["img_id"], user_data["v_tag"]
 
         if not value and self.controller.layout[v_tag] == img_id:
+            # Checkbox was already active. Keep it checked and loop orientation.
             dpg.set_value(sender, True)
+
+            from vvv.utils import ViewMode
+
+            viewer = self.controller.viewers.get(v_tag)
+            if viewer:
+                if viewer.orientation == ViewMode.AXIAL:
+                    viewer.set_orientation(ViewMode.SAGITTAL)
+                elif viewer.orientation == ViewMode.SAGITTAL:
+                    viewer.set_orientation(ViewMode.CORONAL)
+                else:
+                    viewer.set_orientation(ViewMode.AXIAL)
             return
 
         if value:
             self.controller.layout[v_tag] = img_id
+            self.controller.ui_needs_refresh = True
 
     def on_open_file_clicked(self, sender=None, app_data=None, user_data=None):
         file_paths = open_file_dialog("Open Medical Image(s)", multiple=True)

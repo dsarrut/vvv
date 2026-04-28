@@ -8,7 +8,7 @@ import click
 from vvv.ui.gui import MainGUI
 import dearpygui.dearpygui as dpg
 from vvv.ui.viewer import SliceViewer
-from vvv.math.image import VolumeData
+from vvv.maths.image import VolumeData
 from vvv.core.controller import Controller
 from vvv.resources import get_resource_path
 

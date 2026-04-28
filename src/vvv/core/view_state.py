@@ -2,7 +2,7 @@ import numpy as np
 import SimpleITK as sitk
 from vvv.config import WL_PRESETS
 from contextlib import contextmanager
-from vvv.math.geometry import SpatialEngine
+from vvv.maths.geometry import SpatialEngine
 from vvv.utils import ViewMode, slice_to_voxel
 
 _SENTINEL = object()

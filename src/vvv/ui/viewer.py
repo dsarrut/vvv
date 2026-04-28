@@ -1,7 +1,7 @@
 from vvv.utils import *
 import dearpygui.dearpygui as dpg
 from vvv.ui.drawing import OverlayDrawer
-from vvv.math.image import SliceRenderer, RenderLayer, ROILayer
+from vvv.maths.image import SliceRenderer, RenderLayer, ROILayer
 
 
 class ViewportMapper:

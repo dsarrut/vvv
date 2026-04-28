@@ -1,8 +1,8 @@
 import numpy as np
 import threading
 from vvv.utils import ViewMode
-from vvv.math.contours import ContourROI, extract_2d_contours_from_slice
-from vvv.math.image import SliceRenderer
+from vvv.maths.contours import ContourROI, extract_2d_contours_from_slice
+from vvv.maths.image import SliceRenderer
 
 
 class ExtractionManager:
@@ -146,7 +146,7 @@ class ExtractionManager:
 
         def _extract():
             import SimpleITK as sitk
-            from vvv.math.image import VolumeData
+            from vvv.maths.image import VolumeData
             from vvv.core.view_state import ViewState
 
             self.controller.status_message = "Generating thresholded image..."

@@ -60,66 +60,80 @@ def refresh_image_list_ui(gui):
                 dpg.add_theme_color(dpg.mvThemeCol_Text, muted_col)
 
     for idx, (vs_id, vs) in enumerate(gui.controller.view_states.items(), start=1):
-        with dpg.group(parent=container):
-            # --- LINE 1: Image Name ---
-            with dpg.group(horizontal=True):
-                name_str, is_outdated = gui.controller.get_image_display_name(vs_id)
-                lbl_id = dpg.add_text(name_str)
+        with dpg.group(parent=container, horizontal=True):
+            # --- Left Column: 2x2 Grid ---
+            with dpg.group():
+                with dpg.group(horizontal=True, horizontal_spacing=3):
+                    for v_tag in ["V1", "V2"]:
+                        is_active = gui.controller.layout[v_tag] == vs_id
+                        cb = dpg.add_checkbox(
+                            label=f"##{vs_id}_{v_tag}",
+                            default_value=is_active,
+                            user_data={"img_id": vs_id, "v_tag": v_tag},
+                            callback=gui.on_image_viewer_toggle,
+                        )
+                        dpg.bind_item_theme(cb, "muted_checkbox_theme")
+                with dpg.group(horizontal=True, horizontal_spacing=3):
+                    for v_tag in ["V3", "V4"]:
+                        is_active = gui.controller.layout[v_tag] == vs_id
+                        cb = dpg.add_checkbox(
+                            label=f"##{vs_id}_{v_tag}",
+                            default_value=is_active,
+                            user_data={"img_id": vs_id, "v_tag": v_tag},
+                            callback=gui.on_image_viewer_toggle,
+                        )
+                        dpg.bind_item_theme(cb, "muted_checkbox_theme")
 
-                with dpg.tooltip(lbl_id):
-                    dpg.add_text(vs.volume.get_human_readable_file_path())
+            # --- Right Column: Info & Actions ---
+            with dpg.group():
+                # Line 1: Image Name
+                with dpg.group(horizontal=True):
+                    name_str, is_outdated = gui.controller.get_image_display_name(vs_id)
+                    lbl_id = dpg.add_text(name_str)
 
-                if is_outdated:
-                    dpg.configure_item(lbl_id, color=gui.ui_cfg["colors"]["outdated"])
+                    with dpg.tooltip(lbl_id):
+                        dpg.add_text(vs.volume.get_human_readable_file_path())
 
-                gui.image_label_tags[vs_id] = lbl_id
+                    if is_outdated:
+                        dpg.configure_item(
+                            lbl_id, color=gui.ui_cfg["colors"]["outdated"]
+                        )
 
-            # --- LINE 2: Controls ---
-            with dpg.group(horizontal=True, horizontal_spacing=3):
-                dpg.add_spacer(width=17)
-                # 1. Viewers
-                for v_tag in ["V1", "V2", "V3", "V4"]:
-                    is_active = gui.controller.layout[v_tag] == vs_id
-                    cb = dpg.add_checkbox(
-                        label=f"##{vs_id}_{v_tag}",
-                        default_value=is_active,
-                        user_data={"img_id": vs_id, "v_tag": v_tag},
-                        callback=gui.on_image_viewer_toggle,
+                    gui.image_label_tags[vs_id] = lbl_id
+
+                # Line 2: Action Buttons
+                with dpg.group(horizontal=True, horizontal_spacing=3):
+                    btn_save = dpg.add_button(
+                        label="\uf0c7",
+                        width=20,
+                        callback=lambda s, a, u: gui.on_save_image_clicked(u),
+                        user_data=vs_id,
                     )
-                    dpg.bind_item_theme(cb, "muted_checkbox_theme")
+                    btn_reload = dpg.add_button(
+                        label="\uf01e",
+                        width=20,
+                        callback=lambda s, a, u: gui.controller.reload_image(u),
+                        user_data=vs_id,
+                    )
+                    btn_close = dpg.add_button(
+                        label="\uf00d",
+                        width=20,
+                        callback=lambda s, a, u: gui.controller.file.close_image(u),
+                        user_data=vs_id,
+                    )
 
-                dpg.add_spacer(width=5)
+                    if dpg.does_item_exist("icon_font_tag"):
+                        dpg.bind_item_font(btn_save, "icon_font_tag")
+                        dpg.bind_item_font(btn_reload, "icon_font_tag")
+                        dpg.bind_item_font(btn_close, "icon_font_tag")
+                    if dpg.does_item_exist("delete_button_theme"):
+                        dpg.bind_item_theme(btn_close, "delete_button_theme")
+                    if dpg.does_item_exist("icon_button_theme"):
+                        dpg.bind_item_theme(btn_reload, "icon_button_theme")
 
-                # 3. Action Buttons
-                btn_save = dpg.add_button(
-                    label="\uf0c7",
-                    width=20,
-                    callback=lambda s, a, u: gui.on_save_image_clicked(u),
-                    user_data=vs_id,
-                )
-                btn_reload = dpg.add_button(
-                    label="\uf01e",
-                    width=20,
-                    callback=lambda s, a, u: gui.controller.reload_image(u),
-                    user_data=vs_id,
-                )
-                btn_close = dpg.add_button(
-                    label="\uf00d",
-                    width=20,
-                    callback=lambda s, a, u: gui.controller.file.close_image(u),
-                    user_data=vs_id,
-                )
-
-                if dpg.does_item_exist("icon_font_tag"):
-                    dpg.bind_item_font(btn_save, "icon_font_tag")
-                    dpg.bind_item_font(btn_reload, "icon_font_tag")
-                    dpg.bind_item_font(btn_close, "icon_font_tag")
-                if dpg.does_item_exist("delete_button_theme"):
-                    dpg.bind_item_theme(btn_close, "delete_button_theme")
-                if dpg.does_item_exist("icon_button_theme"):
-                    dpg.bind_item_theme(btn_reload, "icon_button_theme")
-
-        dpg.add_spacer(height=2, parent=container)
+        dpg.add_spacer(height=4, parent=container)
+        dpg.add_separator(parent=container)
+        dpg.add_spacer(height=4, parent=container)
 
     gui.refresh_recent_menu()
     if gui.context_viewer and gui.context_viewer.image_id:
