@@ -238,8 +238,7 @@ def main(no_history, datasets, linkall, sync):
     dpg.create_context()
     controller = Controller()
 
-    if no_history:
-        controller.use_history = False
+    controller.use_history = not no_history
 
     for tag in ["V1", "V2", "V3", "V4"]:
         controller.viewers[tag] = SliceViewer(tag, controller)
@@ -251,19 +250,12 @@ def main(no_history, datasets, linkall, sync):
 
     dpg.create_viewport(title="VVV", width=win_w, height=win_h)
 
-    if sys.platform == "win32":
-        dpg.set_viewport_small_icon(icon_ico)
-        dpg.set_viewport_large_icon(icon_ico)
-    else:
-        dpg.set_viewport_small_icon(icon_png)
-        dpg.set_viewport_large_icon(icon_png)
+    active_icon = icon_ico if sys.platform == "win32" else icon_png
+    dpg.set_viewport_small_icon(active_icon)
+    dpg.set_viewport_large_icon(active_icon)
 
     # 1. Detect if a workspace file was passed in the arguments
-    workspace_file = None
-    for file_path in datasets:  # Assuming 'files' is your click argument list
-        if file_path.lower().endswith(".vvw"):
-            workspace_file = file_path
-            break
+    workspace_file = next((f for f in datasets if f.lower().endswith(".vvw")), None)
 
     # 2. Swap the boot generator based on the file type
     if workspace_file:
