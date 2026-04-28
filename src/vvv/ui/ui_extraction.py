@@ -351,8 +351,8 @@ class ExtractionUI:
         elif sender == "drag_ext_thickness":
             viewer.view_state.extraction.preview_thickness = app_data
 
-        elif sender == "drag_ext_threshold_min":
-            val = dpg.get_value("drag_ext_threshold_min")
+        elif sender in ("drag_ext_threshold_min", "drag_ext_threshold_max"):
+            val = dpg.get_value(sender)
             if hasattr(viewer.volume, "_cached_min_val"):
                 val = float(
                     np.clip(
@@ -361,23 +361,15 @@ class ExtractionUI:
                         viewer.volume._cached_max_val,
                     )
                 )
-            if val > viewer.view_state.extraction.threshold_max:
-                viewer.view_state.extraction.threshold_max = val
-            viewer.view_state.extraction.threshold_min = val
 
-        elif sender == "drag_ext_threshold_max":
-            val = dpg.get_value("drag_ext_threshold_max")
-            if hasattr(viewer.volume, "_cached_min_val"):
-                val = float(
-                    np.clip(
-                        val,
-                        viewer.volume._cached_min_val,
-                        viewer.volume._cached_max_val,
-                    )
-                )
-            if val < viewer.view_state.extraction.threshold_min:
+            if sender == "drag_ext_threshold_min":
+                if val > viewer.view_state.extraction.threshold_max:
+                    viewer.view_state.extraction.threshold_max = val
                 viewer.view_state.extraction.threshold_min = val
-            viewer.view_state.extraction.threshold_max = val
+            else:
+                if val < viewer.view_state.extraction.threshold_min:
+                    viewer.view_state.extraction.threshold_min = val
+                viewer.view_state.extraction.threshold_max = val
 
         self.controller.ui_needs_refresh = True
 

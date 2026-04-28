@@ -861,10 +861,9 @@ class SliceViewer:
         ix = np.clip(ix, 0, w - 1)
         iy = np.clip(iy, 0, h - 1)
 
-        IY, IX = np.meshgrid(iy, ix, indexing="ij")
-        mapped = rgba_img[IY, IX]
+        mapped = rgba_img[iy[:, None], ix[None, :]]
 
-        valid_mask = valid_x[None, :] & valid_y[:, None]
+        valid_mask = valid_y[:, None] & valid_x[None, :]
         mapped[~valid_mask] = 0.0
 
         return mapped
@@ -1374,6 +1373,29 @@ class SliceViewer:
         if self.controller.gui and hasattr(self.controller.gui, "interaction"):
             active_tool = self.controller.gui.interaction.active_tool
             is_dragging = getattr(active_tool, "drag_viewer", None) == self
+
+        try:
+            mx, my = dpg.get_drawing_mouse_pos()
+        except Exception:
+            mx, my = -1, -1
+
+        target_phys = getattr(self.view_state.camera, "target_tracker_phys", None)
+        target_phys_tuple = tuple(target_phys) if target_phys is not None else None
+
+        # Throttle: Only run heavy ITK physics if the spatial reality actually shifted
+        tracker_state = (
+            mx,
+            my,
+            self.slice_idx,
+            self.zoom,
+            self.pan_offset[0],
+            self.pan_offset[1],
+            is_dragging,
+            target_phys_tuple,
+        )
+        if getattr(self, "_last_tracker_state", None) == tracker_state:
+            return
+        self._last_tracker_state = tracker_state
 
         # 1. LOCAL VIEWER: Are we the active hover source?
         pix_x, pix_y = self.get_mouse_slice_coords(
