@@ -39,26 +39,14 @@ class ContourManager:
             vs.is_geometry_dirty = True
             self.controller.update_all_viewers_of_image(base_id, data_dirty=False)
 
-    def set_visible(self, base_id, contour_id, visible):
+    def update_contour(self, base_id, contour_id, **kwargs):
+        """Safely updates one or more properties of a contour and triggers a redraw."""
         vs = self.controller.view_states.get(base_id)
         self._ensure_dict(vs)
         if vs and contour_id in vs.contours:
-            vs.contours[contour_id].visible = visible
-            vs.is_geometry_dirty = True
-            self.controller.update_all_viewers_of_image(base_id, data_dirty=False)
-
-    def set_color(self, base_id, contour_id, color):
-        vs = self.controller.view_states.get(base_id)
-        self._ensure_dict(vs)
-        if vs and contour_id in vs.contours:
-            vs.contours[contour_id].color = color
-            vs.is_geometry_dirty = True
-            self.controller.update_all_viewers_of_image(base_id, data_dirty=False)
-
-    def set_thickness(self, base_id, contour_id, thickness):
-        vs = self.controller.view_states.get(base_id)
-        self._ensure_dict(vs)
-        if vs and contour_id in vs.contours:
-            vs.contours[contour_id].thickness = thickness
+            contour = vs.contours[contour_id]
+            for key, value in kwargs.items():
+                if hasattr(contour, key):
+                    setattr(contour, key, value)
             vs.is_geometry_dirty = True
             self.controller.update_all_viewers_of_image(base_id, data_dirty=False)
