@@ -325,6 +325,160 @@ class ROIManager:
 
         return mask_id
 
+    def parse_rtstruct(self, filepath):
+        """
+        Parses an RT-Struct DICOM file and returns a list of dictionaries
+        containing information about the available ROIs.
+        """
+        try:
+            import pydicom
+        except ImportError:
+            raise ImportError(
+                "pydicom is required to read RT-Struct files. (pip install pydicom)"
+            )
+
+        try:
+            ds = pydicom.dcmread(filepath, force=True)
+        except Exception as e:
+            raise ValueError(f"Could not read DICOM file: {e}")
+
+        if getattr(ds, "Modality", None) != "RTSTRUCT":
+            raise ValueError(
+                f"File is not an RT-Struct (Modality: {getattr(ds, 'Modality', 'Unknown')})"
+            )
+
+        rois_info = []
+
+        roi_names = {}
+        seq_rois = getattr(ds, "StructureSetROISequence", [])
+        for item in seq_rois:
+            roi_num = getattr(item, "ROINumber", None)
+            if roi_num is not None:
+                try:
+                    roi_names[int(roi_num)] = str(
+                        getattr(item, "ROIName", f"ROI {roi_num}")
+                    )
+                except (ValueError, TypeError):
+                    pass
+
+        roi_colors = {}
+        seq_contours = getattr(ds, "ROIContourSequence", [])
+        for item in seq_contours:
+            ref_num = getattr(item, "ReferencedROINumber", None)
+            color_val = getattr(item, "ROIDisplayColor", None)
+            if ref_num is not None and color_val is not None:
+                try:
+                    roi_colors[int(ref_num)] = [int(c) for c in color_val]
+                except (ValueError, TypeError):
+                    pass
+
+        # Gather the final list
+        for roi_num, name in roi_names.items():
+            clean_name = str(name) if name else f"ROI {roi_num}"
+            rois_info.append(
+                {
+                    "id": roi_num,
+                    "name": clean_name,
+                    "color": roi_colors.get(roi_num, [255, 0, 0]),
+                }
+            )
+
+        return rois_info
+
+    def load_rtstruct_roi(self, base_id, filepath, roi_info, ds=None):
+        """Registers the RT-Struct ROI and maps its DICOM polygons to 2D slices."""
+        vs = self.controller.view_states[base_id]
+        base_vol = self.controller.volumes[base_id]
+
+        if ds is None:
+            try:
+                import pydicom
+            except ImportError:
+                raise ImportError("pydicom is required to read RT-Struct files.")
+            ds = pydicom.dcmread(filepath, force=True)
+
+        roi_id = str(self.controller.next_image_id)
+        self.controller.next_image_id += 1
+
+        roi_state = ROIState(
+            roi_id,
+            name=roi_info.get("name", "RT ROI"),
+            color=roi_info.get("color", [255, 0, 0]),
+        )
+        roi_state.is_contour = True
+
+        # --- MAP DICOM POLYGONS TO 2D SLICES ---
+        from vvv.utils import voxel_to_slice
+
+        target_roi_num = roi_info.get("id")
+
+        if hasattr(ds, "ROIContourSequence"):
+            for roi_contour in ds.ROIContourSequence:
+                if getattr(roi_contour, "ReferencedROINumber", -1) == target_roi_num:
+                    if hasattr(roi_contour, "ContourSequence"):
+                        for contour in roi_contour.ContourSequence:
+                            if hasattr(contour, "ContourData"):
+                                pts_flat = contour.ContourData
+                                if len(pts_flat) % 3 != 0:
+                                    continue
+
+                                mapped_pts = []
+                                for i in range(0, len(pts_flat), 3):
+                                    pt_phys = [
+                                        float(pts_flat[i]),
+                                        float(pts_flat[i + 1]),
+                                        float(pts_flat[i + 2]),
+                                    ]
+                                    vox = vs.space.world_to_display(pt_phys)
+                                    mapped_pts.append(vox)
+
+                                if not mapped_pts:
+                                    continue
+
+                                mapped_pts = np.array(mapped_pts)
+
+                                # Map to ALL 3 orientations so they appear everywhere!
+                                for ori in [
+                                    ViewMode.AXIAL,
+                                    ViewMode.CORONAL,
+                                    ViewMode.SAGITTAL,
+                                ]:
+                                    sw, sh = base_vol.get_physical_aspect_ratio(ori)
+                                    shape = vs.get_slice_shape(ori)
+
+                                    # Determine the closest integer slice depth
+                                    if ori == ViewMode.AXIAL:
+                                        depth_idx = 2
+                                    elif ori == ViewMode.CORONAL:
+                                        depth_idx = 1
+                                    else:
+                                        depth_idx = 0
+
+                                    z_idx = int(
+                                        round(np.mean(mapped_pts[:, depth_idx]))
+                                    )
+
+                                    # Scale the 2D polygon (X, Y) to the display aspect ratio
+                                    poly_2d = []
+                                    for v in mapped_pts:
+                                        sx, sy = voxel_to_slice(
+                                            v[0], v[1], v[2], ori, shape
+                                        )
+                                        poly_2d.append([float(sx * sw), float(sy * sh)])
+
+                                    if poly_2d:
+                                        poly_2d.append(
+                                            poly_2d[0]
+                                        )  # Visually close the loop
+
+                                    if z_idx not in roi_state.polygons[ori]:
+                                        roi_state.polygons[ori][z_idx] = []
+                                    roi_state.polygons[ori][z_idx].append(poly_2d)
+                    break
+
+        vs.rois[roi_id] = roi_state
+        vs.is_geometry_dirty = True
+
     def get_roi_stats(self, base_vs_id, roi_id, is_overlay=False):
         if (
             base_vs_id not in self.controller.view_states

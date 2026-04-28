@@ -254,6 +254,63 @@ def load_batch_rois_sequence(
             yield
 
 
+def load_rtstruct_sequence(gui, controller, base_image_id, filepath, selected_rois):
+    import os
+    import pydicom
+
+    total_rois = len(selected_rois)
+    show_loading_modal("Loading RT-Struct...", f"Preparing {total_rois} ROI(s)...")
+
+    vp_width = max(dpg.get_viewport_client_width(), 800)
+    vp_height = max(dpg.get_viewport_client_height(), 600)
+    dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
+    yield
+
+    warnings = []
+    vs = controller.view_states[base_image_id]
+
+    try:
+        ds = pydicom.dcmread(filepath, force=True)
+    except Exception as e:
+        hide_loading_modal()
+        gui.show_message("Error", f"Failed to read DICOM:\n{e}")
+        return
+
+    for i, r_info in enumerate(selected_rois, 1):
+        name = r_info.get("name", "Unknown")
+        show_loading_modal(
+            "Loading RT-Struct...",
+            f"Loading ROI ({i}/{total_rois}):\n{name}",
+            progress=(i / total_rois),
+        )
+        yield
+
+        try:
+            controller.roi.load_rtstruct_roi(base_image_id, filepath, r_info, ds=ds)
+        except Exception as e:
+            warnings.append(f"- {name}: {e}")
+
+    show_loading_modal("Loading RT-Struct...", "Applying changes...", progress=1.0)
+    yield
+
+    if vs.rois:
+        gui.active_roi_id = list(vs.rois.keys())[-1]
+
+    controller.ui_needs_refresh = True
+    controller.update_all_viewers_of_image(base_image_id)
+
+    hide_loading_modal()
+    yield
+
+    if warnings:
+        gui.show_message(
+            "RT-Struct Import Warning",
+            "Some ROIs failed to load:\n\n" + "\n".join(warnings),
+        )
+        while dpg.does_item_exist("generic_message_modal"):
+            yield
+
+
 def load_workspace_sequence(gui, controller, filepath):
     """Safely restores a full workspace using ID mapping, strict hierarchy, and Parallel Loading."""
     import json

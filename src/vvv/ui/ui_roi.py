@@ -450,10 +450,30 @@ class RoiUI:
             else "Binary Mask"
         )
 
-        if roi_type in ["Label Map", "RT-Struct"]:
+        if roi_type == "Label Map":
             self.gui.show_message(
                 "Not Implemented", f"Loading '{roi_type}' is not implemented yet."
             )
+            return
+
+        if roi_type == "RT-Struct":
+            file_paths = open_file_dialog("Load RT-Struct", multiple=False)
+            if not file_paths:
+                return
+
+            try:
+                rois_info = self.controller.roi.parse_rtstruct(file_paths)
+            except Exception as e:
+                self.gui.show_message("Error", f"Failed to parse RT-Struct:\n{e}")
+                return
+
+            if not rois_info:
+                self.gui.show_message(
+                    "No ROIs", "No valid ROIs found in this RT-Struct file."
+                )
+                return
+
+            self.show_rtstruct_selection_modal(file_paths, rois_info)
             return
 
         file_paths = open_file_dialog(f"Load {roi_type}(s)", multiple=True)
@@ -485,22 +505,134 @@ class RoiUI:
             )
         )
 
+    def show_rtstruct_selection_modal(self, filepath, rois_info):
+        modal_tag = "rtstruct_selection_modal"
+        if dpg.does_item_exist(modal_tag):
+            dpg.delete_item(modal_tag)
+
+        self._rtstruct_cb_ids = []
+
+        with dpg.window(
+            tag=modal_tag,
+            modal=True,
+            show=True,
+            label="Select ROIs to Load",
+            no_collapse=True,
+            width=450,
+            height=500,
+        ):
+            dpg.add_text(
+                f"File: {os.path.basename(filepath)}",
+                color=self.gui.ui_cfg["colors"]["text_dim"],
+            )
+            dpg.add_spacer(height=5)
+
+            with dpg.group(horizontal=True):
+                dpg.add_button(
+                    label="Select All",
+                    callback=lambda: [
+                        dpg.set_value(cb_id, True) for cb_id in self._rtstruct_cb_ids
+                    ],
+                )
+                dpg.add_button(
+                    label="Select None",
+                    callback=lambda: [
+                        dpg.set_value(cb_id, False) for cb_id in self._rtstruct_cb_ids
+                    ],
+                )
+
+            dpg.add_separator()
+
+            with dpg.child_window(height=-40, border=False):
+                for i, r_info in enumerate(rois_info):
+                    cb_id = dpg.generate_uuid()
+                    self._rtstruct_cb_ids.append(cb_id)
+                    with dpg.group(horizontal=True):
+                        dpg.add_checkbox(default_value=True, tag=cb_id)
+
+                        color = r_info.get("color", [255, 0, 0])
+                        if not isinstance(color, (list, tuple)) or len(color) < 3:
+                            color = [255, 0, 0]
+                        try:
+                            r, g, b = [max(0, min(255, int(c))) for c in color[:3]]
+                        except Exception:
+                            r, g, b = 255, 0, 0
+
+                        dpg.add_color_edit(
+                            default_value=[r, g, b, 255],
+                            no_inputs=True,
+                            no_label=True,
+                            no_alpha=True,
+                            width=20,
+                            height=20,
+                        )
+
+                        name = r_info.get("name")
+                        dpg.add_text(str(name) if name else f"ROI {i}")
+
+            dpg.add_separator()
+            with dpg.group(horizontal=True):
+                dpg.add_spacer(width=250)
+                dpg.add_button(
+                    label="Cancel",
+                    width=80,
+                    callback=lambda: dpg.delete_item(modal_tag),
+                )
+
+                def _on_load():
+                    selected_indices = [
+                        i
+                        for i, cb_id in enumerate(self._rtstruct_cb_ids)
+                        if dpg.get_value(cb_id)
+                    ]
+                    dpg.delete_item(modal_tag)
+                    if not selected_indices:
+                        return
+
+                    selected_rois = [rois_info[i] for i in selected_indices]
+                    viewer = self.gui.context_viewer
+                    if viewer and viewer.image_id:
+                        from vvv.ui.ui_sequences import load_rtstruct_sequence
+
+                        self.gui.tasks.append(
+                            load_rtstruct_sequence(
+                                self.gui,
+                                self.controller,
+                                viewer.image_id,
+                                filepath,
+                                selected_rois,
+                            )
+                        )
+
+                dpg.add_button(label="Load", width=80, callback=_on_load)
+
+        vp_width = max(dpg.get_viewport_client_width(), 800)
+        vp_height = max(dpg.get_viewport_client_height(), 600)
+        dpg.set_item_pos(modal_tag, [vp_width // 2 - 225, vp_height // 2 - 250])
+
     def on_roi_toggle_visible(self, sender, app_data, user_data):
         vs = self.gui.context_viewer.view_state
         roi = vs.rois[user_data]
 
-        # Tri-state toggle: Raster -> Contour -> Hidden -> Raster
-        if roi.visible and not roi.is_contour:
-            roi.visible = True
+        is_pure_contour = user_data not in self.controller.volumes
+
+        if is_pure_contour:
+            # Protect Pure Contours (RT-Structs) from switching to Raster mode
+            roi.visible = not roi.visible
             roi.is_contour = True
-            for ori in roi.polygons:
-                roi.polygons[ori].clear()
-        elif roi.visible and roi.is_contour:
-            roi.visible = False
-            roi.is_contour = False
         else:
-            roi.visible = True
-            roi.is_contour = False
+            # Tri-state toggle: Raster -> Contour -> Hidden -> Raster
+            if roi.visible and not roi.is_contour:
+                roi.visible = True
+                roi.is_contour = True
+                for ori in roi.polygons:
+                    roi.polygons[ori].clear()
+            elif roi.visible and roi.is_contour:
+                roi.visible = False
+                roi.is_contour = False
+            else:
+                roi.visible = True
+                roi.is_contour = False
 
         vs.is_data_dirty = True
         vs.is_geometry_dirty = True
@@ -545,9 +677,12 @@ class RoiUI:
         viewer = self.gui.context_viewer
         if not viewer or not viewer.view_state:
             return
-        for roi in viewer.view_state.rois.values():
+        for r_id, roi in viewer.view_state.rois.items():
             roi.visible = True
-            roi.is_contour = False
+            if r_id not in self.controller.volumes:
+                roi.is_contour = True
+            else:
+                roi.is_contour = False
         viewer.view_state.is_data_dirty = True
         viewer.view_state.is_geometry_dirty = True
         self.controller.ui_needs_refresh = True
@@ -568,11 +703,14 @@ class RoiUI:
         viewer = self.gui.context_viewer
         if not viewer or not viewer.view_state:
             return
-        for roi in viewer.view_state.rois.values():
+        for r_id, roi in viewer.view_state.rois.items():
             roi.visible = True
             roi.is_contour = True
-            for ori in roi.polygons:
-                roi.polygons[ori].clear()
+
+            # Protect pure RT-Structs from being wiped!
+            if r_id in self.controller.volumes:
+                for ori in roi.polygons:
+                    roi.polygons[ori].clear()
         viewer.view_state.is_data_dirty = True
         viewer.view_state.is_geometry_dirty = True
         self.controller.ui_needs_refresh = True
