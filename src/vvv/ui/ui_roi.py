@@ -220,12 +220,23 @@ class RoiUI:
                     user_data=roi_id,
                     callback=self.on_roi_center,
                 )
-                btn_reload = dpg.add_button(
-                    label="\uf01e",
-                    width=20,
-                    user_data=roi_id,
-                    callback=self.on_roi_reload,
-                )
+
+                is_rtstruct = getattr(roi, "rtstruct_info", None) is not None
+                if is_rtstruct:
+                    btn_action = dpg.add_button(
+                        label="\uf0c7",
+                        width=20,
+                        user_data=roi_id,
+                        callback=self.on_roi_save,
+                    )
+                else:
+                    btn_action = dpg.add_button(
+                        label="\uf01e",
+                        width=20,
+                        user_data=roi_id,
+                        callback=self.on_roi_reload,
+                    )
+
                 btn_close = dpg.add_button(
                     label="\uf00d",
                     width=20,
@@ -234,7 +245,7 @@ class RoiUI:
                 )
 
                 if dpg.does_item_exist("icon_font_tag"):
-                    for btn in [btn_eye, btn_reload, btn_center, btn_close]:
+                    for btn in [btn_eye, btn_action, btn_center, btn_close]:
                         dpg.bind_item_font(btn, "icon_font_tag")
 
                 if dpg.does_item_exist("delete_button_theme"):
@@ -655,6 +666,28 @@ class RoiUI:
         self.controller.update_all_viewers_of_image(
             self.gui.context_viewer.image_id, data_dirty=False
         )
+
+    def on_roi_save(self, sender, app_data, user_data):
+        roi_id = user_data
+        roi_vol = self.controller.volumes.get(roi_id)
+        if not roi_vol:
+            return
+
+        default_name = roi_vol.name
+        if not default_name.lower().endswith(".nii.gz"):
+            default_name += ".nii.gz"
+
+        file_path = save_file_dialog("Save ROI As", default_name=default_name)
+        if file_path:
+            self.gui.show_status_message(f"Saving {roi_vol.name}...")
+            import threading
+
+            def _save():
+                self.controller.save_image(roi_id, file_path)
+                self.controller.status_message = f"Saved: {os.path.basename(file_path)}"
+                self.controller.ui_needs_refresh = True
+
+            threading.Thread(target=_save, daemon=True).start()
 
     def on_roi_reload(self, sender, app_data, user_data):
         self.controller.roi.reload_roi(self.gui.context_viewer.image_id, user_data)
