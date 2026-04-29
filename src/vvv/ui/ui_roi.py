@@ -614,25 +614,18 @@ class RoiUI:
         vs = self.gui.context_viewer.view_state
         roi = vs.rois[user_data]
 
-        is_pure_contour = user_data not in self.controller.volumes
-
-        if is_pure_contour:
-            # Protect Pure Contours (RT-Structs) from switching to Raster mode
-            roi.visible = not roi.visible
+        # Tri-state toggle: Raster -> Contour -> Hidden -> Raster
+        if roi.visible and not roi.is_contour:
+            roi.visible = True
             roi.is_contour = True
+            for ori in roi.polygons:
+                roi.polygons[ori].clear()
+        elif roi.visible and roi.is_contour:
+            roi.visible = False
+            roi.is_contour = False
         else:
-            # Tri-state toggle: Raster -> Contour -> Hidden -> Raster
-            if roi.visible and not roi.is_contour:
-                roi.visible = True
-                roi.is_contour = True
-                for ori in roi.polygons:
-                    roi.polygons[ori].clear()
-            elif roi.visible and roi.is_contour:
-                roi.visible = False
-                roi.is_contour = False
-            else:
-                roi.visible = True
-                roi.is_contour = False
+            roi.visible = True
+            roi.is_contour = False
 
         vs.is_data_dirty = True
         vs.is_geometry_dirty = True
@@ -677,12 +670,9 @@ class RoiUI:
         viewer = self.gui.context_viewer
         if not viewer or not viewer.view_state:
             return
-        for r_id, roi in viewer.view_state.rois.items():
+        for roi in viewer.view_state.rois.values():
             roi.visible = True
-            if r_id not in self.controller.volumes:
-                roi.is_contour = True
-            else:
-                roi.is_contour = False
+            roi.is_contour = False
         viewer.view_state.is_data_dirty = True
         viewer.view_state.is_geometry_dirty = True
         self.controller.ui_needs_refresh = True
@@ -703,14 +693,12 @@ class RoiUI:
         viewer = self.gui.context_viewer
         if not viewer or not viewer.view_state:
             return
-        for r_id, roi in viewer.view_state.rois.items():
+        for roi in viewer.view_state.rois.values():
             roi.visible = True
             roi.is_contour = True
 
-            # Protect pure RT-Structs from being wiped!
-            if r_id in self.controller.volumes:
-                for ori in roi.polygons:
-                    roi.polygons[ori].clear()
+            for ori in roi.polygons:
+                roi.polygons[ori].clear()
         viewer.view_state.is_data_dirty = True
         viewer.view_state.is_geometry_dirty = True
         self.controller.ui_needs_refresh = True

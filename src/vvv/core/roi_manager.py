@@ -397,20 +397,16 @@ class ROIManager:
                 raise ImportError("pydicom is required to read RT-Struct files.")
             ds = pydicom.dcmread(filepath, force=True)
 
-        roi_id = str(self.controller.next_image_id)
-        self.controller.next_image_id += 1
-
-        roi_state = ROIState(
-            roi_id,
-            name=roi_info.get("name", "RT ROI"),
-            color=roi_info.get("color", [255, 0, 0]),
-        )
-        roi_state.is_contour = True
-
-        # --- MAP DICOM POLYGONS TO 2D SLICES ---
-        from vvv.utils import voxel_to_slice
+        try:
+            from skimage.draw import polygon
+        except ImportError:
+            raise ImportError("scikit-image is required to rasterize RT-Structs.")
 
         target_roi_num = roi_info.get("id")
+
+        # 1. Create a full-size blank mask
+        mz, my, mx = base_vol.shape3d
+        mask_data = np.zeros((mz, my, mx), dtype=np.uint8)
 
         if hasattr(ds, "ROIContourSequence"):
             for roi_contour in ds.ROIContourSequence:
@@ -429,7 +425,10 @@ class ROIManager:
                                         float(pts_flat[i + 1]),
                                         float(pts_flat[i + 2]),
                                     ]
-                                    vox = vs.space.world_to_display(pt_phys)
+                                    # Map directly to Base Image Voxel space
+                                    vox = base_vol.physic_coord_to_voxel_coord(
+                                        np.array(pt_phys)
+                                    )
                                     mapped_pts.append(vox)
 
                                 if not mapped_pts:
@@ -437,47 +436,62 @@ class ROIManager:
 
                                 mapped_pts = np.array(mapped_pts)
 
-                                # Map to ALL 3 orientations so they appear everywhere!
-                                for ori in [
-                                    ViewMode.AXIAL,
-                                    ViewMode.CORONAL,
-                                    ViewMode.SAGITTAL,
-                                ]:
-                                    sw, sh = base_vol.get_physical_aspect_ratio(ori)
-                                    shape = vs.get_slice_shape(ori)
+                                # Z is depth (axial slice index)
+                                z_idx = int(round(np.mean(mapped_pts[:, 2])))
 
-                                    # Determine the closest integer slice depth
-                                    if ori == ViewMode.AXIAL:
-                                        depth_idx = 2
-                                    elif ori == ViewMode.CORONAL:
-                                        depth_idx = 1
-                                    else:
-                                        depth_idx = 0
+                                if 0 <= z_idx < mz:
+                                    # skimage.draw.polygon takes (r, c) which maps to (Y, X)
+                                    r = mapped_pts[:, 1]
+                                    c = mapped_pts[:, 0]
+                                    rr, cc = polygon(r, c, shape=(my, mx))
 
-                                    z_idx = int(
-                                        round(np.mean(mapped_pts[:, depth_idx]))
-                                    )
-
-                                    # Scale the 2D polygon (X, Y) to the display aspect ratio
-                                    poly_2d = []
-                                    for v in mapped_pts:
-                                        sx, sy = voxel_to_slice(
-                                            v[0], v[1], v[2], ori, shape
-                                        )
-                                        poly_2d.append([float(sx * sw), float(sy * sh)])
-
-                                    if poly_2d:
-                                        poly_2d.append(
-                                            poly_2d[0]
-                                        )  # Visually close the loop
-
-                                    if z_idx not in roi_state.polygons[ori]:
-                                        roi_state.polygons[ori][z_idx] = []
-                                    roi_state.polygons[ori][z_idx].append(poly_2d)
+                                    # XOR assignment handles internal holes natively!
+                                    mask_data[z_idx, rr, cc] ^= 1
                     break
+
+        if not np.any(mask_data):
+            raise ValueError(
+                "RT-Struct ROI did not map to any valid voxels on the base image."
+            )
+
+        # 2. Package as a VolumeData and crop it using the highly optimized pipeline!
+        roi_id = str(self.controller.next_image_id)
+        self.controller.next_image_id += 1
+
+        mask_vol = VolumeData.__new__(VolumeData)
+        mask_vol.path = filepath
+        mask_vol.file_paths = [filepath]
+        mask_vol.name = roi_info.get("name", "RT ROI")
+
+        mask_img = sitk.GetImageFromArray(mask_data)
+        mask_img.SetSpacing(base_vol.spacing.tolist())
+        mask_img.SetOrigin(base_vol.origin.tolist())
+        mask_img.SetDirection(base_vol.matrix.flatten().tolist())
+        mask_vol.sitk_image = mask_img
+        mask_vol.data = mask_data
+        mask_vol.matrix_display_str = base_vol.matrix_display_str
+        mask_vol.matrix_tooltip_str = base_vol.matrix_tooltip_str
+        mask_vol.read_image_metadata()
+        mask_vol.last_mtime = 0
+        mask_vol._last_check_time = 0
+        mask_vol._is_outdated = False
+
+        self.process_binary_mask(base_vol, mask_vol)
+        self.controller.volumes[roi_id] = mask_vol
+
+        roi_state = ROIState(
+            roi_id,
+            name=mask_vol.name,
+            color=roi_info.get("color", [255, 0, 0]),
+            source_mode="Ignore BG (val)",
+            source_val=0.0,
+        )
+        # It is now a standard, robust raster mask!
+        roi_state.is_contour = False
 
         vs.rois[roi_id] = roi_state
         vs.is_geometry_dirty = True
+        vs.is_data_dirty = True
 
     def get_roi_stats(self, base_vs_id, roi_id, is_overlay=False):
         if (
