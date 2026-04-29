@@ -224,10 +224,7 @@ def load_batch_rois_sequence(
                 )
                 color_idx += 1
             elif roi_type == "Label Map":
-                loaded_count = controller.roi.load_label_map(
-                    base_image_id, path, color_idx
-                )
-                color_idx += loaded_count
+                pass  # This is now handled by load_label_map_sequence
         except Exception as e:
             warnings.append(f"- {filename}: {e}")
 
@@ -252,6 +249,168 @@ def load_batch_rois_sequence(
         )
         while dpg.does_item_exist("generic_message_modal"):
             yield
+
+
+def load_label_map_sequence(gui, controller, base_image_id, filepath):
+    import numpy as np
+    import SimpleITK as sitk
+    from vvv.maths.image import VolumeData
+    from vvv.core.roi_manager import ROIState
+    from vvv.config import ROI_COLORS
+    from vvv.maths.image_utils import straighten_image
+
+    if isinstance(filepath, list):
+        filepath = filepath[0]
+
+    # Give DearPyGui 3 frames to clear any previous modals
+    for _ in range(3):
+        yield
+
+    show_loading_modal("Loading Label Map...", "Reading image data...")
+    # Yield multiple times to guarantee the OS paints the window
+    # before the main thread gets blocked by sitk.ReadImage!
+    for _ in range(3):
+        yield
+
+    # 1. Get unique labels
+    try:
+        img = sitk.ReadImage(filepath)
+
+        # MUST straighten immediately so the ITK metadata perfectly matches VVV's expectations!
+        base_name = controller.roi._clean_roi_name(filepath)
+        img = straighten_image(img, base_name)
+
+        data = sitk.GetArrayViewFromImage(img)
+        unique_labels = np.unique(data)
+        unique_labels = unique_labels[unique_labels != 0]  # Exclude background
+    except Exception as e:
+        hide_loading_modal()
+        yield
+        gui.show_message("Error", f"Failed to read label map:\n{e}")
+        return
+
+    if len(unique_labels) == 0:
+        hide_loading_modal()
+        yield
+        gui.show_message(
+            "No Labels Found", "The selected image contains no non-zero labels."
+        )
+        return
+
+    # 2. Confirmation dialog
+    if len(unique_labels) > 50:
+        hide_loading_modal()
+        yield
+
+        modal_tag = "label_map_confirm_modal"
+        confirmed = [False]  # Use a list to be mutable inside closures
+
+        def on_confirm(s, a, u):
+            u[0] = True
+            dpg.delete_item(modal_tag)
+
+        def on_cancel(s, a, u):
+            dpg.delete_item(modal_tag)
+
+        with dpg.window(
+            tag=modal_tag,
+            modal=True,
+            show=True,
+            label="Large Number of Labels",
+            no_collapse=True,
+            width=450,
+        ):
+            dpg.add_text(f"This image contains {len(unique_labels)} unique labels.")
+            dpg.add_text(
+                "Loading them all may take some time. Do you want to continue?"
+            )
+            dpg.add_spacer(height=10)
+            with dpg.group(horizontal=True):
+                dpg.add_spacer(width=100)
+                dpg.add_button(
+                    label="Continue",
+                    width=100,
+                    callback=on_confirm,
+                    user_data=confirmed,
+                )
+                dpg.add_button(label="Cancel", width=100, callback=on_cancel)
+
+        # Wait for user input
+        while dpg.does_item_exist(modal_tag):
+            yield
+
+        if not confirmed[0]:
+            return
+
+    # 3. Load each label as a separate ROI
+    vs = controller.view_states[base_image_id]
+    base_vol = controller.volumes[base_image_id]
+    start_color_idx = len(vs.rois)
+
+    total_lbls = len(unique_labels)
+
+    for i, val in enumerate(unique_labels, 1):
+        show_loading_modal(
+            "Loading Label Map...",
+            f"Rasterizing label {val} ({i}/{total_lbls})...",
+            progress=(i / total_lbls),
+        )
+        yield
+
+        with vs.loading_shield():
+            binary_data = (data == val).astype(np.uint8)
+
+            if not np.any(binary_data):
+                continue
+
+            mask_img = sitk.GetImageFromArray(binary_data)
+            mask_img.CopyInformation(img)
+
+            mask_vol = VolumeData.__new__(VolumeData)
+            mask_vol.path = filepath
+            mask_vol.file_paths = [filepath]
+            mask_vol.name = f"{base_name} - Lbl {int(val)}"
+            mask_vol.sitk_image = mask_img
+            mask_vol.data = binary_data
+            mask_vol.matrix_display_str = base_vol.matrix_display_str
+            mask_vol.matrix_tooltip_str = base_vol.matrix_tooltip_str
+            mask_vol.read_image_metadata()
+            mask_vol.last_mtime = mask_vol._get_latest_mtime()
+            mask_vol._last_check_time = 0
+            mask_vol._is_outdated = False
+
+            controller.roi.process_binary_mask(base_vol, mask_vol)
+
+            if mask_vol.data.size == 0:
+                continue
+
+            mask_id = str(controller.next_image_id)
+            controller.next_image_id += 1
+            controller.volumes[mask_id] = mask_vol
+
+            color = ROI_COLORS[(start_color_idx + i - 1) % len(ROI_COLORS)]
+            roi_state = ROIState(
+                mask_id,
+                mask_vol.name,
+                color,
+                source_mode="Target FG (val)",
+                source_val=float(val),
+            )
+            roi_state.is_contour = False
+            vs.rois[mask_id] = roi_state
+
+    # Finalize
+    hide_loading_modal()
+    yield
+
+    if vs.rois:
+        gui.active_roi_id = list(vs.rois.keys())[-1]
+
+    vs.is_data_dirty = True
+    vs.is_geometry_dirty = True
+
+    controller.ui_needs_refresh = True
+    controller.update_all_viewers_of_image(base_image_id)
 
 
 def load_rtstruct_sequence(gui, controller, base_image_id, filepath, selected_rois):

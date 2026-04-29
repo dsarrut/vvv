@@ -41,7 +41,7 @@ class RoiUI:
             # --- TOP: Load & Import ---
             with dpg.group(horizontal=True):
                 dpg.add_button(
-                    label="Load ROI or RTStruct...",
+                    label="Load ROI / RT-Struct / Label Map...",
                     width=-1,
                     callback=gui.roi_ui.on_load_roi_clicked,
                     tag="btn_roi_load",
@@ -50,10 +50,11 @@ class RoiUI:
             with dpg.group(horizontal=True, tag="group_roi_mode"):
                 dpg.add_text("Rule:")
                 dpg.add_combo(
-                    ["Ignore BG (val)", "Target FG (val)"],
+                    ["Ignore BG (val)", "Target FG (val)", "Label Map"],
                     default_value="Ignore BG (val)",
                     tag="combo_roi_mode",
                     width=130,
+                    callback=gui.roi_ui.on_roi_mode_changed,
                 )
 
             with dpg.group(horizontal=True, tag="group_roi_mode2"):
@@ -448,17 +449,29 @@ class RoiUI:
             )
             return
 
-        file_paths = open_file_dialog("Load ROI(s) / RT-Struct", multiple=True)
+        mode = dpg.get_value("combo_roi_mode")
+        is_label_map = mode == "Label Map"
+
+        file_paths = open_file_dialog(
+            "Load ROI(s) / RT-Struct", multiple=not is_label_map
+        )
         if not file_paths:
             return
+
+        if is_label_map:
+            from vvv.ui.ui_sequences import load_label_map_sequence
+
+            self.gui.tasks.append(
+                load_label_map_sequence(
+                    self.gui, self.controller, viewer.image_id, file_paths
+                )
+            )
+            return
+
+        # --- Logic for Binary Mask modes ---
         if isinstance(file_paths, str):
             file_paths = [file_paths]
 
-        mode = (
-            dpg.get_value("combo_roi_mode")
-            if dpg.does_item_exist("combo_roi_mode")
-            else "Ignore BG (val)"
-        )
         val = (
             dpg.get_value("input_roi_val")
             if dpg.does_item_exist("input_roi_val")
@@ -518,6 +531,11 @@ class RoiUI:
                     val,
                 )
             )
+
+    def on_roi_mode_changed(self, sender, app_data, user_data):
+        is_label_map = app_data == "Label Map"
+        if dpg.does_item_exist("group_roi_mode2"):
+            dpg.configure_item("group_roi_mode2", show=not is_label_map)
 
     def show_rtstruct_selection_modal(self, filepath, rois_info):
         modal_tag = "rtstruct_selection_modal"

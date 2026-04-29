@@ -252,46 +252,6 @@ class ROIManager:
     # PUBLIC ROI API
     # ==========================================
 
-    def load_label_map(self, base_id, filepath, start_color_idx):
-        json_path = filepath.rsplit(".", 1)[0] + ".json"
-        if filepath.endswith(".nii.gz"):
-            json_path = filepath[:-7] + ".json"
-
-        label_dict = {}
-        if os.path.exists(json_path):
-            try:
-                with open(json_path, "r") as f:
-                    raw_dict = json.load(f)
-                    label_dict = {int(k): str(v) for k, v in raw_dict.items()}
-            except Exception as e:
-                print(f"Failed to load JSON {json_path}: {e}")
-
-        temp_img = sitk.ReadImage(filepath)
-        temp_data = sitk.GetArrayViewFromImage(temp_img)
-        unique_vals = np.unique(temp_data)
-
-        loaded_count = 0
-        base_name = self._clean_roi_name(filepath)
-
-        for val in unique_vals:
-            if val == 0:
-                continue
-
-            color = ROI_COLORS[(start_color_idx + loaded_count) % len(ROI_COLORS)]
-            roi_name = label_dict.get(int(val), f"{base_name} - Lbl {val}")
-
-            self.load_binary_mask(
-                base_id,
-                filepath,
-                name=roi_name,
-                color=color,
-                mode="Target FG (val)",
-                target_val=float(val),
-            )
-            loaded_count += 1
-
-        return loaded_count
-
     def load_binary_mask(
         self,
         base_id,
