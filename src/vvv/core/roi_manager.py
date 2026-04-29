@@ -110,13 +110,17 @@ class ROIManager:
             mask_vol.roi_bbox = (0, 0, 0, 0, 0, 0)
             return
 
+        z_max, y_max, x_max = mask_vol.data.shape[-3:]
+
         if mask_vol.data.ndim == 4:
-            z0, y0, x0 = coords[:, 1:].min(axis=0)
-            z1, y1, x1 = coords[:, 1:].max(axis=0) + 1
+            z0, y0, x0 = np.maximum(coords[:, 1:].min(axis=0) - 1, 0)
+            z1, y1, x1 = np.minimum(
+                coords[:, 1:].max(axis=0) + 2, [z_max, y_max, x_max]
+            )
             mask_vol.data = mask_vol.data[:, z0:z1, y0:y1, x0:x1]
         else:
-            z0, y0, x0 = coords.min(axis=0)
-            z1, y1, x1 = coords.max(axis=0) + 1
+            z0, y0, x0 = np.maximum(coords.min(axis=0) - 1, 0)
+            z1, y1, x1 = np.minimum(coords.max(axis=0) + 2, [z_max, y_max, x_max])
             mask_vol.data = mask_vol.data[z0:z1, y0:y1, x0:x1]
 
         # Update the SimpleITK image to reflect this small, dense block of data
@@ -213,13 +217,18 @@ class ROIManager:
         # Resampling might have introduced a border of 0s. Clean it up.
         coords2 = np.argwhere(mask_vol.data > 0)
         if coords2.size > 0:
+            z_max2, y_max2, x_max2 = mask_vol.data.shape[-3:]
             if mask_vol.data.ndim == 4:
-                z0, y0, x0 = coords2[:, 1:].min(axis=0)
-                z1, y1, x1 = coords2[:, 1:].max(axis=0) + 1
+                z0, y0, x0 = np.maximum(coords2[:, 1:].min(axis=0) - 1, 0)
+                z1, y1, x1 = np.minimum(
+                    coords2[:, 1:].max(axis=0) + 2, [z_max2, y_max2, x_max2]
+                )
                 mask_vol.data = mask_vol.data[:, z0:z1, y0:y1, x0:x1]
             else:
-                z0, y0, x0 = coords2.min(axis=0)
-                z1, y1, x1 = coords2.max(axis=0) + 1
+                z0, y0, x0 = np.maximum(coords2.min(axis=0) - 1, 0)
+                z1, y1, x1 = np.minimum(
+                    coords2.max(axis=0) + 2, [z_max2, y_max2, x_max2]
+                )
                 mask_vol.data = mask_vol.data[z0:z1, y0:y1, x0:x1]
 
             # The final bounding box is the base slice offset + the final crop offset
