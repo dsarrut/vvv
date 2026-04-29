@@ -9,7 +9,13 @@ from vvv.maths.image import VolumeData
 
 class ROIState:
     def __init__(
-        self, volume_id, name, color, source_mode="Ignore BG (val)", source_val=0.0
+        self,
+        volume_id,
+        name,
+        color,
+        source_mode="Ignore BG (val)",
+        source_val=0.0,
+        rtstruct_info=None,
     ):
         self.volume_id = volume_id
         self.name = name
@@ -20,6 +26,7 @@ class ROIState:
         self.source_mode = source_mode
         self.source_val = source_val
         self.thickness = 1.0
+        self.rtstruct_info = rtstruct_info
         self.polygons = {
             ViewMode.AXIAL: {},
             ViewMode.SAGITTAL: {},
@@ -36,6 +43,8 @@ class ROIState:
             "is_contour": self.is_contour,
             "source_mode": self.source_mode,
             "source_val": self.source_val,
+            "thickness": self.thickness,
+            "rtstruct_info": getattr(self, "rtstruct_info", None),
         }
 
     def from_dict(self, d):
@@ -46,6 +55,8 @@ class ROIState:
         self.is_contour = d.get("is_contour", self.is_contour)
         self.source_mode = d.get("source_mode", "Ignore BG (val)")
         self.source_val = d.get("source_val", 0.0)
+        self.thickness = d.get("thickness", self.thickness)
+        self.rtstruct_info = d.get("rtstruct_info", None)
 
 
 class ROIManager:
@@ -350,7 +361,7 @@ class ROIManager:
         rois_info = []
 
         roi_names = {}
-        seq_rois = getattr(ds, "StructureSetROISequence", [])
+        seq_rois = getattr(ds, "StructureSetROISequence", None) or []
         for item in seq_rois:
             roi_num = getattr(item, "ROINumber", None)
             if roi_num is not None:
@@ -362,7 +373,7 @@ class ROIManager:
                     pass
 
         roi_colors = {}
-        seq_contours = getattr(ds, "ROIContourSequence", [])
+        seq_contours = getattr(ds, "ROIContourSequence", None) or []
         for item in seq_contours:
             ref_num = getattr(item, "ReferencedROINumber", None)
             color_val = getattr(item, "ROIDisplayColor", None)
@@ -408,46 +419,46 @@ class ROIManager:
         mz, my, mx = base_vol.shape3d
         mask_data = np.zeros((mz, my, mx), dtype=np.uint8)
 
-        if hasattr(ds, "ROIContourSequence"):
-            for roi_contour in ds.ROIContourSequence:
-                if getattr(roi_contour, "ReferencedROINumber", -1) == target_roi_num:
-                    if hasattr(roi_contour, "ContourSequence"):
-                        for contour in roi_contour.ContourSequence:
-                            if hasattr(contour, "ContourData"):
-                                pts_flat = contour.ContourData
-                                if len(pts_flat) % 3 != 0:
-                                    continue
+        seq_contours = getattr(ds, "ROIContourSequence", None) or []
+        for roi_contour in seq_contours:
+            if getattr(roi_contour, "ReferencedROINumber", -1) == target_roi_num:
+                seq = getattr(roi_contour, "ContourSequence", None) or []
+                for contour in seq:
+                    if hasattr(contour, "ContourData"):
+                        pts_flat = contour.ContourData
+                        if len(pts_flat) % 3 != 0:
+                            continue
 
-                                mapped_pts = []
-                                for i in range(0, len(pts_flat), 3):
-                                    pt_phys = [
-                                        float(pts_flat[i]),
-                                        float(pts_flat[i + 1]),
-                                        float(pts_flat[i + 2]),
-                                    ]
-                                    # Map directly to Base Image Voxel space
-                                    vox = base_vol.physic_coord_to_voxel_coord(
-                                        np.array(pt_phys)
-                                    )
-                                    mapped_pts.append(vox)
+                        mapped_pts = []
+                        for i in range(0, len(pts_flat), 3):
+                            pt_phys = [
+                                float(pts_flat[i]),
+                                float(pts_flat[i + 1]),
+                                float(pts_flat[i + 2]),
+                            ]
+                            # Map directly to Base Image Voxel space
+                            vox = base_vol.physic_coord_to_voxel_coord(
+                                np.array(pt_phys)
+                            )
+                            mapped_pts.append(vox)
 
-                                if not mapped_pts:
-                                    continue
+                        if not mapped_pts:
+                            continue
 
-                                mapped_pts = np.array(mapped_pts)
+                        mapped_pts = np.array(mapped_pts)
 
-                                # Z is depth (axial slice index)
-                                z_idx = int(round(np.mean(mapped_pts[:, 2])))
+                        # Z is depth (axial slice index)
+                        z_idx = int(round(np.mean(mapped_pts[:, 2])))
 
-                                if 0 <= z_idx < mz:
-                                    # skimage.draw.polygon takes (r, c) which maps to (Y, X)
-                                    r = mapped_pts[:, 1]
-                                    c = mapped_pts[:, 0]
-                                    rr, cc = polygon(r, c, shape=(my, mx))
+                        if 0 <= z_idx < mz:
+                            # skimage.draw.polygon takes (r, c) which maps to (Y, X)
+                            r = mapped_pts[:, 1]
+                            c = mapped_pts[:, 0]
+                            rr, cc = polygon(r, c, shape=(my, mx))
 
-                                    # XOR assignment handles internal holes natively!
-                                    mask_data[z_idx, rr, cc] ^= 1
-                    break
+                            # XOR assignment handles internal holes natively!
+                            mask_data[z_idx, rr, cc] ^= 1
+                break
 
         if not np.any(mask_data):
             raise ValueError(
@@ -485,6 +496,7 @@ class ROIManager:
             color=roi_info.get("color", [255, 0, 0]),
             source_mode="Ignore BG (val)",
             source_val=0.0,
+            rtstruct_info=roi_info,
         )
         roi_state.is_contour = True
 
@@ -599,6 +611,13 @@ class ROIManager:
 
         mask_vol = self.controller.volumes[roi_id]
         roi_state = self.controller.view_states[base_id].rois[roi_id]
+
+        if getattr(roi_state, "rtstruct_info", None) is not None:
+            if self.controller.gui:
+                self.controller.gui.show_status_message(
+                    "RT-Struct ROIs cannot be hot-reloaded.", color=[255, 100, 100]
+                )
+            return
 
         if self.controller.gui:
             self.controller.gui.show_status_message(

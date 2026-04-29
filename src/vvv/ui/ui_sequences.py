@@ -482,9 +482,9 @@ def load_workspace_sequence(gui, controller, filepath):
             show_loading_modal(
                 "Loading image...",
                 f"Restoring ROIs ({i}/{total_rois})",
-                progress=(i / total_rois),
+                progress=((i - 1) / total_rois),
             )
-            # MAGIC: Let DearPyGui render a frame to update the progress bar!
+            # Let DearPyGui render a frame to update the progress bar
             yield
 
             new_id = roi_task["new_id"]
@@ -493,19 +493,32 @@ def load_workspace_sequence(gui, controller, filepath):
             vs = controller.view_states[new_id]
 
             try:
-                controller.roi.load_binary_mask(
-                    new_id,
-                    r_path,
-                    name=r_state.get("name"),
-                    color=r_state.get("color", [255, 0, 0]),
-                    mode=r_state.get("source_mode", "Ignore BG (val)"),
-                    target_val=r_state.get("source_val", 0.0),
-                )
+                if r_state.get("rtstruct_info"):
+                    show_loading_modal(
+                        "Loading image...",
+                        f"Restoring ROIs ({i}/{total_rois})\nRasterizing {r_state.get('name', '')}...",
+                        progress=((i - 1) / total_rois),
+                    )
+                    yield
+                    controller.roi.load_rtstruct_roi(
+                        new_id, r_path, r_state["rtstruct_info"]
+                    )
+                else:
+                    controller.roi.load_binary_mask(
+                        new_id,
+                        r_path,
+                        name=r_state.get("name"),
+                        color=r_state.get("color", [255, 0, 0]),
+                        mode=r_state.get("source_mode", "Ignore BG (val)"),
+                        target_val=r_state.get("source_val", 0.0),
+                    )
+
                 # Apply restored states to the newly created ROI
                 latest_roi_id = list(vs.rois.keys())[-1]
                 vs.rois[latest_roi_id].opacity = r_state.get("opacity", 0.5)
                 vs.rois[latest_roi_id].visible = r_state.get("visible", True)
                 vs.rois[latest_roi_id].is_contour = r_state.get("is_contour", False)
+                vs.rois[latest_roi_id].thickness = r_state.get("thickness", 1.0)
             except Exception as e:
                 warnings.append(f"- Failed to load ROI {os.path.basename(r_path)}: {e}")
 
