@@ -256,7 +256,11 @@ def load_batch_rois_sequence(
 
 def load_rtstruct_sequence(gui, controller, base_image_id, filepath, selected_rois):
     import os
-    import pydicom
+
+    # Give DearPyGui 3 frames to completely destroy the selection modal
+    # before we attempt to open the loading modal. Otherwise, DPG swallows it!
+    for _ in range(3):
+        yield
 
     total_rois = len(selected_rois)
     show_loading_modal("Loading RT-Struct...", f"Preparing {total_rois} ROI(s)...")
@@ -264,15 +268,19 @@ def load_rtstruct_sequence(gui, controller, base_image_id, filepath, selected_ro
     vp_width = max(dpg.get_viewport_client_width(), 800)
     vp_height = max(dpg.get_viewport_client_height(), 600)
     dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
+
     yield
 
     warnings = []
     vs = controller.view_states[base_image_id]
 
     try:
+        import pydicom
+
         ds = pydicom.dcmread(filepath, force=True)
     except Exception as e:
         hide_loading_modal()
+        yield
         gui.show_message("Error", f"Failed to read DICOM:\n{e}")
         return
 
@@ -280,10 +288,10 @@ def load_rtstruct_sequence(gui, controller, base_image_id, filepath, selected_ro
         name = r_info.get("name", "Unknown")
         show_loading_modal(
             "Loading RT-Struct...",
-            f"Loading ROI ({i}/{total_rois}):\n{name}",
-            progress=(i / total_rois),
+            f"Rasterizing ROI ({i}/{total_rois}):\n{name}",
+            progress=((i - 1) / total_rois),
         )
-        yield
+        yield  # Flush UI to screen
 
         try:
             controller.roi.load_rtstruct_roi(base_image_id, filepath, r_info, ds=ds)
