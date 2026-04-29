@@ -41,17 +41,10 @@ class RoiUI:
             # --- TOP: Load & Import ---
             with dpg.group(horizontal=True):
                 dpg.add_button(
-                    label="Load ROI...",
-                    width=130,
+                    label="Load ROI or RTStruct...",
+                    width=-1,
                     callback=gui.roi_ui.on_load_roi_clicked,
                     tag="btn_roi_load",
-                )
-                dpg.add_combo(
-                    ["Binary Mask", "Label Map", "RT-Struct"],
-                    default_value="Binary Mask",
-                    width=-1,
-                    tag="combo_roi_type",
-                    callback=gui.roi_ui.on_roi_type_changed,
                 )
 
             with dpg.group(horizontal=True, tag="group_roi_mode"):
@@ -444,39 +437,7 @@ class RoiUI:
             )
             return
 
-        roi_type = (
-            dpg.get_value("combo_roi_type")
-            if dpg.does_item_exist("combo_roi_type")
-            else "Binary Mask"
-        )
-
-        if roi_type == "Label Map":
-            self.gui.show_message(
-                "Not Implemented", f"Loading '{roi_type}' is not implemented yet."
-            )
-            return
-
-        if roi_type == "RT-Struct":
-            file_paths = open_file_dialog("Load RT-Struct", multiple=False)
-            if not file_paths:
-                return
-
-            try:
-                rois_info = self.controller.roi.parse_rtstruct(file_paths)
-            except Exception as e:
-                self.gui.show_message("Error", f"Failed to parse RT-Struct:\n{e}")
-                return
-
-            if not rois_info:
-                self.gui.show_message(
-                    "No ROIs", "No valid ROIs found in this RT-Struct file."
-                )
-                return
-
-            self.show_rtstruct_selection_modal(file_paths, rois_info)
-            return
-
-        file_paths = open_file_dialog(f"Load {roi_type}(s)", multiple=True)
+        file_paths = open_file_dialog("Load ROI(s) / RT-Struct", multiple=True)
         if not file_paths:
             return
         if isinstance(file_paths, str):
@@ -493,17 +454,59 @@ class RoiUI:
             else 0.0
         )
 
-        self.gui.tasks.append(
-            load_batch_rois_sequence(
-                self.gui,
-                self.controller,
-                viewer.image_id,
-                file_paths,
-                roi_type,
-                mode,
-                val,
+        first_file = file_paths[0]
+        is_rtstruct = False
+
+        # Smart Detection: Only parse with pydicom if it's not an obvious standard image format
+        image_exts = [
+            ".nii",
+            ".nii.gz",
+            ".mhd",
+            ".mha",
+            ".nrrd",
+            ".png",
+            ".jpg",
+            ".tif",
+        ]
+        if not any(first_file.lower().endswith(ext) for ext in image_exts):
+            try:
+                import pydicom
+
+                # Stop before pixels to read header instantly (<1ms)
+                ds = pydicom.dcmread(first_file, stop_before_pixels=True, force=True)
+                if getattr(ds, "Modality", None) == "RTSTRUCT":
+                    is_rtstruct = True
+            except Exception:
+                pass
+
+        if is_rtstruct:
+            try:
+                rois_info = self.controller.roi.parse_rtstruct(first_file)
+            except Exception as e:
+                self.gui.show_message("Error", f"Failed to parse RT-Struct:\n{e}")
+                return
+
+            if not rois_info:
+                self.gui.show_message(
+                    "No ROIs", "No valid ROIs found in this RT-Struct file."
+                )
+                return
+
+            self.show_rtstruct_selection_modal(first_file, rois_info)
+        else:
+            from vvv.ui.ui_sequences import load_batch_rois_sequence
+
+            self.gui.tasks.append(
+                load_batch_rois_sequence(
+                    self.gui,
+                    self.controller,
+                    viewer.image_id,
+                    file_paths,
+                    "Binary Mask",
+                    mode,
+                    val,
+                )
             )
-        )
 
     def show_rtstruct_selection_modal(self, filepath, rois_info):
         modal_tag = "rtstruct_selection_modal"
@@ -723,10 +726,6 @@ class RoiUI:
         viewer.view_state.is_geometry_dirty = True
         self.controller.ui_needs_refresh = True
         self.controller.update_all_viewers_of_image(viewer.image_id, data_dirty=False)
-
-    def on_roi_type_changed(self, sender, app_data, user_data):
-        if dpg.does_item_exist("group_roi_mode"):
-            dpg.configure_item("group_roi_mode", show=(app_data == "Binary Mask"))
 
     def on_export_roi_stats_clicked(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer

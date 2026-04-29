@@ -472,7 +472,7 @@ class ROIManager:
         mask_vol.matrix_display_str = base_vol.matrix_display_str
         mask_vol.matrix_tooltip_str = base_vol.matrix_tooltip_str
         mask_vol.read_image_metadata()
-        mask_vol.last_mtime = 0
+        mask_vol.last_mtime = mask_vol._get_latest_mtime()
         mask_vol._last_check_time = 0
         mask_vol._is_outdated = False
 
@@ -486,8 +486,7 @@ class ROIManager:
             source_mode="Ignore BG (val)",
             source_val=0.0,
         )
-        # It is now a standard, robust raster mask!
-        roi_state.is_contour = False
+        roi_state.is_contour = True
 
         vs.rois[roi_id] = roi_state
         vs.is_geometry_dirty = True

@@ -692,7 +692,6 @@ class MainGUI:
                     "check_interpolation",
                     "check_show_contour",
                     "btn_roi_load",
-                    "combo_roi_type",
                     "combo_roi_mode",
                     "input_roi_val",
                 ],
