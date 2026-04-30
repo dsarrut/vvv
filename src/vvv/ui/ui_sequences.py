@@ -273,7 +273,6 @@ def _rasterize_and_load_labels(
 
     vs = controller.view_states[base_image_id]
     base_vol = controller.volumes[base_image_id]
-    start_color_idx = len(vs.rois)
     total_lbls = len(unique_labels)
     base_name = controller.roi._clean_roi_name(filepath)
 
@@ -295,9 +294,9 @@ def _rasterize_and_load_labels(
         pass  # Fallback to full-volume scan if stats filter fails
 
     def _process_label(val_int, custom_name, color, bbox):
-            return controller.roi.extract_label_from_image(
-                base_image_id, filepath, img, data, val_int, custom_name, color, bbox
-            )
+        return controller.roi.extract_label_from_image(
+            base_image_id, filepath, img, data, val_int, custom_name, color, bbox
+        )
 
     # --- PARALLEL PROCESSING ---
     with vs.loading_shield():
@@ -308,7 +307,7 @@ def _rasterize_and_load_labels(
             for i, val in enumerate(unique_labels, 1):
                 val_int = int(val)
                 custom_name = label_dict.get(val_int, f"{base_name} - Lbl {val_int}")
-                color = ROI_COLORS[(start_color_idx + i - 1) % len(ROI_COLORS)]
+                color = ROI_COLORS[(val_int - 1) % len(ROI_COLORS)]
                 bbox = bboxes.get(val_int)
                 futures.append(
                     executor.submit(_process_label, val_int, custom_name, color, bbox)
@@ -371,7 +370,7 @@ def load_label_map_sequence(gui, controller, base_image_id, filepath):
         return
 
     # 2. Confirmation dialog
-    if len(unique_labels) > 50:
+    if len(unique_labels) > 200:
         hide_loading_modal()
         yield
 
@@ -705,7 +704,7 @@ def load_workspace_sequence(gui, controller, filepath):
 
         show_loading_modal("Loading image...", "Caching ROI source files...")
         yield
-        
+
         for roi_task in valid_rois_to_load:
             r_path = roi_task["path"]
             r_state = roi_task["state"]
@@ -713,27 +712,28 @@ def load_workspace_sequence(gui, controller, filepath):
                 if r_path not in rt_struct_cache:
                     try:
                         import pydicom
+
                         rt_struct_cache[r_path] = pydicom.dcmread(r_path, force=True)
                     except Exception:
                         rt_struct_cache[r_path] = None
             else:
-                    if r_path not in roi_cache:
+                if r_path not in roi_cache:
+                    try:
+                        img = sitk.ReadImage(r_path)
+                        data = sitk.GetArrayViewFromImage(img)
+                        bboxes = {}
                         try:
-                            img = sitk.ReadImage(r_path)
-                            data = sitk.GetArrayViewFromImage(img)
-                            bboxes = {}
-                            try:
-                                # Pre-compute bounding boxes to accelerate loading many labels
-                                stats = sitk.LabelShapeStatisticsImageFilter()
-                                cast_img = sitk.Cast(img, sitk.sitkUInt32)
-                                stats.Execute(cast_img)
-                                for lbl in stats.GetLabels():
-                                    bboxes[lbl] = stats.GetBoundingBox(lbl)
-                            except Exception:
-                                pass
-                            roi_cache[r_path] = {"img": img, "data": data, "bboxes": bboxes}
+                            # Pre-compute bounding boxes to accelerate loading many labels
+                            stats = sitk.LabelShapeStatisticsImageFilter()
+                            cast_img = sitk.Cast(img, sitk.sitkUInt32)
+                            stats.Execute(cast_img)
+                            for lbl in stats.GetLabels():
+                                bboxes[lbl] = stats.GetBoundingBox(lbl)
                         except Exception:
-                            roi_cache[r_path] = None
+                            pass
+                        roi_cache[r_path] = {"img": img, "data": data, "bboxes": bboxes}
+                    except Exception:
+                        roi_cache[r_path] = None
 
         def process_roi_task(task):
             new_id = task["new_id"]
@@ -767,7 +767,7 @@ def load_workspace_sequence(gui, controller, filepath):
                                 val_int,
                                 r_state.get("name"),
                                 r_state.get("color", [255, 0, 0]),
-                                cache_obj["bboxes"].get(val_int)
+                                cache_obj["bboxes"].get(val_int),
                             )
 
                     # --- SLOW PATH FALLBACK ---
@@ -792,9 +792,13 @@ def load_workspace_sequence(gui, controller, filepath):
                 return f"- Failed to load ROI {os.path.basename(r_path)}: {e}"
             return None
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(total_rois, 8)) as executor:
-            futures = [executor.submit(process_roi_task, task) for task in valid_rois_to_load]
-            
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(total_rois, 8)
+        ) as executor:
+            futures = [
+                executor.submit(process_roi_task, task) for task in valid_rois_to_load
+            ]
+
             completed = 0
             while completed < total_rois:
                 for i, future in enumerate(futures):
@@ -802,10 +806,10 @@ def load_workspace_sequence(gui, controller, filepath):
                         err = future.result()
                         if err:
                             warnings.append(err)
-                            
+
                         futures[i] = None
                         completed += 1
-                        
+
                         show_loading_modal(
                             "Loading image...",
                             f"Restoring ROIs ({completed}/{total_rois})",
