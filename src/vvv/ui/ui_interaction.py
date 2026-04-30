@@ -160,6 +160,16 @@ class InteractionManager:
         self.active_tool.on_scroll(app_data)
 
     def on_key_press(self, sender, app_data, user_data):
+        # Prevent keyboard shortcuts from triggering while typing in text/number fields
+        active_item = dpg.get_active_item()
+        if active_item:
+            try:
+                item_type = dpg.get_item_type(active_item)
+                if item_type and "Input" in item_type:
+                    return
+            except Exception:
+                pass
+
         # Intercept global Application shortcuts here (like Ctrl+O)
         is_cmd = dpg.is_key_down(dpg.mvKey_LWin) or dpg.is_key_down(dpg.mvKey_RWin)
         is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(

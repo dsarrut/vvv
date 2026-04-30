@@ -35,6 +35,23 @@ class RoiUI:
         cfg_c = gui.ui_cfg["colors"]
         cfg_l = gui.ui_cfg["layout"]
 
+        if not dpg.does_item_exist("roi_item_clicked_handler"):
+            with dpg.item_handler_registry(tag="roi_item_clicked_handler"):
+                dpg.add_item_clicked_handler(callback=gui.roi_ui.on_roi_input_clicked)
+
+        if not dpg.does_item_exist("active_roi_input_theme"):
+            with dpg.theme(tag="active_roi_input_theme"):
+                with dpg.theme_component(dpg.mvInputText):
+                    dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["text_active"])
+                    dpg.add_theme_color(dpg.mvThemeCol_FrameBg, [0, 0, 0, 0])
+                    dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 0)
+
+        if not dpg.does_item_exist("inactive_roi_input_theme"):
+            with dpg.theme(tag="inactive_roi_input_theme"):
+                with dpg.theme_component(dpg.mvInputText):
+                    dpg.add_theme_color(dpg.mvThemeCol_FrameBg, [0, 0, 0, 0])
+                    dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 0)
+
         with dpg.group(tag="tab_rois", show=False):
             build_section_title("ROI", cfg_c["text_header"])
 
@@ -209,18 +226,24 @@ class RoiUI:
 
                 roi_vol = self.controller.volumes.get(roi_id)
                 is_outdated = roi_vol._is_outdated if roi_vol else False
-                label_str = f"{roi.name} *" if is_outdated else roi.name
 
-                sel_id = dpg.add_selectable(
-                    label=label_str,
-                    default_value=is_active,
-                    user_data=roi_id,
-                    callback=self.on_roi_selected,
-                )
-                self.roi_selectables[roi_id] = sel_id
+                with dpg.group(horizontal=True):
+                    input_id = dpg.add_input_text(
+                        default_value=roi.name,
+                        width=-15 if is_outdated else -1,
+                        user_data=roi_id,
+                        callback=self.on_roi_name_changed,
+                    )
+                    if is_outdated:
+                        dpg.add_text("*", color=self.gui.ui_cfg["colors"]["outdated"])
 
-                if is_outdated and dpg.does_item_exist("outdated_item_theme"):
-                    dpg.bind_item_theme(sel_id, "outdated_item_theme")
+                self.roi_selectables[roi_id] = input_id
+                dpg.bind_item_handler_registry(input_id, "roi_item_clicked_handler")
+
+                if is_active:
+                    dpg.bind_item_theme(input_id, "active_roi_input_theme")
+                else:
+                    dpg.bind_item_theme(input_id, "inactive_roi_input_theme")
 
                 btn_eye = dpg.add_button(
                     label=lbl_eye,
@@ -296,7 +319,6 @@ class RoiUI:
         dim_col = self.gui.ui_cfg["colors"]["text_dim"]
 
         with dpg.group(parent=container):
-            # --- NEW SECTION: ROI Geometry & Loading Mode ---
             if roi_vol:
                 # 1. Loading Rule (FG vs BG)
                 mode_str = roi_state.source_mode
@@ -454,6 +476,29 @@ class RoiUI:
         dpg.set_value("roi_stat_mass", f"{stats['mass']:.2f} g")
 
     # --- Callbacks ---
+    def on_roi_name_changed(self, sender, app_data, user_data):
+        roi_id = user_data
+        new_name = app_data
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+
+        vs = viewer.view_state
+        if roi_id in vs.rois:
+            vs.rois[roi_id].name = new_name
+
+        roi_vol = self.controller.volumes.get(roi_id)
+        if roi_vol:
+            roi_vol.name = new_name
+
+    def on_roi_input_clicked(self, sender, app_data, user_data):
+        if not app_data or len(app_data) < 2:
+            return
+        item_id = app_data[1]
+        roi_id = dpg.get_item_user_data(item_id)
+        if roi_id and self.active_roi_id != roi_id:
+            self.on_roi_selected(sender, None, roi_id)
+
     def on_load_roi_clicked(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer
         if not viewer or not viewer.image_id:
@@ -728,9 +773,12 @@ class RoiUI:
 
     def on_roi_selected(self, sender, app_data, user_data):
         self.active_roi_id = user_data
-        for r_id, sel_id in getattr(self, "roi_selectables", {}).items():
-            if dpg.does_item_exist(sel_id):
-                dpg.set_value(sel_id, r_id == self.active_roi_id)
+        for r_id, input_id in getattr(self, "roi_selectables", {}).items():
+            if dpg.does_item_exist(input_id):
+                if r_id == self.active_roi_id:
+                    dpg.bind_item_theme(input_id, "active_roi_input_theme")
+                else:
+                    dpg.bind_item_theme(input_id, "inactive_roi_input_theme")
         self.refresh_roi_detail_ui()
 
     def on_roi_show_all(self, sender, app_data, user_data):
