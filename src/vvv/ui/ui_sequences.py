@@ -4,6 +4,58 @@ from vvv.config import ROI_COLORS
 from vvv.ui.ui_notifications import show_loading_modal, hide_loading_modal
 
 
+def _apply_default_layout(gui, controller, img_id):
+    target_tag = gui.context_viewer.tag if gui.context_viewer else "V1"
+    controller.layout[target_tag] = img_id
+
+    target_viewer = controller.viewers[target_tag]
+    target_viewer.set_orientation(
+        controller.view_states[img_id].camera.last_orientation
+    )
+
+    if None in controller.layout.values():
+        controller.default_viewers_orientation()
+        for tag, current_id in controller.layout.items():
+            if current_id is None:
+                controller.layout[tag] = img_id
+
+    same_image_viewers = [
+        v.tag for v in controller.viewers.values() if v.image_id == img_id
+    ]
+    if same_image_viewers:
+        controller.sync.propagate_ppm(same_image_viewers)
+
+    gui.set_context_viewer(target_viewer)
+    controller.ui_needs_refresh = True
+
+
+def _handle_warnings_and_cleanup(gui, warnings, title, message):
+    if dpg.does_item_exist("loading_modal"):
+        dpg.delete_item("loading_modal")
+    yield
+    if warnings:
+        gui.show_message(title, f"{message}\n\n" + "\n".join(warnings))
+        while dpg.does_item_exist("generic_message_modal"):
+            yield
+
+
+def _compute_label_bboxes(img, labels=None):
+    import SimpleITK as sitk
+    bboxes = {}
+    try:
+        stats = sitk.LabelShapeStatisticsImageFilter()
+        cast_img = sitk.Cast(img, sitk.sitkUInt32)
+        stats.Execute(cast_img)
+        target_labels = labels if labels is not None else stats.GetLabels()
+        for val in target_labels:
+            val_int = int(val)
+            if stats.HasLabel(val_int):
+                bboxes[val_int] = stats.GetBoundingBox(val_int)
+    except Exception:
+        pass
+    return bboxes
+
+
 def load_single_image_sequence(gui, controller, file_path):
     import os
     import time
@@ -52,34 +104,8 @@ def load_single_image_sequence(gui, controller, file_path):
     )
     yield
 
-    target_tag = gui.context_viewer.tag if gui.context_viewer else "V1"
-    controller.layout[target_tag] = img_id
-
-    target_viewer = controller.viewers[target_tag]
-    target_viewer.set_orientation(
-        controller.view_states[img_id].camera.last_orientation
-    )
-
-    if None in controller.layout.values():
-        controller.default_viewers_orientation()
-        for tag, current_id in controller.layout.items():
-            if current_id is None:
-                controller.layout[tag] = img_id
-
-    same_image_viewers = [
-        v.tag for v in controller.viewers.values() if v.image_id == img_id
-    ]
-    if same_image_viewers:
-        controller.sync.propagate_ppm(same_image_viewers)
-
-    gui.set_context_viewer(target_viewer)
-    controller.ui_needs_refresh = True
-
-    if dpg.does_item_exist("loading_modal"):
-        dpg.delete_item("loading_modal")
-    yield
-
-    hide_loading_modal()
+    _apply_default_layout(gui, controller, img_id)
+    yield from _handle_warnings_and_cleanup(gui, [], "", "")
 
 
 def load_batch_images_sequence(gui, controller, file_paths):
@@ -137,36 +163,9 @@ def load_batch_images_sequence(gui, controller, file_paths):
     yield
 
     if loaded_ids:
-        target_tag = gui.context_viewer.tag if gui.context_viewer else "V1"
-        controller.layout[target_tag] = loaded_ids[0]
+        _apply_default_layout(gui, controller, loaded_ids[0])
 
-        target_viewer = controller.viewers[target_tag]
-        target_viewer.set_orientation(
-            controller.view_states[loaded_ids[0]].camera.last_orientation
-        )
-
-        if None in controller.layout.values():
-            controller.default_viewers_orientation()
-            for tag, current_id in controller.layout.items():
-                if current_id is None:
-                    controller.layout[tag] = loaded_ids[0]
-
-        gui.set_context_viewer(target_viewer)
-        controller.ui_needs_refresh = True
-
-    if dpg.does_item_exist("loading_modal"):
-        dpg.delete_item("loading_modal")
-    yield
-
-    if warnings:
-        gui.show_message(
-            "Image Load Warning",
-            "Some images failed to load:\n\n" + "\n".join(warnings),
-        )
-        while dpg.does_item_exist("generic_message_modal"):
-            yield
-
-    hide_loading_modal()
+    yield from _handle_warnings_and_cleanup(gui, warnings, "Image Load Warning", "Some images failed to load:")
 
 
 def load_batch_rois_sequence(
@@ -191,9 +190,6 @@ def load_batch_rois_sequence(
     warnings = []
     show_loading_modal("Loading ROIs...", f"Preparing {total_files} file(s)...")
 
-    vp_width = max(dpg.get_viewport_client_width(), 800)
-    vp_height = max(dpg.get_viewport_client_height(), 600)
-    dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
     # Yield multiple times to guarantee the OS paints the window
     for _ in range(3):
         yield
@@ -242,17 +238,7 @@ def load_batch_rois_sequence(
     controller.ui_needs_refresh = True
     controller.update_all_viewers_of_image(base_image_id)
 
-    # Let the helper cleanly destroy the modal
-    hide_loading_modal()
-    yield
-
-    # 4. Display warnings safely after the loading modal is gone
-    if warnings:
-        gui.show_message(
-            "ROI Import Warning", "Some ROIs were skipped:\n\n" + "\n".join(warnings)
-        )
-        while dpg.does_item_exist("generic_message_modal"):
-            yield
+    yield from _handle_warnings_and_cleanup(gui, warnings, "ROI Import Warning", "Some ROIs were skipped:")
 
 
 def _rasterize_and_load_labels(
@@ -281,17 +267,7 @@ def _rasterize_and_load_labels(
     data = sitk.GetArrayViewFromImage(img)
 
     # --- PRE-EXTRACT BOUNDING BOXES FOR THREAD SAFETY ---
-    bboxes = {}
-    try:
-        stats = sitk.LabelShapeStatisticsImageFilter()
-        cast_img = sitk.Cast(img, sitk.sitkUInt32)
-        stats.Execute(cast_img)
-        for val in unique_labels:
-            val_int = int(val)
-            if stats.HasLabel(val_int):
-                bboxes[val_int] = stats.GetBoundingBox(val_int)
-    except Exception:
-        pass  # Fallback to full-volume scan if stats filter fails
+    bboxes = _compute_label_bboxes(img, unique_labels)
 
     def _process_label(val_int, custom_name, color, bbox):
         return controller.roi.extract_label_from_image(
@@ -458,8 +434,7 @@ def load_label_map_sequence(gui, controller, base_image_id, filepath):
         yield
 
     # Finalize
-    hide_loading_modal()
-    yield
+    yield from _handle_warnings_and_cleanup(gui, [], "", "")
 
     if vs.rois:
         gui.active_roi_id = list(vs.rois.keys())[-1]
@@ -481,10 +456,6 @@ def load_rtstruct_sequence(gui, controller, base_image_id, filepath, selected_ro
 
     total_rois = len(selected_rois)
     show_loading_modal("Loading RT-Struct...", f"Preparing {total_rois} ROI(s)...")
-
-    vp_width = max(dpg.get_viewport_client_width(), 800)
-    vp_height = max(dpg.get_viewport_client_height(), 600)
-    dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
 
     yield
 
@@ -524,16 +495,7 @@ def load_rtstruct_sequence(gui, controller, base_image_id, filepath, selected_ro
     controller.ui_needs_refresh = True
     controller.update_all_viewers_of_image(base_image_id)
 
-    hide_loading_modal()
-    yield
-
-    if warnings:
-        gui.show_message(
-            "RT-Struct Import Warning",
-            "Some ROIs failed to load:\n\n" + "\n".join(warnings),
-        )
-        while dpg.does_item_exist("generic_message_modal"):
-            yield
+    yield from _handle_warnings_and_cleanup(gui, warnings, "RT-Struct Import Warning", "Some ROIs failed to load:")
 
 
 def load_workspace_sequence(gui, controller, filepath):
@@ -552,11 +514,6 @@ def load_workspace_sequence(gui, controller, filepath):
 
     display_name = "Reading Workspace Data..."
     show_loading_modal("Loading image...", display_name)
-
-    vp_width = max(dpg.get_viewport_client_width(), 800)
-    vp_height = max(dpg.get_viewport_client_height(), 600)
-    dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
-    yield
 
     warnings = []
 
@@ -721,16 +678,7 @@ def load_workspace_sequence(gui, controller, filepath):
                     try:
                         img = sitk.ReadImage(r_path)
                         data = sitk.GetArrayViewFromImage(img)
-                        bboxes = {}
-                        try:
-                            # Pre-compute bounding boxes to accelerate loading many labels
-                            stats = sitk.LabelShapeStatisticsImageFilter()
-                            cast_img = sitk.Cast(img, sitk.sitkUInt32)
-                            stats.Execute(cast_img)
-                            for lbl in stats.GetLabels():
-                                bboxes[lbl] = stats.GetBoundingBox(lbl)
-                        except Exception:
-                            pass
+                        bboxes = _compute_label_bboxes(img)
                         roi_cache[r_path] = {"img": img, "data": data, "bboxes": bboxes}
                     except Exception:
                         roi_cache[r_path] = None
@@ -866,21 +814,7 @@ def load_workspace_sequence(gui, controller, filepath):
     if id_map:
         gui.set_context_viewer(controller.viewers["V1"])
 
-    if dpg.does_item_exist("loading_modal"):
-        dpg.delete_item("loading_modal")
-    yield
-
-    # SHOW WORKSPACE WARNINGS
-    if warnings:
-        gui.show_message(
-            "Workspace Warnings",
-            "Some files could not be found or loaded:\n\n" + "\n".join(warnings),
-        )
-        # Yield while the modal is open so the UI doesn't freeze
-        while dpg.does_item_exist("generic_message_modal"):
-            yield
-
-    hide_loading_modal()
+    yield from _handle_warnings_and_cleanup(gui, warnings, "Workspace Warnings", "Some files could not be found or loaded:")
 
 
 def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=False):
@@ -895,10 +829,6 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
 
     display_name = "Initializing..."
     show_loading_modal("Loading image...", display_name)
-
-    vp_width = max(dpg.get_viewport_client_width(), 800)
-    vp_height = max(dpg.get_viewport_client_height(), 600)
-    dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
 
     # Yield multiple times to guarantee the OS paints the boot modal!
     for _ in range(3):
@@ -1049,17 +979,4 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
 
     controller.ui_needs_refresh = True
 
-    if dpg.does_item_exist("loading_modal"):
-        dpg.delete_item("loading_modal")
-
-    if warnings:
-        yield  # Protect against DPG modal collision if we are spawning a warning modal
-        gui.show_message(
-            "Boot Sequence Warning",
-            "Some files provided via command line failed to load:\n\n"
-            + "\n".join(warnings),
-        )
-        while dpg.does_item_exist("generic_message_modal"):
-            yield
-
-    hide_loading_modal()
+    yield from _handle_warnings_and_cleanup(gui, warnings, "Boot Sequence Warning", "Some files provided via command line failed to load:")
