@@ -264,7 +264,6 @@ def load_label_map_sequence(gui, controller, base_image_id, filepath):
     from vvv.maths.image import VolumeData
     from vvv.core.roi_manager import ROIState
     from vvv.config import ROI_COLORS
-    from vvv.maths.image_utils import straighten_image
 
     if isinstance(filepath, (list, tuple)):
         filepath = filepath[0]
@@ -290,13 +289,8 @@ def load_label_map_sequence(gui, controller, base_image_id, filepath):
     # 1. Get unique labels
     try:
         img = sitk.ReadImage(filepath)
-        print(
-            f"Original image size: {img.GetSize()}, spacing: {img.GetSpacing()}, origin: {img.GetOrigin()}, direction: {img.GetDirection()}"
-        )
 
-        # MUST straighten immediately so the ITK metadata perfectly matches VVV's expectations!
         base_name = controller.roi._clean_roi_name(filepath)
-        img = straighten_image(img, base_name, is_label_map=True)
 
         data = sitk.GetArrayViewFromImage(img)
 
@@ -439,7 +433,9 @@ def load_label_map_sequence(gui, controller, base_image_id, filepath):
             mask_vol._last_check_time = 0
             mask_vol._is_outdated = False
 
-            controller.roi.process_binary_mask(base_vol, mask_vol)
+            controller.roi.process_binary_mask(
+                base_vol, mask_vol, skip_initial_crop=is_pre_cropped
+            )
 
             if mask_vol.data.size == 0:
                 continue

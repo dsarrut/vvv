@@ -100,40 +100,44 @@ class ROIManager:
         new_img.SetDirection(mask_vol.sitk_image.GetDirection())
         mask_vol.sitk_image = new_img
 
-    def process_binary_mask(self, base_vol, mask_vol):
+    def process_binary_mask(self, base_vol, mask_vol, skip_initial_crop=False):
         """Helper to natively crop, align, and resample a binary mask."""
 
         # --- 1. NATIVE CROP FIRST ---
-        print("Processing binary mask: Applying native cropping and alignment...")
-        # Strip away millions of empty background voxels before doing any heavy math
-        coords = np.argwhere(mask_vol.data > 0)
-        if coords.size == 0:
-            mask_vol.roi_bbox = (0, 0, 0, 0, 0, 0)
-            return
+        if not skip_initial_crop:
+            # Strip away millions of empty background voxels before doing any heavy math
+            coords = np.argwhere(mask_vol.data > 0)
+            if coords.size == 0:
+                mask_vol.roi_bbox = (0, 0, 0, 0, 0, 0)
+                return
 
-        z_max, y_max, x_max = mask_vol.data.shape[-3:]
+            z_max, y_max, x_max = mask_vol.data.shape[-3:]
 
-        if mask_vol.data.ndim == 4:
-            z0, y0, x0 = np.maximum(coords[:, 1:].min(axis=0) - 1, 0)
-            z1, y1, x1 = np.minimum(
-                coords[:, 1:].max(axis=0) + 2, [z_max, y_max, x_max]
+            if mask_vol.data.ndim == 4:
+                z0, y0, x0 = np.maximum(coords[:, 1:].min(axis=0) - 1, 0)
+                z1, y1, x1 = np.minimum(
+                    coords[:, 1:].max(axis=0) + 2, [z_max, y_max, x_max]
+                )
+                mask_vol.data = np.ascontiguousarray(
+                    mask_vol.data[:, z0:z1, y0:y1, x0:x1]
+                )
+            else:
+                z0, y0, x0 = np.maximum(coords.min(axis=0) - 1, 0)
+                z1, y1, x1 = np.minimum(coords.max(axis=0) + 2, [z_max, y_max, x_max])
+                mask_vol.data = np.ascontiguousarray(mask_vol.data[z0:z1, y0:y1, x0:x1])
+
+            # Update the SimpleITK image to reflect this small, dense block of data
+            new_origin = mask_vol.sitk_image.TransformIndexToPhysicalPoint(
+                (int(x0), int(y0), int(z0))
             )
-            mask_vol.data = np.ascontiguousarray(mask_vol.data[:, z0:z1, y0:y1, x0:x1])
+
+            cropped_sitk = sitk.GetImageFromArray(mask_vol.data)
+            cropped_sitk.SetSpacing(mask_vol.sitk_image.GetSpacing())
+            cropped_sitk.SetDirection(mask_vol.sitk_image.GetDirection())
+            cropped_sitk.SetOrigin(new_origin)
+            mask_vol.sitk_image = cropped_sitk
         else:
-            z0, y0, x0 = np.maximum(coords.min(axis=0) - 1, 0)
-            z1, y1, x1 = np.minimum(coords.max(axis=0) + 2, [z_max, y_max, x_max])
-            mask_vol.data = np.ascontiguousarray(mask_vol.data[z0:z1, y0:y1, x0:x1])
-
-        # Update the SimpleITK image to reflect this small, dense block of data
-        new_origin = mask_vol.sitk_image.TransformIndexToPhysicalPoint(
-            (int(x0), int(y0), int(z0))
-        )
-
-        cropped_sitk = sitk.GetImageFromArray(mask_vol.data)
-        cropped_sitk.SetSpacing(mask_vol.sitk_image.GetSpacing())
-        cropped_sitk.SetDirection(mask_vol.sitk_image.GetDirection())
-        cropped_sitk.SetOrigin(new_origin)
-        mask_vol.sitk_image = cropped_sitk
+            new_origin = mask_vol.sitk_image.GetOrigin()
 
         # --- 2. CHECK FOR PERFECT ALIGNMENT ---
         spacing_match = np.allclose(mask_vol.spacing, base_vol.spacing, atol=1e-4)
@@ -250,6 +254,8 @@ class ROIManager:
         mask_vol.shape3d = base_vol.shape3d
         mask_vol.spacing = base_vol.spacing
         mask_vol.origin = base_vol.origin
+        mask_vol.matrix = base_vol.matrix
+        mask_vol.inverse_matrix = base_vol.inverse_matrix
 
     # ==========================================
     # PUBLIC ROI API
