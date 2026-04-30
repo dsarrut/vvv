@@ -257,6 +257,7 @@ def load_batch_rois_sequence(
 
 def load_label_map_sequence(gui, controller, base_image_id, filepath):
     import os
+    import json
     import time
     import numpy as np
     import SimpleITK as sitk
@@ -356,6 +357,10 @@ def load_label_map_sequence(gui, controller, base_image_id, filepath):
         if not confirmed[0]:
             return
 
+        # Let DPG completely destroy the confirm modal before spawning the loading modal!
+        for _ in range(3):
+            yield
+
     # 3. Load each label as a separate ROI
     vs = controller.view_states[base_image_id]
     base_vol = controller.volumes[base_image_id]
@@ -363,11 +368,34 @@ def load_label_map_sequence(gui, controller, base_image_id, filepath):
 
     total_lbls = len(unique_labels)
 
+    # Re-initialize the loading modal safely
+    show_loading_modal("Loading Label Map...", f"Processing {total_lbls} labels...")
+    for _ in range(3):
+        yield
+
+    # Attempt to load sidecar JSON for label names
+    if filepath.lower().endswith(".nii.gz"):
+        json_path = filepath[:-7] + ".json"
+    else:
+        json_path = os.path.splitext(filepath)[0] + ".json"
+
+    label_dict = {}
+    if os.path.exists(json_path):
+        try:
+            with open(json_path, "r") as f:
+                raw_dict = json.load(f)
+                label_dict = {int(k): str(v) for k, v in raw_dict.items()}
+        except Exception as e:
+            print(f"Warning: Failed to parse {json_path}: {e}")
+
     for i, val in enumerate(unique_labels, 1):
+        val_int = int(val)
+        custom_name = label_dict.get(val_int, f"{base_name} - Lbl {val_int}")
+
         show_loading_modal(
             "Loading Label Map...",
-            f"Rasterizing label {val} ({i}/{total_lbls})...",
-            progress=(i / total_lbls),
+            f"Rasterizing {custom_name} ({i}/{total_lbls})...",
+            progress=((i - 1) / total_lbls),
         )
         # Yield multiple times to guarantee the progress bar update is painted
         for _ in range(2):
@@ -385,7 +413,7 @@ def load_label_map_sequence(gui, controller, base_image_id, filepath):
             mask_vol = VolumeData.__new__(VolumeData)
             mask_vol.path = filepath
             mask_vol.file_paths = [filepath]
-            mask_vol.name = f"{base_name} - Lbl {int(val)}"
+            mask_vol.name = custom_name
             mask_vol.sitk_image = mask_img
             mask_vol.data = binary_data
             mask_vol.matrix_display_str = base_vol.matrix_display_str
