@@ -651,117 +651,120 @@ def load_workspace_sequence(gui, controller, filepath):
         show_loading_modal("Loading image...", "Restoring ROIs...")
         yield
     else:
-        # Cache to prevent reading the same label map 100 times from disk!
-        roi_cache = {}
-        rt_struct_cache = {}
+        from collections import defaultdict
         import SimpleITK as sitk
-        import numpy as np
-        from vvv.maths.image import VolumeData
-        from vvv.core.roi_manager import ROIState
 
-        show_loading_modal("Loading image...", "Caching ROI source files...")
-        yield
+        tasks_by_path = defaultdict(list)
+        for task in valid_rois_to_load:
+            tasks_by_path[task["path"]].append(task)
 
-        for roi_task in valid_rois_to_load:
-            r_path = roi_task["path"]
-            r_state = roi_task["state"]
-            if r_state.get("rtstruct_info"):
-                if r_path not in rt_struct_cache:
-                    try:
-                        import pydicom
+        def process_file_group(r_path, tasks):
+            results = []
+            is_rtstruct = any(t["state"].get("rtstruct_info") for t in tasks)
 
-                        rt_struct_cache[r_path] = pydicom.dcmread(r_path, force=True)
-                    except Exception:
-                        rt_struct_cache[r_path] = None
-            else:
-                if r_path not in roi_cache:
-                    try:
-                        img = sitk.ReadImage(r_path)
-                        data = sitk.GetArrayViewFromImage(img)
-                        bboxes = _compute_label_bboxes(img)
-                        roi_cache[r_path] = {"img": img, "data": data, "bboxes": bboxes}
-                    except Exception:
-                        roi_cache[r_path] = None
-
-        def process_roi_task(task):
-            new_id = task["new_id"]
-            r_path = task["path"]
-            r_state = task["state"]
-            vs = controller.view_states[new_id]
-
-            try:
-                if r_state.get("rtstruct_info"):
-                    roi_id = controller.roi.load_rtstruct_roi(
-                        new_id,
-                        r_path,
-                        r_state["rtstruct_info"],
-                        ds=rt_struct_cache.get(r_path),
-                    )
-                else:
-                    mode = r_state.get("source_mode", "Ignore BG (val)")
-                    target_val = r_state.get("source_val", 0.0)
-                    cache_obj = roi_cache.get(r_path)
-                    roi_id = None
-
-                    # --- FAST PATH FOR LABEL MAPS ---
-                    if cache_obj and mode == "Target FG (val)":
-                        val_int = int(target_val)
-                        if float(val_int) == target_val:
-                            roi_id = controller.roi.extract_label_from_image(
-                                new_id,
+            if is_rtstruct:
+                try:
+                    import pydicom
+                    ds = pydicom.dcmread(r_path, force=True)
+                    for task in tasks:
+                        try:
+                            roi_id = controller.roi.load_rtstruct_roi(
+                                task["new_id"],
                                 r_path,
-                                cache_obj["img"],
-                                cache_obj["data"],
-                                val_int,
-                                r_state.get("name"),
-                                r_state.get("color", [255, 0, 0]),
-                                cache_obj["bboxes"].get(val_int),
+                                task["state"]["rtstruct_info"],
+                                ds=ds,
                             )
+                            results.append((task, roi_id, None))
+                        except Exception as e:
+                            results.append((task, None, f"- Failed to load {task['state'].get('name')}: {e}"))
+                except Exception as e:
+                    for task in tasks:
+                        results.append((task, None, f"- Failed to read {os.path.basename(r_path)}: {e}"))
+            else:
+                try:
+                    img = sitk.ReadImage(r_path)
+                    data = sitk.GetArrayViewFromImage(img)
+                    bboxes = None
 
-                    # --- SLOW PATH FALLBACK ---
-                    if roi_id is None:
-                        roi_id = controller.roi.load_binary_mask(
-                            new_id,
-                            r_path,
-                            name=r_state.get("name"),
-                            color=r_state.get("color", [255, 0, 0]),
-                            mode=mode,
-                            target_val=target_val,
-                            preloaded_sitk=cache_obj["img"] if cache_obj else None,
-                        )
+                    # Fast-path: Only compute heavy bboxes if a label map extraction is actually requested!
+                    if any(t["state"].get("source_mode") == "Target FG (val)" for t in tasks):
+                        bboxes = _compute_label_bboxes(img)
 
-                # Apply restored states to the newly created ROI
-                if roi_id and roi_id in vs.rois:
-                    vs.rois[roi_id].opacity = r_state.get("opacity", 0.5)
-                    vs.rois[roi_id].visible = r_state.get("visible", True)
-                    vs.rois[roi_id].is_contour = r_state.get("is_contour", False)
-                    vs.rois[roi_id].thickness = r_state.get("thickness", 1.0)
-            except Exception as e:
-                return f"- Failed to load ROI {os.path.basename(r_path)}: {e}"
-            return None
+                    for task in tasks:
+                        mode = task["state"].get("source_mode", "Ignore BG (val)")
+                        target_val = task["state"].get("source_val", 0.0)
+                        roi_id = None
+                        err = None
+
+                        try:
+                            # --- FAST PATH FOR LABEL MAPS ---
+                            if mode == "Target FG (val)" and bboxes is not None:
+                                val_int = int(target_val)
+                                if float(val_int) == target_val:
+                                    roi_id = controller.roi.extract_label_from_image(
+                                        task["new_id"],
+                                        r_path,
+                                        img,
+                                        data,
+                                        val_int,
+                                        task["state"].get("name"),
+                                        task["state"].get("color", [255, 0, 0]),
+                                        bboxes.get(val_int),
+                                    )
+
+                            # --- SLOW PATH FALLBACK ---
+                            if roi_id is None:
+                                roi_id = controller.roi.load_binary_mask(
+                                    task["new_id"],
+                                    r_path,
+                                    name=task["state"].get("name"),
+                                    color=task["state"].get("color", [255, 0, 0]),
+                                    mode=mode,
+                                    target_val=target_val,
+                                    preloaded_sitk=img,
+                                )
+                        except Exception as e:
+                            err = f"- Failed to load {task['state'].get('name')}: {e}"
+                        
+                        results.append((task, roi_id, err))
+                except Exception as e:
+                    for task in tasks:
+                        results.append((task, None, f"- Failed to read {os.path.basename(r_path)}: {e}"))
+
+            return results
 
         with concurrent.futures.ThreadPoolExecutor(
-            max_workers=min(total_rois, 8)
+            max_workers=min(len(tasks_by_path), 8)
         ) as executor:
             futures = [
-                executor.submit(process_roi_task, task) for task in valid_rois_to_load
+                executor.submit(process_file_group, path, tasks)
+                for path, tasks in tasks_by_path.items()
             ]
 
-            completed = 0
-            while completed < total_rois:
+            completed_rois = 0
+            while completed_rois < total_rois:
                 for i, future in enumerate(futures):
                     if future is not None and future.done():
-                        err = future.result()
-                        if err:
-                            warnings.append(err)
-
+                        group_results = future.result()
+                        for task, roi_id, err in group_results:
+                            if err:
+                                warnings.append(err)
+                            elif roi_id:
+                                vs = controller.view_states[task["new_id"]]
+                                if roi_id in vs.rois:
+                                    r_state = task["state"]
+                                    vs.rois[roi_id].opacity = r_state.get("opacity", 0.5)
+                                    vs.rois[roi_id].visible = r_state.get("visible", True)
+                                    vs.rois[roi_id].is_contour = r_state.get("is_contour", False)
+                                    vs.rois[roi_id].thickness = r_state.get("thickness", 1.0)
+                            completed_rois += 1
+                        
                         futures[i] = None
-                        completed += 1
 
                         show_loading_modal(
                             "Loading image...",
-                            f"Restoring ROIs ({completed}/{total_rois})",
-                            progress=(completed / total_rois),
+                            f"Restoring ROIs ({completed_rois}/{total_rois})",
+                            progress=(completed_rois / total_rois),
                         )
                 # Keep DearPyGui alive
                 yield
