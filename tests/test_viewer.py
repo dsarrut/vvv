@@ -12,7 +12,7 @@ from vvv.utils import ViewMode, slice_to_voxel, voxel_to_slice
 
 
 @pytest.fixture(scope="session")
-def synthetic_image_path(tmp_path_factory):
+def synthetic_image_path(tmp_path_factory): 
     """Generates a 5x5x5 checkerboard image."""
     indices = np.indices((5, 5, 5))
     checkerboard = (indices[0] + indices[1] + indices[2]) % 2

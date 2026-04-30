@@ -820,6 +820,42 @@ def load_workspace_sequence(gui, controller, filepath):
                 time.sleep(0.01)
 
     # --- PHASE 6: FINALIZE ---
+    # 1. Reorder dictionaries to strictly match the original workspace save order
+    ordered_vs = {}
+    ordered_vol = {}
+
+    for old_id in ws.get("images", {}).keys():
+        if old_id in id_map:
+            new_id = id_map[old_id]
+            if new_id in controller.view_states:
+                ordered_vs[new_id] = controller.view_states[new_id]
+                ordered_vol[new_id] = controller.volumes[new_id]
+
+    # 2. Add overlays that were hidden from the main list
+    for old_id, img_data in ws.get("images", {}).items():
+        ov_info = img_data.get("overlay")
+        if ov_info:
+            ov_path = os.path.expanduser(ov_info["path"])
+            if ov_path in path_map:
+                ov_id = path_map[ov_path]
+                if ov_id in controller.view_states and ov_id not in ordered_vs:
+                    ordered_vs[ov_id] = controller.view_states[ov_id]
+                    ordered_vol[ov_id] = controller.volumes[ov_id]
+
+    # 3. Add any remaining items (like pre-existing images and ROIs)
+    for v_id, vs in controller.view_states.items():
+        if v_id not in ordered_vs:
+            ordered_vs[v_id] = vs
+    for v_id, vol in controller.volumes.items():
+        if v_id not in ordered_vol:
+            ordered_vol[v_id] = vol
+
+    controller.view_states.clear()
+    controller.view_states.update(ordered_vs)
+    
+    controller.volumes.clear()
+    controller.volumes.update(ordered_vol)
+
     for new_id in id_map.values():
         controller.sync.propagate_sync(new_id)
         controller.update_all_viewers_of_image(new_id)
