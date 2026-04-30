@@ -451,7 +451,12 @@ class VolumeData:
     )
 
     def __init__(
-        self, path, is_roi=False, roi_mode="Ignore BG (val)", roi_target_val=0.0
+        self,
+        path,
+        is_roi=False,
+        roi_mode="Ignore BG (val)",
+        roi_target_val=0.0,
+        preloaded_sitk=None,
     ):
         self.path = path
         self.file_paths = []
@@ -509,7 +514,10 @@ class VolumeData:
             self.file_paths = [os.path.expanduser(p) for p in self.file_paths]
 
         # Load, Straighten, then Extract
-        raw_sitk_image = self.read_image_from_disk(self.file_paths)
+        if preloaded_sitk is not None:
+            raw_sitk_image = preloaded_sitk
+        else:
+            raw_sitk_image = self.read_image_from_disk(self.file_paths)
 
         # Crop before straightening
         if is_roi:

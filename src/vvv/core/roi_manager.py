@@ -104,6 +104,7 @@ class ROIManager:
         """Helper to natively crop, align, and resample a binary mask."""
 
         # --- 1. NATIVE CROP FIRST ---
+        print("Processing binary mask: Applying native cropping and alignment...")
         # Strip away millions of empty background voxels before doing any heavy math
         coords = np.argwhere(mask_vol.data > 0)
         if coords.size == 0:
@@ -262,6 +263,7 @@ class ROIManager:
         color=None,
         mode="Ignore BG (val)",
         target_val=0.0,
+        preloaded_sitk=None,
     ):
         if color is None:
             color = [255, 50, 50]
@@ -273,7 +275,11 @@ class ROIManager:
         with vs.loading_shield():
             # 1. Instantiate the raw ROI data
             mask_vol = VolumeData(
-                filepath, is_roi=True, roi_mode=mode, roi_target_val=target_val
+                filepath,
+                is_roi=True,
+                roi_mode=mode,
+                roi_target_val=target_val,
+                preloaded_sitk=preloaded_sitk,
             )
 
             # 2. Apply binarization rule BEFORE resampling to avoid interpolation artifacts

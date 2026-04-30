@@ -290,6 +290,9 @@ def load_label_map_sequence(gui, controller, base_image_id, filepath):
     # 1. Get unique labels
     try:
         img = sitk.ReadImage(filepath)
+        print(
+            f"Original image size: {img.GetSize()}, spacing: {img.GetSpacing()}, origin: {img.GetOrigin()}, direction: {img.GetDirection()}"
+        )
 
         # MUST straighten immediately so the ITK metadata perfectly matches VVV's expectations!
         base_name = controller.roi._clean_roi_name(filepath)
@@ -693,7 +696,10 @@ def load_workspace_sequence(gui, controller, filepath):
         show_loading_modal("Loading image...", "Restoring ROIs...")
         yield
     else:
-        # 2. Iterate and update the progress bar for each ROI
+        # Cache to prevent reading the same label map 100 times from disk!
+        roi_disk_cache = {}
+        import SimpleITK as sitk
+
         for i, roi_task in enumerate(valid_rois_to_load, 1):
             show_loading_modal(
                 "Loading image...",
@@ -720,6 +726,13 @@ def load_workspace_sequence(gui, controller, filepath):
                         new_id, r_path, r_state["rtstruct_info"]
                     )
                 else:
+                    # Retrieve or load the cached image from RAM
+                    if r_path not in roi_disk_cache:
+                        try:
+                            roi_disk_cache[r_path] = sitk.ReadImage(r_path)
+                        except Exception:
+                            roi_disk_cache[r_path] = None
+
                     controller.roi.load_binary_mask(
                         new_id,
                         r_path,
@@ -727,6 +740,7 @@ def load_workspace_sequence(gui, controller, filepath):
                         color=r_state.get("color", [255, 0, 0]),
                         mode=r_state.get("source_mode", "Ignore BG (val)"),
                         target_val=r_state.get("source_val", 0.0),
+                        preloaded_sitk=roi_disk_cache.get(r_path),
                     )
 
                 # Apply restored states to the newly created ROI
