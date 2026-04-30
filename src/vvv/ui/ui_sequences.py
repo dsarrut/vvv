@@ -91,7 +91,9 @@ def load_batch_images_sequence(gui, controller, file_paths):
 
     display_name = f"Loading {total_files} images..."
     show_loading_modal("Loading image...", display_name)
-    yield
+    # Yield multiple times to guarantee the OS paints the window
+    for _ in range(3):
+        yield
 
     loaded_ids = []
     clean_paths = []
@@ -192,7 +194,9 @@ def load_batch_rois_sequence(
     vp_width = max(dpg.get_viewport_client_width(), 800)
     vp_height = max(dpg.get_viewport_client_height(), 600)
     dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
-    yield
+    # Yield multiple times to guarantee the OS paints the window
+    for _ in range(3):
+        yield
 
     vs = controller.view_states[base_image_id]
     color_idx = len(vs.rois)
@@ -365,7 +369,9 @@ def load_label_map_sequence(gui, controller, base_image_id, filepath):
             f"Rasterizing label {val} ({i}/{total_lbls})...",
             progress=(i / total_lbls),
         )
-        yield
+        # Yield multiple times to guarantee the progress bar update is painted
+        for _ in range(2):
+            yield
 
         with vs.loading_shield():
             binary_data = (data == val).astype(np.uint8)
@@ -736,6 +742,10 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
     vp_height = max(dpg.get_viewport_client_height(), 600)
     dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
 
+    # Yield multiple times to guarantee the OS paints the boot modal!
+    for _ in range(3):
+        yield
+
     loaded_ids = []
     id_to_group = {}
 
@@ -752,6 +762,13 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
     if total_files == 1:
         # Synchronous fast-path for single images to bypass threading delays and modal flashes!
         path = jobs[0]
+        show_loading_modal(
+            "Initializing...",
+            f"Loading {os.path.basename(path)}...",
+            progress=0.5,
+        )
+        for _ in range(2):
+            yield
         try:
             job_results[path] = controller.file.load_image(path)
         except Exception as e:
@@ -796,6 +813,8 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
     show_loading_modal(
         "Loading image...", "Applying synchronization and layouts...", progress=1.0
     )
+    for _ in range(2):
+        yield
 
     # 3. Now wire up the loaded data into the ViewStates synchronously
     for task in image_tasks:
