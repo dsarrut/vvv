@@ -725,7 +725,6 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
     vp_width = max(dpg.get_viewport_client_width(), 800)
     vp_height = max(dpg.get_viewport_client_height(), 600)
     dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
-    yield
 
     loaded_ids = []
     id_to_group = {}
@@ -740,43 +739,53 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
     job_results = {}
 
     # --- THE PARALLEL LOADER & REAL PROGRESS BAR ---
-    with concurrent.futures.ThreadPoolExecutor(
-        max_workers=min(total_files, 8)
-    ) as executor:
-        future_to_path = {
-            executor.submit(controller.file.load_image, path): path for path in jobs
-        }
-        futures = list(future_to_path.keys())
+    if total_files == 1:
+        # Synchronous fast-path for single images to bypass threading delays and modal flashes!
+        path = jobs[0]
+        try:
+            job_results[path] = controller.file.load_image(path)
+        except Exception as e:
+            warnings.append(f"- {os.path.basename(path)}: {e}")
+    else:
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(total_files, 8)
+        ) as executor:
+            future_to_path = {
+                executor.submit(controller.file.load_image, path): path for path in jobs
+            }
+            futures = list(future_to_path.keys())
 
-        completed = 0
-        while completed < total_files:
-            for i, future in enumerate(futures):
-                if future is not None and future.done():
-                    path = future_to_path[future]
-                    try:
-                        img_id = future.result()
-                        job_results[path] = img_id
-                    except Exception as e:
-                        warnings.append(f"- {os.path.basename(path)}: {e}")
+            completed = 0
+            while completed < total_files:
+                for i, future in enumerate(futures):
+                    if future is not None and future.done():
+                        path = future_to_path[future]
+                        try:
+                            img_id = future.result()
+                            job_results[path] = img_id
+                        except Exception as e:
+                            warnings.append(f"- {os.path.basename(path)}: {e}")
 
-                    futures[i] = None
-                    completed += 1
+                        futures[i] = None
+                        completed += 1
 
-                    show_loading_modal(
-                        "Initializing...",
-                        f"Loaded {os.path.basename(path)} ({completed}/{total_files})",
-                        progress=(completed / total_files),
-                    )
+                        show_loading_modal(
+                            "Initializing...",
+                            f"Loaded {os.path.basename(path)} ({completed}/{total_files})",
+                            progress=(completed / total_files),
+                        )
 
-            # Let DearPyGui render a frame
-            yield
-            time.sleep(0.01)
+                if completed >= total_files:
+                    break
+
+                # Let DearPyGui render a frame
+                yield
+                time.sleep(0.01)
     # -----------------------------------------------
 
     show_loading_modal(
         "Loading image...", "Applying synchronization and layouts...", progress=1.0
     )
-    yield
 
     # 3. Now wire up the loaded data into the ViewStates synchronously
     for task in image_tasks:
@@ -855,9 +864,9 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
 
     if dpg.does_item_exist("loading_modal"):
         dpg.delete_item("loading_modal")
-    yield
 
     if warnings:
+        yield  # Protect against DPG modal collision if we are spawning a warning modal
         gui.show_message(
             "Boot Sequence Warning",
             "Some files provided via command line failed to load:\n\n"
