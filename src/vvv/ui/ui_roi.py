@@ -86,10 +86,20 @@ class RoiUI:
                     callback=gui.roi_ui.on_roi_hide_all,
                     tag="btn_roi_hide_all",
                 )
+                btn_close_all = dpg.add_button(
+                    label="\uf00d",
+                    width=20,
+                    callback=gui.roi_ui.on_roi_close_all,
+                    tag="btn_roi_close_all",
+                )
                 if dpg.does_item_exist("icon_font_tag"):
                     dpg.bind_item_font(btn_show, "icon_font_tag")
                     dpg.bind_item_font(btn_contour, "icon_font_tag")
                     dpg.bind_item_font(btn_hide, "icon_font_tag")
+                    dpg.bind_item_font(btn_close_all, "icon_font_tag")
+
+                if dpg.does_item_exist("delete_button_theme"):
+                    dpg.bind_item_theme(btn_close_all, "delete_button_theme")
 
                 with dpg.tooltip(btn_show):
                     dpg.add_text("Show All (Raster)")
@@ -99,6 +109,9 @@ class RoiUI:
 
                 with dpg.tooltip(btn_hide):
                     dpg.add_text("Hide All")
+
+                with dpg.tooltip(btn_close_all):
+                    dpg.add_text("Close All")
 
                 dpg.add_spacer(width=5)
                 dpg.add_text("Op:")
@@ -824,4 +837,15 @@ class RoiUI:
         if getattr(self, "active_roi_id", None) == user_data:
             self.active_roi_id = None
 
+        self.controller.ui_needs_refresh = True
+
+    def on_roi_close_all(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.image_id or not viewer.view_state:
+            return
+
+        for roi_id in list(viewer.view_state.rois.keys()):
+            self.controller.roi.close_roi(viewer.image_id, roi_id)
+
+        self.active_roi_id = None
         self.controller.ui_needs_refresh = True
