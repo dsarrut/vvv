@@ -130,21 +130,19 @@ class RoiUI:
                 with dpg.tooltip(btn_close_all):
                     dpg.add_text("Close All")
 
-                dpg.add_spacer(width=5)
                 dpg.add_text("Op:")
                 dpg.add_slider_float(
                     tag="slider_roi_global_opacity",
-                    width=60,
+                    width=50,
                     min_value=0.0,
                     max_value=1.0,
                     default_value=0.5,
                     callback=gui.roi_ui.on_roi_global_opacity_changed,
                 )
-                dpg.add_spacer(width=2)
                 dpg.add_text("Thk:")
                 dpg.add_slider_float(
                     tag="slider_roi_global_thickness",
-                    width=60,
+                    width=50,
                     min_value=0.5,
                     max_value=10.0,
                     default_value=1.0,
