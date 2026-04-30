@@ -34,23 +34,33 @@ def load_fonts():
         # 1. Load the UI Text Font
         if os.path.exists(main_font_path):
             with dpg.font(main_font_path, 14) as font:
-                dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
+                try:
+                    dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
+                except Exception:
+                    pass
                 default_font = font
 
         # 2. Load the Icon Font
         if os.path.exists(icon_font_path):
             with dpg.font(icon_font_path, 14, tag="icon_font_tag"):
-                dpg.add_font_range(0xF00D, 0xF021)
-                dpg.add_font_chars([0xF0C5])  # Copy icon
-                dpg.add_font_chars([0xF06E])  # Eye icon open
-                dpg.add_font_chars([0xF070])  # Eye icon close
-                dpg.add_font_chars([0xF05B])  # ROI center
-                dpg.add_font_chars([0xF07C])  # Folder
-                dpg.add_font_chars([0xF0C7])  # Floppy disk
-                dpg.add_font_chars([0xF013])  # Settings Cog
-                dpg.add_font_chars([0xF059])  # Help / Question Circle
-                dpg.add_font_chars([0xF040])  # Pencil (Contour Mode)
-                dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
+                try:
+                    dpg.add_font_range(0xF00D, 0xF021)
+                    dpg.add_font_chars(
+                        [
+                            0xF0C5,
+                            0xF06E,
+                            0xF070,
+                            0xF05B,
+                            0xF07C,
+                            0xF0C7,
+                            0xF013,
+                            0xF059,
+                            0xF040,
+                        ]
+                    )
+                    dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
+                except Exception:
+                    pass
         else:
             print("ERROR: Icon font file not found! Buttons will show '?'.")
 

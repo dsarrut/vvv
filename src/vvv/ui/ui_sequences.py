@@ -252,6 +252,8 @@ def load_batch_rois_sequence(
 
 
 def load_label_map_sequence(gui, controller, base_image_id, filepath):
+    import os
+    import time
     import numpy as np
     import SimpleITK as sitk
     from vvv.maths.image import VolumeData
@@ -259,18 +261,26 @@ def load_label_map_sequence(gui, controller, base_image_id, filepath):
     from vvv.config import ROI_COLORS
     from vvv.maths.image_utils import straighten_image
 
-    if isinstance(filepath, list):
+    if isinstance(filepath, (list, tuple)):
         filepath = filepath[0]
+
+    if not isinstance(filepath, str) or not os.path.exists(filepath):
+        gui.show_status_message("Invalid label map file.", color=[255, 100, 100])
+        return
 
     # Give DearPyGui 3 frames to clear any previous modals
     for _ in range(3):
         yield
 
-    show_loading_modal("Loading Label Map...", "Reading image data...")
+    show_loading_modal(
+        "Loading Label Map...", f"Reading file:\n{os.path.basename(filepath)}"
+    )
     # Yield multiple times to guarantee the OS paints the window
     # before the main thread gets blocked by sitk.ReadImage!
     for _ in range(3):
         yield
+
+    time.sleep(0.3)  # Artificial delay so the user actually sees the modal!
 
     # 1. Get unique labels
     try:
@@ -278,7 +288,7 @@ def load_label_map_sequence(gui, controller, base_image_id, filepath):
 
         # MUST straighten immediately so the ITK metadata perfectly matches VVV's expectations!
         base_name = controller.roi._clean_roi_name(filepath)
-        img = straighten_image(img, base_name)
+        img = straighten_image(img, base_name, is_label_map=True)
 
         data = sitk.GetArrayViewFromImage(img)
         unique_labels = np.unique(data)
