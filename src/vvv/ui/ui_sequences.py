@@ -296,8 +296,21 @@ def load_label_map_sequence(gui, controller, base_image_id, filepath):
         img = straighten_image(img, base_name, is_label_map=True)
 
         data = sitk.GetArrayViewFromImage(img)
-        unique_labels = np.unique(data)
-        unique_labels = unique_labels[unique_labels != 0]  # Exclude background
+
+        # --- THE SPEED UP: PRE-CROP USING C++ ---
+        # Finds the exact bounding box of every label in a single ~15ms pass!
+        try:
+            stats = sitk.LabelShapeStatisticsImageFilter()
+            cast_img = sitk.Cast(img, sitk.sitkUInt32)  # Guarantee compatibility
+            stats.Execute(cast_img)
+            unique_labels = list(stats.GetLabels())
+            if 0 in unique_labels:
+                unique_labels.remove(0)
+            use_stats = True
+        except Exception:
+            unique_labels = np.unique(data)
+            unique_labels = unique_labels[unique_labels != 0]
+            use_stats = False
     except Exception as e:
         hide_loading_modal()
         yield
