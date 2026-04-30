@@ -838,3 +838,213 @@ def test_spatial_engine_registration_mapping(headless_app):
 
     # Assert the registration shift sits perfectly on top of the native origin!
     assert np.allclose(world_pt, [110.0, 20.0, 50.0])
+
+# ==========================================
+# 8. ROI LOADING & WORKSPACE RESTORATION
+# ==========================================
+
+def test_roi_direct_and_workspace_binary_mask(headless_app, tmp_path):
+    """Tests standard single/batch Binary Mask loading and workspace restoration."""
+    controller, viewer, vs_id = headless_app
+    gui = controller.gui
+    base_vol = controller.volumes[vs_id]
+    
+    # 1. Create a binary mask
+    data = np.zeros(base_vol.shape3d, dtype=np.uint8)
+    data[1:4, 1:4, 1:4] = 1
+    mask_img = sitk.GetImageFromArray(data)
+    mask_img.SetSpacing(base_vol.spacing.tolist())
+    mask_img.SetOrigin(base_vol.origin.tolist())
+    
+    mask_path = str(tmp_path / "binary_mask.nii.gz")
+    sitk.WriteImage(mask_img, mask_path)
+
+    # 2. Direct Load
+    from vvv.ui.ui_sequences import load_batch_rois_sequence
+    seq = load_batch_rois_sequence(
+        gui, controller, vs_id, [mask_path], 
+        roi_type="Binary Mask", mode="Target FG (val)", val=1.0
+    )
+    # Consume generator to prevent infinite UI loops
+    for i, _ in enumerate(seq):
+        if i > 100: raise RuntimeError("Binary mask sequence hung.")
+
+    vs = controller.view_states[vs_id]
+    roi_keys = list(vs.rois.keys())
+    initial_roi_count = len(roi_keys)
+    assert initial_roi_count >= 1
+    last_roi = vs.rois[roi_keys[-1]]
+    assert last_roi.source_mode == "Target FG (val)"
+
+    # 3. Save Workspace
+    ws_path = str(tmp_path / "bin_workspace.vvw")
+    controller.file.save_workspace(ws_path)
+
+    # 4. Wipe State
+    viewer.drop_image()
+    controller.view_states.clear()
+    controller.volumes.clear()
+    controller.next_image_id = 300
+
+    # 5. Workspace Load
+    from vvv.ui.ui_sequences import load_workspace_sequence
+    seq = load_workspace_sequence(gui, controller, ws_path)
+    for i, _ in enumerate(seq):
+        if i > 200: raise RuntimeError("Workspace load sequence hung.")
+
+    # 6. Verify Workspace Restoration
+    new_vs_id = list(controller.view_states.keys())[0]
+    new_vs = controller.view_states[new_vs_id]
+
+    assert len(new_vs.rois) == initial_roi_count
+    restored_roi = list(new_vs.rois.values())[-1]
+    assert restored_roi.source_mode == "Target FG (val)"
+    
+    r_vol = controller.volumes[restored_roi.volume_id]
+    assert r_vol.data.max() == 1
+
+
+def test_roi_direct_and_workspace_label_map(headless_app, tmp_path):
+    """Tests Label Map extraction and verifies the parallel 'Fast Path' in workspace loading."""
+    controller, viewer, vs_id = headless_app
+    gui = controller.gui
+    base_vol = controller.volumes[vs_id]
+    
+    # 1. Create a label map with labels 1 and 2
+    data = np.zeros(base_vol.shape3d, dtype=np.uint8)
+    data[1:3, 1:3, 1:3] = 1
+    data[3:5, 3:5, 3:5] = 2
+    lbl_img = sitk.GetImageFromArray(data)
+    lbl_img.SetSpacing(base_vol.spacing.tolist())
+    lbl_img.SetOrigin(base_vol.origin.tolist())
+    
+    lbl_path = str(tmp_path / "label_map.nii.gz")
+    sitk.WriteImage(lbl_img, lbl_path)
+
+    # 2. Direct Load
+    from vvv.ui.ui_sequences import load_label_map_sequence
+    seq = load_label_map_sequence(gui, controller, vs_id, lbl_path)
+    for i, _ in enumerate(seq):
+        if i > 100: raise RuntimeError("Label map sequence hung.")
+
+    vs = controller.view_states[vs_id]
+    assert len(vs.rois) >= 2
+    assert list(vs.rois.values())[-1].source_mode == "Target FG (val)"
+    assert list(vs.rois.values())[-2].source_mode == "Target FG (val)"
+
+    # 3. Save Workspace
+    ws_path = str(tmp_path / "lbl_workspace.vvw")
+    controller.file.save_workspace(ws_path)
+
+    # 4. Wipe State
+    viewer.drop_image()
+    controller.view_states.clear()
+    controller.volumes.clear()
+    controller.next_image_id = 400
+
+    # 5. Workspace Load
+    from vvv.ui.ui_sequences import load_workspace_sequence
+    seq = load_workspace_sequence(gui, controller, ws_path)
+    for i, _ in enumerate(seq):
+        if i > 200: raise RuntimeError("Workspace load sequence hung.")
+
+    # 6. Verify Workspace Restoration
+    new_vs_id = list(controller.view_states.keys())[0]
+    new_vs = controller.view_states[new_vs_id]
+
+    # At least 2 ROIs should be restored
+    assert len(new_vs.rois) >= 2
+    restored = list(new_vs.rois.values())
+    
+    assert restored[-1].source_mode == "Target FG (val)"
+    assert restored[-2].source_mode == "Target FG (val)"
+    
+    # Verify data exists and was thresholded properly (Binarized successfully to max 1)
+    r_vol = controller.volumes[restored[-1].volume_id]
+    assert r_vol.data.max() == 1
+
+
+def test_roi_direct_and_workspace_rtstruct(headless_app, tmp_path, monkeypatch):
+    """Tests RT-Struct processing sequences (with mocked Pydicom to avoid large file deps)."""
+    controller, viewer, vs_id = headless_app
+    gui = controller.gui
+
+    # Create a dummy file path
+    rt_path = str(tmp_path / "dummy_rtstruct.dcm")
+    with open(rt_path, "w") as f:
+        f.write("dummy")
+
+    # Mock pydicom globally so it skips real DICOM parsing
+    import sys
+    from unittest.mock import MagicMock
+    mock_pydicom = MagicMock()
+    mock_pydicom.dcmread.return_value = MagicMock()
+    sys.modules["pydicom"] = mock_pydicom
+
+    # Mock the internal C++ rasterizer so we only test the python sequence logic
+    def mock_load_rtstruct(base_id, filepath, roi_info, ds=None):
+        mask_id = str(controller.next_image_id)
+        controller.next_image_id += 1
+        from vvv.maths.image import VolumeData
+        from vvv.core.roi_manager import ROIState
+        
+        mask_vol = VolumeData.__new__(VolumeData)
+        mask_vol.path = filepath
+        mask_vol.file_paths = [filepath]
+        mask_vol.name = roi_info.get("name", "RT ROI")
+        mask_vol.data = np.zeros((5, 5, 5), dtype=np.uint8) 
+        controller.volumes[mask_id] = mask_vol
+
+        roi_state = ROIState(
+            mask_id,
+            mask_vol.name,
+            roi_info.get("color", [255, 0, 0]),
+            source_mode="Ignore BG (val)",
+            source_val=0.0,
+            rtstruct_info=roi_info,
+        )
+        controller.view_states[base_id].rois[mask_id] = roi_state
+        return mask_id
+
+    monkeypatch.setattr(controller.roi, "load_rtstruct_roi", mock_load_rtstruct)
+
+    # 1. Direct Load
+    selected_rois = [
+        {"id": 1, "name": "Prostate", "color": [255, 0, 0]},
+        {"id": 2, "name": "Bladder", "color": [0, 255, 0]}
+    ]
+    
+    from vvv.ui.ui_sequences import load_rtstruct_sequence
+    seq = load_rtstruct_sequence(gui, controller, vs_id, rt_path, selected_rois)
+    for i, _ in enumerate(seq):
+        if i > 100: raise RuntimeError("RT-Struct sequence hung.")
+
+    vs = controller.view_states[vs_id]
+    initial_roi_count = len(vs.rois)
+    assert initial_roi_count >= 2
+    assert "Prostate" in [r.name for r in vs.rois.values()]
+
+    # 2. Save Workspace
+    ws_path = str(tmp_path / "rt_workspace.vvw")
+    controller.file.save_workspace(ws_path)
+
+    # 3. Wipe State
+    viewer.drop_image()
+    controller.view_states.clear()
+    controller.volumes.clear()
+    controller.next_image_id = 500
+
+    # 4. Workspace Load
+    from vvv.ui.ui_sequences import load_workspace_sequence
+    seq = load_workspace_sequence(gui, controller, ws_path)
+    for i, _ in enumerate(seq):
+        if i > 200: raise RuntimeError("Workspace load sequence hung.")
+
+    # 5. Verify Workspace Restoration
+    new_vs_id = list(controller.view_states.keys())[0]
+    new_vs = controller.view_states[new_vs_id]
+
+    assert len(new_vs.rois) == initial_roi_count
+    restored_names = [r.name for r in new_vs.rois.values()]
+    assert "Prostate" in restored_names
+    assert "Bladder" in restored_names

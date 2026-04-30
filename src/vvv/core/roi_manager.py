@@ -259,6 +259,99 @@ class ROIManager:
         mask_vol.matrix = base_vol.matrix
         mask_vol.inverse_matrix = base_vol.inverse_matrix
 
+    def _create_memory_roi(self, base_id, filepath, name, mask_img, mask_data, skip_crop=False, is_contour=False, **state_kwargs):
+        """Centralized helper for creating an ROI exclusively from memory (Label Maps, RT-Structs)."""
+        base_vol = self.controller.volumes[base_id]
+
+        mask_vol = VolumeData.__new__(VolumeData)
+        mask_vol.path = filepath
+        mask_vol.file_paths = [filepath]
+        mask_vol.name = name
+        mask_vol.sitk_image = mask_img
+        mask_vol.data = mask_data
+        mask_vol.matrix_display_str = base_vol.matrix_display_str
+        mask_vol.matrix_tooltip_str = base_vol.matrix_tooltip_str
+        mask_vol.read_image_metadata()
+        mask_vol.last_mtime = mask_vol._get_latest_mtime()
+        mask_vol._last_check_time = 0
+        mask_vol._is_outdated = False
+
+        self.process_binary_mask(base_vol, mask_vol, skip_initial_crop=skip_crop)
+
+        if mask_vol.data.size == 0:
+            return None
+
+        with self._lock:
+            roi_id = str(self.controller.next_image_id)
+            self.controller.next_image_id += 1
+            self.controller.volumes[roi_id] = mask_vol
+
+            roi_state = ROIState(roi_id, name, **state_kwargs)
+            roi_state.is_contour = is_contour
+
+            vs = self.controller.view_states[base_id]
+            vs.rois[roi_id] = roi_state
+            vs.is_geometry_dirty = True
+            vs.is_data_dirty = True
+
+        return roi_id
+
+    def extract_label_from_image(self, base_id, filepath, img, data, val_int, name, color, bbox):
+        """Fast-path NumPy slicing to extract a specific label from a pre-loaded label map."""
+        dim = img.GetDimension()
+        is_pre_cropped = False
+
+        if bbox is not None:
+            if dim == 2:
+                x0, y0, dx, dy = bbox
+                z0, dz = 0, 1
+                my, mx = data.shape
+                mz = 1
+            elif dim == 3:
+                x0, y0, z0, dx, dy, dz = bbox
+                mz, my, mx = data.shape
+            else:
+                x0, y0, z0, dx, dy, dz = bbox[:6]
+                mz, my, mx = data.shape[1:4]
+
+            px0, px1 = max(0, x0 - 1), min(mx, x0 + dx + 1)
+            py0, py1 = max(0, y0 - 1), min(my, y0 + dy + 1)
+            pz0, pz1 = max(0, z0 - 1), min(mz, z0 + dz + 1)
+
+            if dim == 2:
+                cropped_data = data[py0:py1, px0:px1]
+            elif data.ndim == 4:
+                cropped_data = data[:, pz0:pz1, py0:py1, px0:px1]
+            else:
+                cropped_data = data[pz0:pz1, py0:py1, px0:px1]
+
+            binary_data = (cropped_data == val_int).astype(np.uint8)
+            binary_data = np.ascontiguousarray(binary_data)
+
+            idx = [int(px0), int(py0)] if dim == 2 else [int(px0), int(py0), int(pz0)]
+            if dim == 4:
+                idx.append(0)
+            new_origin = img.TransformIndexToPhysicalPoint(idx)
+            is_pre_cropped = True
+        else:
+            binary_data = (data == val_int).astype(np.uint8)
+            binary_data = np.ascontiguousarray(binary_data)
+            new_origin = img.GetOrigin()
+
+        if not np.any(binary_data):
+            return None
+
+        mask_img = sitk.GetImageFromArray(binary_data)
+        mask_img.SetSpacing(img.GetSpacing())
+        mask_img.SetDirection(img.GetDirection())
+        mask_img.SetOrigin(new_origin)
+
+        return self._create_memory_roi(
+            base_id, filepath, name, mask_img, binary_data,
+            skip_crop=is_pre_cropped, is_contour=False,
+            color=color, source_mode="Target FG (val)", source_val=float(val_int)
+        )
+
     # ==========================================
     # PUBLIC ROI API
     # ==========================================
@@ -451,48 +544,16 @@ class ROIManager:
                 "RT-Struct ROI did not map to any valid voxels on the base image."
             )
 
-        # 2. Package as a VolumeData and crop it using the highly optimized pipeline!
-        with self._lock:
-            roi_id = str(self.controller.next_image_id)
-            self.controller.next_image_id += 1
-
-        mask_vol = VolumeData.__new__(VolumeData)
-        mask_vol.path = filepath
-        mask_vol.file_paths = [filepath]
-        mask_vol.name = roi_info.get("name", "RT ROI")
-
         mask_img = sitk.GetImageFromArray(mask_data)
         mask_img.SetSpacing(base_vol.spacing.tolist())
         mask_img.SetOrigin(base_vol.origin.tolist())
         mask_img.SetDirection(base_vol.matrix.flatten().tolist())
-        mask_vol.sitk_image = mask_img
-        mask_vol.data = mask_data
-        mask_vol.matrix_display_str = base_vol.matrix_display_str
-        mask_vol.matrix_tooltip_str = base_vol.matrix_tooltip_str
-        mask_vol.read_image_metadata()
-        mask_vol.last_mtime = mask_vol._get_latest_mtime()
-        mask_vol._last_check_time = 0
-        mask_vol._is_outdated = False
-
-        self.process_binary_mask(base_vol, mask_vol)
-        with self._lock:
-            self.controller.volumes[roi_id] = mask_vol
-
-            roi_state = ROIState(
-                roi_id,
-                name=mask_vol.name,
-                color=roi_info.get("color", [255, 0, 0]),
-                source_mode="Ignore BG (val)",
-                source_val=0.0,
-                rtstruct_info=roi_info,
-            )
-            roi_state.is_contour = True
-
-            vs.rois[roi_id] = roi_state
-            vs.is_geometry_dirty = True
-            vs.is_data_dirty = True
-
-        return roi_id
+        
+        return self._create_memory_roi(
+            base_id, filepath, roi_info.get("name", "RT ROI"), mask_img, mask_data,
+            skip_crop=False, is_contour=True, color=roi_info.get("color", [255, 0, 0]),
+            source_mode="Ignore BG (val)", source_val=0.0, rtstruct_info=roi_info
+        )
 
     def get_roi_stats(self, base_vs_id, roi_id, is_overlay=False):
         if (
