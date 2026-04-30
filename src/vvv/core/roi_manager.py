@@ -1,5 +1,6 @@
 import os
 import json
+import threading
 import numpy as np
 import SimpleITK as sitk
 from vvv.utils import ViewMode
@@ -64,6 +65,7 @@ class ROIManager:
 
     def __init__(self, controller):
         self.controller = controller
+        self._lock = threading.Lock()
 
     # ==========================================
     # INTERNAL HELPERS
@@ -304,18 +306,19 @@ class ROIManager:
                 raise ValueError("ROI is completely outside the base image FOV.")
 
         # 4. Register the Volume and State
-        mask_id = str(self.controller.next_image_id)
-        self.controller.next_image_id += 1
-        self.controller.volumes[mask_id] = mask_vol
+        with self._lock:
+            mask_id = str(self.controller.next_image_id)
+            self.controller.next_image_id += 1
+            self.controller.volumes[mask_id] = mask_vol
 
-        if name is None:
-            name = self._clean_roi_name(filepath)
+            if name is None:
+                name = self._clean_roi_name(filepath)
 
-        roi_state = ROIState(
-            mask_id, name, color, source_mode=mode, source_val=target_val
-        )
-        vs.rois[mask_id] = roi_state
-        vs.is_data_dirty = True
+            roi_state = ROIState(
+                mask_id, name, color, source_mode=mode, source_val=target_val
+            )
+            vs.rois[mask_id] = roi_state
+            vs.is_data_dirty = True
 
         return mask_id
 
@@ -449,8 +452,9 @@ class ROIManager:
             )
 
         # 2. Package as a VolumeData and crop it using the highly optimized pipeline!
-        roi_id = str(self.controller.next_image_id)
-        self.controller.next_image_id += 1
+        with self._lock:
+            roi_id = str(self.controller.next_image_id)
+            self.controller.next_image_id += 1
 
         mask_vol = VolumeData.__new__(VolumeData)
         mask_vol.path = filepath
@@ -471,21 +475,24 @@ class ROIManager:
         mask_vol._is_outdated = False
 
         self.process_binary_mask(base_vol, mask_vol)
-        self.controller.volumes[roi_id] = mask_vol
+        with self._lock:
+            self.controller.volumes[roi_id] = mask_vol
 
-        roi_state = ROIState(
-            roi_id,
-            name=mask_vol.name,
-            color=roi_info.get("color", [255, 0, 0]),
-            source_mode="Ignore BG (val)",
-            source_val=0.0,
-            rtstruct_info=roi_info,
-        )
-        roi_state.is_contour = True
+            roi_state = ROIState(
+                roi_id,
+                name=mask_vol.name,
+                color=roi_info.get("color", [255, 0, 0]),
+                source_mode="Ignore BG (val)",
+                source_val=0.0,
+                rtstruct_info=roi_info,
+            )
+            roi_state.is_contour = True
 
-        vs.rois[roi_id] = roi_state
-        vs.is_geometry_dirty = True
-        vs.is_data_dirty = True
+            vs.rois[roi_id] = roi_state
+            vs.is_geometry_dirty = True
+            vs.is_data_dirty = True
+
+        return roi_id
 
     def get_roi_stats(self, base_vs_id, roi_id, is_overlay=False):
         if (

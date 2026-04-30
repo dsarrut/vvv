@@ -255,6 +255,137 @@ def load_batch_rois_sequence(
             yield
 
 
+def _rasterize_and_load_labels(
+    gui, controller, base_image_id, filepath, unique_labels, label_dict
+):
+    """
+    [REUSABLE_WORKER]
+    The core, multithreaded engine for rasterizing a label map.
+    Called by both the interactive loader and the workspace loader.
+    """
+    import time
+    import concurrent.futures
+    import numpy as np
+    import SimpleITK as sitk
+    from vvv.maths.image import VolumeData
+    from vvv.core.roi_manager import ROIState
+    from vvv.config import ROI_COLORS
+
+    vs = controller.view_states[base_image_id]
+    base_vol = controller.volumes[base_image_id]
+    start_color_idx = len(vs.rois)
+    total_lbls = len(unique_labels)
+    base_name = controller.roi._clean_roi_name(filepath)
+
+    # --- Read the full image ONCE ---
+    img = sitk.ReadImage(filepath)
+    data = sitk.GetArrayViewFromImage(img)
+
+    # --- PRE-EXTRACT BOUNDING BOXES FOR THREAD SAFETY ---
+    bboxes = {}
+    try:
+        stats = sitk.LabelShapeStatisticsImageFilter()
+        cast_img = sitk.Cast(img, sitk.sitkUInt32)
+        stats.Execute(cast_img)
+        for val in unique_labels:
+            val_int = int(val)
+            if stats.HasLabel(val_int):
+                bboxes[val_int] = stats.GetBoundingBox(val_int)
+    except Exception:
+        pass  # Fallback to full-volume scan if stats filter fails
+
+    def _process_label(val_int, custom_name, color, bbox):
+        """Worker function that runs isolated in a background thread."""
+        dim = img.GetDimension()
+        if bbox is not None:
+            # O(1) Pre-crop using the C++ bounding box
+            if dim == 2:
+                x0, y0, dx, dy = bbox
+                z0, dz = 0, 1
+                my, mx = data.shape
+                mz = 1
+            elif dim == 3:
+                x0, y0, z0, dx, dy, dz = bbox
+                mz, my, mx = data.shape
+            else:
+                x0, y0, z0, dx, dy, dz = bbox[:6]
+                mz, my, mx = data.shape[1:4]
+
+            px0, px1 = max(0, x0 - 1), min(mx, x0 + dx + 1)
+            py0, py1 = max(0, y0 - 1), min(my, y0 + dy + 1)
+            pz0, pz1 = max(0, z0 - 1), min(mz, z0 + dz + 1)
+
+            if dim == 2:
+                cropped_data = data[py0:py1, px0:px1]
+            elif data.ndim == 4:
+                cropped_data = data[:, pz0:pz1, py0:py1, px0:px1]
+            else:
+                cropped_data = data[pz0:pz1, py0:py1, px0:px1]
+
+            binary_data = (cropped_data == val_int).astype(np.uint8)
+            binary_data = np.ascontiguousarray(binary_data)
+
+            idx = [int(px0), int(py0)] if dim == 2 else [int(px0), int(py0), int(pz0)]
+            if dim == 4:
+                idx.append(0)
+            new_origin = img.TransformIndexToPhysicalPoint(idx)
+            is_pre_cropped = True
+        else:
+            binary_data = (data == val_int).astype(np.uint8)
+            binary_data = np.ascontiguousarray(binary_data)
+            new_origin = img.GetOrigin()
+            is_pre_cropped = False
+
+        if not np.any(binary_data):
+            return None
+
+        mask_img = sitk.GetImageFromArray(binary_data)
+        mask_img.SetSpacing(img.GetSpacing())
+        mask_img.SetDirection(img.GetDirection())
+        mask_img.SetOrigin(new_origin)
+
+        mask_vol = VolumeData.__new__(VolumeData)
+        mask_vol.path = filepath
+        mask_vol.file_paths = [filepath]
+        mask_vol.name = custom_name
+        mask_vol.sitk_image = mask_img
+        mask_vol.data = binary_data
+        mask_vol.matrix_display_str = base_vol.matrix_display_str
+        mask_vol.matrix_tooltip_str = base_vol.matrix_tooltip_str
+        mask_vol.read_image_metadata()
+        mask_vol.last_mtime = mask_vol._get_latest_mtime()
+        mask_vol._last_check_time = 0
+        mask_vol._is_outdated = False
+
+        controller.roi.process_binary_mask(
+            base_vol, mask_vol, skip_initial_crop=is_pre_cropped
+        )
+
+        if mask_vol.data.size == 0:
+            return None
+
+        return mask_vol, custom_name, color, val_int
+
+    # --- PARALLEL PROCESSING ---
+    with vs.loading_shield():
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(total_lbls, 8)
+        ) as executor:
+            futures = []
+            for i, val in enumerate(unique_labels, 1):
+                val_int = int(val)
+                custom_name = label_dict.get(val_int, f"{base_name} - Lbl {val_int}")
+                color = ROI_COLORS[(start_color_idx + i - 1) % len(ROI_COLORS)]
+                bbox = bboxes.get(val_int)
+                futures.append(
+                    executor.submit(_process_label, val_int, custom_name, color, bbox)
+                )
+
+            # This is a generator that yields results as they complete
+            for future in concurrent.futures.as_completed(futures):
+                yield future.result()
+
+
 def load_label_map_sequence(gui, controller, base_image_id, filepath):
     import os
     import json
@@ -289,25 +420,9 @@ def load_label_map_sequence(gui, controller, base_image_id, filepath):
     # 1. Get unique labels
     try:
         img = sitk.ReadImage(filepath)
-
-        base_name = controller.roi._clean_roi_name(filepath)
-
         data = sitk.GetArrayViewFromImage(img)
-
-        # --- THE SPEED UP: PRE-CROP USING C++ ---
-        # Finds the exact bounding box of every label in a single ~15ms pass!
-        try:
-            stats = sitk.LabelShapeStatisticsImageFilter()
-            cast_img = sitk.Cast(img, sitk.sitkUInt32)  # Guarantee compatibility
-            stats.Execute(cast_img)
-            unique_labels = list(stats.GetLabels())
-            if 0 in unique_labels:
-                unique_labels.remove(0)
-            use_stats = True
-        except Exception:
-            unique_labels = np.unique(data)
-            unique_labels = unique_labels[unique_labels != 0]
-            use_stats = False
+        unique_labels = np.unique(data)
+        unique_labels = unique_labels[unique_labels != 0]
     except Exception as e:
         hide_loading_modal()
         yield
@@ -373,9 +488,6 @@ def load_label_map_sequence(gui, controller, base_image_id, filepath):
 
     # 3. Load each label as a separate ROI
     vs = controller.view_states[base_image_id]
-    base_vol = controller.volumes[base_image_id]
-    start_color_idx = len(vs.rois)
-
     total_lbls = len(unique_labels)
 
     # Re-initialize the loading modal safely
@@ -392,68 +504,43 @@ def load_label_map_sequence(gui, controller, base_image_id, filepath):
     label_dict = {}
     if os.path.exists(json_path):
         try:
+            import json
+
             with open(json_path, "r") as f:
                 raw_dict = json.load(f)
                 label_dict = {int(k): str(v) for k, v in raw_dict.items()}
         except Exception as e:
             print(f"Warning: Failed to parse {json_path}: {e}")
 
-    for i, val in enumerate(unique_labels, 1):
-        val_int = int(val)
-        custom_name = label_dict.get(val_int, f"{base_name} - Lbl {val_int}")
+    completed = 0
+    for result in _rasterize_and_load_labels(
+        gui, controller, base_image_id, filepath, unique_labels, label_dict
+    ):
+        completed += 1
+        if result is not None:
+            mask_vol, c_name, c_color, v_int = result
 
-        show_loading_modal(
-            "Loading Label Map...",
-            f"Rasterizing {custom_name} ({i}/{total_lbls})...",
-            progress=((i - 1) / total_lbls),
-        )
-        # Yield multiple times to guarantee the progress bar update is painted
-        for _ in range(2):
-            yield
-
-        with vs.loading_shield():
-            binary_data = (data == val).astype(np.uint8)
-
-            if not np.any(binary_data):
-                continue
-
-            mask_img = sitk.GetImageFromArray(binary_data)
-            mask_img.CopyInformation(img)
-
-            mask_vol = VolumeData.__new__(VolumeData)
-            mask_vol.path = filepath
-            mask_vol.file_paths = [filepath]
-            mask_vol.name = custom_name
-            mask_vol.sitk_image = mask_img
-            mask_vol.data = binary_data
-            mask_vol.matrix_display_str = base_vol.matrix_display_str
-            mask_vol.matrix_tooltip_str = base_vol.matrix_tooltip_str
-            mask_vol.read_image_metadata()
-            mask_vol.last_mtime = mask_vol._get_latest_mtime()
-            mask_vol._last_check_time = 0
-            mask_vol._is_outdated = False
-
-            controller.roi.process_binary_mask(
-                base_vol, mask_vol, skip_initial_crop=is_pre_cropped
-            )
-
-            if mask_vol.data.size == 0:
-                continue
-
+            # Safely register the objects in the Main Thread!
             mask_id = str(controller.next_image_id)
             controller.next_image_id += 1
             controller.volumes[mask_id] = mask_vol
 
-            color = ROI_COLORS[(start_color_idx + i - 1) % len(ROI_COLORS)]
             roi_state = ROIState(
                 mask_id,
                 mask_vol.name,
-                color,
+                c_color,
                 source_mode="Target FG (val)",
-                source_val=float(val),
+                source_val=float(v_int),
             )
             roi_state.is_contour = False
             vs.rois[mask_id] = roi_state
+
+        show_loading_modal(
+            "Loading Label Map...",
+            f"Rasterizing Labels ({completed}/{total_lbls})...",
+            progress=(completed / total_lbls),
+        )
+        yield
 
     # Finalize
     hide_loading_modal()
@@ -666,7 +753,7 @@ def load_workspace_sequence(gui, controller, filepath):
 
     show_loading_modal("Loading image...", "Restoring ROIs...")
 
-    # --- PHASE 5: RESTORE ROIs (Synchronous since there's fewer of them and already cropped) ---
+    # --- PHASE 5: RESTORE ROIs (Parallelized to quickly load large label maps) ---
     # 1. Gather all valid ROIs first to calculate total progress
     valid_rois_to_load = []
     for old_id, img_data in ws.get("images", {}).items():
@@ -693,60 +780,197 @@ def load_workspace_sequence(gui, controller, filepath):
         yield
     else:
         # Cache to prevent reading the same label map 100 times from disk!
-        roi_disk_cache = {}
+        roi_cache = {}
+        rt_struct_cache = {}
         import SimpleITK as sitk
+        import numpy as np
+        from vvv.maths.image import VolumeData
+        from vvv.core.roi_manager import ROIState
 
-        for i, roi_task in enumerate(valid_rois_to_load, 1):
-            show_loading_modal(
-                "Loading image...",
-                f"Restoring ROIs ({i}/{total_rois})",
-                progress=((i - 1) / total_rois),
-            )
-            # Let DearPyGui render a frame to update the progress bar
-            yield
-
-            new_id = roi_task["new_id"]
+        show_loading_modal("Loading image...", "Caching ROI source files...")
+        yield
+        
+        for roi_task in valid_rois_to_load:
             r_path = roi_task["path"]
             r_state = roi_task["state"]
+            if r_state.get("rtstruct_info"):
+                if r_path not in rt_struct_cache:
+                    try:
+                        import pydicom
+                        rt_struct_cache[r_path] = pydicom.dcmread(r_path, force=True)
+                    except Exception:
+                        rt_struct_cache[r_path] = None
+            else:
+                    if r_path not in roi_cache:
+                        try:
+                            img = sitk.ReadImage(r_path)
+                            data = sitk.GetArrayViewFromImage(img)
+                            bboxes = {}
+                            try:
+                                # Pre-compute bounding boxes to accelerate loading many labels
+                                stats = sitk.LabelShapeStatisticsImageFilter()
+                                cast_img = sitk.Cast(img, sitk.sitkUInt32)
+                                stats.Execute(cast_img)
+                                for lbl in stats.GetLabels():
+                                    bboxes[lbl] = stats.GetBoundingBox(lbl)
+                            except Exception:
+                                pass
+                            roi_cache[r_path] = {"img": img, "data": data, "bboxes": bboxes}
+                        except Exception:
+                            roi_cache[r_path] = None
+
+        def process_roi_task(task):
+            new_id = task["new_id"]
+            r_path = task["path"]
+            r_state = task["state"]
             vs = controller.view_states[new_id]
 
             try:
                 if r_state.get("rtstruct_info"):
-                    show_loading_modal(
-                        "Loading image...",
-                        f"Restoring ROIs ({i}/{total_rois})\nRasterizing {r_state.get('name', '')}...",
-                        progress=((i - 1) / total_rois),
-                    )
-                    yield
-                    controller.roi.load_rtstruct_roi(
-                        new_id, r_path, r_state["rtstruct_info"]
-                    )
-                else:
-                    # Retrieve or load the cached image from RAM
-                    if r_path not in roi_disk_cache:
-                        try:
-                            roi_disk_cache[r_path] = sitk.ReadImage(r_path)
-                        except Exception:
-                            roi_disk_cache[r_path] = None
-
-                    controller.roi.load_binary_mask(
+                    roi_id = controller.roi.load_rtstruct_roi(
                         new_id,
                         r_path,
-                        name=r_state.get("name"),
-                        color=r_state.get("color", [255, 0, 0]),
-                        mode=r_state.get("source_mode", "Ignore BG (val)"),
-                        target_val=r_state.get("source_val", 0.0),
-                        preloaded_sitk=roi_disk_cache.get(r_path),
+                        r_state["rtstruct_info"],
+                        ds=rt_struct_cache.get(r_path),
                     )
+                else:
+                    mode = r_state.get("source_mode", "Ignore BG (val)")
+                    target_val = r_state.get("source_val", 0.0)
+                    cache_obj = roi_cache.get(r_path)
+                    roi_id = None
+
+                    # --- FAST PATH FOR LABEL MAPS ---
+                    if cache_obj and mode == "Target FG (val)":
+                        val_int = int(target_val)
+                        if float(val_int) == target_val:
+                            img = cache_obj["img"]
+                            data = cache_obj["data"]
+                            bbox = cache_obj["bboxes"].get(val_int)
+                            
+                            dim = img.GetDimension()
+                            is_pre_cropped = False
+                            
+                            if bbox is not None:
+                                if dim == 2:
+                                    x0, y0, dx, dy = bbox
+                                    z0, dz = 0, 1
+                                    my, mx = data.shape
+                                    mz = 1
+                                elif dim == 3:
+                                    x0, y0, z0, dx, dy, dz = bbox
+                                    mz, my, mx = data.shape
+                                else:
+                                    x0, y0, z0, dx, dy, dz = bbox[:6]
+                                    mz, my, mx = data.shape[1:4]
+                                    
+                                px0, px1 = max(0, x0 - 1), min(mx, x0 + dx + 1)
+                                py0, py1 = max(0, y0 - 1), min(my, y0 + dy + 1)
+                                pz0, pz1 = max(0, z0 - 1), min(mz, z0 + dz + 1)
+                                
+                                if dim == 2:
+                                    cropped_data = data[py0:py1, px0:px1]
+                                elif data.ndim == 4:
+                                    cropped_data = data[:, pz0:pz1, py0:py1, px0:px1]
+                                else:
+                                    cropped_data = data[pz0:pz1, py0:py1, px0:px1]
+                                    
+                                binary_data = (cropped_data == target_val).astype(np.uint8)
+                                binary_data = np.ascontiguousarray(binary_data)
+                                
+                                idx = [int(px0), int(py0)] if dim == 2 else [int(px0), int(py0), int(pz0)]
+                                if dim == 4:
+                                    idx.append(0)
+                                new_origin = img.TransformIndexToPhysicalPoint(idx)
+                                is_pre_cropped = True
+                            else:
+                                binary_data = (data == target_val).astype(np.uint8)
+                                binary_data = np.ascontiguousarray(binary_data)
+                                new_origin = img.GetOrigin()
+                                
+                            if np.any(binary_data):
+                                mask_img = sitk.GetImageFromArray(binary_data)
+                                mask_img.SetSpacing(img.GetSpacing())
+                                mask_img.SetDirection(img.GetDirection())
+                                mask_img.SetOrigin(new_origin)
+                                
+                                base_vol = controller.volumes[new_id]
+                                
+                                mask_vol = VolumeData.__new__(VolumeData)
+                                mask_vol.path = r_path
+                                mask_vol.file_paths = [r_path]
+                                mask_vol.name = r_state.get("name")
+                                mask_vol.sitk_image = mask_img
+                                mask_vol.data = binary_data
+                                mask_vol.matrix_display_str = base_vol.matrix_display_str
+                                mask_vol.matrix_tooltip_str = base_vol.matrix_tooltip_str
+                                mask_vol.read_image_metadata()
+                                mask_vol.last_mtime = mask_vol._get_latest_mtime()
+                                mask_vol._last_check_time = 0
+                                mask_vol._is_outdated = False
+                                
+                                controller.roi.process_binary_mask(base_vol, mask_vol, skip_initial_crop=is_pre_cropped)
+                                
+                                if mask_vol.data.size > 0:
+                                    with controller.roi._lock:
+                                        roi_id = str(controller.next_image_id)
+                                        controller.next_image_id += 1
+                                        controller.volumes[roi_id] = mask_vol
+                                        
+                                        roi_state = ROIState(
+                                            roi_id,
+                                            r_state.get("name"),
+                                            r_state.get("color", [255, 0, 0]),
+                                            source_mode=mode,
+                                            source_val=target_val
+                                        )
+                                        vs.rois[roi_id] = roi_state
+                                        vs.is_data_dirty = True
+                                        vs.is_geometry_dirty = True
+
+                    # --- SLOW PATH FALLBACK ---
+                    if roi_id is None:
+                        roi_id = controller.roi.load_binary_mask(
+                            new_id,
+                            r_path,
+                            name=r_state.get("name"),
+                            color=r_state.get("color", [255, 0, 0]),
+                            mode=mode,
+                            target_val=target_val,
+                            preloaded_sitk=cache_obj["img"] if cache_obj else None,
+                        )
 
                 # Apply restored states to the newly created ROI
-                latest_roi_id = list(vs.rois.keys())[-1]
-                vs.rois[latest_roi_id].opacity = r_state.get("opacity", 0.5)
-                vs.rois[latest_roi_id].visible = r_state.get("visible", True)
-                vs.rois[latest_roi_id].is_contour = r_state.get("is_contour", False)
-                vs.rois[latest_roi_id].thickness = r_state.get("thickness", 1.0)
+                if roi_id and roi_id in vs.rois:
+                    vs.rois[roi_id].opacity = r_state.get("opacity", 0.5)
+                    vs.rois[roi_id].visible = r_state.get("visible", True)
+                    vs.rois[roi_id].is_contour = r_state.get("is_contour", False)
+                    vs.rois[roi_id].thickness = r_state.get("thickness", 1.0)
             except Exception as e:
-                warnings.append(f"- Failed to load ROI {os.path.basename(r_path)}: {e}")
+                return f"- Failed to load ROI {os.path.basename(r_path)}: {e}"
+            return None
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(total_rois, 8)) as executor:
+            futures = [executor.submit(process_roi_task, task) for task in valid_rois_to_load]
+            
+            completed = 0
+            while completed < total_rois:
+                for i, future in enumerate(futures):
+                    if future is not None and future.done():
+                        err = future.result()
+                        if err:
+                            warnings.append(err)
+                            
+                        futures[i] = None
+                        completed += 1
+                        
+                        show_loading_modal(
+                            "Loading image...",
+                            f"Restoring ROIs ({completed}/{total_rois})",
+                            progress=(completed / total_rois),
+                        )
+                # Keep DearPyGui alive
+                yield
+                time.sleep(0.01)
 
     # --- PHASE 6: FINALIZE ---
     for new_id in id_map.values():

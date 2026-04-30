@@ -530,7 +530,7 @@ class VolumeData:
         )
 
         self.sitk_image = straighten_image(
-            raw_sitk_image, os.path.basename(self.file_paths[0])
+            raw_sitk_image, os.path.basename(self.file_paths[0]), is_label_map=is_roi
         )
         self.data = sitk.GetArrayViewFromImage(self.sitk_image)
 
