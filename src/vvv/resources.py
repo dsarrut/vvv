@@ -28,39 +28,57 @@ def load_fonts():
         else:
             main_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
+    # Check DPG version to avoid calling deprecated no-op functions in >= 2.3
+    is_legacy_dpg = False
+    try:
+        import dearpygui
+
+        v_str = getattr(
+            dearpygui,
+            "__version__",
+            dpg.get_app_configuration().get("version", "2.3.0"),
+        )
+        parts = v_str.split(".")
+        if int(parts[0]) < 2 or (int(parts[0]) == 2 and int(parts[1]) < 3):
+            is_legacy_dpg = True
+    except Exception:
+        is_legacy_dpg = True
+
     with dpg.font_registry():
         default_font = None
 
         # 1. Load the UI Text Font
         if os.path.exists(main_font_path):
             with dpg.font(main_font_path, 14) as font:
-                try:
-                    dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
-                except Exception:
-                    pass
+                if is_legacy_dpg:
+                    try:
+                        dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
+                    except Exception:
+                        pass
                 default_font = font
 
         # 2. Load the Icon Font
         if os.path.exists(icon_font_path):
             with dpg.font(icon_font_path, 14, tag="icon_font_tag"):
-                try:
-                    dpg.add_font_range(0xF00D, 0xF021)
-                    dpg.add_font_chars(
-                        [
-                            0xF0C5,
-                            0xF06E,
-                            0xF070,
-                            0xF05B,
-                            0xF07C,
-                            0xF0C7,
-                            0xF013,
-                            0xF059,
-                            0xF040,
-                        ]
-                    )
-                    dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
-                except Exception:
-                    pass
+                if is_legacy_dpg:
+                    try:
+                        dpg.add_font_range(0xF00D, 0xF021)
+                        dpg.add_font_chars(
+                            [
+                                0xF0C5,
+                                0xF06E,
+                                0xF070,
+                                0xF05B,
+                                0xF07C,
+                                0xF0C7,
+                                0xF013,
+                                0xF059,
+                                0xF040,
+                            ]
+                        )
+                        dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
+                    except Exception:
+                        pass
         else:
             print("ERROR: Icon font file not found! Buttons will show '?'.")
 
