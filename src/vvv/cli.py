@@ -26,12 +26,12 @@ def set_macos_dock_info(name, icon_path=None):
         pass
 
     try:
-        from Cocoa import (
-            NSApplication,
-            NSImage,
-            NSApplicationActivationPolicyRegular,
-            NSMenu,
-            NSMenuItem,
+        from Cocoa import (  # type: ignore
+            NSApplication,  # type: ignore
+            NSImage,  # type: ignore
+            NSApplicationActivationPolicyRegular,  # type: ignore
+            NSMenu,  # type: ignore
+            NSMenuItem,  # type: ignore
         )
 
         app = NSApplication.sharedApplication()
@@ -130,7 +130,7 @@ def parse_cli_arguments(datasets):
                         buf.append(item)
                     else:
                         # Check if the new file belongs to the same 4D sequence
-                        if size == ref_size and np.allclose(
+                        if size == ref_size and spacing is not None and ref_spacing is not None and np.allclose(
                             spacing, ref_spacing, atol=1e-3
                         ):
                             buf.append(item)
