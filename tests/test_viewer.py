@@ -59,6 +59,7 @@ def synthetic_4d_path(tmp_path_factory):
 def headless_app(synthetic_image_path):
     """Sets up the real application architecture without launching the render loop."""
     controller = Controller()
+    controller.use_history = False
     for tag in ["V1", "V2", "V3", "V4"]:
         controller.viewers[tag] = SliceViewer(tag, controller)
     gui = MainGUI(controller)
