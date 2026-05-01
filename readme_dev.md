@@ -17,6 +17,12 @@ The architecture follows a **Model-View-Controller (MVC)** pattern. To maintain 
     * **`VolumeData`:** The immutable source of truth for a loaded image. Manages the SimpleITK image, 4D stacking (`sitk.JoinSeries`), and the zero-copy NumPy array. Stores physical metadata and handles 3D spatial math (voxels to millimeters).
     * **`SliceRenderer`:** A stateless, optimized utility. It slices 3D/4D NumPy arrays, applies Window/Level transfer functions, processes overlay blending modes (like Alpha, Registration, and Checkerboard), and packs the final 1D RGBA arrays for the GPU.
 * **`core.py` (The Brain):** Manages the central `Controller` state. It holds the active `ViewStates` (camera, display settings) and orchestrates loading files, saving workspaces, and dispatching synchronization commands between viewers.
+* **The Domain Managers (`core/`):** The Controller delegates heavy lifting to specialized managers:
+    *   `FileManager`: Disk I/O, DICOM parsing, and Workspace serialization.
+    *   `SyncManager`: Cross-image spatial and radiometric synchronization.
+    *   `ROIManager`: Binarization, tight-cropping, stats math, and label map extraction.
+    *   `ExtractionManager`: Interactive pixel thresholding and new volume generation.
+    *   `HistoryManager`: An LRU cache (capped at 100) that remembers user preferences per file.
 
 ### 2. The View (`gui.py`, `viewer.py`, `ui/`)
 
@@ -25,9 +31,20 @@ The architecture follows a **Model-View-Controller (MVC)** pattern. To maintain 
 * **`gui.py` (The Window Manager):** Initializes the DearPyGui context, manages the global layout engine (`on_window_resize`), and runs the main render loop. It delegates tab building and specific business logic to the modular `ui_*.py` files.
 * **`viewer.py` (`SliceViewer`):** Represents a single 2D viewport. It maps screen pixels to physical coordinates, manages zooming/panning math, and acts as the bridge between DearPyGui's `drawlist` and the `SliceRenderer`. It also manages the advanced rendering pipeline for interpolations: standard **Linear**, true **Nearest Neighbor** (pixelated zoom achieved by dynamically matching the GPU texture to the exact screen canvas size), and **Voxel Strips** (bypassing textures entirely to render geometric primitives at massive zoom levels).
 * **The `ui/` Sub-modules:** To prevent `gui.py` from becoming a "God Object", specific domains are extracted into their own files:
-    * `ui_sync.py`, `ui_fusion.py`, `ui_roi.py`, `ui_image_list.py`: These build specific sidebar tabs and handle the callbacks for their respective inputs. Callbacks should modify the `ViewState` directly or set `controller.ui_needs_refresh = True` to trigger UI updates.
+    * `ui_sync.py`, `ui_fusion.py`, `ui_roi.py`, `ui_image_list.py`, `ui_extraction.py`, `ui_registration.py`: These build specific sidebar tabs and handle the callbacks for their respective inputs. Callbacks should modify the `ViewState` directly or set `controller.ui_needs_refresh = True` to trigger UI updates.
     * `ui_notifications.py`: The central hub for all popups, progress bars (`show_loading_modal`), and top-bar status text.
     * `ui_interaction.py`: Central router for mouse/keyboard events (`InteractionManager` and `NavigationTool`), translating raw inputs (like "Shift + Hover") into W/L or Pan commands.
+    * `ui_sequences.py`: Python generators that handle multi-threaded loading and long UI tasks (like booting workspaces) without freezing the 60FPS render loop.
+
+---
+
+## Concurrency and Thread Safety
+To keep the UI fluid (60 FPS) while loading large datasets, VVV uses Python Generators coupled with `concurrent.futures.ThreadPoolExecutor`.
+
+1. **The UI Thread:** DearPyGui runs strictly on the main thread.
+2. **Generators (`yield`):** Sequences in `ui_sequences.py` yield control back to the render loop, allowing the progress bar to redraw while waiting for C++ or Disk I/O.
+3. **Thread Safety:** Background threads must *never* touch UI elements (like `dpg.set_value`). Instead, they write to the immutable `VolumeData` and set `controller.ui_needs_refresh = True`.
+4. **The Dictionary Lock:** When mutating central Controller dictionaries (like adding a new ROI), background threads must acquire `controller.roi._lock` to prevent Python `RuntimeError: dictionary changed size during iteration` crashes in the main render loop.
 
 ---
 
