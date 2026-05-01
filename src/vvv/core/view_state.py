@@ -457,7 +457,15 @@ class ViewState:
             self.init_crosshair_to_slices()
 
         assert self.camera.crosshair_voxel is not None
-        vx, vy, vz = self.camera.crosshair_voxel[:3]
+        
+        # 1. Map current physical crosshair to the active display grid
+        _buf = self.base_display_data
+        dv = self.space.world_to_display(self.camera.crosshair_phys_coord, is_buffered=_buf is not None)
+        if dv is None:
+            return
+
+        # 2. Update the scrolling axis in display space
+        vx, vy, vz = dv[:3]
         if orientation == ViewMode.AXIAL:
             vz = new_slice_idx
         elif orientation == ViewMode.SAGITTAL:
@@ -465,18 +473,23 @@ class ViewState:
         elif orientation == ViewMode.CORONAL:
             vy = new_slice_idx
 
-        new_v = [vx, vy, vz, self.camera.time_idx]
-        self.camera.crosshair_voxel = new_v
+        # 3. Map new display-grid position to World Physical
+        new_dv = [vx, vy, vz]
+        new_phys = self.space.display_to_world(np.array(new_dv), is_buffered=_buf is not None)
+        if new_phys is None:
+            return
 
-        _buf = self.base_display_data
-        self.camera.crosshair_phys_coord = self.space.display_to_world(
-            np.array(new_v[:3]), _buf is not None
-        )
+        # 4. Neutralization: Map world back to Native Voxel Space for the central record
+        native_v: np.ndarray | None = self.space.world_to_display(new_phys, is_buffered=False)
+        if native_v is None:
+            return
+        self.camera.crosshair_voxel = [native_v[0], native_v[1], native_v[2], self.camera.time_idx]
+        self.camera.crosshair_phys_coord = new_phys
 
         ix, iy, iz = [
             int(np.clip(np.floor(c + 0.5), 0, limit - 1))
             for c, limit in zip(
-                new_v[:3],
+                native_v,
                 [self.volume.shape3d[2], self.volume.shape3d[1], self.volume.shape3d[0]],
             )
         ]
@@ -485,18 +498,24 @@ class ViewState:
     def update_crosshair_from_2d(self, slice_x, slice_y, slice_idx, orientation):
         shape = self.get_slice_shape(orientation)
         v = slice_to_voxel(slice_x, slice_y, slice_idx, orientation, shape)
-
-        self.camera.crosshair_voxel = [v[0], v[1], v[2], self.camera.time_idx]
-
+        
+        # Map display-grid voxel to absolute physical world
         _buf = self.base_display_data
-        self.camera.crosshair_phys_coord = self.space.display_to_world(
-            np.array(v[:3]), _buf is not None
-        )
+        phys = self.space.display_to_world(np.array(v[:3]), _buf is not None)
+        if phys is None:
+            return
+
+        # Neutralization: Convert back to the Native (straightened) array grid
+        native_v = self.space.world_to_display(phys, is_buffered=False)
+        if native_v is None: 
+            return
+        self.camera.crosshair_voxel = [native_v[0], native_v[1], native_v[2], self.camera.time_idx]
+        self.camera.crosshair_phys_coord = phys
 
         ix, iy, iz = [
             int(np.clip(np.floor(c + 0.5), 0, limit - 1))
             for c, limit in zip(
-                v,
+                native_v,
                 [self.volume.shape3d[2], self.volume.shape3d[1], self.volume.shape3d[0]],
             )
         ]

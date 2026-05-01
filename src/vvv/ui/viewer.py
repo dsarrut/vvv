@@ -191,7 +191,7 @@ class SliceViewer:
         self.axes_nodes: list[str] | None = None
         self.active_axes_idx = 0
 
-        self.drag_start_mouse: list[int] | tuple[int, ...] | None = None
+        self.drag_start_mouse: list[float] | tuple[float, ...] | list[int] | tuple[int, ...] | None = None
         self.drag_start_pan: list[float] | None = None
 
         # State-Only Sync Trackers
@@ -431,7 +431,7 @@ class SliceViewer:
         if self.texture_tag and self.texture_tag != new_texture_tag:
             # Aggressive cleanup: if an old texture was pending from a previous call but never bound,
             # move it to the list now to ensure it's processed in the next tick().
-            if self._old_texture_to_delete and self._old_texture_to_delete != self.texture_tag:
+            if self._old_texture_to_delete and self._old_texture_to_delete != self.texture_tag and self._old_texture_to_delete not in self._textures_to_delete:
                 self._textures_to_delete.append(self._old_texture_to_delete)
             self._old_texture_to_delete = self.texture_tag
 
@@ -1630,6 +1630,12 @@ class SliceViewer:
             is_buf = vs.base_display_data is not None
             v = vs.space.world_to_display(phys, is_buffered=is_buf)
 
+        # --- THE NEUTRALIZED SPATIAL ENGINE ---
+        # Even if we are viewing a rotated buffer, we consistently calculate the 'Native Voxel' 
+        # for reporting. This ensures tracker text and crosshair math remain resilient to 
+        # 'Straighten on Load' and manual registration offsets.
+        native_v = vs.space.world_to_display(phys, is_buffered=False) if phys is not None else None
+
         # --- The drawing logic remains exactly the same! ---
         col = self.controller.settings.data["colors"]["tracker_text"]
         dpg.configure_item(self.tracker_tag, color=col)
@@ -1643,13 +1649,13 @@ class SliceViewer:
             val = info["base_val"]
 
             if not is_external:
-                # This assertion helps Pylance understand that 'v' cannot be None
+                # This assertion helps Pylance understand that 'native_v' cannot be None
                 # in this branch, resolving the incorrect type warning.
-                assert v is not None
+                assert native_v is not None
 
                 self.mouse_value, self.mouse_voxel, self.mouse_phys_coord = (
                     val,
-                    [v[0], v[1], v[2], vs.camera.time_idx],
+                    [native_v[0], native_v[1], native_v[2], vs.camera.time_idx],
                     phys,
                 )
 
@@ -1684,16 +1690,16 @@ class SliceViewer:
             if is_external:
                 final_text = text_lines[0]
             else:
-                # This assertion helps Pylance understand that 'v' cannot be None
+                # This assertion helps Pylance understand that 'native_v' cannot be None
                 # in this branch, resolving the incorrect type warning.
-                assert v is not None
+                assert native_v is not None
 
                 if vol.num_timepoints > 1:
                     text_lines.append(
-                        f"{v[0]:.1f} {v[1]:.1f} {v[2]:.1f} {vs.camera.time_idx}"
+                        f"{native_v[0]:.1f} {native_v[1]:.1f} {native_v[2]:.1f} {vs.camera.time_idx}"
                     )
                 else:
-                    text_lines.append(fmt(v, 1))
+                    text_lines.append(fmt(native_v, 1))
 
                 text_lines.append(f"{fmt(phys, 1)} mm")
                 final_text = "\n".join(text_lines)
@@ -1844,11 +1850,12 @@ class SliceViewer:
         if not self.view_state:
             return
 
-        if self._shortcut_map is None:
+        s_map = self._shortcut_map
+        if s_map is None:
             return
 
         shortcuts = self.controller.settings.data["shortcuts"]
-        for action_name, action_func in self._shortcut_map.items():
+        for action_name, action_func in s_map.items():
             val = shortcuts.get(action_name)
 
             if val is None and action_name == "toggle_filename":
