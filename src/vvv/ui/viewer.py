@@ -1896,6 +1896,9 @@ class SliceViewer:
 
     def on_time_scroll(self, delta):
         vs = self.view_state
+        if vs is None:
+            return
+
         vol = self.volume
         if self.image_id is None or not vs or not vol:
             return
@@ -1907,7 +1910,8 @@ class SliceViewer:
         vs.camera.time_idx = (vs.camera.time_idx + delta) % nt
 
         # Update the crosshair's physical position based on the new time index
-        vs.update_crosshair_from_phys(vs.camera.crosshair_phys_coord)
+        if vs.camera.crosshair_phys_coord is not None:
+            vs.update_crosshair_from_phys(vs.camera.crosshair_phys_coord)
         self.controller.sync.propagate_sync(self.image_id)
         vs.is_data_dirty = True
 
