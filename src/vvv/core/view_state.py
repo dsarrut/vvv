@@ -41,9 +41,9 @@ class CameraState:
             ViewMode.CORONAL: 1.0,
         }
         self.pan = {
-            ViewMode.AXIAL: [0, 0],
-            ViewMode.SAGITTAL: [0, 0],
-            ViewMode.CORONAL: [0, 0],
+            ViewMode.AXIAL: [0.0, 0.0],
+            ViewMode.SAGITTAL: [0.0, 0.0],
+            ViewMode.CORONAL: [0.0, 0.0],
         }
         self.slices = {
             ViewMode.AXIAL: volume.shape3d[0] // 2,
@@ -471,9 +471,9 @@ class ViewState:
             ViewMode.CORONAL: 1.0,
         }
         self.camera.pan = {
-            ViewMode.AXIAL: [0, 0],
-            ViewMode.SAGITTAL: [0, 0],
-            ViewMode.CORONAL: [0, 0],
+            ViewMode.AXIAL: [0.0, 0.0],
+            ViewMode.SAGITTAL: [0.0, 0.0],
+            ViewMode.CORONAL: [0.0, 0.0],
         }
         self.camera.slices = {
             ViewMode.AXIAL: self.volume.shape3d[0] // 2,
