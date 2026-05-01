@@ -722,6 +722,84 @@ class SliceViewer:
         vs.camera.show_contour = new_state
         vs.is_data_dirty = True
 
+    # --- ATOMIC CAMERA SYNC HELPERS ---
+    def _ensure_mapper_consistency(self):
+        """
+        Atomically update mapper bounds to match current zoom/pan state.
+        Must be called before any physical coordinate conversions to prevent jitter.
+        """
+        vs = self.view_state
+        vol = self.volume
+        if not vs or not vol or not self.is_image_orientation():
+            return
+
+        win_w = dpg.get_item_width(f"win_{self.tag}")
+        win_h = dpg.get_item_height(f"win_{self.tag}")
+        if not win_w or not win_h:
+            return
+
+        layout = self.controller.gui.ui_cfg["layout"]
+        pad = layout.get("viewport_padding", 4) * 2
+        canvas_w = int(max(1, win_w - pad))
+        canvas_h = int(max(1, win_h - pad))
+
+        sw, sh = vol.get_physical_aspect_ratio(self.orientation)
+        shape = self.get_slice_shape()
+        real_h, real_w = shape[0], shape[1]
+
+        self.mapper.update(
+            canvas_w,
+            canvas_h,
+            real_w,
+            real_h,
+            sw,
+            sh,
+            self.zoom,
+            self.pan_offset,
+        )
+
+    def _capture_camera_state_atomic(self):
+        """
+        Capture current pixels_per_mm and center_physical_coord atomically.
+        Must be called AFTER _ensure_mapper_consistency() to prevent jitter.
+        Returns (ppm, center) or (None, None) on failure.
+        """
+        self._ensure_mapper_consistency()
+
+        ppm = self.get_pixels_per_mm()
+        center = self.get_center_physical_coord()
+
+        return ppm, center
+
+    def _apply_zoom_and_pan_atomic(self, new_zoom, pan_delta_x, pan_delta_y):
+        """
+        Atomically apply zoom and pan changes.
+        This ensures mapper is consistent before propagating to other viewers.
+        Updates last_consumed_* to prevent self-snapping.
+        Returns True if successful.
+        """
+        vs = self.view_state
+        if not vs:
+            return False
+
+        # Apply zoom and pan
+        self.zoom = new_zoom
+        self.pan_offset[0] += pan_delta_x
+        self.pan_offset[1] += pan_delta_y
+
+        self.is_geometry_dirty = True
+
+        # Capture state AFTER zoom/pan but WITH consistent mapper
+        ppm, center = self._capture_camera_state_atomic()
+
+        # Update tracking ONLY AFTER consistent capture
+        if ppm is not None:
+            self.last_consumed_ppm = ppm
+        if center is not None:
+            self.last_consumed_center = list(center)
+
+        return True
+
     def tick(self):
         # Safely clean up textures from the previous frame
         if self._textures_to_delete:
@@ -788,6 +866,7 @@ class SliceViewer:
             self.is_viewer_data_dirty = True
 
         # --- 2. CAMERA SYNC MATH ---
+        # Apply any pending sync changes, then atomically capture state
         vs_ppm: float | None = vs.camera.target_ppm
         vs_center: list | tuple | np.ndarray | None = vs.camera.target_center
 
@@ -809,14 +888,21 @@ class SliceViewer:
                 )
 
         if ppm_changed or center_changed:
+            # Apply sync changes
             if ppm_changed and vs_ppm is not None:
                 self.set_pixels_per_mm(vs_ppm)
-                self.last_consumed_ppm = vs_ppm
             if center_changed and vs_center is not None:
                 self.center_on_physical_coord(vs_center)
-                self.last_consumed_center = list(vs_center)
             self.needs_recenter = False
             self.is_geometry_dirty = True
+
+            # Atomically capture state AFTER all sync changes are applied
+            # This ensures mapper consistency and prevents sub-pixel jitter
+            captured_ppm, captured_center = self._capture_camera_state_atomic()
+            if captured_ppm is not None:
+                self.last_consumed_ppm = captured_ppm
+            if captured_center is not None:
+                self.last_consumed_center = list(captured_center)
 
         # --- 3. PRE-CALCULATE PERFECT BOUNDS ---
         if rebuild_texture or self.needs_recenter or self.is_geometry_dirty:
@@ -1820,12 +1906,12 @@ class SliceViewer:
             if self.drag_start_pan is not None:
                 self.pan_offset[0] = self.drag_start_pan[0] + total_dx
                 self.pan_offset[1] = self.drag_start_pan[1] + total_dy
-            self.is_geometry_dirty = True
+            
+            # Atomically update with consistent mapper state
+            self._apply_zoom_and_pan_atomic(self.zoom, 0.0, 0.0)
+            
+            # Propagate with consistent mapper state
             self.controller.sync.propagate_camera(self)
-            # Prevent self-snapping
-            cent = self.get_center_physical_coord()
-            if cent is not None:
-                self.last_consumed_center = list(cent)
 
     def on_zoom(self, direction):
         vs = self.view_state
@@ -1844,17 +1930,12 @@ class SliceViewer:
         new_zoom = max(
             1e-5, self.zoom * (speed if direction == "in" else (1.0 / speed))
         )
-        self.zoom = new_zoom
 
-        dx, dy = self.mapper.calculate_zoom_pan_delta(mx + 0.5, my + 0.5, oz, self.zoom)
-        self.pan_offset[0] += dx
-        self.pan_offset[1] += dy
+        # Calculate pan delta before zoom to preserve zoom center
+        dx, dy = self.mapper.calculate_zoom_pan_delta(mx + 0.5, my + 0.5, oz, new_zoom)
 
-        self.is_geometry_dirty = True
+        # Atomically apply zoom + pan with mapper consistency
+        self._apply_zoom_and_pan_atomic(new_zoom, dx, dy)
+
+        # Propagate with consistent mapper state
         self.controller.sync.propagate_camera(self)
-
-        # Prevent self-snapping
-        self.last_consumed_ppm = self.get_pixels_per_mm()
-        cent = self.get_center_physical_coord()
-        if cent is not None:
-            self.last_consumed_center = list(cent)
