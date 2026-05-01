@@ -935,6 +935,10 @@ class SliceViewer:
                 return
             ov_vol = self.controller.volumes[vs.display.overlay_id]
             is_ov_rgb = getattr(ov_vol, "is_rgb", False)
+            is_ov_dvf = getattr(ov_vol, "is_dvf", False)
+            # Only skip if RGB but not DVF
+            if is_ov_rgb and not is_ov_dvf:
+                return
             ov_time_idx = min(vs.camera.time_idx, ov_vol.num_timepoints - 1)
             slice_data = SliceRenderer.extract_slice(
                 vs.display.overlay_data,
@@ -944,7 +948,10 @@ class SliceViewer:
                 self.orientation,
             )
         else:
-            if getattr(vol, "is_rgb", False):
+            is_rgb = getattr(vol, "is_rgb", False)
+            is_dvf = getattr(vol, "is_dvf", False)
+            # Only skip if RGB but not DVF
+            if is_rgb and not is_dvf:
                 return
 
             # Make sure Auto-Window reads from the transformed buffer too!
@@ -956,7 +963,7 @@ class SliceViewer:
 
             slice_data = SliceRenderer.get_raw_slice(
                 display_data,
-                getattr(vol, "is_rgb", False),
+                is_rgb,
                 vs.camera.time_idx,
                 self.slice_idx,
                 self.orientation,
@@ -979,6 +986,18 @@ class SliceViewer:
             return
 
         patch = slice_data[y0:y1, x0:x1]
+
+        # For DVF (Displacement Vector Fields), compute magnitude from vector components
+        if target == "base":
+            is_dvf = getattr(vol, "is_dvf", False)
+        else:
+            ov_vol = self.controller.volumes.get(vs.display.overlay_id)
+            is_dvf = getattr(ov_vol, "is_dvf", False) if ov_vol else False
+
+        if is_dvf and patch.ndim == 3 and patch.shape[-1] == 3:
+            # DVF patch has shape (h, w, 3) with [dx, dy, dz] components
+            # Compute the norm (magnitude) of each vector
+            patch = np.linalg.norm(patch, axis=-1)
 
         if target == "overlay":
             ovs = self.controller.view_states.get(vs.display.overlay_id)
