@@ -1,3 +1,4 @@
+import time
 import numpy as np
 from vvv.utils import ViewMode, slice_to_voxel, voxel_to_slice, fmt
 import dearpygui.dearpygui as dpg
@@ -196,6 +197,10 @@ class SliceViewer:
         # State-Only Sync Trackers
         self.last_consumed_ppm: float | None = None
         self.last_consumed_center: list[float] | None = None
+
+        # Optimization for interactive resizing
+        self._last_size_change_time = 0.0
+        self._resize_debounce_delay = 0.1  # 100ms
 
         # Sub-modules
         self.drawer = OverlayDrawer(self)
@@ -424,6 +429,10 @@ class SliceViewer:
 
         # Store the old texture for safe deletion in the binding phase
         if self.texture_tag and self.texture_tag != new_texture_tag:
+            # Aggressive cleanup: if an old texture was pending from a previous call but never bound,
+            # move it to the list now to ensure it's processed in the next tick().
+            if self._old_texture_to_delete and self._old_texture_to_delete != self.texture_tag:
+                self._textures_to_delete.append(self._old_texture_to_delete)
             self._old_texture_to_delete = self.texture_tag
 
         if not dpg.does_item_exist(new_texture_tag):
@@ -801,9 +810,10 @@ class SliceViewer:
         return True
 
     def tick(self):
-        # Safely clean up textures from the previous frame
+        # Aggressive texture cleanup at the start of the frame to keep VRAM overhead minimal.
+        # This is the safest point to call dpg.delete_item as no draw commands have been issued yet.
         if self._textures_to_delete:
-            for tex in self._textures_to_delete:
+            for tex in list(self._textures_to_delete):
                 if dpg.does_item_exist(tex):
                     dpg.delete_item(tex)
             self._textures_to_delete.clear()
@@ -841,6 +851,22 @@ class SliceViewer:
         pixelated = vs.display.pixelated_zoom
         pixelated_changed = pixelated != self.last_pixelated
 
+        # Optimization: Debounce texture creation during window resizing.
+        # This prevents OpenGL driver stutter and VRAM spikes during corner drags.
+        if size_changed:
+            self._last_size_change_time = time.time()
+        
+        is_still_resizing = (time.time() - self._last_size_change_time) < self._resize_debounce_delay
+
+        # Catch-up: if resizing stopped, ensure we rebuild for the final dimensions
+        catch_up_pixelated = False
+        if pixelated and not is_still_resizing:
+            layout = self.controller.gui.ui_cfg["layout"]
+            pad = layout.get("viewport_padding", 4) * 2
+            target_w, target_h = int(max(1, win_w - pad)), int(max(1, win_h - pad))
+            if self.texture_tag != f"tex_{self.tag}_{target_w}x{target_h}":
+                catch_up_pixelated = True
+
         # If pixelated zoom is active, size_changed MUST trigger a texture rebuild
         # because the texture dimension literally matches the screen dimension.
         rebuild_texture = (
@@ -848,7 +874,8 @@ class SliceViewer:
             or orientation_changed
             or shape_changed
             or pixelated_changed
-            or (pixelated and size_changed)
+            or (pixelated and size_changed and not is_still_resizing)
+            or catch_up_pixelated
         )
 
         if size_changed:
