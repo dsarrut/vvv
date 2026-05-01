@@ -692,7 +692,6 @@ class MainGUI:
                     "check_interpolation",
                     "check_show_contour",
                     "btn_roi_load",
-                    "combo_roi_type",
                     "combo_roi_mode",
                     "input_roi_val",
                 ],
@@ -703,6 +702,7 @@ class MainGUI:
                     "btn_roi_show_all",
                     "btn_roi_contour_all",
                     "btn_roi_hide_all",
+                    "btn_roi_close_all",
                     "btn_roi_export_stats",
                     "slider_roi_global_opacity",
                     "slider_roi_global_thickness",
@@ -963,6 +963,7 @@ class MainGUI:
             # --- Size the Nav Column ---
             if dpg.does_item_exist("nav_panel"):
                 dpg.set_item_height("nav_panel", l_h)
+                dpg.set_item_width("nav_panel", nav_w)
 
                 if dpg.does_item_exist("nav_top_group"):
                     dpg.set_item_pos("nav_top_group", [4, 1])  # 1px perfect nudge down
@@ -1087,18 +1088,8 @@ class MainGUI:
             return
         vs = viewer.view_state
 
-        if user_data == "axis":
-            vs.camera.show_axis = value
-        elif user_data == "grid":
-            vs.camera.show_grid = value
-        elif user_data == "tracker":
-            vs.camera.show_tracker = value
-        elif user_data == "crosshair":
-            vs.camera.show_crosshair = value
-        elif user_data == "scalebar":
-            vs.camera.show_scalebar = value
-        elif user_data == "legend":
-            vs.camera.show_legend = value
+        if user_data in ("axis", "grid", "tracker", "crosshair", "scalebar", "legend"):
+            setattr(vs.camera, f"show_{user_data}", value)
         elif user_data == "filename":
             current = getattr(vs.camera, "show_filename", 0)
             vs.camera.show_filename = (current + 1) % 3

@@ -4,6 +4,58 @@ from vvv.config import ROI_COLORS
 from vvv.ui.ui_notifications import show_loading_modal, hide_loading_modal
 
 
+def _apply_default_layout(gui, controller, img_id):
+    target_tag = gui.context_viewer.tag if gui.context_viewer else "V1"
+    controller.layout[target_tag] = img_id
+
+    target_viewer = controller.viewers[target_tag]
+    target_viewer.set_orientation(
+        controller.view_states[img_id].camera.last_orientation
+    )
+
+    if None in controller.layout.values():
+        controller.default_viewers_orientation()
+        for tag, current_id in controller.layout.items():
+            if current_id is None:
+                controller.layout[tag] = img_id
+
+    same_image_viewers = [
+        v.tag for v in controller.viewers.values() if v.image_id == img_id
+    ]
+    if same_image_viewers:
+        controller.sync.propagate_ppm(same_image_viewers)
+
+    gui.set_context_viewer(target_viewer)
+    controller.ui_needs_refresh = True
+
+
+def _handle_warnings_and_cleanup(gui, warnings, title, message):
+    if dpg.does_item_exist("loading_modal"):
+        dpg.delete_item("loading_modal")
+    yield
+    if warnings:
+        gui.show_message(title, f"{message}\n\n" + "\n".join(warnings))
+        while dpg.does_item_exist("generic_message_modal"):
+            yield
+
+
+def _compute_label_bboxes(img, labels=None):
+    import SimpleITK as sitk
+    bboxes = {}
+    try:
+        stats = sitk.LabelShapeStatisticsImageFilter()
+        cast_img = sitk.Cast(img, sitk.sitkUInt32)
+        stats.Execute(cast_img)
+        target_labels = labels if labels is not None else stats.GetLabels()
+        for val in target_labels:
+            val_int = int(val)
+            if stats.HasLabel(val_int):
+                bboxes[val_int] = stats.GetBoundingBox(val_int)
+    except Exception:
+        pass
+    return bboxes
+
+
 def load_single_image_sequence(gui, controller, file_path):
     import os
     import time
@@ -52,34 +104,8 @@ def load_single_image_sequence(gui, controller, file_path):
     )
     yield
 
-    target_tag = gui.context_viewer.tag if gui.context_viewer else "V1"
-    controller.layout[target_tag] = img_id
-
-    target_viewer = controller.viewers[target_tag]
-    target_viewer.set_orientation(
-        controller.view_states[img_id].camera.last_orientation
-    )
-
-    if None in controller.layout.values():
-        controller.default_viewers_orientation()
-        for tag, current_id in controller.layout.items():
-            if current_id is None:
-                controller.layout[tag] = img_id
-
-    same_image_viewers = [
-        v.tag for v in controller.viewers.values() if v.image_id == img_id
-    ]
-    if same_image_viewers:
-        controller.sync.propagate_ppm(same_image_viewers)
-
-    gui.set_context_viewer(target_viewer)
-    controller.ui_needs_refresh = True
-
-    if dpg.does_item_exist("loading_modal"):
-        dpg.delete_item("loading_modal")
-    yield
-
-    hide_loading_modal()
+    _apply_default_layout(gui, controller, img_id)
+    yield from _handle_warnings_and_cleanup(gui, [], "", "")
 
 
 def load_batch_images_sequence(gui, controller, file_paths):
@@ -91,7 +117,9 @@ def load_batch_images_sequence(gui, controller, file_paths):
 
     display_name = f"Loading {total_files} images..."
     show_loading_modal("Loading image...", display_name)
-    yield
+    # Yield multiple times to guarantee the OS paints the window
+    for _ in range(3):
+        yield
 
     loaded_ids = []
     clean_paths = []
@@ -135,36 +163,9 @@ def load_batch_images_sequence(gui, controller, file_paths):
     yield
 
     if loaded_ids:
-        target_tag = gui.context_viewer.tag if gui.context_viewer else "V1"
-        controller.layout[target_tag] = loaded_ids[0]
+        _apply_default_layout(gui, controller, loaded_ids[0])
 
-        target_viewer = controller.viewers[target_tag]
-        target_viewer.set_orientation(
-            controller.view_states[loaded_ids[0]].camera.last_orientation
-        )
-
-        if None in controller.layout.values():
-            controller.default_viewers_orientation()
-            for tag, current_id in controller.layout.items():
-                if current_id is None:
-                    controller.layout[tag] = loaded_ids[0]
-
-        gui.set_context_viewer(target_viewer)
-        controller.ui_needs_refresh = True
-
-    if dpg.does_item_exist("loading_modal"):
-        dpg.delete_item("loading_modal")
-    yield
-
-    if warnings:
-        gui.show_message(
-            "Image Load Warning",
-            "Some images failed to load:\n\n" + "\n".join(warnings),
-        )
-        while dpg.does_item_exist("generic_message_modal"):
-            yield
-
-    hide_loading_modal()
+    yield from _handle_warnings_and_cleanup(gui, warnings, "Image Load Warning", "Some images failed to load:")
 
 
 def load_batch_rois_sequence(
@@ -189,10 +190,9 @@ def load_batch_rois_sequence(
     warnings = []
     show_loading_modal("Loading ROIs...", f"Preparing {total_files} file(s)...")
 
-    vp_width = max(dpg.get_viewport_client_width(), 800)
-    vp_height = max(dpg.get_viewport_client_height(), 600)
-    dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
-    yield
+    # Yield multiple times to guarantee the OS paints the window
+    for _ in range(3):
+        yield
 
     vs = controller.view_states[base_image_id]
     color_idx = len(vs.rois)
@@ -224,10 +224,7 @@ def load_batch_rois_sequence(
                 )
                 color_idx += 1
             elif roi_type == "Label Map":
-                loaded_count = controller.roi.load_label_map(
-                    base_image_id, path, color_idx
-                )
-                color_idx += loaded_count
+                pass  # This is now handled by load_label_map_sequence
         except Exception as e:
             warnings.append(f"- {filename}: {e}")
 
@@ -241,17 +238,264 @@ def load_batch_rois_sequence(
     controller.ui_needs_refresh = True
     controller.update_all_viewers_of_image(base_image_id)
 
-    # Let the helper cleanly destroy the modal
-    hide_loading_modal()
+    yield from _handle_warnings_and_cleanup(gui, warnings, "ROI Import Warning", "Some ROIs were skipped:")
+
+
+def _rasterize_and_load_labels(
+    gui, controller, base_image_id, filepath, unique_labels, label_dict
+):
+    """
+    [REUSABLE_WORKER]
+    The core, multithreaded engine for rasterizing a label map.
+    Called by both the interactive loader and the workspace loader.
+    """
+    import time
+    import concurrent.futures
+    import numpy as np
+    import SimpleITK as sitk
+    from vvv.maths.image import VolumeData
+    from vvv.core.roi_manager import ROIState
+    from vvv.config import ROI_COLORS
+
+    vs = controller.view_states[base_image_id]
+    base_vol = controller.volumes[base_image_id]
+    total_lbls = len(unique_labels)
+    base_name = controller.roi._clean_roi_name(filepath)
+
+    # --- Read the full image ONCE ---
+    img = sitk.ReadImage(filepath)
+    data = sitk.GetArrayViewFromImage(img)
+
+    # --- PRE-EXTRACT BOUNDING BOXES FOR THREAD SAFETY ---
+    bboxes = _compute_label_bboxes(img, unique_labels)
+
+    def _process_label(val_int, custom_name, color, bbox):
+        return controller.roi.extract_label_from_image(
+            base_image_id, filepath, img, data, val_int, custom_name, color, bbox
+        )
+
+    # --- PARALLEL PROCESSING ---
+    with vs.loading_shield():
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(total_lbls, 8)
+        ) as executor:
+            futures = []
+            for i, val in enumerate(unique_labels, 1):
+                val_int = int(val)
+                custom_name = label_dict.get(val_int, f"{base_name} - Lbl {val_int}")
+                color = ROI_COLORS[(val_int - 1) % len(ROI_COLORS)]
+                bbox = bboxes.get(val_int)
+                futures.append(
+                    executor.submit(_process_label, val_int, custom_name, color, bbox)
+                )
+
+            # This is a generator that yields results as they complete
+            for future in concurrent.futures.as_completed(futures):
+                yield future.result()
+
+
+def load_label_map_sequence(gui, controller, base_image_id, filepath):
+    import os
+    import json
+    import time
+    import numpy as np
+    import SimpleITK as sitk
+    from vvv.maths.image import VolumeData
+    from vvv.core.roi_manager import ROIState
+    from vvv.config import ROI_COLORS
+
+    if isinstance(filepath, (list, tuple)):
+        filepath = filepath[0]
+
+    if not isinstance(filepath, str) or not os.path.exists(filepath):
+        gui.show_status_message("Invalid label map file.", color=[255, 100, 100])
+        return
+
+    # Give DearPyGui 3 frames to clear any previous modals
+    for _ in range(3):
+        yield
+
+    show_loading_modal(
+        "Loading Label Map...", f"Reading file:\n{os.path.basename(filepath)}"
+    )
+    # Yield multiple times to guarantee the OS paints the window
+    # before the main thread gets blocked by sitk.ReadImage!
+    for _ in range(3):
+        yield
+
+    time.sleep(0.3)  # Artificial delay so the user actually sees the modal!
+
+    # 1. Get unique labels
+    try:
+        img = sitk.ReadImage(filepath)
+        data = sitk.GetArrayViewFromImage(img)
+        unique_labels = np.unique(data)
+        unique_labels = unique_labels[unique_labels != 0]
+    except Exception as e:
+        hide_loading_modal()
+        yield
+        gui.show_message("Error", f"Failed to read label map:\n{e}")
+        return
+
+    if len(unique_labels) == 0:
+        hide_loading_modal()
+        yield
+        gui.show_message(
+            "No Labels Found", "The selected image contains no non-zero labels."
+        )
+        return
+
+    # 2. Confirmation dialog
+    if len(unique_labels) > 200:
+        hide_loading_modal()
+        yield
+
+        modal_tag = "label_map_confirm_modal"
+        confirmed = [False]  # Use a list to be mutable inside closures
+
+        def on_confirm(s, a, u):
+            u[0] = True
+            dpg.delete_item(modal_tag)
+
+        def on_cancel(s, a, u):
+            dpg.delete_item(modal_tag)
+
+        with dpg.window(
+            tag=modal_tag,
+            modal=True,
+            show=True,
+            label="Large Number of Labels",
+            no_collapse=True,
+            width=450,
+        ):
+            dpg.add_text(f"This image contains {len(unique_labels)} unique labels.")
+            dpg.add_text(
+                "Loading them all may take some time. Do you want to continue?"
+            )
+            dpg.add_spacer(height=10)
+            with dpg.group(horizontal=True):
+                dpg.add_spacer(width=100)
+                dpg.add_button(
+                    label="Continue",
+                    width=100,
+                    callback=on_confirm,
+                    user_data=confirmed,
+                )
+                dpg.add_button(label="Cancel", width=100, callback=on_cancel)
+
+        # Wait for user input
+        while dpg.does_item_exist(modal_tag):
+            yield
+
+        if not confirmed[0]:
+            return
+
+        # Let DPG completely destroy the confirm modal before spawning the loading modal!
+        for _ in range(3):
+            yield
+
+    # 3. Load each label as a separate ROI
+    vs = controller.view_states[base_image_id]
+    total_lbls = len(unique_labels)
+
+    # Re-initialize the loading modal safely
+    show_loading_modal("Loading Label Map...", f"Processing {total_lbls} labels...")
+    for _ in range(3):
+        yield
+
+    # Attempt to load sidecar JSON for label names
+    if filepath.lower().endswith(".nii.gz"):
+        json_path = filepath[:-7] + ".json"
+    else:
+        json_path = os.path.splitext(filepath)[0] + ".json"
+
+    label_dict = {}
+    if os.path.exists(json_path):
+        try:
+            import json
+
+            with open(json_path, "r") as f:
+                raw_dict = json.load(f)
+                label_dict = {int(k): str(v) for k, v in raw_dict.items()}
+        except Exception as e:
+            print(f"Warning: Failed to parse {json_path}: {e}")
+
+    completed = 0
+    for roi_id in _rasterize_and_load_labels(
+        gui, controller, base_image_id, filepath, unique_labels, label_dict
+    ):
+        completed += 1
+
+        show_loading_modal(
+            "Loading Label Map...",
+            f"Rasterizing Labels ({completed}/{total_lbls})...",
+            progress=(completed / total_lbls),
+        )
+        yield
+
+    # Finalize
+    yield from _handle_warnings_and_cleanup(gui, [], "", "")
+
+    if vs.rois:
+        gui.active_roi_id = list(vs.rois.keys())[-1]
+
+    vs.is_data_dirty = True
+    vs.is_geometry_dirty = True
+
+    controller.ui_needs_refresh = True
+    controller.update_all_viewers_of_image(base_image_id)
+
+
+def load_rtstruct_sequence(gui, controller, base_image_id, filepath, selected_rois):
+    import os
+
+    # Give DearPyGui 3 frames to completely destroy the selection modal
+    # before we attempt to open the loading modal. Otherwise, DPG swallows it!
+    for _ in range(3):
+        yield
+
+    total_rois = len(selected_rois)
+    show_loading_modal("Loading RT-Struct...", f"Preparing {total_rois} ROI(s)...")
+
     yield
 
-    # 4. Display warnings safely after the loading modal is gone
-    if warnings:
-        gui.show_message(
-            "ROI Import Warning", "Some ROIs were skipped:\n\n" + "\n".join(warnings)
+    warnings = []
+    vs = controller.view_states[base_image_id]
+
+    try:
+        import pydicom
+
+        ds = pydicom.dcmread(filepath, force=True)
+    except Exception as e:
+        hide_loading_modal()
+        yield
+        gui.show_message("Error", f"Failed to read DICOM:\n{e}")
+        return
+
+    for i, r_info in enumerate(selected_rois, 1):
+        name = r_info.get("name", "Unknown")
+        show_loading_modal(
+            "Loading RT-Struct...",
+            f"Rasterizing ROI ({i}/{total_rois}):\n{name}",
+            progress=((i - 1) / total_rois),
         )
-        while dpg.does_item_exist("generic_message_modal"):
-            yield
+        yield  # Flush UI to screen
+
+        try:
+            controller.roi.load_rtstruct_roi(base_image_id, filepath, r_info, ds=ds)
+        except Exception as e:
+            warnings.append(f"- {name}: {e}")
+
+    show_loading_modal("Loading RT-Struct...", "Applying changes...", progress=1.0)
+    yield
+
+    if vs.rois:
+        gui.active_roi_id = list(vs.rois.keys())[-1]
+
+    controller.ui_needs_refresh = True
+    controller.update_all_viewers_of_image(base_image_id)
+
+    yield from _handle_warnings_and_cleanup(gui, warnings, "RT-Struct Import Warning", "Some ROIs failed to load:")
 
 
 def load_workspace_sequence(gui, controller, filepath):
@@ -270,11 +514,6 @@ def load_workspace_sequence(gui, controller, filepath):
 
     display_name = "Reading Workspace Data..."
     show_loading_modal("Loading image...", display_name)
-
-    vp_width = max(dpg.get_viewport_client_width(), 800)
-    vp_height = max(dpg.get_viewport_client_height(), 600)
-    dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
-    yield
 
     warnings = []
 
@@ -353,6 +592,10 @@ def load_workspace_sequence(gui, controller, filepath):
                     vs.extraction.from_dict(img_data["extraction"])
                 vs.sync_group = img_data.get("sync_group", 0)
 
+                if hasattr(gui, "roi_ui"):
+                    gui.roi_ui.roi_filters[new_id] = img_data.get("roi_filter", "")
+                    gui.roi_ui.roi_sort_orders[new_id] = img_data.get("roi_sort_order", 0)
+
                 # Apply Overlays immediately since they are already loaded in RAM
                 ov_info = img_data.get("overlay")
                 if ov_info:
@@ -386,7 +629,7 @@ def load_workspace_sequence(gui, controller, filepath):
 
     show_loading_modal("Loading image...", "Restoring ROIs...")
 
-    # --- PHASE 5: RESTORE ROIs (Synchronous since there's fewer of them and already cropped) ---
+    # --- PHASE 5: RESTORE ROIs (Parallelized to quickly load large label maps) ---
     # 1. Gather all valid ROIs first to calculate total progress
     valid_rois_to_load = []
     for old_id, img_data in ws.get("images", {}).items():
@@ -412,39 +655,162 @@ def load_workspace_sequence(gui, controller, filepath):
         show_loading_modal("Loading image...", "Restoring ROIs...")
         yield
     else:
-        # 2. Iterate and update the progress bar for each ROI
-        for i, roi_task in enumerate(valid_rois_to_load, 1):
-            show_loading_modal(
-                "Loading image...",
-                f"Restoring ROIs ({i}/{total_rois})",
-                progress=(i / total_rois),
-            )
-            # MAGIC: Let DearPyGui render a frame to update the progress bar!
-            yield
+        from collections import defaultdict
+        import SimpleITK as sitk
 
-            new_id = roi_task["new_id"]
-            r_path = roi_task["path"]
-            r_state = roi_task["state"]
-            vs = controller.view_states[new_id]
+        tasks_by_path = defaultdict(list)
+        for task in valid_rois_to_load:
+            tasks_by_path[task["path"]].append(task)
 
-            try:
-                controller.roi.load_binary_mask(
-                    new_id,
-                    r_path,
-                    name=r_state.get("name"),
-                    color=r_state.get("color", [255, 0, 0]),
-                    mode=r_state.get("source_mode", "Ignore BG (val)"),
-                    target_val=r_state.get("source_val", 0.0),
-                )
-                # Apply restored states to the newly created ROI
-                latest_roi_id = list(vs.rois.keys())[-1]
-                vs.rois[latest_roi_id].opacity = r_state.get("opacity", 0.5)
-                vs.rois[latest_roi_id].visible = r_state.get("visible", True)
-                vs.rois[latest_roi_id].is_contour = r_state.get("is_contour", False)
-            except Exception as e:
-                warnings.append(f"- Failed to load ROI {os.path.basename(r_path)}: {e}")
+        def process_file_group(r_path, tasks):
+            results = []
+            is_rtstruct = any(t["state"].get("rtstruct_info") for t in tasks)
+
+            if is_rtstruct:
+                try:
+                    import pydicom
+                    ds = pydicom.dcmread(r_path, force=True)
+                    for task in tasks:
+                        try:
+                            roi_id = controller.roi.load_rtstruct_roi(
+                                task["new_id"],
+                                r_path,
+                                task["state"]["rtstruct_info"],
+                                ds=ds,
+                            )
+                            results.append((task, roi_id, None))
+                        except Exception as e:
+                            results.append((task, None, f"- Failed to load {task['state'].get('name')}: {e}"))
+                except Exception as e:
+                    for task in tasks:
+                        results.append((task, None, f"- Failed to read {os.path.basename(r_path)}: {e}"))
+            else:
+                try:
+                    img = sitk.ReadImage(r_path)
+                    data = sitk.GetArrayViewFromImage(img)
+                    bboxes = None
+
+                    # Fast-path: Only compute heavy bboxes if a label map extraction is actually requested!
+                    if any(t["state"].get("source_mode") == "Target FG (val)" for t in tasks):
+                        bboxes = _compute_label_bboxes(img)
+
+                    for task in tasks:
+                        mode = task["state"].get("source_mode", "Ignore BG (val)")
+                        target_val = task["state"].get("source_val", 0.0)
+                        roi_id = None
+                        err = None
+
+                        try:
+                            # --- FAST PATH FOR LABEL MAPS ---
+                            if mode == "Target FG (val)" and bboxes is not None:
+                                val_int = int(target_val)
+                                if float(val_int) == target_val:
+                                    roi_id = controller.roi.extract_label_from_image(
+                                        task["new_id"],
+                                        r_path,
+                                        img,
+                                        data,
+                                        val_int,
+                                        task["state"].get("name"),
+                                        task["state"].get("color", [255, 0, 0]),
+                                        bboxes.get(val_int),
+                                    )
+
+                            # --- SLOW PATH FALLBACK ---
+                            if roi_id is None:
+                                roi_id = controller.roi.load_binary_mask(
+                                    task["new_id"],
+                                    r_path,
+                                    name=task["state"].get("name"),
+                                    color=task["state"].get("color", [255, 0, 0]),
+                                    mode=mode,
+                                    target_val=target_val,
+                                    preloaded_sitk=img,
+                                )
+                        except Exception as e:
+                            err = f"- Failed to load {task['state'].get('name')}: {e}"
+                        
+                        results.append((task, roi_id, err))
+                except Exception as e:
+                    for task in tasks:
+                        results.append((task, None, f"- Failed to read {os.path.basename(r_path)}: {e}"))
+
+            return results
+
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(len(tasks_by_path), 8)
+        ) as executor:
+            futures = [
+                executor.submit(process_file_group, path, tasks)
+                for path, tasks in tasks_by_path.items()
+            ]
+
+            completed_rois = 0
+            while completed_rois < total_rois:
+                for i, future in enumerate(futures):
+                    if future is not None and future.done():
+                        group_results = future.result()
+                        for task, roi_id, err in group_results:
+                            if err:
+                                warnings.append(err)
+                            elif roi_id:
+                                vs = controller.view_states[task["new_id"]]
+                                if roi_id in vs.rois:
+                                    r_state = task["state"]
+                                    vs.rois[roi_id].opacity = r_state.get("opacity", 0.5)
+                                    vs.rois[roi_id].visible = r_state.get("visible", True)
+                                    vs.rois[roi_id].is_contour = r_state.get("is_contour", False)
+                                    vs.rois[roi_id].thickness = r_state.get("thickness", 1.0)
+                            completed_rois += 1
+                        
+                        futures[i] = None
+
+                        show_loading_modal(
+                            "Loading image...",
+                            f"Restoring ROIs ({completed_rois}/{total_rois})",
+                            progress=(completed_rois / total_rois),
+                        )
+                # Keep DearPyGui alive
+                yield
+                time.sleep(0.01)
 
     # --- PHASE 6: FINALIZE ---
+    # 1. Reorder dictionaries to strictly match the original workspace save order
+    ordered_vs = {}
+    ordered_vol = {}
+
+    for old_id in ws.get("images", {}).keys():
+        if old_id in id_map:
+            new_id = id_map[old_id]
+            if new_id in controller.view_states:
+                ordered_vs[new_id] = controller.view_states[new_id]
+                ordered_vol[new_id] = controller.volumes[new_id]
+
+    # 2. Add overlays that were hidden from the main list
+    for old_id, img_data in ws.get("images", {}).items():
+        ov_info = img_data.get("overlay")
+        if ov_info:
+            ov_path = os.path.expanduser(ov_info["path"])
+            if ov_path in path_map:
+                ov_id = path_map[ov_path]
+                if ov_id in controller.view_states and ov_id not in ordered_vs:
+                    ordered_vs[ov_id] = controller.view_states[ov_id]
+                    ordered_vol[ov_id] = controller.volumes[ov_id]
+
+    # 3. Add any remaining items (like pre-existing images and ROIs)
+    for v_id, vs in controller.view_states.items():
+        if v_id not in ordered_vs:
+            ordered_vs[v_id] = vs
+    for v_id, vol in controller.volumes.items():
+        if v_id not in ordered_vol:
+            ordered_vol[v_id] = vol
+
+    controller.view_states.clear()
+    controller.view_states.update(ordered_vs)
+    
+    controller.volumes.clear()
+    controller.volumes.update(ordered_vol)
+
     for new_id in id_map.values():
         controller.sync.propagate_sync(new_id)
         controller.update_all_viewers_of_image(new_id)
@@ -455,21 +821,7 @@ def load_workspace_sequence(gui, controller, filepath):
     if id_map:
         gui.set_context_viewer(controller.viewers["V1"])
 
-    if dpg.does_item_exist("loading_modal"):
-        dpg.delete_item("loading_modal")
-    yield
-
-    # SHOW WORKSPACE WARNINGS
-    if warnings:
-        gui.show_message(
-            "Workspace Warnings",
-            "Some files could not be found or loaded:\n\n" + "\n".join(warnings),
-        )
-        # Yield while the modal is open so the UI doesn't freeze
-        while dpg.does_item_exist("generic_message_modal"):
-            yield
-
-    hide_loading_modal()
+    yield from _handle_warnings_and_cleanup(gui, warnings, "Workspace Warnings", "Some files could not be found or loaded:")
 
 
 def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=False):
@@ -485,10 +837,9 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
     display_name = "Initializing..."
     show_loading_modal("Loading image...", display_name)
 
-    vp_width = max(dpg.get_viewport_client_width(), 800)
-    vp_height = max(dpg.get_viewport_client_height(), 600)
-    dpg.set_item_pos("loading_modal", [vp_width // 2 - 175, vp_height // 2 - 50])
-    yield
+    # Yield multiple times to guarantee the OS paints the boot modal!
+    for _ in range(3):
+        yield
 
     loaded_ids = []
     id_to_group = {}
@@ -503,43 +854,62 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
     job_results = {}
 
     # --- THE PARALLEL LOADER & REAL PROGRESS BAR ---
-    with concurrent.futures.ThreadPoolExecutor(
-        max_workers=min(total_files, 8)
-    ) as executor:
-        future_to_path = {
-            executor.submit(controller.file.load_image, path): path for path in jobs
-        }
-        futures = list(future_to_path.keys())
-
-        completed = 0
-        while completed < total_files:
-            for i, future in enumerate(futures):
-                if future is not None and future.done():
-                    path = future_to_path[future]
-                    try:
-                        img_id = future.result()
-                        job_results[path] = img_id
-                    except Exception as e:
-                        warnings.append(f"- {os.path.basename(path)}: {e}")
-
-                    futures[i] = None
-                    completed += 1
-
-                    show_loading_modal(
-                        "Initializing...",
-                        f"Loaded {os.path.basename(path)} ({completed}/{total_files})",
-                        progress=(completed / total_files),
-                    )
-
-            # Let DearPyGui render a frame
+    if total_files == 1:
+        # Synchronous fast-path for single images to bypass threading delays and modal flashes!
+        path = jobs[0]
+        show_loading_modal(
+            "Initializing...",
+            f"Loading {os.path.basename(path)}...",
+            progress=0.5,
+        )
+        for _ in range(2):
             yield
-            time.sleep(0.01)
+        try:
+            job_results[path] = controller.file.load_image(path)
+        except Exception as e:
+            warnings.append(f"- {os.path.basename(path)}: {e}")
+    else:
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(total_files, 8)
+        ) as executor:
+            future_to_path = {
+                executor.submit(controller.file.load_image, path): path for path in jobs
+            }
+            futures = list(future_to_path.keys())
+
+            completed = 0
+            while completed < total_files:
+                for i, future in enumerate(futures):
+                    if future is not None and future.done():
+                        path = future_to_path[future]
+                        try:
+                            img_id = future.result()
+                            job_results[path] = img_id
+                        except Exception as e:
+                            warnings.append(f"- {os.path.basename(path)}: {e}")
+
+                        futures[i] = None
+                        completed += 1
+
+                        show_loading_modal(
+                            "Initializing...",
+                            f"Loaded {os.path.basename(path)} ({completed}/{total_files})",
+                            progress=(completed / total_files),
+                        )
+
+                if completed >= total_files:
+                    break
+
+                # Let DearPyGui render a frame
+                yield
+                time.sleep(0.01)
     # -----------------------------------------------
 
     show_loading_modal(
         "Loading image...", "Applying synchronization and layouts...", progress=1.0
     )
-    yield
+    for _ in range(2):
+        yield
 
     # 3. Now wire up the loaded data into the ViewStates synchronously
     for task in image_tasks:
@@ -616,17 +986,4 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
 
     controller.ui_needs_refresh = True
 
-    if dpg.does_item_exist("loading_modal"):
-        dpg.delete_item("loading_modal")
-    yield
-
-    if warnings:
-        gui.show_message(
-            "Boot Sequence Warning",
-            "Some files provided via command line failed to load:\n\n"
-            + "\n".join(warnings),
-        )
-        while dpg.does_item_exist("generic_message_modal"):
-            yield
-
-    hide_loading_modal()
+    yield from _handle_warnings_and_cleanup(gui, warnings, "Boot Sequence Warning", "Some files provided via command line failed to load:")

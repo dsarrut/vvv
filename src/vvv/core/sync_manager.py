@@ -37,6 +37,18 @@ class SyncManager:
 
         return group_ids
 
+    def get_sync_wl_group_vs_ids(self, source_vs_id):
+        """Returns all ViewState IDs in the same Window/Level sync group as the source image."""
+        source_vs = self.controller.view_states.get(source_vs_id)
+        wl_grp = getattr(source_vs, "sync_wl_group", 0) if source_vs else 0
+        if wl_grp == 0:
+            return [source_vs_id]
+        return [
+            tid
+            for tid, vs in self.controller.view_states.items()
+            if getattr(vs, "sync_wl_group", 0) == wl_grp
+        ]
+
     def trigger_redraw(self, modified_ids):
         """Flags images to redraw. Viewers will autonomously react to this."""
         for tid in modified_ids:
@@ -139,13 +151,12 @@ class SyncManager:
         dirty_ids = set([source_vs_id])
 
         # --- NEW DECOUPLED W/L LOGIC ---
-        wl_grp = getattr(source_vs, "sync_wl_group", 0)
-        if wl_grp > 0:
-            for tid, vs in self.controller.view_states.items():
-                if tid != source_vs_id and getattr(vs, "sync_wl_group", 0) == wl_grp:
-                    if not getattr(vs.volume, "is_rgb", False):
-                        vs.display.colormap = source_vs.display.colormap
-                        dirty_ids.add(tid)
+        for tid in self.get_sync_wl_group_vs_ids(source_vs_id):
+            if tid != source_vs_id:
+                vs = self.controller.view_states[tid]
+                if not getattr(vs.volume, "is_rgb", False):
+                    vs.display.colormap = source_vs.display.colormap
+                    dirty_ids.add(tid)
 
         self.trigger_redraw(list(dirty_ids))
 
@@ -156,14 +167,13 @@ class SyncManager:
         dirty_ids = set([source_vs_id])
 
         # 1. GROUP SYNC (Horizontal) - NEW DECOUPLED W/L LOGIC
-        wl_grp = getattr(source_vs, "sync_wl_group", 0)
-        if wl_grp > 0:
-            for vs_id, vs in self.controller.view_states.items():
-                if vs_id != source_vs_id and getattr(vs, "sync_wl_group", 0) == wl_grp:
-                    vs.display.ww = source_vs.display.ww
-                    vs.display.wl = source_vs.display.wl
-                    vs.display.base_threshold = source_vs.display.base_threshold
-                    dirty_ids.add(vs_id)
+        for vs_id in self.get_sync_wl_group_vs_ids(source_vs_id):
+            if vs_id != source_vs_id:
+                vs = self.controller.view_states[vs_id]
+                vs.display.ww = source_vs.display.ww
+                vs.display.wl = source_vs.display.wl
+                vs.display.base_threshold = source_vs.display.base_threshold
+                dirty_ids.add(vs_id)
 
         # 2. OVERLAY SYNC (Vertical - Top-Down & Bottom-Up)
         for tid in list(dirty_ids):

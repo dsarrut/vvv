@@ -1,5 +1,6 @@
 import os
 import json
+import threading
 import numpy as np
 import SimpleITK as sitk
 from vvv.utils import ViewMode
@@ -9,7 +10,14 @@ from vvv.maths.image import VolumeData
 
 class ROIState:
     def __init__(
-        self, volume_id, name, color, source_mode="Ignore BG (val)", source_val=0.0
+        self,
+        volume_id,
+        name,
+        color,
+        source_mode="Ignore BG (val)",
+        source_val=0.0,
+        rtstruct_info=None,
+        source_type="Binary",
     ):
         self.volume_id = volume_id
         self.name = name
@@ -19,7 +27,9 @@ class ROIState:
         self.is_contour = False
         self.source_mode = source_mode
         self.source_val = source_val
+        self.source_type = source_type
         self.thickness = 1.0
+        self.rtstruct_info = rtstruct_info
         self.polygons = {
             ViewMode.AXIAL: {},
             ViewMode.SAGITTAL: {},
@@ -36,6 +46,9 @@ class ROIState:
             "is_contour": self.is_contour,
             "source_mode": self.source_mode,
             "source_val": self.source_val,
+            "source_type": getattr(self, "source_type", "Binary"),
+            "thickness": self.thickness,
+            "rtstruct_info": getattr(self, "rtstruct_info", None),
         }
 
     def from_dict(self, d):
@@ -46,6 +59,11 @@ class ROIState:
         self.is_contour = d.get("is_contour", self.is_contour)
         self.source_mode = d.get("source_mode", "Ignore BG (val)")
         self.source_val = d.get("source_val", 0.0)
+        self.source_type = d.get("source_type", "Binary")
+        if "source_type" not in d and getattr(self, "rtstruct_info", None) is not None:
+            self.source_type = "RT-Struct"
+        self.thickness = d.get("thickness", self.thickness)
+        self.rtstruct_info = d.get("rtstruct_info", None)
 
 
 class ROIManager:
@@ -53,6 +71,7 @@ class ROIManager:
 
     def __init__(self, controller):
         self.controller = controller
+        self._lock = threading.Lock()
 
     # ==========================================
     # INTERNAL HELPERS
@@ -89,35 +108,44 @@ class ROIManager:
         new_img.SetDirection(mask_vol.sitk_image.GetDirection())
         mask_vol.sitk_image = new_img
 
-    def process_binary_mask(self, base_vol, mask_vol):
+    def process_binary_mask(self, base_vol, mask_vol, skip_initial_crop=False):
         """Helper to natively crop, align, and resample a binary mask."""
 
         # --- 1. NATIVE CROP FIRST ---
-        # Strip away millions of empty background voxels before doing any heavy math
-        coords = np.argwhere(mask_vol.data > 0)
-        if coords.size == 0:
-            mask_vol.roi_bbox = (0, 0, 0, 0, 0, 0)
-            return
+        if not skip_initial_crop:
+            # Strip away millions of empty background voxels before doing any heavy math
+            coords = np.argwhere(mask_vol.data > 0)
+            if coords.size == 0:
+                mask_vol.roi_bbox = (0, 0, 0, 0, 0, 0)
+                return
 
-        if mask_vol.data.ndim == 4:
-            z0, y0, x0 = coords[:, 1:].min(axis=0)
-            z1, y1, x1 = coords[:, 1:].max(axis=0) + 1
-            mask_vol.data = mask_vol.data[:, z0:z1, y0:y1, x0:x1]
+            z_max, y_max, x_max = mask_vol.data.shape[-3:]
+
+            if mask_vol.data.ndim == 4:
+                z0, y0, x0 = np.maximum(coords[:, 1:].min(axis=0) - 1, 0)
+                z1, y1, x1 = np.minimum(
+                    coords[:, 1:].max(axis=0) + 2, [z_max, y_max, x_max]
+                )
+                mask_vol.data = np.ascontiguousarray(
+                    mask_vol.data[:, z0:z1, y0:y1, x0:x1]
+                )
+            else:
+                z0, y0, x0 = np.maximum(coords.min(axis=0) - 1, 0)
+                z1, y1, x1 = np.minimum(coords.max(axis=0) + 2, [z_max, y_max, x_max])
+                mask_vol.data = np.ascontiguousarray(mask_vol.data[z0:z1, y0:y1, x0:x1])
+
+            # Update the SimpleITK image to reflect this small, dense block of data
+            new_origin = mask_vol.sitk_image.TransformIndexToPhysicalPoint(
+                (int(x0), int(y0), int(z0))
+            )
+
+            cropped_sitk = sitk.GetImageFromArray(mask_vol.data)
+            cropped_sitk.SetSpacing(mask_vol.sitk_image.GetSpacing())
+            cropped_sitk.SetDirection(mask_vol.sitk_image.GetDirection())
+            cropped_sitk.SetOrigin(new_origin)
+            mask_vol.sitk_image = cropped_sitk
         else:
-            z0, y0, x0 = coords.min(axis=0)
-            z1, y1, x1 = coords.max(axis=0) + 1
-            mask_vol.data = mask_vol.data[z0:z1, y0:y1, x0:x1]
-
-        # Update the SimpleITK image to reflect this small, dense block of data
-        new_origin = mask_vol.sitk_image.TransformIndexToPhysicalPoint(
-            (int(x0), int(y0), int(z0))
-        )
-
-        cropped_sitk = sitk.GetImageFromArray(mask_vol.data)
-        cropped_sitk.SetSpacing(mask_vol.sitk_image.GetSpacing())
-        cropped_sitk.SetDirection(mask_vol.sitk_image.GetDirection())
-        cropped_sitk.SetOrigin(new_origin)
-        mask_vol.sitk_image = cropped_sitk
+            new_origin = mask_vol.sitk_image.GetOrigin()
 
         # --- 2. CHECK FOR PERFECT ALIGNMENT ---
         spacing_match = np.allclose(mask_vol.spacing, base_vol.spacing, atol=1e-4)
@@ -202,14 +230,21 @@ class ROIManager:
         # Resampling might have introduced a border of 0s. Clean it up.
         coords2 = np.argwhere(mask_vol.data > 0)
         if coords2.size > 0:
+            z_max2, y_max2, x_max2 = mask_vol.data.shape[-3:]
             if mask_vol.data.ndim == 4:
-                z0, y0, x0 = coords2[:, 1:].min(axis=0)
-                z1, y1, x1 = coords2[:, 1:].max(axis=0) + 1
-                mask_vol.data = mask_vol.data[:, z0:z1, y0:y1, x0:x1]
+                z0, y0, x0 = np.maximum(coords2[:, 1:].min(axis=0) - 1, 0)
+                z1, y1, x1 = np.minimum(
+                    coords2[:, 1:].max(axis=0) + 2, [z_max2, y_max2, x_max2]
+                )
+                mask_vol.data = np.ascontiguousarray(
+                    mask_vol.data[:, z0:z1, y0:y1, x0:x1]
+                )
             else:
-                z0, y0, x0 = coords2.min(axis=0)
-                z1, y1, x1 = coords2.max(axis=0) + 1
-                mask_vol.data = mask_vol.data[z0:z1, y0:y1, x0:x1]
+                z0, y0, x0 = np.maximum(coords2.min(axis=0) - 1, 0)
+                z1, y1, x1 = np.minimum(
+                    coords2.max(axis=0) + 2, [z_max2, y_max2, x_max2]
+                )
+                mask_vol.data = np.ascontiguousarray(mask_vol.data[z0:z1, y0:y1, x0:x1])
 
             # The final bounding box is the base slice offset + the final crop offset
             mask_vol.roi_bbox = (
@@ -227,50 +262,106 @@ class ROIManager:
         mask_vol.shape3d = base_vol.shape3d
         mask_vol.spacing = base_vol.spacing
         mask_vol.origin = base_vol.origin
+        mask_vol.matrix = base_vol.matrix
+        mask_vol.inverse_matrix = base_vol.inverse_matrix
+
+    def _create_memory_roi(self, base_id, filepath, name, mask_img, mask_data, skip_crop=False, is_contour=False, **state_kwargs):
+        """Centralized helper for creating an ROI exclusively from memory (Label Maps, RT-Structs)."""
+        base_vol = self.controller.volumes[base_id]
+
+        mask_vol = VolumeData.__new__(VolumeData)
+        mask_vol.path = filepath
+        mask_vol.file_paths = [filepath]
+        mask_vol.name = name
+        mask_vol.sitk_image = mask_img
+        mask_vol.data = mask_data
+        mask_vol.matrix_display_str = base_vol.matrix_display_str
+        mask_vol.matrix_tooltip_str = base_vol.matrix_tooltip_str
+        mask_vol.read_image_metadata()
+        mask_vol.last_mtime = mask_vol._get_latest_mtime()
+        mask_vol._last_check_time = 0
+        mask_vol._is_outdated = False
+
+        self.process_binary_mask(base_vol, mask_vol, skip_initial_crop=skip_crop)
+
+        if mask_vol.data.size == 0:
+            return None
+
+        with self._lock:
+            roi_id = str(self.controller.next_image_id)
+            self.controller.next_image_id += 1
+            self.controller.volumes[roi_id] = mask_vol
+
+            roi_state = ROIState(roi_id, name, **state_kwargs)
+            roi_state.is_contour = is_contour
+
+            vs = self.controller.view_states[base_id]
+            vs.rois[roi_id] = roi_state
+            vs.is_geometry_dirty = True
+            vs.is_data_dirty = True
+
+        return roi_id
+
+    def extract_label_from_image(self, base_id, filepath, img, data, val_int, name, color, bbox):
+        """Fast-path NumPy slicing to extract a specific label from a pre-loaded label map."""
+        dim = img.GetDimension()
+        is_pre_cropped = False
+
+        if bbox is not None:
+            if dim == 2:
+                x0, y0, dx, dy = bbox
+                z0, dz = 0, 1
+                my, mx = data.shape
+                mz = 1
+            elif dim == 3:
+                x0, y0, z0, dx, dy, dz = bbox
+                mz, my, mx = data.shape
+            else:
+                x0, y0, z0, dx, dy, dz = bbox[:6]
+                mz, my, mx = data.shape[1:4]
+
+            px0, px1 = max(0, x0 - 1), min(mx, x0 + dx + 1)
+            py0, py1 = max(0, y0 - 1), min(my, y0 + dy + 1)
+            pz0, pz1 = max(0, z0 - 1), min(mz, z0 + dz + 1)
+
+            if dim == 2:
+                cropped_data = data[py0:py1, px0:px1]
+            elif data.ndim == 4:
+                cropped_data = data[:, pz0:pz1, py0:py1, px0:px1]
+            else:
+                cropped_data = data[pz0:pz1, py0:py1, px0:px1]
+
+            binary_data = (cropped_data == val_int).astype(np.uint8)
+            binary_data = np.ascontiguousarray(binary_data)
+
+            idx = [int(px0), int(py0)] if dim == 2 else [int(px0), int(py0), int(pz0)]
+            if dim == 4:
+                idx.append(0)
+            new_origin = img.TransformIndexToPhysicalPoint(idx)
+            is_pre_cropped = True
+        else:
+            binary_data = (data == val_int).astype(np.uint8)
+            binary_data = np.ascontiguousarray(binary_data)
+            new_origin = img.GetOrigin()
+
+        if not np.any(binary_data):
+            return None
+
+        mask_img = sitk.GetImageFromArray(binary_data)
+        mask_img.SetSpacing(img.GetSpacing())
+        mask_img.SetDirection(img.GetDirection())
+        mask_img.SetOrigin(new_origin)
+
+        return self._create_memory_roi(
+            base_id, filepath, name, mask_img, binary_data,
+            skip_crop=is_pre_cropped, is_contour=False,
+            color=color, source_mode="Target FG (val)", source_val=float(val_int),
+            source_type="Label Map"
+        )
 
     # ==========================================
     # PUBLIC ROI API
     # ==========================================
-
-    def load_label_map(self, base_id, filepath, start_color_idx):
-        json_path = filepath.rsplit(".", 1)[0] + ".json"
-        if filepath.endswith(".nii.gz"):
-            json_path = filepath[:-7] + ".json"
-
-        label_dict = {}
-        if os.path.exists(json_path):
-            try:
-                with open(json_path, "r") as f:
-                    raw_dict = json.load(f)
-                    label_dict = {int(k): str(v) for k, v in raw_dict.items()}
-            except Exception as e:
-                print(f"Failed to load JSON {json_path}: {e}")
-
-        temp_img = sitk.ReadImage(filepath)
-        temp_data = sitk.GetArrayViewFromImage(temp_img)
-        unique_vals = np.unique(temp_data)
-
-        loaded_count = 0
-        base_name = self._clean_roi_name(filepath)
-
-        for val in unique_vals:
-            if val == 0:
-                continue
-
-            color = ROI_COLORS[(start_color_idx + loaded_count) % len(ROI_COLORS)]
-            roi_name = label_dict.get(int(val), f"{base_name} - Lbl {val}")
-
-            self.load_binary_mask(
-                base_id,
-                filepath,
-                name=roi_name,
-                color=color,
-                mode="Target FG (val)",
-                target_val=float(val),
-            )
-            loaded_count += 1
-
-        return loaded_count
 
     def load_binary_mask(
         self,
@@ -280,6 +371,7 @@ class ROIManager:
         color=None,
         mode="Ignore BG (val)",
         target_val=0.0,
+        preloaded_sitk=None,
     ):
         if color is None:
             color = [255, 50, 50]
@@ -291,7 +383,11 @@ class ROIManager:
         with vs.loading_shield():
             # 1. Instantiate the raw ROI data
             mask_vol = VolumeData(
-                filepath, is_roi=True, roi_mode=mode, roi_target_val=target_val
+                filepath,
+                is_roi=True,
+                roi_mode=mode,
+                roi_target_val=target_val,
+                preloaded_sitk=preloaded_sitk,
             )
 
             # 2. Apply binarization rule BEFORE resampling to avoid interpolation artifacts
@@ -310,20 +406,163 @@ class ROIManager:
                 raise ValueError("ROI is completely outside the base image FOV.")
 
         # 4. Register the Volume and State
-        mask_id = str(self.controller.next_image_id)
-        self.controller.next_image_id += 1
-        self.controller.volumes[mask_id] = mask_vol
+        with self._lock:
+            mask_id = str(self.controller.next_image_id)
+            self.controller.next_image_id += 1
+            self.controller.volumes[mask_id] = mask_vol
 
-        if name is None:
-            name = self._clean_roi_name(filepath)
+            if name is None:
+                name = self._clean_roi_name(filepath)
 
-        roi_state = ROIState(
-            mask_id, name, color, source_mode=mode, source_val=target_val
-        )
-        vs.rois[mask_id] = roi_state
-        vs.is_data_dirty = True
+            roi_state = ROIState(
+                mask_id, name, color, source_mode=mode, source_val=target_val,
+                source_type="Binary"
+            )
+            vs.rois[mask_id] = roi_state
+            vs.is_data_dirty = True
 
         return mask_id
+
+    def parse_rtstruct(self, filepath):
+        """
+        Parses an RT-Struct DICOM file and returns a list of dictionaries
+        containing information about the available ROIs.
+        """
+        try:
+            import pydicom
+        except ImportError:
+            raise ImportError(
+                "pydicom is required to read RT-Struct files. (pip install pydicom)"
+            )
+
+        try:
+            ds = pydicom.dcmread(filepath, force=True)
+        except Exception as e:
+            raise ValueError(f"Could not read DICOM file: {e}")
+
+        if getattr(ds, "Modality", None) != "RTSTRUCT":
+            raise ValueError(
+                f"File is not an RT-Struct (Modality: {getattr(ds, 'Modality', 'Unknown')})"
+            )
+
+        rois_info = []
+
+        roi_names = {}
+        seq_rois = getattr(ds, "StructureSetROISequence", None) or []
+        for item in seq_rois:
+            roi_num = getattr(item, "ROINumber", None)
+            if roi_num is not None:
+                try:
+                    roi_names[int(roi_num)] = str(
+                        getattr(item, "ROIName", f"ROI {roi_num}")
+                    )
+                except (ValueError, TypeError):
+                    pass
+
+        roi_colors = {}
+        seq_contours = getattr(ds, "ROIContourSequence", None) or []
+        for item in seq_contours:
+            ref_num = getattr(item, "ReferencedROINumber", None)
+            color_val = getattr(item, "ROIDisplayColor", None)
+            if ref_num is not None and color_val is not None:
+                try:
+                    roi_colors[int(ref_num)] = [int(c) for c in color_val]
+                except (ValueError, TypeError):
+                    pass
+
+        # Gather the final list
+        for roi_num, name in roi_names.items():
+            clean_name = str(name) if name else f"ROI {roi_num}"
+            rois_info.append(
+                {
+                    "id": roi_num,
+                    "name": clean_name,
+                    "color": roi_colors.get(roi_num, [255, 0, 0]),
+                }
+            )
+
+        return rois_info
+
+    def load_rtstruct_roi(self, base_id, filepath, roi_info, ds=None):
+        """Registers the RT-Struct ROI and maps its DICOM polygons to 2D slices."""
+        vs = self.controller.view_states[base_id]
+        base_vol = self.controller.volumes[base_id]
+
+        if ds is None:
+            try:
+                import pydicom
+            except ImportError:
+                raise ImportError("pydicom is required to read RT-Struct files.")
+            ds = pydicom.dcmread(filepath, force=True)
+
+        try:
+            from skimage.draw import polygon
+        except ImportError:
+            raise ImportError("scikit-image is required to rasterize RT-Structs.")
+
+        target_roi_num = roi_info.get("id")
+
+        # 1. Create a full-size blank mask
+        mz, my, mx = base_vol.shape3d
+        mask_data = np.zeros((mz, my, mx), dtype=np.uint8)
+
+        seq_contours = getattr(ds, "ROIContourSequence", None) or []
+        for roi_contour in seq_contours:
+            if getattr(roi_contour, "ReferencedROINumber", -1) == target_roi_num:
+                seq = getattr(roi_contour, "ContourSequence", None) or []
+                for contour in seq:
+                    if hasattr(contour, "ContourData"):
+                        pts_flat = contour.ContourData
+                        if len(pts_flat) % 3 != 0:
+                            continue
+
+                        mapped_pts = []
+                        for i in range(0, len(pts_flat), 3):
+                            pt_phys = [
+                                float(pts_flat[i]),
+                                float(pts_flat[i + 1]),
+                                float(pts_flat[i + 2]),
+                            ]
+                            # Map directly to Base Image Voxel space
+                            vox = base_vol.physic_coord_to_voxel_coord(
+                                np.array(pt_phys)
+                            )
+                            mapped_pts.append(vox)
+
+                        if not mapped_pts:
+                            continue
+
+                        mapped_pts = np.array(mapped_pts)
+
+                        # Z is depth (axial slice index)
+                        z_idx = int(round(np.mean(mapped_pts[:, 2])))
+
+                        if 0 <= z_idx < mz:
+                            # skimage.draw.polygon takes (r, c) which maps to (Y, X)
+                            r = mapped_pts[:, 1]
+                            c = mapped_pts[:, 0]
+                            rr, cc = polygon(r, c, shape=(my, mx))
+
+                            # XOR assignment handles internal holes natively!
+                            mask_data[z_idx, rr, cc] ^= 1
+                break
+
+        if not np.any(mask_data):
+            raise ValueError(
+                "RT-Struct ROI did not map to any valid voxels on the base image."
+            )
+
+        mask_img = sitk.GetImageFromArray(mask_data)
+        mask_img.SetSpacing(base_vol.spacing.tolist())
+        mask_img.SetOrigin(base_vol.origin.tolist())
+        mask_img.SetDirection(base_vol.matrix.flatten().tolist())
+        
+        return self._create_memory_roi(
+            base_id, filepath, roi_info.get("name", "RT ROI"), mask_img, mask_data,
+            skip_crop=False, is_contour=True, color=roi_info.get("color", [255, 0, 0]),
+            source_mode="Ignore BG (val)", source_val=0.0, rtstruct_info=roi_info,
+            source_type="RT-Struct"
+        )
 
     def get_roi_stats(self, base_vs_id, roi_id, is_overlay=False):
         if (
@@ -433,6 +672,13 @@ class ROIManager:
         mask_vol = self.controller.volumes[roi_id]
         roi_state = self.controller.view_states[base_id].rois[roi_id]
 
+        if getattr(roi_state, "rtstruct_info", None) is not None:
+            if self.controller.gui:
+                self.controller.gui.show_status_message(
+                    "RT-Struct ROIs cannot be hot-reloaded.", color=[255, 100, 100]
+                )
+            return
+
         if self.controller.gui:
             self.controller.gui.show_status_message(
                 f"Reloading: {roi_state.name} ...",
@@ -460,6 +706,8 @@ class ROIManager:
 
             if self.controller.gui:
                 self.controller.gui.show_status_message(f"Reloaded: {roi_state.name}")
+
+            self.controller.ui_needs_refresh = True
 
     def close_roi(self, base_id, roi_id):
         if base_id in self.controller.view_states:

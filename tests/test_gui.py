@@ -335,3 +335,28 @@ def test_gui_sidebar_text_outputs(headless_gui_app):
     assert "2 2 2" in coord_text
     # The synthetic volume is filled with 100.0 values
     assert "100" in val_text
+
+
+def test_gui_roi_filtering_and_bulk_actions(headless_gui_app, synthetic_volume_factory):
+    """Verifies that bulk ROI actions (Hide All) safely ignore filtered-out ROIs."""
+    controller, gui, viewer, base_id = headless_gui_app
+    vs = viewer.view_state
+
+    # 1. Load 3 ROIs with distinct names
+    roi1 = controller.roi.load_binary_mask(base_id, synthetic_volume_factory("apple.nii.gz", val=1.0), name="Apple")
+    roi2 = controller.roi.load_binary_mask(base_id, synthetic_volume_factory("banana.nii.gz", val=1.0), name="Banana")
+    roi3 = controller.roi.load_binary_mask(base_id, synthetic_volume_factory("apricot.nii.gz", val=1.0), name="Apricot")
+
+    # All should be visible by default
+    assert all(vs.rois[r].visible for r in [roi1, roi2, roi3])
+
+    # 2. Simulate User typing "ap" into the filter box (matches Apple and Apricot)
+    gui.roi_ui.on_roi_filter_changed(None, "ap", None)
+
+    # 3. Simulate User clicking "Hide All"
+    gui.roi_ui.on_roi_hide_all(None, None, None)
+
+    # 4. Assert that ONLY the filtered items were acted upon!
+    assert vs.rois[roi1].visible is False  # Apple hidden
+    assert vs.rois[roi3].visible is False  # Apricot hidden
+    assert vs.rois[roi2].visible is True   # Banana was hidden by filter, so it was protected!

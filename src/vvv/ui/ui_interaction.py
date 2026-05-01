@@ -160,6 +160,25 @@ class InteractionManager:
         self.active_tool.on_scroll(app_data)
 
     def on_key_press(self, sender, app_data, user_data):
+        # Prevent keyboard shortcuts from triggering while typing in text/number fields
+        if hasattr(self.gui, "roi_ui"):
+            for input_id in self.gui.roi_ui.roi_selectables.values():
+                if dpg.does_item_exist(input_id) and dpg.is_item_focused(input_id):
+                    return
+
+            if dpg.does_item_exist("input_roi_filter") and dpg.is_item_focused("input_roi_filter"):
+                return
+
+        try:
+            for alias in dpg.get_aliases():
+                if any(k in alias for k in ["settings_val_", "fusion_info_", "input_", "dicom_", "info_"]):
+                    if dpg.does_item_exist(alias) and dpg.is_item_focused(alias):
+                        item_type = dpg.get_item_type(alias)
+                        if item_type and "Input" in item_type:
+                            return
+        except Exception:
+            pass
+
         # Intercept global Application shortcuts here (like Ctrl+O)
         is_cmd = dpg.is_key_down(dpg.mvKey_LWin) or dpg.is_key_down(dpg.mvKey_RWin)
         is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(

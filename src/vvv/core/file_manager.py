@@ -285,6 +285,12 @@ class FileManager:
                             }
                         )
 
+            roi_filter = ""
+            roi_sort_order = 0
+            if self.controller.gui and hasattr(self.controller.gui, "roi_ui"):
+                roi_filter = self.controller.gui.roi_ui.roi_filters.get(vs_id, "")
+                roi_sort_order = self.controller.gui.roi_ui.roi_sort_orders.get(vs_id, 0)
+
             workspace["images"][vs_id] = {
                 "path": portable_path(vol.file_paths[0]),
                 "sync_group": vs.sync_group,
@@ -293,6 +299,8 @@ class FileManager:
                 "extraction": vs.extraction.to_dict(),
                 "overlay": overlay_info,
                 "rois": rois_list,
+                "roi_filter": roi_filter,
+                "roi_sort_order": roi_sort_order,
             }
 
         with open(filepath, "w") as f:

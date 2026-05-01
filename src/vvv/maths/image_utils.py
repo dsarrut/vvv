@@ -42,7 +42,7 @@ def extract_orientation_strings(raw_img):
     return display_str, tooltip_str
 
 
-def straighten_image(img, filename="image"):
+def straighten_image(img, filename="image", is_label_map=False):
     """
     Intercepts oblique/rotated images and warps them into a perfectly
     straight bounding box aligned with the physical axes.
@@ -80,7 +80,10 @@ def straighten_image(img, filename="image"):
     resampler.SetOutputOrigin(min_phys.tolist())
     resampler.SetOutputSpacing(spacing.tolist())
     resampler.SetSize(new_size.tolist())
-    resampler.SetInterpolator(sitk.sitkLinear)
+    if is_label_map:
+        resampler.SetInterpolator(sitk.sitkNearestNeighbor)
+    else:
+        resampler.SetInterpolator(sitk.sitkLinear)
 
     try:
         bg_val = float(sitk.GetArrayViewFromImage(img).min())

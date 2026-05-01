@@ -15,6 +15,7 @@ dependencies = [
     "scikit-image",
     "pytest",
     "setproctitle",
+    "pydicom",
     "pyobjc-framework-Cocoa; sys_platform == 'darwin'"
 ]
 

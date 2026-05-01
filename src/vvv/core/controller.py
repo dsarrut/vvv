@@ -613,8 +613,15 @@ class Controller:
             viewer.tick()
 
         # --- THE REACTIVE BRIDGE ---
+        try:
+            # Copy to list to avoid RuntimeError if background threads mutate dictionaries
+            vs_items = list(self.view_states.items())
+            vol_items = list(self.volumes.values())
+        except RuntimeError:
+            return  # Skip this frame's bridge updates if a background thread is mutating data
+
         # Optimized: Consolidate geometry and data checks into a single loop
-        for vs_id, vs in self.view_states.items():
+        for vs_id, vs in vs_items:
             # Broadcast flags from central ViewState to all Viewers displaying it
             is_geom = getattr(vs, "is_geometry_dirty", False)
             is_data = getattr(vs, "is_data_dirty", False)
@@ -633,7 +640,7 @@ class Controller:
 
         # Check if files changed on disk, update UI if needed
         outdated_changed = False
-        for vol in self.volumes.values():
+        for vol in vol_items:
             if hasattr(vol, "is_outdated"):
                 was_outdated = vol._is_outdated
                 is_out = vol.is_outdated()

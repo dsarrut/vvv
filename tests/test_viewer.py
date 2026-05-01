@@ -12,7 +12,7 @@ from vvv.utils import ViewMode, slice_to_voxel, voxel_to_slice
 
 
 @pytest.fixture(scope="session")
-def synthetic_image_path(tmp_path_factory):
+def synthetic_image_path(tmp_path_factory): 
     """Generates a 5x5x5 checkerboard image."""
     indices = np.indices((5, 5, 5))
     checkerboard = (indices[0] + indices[1] + indices[2]) % 2
@@ -838,3 +838,274 @@ def test_spatial_engine_registration_mapping(headless_app):
 
     # Assert the registration shift sits perfectly on top of the native origin!
     assert np.allclose(world_pt, [110.0, 20.0, 50.0])
+
+# ==========================================
+# 8. ROI LOADING & WORKSPACE RESTORATION
+# ==========================================
+
+def test_roi_direct_and_workspace_binary_mask(headless_app, tmp_path):
+    """Tests standard single/batch Binary Mask loading and workspace restoration."""
+    controller, viewer, vs_id = headless_app
+    gui = controller.gui
+    base_vol = controller.volumes[vs_id]
+    
+    # 1. Create a binary mask
+    data = np.zeros(base_vol.shape3d, dtype=np.uint8)
+    data[1:4, 1:4, 1:4] = 1
+    mask_img = sitk.GetImageFromArray(data)
+    mask_img.SetSpacing(base_vol.spacing.tolist())
+    mask_img.SetOrigin(base_vol.origin.tolist())
+    
+    mask_path = str(tmp_path / "binary_mask.nii.gz")
+    sitk.WriteImage(mask_img, mask_path)
+
+    # 2. Direct Load
+    from vvv.ui.ui_sequences import load_batch_rois_sequence
+    seq = load_batch_rois_sequence(
+        gui, controller, vs_id, [mask_path], 
+        roi_type="Binary Mask", mode="Target FG (val)", val=1.0
+    )
+    # Consume generator to prevent infinite UI loops
+    for i, _ in enumerate(seq):
+        if i > 100: raise RuntimeError("Binary mask sequence hung.")
+
+    vs = controller.view_states[vs_id]
+    roi_keys = list(vs.rois.keys())
+    initial_roi_count = len(roi_keys)
+    assert initial_roi_count >= 1
+    last_roi = vs.rois[roi_keys[-1]]
+    assert last_roi.source_mode == "Target FG (val)"
+
+    # 3. Save Workspace
+    ws_path = str(tmp_path / "bin_workspace.vvw")
+    controller.file.save_workspace(ws_path)
+
+    # 4. Wipe State
+    viewer.drop_image()
+    controller.view_states.clear()
+    controller.volumes.clear()
+    controller.next_image_id = 300
+
+    # 5. Workspace Load
+    from vvv.ui.ui_sequences import load_workspace_sequence
+    seq = load_workspace_sequence(gui, controller, ws_path)
+    for i, _ in enumerate(seq):
+        if i > 200: raise RuntimeError("Workspace load sequence hung.")
+
+    # 6. Verify Workspace Restoration
+    new_vs_id = list(controller.view_states.keys())[0]
+    new_vs = controller.view_states[new_vs_id]
+
+    assert len(new_vs.rois) == initial_roi_count
+    restored_roi = list(new_vs.rois.values())[-1]
+    assert restored_roi.source_mode == "Target FG (val)"
+    
+    r_vol = controller.volumes[restored_roi.volume_id]
+    assert r_vol.data.max() == 1
+
+
+def test_roi_direct_and_workspace_label_map(headless_app, tmp_path):
+    """Tests Label Map extraction and verifies the parallel 'Fast Path' in workspace loading."""
+    controller, viewer, vs_id = headless_app
+    gui = controller.gui
+    base_vol = controller.volumes[vs_id]
+    
+    # 1. Create a label map with labels 1 and 2
+    data = np.zeros(base_vol.shape3d, dtype=np.uint8)
+    data[1:3, 1:3, 1:3] = 1
+    data[3:5, 3:5, 3:5] = 2
+    lbl_img = sitk.GetImageFromArray(data)
+    lbl_img.SetSpacing(base_vol.spacing.tolist())
+    lbl_img.SetOrigin(base_vol.origin.tolist())
+    
+    lbl_path = str(tmp_path / "label_map.nii.gz")
+    sitk.WriteImage(lbl_img, lbl_path)
+
+    # 2. Direct Load
+    from vvv.ui.ui_sequences import load_label_map_sequence
+    seq = load_label_map_sequence(gui, controller, vs_id, lbl_path)
+    for i, _ in enumerate(seq):
+        if i > 100: raise RuntimeError("Label map sequence hung.")
+
+    vs = controller.view_states[vs_id]
+    assert len(vs.rois) >= 2
+    assert list(vs.rois.values())[-1].source_mode == "Target FG (val)"
+    assert list(vs.rois.values())[-2].source_mode == "Target FG (val)"
+
+    # 3. Save Workspace
+    ws_path = str(tmp_path / "lbl_workspace.vvw")
+    controller.file.save_workspace(ws_path)
+
+    # 4. Wipe State
+    viewer.drop_image()
+    controller.view_states.clear()
+    controller.volumes.clear()
+    controller.next_image_id = 400
+
+    # 5. Workspace Load
+    from vvv.ui.ui_sequences import load_workspace_sequence
+    seq = load_workspace_sequence(gui, controller, ws_path)
+    for i, _ in enumerate(seq):
+        if i > 200: raise RuntimeError("Workspace load sequence hung.")
+
+    # 6. Verify Workspace Restoration
+    new_vs_id = list(controller.view_states.keys())[0]
+    new_vs = controller.view_states[new_vs_id]
+
+    # At least 2 ROIs should be restored
+    assert len(new_vs.rois) >= 2
+    restored = list(new_vs.rois.values())
+    
+    assert restored[-1].source_mode == "Target FG (val)"
+    assert restored[-2].source_mode == "Target FG (val)"
+    
+    # Verify data exists and was thresholded properly (Binarized successfully to max 1)
+    r_vol = controller.volumes[restored[-1].volume_id]
+    assert r_vol.data.max() == 1
+
+
+def test_roi_direct_and_workspace_rtstruct(headless_app, tmp_path, monkeypatch):
+    """Tests RT-Struct processing sequences (with mocked Pydicom to avoid large file deps)."""
+    controller, viewer, vs_id = headless_app
+    gui = controller.gui
+
+    # Create a dummy file path
+    rt_path = str(tmp_path / "dummy_rtstruct.dcm")
+    with open(rt_path, "w") as f:
+        f.write("dummy")
+
+    # Mock pydicom globally so it skips real DICOM parsing
+    import sys
+    from unittest.mock import MagicMock
+    mock_pydicom = MagicMock()
+    mock_pydicom.dcmread.return_value = MagicMock()
+    sys.modules["pydicom"] = mock_pydicom
+
+    # Mock the internal C++ rasterizer so we only test the python sequence logic
+    def mock_load_rtstruct(base_id, filepath, roi_info, ds=None):
+        mask_id = str(controller.next_image_id)
+        controller.next_image_id += 1
+        from vvv.maths.image import VolumeData
+        from vvv.core.roi_manager import ROIState
+        
+        mask_vol = VolumeData.__new__(VolumeData)
+        mask_vol.path = filepath
+        mask_vol.file_paths = [filepath]
+        mask_vol.name = roi_info.get("name", "RT ROI")
+        mask_vol.data = np.zeros((5, 5, 5), dtype=np.uint8) 
+        controller.volumes[mask_id] = mask_vol
+
+        roi_state = ROIState(
+            mask_id,
+            mask_vol.name,
+            roi_info.get("color", [255, 0, 0]),
+            source_mode="Ignore BG (val)",
+            source_val=0.0,
+            rtstruct_info=roi_info,
+        )
+        controller.view_states[base_id].rois[mask_id] = roi_state
+        return mask_id
+
+    monkeypatch.setattr(controller.roi, "load_rtstruct_roi", mock_load_rtstruct)
+
+    # 1. Direct Load
+    selected_rois = [
+        {"id": 1, "name": "Prostate", "color": [255, 0, 0]},
+        {"id": 2, "name": "Bladder", "color": [0, 255, 0]}
+    ]
+    
+    from vvv.ui.ui_sequences import load_rtstruct_sequence
+    seq = load_rtstruct_sequence(gui, controller, vs_id, rt_path, selected_rois)
+    for i, _ in enumerate(seq):
+        if i > 100: raise RuntimeError("RT-Struct sequence hung.")
+
+    vs = controller.view_states[vs_id]
+    initial_roi_count = len(vs.rois)
+    assert initial_roi_count >= 2
+    assert "Prostate" in [r.name for r in vs.rois.values()]
+
+    # 2. Save Workspace
+    ws_path = str(tmp_path / "rt_workspace.vvw")
+    controller.file.save_workspace(ws_path)
+
+    # 3. Wipe State
+    viewer.drop_image()
+    controller.view_states.clear()
+    controller.volumes.clear()
+    controller.next_image_id = 500
+
+    # 4. Workspace Load
+    from vvv.ui.ui_sequences import load_workspace_sequence
+    seq = load_workspace_sequence(gui, controller, ws_path)
+    for i, _ in enumerate(seq):
+        if i > 200: raise RuntimeError("Workspace load sequence hung.")
+
+    # 5. Verify Workspace Restoration
+    new_vs_id = list(controller.view_states.keys())[0]
+    new_vs = controller.view_states[new_vs_id]
+
+    assert len(new_vs.rois) == initial_roi_count
+    restored_names = [r.name for r in new_vs.rois.values()]
+    assert "Prostate" in restored_names
+    assert "Bladder" in restored_names
+
+
+# ==========================================
+# 9. EXTRACTION & VECTOR CONTOURS
+# ==========================================
+
+def test_contour_marching_squares_extraction():
+    """Test that the marching squares algorithm perfectly hugs the boundaries of a voxel."""
+    from vvv.maths.contours import extract_2d_contours_from_slice
+
+    # Create a 5x5 grid with a solid 3x3 square in the middle
+    slice2d = np.zeros((5, 5), dtype=np.uint8)
+    slice2d[1:4, 1:4] = 1
+
+    contours = extract_2d_contours_from_slice(slice2d, threshold=0.5, sw=1.0, sh=1.0)
+    
+    # It should find exactly 1 closed continuous contour ring
+    assert len(contours) == 1
+    poly = contours[0]
+    
+    # Marching squares around a 3x3 block should yield specific coordinate bounds.
+    # X ranges from 1.0 to 4.0 (mapped from original indices 1 to 3 with +0.5 OpenGL alignment offset)
+    xs = [p[0] for p in poly]
+    ys = [p[1] for p in poly]
+    assert min(xs) == 1.0
+    assert max(xs) == 4.0
+    assert min(ys) == 1.0
+    assert max(ys) == 4.0
+
+
+def test_extraction_manager_image_generation(headless_app, monkeypatch):
+    """Tests that the Interactive Threshold generator successfully creates a cropped mask VolumeData."""
+    controller, viewer, vs_id = headless_app
+    base_vol = controller.volumes[vs_id]
+
+    # 1. Modify base volume to have a distinct 3x3 foreground block (Value: 100)
+    base_vol.data = np.zeros_like(base_vol.data)
+    base_vol.data[1:4, 1:4, 1:4] = 100.0  
+
+    # 2. Configure the threshold settings
+    vs = controller.view_states[vs_id]
+    vs.extraction.threshold_min = 50.0
+    vs.extraction.threshold_max = 150.0
+    vs.extraction.gen_fg_mode = "Constant"
+    vs.extraction.gen_fg_val = 1.0
+    vs.extraction.gen_bg_mode = "Constant"
+    vs.extraction.gen_bg_val = 0.0
+
+    # 3. Hijack threading so the generation finishes instantly before the test asserts
+    monkeypatch.setattr("threading.Thread.start", lambda self: self._target(*self._args, **self._kwargs))
+    controller.extraction.create_image(vs_id, base_vol, vs)
+
+    # 4. Assert new volume was registered and math is perfectly thresholded
+    new_id = list(controller.volumes.keys())[-1]
+    new_vol = controller.volumes[new_id]
+
+    assert new_id != vs_id
+    assert new_vol.data.max() == 1.0
+    assert new_vol.data.min() == 0.0
+    assert new_vol.data[2, 2, 2] == 1.0   # Center of foreground block
+    assert new_vol.data[0, 0, 0] == 0.0   # Background block
