@@ -54,6 +54,14 @@ def main(filepaths):
             print(f"  Matrix:     {matrix_str}")
 
             comp_str = f"{components} component(s)"
+            if (
+                components in [3, 4]
+                and "float" not in pixel_type.lower()
+                and "double" not in pixel_type.lower()
+            ):
+                comp_str += " (RGB/RGBA)"
+            elif components > 1:
+                comp_str += " (Vector Field / DVF)"
             print(f"  Components: {comp_str}")
 
             # Calculate memory without loading the image
