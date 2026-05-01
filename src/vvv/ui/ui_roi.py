@@ -30,6 +30,7 @@ class RoiUI:
         self.active_roi_id = None
         self.roi_selectables = {}
         self.roi_filter_text = ""
+        self.roi_sort_order = 0
 
     @staticmethod
     def build_tab_rois(gui):
@@ -153,10 +154,18 @@ class RoiUI:
             dpg.add_separator()
 
             with dpg.group(tag="group_roi_filter", show=False, horizontal=True):
+                btn_sort = dpg.add_button(
+                    label="\uf0dc",
+                    width=20,
+                    callback=gui.roi_ui.on_sort_rois_clicked,
+                )
+                if dpg.does_item_exist("icon_font_tag"):
+                    dpg.bind_item_font(btn_sort, "icon_font_tag")
+
                 dpg.add_text("Filter:", color=cfg_c["text_dim"])
                 dpg.add_input_text(
                     tag="input_roi_filter",
-                    width=-25,
+                    width=-30,
                     callback=gui.roi_ui.on_roi_filter_changed,
                 )
                 btn_clear_filter = dpg.add_button(
@@ -224,7 +233,13 @@ class RoiUI:
         if dpg.does_item_exist("group_roi_filter"):
             dpg.configure_item("group_roi_filter", show=total_rois > 10)
 
-        for roi_id, roi in viewer.view_state.rois.items():
+        roi_items = list(viewer.view_state.rois.items())
+        if self.roi_sort_order == 1:
+            roi_items.sort(key=lambda x: x[1].name.lower())
+        elif self.roi_sort_order == -1:
+            roi_items.sort(key=lambda x: x[1].name.lower(), reverse=True)
+
+        for roi_id, roi in roi_items:
             if self.roi_filter_text and self.roi_filter_text not in roi.name.lower():
                 continue
 
@@ -507,6 +522,18 @@ class RoiUI:
         self.roi_filter_text = ""
         if dpg.does_item_exist("input_roi_filter"):
             dpg.set_value("input_roi_filter", "")
+        self.refresh_rois_ui()
+
+    def on_sort_rois_clicked(self, sender, app_data, user_data):
+        if self.roi_sort_order == 0:
+            self.roi_sort_order = 1
+            dpg.configure_item(sender, label="\uf15d")
+        elif self.roi_sort_order == 1:
+            self.roi_sort_order = -1
+            dpg.configure_item(sender, label="\uf15e")
+        else:
+            self.roi_sort_order = 0
+            dpg.configure_item(sender, label="\uf0dc")
         self.refresh_rois_ui()
 
     def on_roi_name_changed(self, sender, app_data, user_data):

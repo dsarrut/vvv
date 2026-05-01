@@ -192,3 +192,6 @@ dist/
 bundle.py
 generate_icon.py
 vv_settings_osx
+.zed
+pyrightconfig.json
+

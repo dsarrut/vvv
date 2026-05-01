@@ -62,7 +62,7 @@ def load_fonts():
             with dpg.font(icon_font_path, 14, tag="icon_font_tag"):
                 if is_legacy_dpg:
                     try:
-                        dpg.add_font_range(0xF00D, 0xF021)
+                        dpg.add_font_range(0xF000, 0xF021)
                         dpg.add_font_chars(
                             [
                                 0xF0C5,
@@ -74,6 +74,10 @@ def load_fonts():
                                 0xF013,
                                 0xF059,
                                 0xF040,
+                                0xF0DC,
+                                0xF00D,
+                                0xF15D,
+                                0xF15E
                             ]
                         )
                         dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
