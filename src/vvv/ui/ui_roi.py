@@ -54,6 +54,20 @@ class RoiUI:
                     dpg.add_theme_color(dpg.mvThemeCol_FrameBg, [0, 0, 0, 0])
                     dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 0)
 
+        if not dpg.does_item_exist("outdated_active_roi_input_theme"):
+            with dpg.theme(tag="outdated_active_roi_input_theme"):
+                with dpg.theme_component(dpg.mvInputText):
+                    dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["outdated"])
+                    dpg.add_theme_color(dpg.mvThemeCol_FrameBg, [0, 0, 0, 0])
+                    dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 0)
+
+        if not dpg.does_item_exist("outdated_inactive_roi_input_theme"):
+            with dpg.theme(tag="outdated_inactive_roi_input_theme"):
+                with dpg.theme_component(dpg.mvInputText):
+                    dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["outdated"])
+                    dpg.add_theme_color(dpg.mvThemeCol_FrameBg, [0, 0, 0, 0])
+                    dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 0)
+
         with dpg.group(tag="tab_rois", show=False):
             build_section_title("ROI", cfg_c["text_header"])
 
@@ -279,9 +293,9 @@ class RoiUI:
                 dpg.bind_item_handler_registry(input_id, "roi_item_clicked_handler")
 
                 if is_active:
-                    dpg.bind_item_theme(input_id, "active_roi_input_theme")
+                    dpg.bind_item_theme(input_id, "outdated_active_roi_input_theme" if is_outdated else "active_roi_input_theme")
                 else:
-                    dpg.bind_item_theme(input_id, "inactive_roi_input_theme")
+                    dpg.bind_item_theme(input_id, "outdated_inactive_roi_input_theme" if is_outdated else "inactive_roi_input_theme")
 
                 btn_eye = dpg.add_button(
                     label=lbl_eye,
@@ -296,21 +310,29 @@ class RoiUI:
                     callback=self.on_roi_center,
                 )
 
-                is_rtstruct = getattr(roi, "rtstruct_info", None) is not None
-                if is_rtstruct:
+                source_type = getattr(roi, "source_type", "Binary")
+
+                if source_type == "Binary" and is_outdated:
                     btn_action = dpg.add_button(
-                        label="\uf0c7",
-                        width=20,
-                        user_data=roi_id,
-                        callback=self.on_roi_save,
-                    )
-                else:
-                    btn_action = dpg.add_button(
-                        label="\uf01e",
+                        label="\uf01e",  # Reload Icon
                         width=20,
                         user_data=roi_id,
                         callback=self.on_roi_reload,
                     )
+                    with dpg.tooltip(btn_action):
+                        dpg.add_text("Reload modified file")
+                else:
+                    btn_action = dpg.add_button(
+                        label="\uf0c7",  # Save Icon
+                        width=20,
+                        user_data=roi_id,
+                        callback=self.on_roi_save,
+                    )
+                    with dpg.tooltip(btn_action):
+                        if source_type == "Binary":
+                            dpg.add_text("Save ROI As...")
+                        else:
+                            dpg.add_text("Extract & Save ROI")
 
                 btn_close = dpg.add_button(
                     label="\uf00d",
@@ -820,6 +842,16 @@ class RoiUI:
 
             def _save():
                 self.controller.save_image(roi_id, file_path)
+
+                # Convert the ROI to a standalone Binary Mask
+                for vs in self.controller.view_states.values():
+                    if roi_id in vs.rois:
+                        r = vs.rois[roi_id]
+                        r.source_type = "Binary"
+                        r.source_mode = "Target FG (val)"
+                        r.source_val = 1.0
+                        r.rtstruct_info = None
+
                 self.controller.status_message = f"Saved: {os.path.basename(file_path)}"
                 self.controller.ui_needs_refresh = True
 
@@ -835,10 +867,12 @@ class RoiUI:
         self.active_roi_id = user_data
         for r_id, input_id in getattr(self, "roi_selectables", {}).items():
             if dpg.does_item_exist(input_id):
+                roi_vol = self.controller.volumes.get(r_id)
+                is_outdated = roi_vol._is_outdated if roi_vol else False
                 if r_id == self.active_roi_id:
-                    dpg.bind_item_theme(input_id, "active_roi_input_theme")
+                    dpg.bind_item_theme(input_id, "outdated_active_roi_input_theme" if is_outdated else "active_roi_input_theme")
                 else:
-                    dpg.bind_item_theme(input_id, "inactive_roi_input_theme")
+                    dpg.bind_item_theme(input_id, "outdated_inactive_roi_input_theme" if is_outdated else "inactive_roi_input_theme")
         self.refresh_roi_detail_ui()
 
     def on_roi_show_all(self, sender, app_data, user_data):

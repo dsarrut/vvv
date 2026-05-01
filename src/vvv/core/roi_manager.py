@@ -17,6 +17,7 @@ class ROIState:
         source_mode="Ignore BG (val)",
         source_val=0.0,
         rtstruct_info=None,
+        source_type="Binary",
     ):
         self.volume_id = volume_id
         self.name = name
@@ -26,6 +27,7 @@ class ROIState:
         self.is_contour = False
         self.source_mode = source_mode
         self.source_val = source_val
+        self.source_type = source_type
         self.thickness = 1.0
         self.rtstruct_info = rtstruct_info
         self.polygons = {
@@ -44,6 +46,7 @@ class ROIState:
             "is_contour": self.is_contour,
             "source_mode": self.source_mode,
             "source_val": self.source_val,
+            "source_type": getattr(self, "source_type", "Binary"),
             "thickness": self.thickness,
             "rtstruct_info": getattr(self, "rtstruct_info", None),
         }
@@ -56,6 +59,9 @@ class ROIState:
         self.is_contour = d.get("is_contour", self.is_contour)
         self.source_mode = d.get("source_mode", "Ignore BG (val)")
         self.source_val = d.get("source_val", 0.0)
+        self.source_type = d.get("source_type", "Binary")
+        if "source_type" not in d and getattr(self, "rtstruct_info", None) is not None:
+            self.source_type = "RT-Struct"
         self.thickness = d.get("thickness", self.thickness)
         self.rtstruct_info = d.get("rtstruct_info", None)
 
@@ -349,7 +355,8 @@ class ROIManager:
         return self._create_memory_roi(
             base_id, filepath, name, mask_img, binary_data,
             skip_crop=is_pre_cropped, is_contour=False,
-            color=color, source_mode="Target FG (val)", source_val=float(val_int)
+            color=color, source_mode="Target FG (val)", source_val=float(val_int),
+            source_type="Label Map"
         )
 
     # ==========================================
@@ -408,7 +415,8 @@ class ROIManager:
                 name = self._clean_roi_name(filepath)
 
             roi_state = ROIState(
-                mask_id, name, color, source_mode=mode, source_val=target_val
+                mask_id, name, color, source_mode=mode, source_val=target_val,
+                source_type="Binary"
             )
             vs.rois[mask_id] = roi_state
             vs.is_data_dirty = True
@@ -552,7 +560,8 @@ class ROIManager:
         return self._create_memory_roi(
             base_id, filepath, roi_info.get("name", "RT ROI"), mask_img, mask_data,
             skip_crop=False, is_contour=True, color=roi_info.get("color", [255, 0, 0]),
-            source_mode="Ignore BG (val)", source_val=0.0, rtstruct_info=roi_info
+            source_mode="Ignore BG (val)", source_val=0.0, rtstruct_info=roi_info,
+            source_type="RT-Struct"
         )
 
     def get_roi_stats(self, base_vs_id, roi_id, is_overlay=False):
@@ -697,6 +706,8 @@ class ROIManager:
 
             if self.controller.gui:
                 self.controller.gui.show_status_message(f"Reloaded: {roi_state.name}")
+
+            self.controller.ui_needs_refresh = True
 
     def close_roi(self, base_id, roi_id):
         if base_id in self.controller.view_states:
