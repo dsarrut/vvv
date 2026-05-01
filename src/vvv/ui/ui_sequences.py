@@ -41,6 +41,7 @@ def _handle_warnings_and_cleanup(gui, warnings, title, message):
 
 def _compute_label_bboxes(img, labels=None):
     import SimpleITK as sitk
+
     bboxes = {}
     try:
         stats = sitk.LabelShapeStatisticsImageFilter()
@@ -134,7 +135,9 @@ def load_batch_images_sequence(gui, controller, file_paths):
         max_workers=min(total_files, 8)
     ) as executor:
         # Submit all tasks simultaneously
-        futures = [executor.submit(controller.file.load_image, p) for p in clean_paths]
+        futures: list[concurrent.futures.Future | None] = [
+            executor.submit(controller.file.load_image, p) for p in clean_paths
+        ]
 
         completed = 0
         while completed < total_files:
@@ -165,7 +168,9 @@ def load_batch_images_sequence(gui, controller, file_paths):
     if loaded_ids:
         _apply_default_layout(gui, controller, loaded_ids[0])
 
-    yield from _handle_warnings_and_cleanup(gui, warnings, "Image Load Warning", "Some images failed to load:")
+    yield from _handle_warnings_and_cleanup(
+        gui, warnings, "Image Load Warning", "Some images failed to load:"
+    )
 
 
 def load_batch_rois_sequence(
@@ -238,7 +243,9 @@ def load_batch_rois_sequence(
     controller.ui_needs_refresh = True
     controller.update_all_viewers_of_image(base_image_id)
 
-    yield from _handle_warnings_and_cleanup(gui, warnings, "ROI Import Warning", "Some ROIs were skipped:")
+    yield from _handle_warnings_and_cleanup(
+        gui, warnings, "ROI Import Warning", "Some ROIs were skipped:"
+    )
 
 
 def _rasterize_and_load_labels(
@@ -279,7 +286,7 @@ def _rasterize_and_load_labels(
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=min(total_lbls, 8)
         ) as executor:
-            futures = []
+            futures: list[concurrent.futures.Future | None] = []
             for i, val in enumerate(unique_labels, 1):
                 val_int = int(val)
                 custom_name = label_dict.get(val_int, f"{base_name} - Lbl {val_int}")
@@ -289,9 +296,18 @@ def _rasterize_and_load_labels(
                     executor.submit(_process_label, val_int, custom_name, color, bbox)
                 )
 
-            # This is a generator that yields results as they complete
-            for future in concurrent.futures.as_completed(futures):
-                yield future.result()
+            completed = 0
+            while completed < total_lbls:
+                for i, future in enumerate(futures):
+                    if future is not None and future.done():
+                        res = future.result()
+                        futures[i] = None
+                        completed += 1
+                        yield res
+
+                # Yield control to DearPyGui while waiting for threads
+                yield "KEEP_ALIVE"
+                time.sleep(0.01)
 
 
 def load_label_map_sequence(gui, controller, base_image_id, filepath):
@@ -424,6 +440,10 @@ def load_label_map_sequence(gui, controller, base_image_id, filepath):
     for roi_id in _rasterize_and_load_labels(
         gui, controller, base_image_id, filepath, unique_labels, label_dict
     ):
+        if roi_id == "KEEP_ALIVE":
+            yield
+            continue
+
         completed += 1
 
         show_loading_modal(
@@ -495,7 +515,9 @@ def load_rtstruct_sequence(gui, controller, base_image_id, filepath, selected_ro
     controller.ui_needs_refresh = True
     controller.update_all_viewers_of_image(base_image_id)
 
-    yield from _handle_warnings_and_cleanup(gui, warnings, "RT-Struct Import Warning", "Some ROIs failed to load:")
+    yield from _handle_warnings_and_cleanup(
+        gui, warnings, "RT-Struct Import Warning", "Some ROIs failed to load:"
+    )
 
 
 def load_workspace_sequence(gui, controller, filepath):
@@ -550,7 +572,9 @@ def load_workspace_sequence(gui, controller, filepath):
             future_to_path = {
                 executor.submit(controller.file.load_image, p): p for p in paths_list
             }
-            futures = list(future_to_path.keys())
+            futures: list[concurrent.futures.Future | None] = [
+                f for f in future_to_path.keys()
+            ]
             completed = 0
 
             while completed < total_files:
@@ -594,7 +618,9 @@ def load_workspace_sequence(gui, controller, filepath):
 
                 if hasattr(gui, "roi_ui"):
                     gui.roi_ui.roi_filters[new_id] = img_data.get("roi_filter", "")
-                    gui.roi_ui.roi_sort_orders[new_id] = img_data.get("roi_sort_order", 0)
+                    gui.roi_ui.roi_sort_orders[new_id] = img_data.get(
+                        "roi_sort_order", 0
+                    )
 
                 # Apply Overlays immediately since they are already loaded in RAM
                 ov_info = img_data.get("overlay")
@@ -669,6 +695,7 @@ def load_workspace_sequence(gui, controller, filepath):
             if is_rtstruct:
                 try:
                     import pydicom
+
                     ds = pydicom.dcmread(r_path, force=True)
                     for task in tasks:
                         try:
@@ -680,10 +707,22 @@ def load_workspace_sequence(gui, controller, filepath):
                             )
                             results.append((task, roi_id, None))
                         except Exception as e:
-                            results.append((task, None, f"- Failed to load {task['state'].get('name')}: {e}"))
+                            results.append(
+                                (
+                                    task,
+                                    None,
+                                    f"- Failed to load {task['state'].get('name')}: {e}",
+                                )
+                            )
                 except Exception as e:
                     for task in tasks:
-                        results.append((task, None, f"- Failed to read {os.path.basename(r_path)}: {e}"))
+                        results.append(
+                            (
+                                task,
+                                None,
+                                f"- Failed to read {os.path.basename(r_path)}: {e}",
+                            )
+                        )
             else:
                 try:
                     img = sitk.ReadImage(r_path)
@@ -691,7 +730,10 @@ def load_workspace_sequence(gui, controller, filepath):
                     bboxes = None
 
                     # Fast-path: Only compute heavy bboxes if a label map extraction is actually requested!
-                    if any(t["state"].get("source_mode") == "Target FG (val)" for t in tasks):
+                    if any(
+                        t["state"].get("source_mode") == "Target FG (val)"
+                        for t in tasks
+                    ):
                         bboxes = _compute_label_bboxes(img)
 
                     for task in tasks:
@@ -729,18 +771,24 @@ def load_workspace_sequence(gui, controller, filepath):
                                 )
                         except Exception as e:
                             err = f"- Failed to load {task['state'].get('name')}: {e}"
-                        
+
                         results.append((task, roi_id, err))
                 except Exception as e:
                     for task in tasks:
-                        results.append((task, None, f"- Failed to read {os.path.basename(r_path)}: {e}"))
+                        results.append(
+                            (
+                                task,
+                                None,
+                                f"- Failed to read {os.path.basename(r_path)}: {e}",
+                            )
+                        )
 
             return results
 
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=min(len(tasks_by_path), 8)
         ) as executor:
-            futures = [
+            futures: list[concurrent.futures.Future | None] = [
                 executor.submit(process_file_group, path, tasks)
                 for path, tasks in tasks_by_path.items()
             ]
@@ -757,12 +805,20 @@ def load_workspace_sequence(gui, controller, filepath):
                                 vs = controller.view_states[task["new_id"]]
                                 if roi_id in vs.rois:
                                     r_state = task["state"]
-                                    vs.rois[roi_id].opacity = r_state.get("opacity", 0.5)
-                                    vs.rois[roi_id].visible = r_state.get("visible", True)
-                                    vs.rois[roi_id].is_contour = r_state.get("is_contour", False)
-                                    vs.rois[roi_id].thickness = r_state.get("thickness", 1.0)
+                                    vs.rois[roi_id].opacity = r_state.get(
+                                        "opacity", 0.5
+                                    )
+                                    vs.rois[roi_id].visible = r_state.get(
+                                        "visible", True
+                                    )
+                                    vs.rois[roi_id].is_contour = r_state.get(
+                                        "is_contour", False
+                                    )
+                                    vs.rois[roi_id].thickness = r_state.get(
+                                        "thickness", 1.0
+                                    )
                             completed_rois += 1
-                        
+
                         futures[i] = None
 
                         show_loading_modal(
@@ -798,16 +854,16 @@ def load_workspace_sequence(gui, controller, filepath):
                     ordered_vol[ov_id] = controller.volumes[ov_id]
 
     # 3. Add any remaining items (like pre-existing images and ROIs)
-    for v_id, vs in controller.view_states.items():
+    for v_id, vs in list(controller.view_states.items()):
         if v_id not in ordered_vs:
             ordered_vs[v_id] = vs
-    for v_id, vol in controller.volumes.items():
+    for v_id, vol in list(controller.volumes.items()):
         if v_id not in ordered_vol:
             ordered_vol[v_id] = vol
 
     controller.view_states.clear()
     controller.view_states.update(ordered_vs)
-    
+
     controller.volumes.clear()
     controller.volumes.update(ordered_vol)
 
@@ -821,7 +877,9 @@ def load_workspace_sequence(gui, controller, filepath):
     if id_map:
         gui.set_context_viewer(controller.viewers["V1"])
 
-    yield from _handle_warnings_and_cleanup(gui, warnings, "Workspace Warnings", "Some files could not be found or loaded:")
+    yield from _handle_warnings_and_cleanup(
+        gui, warnings, "Workspace Warnings", "Some files could not be found or loaded:"
+    )
 
 
 def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=False):
@@ -875,7 +933,9 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
             future_to_path = {
                 executor.submit(controller.file.load_image, path): path for path in jobs
             }
-            futures = list(future_to_path.keys())
+            futures: list[concurrent.futures.Future | None] = [
+                f for f in future_to_path.keys()
+            ]
 
             completed = 0
             while completed < total_files:
@@ -986,4 +1046,9 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
 
     controller.ui_needs_refresh = True
 
-    yield from _handle_warnings_and_cleanup(gui, warnings, "Boot Sequence Warning", "Some files provided via command line failed to load:")
+    yield from _handle_warnings_and_cleanup(
+        gui,
+        warnings,
+        "Boot Sequence Warning",
+        "Some files provided via command line failed to load:",
+    )
