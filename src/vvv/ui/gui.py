@@ -702,7 +702,6 @@ class MainGUI:
                     "btn_roi_show_all",
                     "btn_roi_contour_all",
                     "btn_roi_hide_all",
-                    "btn_roi_close_all",
                     "btn_roi_export_stats",
                     "slider_roi_global_opacity",
                     "slider_roi_global_thickness",
@@ -758,6 +757,8 @@ class MainGUI:
         dpg.set_value("info_voxel_type", f"{vol.pixel_type}")
         if vol.num_timepoints > 1:
             size_str = f"{vol.shape3d[2]} x {vol.shape3d[1]} x {vol.shape3d[0]} x {vol.num_timepoints}"
+            if getattr(vol, "is_dvf", False):
+                size_str += " (DVF)"
         else:
             size_str = f"{vol.shape3d[2]} x {vol.shape3d[1]} x {vol.shape3d[0]}"
         dpg.set_value("info_size", size_str)

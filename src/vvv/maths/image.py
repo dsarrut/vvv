@@ -549,6 +549,7 @@ class VolumeData:
         self.memory_mb = 0.0
 
         self.is_rgb = False
+        self.is_dvf = False
         self.num_timepoints = 1
         self.shape3d = (1, 1, 1)
 
@@ -937,7 +938,16 @@ class VolumeData:
         self.spacing = np.array(self.sitk_image.GetSpacing()[:3])
         self.origin = np.array(self.sitk_image.GetOrigin()[:3])
 
-        self.is_rgb = self.num_components in [3, 4]
+        self.is_rgb = (
+            self.num_components in [3, 4]
+            and "float" not in self.pixel_type.lower()
+            and "double" not in self.pixel_type.lower()
+        )
+        self.is_dvf = self.num_components > 1 and not self.is_rgb
+
+        if self.is_dvf and self.data.ndim == 4:
+            self.data = np.moveaxis(self.data, -1, 0)
+
         shape = self.data.shape
         self.num_timepoints = 1
 
