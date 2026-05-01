@@ -592,6 +592,10 @@ def load_workspace_sequence(gui, controller, filepath):
                     vs.extraction.from_dict(img_data["extraction"])
                 vs.sync_group = img_data.get("sync_group", 0)
 
+                if hasattr(gui, "roi_ui"):
+                    gui.roi_ui.roi_filters[new_id] = img_data.get("roi_filter", "")
+                    gui.roi_ui.roi_sort_orders[new_id] = img_data.get("roi_sort_order", 0)
+
                 # Apply Overlays immediately since they are already loaded in RAM
                 ov_info = img_data.get("overlay")
                 if ov_info:
