@@ -12,7 +12,7 @@ from vvv.utils import ViewMode, slice_to_voxel, voxel_to_slice
 
 
 @pytest.fixture(scope="session")
-def synthetic_image_path(tmp_path_factory): 
+def synthetic_image_path(tmp_path_factory):
     """Generates a 5x5x5 checkerboard image."""
     indices = np.indices((5, 5, 5))
     checkerboard = (indices[0] + indices[1] + indices[2]) % 2
@@ -208,27 +208,33 @@ def test_reset_view(headless_app):
 
 def test_roi_statistics_math(headless_app, tmp_path):
     """Test mathematically isolated ROI physical statistics (Volume, Mass, Mean)."""
-    controller, viewer, vs_id = headless_app
+    controller, viewer, _ = headless_app
 
-    # 1. Create a 3x3x3 ROI Mask where ONLY the exact center voxel is 1
+    # 1. Create an isolated 3x3x3 Base Image where center voxel is exactly 1000 HU
+    base_data = np.zeros((3, 3, 3), dtype=np.float32)
+    base_data[1, 1, 1] = 1000.0
+    base_img = sitk.GetImageFromArray(base_data)
+    base_img.SetSpacing((2.0, 2.0, 2.0))
+    base_img.SetOrigin((0.0, 0.0, 0.0))
+    base_path = tmp_path / "base.nrrd"
+    sitk.WriteImage(base_img, str(base_path))
+
+    base_id = controller.file.load_image(str(base_path))
+
+    # 2. Create a 3x3x3 ROI Mask where ONLY the exact center voxel is 1
     roi_data = np.zeros((3, 3, 3), dtype=np.uint8)
     roi_data[1, 1, 1] = 1
-
     sitk_img = sitk.GetImageFromArray(roi_data)
     sitk_img.SetSpacing((2.0, 2.0, 2.0))  # 2x2x2 = 8 mm^3 volume!
-    sitk_img.SetOrigin(controller.volumes[vs_id].origin.tolist())
-
+    sitk_img.SetOrigin((0.0, 0.0, 0.0))
     mask_path = tmp_path / "mask.nrrd"
     sitk.WriteImage(sitk_img, str(mask_path))
 
-    # 2. Overwrite the Base Image center voxel to EXACTLY 1000 HU (Hounsfield)
-    controller.volumes[vs_id].data[1, 1, 1] = 1000.0
-
     # 3. Load ROI and run stats
     roi_id = controller.roi.load_binary_mask(
-        vs_id, str(mask_path), mode="Target FG (val)", target_val=1.0
+        base_id, str(mask_path), mode="Target FG (val)", target_val=1.0
     )
-    stats = controller.roi.get_roi_stats(vs_id, roi_id, is_overlay=False)
+    stats = controller.roi.get_roi_stats(base_id, roi_id, is_overlay=False)
 
     # 4. Verify pure math
     assert stats["vol"] == 0.008  # 8 mm^3 / 1000 = 0.008 cc
@@ -242,12 +248,13 @@ def test_roi_statistics_math(headless_app, tmp_path):
 def test_roi_binarization_rules(headless_app, tmp_path):
     """Test that loading a label map strictly obeys the binarization rules before rendering."""
     controller, viewer, vs_id = headless_app
+    base_vol = controller.volumes[vs_id]
 
     # Create a synthetic discrete label map
     label_map = np.array([[[0, 1, 2, 3]]], dtype=np.uint8)
     sitk_img = sitk.GetImageFromArray(label_map)
-    sitk_img.SetSpacing((1.0, 1.0, 1.0))
-    sitk_img.SetOrigin((0.0, 0.0, 0.0))
+    sitk_img.SetSpacing(base_vol.spacing.tolist())
+    sitk_img.SetOrigin(base_vol.origin.tolist())  # Match physical space!
 
     mask_path = tmp_path / "labels.nrrd"
     sitk.WriteImage(sitk_img, str(mask_path))
@@ -256,11 +263,11 @@ def test_roi_binarization_rules(headless_app, tmp_path):
     roi_id = controller.roi.load_binary_mask(
         vs_id, str(mask_path), mode="Target FG (val)", target_val=2.0
     )
-    roi_data = controller.volumes[roi_id].data
+    roi_vol = controller.volumes[roi_id]
 
     # Only the pixel that was '2' should be 1. Everything else MUST be 0.
-    assert roi_data[0, 0, 2] == 1
-    assert np.count_nonzero(roi_data) == 1
+    assert np.count_nonzero(roi_vol.data) == 1
+    assert roi_vol.data[0, 0, 0] == 1
 
 
 # ==========================================
@@ -363,184 +370,6 @@ def test_mpr_orientation_switch(headless_app, tmp_path):
 
 def test_renderer_checkerboard_math():
     """Test the physical checkerboard swapping algorithm directly on the raw RGBA arrays."""
-    # Base = Pure White
-    base_data = np.ones((50, 50, 4), dtype=np.float32)
-    base_layer = RenderLayer(
-        data=base_data,
-        is_rgb=True,
-        num_components=4,
-        ww=0,
-        wl=0,
-        cmap_name="Grayscale",
-        threshold=None,
-        time_idx=0,
-        spacing_2d=(1.0, 1.0),
-    )
-
-    # Overlay = Pure Red
-    over_data = np.ones((50, 50, 4), dtype=np.float32)
-    over_data[..., 1:3] = 0.0  # Zero out Green/Blue
-    over_layer = RenderLayer(
-        data=over_data,
-        is_rgb=True,
-        num_components=4,
-        ww=0,
-        wl=0,
-        cmap_name="Grayscale",
-        threshold=None,
-        time_idx=0,
-        spacing_2d=(1.0, 1.0),
-    )
-
-    # Trigger checkerboard with 10mm squares
-    flat_rgba, (h, w) = SliceRenderer.get_slice_rgba(
-        base=base_layer,
-        overlay=over_layer,
-        overlay_opacity=1.0,
-        overlay_mode="Checkerboard",
-        slice_idx=0,
-        orientation=ViewMode.AXIAL,
-        checkerboard_size=10.0,
-        checkerboard_swap=False,
-        rois=(),
-    )
-    res_img = flat_rgba.reshape((h, w, 4))
-
-    # Voxel (0,0) should be Base (White)
-    assert np.allclose(res_img[0, 0], [1.0, 1.0, 1.0, 1.0])
-
-    # Voxel (0,11) crosses the 10mm checker boundary -> should be Overlay (Red)
-    assert np.allclose(res_img[0, 11], [1.0, 0.0, 0.0, 1.0])
-
-
-def test_renderer_registration_blending():
-    """Test the Registration structural blending (50/50 mix of Base Gray and Overlay Gray)."""
-
-    # Base: Value = 0.2 (Dark Gray)
-    base_slice = np.full((10, 10), 0.2, dtype=np.float32)
-    base_layer = RenderLayer(
-        data=base_slice,
-        is_rgb=False,
-        num_components=1,
-        ww=1.0,
-        wl=0.5,
-        cmap_name="Grayscale",
-        threshold=None,
-        time_idx=0,
-        spacing_2d=(1.0, 1.0),
-    )
-
-    # Overlay: Value = 0.8 (Light Gray)
-    over_slice = np.full((10, 10), 0.8, dtype=np.float32)
-    over_layer = RenderLayer(
-        data=over_slice,
-        is_rgb=False,
-        num_components=1,
-        ww=1.0,
-        wl=0.5,
-        cmap_name="Grayscale",
-        threshold=None,
-        time_idx=0,
-        spacing_2d=(1.0, 1.0),
-    )
-
-    # Blend at exactly 50% opacity
-    flat_rgba, (h, w) = SliceRenderer.get_slice_rgba(
-        base=base_layer,
-        overlay=over_layer,
-        overlay_opacity=0.5,
-        overlay_mode="Registration",
-        slice_idx=0,
-        orientation=ViewMode.AXIAL,
-        checkerboard_size=20.0,
-        checkerboard_swap=False,
-        rois=(),
-    )
-    res_img = flat_rgba.reshape((h, w, 4))
-
-    # The math for Registration Mode at 0.5 opacity is a direct average.
-    # Base Normalized (0.2) + Over Normalized (0.8) / 2 = 0.5
-    assert res_img[5, 5, 0] == pytest.approx(0.5, abs=0.01)  # Red Channel
-    assert res_img[5, 5, 1] == pytest.approx(0.5, abs=0.01)  # Green Channel
-    assert res_img[5, 5, 2] == pytest.approx(0.5, abs=0.01)  # Blue Channel
-    assert res_img[5, 5, 3] == 1.0  # Alpha must remain opaque
-
-
-# ==========================================
-# 3. PURE MATH & LOGIC ISOLATION
-# ==========================================
-
-
-def test_roi_statistics_math(headless_app, tmp_path):
-    """Test mathematically isolated ROI physical statistics (Volume, Mass, Mean)."""
-    controller, viewer, _ = headless_app
-
-    # 1. Create an isolated 3x3x3 Base Image where center voxel is exactly 1000 HU
-    base_data = np.zeros((3, 3, 3), dtype=np.float32)
-    base_data[1, 1, 1] = 1000.0
-    base_img = sitk.GetImageFromArray(base_data)
-    base_img.SetSpacing((2.0, 2.0, 2.0))
-    base_img.SetOrigin((0.0, 0.0, 0.0))
-    base_path = tmp_path / "base.nrrd"
-    sitk.WriteImage(base_img, str(base_path))
-
-    base_id = controller.file.load_image(str(base_path))
-
-    # 2. Create a 3x3x3 ROI Mask where ONLY the exact center voxel is 1
-    roi_data = np.zeros((3, 3, 3), dtype=np.uint8)
-    roi_data[1, 1, 1] = 1
-    mask_img = sitk.GetImageFromArray(roi_data)
-    mask_img.SetSpacing((2.0, 2.0, 2.0))  # 2x2x2 = 8 mm^3 volume!
-    mask_img.SetOrigin((0.0, 0.0, 0.0))
-    mask_path = tmp_path / "mask.nrrd"
-    sitk.WriteImage(mask_img, str(mask_path))
-
-    # 3. Load ROI and run stats
-    roi_id = controller.roi.load_binary_mask(
-        base_id, str(mask_path), mode="Target FG (val)", target_val=1.0
-    )
-    stats = controller.roi.get_roi_stats(base_id, roi_id, is_overlay=False)
-
-    # 4. Verify pure math
-    assert stats["vol"] == 0.008  # 8 mm^3 / 1000 = 0.008 cc
-    assert stats["mean"] == 1000.0
-    assert stats["max"] == 1000.0
-
-    # Mass = Vol * Density. 1000 HU = 2.0 g/cc. Mass = 0.008 * 2.0 = 0.016 g
-    assert stats["mass"] == pytest.approx(0.016)
-
-
-def test_roi_binarization_rules(headless_app, tmp_path):
-    """Test that loading a label map strictly obeys the binarization rules before rendering."""
-    controller, viewer, vs_id = headless_app
-    base_vol = controller.volumes[vs_id]
-
-    label_map = np.array([[[0, 1, 2, 3]]], dtype=np.uint8)
-    sitk_img = sitk.GetImageFromArray(label_map)
-    sitk_img.SetSpacing(base_vol.spacing.tolist())
-    sitk_img.SetOrigin(base_vol.origin.tolist())  # Match physical space!
-
-    mask_path = tmp_path / "labels.nrrd"
-    sitk.WriteImage(sitk_img, str(mask_path))
-
-    roi_id = controller.roi.load_binary_mask(
-        vs_id, str(mask_path), mode="Target FG (val)", target_val=2.0
-    )
-    roi_vol = controller.volumes[roi_id]
-
-    assert np.count_nonzero(roi_vol.data) == 1
-    assert roi_vol.data[0, 0, 0] == 1
-
-
-# ... (Keep Data-In/Data-Out and Headless State Verification tests exactly the same) ...
-
-# ==========================================
-# 6. VISUAL REGRESSION (Renderer Isolation)
-# ==========================================
-
-
-def test_renderer_checkerboard_math():
-    """Test the physical checkerboard swapping algorithm directly on the raw RGBA arrays."""
     # Arrays must be 255.0 because the renderer divides RGB by 255.0!
     base_data = np.full((1, 50, 50, 4), 255.0, dtype=np.float32)
     base_layer = RenderLayer(
@@ -634,7 +463,6 @@ def test_renderer_registration_blending():
     assert res_img[5, 5, 3] == 1.0
 
 
-# ===============
 def test_history_is_pure_and_restores_physics(headless_app):
     """
     Proves that HistoryManager ONLY saves physical/radiometric state,
@@ -839,35 +667,44 @@ def test_spatial_engine_registration_mapping(headless_app):
     # Assert the registration shift sits perfectly on top of the native origin!
     assert np.allclose(world_pt, [110.0, 20.0, 50.0])
 
+
 # ==========================================
 # 8. ROI LOADING & WORKSPACE RESTORATION
 # ==========================================
+
 
 def test_roi_direct_and_workspace_binary_mask(headless_app, tmp_path):
     """Tests standard single/batch Binary Mask loading and workspace restoration."""
     controller, viewer, vs_id = headless_app
     gui = controller.gui
     base_vol = controller.volumes[vs_id]
-    
+
     # 1. Create a binary mask
     data = np.zeros(base_vol.shape3d, dtype=np.uint8)
     data[1:4, 1:4, 1:4] = 1
     mask_img = sitk.GetImageFromArray(data)
     mask_img.SetSpacing(base_vol.spacing.tolist())
     mask_img.SetOrigin(base_vol.origin.tolist())
-    
+
     mask_path = str(tmp_path / "binary_mask.nii.gz")
     sitk.WriteImage(mask_img, mask_path)
 
     # 2. Direct Load
     from vvv.ui.ui_sequences import load_batch_rois_sequence
+
     seq = load_batch_rois_sequence(
-        gui, controller, vs_id, [mask_path], 
-        roi_type="Binary Mask", mode="Target FG (val)", val=1.0
+        gui,
+        controller,
+        vs_id,
+        [mask_path],
+        roi_type="Binary Mask",
+        mode="Target FG (val)",
+        val=1.0,
     )
     # Consume generator to prevent infinite UI loops
     for i, _ in enumerate(seq):
-        if i > 100: raise RuntimeError("Binary mask sequence hung.")
+        if i > 100:
+            raise RuntimeError("Binary mask sequence hung.")
 
     vs = controller.view_states[vs_id]
     roi_keys = list(vs.rois.keys())
@@ -888,9 +725,11 @@ def test_roi_direct_and_workspace_binary_mask(headless_app, tmp_path):
 
     # 5. Workspace Load
     from vvv.ui.ui_sequences import load_workspace_sequence
+
     seq = load_workspace_sequence(gui, controller, ws_path)
     for i, _ in enumerate(seq):
-        if i > 200: raise RuntimeError("Workspace load sequence hung.")
+        if i > 200:
+            raise RuntimeError("Workspace load sequence hung.")
 
     # 6. Verify Workspace Restoration
     new_vs_id = list(controller.view_states.keys())[0]
@@ -899,7 +738,7 @@ def test_roi_direct_and_workspace_binary_mask(headless_app, tmp_path):
     assert len(new_vs.rois) == initial_roi_count
     restored_roi = list(new_vs.rois.values())[-1]
     assert restored_roi.source_mode == "Target FG (val)"
-    
+
     r_vol = controller.volumes[restored_roi.volume_id]
     assert r_vol.data.max() == 1
 
@@ -909,7 +748,7 @@ def test_roi_direct_and_workspace_label_map(headless_app, tmp_path):
     controller, viewer, vs_id = headless_app
     gui = controller.gui
     base_vol = controller.volumes[vs_id]
-    
+
     # 1. Create a label map with labels 1 and 2
     data = np.zeros(base_vol.shape3d, dtype=np.uint8)
     data[1:3, 1:3, 1:3] = 1
@@ -917,15 +756,17 @@ def test_roi_direct_and_workspace_label_map(headless_app, tmp_path):
     lbl_img = sitk.GetImageFromArray(data)
     lbl_img.SetSpacing(base_vol.spacing.tolist())
     lbl_img.SetOrigin(base_vol.origin.tolist())
-    
+
     lbl_path = str(tmp_path / "label_map.nii.gz")
     sitk.WriteImage(lbl_img, lbl_path)
 
     # 2. Direct Load
     from vvv.ui.ui_sequences import load_label_map_sequence
+
     seq = load_label_map_sequence(gui, controller, vs_id, lbl_path)
     for i, _ in enumerate(seq):
-        if i > 100: raise RuntimeError("Label map sequence hung.")
+        if i > 100:
+            raise RuntimeError("Label map sequence hung.")
 
     vs = controller.view_states[vs_id]
     assert len(vs.rois) >= 2
@@ -944,9 +785,11 @@ def test_roi_direct_and_workspace_label_map(headless_app, tmp_path):
 
     # 5. Workspace Load
     from vvv.ui.ui_sequences import load_workspace_sequence
+
     seq = load_workspace_sequence(gui, controller, ws_path)
     for i, _ in enumerate(seq):
-        if i > 200: raise RuntimeError("Workspace load sequence hung.")
+        if i > 200:
+            raise RuntimeError("Workspace load sequence hung.")
 
     # 6. Verify Workspace Restoration
     new_vs_id = list(controller.view_states.keys())[0]
@@ -955,10 +798,10 @@ def test_roi_direct_and_workspace_label_map(headless_app, tmp_path):
     # At least 2 ROIs should be restored
     assert len(new_vs.rois) >= 2
     restored = list(new_vs.rois.values())
-    
+
     assert restored[-1].source_mode == "Target FG (val)"
     assert restored[-2].source_mode == "Target FG (val)"
-    
+
     # Verify data exists and was thresholded properly (Binarized successfully to max 1)
     r_vol = controller.volumes[restored[-1].volume_id]
     assert r_vol.data.max() == 1
@@ -977,6 +820,7 @@ def test_roi_direct_and_workspace_rtstruct(headless_app, tmp_path, monkeypatch):
     # Mock pydicom globally so it skips real DICOM parsing
     import sys
     from unittest.mock import MagicMock
+
     mock_pydicom = MagicMock()
     mock_pydicom.dcmread.return_value = MagicMock()
     sys.modules["pydicom"] = mock_pydicom
@@ -987,12 +831,12 @@ def test_roi_direct_and_workspace_rtstruct(headless_app, tmp_path, monkeypatch):
         controller.next_image_id += 1
         from vvv.maths.image import VolumeData
         from vvv.core.roi_manager import ROIState
-        
+
         mask_vol = VolumeData.__new__(VolumeData)
         mask_vol.path = filepath
         mask_vol.file_paths = [filepath]
         mask_vol.name = roi_info.get("name", "RT ROI")
-        mask_vol.data = np.zeros((5, 5, 5), dtype=np.uint8) 
+        mask_vol.data = np.zeros((5, 5, 5), dtype=np.uint8)
         controller.volumes[mask_id] = mask_vol
 
         roi_state = ROIState(
@@ -1011,13 +855,15 @@ def test_roi_direct_and_workspace_rtstruct(headless_app, tmp_path, monkeypatch):
     # 1. Direct Load
     selected_rois = [
         {"id": 1, "name": "Prostate", "color": [255, 0, 0]},
-        {"id": 2, "name": "Bladder", "color": [0, 255, 0]}
+        {"id": 2, "name": "Bladder", "color": [0, 255, 0]},
     ]
-    
+
     from vvv.ui.ui_sequences import load_rtstruct_sequence
+
     seq = load_rtstruct_sequence(gui, controller, vs_id, rt_path, selected_rois)
     for i, _ in enumerate(seq):
-        if i > 100: raise RuntimeError("RT-Struct sequence hung.")
+        if i > 100:
+            raise RuntimeError("RT-Struct sequence hung.")
 
     vs = controller.view_states[vs_id]
     initial_roi_count = len(vs.rois)
@@ -1036,9 +882,11 @@ def test_roi_direct_and_workspace_rtstruct(headless_app, tmp_path, monkeypatch):
 
     # 4. Workspace Load
     from vvv.ui.ui_sequences import load_workspace_sequence
+
     seq = load_workspace_sequence(gui, controller, ws_path)
     for i, _ in enumerate(seq):
-        if i > 200: raise RuntimeError("Workspace load sequence hung.")
+        if i > 200:
+            raise RuntimeError("Workspace load sequence hung.")
 
     # 5. Verify Workspace Restoration
     new_vs_id = list(controller.view_states.keys())[0]
@@ -1054,6 +902,7 @@ def test_roi_direct_and_workspace_rtstruct(headless_app, tmp_path, monkeypatch):
 # 9. EXTRACTION & VECTOR CONTOURS
 # ==========================================
 
+
 def test_contour_marching_squares_extraction():
     """Test that the marching squares algorithm perfectly hugs the boundaries of a voxel."""
     from vvv.maths.contours import extract_2d_contours_from_slice
@@ -1063,11 +912,11 @@ def test_contour_marching_squares_extraction():
     slice2d[1:4, 1:4] = 1
 
     contours = extract_2d_contours_from_slice(slice2d, threshold=0.5, sw=1.0, sh=1.0)
-    
+
     # It should find exactly 1 closed continuous contour ring
     assert len(contours) == 1
     poly = contours[0]
-    
+
     # Marching squares around a 3x3 block should yield specific coordinate bounds.
     # X ranges from 1.0 to 4.0 (mapped from original indices 1 to 3 with +0.5 OpenGL alignment offset)
     xs = [p[0] for p in poly]
@@ -1085,7 +934,7 @@ def test_extraction_manager_image_generation(headless_app, monkeypatch):
 
     # 1. Modify base volume to have a distinct 3x3 foreground block (Value: 100)
     base_vol.data = np.zeros_like(base_vol.data)
-    base_vol.data[1:4, 1:4, 1:4] = 100.0  
+    base_vol.data[1:4, 1:4, 1:4] = 100.0
 
     # 2. Configure the threshold settings
     vs = controller.view_states[vs_id]
@@ -1097,7 +946,9 @@ def test_extraction_manager_image_generation(headless_app, monkeypatch):
     vs.extraction.gen_bg_val = 0.0
 
     # 3. Hijack threading so the generation finishes instantly before the test asserts
-    monkeypatch.setattr("threading.Thread.start", lambda self: self._target(*self._args, **self._kwargs))
+    monkeypatch.setattr(
+        "threading.Thread.start", lambda self: self._target(*self._args, **self._kwargs)
+    )
     controller.extraction.create_image(vs_id, base_vol, vs)
 
     # 4. Assert new volume was registered and math is perfectly thresholded
@@ -1107,5 +958,5 @@ def test_extraction_manager_image_generation(headless_app, monkeypatch):
     assert new_id != vs_id
     assert new_vol.data.max() == 1.0
     assert new_vol.data.min() == 0.0
-    assert new_vol.data[2, 2, 2] == 1.0   # Center of foreground block
-    assert new_vol.data[0, 0, 0] == 0.0   # Background block
+    assert new_vol.data[2, 2, 2] == 1.0  # Center of foreground block
+    assert new_vol.data[0, 0, 0] == 0.0  # Background block
