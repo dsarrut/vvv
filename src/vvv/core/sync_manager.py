@@ -76,6 +76,7 @@ class SyncManager:
 
         # Use the explicit display-aware method to get the true World Coordinate
         is_src_buf = source_vs.base_display_data is not None and source_vs.space.has_rotation()
+        is_src_buf = source_vs.base_display_data is not None and source_vs.space.has_rotation() # type: ignore
         world_phys = source_vs.space.display_to_world(
             np.array(source_vs.camera.crosshair_voxel[:3]), is_buffered=is_src_buf
         )
@@ -125,6 +126,10 @@ class SyncManager:
 
             # --- Pure Physical Coordinates for Value Lookup ---
             target_vs.update_crosshair_from_phys(target_vs.camera.crosshair_phys_coord)
+            # Update time_idx first, as update_crosshair_from_phys uses it.
+            nt = target_vs.volume.num_timepoints
+            target_vs.camera.time_idx = min(source_vs.camera.time_idx, nt - 1)
+            target_vs.update_crosshair_from_phys(world_phys)
         self.trigger_redraw(target_ids)
 
     def propagate_colormap(self, source_vs_id):
