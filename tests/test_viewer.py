@@ -1048,3 +1048,64 @@ def test_roi_direct_and_workspace_rtstruct(headless_app, tmp_path, monkeypatch):
     restored_names = [r.name for r in new_vs.rois.values()]
     assert "Prostate" in restored_names
     assert "Bladder" in restored_names
+
+
+# ==========================================
+# 9. EXTRACTION & VECTOR CONTOURS
+# ==========================================
+
+def test_contour_marching_squares_extraction():
+    """Test that the marching squares algorithm perfectly hugs the boundaries of a voxel."""
+    from vvv.maths.contours import extract_2d_contours_from_slice
+
+    # Create a 5x5 grid with a solid 3x3 square in the middle
+    slice2d = np.zeros((5, 5), dtype=np.uint8)
+    slice2d[1:4, 1:4] = 1
+
+    contours = extract_2d_contours_from_slice(slice2d, threshold=0.5, sw=1.0, sh=1.0)
+    
+    # It should find exactly 1 closed continuous contour ring
+    assert len(contours) == 1
+    poly = contours[0]
+    
+    # Marching squares around a 3x3 block should yield specific coordinate bounds.
+    # X ranges from 1.0 to 4.0 (mapped from original indices 1 to 3 with +0.5 OpenGL alignment offset)
+    xs = [p[0] for p in poly]
+    ys = [p[1] for p in poly]
+    assert min(xs) == 1.0
+    assert max(xs) == 4.0
+    assert min(ys) == 1.0
+    assert max(ys) == 4.0
+
+
+def test_extraction_manager_image_generation(headless_app, monkeypatch):
+    """Tests that the Interactive Threshold generator successfully creates a cropped mask VolumeData."""
+    controller, viewer, vs_id = headless_app
+    base_vol = controller.volumes[vs_id]
+
+    # 1. Modify base volume to have a distinct 3x3 foreground block (Value: 100)
+    base_vol.data = np.zeros_like(base_vol.data)
+    base_vol.data[1:4, 1:4, 1:4] = 100.0  
+
+    # 2. Configure the threshold settings
+    vs = controller.view_states[vs_id]
+    vs.extraction.threshold_min = 50.0
+    vs.extraction.threshold_max = 150.0
+    vs.extraction.gen_fg_mode = "Constant"
+    vs.extraction.gen_fg_val = 1.0
+    vs.extraction.gen_bg_mode = "Constant"
+    vs.extraction.gen_bg_val = 0.0
+
+    # 3. Hijack threading so the generation finishes instantly before the test asserts
+    monkeypatch.setattr("threading.Thread.start", lambda self: self._target(*self._args, **self._kwargs))
+    controller.extraction.create_image(vs_id, base_vol, vs)
+
+    # 4. Assert new volume was registered and math is perfectly thresholded
+    new_id = list(controller.volumes.keys())[-1]
+    new_vol = controller.volumes[new_id]
+
+    assert new_id != vs_id
+    assert new_vol.data.max() == 1.0
+    assert new_vol.data.min() == 0.0
+    assert new_vol.data[2, 2, 2] == 1.0   # Center of foreground block
+    assert new_vol.data[0, 0, 0] == 0.0   # Background block
