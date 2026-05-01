@@ -256,16 +256,13 @@ class Controller:
 
             mz, my, mx = vol.shape3d
             if 0 <= ix < mx and 0 <= iy < my and 0 <= iz < mz:
-                t = (
-                    min(time_idx, vol.num_timepoints - 1)
-                    if vol.num_timepoints > 1
-                    else 0
-                )
-                base_val = (
-                    vol.data[t, iz, iy, ix]
-                    if vol.num_timepoints > 1
-                    else vol.data[iz, iy, ix]
-                )
+                if getattr(vol, "is_dvf", False):
+                    base_val = vol.data[:, iz, iy, ix]
+                elif vol.num_timepoints > 1:
+                    t = min(time_idx, vol.num_timepoints - 1)
+                    base_val = vol.data[t, iz, iy, ix]
+                else:
+                    base_val = vol.data[iz, iy, ix]
 
             # 2. Fused Target Overlay Value
             overlay_val = None
@@ -279,12 +276,13 @@ class Controller:
                 omz, omy, omx = ov_vol.shape3d
 
                 if 0 <= ox < omx and 0 <= oy < omy and 0 <= oz < omz:
-                    ot = min(time_idx, ov_vol.num_timepoints - 1)
-                    overlay_val = (
-                        ov_vol.data[ot, oz, oy, ox]
-                        if ov_vol.num_timepoints > 1
-                        else ov_vol.data[oz, oy, ox]
-                    )
+                    if getattr(ov_vol, "is_dvf", False):
+                        overlay_val = ov_vol.data[:, oz, oy, ox]
+                    elif ov_vol.num_timepoints > 1:
+                        ot = min(time_idx, ov_vol.num_timepoints - 1)
+                        overlay_val = ov_vol.data[ot, oz, oy, ox]
+                    else:
+                        overlay_val = ov_vol.data[oz, oy, ox]
 
             # 3. Intersecting ROIs (ROIs share the Base Image's spatial grid)
             roi_names = []

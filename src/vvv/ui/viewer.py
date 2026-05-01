@@ -1463,15 +1463,26 @@ class SliceViewer:
             if val is None:
                 val_str = "-"
             else:
-                val_str = (
-                    f"{val[0]:g} {val[1]:g} {val[2]:g}"
-                    if getattr(self.volume, "is_rgb", False)
-                    else f"{val:g}"
-                )
+                if getattr(self.volume, "is_rgb", False):
+                    val_str = f"{val[0]:g} {val[1]:g} {val[2]:g}"
+                elif getattr(self.volume, "is_dvf", False):
+                    mag = np.linalg.norm(val)
+                    val_str = f"[{fmt(val, 2)}] L:{fmt(mag, 2)}"
+                else:
+                    val_str = f"{val:g}"`
             text_lines = [f"{val_str}"]
 
             if info["overlay_val"] is not None:
-                text_lines[0] += f" ({info['overlay_val']:g})"
+                ov_val = info["overlay_val"]
+                ov_id = self.view_state.display.overlay_id
+                ov_vol = self.controller.volumes.get(ov_id)
+                if ov_vol and getattr(ov_vol, "is_dvf", False):
+                    mag = np.linalg.norm(ov_val)
+                    text_lines[0] += f" ([{fmt(ov_val, 2)}] L:{fmt(mag, 2)})"
+                elif ov_vol and getattr(ov_vol, "is_rgb", False):
+                    text_lines[0] += f" ({ov_val[0]:g} {ov_val[1]:g} {ov_val[2]:g})"
+                else:
+                    text_lines[0] += f" ({ov_val:g})"
 
             if info["rois"]:
                 text_lines[0] += f"  {', '.join(info['rois'])}"

@@ -823,14 +823,27 @@ class MainGUI:
                 if val is None:
                     val_str = "-"
                 else:
-                    val_str = (
-                        f"{val[0]:g} {val[1]:g} {val[2]:g}"
-                        if getattr(vol, "is_rgb", False)
-                        else f"{val:g}"
-                    )
+                    if getattr(vol, "is_rgb", False):
+                        val_str = f"{val[0]:g} {val[1]:g} {val[2]:g}"
+                    elif getattr(vol, "is_dvf", False):
+                        mag = np.linalg.norm(val)
+                        comp_str = " ".join(f"{v:g}" for v in val)
+                        val_str = f"[{comp_str}] L:{mag:g}"
+                    else:
+                        val_str = f"{val:g}"
 
                 if info["overlay_val"] is not None:
-                    val_str += f" ({info['overlay_val']:g})"
+                    ov_val = info["overlay_val"]
+                    ov_id = vs.display.overlay_id
+                    ov_vol = self.controller.volumes.get(ov_id)
+                    if ov_vol and getattr(ov_vol, "is_dvf", False):
+                        mag = np.linalg.norm(ov_val)
+                        comp_str = " ".join(f"{v:g}" for v in ov_val)
+                        val_str += f" ([{comp_str}] L:{mag:g})"
+                    elif ov_vol and getattr(ov_vol, "is_rgb", False):
+                        val_str += f" ({ov_val[0]:g} {ov_val[1]:g} {ov_val[2]:g})"
+                    else:
+                        val_str += f" ({ov_val:g})"
 
                 if info["rois"]:
                     val_str += f"  {', '.join(info['rois'])}"

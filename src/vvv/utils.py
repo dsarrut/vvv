@@ -12,6 +12,8 @@ class ViewMode(Enum):
 
 
 def fmt(values, precision=3):
+    if np.isscalar(values) or isinstance(values, (int, float)):
+        return f"{round(float(values), precision):g}"
     # If it's a 2D matrix (like the ITK direction matrix), flatten it first
     if isinstance(values, np.ndarray):
         values = values.flatten()
