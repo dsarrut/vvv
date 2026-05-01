@@ -1,7 +1,7 @@
 import numpy as np
 import SimpleITK as sitk
-from vvv.config import WL_PRESETS
 from contextlib import contextmanager
+from vvv.config import WL_PRESETS
 from vvv.maths.geometry import SpatialEngine
 from vvv.utils import ViewMode, slice_to_voxel
 
@@ -13,7 +13,7 @@ class CameraState:
 
     _parent: "ViewState | None"
 
-    # 1. Type Hints (Keeps PyCharm/VSCode autocomplete happy)
+    # Type hints
     time_idx: int
     show_axis: bool
     show_tracker: bool
@@ -23,7 +23,7 @@ class CameraState:
     show_legend: bool
     show_filename: int
 
-    # 2. The exact fields that should trigger a GEOMETRY redraw
+    # Fields that trigger a GEOMETRY redraw
     _GEOM_FIELDS = {
         "time_idx",
         "show_axis",
@@ -35,7 +35,7 @@ class CameraState:
         "show_filename",
     }
 
-    def __init__(self, volume, parent_vs=None):
+    def __init__(self, volume, parent_vs: "ViewState | None" = None):
         self._parent = parent_vs
         self.zoom = {
             ViewMode.AXIAL: 1.0,
@@ -53,12 +53,10 @@ class CameraState:
             ViewMode.CORONAL: volume.shape3d[1] // 2,
         }
 
-        # Non-flagged attributes
         self.crosshair_voxel: list[float] | None = None
         self.crosshair_phys_coord: np.ndarray | None = None
         self.last_orientation = ViewMode.AXIAL
 
-        # Default values for flagged attributes
         self.time_idx = 0
         self.show_axis = True
         self.show_tracker = True
@@ -74,17 +72,12 @@ class CameraState:
         self.target_tracker_phys = None
 
     def __setattr__(self, name, value):
-        # Intercept assignments: if it's a GEOM field AND the value is actually changing
         if name in self._GEOM_FIELDS and getattr(self, name, _SENTINEL) != value:
-            object.__setattr__(self, name, value)  # Set the value
-
-            # Flag the parent automatically
+            object.__setattr__(self, name, value)
             parent = getattr(self, "_parent", None)
             if parent is not None:
                 parent.is_geometry_dirty = True
             return
-
-        # Standard assignment for everything else (like dictionaries and _parent)
         object.__setattr__(self, name, value)
 
     def to_dict(self):
@@ -102,9 +95,7 @@ class CameraState:
             "show_filename": int(self.show_filename),
             "last_orientation": self.last_orientation.name,
             "crosshair_voxel": (
-                [float(x) for x in self.crosshair_voxel]
-                if self.crosshair_voxel
-                else None
+                [float(x) for x in self.crosshair_voxel] if self.crosshair_voxel else None
             ),
             "crosshair_phys_coord": (
                 [float(x) for x in self.crosshair_phys_coord]
@@ -129,7 +120,6 @@ class CameraState:
         if "slices" in d:
             self.slices.update(parse_dict(d["slices"]))
 
-        # Using the setters!
         self.time_idx = d.get("time_idx", self.time_idx)
         self.show_axis = d.get("show_axis", self.show_axis)
         self.show_tracker = d.get("show_tracker", self.show_tracker)
@@ -141,7 +131,6 @@ class CameraState:
 
         if "last_orientation" in d:
             self.last_orientation = ViewMode[d["last_orientation"]]
-
         if "crosshair_voxel" in d:
             self.crosshair_voxel = d["crosshair_voxel"]
         if "crosshair_phys_coord" in d and d["crosshair_phys_coord"] is not None:
@@ -153,7 +142,7 @@ class DisplayState:
 
     _parent: "ViewState | None"
 
-    # 1. Type Hints
+    # Type hints
     ww: float
     wl: float
     colormap: str
@@ -166,7 +155,7 @@ class DisplayState:
     pixelated_zoom: bool
     use_voxel_strips: bool
 
-    # 2. The exact fields that should trigger a DATA redraw
+    # Fields that trigger a DATA redraw
     _DATA_FIELDS = {
         "ww",
         "wl",
@@ -181,15 +170,11 @@ class DisplayState:
         "use_voxel_strips",
     }
 
-    def __init__(self, parent_vs=None):
+    def __init__(self, parent_vs: "ViewState | None" = None):
         self._parent = parent_vs
-
-        # Non-flagged attributes
         self.overlay_data: np.ndarray | None = None
         self._sitk_overlay_cache = None
         self.baked_overlay_translation = (0.0, 0.0, 0.0)
-
-        # Default values for flagged attributes
         self.ww = 1.0
         self.wl = 0.5
         self.colormap = "Grayscale"
@@ -203,17 +188,12 @@ class DisplayState:
         self.use_voxel_strips = False
 
     def __setattr__(self, name, value):
-        # Intercept assignments: if it's a DATA field AND the value is actually changing
         if name in self._DATA_FIELDS and getattr(self, name, _SENTINEL) != value:
-            object.__setattr__(self, name, value)  # Set the value
-
-            # Flag the parent automatically
+            object.__setattr__(self, name, value)
             parent = getattr(self, "_parent", None)
             if parent is not None:
                 parent.is_data_dirty = True
             return
-
-        # Standard assignment for everything else
         object.__setattr__(self, name, value)
 
     def to_dict(self):
@@ -249,6 +229,98 @@ class DisplayState:
         )
 
 
+class ExtractionState:
+    """Stores parameters for interactive contour thresholding."""
+
+    _parent: "ViewState | None"
+
+    is_enabled: bool
+    threshold_min: float
+    threshold_max: float
+    show_preview: bool
+    preview_color_min: list
+    preview_color_max: list
+    subpixel_accurate: bool
+    preview_thickness: float
+
+    _GEOM_FIELDS = {
+        "is_enabled",
+        "threshold_min",
+        "threshold_max",
+        "show_preview",
+        "preview_color_min",
+        "preview_color_max",
+        "subpixel_accurate",
+        "preview_thickness",
+    }
+
+    def __init__(self, parent_vs: "ViewState | None" = None):
+        self._parent = parent_vs
+        self.is_enabled = False
+        self.threshold_min = 0.0
+        self.threshold_max = 100000.0
+        self.show_preview = True
+        self.preview_color_min = [255, 0, 0, 255]
+        self.preview_color_max = [0, 0, 255, 255]
+        self.subpixel_accurate = True
+        self.preview_thickness = 1.0
+        self.gen_bg_mode = "Constant"
+        self.gen_bg_val = 0.0
+        self.gen_fg_mode = "Constant"
+        self.gen_fg_val = 1.0
+
+    def __setattr__(self, name, value):
+        if name in self._GEOM_FIELDS and getattr(self, name, _SENTINEL) != value:
+            object.__setattr__(self, name, value)
+            parent = getattr(self, "_parent", None)
+            if parent is not None:
+                parent.is_geometry_dirty = True
+            return
+        object.__setattr__(self, name, value)
+
+    def to_dict(self):
+        return {
+            "is_enabled": bool(self.is_enabled),
+            "threshold_min": float(self.threshold_min),
+            "threshold_max": float(self.threshold_max),
+            "show_preview": bool(self.show_preview),
+            "preview_color_min": list(self.preview_color_min),
+            "preview_color_max": list(self.preview_color_max),
+            "subpixel_accurate": bool(self.subpixel_accurate),
+            "preview_thickness": float(self.preview_thickness),
+            "gen_bg_mode": str(self.gen_bg_mode),
+            "gen_bg_val": float(self.gen_bg_val),
+            "gen_fg_mode": str(self.gen_fg_mode),
+            "gen_fg_val": float(self.gen_fg_val),
+        }
+
+    def from_dict(self, d):
+        if not d:
+            return
+
+        # Schema migrations
+        if "threshold" in d and "threshold_min" not in d:
+            d["threshold_min"] = d["threshold"]
+        if "preview_color" in d:
+            if "preview_color_min" not in d:
+                d["preview_color_min"] = d["preview_color"]
+            if "preview_color_max" not in d:
+                d["preview_color_max"] = d["preview_color"]
+
+        self.is_enabled = d.get("is_enabled", self.is_enabled)
+        self.threshold_min = d.get("threshold_min", self.threshold_min)
+        self.threshold_max = d.get("threshold_max", self.threshold_max)
+        self.show_preview = d.get("show_preview", self.show_preview)
+        self.preview_color_min = d.get("preview_color_min", self.preview_color_min)
+        self.preview_color_max = d.get("preview_color_max", self.preview_color_max)
+        self.subpixel_accurate = d.get("subpixel_accurate", self.subpixel_accurate)
+        self.preview_thickness = d.get("preview_thickness", self.preview_thickness)
+        self.gen_bg_mode = d.get("gen_bg_mode", self.gen_bg_mode)
+        self.gen_bg_val = d.get("gen_bg_val", self.gen_bg_val)
+        self.gen_fg_mode = d.get("gen_fg_mode", self.gen_fg_mode)
+        self.gen_fg_val = d.get("gen_fg_val", self.gen_fg_val)
+
+
 class ViewState:
     """
     The exclusive Source of Truth for an image's presentation state.
@@ -279,32 +351,24 @@ class ViewState:
 
     def __init__(self, volume):
         self.volume = volume
-
-        # Self-managed state flags
         self.is_data_dirty = True
         self.is_geometry_dirty = True
         self.is_loading = False
-
-        # Link children to self
         self.camera = CameraState(volume, parent_vs=self)
         self.display = DisplayState(parent_vs=self)
         self.extraction = ExtractionState(parent_vs=self)
-
         self.sync_group = 0
         self.sync_wl_group = 0  # Radiometric group support
         self.rois = {}
         self.contours = {}
-
         self.crosshair_value = None
         self.space = SpatialEngine(volume)
         self.base_display_data: np.ndarray | None = None
         self._sitk_base_cache = None
-
         self.hist_data_x = None
         self.hist_data_y = None
         self.histogram_is_dirty = True
         self.use_log_y = True
-
         self.init_crosshair_to_slices()
         self.init_default_window_level()
 
@@ -342,6 +406,14 @@ class ViewState:
             return sh[0], sh[2]
         return 1, 1
 
+    def _read_voxel_value(self, ix: int, iy: int, iz: int):
+        _buf = self.base_display_data
+        data = _buf if _buf is not None else self.volume.data
+        if self.volume.num_timepoints > 1:
+            t = min(self.camera.time_idx, self.volume.num_timepoints - 1)
+            return data[t, iz, iy, ix]
+        return data[iz, iy, ix]
+
     def init_crosshair_to_slices(self):
         self.camera.crosshair_voxel = [
             self.camera.slices[ViewMode.SAGITTAL],
@@ -349,46 +421,31 @@ class ViewState:
             self.camera.slices[ViewMode.AXIAL],
             self.camera.time_idx,
         ]
-
-        is_buf = self.base_display_data is not None
-        self.camera.crosshair_phys_coord = self.space.display_to_world(
-            np.array(self.camera.crosshair_voxel[:3]), is_buf
-        )
-
-        v = self.camera.crosshair_voxel
-        ix, iy, iz = int(v[0]), int(v[1]), int(v[2])
         _buf = self.base_display_data
-        display_data = _buf if _buf is not None else self.volume.data
-
-        if self.volume.num_timepoints > 1:
-            t_idx = min(self.camera.time_idx, self.volume.num_timepoints - 1)
-            self.crosshair_value = display_data[t_idx, iz, iy, ix]
-        else:
-            self.crosshair_value = display_data[iz, iy, ix]
+        self.camera.crosshair_phys_coord = self.space.display_to_world(
+            np.array(self.camera.crosshair_voxel[:3]), _buf is not None
+        )
+        v = self.camera.crosshair_voxel
+        self.crosshair_value = self._read_voxel_value(int(v[0]), int(v[1]), int(v[2]))
 
     def init_default_window_level(self):
         total_pixels = getattr(self.volume.data, "size", 0)
         if total_pixels == 0:
             return
         max_sample_size = 100000
-
         if total_pixels > max_sample_size:
             stride = max(1, total_pixels // max_sample_size)
             sample_data = self.volume.data.flatten()[::stride]
         else:
             sample_data = self.volume.data.flatten()
 
-        is_ct = self.is_ct_image(sample_data)
-
-        if is_ct:
+        if self.is_ct_image(sample_data):
             self.set_ct_window_level(sample_data)
         else:
             p1, p99 = np.percentile(sample_data, [1, 99])
             p2, p98 = np.percentile(sample_data, [2, 98])
-
             self.display.ww = p98 - p2
             self.display.wl = (p98 + p2) / 2
-
             if self.display.ww <= 1e-20:
                 self.display.ww = p99 - p1
                 if self.display.ww <= 1e-20:
@@ -411,30 +468,19 @@ class ViewState:
         new_v = [vx, vy, vz, self.camera.time_idx]
         self.camera.crosshair_voxel = new_v
 
-        is_buf = self.base_display_data is not None
+        _buf = self.base_display_data
         self.camera.crosshair_phys_coord = self.space.display_to_world(
-            np.array(new_v[:3]), is_buf
+            np.array(new_v[:3]), _buf is not None
         )
 
         ix, iy, iz = [
             int(np.clip(np.floor(c + 0.5), 0, limit - 1))
             for c, limit in zip(
                 new_v[:3],
-                [
-                    self.volume.shape3d[2],
-                    self.volume.shape3d[1],
-                    self.volume.shape3d[0],
-                ],
+                [self.volume.shape3d[2], self.volume.shape3d[1], self.volume.shape3d[0]],
             )
         ]
-
-        _buf = self.base_display_data
-        display_data = _buf if _buf is not None else self.volume.data
-        if self.volume.num_timepoints > 1:
-            t_idx = min(self.camera.time_idx, self.volume.num_timepoints - 1)
-            self.crosshair_value = display_data[t_idx, iz, iy, ix]
-        else:
-            self.crosshair_value = display_data[iz, iy, ix]
+        self.crosshair_value = self._read_voxel_value(ix, iy, iz)
 
     def update_crosshair_from_2d(self, slice_x, slice_y, slice_idx, orientation):
         shape = self.get_slice_shape(orientation)
@@ -442,30 +488,19 @@ class ViewState:
 
         self.camera.crosshair_voxel = [v[0], v[1], v[2], self.camera.time_idx]
 
-        is_buf = self.base_display_data is not None
+        _buf = self.base_display_data
         self.camera.crosshair_phys_coord = self.space.display_to_world(
-            np.array(v[:3]), is_buf
+            np.array(v[:3]), _buf is not None
         )
 
         ix, iy, iz = [
             int(np.clip(np.floor(c + 0.5), 0, limit - 1))
             for c, limit in zip(
                 v,
-                [
-                    self.volume.shape3d[2],
-                    self.volume.shape3d[1],
-                    self.volume.shape3d[0],
-                ],
+                [self.volume.shape3d[2], self.volume.shape3d[1], self.volume.shape3d[0]],
             )
         ]
-
-        _buf = self.base_display_data
-        display_data = _buf if _buf is not None else self.volume.data
-        if self.volume.num_timepoints > 1:
-            t_idx = min(self.camera.time_idx, self.volume.num_timepoints - 1)
-            self.crosshair_value = display_data[t_idx, iz, iy, ix]
-        else:
-            self.crosshair_value = display_data[iz, iy, ix]
+        self.crosshair_value = self._read_voxel_value(ix, iy, iz)
 
     def update_histogram(self):
         flat_data = self.volume.data.flatten()
@@ -497,21 +532,16 @@ class ViewState:
         self.camera = CameraState(self.volume, parent_vs=self)
         self.display = DisplayState(parent_vs=self)
         self.init_default_window_level()
-
-        # Mandatory: Rule 4 requires crosshair initialization
         self.init_crosshair_to_slices()
-
         self.is_data_dirty = True
         self.is_geometry_dirty = True
 
     def apply_wl_preset(self, preset_name):
         if getattr(self.volume, "is_rgb", False) or preset_name == "Custom":
             return
-
         total_pixels = getattr(self.volume.data, "size", 0)
         if total_pixels == 0:
             return
-
         if "Optimal" in preset_name:
             stride = max(1, total_pixels // 100000)
             sample_data = self.volume.data.flatten()[::stride]
@@ -550,10 +580,7 @@ class ViewState:
         resampler = sitk.ResampleImageFilter()
         resampler.SetReferenceImage(ref_img)
         resampler.SetInterpolator(sitk.sitkLinear)
-
-        min_val = float(np.min(self.volume.data))
-        resampler.SetDefaultPixelValue(min_val)
-
+        resampler.SetDefaultPixelValue(float(np.min(self.volume.data)))
         rot_transform = self.space.get_rotation_only_transform()
         resampler.SetTransform(rot_transform.GetInverse())
 
@@ -621,7 +648,6 @@ class ViewState:
 
         resampler.SetTransform(composite)
 
-        # Execute Resample
         target_dim = other_vol.sitk_image.GetDimension()
         if target_dim == 3:
             resampled_img = resampler.Execute(other_vol.sitk_image)
@@ -694,100 +720,3 @@ class ViewState:
 
         self.display.ww = preset["ww"]
         self.display.wl = preset["wl"]
-
-
-class ExtractionState:
-    """Stores parameters for interactive contour thresholding."""
-
-    _parent: "ViewState | None"
-
-    is_enabled: bool
-    threshold_min: float
-    threshold_max: float
-    show_preview: bool
-    preview_color_min: list
-    preview_color_max: list
-    subpixel_accurate: bool
-    preview_thickness: float
-
-    _GEOM_FIELDS = {
-        "is_enabled",
-        "threshold_min",
-        "threshold_max",
-        "show_preview",
-        "preview_color_min",
-        "preview_color_max",
-        "subpixel_accurate",
-        "preview_thickness",
-    }
-
-    def __init__(self, parent_vs=None):
-        self._parent = parent_vs
-        self.is_enabled = False
-        self.threshold_min = 0.0
-        self.threshold_max = 100000.0
-        self.show_preview = True
-        self.preview_color_min = [255, 0, 0, 255]
-        self.preview_color_max = [0, 0, 255, 255]
-        self.subpixel_accurate = True
-        self.preview_thickness = 1.0
-
-        self.gen_bg_mode = "Constant"
-        self.gen_bg_val = 0.0
-        self.gen_fg_mode = "Constant"
-        self.gen_fg_val = 1.0
-
-    def __setattr__(self, name, value):
-        if name in self._GEOM_FIELDS and getattr(self, name, _SENTINEL) != value:
-            object.__setattr__(self, name, value)
-            parent = getattr(self, "_parent", None)
-            if parent is not None:
-                parent.is_geometry_dirty = True
-            return
-        object.__setattr__(self, name, value)
-
-    def to_dict(self):
-        return {
-            "is_enabled": bool(self.is_enabled),
-            "threshold_min": float(self.threshold_min),
-            "threshold_max": float(self.threshold_max),
-            "show_preview": bool(self.show_preview),
-            "preview_color_min": list(self.preview_color_min),
-            "preview_color_max": list(self.preview_color_max),
-            "subpixel_accurate": bool(self.subpixel_accurate),
-            "preview_thickness": float(getattr(self, "preview_thickness", 1.0)),
-            "gen_bg_mode": str(self.gen_bg_mode),
-            "gen_bg_val": float(self.gen_bg_val),
-            "gen_fg_mode": str(self.gen_fg_mode),
-            "gen_fg_val": float(self.gen_fg_val),
-        }
-
-    def from_dict(self, d):
-        if not d:
-            return
-
-        # 1. Dictionary Schema Migrations (Map old keys to new keys)
-        if "threshold" in d and "threshold_min" not in d:
-            d["threshold_min"] = d["threshold"]
-
-        if "preview_color" in d:
-            if "preview_color_min" not in d:
-                d["preview_color_min"] = d["preview_color"]
-            if "preview_color_max" not in d:
-                d["preview_color_max"] = d["preview_color"]
-
-        # 2. Safe Assignments (Only ever reference current self.attributes!)
-        self.is_enabled = d.get("is_enabled", self.is_enabled)
-        self.threshold_min = d.get("threshold_min", self.threshold_min)
-        self.threshold_max = d.get("threshold_max", self.threshold_max)
-        self.show_preview = d.get("show_preview", self.show_preview)
-        self.preview_color_min = d.get("preview_color_min", self.preview_color_min)
-        self.preview_color_max = d.get("preview_color_max", self.preview_color_max)
-        self.subpixel_accurate = d.get("subpixel_accurate", self.subpixel_accurate)
-        self.preview_thickness = d.get(
-            "preview_thickness", getattr(self, "preview_thickness", 1.0)
-        )
-        self.gen_bg_mode = d.get("gen_bg_mode", self.gen_bg_mode)
-        self.gen_bg_val = d.get("gen_bg_val", self.gen_bg_val)
-        self.gen_fg_mode = d.get("gen_fg_mode", self.gen_fg_mode)
-        self.gen_fg_val = d.get("gen_fg_val", self.gen_fg_val)
