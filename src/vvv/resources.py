@@ -5,11 +5,8 @@ import dearpygui.dearpygui as dpg
 
 def get_resource_path(rel_path):
     """Get absolute path to resource, works for dev and for PyInstaller/cx_Freeze"""
-    try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(os.path.dirname(__file__))
+    # PyInstaller creates a temp folder and stores path in _MEIPASS
+    base_path = getattr(sys, "_MEIPASS", os.path.abspath(os.path.dirname(__file__)))
     return os.path.join(base_path, rel_path)
 
 
@@ -77,7 +74,7 @@ def load_fonts():
                                 0xF0DC,
                                 0xF00D,
                                 0xF15D,
-                                0xF15E
+                                0xF15E,
                             ]
                         )
                         dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
