@@ -1,11 +1,10 @@
-import time
 import numpy as np
 from vvv.utils import ViewMode, slice_to_voxel, voxel_to_slice, fmt
 import dearpygui.dearpygui as dpg
 from vvv.ui.drawing import OverlayDrawer
 from vvv.maths.image import SliceRenderer, RenderLayer, ROILayer, VolumeData
 from vvv.core.view_state import ViewState
-
+from typing import Any
 
 class ViewportMapper:
     """Handles pure 2D spatial math: screen coordinates, zoom, and panning."""
@@ -191,16 +190,12 @@ class SliceViewer:
         self.axes_nodes: list[str] | None = None
         self.active_axes_idx = 0
 
-        self.drag_start_mouse: list[float] | tuple[float, ...] | list[int] | tuple[int, ...] | None = None
+        self.drag_start_mouse: list[int] | tuple[int, ...] | list[float] | tuple [float, ...] | Any | None = None
         self.drag_start_pan: list[float] | None = None
 
         # State-Only Sync Trackers
         self.last_consumed_ppm: float | None = None
         self.last_consumed_center: list[float] | None = None
-
-        # Optimization for interactive resizing
-        self._last_size_change_time = 0.0
-        self._resize_debounce_delay = 0.1  # 100ms
 
         # Sub-modules
         self.drawer = OverlayDrawer(self)
@@ -249,7 +244,7 @@ class SliceViewer:
             vs.camera.slices[self.orientation] = value
 
     @property
-    def pan_offset(self) -> list[float]:
+    def pan_offset(self):
         vs = self.view_state
         if not vs or self.orientation not in vs.camera.pan:
             return [0.0, 0.0]
@@ -429,10 +424,6 @@ class SliceViewer:
 
         # Store the old texture for safe deletion in the binding phase
         if self.texture_tag and self.texture_tag != new_texture_tag:
-            # Aggressive cleanup: if an old texture was pending from a previous call but never bound,
-            # move it to the list now to ensure it's processed in the next tick().
-            if self._old_texture_to_delete and self._old_texture_to_delete != self.texture_tag and self._old_texture_to_delete not in self._textures_to_delete:
-                self._textures_to_delete.append(self._old_texture_to_delete)
             self._old_texture_to_delete = self.texture_tag
 
         if not dpg.does_item_exist(new_texture_tag):
@@ -731,89 +722,10 @@ class SliceViewer:
         vs.camera.show_contour = new_state
         vs.is_data_dirty = True
 
-    # --- ATOMIC CAMERA SYNC HELPERS ---
-    def _ensure_mapper_consistency(self):
-        """
-        Atomically update mapper bounds to match current zoom/pan state.
-        Must be called before any physical coordinate conversions to prevent jitter.
-        """
-        vs = self.view_state
-        vol = self.volume
-        if not vs or not vol or not self.is_image_orientation():
-            return
-
-        win_w = dpg.get_item_width(f"win_{self.tag}")
-        win_h = dpg.get_item_height(f"win_{self.tag}")
-        if not win_w or not win_h:
-            return
-
-        layout = self.controller.gui.ui_cfg["layout"]
-        pad = layout.get("viewport_padding", 4) * 2
-        canvas_w = int(max(1, win_w - pad))
-        canvas_h = int(max(1, win_h - pad))
-
-        sw, sh = vol.get_physical_aspect_ratio(self.orientation)
-        shape = self.get_slice_shape()
-        real_h, real_w = shape[0], shape[1]
-
-        self.mapper.update(
-            canvas_w,
-            canvas_h,
-            real_w,
-            real_h,
-            sw,
-            sh,
-            self.zoom,
-            self.pan_offset,
-        )
-
-    def _capture_camera_state_atomic(self):
-        """
-        Capture current pixels_per_mm and center_physical_coord atomically.
-        Must be called AFTER _ensure_mapper_consistency() to prevent jitter.
-        Returns (ppm, center) or (None, None) on failure.
-        """
-        self._ensure_mapper_consistency()
-
-        ppm = self.get_pixels_per_mm()
-        center = self.get_center_physical_coord()
-
-        return ppm, center
-
-    def _apply_zoom_and_pan_atomic(self, new_zoom, pan_delta_x, pan_delta_y):
-        """
-        Atomically apply zoom and pan changes.
-        This ensures mapper is consistent before propagating to other viewers.
-        Updates last_consumed_* to prevent self-snapping.
-        Returns True if successful.
-        """
-        vs = self.view_state
-        if not vs:
-            return False
-
-        # Apply zoom and pan
-        self.zoom = new_zoom
-        self.pan_offset[0] += pan_delta_x
-        self.pan_offset[1] += pan_delta_y
-
-        self.is_geometry_dirty = True
-
-        # Capture state AFTER zoom/pan but WITH consistent mapper
-        ppm, center = self._capture_camera_state_atomic()
-
-        # Update tracking ONLY AFTER consistent capture
-        if ppm is not None:
-            self.last_consumed_ppm = ppm
-        if center is not None:
-            self.last_consumed_center = list(center)
-
-        return True
-
     def tick(self):
-        # Aggressive texture cleanup at the start of the frame to keep VRAM overhead minimal.
-        # This is the safest point to call dpg.delete_item as no draw commands have been issued yet.
+        # Safely clean up textures from the previous frame
         if self._textures_to_delete:
-            for tex in list(self._textures_to_delete):
+            for tex in self._textures_to_delete:
                 if dpg.does_item_exist(tex):
                     dpg.delete_item(tex)
             self._textures_to_delete.clear()
@@ -851,22 +763,6 @@ class SliceViewer:
         pixelated = vs.display.pixelated_zoom
         pixelated_changed = pixelated != self.last_pixelated
 
-        # Optimization: Debounce texture creation during window resizing.
-        # This prevents OpenGL driver stutter and VRAM spikes during corner drags.
-        if size_changed:
-            self._last_size_change_time = time.time()
-        
-        is_still_resizing = (time.time() - self._last_size_change_time) < self._resize_debounce_delay
-
-        # Catch-up: if resizing stopped, ensure we rebuild for the final dimensions
-        catch_up_pixelated = False
-        if pixelated and not is_still_resizing:
-            layout = self.controller.gui.ui_cfg["layout"]
-            pad = layout.get("viewport_padding", 4) * 2
-            target_w, target_h = int(max(1, win_w - pad)), int(max(1, win_h - pad))
-            if self.texture_tag != f"tex_{self.tag}_{target_w}x{target_h}":
-                catch_up_pixelated = True
-
         # If pixelated zoom is active, size_changed MUST trigger a texture rebuild
         # because the texture dimension literally matches the screen dimension.
         rebuild_texture = (
@@ -874,8 +770,7 @@ class SliceViewer:
             or orientation_changed
             or shape_changed
             or pixelated_changed
-            or (pixelated and size_changed and not is_still_resizing)
-            or catch_up_pixelated
+            or (pixelated and size_changed)
         )
 
         if size_changed:
@@ -893,7 +788,6 @@ class SliceViewer:
             self.is_viewer_data_dirty = True
 
         # --- 2. CAMERA SYNC MATH ---
-        # Apply any pending sync changes, then atomically capture state
         vs_ppm: float | None = vs.camera.target_ppm
         vs_center: list | tuple | np.ndarray | None = vs.camera.target_center
 
@@ -915,21 +809,14 @@ class SliceViewer:
                 )
 
         if ppm_changed or center_changed:
-            # Apply sync changes
             if ppm_changed and vs_ppm is not None:
                 self.set_pixels_per_mm(vs_ppm)
+                self.last_consumed_ppm = vs_ppm
             if center_changed and vs_center is not None:
                 self.center_on_physical_coord(vs_center)
+                self.last_consumed_center = list(vs_center)
             self.needs_recenter = False
             self.is_geometry_dirty = True
-
-            # Atomically capture state AFTER all sync changes are applied
-            # This ensures mapper consistency and prevents sub-pixel jitter
-            captured_ppm, captured_center = self._capture_camera_state_atomic()
-            if captured_ppm is not None:
-                self.last_consumed_ppm = captured_ppm
-            if captured_center is not None:
-                self.last_consumed_center = list(captured_center)
 
         # --- 3. PRE-CALCULATE PERFECT BOUNDS ---
         if rebuild_texture or self.needs_recenter or self.is_geometry_dirty:
@@ -1048,10 +935,6 @@ class SliceViewer:
                 return
             ov_vol = self.controller.volumes[vs.display.overlay_id]
             is_ov_rgb = getattr(ov_vol, "is_rgb", False)
-            is_ov_dvf = getattr(ov_vol, "is_dvf", False)
-            # Only skip if RGB but not DVF
-            if is_ov_rgb and not is_ov_dvf:
-                return
             ov_time_idx = min(vs.camera.time_idx, ov_vol.num_timepoints - 1)
             slice_data = SliceRenderer.extract_slice(
                 vs.display.overlay_data,
@@ -1061,10 +944,7 @@ class SliceViewer:
                 self.orientation,
             )
         else:
-            is_rgb = getattr(vol, "is_rgb", False)
-            is_dvf = getattr(vol, "is_dvf", False)
-            # Only skip if RGB but not DVF
-            if is_rgb and not is_dvf:
+            if getattr(vol, "is_rgb", False):
                 return
 
             # Make sure Auto-Window reads from the transformed buffer too!
@@ -1076,7 +956,7 @@ class SliceViewer:
 
             slice_data = SliceRenderer.get_raw_slice(
                 display_data,
-                is_rgb,
+                getattr(vol, "is_rgb", False),
                 vs.camera.time_idx,
                 self.slice_idx,
                 self.orientation,
@@ -1099,18 +979,6 @@ class SliceViewer:
             return
 
         patch = slice_data[y0:y1, x0:x1]
-
-        # For DVF (Displacement Vector Fields), compute magnitude from vector components
-        if target == "base":
-            is_dvf = getattr(vol, "is_dvf", False)
-        else:
-            ov_vol = self.controller.volumes.get(vs.display.overlay_id)
-            is_dvf = getattr(ov_vol, "is_dvf", False) if ov_vol else False
-
-        if is_dvf and patch.ndim == 3 and patch.shape[-1] == 3:
-            # DVF patch has shape (h, w, 3) with [dx, dy, dz] components
-            # Compute the norm (magnitude) of each vector
-            patch = np.linalg.norm(patch, axis=-1)
 
         if target == "overlay":
             ovs = self.controller.view_states.get(vs.display.overlay_id)
@@ -1597,9 +1465,6 @@ class SliceViewer:
             idx = self.slice_idx
             shape = self.get_slice_shape()
             v = slice_to_voxel(pix_x, pix_y, idx, self.orientation, shape)
-            if v is None:
-                return
-
             is_buf = vs.base_display_data is not None
             phys = vs.space.display_to_world(np.array(v), is_buffered=is_buf)
 
@@ -1634,7 +1499,7 @@ class SliceViewer:
         # Even if we are viewing a rotated buffer, we consistently calculate the 'Native Voxel' 
         # for reporting. This ensures tracker text and crosshair math remain resilient to 
         # 'Straighten on Load' and manual registration offsets.
-        native_v = vs.space.world_to_display(phys, is_buffered=False) if phys is not None else None
+        native_v = vs.space.world_to_display(phys, is_buffered=False)
 
         # --- The drawing logic remains exactly the same! ---
         col = self.controller.settings.data["colors"]["tracker_text"]
@@ -1847,15 +1712,11 @@ class SliceViewer:
             vs.camera.show_filename = (current + 1) % 3
 
     def on_key_press(self, key):
-        if not self.view_state:
-            return
-
-        s_map = self._shortcut_map
-        if s_map is None:
+        if not self.view_state or self._shortcut_map is None:
             return
 
         shortcuts = self.controller.settings.data["shortcuts"]
-        for action_name, action_func in s_map.items():
+        for action_name, action_func in self._shortcut_map.items():
             val = shortcuts.get(action_name)
 
             if val is None and action_name == "toggle_filename":
@@ -1936,16 +1797,15 @@ class SliceViewer:
                 self.update_crosshair_data(px, py)
                 self.controller.sync.propagate_sync(self.image_id)
 
-        elif is_ctrl and is_button:
-            if self.drag_start_pan is not None:
-                self.pan_offset[0] = self.drag_start_pan[0] + total_dx
-                self.pan_offset[1] = self.drag_start_pan[1] + total_dy
-            
-            # Atomically update with consistent mapper state
-            self._apply_zoom_and_pan_atomic(self.zoom, 0.0, 0.0)
-            
-            # Propagate with consistent mapper state
+        elif is_ctrl and is_button and self.drag_start_pan is not None:
+            self.pan_offset[0] = self.drag_start_pan[0] + total_dx
+            self.pan_offset[1] = self.drag_start_pan[1] + total_dy
+            self.is_geometry_dirty = True
             self.controller.sync.propagate_camera(self)
+            # Prevent self-snapping
+            cent = self.get_center_physical_coord()
+            if cent is not None:
+                self.last_consumed_center = list(cent)
 
     def on_zoom(self, direction):
         vs = self.view_state
@@ -1964,12 +1824,17 @@ class SliceViewer:
         new_zoom = max(
             1e-5, self.zoom * (speed if direction == "in" else (1.0 / speed))
         )
+        self.zoom = new_zoom
 
-        # Calculate pan delta before zoom to preserve zoom center
-        dx, dy = self.mapper.calculate_zoom_pan_delta(mx + 0.5, my + 0.5, oz, new_zoom)
+        dx, dy = self.mapper.calculate_zoom_pan_delta(mx + 0.5, my + 0.5, oz, self.zoom)
+        self.pan_offset[0] += dx
+        self.pan_offset[1] += dy
 
-        # Atomically apply zoom + pan with mapper consistency
-        self._apply_zoom_and_pan_atomic(new_zoom, dx, dy)
-
-        # Propagate with consistent mapper state
+        self.is_geometry_dirty = True
         self.controller.sync.propagate_camera(self)
+
+        # Prevent self-snapping
+        self.last_consumed_ppm = self.get_pixels_per_mm()
+        cent = self.get_center_physical_coord()
+        if cent is not None:
+            self.last_consumed_center = list(cent)
