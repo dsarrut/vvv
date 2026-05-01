@@ -27,6 +27,7 @@ dev = [
 [project.scripts]
 # This line creates the 'vvv' command in your shell
 vvv = "vvv.cli:main"
+vvv_image_info = "vvv.cli_info:main"
 checkerboard = "vvv.checkerboard:create_checkerboard"
 
 [tool.pytest.ini_options]
