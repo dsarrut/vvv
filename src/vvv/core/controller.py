@@ -2,6 +2,7 @@ import os
 import json
 import numpy as np
 import concurrent.futures
+from typing import Any
 from vvv.utils import ViewMode
 from vvv.maths.image import VolumeData
 from vvv.core.roi_manager import ROIManager
@@ -41,7 +42,7 @@ class Controller:
     """
 
     def __init__(self):
-        self.gui = None
+        self.gui: Any = None
         self.volumes = {}
         self.view_states = {}
         self.viewers = {}
@@ -60,7 +61,7 @@ class Controller:
         self.next_image_id = 0
 
         self.ui_needs_refresh = False
-        self.status_message = None
+        self.status_message: str | None = None
 
     def get_next_image_id(self, current_id):
         if not self.view_states:
