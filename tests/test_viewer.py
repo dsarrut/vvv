@@ -38,12 +38,14 @@ def synthetic_overlay_path(tmp_path_factory):
     return str(img_path)
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def synthetic_4d_path(tmp_path_factory):
     """Generates a 4D sequence (3 timepoints of a 5x5x5 volume)."""
-    data = np.zeros((3, 5, 5, 5), dtype=np.float32)
-    for t in range(3):
-        data[t] = t * 100.0  # Time 0 is 0, Time 1 is 100, Time 2 is 200
+    # Try with time dimension LAST to match SimpleITK convention
+    data = np.zeros((5, 5, 5, 3), dtype=np.float32)
+    data[:, :, :, 0] = 0.0    # Time 0 = 0
+    data[:, :, :, 1] = 100.0  # Time 1 = 100
+    data[:, :, :, 2] = 200.0  # Time 2 = 200
     sitk_img = sitk.GetImageFromArray(data)
     img_path = tmp_path_factory.mktemp("data") / "sequence_4d.nrrd"
     sitk.WriteImage(sitk_img, str(img_path))
