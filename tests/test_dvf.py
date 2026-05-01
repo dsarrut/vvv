@@ -204,6 +204,7 @@ def test_dvf_cannot_join_sync_group(dvf_app, tmp_path):
     # Put the 3D image in group 1 first
     controller.set_sync_group(vs_id_3d, 1)
     assert controller.view_states[vs_id_3d].sync_group == 1
+    assert controller.view_states[vs_id_3d].sync_group == 1 # type: ignore
 
     # DVF must be silently rejected
     controller.set_sync_group(vs_id_dvf, 1)
@@ -223,6 +224,7 @@ def test_regular_image_cannot_join_dvf_sync_group(dvf_app, tmp_path):
     # Put the DVF in group 2 first
     controller.set_sync_group(vs_id_dvf, 2)
     assert controller.view_states[vs_id_dvf].sync_group == 2
+    assert controller.view_states[vs_id_dvf].sync_group == 0 # DVF should be forced to group 0
 
     # Regular image must be silently rejected
     controller.set_sync_group(vs_id_3d, 2)
