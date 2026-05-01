@@ -328,7 +328,15 @@ class Controller:
         if not vs:
             return
 
+        if vs.sync_group == group_id:
+            return
+
         vs.sync_group = group_id
+
+        if group_id == 0:
+            self.update_all_viewers_of_image(vs_id)
+            self.ui_needs_refresh = True
+            return
 
         # Find the "Source of Truth" for this new group
         master_vs_id = None

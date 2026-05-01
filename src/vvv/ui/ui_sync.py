@@ -145,6 +145,8 @@ def handle_wl_group_change(gui, sender, value, user_data):
     vs = gui.controller.view_states[vs_id]
 
     if value == "None":
+        if getattr(vs, "sync_wl_group", 0) == 0:
+            return
         vs.sync_wl_group = 0
         gui.controller.ui_needs_refresh = True
         return
@@ -152,6 +154,10 @@ def handle_wl_group_change(gui, sender, value, user_data):
     # Parse "Grp A" -> 1, "Grp B" -> 2
     letter = value.split(" ")[1]
     new_group_id = ord(letter) - 64
+
+    if getattr(vs, "sync_wl_group", 0) == new_group_id:
+        return
+
     vs.sync_wl_group = new_group_id
 
     # Auto-pull W/L from an existing master in this group
