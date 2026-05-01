@@ -11,6 +11,8 @@ _SENTINEL = object()
 class CameraState:
     """Stores all transient spatial and navigation parameters."""
 
+    _parent: "ViewState | None"
+
     # 1. Type Hints (Keeps PyCharm/VSCode autocomplete happy)
     time_idx: int
     show_axis: bool
@@ -52,8 +54,8 @@ class CameraState:
         }
 
         # Non-flagged attributes
-        self.crosshair_voxel = None
-        self.crosshair_phys_coord = None
+        self.crosshair_voxel: list[float] | None = None
+        self.crosshair_phys_coord: np.ndarray | None = None
         self.last_orientation = ViewMode.AXIAL
 
         # Default values for flagged attributes
@@ -77,8 +79,9 @@ class CameraState:
             object.__setattr__(self, name, value)  # Set the value
 
             # Flag the parent automatically
-            if getattr(self, "_parent", None):
-                self._parent.is_geometry_dirty = True
+            parent = getattr(self, "_parent", None)
+            if parent is not None:
+                parent.is_geometry_dirty = True
             return
 
         # Standard assignment for everything else (like dictionaries and _parent)
@@ -148,12 +151,14 @@ class CameraState:
 class DisplayState:
     """Stores all radiometric and rendering properties."""
 
+    _parent: "ViewState | None"
+
     # 1. Type Hints
     ww: float
     wl: float
     colormap: str
-    base_threshold: float
-    overlay_id: str
+    base_threshold: float | None
+    overlay_id: str | None
     overlay_opacity: float
     overlay_mode: str
     overlay_checkerboard_size: float
@@ -180,7 +185,7 @@ class DisplayState:
         self._parent = parent_vs
 
         # Non-flagged attributes
-        self.overlay_data = None
+        self.overlay_data: np.ndarray | None = None
         self._sitk_overlay_cache = None
         self.baked_overlay_translation = (0.0, 0.0, 0.0)
 
@@ -203,8 +208,9 @@ class DisplayState:
             object.__setattr__(self, name, value)  # Set the value
 
             # Flag the parent automatically
-            if getattr(self, "_parent", None):
-                self._parent.is_data_dirty = True
+            parent = getattr(self, "_parent", None)
+            if parent is not None:
+                parent.is_data_dirty = True
             return
 
         # Standard assignment for everything else
@@ -291,7 +297,7 @@ class ViewState:
 
         self.crosshair_value = None
         self.space = SpatialEngine(volume)
-        self.base_display_data = None
+        self.base_display_data: np.ndarray | None = None
         self._sitk_base_cache = None
 
         self.hist_data_x = None
@@ -319,7 +325,7 @@ class ViewState:
                 modality = self.volume.sitk_image.GetMetaData("Modality")
                 if modality.upper() == "CT":
                     return True
-            except:
+            except Exception:
                 pass
         min_val, max_val = np.min(flat_data), np.max(flat_data)
         if min_val < -500 and max_val > 1000 and (max_val - min_val) > 2000:
@@ -351,7 +357,8 @@ class ViewState:
 
         v = self.camera.crosshair_voxel
         ix, iy, iz = int(v[0]), int(v[1]), int(v[2])
-        display_data = self.base_display_data if is_buf else self.volume.data
+        _buf = self.base_display_data
+        display_data = _buf if _buf is not None else self.volume.data
 
         if self.volume.num_timepoints > 1:
             t_idx = min(self.camera.time_idx, self.volume.num_timepoints - 1)
@@ -392,6 +399,7 @@ class ViewState:
         if self.camera.crosshair_voxel is None:
             self.init_crosshair_to_slices()
 
+        assert self.camera.crosshair_voxel is not None
         vx, vy, vz = self.camera.crosshair_voxel[:3]
         if orientation == ViewMode.AXIAL:
             vz = new_slice_idx
@@ -420,7 +428,8 @@ class ViewState:
             )
         ]
 
-        display_data = self.base_display_data if is_buf else self.volume.data
+        _buf = self.base_display_data
+        display_data = _buf if _buf is not None else self.volume.data
         if self.volume.num_timepoints > 1:
             t_idx = min(self.camera.time_idx, self.volume.num_timepoints - 1)
             self.crosshair_value = display_data[t_idx, iz, iy, ix]
@@ -450,7 +459,8 @@ class ViewState:
             )
         ]
 
-        display_data = self.base_display_data if is_buf else self.volume.data
+        _buf = self.base_display_data
+        display_data = _buf if _buf is not None else self.volume.data
         if self.volume.num_timepoints > 1:
             t_idx = min(self.camera.time_idx, self.volume.num_timepoints - 1)
             self.crosshair_value = display_data[t_idx, iz, iy, ix]
@@ -524,7 +534,7 @@ class ViewState:
 
         # The Tombstone Pattern
         self.base_display_data = None
-        old_cache = self._sitk_base_cache
+        _ = self._sitk_base_cache  # keep sitk object alive until Execute() returns
         self._sitk_base_cache = None
 
         ref_img = sitk.Image(
@@ -582,7 +592,7 @@ class ViewState:
         # The Tombstone Pattern
         # Sever the Numpy view BEFORE releasing the GIL to SimpleITK!
         self.display.overlay_data = None
-        old_cache = self.display._sitk_overlay_cache  # Keep alive until end of scope
+        _ = self.display._sitk_overlay_cache  # keep sitk object alive until Execute() returns
         self.display._sitk_overlay_cache = None
 
         # Build a safe 3D reference image to prevent ITK dimension mismatch exceptions
@@ -689,6 +699,8 @@ class ViewState:
 class ExtractionState:
     """Stores parameters for interactive contour thresholding."""
 
+    _parent: "ViewState | None"
+
     is_enabled: bool
     threshold_min: float
     threshold_max: float
@@ -715,8 +727,8 @@ class ExtractionState:
         self.threshold_min = 0.0
         self.threshold_max = 100000.0
         self.show_preview = True
-        self.preview_color_min = (255, 0, 0, 255)
-        self.preview_color_max = (0, 0, 255, 255)
+        self.preview_color_min = [255, 0, 0, 255]
+        self.preview_color_max = [0, 0, 255, 255]
         self.subpixel_accurate = True
         self.preview_thickness = 1.0
 
@@ -728,8 +740,9 @@ class ExtractionState:
     def __setattr__(self, name, value):
         if name in self._GEOM_FIELDS and getattr(self, name, _SENTINEL) != value:
             object.__setattr__(self, name, value)
-            if getattr(self, "_parent", None):
-                self._parent.is_geometry_dirty = True
+            parent = getattr(self, "_parent", None)
+            if parent is not None:
+                parent.is_geometry_dirty = True
             return
         object.__setattr__(self, name, value)
 
