@@ -184,3 +184,46 @@ def test_dvf_tracker_zero_at_background(dvf_app):
 
     assert result is not None
     assert np.allclose(result["base_val"], [0.0, 0.0, 0.0])
+
+
+# ==========================================
+# 4. SYNC PROTECTION
+# ==========================================
+
+
+def test_dvf_cannot_join_sync_group(dvf_app, tmp_path):
+    """A DVF image cannot be added to a sync group containing a regular 3D image."""
+    controller, _, vs_id_dvf = dvf_app
+
+    arr = np.ones((5, 5, 5), dtype=np.float32)
+    img = sitk.GetImageFromArray(arr)
+    path = str(tmp_path / "regular.nrrd")
+    sitk.WriteImage(img, path)
+    vs_id_3d = controller.file.load_image(path)
+
+    # Put the 3D image in group 1 first
+    controller.set_sync_group(vs_id_3d, 1)
+    assert controller.view_states[vs_id_3d].sync_group == 1
+
+    # DVF must be silently rejected
+    controller.set_sync_group(vs_id_dvf, 1)
+    assert controller.view_states[vs_id_dvf].sync_group == 0
+
+
+def test_regular_image_cannot_join_dvf_sync_group(dvf_app, tmp_path):
+    """A regular 3D image cannot join a group that already contains a DVF."""
+    controller, _, vs_id_dvf = dvf_app
+
+    arr = np.ones((5, 5, 5), dtype=np.float32)
+    img = sitk.GetImageFromArray(arr)
+    path = str(tmp_path / "regular2.nrrd")
+    sitk.WriteImage(img, path)
+    vs_id_3d = controller.file.load_image(path)
+
+    # Put the DVF in group 2 first
+    controller.set_sync_group(vs_id_dvf, 2)
+    assert controller.view_states[vs_id_dvf].sync_group == 2
+
+    # Regular image must be silently rejected
+    controller.set_sync_group(vs_id_3d, 2)
+    assert controller.view_states[vs_id_3d].sync_group == 0
