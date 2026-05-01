@@ -21,7 +21,7 @@ class RenderLayer:
     ww: float
     wl: float
     cmap_name: str
-    threshold: float
+    threshold: float | None
     time_idx: int
     spacing_2d: tuple
     # offset: used to move the image when associated matrix is modified
@@ -323,11 +323,11 @@ class SliceRenderer:
     @staticmethod
     def get_slice_rgba(
         base: RenderLayer,
-        overlay: RenderLayer,
+        overlay: RenderLayer | None,
         overlay_opacity: float,
         overlay_mode: str,
         slice_idx: int,
-        orientation: int,
+        orientation: ViewMode,
         checkerboard_size: float = 20.0,
         checkerboard_swap: bool = False,
         rois=(),
@@ -539,13 +539,14 @@ class VolumeData:
         if is_4d and len(self.file_paths) > 1:
             self.name += f" ({len(self.file_paths)})"
 
-        self.pixel_type = None
-        self.bytes_per_component = None
-        self.num_components = None
-        self.matrix = None
-        self.spacing = None
-        self.origin = None
-        self.memory_mb = None
+        self.pixel_type = ""
+        self.bytes_per_component = 1
+        self.num_components = 1
+        self.matrix = np.eye(3)
+        self.inverse_matrix = np.eye(3)
+        self.spacing = np.ones(3)
+        self.origin = np.zeros(3)
+        self.memory_mb = 0.0
 
         self.is_rgb = False
         self.num_timepoints = 1
@@ -577,14 +578,16 @@ class VolumeData:
                 return self._read_custom_his(paths[0])
             else:
                 slices = []
-                for p in paths:
-                    img = self._read_custom_his(p)
-                    slices.append(sitk.GetArrayFromImage(img))
+            img = None
+            for p in paths:
+                img = self._read_custom_his(p)
+                slices.append(sitk.GetArrayFromImage(img))
 
-                # Stack the (1, Y, X) arrays into a (Z, Y, X) volume.
-                stacked_vol = np.concatenate(slices, axis=0)
+            # Stack the (1, Y, X) arrays into a (Z, Y, X) volume.
+            stacked_vol = np.concatenate(slices, axis=0)
 
-                final_img = sitk.GetImageFromArray(stacked_vol)
+            final_img = sitk.GetImageFromArray(stacked_vol)
+            if img is not None:
                 final_img.SetSpacing(img.GetSpacing())
                 final_img.SetOrigin(img.GetOrigin())
                 return final_img
@@ -682,9 +685,16 @@ class VolumeData:
             raise ValueError("Missing required AVS signature tags.")
 
         # 1. Extract Dimensions
-        dim1 = int(re.search(r"dim1\s*=\s*(\d+)", header).group(1))
-        dim2 = int(re.search(r"dim2\s*=\s*(\d+)", header).group(1))
-        dim3 = int(re.search(r"dim3\s*=\s*(\d+)", header).group(1))
+        m1 = re.search(r"dim1\s*=\s*(\d+)", header)
+        m2 = re.search(r"dim2\s*=\s*(\d+)", header)
+        m3 = re.search(r"dim3\s*=\s*(\d+)", header)
+
+        if not m1 or not m2 or not m3:
+            raise ValueError("Missing dimension tags in AVS header.")
+
+        dim1 = int(m1.group(1))
+        dim2 = int(m2.group(1))
+        dim3 = int(m3.group(1))
         expected_elements = dim1 * dim2 * dim3
 
         # 2. Extract Field Type & Binary Coordinates
