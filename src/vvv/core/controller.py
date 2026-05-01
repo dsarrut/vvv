@@ -47,7 +47,7 @@ class Controller:
         self.view_states = {}
         self.viewers = {}
 
-        self.layout = {"V1": None, "V2": None, "V3": None, "V4": None}
+        self.layout: dict[str, str | None] = {"V1": None, "V2": None, "V3": None, "V4": None}
 
         self.file = FileManager(self)
         self.sync = SyncManager(self)
