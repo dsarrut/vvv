@@ -229,7 +229,7 @@ class RegistrationUI:
     def _snap_viewer_to_world_pos(self, viewer, world_pos):
         """Calculates the new local voxel coordinates and updates the camera slices to stay pinned to a world point."""
         vs = viewer.view_state
-        is_buf = vs.base_display_data is not None
+        is_buf = vs.base_display_data is not None and vs.space.has_rotation() # Only use buffered geometry if rotation is active
         new_local_vox = vs.space.world_to_display(world_pos, is_buffered=is_buf)
         sh = vs.volume.shape3d
 
@@ -343,31 +343,28 @@ class RegistrationUI:
         Math happens off-main-thread to keep the UI from freezing.
         """
 
-        if getattr(self, "_reg_debounce_timer", None) is not None:
-            self._reg_debounce_timer.cancel()
+        timer = getattr(self, "_reg_debounce_timer", None)
+        if timer is not None:
+            timer.cancel()
 
         def _do_resample():
-            with dpg.mutex():
-                active_vs = self.controller.view_states.get(active_image_id)
-                if active_vs:
-                    active_vs.update_base_display_data()
-                    if active_vs.display.overlay_id:
-                        active_vs.update_overlay_display_data(self.controller)
-                        active_vs.is_data_dirty = True
+            active_vs = self.controller.view_states.get(active_image_id)
+            if active_vs:
+                active_vs.update_base_display_data()
+                if active_vs.display.overlay_id:
+                    active_vs.update_overlay_display_data(self.controller)
+                    active_vs.is_data_dirty = True
 
-                for vs in self.controller.view_states.values():
-                    if vs.display.overlay_id == active_image_id:
-                        vs.update_overlay_display_data(self.controller)
-                        vs.is_data_dirty = True
+            for vs in self.controller.view_states.values():
+                if vs.display.overlay_id == active_image_id:
+                    vs.update_overlay_display_data(self.controller)
+                    vs.is_data_dirty = True
 
-                self.controller.update_all_viewers_of_image(active_image_id)
-
-        # Trigger the "Working..." UI message safely on the MAIN thread
-        self.gui.show_status_message(
-            "Resampling Rotation...",
-            duration=1.0,
-            color=self.gui.ui_cfg["colors"]["working"],
-        )
+            self.controller.update_all_viewers_of_image(active_image_id)
+            
+            # Feedback when done
+            self.controller.status_message = "Resampling complete"
+            self.controller.ui_needs_refresh = True
 
         # Execute instantly if requested
         if immediate:
@@ -385,14 +382,14 @@ class RegistrationUI:
         self, viewer, new_state_val=None, skip_manual_update=False
     ):
         vs = viewer.view_state
-        vs_id = viewer.image_id
+        if not vs or not viewer.image_id:
+            return
+        vs_id = viewer.image_id # Ensure vs_id is available
 
         # 1. Capture the WORLD position of the crosshair anchor BEFORE the change
         # This is our absolute anatomical reference point.
-        is_buf = vs.base_display_data is not None
-        anchor_world_pos = vs.space.display_to_world(
-            np.array(vs.camera.crosshair_voxel[:3]), is_buffered=is_buf
-        )
+        is_buf = vs.base_display_data is not None and vs.space.has_rotation()
+        anchor_world_pos = vs.space.display_to_world(np.array(vs.camera.crosshair_voxel[:3]), is_buffered=is_buf)
 
         # 2. Update the Transform State
         if new_state_val is not None:
@@ -405,28 +402,8 @@ class RegistrationUI:
                 vs_id, vals[3], vals[4], vals[5], vals[0], vals[1], vals[2]
             )
 
-        # 3. Update Crosshair (Local Voxel) to stay pinned to the same World anatomy
-        # world_to_display now uses the updated transform matrix.
-        new_local_vox = vs.space.world_to_display(anchor_world_pos, is_buffered=is_buf)
-        vs.camera.crosshair_voxel = [
-            new_local_vox[0],
-            new_local_vox[1],
-            new_local_vox[2],
-            vs.camera.time_idx,
-        ]
-
-        from vvv.utils import ViewMode
-
-        raw_sh = vs.volume.shape3d
-        vs.camera.slices[ViewMode.AXIAL] = int(
-            np.clip(new_local_vox[2], 0, raw_sh[0] - 1)
-        )
-        vs.camera.slices[ViewMode.SAGITTAL] = int(
-            np.clip(new_local_vox[0], 0, raw_sh[2] - 1)
-        )
-        vs.camera.slices[ViewMode.CORONAL] = int(
-            np.clip(new_local_vox[1], 0, raw_sh[1] - 1)
-        )
+        # 3. Update Crosshair (Local Voxel) to stay pinned to the same World anatomy using the new central method
+        vs.update_crosshair_from_phys(anchor_world_pos)
 
         # 4. ABSOLUTE RE-CENTERING (Anti-Drift Guardrail)
         # We tell the view_state: "Make sure this physical point stays centered."
@@ -439,10 +416,8 @@ class RegistrationUI:
         for v in self.controller.viewers.values():
             if v.image_id == vs_id:
                 v.is_geometry_dirty = True
-            if v.view_state:
-                v.view_state.is_data_dirty = True
 
-        self.controller.update_all_viewers_of_image(vs_id)
+        self.controller.update_all_viewers_of_image(vs_id, data_dirty=vs.space.has_rotation())
         self.controller.ui_needs_refresh = True
 
         # 6. Trigger 3D resample if rotation is involved
@@ -456,28 +431,31 @@ class RegistrationUI:
             return
 
         file_path = open_file_dialog(
-            "Load Transform", multiple=False, extensions=[".tfm", ".txt", ".mat"]
+            "Load Transform", multiple=False, extensions=[".tfm", ".txt", ".mat", ".xfm"]
         )
-        if file_path:
+        if isinstance(file_path, str):
             vs = viewer.view_state
-            is_buf = vs.base_display_data is not None
-            world_pos = vs.space.display_to_world(
-                np.array(vs.camera.crosshair_voxel[:3]), is_buffered=is_buf
-            )
+            # Capture the current world position of the crosshair BEFORE loading the new transform
+            is_buf = vs.base_display_data is not None and vs.space.has_rotation()
+            world_pos = vs.space.display_to_world(np.array(vs.camera.crosshair_voxel[:3]), is_buffered=is_buf)
 
             if self.controller.load_transform(viewer.image_id, file_path):
                 # Dynamically remember the exact file path for "Save"
                 vs.space._full_transform_path = file_path
                 self.gui.show_status_message(f"Loaded {os.path.basename(file_path)}")
+                
+                # Automatically enable the transform so the user sees it immediately
+                vs.space.is_active = True
 
                 self._snap_viewer_to_world_pos(viewer, world_pos)
 
                 self.controller.update_all_viewers_of_image(viewer.image_id)
                 self.gui.update_sidebar_crosshair(viewer)
-
-                self.controller.ui_needs_refresh = True
                 self.pull_reg_sliders_from_transform()
-                self.trigger_debounced_rotation_update(viewer.image_id)
+
+                # Instantly trigger resample for loaded file
+                self.trigger_debounced_rotation_update(viewer.image_id, immediate=True)
+                self.controller.ui_needs_refresh = True
             else:
                 self.gui.show_message("Error", "Failed to parse transform file.")
 

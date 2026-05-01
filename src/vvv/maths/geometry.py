@@ -8,9 +8,10 @@ class SpatialEngine:
     Handles the Base Geometry (via native SimpleITK), the Active Transform, and Camera Illusions.
     """
 
-    def __init__(self, volume):
+    def __init__(self, volume, view_state=None):
         self.volume = volume  # Keep a reference to the VolumeData!
         self.shape3d = volume.shape3d
+        self.view_state = view_state # Keep a reference to the ViewState
 
         # Transform State
         self.transform = None
@@ -26,43 +27,60 @@ class SpatialEngine:
     # ==========================================
     # 1. CORE GEOMETRY (The Absolute Truth via ITK)
     # ==========================================
-    def raw_voxel_to_phys(self, voxel):
+    def raw_voxel_to_phys(self, voxel, use_buffered_geometry=False):
         if voxel is None or len(voxel) < 3:
             return np.array([0.0, 0.0, 0.0])
 
-        # Tombstone fallback: Use pure Python math if C++ memory is temporarily detached
-        if not getattr(self.volume, "sitk_image", None):
+        target_sitk_image = self.volume.sitk_image
+        if use_buffered_geometry and self.view_state and self.view_state._sitk_base_cache:
+            target_sitk_image = self.view_state._sitk_base_cache
+
+        # Tombstone fallback: Use pure Python math if C++ memory is temporarily detached or not available
+        if target_sitk_image is None:
             return self.volume.voxel_coord_to_physic_coord(np.array(voxel[:3]))
 
         # Handle 3D coordinates, but pad for 4D images to prevent ITK dimension mismatch.
         idx = [float(voxel[0]), float(voxel[1]), float(voxel[2])]
-        dim = self.volume.sitk_image.GetDimension()
+        dim = target_sitk_image.GetDimension()
         if dim == 4:
             idx.append(0.0)  # Pad the time dimension
         elif dim == 2:
             idx = idx[:2]  # Strip Z for 2D images
 
-        phys = self.volume.sitk_image.TransformContinuousIndexToPhysicalPoint(idx)
+        try:
+            phys = target_sitk_image.TransformContinuousIndexToPhysicalPoint(idx)
+        except Exception: # Fallback for corrupted SITK image or bad index
+            # This should ideally not happen if target_sitk_image is valid
+            return self.volume.voxel_coord_to_physic_coord(np.array(voxel[:3]))
+
         if len(phys) == 2:
             return np.array([phys[0], phys[1], 0.0])
         return np.array(phys[:3])  # Only return the X, Y, Z physical coordinates
 
-    def phys_to_raw_voxel(self, phys):
+    def phys_to_raw_voxel(self, phys, use_buffered_geometry=False):
         if phys is None or len(phys) < 3:
             return np.array([0.0, 0.0, 0.0])
 
+        target_sitk_image = self.volume.sitk_image
+        if use_buffered_geometry and self.view_state and self.view_state._sitk_base_cache:
+            target_sitk_image = self.view_state._sitk_base_cache
+
         # Tombstone fallback
-        if not getattr(self.volume, "sitk_image", None):
+        if target_sitk_image is None:
             return self.volume.physic_coord_to_voxel_coord(np.array(phys[:3]))
 
         pt = [float(phys[0]), float(phys[1]), float(phys[2])]
-        dim = self.volume.sitk_image.GetDimension()
+        dim = target_sitk_image.GetDimension()
         if dim == 4:
             pt.append(0.0)  # Pad the time dimension
         elif dim == 2:
             pt = pt[:2]  # Strip Z for 2D images
 
-        idx = self.volume.sitk_image.TransformPhysicalPointToContinuousIndex(pt)
+        try:
+            idx = target_sitk_image.TransformPhysicalPointToContinuousIndex(pt)
+        except Exception: # Fallback for corrupted SITK image or bad physical point
+            return self.volume.physic_coord_to_voxel_coord(np.array(phys[:3]))
+
         if len(idx) == 2:
             return np.array([idx[0], idx[1], 0.0])
         return np.array(idx[:3])
@@ -74,41 +92,29 @@ class SpatialEngine:
         if display_voxel is None:
             return None
 
-        phys = self.raw_voxel_to_phys(display_voxel)
+        # Convert display_voxel to physical coordinates using the appropriate geometry
+        phys = self.raw_voxel_to_phys(display_voxel, use_buffered_geometry=is_buffered)
 
         if self.is_active and self.transform:
-            if is_buffered:
-                # Buffer Space: Rotation is baked into the resampled UI numpy array.
-                # We only apply translation to find World.
-                t = np.array(self.transform.GetTranslation())
-                return phys + t
-            else:
-                # Fast Path (Camera Pan): Apply the full Registration transform.
-                return np.array(self.transform.TransformPoint(phys.tolist()))
-
+            # Always apply the full transform to get to world physical coordinates
+            return np.array(self.transform.TransformPoint(phys.tolist()))
         return phys
 
     def world_to_display(self, world_phys, is_buffered=False):
         if world_phys is None:
             return None
 
-        phys = np.array(world_phys)
-
         if self.is_active and self.transform:
             try:
-                if is_buffered:
-                    # Buffer Space: Only reverse the translation.
-                    t = np.array(self.transform.GetTranslation())
-                    phys = phys - t
-                else:
-                    # Fast Path (Camera Pan): Reverse the full Registration transform.
-                    phys = np.array(
-                        self.transform.GetInverse().TransformPoint(phys.tolist())
-                    )
+                # Reverse the full Registration transform to get to the image's native physical space
+                phys = np.array(self.transform.GetInverse().TransformPoint(world_phys.tolist()))
             except Exception:
-                pass  # Failsafe against singular inverse matrices
+                phys = np.array(world_phys)  # Failsafe against singular inverse matrices
+        else:
+            phys = np.array(world_phys)
 
-        return self.phys_to_raw_voxel(phys)
+        # Convert physical coordinates back to display_voxel using the appropriate geometry
+        return self.phys_to_raw_voxel(phys, use_buffered_geometry=is_buffered)
 
     # ==========================================
     # 3. TRANSFORM CONTROLLERS

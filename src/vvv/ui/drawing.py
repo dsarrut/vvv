@@ -85,9 +85,9 @@ class OverlayDrawer:
                 dpg.configure_item(viewer.xh_line_h, show=False)
                 dpg.configure_item(viewer.xh_line_v, show=False)
             return
-
+        
         vx, vy, vz = viewer.view_state.camera.crosshair_voxel[:3]
-        shape = viewer.get_slice_shape()
+        shape = viewer.get_slice_shape() # This is now the display slice shape
 
         # Failsafe against zero-division from corrupted or 0-dimension images
         real_h, real_w = max(1, shape[0]), max(1, shape[1])
@@ -217,7 +217,7 @@ class OverlayDrawer:
         labels, directions = viewer.get_axis_labels()
         axis_colors = viewer.controller.settings.data["colors"]
 
-        origin = [12, 12]
+        origin = [12.0, 12.0]
         length = 30
         if directions[0] == -1:
             origin[0] = 50

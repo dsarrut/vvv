@@ -361,8 +361,8 @@ class ViewState:
         self.sync_wl_group = 0  # Radiometric group support
         self.rois = {}
         self.contours = {}
-        self.crosshair_value = None
-        self.space = SpatialEngine(volume)
+        self.crosshair_value = None # This will be set by init_crosshair_to_slices
+        self.space = SpatialEngine(volume, view_state=self) # Pass self to SpatialEngine
         self.base_display_data: np.ndarray | None = None
         self._sitk_base_cache = None
         self.hist_data_x = None
@@ -406,9 +406,22 @@ class ViewState:
             return sh[0], sh[2]
         return 1, 1
 
-    def _read_voxel_value(self, ix: int, iy: int, iz: int):
-        _buf = self.base_display_data
-        data = _buf if _buf is not None else self.volume.data
+    def _read_voxel_value(self, ix: int, iy: int, iz: int, use_buffer: bool = False):
+        """
+        Reads a voxel value. If use_buffer is True, it reads from the rotated
+        display buffer. Otherwise, it reads from the native straightened data.
+        """
+        # Ensure indices are within bounds of the target data
+        if use_buffer and self.base_display_data is not None:
+            target_shape = self.base_display_data.shape[1:] if self.base_display_data.ndim == 4 else self.base_display_data.shape
+        else:
+            target_shape = self.volume.shape3d
+        
+        if not (0 <= iz < target_shape[0] and 0 <= iy < target_shape[1] and 0 <= ix < target_shape[2]):
+            return None # Out of bounds
+
+        data = self.base_display_data if use_buffer and self.base_display_data is not None else self.volume.data
+        
         if self.volume.num_timepoints > 1:
             t = min(self.camera.time_idx, self.volume.num_timepoints - 1)
             return data[t, iz, iy, ix]
@@ -425,8 +438,7 @@ class ViewState:
         self.camera.crosshair_phys_coord = self.space.display_to_world(
             np.array(self.camera.crosshair_voxel[:3]), _buf is not None
         )
-        v = self.camera.crosshair_voxel
-        self.crosshair_value = self._read_voxel_value(int(v[0]), int(v[1]), int(v[2]))
+        self.crosshair_value = self._read_voxel_value(int(self.camera.crosshair_voxel[0]), int(self.camera.crosshair_voxel[1]), int(self.camera.crosshair_voxel[2]), use_buffer=False)
 
     def init_default_window_level(self):
         total_pixels = getattr(self.volume.data, "size", 0)
@@ -451,75 +463,44 @@ class ViewState:
                 if self.display.ww <= 1e-20:
                     self.display.ww = max(abs(p1) * 0.1, 1e-20)
                     self.display.wl = (p99 + p1) / 2
-
-    def update_crosshair_from_slice_scroll(self, new_slice_idx, orientation):
-        if self.camera.crosshair_voxel is None:
-            self.init_crosshair_to_slices()
-
-        assert self.camera.crosshair_voxel is not None
-        
-        # 1. Map current physical crosshair to the active display grid
-        _buf = self.base_display_data
-        dv = self.space.world_to_display(self.camera.crosshair_phys_coord, is_buffered=_buf is not None)
-        if dv is None:
+    def update_crosshair_from_phys(self, new_phys_coord: np.ndarray):
+        """
+        Updates the crosshair's native voxel and physical coordinates based on a new physical point.
+        This is the central point for all crosshair updates.
+        """
+        if new_phys_coord is None:
             return
 
-        # 2. Update the scrolling axis in display space
-        vx, vy, vz = dv[:3]
-        if orientation == ViewMode.AXIAL:
-            vz = new_slice_idx
-        elif orientation == ViewMode.SAGITTAL:
-            vx = new_slice_idx
-        elif orientation == ViewMode.CORONAL:
-            vy = new_slice_idx
+        # 1. Update physical coordinate
+        self.camera.crosshair_phys_coord = new_phys_coord
 
-        # 3. Map new display-grid position to World Physical
-        new_dv = [vx, vy, vz]
-        new_phys = self.space.display_to_world(np.array(new_dv), is_buffered=_buf is not None)
-        if new_phys is None:
-            return
-
-        # 4. Neutralization: Map world back to Native Voxel Space for the central record
-        native_v: np.ndarray | None = self.space.world_to_display(new_phys, is_buffered=False)
+        # 2. Neutralization: Map world back to Native Voxel Space for the central record
+        native_v: np.ndarray | None = self.space.world_to_display(new_phys_coord, is_buffered=False)
         if native_v is None:
             return
-        self.camera.crosshair_voxel = [native_v[0], native_v[1], native_v[2], self.camera.time_idx]
-        self.camera.crosshair_phys_coord = new_phys
-
-        ix, iy, iz = [
-            int(np.clip(np.floor(c + 0.5), 0, limit - 1))
-            for c, limit in zip(
-                native_v,
-                [self.volume.shape3d[2], self.volume.shape3d[1], self.volume.shape3d[0]],
-            )
-        ]
-        self.crosshair_value = self._read_voxel_value(ix, iy, iz)
-
-    def update_crosshair_from_2d(self, slice_x, slice_y, slice_idx, orientation):
-        shape = self.get_slice_shape(orientation)
-        v = slice_to_voxel(slice_x, slice_y, slice_idx, orientation, shape)
         
-        # Map display-grid voxel to absolute physical world
-        _buf = self.base_display_data
-        phys = self.space.display_to_world(np.array(v[:3]), _buf is not None)
-        if phys is None:
-            return
-
-        # Neutralization: Convert back to the Native (straightened) array grid
-        native_v = self.space.world_to_display(phys, is_buffered=False)
-        if native_v is None: 
-            return
         self.camera.crosshair_voxel = [native_v[0], native_v[1], native_v[2], self.camera.time_idx]
-        self.camera.crosshair_phys_coord = phys
 
+        # 3. Update native slice indices based on the new native voxel
+        # This ensures vs.camera.slices always reflects the native image's slice
+        # corresponding to the crosshair's physical position.
         ix, iy, iz = [
-            int(np.clip(np.floor(c + 0.5), 0, limit - 1))
+            int(np.clip(np.round(c), 0, limit - 1))
             for c, limit in zip(
                 native_v,
                 [self.volume.shape3d[2], self.volume.shape3d[1], self.volume.shape3d[0]],
             )
         ]
-        self.crosshair_value = self._read_voxel_value(ix, iy, iz)
+        self.camera.slices[ViewMode.AXIAL] = iz
+        self.camera.slices[ViewMode.SAGITTAL] = ix
+        self.camera.slices[ViewMode.CORONAL] = iy
+
+        # 4. Read value from the NATIVE data using native indices
+        self.crosshair_value = self._read_voxel_value(ix, iy, iz, use_buffer=False)
+
+        # Flag data dirty to ensure UI updates
+        self.is_data_dirty = True
+        self.is_geometry_dirty = True  # Crosshair position changed
 
     def update_histogram(self):
         flat_data = self.volume.data.flatten()
