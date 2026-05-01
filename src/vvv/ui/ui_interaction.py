@@ -166,6 +166,9 @@ class InteractionManager:
                 if dpg.does_item_exist(input_id) and dpg.is_item_focused(input_id):
                     return
 
+            if dpg.does_item_exist("input_roi_filter") and dpg.is_item_focused("input_roi_filter"):
+                return
+
         try:
             for alias in dpg.get_aliases():
                 if any(k in alias for k in ["settings_val_", "fusion_info_", "input_", "dicom_", "info_"]):

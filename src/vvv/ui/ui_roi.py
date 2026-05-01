@@ -29,6 +29,7 @@ class RoiUI:
         self.controller = controller
         self.active_roi_id = None
         self.roi_selectables = {}
+        self.roi_filter_text = ""
 
     @staticmethod
     def build_tab_rois(gui):
@@ -151,6 +152,21 @@ class RoiUI:
 
             dpg.add_separator()
 
+            with dpg.group(tag="group_roi_filter", show=False, horizontal=True):
+                dpg.add_text("Filter:", color=cfg_c["text_dim"])
+                dpg.add_input_text(
+                    tag="input_roi_filter",
+                    width=-25,
+                    callback=gui.roi_ui.on_roi_filter_changed,
+                )
+                btn_clear_filter = dpg.add_button(
+                    label="\uf00d",
+                    width=20,
+                    callback=gui.roi_ui.on_clear_roi_filter_clicked,
+                )
+                if dpg.does_item_exist("icon_font_tag"):
+                    dpg.bind_item_font(btn_clear_filter, "icon_font_tag")
+
             with dpg.child_window(
                 tag="roi_list_window", height=150, border=False, no_scrollbar=True
             ):
@@ -199,10 +215,19 @@ class RoiUI:
         viewer = self.gui.context_viewer
 
         if not viewer or not viewer.view_state or not viewer.view_state.rois:
+            if dpg.does_item_exist("group_roi_filter"):
+                dpg.configure_item("group_roi_filter", show=False)
             self.refresh_roi_detail_ui()
             return
 
+        total_rois = len(viewer.view_state.rois)
+        if dpg.does_item_exist("group_roi_filter"):
+            dpg.configure_item("group_roi_filter", show=total_rois > 10)
+
         for roi_id, roi in viewer.view_state.rois.items():
+            if self.roi_filter_text and self.roi_filter_text not in roi.name.lower():
+                continue
+
             with dpg.table_row(parent=table_id):
                 if roi.visible:
                     lbl_eye = "\uf040" if roi.is_contour else "\uf06e"
@@ -474,6 +499,16 @@ class RoiUI:
         dpg.set_value("roi_stat_mass", f"{stats['mass']:.2f} g")
 
     # --- Callbacks ---
+    def on_roi_filter_changed(self, sender, app_data, user_data):
+        self.roi_filter_text = app_data.lower() if app_data else ""
+        self.refresh_rois_ui()
+
+    def on_clear_roi_filter_clicked(self, sender, app_data, user_data):
+        self.roi_filter_text = ""
+        if dpg.does_item_exist("input_roi_filter"):
+            dpg.set_value("input_roi_filter", "")
+        self.refresh_rois_ui()
+
     def on_roi_name_changed(self, sender, app_data, user_data):
         roi_id = user_data
         new_name = app_data
@@ -784,6 +819,8 @@ class RoiUI:
         if not viewer or not viewer.view_state:
             return
         for roi in viewer.view_state.rois.values():
+            if self.roi_filter_text and self.roi_filter_text not in roi.name.lower():
+                continue
             roi.visible = True
             roi.is_contour = False
         viewer.view_state.is_data_dirty = True
@@ -796,6 +833,8 @@ class RoiUI:
         if not viewer or not viewer.view_state:
             return
         for roi in viewer.view_state.rois.values():
+            if self.roi_filter_text and self.roi_filter_text not in roi.name.lower():
+                continue
             roi.visible = False
         viewer.view_state.is_data_dirty = True
         viewer.view_state.is_geometry_dirty = True
@@ -807,6 +846,8 @@ class RoiUI:
         if not viewer or not viewer.view_state:
             return
         for roi in viewer.view_state.rois.values():
+            if self.roi_filter_text and self.roi_filter_text not in roi.name.lower():
+                continue
             roi.visible = True
             roi.is_contour = True
 
@@ -822,6 +863,8 @@ class RoiUI:
         if not viewer or not viewer.view_state:
             return
         for roi in viewer.view_state.rois.values():
+            if self.roi_filter_text and self.roi_filter_text not in roi.name.lower():
+                continue
             roi.opacity = app_data
         viewer.view_state.is_data_dirty = True
         self.controller.ui_needs_refresh = True
@@ -832,6 +875,8 @@ class RoiUI:
         if not viewer or not viewer.view_state:
             return
         for roi in viewer.view_state.rois.values():
+            if self.roi_filter_text and self.roi_filter_text not in roi.name.lower():
+                continue
             roi.thickness = app_data
         viewer.view_state.is_geometry_dirty = True
         self.controller.ui_needs_refresh = True
@@ -890,8 +935,12 @@ class RoiUI:
         if not viewer or not viewer.image_id or not viewer.view_state:
             return
 
-        for roi_id in list(viewer.view_state.rois.keys()):
+        for roi_id, roi in list(viewer.view_state.rois.items()):
+            if self.roi_filter_text and self.roi_filter_text not in roi.name.lower():
+                continue
             self.controller.roi.close_roi(viewer.image_id, roi_id)
 
-        self.active_roi_id = None
+        if self.active_roi_id and self.active_roi_id not in viewer.view_state.rois:
+            self.active_roi_id = None
+
         self.controller.ui_needs_refresh = True
