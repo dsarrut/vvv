@@ -59,172 +59,180 @@ class RegistrationUI:
                 color=cfg_c["text_active"],
             )
 
-            # --- TOP: File Management & Apply ---
-            dpg.add_spacer(height=10)
-            with dpg.group(horizontal=True):
-                dpg.add_button(
-                    label="Load",
-                    width=50,
-                    tag="btn_reg_load",
-                    callback=gui.reg_ui.on_reg_load_clicked,
-                )
-                dpg.add_button(
-                    label="Save",
-                    width=50,
-                    tag="btn_reg_save",
-                    callback=gui.reg_ui.on_reg_save_clicked,
-                )
-                dpg.add_button(
-                    label="Save As",
-                    width=65,
-                    tag="btn_reg_save_as",
-                    callback=gui.reg_ui.on_reg_save_as_clicked,
-                )
-
-                btn_reload = dpg.add_button(
-                    label="\uf01e",
-                    width=20,
-                    tag="btn_reg_reload",
-                    callback=gui.reg_ui.on_reg_reload_clicked,
-                )
-                if dpg.does_item_exist("icon_font_tag"):
-                    dpg.bind_item_font(btn_reload, "icon_font_tag")
-                if dpg.does_item_exist("icon_button_theme"):
-                    dpg.bind_item_theme(btn_reload, "icon_button_theme")
-
-            with dpg.group(horizontal=True):
-                dpg.add_text("File: ")
-                dpg.add_text("None", tag="text_reg_filename", color=cfg_c["text_dim"])
-
-            dpg.add_checkbox(
-                label="Apply Transform to Viewers",
-                tag="check_reg_apply",
-                callback=gui.reg_ui.on_reg_apply_toggled,
+            dpg.add_text(
+                "Registration disabled: DVF active",
+                tag="text_reg_dvf_warning",
+                color=cfg_c.get("outdated", [255, 200, 50]),
+                show=False,
             )
 
-            # --- MIDDLE: Read-Only Math (Matrix & CoR) ---
-            dpg.add_spacer(height=10)
-            build_section_title("Affine Matrix", cfg_c["text_header"])
-            with dpg.group(tag="group_reg_matrix"):
-                with dpg.table(
-                    header_row=False,
-                    borders_innerV=True,
-                    borders_innerH=True,
-                    resizable=False,
-                ):
-                    for _ in range(4):
-                        dpg.add_table_column()
-                    for r in range(4):
-                        with dpg.table_row():
-                            for c in range(4):
-                                dpg.add_text(
-                                    "0.000",
-                                    tag=f"txt_reg_m_{r}_{c}",
-                                    color=cfg_c["text_dim"],
-                                )
+            with dpg.group(tag="group_registration_controls"):
+                # --- TOP: File Management & Apply ---
+                dpg.add_spacer(height=10)
+                with dpg.group(horizontal=True):
+                    dpg.add_button(
+                        label="Load",
+                        width=50,
+                        tag="btn_reg_load",
+                        callback=gui.reg_ui.on_reg_load_clicked,
+                    )
+                    dpg.add_button(
+                        label="Save",
+                        width=50,
+                        tag="btn_reg_save",
+                        callback=gui.reg_ui.on_reg_save_clicked,
+                    )
+                    dpg.add_button(
+                        label="Save As",
+                        width=65,
+                        tag="btn_reg_save_as",
+                        callback=gui.reg_ui.on_reg_save_as_clicked,
+                    )
 
-            dpg.add_spacer(height=5)
-            with dpg.group(horizontal=True):
-                dpg.add_text("CoR:")
-                dpg.add_input_text(tag="input_reg_cor", width=125, readonly=True)
-                b = dpg.add_button(
-                    label="\uf05b ", callback=gui.reg_ui.on_reg_center_cor_clicked
-                )
-                if dpg.does_item_exist("icon_font_tag"):
-                    dpg.bind_item_font(b, "icon_font_tag")
-                # Sets the CoR to the current crosshair
-                dpg.add_button(
-                    label="Set",
-                    callback=gui.reg_ui.on_reg_cor_to_crosshair_clicked,
-                )
+                    btn_reload = dpg.add_button(
+                        label="\uf01e",
+                        width=20,
+                        tag="btn_reg_reload",
+                        callback=gui.reg_ui.on_reg_reload_clicked,
+                    )
+                    if dpg.does_item_exist("icon_font_tag"):
+                        dpg.bind_item_font(btn_reload, "icon_font_tag")
+                    if dpg.does_item_exist("icon_button_theme"):
+                        dpg.bind_item_theme(btn_reload, "icon_button_theme")
 
-            # --- BOTTOM: Manual 6-DOF Tweaking ---
-            dpg.add_spacer(height=10)
-            build_section_title(
-                "Rigid Adjustment (Euler R = Rz Ry Rx)", cfg_c["text_header"]
-            )
-            with dpg.group(horizontal=True):
-                dpg.add_text("Step:")
-                dpg.add_radio_button(
-                    items=["Coarse", "Fine"],
-                    default_value="Coarse",
-                    horizontal=True,
-                    tag="radio_reg_step",
-                    callback=gui.reg_ui.on_reg_step_changed,
+                with dpg.group(horizontal=True):
+                    dpg.add_text("File: ")
+                    dpg.add_text("None", tag="text_reg_filename", color=cfg_c["text_dim"])
+
+                dpg.add_checkbox(
+                    label="Apply Transform to Viewers",
+                    tag="check_reg_apply",
+                    callback=gui.reg_ui.on_reg_apply_toggled,
                 )
 
-            dpg.add_spacer(height=5)
+                # --- MIDDLE: Read-Only Math (Matrix & CoR) ---
+                dpg.add_spacer(height=10)
+                build_section_title("Affine Matrix", cfg_c["text_header"])
+                with dpg.group(tag="group_reg_matrix"):
+                    with dpg.table(
+                        header_row=False,
+                        borders_innerV=True,
+                        borders_innerH=True,
+                        resizable=False,
+                    ):
+                        for _ in range(4):
+                            dpg.add_table_column()
+                        for r in range(4):
+                            with dpg.table_row():
+                                for c in range(4):
+                                    dpg.add_text(
+                                        "0.000",
+                                        tag=f"txt_reg_m_{r}_{c}",
+                                        color=cfg_c["text_dim"],
+                                    )
 
-            # Translation Drag Floats
-            build_stepped_slider(
-                "Tx ",
-                "drag_reg_tx",
-                callback=gui.reg_ui.on_reg_manual_changed,
-                step_callback=gui.reg_ui.on_reg_step_button_clicked,
-                min_val=-5000.0,
-                max_val=5000.0,
-                format="%.2f mm",
-            )
-            build_stepped_slider(
-                "Ty ",
-                "drag_reg_ty",
-                callback=gui.reg_ui.on_reg_manual_changed,
-                step_callback=gui.reg_ui.on_reg_step_button_clicked,
-                min_val=-5000.0,
-                max_val=5000.0,
-                format="%.2f mm",
-            )
-            build_stepped_slider(
-                "Tz ",
-                "drag_reg_tz",
-                callback=gui.reg_ui.on_reg_manual_changed,
-                step_callback=gui.reg_ui.on_reg_step_button_clicked,
-                min_val=-5000.0,
-                max_val=5000.0,
-                format="%.2f mm",
-            )
+                dpg.add_spacer(height=5)
+                with dpg.group(horizontal=True):
+                    dpg.add_text("CoR:")
+                    dpg.add_input_text(tag="input_reg_cor", width=125, readonly=True)
+                    b = dpg.add_button(
+                        label="\uf05b ", callback=gui.reg_ui.on_reg_center_cor_clicked
+                    )
+                    if dpg.does_item_exist("icon_font_tag"):
+                        dpg.bind_item_font(b, "icon_font_tag")
+                    # Sets the CoR to the current crosshair
+                    dpg.add_button(
+                        label="Set",
+                        callback=gui.reg_ui.on_reg_cor_to_crosshair_clicked,
+                    )
 
-            dpg.add_spacer(height=5)
-
-            # Rotation Drag Floats (Euler)
-            build_stepped_slider(
-                "Rx ",
-                "drag_reg_rx",
-                callback=gui.reg_ui.on_reg_manual_changed,
-                step_callback=gui.reg_ui.on_reg_step_button_clicked,
-                min_val=-360.0,
-                max_val=360.0,
-                format="%.2f \u00b0",
-            )
-            build_stepped_slider(
-                "Ry ",
-                "drag_reg_ry",
-                callback=gui.reg_ui.on_reg_manual_changed,
-                step_callback=gui.reg_ui.on_reg_step_button_clicked,
-                min_val=-360.0,
-                max_val=360.0,
-                format="%.2f \u00b0",
-            )
-            build_stepped_slider(
-                "Rz ",
-                "drag_reg_rz",
-                callback=gui.reg_ui.on_reg_manual_changed,
-                step_callback=gui.reg_ui.on_reg_step_button_clicked,
-                min_val=-360.0,
-                max_val=360.0,
-                format="%.2f \u00b0",
-            )
-
-            dpg.add_spacer(height=5)
-            with dpg.group(horizontal=True):
-                dpg.add_button(
-                    label="Reset to ID",
-                    width=120,
-                    callback=gui.reg_ui.on_reg_reset_clicked,
+                # --- BOTTOM: Manual 6-DOF Tweaking ---
+                dpg.add_spacer(height=10)
+                build_section_title(
+                    "Rigid Adjustment (Euler R = Rz Ry Rx)", cfg_c["text_header"]
                 )
-                dpg.add_button(
-                    label="Invert", width=-1, callback=gui.reg_ui.on_reg_invert_clicked
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Step:")
+                    dpg.add_radio_button(
+                        items=["Coarse", "Fine"],
+                        default_value="Coarse",
+                        horizontal=True,
+                        tag="radio_reg_step",
+                        callback=gui.reg_ui.on_reg_step_changed,
+                    )
+
+                dpg.add_spacer(height=5)
+
+                # Translation Drag Floats
+                build_stepped_slider(
+                    "Tx ",
+                    "drag_reg_tx",
+                    callback=gui.reg_ui.on_reg_manual_changed,
+                    step_callback=gui.reg_ui.on_reg_step_button_clicked,
+                    min_val=-5000.0,
+                    max_val=5000.0,
+                    format="%.2f mm",
                 )
+                build_stepped_slider(
+                    "Ty ",
+                    "drag_reg_ty",
+                    callback=gui.reg_ui.on_reg_manual_changed,
+                    step_callback=gui.reg_ui.on_reg_step_button_clicked,
+                    min_val=-5000.0,
+                    max_val=5000.0,
+                    format="%.2f mm",
+                )
+                build_stepped_slider(
+                    "Tz ",
+                    "drag_reg_tz",
+                    callback=gui.reg_ui.on_reg_manual_changed,
+                    step_callback=gui.reg_ui.on_reg_step_button_clicked,
+                    min_val=-5000.0,
+                    max_val=5000.0,
+                    format="%.2f mm",
+                )
+
+                dpg.add_spacer(height=5)
+
+                # Rotation Drag Floats (Euler)
+                build_stepped_slider(
+                    "Rx ",
+                    "drag_reg_rx",
+                    callback=gui.reg_ui.on_reg_manual_changed,
+                    step_callback=gui.reg_ui.on_reg_step_button_clicked,
+                    min_val=-360.0,
+                    max_val=360.0,
+                    format="%.2f \u00b0",
+                )
+                build_stepped_slider(
+                    "Ry ",
+                    "drag_reg_ry",
+                    callback=gui.reg_ui.on_reg_manual_changed,
+                    step_callback=gui.reg_ui.on_reg_step_button_clicked,
+                    min_val=-360.0,
+                    max_val=360.0,
+                    format="%.2f \u00b0",
+                )
+                build_stepped_slider(
+                    "Rz ",
+                    "drag_reg_rz",
+                    callback=gui.reg_ui.on_reg_manual_changed,
+                    step_callback=gui.reg_ui.on_reg_step_button_clicked,
+                    min_val=-360.0,
+                    max_val=360.0,
+                    format="%.2f \u00b0",
+                )
+
+                dpg.add_spacer(height=5)
+                with dpg.group(horizontal=True):
+                    dpg.add_button(
+                        label="Reset to ID",
+                        width=120,
+                        callback=gui.reg_ui.on_reg_reset_clicked,
+                    )
+                    dpg.add_button(
+                        label="Invert", width=-1, callback=gui.reg_ui.on_reg_invert_clicked
+                    )
 
     def _snap_viewer_to_world_pos(self, viewer, world_pos):
         """Calculates the new local voxel coordinates and updates the camera slices to stay pinned to a world point."""
@@ -283,6 +291,12 @@ class RegistrationUI:
         vs = viewer.view_state
         vol = self.controller.volumes.get(viewer.image_id)
 
+        is_dvf = getattr(vol, "is_dvf", False) if vol else False
+        if dpg.does_item_exist("text_reg_dvf_warning"):
+            dpg.configure_item("text_reg_dvf_warning", show=is_dvf)
+        if dpg.does_item_exist("group_registration_controls"):
+            dpg.configure_item("group_registration_controls", show=not is_dvf)
+
         if dpg.does_item_exist("text_reg_active_title") and vol:
             name_str, is_outdated = self.controller.get_image_display_name(
                 viewer.image_id
@@ -297,10 +311,24 @@ class RegistrationUI:
             )
             dpg.configure_item("text_reg_active_title", color=col)
 
+        if is_dvf:
+            return
+
         if dpg.does_item_exist("text_reg_filename"):
             dpg.set_value("text_reg_filename", vs.space.transform_file)
         if dpg.does_item_exist("check_reg_apply"):
             dpg.set_value("check_reg_apply", vs.space.is_active)
+
+        if vol:
+            is_2d = min(vol.shape3d) == 1
+            out_of_plane_tags = ["drag_reg_rx", "drag_reg_ry", "drag_reg_tz"]
+            for tag in out_of_plane_tags:
+                if dpg.does_item_exist(tag):
+                    dpg.configure_item(tag, enabled=not is_2d)
+                if dpg.does_item_exist(f"btn_{tag}_minus"):
+                    dpg.configure_item(f"btn_{tag}_minus", enabled=not is_2d)
+                if dpg.does_item_exist(f"btn_{tag}_plus"):
+                    dpg.configure_item(f"btn_{tag}_plus", enabled=not is_2d)
 
         if vs.space.transform:
             matrix = np.array(vs.space.transform.GetMatrix()).reshape(3, 3)

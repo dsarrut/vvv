@@ -28,6 +28,7 @@ Legend: ✅ Full support · ⚠️ Partial / with caveats · ❌ Not supported
 | Reg               | ⚠️ | ✅ | ⚠️ |  ❌ |  ⚠️ |
 | Threshold         | ✅ | ✅ | ⚠️ |  ❌ |  ❌ |
 
+
 ## Implementation Check Matrix
 
 Use this matrix to track the actual implementation status of the rules defined in this document.
@@ -39,9 +40,9 @@ Legend: ⬜ Not checked yet · 🔄 In progress · ✅ Checked and implemented c
 | Image List        | ✅ | ✅ | ✅ |  ✅ |  ✅ |
 | Sync              | ✅ | ✅ | ✅ |  ✅ |  ✅ |
 | Fusion            | ✅ | ✅ | ✅ |  ✅ |  ✅ |
-| Intensity         | ⬜ | ⬜ | ⬜ |  ⬜ |  ⬜ |
-| ROI               | ⬜ | ⬜ | ⬜ |  ⬜ |  ⬜ |
-| Reg               | ⬜ | ⬜ | ⬜ |  ⬜ |  ⬜ |
+| Intensity         | ✅ | ✅ | ✅ |  ✅ |  ✅ |
+| ROI               | ✅ | ✅ | ✅ |  ✅ |  ✅ |
+| Reg               | ✅ | ✅ | ✅ |  ✅ |  ✅ |
 | Threshold         | ⬜ | ⬜ | ⬜ |  ⬜ |  ⬜ |
 
 ---
@@ -152,8 +153,11 @@ The overlay image must be a grayscale scalar image. The base image can be any ty
 | 2D   | ROI overlay is restricted to the single slice. Binary masks with Z=1 load normally. RT-Structs that have only 1 contour plane are accepted. |
 | 3D   | Full support: binary masks, label maps (parallel extraction), RT-Structs. Bounding-box crop optimization applies. Raster and vector (marching squares) rendering both work. |
 | 4D   | The ROI geometry is static in 3D space and is displayed on every timepoint. There is no per-timepoint ROI. The ROI is linked to the base image's spatial geometry, not its temporal dimension. |
-| DVF  | **Not supported.** ROIs are spatial masks over anatomical data; applying them over a displacement field has no meaningful interpretation. |
+| DVF  | like 4D, displayed but same for every components |
 | RGB  | ROI overlay is displayed on top of the RGB base. Raster blending works visually. Vector (contour) mode works. W/L-dependent opacity formulas are bypassed; a fixed opacity is used instead. |
+
+Load several ROIs at once (from open several images, or open several ROI from RTStruct or Labels ROI): use fast loading with multithreading.
+
 
 ---
 
@@ -179,6 +183,18 @@ The overlay image must be a grayscale scalar image. The base image can be any ty
 |------|-------------------|
 | 2D   | Full support. The generated mask has the same single-slice geometry as the source. |
 | 3D   | Full support. The generated mask is a full 3D binary or intensity volume. |
-| 4D   | The threshold is applied to the **currently visible timepoint only** and produces a single 3D mask. Applying the threshold across all timepoints simultaneously is not supported. The UI should clearly state which timepoint is being processed. The resulting mask will behave as a static 3D ROI moving forward. |
-| DVF  | **Not supported.** Threshold requires a scalar grayscale image. DVF components are floats but lack an anatomical intensity interpretation. The tool is disabled when a DVF is the active image. |
+| 4D   | The threshold is applied to the currently visible timepoint and produces a single 3D mask. When the timepoint change, a new contours must be extracted (all orientations). If saved, the 4D binarized image should be saved. |
+| DVF  | Like a 4D image, the 3 components can have contours and the contour change when the component change. |
 | RGB  | **Not supported.** Threshold requires a scalar grayscale image. The tool is disabled when an RGB image is the active image. |
+
+
+--- 
+
+## Workspace and history
+
+History
+- simple save of the current 
+
+--- 
+
+## reload 
