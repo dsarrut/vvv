@@ -35,7 +35,7 @@ Legend: ⬜ Not checked yet · 🔄 In progress · ✅ Checked and implemented c
 
 |                   | 2D | 3D | 4D | DVF | RGB |
 |-------------------|:--:|:--:|:--:|:---:|:---:|
-| tracker, etc.     | ⬜ | ⬜ | ⬜ |  ⬜ |  ⬜ |
+| tracker, etc.     | ✅ | ✅ | ✅ |  ✅ |  ✅ |
 | Image List        | ✅ | ✅ | ✅ |  ✅ |  ✅ |
 | Sync              | ✅ | ✅ | ✅ |  ✅ |  ✅ |
 | Fusion            | ✅ | ✅ | ✅ |  ✅ |  ✅ |
@@ -53,7 +53,7 @@ TrackerFunction:
 - Information Displayed:
     - Coordinates: Physical coordinates in millimeters (mm) and integer voxel indices.  
     - Pixel Values: The raw value of the base image and any active overlay.  
-    - DVF Support: For Displacement Vector Fields, it displays the three vector components $[dx, dy, dz]$ and the calculated vector length (L2 norm) in mm.  
+    - DVF Support: For Displacement Vector Fields, it displays the three vector components $[dx dy dz]$ and the calculated vector length (L2 norm) in mm.  
     - Sync Behavior: If images are in a sync group, the tracker propagates to other viewers, showing the values of linked images at the same physical world position.  
     - ROI Detection: Lists the names of all ROIs present at the current mouse position.  
 - Control: Can be toggled via the "Show Tracker" checkbox in the UI or via the shortcut defined in config.py.  
@@ -61,7 +61,7 @@ TrackerFunction:
 Crosshair
 - Function: Vertical and horizontal lines representing the intersection of the current slices in other orientations (e.g., the Axial viewer shows where the Sagittal and Coronal planes intersect).  
 - Panel Information:
-    - Spatial Data: Voxel indices, physical coordinates (mm), and the current Window/Level.  
+    - Spatial Data: Voxel indices and physical coordinates (mm).  
     - Optical Data: Current Pixels Per Millimeter (PPM) and the Field of View (FOV) size.  
     - ROI Data: Displays names of ROIs intersecting the crosshair center.  
     
