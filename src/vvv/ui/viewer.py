@@ -149,6 +149,12 @@ class SliceViewer:
         self.last_pixelated = False
         self._old_texture_to_delete: str | None = None
         self._textures_to_delete: list[str] = []
+        
+        self.overlay_texture_tag = f"tex_ov_{tag_id}"
+        self.overlay_image_tag = f"img_ov_{tag_id}"
+        self.active_overlay_shift_x = 0.0
+        self.active_overlay_shift_y = 0.0
+        self.last_overlay_rgba_flat: np.ndarray | None = None
         self._last_tracker_state: tuple | None = None
         self._was_hovered = False
         self._external_tracker_active = False
@@ -211,6 +217,15 @@ class SliceViewer:
                 height=1,
                 default_value=np.zeros(4, dtype=np.float32),  # type: ignore
                 tag=self.texture_tag,
+                parent="global_texture_registry",
+            )
+
+        if not dpg.does_item_exist(self.overlay_texture_tag):
+            dpg.add_dynamic_texture(
+                width=1,
+                height=1,
+                default_value=np.zeros(4, dtype=np.float32),  # type: ignore
+                tag=self.overlay_texture_tag,
                 parent="global_texture_registry",
             )
 
@@ -497,20 +512,22 @@ class SliceViewer:
 
         # 1. Generate a unique tag based on the viewer and the specific dimensions
         new_texture_tag = f"tex_{self.tag}_{w}x{h}"
+        new_ov_texture_tag = f"tex_ov_{self.tag}_{w}x{h}"
 
         # Always unhide the parent canvas.
         if dpg.does_item_exist(self.img_node_tag):
             dpg.configure_item(self.img_node_tag, show=True)
 
         # 2. If the current texture tag perfectly matches the new one, reuse the VRAM
-        if self.texture_tag == new_texture_tag and dpg.does_item_exist(
-            self.texture_tag
-        ):
+        if self.texture_tag == new_texture_tag and dpg.does_item_exist(self.texture_tag):
             return False
 
         # Store the old texture for safe deletion in the binding phase
         if self.texture_tag and self.texture_tag != new_texture_tag:
             self._old_texture_to_delete = self.texture_tag
+            
+        if hasattr(self, "overlay_texture_tag") and self.overlay_texture_tag and self.overlay_texture_tag != new_ov_texture_tag:
+            self._textures_to_delete.append(self.overlay_texture_tag)
 
         if not dpg.does_item_exist(new_texture_tag):
             dpg.add_dynamic_texture(
@@ -520,9 +537,19 @@ class SliceViewer:
                 tag=new_texture_tag,
                 parent="global_texture_registry",
             )
+            
+        if not dpg.does_item_exist(new_ov_texture_tag):
+            dpg.add_dynamic_texture(
+                width=w,
+                height=h,
+                default_value=np.zeros(w * h * 4, dtype=np.float32),  # type: ignore
+                tag=new_ov_texture_tag,
+                parent="global_texture_registry",
+            )
 
         # 6. Update the viewer's state to track the new texture
         self.texture_tag = new_texture_tag
+        self.overlay_texture_tag = new_ov_texture_tag
         return True
 
     def bind_texture_to_node(self):
@@ -542,6 +569,14 @@ class SliceViewer:
                 self.current_pmin,
                 self.current_pmax,
                 parent=self.img_node_tag,
+            )
+            
+            self.overlay_image_tag = dpg.draw_image(
+                self.overlay_texture_tag,
+                self.current_pmin,
+                self.current_pmax,
+                parent=self.img_node_tag,
+                show=False
             )
 
     def drop_image(self):
@@ -569,6 +604,9 @@ class SliceViewer:
 
         if dpg.does_item_exist(self.tracker_tag):
             dpg.set_value(self.tracker_tag, "")
+            
+        if hasattr(self, "overlay_image_tag") and dpg.does_item_exist(self.overlay_image_tag):
+            dpg.configure_item(self.overlay_image_tag, show=False)
 
         if self.controller:
             self.controller.ui_needs_refresh = True
@@ -1265,12 +1303,10 @@ class SliceViewer:
         if ovs.space.transform and ovs.space.is_active:
             ov_tx, ov_ty, ov_tz = ovs.space.transform.GetTranslation()
 
-        # How many mm has the overlay moved LIVE relative to the base?
         live_dx = ov_tx - base_tx
         live_dy = ov_ty - base_ty
         live_dz = ov_tz - base_tz
 
-        # Subtract the translation that is ALREADY baked into the 3D array!
         baked_dx, baked_dy, baked_dz = getattr(
             vs.display, "baked_overlay_translation", (0.0, 0.0, 0.0)
         )
@@ -1286,18 +1322,28 @@ class SliceViewer:
         px_z = dz_mm / sp_z if sp_z else 0
 
         off_x, off_y, off_slice = 0, 0, 0
+        dx, dy, dz = 0.0, 0.0, 0.0
+        
         if self.orientation == ViewMode.AXIAL:
-            off_x = int(round(px_x))
-            off_y = int(round(px_y))
-            off_slice = int(round(px_z))
+            dx, dy, dz = px_x, px_y, px_z
         elif self.orientation == ViewMode.CORONAL:
-            off_x = int(round(px_x))
-            off_y = int(round(-px_z))
-            off_slice = int(round(px_y))
+            dx, dy, dz = px_x, -px_z, px_y
         elif self.orientation == ViewMode.SAGITTAL:
-            off_x = int(round(-px_y))
-            off_y = int(round(-px_z))
-            off_slice = int(round(px_x))
+            dx, dy, dz = -px_y, -px_z, px_x
+            
+        self.active_overlay_shift_x = dx
+        self.active_overlay_shift_y = dy
+
+        # Delegate to GPU if Alpha, fallback to CPU Array Slicing if Registration/Checkerboard
+        if vs.display.overlay_mode == "Alpha":
+            off_x, off_y = 0, 0
+        else:
+            off_x = int(round(dx))
+            off_y = int(round(dy))
+            self.active_overlay_shift_x = 0.0
+            self.active_overlay_shift_y = 0.0
+            
+        off_slice = int(round(dz))
 
         return RenderLayer(
             data=vs.display.overlay_data,
@@ -1427,19 +1473,43 @@ class SliceViewer:
             if base_layer is None:
                 return
 
-            # 2. Render
-            rgba_flat, _ = SliceRenderer.get_slice_rgba(
-                base=base_layer,
-                overlay=overlay_layer,
-                overlay_opacity=vs.display.overlay_opacity,
-                overlay_mode=vs.display.overlay_mode,
-                slice_idx=self.slice_idx, # This is now the display slice index
-                orientation=self.orientation,
-                checkerboard_size=vs.display.overlay_checkerboard_size,
-                checkerboard_swap=vs.display.overlay_checkerboard_swap,
-                rois=active_rois,
-            )
-            self.last_rgba_flat = rgba_flat
+            # GPU DELEGATION: Render Base & Overlay Separately
+            if vs.display.overlay_mode == "Alpha" and overlay_layer is not None:
+                rgba_flat, _ = SliceRenderer.get_slice_rgba(
+                    base=base_layer,
+                    overlay=None,
+                    overlay_opacity=1.0,
+                    overlay_mode="Alpha",
+                    slice_idx=self.slice_idx,
+                    orientation=self.orientation,
+                    rois=active_rois,
+                )
+                self.last_rgba_flat = rgba_flat
+
+                ov_rgba_flat, _ = SliceRenderer.get_slice_rgba(
+                    base=overlay_layer,
+                    overlay=None,
+                    overlay_opacity=1.0,
+                    overlay_mode="Alpha",
+                    slice_idx=self.slice_idx,
+                    orientation=self.orientation,
+                    rois=[],
+                )
+                self.last_overlay_rgba_flat = ov_rgba_flat
+            else:
+                rgba_flat, _ = SliceRenderer.get_slice_rgba(
+                    base=base_layer,
+                    overlay=overlay_layer,
+                    overlay_opacity=vs.display.overlay_opacity,
+                    overlay_mode=vs.display.overlay_mode,
+                    slice_idx=self.slice_idx,
+                    orientation=self.orientation,
+                    checkerboard_size=vs.display.overlay_checkerboard_size,
+                    checkerboard_swap=vs.display.overlay_checkerboard_swap,
+                    rois=active_rois,
+                )
+                self.last_rgba_flat = rgba_flat
+                self.last_overlay_rgba_flat = None
         else:
             rgba_flat = self.last_rgba_flat
 
@@ -1456,9 +1526,20 @@ class SliceViewer:
                 rgba_2d, self.current_pmin, self.current_pmax, canvas_w, canvas_h
             )
             rgba_flat = rgba_mapped.ravel()
+            
+            # Remap overlay perfectly inline with the base mapping so the GPU shift retains alignment
+            if self.last_overlay_rgba_flat is not None:
+                ov_rgba_2d = self.last_overlay_rgba_flat.reshape((shape[0], shape[1], 4))
+                ov_rgba_mapped = self._get_screen_mapped_texture(
+                    ov_rgba_2d, self.current_pmin, self.current_pmax, canvas_w, canvas_h
+                )
+                self.last_overlay_rgba_flat = ov_rgba_mapped.ravel()
 
         if dpg.does_item_exist(self.texture_tag):
             dpg.set_value(self.texture_tag, rgba_flat)  # type: ignore
+            
+        if self.last_overlay_rgba_flat is not None and hasattr(self, "overlay_texture_tag") and dpg.does_item_exist(self.overlay_texture_tag):
+            dpg.set_value(self.overlay_texture_tag, self.last_overlay_rgba_flat)  # type: ignore
 
     def should_use_voxels_strips(self):
         vs = self.view_state
@@ -1499,6 +1580,8 @@ class SliceViewer:
         if self.should_use_voxels_strips() and self.last_rgba_flat is not None:
             if dpg.does_item_exist(self.image_tag):
                 dpg.configure_item(self.image_tag, show=False)
+            if hasattr(self, "overlay_image_tag") and dpg.does_item_exist(self.overlay_image_tag):
+                dpg.configure_item(self.overlay_image_tag, show=False)
             self.drawer.draw_voxels_as_strips(self.last_rgba_flat, h, w)
         else:
             if self.active_strips_node and dpg.does_item_exist(self.active_strips_node):
@@ -1506,6 +1589,10 @@ class SliceViewer:
 
             if dpg.does_item_exist(self.image_tag):
                 dpg.configure_item(self.image_tag, show=True)
+                
+                op = int(vs.display.overlay_opacity * 255)
+                has_overlay = self.last_overlay_rgba_flat is not None and hasattr(self, "overlay_image_tag") and dpg.does_item_exist(self.overlay_image_tag)
+                
                 if vs.display.pixelated_zoom:
                     layout = self.controller.gui.ui_cfg["layout"]
                     pad = layout.get("viewport_padding", 4) * 2
@@ -1514,10 +1601,30 @@ class SliceViewer:
                     dpg.configure_item(
                         self.image_tag, pmin=[0, 0], pmax=[canvas_w, canvas_h]
                     )
+                    
+                    if has_overlay:
+                        disp_w = self.current_pmax[0] - self.current_pmin[0]
+                        disp_h = self.current_pmax[1] - self.current_pmin[1]
+                        shift_x = self.active_overlay_shift_x * (disp_w / w) if w > 0 else 0
+                        shift_y = self.active_overlay_shift_y * (disp_h / h) if h > 0 else 0
+                        dpg.configure_item(self.overlay_image_tag, pmin=[shift_x, shift_y], pmax=[canvas_w + shift_x, canvas_h + shift_y], color=[255, 255, 255, op], show=True)
+                    
                 else:
                     dpg.configure_item(
                         self.image_tag, pmin=self.current_pmin, pmax=self.current_pmax
                     )
+                    
+                    if has_overlay:
+                        disp_w = self.current_pmax[0] - self.current_pmin[0]
+                        disp_h = self.current_pmax[1] - self.current_pmin[1]
+                        shift_x = self.active_overlay_shift_x * (disp_w / w) if w > 0 else 0
+                        shift_y = self.active_overlay_shift_y * (disp_h / h) if h > 0 else 0
+                        ov_pmin = [self.current_pmin[0] + shift_x, self.current_pmin[1] + shift_y]
+                        ov_pmax = [self.current_pmax[0] + shift_x, self.current_pmax[1] + shift_y]
+                        dpg.configure_item(self.overlay_image_tag, pmin=ov_pmin, pmax=ov_pmax, color=[255, 255, 255, op], show=True)
+                        
+                if not has_overlay and hasattr(self, "overlay_image_tag") and dpg.does_item_exist(self.overlay_image_tag):
+                    dpg.configure_item(self.overlay_image_tag, show=False)
 
         if vs.camera.show_grid:
             self.drawer.draw_voxel_grid(h, w)
