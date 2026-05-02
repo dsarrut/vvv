@@ -65,6 +65,20 @@ class SyncManager:
     # PUBLIC SYNC METHODS
     # ==========================================
 
+    def propagate_time_idx(self, source_vs_id):
+        """Propagate time_idx to all sync group members, clamping to their max timepoints."""
+        source_vs = self.controller.view_states.get(source_vs_id)
+        if not source_vs:
+            return
+        target_ids = self.get_sync_group_vs_ids(source_vs_id, active_only=False)
+        for target_id in target_ids:
+            if target_id == source_vs_id:
+                continue
+            target_vs = self.controller.view_states.get(target_id)
+            if target_vs:
+                nt = target_vs.volume.num_timepoints
+                target_vs.camera.time_idx = min(source_vs.camera.time_idx, nt - 1)
+
     def propagate_sync(self, source_vs_id):
         source_vs = self.controller.view_states.get(source_vs_id)
 

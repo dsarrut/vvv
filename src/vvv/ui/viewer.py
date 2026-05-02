@@ -1912,6 +1912,7 @@ class SliceViewer:
         # Update the crosshair's physical position based on the new time index
         if vs.camera.crosshair_phys_coord is not None:
             vs.update_crosshair_from_phys(vs.camera.crosshair_phys_coord)
+        self.controller.sync.propagate_time_idx(self.image_id)
         self.controller.sync.propagate_sync(self.image_id)
         vs.is_data_dirty = True
 
