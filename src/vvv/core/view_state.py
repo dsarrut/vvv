@@ -667,6 +667,8 @@ class ViewState:
             resampled_img = resampler.Execute(self.volume.sitk_image)
             self._sitk_base_cache = resampled_img
             self.base_display_data = sitk.GetArrayViewFromImage(resampled_img)
+            if getattr(self.volume, "is_dvf", False) and self.base_display_data.ndim == 4:
+                self.base_display_data = np.moveaxis(self.base_display_data, -1, 0)
         elif target_dim == 4:
             resampled_volumes = []
             for t in range(self.volume.num_timepoints):
@@ -731,6 +733,8 @@ class ViewState:
             resampled_img = resampler.Execute(other_vol.sitk_image)
             self.display._sitk_overlay_cache = resampled_img
             self.display.overlay_data = sitk.GetArrayViewFromImage(resampled_img)
+            if getattr(other_vol, "is_dvf", False) and self.display.overlay_data.ndim == 4:
+                self.display.overlay_data = np.moveaxis(self.display.overlay_data, -1, 0)
         elif target_dim == 4:
             resampled_volumes = []
             for t in range(other_vol.num_timepoints):
@@ -771,7 +775,7 @@ class ViewState:
             self.is_data_dirty = True
             return True
             
-        if getattr(other_vol, "is_rgb", False) or getattr(other_vol, "is_dvf", False):
+        if getattr(other_vol, "is_rgb", False):
             return False
 
         self.display.overlay_id = overlay_id

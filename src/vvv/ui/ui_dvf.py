@@ -112,25 +112,40 @@ class DvfUI:
                         format="%.1f x",
                     )
 
+    def _get_target_vs(self, viewer):
+        if not viewer or not viewer.view_state:
+            return None, False
+        is_base = getattr(viewer.volume, "is_dvf", False)
+        if is_base:
+            return viewer.view_state, True
+        ov_id = viewer.view_state.display.overlay_id
+        if ov_id:
+            ov_vs = self.controller.view_states.get(ov_id)
+            if ov_vs and getattr(ov_vs.volume, "is_dvf", False):
+                return ov_vs, False
+        return None, False
+
     def refresh_dvf_ui(self):
         viewer = self.gui.context_viewer
-        has_image = bool(viewer and viewer.view_state and viewer.volume)
-        is_dvf = getattr(viewer.volume, "is_dvf", False) if has_image else False
+        target_vs, is_base = self._get_target_vs(viewer)
+        is_dvf = target_vs is not None
 
         if dpg.does_item_exist("text_dvf_warning"):
-            dpg.configure_item("text_dvf_warning", show=has_image and not is_dvf)
+            dpg.configure_item("text_dvf_warning", show=not is_dvf)
         if dpg.does_item_exist("group_dvf_controls"):
             dpg.configure_item("group_dvf_controls", show=is_dvf)
 
         if not is_dvf:
             return
 
-        dvf_state = viewer.view_state.dvf
+        dvf_state = target_vs.dvf
 
-        if dpg.does_item_exist("radio_dvf_mode") and not dpg.is_item_active("radio_dvf_mode"):
-            dpg.set_value("radio_dvf_mode", dvf_state.display_mode)
+        if dpg.does_item_exist("radio_dvf_mode"):
+            dpg.configure_item("radio_dvf_mode", show=is_base)
+            if not dpg.is_item_active("radio_dvf_mode") and is_base:
+                dpg.set_value("radio_dvf_mode", dvf_state.display_mode)
 
-        show_vectors = dvf_state.display_mode == "Vector Field"
+        show_vectors = not is_base or dvf_state.display_mode == "Vector Field"
         if dpg.does_item_exist("group_dvf_vector_settings"):
             dpg.configure_item("group_dvf_vector_settings", show=show_vectors)
 
@@ -158,65 +173,72 @@ class DvfUI:
     # --- Callbacks ---
 
     def on_mode_changed(self, sender, app_data, user_data):
-        viewer = self.gui.context_viewer
-        if not viewer or not viewer.view_state:
-            return
-        viewer.view_state.dvf.display_mode = app_data
-        self.controller.ui_needs_refresh = True
+        target_vs, is_base = self._get_target_vs(self.gui.context_viewer)
+        if target_vs and is_base:
+            target_vs.dvf.display_mode = app_data
+            self.controller.ui_needs_refresh = True
 
     def on_sampling_changed(self, sender, app_data, user_data):
-        viewer = self.gui.context_viewer
-        if not viewer or not viewer.view_state:
+        target_vs, _ = self._get_target_vs(self.gui.context_viewer)
+        if not target_vs:
             return
-        viewer.view_state.dvf.vector_sampling = int(max(1.0, app_data))
+        target_vs.dvf.vector_sampling = int(max(1.0, app_data))
+        self.gui.context_viewer.is_geometry_dirty = True
 
     def on_scale_changed(self, sender, app_data, user_data):
-        viewer = self.gui.context_viewer
-        if not viewer or not viewer.view_state:
+        target_vs, _ = self._get_target_vs(self.gui.context_viewer)
+        if not target_vs:
             return
-        viewer.view_state.dvf.vector_scale = max(0.1, app_data)
+        target_vs.dvf.vector_scale = max(0.1, app_data)
+        self.gui.context_viewer.is_geometry_dirty = True
 
     def on_thickness_changed(self, sender, app_data, user_data):
-        viewer = self.gui.context_viewer
-        if not viewer or not viewer.view_state:
+        target_vs, _ = self._get_target_vs(self.gui.context_viewer)
+        if not target_vs:
             return
-        viewer.view_state.dvf.vector_thickness = int(max(1.0, min(10.0, app_data)))
+        target_vs.dvf.vector_thickness = int(max(1.0, min(10.0, app_data)))
+        self.gui.context_viewer.is_geometry_dirty = True
 
     def on_min_arrow_changed(self, sender, app_data, user_data):
-        viewer = self.gui.context_viewer
-        if not viewer or not viewer.view_state:
+        target_vs, _ = self._get_target_vs(self.gui.context_viewer)
+        if not target_vs:
             return
-        viewer.view_state.dvf.vector_min_length_arrow = max(0.0, app_data)
+        target_vs.dvf.vector_min_length_arrow = max(0.0, app_data)
+        self.gui.context_viewer.is_geometry_dirty = True
 
     def on_min_draw_changed(self, sender, app_data, user_data):
-        viewer = self.gui.context_viewer
-        if not viewer or not viewer.view_state:
+        target_vs, _ = self._get_target_vs(self.gui.context_viewer)
+        if not target_vs:
             return
-        viewer.view_state.dvf.vector_min_length_draw = max(0.0, app_data)
+        target_vs.dvf.vector_min_length_draw = max(0.0, app_data)
+        self.gui.context_viewer.is_geometry_dirty = True
 
     def on_color_max_mag_changed(self, sender, app_data, user_data):
-        viewer = self.gui.context_viewer
-        if not viewer or not viewer.view_state:
+        target_vs, _ = self._get_target_vs(self.gui.context_viewer)
+        if not target_vs:
             return
-        viewer.view_state.dvf.vector_color_max_mag = max(0.1, app_data)
+        target_vs.dvf.vector_color_max_mag = max(0.1, app_data)
+        self.gui.context_viewer.is_geometry_dirty = True
 
     def on_color_min_changed(self, sender, app_data, user_data):
-        viewer = self.gui.context_viewer
-        if not viewer or not viewer.view_state:
+        target_vs, _ = self._get_target_vs(self.gui.context_viewer)
+        if not target_vs:
             return
         scale = 255.0 if all(c <= 1.0 for c in app_data) else 1.0
-        viewer.view_state.dvf.vector_color_min = [int(c * scale) for c in app_data[:4]]
+        target_vs.dvf.vector_color_min = [int(c * scale) for c in app_data[:4]]
+        self.gui.context_viewer.is_geometry_dirty = True
 
     def on_color_max_changed(self, sender, app_data, user_data):
-        viewer = self.gui.context_viewer
-        if not viewer or not viewer.view_state:
+        target_vs, _ = self._get_target_vs(self.gui.context_viewer)
+        if not target_vs:
             return
         scale = 255.0 if all(c <= 1.0 for c in app_data) else 1.0
-        viewer.view_state.dvf.vector_color_max = [int(c * scale) for c in app_data[:4]]
+        target_vs.dvf.vector_color_max = [int(c * scale) for c in app_data[:4]]
+        self.gui.context_viewer.is_geometry_dirty = True
 
     def on_step_button_clicked(self, sender, app_data, user_data):
-        viewer = self.gui.context_viewer
-        if not viewer or not viewer.view_state:
+        target_vs, _ = self._get_target_vs(self.gui.context_viewer)
+        if not target_vs:
             return
 
         direction = user_data["dir"]
@@ -230,18 +252,19 @@ class DvfUI:
 
         if tag == "drag_dvf_sampling":
             new_val = max(1.0, new_val)
-            viewer.view_state.dvf.vector_sampling = int(new_val)
+            target_vs.dvf.vector_sampling = int(new_val)
         elif tag == "drag_dvf_scale":
             new_val = max(0.1, new_val)
-            viewer.view_state.dvf.vector_scale = new_val
+            target_vs.dvf.vector_scale = new_val
         elif tag == "drag_dvf_thickness":
             new_val = max(1.0, min(10.0, new_val))
-            viewer.view_state.dvf.vector_thickness = int(new_val)
+            target_vs.dvf.vector_thickness = int(new_val)
         elif tag == "drag_dvf_min_arrow":
-            viewer.view_state.dvf.vector_min_length_arrow = max(0.0, new_val)
+            target_vs.dvf.vector_min_length_arrow = max(0.0, new_val)
         elif tag == "drag_dvf_min_draw":
-            viewer.view_state.dvf.vector_min_length_draw = max(0.0, new_val)
+            target_vs.dvf.vector_min_length_draw = max(0.0, new_val)
         elif tag == "drag_dvf_color_max_mag":
-            viewer.view_state.dvf.vector_color_max_mag = max(0.1, new_val)
+            target_vs.dvf.vector_color_max_mag = max(0.1, new_val)
 
         dpg.set_value(tag, new_val)
+        self.gui.context_viewer.is_geometry_dirty = True

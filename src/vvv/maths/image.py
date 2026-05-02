@@ -451,6 +451,8 @@ class SliceRenderer:
                     base.is_rgb,
                     overlay.is_rgb,
                 )
+            elif overlay_mode == "DVF":
+                res_rgba = base_rgba # DPG OverlayDrawer handles rendering the vectors
 
         # --- 3. ROIs & FINAL EXPORT ---
         if rois:

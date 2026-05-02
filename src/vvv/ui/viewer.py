@@ -1356,8 +1356,8 @@ class SliceViewer:
         self.active_overlay_shift_x = dx
         self.active_overlay_shift_y = dy
 
-        # Delegate to GPU if Alpha, fallback to CPU Array Slicing if Registration/Checkerboard
-        if vs.display.overlay_mode == "Alpha":
+        # Delegate to GPU if Alpha or DVF, fallback to CPU Array Slicing if Registration/Checkerboard
+        if vs.display.overlay_mode in ("Alpha", "DVF"):
             off_x, off_y = 0, 0
         else:
             off_x = int(round(dx))
