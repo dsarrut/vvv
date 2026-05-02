@@ -43,7 +43,7 @@ Legend: ⬜ Not checked yet · 🔄 In progress · ✅ Checked and implemented c
 | Intensity         | ✅ | ✅ | ✅ |  ✅ |  ✅ |
 | ROI               | ✅ | ✅ | ✅ |  ✅ |  ✅ |
 | Reg               | ✅ | ✅ | ✅ |  ✅ |  ✅ |
-| Threshold         | ⬜ | ⬜ | ⬜ |  ⬜ |  ⬜ |
+| Threshold         | ✅ | ✅ | ✅ |  ✅ |  ✅ |
 
 ---
 
@@ -201,7 +201,7 @@ Workspaces (.vvw)
 - Purpose: Captures the complete global state of the application, including all loaded images, active viewers (V1–V4), and their respective ViewStates.  
 - Serialization: Workspaces are saved as JSON files.  
 - Collision Prevention: To prevent ID conflicts when loading a workspace into an existing session, the system uses an ID Map to seamlessly translate saved IDs into fresh memory addresses.  
-- Reconstruction: Restores not just the images, but the exact layout, fusion overlays, and registration transforms active at the time of saving.
+- Reconstruction: Restores the exact layout, radiometrics, and fusion overlays active at the time of saving. (Note: Manual registration transforms are intentionally excluded and not restored).
 
 
 --- 
