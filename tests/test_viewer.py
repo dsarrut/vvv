@@ -966,3 +966,147 @@ def test_extraction_manager_image_generation(headless_app, monkeypatch):
     assert new_vol.data.min() == 0.0
     assert new_vol.data[2, 2, 2] == 1.0  # Center of foreground block
     assert new_vol.data[0, 0, 0] == 0.0  # Background block
+
+
+# ==========================================
+# 10. IMAGE TYPES BEHAVIOR (Image List Rules)
+# ==========================================
+
+
+def test_image_list_2d_clamping(headless_app, tmp_path):
+    """Test that 2D images clamp spatial navigation to a single slice."""
+    controller, viewer, _ = headless_app
+    data = np.zeros((1, 10, 10), dtype=np.float32)
+    img = sitk.GetImageFromArray(data)
+    path = str(tmp_path / "2d.nrrd")
+    sitk.WriteImage(img, path)
+
+    vs_id = controller.file.load_image(path)
+    viewer.set_image(vs_id)
+    viewer.set_orientation(ViewMode.AXIAL)
+
+    assert viewer.get_display_num_slices() == 1
+    viewer.slice_idx = 0
+    viewer.on_scroll(1)
+    assert viewer.slice_idx == 0  # Should be clamped
+
+
+def test_image_list_dvf_components(headless_app, tmp_path):
+    """Test that DVF exposes its 3 vector components as temporal frames."""
+    controller, viewer, _ = headless_app
+    data = np.zeros((5, 5, 5, 3), dtype=np.float32)
+    img = sitk.GetImageFromArray(data, isVector=True)
+    path = str(tmp_path / "dvf.nrrd")
+    sitk.WriteImage(img, path)
+
+    vs_id = controller.file.load_image(path)
+    viewer.set_image(vs_id)
+    vol = controller.volumes[vs_id]
+
+    assert getattr(vol, "is_dvf", False) is True
+    assert vol.num_timepoints == 3
+
+    vs = controller.view_states[vs_id]
+    vs.camera.time_idx = 0
+    viewer.on_time_scroll(1)
+    assert vs.camera.time_idx == 1
+
+
+def test_image_list_rgb_wl_ignore(headless_app, tmp_path):
+    """Test that RGB images load without grayscale conversion and ignore W/L."""
+    controller, viewer, _ = headless_app
+    data = np.zeros((5, 5, 5, 3), dtype=np.uint8)
+    img = sitk.GetImageFromArray(data, isVector=True)
+    path = str(tmp_path / "rgb.nrrd")
+    sitk.WriteImage(img, path)
+
+    vs_id = controller.file.load_image(path)
+    viewer.set_image(vs_id)
+    vol = controller.volumes[vs_id]
+    vs = controller.view_states[vs_id]
+
+    assert getattr(vol, "is_rgb", False) is True
+    initial_ww = vs.display.ww
+
+    # Attempt to change Window/Level
+    viewer.update_window_level(ww=999.0, wl=500.0)
+    assert vs.display.ww == initial_ww  # Should remain unchanged
+
+
+# ==========================================
+# 11. SYNC BEHAVIOR (Matrix Rules)
+# ==========================================
+
+
+def test_sync_dvf_isolation_enforcement(headless_app, tmp_path):
+    """Test that DVF images are strictly isolated from sync groups."""
+    controller, viewer, vs_id_3d = headless_app
+
+    # 1. Load a DVF image
+    data = np.zeros((5, 5, 5, 3), dtype=np.float32)
+    img = sitk.GetImageFromArray(data, isVector=True)
+    path = str(tmp_path / "dvf_sync.nrrd")
+    sitk.WriteImage(img, path)
+    vs_id_dvf = controller.file.load_image(path)
+
+    # Put 3D image in group 1
+    controller.set_sync_group(vs_id_3d, 1)
+    assert controller.view_states[vs_id_3d].sync_group == 1
+
+    # Attempt to add DVF to group 1 (Should be rejected to 0)
+    controller.set_sync_group(vs_id_dvf, 1)
+    assert controller.view_states[vs_id_dvf].sync_group == 0
+
+    # Attempt to add 3D image to a group that mistakenly has a DVF (simulating manual state hacking)
+    controller.view_states[vs_id_dvf].sync_group = 2
+    controller.set_sync_group(vs_id_3d, 2)
+    assert controller.view_states[vs_id_3d].sync_group == 0  # Rejected!
+
+
+def test_sync_4d_time_index_propagation(headless_app, synthetic_4d_path, tmp_path):
+    """Test that syncing mismatched 4D sequences clamps the time index to avoid IndexErrors."""
+    controller, viewer, _ = headless_app
+
+    vs_id_4d_A = controller.file.load_image(synthetic_4d_path) # 3 frames
+
+    data = np.zeros((2, 5, 5, 5), dtype=np.float32) # 2 frames
+    img = sitk.GetImageFromArray(data)
+    path = str(tmp_path / "seq_2frames.nrrd")
+    sitk.WriteImage(img, path)
+    vs_id_4d_B = controller.file.load_image(path)
+
+    controller.set_sync_group(vs_id_4d_A, 1)
+    controller.set_sync_group(vs_id_4d_B, 1)
+
+    viewer.set_image(vs_id_4d_A)
+    viewer.on_time_scroll(2)
+    
+    assert controller.view_states[vs_id_4d_A].camera.time_idx == 2
+    assert controller.view_states[vs_id_4d_B].camera.time_idx == 1  # Successfully clamped
+
+
+def test_sync_rgb_base_with_grayscale_overlay_radiometry(headless_app, tmp_path, synthetic_overlay_path):
+    """Test that RGB base ignores W/L but still propagates it to its grayscale overlay."""
+    controller, viewer, vs_id_3d = headless_app
+
+    data = np.zeros((5, 5, 5, 3), dtype=np.uint8)
+    img = sitk.GetImageFromArray(data, isVector=True)
+    path = str(tmp_path / "rgb_base.nrrd")
+    sitk.WriteImage(img, path)
+    vs_id_rgb = controller.file.load_image(path)
+
+    vs_id_overlay = controller.file.load_image(synthetic_overlay_path)
+    vs_rgb = controller.view_states[vs_id_rgb]
+    vs_rgb.set_overlay(vs_id_overlay, controller.volumes[vs_id_overlay], controller)
+    vs_rgb.display.overlay_mode = "Registration"
+
+    vs_rgb.sync_wl_group = 1
+    vs_3d = controller.view_states[vs_id_3d]
+    vs_3d.sync_wl_group = 1
+
+    vs_3d.display.ww = 142.5
+    vs_3d.display.wl = 99.0
+    controller.sync.propagate_window_level(vs_id_3d)
+
+    assert vs_rgb.display.ww != 142.5  # Base RGB ignored it
+    assert controller.view_states[vs_id_overlay].display.ww == 142.5  # Overlay received it perfectly
