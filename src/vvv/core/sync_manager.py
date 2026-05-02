@@ -125,7 +125,6 @@ class SyncManager:
                 )
 
             # --- Pure Physical Coordinates for Value Lookup ---
-            target_vs.update_crosshair_from_phys(target_vs.camera.crosshair_phys_coord)
             # Update time_idx first, as update_crosshair_from_phys uses it.
             nt = target_vs.volume.num_timepoints
             target_vs.camera.time_idx = min(source_vs.camera.time_idx, nt - 1)
@@ -152,15 +151,21 @@ class SyncManager:
         source_vs = self.controller.view_states.get(source_vs_id)
         if not source_vs:
             return
+            
+        new_ww = source_vs.display.ww
+        new_wl = source_vs.display.wl
+        new_thr = source_vs.display.base_threshold
+
         dirty_ids = set([source_vs_id])
 
         # 1. GROUP SYNC (Horizontal) - NEW DECOUPLED W/L LOGIC
         for vs_id in self.get_sync_wl_group_vs_ids(source_vs_id):
             if vs_id != source_vs_id:
                 vs = self.controller.view_states[vs_id]
-                vs.display.ww = source_vs.display.ww
-                vs.display.wl = source_vs.display.wl
-                vs.display.base_threshold = source_vs.display.base_threshold
+                if not getattr(vs.volume, "is_rgb", False):
+                    vs.display.ww = new_ww
+                    vs.display.wl = new_wl
+                    vs.display.base_threshold = new_thr
                 dirty_ids.add(vs_id)
 
         # 2. OVERLAY SYNC (Vertical - Top-Down & Bottom-Up)
@@ -173,9 +178,9 @@ class SyncManager:
             if t_vs.display.overlay_id and t_vs.display.overlay_mode == "Registration":
                 ovs = self.controller.view_states.get(t_vs.display.overlay_id)
                 if ovs and not getattr(ovs.volume, "is_rgb", False):
-                    ovs.display.ww = t_vs.display.ww
-                    ovs.display.wl = t_vs.display.wl
-                    ovs.display.base_threshold = t_vs.display.base_threshold
+                    ovs.display.ww = new_ww
+                    ovs.display.wl = new_wl
+                    ovs.display.base_threshold = new_thr
                     dirty_ids.add(t_vs.display.overlay_id)
 
             # 2. Bottom-Up
@@ -185,9 +190,9 @@ class SyncManager:
                     and base_vs.display.overlay_mode == "Registration"
                 ):
                     if not getattr(base_vs.volume, "is_rgb", False):
-                        base_vs.display.ww = t_vs.display.ww
-                        base_vs.display.wl = t_vs.display.wl
-                        base_vs.display.base_threshold = t_vs.display.base_threshold
+                        base_vs.display.ww = new_ww
+                        base_vs.display.wl = new_wl
+                        base_vs.display.base_threshold = new_thr
                         dirty_ids.add(base_id)
 
         self.trigger_redraw(list(dirty_ids))
