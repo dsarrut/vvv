@@ -44,6 +44,8 @@ Legend: ⬜ Not checked yet · 🔄 In progress · ✅ Checked and implemented c
 | ROI               | ✅ | ✅ | ✅ |  ✅ |  ✅ |
 | Reg               | ✅ | ✅ | ✅ |  ✅ |  ✅ |
 | Threshold         | ✅ | ✅ | ✅ |  ✅ |  ✅ |
+| Workspace         | ✅ | ✅ | ✅ |  ✅ |  ✅ |
+| Reload            | ✅ | ✅ | ✅ |  ✅ |  ✅ |
 
 ---
 
