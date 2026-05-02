@@ -14,6 +14,7 @@ from vvv.ui.ui_dicom import DicomBrowserWindow
 from vvv.ui.ui_intensities import IntensitiesUI
 from vvv.ui.ui_registration import RegistrationUI
 from vvv.resources import load_fonts, setup_themes
+from vvv.ui.ui_dvf import DvfUI
 from vvv.ui.ui_interaction import InteractionManager
 from vvv.ui.ui_components import build_section_title
 from vvv.ui.ui_sync import build_tab_sync, refresh_sync_ui
@@ -94,6 +95,7 @@ class MainGUI:
         self.reg_ui = RegistrationUI(self, self.controller)
         self.contours_ui = ContoursUI(self, self.controller)
         self.extraction_ui = ExtractionUI(self, self.controller)
+        self.dvf_ui = DvfUI(self, self.controller)
 
         # Go
         self.build_main_layout()
@@ -262,6 +264,7 @@ class MainGUI:
             ("ROIs", "tab_rois"),
             ("Reg", "tab_reg"),
             ("Threshold", "tab_extraction"),
+            ("DVF", "tab_dvf"),
         ]
 
         with dpg.group(tag="nav_top_group"):
@@ -323,6 +326,7 @@ class MainGUI:
             self.roi_ui.build_tab_rois(self)
             self.reg_ui.build_tab_reg(self)
             self.extraction_ui.build_tab_extraction(self)
+            self.dvf_ui.build_tab_dvf(self)
 
     def build_sidebar_bottom(self):
         cfg_c = self.ui_cfg["colors"]
@@ -476,6 +480,7 @@ class MainGUI:
                 dpg.add_draw_node(tag=viewer.crosshair_tag)
                 dpg.add_draw_node(tag=viewer.legend_tag)
                 dpg.add_draw_node(tag=viewer.contour_node_tag)
+                dpg.add_draw_node(tag=viewer.vector_field_node_tag)
 
             col = self.controller.settings.data["colors"]["tracker_text"]
             dpg.add_text("", tag=viewer.tracker_tag, color=col, pos=[5, 5])
@@ -1372,6 +1377,7 @@ class MainGUI:
         self.intensities_ui.refresh_intensities_ui()
         self.contours_ui.refresh_contours_ui()
         self.extraction_ui.refresh_extraction_ui()
+        self.dvf_ui.refresh_dvf_ui()
 
         # Safely update the sidebar between frames when the DPG stack is completely empty!
         self.update_sidebar_info(self.context_viewer)

@@ -171,6 +171,7 @@ class SliceViewer:
         self.tracker_tag = f"tracker_{tag_id}"
         self.filename_text_tag = f"filename_text_{tag_id}"
         self.contour_node_tag = f"contour_node_{tag_id}"
+        self.vector_field_node_tag = f"vector_field_node_{tag_id}"
         self.crosshair_tag = f"crosshair_node_{tag_id}"
         self.legend_tag = f"legend_node_{tag_id}"
         self.xh_line_h = f"xh_h_{tag_id}"
@@ -593,6 +594,7 @@ class SliceViewer:
             self.crosshair_tag,
             self.legend_tag,
             self.filename_text_tag,
+            self.vector_field_node_tag,
         ]
 
         for node_tag in nodes_to_hide:
@@ -1268,6 +1270,8 @@ class SliceViewer:
         if display_data is None:
             display_data = np.zeros((1, 1, 1), dtype=np.float32)
 
+        dvf_mode = vs.dvf.display_mode if getattr(vol, "is_dvf", False) else "Component"
+
         return RenderLayer(
             data=display_data,
             is_rgb=getattr(vol, "is_rgb", False),
@@ -1278,6 +1282,7 @@ class SliceViewer:
             threshold=vs.display.base_threshold,
             time_idx=vs.camera.time_idx,
             spacing_2d=vol.get_physical_aspect_ratio(self.orientation),
+            dvf_mode=dvf_mode,
         )
 
     def _package_overlay_layer(self):
@@ -1678,6 +1683,7 @@ class SliceViewer:
         self.controller.roi.update_roi_contours(self)
 
         self.drawer.draw_contours()
+        self.drawer.draw_vector_field()
         self.update_tracker()
         self.update_filename_overlay()
 

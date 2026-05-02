@@ -1,7 +1,7 @@
 import numpy as np
 from vvv.config import COLORMAPS
 import dearpygui.dearpygui as dpg
-from vvv.utils import voxel_to_slice
+from vvv.utils import voxel_to_slice, ViewMode
 
 
 class OverlayDrawer:
@@ -613,3 +613,113 @@ class OverlayDrawer:
         dpg.apply_transform(node, trans_mat * scale_mat)
 
         dpg.configure_item(node, show=True)
+
+    def draw_vector_field(self):
+        viewer = self.viewer
+        vs = viewer.view_state
+        vol = viewer.volume
+
+        node_tag = getattr(viewer, "vector_field_node_tag", None)
+        if not node_tag or not dpg.does_item_exist(node_tag):
+            return
+
+        if (
+            not viewer.is_image_orientation()
+            or not vs
+            or not vol
+            or not getattr(vol, "is_dvf", False)
+            or vs.dvf.display_mode != "Vector Field"
+        ):
+            dpg.configure_item(node_tag, show=False)
+            return
+
+        dpg.delete_item(node_tag, children_only=True)
+
+        ori = viewer.orientation
+        s_idx = viewer.slice_idx
+
+        display_data = (
+            vs.base_display_data
+            if getattr(vs, "base_display_data", None) is not None
+            else vol.data
+        )
+
+        from vvv.maths.image import SliceRenderer
+        vx_slice = SliceRenderer.get_raw_slice(display_data, False, 0, s_idx, ori)
+        vy_slice = SliceRenderer.get_raw_slice(display_data, False, 1, s_idx, ori)
+        vz_slice = SliceRenderer.get_raw_slice(display_data, False, 2, s_idx, ori)
+
+        # Map 3D vector components to Horizontal/Vertical screen axes based on ViewMode
+        if ori == ViewMode.AXIAL:
+            h_comp = vx_slice
+            v_comp = vy_slice
+        elif ori == ViewMode.SAGITTAL:
+            h_comp = -vy_slice
+            v_comp = -vz_slice
+        else:  # CORONAL
+            h_comp = vx_slice
+            v_comp = -vz_slice
+
+        pmin, pmax = viewer.current_pmin, viewer.current_pmax
+        shape = viewer.get_slice_shape()
+        real_h, real_w = shape[0], shape[1]
+
+        if real_w == 0 or real_h == 0:
+            return
+
+        # Failsafe bounds check
+        if h_comp.shape != (real_h, real_w) or v_comp.shape != (real_h, real_w):
+            dpg.configure_item(node_tag, show=False)
+            return
+
+        vox_w = (pmax[0] - pmin[0]) / real_w
+        vox_h = (pmax[1] - pmin[1]) / real_h
+
+        win_w, win_h = viewer.quad_w, viewer.quad_h
+
+        start_x = max(0, int(-pmin[0] / vox_w))
+        end_x = min(real_w, int((win_w - pmin[0]) / vox_w) + 1)
+        start_y = max(0, int(-pmin[1] / vox_h))
+        end_y = min(real_h, int((win_h - pmin[1]) / vox_h) + 1)
+
+        stride = max(1, int(vs.dvf.vector_sampling))
+        scale = vs.dvf.vector_scale
+        ppm = viewer.get_pixels_per_mm()
+        color = [255, 200, 0, 255]  # Highly visible Yellow arrows
+
+        # Prevent GPU lag by increasing stride if zoomed out way too far
+        num_x = max(0, (end_x - start_x)) // stride
+        num_y = max(0, (end_y - start_y)) // stride
+        if num_x * num_y > 8000:
+            stride = max(stride, int(np.sqrt((end_x - start_x) * (end_y - start_y) / 8000)))
+
+        # Execute massive drawing batch
+        for y in range(start_y, end_y, stride):
+            for x in range(start_x, end_x, stride):
+                h_val = h_comp[y, x]
+                v_val = v_comp[y, x]
+
+                if h_val == 0 and v_val == 0:
+                    continue
+
+                # Anchor to the center of the voxel's bounding box
+                screen_x = pmin[0] + (x + 0.5) * vox_w
+                screen_y = pmin[1] + (y + 0.5) * vox_h
+
+                # Exact physical 1:1 mapping with scale multiplier (value in mm * pixels per mm * scale)
+                end_x_px = screen_x + (h_val * ppm * scale)
+                end_y_px = screen_y + (v_val * ppm * scale)
+
+                # Dynamically scale arrowhead size so tiny sub-pixel arrows don't look like giant triangles
+                arrow_size = max(1.0, min(4.0, np.hypot(h_val * ppm * scale, v_val * ppm * scale) * 0.3))
+
+                dpg.draw_arrow(
+                    [end_x_px, end_y_px],
+                    [screen_x, screen_y],
+                    color=color,
+                    thickness=1,
+                    size=arrow_size,
+                    parent=node_tag
+                )
+
+        dpg.configure_item(node_tag, show=True)

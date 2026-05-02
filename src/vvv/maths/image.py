@@ -28,6 +28,7 @@ class RenderLayer:
     offset_x: int = 0
     offset_y: int = 0
     offset_slice: int = 0
+    dvf_mode: str = "Component"
 
 
 @dataclass
@@ -353,24 +354,44 @@ class SliceRenderer:
         max_s, h, w = base_shape[s_ax], base_shape[h_ax], base_shape[w_ax]
 
         # --- 1. BASE LAYER ---
-        base_slice = SliceRenderer._extract_layer(
-            base.data, base.is_rgb, base.time_idx, slice_idx, orientation, max_s
-        )
+        if getattr(base, "dvf_mode", "Component") == "Vector Field":
+            base_rgba = np.zeros((h, w, 4), dtype=np.float32)
+            base_rgba[:, :, 3] = 1.0  # Solid black
+            base_norm = np.zeros((h, w), dtype=np.float32)
+        elif getattr(base, "dvf_mode", "Component") == "RGB":
+            r = SliceRenderer._extract_layer(base.data, False, 0, slice_idx, orientation, max_s)
+            g = SliceRenderer._extract_layer(base.data, False, 1, slice_idx, orientation, max_s)
+            b = SliceRenderer._extract_layer(base.data, False, 2, slice_idx, orientation, max_s)
+            
+            if r is None or g is None or b is None:
+                base_rgba = np.zeros((h, w, 4), dtype=np.float32)
+                base_rgba[:, :, 3] = 1.0
+                base_norm = np.zeros((h, w), dtype=np.float32)
+            else:
+                r_n = SliceRenderer.normalize_wl(r, base.ww, base.wl)
+                g_n = SliceRenderer.normalize_wl(g, base.ww, base.wl)
+                b_n = SliceRenderer.normalize_wl(b, base.ww, base.wl)
+                base_rgba = np.stack([r_n, g_n, b_n, np.ones_like(r_n)], axis=-1)
+                base_norm = (r_n + g_n + b_n) / 3.0
+        else:
+            base_slice = SliceRenderer._extract_layer(
+                base.data, base.is_rgb, base.time_idx, slice_idx, orientation, max_s
+            )
 
-        if base_slice is None:  # Out of bounds
-            black_slice = np.zeros((h, w, 4), dtype=np.float32)
-            black_slice[:, :, 3] = 1.0
-            return black_slice.ravel(), (h, w)
+            if base_slice is None:  # Out of bounds
+                black_slice = np.zeros((h, w, 4), dtype=np.float32)
+                black_slice[:, :, 3] = 1.0
+                return black_slice.ravel(), (h, w)
 
-        base_rgba, base_norm = SliceRenderer._colorize_layer(
-            base_slice,
-            base.is_rgb,
-            base.num_components,
-            base.ww,
-            base.wl,
-            base.cmap_name,
-            base.threshold,
-        )
+            base_rgba, base_norm = SliceRenderer._colorize_layer(
+                base_slice,
+                base.is_rgb,
+                base.num_components,
+                base.ww,
+                base.wl,
+                base.cmap_name,
+                base.threshold,
+            )
 
         res_rgba = base_rgba
 

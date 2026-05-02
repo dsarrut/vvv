@@ -321,6 +321,53 @@ class ExtractionState:
         self.gen_fg_val = d.get("gen_fg_val", self.gen_fg_val)
 
 
+class DVFState:
+    """Stores parameters for Displacement Vector Field visualization."""
+
+    _parent: "ViewState | None"
+
+    display_mode: str
+    vector_sampling: int
+    vector_scale: float
+
+    _GEOM_FIELDS = {
+        "display_mode",
+        "vector_sampling",
+        "vector_scale",
+    }
+
+    def __init__(self, parent_vs: "ViewState | None" = None):
+        self._parent = parent_vs
+        self.display_mode = "Component"  # Modes: "Component", "RGB", "Vector Field"
+        self.vector_sampling = 10
+        self.vector_scale = 1.0
+
+    def __setattr__(self, name, value):
+        if name in self._GEOM_FIELDS and getattr(self, name, _SENTINEL) != value:
+            object.__setattr__(self, name, value)
+            parent = getattr(self, "_parent", None)
+            if parent is not None:
+                # Both geometry (arrow spacing) and data (RGB remap vs Component) need to be flagged
+                parent.is_geometry_dirty = True
+                parent.is_data_dirty = True
+            return
+        object.__setattr__(self, name, value)
+
+    def to_dict(self):
+        return {
+            "display_mode": str(self.display_mode),
+            "vector_sampling": int(self.vector_sampling),
+            "vector_scale": float(self.vector_scale),
+        }
+
+    def from_dict(self, d):
+        if not d:
+            return
+        self.display_mode = d.get("display_mode", self.display_mode)
+        self.vector_sampling = d.get("vector_sampling", self.vector_sampling)
+        self.vector_scale = d.get("vector_scale", self.vector_scale)
+
+
 class ViewState:
     """
     The exclusive Source of Truth for an image's presentation state.
@@ -357,6 +404,7 @@ class ViewState:
         self.camera = CameraState(volume, parent_vs=self)
         self.display = DisplayState(parent_vs=self)
         self.extraction = ExtractionState(parent_vs=self)
+        self.dvf = DVFState(parent_vs=self)
         self.sync_group = 0
         self.sync_wl_group = 0  # Radiometric group support
         self.rois = {}
