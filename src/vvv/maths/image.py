@@ -98,13 +98,16 @@ class SliceRenderer:
         # --- THE IN-PLACE OPTIMIZATION ---
         # Instead of: base_rgba = base_rgba * (1.0 - op_mask) + over_rgba * op_mask
 
-        # 1. Scale base image down (modifies base_rgba memory directly)
-        np.multiply(base_rgba, 1.0 - op_mask, out=base_rgba)
-
-        # 2. Scale overlay image down (modifies over_rgba memory directly)
+        # 1. Scale overlay image down (modifies over_rgba memory directly)
         np.multiply(over_rgba, op_mask, out=over_rgba)
 
-        # 3. Add them together (writes final result into base_rgba)
+        # 2. Convert op_mask to (1.0 - alpha) IN PLACE to prevent any hidden array allocations
+        np.subtract(1.0, op_mask, out=op_mask)
+
+        # 3. Scale base image down (modifies base_rgba memory directly)
+        np.multiply(base_rgba, op_mask, out=base_rgba)
+
+        # 4. Add them together (writes final result into base_rgba)
         np.add(base_rgba, over_rgba, out=base_rgba)
 
         return base_rgba
