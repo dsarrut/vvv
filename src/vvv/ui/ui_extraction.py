@@ -47,6 +47,7 @@ class ExtractionUI:
                 has_color=True,
                 color_tag="color_ext_preview_max",
                 color_cb=self.on_threshold_drag,
+                color_default=(0, 0, 255, 255),
             )
 
             dpg.add_spacer(height=5)
@@ -139,7 +140,9 @@ class ExtractionUI:
         viewer = self.gui.context_viewer
         has_image = bool(viewer and viewer.view_state and viewer.volume)
 
-        if not has_image:
+        is_rgb = getattr(viewer.volume, "is_rgb", False) if has_image else False
+
+        if not has_image or is_rgb:
             tags_to_disable = [
                 "check_ext_enable",
                 "drag_ext_threshold_min",
@@ -161,8 +164,12 @@ class ExtractionUI:
 
             self._current_image_id = None
             if dpg.does_item_exist("text_ext_bg_range"):
-                dpg.set_value("text_ext_bg_range", "---")
-                dpg.set_value("text_ext_fg_range", "---")
+                if is_rgb:
+                    dpg.set_value("text_ext_bg_range", "RGB Base")
+                    dpg.set_value("text_ext_fg_range", "Not Supported")
+                else:
+                    dpg.set_value("text_ext_bg_range", "---")
+                    dpg.set_value("text_ext_fg_range", "---")
             return
 
         vol = viewer.volume

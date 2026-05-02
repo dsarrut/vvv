@@ -192,9 +192,23 @@ Load several ROIs at once (from open several images, or open several ROI from RT
 
 ## Workspace and history
 
-History
-- simple save of the current 
+History Manager
+- Purpose: Automatically tracks and remembers user preferences for every individual file opened.  
+- Persistent State: Stores radiometric settings (Window/Level, Colormaps), camera preferences, and synchronization groups. 
+- Optimization: Uses an LRU (Least Recently Used) cache capped at 100 entries to ensure the application remains lightweight while providing a "pick up where you left off" experience.  
+
+Workspaces (.vvw)
+- Purpose: Captures the complete global state of the application, including all loaded images, active viewers (V1–V4), and their respective ViewStates.  
+- Serialization: Workspaces are saved as JSON files.  
+- Collision Prevention: To prevent ID conflicts when loading a workspace into an existing session, the system uses an ID Map to seamlessly translate saved IDs into fresh memory addresses.  
+- Reconstruction: Restores not just the images, but the exact layout, fusion overlays, and registration transforms active at the time of saving.
+
 
 --- 
 
-## reload 
+## Image & ROI Reloading
+
+- Automatic Detection: The system monitors the modification time of loaded files via an _is_outdated flag.  
+- Visual Feedback: If an external change is detected, the item's name in the UI (Image List or ROI List) turns Orange, and a Reload icon appears.  
+- Data Integrity: Triggering a reload re-executes the data pipeline (slicing, thresholding, or bounding-box extraction) while preserving the user's current ViewState, such as Window/Level and camera position.  
+- ROI Conversion: For ROIs extracted from Label Maps or RT-Structs that have been saved to disk, the reload process permanently treats them as standard "Binary Masks" going forward.

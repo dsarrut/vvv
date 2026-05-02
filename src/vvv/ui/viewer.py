@@ -442,6 +442,9 @@ class SliceViewer:
         self.is_geometry_dirty = True
         if vs:
             vs.is_data_dirty = True
+            
+        if is_new_image and self.controller:
+            self.controller.ui_needs_refresh = True
 
     def set_current_slice_to_crosshair(self):
         vs = self.view_state

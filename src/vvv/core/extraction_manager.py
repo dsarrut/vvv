@@ -26,6 +26,7 @@ class ExtractionManager:
             roi_min.last_computed_threshold_min = None
             roi_min.last_computed_threshold_max = None
             roi_min.last_computed_subpixel = None
+            roi_min.last_computed_time_idx = None
             self.controller.contours.add_contour(img_id, roi_min)
         else:
             roi_min.color = vs.extraction.preview_color_min
@@ -44,6 +45,7 @@ class ExtractionManager:
             roi_max.last_computed_threshold_min = None
             roi_max.last_computed_threshold_max = None
             roi_max.last_computed_subpixel = None
+            roi_max.last_computed_time_idx = None
             self.controller.contours.add_contour(img_id, roi_max)
         else:
             roi_max.color = vs.extraction.preview_color_max
@@ -78,8 +80,8 @@ class ExtractionManager:
         if (
             getattr(roi_min, "last_computed_threshold_min", None) != threshold_min
             or getattr(roi_min, "last_computed_threshold_max", None) != threshold_max
-            or getattr(roi_min, "last_computed_subpixel", None)
-            != vs.extraction.subpixel_accurate
+            or getattr(roi_min, "last_computed_subpixel", None) != vs.extraction.subpixel_accurate
+            or getattr(roi_min, "last_computed_time_idx", None) != vs.camera.time_idx
         ):
 
             for ori in roi_min.polygons:
@@ -90,28 +92,29 @@ class ExtractionManager:
             roi_min.last_computed_threshold_min = threshold_min
             roi_min.last_computed_threshold_max = threshold_max
             roi_min.last_computed_subpixel = vs.extraction.subpixel_accurate
+            roi_min.last_computed_time_idx = vs.camera.time_idx
             roi_max.last_computed_threshold_min = threshold_min
             roi_max.last_computed_threshold_max = threshold_max
             roi_max.last_computed_subpixel = vs.extraction.subpixel_accurate
+            roi_max.last_computed_time_idx = vs.camera.time_idx
 
         extracted_any = False
         for ori, s_idx in visible_targets:
             if s_idx not in roi_min.polygons[ori]:
                 sw, sh = vol.get_physical_aspect_ratio(ori)
-                slice_data = SliceRenderer.get_raw_slice(vol.data, False, 0, s_idx, ori)
+                slice_data = SliceRenderer.get_raw_slice(vol.data, False, vs.camera.time_idx, s_idx, ori)
 
                 if vs.extraction.subpixel_accurate:
-                    c_min = np.min(slice_data)
                     c_max = np.max(slice_data)
 
-                    if c_min <= threshold_min <= c_max:
+                    if c_max >= threshold_min:
                         roi_min.polygons[ori][s_idx] = extract_2d_contours_from_slice(
                             slice_data, threshold_min, sw, sh
                         )
                     else:
                         roi_min.polygons[ori][s_idx] = []
 
-                    if c_min <= threshold_max <= c_max:
+                    if c_max >= threshold_max:
                         roi_max.polygons[ori][s_idx] = extract_2d_contours_from_slice(
                             slice_data, threshold_max, sw, sh
                         )
@@ -154,25 +157,46 @@ class ExtractionManager:
 
             try:
                 # 1. Generate Masks
-                mask_fg = (vol.data >= vs.extraction.threshold_min) & (
-                    vol.data <= vs.extraction.threshold_max
-                )
-                mask_bg = ~mask_fg
-
                 new_data = np.zeros_like(vol.data)
 
-                if vs.extraction.gen_fg_mode == "Constant":
-                    new_data[mask_fg] = vs.extraction.gen_fg_val
-                else:
-                    new_data[mask_fg] = vol.data[mask_fg]
+                # Frame-by-frame processing to prevent massive RAM spikes on 4D volumes
+                if vol.data.ndim == 4:
+                    for t in range(vol.data.shape[0]):
+                        mask_fg = (vol.data[t] >= vs.extraction.threshold_min) & (vol.data[t] <= vs.extraction.threshold_max)
+                        mask_bg = ~mask_fg
 
-                if vs.extraction.gen_bg_mode == "Constant":
-                    new_data[mask_bg] = vs.extraction.gen_bg_val
+                        if vs.extraction.gen_fg_mode == "Constant":
+                            new_data[t, mask_fg] = vs.extraction.gen_fg_val
+                        else:
+                            new_data[t, mask_fg] = vol.data[t, mask_fg]
+
+                        if vs.extraction.gen_bg_mode == "Constant":
+                            new_data[t, mask_bg] = vs.extraction.gen_bg_val
+                        else:
+                            new_data[t, mask_bg] = vol.data[t, mask_bg]
                 else:
-                    new_data[mask_bg] = vol.data[mask_bg]
+                    mask_fg = (vol.data >= vs.extraction.threshold_min) & (vol.data <= vs.extraction.threshold_max)
+                    mask_bg = ~mask_fg
+
+                    if vs.extraction.gen_fg_mode == "Constant":
+                        new_data[mask_fg] = vs.extraction.gen_fg_val
+                    else:
+                        new_data[mask_fg] = vol.data[mask_fg]
+
+                    if vs.extraction.gen_bg_mode == "Constant":
+                        new_data[mask_bg] = vs.extraction.gen_bg_val
+                    else:
+                        new_data[mask_bg] = vol.data[mask_bg]
 
                 # 2. Build the ITK Image
-                new_img = sitk.GetImageFromArray(new_data)
+                if getattr(vol, "is_dvf", False):
+                    data_to_build = np.moveaxis(new_data, 0, -1)
+                    new_img = sitk.GetImageFromArray(data_to_build, isVector=True)
+                elif vol.data.ndim == 4:
+                    vols = [sitk.GetImageFromArray(new_data[t]) for t in range(new_data.shape[0])]
+                    new_img = sitk.JoinSeries(vols)
+                else:
+                    new_img = sitk.GetImageFromArray(new_data)
                 new_img.SetSpacing(vol.sitk_image.GetSpacing())
                 new_img.SetOrigin(vol.sitk_image.GetOrigin())
                 new_img.SetDirection(vol.sitk_image.GetDirection())
@@ -216,5 +240,6 @@ class ExtractionManager:
             except Exception as e:
                 self.controller.status_message = f"Failed to generate image: {e}"
                 self.controller.ui_needs_refresh = True
+                raise e  # Surface the thread exception cleanly to the test runner!
 
         threading.Thread(target=_extract, daemon=True).start()

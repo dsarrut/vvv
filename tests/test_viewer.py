@@ -1173,3 +1173,50 @@ def test_fusion_reject_rgb_dvf_overlays(headless_app, tmp_path):
     success_dvf = vs_base.set_overlay(vs_id_dvf, controller.volumes[vs_id_dvf])
     assert success_dvf is False
     assert vs_base.display.overlay_id is None
+
+
+# ==========================================
+# 13. EXTRACTION BEHAVIOR (Matrix Rules)
+# ==========================================
+
+
+def test_extraction_4d_time_index_preview(headless_app, synthetic_4d_path):
+    """Test that changing the time index correctly invalidates and updates the extraction preview."""
+    controller, viewer, _ = headless_app
+    vs_id_4d = controller.file.load_image(synthetic_4d_path)
+    vol = controller.volumes[vs_id_4d]
+    vs = controller.view_states[vs_id_4d]
+    viewer.set_image(vs_id_4d)
+
+    # Preview Frame 0 (Values are 0.0, so no contours should exist at threshold 50)
+    controller.extraction.update_preview(vs_id_4d, vol, vs, 50.0, 150.0, [(ViewMode.AXIAL, 2)])
+    roi_min = vs.contours[list(vs.contours.keys())[0]]
+    assert roi_min.last_computed_time_idx == 0
+    assert len(roi_min.polygons[ViewMode.AXIAL][2]) == 0
+
+    # Scroll to Frame 1 (Values are 100.0, should generate contours!)
+    viewer.on_time_scroll(1)
+    controller.extraction.update_preview(vs_id_4d, vol, vs, 50.0, 150.0, [(ViewMode.AXIAL, 2)])
+
+    assert roi_min.last_computed_time_idx == 1
+    assert len(roi_min.polygons[ViewMode.AXIAL][2]) > 0
+
+
+def test_extraction_4d_baking(headless_app, synthetic_4d_path, monkeypatch):
+    """Test that the extraction tool successfully bakes a full 4D mask."""
+    controller, viewer, _ = headless_app
+    vs_id_4d = controller.file.load_image(synthetic_4d_path)
+    
+    vs = controller.view_states[vs_id_4d]
+    vs.extraction.threshold_min, vs.extraction.threshold_max = 50.0, 150.0
+    vs.extraction.gen_fg_mode, vs.extraction.gen_fg_val = "Constant", 1.0
+    vs.extraction.gen_bg_mode, vs.extraction.gen_bg_val = "Constant", 0.0
+
+    monkeypatch.setattr("threading.Thread.start", lambda self: self._target(*self._args, **self._kwargs))
+    controller.extraction.create_image(vs_id_4d, controller.volumes[vs_id_4d], vs)
+
+    new_vol = controller.volumes[list(controller.volumes.keys())[-1]]
+    assert new_vol.data.shape == (3, 5, 5, 5)
+    assert np.max(new_vol.data[0]) == 0.0  # Frame 0
+    assert np.max(new_vol.data[1]) == 1.0  # Frame 1
+    assert np.max(new_vol.data[2]) == 0.0  # Frame 2
