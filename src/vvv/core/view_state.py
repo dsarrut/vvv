@@ -329,18 +329,36 @@ class DVFState:
     display_mode: str
     vector_sampling: int
     vector_scale: float
+    vector_thickness: float
+    vector_color_min: list
+    vector_color_max: list
+    vector_color_max_mag: float
+    vector_min_length_arrow: float
+    vector_min_length_draw: float
 
     _GEOM_FIELDS = {
         "display_mode",
         "vector_sampling",
         "vector_scale",
+        "vector_thickness",
+        "vector_color_min",
+        "vector_color_max",
+        "vector_color_max_mag",
+        "vector_min_length_arrow",
+        "vector_min_length_draw",
     }
 
     def __init__(self, parent_vs: "ViewState | None" = None):
         self._parent = parent_vs
         self.display_mode = "Component"  # Modes: "Component", "RGB", "Vector Field"
-        self.vector_sampling = 10
+        self.vector_sampling = 5
         self.vector_scale = 1.0
+        self.vector_thickness = 1.0
+        self.vector_color_min = [255, 200, 0, 255]
+        self.vector_color_max = [255, 0, 0, 255]
+        self.vector_color_max_mag = 10.0
+        self.vector_min_length_arrow = 1.0
+        self.vector_min_length_draw = 0.0
 
     def __setattr__(self, name, value):
         if name in self._GEOM_FIELDS and getattr(self, name, _SENTINEL) != value:
@@ -358,14 +376,26 @@ class DVFState:
             "display_mode": str(self.display_mode),
             "vector_sampling": int(self.vector_sampling),
             "vector_scale": float(self.vector_scale),
+            "vector_thickness": float(self.vector_thickness),
+            "vector_color_min": list(self.vector_color_min),
+            "vector_color_max": list(self.vector_color_max),
+            "vector_color_max_mag": float(self.vector_color_max_mag),
+            "vector_min_length_arrow": float(self.vector_min_length_arrow),
+            "vector_min_length_draw": float(self.vector_min_length_draw),
         }
 
     def from_dict(self, d):
         if not d:
             return
         self.display_mode = d.get("display_mode", self.display_mode)
-        self.vector_sampling = d.get("vector_sampling", self.vector_sampling)
+        self.vector_sampling = int(d.get("vector_sampling", self.vector_sampling))
         self.vector_scale = d.get("vector_scale", self.vector_scale)
+        self.vector_thickness = d.get("vector_thickness", self.vector_thickness)
+        self.vector_color_min = d.get("vector_color_min", d.get("vector_color", self.vector_color_min))
+        self.vector_color_max = d.get("vector_color_max", self.vector_color_max)
+        self.vector_color_max_mag = d.get("vector_color_max_mag", self.vector_color_max_mag)
+        self.vector_min_length_arrow = d.get("vector_min_length_arrow", self.vector_min_length_arrow)
+        self.vector_min_length_draw = d.get("vector_min_length_draw", self.vector_min_length_draw)
 
 
 class ViewState:

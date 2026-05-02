@@ -412,7 +412,7 @@ class SliceRenderer:
 
             if over_slice is None:
                 # Overlay is out of bounds, but base is visible. Render transparent space.
-                over_slice = np.zeros_like(base_slice)
+                over_slice = np.zeros((h, w), dtype=np.float32)
 
             over_rgba, over_norm = SliceRenderer._colorize_layer(
                 over_slice,

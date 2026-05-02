@@ -653,12 +653,15 @@ class OverlayDrawer:
         if ori == ViewMode.AXIAL:
             h_comp = vx_slice
             v_comp = vy_slice
+            d_comp = vz_slice
         elif ori == ViewMode.SAGITTAL:
             h_comp = -vy_slice
             v_comp = -vz_slice
+            d_comp = vx_slice
         else:  # CORONAL
             h_comp = vx_slice
             v_comp = -vz_slice
+            d_comp = vy_slice
 
         pmin, pmax = viewer.current_pmin, viewer.current_pmax
         shape = viewer.get_slice_shape()
@@ -682,44 +685,74 @@ class OverlayDrawer:
         start_y = max(0, int(-pmin[1] / vox_h))
         end_y = min(real_h, int((win_h - pmin[1]) / vox_h) + 1)
 
-        stride = max(1, int(vs.dvf.vector_sampling))
-        scale = vs.dvf.vector_scale
+        # Use pixel sampling directly
+        stride_x = max(1, int(vs.dvf.vector_sampling))
+        stride_y = stride_x
+
         ppm = viewer.get_pixels_per_mm()
-        color = [255, 200, 0, 255]  # Highly visible Yellow arrows
+        scale = vs.dvf.vector_scale
+        
+        c_min = np.array(vs.dvf.vector_color_min, dtype=np.float32)
+        c_max = np.array(vs.dvf.vector_color_max, dtype=np.float32)
+        t_min = vs.dvf.vector_min_length_draw
+        t_max = max(t_min + 1e-5, vs.dvf.vector_color_max_mag)
+        thickness = int(max(1.0, vs.dvf.vector_thickness))
 
         # Prevent GPU lag by increasing stride if zoomed out way too far
-        num_x = max(0, (end_x - start_x)) // stride
-        num_y = max(0, (end_y - start_y)) // stride
+        num_x = max(0, (end_x - start_x)) // stride_x
+        num_y = max(0, (end_y - start_y)) // stride_y
         if num_x * num_y > 8000:
-            stride = max(stride, int(np.sqrt((end_x - start_x) * (end_y - start_y) / 8000)))
+            scale_factor = np.sqrt((num_x * num_y) / 8000)
+            stride_x = max(stride_x, int(stride_x * scale_factor))
+            stride_y = max(stride_y, int(stride_y * scale_factor))
 
         # Execute massive drawing batch
-        for y in range(start_y, end_y, stride):
-            for x in range(start_x, end_x, stride):
+        for y in range(start_y, end_y, stride_y):
+            for x in range(start_x, end_x, stride_x):
                 h_val = h_comp[y, x]
                 v_val = v_comp[y, x]
+                d_val = d_comp[y, x]
 
-                if h_val == 0 and v_val == 0:
+                if h_val == 0 and v_val == 0 and d_val == 0:
                     continue
+
+                # Compute true 3D Physical Magnitude to compare against threshold
+                mag_3d = np.sqrt(h_val**2 + v_val**2 + d_val**2)
+                if mag_3d < vs.dvf.vector_min_length_draw:
+                    continue
+
+                # Interpolate color based on magnitude
+                t_col = min(1.0, max(0.0, (mag_3d - t_min) / (t_max - t_min)))
+                c_interp = c_min + t_col * (c_max - c_min)
+                color = [int(c_interp[0]), int(c_interp[1]), int(c_interp[2]), int(c_interp[3])]
 
                 # Anchor to the center of the voxel's bounding box
                 screen_x = pmin[0] + (x + 0.5) * vox_w
                 screen_y = pmin[1] + (y + 0.5) * vox_h
 
-                # Exact physical 1:1 mapping with scale multiplier (value in mm * pixels per mm * scale)
+                # Exact physical mapping with scale (value in mm * pixels per mm * scale)
                 end_x_px = screen_x + (h_val * ppm * scale)
                 end_y_px = screen_y + (v_val * ppm * scale)
 
-                # Dynamically scale arrowhead size so tiny sub-pixel arrows don't look like giant triangles
-                arrow_size = max(1.0, min(4.0, np.hypot(h_val * ppm * scale, v_val * ppm * scale) * 0.3))
+                # Dynamically scale arrowhead size
+                arrow_size = int(max(1.0, min(4.0, np.hypot(h_val * ppm * scale, v_val * ppm * scale) * 0.3)))
 
-                dpg.draw_arrow(
-                    [end_x_px, end_y_px],
-                    [screen_x, screen_y],
-                    color=color,
-                    thickness=1,
-                    size=arrow_size,
-                    parent=node_tag
-                )
+                if mag_3d < vs.dvf.vector_min_length_arrow:
+                    dpg.draw_line(
+                        [screen_x, screen_y],
+                        [end_x_px, end_y_px],
+                        color=color,
+                        thickness=thickness,
+                        parent=node_tag
+                    )
+                else:
+                    dpg.draw_arrow(
+                        [end_x_px, end_y_px],
+                        [screen_x, screen_y],
+                        color=color,
+                        thickness=thickness,
+                        size=arrow_size,
+                        parent=node_tag
+                    )
 
         dpg.configure_item(node_tag, show=True)

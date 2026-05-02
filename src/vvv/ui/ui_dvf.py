@@ -38,16 +38,69 @@ class DvfUI:
                     build_section_title("Vector Field Settings", cfg_c["text_header"])
 
                     build_stepped_slider(
+                        "Thickness:",
+                        "drag_dvf_thickness",
+                        callback=gui.dvf_ui.on_thickness_changed,
+                        step_callback=gui.dvf_ui.on_step_button_clicked,
+                        min_val=1.0,
+                        max_val=10.0,
+                        default_val=1.0,
+                        format="%.0f px",
+                    )
+
+                    build_stepped_slider(
+                        "Arrow >  ",
+                        "drag_dvf_min_arrow",
+                        callback=gui.dvf_ui.on_min_arrow_changed,
+                        step_callback=gui.dvf_ui.on_step_button_clicked,
+                        min_val=0.0,
+                        max_val=500.0,
+                        default_val=1.0,
+                        format="%.1f mm",
+                    )
+
+                    build_stepped_slider(
+                        "Show >   ",
+                        "drag_dvf_min_draw",
+                        callback=gui.dvf_ui.on_min_draw_changed,
+                        step_callback=gui.dvf_ui.on_step_button_clicked,
+                        min_val=0.0,
+                        max_val=500.0,
+                        default_val=0.0,
+                        format="%.1f mm",
+                        has_color=True,
+                        color_tag="color_dvf_min",
+                        color_cb=gui.dvf_ui.on_color_min_changed,
+                        color_default=(255, 200, 0, 255),
+                    )
+
+                    build_stepped_slider(
+                        "Max Col >",
+                        "drag_dvf_color_max_mag",
+                        callback=gui.dvf_ui.on_color_max_mag_changed,
+                        step_callback=gui.dvf_ui.on_step_button_clicked,
+                        min_val=0.1,
+                        max_val=500.0,
+                        default_val=10.0,
+                        format="%.1f mm",
+                        has_color=True,
+                        color_tag="color_dvf_max",
+                        color_cb=gui.dvf_ui.on_color_max_changed,
+                        color_default=(255, 0, 0, 255),
+                    )
+                    dpg.add_spacer(height=5)
+
+                    build_stepped_slider(
                         "Sampling:",
                         "drag_dvf_sampling",
                         callback=gui.dvf_ui.on_sampling_changed,
                         step_callback=gui.dvf_ui.on_step_button_clicked,
                         min_val=1.0,
                         max_val=100.0,
-                        default_val=10.0,
+                        default_val=5.0,
                         format="%.0f px",
                     )
-                    
+
                     build_stepped_slider(
                         "Scale:   ",
                         "drag_dvf_scale",
@@ -85,6 +138,22 @@ class DvfUI:
             dpg.set_value("drag_dvf_sampling", float(dvf_state.vector_sampling))
         if dpg.does_item_exist("drag_dvf_scale") and not dpg.is_item_active("drag_dvf_scale"):
             dpg.set_value("drag_dvf_scale", float(dvf_state.vector_scale))
+        if dpg.does_item_exist("drag_dvf_thickness") and not dpg.is_item_active("drag_dvf_thickness"):
+            dpg.set_value("drag_dvf_thickness", float(dvf_state.vector_thickness))
+        if dpg.does_item_exist("drag_dvf_min_arrow") and not dpg.is_item_active("drag_dvf_min_arrow"):
+            dpg.set_value("drag_dvf_min_arrow", float(dvf_state.vector_min_length_arrow))
+        if dpg.does_item_exist("drag_dvf_min_draw") and not dpg.is_item_active("drag_dvf_min_draw"):
+            dpg.set_value("drag_dvf_min_draw", float(dvf_state.vector_min_length_draw))
+        if dpg.does_item_exist("drag_dvf_color_max_mag") and not dpg.is_item_active("drag_dvf_color_max_mag"):
+            dpg.set_value("drag_dvf_color_max_mag", float(dvf_state.vector_color_max_mag))
+
+        for tag, prop in [("color_dvf_min", "vector_color_min"), ("color_dvf_max", "vector_color_max")]:
+            if dpg.does_item_exist(tag):
+                raw_ui_col = dpg.get_value(tag)[:4]
+                ui_scale = 255.0 if all(c <= 1.0 for c in raw_ui_col) else 1.0
+                ui_col = [int(c * ui_scale) for c in raw_ui_col]
+                if ui_col != list(getattr(dvf_state, prop)):
+                    dpg.set_value(tag, list(getattr(dvf_state, prop)))
 
     # --- Callbacks ---
 
@@ -107,6 +176,44 @@ class DvfUI:
             return
         viewer.view_state.dvf.vector_scale = max(0.1, app_data)
 
+    def on_thickness_changed(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+        viewer.view_state.dvf.vector_thickness = int(max(1.0, min(10.0, app_data)))
+
+    def on_min_arrow_changed(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+        viewer.view_state.dvf.vector_min_length_arrow = max(0.0, app_data)
+
+    def on_min_draw_changed(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+        viewer.view_state.dvf.vector_min_length_draw = max(0.0, app_data)
+
+    def on_color_max_mag_changed(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+        viewer.view_state.dvf.vector_color_max_mag = max(0.1, app_data)
+
+    def on_color_min_changed(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+        scale = 255.0 if all(c <= 1.0 for c in app_data) else 1.0
+        viewer.view_state.dvf.vector_color_min = [int(c * scale) for c in app_data[:4]]
+
+    def on_color_max_changed(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+        scale = 255.0 if all(c <= 1.0 for c in app_data) else 1.0
+        viewer.view_state.dvf.vector_color_max = [int(c * scale) for c in app_data[:4]]
+
     def on_step_button_clicked(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer
         if not viewer or not viewer.view_state:
@@ -116,10 +223,25 @@ class DvfUI:
         tag = user_data["tag"]
         current_val = dpg.get_value(tag)
 
-        step_size = 1.0
+        step_size = 0.5
+        if tag in ["drag_dvf_sampling", "drag_dvf_thickness"]:
+            step_size = 1.0
         new_val = current_val + (step_size * direction)
 
         if tag == "drag_dvf_sampling":
             new_val = max(1.0, new_val)
             viewer.view_state.dvf.vector_sampling = int(new_val)
+        elif tag == "drag_dvf_scale":
+            new_val = max(0.1, new_val)
+            viewer.view_state.dvf.vector_scale = new_val
+        elif tag == "drag_dvf_thickness":
+            new_val = max(1.0, min(10.0, new_val))
+            viewer.view_state.dvf.vector_thickness = int(new_val)
+        elif tag == "drag_dvf_min_arrow":
+            viewer.view_state.dvf.vector_min_length_arrow = max(0.0, new_val)
+        elif tag == "drag_dvf_min_draw":
+            viewer.view_state.dvf.vector_min_length_draw = max(0.0, new_val)
+        elif tag == "drag_dvf_color_max_mag":
+            viewer.view_state.dvf.vector_color_max_mag = max(0.1, new_val)
+
         dpg.set_value(tag, new_val)
