@@ -1069,8 +1069,8 @@ def test_sync_4d_time_index_propagation(headless_app, synthetic_4d_path, tmp_pat
 
     vs_id_4d_A = controller.file.load_image(synthetic_4d_path) # 3 frames
 
-    data = np.zeros((2, 5, 5, 5), dtype=np.float32) # 2 frames
-    img = sitk.GetImageFromArray(data)
+    vols_2 = [sitk.GetImageFromArray(np.zeros((5, 5, 5), dtype=np.float32)) for _ in range(2)]
+    img = sitk.JoinSeries(vols_2)
     path = str(tmp_path / "seq_2frames.nrrd")
     sitk.WriteImage(img, path)
     vs_id_4d_B = controller.file.load_image(path)

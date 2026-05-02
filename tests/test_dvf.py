@@ -221,11 +221,13 @@ def test_regular_image_cannot_join_dvf_sync_group(dvf_app, tmp_path):
     sitk.WriteImage(img, path)
     vs_id_3d = controller.file.load_image(path)
 
-    # Put the DVF in group 2 first
+    # DVF cannot join any group via set_sync_group - it is forced to stay at 0
     controller.set_sync_group(vs_id_dvf, 2)
-    assert controller.view_states[vs_id_dvf].sync_group == 2
-    assert controller.view_states[vs_id_dvf].sync_group == 0 # DVF should be forced to group 0
+    assert controller.view_states[vs_id_dvf].sync_group == 0
 
-    # Regular image must be silently rejected
+    # Simulate DVF being in group 2 via direct state manipulation
+    controller.view_states[vs_id_dvf].sync_group = 2
+
+    # Regular image must be silently rejected when a DVF is in the target group
     controller.set_sync_group(vs_id_3d, 2)
     assert controller.view_states[vs_id_3d].sync_group == 0
