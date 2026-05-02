@@ -1110,3 +1110,66 @@ def test_sync_rgb_base_with_grayscale_overlay_radiometry(headless_app, tmp_path,
 
     assert vs_rgb.display.ww != 142.5  # Base RGB ignored it
     assert controller.view_states[vs_id_overlay].display.ww == 142.5  # Overlay received it perfectly
+
+
+# ==========================================
+# 12. FUSION BEHAVIOR (Matrix Rules)
+# ==========================================
+
+
+def test_fusion_4d_base_with_mismatched_4d_overlay_clamping(headless_app, synthetic_4d_path, tmp_path):
+    """Test that a 4D base clamping the time index of a shorter 4D overlay prevents IndexErrors."""
+    controller, viewer, vs_id_base = headless_app
+
+    # Load 4D Base (3 frames)
+    vs_id_4d_A = controller.file.load_image(synthetic_4d_path)
+    viewer.set_image(vs_id_4d_A)
+
+    # Create shorter 4D overlay (2 frames)
+    vols_2 = [sitk.GetImageFromArray(np.zeros((5, 5, 5), dtype=np.float32)) for _ in range(2)]
+    img = sitk.JoinSeries(vols_2)
+    path = str(tmp_path / "seq_2frames_overlay.nrrd")
+    sitk.WriteImage(img, path)
+    vs_id_4d_B = controller.file.load_image(path)
+    vol_overlay = controller.volumes[vs_id_4d_B]
+
+    base_vs = controller.view_states[vs_id_4d_A]
+    base_vs.set_overlay(vs_id_4d_B, vol_overlay, controller)
+    
+    # Scroll to frame 2 (0-indexed, 3rd frame of the 3-frame base)
+    viewer.on_time_scroll(2)
+
+    # The RenderLayer should correctly have a time_idx of 1 (the max for the 2-frame overlay)
+    overlay_layer = viewer._package_overlay_layer()
+    assert overlay_layer is not None
+    assert overlay_layer.time_idx == 1
+
+
+def test_fusion_reject_rgb_dvf_overlays(headless_app, tmp_path):
+    """Test that set_overlay strictly rejects RGB and DVF images."""
+    controller, viewer, vs_id_base = headless_app
+    vs_base = controller.view_states[vs_id_base]
+
+    # 1. Create RGB image
+    data_rgb = np.zeros((5, 5, 5, 3), dtype=np.uint8)
+    img_rgb = sitk.GetImageFromArray(data_rgb, isVector=True)
+    path_rgb = str(tmp_path / "rgb_overlay.nrrd")
+    sitk.WriteImage(img_rgb, path_rgb)
+    vs_id_rgb = controller.file.load_image(path_rgb)
+
+    # 2. Try to set RGB as overlay -> Should return False and remain None
+    success_rgb = vs_base.set_overlay(vs_id_rgb, controller.volumes[vs_id_rgb])
+    assert success_rgb is False
+    assert vs_base.display.overlay_id is None
+
+    # 3. Create DVF image
+    data_dvf = np.zeros((5, 5, 5, 3), dtype=np.float32)
+    img_dvf = sitk.GetImageFromArray(data_dvf, isVector=True)
+    path_dvf = str(tmp_path / "dvf_overlay.nrrd")
+    sitk.WriteImage(img_dvf, path_dvf)
+    vs_id_dvf = controller.file.load_image(path_dvf)
+
+    # 4. Try to set DVF as overlay -> Should return False and remain None
+    success_dvf = vs_base.set_overlay(vs_id_dvf, controller.volumes[vs_id_dvf])
+    assert success_dvf is False
+    assert vs_base.display.overlay_id is None

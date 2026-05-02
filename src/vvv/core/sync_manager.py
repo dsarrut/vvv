@@ -76,8 +76,9 @@ class SyncManager:
                 continue
             target_vs = self.controller.view_states.get(target_id)
             if target_vs:
-                nt = target_vs.volume.num_timepoints
-                target_vs.camera.time_idx = min(source_vs.camera.time_idx, nt - 1)
+                if source_vs.volume.num_timepoints > 1:
+                    nt = target_vs.volume.num_timepoints
+                    target_vs.camera.time_idx = min(source_vs.camera.time_idx, nt - 1)
 
     def propagate_sync(self, source_vs_id):
         source_vs = self.controller.view_states.get(source_vs_id)
@@ -117,8 +118,9 @@ class SyncManager:
                     phys_pos, is_buffered=is_tgt_buf
                 )
 
-                nt = target_vs.volume.num_timepoints
-                target_vs.camera.time_idx = min(source_vs.camera.time_idx, nt - 1)
+                if source_vs.volume.num_timepoints > 1:
+                    nt = target_vs.volume.num_timepoints
+                    target_vs.camera.time_idx = min(source_vs.camera.time_idx, nt - 1)
 
                 target_vs.camera.crosshair_voxel = [
                     target_vox[0],
@@ -140,8 +142,9 @@ class SyncManager:
 
             # --- Pure Physical Coordinates for Value Lookup ---
             # Update time_idx first, as update_crosshair_from_phys uses it.
-            nt = target_vs.volume.num_timepoints
-            target_vs.camera.time_idx = min(source_vs.camera.time_idx, nt - 1)
+            if source_vs.volume.num_timepoints > 1:
+                nt = target_vs.volume.num_timepoints
+                target_vs.camera.time_idx = min(source_vs.camera.time_idx, nt - 1)
             target_vs.update_crosshair_from_phys(world_phys)
         self.trigger_redraw(target_ids)
 

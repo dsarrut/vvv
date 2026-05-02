@@ -691,7 +691,10 @@ class ViewState:
             self.display._sitk_overlay_cache = None
             self.display.baked_overlay_translation = (0.0, 0.0, 0.0)
             self.is_data_dirty = True
-            return
+            return True
+            
+        if getattr(other_vol, "is_rgb", False) or getattr(other_vol, "is_dvf", False):
+            return False
 
         self.display.overlay_id = overlay_id
         self.display.overlay_opacity = 0.5
@@ -699,6 +702,7 @@ class ViewState:
 
         if controller:
             self.update_overlay_display_data(controller)
+        return True
 
     def set_ct_window_level(self, flat_data):
         if flat_data is None or flat_data.size == 0:

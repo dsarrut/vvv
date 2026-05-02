@@ -127,6 +127,7 @@ class FusionUI:
             return
 
         vol = viewer.volume
+        is_base_restricted = getattr(vol, "is_rgb", False) or getattr(vol, "is_dvf", False)
 
         if dpg.does_item_exist("text_fusion_base_image"):
             name_str, is_outdated = self.controller.get_image_display_name(
@@ -145,6 +146,9 @@ class FusionUI:
             options = ["None"]
             for vid, ovs in self.controller.view_states.items():
                 if vid != viewer.image_id:
+                    # Filter out RGB/DVF as they cannot be used as overlays
+                    if getattr(ovs.volume, "is_rgb", False) or getattr(ovs.volume, "is_dvf", False):
+                        continue
                     # Use the new helper for the dropdown options
                     opt_name, _ = self.controller.get_image_display_name(vid)
                     options.append(opt_name)
@@ -209,6 +213,18 @@ class FusionUI:
             ]:
                 if dpg.does_item_exist(t):
                     dpg.configure_item(t, enabled=(t in tags_to_enable and has_overlay))
+
+            if dpg.does_item_exist("combo_fusion_mode"):
+                if is_base_restricted:
+                    dpg.configure_item("combo_fusion_mode", items=["Alpha"])
+                    if viewer.view_state.display.overlay_mode != "Alpha":
+                        viewer.view_state.display.overlay_mode = "Alpha"
+                        viewer.view_state.is_data_dirty = True
+                else:
+                    dpg.configure_item("combo_fusion_mode", items=["Alpha", "Registration", "Checkerboard"])
+                
+                # Force the UI to reflect the actual mode in state!
+                dpg.set_value("combo_fusion_mode", viewer.view_state.display.overlay_mode)
 
             if dpg.does_item_exist("group_fusion_checkerboard"):
                 dpg.configure_item(
