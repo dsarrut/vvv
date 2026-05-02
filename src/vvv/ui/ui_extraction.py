@@ -23,6 +23,8 @@ class ExtractionUI:
                 tag="check_ext_enable",
                 callback=self.on_enable_toggle,
             )
+            
+            dpg.add_text("", tag="text_ext_preview_context", color=cfg_c["text_dim"], show=False)
             dpg.add_spacer(height=5)
 
             build_stepped_slider(
@@ -197,6 +199,20 @@ class ExtractionUI:
         max_v = ext_state.threshold_max
         dpg.set_value("text_ext_bg_range", f"< {min_v:g}   OR   > {max_v:g}")
         dpg.set_value("text_ext_fg_range", f"[{min_v:g}  ...  {max_v:g}]")
+
+        # Dynamic Temporal/Vector Context Feedback
+        if dpg.does_item_exist("text_ext_preview_context"):
+            if vol.num_timepoints > 1 and ext_state.is_enabled:
+                if getattr(vol, "is_dvf", False):
+                    comps = ["dx", "dy", "dz"]
+                    c_name = comps[viewer.view_state.camera.time_idx] if viewer.view_state.camera.time_idx < len(comps) else f"c{viewer.view_state.camera.time_idx}"
+                    context_text = f"Previewing Component: {c_name}"
+                else:
+                    context_text = f"Previewing Frame: {viewer.view_state.camera.time_idx + 1} / {vol.num_timepoints}"
+                dpg.set_value("text_ext_preview_context", context_text)
+                dpg.configure_item("text_ext_preview_context", show=True)
+            else:
+                dpg.configure_item("text_ext_preview_context", show=False)
 
         for tag in ["drag_ext_threshold_min", "drag_ext_threshold_max"]:
             dpg.configure_item(
