@@ -1342,6 +1342,8 @@ class SliceViewer:
         off_x, off_y, off_slice = 0, 0, 0
         dx, dy, dz = 0.0, 0.0, 0.0
         
+        # Sign conventions mirror the flipud/fliplr applied in SliceRenderer.extract_slice.
+        # If those flips change, these signs must change in sync.
         if self.orientation == ViewMode.AXIAL:
             dx, dy, dz = px_x, px_y, px_z
         elif self.orientation == ViewMode.CORONAL:

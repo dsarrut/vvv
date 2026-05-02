@@ -72,12 +72,20 @@ class FusionUI:
 
                 with dpg.group(horizontal=True):
                     dpg.add_text("Mode   ")
-                    dpg.add_combo(
+                    combo = dpg.add_combo(
                         ["Alpha", "Registration", "Checkerboard"],
                         tag="combo_fusion_mode",
                         width=-1,
                         callback=gui.fusion_ui.on_fusion_mode_changed,
                     )
+                    with dpg.tooltip(combo, tag="tooltip_fusion_mode", show=False):
+                        dpg.add_text("Base image format restricts blending to Alpha mode only.")
+                dpg.add_text(
+                    "RGB/DVF base: Alpha only",
+                    tag="text_fusion_mode_restricted",
+                    show=False,
+                    color=cfg_c.get("outdated", [255, 200, 50, 200]),
+                )
                 with dpg.group(
                     horizontal=True, tag="group_fusion_checkerboard", show=False
                 ):
@@ -216,12 +224,20 @@ class FusionUI:
 
             if dpg.does_item_exist("combo_fusion_mode"):
                 if is_base_restricted:
-                    dpg.configure_item("combo_fusion_mode", items=["Alpha"])
+                    dpg.configure_item("combo_fusion_mode", items=["Alpha"], enabled=False)
+                    if dpg.does_item_exist("tooltip_fusion_mode"):
+                        dpg.configure_item("tooltip_fusion_mode", show=True)
+                    if dpg.does_item_exist("text_fusion_mode_restricted"):
+                        dpg.configure_item("text_fusion_mode_restricted", show=True)
                     if viewer.view_state.display.overlay_mode != "Alpha":
                         viewer.view_state.display.overlay_mode = "Alpha"
                         viewer.view_state.is_data_dirty = True
                 else:
                     dpg.configure_item("combo_fusion_mode", items=["Alpha", "Registration", "Checkerboard"])
+                    if dpg.does_item_exist("tooltip_fusion_mode"):
+                        dpg.configure_item("tooltip_fusion_mode", show=False)
+                    if dpg.does_item_exist("text_fusion_mode_restricted"):
+                        dpg.configure_item("text_fusion_mode_restricted", show=False)
                 
                 # Force the UI to reflect the actual mode in state!
                 dpg.set_value("combo_fusion_mode", viewer.view_state.display.overlay_mode)

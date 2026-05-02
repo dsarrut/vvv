@@ -162,8 +162,7 @@ class SliceRenderer:
             return arr
 
         h, w = arr.shape[:2]
-        # Fill empty space with the minimum value (usually 0) so it doesn't create artifacts
-        res = np.full_like(arr, np.min(arr))
+        res = np.zeros_like(arr)
 
         src_y0, src_y1 = max(0, -dy), min(h, h - dy)
         src_x0, src_x1 = max(0, -dx), min(w, w - dx)
