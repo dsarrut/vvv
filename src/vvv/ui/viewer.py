@@ -1293,6 +1293,24 @@ class SliceViewer:
 
         ovs = self.controller.view_states[vs.display.overlay_id]
 
+        # ---------------------------------------------------------
+        # 2D OVERLAY PHYSICAL CLAMPING
+        # ---------------------------------------------------------
+        # If the overlay is inherently 2D, verify the base camera is actually looking at its physical plane
+        if min(ovs.volume.shape3d) == 1:
+            center_phys = self.get_center_physical_coord()
+            if center_phys is not None:
+                # Map the base view back into the overlay's native index space
+                ov_vox = ovs.space.world_to_display(center_phys, is_buffered=False)
+                if ov_vox is not None:
+                    # Check out-of-plane distances. Continuous index > 0.5 means we scrolled past it.
+                    if ovs.volume.shape3d[2] == 1 and abs(ov_vox[0]) > 0.5:
+                        return None
+                    if ovs.volume.shape3d[1] == 1 and abs(ov_vox[1]) > 0.5:
+                        return None
+                    if ovs.volume.shape3d[0] == 1 and abs(ov_vox[2]) > 0.5:
+                        return None
+
         # ---Calculate Relative Pixel Shift ---
         base_vs = vs
         base_tx, base_ty, base_tz = 0.0, 0.0, 0.0
@@ -1491,7 +1509,7 @@ class SliceViewer:
                     overlay=None,
                     overlay_opacity=1.0,
                     overlay_mode="Alpha",
-                    slice_idx=self.slice_idx,
+                    slice_idx=self.slice_idx - overlay_layer.offset_slice,
                     orientation=self.orientation,
                     rois=[],
                 )
