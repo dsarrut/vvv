@@ -1038,31 +1038,6 @@ def test_image_list_rgb_wl_ignore(headless_app, tmp_path):
 # ==========================================
 
 
-def test_sync_dvf_isolation_enforcement(headless_app, tmp_path):
-    """Test that DVF images are strictly isolated from sync groups."""
-    controller, viewer, vs_id_3d = headless_app
-
-    # 1. Load a DVF image
-    data = np.zeros((5, 5, 5, 3), dtype=np.float32)
-    img = sitk.GetImageFromArray(data, isVector=True)
-    path = str(tmp_path / "dvf_sync.nrrd")
-    sitk.WriteImage(img, path)
-    vs_id_dvf = controller.file.load_image(path)
-
-    # Put 3D image in group 1
-    controller.set_sync_group(vs_id_3d, 1)
-    assert controller.view_states[vs_id_3d].sync_group == 1
-
-    # Attempt to add DVF to group 1 (Should be rejected to 0)
-    controller.set_sync_group(vs_id_dvf, 1)
-    assert controller.view_states[vs_id_dvf].sync_group == 0
-
-    # Attempt to add 3D image to a group that mistakenly has a DVF (simulating manual state hacking)
-    controller.view_states[vs_id_dvf].sync_group = 2
-    controller.set_sync_group(vs_id_3d, 2)
-    assert controller.view_states[vs_id_3d].sync_group == 0  # Rejected!
-
-
 def test_sync_4d_time_index_propagation(headless_app, synthetic_4d_path, tmp_path):
     """Test that syncing mismatched 4D sequences clamps the time index to avoid IndexErrors."""
     controller, viewer, _ = headless_app

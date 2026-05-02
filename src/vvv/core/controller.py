@@ -327,26 +327,6 @@ class Controller:
         if not vs:
             return
 
-        # --- DVF SYNC PROTECTION ---
-        # 1. If the current image is a DVF, it cannot join any group (except 0, which means no group)
-        if getattr(vs.volume, "is_dvf", False) and group_id != 0:
-            vs.sync_group = 0  # Force it to be unsynced
-            self.update_all_viewers_of_image(vs_id)
-            self.ui_needs_refresh = True
-            return
-
-        # 2. If the target group already contains a DVF, no other image can join it.
-        if group_id != 0:
-            for other_id, other_vs in self.view_states.items():
-                if other_id != vs_id and other_vs.sync_group == group_id:
-                    if getattr(other_vs.volume, "is_dvf", False):
-                        vs.sync_group = 0  # Force it to be unsynced
-                        self.update_all_viewers_of_image(vs_id)
-                        self.ui_needs_refresh = True
-                        return
-
-        # End DVF SYNC PROTECTION
-
         if vs.sync_group == group_id:
             return
 

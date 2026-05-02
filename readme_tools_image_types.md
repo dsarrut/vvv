@@ -21,12 +21,12 @@ Legend: ✅ Full support · ⚠️ Partial / with caveats · ❌ Not supported
 |-------------------|:--:|:--:|:--:|:---:|:---:|
 | tracker, etc      | ✅ | ✅ | ✅ |  ✅ |  ✅ |
 | Image List.       | ✅ | ✅ | ✅ |  ✅ |  ✅ |
-| Sync              | ✅ | ✅ | ✅ |  ❌ |  ⚠️ |
+| Sync              | ✅ | ✅ | ✅ |  ✅ |  ⚠️ |
 | Fusion            | ✅ | ✅ | ✅ |  ⚠️ |  ⚠️ |
 | Intensity         | ✅ | ✅ | ✅ |  ✅ |  ❌ |
-| ROI               | ✅ | ✅ | ⚠️ |  ❌ |  ⚠️ |
-| Reg               | ⚠️ | ✅ | ⚠️ |  ❌ |  ⚠️ |
-| Threshold         | ✅ | ✅ | ⚠️ |  ❌ |  ❌ |
+| ROI               | ✅ | ✅ | ⚠️ |  ✅ |  ⚠️ |
+| Reg               | ⚠️ | ✅ | ⚠️ |  ⚠️ |  ⚠️ |
+| Threshold         | ✅ | ✅ | ⚠️ |  ✅ |  ❌ |
 
 
 ## Implementation Check Matrix
@@ -103,7 +103,7 @@ Interpolation
 | 2D   | Sync zoom and pan. No slice-depth sync (single slice). W/L is synced if the image is grayscale. |
 | 3D   | Full sync: zoom, pan, slice depth (in physical mm), and W/L. |
 | 4D   | Sync zoom, pan, and slice depth identically to 3D. The time/frame index is **also** synced when two 4D images share a group, so scrubbing one advances the other. When a 3D is synced to a 4D, full sync except the last dimension is ignored for the 3D image. W/L synced. |
-| DVF  | **Not allowed in any sync group.** DVF images must remain isolated (Group 0). Adding a DVF to a group is silently ignored or blocked in the UI. |
+| DVF  | Allowed in sync groups. Syncs zoom, pan, slice depth, and component index (time_idx) identically to how 4D images sync. |
 | RGB  | Camera sync (zoom, pan, slice depth) is allowed. W/L sync is **skipped for the RGB base image** itself (no W/L concept), but still propagated to any grayscale overlay loaded on top of that viewer. |
 
 ---

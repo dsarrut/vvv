@@ -187,47 +187,30 @@ def test_dvf_tracker_zero_at_background(dvf_app):
 
 
 # ==========================================
-# 4. SYNC PROTECTION
+# 4. SYNC INTEGRATION
 # ==========================================
 
 
-def test_dvf_cannot_join_sync_group(dvf_app, tmp_path):
-    """A DVF image cannot be added to a sync group containing a regular 3D image."""
-    controller, _, vs_id_dvf = dvf_app
+def test_dvf_can_join_sync_group_and_sync_components(dvf_app, tmp_path):
+    """A DVF image can join a sync group and syncs its component index (time_idx) like a 4D image."""
+    controller, viewer, vs_id_dvf = dvf_app
 
-    arr = np.ones((5, 5, 5), dtype=np.float32)
-    img = sitk.GetImageFromArray(arr)
-    path = str(tmp_path / "regular.nrrd")
+    # 4D sequence with 3 frames
+    vols = [sitk.GetImageFromArray(np.zeros((5, 5, 5), dtype=np.float32)) for _ in range(3)]
+    img = sitk.JoinSeries(vols)
+    path = str(tmp_path / "seq.nrrd")
     sitk.WriteImage(img, path)
-    vs_id_3d = controller.file.load_image(path)
+    vs_id_4d = controller.file.load_image(path)
 
-    # Put the 3D image in group 1 first
-    controller.set_sync_group(vs_id_3d, 1)
-    assert controller.view_states[vs_id_3d].sync_group == 1
-    assert controller.view_states[vs_id_3d].sync_group == 1 # type: ignore
-
-    # DVF must be silently rejected
+    controller.set_sync_group(vs_id_4d, 1)
     controller.set_sync_group(vs_id_dvf, 1)
-    assert controller.view_states[vs_id_dvf].sync_group == 0
 
+    assert controller.view_states[vs_id_4d].sync_group == 1
+    assert controller.view_states[vs_id_dvf].sync_group == 1
 
-def test_regular_image_cannot_join_dvf_sync_group(dvf_app, tmp_path):
-    """A regular 3D image cannot join a group that already contains a DVF."""
-    controller, _, vs_id_dvf = dvf_app
+    viewer.set_image(vs_id_4d)
+    viewer.on_time_scroll(2)
 
-    arr = np.ones((5, 5, 5), dtype=np.float32)
-    img = sitk.GetImageFromArray(arr)
-    path = str(tmp_path / "regular2.nrrd")
-    sitk.WriteImage(img, path)
-    vs_id_3d = controller.file.load_image(path)
-
-    # DVF cannot join any group via set_sync_group - it is forced to stay at 0
-    controller.set_sync_group(vs_id_dvf, 2)
-    assert controller.view_states[vs_id_dvf].sync_group == 0
-
-    # Simulate DVF being in group 2 via direct state manipulation
-    controller.view_states[vs_id_dvf].sync_group = 2
-
-    # Regular image must be silently rejected when a DVF is in the target group
-    controller.set_sync_group(vs_id_3d, 2)
-    assert controller.view_states[vs_id_3d].sync_group == 0
+    # Both should now be on time_idx 2 (Frame 2 for 4D, Dz for DVF)
+    assert controller.view_states[vs_id_4d].camera.time_idx == 2
+    assert controller.view_states[vs_id_dvf].camera.time_idx == 2

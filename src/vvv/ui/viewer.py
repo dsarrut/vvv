@@ -386,12 +386,6 @@ class SliceViewer:
         self.image_id = img_id
         vs = self.view_state
 
-        # --- DVF SYNC PROTECTION ---
-        # Forbid DVF volumes from participating in spatial sync groups for now
-        # to prevent dimension-mismatch crashes in the resampler.
-        if vs and getattr(vs.volume, "is_dvf", False):
-            vs.sync_group = 0
-
         # --- BUG FIX #2: WIPE STALE MEMORY ---
         # Clear the old tracking variables so the viewer evaluates the incoming
         # synced camera state as genuinely "new" on the very next tick.
