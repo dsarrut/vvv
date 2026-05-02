@@ -54,8 +54,7 @@ class MainGUI:
         self.status_message_expire_time = float("inf")
         self.image_label_tags = {}
         self.sync_label_tags = {}
-        self.ui_cfg = None
-        self.current_workspace_path = None
+        self.current_workspace_path: str | None = None
 
         # internal states
         self._is_roi_tab_active = None
@@ -678,10 +677,10 @@ class MainGUI:
         )
         has_rois = (
             has_image
+            and viewer is not None
             and viewer.view_state is not None
             and len(viewer.view_state.rois) > 0
         )
-        is_rgb = getattr(viewer.volume, "is_rgb", False) if has_image else False
 
         ui_states = [
             (
@@ -756,6 +755,7 @@ class MainGUI:
             self.fusion_ui.refresh_fusion_ui()
             return
 
+        assert viewer is not None
         vol = viewer.volume
         dpg.set_value("info_name", vol.name)
         dpg.set_value("info_name_label", viewer.tag)
@@ -1188,10 +1188,9 @@ class MainGUI:
             "Open VVV Workspace", multiple=False, is_workspace=True
         )
 
-        if file_path:
+        if isinstance(file_path, str):
             self.current_workspace_path = file_path
             self.update_workspace_menu_state()
-            # open_file_dialog returns a string when multiple=False
             self.tasks.append(load_workspace_sequence(self, self.controller, file_path))
 
     def on_save_workspace_current_clicked(
