@@ -376,12 +376,12 @@ class Controller:
             # GUARDRAIL 3: Push the data flag to viewers to prevent them
             # from rendering tombstoned C++ memory during the 1-frame Bridge gap.
             for v in self.viewers.values():
-                if v.image_id == vs_id:
+                if v.image_id == vs_id or (v.view_state and v.view_state.display.overlay_id == vs_id):
                     v.is_viewer_data_dirty = True
 
         if not data_dirty:
             for v in self.viewers.values():
-                if v.image_id == vs_id:
+                if v.image_id == vs_id or (v.view_state and v.view_state.display.overlay_id == vs_id):
                     v.is_geometry_dirty = True
 
     def _flag_all_viewers_dirty(self):
@@ -635,7 +635,7 @@ class Controller:
 
             if is_geom or is_data:
                 for v in self.viewers.values():
-                    if v.image_id == vs_id:
+                    if v.image_id == vs_id or (v.view_state and v.view_state.display.overlay_id == vs_id):
                         if is_geom:
                             v.is_geometry_dirty = True
                         if is_data:

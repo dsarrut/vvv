@@ -183,42 +183,36 @@ class DvfUI:
         if not target_vs:
             return
         target_vs.dvf.vector_sampling = int(max(1.0, app_data))
-        self.gui.context_viewer.is_geometry_dirty = True
 
     def on_scale_changed(self, sender, app_data, user_data):
         target_vs, _ = self._get_target_vs(self.gui.context_viewer)
         if not target_vs:
             return
         target_vs.dvf.vector_scale = max(0.1, app_data)
-        self.gui.context_viewer.is_geometry_dirty = True
 
     def on_thickness_changed(self, sender, app_data, user_data):
         target_vs, _ = self._get_target_vs(self.gui.context_viewer)
         if not target_vs:
             return
         target_vs.dvf.vector_thickness = int(max(1.0, min(10.0, app_data)))
-        self.gui.context_viewer.is_geometry_dirty = True
 
     def on_min_arrow_changed(self, sender, app_data, user_data):
         target_vs, _ = self._get_target_vs(self.gui.context_viewer)
         if not target_vs:
             return
         target_vs.dvf.vector_min_length_arrow = max(0.0, app_data)
-        self.gui.context_viewer.is_geometry_dirty = True
 
     def on_min_draw_changed(self, sender, app_data, user_data):
         target_vs, _ = self._get_target_vs(self.gui.context_viewer)
         if not target_vs:
             return
         target_vs.dvf.vector_min_length_draw = max(0.0, app_data)
-        self.gui.context_viewer.is_geometry_dirty = True
 
     def on_color_max_mag_changed(self, sender, app_data, user_data):
         target_vs, _ = self._get_target_vs(self.gui.context_viewer)
         if not target_vs:
             return
         target_vs.dvf.vector_color_max_mag = max(0.1, app_data)
-        self.gui.context_viewer.is_geometry_dirty = True
 
     def on_color_min_changed(self, sender, app_data, user_data):
         target_vs, _ = self._get_target_vs(self.gui.context_viewer)
@@ -226,7 +220,6 @@ class DvfUI:
             return
         scale = 255.0 if all(c <= 1.0 for c in app_data) else 1.0
         target_vs.dvf.vector_color_min = [int(c * scale) for c in app_data[:4]]
-        self.gui.context_viewer.is_geometry_dirty = True
 
     def on_color_max_changed(self, sender, app_data, user_data):
         target_vs, _ = self._get_target_vs(self.gui.context_viewer)
@@ -234,7 +227,6 @@ class DvfUI:
             return
         scale = 255.0 if all(c <= 1.0 for c in app_data) else 1.0
         target_vs.dvf.vector_color_max = [int(c * scale) for c in app_data[:4]]
-        self.gui.context_viewer.is_geometry_dirty = True
 
     def on_step_button_clicked(self, sender, app_data, user_data):
         target_vs, _ = self._get_target_vs(self.gui.context_viewer)
@@ -267,4 +259,3 @@ class DvfUI:
             target_vs.dvf.vector_color_max_mag = max(0.1, new_val)
 
         dpg.set_value(tag, new_val)
-        self.gui.context_viewer.is_geometry_dirty = True
