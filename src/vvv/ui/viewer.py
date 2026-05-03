@@ -1652,6 +1652,7 @@ class SliceViewer:
             mx,
             my,
             self.slice_idx, # This is now the display slice index
+            vs.camera.time_idx,
             self.zoom,
             self.pan_offset[0],
             self.pan_offset[1],
@@ -1739,7 +1740,11 @@ class SliceViewer:
                     val_str = f"{val[0]:g} {val[1]:g} {val[2]:g}"
                 elif getattr(vol, "is_dvf", False):
                     mag = np.linalg.norm(val)
-                    val_str = f"[{fmt(val, 2)}] L:{fmt(mag, 2)}"
+                    comps = []
+                    for i, v in enumerate(val):
+                        s = fmt(v, 2)
+                        comps.append(f"*{s}" if i == vs.camera.time_idx else s)
+                    val_str = f"[{' '.join(comps)}] L:{fmt(mag, 2)}"
                 else:
                     val_str = f"{val:g}"
             text_lines = [f"{val_str}"]
@@ -1750,7 +1755,11 @@ class SliceViewer:
                 ov_vol = self.controller.volumes.get(ov_id)
                 if ov_vol and getattr(ov_vol, "is_dvf", False):
                     mag = np.linalg.norm(ov_val)
-                    text_lines[0] += f" ([{fmt(ov_val, 2)}] L:{fmt(mag, 2)})"
+                    comps = []
+                    for i, v in enumerate(ov_val):
+                        s = fmt(v, 2)
+                        comps.append(f"*{s}" if i == vs.camera.time_idx else s)
+                    text_lines[0] += f" ([{' '.join(comps)}] L:{fmt(mag, 2)})"
                 elif ov_vol and getattr(ov_vol, "is_rgb", False):
                     text_lines[0] += f" ({ov_val[0]:g} {ov_val[1]:g} {ov_val[2]:g})"
                 else:
@@ -1768,8 +1777,11 @@ class SliceViewer:
                 assert native_v is not None
 
                 if vol.num_timepoints > 1:
+                    t_str = str(vs.camera.time_idx)
+                    if getattr(vol, "is_dvf", False):
+                        t_str = ["dx", "dy", "dz"][vs.camera.time_idx] if vs.camera.time_idx < 3 else t_str
                     text_lines.append(
-                        f"{native_v[0]:.1f} {native_v[1]:.1f} {native_v[2]:.1f} {vs.camera.time_idx}"
+                        f"{native_v[0]:.1f} {native_v[1]:.1f} {native_v[2]:.1f} {t_str}"
                     )
                 else:
                     text_lines.append(fmt(native_v, 1))

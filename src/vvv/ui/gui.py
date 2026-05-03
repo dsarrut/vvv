@@ -807,10 +807,14 @@ class MainGUI:
             # 1. Update Voxel & Physical Coords
             if vs.camera.crosshair_voxel is not None:
                 if vol.num_timepoints > 1:
+                    t_val = int(vs.camera.crosshair_voxel[3])
+                    t_str = str(t_val)
+                    if getattr(vol, "is_dvf", False):
+                        t_str = ["dx", "dy", "dz"][t_val] if t_val < 3 else t_str
                     dpg.set_value(
                         "info_vox",
                         f"{vs.camera.crosshair_voxel[0]:.1f} {vs.camera.crosshair_voxel[1]:.1f} "
-                        f"{vs.camera.crosshair_voxel[2]:.1f} {vs.camera.crosshair_voxel[3]}",
+                        f"{vs.camera.crosshair_voxel[2]:.1f} {t_str}",
                     )
                 else:
                     dpg.set_value("info_vox", fmt(vs.camera.crosshair_voxel[:3], 1))
@@ -831,8 +835,10 @@ class MainGUI:
                         val_str = f"{val[0]:g} {val[1]:g} {val[2]:g}"
                     elif getattr(vol, "is_dvf", False):
                         mag = np.linalg.norm(val)
-                        comp_str = " ".join(f"{v:g}" for v in val)
-                        val_str = f"[{comp_str}] L:{mag:g}"
+                        comps = []
+                        for i, v in enumerate(val):
+                            comps.append(f"*{v:g}" if i == vs.camera.time_idx else f"{v:g}")
+                        val_str = f"[{' '.join(comps)}] L:{mag:g}"
                     else:
                         val_str = f"{val:g}"
 
@@ -842,8 +848,10 @@ class MainGUI:
                     ov_vol = self.controller.volumes.get(ov_id)
                     if ov_vol and getattr(ov_vol, "is_dvf", False):
                         mag = np.linalg.norm(ov_val)
-                        comp_str = " ".join(f"{v:g}" for v in ov_val)
-                        val_str += f" ([{comp_str}] L:{mag:g})"
+                        comps = []
+                        for i, v in enumerate(ov_val):
+                            comps.append(f"*{v:g}" if i == vs.camera.time_idx else f"{v:g}")
+                        val_str += f" ([{' '.join(comps)}] L:{mag:g})"
                     elif ov_vol and getattr(ov_vol, "is_rgb", False):
                         val_str += f" ({ov_val[0]:g} {ov_val[1]:g} {ov_val[2]:g})"
                     else:
