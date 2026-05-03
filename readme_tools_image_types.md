@@ -22,7 +22,7 @@ Legend: ✅ Full support · ⚠️ Partial / with caveats · ❌ Not supported
 | tracker, etc      | ✅ | ✅ | ✅ |  ✅ |  ✅ |
 | Image List.       | ✅ | ✅ | ✅ |  ✅ |  ✅ |
 | Sync              | ✅ | ✅ | ✅ |  ✅ |  ⚠️ |
-| Fusion            | ✅ | ✅ | ✅ |  ⚠️ |  ⚠️ |
+| Fusion            | ✅ | ✅ | ✅ |  ✅ |  ⚠️ |
 | Intensity         | ✅ | ✅ | ✅ |  ✅ |  ❌ |
 | ROI               | ✅ | ✅ | ⚠️ |  ✅ |  ⚠️ |
 | Reg               | ⚠️ | ✅ | ⚠️ |  ⚠️ |  ⚠️ |
@@ -119,7 +119,7 @@ The overlay image must be a grayscale scalar image. The base image can be any ty
 | 2D  | Any overlay can be fused. All three blend modes work. |
 | 3D  | Any overlay can be fused. All three blend modes work. |
 | 4D  | Fusion operates on the currently displayed timepoint. The overlay is a static 3D image unless the overlay is also 4D, in which case both time indices are synchronized. All three blend modes work. If the number of time slices does not correspond, the time index is clamped to `min(base_time, overlay_max_time)`. |
-| DVF | DVF as base is allowed for visual inspection. Only Alpha blend makes sense; Registration and Checkerboard modes are disabled because the per-component display does not produce a meaningful difference image. |
+| DVF | DVF as base is allowed for visual inspection. Alpha blend is supported for standard scalar overlays. A secondary DVF can also be fused on top using the 'DVF' overlay mode. Registration and Checkerboard modes are disabled. |
 | RGB | RGB as base: only Alpha blend is supported. Registration (red/green) and Checkerboard modes are disabled because those modes require a normalized scalar base. |
 
 | Type (as **overlay**) | Expected behavior |
@@ -127,7 +127,7 @@ The overlay image must be a grayscale scalar image. The base image can be any ty
 | 2D  | Allowed as overlay over any base type. |
 | 3D  | Allowed as overlay over any base type. |
 | 4D  | Allowed as overlay; the displayed timepoint follows the base image's time index (clamped if the overlay is shorter). |
-| DVF | **Not allowed as an overlay.** Displacement fields are multi-component and have no meaningful single-scalar rendering as a blended overlay. |
+| DVF | **Allowed as an overlay.** Uses the dedicated 'DVF' fusion mode to dynamically render the vector field (arrows) directly on top of the base image. |
 | RGB | **Not allowed as an overlay.** Overlays must be grayscale scalar images so they can be colormapped and alpha-blended. |
 
 ---
@@ -191,6 +191,20 @@ Load several ROIs at once (from open several images, or open several ROI from RT
 
 
 --- 
+
+## DVF Visualization
+
+**Purpose:** Provide specialized rendering modes for Displacement Vector Fields (DVF).
+
+| Mode | Expected behavior |
+|------|-------------------|
+| Vector Field | **Default.** Renders physical 3D vectors projected onto the 2D viewing plane. The arrows maintain a true 1:1 physical scale (mm to screen pixels) that adapts natively to camera zoom. Features user-adjustable sampling (in physical mm), a scale multiplier, line thickness, and dynamic color interpolation (Cyan to Red) based on the true 3D displacement magnitude. Includes dual thresholds to filter negligible vectors or draw them as simple lines. |
+| Component | Displays the individual $dx$, $dy$, or $dz$ scalar components as a standard grayscale image. The active component is navigated via the temporal scroll shortcuts. |
+| RGB | Maps the 3 spatial vector components directly to the Red, Green, and Blue color channels for a rapid visual overview of directional shifts. |
+
+**Fusion Integration:** DVF images natively support being fused as an overlay on top of any standard scalar Base Image. When fused, the Vector Field is dynamically drawn over the base anatomy.
+
+---
 
 ## Workspace and history
 

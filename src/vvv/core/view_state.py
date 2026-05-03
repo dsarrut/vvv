@@ -321,6 +321,99 @@ class ExtractionState:
         self.gen_fg_val = d.get("gen_fg_val", self.gen_fg_val)
 
 
+class DVFState:
+    """Stores parameters for Displacement Vector Field visualization."""
+
+    _parent: "ViewState | None"
+
+    display_mode: str
+    vector_sampling: int
+    vector_scale: float
+    vector_thickness: float
+    vector_color_min: list
+    vector_color_max: list
+    vector_color_max_mag: float
+    vector_min_length_arrow: float
+    vector_min_length_draw: float
+
+    _GEOM_FIELDS = {
+        "display_mode",
+        "vector_sampling",
+        "vector_scale",
+        "vector_thickness",
+        "vector_color_min",
+        "vector_color_max",
+        "vector_color_max_mag",
+        "vector_min_length_arrow",
+        "vector_min_length_draw",
+    }
+
+    def __init__(self, parent_vs: "ViewState | None" = None):
+        self._parent = parent_vs
+        self.display_mode = "Vector Field"  # Modes: "Component", "RGB", "Vector Field"
+        self.vector_scale = 1.0
+        self.vector_thickness = 1.0
+        self.vector_min_length_arrow = 3.0
+        self.vector_min_length_draw = 0.0
+        self.vector_color_min = [0, 255, 255, 255]  # Cyan
+        self.vector_color_max = [255, 0, 0, 255]
+        
+        self.vector_sampling = 5
+        self.vector_color_max_mag = 10.0
+        
+        if parent_vs and getattr(parent_vs, "volume", None) and getattr(parent_vs.volume, "is_dvf", False):
+            import numpy as np
+            vol = parent_vs.volume
+            try:
+                # 1. Compute true Max Magnitude (subsampled 2x for instant calculation)
+                sub_data = vol.data[:, ::2, ::2, ::2]
+                max_mag = float(np.max(np.linalg.norm(sub_data, axis=0)))
+                self.vector_color_max_mag = max(0.1, max_mag)
+
+                # 2. Dynamic Pixel Sampling (Aim for ~100 arrows across the largest dimension)
+                max_dim = max(vol.shape3d)
+                self.vector_sampling = max(1, int(round(max_dim / 100.0)))
+            except Exception:
+                pass
+
+    def __setattr__(self, name, value):
+        if name in self._GEOM_FIELDS and getattr(self, name, _SENTINEL) != value:
+            object.__setattr__(self, name, value)
+            parent = getattr(self, "_parent", None)
+            if parent is not None:
+                # Both geometry (arrow spacing) and data (RGB remap vs Component) need to be flagged
+                parent.is_geometry_dirty = True
+                parent.is_data_dirty = True
+            return
+        object.__setattr__(self, name, value)
+
+    def to_dict(self):
+        return {
+            "display_mode": str(self.display_mode),
+            "vector_sampling": int(self.vector_sampling),
+            "vector_scale": float(self.vector_scale),
+            "vector_thickness": float(self.vector_thickness),
+            "vector_color_min": list(self.vector_color_min),
+            "vector_color_max": list(self.vector_color_max),
+            "vector_color_max_mag": float(self.vector_color_max_mag),
+            "vector_min_length_arrow": float(self.vector_min_length_arrow),
+            "vector_min_length_draw": float(self.vector_min_length_draw),
+        }
+
+    def from_dict(self, d):
+        if not d:
+            return
+        self.display_mode = d.get("display_mode", self.display_mode)
+        self.vector_sampling = int(d.get("vector_sampling", self.vector_sampling))
+        self.vector_scale = d.get("vector_scale", self.vector_scale)
+        self.vector_thickness = d.get("vector_thickness", self.vector_thickness)
+        self.vector_color_min = d.get("vector_color_min", d.get("vector_color", self.vector_color_min))
+        self.vector_color_max = d.get("vector_color_max", self.vector_color_max)
+        self.vector_color_max_mag = d.get("vector_color_max_mag", self.vector_color_max_mag)
+        self.vector_min_length_arrow = d.get("vector_min_length_arrow", self.vector_min_length_arrow)
+        self.vector_min_length_draw = d.get("vector_min_length_draw", self.vector_min_length_draw)
+
+
 class ViewState:
     """
     The exclusive Source of Truth for an image's presentation state.
@@ -357,6 +450,7 @@ class ViewState:
         self.camera = CameraState(volume, parent_vs=self)
         self.display = DisplayState(parent_vs=self)
         self.extraction = ExtractionState(parent_vs=self)
+        self.dvf = DVFState(parent_vs=self)
         self.sync_group = 0
         self.sync_wl_group = 0  # Radiometric group support
         self.rois = {}
@@ -589,6 +683,8 @@ class ViewState:
             resampled_img = resampler.Execute(self.volume.sitk_image)
             self._sitk_base_cache = resampled_img
             self.base_display_data = sitk.GetArrayViewFromImage(resampled_img)
+            if getattr(self.volume, "is_dvf", False) and self.base_display_data.ndim == 4:
+                self.base_display_data = np.moveaxis(self.base_display_data, -1, 0)
         elif target_dim == 4:
             resampled_volumes = []
             for t in range(self.volume.num_timepoints):
@@ -653,6 +749,8 @@ class ViewState:
             resampled_img = resampler.Execute(other_vol.sitk_image)
             self.display._sitk_overlay_cache = resampled_img
             self.display.overlay_data = sitk.GetArrayViewFromImage(resampled_img)
+            if getattr(other_vol, "is_dvf", False) and self.display.overlay_data.ndim == 4:
+                self.display.overlay_data = np.moveaxis(self.display.overlay_data, -1, 0)
         elif target_dim == 4:
             resampled_volumes = []
             for t in range(other_vol.num_timepoints):
@@ -693,7 +791,7 @@ class ViewState:
             self.is_data_dirty = True
             return True
             
-        if getattr(other_vol, "is_rgb", False) or getattr(other_vol, "is_dvf", False):
+        if getattr(other_vol, "is_rgb", False):
             return False
 
         self.display.overlay_id = overlay_id

@@ -1120,8 +1120,8 @@ def test_fusion_4d_base_with_mismatched_4d_overlay_clamping(headless_app, synthe
     assert overlay_layer.time_idx == 1
 
 
-def test_fusion_reject_rgb_dvf_overlays(headless_app, tmp_path):
-    """Test that set_overlay strictly rejects RGB and DVF images."""
+def test_fusion_reject_rgb_accept_dvf_overlays(headless_app, tmp_path):
+    """Test that set_overlay strictly rejects RGB, but accepts DVF images."""
     controller, viewer, vs_id_base = headless_app
     vs_base = controller.view_states[vs_id_base]
 
@@ -1144,10 +1144,10 @@ def test_fusion_reject_rgb_dvf_overlays(headless_app, tmp_path):
     sitk.WriteImage(img_dvf, path_dvf)
     vs_id_dvf = controller.file.load_image(path_dvf)
 
-    # 4. Try to set DVF as overlay -> Should return False and remain None
+    # 4. Try to set DVF as overlay -> Should return True and set mode to DVF
     success_dvf = vs_base.set_overlay(vs_id_dvf, controller.volumes[vs_id_dvf])
-    assert success_dvf is False
-    assert vs_base.display.overlay_id is None
+    assert success_dvf is True
+    assert vs_base.display.overlay_id == vs_id_dvf
 
 
 # ==========================================

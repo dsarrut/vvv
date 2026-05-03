@@ -73,7 +73,7 @@ class FusionUI:
                 with dpg.group(horizontal=True):
                     dpg.add_text("Mode   ")
                     combo = dpg.add_combo(
-                        ["Alpha", "Registration", "Checkerboard"],
+                        ["Alpha", "Registration", "Checkerboard", "DVF"],
                         tag="combo_fusion_mode",
                         width=-1,
                         callback=gui.fusion_ui.on_fusion_mode_changed,
@@ -154,8 +154,8 @@ class FusionUI:
             options = ["None"]
             for vid, ovs in self.controller.view_states.items():
                 if vid != viewer.image_id:
-                    # Filter out RGB/DVF as they cannot be used as overlays
-                    if getattr(ovs.volume, "is_rgb", False) or getattr(ovs.volume, "is_dvf", False):
+                    # Filter out RGB as they cannot be used as overlays
+                    if getattr(ovs.volume, "is_rgb", False):
                         continue
                     # Use the new helper for the dropdown options
                     opt_name, _ = self.controller.get_image_display_name(vid)
@@ -196,13 +196,15 @@ class FusionUI:
                 )
                 if ov_vs and ov_vs.volume:
                     is_ov_rgb = ov_vs.volume.is_rgb
-                    if not is_ov_rgb:
+                    is_ov_dvf = getattr(ov_vs.volume, "is_dvf", False)
+                    if not is_ov_rgb and not is_ov_dvf:
                         tags_to_enable.extend(
                             ["fusion_info_window", "fusion_info_level"]
                         )
                     else:
-                        dpg.set_value("fusion_info_window", "RGB")
-                        dpg.set_value("fusion_info_level", "RGB")
+                        val_str = "DVF" if is_ov_dvf else "RGB"
+                        dpg.set_value("fusion_info_window", val_str)
+                        dpg.set_value("fusion_info_level", val_str)
             else:
                 # Explicitly wipe the text inputs clean if there is no fusion overlay
                 for t in [
@@ -223,7 +225,22 @@ class FusionUI:
                     dpg.configure_item(t, enabled=(t in tags_to_enable and has_overlay))
 
             if dpg.does_item_exist("combo_fusion_mode"):
-                if is_base_restricted:
+                is_ov_dvf = False
+                if has_overlay:
+                    ov_vs = self.controller.view_states.get(viewer.view_state.display.overlay_id)
+                    if ov_vs and getattr(ov_vs.volume, "is_dvf", False):
+                        is_ov_dvf = True
+                        
+                if is_ov_dvf:
+                    dpg.configure_item("combo_fusion_mode", items=["DVF"], enabled=False)
+                    if viewer.view_state.display.overlay_mode != "DVF":
+                        viewer.view_state.display.overlay_mode = "DVF"
+                        viewer.view_state.is_data_dirty = True
+                    if dpg.does_item_exist("tooltip_fusion_mode"):
+                        dpg.configure_item("tooltip_fusion_mode", show=False)
+                    if dpg.does_item_exist("text_fusion_mode_restricted"):
+                        dpg.configure_item("text_fusion_mode_restricted", show=False)
+                elif is_base_restricted:
                     dpg.configure_item("combo_fusion_mode", items=["Alpha"], enabled=False)
                     if dpg.does_item_exist("tooltip_fusion_mode"):
                         dpg.configure_item("tooltip_fusion_mode", show=True)
@@ -233,7 +250,7 @@ class FusionUI:
                         viewer.view_state.display.overlay_mode = "Alpha"
                         viewer.view_state.is_data_dirty = True
                 else:
-                    dpg.configure_item("combo_fusion_mode", items=["Alpha", "Registration", "Checkerboard"])
+                    dpg.configure_item("combo_fusion_mode", items=["Alpha", "Registration", "Checkerboard"], enabled=True)
                     if dpg.does_item_exist("tooltip_fusion_mode"):
                         dpg.configure_item("tooltip_fusion_mode", show=False)
                     if dpg.does_item_exist("text_fusion_mode_restricted"):
