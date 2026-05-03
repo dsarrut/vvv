@@ -14,6 +14,7 @@ class DicomBrowserWindow:
         self.last_folder = os.getcwd()
         self.scanned_series = []
         self.active_series = None
+        self.active_idx = -1
 
         # Asynchronous State
         self.scan_progress = 0.0
@@ -205,6 +206,9 @@ class DicomBrowserWindow:
             return
 
         self.last_folder = folder
+        self.scanned_series = []
+        self.active_series = None
+        self.active_idx = -1
         recurse = dpg.get_value("dicom_check_recurse")
         dpg.set_value("dicom_scan_status", "  (Scanning...)")
         dpg.configure_item("dicom_scan_progress", show=True)
@@ -222,7 +226,8 @@ class DicomBrowserWindow:
             if len(result) == 2:
                 pct, dirname = result
                 self.scan_progress = pct
-                self.scan_status_text = f"  Scanning: {dirname[:20]}..."
+                label = dirname if len(dirname) <= 30 else dirname[:27] + "..."
+                self.scan_status_text = f"  {label}"
             elif len(result) == 3:
                 _, _, self.scanned_series = result
 
@@ -255,6 +260,7 @@ class DicomBrowserWindow:
         if dpg.does_item_exist(sender):
             dpg.set_value(sender, True)
 
+        self.active_idx = user_data
         self.active_series = self.scanned_series[user_data]
         s = self.active_series
 
@@ -300,14 +306,9 @@ class DicomBrowserWindow:
         if not self.scanned_series:
             return
 
-        idx = 0
-        if self.active_series:
-            idx = self.scanned_series.index(self.active_series) + delta
-            idx = max(0, min(len(self.scanned_series) - 1, idx))
-
+        idx = max(0, min(len(self.scanned_series) - 1, self.active_idx + delta))
         sender = f"dicom_sel_{idx}"
         if dpg.does_item_exist(sender):
             dpg.set_value(sender, True)
             self.on_series_selected(sender, None, idx)
-            # Auto-scroll the UI so the selection never goes off-screen!
             dpg.focus_item(sender)
