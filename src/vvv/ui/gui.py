@@ -1,9 +1,10 @@
 import os
 import json
+import shlex
 import time
 import threading
 import numpy as np
-from vvv.utils import fmt
+from vvv.utils import fmt, ViewMode
 from vvv.ui.ui_roi import RoiUI
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_fusion import FusionUI
@@ -624,8 +625,6 @@ class MainGUI:
                     os.path.basename(os.path.dirname(path_obj[0])) + " (DICOM Series)"
                 )
             elif isinstance(path_str, str) and path_str.startswith("4D:"):
-                import shlex
-
                 path_for_shlex = (
                     path_str[3:].replace("\\", "\\\\")
                     if os.name == "nt"
@@ -656,8 +655,6 @@ class MainGUI:
 
     def pan_viewers_by_delta(self, vs_id, dtx, dty, dtz):
         """Translates the 2D cameras to perfectly match the physical 3D shift."""
-        from vvv.utils import ViewMode
-
         for v in self.controller.viewers.values():
             if v.image_id == vs_id:
                 ppm = v.get_pixels_per_mm()
@@ -786,6 +783,10 @@ class MainGUI:
         # 1. Update Fusion tab base image name
         self.fusion_ui.refresh_fusion_ui()
 
+    def _reset_crosshair_info(self):
+        for tag in ("info_phys", "info_vox", "info_val"):
+            dpg.set_value(tag, "---")
+
     def update_sidebar_crosshair(self, viewer):
         if not viewer or not viewer.view_state:
             return
@@ -799,9 +800,7 @@ class MainGUI:
             or len(np.shape(phys)) == 0
             or len(phys) < 3
         ):
-            dpg.set_value("info_phys", "---")
-            dpg.set_value("info_vox", "---")
-            dpg.set_value("info_val", "---")
+            self._reset_crosshair_info()
             return
 
         try:
@@ -874,9 +873,7 @@ class MainGUI:
 
         except Exception:
             # If ANY math fails during rapid mouse manipulation, safely default to "---"
-            dpg.set_value("info_phys", "---")
-            dpg.set_value("info_vox", "---")
-            dpg.set_value("info_val", "---")
+            self._reset_crosshair_info()
 
     def set_context_viewer(self, viewer):
         """Centralized helper to switch the Active Menu/Sidebar target."""
@@ -1056,16 +1053,10 @@ class MainGUI:
             # Checkbox was already active. Keep it checked and loop orientation.
             dpg.set_value(sender, True)
 
-            from vvv.utils import ViewMode
-
             viewer = self.controller.viewers.get(v_tag)
             if viewer:
-                if viewer.orientation == ViewMode.AXIAL:
-                    viewer.set_orientation(ViewMode.SAGITTAL)
-                elif viewer.orientation == ViewMode.SAGITTAL:
-                    viewer.set_orientation(ViewMode.CORONAL)
-                else:
-                    viewer.set_orientation(ViewMode.AXIAL)
+                _cycle = {ViewMode.AXIAL: ViewMode.SAGITTAL, ViewMode.SAGITTAL: ViewMode.CORONAL, ViewMode.CORONAL: ViewMode.AXIAL}
+                viewer.set_orientation(_cycle.get(viewer.orientation, ViewMode.AXIAL))
             return
 
         if value:
@@ -1126,11 +1117,7 @@ class MainGUI:
             dpg.set_value(sender, False)
 
     def on_toggle_auto_save(self, sender, app_data, user_data):
-        # app_data holds the new boolean state of the checkbox
-        if "behavior" not in self.controller.settings.data:
-            self.controller.settings.data["behavior"] = {}
-
-        self.controller.settings.data["behavior"]["auto_save_history"] = app_data
+        self.controller.settings.data.setdefault("behavior", {})["auto_save_history"] = app_data
 
     def on_save_image_clicked(self, vs_id):
         vol = self.controller.volumes[vs_id]
@@ -1216,21 +1203,13 @@ class MainGUI:
 
     def on_recent_file_clicked(self, sender, app_data, user_data):
         path = user_data
-
-        # Route the request to the correct sequence loader based on the type
-        if isinstance(path, list):
-            self.tasks.append(load_batch_images_sequence(self, self.controller, [path]))
-        elif isinstance(path, str) and path.startswith("4D:"):
-            from vvv.ui.ui_sequences import load_single_image_sequence
-
+        if isinstance(path, str) and path.startswith("4D:"):
             self.tasks.append(load_single_image_sequence(self, self.controller, path))
         else:
             self.tasks.append(load_batch_images_sequence(self, self.controller, [path]))
 
     def on_clear_recent_clicked(self, sender, app_data, user_data):
-        if "behavior" not in self.controller.settings.data:
-            self.controller.settings.data["behavior"] = {}
-        self.controller.settings.data["behavior"]["recent_files"] = []
+        self.controller.settings.data.setdefault("behavior", {})["recent_files"] = []
         self.refresh_recent_menu()
 
     def on_global_reset_clicked(self, sender=None, app_data=None, user_data=None):
@@ -1245,10 +1224,6 @@ class MainGUI:
             for v in self.controller.viewers.values():
                 if v.image_id:
                     v.action_center_view()
-
-    # ==========================================
-    # 5. MODALS & POPUPS
-    # ==========================================
 
     # ==========================================
     # 5. MODALS & POPUPS
