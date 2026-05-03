@@ -279,26 +279,40 @@ class SliceViewer:
         ViewMode.CORONAL: (1, 1, ("x", "z"), (1, -1)),
     }
 
-    def get_display_num_slices(self):
+    def _is_buffered(self) -> bool:
+        vs = self.view_state
+        return vs is not None and vs.base_display_data is not None and vs.space.has_rotation()
+
+    def _get_current_image_shape(self):
         vs = self.view_state
         vol = self.volume
         if not vs or not vol:
-            return 0
-
-        is_buffered = vs.base_display_data is not None and vs.space.has_rotation()
-        current_image_shape = vol.shape3d
-        if is_buffered and vs.base_display_data is not None:
+            return (1, 1, 1)
+        if self._is_buffered() and vs.base_display_data is not None:
             if vs.base_display_data.ndim == 4:
-                current_image_shape = vs.base_display_data.shape[1:]
-            else:
-                current_image_shape = vs.base_display_data.shape
+                return vs.base_display_data.shape[1:]
+            return vs.base_display_data.shape
+        return vol.shape3d
 
+    def _get_crosshair_display_voxel(self) -> "np.ndarray | None":
+        vs = self.view_state
+        if vs is None or vs.camera.crosshair_phys_coord is None:
+            return None
+        v = vs.space.world_to_display(vs.camera.crosshair_phys_coord, is_buffered=self._is_buffered())
+        if v is None:
+            v = vs.space.world_to_display(vs.camera.crosshair_phys_coord, is_buffered=False)
+        return v
+
+    def get_display_num_slices(self):
+        if not self.view_state or not self.volume:
+            return 0
+        s = self._get_current_image_shape()
         if self.orientation == ViewMode.AXIAL:
-            return current_image_shape[0]  # Z-dimension
+            return s[0]  # Z-dimension
         elif self.orientation == ViewMode.SAGITTAL:
-            return current_image_shape[2]  # X-dimension
+            return s[2]  # X-dimension
         elif self.orientation == ViewMode.CORONAL:
-            return current_image_shape[1]  # Y-dimension
+            return s[1]  # Y-dimension
         return 0
 
     @property
@@ -318,25 +332,9 @@ class SliceViewer:
 
     @property
     def slice_idx(self):
-        vs = self.view_state
-        if vs is None or vs.camera.crosshair_phys_coord is None:
-            return 0
-
-        is_buffered = vs.base_display_data is not None and vs.space.has_rotation()
-
-        # Map the physical crosshair to the *display* voxel space
-        display_voxel = vs.space.world_to_display(
-            vs.camera.crosshair_phys_coord, is_buffered=is_buffered
-        )
+        display_voxel = self._get_crosshair_display_voxel()
         if display_voxel is None:
-            # Fallback to native if display mapping fails
-            display_voxel = vs.space.world_to_display(
-                vs.camera.crosshair_phys_coord, is_buffered=False
-            )
-            if display_voxel is None:
-                return 0
-
-        # --- PRECISION FIX ---
+            return 0
         # Use np.round to prevent float-to-int truncation jumping (e.g. 49.999 -> 49)
         v_idx, _, _, _ = self._ORIENTATION_MAP.get(self.orientation, (0, 0, None, None))
         return int(np.round(display_voxel[v_idx])) if v_idx is not None else 0
@@ -348,19 +346,9 @@ class SliceViewer:
         if not vs or not vol or vs.camera.crosshair_phys_coord is None:
             return
 
-        is_buffered = vs.base_display_data is not None and vs.space.has_rotation()
-
-        # Get the current crosshair position in the *display* voxel space
-        current_display_voxel = vs.space.world_to_display(
-            vs.camera.crosshair_phys_coord, is_buffered=is_buffered
-        )
+        current_display_voxel = self._get_crosshair_display_voxel()
         if current_display_voxel is None:
-            # Fallback to native if display mapping fails
-            current_display_voxel = vs.space.world_to_display(
-                vs.camera.crosshair_phys_coord, is_buffered=False
-            )
-            if current_display_voxel is None:
-                return
+            return
 
         # Construct the new display voxel with the new slice index
         new_display_voxel = list(current_display_voxel[:3])
@@ -372,7 +360,7 @@ class SliceViewer:
             new_display_voxel[1] = value
 
         # Convert this new display voxel back to physical world coordinates
-        new_phys = vs.space.display_to_world(np.array(new_display_voxel), is_buffered=is_buffered)
+        new_phys = vs.space.display_to_world(np.array(new_display_voxel), is_buffered=self._is_buffered())
         if new_phys is None:
             return
 
@@ -442,23 +430,9 @@ class SliceViewer:
             self.controller.ui_needs_refresh = True
 
     def set_current_slice_to_crosshair(self):
-        vs = self.view_state
-        if vs is None or vs.camera.crosshair_phys_coord is None:
-            return
-
-        is_buffered = vs.base_display_data is not None and vs.space.has_rotation()
-
-        # Map the physical crosshair to the *display* voxel space
-        display_voxel = vs.space.world_to_display(
-            vs.camera.crosshair_phys_coord, is_buffered=is_buffered
-        )
+        display_voxel = self._get_crosshair_display_voxel()
         if display_voxel is None:
-            # Fallback to native if display mapping fails
-            display_voxel = vs.space.world_to_display(vs.camera.crosshair_phys_coord, is_buffered=False)
-            if display_voxel is None:
-                return
-
-        # Update the viewer's slice_idx (which is the display slice index)
+            return
         v_idx, _, _, _ = self._ORIENTATION_MAP.get(self.orientation, (0, 0, None, None))
         if v_idx is not None:
             self.slice_idx = int(np.round(display_voxel[v_idx]))
@@ -498,7 +472,7 @@ class SliceViewer:
             return False
 
         # Use the shape of the *displayed* slice for texture dimensions
-        display_slice_shape = self.get_slice_shape() # This now returns the shape of the displayed slice
+        display_slice_shape = self.get_slice_shape()
         h, w = display_slice_shape[0], display_slice_shape[1]
 
         if vs and vs.display.pixelated_zoom:
@@ -614,25 +588,15 @@ class SliceViewer:
         return self.orientation in [ViewMode.AXIAL, ViewMode.SAGITTAL, ViewMode.CORONAL]
 
     def get_slice_shape(self):
-        vs = self.view_state
-        vol = self.volume
-        if not vs or not vol:
+        if not self.view_state or not self.volume:
             return 1, 1
-
-        is_buffered = vs.base_display_data is not None and vs.space.has_rotation()
-        current_image_shape = vol.shape3d
-        if is_buffered and vs.base_display_data is not None:
-            if vs.base_display_data.ndim == 4:
-                current_image_shape = vs.base_display_data.shape[1:]
-            else:
-                current_image_shape = vs.base_display_data.shape
-
+        s = self._get_current_image_shape()
         if self.orientation == ViewMode.AXIAL:
-            return current_image_shape[1], current_image_shape[2] # Y, X
+            return s[1], s[2]  # Y, X
         elif self.orientation == ViewMode.SAGITTAL:
-            return current_image_shape[0], current_image_shape[1] # Z, Y
+            return s[0], s[1]  # Z, Y
         elif self.orientation == ViewMode.CORONAL:
-            return current_image_shape[0], current_image_shape[2] # Z, X
+            return s[0], s[2]  # Z, X
         return 1, 1
 
     def get_axis_labels(self):
@@ -656,7 +620,7 @@ class SliceViewer:
 
         cx = (win_w - self.mapper.margin_left * 2.0) / 2.0
         cy = (win_h - self.mapper.margin_top * 2.0) / 2.0
-        shape = self.get_slice_shape() # This is now the display slice shape
+        shape = self.get_slice_shape()
         real_h, real_w = shape[0], shape[1]
         sw, sh = vol.get_physical_aspect_ratio(self.orientation)
 
@@ -674,8 +638,7 @@ class SliceViewer:
 
         # Use the viewer's current slice_idx (which is the display slice index)
         v = slice_to_voxel(slice_x, slice_y, self.slice_idx, self.orientation, shape)
-        is_buffered = vs.base_display_data is not None and vs.space.has_rotation()
-        return vs.space.display_to_world(np.array(v), is_buffered=is_buffered)
+        return vs.space.display_to_world(np.array(v), is_buffered=self._is_buffered())
 
     def get_mouse_slice_coords(self, ignore_hover=False, allow_outside=False):
         vol = self.volume
@@ -684,7 +647,7 @@ class SliceViewer:
         if not ignore_hover and not dpg.is_item_hovered(f"win_{self.tag}"):
             return None, None
 
-        shape = self.get_slice_shape() # This is now the display slice shape
+        shape = self.get_slice_shape()
         real_h, real_w = shape[0], shape[1]
 
         try:
@@ -707,7 +670,7 @@ class SliceViewer:
             return 1.0
 
         sw, sh = vol.get_physical_aspect_ratio(self.orientation)
-        shape = self.get_slice_shape() # This is now the display slice shape
+        shape = self.get_slice_shape()
         real_w, real_h = shape[1], shape[0]
 
         mm_w, mm_h = real_w * sw, real_h * sh
@@ -731,7 +694,7 @@ class SliceViewer:
             return
 
         sw, sh = vol.get_physical_aspect_ratio(self.orientation)
-        shape = self.get_slice_shape() # This is now the display slice shape
+        shape = self.get_slice_shape()
         real_w, real_h = shape[1], shape[0]
 
         mm_w, mm_h = real_w * sw, real_h * sh
@@ -757,11 +720,10 @@ class SliceViewer:
         if not win_w or not win_h:
             return
 
-        is_buf = vs.base_display_data is not None and vs.space.has_rotation()
-        v = vs.space.world_to_display(phys_coord, is_buffered=is_buf)
+        v = vs.space.world_to_display(phys_coord, is_buffered=self._is_buffered())
         if v is None:
             return
-        shape = self.get_slice_shape() # This is now the display slice shape
+        shape = self.get_slice_shape()
         real_h, real_w = shape[0], shape[1]
         sw, sh = vol.get_physical_aspect_ratio(self.orientation)
 
@@ -805,7 +767,7 @@ class SliceViewer:
             return
 
         sw, sh = vol.get_physical_aspect_ratio(self.orientation)
-        shape = self.get_slice_shape() # This is now the display slice shape
+        shape = self.get_slice_shape()
         real_h, real_w = shape[0], shape[1]
 
         if self.needs_recenter:
@@ -833,19 +795,11 @@ class SliceViewer:
         if not vs or not vol or vs.camera.crosshair_voxel is None:
             return [0.0, 0.0]
 
-        # Use the *display* slice shape and voxel for centering
-        is_buffered = vs.base_display_data is not None and vs.space.has_rotation()
-        display_voxel = vs.space.world_to_display(
-            vs.camera.crosshair_phys_coord, is_buffered=is_buffered
-        )
+        display_voxel = self._get_crosshair_display_voxel()
         if display_voxel is None:
-            display_voxel = vs.space.world_to_display(
-                vs.camera.crosshair_phys_coord, is_buffered=False
-            )
-            if display_voxel is None:
-                return [0.0, 0.0]
+            return [0.0, 0.0]
 
-        shape = self.get_slice_shape() # This is now the display slice shape
+        shape = self.get_slice_shape()
         real_h, real_w = shape[0], shape[1]
         sw, sh = vol.get_physical_aspect_ratio(self.orientation)
 
@@ -908,7 +862,7 @@ class SliceViewer:
         size_changed = win_w != self.last_w or win_h != self.last_h
         image_changed = self.image_id != self.last_drawn_image_id
         orientation_changed = self.orientation != self.last_orientation
-        current_shape = self.get_slice_shape() # This is now the display slice shape
+        current_shape = self.get_slice_shape()
         shape_changed = current_shape != self.last_drawn_shape
 
         pixelated = vs.display.pixelated_zoom
@@ -1177,29 +1131,9 @@ class SliceViewer:
         if not vol:
             return
 
-        is_buffered = vs.base_display_data is not None and vs.space.has_rotation()
-
-        # Get the shape of the *currently displayed* image (native or buffered)
-        current_image_shape = vol.shape3d
-        if is_buffered and vs.base_display_data is not None:
-            if vs.base_display_data.ndim == 4:
-                current_image_shape = vs.base_display_data.shape[1:]
-            else:
-                current_image_shape = vs.base_display_data.shape
-
-        display_slice_shape = (0, 0)
-        if self.orientation == ViewMode.AXIAL:
-            display_slice_shape = (current_image_shape[1], current_image_shape[2]) # Y, X
-        elif self.orientation == ViewMode.SAGITTAL:
-            display_slice_shape = (current_image_shape[0], current_image_shape[1]) # Z, Y
-        elif self.orientation == ViewMode.CORONAL:
-            display_slice_shape = (current_image_shape[0], current_image_shape[2]) # Z, X
-
-        # Use the viewer's current slice_idx (which is the display slice index)
+        display_slice_shape = self.get_slice_shape()
         display_voxel = slice_to_voxel(pix_x, pix_y, self.slice_idx, self.orientation, display_slice_shape)
-
-        # Map display-grid voxel to absolute physical world
-        phys = vs.space.display_to_world(np.array(display_voxel[:3]), is_buffered=is_buffered)
+        phys = vs.space.display_to_world(np.array(display_voxel[:3]), is_buffered=self._is_buffered())
         if phys is None:
             return
 
@@ -1542,7 +1476,7 @@ class SliceViewer:
             canvas_w = int(max(1, self.quad_w - pad))
             canvas_h = int(max(1, self.quad_h - pad))
 
-            shape = self.get_slice_shape() # This is now the display slice shape
+            shape = self.get_slice_shape()
             rgba_2d = rgba_flat.reshape((shape[0], shape[1], 4))
             rgba_mapped = self._get_screen_mapped_texture(
                 rgba_2d, self.current_pmin, self.current_pmax, canvas_w, canvas_h
@@ -1573,8 +1507,7 @@ class SliceViewer:
             return False
 
         pmin, pmax = self.current_pmin, self.current_pmax
-        shape = self.get_slice_shape() # This is now the display slice shape
-
+        shape = self.get_slice_shape()
         vox_w, vox_h = (pmax[0] - pmin[0]) / shape[1], (pmax[1] - pmin[1]) / shape[0]
         if vox_w <= 0 or vox_h <= 0:
             return False
@@ -1596,7 +1529,7 @@ class SliceViewer:
         if not self.is_image_orientation() or not vs or not vol:
             return
 
-        shape = self.get_slice_shape() # This is now the display slice shape
+        shape = self.get_slice_shape()
         h, w = shape[0], shape[1]
 
         if self.should_use_voxels_strips() and self.last_rgba_flat is not None:
@@ -1740,10 +1673,9 @@ class SliceViewer:
 
             # Use the viewer's current slice_idx (which is the display slice index)
             idx = self.slice_idx
-            shape = self.get_slice_shape() # This is now the display slice shape
+            shape = self.get_slice_shape()
             v = slice_to_voxel(pix_x, pix_y, idx, self.orientation, shape)
-            is_buf = vs.base_display_data is not None and vs.space.has_rotation()
-            phys = vs.space.display_to_world(np.array(v), is_buffered=is_buf)
+            phys = vs.space.display_to_world(np.array(v), is_buffered=self._is_buffered())
 
             # Clear our own passive target so we don't fight ourselves
             vs.camera.target_tracker_phys = None
@@ -1769,8 +1701,7 @@ class SliceViewer:
 
             self._external_tracker_active = True
             is_external = True
-            is_buf = vs.base_display_data is not None and vs.space.has_rotation()
-            v = vs.space.world_to_display(phys, is_buffered=is_buf)
+            v = vs.space.world_to_display(phys, is_buffered=self._is_buffered())
 
         # --- THE NEUTRALIZED SPATIAL ENGINE ---
         # Even if we are viewing a rotated buffer, we consistently calculate the 'Native Voxel' 
