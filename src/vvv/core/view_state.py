@@ -350,15 +350,31 @@ class DVFState:
 
     def __init__(self, parent_vs: "ViewState | None" = None):
         self._parent = parent_vs
-        self.display_mode = "Component"  # Modes: "Component", "RGB", "Vector Field"
-        self.vector_sampling = 5
+        self.display_mode = "Vector Field"  # Modes: "Component", "RGB", "Vector Field"
         self.vector_scale = 1.0
         self.vector_thickness = 1.0
-        self.vector_color_min = [255, 200, 0, 255]
-        self.vector_color_max = [255, 0, 0, 255]
-        self.vector_color_max_mag = 10.0
-        self.vector_min_length_arrow = 1.0
+        self.vector_min_length_arrow = 3.0
         self.vector_min_length_draw = 0.0
+        self.vector_color_min = [0, 255, 255, 255]  # Cyan
+        self.vector_color_max = [255, 0, 0, 255]
+        
+        self.vector_sampling = 5
+        self.vector_color_max_mag = 10.0
+        
+        if parent_vs and getattr(parent_vs, "volume", None) and getattr(parent_vs.volume, "is_dvf", False):
+            import numpy as np
+            vol = parent_vs.volume
+            try:
+                # 1. Compute true Max Magnitude (subsampled 2x for instant calculation)
+                sub_data = vol.data[:, ::2, ::2, ::2]
+                max_mag = float(np.max(np.linalg.norm(sub_data, axis=0)))
+                self.vector_color_max_mag = max(0.1, max_mag)
+
+                # 2. Dynamic Pixel Sampling (Aim for ~100 arrows across the largest dimension)
+                max_dim = max(vol.shape3d)
+                self.vector_sampling = max(1, int(round(max_dim / 100.0)))
+            except Exception:
+                pass
 
     def __setattr__(self, name, value):
         if name in self._GEOM_FIELDS and getattr(self, name, _SENTINEL) != value:

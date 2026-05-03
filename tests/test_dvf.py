@@ -226,21 +226,21 @@ def test_dvf_can_join_sync_group_and_sync_components(dvf_app, tmp_path):
 def test_dvf_state_defaults():
     """DVFState initializes with the correct default values for vector arrow rendering."""
     state = DVFState()
-    assert state.display_mode == "Component"
+    assert state.display_mode == "Vector Field"
     assert state.vector_sampling == 5
     assert state.vector_scale == pytest.approx(1.0)
     assert state.vector_thickness == pytest.approx(1.0)
-    assert state.vector_color_min == [255, 200, 0, 255]
+    assert state.vector_color_min == [0, 255, 255, 255]
     assert state.vector_color_max == [255, 0, 0, 255]
     assert state.vector_color_max_mag == pytest.approx(10.0)
-    assert state.vector_min_length_arrow == pytest.approx(1.0)
+    assert state.vector_min_length_arrow == pytest.approx(3.0)
     assert state.vector_min_length_draw == pytest.approx(0.0)
 
 
 def test_dvf_state_serialization_roundtrip():
     """to_dict / from_dict preserves all DVFState fields unchanged."""
     original = DVFState()
-    original.display_mode = "Vector Field"
+    original.display_mode = "Component"
     original.vector_sampling = 10
     original.vector_scale = 2.5
     original.vector_thickness = 3.0
@@ -253,7 +253,7 @@ def test_dvf_state_serialization_roundtrip():
     restored = DVFState()
     restored.from_dict(original.to_dict())
 
-    assert restored.display_mode == "Vector Field"
+    assert restored.display_mode == "Component"
     assert restored.vector_sampling == 10
     assert restored.vector_scale == pytest.approx(2.5)
     assert restored.vector_thickness == pytest.approx(3.0)
@@ -272,7 +272,7 @@ def test_dvf_state_dirty_flag(dvf_app):
     vs.is_geometry_dirty = False
     vs.is_data_dirty = False
 
-    vs.dvf.display_mode = "Vector Field"
+    vs.dvf.display_mode = "Component"
 
     assert vs.is_geometry_dirty is True
     assert vs.is_data_dirty is True
@@ -364,25 +364,25 @@ def _interpolate_color(mag_3d, c_min, c_max, t_min, t_max):
 
 
 def test_dvf_color_at_zero_magnitude():
-    """Magnitude at the minimum threshold maps to vector_color_min (yellow by default)."""
+    """Magnitude at the minimum threshold maps to vector_color_min (cyan by default)."""
     state = DVFState()
     color = _interpolate_color(
         0.0, state.vector_color_min, state.vector_color_max,
         state.vector_min_length_draw, state.vector_color_max_mag,
     )
-    assert color == [255, 200, 0, 255]
+    assert color == [0, 255, 255, 255]
 
 
 def test_dvf_color_at_half_max_magnitude():
     """Magnitude at half of vector_color_max_mag maps to the midpoint color."""
     state = DVFState()
-    # Default max_mag=10.0, c_min=[255,200,0,255], c_max=[255,0,0,255]
-    # At mag=5.0: t=0.5 → [255, 100, 0, 255]
+    # Default max_mag=10.0, c_min=[0,255,255,255], c_max=[255,0,0,255]
+    # At mag=5.0: t=0.5 → [127, 127, 127, 255]
     color = _interpolate_color(
         5.0, state.vector_color_min, state.vector_color_max,
         state.vector_min_length_draw, state.vector_color_max_mag,
     )
-    assert color == [255, 100, 0, 255]
+    assert color == [127, 127, 127, 255]
 
 
 def test_dvf_color_clamped_above_max_magnitude():

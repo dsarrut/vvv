@@ -55,7 +55,7 @@ class DvfUI:
                         step_callback=gui.dvf_ui.on_step_button_clicked,
                         min_val=0.0,
                         max_val=500.0,
-                        default_val=1.0,
+                        default_val=3.0,
                         format="%.1f mm",
                     )
 
@@ -71,7 +71,7 @@ class DvfUI:
                         has_color=True,
                         color_tag="color_dvf_min",
                         color_cb=gui.dvf_ui.on_color_min_changed,
-                        color_default=(255, 200, 0, 255),
+                        color_default=(0, 255, 255, 255),
                     )
 
                     build_stepped_slider(
