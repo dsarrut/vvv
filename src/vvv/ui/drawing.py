@@ -1,7 +1,7 @@
 import numpy as np
 from vvv.config import COLORMAPS
 import dearpygui.dearpygui as dpg
-from vvv.utils import voxel_to_slice
+from vvv.utils import voxel_to_slice, ViewMode
 
 
 class OverlayDrawer:
@@ -613,3 +613,157 @@ class OverlayDrawer:
         dpg.apply_transform(node, trans_mat * scale_mat)
 
         dpg.configure_item(node, show=True)
+
+    def draw_vector_field(self):
+        viewer = self.viewer
+        vs = viewer.view_state
+        vol = viewer.volume
+
+        node_tag = getattr(viewer, "vector_field_node_tag", None)
+        if not node_tag or not dpg.does_item_exist(node_tag):
+            return
+
+        if not viewer.is_image_orientation() or not vs or not vol:
+            dpg.configure_item(node_tag, show=False)
+            return
+
+        dpg.delete_item(node_tag, children_only=True)
+
+        is_base_dvf = getattr(vol, "is_dvf", False)
+        draw_base = is_base_dvf and vs.dvf.display_mode == "Vector Field"
+
+        ov_id = vs.display.overlay_id
+        ov_vs = viewer.controller.view_states.get(ov_id) if ov_id else None
+        is_ov_dvf = getattr(ov_vs.volume, "is_dvf", False) if ov_vs else False
+        draw_ov = is_ov_dvf and vs.display.overlay_mode == "DVF"
+
+        if not draw_base and not draw_ov:
+            dpg.configure_item(node_tag, show=False)
+            return
+
+        targets = []
+        if draw_base:
+            targets.append((vs, vs.base_display_data if vs.base_display_data is not None else vol.data, False))
+        if draw_ov:
+            targets.append((ov_vs, vs.display.overlay_data, True))
+
+        ori = viewer.orientation
+
+        pmin, pmax = viewer.current_pmin, viewer.current_pmax
+        shape = viewer.get_slice_shape()
+        real_h, real_w = shape[0], shape[1]
+
+        if real_w == 0 or real_h == 0:
+            return
+
+        vox_w = (pmax[0] - pmin[0]) / real_w
+        vox_h = (pmax[1] - pmin[1]) / real_h
+
+        win_w, win_h = viewer.quad_w, viewer.quad_h
+
+        start_x = max(0, int(-pmin[0] / vox_w))
+        end_x = min(real_w, int((win_w - pmin[0]) / vox_w) + 1)
+        start_y = max(0, int(-pmin[1] / vox_h))
+        end_y = min(real_h, int((win_h - pmin[1]) / vox_h) + 1)
+        
+        ppm = viewer.get_pixels_per_mm()
+        from vvv.maths.image import SliceRenderer
+
+        for target_vs, display_data, is_overlay in targets:
+            if display_data is None:
+                continue
+
+            if is_overlay:
+                layer = viewer._package_overlay_layer()
+                if not layer:
+                    continue
+                s_idx = viewer.slice_idx - layer.offset_slice
+                disp_w = pmax[0] - pmin[0]
+                disp_h = pmax[1] - pmin[1]
+                shift_x = viewer.active_overlay_shift_x * (disp_w / real_w) if real_w > 0 else 0.0
+                shift_y = viewer.active_overlay_shift_y * (disp_h / real_h) if real_h > 0 else 0.0
+            else:
+                s_idx = viewer.slice_idx
+                shift_x, shift_y = 0.0, 0.0
+
+            vx_slice = SliceRenderer.get_raw_slice(display_data, False, 0, s_idx, ori)
+            vy_slice = SliceRenderer.get_raw_slice(display_data, False, 1, s_idx, ori)
+            vz_slice = SliceRenderer.get_raw_slice(display_data, False, 2, s_idx, ori)
+
+            if vx_slice.shape != (real_h, real_w) or vy_slice.shape != (real_h, real_w):
+                continue
+
+            if ori == ViewMode.AXIAL:
+                h_comp, v_comp, d_comp = vx_slice, vy_slice, vz_slice
+            elif ori == ViewMode.SAGITTAL:
+                h_comp, v_comp, d_comp = -vy_slice, -vz_slice, vx_slice
+            else:  # CORONAL
+                h_comp, v_comp, d_comp = vx_slice, -vz_slice, vy_slice
+
+            stride_x = max(1, int(target_vs.dvf.vector_sampling))
+            stride_y = stride_x
+            
+            scale = target_vs.dvf.vector_scale
+            
+            c_min = np.array(target_vs.dvf.vector_color_min, dtype=np.float32)
+            c_max = np.array(target_vs.dvf.vector_color_max, dtype=np.float32)
+            t_min = target_vs.dvf.vector_min_length_draw
+            t_max = max(t_min + 1e-5, target_vs.dvf.vector_color_max_mag)
+            thickness = int(max(1.0, target_vs.dvf.vector_thickness))
+
+            # Prevent GPU lag by increasing stride if zoomed out way too far
+            num_x = max(0, (end_x - start_x)) // stride_x
+            num_y = max(0, (end_y - start_y)) // stride_y
+            if num_x * num_y > 8000:
+                scale_factor = np.sqrt((num_x * num_y) / 8000)
+                stride_x = max(stride_x, int(stride_x * scale_factor))
+                stride_y = max(stride_y, int(stride_y * scale_factor))
+
+            # Execute massive drawing batch
+            for y in range(start_y, end_y, stride_y):
+                for x in range(start_x, end_x, stride_x):
+                    h_val, v_val, d_val = h_comp[y, x], v_comp[y, x], d_comp[y, x]
+
+                    if h_val == 0 and v_val == 0 and d_val == 0:
+                        continue
+
+                    # Compute true 3D Physical Magnitude to compare against threshold
+                    mag_3d = np.sqrt(h_val**2 + v_val**2 + d_val**2)
+                    if mag_3d < target_vs.dvf.vector_min_length_draw:
+                        continue
+
+                    # Interpolate color based on magnitude
+                    t_col = min(1.0, max(0.0, (mag_3d - t_min) / (t_max - t_min)))
+                    c_interp = c_min + t_col * (c_max - c_min)
+                    color = [int(c_interp[0]), int(c_interp[1]), int(c_interp[2]), int(c_interp[3])]
+
+                    # Anchor to the center of the voxel's bounding box and apply shift
+                    screen_x = pmin[0] + shift_x + (x + 0.5) * vox_w
+                    screen_y = pmin[1] + shift_y + (y + 0.5) * vox_h
+
+                    # Exact physical mapping with scale (value in mm * pixels per mm * scale)
+                    end_x_px = screen_x + (h_val * ppm * scale)
+                    end_y_px = screen_y + (v_val * ppm * scale)
+
+                    # Dynamically scale arrowhead size
+                    arrow_size = int(max(1.0, min(4.0, np.hypot(h_val * ppm * scale, v_val * ppm * scale) * 0.3)))
+
+                    if mag_3d < target_vs.dvf.vector_min_length_arrow:
+                        dpg.draw_line(
+                            [screen_x, screen_y],
+                            [end_x_px, end_y_px],
+                            color=color,
+                            thickness=thickness,
+                            parent=node_tag
+                        )
+                    else:
+                        dpg.draw_arrow(
+                            [end_x_px, end_y_px],
+                            [screen_x, screen_y],
+                            color=color,
+                            thickness=thickness,
+                            size=arrow_size,
+                            parent=node_tag
+                        )
+
+        dpg.configure_item(node_tag, show=True)

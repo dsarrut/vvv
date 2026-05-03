@@ -2,6 +2,8 @@ import pytest
 import numpy as np
 import SimpleITK as sitk
 from vvv.core.controller import Controller
+from vvv.core.view_state import DVFState
+from vvv.maths.image import SliceRenderer
 from vvv.ui.gui import MainGUI
 from vvv.ui.viewer import SliceViewer
 from vvv.utils import ViewMode
@@ -214,3 +216,180 @@ def test_dvf_can_join_sync_group_and_sync_components(dvf_app, tmp_path):
     # Both should now be on time_idx 2 (Frame 2 for 4D, Dz for DVF)
     assert controller.view_states[vs_id_4d].camera.time_idx == 2
     assert controller.view_states[vs_id_dvf].camera.time_idx == 2
+
+
+# ==========================================
+# 5. DVF STATE (VECTOR DISPLAY SETTINGS)
+# ==========================================
+
+
+def test_dvf_state_defaults():
+    """DVFState initializes with the correct default values for vector arrow rendering."""
+    state = DVFState()
+    assert state.display_mode == "Vector Field"
+    assert state.vector_sampling == 5
+    assert state.vector_scale == pytest.approx(1.0)
+    assert state.vector_thickness == pytest.approx(1.0)
+    assert state.vector_color_min == [0, 255, 255, 255]
+    assert state.vector_color_max == [255, 0, 0, 255]
+    assert state.vector_color_max_mag == pytest.approx(10.0)
+    assert state.vector_min_length_arrow == pytest.approx(3.0)
+    assert state.vector_min_length_draw == pytest.approx(0.0)
+
+
+def test_dvf_state_serialization_roundtrip():
+    """to_dict / from_dict preserves all DVFState fields unchanged."""
+    original = DVFState()
+    original.display_mode = "Component"
+    original.vector_sampling = 10
+    original.vector_scale = 2.5
+    original.vector_thickness = 3.0
+    original.vector_color_min = [0, 255, 0, 200]
+    original.vector_color_max = [255, 0, 255, 128]
+    original.vector_color_max_mag = 25.0
+    original.vector_min_length_arrow = 0.5
+    original.vector_min_length_draw = 0.3
+
+    restored = DVFState()
+    restored.from_dict(original.to_dict())
+
+    assert restored.display_mode == "Component"
+    assert restored.vector_sampling == 10
+    assert restored.vector_scale == pytest.approx(2.5)
+    assert restored.vector_thickness == pytest.approx(3.0)
+    assert restored.vector_color_min == [0, 255, 0, 200]
+    assert restored.vector_color_max == [255, 0, 255, 128]
+    assert restored.vector_color_max_mag == pytest.approx(25.0)
+    assert restored.vector_min_length_arrow == pytest.approx(0.5)
+    assert restored.vector_min_length_draw == pytest.approx(0.3)
+
+
+def test_dvf_state_dirty_flag(dvf_app):
+    """Changing a DVFState field marks the parent ViewState geometry and data as dirty."""
+    controller, _, vs_id = dvf_app
+    vs = controller.view_states[vs_id]
+
+    vs.is_geometry_dirty = False
+    vs.is_data_dirty = False
+
+    vs.dvf.display_mode = "Component"
+
+    assert vs.is_geometry_dirty is True
+    assert vs.is_data_dirty is True
+
+
+def test_dvf_state_no_dirty_on_same_value(dvf_app):
+    """Setting a DVFState field to its current value does not trigger dirty flags."""
+    controller, _, vs_id = dvf_app
+    vs = controller.view_states[vs_id]
+
+    vs.dvf.vector_sampling = 5  # ensure it is at the default
+    vs.is_geometry_dirty = False
+    vs.is_data_dirty = False
+
+    vs.dvf.vector_sampling = 5  # no-op: same value
+
+    assert vs.is_geometry_dirty is False
+    assert vs.is_data_dirty is False
+
+
+# ==========================================
+# 6. VECTOR FIELD SLICE EXTRACTION & AXIS MAPPING
+# ==========================================
+
+
+def test_dvf_axial_vector_component_mapping(dvf_app):
+    """
+    Axial slice at z=2: h_comp=vx, v_comp=vy, d_comp=vz — no sign flips.
+    Center voxel (2,2) must expose the full [dx, dy, dz] = [3, 4, 0] triple.
+    """
+    controller, _, vs_id = dvf_app
+    data = controller.volumes[vs_id].data  # (3, 5, 5, 5)
+
+    vx = SliceRenderer.get_raw_slice(data, False, 0, 2, ViewMode.AXIAL)
+    vy = SliceRenderer.get_raw_slice(data, False, 1, 2, ViewMode.AXIAL)
+    vz = SliceRenderer.get_raw_slice(data, False, 2, 2, ViewMode.AXIAL)
+
+    assert vx[2, 2] == pytest.approx(3.0)  # h_comp
+    assert vy[2, 2] == pytest.approx(4.0)  # v_comp
+    assert vz[2, 2] == pytest.approx(0.0)  # d_comp
+
+
+def test_dvf_sagittal_vector_component_mapping(dvf_app):
+    """
+    Sagittal slice at x=2: h_comp=-vy, v_comp=-vz, d_comp=vx.
+    extract_slice applies flipud+fliplr; on a 5×5 grid the center stays at [2,2].
+    """
+    controller, _, vs_id = dvf_app
+    data = controller.volumes[vs_id].data  # (3, 5, 5, 5)
+
+    vx = SliceRenderer.get_raw_slice(data, False, 0, 2, ViewMode.SAGITTAL)
+    vy = SliceRenderer.get_raw_slice(data, False, 1, 2, ViewMode.SAGITTAL)
+    vz = SliceRenderer.get_raw_slice(data, False, 2, 2, ViewMode.SAGITTAL)
+
+    assert (-vy)[2, 2] == pytest.approx(-4.0)  # h_comp
+    assert (-vz)[2, 2] == pytest.approx(0.0)   # v_comp
+    assert vx[2, 2] == pytest.approx(3.0)       # d_comp
+
+
+def test_dvf_coronal_vector_component_mapping(dvf_app):
+    """
+    Coronal slice at y=2: h_comp=vx, v_comp=-vz, d_comp=vy.
+    extract_slice applies flipud only; center row stays at index 2 in a 5×5 grid.
+    """
+    controller, _, vs_id = dvf_app
+    data = controller.volumes[vs_id].data  # (3, 5, 5, 5)
+
+    vx = SliceRenderer.get_raw_slice(data, False, 0, 2, ViewMode.CORONAL)
+    vy = SliceRenderer.get_raw_slice(data, False, 1, 2, ViewMode.CORONAL)
+    vz = SliceRenderer.get_raw_slice(data, False, 2, 2, ViewMode.CORONAL)
+
+    assert vx[2, 2] == pytest.approx(3.0)    # h_comp
+    assert (-vz)[2, 2] == pytest.approx(0.0) # v_comp
+    assert vy[2, 2] == pytest.approx(4.0)    # d_comp
+
+
+# ==========================================
+# 7. COLOR INTERPOLATION FOR MAGNITUDE
+# ==========================================
+
+
+def _interpolate_color(mag_3d, c_min, c_max, t_min, t_max):
+    """Replicate the color interpolation formula used in draw_vector_field."""
+    t_col = min(1.0, max(0.0, (mag_3d - t_min) / (t_max - t_min)))
+    c = np.array(c_min, dtype=np.float32) + t_col * (
+        np.array(c_max, dtype=np.float32) - np.array(c_min, dtype=np.float32)
+    )
+    return [int(c[0]), int(c[1]), int(c[2]), int(c[3])]
+
+
+def test_dvf_color_at_zero_magnitude():
+    """Magnitude at the minimum threshold maps to vector_color_min (cyan by default)."""
+    state = DVFState()
+    color = _interpolate_color(
+        0.0, state.vector_color_min, state.vector_color_max,
+        state.vector_min_length_draw, state.vector_color_max_mag,
+    )
+    assert color == [0, 255, 255, 255]
+
+
+def test_dvf_color_at_half_max_magnitude():
+    """Magnitude at half of vector_color_max_mag maps to the midpoint color."""
+    state = DVFState()
+    # Default max_mag=10.0, c_min=[0,255,255,255], c_max=[255,0,0,255]
+    # At mag=5.0: t=0.5 → [127, 127, 127, 255]
+    color = _interpolate_color(
+        5.0, state.vector_color_min, state.vector_color_max,
+        state.vector_min_length_draw, state.vector_color_max_mag,
+    )
+    assert color == [127, 127, 127, 255]
+
+
+def test_dvf_color_clamped_above_max_magnitude():
+    """Magnitude beyond vector_color_max_mag is clamped to vector_color_max (red by default)."""
+    state = DVFState()
+    color = _interpolate_color(
+        999.0, state.vector_color_min, state.vector_color_max,
+        state.vector_min_length_draw, state.vector_color_max_mag,
+    )
+    assert color == [255, 0, 0, 255]

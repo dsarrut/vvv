@@ -614,6 +614,8 @@ def load_workspace_sequence(gui, controller, filepath):
                 vs.camera.from_dict(img_data.get("camera", {}))
                 if "extraction" in img_data:
                     vs.extraction.from_dict(img_data["extraction"])
+                if "dvf" in img_data:
+                    vs.dvf.from_dict(img_data["dvf"])
                 vs.sync_group = img_data.get("sync_group", 0)
 
                 if hasattr(gui, "roi_ui"):

@@ -297,6 +297,7 @@ class FileManager:
                 "display": vs.display.to_dict(),
                 "camera": vs.camera.to_dict(),
                 "extraction": vs.extraction.to_dict(),
+                "dvf": vs.dvf.to_dict(),
                 "overlay": overlay_info,
                 "rois": rois_list,
                 "roi_filter": roi_filter,
