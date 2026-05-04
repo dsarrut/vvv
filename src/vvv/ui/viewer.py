@@ -542,31 +542,36 @@ class SliceViewer:
         return True
 
     def bind_texture_to_node(self):
-        # 1. Cleanly delete the old drawing command
-        if dpg.does_item_exist(self.img_node_tag):
-            dpg.delete_item(self.img_node_tag, children_only=True)
-
-        # 2. Safely defer deleting the old texture from VRAM until the next frame
+        # Defer deletion of the old texture to the next frame
         if self._old_texture_to_delete:
             self._textures_to_delete.append(self._old_texture_to_delete)
             self._old_texture_to_delete = None
 
-        # 3. Re-bind the image quad to the screen
-        if dpg.does_item_exist(self.img_node_tag):
-            self.image_tag = dpg.draw_image(
-                self.texture_tag,
-                self.current_pmin,
-                self.current_pmax,
-                parent=self.img_node_tag,
-            )
+        if not dpg.does_item_exist(self.img_node_tag):
+            return
 
-            self.overlay_image_tag = dpg.draw_image(
-                self.overlay_texture_tag,
-                self.current_pmin,
-                self.current_pmax,
-                parent=self.img_node_tag,
-                show=False,
-            )
+        # DPG does not support dynamically updating 'texture_tag' via configure_item.
+        # We must safely delete the old draw items and recreate them to point to the new VRAM.
+        if dpg.does_item_exist(self.image_tag):
+            dpg.delete_item(self.image_tag)
+        if hasattr(self, "overlay_image_tag") and dpg.does_item_exist(self.overlay_image_tag):
+            dpg.delete_item(self.overlay_image_tag)
+
+        self.image_tag = dpg.draw_image(
+            self.texture_tag,
+            self.current_pmin,
+            self.current_pmax,
+            parent=self.img_node_tag,
+            tag=self.image_tag,
+        )
+        self.overlay_image_tag = dpg.draw_image(
+            self.overlay_texture_tag,
+            self.current_pmin,
+            self.current_pmax,
+            parent=self.img_node_tag,
+            show=False,
+            tag=self.overlay_image_tag,
+        )
 
     def drop_image(self):
         self.image_id = None
@@ -1008,34 +1013,82 @@ class SliceViewer:
         """Extracts the exact viewport region and upscales using pure Nearest Neighbor math."""
         h, w = rgba_img.shape[:2]
 
-        # Shift the sampling point to the exact geometric center of each screen pixel.
-        # This prevents float boundaries from rapidly flipping indices during sub-pixel zooms.
-        screen_x = np.arange(canvas_w) + 0.5
-        screen_y = np.arange(canvas_h) + 0.5
-
         disp_w = max(1e-5, pmax[0] - pmin[0])
         disp_h = max(1e-5, pmax[1] - pmin[1])
 
-        # Map screen pixels back to image index
-        ix = (screen_x - pmin[0]) * w / disp_w
-        iy = (screen_y - pmin[1]) * h / disp_h
+        # 1D index arrays only (cheap: O(canvas_w + canvas_h)).
+        # +0.5 samples the center of each screen pixel; +1e-5 prevents float64
+        # boundary jitter (e.g. 3.9999999 flooring to 3 instead of 4).
+        ix_full = np.floor((np.arange(canvas_w) + 0.5 - pmin[0]) * w / disp_w + 1e-5).astype(np.int32)
+        iy_full = np.floor((np.arange(canvas_h) + 0.5 - pmin[1]) * h / disp_h + 1e-5).astype(np.int32)
 
-        # Add a tiny epsilon to prevent float64 boundary jitter (e.g., 3.9999999 dropping to 3)
-        ix = np.floor(ix + 1e-5).astype(np.int32)
-        iy = np.floor(iy + 1e-5).astype(np.int32)
+        valid_x = (ix_full >= 0) & (ix_full < w)
+        valid_y = (iy_full >= 0) & (iy_full < h)
 
-        valid_x = (ix >= 0) & (ix < w)
-        valid_y = (iy >= 0) & (iy < h)
+        if not valid_x.any() or not valid_y.any():
+            return np.zeros((canvas_h, canvas_w, 4), dtype=rgba_img.dtype)
 
-        ix = np.clip(ix, 0, w - 1)
-        iy = np.clip(iy, 0, h - 1)
+        all_valid = bool(valid_x.all()) and bool(valid_y.all())
 
-        mapped = rgba_img[iy[:, None], ix[None, :]]
+        if all_valid:
+            # Identity mapping: canvas == image AND ix/iy are exactly [0..w-1]/[0..h-1].
+            # Guard with endpoint check (O(1)) to reject zoom-in on same-size image.
+            if (
+                canvas_w == w
+                and canvas_h == h
+                and int(ix_full[0]) == 0
+                and int(ix_full[-1]) == w - 1
+                and int(iy_full[0]) == 0
+                and int(iy_full[-1]) == h - 1
+            ):
+                return rgba_img
+            ix, iy = ix_full, iy_full
+            x0 = y0 = 0
+            x1, y1 = canvas_w, canvas_h
+        else:
+            # Restrict to the valid sub-rectangle [x0:x1) × [y0:y1).
+            # This eliminates the black-border region from all heavy work.
+            x0 = int(np.argmax(valid_x))
+            x1 = canvas_w - int(np.argmax(valid_x[::-1]))
+            y0 = int(np.argmax(valid_y))
+            y1 = canvas_h - int(np.argmax(valid_y[::-1]))
+            ix = ix_full[x0:x1]
+            iy = iy_full[y0:y1]
 
-        valid_mask = valid_y[:, None] & valid_x[None, :]
-        mapped[~valid_mask] = 0.0
+        vw, vh = x1 - x0, y1 - y0
 
-        return mapped
+        # Fast path when every image pixel covers ≥1 screen pixel in both axes
+        # (any zoom level where NN looks different from linear).
+        # ix/iy are then monotone non-decreasing with many repeated values.
+        # Extract the small visible ROI once and tile with np.repeat
+        # (sequential SIMD copies) instead of scatter-gather fancy indexing.
+        if vw >= w and vh >= h:
+            ix_new = np.empty(vw, dtype=bool)
+            iy_new = np.empty(vh, dtype=bool)
+            ix_new[0] = iy_new[0] = True
+            ix_new[1:] = ix[1:] != ix[:-1]
+            iy_new[1:] = iy[1:] != iy[:-1]
+            unique_ix = ix[ix_new]
+            unique_iy = iy[iy_new]
+            ix_cnt = np.diff(np.where(np.append(ix_new, True))[0])
+            iy_cnt = np.diff(np.where(np.append(iy_new, True))[0])
+            if len(unique_iy) == h and len(unique_ix) == w:
+                # Fill case: all source rows/cols present — skip 2D fancy-index copy.
+                # np.repeat directly on rgba_img saves one full-image allocation.
+                tile = np.repeat(np.repeat(rgba_img, iy_cnt, axis=0), ix_cnt, axis=1)
+            else:
+                roi = rgba_img[unique_iy[:, None], unique_ix[None, :]]
+                tile = np.repeat(np.repeat(roi, iy_cnt, axis=0), ix_cnt, axis=1)
+        else:
+            # Zoomed out past 1:1 — NN and linear look identical; fancy-index the subregion.
+            tile = rgba_img[iy[:, None], ix[None, :]]
+
+        if all_valid:
+            return tile  # No black border: return the tile directly, no extra allocation.
+
+        out = np.zeros((canvas_h, canvas_w, 4), dtype=rgba_img.dtype)
+        out[y0:y1, x0:x1] = tile
+        return out
 
     def apply_local_auto_window(self, fov_fraction=0.20, target="base"):
         vol = self.volume
