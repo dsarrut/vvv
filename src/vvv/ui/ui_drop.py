@@ -81,14 +81,14 @@ def cleanup_os_drop():
 def _install_macos_drop(callback):
     """Add a transparent NSView overlay that handles Finder drag-and-drop."""
     try:
-        import objc
-        from AppKit import (
-            NSApplication,
-            NSView,
-            NSDragOperationCopy,
-            NSDragOperationNone,
+        import objc  # type: ignore[import-untyped]
+        from AppKit import (  # type: ignore[import-untyped]
+            NSApplication,# type: ignore[import-untyped]
+            NSView,# type: ignore[import-untyped]
+            NSDragOperationCopy,# type: ignore[import-untyped]
+            NSDragOperationNone,# type: ignore[import-untyped]
         )
-        from Foundation import NSURL
+        from Foundation import NSURL  # type: ignore[import-untyped]
 
         _NSFilenamesPboardType = "NSFilenamesPboardType"
         _NSPasteboardTypeFileURL = "public.file-url"
@@ -97,7 +97,7 @@ def _install_macos_drop(callback):
             _drop_callback = None
 
             def initWithFrame_(self, frame):
-                self = objc.super(DropView, self).initWithFrame_(frame)
+                self = objc.super(DropView, self).initWithFrame_(frame)  # type: ignore[misc]
                 if self is None:
                     return None
                 self.registerForDraggedTypes_(
