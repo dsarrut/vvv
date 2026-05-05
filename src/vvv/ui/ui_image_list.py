@@ -59,7 +59,7 @@ def refresh_image_list_ui(gui):
             with dpg.theme_component(dpg.mvCheckbox):
                 dpg.add_theme_color(dpg.mvThemeCol_Text, muted_col)
 
-    for idx, (vs_id, vs) in enumerate(gui.controller.view_states.items(), start=1):
+    for idx, (vs_id, vs) in enumerate(list(gui.controller.view_states.items()), start=1):
         with dpg.group(parent=container, horizontal=True):
             # --- Left Column: 2x2 Grid ---
             with dpg.group():

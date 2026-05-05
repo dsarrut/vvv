@@ -152,7 +152,7 @@ class FusionUI:
 
         if dpg.does_item_exist("combo_fusion_select"):
             options = ["None"]
-            for vid, ovs in self.controller.view_states.items():
+            for vid, ovs in list(self.controller.view_states.items()):
                 if vid != viewer.image_id:
                     # Filter out RGB as they cannot be used as overlays
                     if getattr(ovs.volume, "is_rgb", False):
@@ -370,7 +370,7 @@ class FusionUI:
             self.controller.ui_needs_refresh = True
         else:
             target_id = None
-            for vid in self.controller.view_states.keys():
+            for vid in list(self.controller.view_states.keys()):
                 opt_name, _ = self.controller.get_image_display_name(vid)
                 if opt_name == app_data:
                     target_id = vid

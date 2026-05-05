@@ -67,13 +67,13 @@ def refresh_sync_ui(gui):
 
     # Calculate Spatial Groups (1, 2, 3...)
     max_sp_group = max(
-        [vs.sync_group for vs in gui.controller.view_states.values()] + [0]
+        [vs.sync_group for vs in list(gui.controller.view_states.values())] + [0]
     )
     num_sp_groups = max(num_images, max_sp_group)  # <-- Removed the hardcoded 3
 
     # Calculate W/L Groups (A, B, C...)
     max_wl_group = max(
-        [getattr(vs, "sync_wl_group", 0) for vs in gui.controller.view_states.values()]
+        [getattr(vs, "sync_wl_group", 0) for vs in list(gui.controller.view_states.values())]
         + [0]
     )
     num_wl_groups = max(num_images, max_wl_group)  # <-- Removed the hardcoded 3
@@ -82,7 +82,7 @@ def refresh_sync_ui(gui):
 
     wl_items = ["None"] + [f"Grp {chr(64 + i)}" for i in range(1, num_wl_groups + 1)]
 
-    for idx, (vs_id, vs) in enumerate(gui.controller.view_states.items(), start=1):
+    for idx, (vs_id, vs) in enumerate(list(gui.controller.view_states.items()), start=1):
         with dpg.group(parent=container):
             # --- LINE 1: Image Name ---
             with dpg.group(horizontal=True):
@@ -162,7 +162,7 @@ def handle_wl_group_change(gui, sender, value, user_data):
 
     # Auto-pull W/L from an existing master in this group
     master_vs_id = None
-    for other_id, other_vs in gui.controller.view_states.items():
+    for other_id, other_vs in list(gui.controller.view_states.items()):
         if other_id != vs_id and other_vs.sync_wl_group == new_group_id:
             master_vs_id = other_id
             break

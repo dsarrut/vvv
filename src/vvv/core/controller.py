@@ -339,7 +339,7 @@ class Controller:
 
         # Find the "Source of Truth" for this new group
         master_vs_id = None
-        for other_id, other_vs in self.view_states.items():
+        for other_id, other_vs in list(self.view_states.items()):
             if other_id != vs_id and other_vs.sync_group == group_id:
                 master_vs_id = other_id
                 break
@@ -591,7 +591,7 @@ class Controller:
     def _rebuild_dependent_overlays(self, vs_id, vs, vol, old_state):
         """Restores fusions that were attached to this image, or that this image was attached to."""
         # 1. Fix images that rely on us
-        for other_id, other_vs in self.view_states.items():
+        for other_id, other_vs in list(self.view_states.items()):
             if getattr(other_vs.display, "overlay_id", None) == vs_id:
                 old_m = getattr(other_vs.display, "overlay_mode", "Alpha")
                 old_o = getattr(other_vs.display, "overlay_opacity", 0.5)

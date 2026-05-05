@@ -20,7 +20,7 @@ class SyncManager:
 
         group_ids = [
             tid
-            for tid, vs in self.controller.view_states.items()
+            for tid, vs in list(self.controller.view_states.items())
             if vs.sync_group == source_vs.sync_group
         ]
 
@@ -45,7 +45,7 @@ class SyncManager:
             return [source_vs_id]
         return [
             tid
-            for tid, vs in self.controller.view_states.items()
+            for tid, vs in list(self.controller.view_states.items())
             if getattr(vs, "sync_wl_group", 0) == wl_grp
         ]
 
@@ -57,7 +57,7 @@ class SyncManager:
                 vs.is_data_dirty = True
 
         # If any modified image is acting as an overlay, force its base image to redraw too
-        for vs in self.controller.view_states.values():
+        for vs in list(self.controller.view_states.values()):
             if vs.display.overlay_id in modified_ids:
                 vs.is_data_dirty = True
 
@@ -201,7 +201,7 @@ class SyncManager:
                     dirty_ids.add(t_vs.display.overlay_id)
 
             # 2. Bottom-Up
-            for base_id, base_vs in self.controller.view_states.items():
+            for base_id, base_vs in list(self.controller.view_states.items()):
                 if (
                     base_vs.display.overlay_id == tid
                     and base_vs.display.overlay_mode == "Registration"
@@ -320,7 +320,7 @@ class SyncManager:
         if not self.controller.view_states:
             return
 
-        for vs in self.controller.view_states.values():
+        for vs in list(self.controller.view_states.values()):
             vs.sync_group = 1
 
         # Trigger the sync propagation logic you built in Step 2
@@ -331,10 +331,10 @@ class SyncManager:
 
     def unlink_all(self):
         """Removes all images from spatial sync groups."""
-        for vs in self.controller.view_states.values():
+        for vs in list(self.controller.view_states.values()):
             vs.sync_group = 0
 
-        for vs_id in self.controller.view_states.keys():
+        for vs_id in list(self.controller.view_states.keys()):
             self.controller.update_all_viewers_of_image(vs_id)
         self.controller.ui_needs_refresh = True
 
@@ -343,7 +343,7 @@ class SyncManager:
         if not self.controller.view_states:
             return
 
-        for vs in self.controller.view_states.values():
+        for vs in list(self.controller.view_states.values()):
             vs.sync_wl_group = 1
 
         # State-Only: Instantly broadcast the W/L and Colormap to the whole group.
@@ -356,10 +356,10 @@ class SyncManager:
 
     def unlink_all_wl(self):
         """Removes all images from Window/Level sync groups."""
-        for vs in self.controller.view_states.values():
+        for vs in list(self.controller.view_states.values()):
             vs.sync_wl_group = 0  # Changed from sync_wl to sync_wl_group
 
-        for vs_id in self.controller.view_states.keys():
+        for vs_id in list(self.controller.view_states.keys()):
             self.controller.update_all_viewers_of_image(vs_id)
 
         # Flag the GUI to refresh the sync tab

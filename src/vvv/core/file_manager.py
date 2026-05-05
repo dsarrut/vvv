@@ -280,7 +280,7 @@ class FileManager:
                 }
 
         # 2. Save Images & ViewStates
-        for vs_id, vs in self.controller.view_states.items():
+        for vs_id, vs in list(self.controller.view_states.items()):
             # Never skip an image if it occupies a Viewer
             is_overlay = getattr(
                 self.controller.volumes[vs_id], "is_overlay_only", False
@@ -357,7 +357,7 @@ class FileManager:
                 if current_id == vs_id:
                     self.controller.layout[tag] = None
 
-            for other_id, other_vs in self.controller.view_states.items():
+            for other_id, other_vs in list(self.controller.view_states.items()):
                 if other_vs.display.overlay_id == vs_id:
                     other_vs.set_overlay(None, None)
                     self.controller.update_all_viewers_of_image(other_id)

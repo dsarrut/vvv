@@ -194,4 +194,6 @@ generate_icon.py
 vv_settings_osx
 .zed
 pyrightconfig.json
+GEMINI.md
+.claude/
 
