@@ -239,7 +239,7 @@ def run_nn_mapping(
     pm, px = pmin_pmax(img_w, img_h, canvas_w, canvas_h, zoom)
 
     def _fn():
-        SliceViewer._get_screen_mapped_texture(None, rgba, pm, px, canvas_w, canvas_h)
+        SliceViewer._get_screen_mapped_texture(rgba, pm, px, canvas_w, canvas_h)
 
     mean_ms, min_ms, max_ms = bench(_fn, n_warmup, n_iter)
     label = f"img {img_w}×{img_h}  canvas {canvas_w}×{canvas_h}  {zoom_name}"
@@ -292,12 +292,12 @@ def run_full_pipeline(
                 if nn_mode:
                     rgba_2d = rgba.reshape((shape[0], shape[1], 4))
                     SliceViewer._get_screen_mapped_texture(
-                        None, rgba_2d, pm, px, canvas_w, canvas_h
+                        rgba_2d, pm, px, canvas_w, canvas_h
                     )
-                    if ov_rgba is not None:
+                    if ov_rgba is not None and ov_shape is not None:
                         ov_2d = ov_rgba.reshape((ov_shape[0], ov_shape[1], 4))
                         SliceViewer._get_screen_mapped_texture(
-                            None, ov_2d, pm, px, canvas_w, canvas_h
+                            ov_2d, pm, px, canvas_w, canvas_h
                         )
 
         total_ms, total_min, total_max = bench(_fn, n_warmup, n_iter)
