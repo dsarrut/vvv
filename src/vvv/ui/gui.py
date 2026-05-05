@@ -34,6 +34,7 @@ from vvv.ui.ui_sequences import (
     create_boot_sequence,
 )
 from vvv.ui.ui_drop import install_os_drop, cleanup_os_drop
+from vvv.ui.ui_workspace import build_workspace_nav_icons
 
 
 class MainGUI:
@@ -283,6 +284,10 @@ class MainGUI:
                 if i == 0 and dpg.does_item_exist("active_nav_button_theme"):
                     dpg.bind_item_theme(btn, "active_nav_button_theme")
 
+            # Workspace icons sit inside nav_top_group so they flow naturally
+            # after the last tool button (DVF) without needing absolute positioning.
+            build_workspace_nav_icons(self)
+
         # --- System & Utility Buttons ---
         with dpg.group(tag="nav_bot_group"):
             btn_settings = dpg.add_button(
@@ -357,6 +362,7 @@ class MainGUI:
                 self.create_labeled_field("Coord", tag="info_phys")
                 self.create_labeled_field("ppm", tag="info_ppm")
                 self.create_labeled_field("FOV", tag="info_scale")
+
 
     def create_labeled_field(self, label, tag):
         """Helper to create a labeled read-only input field."""
@@ -1036,6 +1042,7 @@ class MainGUI:
                 dpg.set_item_width("ch_panel", inner_w)
                 dpg.set_item_height("ch_panel", ch_h)
 
+
         r_x = l_x + l_w + cfg["gap_center"]
         avail_w = window_w - r_x - cfg["right_m_right"]
         avail_h = window_h - panels_y - cfg["right_m_bottom"]
@@ -1092,7 +1099,7 @@ class MainGUI:
         if workspace_files:
             path = workspace_files[0]
             self.current_workspace_path = path
-            self.update_workspace_menu_state()
+            self.refresh_workspace_bar()
             self.tasks.append(load_workspace_sequence(self, self.controller, path))
         if image_files:
             self.tasks.append(load_batch_images_sequence(self, self.controller, image_files))
@@ -1190,7 +1197,7 @@ class MainGUI:
 
             self.controller.file.save_workspace(file_path)
             self.current_workspace_path = file_path
-            self.update_workspace_menu_state()
+            self.refresh_workspace_bar()
             self.show_status_message(f"Workspace saved: {os.path.basename(file_path)}")
 
     def on_open_workspace_clicked(self, sender=None, app_data=None, user_data=None):
@@ -1200,7 +1207,7 @@ class MainGUI:
 
         if isinstance(file_path, str):
             self.current_workspace_path = file_path
-            self.update_workspace_menu_state()
+            self.refresh_workspace_bar()
             self.tasks.append(load_workspace_sequence(self, self.controller, file_path))
 
     def on_save_workspace_current_clicked(
@@ -1212,7 +1219,52 @@ class MainGUI:
                 f"Workspace saved: {os.path.basename(self.current_workspace_path)}"
             )
 
-    def update_workspace_menu_state(self):
+    def refresh_workspace_bar(self):
+        """Sync the nav-column workspace icons and the menu item with current state."""
+        has_path = bool(self.current_workspace_path)
+
+        # --- Nav: enable/disable Save icon and show current filename ---
+        if dpg.does_item_exist("ws_nav_btn_save"):
+            dpg.configure_item("ws_nav_btn_save", enabled=has_path)
+        if dpg.does_item_exist("ws_nav_filename_text"):
+            if self.current_workspace_path:
+                name = os.path.splitext(os.path.basename(self.current_workspace_path))[0]
+            else:
+                name = ""
+            dpg.set_value("ws_nav_filename_text", name)
+            # Centre the text in the nav column
+            try:
+                nav_w  = int(dpg.get_item_width("nav_panel") or 0)
+                font   = dpg.get_item_font("ws_nav_filename_text")
+                text_size = dpg.get_text_size(name, font=font) if name else [0, 0]
+                text_w = int(text_size[0]) if text_size else 0
+                indent = max(0, int((nav_w - text_w) / 2))
+            except Exception:
+                indent = 0
+            dpg.configure_item("ws_nav_filename_text", indent=indent)
+        if dpg.does_item_exist("ws_nav_path_tooltip"):
+            dpg.set_value("ws_nav_path_tooltip", self.current_workspace_path or "")
+
+        # --- Nav: update Save tooltip with filename + content summary ---
+        if dpg.does_item_exist("ws_save_tooltip_text"):
+            if self.current_workspace_path:
+                name = os.path.basename(self.current_workspace_path)
+                n_images = len(getattr(self.controller, "volumes", {}))
+                n_rois = sum(
+                    len(getattr(vs, "rois", []))
+                    for vs in getattr(self.controller, "view_states", {}).values()
+                )
+                parts = []
+                if n_images:
+                    parts.append(f"{n_images} image{'s' if n_images != 1 else ''}")
+                if n_rois:
+                    parts.append(f"{n_rois} ROI{'s' if n_rois != 1 else ''}")
+                summary = "  ·  ".join(parts) if parts else "empty"
+                dpg.set_value("ws_save_tooltip_text", f"Save Workspace\n{name}\n{summary}")
+            else:
+                dpg.set_value("ws_save_tooltip_text", "Save Workspace\n(no workspace open)")
+
+        # --- Menu item ---
         if dpg.does_item_exist("menu_save_workspace"):
             if self.current_workspace_path:
                 display_name = os.path.basename(self.current_workspace_path)
@@ -1357,7 +1409,7 @@ class MainGUI:
     def load_workspace_sequence(self, file_path):
         """Wrapper to pass the CLI workspace request into the external Sequence Manager."""
         self.current_workspace_path = file_path
-        self.update_workspace_menu_state()
+        self.refresh_workspace_bar()
         return load_workspace_sequence(self, self.controller, file_path)
 
     def create_boot_sequence(self, image_tasks, sync=False, link_all=False):
