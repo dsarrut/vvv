@@ -54,6 +54,13 @@ def load_fonts():
                         pass
                 default_font = font
 
+            with dpg.font(main_font_path, 11, tag="small_font_tag"):
+                if is_legacy_dpg:
+                    try:
+                        dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
+                    except Exception:
+                        pass
+
         # 2. Load the Icon Font
         if os.path.exists(icon_font_path):
             with dpg.font(icon_font_path, 14, tag="icon_font_tag"):

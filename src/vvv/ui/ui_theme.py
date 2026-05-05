@@ -253,6 +253,18 @@ def register_dynamic_themes(ui_cfg, controller):
             with dpg.theme_component(dpg.mvButton):
                 dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 6)
 
+    if not dpg.does_item_exist("theme_ws_nav_btn"):
+        with dpg.theme(tag="theme_ws_nav_btn"):
+            with dpg.theme_component(dpg.mvButton):
+                dpg.add_theme_color(dpg.mvThemeCol_Button,        cfg_c["bg_window"])
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, [22, 22, 25, 255])
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,  [40, 40, 44, 255])
+                dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 6)
+            with dpg.theme_component(dpg.mvButton, enabled_state=False):
+                dpg.add_theme_color(dpg.mvThemeCol_Button,        cfg_c["bg_window"])
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, cfg_c["bg_window"])
+                dpg.add_theme_color(dpg.mvThemeCol_Text,          [55, 55, 60, 255])
+
     if not dpg.does_item_exist("active_nav_button_theme"):
         with dpg.theme(tag="active_nav_button_theme"):
             with dpg.theme_component(dpg.mvButton):

@@ -1009,7 +1009,8 @@ class SliceViewer:
 
         return did_update_data
 
-    def _get_screen_mapped_texture(self, rgba_img, pmin, pmax, canvas_w, canvas_h):
+    @staticmethod
+    def _get_screen_mapped_texture(rgba_img, pmin, pmax, canvas_w, canvas_h):
         """Extracts the exact viewport region and upscales using pure Nearest Neighbor math."""
         h, w = rgba_img.shape[:2]
 
