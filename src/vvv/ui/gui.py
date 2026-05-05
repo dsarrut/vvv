@@ -33,6 +33,7 @@ from vvv.ui.ui_sequences import (
     load_workspace_sequence,
     create_boot_sequence,
 )
+from vvv.ui.ui_drop import install_os_drop, cleanup_os_drop
 
 
 class MainGUI:
@@ -1082,6 +1083,20 @@ class MainGUI:
         # Route the whole list to the batch loader!
         self.tasks.append(load_batch_images_sequence(self, self.controller, file_paths))
 
+    def on_file_drop(self, sender, app_data, user_data):
+        if not app_data:
+            return
+        file_paths = list(app_data) if not isinstance(app_data, list) else app_data
+        workspace_files = [p for p in file_paths if p.endswith(".vvw")]
+        image_files = [p for p in file_paths if not p.endswith(".vvw")]
+        if workspace_files:
+            path = workspace_files[0]
+            self.current_workspace_path = path
+            self.update_workspace_menu_state()
+            self.tasks.append(load_workspace_sequence(self, self.controller, path))
+        if image_files:
+            self.tasks.append(load_batch_images_sequence(self, self.controller, image_files))
+
     def on_open_4d_sequence_clicked(self, sender=None, app_data=None, user_data=None):
         file_paths = open_file_dialog(
             "Select multiple images for 4D Sequence", multiple=True
@@ -1380,6 +1395,8 @@ class MainGUI:
         for _ in range(3):
             dpg.render_dearpygui_frame()
 
+        install_os_drop(self.on_file_drop)
+
         if boot_generator:
             for _ in boot_generator:
                 dpg.render_dearpygui_frame()
@@ -1416,6 +1433,8 @@ class MainGUI:
             dpg.render_dearpygui_frame()
 
         # Shutdown sequence
+        cleanup_os_drop()  # null GLFW drop callback before DPG destroys the window
+
         auto_save = self.controller.settings.data.get("behavior", {}).get(
             "auto_save_history", True
         )
