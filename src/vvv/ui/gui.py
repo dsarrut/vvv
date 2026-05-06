@@ -1233,16 +1233,8 @@ class MainGUI:
             else:
                 name = ""
             dpg.set_value("ws_nav_filename_text", name)
-            # Centre the text in the nav column
-            try:
-                nav_w  = int(dpg.get_item_width("nav_panel") or 0)
-                font   = dpg.get_item_font("ws_nav_filename_text")
-                text_size = dpg.get_text_size(name, font=font) if name else [0, 0]
-                text_w = int(text_size[0]) if text_size else 0
-                indent = max(0, int((nav_w - text_w) / 2))
-            except Exception:
-                indent = 0
-            dpg.configure_item("ws_nav_filename_text", indent=indent)
+            # Left align the text with 5pt spacing
+            dpg.configure_item("ws_nav_filename_text", indent=5)
         if dpg.does_item_exist("ws_nav_path_tooltip"):
             dpg.set_value("ws_nav_path_tooltip", self.current_workspace_path or "")
 
@@ -1260,7 +1252,7 @@ class MainGUI:
                     parts.append(f"{n_images} image{'s' if n_images != 1 else ''}")
                 if n_rois:
                     parts.append(f"{n_rois} ROI{'s' if n_rois != 1 else ''}")
-                summary = "  ·  ".join(parts) if parts else "empty"
+                summary = "  ·  ".join(parts) if parts else ""
                 dpg.set_value("ws_save_tooltip_text", f"Save Workspace\n{name}\n{summary}")
             else:
                 dpg.set_value("ws_save_tooltip_text", "Save Workspace\n(no workspace open)")
@@ -1483,6 +1475,8 @@ class MainGUI:
 
         while dpg.is_dearpygui_running():
             if debug:
+                assert fps_data is not None and time_data is not None
+                assert fps_label is not None and fps_series is not None and x_axis is not None
                 delta = dpg.get_delta_time()
                 t_now = dpg.get_total_time()
                 if 0.0001 < delta < 5.0:    # ignore stalls and first frame

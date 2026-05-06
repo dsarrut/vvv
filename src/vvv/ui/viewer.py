@@ -32,7 +32,7 @@ def _try_set_gl_nearest():
             if sys == "Linux":
                 lib = ctypes.CDLL(ctypes.util.find_library("GL") or "libGL.so.1")
             elif sys == "Windows":
-                lib = ctypes.windll.opengl32
+                lib = ctypes.windll.opengl32  # type: ignore[attr-defined]
             else:
                 # macOS uses Metal via DearPyGui — raw GL calls crash with no context
                 _gl_nearest_fn = False
@@ -53,7 +53,7 @@ def _try_set_gl_nearest():
         except Exception:
             _gl_nearest_fn = False
 
-    if _gl_nearest_fn:
+    if callable(_gl_nearest_fn):
         _gl_nearest_fn()
 
 
@@ -1083,8 +1083,22 @@ class SliceViewer:
 
         # --- 6. GEOMETRY PUSH ---
         if self.is_geometry_dirty:
-            # ONLY call resize if we didn't just create the node via draw_image
-            if not (rebuild_texture and texture_changed):
+            if rebuild_texture and texture_changed:
+                # bind_texture_to_node already created the draw_image node; no need to
+                # reconfigure the image quad inside resize(). But the DPG window and
+                # drawlist dimensions must still be updated on any size change.
+                if size_changed:
+                    layout = self.controller.gui.ui_cfg["layout"]
+                    pad = layout.get("viewport_padding", 4) * 2
+                    cw = int(max(1, win_w - pad))
+                    ch = int(max(1, win_h - pad))
+                    if dpg.does_item_exist(f"win_{self.tag}"):
+                        dpg.set_item_width(f"win_{self.tag}", win_w)
+                        dpg.set_item_height(f"win_{self.tag}", win_h)
+                    if dpg.does_item_exist(f"drawlist_{self.tag}"):
+                        dpg.set_item_width(f"drawlist_{self.tag}", cw)
+                        dpg.set_item_height(f"drawlist_{self.tag}", ch)
+            else:
                 self.resize(win_w, win_h)
             self.update_stuff_in_image_only()
             self.is_geometry_dirty = False
