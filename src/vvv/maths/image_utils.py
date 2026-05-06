@@ -1,5 +1,4 @@
 import numpy as np
-import SimpleITK as sitk
 
 
 def extract_orientation_strings(raw_img):
@@ -47,6 +46,7 @@ def straighten_image(img, filename="image", is_label_map=False):
     Intercepts oblique/rotated images and warps them into a perfectly
     straight bounding box aligned with the physical axes.
     """
+    import SimpleITK as sitk
     dim = img.GetDimension()
 
     if dim == 4:

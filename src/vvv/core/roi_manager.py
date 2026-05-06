@@ -2,7 +2,6 @@ import os
 import json
 import threading
 import numpy as np
-import SimpleITK as sitk
 from vvv.utils import ViewMode
 from vvv.config import ROI_COLORS
 from vvv.maths.image import VolumeData
@@ -97,6 +96,7 @@ class ROIManager:
 
     def _apply_binarization_rule(self, mask_vol, mode, target_val):
         """Applies the target value rules and safely updates the SimpleITK header."""
+        import SimpleITK as sitk
         if mode == "Target FG (val)":
             mask_vol.data = (mask_vol.data == target_val).astype(np.uint8)
         else:
@@ -110,6 +110,7 @@ class ROIManager:
 
     def process_binary_mask(self, base_vol, mask_vol, skip_initial_crop=False):
         """Helper to natively crop, align, and resample a binary mask."""
+        import SimpleITK as sitk
 
         # --- 1. NATIVE CROP FIRST ---
         if not skip_initial_crop:
@@ -304,6 +305,7 @@ class ROIManager:
 
     def extract_label_from_image(self, base_id, filepath, img, data, val_int, name, color, bbox):
         """Fast-path NumPy slicing to extract a specific label from a pre-loaded label map."""
+        import SimpleITK as sitk
         dim = img.GetDimension()
         is_pre_cropped = False
 
@@ -485,6 +487,7 @@ class ROIManager:
 
     def load_rtstruct_roi(self, base_id, filepath, roi_info, ds=None):
         """Registers the RT-Struct ROI and maps its DICOM polygons to 2D slices."""
+        import SimpleITK as sitk
         vs = self.controller.view_states[base_id]
         base_vol = self.controller.volumes[base_id]
 

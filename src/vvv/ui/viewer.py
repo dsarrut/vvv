@@ -3,6 +3,7 @@ from vvv.utils import ViewMode, slice_to_voxel, voxel_to_slice, fmt
 import dearpygui.dearpygui as dpg
 from vvv.ui.drawing import OverlayDrawer
 from vvv.maths.image import SliceRenderer, RenderLayer, ROILayer, VolumeData
+from vvv.config import COLORMAPS
 from vvv.core.view_state import ViewState
 from typing import Any
 
@@ -1091,6 +1092,173 @@ class SliceViewer:
         out[y0:y1, x0:x1] = tile
         return out
 
+    def _render_overlay_as_native_voxels(self, pmin, pmax, canvas_w, canvas_h):
+        """Render the overlay at its native voxel resolution in NN pixelated mode.
+
+        Instead of NN-mapping the pre-resampled overlay (at CT resolution), this maps
+        canvas pixels directly to the overlay's original voxel space — producing blocks
+        that match the true physical voxel size of the overlay (e.g. 4.7 mm SPECT pixels).
+        Registration transforms are applied analytically via numpy matrix math.
+
+        Returns a canvas-sized float32 RGBA flat array, or None if overlay unavailable.
+        """
+        vs = self.view_state
+        if not vs or not vs.display.overlay_id:
+            return None
+        if vs.display.overlay_id not in self.controller.view_states:
+            return None
+
+        ovs = self.controller.view_states[vs.display.overlay_id]
+        base_vol = self.volume
+        ov_vol = self.controller.volumes.get(vs.display.overlay_id)
+        if not base_vol or not ov_vol or ov_vol.data is None:
+            return None
+
+        disp_w = pmax[0] - pmin[0]
+        disp_h = pmax[1] - pmin[1]
+        if disp_w <= 0 or disp_h <= 0:
+            return None
+
+        # --- 1. Extract composite transform as numpy affine (matches update_overlay_display_data) ---
+        # ITK CompositeTransform: T1 (ovs inverse) applied first, T2 (base) applied second.
+        # T_comp(p) = R_comp @ p + t_comp
+
+        def _affine_np(transform):
+            """(R, t_eff): T(p) = R @ p + t_eff, absorbing center-of-rotation."""
+            if transform is None:
+                return np.eye(3, dtype=np.float64), np.zeros(3, dtype=np.float64)
+            try:
+                R = np.array(transform.GetMatrix(), dtype=np.float64).reshape(3, 3)
+                t = np.array(transform.GetTranslation(), dtype=np.float64)
+                fp = transform.GetFixedParameters()
+                c = np.array(fp[:3], dtype=np.float64) if len(fp) >= 3 else np.zeros(3)
+                return R, t + c - R @ c
+            except Exception:
+                return np.eye(3, dtype=np.float64), np.zeros(3, dtype=np.float64)
+
+        ov_xfm = (
+            ovs.space.transform.GetInverse()
+            if (ovs.space.transform and ovs.space.is_active)
+            else None
+        )
+        base_xfm = (
+            vs.space.transform if (vs.space.transform and vs.space.is_active) else None
+        )
+        R1, t1 = _affine_np(ov_xfm)
+        R2, t2 = _affine_np(base_xfm)
+        R_comp = R2 @ R1
+        t_comp = R2 @ t1 + t2
+
+        # --- 2. Compute float display-slice indices for each canvas pixel ---
+        slice_h, slice_w = self.get_slice_shape()
+        ix_disp = (
+            (np.arange(canvas_w, dtype=np.float64) + 0.5 - pmin[0]) * slice_w / disp_w
+        )  # (canvas_w,) — float column index in displayed slice
+        iy_disp = (
+            (np.arange(canvas_h, dtype=np.float64) + 0.5 - pmin[1]) * slice_h / disp_h
+        )  # (canvas_h,) — float row index in displayed slice
+
+        # Convert display indices → continuous ITK [x, y, z] indices (orientation-specific).
+        # slice_to_voxel convention: AXIAL itk=[col-0.5, row-0.5, depth],
+        # SAGITTAL itk=[depth, W-col-0.5, H-row-0.5], CORONAL itk=[col-0.5, depth, H-row-0.5]
+        depth = float(self.slice_idx)
+        if self.orientation == ViewMode.AXIAL:
+            itk_x = ix_disp - 0.5          # (canvas_w,)
+            itk_y = iy_disp - 0.5          # (canvas_h,)
+            itk_z = depth                  # scalar
+        elif self.orientation == ViewMode.SAGITTAL:
+            itk_x = depth                          # scalar
+            itk_y = slice_w - ix_disp - 0.5       # (canvas_w,) flipped
+            itk_z = slice_h - iy_disp - 0.5       # (canvas_h,) flipped
+        else:  # CORONAL
+            itk_x = ix_disp - 0.5                 # (canvas_w,)
+            itk_y = depth                          # scalar
+            itk_z = slice_h - iy_disp - 0.5       # (canvas_h,) flipped
+
+        # --- 3. ITK indices → base physical coords (vectorized) ---
+        # phys = base_origin + base_M @ [itk_x, itk_y, itk_z]
+        # base_M[:, i] = base_vol.matrix[:, i] * base_vol.spacing[i]
+        M = base_vol.matrix * base_vol.spacing[np.newaxis, :]  # (3, 3)
+        # Column direction vectors reshaped to (3,1,1) for 3D broadcasting
+        Mx = M[:, 0].reshape(3, 1, 1)
+        My = M[:, 1].reshape(3, 1, 1)
+        Mz = M[:, 2].reshape(3, 1, 1)
+        o3 = base_vol.origin.reshape(3, 1, 1)
+
+        if self.orientation == ViewMode.AXIAL:
+            # itk_x: (canvas_w,) → cols; itk_y: (canvas_h,) → rows; itk_z: scalar
+            phys = (
+                o3
+                + Mx * itk_x.reshape(1, 1, -1)   # (3, 1, canvas_w)
+                + My * itk_y.reshape(1, -1, 1)   # (3, canvas_h, 1)
+                + Mz * itk_z                      # scalar
+            )  # (3, canvas_h, canvas_w)
+        elif self.orientation == ViewMode.SAGITTAL:
+            # itk_x: scalar; itk_y: (canvas_w,) → cols; itk_z: (canvas_h,) → rows
+            phys = (
+                o3
+                + Mx * itk_x                         # scalar
+                + My * itk_y.reshape(1, 1, -1)       # (3, 1, canvas_w)
+                + Mz * itk_z.reshape(1, -1, 1)       # (3, canvas_h, 1)
+            )  # (3, canvas_h, canvas_w)
+        else:  # CORONAL
+            # itk_x: (canvas_w,) → cols; itk_y: scalar; itk_z: (canvas_h,) → rows
+            phys = (
+                o3
+                + Mx * itk_x.reshape(1, 1, -1)       # (3, 1, canvas_w)
+                + My * itk_y                          # scalar
+                + Mz * itk_z.reshape(1, -1, 1)       # (3, canvas_h, 1)
+            )  # (3, canvas_h, canvas_w)
+
+        # --- 4. Apply composite transform: CT physical → SPECT physical ---
+        N = canvas_h * canvas_w
+        spect_phys = (R_comp @ phys.reshape(3, N) + t_comp[:, None]).reshape(
+            3, canvas_h, canvas_w
+        )
+
+        # --- 5. SPECT physical → SPECT ITK voxel indices ---
+        # index = inverse_matrix @ (phys - origin) / spacing
+        shifted = (spect_phys - ov_vol.origin[:, None, None]).reshape(3, N)
+        spect_ijk = (ov_vol.inverse_matrix @ shifted / ov_vol.spacing[:, None]).reshape(
+            3, canvas_h, canvas_w
+        )
+        # spect_ijk[0]=ITK x (→numpy col), [1]=ITK y (→numpy row), [2]=ITK z (→numpy depth)
+
+        time_idx = min(vs.camera.time_idx, ov_vol.num_timepoints - 1)
+        ov_data = ov_vol.data[time_idx] if ov_vol.num_timepoints > 1 else ov_vol.data
+        ov_D, ov_H, ov_W = int(ov_data.shape[0]), int(ov_data.shape[1]), int(ov_data.shape[2])
+
+        in_bounds = (
+            (spect_ijk[0] >= -0.5) & (spect_ijk[0] < ov_W - 0.5)
+            & (spect_ijk[1] >= -0.5) & (spect_ijk[1] < ov_H - 0.5)
+            & (spect_ijk[2] >= -0.5) & (spect_ijk[2] < ov_D - 0.5)
+        )  # (canvas_h, canvas_w)
+
+        x_nn = np.clip(np.round(spect_ijk[0]).astype(np.int32), 0, ov_W - 1)
+        y_nn = np.clip(np.round(spect_ijk[1]).astype(np.int32), 0, ov_H - 1)
+        z_nn = np.clip(np.round(spect_ijk[2]).astype(np.int32), 0, ov_D - 1)
+
+        flat_idx = z_nn * ov_H * ov_W + y_nn * ov_W + x_nn  # (canvas_h, canvas_w)
+        values = ov_data.ravel()[flat_idx].astype(np.float32)
+
+        # --- 6. Colorize using overlay display settings ---
+        ww = ovs.display.ww
+        wl = ovs.display.wl
+        cmap_name = ovs.display.colormap
+        threshold = ovs.display.base_threshold
+        opacity = vs.display.overlay_opacity
+
+        norm = SliceRenderer.normalize_wl(values, ww, wl)
+        lut = COLORMAPS.get(cmap_name, COLORMAPS["Grayscale"])
+        rgba = lut[(norm * 255).astype(np.uint8)].copy()  # (canvas_h, canvas_w, 4) float32
+
+        if threshold is not None:
+            rgba[values <= threshold] = 0.0
+        rgba[..., 3] *= opacity
+        rgba[~in_bounds] = 0.0  # transparent outside overlay FOV
+
+        return rgba.ravel()
+
     def apply_local_auto_window(self, fov_fraction=0.20, target="base"):
         vol = self.volume
         if self.image_id is None or not vol:
@@ -1571,17 +1739,11 @@ class SliceViewer:
             )
             rgba_flat = rgba_mapped.ravel()
 
-            if self.last_overlay_rgba_flat is not None:
-                ov_actual_shape = getattr(
-                    self, "last_overlay_rgba_shape", self.get_slice_shape()
+            # In NN mode, render the overlay at its native voxel size (bypasses resampled data).
+            if vs.display.overlay_id and vs.display.overlay_id in self.controller.view_states:
+                ov_rgba_display = self._render_overlay_as_native_voxels(
+                    self.current_pmin, self.current_pmax, canvas_w, canvas_h
                 )
-                ov_rgba_2d = self.last_overlay_rgba_flat.reshape(
-                    (ov_actual_shape[0], ov_actual_shape[1], 4)
-                )
-                ov_rgba_mapped = self._get_screen_mapped_texture(
-                    ov_rgba_2d, self.current_pmin, self.current_pmax, canvas_w, canvas_h
-                )
-                ov_rgba_display = ov_rgba_mapped.ravel()
 
         if dpg.does_item_exist(self.texture_tag):
             dpg.set_value(self.texture_tag, rgba_flat)  # type: ignore
