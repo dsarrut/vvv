@@ -28,6 +28,8 @@ class FileManager:
         if history_entry:
             vs.camera.from_dict(history_entry["camera"])
             vs.display.from_dict(history_entry["display"])
+            vs.sync_group = history_entry.get("sync_group", 0)
+            vs.sync_wl_group = history_entry.get("sync_wl_group", 0)
 
             # Re-derive the crosshair_value based on restored voxel
             if vs.camera.crosshair_voxel is not None:
@@ -328,6 +330,7 @@ class FileManager:
             workspace["images"][vs_id] = {
                 "path": portable_path(vol.file_paths[0]),
                 "sync_group": vs.sync_group,
+                "sync_wl_group": getattr(vs, "sync_wl_group", 0),
                 "display": vs.display.to_dict(),
                 "camera": vs.camera.to_dict(),
                 "extraction": vs.extraction.to_dict(),

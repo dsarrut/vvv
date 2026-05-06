@@ -617,6 +617,7 @@ def load_workspace_sequence(gui, controller, filepath):
                 if "dvf" in img_data:
                     vs.dvf.from_dict(img_data["dvf"])
                 vs.sync_group = img_data.get("sync_group", 0)
+                vs.sync_wl_group = img_data.get("sync_wl_group", 0)
 
                 if hasattr(gui, "roi_ui"):
                     gui.roi_ui.roi_filters[new_id] = img_data.get("roi_filter", "")
