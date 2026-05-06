@@ -1198,7 +1198,11 @@ class SliceViewer:
             out_buffer[:, :] = tile
             return out_buffer, None
 
-        if last_crop:
+        if last_crop is None:
+            # Previous frame was all_valid (entire buffer was filled) — zero it now
+            # so the border region outside the new crop doesn't show stale image data.
+            out_buffer[:] = 0.0
+        elif last_crop != (y0, y1, x0, x1):
             oy0, oy1, ox0, ox1 = last_crop
             out_buffer[oy0:oy1, ox0:ox1] = 0.0
 
