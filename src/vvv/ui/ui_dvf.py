@@ -17,7 +17,13 @@ class DvfUI:
             build_section_title("DVF Visualization", cfg_c["text_header"])
 
             dpg.add_text(
-                "Active image is not a Displacement Vector Field.",
+                "No Image Selected",
+                tag="text_dvf_active_title",
+                color=cfg_c["text_active"],
+            )
+
+            dpg.add_text(
+                "Not a Displacement Vector Field.",
                 tag="text_dvf_warning",
                 color=cfg_c.get("text_muted", [150, 150, 150]),
                 show=False,
@@ -129,6 +135,25 @@ class DvfUI:
         viewer = self.gui.context_viewer
         target_vs, is_base = self._get_target_vs(viewer)
         is_dvf = target_vs is not None
+
+        if dpg.does_item_exist("text_dvf_active_title"):
+            if viewer and viewer.image_id and self.controller.volumes.get(viewer.image_id):
+                name_str, is_outdated = self.controller.get_image_display_name(
+                    viewer.image_id
+                )
+                dpg.set_value("text_dvf_active_title", name_str)
+                col = (
+                    self.gui.ui_cfg["colors"]["outdated"]
+                    if is_outdated
+                    else self.gui.ui_cfg["colors"]["text_active"]
+                )
+                dpg.configure_item("text_dvf_active_title", color=col)
+            else:
+                dpg.set_value("text_dvf_active_title", "No Image Selected")
+                dpg.configure_item(
+                    "text_dvf_active_title",
+                    color=self.gui.ui_cfg["colors"]["text_active"],
+                )
 
         if dpg.does_item_exist("text_dvf_warning"):
             dpg.configure_item("text_dvf_warning", show=not is_dvf)

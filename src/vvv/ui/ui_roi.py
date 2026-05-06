@@ -71,6 +71,12 @@ class RoiUI:
         with dpg.group(tag="tab_rois", show=False):
             build_section_title("ROI", cfg_c["text_header"])
 
+            dpg.add_text(
+                "No Image Selected",
+                tag="text_roi_active_title",
+                color=cfg_c["text_active"],
+            )
+
             # --- TOP: Load & Import ---
             with dpg.group(horizontal=True):
                 dpg.add_button(
@@ -237,6 +243,25 @@ class RoiUI:
         self.roi_selectables.clear()
 
         viewer = self.gui.context_viewer
+
+        if dpg.does_item_exist("text_roi_active_title"):
+            if viewer and viewer.image_id and self.controller.volumes.get(viewer.image_id):
+                name_str, is_outdated = self.controller.get_image_display_name(
+                    viewer.image_id
+                )
+                dpg.set_value("text_roi_active_title", name_str)
+                col = (
+                    self.gui.ui_cfg["colors"]["outdated"]
+                    if is_outdated
+                    else self.gui.ui_cfg["colors"]["text_active"]
+                )
+                dpg.configure_item("text_roi_active_title", color=col)
+            else:
+                dpg.set_value("text_roi_active_title", "No Image Selected")
+                dpg.configure_item(
+                    "text_roi_active_title",
+                    color=self.gui.ui_cfg["colors"]["text_active"],
+                )
 
         if not viewer or not viewer.view_state or not viewer.view_state.rois:
             if dpg.does_item_exist("group_roi_filter"):
