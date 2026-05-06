@@ -94,7 +94,9 @@ class SliceRenderer:
     @staticmethod
     def _blend_alpha(base_rgba, over_rgba, opacity):
         # Alpha channel of over_rgba already contains 0.0 where thresholded, and 1.0 otherwise.
-        op_mask = over_rgba[..., 3:4] * opacity
+        op_mask = over_rgba[..., 3:4]
+        if opacity != 1.0:
+            np.multiply(op_mask, opacity, out=op_mask)
 
         # --- THE IN-PLACE OPTIMIZATION ---
         # Instead of: base_rgba = base_rgba * (1.0 - op_mask) + over_rgba * op_mask
