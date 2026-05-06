@@ -223,7 +223,8 @@ def parse_cli_arguments(datasets):
     is_flag=True,
     help="Ignore saved history and load with defaults.",
 )
-def main(no_history, datasets, linkall, sync):
+@click.option("--debug", is_flag=True, help="Show FPS debug overlay with graph.")
+def main(no_history, datasets, linkall, sync, debug):
     """Entry point for the VVV command line interface."""
 
     # Parse the tasks cleanly
@@ -270,7 +271,7 @@ def main(no_history, datasets, linkall, sync):
         boot_gen = gui.create_boot_sequence(image_tasks, sync, linkall)
 
     # 3. Run the application
-    gui.run(boot_generator=boot_gen)
+    gui.run(boot_generator=boot_gen, debug=debug)
 
 
 if __name__ == "__main__":

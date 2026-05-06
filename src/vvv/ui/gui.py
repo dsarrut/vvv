@@ -3,6 +3,7 @@ import json
 import shlex
 import time
 import threading
+import collections
 import numpy as np
 from vvv.utils import fmt, ViewMode
 from vvv.ui.ui_roi import RoiUI
@@ -1431,7 +1432,7 @@ class MainGUI:
         # Safely update the sidebar between frames when the DPG stack is completely empty!
         self.update_sidebar_info(self.context_viewer)
 
-    def run(self, boot_generator=None):
+    def run(self, boot_generator=None, debug=False):
         dpg.setup_dearpygui()
 
         if not dpg.does_item_exist("global_texture_registry"):
@@ -1453,7 +1454,50 @@ class MainGUI:
             for _ in boot_generator:
                 dpg.render_dearpygui_frame()
 
+        # --- DEBUG FPS OVERLAY ---
+        fps_label = fps_series = x_axis = y_axis = None
+        fps_data = time_data = None
+        if debug:
+            fps_data = collections.deque(maxlen=600)   # ~10 s at 60 fps
+            time_data = collections.deque(maxlen=600)
+            with dpg.window(
+                label="FPS Debug",
+                tag="fps_debug_window",
+                width=340,
+                height=230,
+                pos=[10, 30],
+                no_scrollbar=True,
+            ):
+                fps_label = dpg.add_text("FPS: --   Avg: --   Min: --")
+                with dpg.plot(
+                    label="",
+                    height=170,
+                    width=-1,
+                    no_menus=True,
+                    no_title=True,
+                ):
+                    x_axis = dpg.add_plot_axis(dpg.mvXAxis, label="Time (s)", no_gridlines=True)
+                    y_axis = dpg.add_plot_axis(dpg.mvYAxis, label="FPS")
+                    dpg.set_axis_limits(y_axis, 0, 125)
+                    fps_series = dpg.add_line_series([], [], label="FPS", parent=y_axis)
+
         while dpg.is_dearpygui_running():
+            if debug:
+                delta = dpg.get_delta_time()
+                t_now = dpg.get_total_time()
+                if 0.0001 < delta < 5.0:    # ignore stalls and first frame
+                    fps = 1.0 / delta
+                    fps_data.append(fps)
+                    time_data.append(t_now)
+                    if fps_data:
+                        avg = sum(fps_data) / len(fps_data)
+                        mn = min(fps_data)
+                        dpg.set_value(fps_label, f"FPS: {fps:.1f}   Avg: {avg:.1f}   Min: {mn:.1f}")
+                        xs = list(time_data)
+                        dpg.set_value(fps_series, [xs, list(fps_data)])
+                        window = 10.0
+                        dpg.set_axis_limits(x_axis, max(0.0, t_now - window), t_now + 0.2)
+
             if time.time() > self.status_message_expire_time:
                 if dpg.does_item_exist("global_status_text"):
                     dpg.set_value("global_status_text", "")

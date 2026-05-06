@@ -1013,7 +1013,9 @@ class SliceViewer:
         return did_update_data
 
     @staticmethod
-    def _get_screen_mapped_texture(rgba_img, pmin, pmax, canvas_w, canvas_h):
+    def _get_screen_mapped_texture(
+        rgba_img, pmin, pmax, canvas_w, canvas_h, out_buffer=None, last_crop=None
+    ):
         """Extracts the exact viewport region and upscales using pure Nearest Neighbor math."""
         h, w = rgba_img.shape[:2]
 
@@ -1024,17 +1026,24 @@ class SliceViewer:
         # +0.5 samples the center of each screen pixel; +1e-5 prevents float64
         # boundary jitter (e.g. 3.9999999 flooring to 3 instead of 4).
         ix_full = np.floor(
-            (np.arange(canvas_w) + 0.5 - pmin[0]) * w / disp_w + 1e-5
+            (np.arange(canvas_w, dtype=np.float32) + 0.5 - pmin[0]) * (w / disp_w)
+            + 1e-5
         ).astype(np.int32)
         iy_full = np.floor(
-            (np.arange(canvas_h) + 0.5 - pmin[1]) * h / disp_h + 1e-5
+            (np.arange(canvas_h, dtype=np.float32) + 0.5 - pmin[1]) * (h / disp_h)
+            + 1e-5
         ).astype(np.int32)
 
         valid_x = (ix_full >= 0) & (ix_full < w)
         valid_y = (iy_full >= 0) & (iy_full < h)
 
         if not valid_x.any() or not valid_y.any():
-            return np.zeros((canvas_h, canvas_w, 4), dtype=rgba_img.dtype)
+            if out_buffer is None:
+                return np.zeros((canvas_h, canvas_w, 4), dtype=rgba_img.dtype)
+            if last_crop:
+                oy0, oy1, ox0, ox1 = last_crop
+                out_buffer[oy0:oy1, ox0:ox1] = 0.0
+            return out_buffer, None
 
         all_valid = bool(valid_x.all()) and bool(valid_y.all())
 
@@ -1049,7 +1058,12 @@ class SliceViewer:
                 and int(iy_full[0]) == 0
                 and int(iy_full[-1]) == h - 1
             ):
-                return rgba_img
+                if out_buffer is None:
+                    return rgba_img
+                if last_crop:
+                    oy0, oy1, ox0, ox1 = last_crop
+                    out_buffer[oy0:oy1, ox0:ox1] = 0.0
+                return rgba_img, None
             ix, iy = ix_full, iy_full
             x0 = y0 = 0
             x1, y1 = canvas_w, canvas_h
@@ -1091,14 +1105,25 @@ class SliceViewer:
             # Zoomed out past 1:1 — NN and linear look identical; fancy-index the subregion.
             tile = rgba_img[iy[:, None], ix[None, :]]
 
-        if all_valid:
-            return (
-                tile  # No black border: return the tile directly, no extra allocation.
-            )
+        if out_buffer is None:
+            if all_valid:
+                return tile
+            out = np.zeros((canvas_h, canvas_w, 4), dtype=rgba_img.dtype)
+            out[y0:y1, x0:x1] = tile
+            return out
 
-        out = np.zeros((canvas_h, canvas_w, 4), dtype=rgba_img.dtype)
-        out[y0:y1, x0:x1] = tile
-        return out
+        if all_valid:
+            if last_crop:
+                oy0, oy1, ox0, ox1 = last_crop
+                out_buffer[oy0:oy1, ox0:ox1] = 0.0
+            return tile, None
+
+        if last_crop:
+            oy0, oy1, ox0, ox1 = last_crop
+            out_buffer[oy0:oy1, ox0:ox1] = 0.0
+
+        out_buffer[y0:y1, x0:x1] = tile
+        return out_buffer, (y0, y1, x0, x1)
 
     def _render_overlay_as_native_voxels(self, pmin, pmax, canvas_w, canvas_h):
         """Render the overlay at its native voxel resolution in NN pixelated mode.
@@ -1164,22 +1189,82 @@ class SliceViewer:
         A_total = M_inv_ov @ R_comp @ M_base
         b_total = M_inv_ov @ (R_comp @ base_vol.origin + t_comp - ov_vol.origin)
 
-        A_total = A_total.astype(np.float32)
-        b_total = b_total.astype(np.float32)
-
-        C0 = A_total[:, 0]
-        C1 = A_total[:, 1]
-        C2 = A_total[:, 2]
-
-        B_eff = b_total + 0.5  # Add 0.5 for fast floor rounding
-
         slice_h, slice_w = self.get_slice_shape()
         depth = float(self.slice_idx)
 
-        ix_disp = (np.arange(canvas_w, dtype=np.float32) + 0.5 - pmin[0]) * (
+        time_idx = min(vs.camera.time_idx, ov_vol.num_timepoints - 1)
+        ov_data = ov_vol.data[time_idx] if ov_vol.num_timepoints > 1 else ov_vol.data
+        ov_D, ov_H, ov_W = ov_data.shape
+
+        # --- SCREEN CROP OPTIMIZATION ---
+        # Project the 8 physical corners of the overlay to find its 2D screen bounding box
+        c_x0, c_x1, c_y0, c_y1 = 0, canvas_w, 0, canvas_h
+        try:
+            A_inv = np.linalg.inv(A_total)
+            corners_ov = np.array(
+                [
+                    [0, 0, 0],
+                    [ov_W, 0, 0],
+                    [0, ov_H, 0],
+                    [ov_W, ov_H, 0],
+                    [0, 0, ov_D],
+                    [ov_W, 0, ov_D],
+                    [0, ov_H, ov_D],
+                    [ov_W, ov_H, ov_D],
+                ]
+            )
+            base_corners = (A_inv @ (corners_ov - b_total).T).T
+
+            if self.orientation == ViewMode.AXIAL:
+                ix_disp_corners = base_corners[:, 0] + 0.5
+                iy_disp_corners = base_corners[:, 1] + 0.5
+            elif self.orientation == ViewMode.SAGITTAL:
+                ix_disp_corners = slice_w - base_corners[:, 1] - 0.5
+                iy_disp_corners = slice_h - base_corners[:, 2] - 0.5
+            else:  # CORONAL
+                ix_disp_corners = base_corners[:, 0] + 0.5
+                iy_disp_corners = slice_h - base_corners[:, 2] - 0.5
+
+            x_screen = (ix_disp_corners * disp_w / slice_w) + pmin[0] - 0.5
+            y_screen = (iy_disp_corners * disp_h / slice_h) + pmin[1] - 0.5
+
+            b_x0, b_x1 = int(np.floor(x_screen.min())), int(np.ceil(x_screen.max())) + 1
+            b_y0, b_y1 = int(np.floor(y_screen.min())), int(np.ceil(y_screen.max())) + 1
+
+            c_x0, c_x1 = max(0, min(canvas_w, b_x0)), max(0, min(canvas_w, b_x1))
+            c_y0, c_y1 = max(0, min(canvas_h, b_y0)), max(0, min(canvas_h, b_y1))
+        except np.linalg.LinAlgError:
+            pass
+
+        if not hasattr(self, "_native_ov_buf") or self._native_ov_buf.shape[:2] != (
+            canvas_h,
+            canvas_w,
+        ):
+            self._native_ov_buf = np.zeros((canvas_h, canvas_w, 4), dtype=np.float32)
+            self._last_native_ov_crop = None
+
+        rgba = self._native_ov_buf
+        if getattr(self, "_last_native_ov_crop", None):
+            oy0, oy1, ox0, ox1 = self._last_native_ov_crop
+            rgba[oy0:oy1, ox0:ox1] = 0.0
+
+        self._last_native_ov_crop = (c_y0, c_y1, c_x0, c_x1)
+
+        # Return instantly if the overlay is panned completely off-screen
+        if c_x0 >= c_x1 or c_y0 >= c_y1:
+            return rgba.ravel()
+
+        A_total = A_total.astype(np.float32)
+        b_total = b_total.astype(np.float32)
+
+        C0, C1, C2 = A_total[:, 0], A_total[:, 1], A_total[:, 2]
+        B_eff = b_total + 0.5  # Add 0.5 for fast floor rounding
+
+        # Only process pixels INSIDE the screen bounding box
+        ix_disp = (np.arange(c_x0, c_x1, dtype=np.float32) + 0.5 - pmin[0]) * (
             slice_w / disp_w
         )
-        iy_disp = (np.arange(canvas_h, dtype=np.float32) + 0.5 - pmin[1]) * (
+        iy_disp = (np.arange(c_y0, c_y1, dtype=np.float32) + 0.5 - pmin[1]) * (
             slice_h / disp_h
         )
 
@@ -1202,13 +1287,85 @@ class SliceViewer:
             vec_w = C0[:, None] * itk_x
             vec_h = C2[:, None] * itk_z
 
+        # --- SEPARABLE FAST PATH ---
+        # When A_total is diagonal (no in-plane rotation — most SPECT/CT fusions), each SPECT
+        # index depends on at most one screen axis. Use 1D arrays + a tiny unique-voxel mini
+        # texture instead of 3×(crop_h×crop_w) float32 grids.
+        is_diagonal = np.max(np.abs(A_total - np.diag(np.diag(A_total)))) < 1e-5
+
+        if is_diagonal:
+            if self.orientation == ViewMode.AXIAL:
+                # col→spect_x, row→spect_y, depth→spect_z (constant)
+                s_col = B_eff[0] + vec_w[0]   # (crop_w,)
+                s_row = B_eff[1] + vec_h[1]   # (crop_h,)
+                s_dep = float(B_eff[2])
+                col_max, row_max, dep_max = ov_W, ov_H, ov_D
+            elif self.orientation == ViewMode.SAGITTAL:
+                # col→spect_y, row→spect_z, depth→spect_x (constant)
+                s_col = B_eff[1] + vec_w[1]   # (crop_w,)
+                s_row = B_eff[2] + vec_h[2]   # (crop_h,)
+                s_dep = float(B_eff[0])
+                col_max, row_max, dep_max = ov_H, ov_D, ov_W
+            else:  # CORONAL
+                # col→spect_x, row→spect_z, depth→spect_y (constant)
+                s_col = B_eff[0] + vec_w[0]   # (crop_w,)
+                s_row = B_eff[2] + vec_h[2]   # (crop_h,)
+                s_dep = float(B_eff[1])
+                col_max, row_max, dep_max = ov_W, ov_D, ov_H
+
+            dep_nn = int(round(s_dep))
+            if dep_nn < 0 or dep_nn >= dep_max:
+                return rgba.ravel()
+
+            if self.orientation == ViewMode.AXIAL:
+                ov_slice = ov_data[dep_nn]           # (ov_H, ov_W) → [spect_y, spect_x]
+            elif self.orientation == ViewMode.SAGITTAL:
+                ov_slice = ov_data[:, :, dep_nn]     # (ov_D, ov_H) → [spect_z, spect_y]
+            else:
+                ov_slice = ov_data[:, dep_nn, :]     # (ov_D, ov_W) → [spect_z, spect_x]
+
+            col_nn = np.round(s_col).astype(np.int32)
+            row_nn = np.round(s_row).astype(np.int32)
+            in_col = (col_nn >= 0) & (col_nn < col_max)
+            in_row = (row_nn >= 0) & (row_nn < row_max)
+
+            if not in_col.any() or not in_row.any():
+                return rgba.ravel()
+
+            unique_col, inv_col = np.unique(col_nn[in_col], return_inverse=True)
+            unique_row, inv_row = np.unique(row_nn[in_row], return_inverse=True)
+
+            # Colorize only unique voxels (tiny array — fits in L2 cache)
+            values_mini = ov_slice[unique_row[:, None], unique_col[None, :]].astype(np.float32)
+            norm = SliceRenderer.normalize_wl(values_mini, ovs.display.ww, ovs.display.wl)
+            lut = COLORMAPS.get(ovs.display.colormap, COLORMAPS["Grayscale"])
+            rgba_mini = lut[(norm * 255).astype(np.uint8)].copy()
+            threshold = ovs.display.base_threshold
+            if threshold is not None:
+                rgba_mini[values_mini <= threshold] = 0.0
+
+            # Expand to canvas: tiny source → cache-friendly write
+            rgba_inner = rgba_mini[inv_row[:, None], inv_col[None, :]]
+
+            row_idx = np.where(in_row)[0]
+            col_idx = np.where(in_col)[0]
+            if (
+                row_idx[-1] - row_idx[0] == len(row_idx) - 1
+                and col_idx[-1] - col_idx[0] == len(col_idx) - 1
+            ):
+                rgba[
+                    c_y0 + row_idx[0] : c_y0 + row_idx[-1] + 1,
+                    c_x0 + col_idx[0] : c_x0 + col_idx[-1] + 1,
+                ] = rgba_inner
+            else:
+                rgba[np.ix_(c_y0 + row_idx, c_x0 + col_idx)] = rgba_inner
+
+            return rgba.ravel()
+
+        # --- GENERAL PATH (in-plane rotation active) ---
         s_x = B_eff[0] + vec_h[0][:, None] + vec_w[0]
         s_y = B_eff[1] + vec_h[1][:, None] + vec_w[1]
         s_z = B_eff[2] + vec_h[2][:, None] + vec_w[2]
-
-        time_idx = min(vs.camera.time_idx, ov_vol.num_timepoints - 1)
-        ov_data = ov_vol.data[time_idx] if ov_vol.num_timepoints > 1 else ov_vol.data
-        ov_D, ov_H, ov_W = ov_data.shape
 
         in_bounds = (
             (s_x >= 0)
@@ -1219,15 +1376,33 @@ class SliceViewer:
             & (s_z < ov_D)
         )
 
-        rgba = np.zeros((canvas_h, canvas_w, 4), dtype=np.float32)
-
         if in_bounds.any():
             x_nn = s_x[in_bounds].astype(np.int32)
             y_nn = s_y[in_bounds].astype(np.int32)
             z_nn = s_z[in_bounds].astype(np.int32)
 
-            flat_idx = z_nn * (ov_H * ov_W) + y_nn * ov_W + x_nn
-            valid_vals = ov_data.ravel()[flat_idx].astype(np.float32)
+            # --- IMAGE CROP OPTIMIZATION ---
+            # Find the bounding box of requested voxels. If the user is zoomed heavily in,
+            # crop the memory footprint to maximize CPU cache hits during advanced indexing.
+            x_min, x_max = x_nn.min(), x_nn.max()
+            y_min, y_max = y_nn.min(), y_nn.max()
+            z_min, z_max = z_nn.min(), z_nn.max()
+
+            box_size = (z_max - z_min + 1) * (y_max - y_min + 1) * (x_max - x_min + 1)
+            if box_size < 2_000_000:
+                cropped_ov = ov_data[
+                    z_min : z_max + 1, y_min : y_max + 1, x_min : x_max + 1
+                ]
+                x_nn -= x_min
+                y_nn -= y_min
+                z_nn -= z_min
+                c_H, c_W = cropped_ov.shape[1], cropped_ov.shape[2]
+                flat_idx = z_nn * (c_H * c_W) + y_nn * c_W + x_nn
+                # .flatten() ensures it's C-contiguous so flat_idx executes instantly!
+                valid_vals = cropped_ov.flatten()[flat_idx].astype(np.float32)
+            else:
+                flat_idx = z_nn * (ov_H * ov_W) + y_nn * ov_W + x_nn
+                valid_vals = ov_data.ravel()[flat_idx].astype(np.float32)
 
             threshold = ovs.display.base_threshold
             if threshold is not None:
@@ -1242,7 +1417,10 @@ class SliceViewer:
 
                 norm = SliceRenderer.normalize_wl(valid_vals, ww, wl)
                 lut = COLORMAPS.get(cmap_name, COLORMAPS["Grayscale"])
-                rgba[in_bounds] = lut[(norm * 255).astype(np.uint8)]
+
+                # Directly write into the persistent pre-zeroed canvas buffer!
+                rgba_crop = rgba[c_y0:c_y1, c_x0:c_x1]
+                rgba_crop[in_bounds] = lut[(norm * 255).astype(np.uint8)]
 
         return rgba.ravel()
 
@@ -1720,9 +1898,23 @@ class SliceViewer:
             canvas_w = int(max(1, self.quad_w - pad))
             canvas_h = int(max(1, self.quad_h - pad))
 
+            if not hasattr(
+                self, "_base_canvas_buffer"
+            ) or self._base_canvas_buffer.shape[:2] != (canvas_h, canvas_w):
+                self._base_canvas_buffer = np.zeros(
+                    (canvas_h, canvas_w, 4), dtype=np.float32
+                )
+                self._last_base_crop = None
+
             rgba_2d = rgba_flat.reshape((actual_shape[0], actual_shape[1], 4))
-            rgba_mapped = self._get_screen_mapped_texture(
-                rgba_2d, self.current_pmin, self.current_pmax, canvas_w, canvas_h
+            rgba_mapped, self._last_base_crop = self._get_screen_mapped_texture(
+                rgba_2d,
+                self.current_pmin,
+                self.current_pmax,
+                canvas_w,
+                canvas_h,
+                out_buffer=self._base_canvas_buffer,
+                last_crop=self._last_base_crop,
             )
             rgba_flat = rgba_mapped.ravel()
 
