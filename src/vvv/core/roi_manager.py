@@ -673,22 +673,59 @@ class ROIManager:
             return
 
         mask_vol = self.controller.volumes[roi_id]
-        roi_state = self.controller.view_states[base_id].rois[roi_id]
+        vs = self.controller.view_states[base_id]
+        roi_state = vs.rois[roi_id]
+        
+        source_type = getattr(roi_state, "source_type", "Binary")
+        filepath = mask_vol.file_paths[0] if mask_vol.file_paths else None
 
-        if getattr(roi_state, "rtstruct_info", None) is not None:
-            if self.controller.gui:
-                self.controller.gui.show_status_message(
-                    "RT-Struct ROIs cannot be hot-reloaded.", color=[255, 100, 100]
+        # --- NATIVE BATCH RELOADING FOR COMPLEX FILES ---
+        if source_type == "Label Map" and filepath and self.controller.gui:
+            rois_to_delete = []
+            for rid, rstate in list(vs.rois.items()):
+                rvol = self.controller.volumes.get(rid)
+                if rvol and rvol.file_paths and rvol.file_paths[0] == filepath:
+                    rois_to_delete.append(rid)
+            for rid in rois_to_delete:
+                self.close_roi(base_id, rid)
+                
+            from vvv.ui.ui_sequences import load_label_map_sequence
+            self.controller.gui.tasks.append(
+                load_label_map_sequence(self.controller.gui, self.controller, base_id, filepath)
+            )
+            return
+
+        if source_type == "RT-Struct" and filepath and self.controller.gui:
+            selected_rois = []
+            rois_to_delete = []
+            for rid, rstate in list(vs.rois.items()):
+                rvol = self.controller.volumes.get(rid)
+                if rvol and rvol.file_paths and rvol.file_paths[0] == filepath:
+                    if getattr(rstate, "rtstruct_info", None):
+                        # Preserve user's visual preferences during the reload
+                        rinfo = dict(rstate.rtstruct_info)
+                        rinfo["color"] = rstate.color
+                        rinfo["name"] = rstate.name
+                        selected_rois.append(rinfo)
+                    rois_to_delete.append(rid)
+                    
+            for rid in rois_to_delete:
+                self.close_roi(base_id, rid)
+
+            if selected_rois:
+                from vvv.ui.ui_sequences import load_rtstruct_sequence
+                self.controller.gui.tasks.append(
+                    load_rtstruct_sequence(self.controller.gui, self.controller, base_id, filepath, selected_rois)
                 )
             return
 
+        # --- STANDARD BINARY MASK RELOAD ---
         if self.controller.gui:
             self.controller.gui.show_status_message(
                 f"Reloading: {roi_state.name} ...",
                 color=self.controller.gui.ui_cfg["colors"]["working"],
             )
 
-        vs = self.controller.view_states[base_id]
         with vs.loading_shield():
             mask_vol.reload()
 

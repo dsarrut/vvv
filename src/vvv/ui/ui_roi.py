@@ -328,7 +328,7 @@ class RoiUI:
 
                 source_type = getattr(roi, "source_type", "Binary")
 
-                if source_type == "Binary" and is_outdated:
+                if is_outdated:
                     btn_action = dpg.add_button(
                         label="\uf01e",  # Reload Icon
                         width=20,
