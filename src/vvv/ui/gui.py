@@ -1033,7 +1033,7 @@ class MainGUI:
                     dpg.set_item_height("av_panel", av_h)
                 if dpg.does_item_exist("spacer_av"):
                     dpg.configure_item("spacer_av", show=True, height=gap)
-                top_h = l_h - av_h - ch_h - (gap * 2) - 4
+                top_h = l_h - av_h - ch_h - (gap * 2) - (4 + 5)
 
             if dpg.does_item_exist("spacer_ch"):
                 dpg.configure_item("spacer_ch", height=gap)

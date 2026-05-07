@@ -28,17 +28,17 @@ import ctypes as _ctypes
 import ctypes.util as _ctypes_util
 import platform as _platform
 
-_GL_TEXTURE_2D         = 0x0DE1
+_GL_TEXTURE_2D = 0x0DE1
 _GL_TEXTURE_MIN_FILTER = 0x2801
 _GL_TEXTURE_MAG_FILTER = 0x2800
-_GL_TEXTURE_WIDTH      = 0x1000
-_GL_TEXTURE_HEIGHT     = 0x1001
-_GL_NEAREST            = 0x2600
+_GL_TEXTURE_WIDTH = 0x1000
+_GL_TEXTURE_HEIGHT = 0x1001
+_GL_NEAREST = 0x2600
 
-_gl_lib       = None  # ctypes GL handle; False = unavailable
-_nn_gl_ids    = {}    # dpg_tag  -> GL uint texture ID (registered, GL_NEAREST applied)
-_nn_debug     = {}    # dpg_tag  -> diagnostic string shown in --debug overlay
-_pending_nn   = {}    # dpg_tag  -> (w, h) — awaiting post-render scan
+_gl_lib = None  # ctypes GL handle; False = unavailable
+_nn_gl_ids = {}  # dpg_tag  -> GL uint texture ID (registered, GL_NEAREST applied)
+_nn_debug = {}  # dpg_tag  -> diagnostic string shown in --debug overlay
+_pending_nn = {}  # dpg_tag  -> (w, h) — awaiting post-render scan
 
 
 def _get_gl():
@@ -53,7 +53,7 @@ def _get_gl():
         elif sys_name == "Windows":
             _gl_lib = _ctypes.windll.opengl32  # type: ignore[attr-defined]
         else:
-            _gl_lib = False   # macOS uses Metal — raw GL calls would crash
+            _gl_lib = False  # macOS uses Metal — raw GL calls would crash
     except Exception:
         _gl_lib = False
     return _gl_lib if _gl_lib else None
@@ -61,15 +61,20 @@ def _get_gl():
 
 def _setup_gl(gl) -> None:
     """Set ctypes argtypes/restype for the GL functions we need (idempotent)."""
-    c_int_p  = _ctypes.POINTER(_ctypes.c_int)
-    gl.glIsTexture.argtypes             = [_ctypes.c_uint]
-    gl.glIsTexture.restype              = _ctypes.c_ubyte
-    gl.glBindTexture.argtypes           = [_ctypes.c_uint, _ctypes.c_uint]
-    gl.glBindTexture.restype            = None
-    gl.glTexParameteri.argtypes         = [_ctypes.c_uint, _ctypes.c_uint, _ctypes.c_int]
-    gl.glTexParameteri.restype          = None
-    gl.glGetTexLevelParameteriv.argtypes = [_ctypes.c_uint, _ctypes.c_int, _ctypes.c_uint, c_int_p]
-    gl.glGetTexLevelParameteriv.restype  = None
+    c_int_p = _ctypes.POINTER(_ctypes.c_int)
+    gl.glIsTexture.argtypes = [_ctypes.c_uint]
+    gl.glIsTexture.restype = _ctypes.c_ubyte
+    gl.glBindTexture.argtypes = [_ctypes.c_uint, _ctypes.c_uint]
+    gl.glBindTexture.restype = None
+    gl.glTexParameteri.argtypes = [_ctypes.c_uint, _ctypes.c_uint, _ctypes.c_int]
+    gl.glTexParameteri.restype = None
+    gl.glGetTexLevelParameteriv.argtypes = [
+        _ctypes.c_uint,
+        _ctypes.c_int,
+        _ctypes.c_uint,
+        c_int_p,
+    ]
+    gl.glGetTexLevelParameteriv.restype = None
 
 
 def _nn_schedule(tag: str, w: int, h: int) -> None:
@@ -114,8 +119,12 @@ def gl_nn_apply_pending(active_nn_tags: set) -> None:
                 continue
             gap = 0
             gl.glBindTexture(_GL_TEXTURE_2D, tex_id)
-            gl.glGetTexLevelParameteriv(_GL_TEXTURE_2D, 0, _GL_TEXTURE_WIDTH,  _ctypes.byref(wbuf))
-            gl.glGetTexLevelParameteriv(_GL_TEXTURE_2D, 0, _GL_TEXTURE_HEIGHT, _ctypes.byref(hbuf))
+            gl.glGetTexLevelParameteriv(
+                _GL_TEXTURE_2D, 0, _GL_TEXTURE_WIDTH, _ctypes.byref(wbuf)
+            )
+            gl.glGetTexLevelParameteriv(
+                _GL_TEXTURE_2D, 0, _GL_TEXTURE_HEIGHT, _ctypes.byref(hbuf)
+            )
             sz = (wbuf.value, hbuf.value)
             if sz in size_to_found:
                 gl.glTexParameteri(_GL_TEXTURE_2D, _GL_TEXTURE_MIN_FILTER, _GL_NEAREST)
@@ -128,10 +137,14 @@ def gl_nn_apply_pending(active_nn_tags: set) -> None:
             for i, tag in enumerate(tags):
                 if i < len(found):
                     _nn_gl_ids[tag] = found[i]
-                    _nn_debug[tag] = f"GL_NEAREST ok  id={found[i]}  size={sz[0]}x{sz[1]}"
+                    _nn_debug[tag] = (
+                        f"GL_NEAREST ok  id={found[i]}  size={sz[0]}x{sz[1]}"
+                    )
                     del _pending_nn[tag]
                 else:
-                    _nn_debug[tag] = f"scan miss  size={sz[0]}x{sz[1]}  found={len(found)}"
+                    _nn_debug[tag] = (
+                        f"scan miss  size={sz[0]}x{sz[1]}  found={len(found)}"
+                    )
     except Exception as exc:
         _nn_debug["scan_error"] = str(exc)
 
@@ -661,7 +674,7 @@ class SliceViewer:
             ov_w, ov_h = w, h
 
         # 1. Generate unique tags based on dimensions
-        new_texture_tag    = f"tex_{self.tag}_{base_w}x{base_h}"
+        new_texture_tag = f"tex_{self.tag}_{base_w}x{base_h}"
         new_ov_texture_tag = f"tex_ov_{self.tag}_{ov_w}x{ov_h}"
 
         # Always unhide the parent canvas.
@@ -671,10 +684,14 @@ class SliceViewer:
         # 2. If both tags match existing textures, nothing to do — except if NN mode
         # is active and this texture is not registered/pending for GL_NEAREST yet
         # (happens when toggling NN on after it was previously turned off).
-        base_exists = self.texture_tag == new_texture_tag and dpg.does_item_exist(self.texture_tag)
-        ov_exists   = (hasattr(self, "overlay_texture_tag")
-                       and self.overlay_texture_tag == new_ov_texture_tag
-                       and dpg.does_item_exist(self.overlay_texture_tag))
+        base_exists = self.texture_tag == new_texture_tag and dpg.does_item_exist(
+            self.texture_tag
+        )
+        ov_exists = (
+            hasattr(self, "overlay_texture_tag")
+            and self.overlay_texture_tag == new_ov_texture_tag
+            and dpg.does_item_exist(self.overlay_texture_tag)
+        )
         if base_exists and ov_exists:
             return False
 
@@ -1495,85 +1512,97 @@ class SliceViewer:
         if is_diagonal:
             if self.orientation == ViewMode.AXIAL:
                 # col→spect_x, row→spect_y, depth→spect_z (constant)
-                s_col = B_eff[0] + vec_w[0]   # (crop_w,)
-                s_row = B_eff[1] + vec_h[1]   # (crop_h,)
+                s_col = B_eff[0] + vec_w[0]  # (crop_w,)
+                s_row = B_eff[1] + vec_h[1]  # (crop_h,)
                 s_dep = float(B_eff[2])
                 col_max, row_max, dep_max = ov_W, ov_H, ov_D
             elif self.orientation == ViewMode.SAGITTAL:
                 # col→spect_y, row→spect_z, depth→spect_x (constant)
-                s_col = B_eff[1] + vec_w[1]   # (crop_w,)
-                s_row = B_eff[2] + vec_h[2]   # (crop_h,)
+                s_col = B_eff[1] + vec_w[1]  # (crop_w,)
+                s_row = B_eff[2] + vec_h[2]  # (crop_h,)
                 s_dep = float(B_eff[0])
                 col_max, row_max, dep_max = ov_H, ov_D, ov_W
             else:  # CORONAL
                 # col→spect_x, row→spect_z, depth→spect_y (constant)
-                s_col = B_eff[0] + vec_w[0]   # (crop_w,)
-                s_row = B_eff[2] + vec_h[2]   # (crop_h,)
+                s_col = B_eff[0] + vec_w[0]  # (crop_w,)
+                s_row = B_eff[2] + vec_h[2]  # (crop_h,)
                 s_dep = float(B_eff[1])
                 col_max, row_max, dep_max = ov_W, ov_D, ov_H
 
-            dep_nn = int(round(s_dep))
-            if dep_nn < 0 or dep_nn >= dep_max:
+            if s_dep < 0 or s_dep >= dep_max:
                 return rgba.ravel()
+            dep_nn = int(s_dep)
 
             if self.orientation == ViewMode.AXIAL:
-                ov_slice = ov_data[dep_nn]           # (ov_H, ov_W) → [spect_y, spect_x]
+                ov_slice = ov_data[dep_nn]  # (ov_H, ov_W) → [spect_y, spect_x]
             elif self.orientation == ViewMode.SAGITTAL:
-                ov_slice = ov_data[:, :, dep_nn]     # (ov_D, ov_H) → [spect_z, spect_y]
+                ov_slice = ov_data[:, :, dep_nn]  # (ov_D, ov_H) → [spect_z, spect_y]
             else:
-                ov_slice = ov_data[:, dep_nn, :]     # (ov_D, ov_W) → [spect_z, spect_x]
+                ov_slice = ov_data[:, dep_nn, :]  # (ov_D, ov_W) → [spect_z, spect_x]
 
-            col_nn = s_col.astype(np.int32)
-            row_nn = s_row.astype(np.int32)
-            in_col = (col_nn >= 0) & (col_nn < col_max)
-            in_row = (row_nn >= 0) & (row_nn < row_max)
+            in_col = (s_col >= 0) & (s_col < col_max)
+            in_row = (s_row >= 0) & (s_row < row_max)
 
             if not in_col.any() or not in_row.any():
                 return rgba.ravel()
 
-            unique_col, inv_col = np.unique(col_nn[in_col], return_inverse=True)
-            unique_row, inv_row = np.unique(row_nn[in_row], return_inverse=True)
+            c_start = int(np.argmax(in_col))
+            c_end = len(in_col) - int(np.argmax(in_col[::-1]))
+            r_start = int(np.argmax(in_row))
+            r_end = len(in_row) - int(np.argmax(in_row[::-1]))
 
-            # Colorize only unique voxels (tiny array — fits in L2 cache)
-            values_mini = ov_slice[unique_row[:, None], unique_col[None, :]].astype(np.float32)
-            norm = SliceRenderer.normalize_wl(values_mini, ovs.display.ww, ovs.display.wl)
+            col_valid = s_col[c_start:c_end].astype(np.int32)
+            row_valid = s_row[r_start:r_end].astype(np.int32)
+
+            c_diff = col_valid[1:] != col_valid[:-1]
+            c_new = np.empty(len(col_valid), dtype=bool)
+            c_new[0] = True
+            c_new[1:] = c_diff
+            unique_col = col_valid[c_new]
+            c_where = np.where(c_new)[0]
+            c_cnt = np.diff(np.append(c_where, len(col_valid)))
+
+            r_diff = row_valid[1:] != row_valid[:-1]
+            r_new = np.empty(len(row_valid), dtype=bool)
+            r_new[0] = True
+            r_new[1:] = r_diff
+            unique_row = row_valid[r_new]
+            r_where = np.where(r_new)[0]
+            r_cnt = np.diff(np.append(r_where, len(row_valid)))
+
+            # Colorize only unique voxels (tiny array fits in L2 cache)
+            values_mini = ov_slice[unique_row[:, None], unique_col[None, :]].astype(
+                np.float32
+            )
+            norm = SliceRenderer.normalize_wl(
+                values_mini, ovs.display.ww, ovs.display.wl
+            )
             lut = COLORMAPS.get(ovs.display.colormap, COLORMAPS["Grayscale"])
-            rgba_mini = lut[(norm * 255).astype(np.uint8)].copy()
+            rgba_mini = lut[(norm * 255).astype(np.uint8)]
             threshold = ovs.display.base_threshold
             if threshold is not None:
                 rgba_mini[values_mini <= threshold] = 0.0
 
-            # Expand to canvas: tiny source → cache-friendly write
-            rgba_inner = rgba_mini[inv_row[:, None], inv_col[None, :]]
-
-            row_idx = np.where(in_row)[0]
-            col_idx = np.where(in_col)[0]
-            if (
-                row_idx[-1] - row_idx[0] == len(row_idx) - 1
-                and col_idx[-1] - col_idx[0] == len(col_idx) - 1
-            ):
-                rgba[
-                    c_y0 + row_idx[0] : c_y0 + row_idx[-1] + 1,
-                    c_x0 + col_idx[0] : c_x0 + col_idx[-1] + 1,
-                ] = rgba_inner
-            else:
-                rgba[np.ix_(c_y0 + row_idx, c_x0 + col_idx)] = rgba_inner
+            # Expand to canvas via ultra-fast bulk block copy
+            rgba_inner = np.repeat(np.repeat(rgba_mini, r_cnt, axis=0), c_cnt, axis=1)
+            rgba[c_y0 + r_start : c_y0 + r_end, c_x0 + c_start : c_x0 + c_end] = (
+                rgba_inner
+            )
 
             return rgba.ravel()
 
         # --- GENERAL PATH (in-plane rotation active) ---
         s_x = B_eff[0] + vec_h[0][:, None] + vec_w[0]
-        s_y = B_eff[1] + vec_h[1][:, None] + vec_w[1]
-        s_z = B_eff[2] + vec_h[2][:, None] + vec_w[2]
+        in_bounds = s_x >= 0
+        in_bounds &= s_x < ov_W
 
-        in_bounds = (
-            (s_x >= 0)
-            & (s_x < ov_W)
-            & (s_y >= 0)
-            & (s_y < ov_H)
-            & (s_z >= 0)
-            & (s_z < ov_D)
-        )
+        s_y = B_eff[1] + vec_h[1][:, None] + vec_w[1]
+        in_bounds &= s_y >= 0
+        in_bounds &= s_y < ov_H
+
+        s_z = B_eff[2] + vec_h[2][:, None] + vec_w[2]
+        in_bounds &= s_z >= 0
+        in_bounds &= s_z < ov_D
 
         if in_bounds.any():
             x_nn = s_x[in_bounds].astype(np.int32)
@@ -2212,10 +2241,14 @@ class SliceViewer:
                         )
                         dpg.configure_item(
                             self.overlay_image_tag,
-                            pmin=[self.current_pmin[0] + shift_x,
-                                  self.current_pmin[1] + shift_y],
-                            pmax=[self.current_pmax[0] + shift_x,
-                                  self.current_pmax[1] + shift_y],
+                            pmin=[
+                                self.current_pmin[0] + shift_x,
+                                self.current_pmin[1] + shift_y,
+                            ],
+                            pmax=[
+                                self.current_pmax[0] + shift_x,
+                                self.current_pmax[1] + shift_y,
+                            ],
                             color=[255, 255, 255, op],
                             show=True,
                         )
