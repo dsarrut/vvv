@@ -243,6 +243,19 @@ def register_dynamic_themes(ui_cfg, controller):
                     dpg.mvStyleVar_FramePadding, *cfg_l["pad_frame_sidebar"]
                 )
 
+    if not dpg.does_item_exist("crosshair_panel_theme"):
+        with dpg.theme(tag="crosshair_panel_theme"):
+            with dpg.theme_component(dpg.mvChildWindow):
+                dpg.add_theme_color(dpg.mvThemeCol_ChildBg, cfg_c["bg_sidebar"])
+                dpg.add_theme_color(dpg.mvThemeCol_Border, cfg_c["border_black"])
+                dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 1)
+                dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, cfg_l["rounding"])
+            with dpg.theme_component(dpg.mvAll):
+                dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 4, 12)
+                dpg.add_theme_style(
+                    dpg.mvStyleVar_FramePadding, *cfg_l["pad_frame_sidebar"]
+                )
+
     if not dpg.does_item_exist("outdated_item_theme"):
         with dpg.theme(tag="outdated_item_theme"):
             with dpg.theme_component(dpg.mvAll):

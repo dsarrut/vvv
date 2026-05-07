@@ -8,53 +8,163 @@ from vvv.core.view_state import ViewState
 from typing import Any
 
 # ---------------------------------------------------------------------------
-# GL_NEAREST helper – set texture filter to nearest-neighbour via ctypes so
-# the GPU handles NN upscaling instead of Python/numpy pre-computing it.
-# Only supported on Linux and Windows; macOS uses Metal via DearPyGui.
+# GL_NEAREST helper – force nearest-neighbour texture filtering via ctypes.
+#
+# DPG creates the actual OpenGL texture object INSIDE render_dearpygui_frame(),
+# not during add_dynamic_texture() or set_value().  Any probe that runs before
+# render_dearpygui_frame() will find no new texture, or will find pre-existing
+# ImGui internal textures (fonts, etc.) by accident.
+#
+# Correct strategy:
+#   1. When ensure_texture_exists() creates a DPG texture item, register its
+#      expected pixel dimensions in _pending_nn.
+#   2. In gui.py, call gl_nn_apply_pending() AFTER render_dearpygui_frame().
+#      At that point the real GL texture exists.  Scan all GL texture IDs for
+#      ones whose dimensions match the expected size and apply GL_NEAREST.
+#   3. Call gl_nn_reapply_all() every frame to guard against dpg.set_value()
+#      resetting GL_LINEAR on upload.  This is cheap (4 GL calls per texture).
 # ---------------------------------------------------------------------------
+import ctypes as _ctypes
+import ctypes.util as _ctypes_util
 import platform as _platform
-_GL_NEAREST_SUPPORTED = _platform.system() in ("Linux", "Windows")
-_gl_nearest_fn = None   # lazily built; False = unavailable
+
+_GL_TEXTURE_2D         = 0x0DE1
+_GL_TEXTURE_MIN_FILTER = 0x2801
+_GL_TEXTURE_MAG_FILTER = 0x2800
+_GL_TEXTURE_WIDTH      = 0x1000
+_GL_TEXTURE_HEIGHT     = 0x1001
+_GL_NEAREST            = 0x2600
+
+_gl_lib       = None  # ctypes GL handle; False = unavailable
+_nn_gl_ids    = {}    # dpg_tag  -> GL uint texture ID (registered, GL_NEAREST applied)
+_nn_debug     = {}    # dpg_tag  -> diagnostic string shown in --debug overlay
+_pending_nn   = {}    # dpg_tag  -> (w, h) — awaiting post-render scan
 
 
-def _try_set_gl_nearest():
-    """Call glTexParameteri(GL_NEAREST) on the currently-bound 2D texture.
+def _get_gl():
+    global _gl_lib
+    if _gl_lib is not None:
+        return _gl_lib if _gl_lib is not False else None
+    sys_name = _platform.system()
+    try:
+        if sys_name == "Linux":
+            path = _ctypes_util.find_library("GL") or "libGL.so.1"
+            _gl_lib = _ctypes.CDLL(path)
+        elif sys_name == "Windows":
+            _gl_lib = _ctypes.windll.opengl32  # type: ignore[attr-defined]
+        else:
+            _gl_lib = False   # macOS uses Metal — raw GL calls would crash
+    except Exception:
+        _gl_lib = False
+    return _gl_lib if _gl_lib else None
 
-    DPG leaves its new texture bound after add_dynamic_texture(), so calling
-    this immediately after that creates a GL_NEAREST texture at no extra cost.
-    Silently does nothing if GL is unavailable (headless tests, bad context…).
-    """
-    global _gl_nearest_fn
-    if _gl_nearest_fn is None:
-        import ctypes, ctypes.util, platform
-        try:
-            sys = platform.system()
-            if sys == "Linux":
-                lib = ctypes.CDLL(ctypes.util.find_library("GL") or "libGL.so.1")
-            elif sys == "Windows":
-                lib = ctypes.windll.opengl32  # type: ignore[attr-defined]
+
+def _setup_gl(gl) -> None:
+    """Set ctypes argtypes/restype for the GL functions we need (idempotent)."""
+    c_int_p  = _ctypes.POINTER(_ctypes.c_int)
+    gl.glIsTexture.argtypes             = [_ctypes.c_uint]
+    gl.glIsTexture.restype              = _ctypes.c_ubyte
+    gl.glBindTexture.argtypes           = [_ctypes.c_uint, _ctypes.c_uint]
+    gl.glBindTexture.restype            = None
+    gl.glTexParameteri.argtypes         = [_ctypes.c_uint, _ctypes.c_uint, _ctypes.c_int]
+    gl.glTexParameteri.restype          = None
+    gl.glGetTexLevelParameteriv.argtypes = [_ctypes.c_uint, _ctypes.c_int, _ctypes.c_uint, c_int_p]
+    gl.glGetTexLevelParameteriv.restype  = None
+
+
+def _nn_schedule(tag: str, w: int, h: int) -> None:
+    """Register a DPG texture tag as needing GL_NEAREST after the next render frame."""
+    _pending_nn[tag] = (w, h)
+    _nn_debug[tag] = f"pending ({w}x{h})"
+
+
+_GL_LINEAR = 0x2601
+
+
+def gl_nn_apply_pending(active_nn_tags: set) -> None:
+    """Scan all GL textures for sizes matching pending tags; apply GL_NEAREST.
+    active_nn_tags: set of texture tags currently in NN mode (others are cancelled).
+    Call this AFTER render_dearpygui_frame() so DPG's real GL textures exist."""
+    # Cancel pending entries whose viewer switched back to linear before the scan ran.
+    for tag in list(_pending_nn):
+        if tag not in active_nn_tags:
+            del _pending_nn[tag]
+            _nn_debug[tag] = "cancelled (linear)"
+
+    if not _pending_nn:
+        return
+    gl = _get_gl()
+    if not gl:
+        _pending_nn.clear()
+        return
+    try:
+        _setup_gl(gl)
+        size_to_tags: dict = {}
+        for tag, (w, h) in list(_pending_nn.items()):
+            size_to_tags.setdefault((w, h), []).append(tag)
+
+        size_to_found: dict = {sz: [] for sz in size_to_tags}
+        wbuf, hbuf = _ctypes.c_int(0), _ctypes.c_int(0)
+        gap = 0
+        for tex_id in range(1, 4096):
+            if not gl.glIsTexture(tex_id):
+                gap += 1
+                if gap > 64:
+                    break
+                continue
+            gap = 0
+            gl.glBindTexture(_GL_TEXTURE_2D, tex_id)
+            gl.glGetTexLevelParameteriv(_GL_TEXTURE_2D, 0, _GL_TEXTURE_WIDTH,  _ctypes.byref(wbuf))
+            gl.glGetTexLevelParameteriv(_GL_TEXTURE_2D, 0, _GL_TEXTURE_HEIGHT, _ctypes.byref(hbuf))
+            sz = (wbuf.value, hbuf.value)
+            if sz in size_to_found:
+                gl.glTexParameteri(_GL_TEXTURE_2D, _GL_TEXTURE_MIN_FILTER, _GL_NEAREST)
+                gl.glTexParameteri(_GL_TEXTURE_2D, _GL_TEXTURE_MAG_FILTER, _GL_NEAREST)
+                size_to_found[sz].append(tex_id)
+            gl.glBindTexture(_GL_TEXTURE_2D, 0)
+
+        for sz, tags in size_to_tags.items():
+            found = size_to_found.get(sz, [])
+            for i, tag in enumerate(tags):
+                if i < len(found):
+                    _nn_gl_ids[tag] = found[i]
+                    _nn_debug[tag] = f"GL_NEAREST ok  id={found[i]}  size={sz[0]}x{sz[1]}"
+                    del _pending_nn[tag]
+                else:
+                    _nn_debug[tag] = f"scan miss  size={sz[0]}x{sz[1]}  found={len(found)}"
+    except Exception as exc:
+        _nn_debug["scan_error"] = str(exc)
+
+
+def gl_nn_reapply_all(active_nn_tags: set) -> None:
+    """Maintain GL filter state for all tracked textures after render_dearpygui_frame().
+    active_nn_tags: set of texture tags currently in NN mode.
+    - Tags in active_nn_tags → re-apply GL_NEAREST (guards against set_value reset).
+    - Tags NOT in active_nn_tags → restore GL_LINEAR and remove from registry."""
+    if not _nn_gl_ids:
+        return
+    gl = _get_gl()
+    if not gl:
+        return
+    try:
+        _setup_gl(gl)
+        to_remove = []
+        for tag, tex_id in list(_nn_gl_ids.items()):
+            gl.glBindTexture(_GL_TEXTURE_2D, tex_id)
+            if tag in active_nn_tags:
+                gl.glTexParameteri(_GL_TEXTURE_2D, _GL_TEXTURE_MIN_FILTER, _GL_NEAREST)
+                gl.glTexParameteri(_GL_TEXTURE_2D, _GL_TEXTURE_MAG_FILTER, _GL_NEAREST)
             else:
-                # macOS uses Metal via DearPyGui — raw GL calls crash with no context
-                _gl_nearest_fn = False
-                return
-            _GL_TEXTURE_2D        = 0x0DE1
-            _GL_TEXTURE_MIN_FILTER = 0x2801
-            _GL_TEXTURE_MAG_FILTER = 0x2800
-            _GL_NEAREST            = 0x2600
-
-            def _set():
-                try:
-                    lib.glTexParameteri(_GL_TEXTURE_2D, _GL_TEXTURE_MIN_FILTER, _GL_NEAREST)
-                    lib.glTexParameteri(_GL_TEXTURE_2D, _GL_TEXTURE_MAG_FILTER, _GL_NEAREST)
-                except Exception:
-                    pass
-
-            _gl_nearest_fn = _set
-        except Exception:
-            _gl_nearest_fn = False
-
-    if callable(_gl_nearest_fn):
-        _gl_nearest_fn()
+                # Viewer switched to linear — restore GL_LINEAR and stop tracking.
+                gl.glTexParameteri(_GL_TEXTURE_2D, _GL_TEXTURE_MIN_FILTER, _GL_LINEAR)
+                gl.glTexParameteri(_GL_TEXTURE_2D, _GL_TEXTURE_MAG_FILTER, _GL_LINEAR)
+                _nn_debug[tag] = "GL_LINEAR restored"
+                to_remove.append(tag)
+            gl.glBindTexture(_GL_TEXTURE_2D, 0)
+        for tag in to_remove:
+            del _nn_gl_ids[tag]
+    except Exception:
+        pass
 
 
 class ViewportMapper:
@@ -535,22 +645,13 @@ class SliceViewer:
         display_slice_shape = self.get_slice_shape()
         h, w = display_slice_shape[0], display_slice_shape[1]
 
-        # When GL_NEAREST is available (Linux/Windows), the GPU handles NN upscaling
-        # and the base texture stays slice-sized. Otherwise (macOS), Python must
-        # pre-compute a canvas-sized NN texture.
-        nn_active = bool(vs and vs.display.pixelated_zoom)
-        nn_needs_canvas = nn_active and not _GL_NEAREST_SUPPORTED
-
-        if nn_needs_canvas:
-            layout = self.controller.gui.ui_cfg["layout"]
-            pad = layout.get("viewport_padding", 4) * 2
-            base_w = int(max(1, self.quad_w - pad))
-            base_h = int(max(1, self.quad_h - pad))
-        else:
-            base_w, base_h = w, h
+        # Base texture is always slice-sized; GL_NEAREST (applied below) lets the GPU
+        # handle NN upscaling instead of Python pre-computing a canvas-sized texture.
+        base_w, base_h = w, h
 
         # Overlay texture in NN mode must be canvas-sized because
         # _render_overlay_as_native_voxels() produces canvas-pixel-resolution data.
+        nn_active = bool(vs and vs.display.pixelated_zoom)
         if nn_active:
             layout = self.controller.gui.ui_cfg["layout"]
             pad = layout.get("viewport_padding", 4) * 2
@@ -567,7 +668,9 @@ class SliceViewer:
         if dpg.does_item_exist(self.img_node_tag):
             dpg.configure_item(self.img_node_tag, show=True)
 
-        # 2. If both tags match existing textures, nothing to do
+        # 2. If both tags match existing textures, nothing to do — except if NN mode
+        # is active and this texture is not registered/pending for GL_NEAREST yet
+        # (happens when toggling NN on after it was previously turned off).
         base_exists = self.texture_tag == new_texture_tag and dpg.does_item_exist(self.texture_tag)
         ov_exists   = (hasattr(self, "overlay_texture_tag")
                        and self.overlay_texture_tag == new_ov_texture_tag
@@ -594,9 +697,9 @@ class SliceViewer:
                 tag=new_texture_tag,
                 parent="global_texture_registry",
             )
-            # On Linux/Windows: DPG leaves the new texture bound — set GL_NEAREST so the
-            # GPU handles NN upscaling instead of Python pre-computing canvas-sized data.
-            _try_set_gl_nearest()
+            # Schedule GL_NEAREST: the real GL texture is created inside the next
+            # render_dearpygui_frame(); gl_nn_apply_pending() will find it by size.
+            _nn_schedule(new_texture_tag, base_w, base_h)
 
         if not dpg.does_item_exist(new_ov_texture_tag):
             dpg.add_dynamic_texture(
@@ -1057,18 +1160,16 @@ class SliceViewer:
         needs_reblend = vs.is_data_dirty or self.is_viewer_data_dirty or texture_changed
         # In NN mode, fire update_render on pan/zoom either when:
         #   (a) a native-voxel overlay must be recomputed (all platforms), or
-        #   (b) GL_NEAREST is unavailable (macOS) so the base texture itself must be recomputed.
+        # In NN mode the base image is repositioned by the GPU (GL_NEAREST); we only
+        # need update_render for pan/zoom when the native-voxel overlay must be recomputed.
         ov_id = vs.display.overlay_id if vs else None
-        has_nn_overlay = (
-            ov_id is not None
-            and ov_id in self.controller.view_states
-            and vs.display.overlay_mode == "Alpha"
-        )
         needs_nn_remap = (
             self.is_geometry_dirty
             and pixelated
             and not self.should_use_voxels_strips()
-            and (has_nn_overlay or not _GL_NEAREST_SUPPORTED)
+            and ov_id is not None
+            and ov_id in self.controller.view_states
+            and vs.display.overlay_mode == "Alpha"
         )
 
         if needs_reblend or needs_nn_remap:
@@ -2005,31 +2106,13 @@ class SliceViewer:
                 self.current_pmin, self.current_pmax, canvas_w, canvas_h
             )
 
-        # Base texture upload.
-        # On Linux/Windows with GL_NEAREST: only re-upload when pixel data changed;
-        # pan/zoom is handled by GPU repositioning the draw quad.
-        # On macOS (no GL_NEAREST): also re-upload on pan/zoom in NN mode because the
-        # canvas-sized texture must be recomputed by _get_screen_mapped_texture.
-        if dpg.does_item_exist(self.texture_tag):
-            if vs.display.pixelated_zoom and not _GL_NEAREST_SUPPORTED and not self.should_use_voxels_strips():
-                layout = self.controller.gui.ui_cfg["layout"]
-                pad = layout.get("viewport_padding", 4) * 2
-                canvas_w = int(max(1, self.quad_w - pad))
-                canvas_h = int(max(1, self.quad_h - pad))
-                if rgba_flat is not None:
-                    rgba_2d = np.asarray(rgba_flat).reshape(actual_shape[0], actual_shape[1], 4)
-                    if not hasattr(self, "_nn_base_buf") or self._nn_base_buf.shape[:2] != (canvas_h, canvas_w):
-                        self._nn_base_buf = np.zeros((canvas_h, canvas_w, 4), dtype=np.float32)
-                        self._nn_base_crop = None
-                        
-                    nn_base, crop = self._get_screen_mapped_texture(
-                        rgba_2d, self.current_pmin, self.current_pmax, canvas_w, canvas_h,
-                        out_buffer=self._nn_base_buf, last_crop=self._nn_base_crop
-                    )
-                    self._nn_base_crop = crop
-                    dpg.set_value(self.texture_tag, nn_base.ravel())  # type: ignore
-            elif force_reblend:
-                dpg.set_value(self.texture_tag, rgba_flat)  # type: ignore
+        # Base texture: only upload when pixel data changed (force_reblend=True).
+        # For pan/zoom the GPU repositions the draw quad via configure_item — no re-upload needed.
+        # Base texture: only upload when pixel data changed (force_reblend=True).
+        # GL_NEAREST is applied after render_dearpygui_frame() by gl_nn_apply_pending()
+        # and gl_nn_reapply_all() called from gui.py — no GL work needed here.
+        if force_reblend and dpg.does_item_exist(self.texture_tag):
+            dpg.set_value(self.texture_tag, rgba_flat)  # type: ignore
 
         if (
             ov_rgba_display is not None
@@ -2098,21 +2181,11 @@ class SliceViewer:
                     and dpg.does_item_exist(self.overlay_image_tag)
                 )
 
-                # Base image positioning: on Linux/Windows GL_NEAREST handles NN upscaling
-                # so the slice-sized texture is positioned at its physical screen extent.
-                # On macOS the canvas-sized NN texture covers the full canvas instead.
-                if vs.display.pixelated_zoom and not _GL_NEAREST_SUPPORTED and not self.should_use_voxels_strips():
-                    layout = self.controller.gui.ui_cfg["layout"]
-                    pad = layout.get("viewport_padding", 4) * 2
-                    canvas_w = int(max(1, self.quad_w - pad))
-                    canvas_h = int(max(1, self.quad_h - pad))
-                    dpg.configure_item(
-                        self.image_tag, pmin=[0, 0], pmax=[canvas_w, canvas_h]
-                    )
-                else:
-                    dpg.configure_item(
-                        self.image_tag, pmin=self.current_pmin, pmax=self.current_pmax
-                    )
+                # Base image: GL_NEAREST handles NN upscaling on the GPU, so always
+                # position the draw quad at the slice's physical screen extent.
+                dpg.configure_item(
+                    self.image_tag, pmin=self.current_pmin, pmax=self.current_pmax
+                )
 
                 if has_overlay:
                     if vs.display.pixelated_zoom:

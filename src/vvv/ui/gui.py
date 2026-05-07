@@ -247,7 +247,7 @@ class MainGUI:
         dpg.bind_item_theme("nav_panel", "nav_panel_bg_theme")
         dpg.bind_item_theme("top_panel", "left_panel_padding_theme")
         dpg.bind_item_theme("av_panel", "left_panel_padding_theme")
-        dpg.bind_item_theme("ch_panel", "left_panel_padding_theme")
+        dpg.bind_item_theme("ch_panel", "crosshair_panel_theme")
         dpg.bind_item_theme("image_info_group", "sleek_readonly_theme")
         dpg.bind_item_theme("image_crosshair_group", "sleek_readonly_theme")
 
@@ -355,7 +355,8 @@ class MainGUI:
                 self.build_visibility_controls()
 
         # --- Panel 2: Crosshair ---
-        with dpg.child_window(tag="ch_panel", border=False, no_scrollbar=True):
+        dpg.add_spacer(height=4)
+        with dpg.child_window(tag="ch_panel", border=True, no_scrollbar=True):
             build_section_title("Crosshair", cfg_c["text_header"])
             with dpg.group(tag="image_crosshair_group"):
                 self.create_labeled_field("Value", tag="info_val")
@@ -1020,9 +1021,9 @@ class MainGUI:
             margin_bot = cfg["sidebar_margin_bot"]
 
             if hide_av:
-                top_h = l_h - ch_h - margin_bot - 13
+                top_h = l_h - ch_h - margin_bot - 17
             else:
-                top_h = l_h - av_h - ch_h - margin_bot - 17
+                top_h = l_h - av_h - ch_h - margin_bot - 21
 
             top_h = max(100, top_h)
 
@@ -1446,24 +1447,38 @@ class MainGUI:
             for _ in boot_generator:
                 dpg.render_dearpygui_frame()
 
-        # --- DEBUG FPS OVERLAY ---
-        fps_label = fps_series = x_axis = y_axis = None
+        # --- DEBUG FPS + RENDER-ROUTE OVERLAY ---
+        from vvv.ui.viewer import (
+            _get_gl, _nn_gl_ids, _nn_debug, _pending_nn, _nn_schedule,
+            gl_nn_apply_pending, gl_nn_reapply_all,
+        )
+        import platform as _plat
+
+        fps_label = fps_series = x_axis = y_axis = render_input = None
         fps_data = time_data = None
         if debug:
-            fps_data = collections.deque(maxlen=600)   # ~10 s at 60 fps
+            fps_data = collections.deque(maxlen=600)
             time_data = collections.deque(maxlen=600)
             with dpg.window(
-                label="FPS Debug",
+                label="Debug",
                 tag="fps_debug_window",
-                width=340,
-                height=230,
+                width=480,
+                height=370,
                 pos=[10, 30],
-                no_scrollbar=True,
             ):
-                fps_label = dpg.add_text("FPS: --   Avg: --   Min: --")
+                fps_label    = dpg.add_text("FPS: --   Avg: --   Min: --")
+                # Multiline readonly input_text → user can select & copy the text
+                render_input = dpg.add_input_text(
+                    default_value="...",
+                    multiline=True,
+                    readonly=True,
+                    width=-1,
+                    height=120,
+                    tag="debug_render_info",
+                )
                 with dpg.plot(
                     label="",
-                    height=170,
+                    height=180,
                     width=-1,
                     no_menus=True,
                     no_title=True,
@@ -1476,21 +1491,46 @@ class MainGUI:
         while dpg.is_dearpygui_running():
             if debug:
                 assert fps_data is not None and time_data is not None
-                assert fps_label is not None and fps_series is not None and x_axis is not None
+                assert fps_label is not None and fps_series is not None
+                assert x_axis is not None and render_input is not None
+
                 delta = dpg.get_delta_time()
                 t_now = dpg.get_total_time()
-                if 0.0001 < delta < 5.0:    # ignore stalls and first frame
+                if 0.0001 < delta < 5.0:
                     fps = 1.0 / delta
                     fps_data.append(fps)
                     time_data.append(t_now)
-                    if fps_data:
-                        avg = sum(fps_data) / len(fps_data)
-                        mn = min(fps_data)
-                        dpg.set_value(fps_label, f"FPS: {fps:.1f}   Avg: {avg:.1f}   Min: {mn:.1f}")
-                        xs = list(time_data)
-                        dpg.set_value(fps_series, [xs, list(fps_data)])
-                        window = 10.0
-                        dpg.set_axis_limits(x_axis, max(0.0, t_now - window), t_now + 0.2)
+                    avg = sum(fps_data) / len(fps_data)
+                    mn  = min(fps_data)
+                    dpg.set_value(fps_label, f"FPS: {fps:.1f}   Avg: {avg:.1f}   Min: {mn:.1f}")
+                    xs = list(time_data)
+                    dpg.set_value(fps_series, [xs, list(fps_data)])
+                    dpg.set_axis_limits(x_axis, max(0.0, t_now - 10.0), t_now + 0.2)
+
+                # ---- render-route info (copyable text, updated every frame) ----
+                gl_loaded = _get_gl() is not None
+                lines = [
+                    f"Platform: {_plat.system()}   GL lib: {'loaded' if gl_loaded else 'N/A (macOS/Metal)'}",
+                    f"pending_nn: {len(_pending_nn)}   registered_nn: {len(_nn_gl_ids)}",
+                ]
+                for vtag, viewer in self.controller.viewers.items():
+                    vs = viewer.view_state
+                    nn  = bool(vs and vs.display.pixelated_zoom) if vs else False
+                    tex = getattr(viewer, "texture_tag", "?")
+                    mode = "NN " if nn else "Lin"
+                    if nn:
+                        if tex in _nn_gl_ids:
+                            status = _nn_debug.get(tex, "ok")
+                        elif tex in _pending_nn:
+                            status = _nn_debug.get(tex, f"pending {_pending_nn[tex]}")
+                        elif tex in _nn_debug:
+                            status = _nn_debug[tex]
+                        else:
+                            status = "no info"
+                    else:
+                        status = ""
+                    lines.append(f"{vtag}: {mode}  {tex}  {status}")
+                dpg.set_value(render_input, "\n".join(lines))
 
             if time.time() > self.status_message_expire_time:
                 if dpg.does_item_exist("global_status_text"):
@@ -1521,6 +1561,22 @@ class MainGUI:
             self.controller.tick()
 
             dpg.render_dearpygui_frame()
+
+            # After render: GL textures now exist. Maintain GL_NEAREST only for
+            # viewers currently in NN mode; restore GL_LINEAR for all others.
+            _active_nn = set()
+            for _v in self.controller.viewers.values():
+                _vs = getattr(_v, "view_state", None)
+                _tex = getattr(_v, "texture_tag", None)
+                if _tex and _vs and getattr(_vs.display, "pixelated_zoom", False):
+                    _active_nn.add(_tex)
+                    # If this texture is not yet tracked, schedule the dimension scan.
+                    if _tex not in _nn_gl_ids and _tex not in _pending_nn:
+                        _shape = _v.get_slice_shape() if getattr(_v, "volume", None) else None
+                        if _shape:
+                            _nn_schedule(_tex, _shape[1], _shape[0])
+            gl_nn_apply_pending(_active_nn)
+            gl_nn_reapply_all(_active_nn)
 
         # Shutdown sequence
         cleanup_os_drop()  # null GLFW drop callback before DPG destroys the window
