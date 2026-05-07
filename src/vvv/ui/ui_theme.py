@@ -16,6 +16,7 @@ def build_ui_config(controller):
         "layout": {
             "panel_av_h": av_h,
             "panel_ch_h": ch_h,
+            "sidebar_gap": controller.settings.data["layout"].get("sidebar_gap", 5),
             "roi_detail_h": 300,
             "roi_detail_bottom_margin": 10,
             "sidebar_margin_bot": 10,
@@ -195,6 +196,11 @@ def register_dynamic_themes(ui_cfg, controller):
                 dpg.add_theme_color(dpg.mvThemeCol_Border, cfg_c["transparent"])
                 dpg.add_theme_style(dpg.mvStyleVar_WindowBorderSize, 0)
 
+    if not dpg.does_item_exist("no_spacing_theme"):
+        with dpg.theme(tag="no_spacing_theme"):
+            with dpg.theme_component(dpg.mvAll):
+                dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0, 0)
+
     if not dpg.does_item_exist("sidebar_bg_theme"):
         with dpg.theme(tag="sidebar_bg_theme"):
             with dpg.theme_component(dpg.mvChildWindow):
@@ -202,6 +208,10 @@ def register_dynamic_themes(ui_cfg, controller):
                 dpg.add_theme_color(dpg.mvThemeCol_Border, cfg_c["border_black"])
                 dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 1)
                 dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, cfg_l["rounding"])
+            with dpg.theme_component(dpg.mvAll):
+                dpg.add_theme_style(
+                    dpg.mvStyleVar_ItemSpacing, cfg_l["sidebar_item_gap"], 4
+                )
 
     if not dpg.does_item_exist("nav_panel_bg_theme"):
         with dpg.theme(tag="nav_panel_bg_theme"):
@@ -243,19 +253,6 @@ def register_dynamic_themes(ui_cfg, controller):
                     dpg.mvStyleVar_FramePadding, *cfg_l["pad_frame_sidebar"]
                 )
 
-    if not dpg.does_item_exist("crosshair_panel_theme"):
-        with dpg.theme(tag="crosshair_panel_theme"):
-            with dpg.theme_component(dpg.mvChildWindow):
-                dpg.add_theme_color(dpg.mvThemeCol_ChildBg, cfg_c["bg_sidebar"])
-                dpg.add_theme_color(dpg.mvThemeCol_Border, cfg_c["border_black"])
-                dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 1)
-                dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, cfg_l["rounding"])
-            with dpg.theme_component(dpg.mvAll):
-                dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 4, 12)
-                dpg.add_theme_style(
-                    dpg.mvStyleVar_FramePadding, *cfg_l["pad_frame_sidebar"]
-                )
-
     if not dpg.does_item_exist("outdated_item_theme"):
         with dpg.theme(tag="outdated_item_theme"):
             with dpg.theme_component(dpg.mvAll):
@@ -269,14 +266,14 @@ def register_dynamic_themes(ui_cfg, controller):
     if not dpg.does_item_exist("theme_ws_nav_btn"):
         with dpg.theme(tag="theme_ws_nav_btn"):
             with dpg.theme_component(dpg.mvButton):
-                dpg.add_theme_color(dpg.mvThemeCol_Button,        cfg_c["bg_window"])
+                dpg.add_theme_color(dpg.mvThemeCol_Button, cfg_c["bg_window"])
                 dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, [22, 22, 25, 255])
-                dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,  [40, 40, 44, 255])
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, [40, 40, 44, 255])
                 dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 6)
             with dpg.theme_component(dpg.mvButton, enabled_state=False):
-                dpg.add_theme_color(dpg.mvThemeCol_Button,        cfg_c["bg_window"])
+                dpg.add_theme_color(dpg.mvThemeCol_Button, cfg_c["bg_window"])
                 dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, cfg_c["bg_window"])
-                dpg.add_theme_color(dpg.mvThemeCol_Text,          [55, 55, 60, 255])
+                dpg.add_theme_color(dpg.mvThemeCol_Text, [55, 55, 60, 255])
 
     if not dpg.does_item_exist("active_nav_button_theme"):
         with dpg.theme(tag="active_nav_button_theme"):

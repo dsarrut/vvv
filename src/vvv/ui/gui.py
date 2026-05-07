@@ -230,24 +230,22 @@ class MainGUI:
             self.build_vertical_nav()
 
             # --- 2. The Main Tool Panel (Shifted Right) ---
-            with dpg.child_window(
-                width=cfg_l["side_panel_w"] - nav_w - 2,
-                tag="side_panel",
-                no_scrollbar=True,
-                no_scroll_with_mouse=True,
-                border=True,
-            ):
-                with dpg.group(indent=cfg_l["left_inner_m"]):
-                    dpg.add_spacer(height=5)
-                    self.build_sidebar_top()
-                    self.build_sidebar_bottom()
+            gap = cfg_l.get("sidebar_gap", 5)
+            with dpg.group(tag="sidebar_right_col"):
+                self.build_sidebar_top()
+
+                dpg.add_spacer(height=gap, tag="spacer_av")
+                self.build_sidebar_active_viewer()
+
+                dpg.add_spacer(height=gap, tag="spacer_ch")
+                self.build_sidebar_crosshair()
 
         # Themes
-        dpg.bind_item_theme("side_panel", "sidebar_bg_theme")
+        dpg.bind_item_theme("sidebar_right_col", "no_spacing_theme")
         dpg.bind_item_theme("nav_panel", "nav_panel_bg_theme")
-        dpg.bind_item_theme("top_panel", "left_panel_padding_theme")
-        dpg.bind_item_theme("av_panel", "left_panel_padding_theme")
-        dpg.bind_item_theme("ch_panel", "crosshair_panel_theme")
+        dpg.bind_item_theme("top_panel", "sidebar_bg_theme")
+        dpg.bind_item_theme("av_panel", "sidebar_bg_theme")
+        dpg.bind_item_theme("ch_panel", "sidebar_bg_theme")
         dpg.bind_item_theme("image_info_group", "sleek_readonly_theme")
         dpg.bind_item_theme("image_crosshair_group", "sleek_readonly_theme")
 
@@ -319,52 +317,55 @@ class MainGUI:
 
     def build_sidebar_top(self):
         """Builds the content containers without the native tab_bar."""
-        with dpg.child_window(
-            tag="top_panel",
-            border=False,
-            no_scrollbar=True,
-        ):
-            # The native dpg.tab_bar is completely gone!
-            # We just load the groups directly.
-            build_tab_images(self)
-            build_tab_sync(self)
-            self.fusion_ui.build_tab_fusion(self)
-            self.intensities_ui.build_tab_intensities(self)
-            self.roi_ui.build_tab_rois(self)
-            self.reg_ui.build_tab_reg(self)
-            self.extraction_ui.build_tab_extraction(self)
-            self.dvf_ui.build_tab_dvf(self)
+        cfg_l = self.ui_cfg["layout"]
+        with dpg.child_window(tag="top_panel", border=True, no_scrollbar=True):
+            with dpg.group(indent=cfg_l["left_inner_m"]):
+                dpg.add_spacer(height=5)
+                build_tab_images(self)
+                build_tab_sync(self)
+                self.fusion_ui.build_tab_fusion(self)
+                self.intensities_ui.build_tab_intensities(self)
+                self.roi_ui.build_tab_rois(self)
+                self.reg_ui.build_tab_reg(self)
+                self.extraction_ui.build_tab_extraction(self)
+                self.dvf_ui.build_tab_dvf(self)
 
-    def build_sidebar_bottom(self):
+    def build_sidebar_active_viewer(self):
         cfg_c = self.ui_cfg["colors"]
+        cfg_l = self.ui_cfg["layout"]
 
         # --- Panel 1: Active Viewer ---
-        with dpg.child_window(tag="av_panel", border=False, no_scrollbar=True):
-            build_section_title("Active Viewer", cfg_c["text_header"])
-            with dpg.group(tag="image_info_group"):
-                self.create_labeled_field("", tag="info_name")
-                self.create_labeled_field("Type", tag="info_voxel_type")
-                self.create_labeled_field("Size", tag="info_size")
-                self.create_labeled_field("Spacing", tag="info_spacing")
-                self.create_labeled_field("Origin", tag="info_origin")
-                self.create_labeled_field("Matrix", tag="info_matrix")
-                with dpg.tooltip("info_matrix"):
-                    dpg.add_text("...", tag="info_matrix_tooltip")
-                dpg.add_input_text(tag="info_memory", readonly=True, width=-1)
+        with dpg.child_window(tag="av_panel", border=True, no_scrollbar=True):
+            with dpg.group(indent=cfg_l["left_inner_m"]):
+                dpg.add_spacer(height=5)
+                build_section_title("Active Viewer", cfg_c["text_header"])
+                with dpg.group(tag="image_info_group"):
+                    self.create_labeled_field("", tag="info_name")
+                    self.create_labeled_field("Type", tag="info_voxel_type")
+                    self.create_labeled_field("Size", tag="info_size")
+                    self.create_labeled_field("Spacing", tag="info_spacing")
+                    self.create_labeled_field("Origin", tag="info_origin")
+                    self.create_labeled_field("Matrix", tag="info_matrix")
+                    with dpg.tooltip("info_matrix"):
+                        dpg.add_text("...", tag="info_matrix_tooltip")
+                    dpg.add_input_text(tag="info_memory", readonly=True, width=-1)
                 dpg.add_spacer(height=5)
                 self.build_visibility_controls()
 
-        # --- Panel 2: Crosshair ---
-        dpg.add_spacer(height=4)
-        with dpg.child_window(tag="ch_panel", border=True, no_scrollbar=True):
-            build_section_title("Crosshair", cfg_c["text_header"])
-            with dpg.group(tag="image_crosshair_group"):
-                self.create_labeled_field("Value", tag="info_val")
-                self.create_labeled_field("Voxel", tag="info_vox")
-                self.create_labeled_field("Coord", tag="info_phys")
-                self.create_labeled_field("ppm", tag="info_ppm")
-                self.create_labeled_field("FOV", tag="info_scale")
+    def build_sidebar_crosshair(self):
+        cfg_c = self.ui_cfg["colors"]
+        cfg_l = self.ui_cfg["layout"]
 
+        with dpg.child_window(tag="ch_panel", border=True, no_scrollbar=True):
+            with dpg.group(indent=cfg_l["left_inner_m"]):
+                dpg.add_spacer(height=5)
+                build_section_title("Crosshair", cfg_c["text_header"])
+                with dpg.group(tag="image_crosshair_group"):
+                    self.create_labeled_field("Value", tag="info_val")
+                    self.create_labeled_field("Voxel", tag="info_vox")
+                    self.create_labeled_field("Coord", tag="info_phys")
+                    self.create_labeled_field("ppm", tag="info_ppm")
+                    self.create_labeled_field("FOV", tag="info_scale")
 
     def create_labeled_field(self, label, tag):
         """Helper to create a labeled read-only input field."""
@@ -846,7 +847,9 @@ class MainGUI:
                         mag = np.linalg.norm(val)
                         comps = []
                         for i, v in enumerate(val):
-                            comps.append(f"*{v:g}" if i == vs.camera.time_idx else f"{v:g}")
+                            comps.append(
+                                f"*{v:g}" if i == vs.camera.time_idx else f"{v:g}"
+                            )
                         val_str = f"[{' '.join(comps)}] L:{mag:g}"
                     else:
                         val_str = f"{val:g}"
@@ -859,7 +862,9 @@ class MainGUI:
                         mag = np.linalg.norm(ov_val)
                         comps = []
                         for i, v in enumerate(ov_val):
-                            comps.append(f"*{v:g}" if i == vs.camera.time_idx else f"{v:g}")
+                            comps.append(
+                                f"*{v:g}" if i == vs.camera.time_idx else f"{v:g}"
+                            )
                         val_str += f" ([{' '.join(comps)}] L:{mag:g})"
                     elif ov_vol and getattr(ov_vol, "is_rgb", False):
                         val_str += f" ({ov_val[0]:g} {ov_val[1]:g} {ov_val[2]:g})"
@@ -1007,43 +1012,51 @@ class MainGUI:
                 if dpg.does_item_exist("nav_bot_group"):
                     dpg.set_item_pos("nav_bot_group", [4, l_h - bot_h])
 
-            # Size the Tool Column
-            dpg.set_item_width("side_panel", l_w - nav_w - 2)
-            dpg.set_item_height("side_panel", l_h)
-
-            # Recalculate inner width for all the sliders to adapt!
-            inner_w = l_w - nav_w - 2 - cfg["left_inner_m"] - cfg["right_inner_m"]
-
             # --- THE COMPUTED LAYOUT ENGINE ---
             hide_av = getattr(self, "_hide_av_panel", False)
-            ch_h = cfg["panel_ch_h"]
+            ch_h = cfg["panel_ch_h"] + 15
             av_h = cfg["panel_av_h"]
-            margin_bot = cfg["sidebar_margin_bot"]
+            gap = cfg.get("sidebar_gap", 5)
+
+            # Size the Tool Column
+            col_w = l_w - nav_w - 2
 
             if hide_av:
-                top_h = l_h - ch_h - margin_bot - 17
+                if dpg.does_item_exist("av_panel"):
+                    dpg.configure_item("av_panel", show=False)
+                if dpg.does_item_exist("spacer_av"):
+                    dpg.configure_item("spacer_av", show=False)
+                top_h = l_h - ch_h - gap - 4
             else:
-                top_h = l_h - av_h - ch_h - margin_bot - 21
+                if dpg.does_item_exist("av_panel"):
+                    dpg.configure_item("av_panel", show=True)
+                    dpg.set_item_height("av_panel", av_h)
+                if dpg.does_item_exist("spacer_av"):
+                    dpg.configure_item("spacer_av", show=True, height=gap)
+                top_h = l_h - av_h - ch_h - (gap * 2) - 4
 
-            top_h = max(100, top_h)
+            if dpg.does_item_exist("spacer_ch"):
+                dpg.configure_item("spacer_ch", height=gap)
+
+            top_h = max(100, int(top_h))
 
             if dpg.does_item_exist("top_panel"):
-                dpg.set_item_width("top_panel", inner_w)
+                dpg.set_item_width("top_panel", col_w)
                 dpg.set_item_height("top_panel", top_h)
+
+            if dpg.does_item_exist("av_panel"):
+                dpg.set_item_width("av_panel", col_w)
+
+            if dpg.does_item_exist("ch_panel"):
+                dpg.set_item_width("ch_panel", col_w)
+                dpg.set_item_height("ch_panel", ch_h)
+
+            # Recalculate inner width for all the sliders to adapt!
+            inner_w = col_w - cfg["left_inner_m"] - cfg["right_inner_m"]
 
             if dpg.does_item_exist("roi_list_window"):
                 list_h = top_h - cfg["roi_detail_h"] - 195
                 dpg.set_item_width("roi_list_window", inner_w)
-                dpg.set_item_height("roi_list_window", max(50, list_h))
-
-            if dpg.does_item_exist("av_panel"):
-                dpg.set_item_width("av_panel", inner_w)
-                dpg.set_item_height("av_panel", av_h)
-
-            if dpg.does_item_exist("ch_panel"):
-                dpg.set_item_width("ch_panel", inner_w)
-                dpg.set_item_height("ch_panel", ch_h)
-
 
         r_x = l_x + l_w + cfg["gap_center"]
         avail_w = window_w - r_x - cfg["right_m_right"]
@@ -1073,7 +1086,11 @@ class MainGUI:
 
             viewer = self.controller.viewers.get(v_tag)
             if viewer:
-                _cycle = {ViewMode.AXIAL: ViewMode.SAGITTAL, ViewMode.SAGITTAL: ViewMode.CORONAL, ViewMode.CORONAL: ViewMode.AXIAL}
+                _cycle = {
+                    ViewMode.AXIAL: ViewMode.SAGITTAL,
+                    ViewMode.SAGITTAL: ViewMode.CORONAL,
+                    ViewMode.CORONAL: ViewMode.AXIAL,
+                }
                 viewer.set_orientation(_cycle.get(viewer.orientation, ViewMode.AXIAL))
             return
 
@@ -1104,7 +1121,9 @@ class MainGUI:
             self.refresh_workspace_bar()
             self.tasks.append(load_workspace_sequence(self, self.controller, path))
         if image_files:
-            self.tasks.append(load_batch_images_sequence(self, self.controller, image_files))
+            self.tasks.append(
+                load_batch_images_sequence(self, self.controller, image_files)
+            )
 
     def on_open_4d_sequence_clicked(self, sender=None, app_data=None, user_data=None):
         file_paths = open_file_dialog(
@@ -1149,7 +1168,9 @@ class MainGUI:
             dpg.set_value(sender, False)
 
     def on_toggle_auto_save(self, sender, app_data, user_data):
-        self.controller.settings.data.setdefault("behavior", {})["auto_save_history"] = app_data
+        self.controller.settings.data.setdefault("behavior", {})[
+            "auto_save_history"
+        ] = app_data
 
     def on_save_image_clicked(self, vs_id):
         vol = self.controller.volumes[vs_id]
@@ -1230,7 +1251,9 @@ class MainGUI:
             dpg.configure_item("ws_nav_btn_save", enabled=has_path)
         if dpg.does_item_exist("ws_nav_filename_text"):
             if self.current_workspace_path:
-                name = os.path.splitext(os.path.basename(self.current_workspace_path))[0]
+                name = os.path.splitext(os.path.basename(self.current_workspace_path))[
+                    0
+                ]
             else:
                 name = ""
             dpg.set_value("ws_nav_filename_text", name)
@@ -1254,9 +1277,13 @@ class MainGUI:
                 if n_rois:
                     parts.append(f"{n_rois} ROI{'s' if n_rois != 1 else ''}")
                 summary = "  ·  ".join(parts) if parts else ""
-                dpg.set_value("ws_save_tooltip_text", f"Save Workspace\n{name}\n{summary}")
+                dpg.set_value(
+                    "ws_save_tooltip_text", f"Save Workspace\n{name}\n{summary}"
+                )
             else:
-                dpg.set_value("ws_save_tooltip_text", "Save Workspace\n(no workspace open)")
+                dpg.set_value(
+                    "ws_save_tooltip_text", "Save Workspace\n(no workspace open)"
+                )
 
         # --- Menu item ---
         if dpg.does_item_exist("menu_save_workspace"):
@@ -1449,8 +1476,13 @@ class MainGUI:
 
         # --- DEBUG FPS + RENDER-ROUTE OVERLAY ---
         from vvv.ui.viewer import (
-            _get_gl, _nn_gl_ids, _nn_debug, _pending_nn, _nn_schedule,
-            gl_nn_apply_pending, gl_nn_reapply_all,
+            _get_gl,
+            _nn_gl_ids,
+            _nn_debug,
+            _pending_nn,
+            _nn_schedule,
+            gl_nn_apply_pending,
+            gl_nn_reapply_all,
         )
         import platform as _plat
 
@@ -1466,7 +1498,7 @@ class MainGUI:
                 height=370,
                 pos=[10, 30],
             ):
-                fps_label    = dpg.add_text("FPS: --   Avg: --   Min: --")
+                fps_label = dpg.add_text("FPS: --   Avg: --   Min: --")
                 # Multiline readonly input_text → user can select & copy the text
                 render_input = dpg.add_input_text(
                     default_value="...",
@@ -1483,7 +1515,9 @@ class MainGUI:
                     no_menus=True,
                     no_title=True,
                 ):
-                    x_axis = dpg.add_plot_axis(dpg.mvXAxis, label="Time (s)", no_gridlines=True)
+                    x_axis = dpg.add_plot_axis(
+                        dpg.mvXAxis, label="Time (s)", no_gridlines=True
+                    )
                     y_axis = dpg.add_plot_axis(dpg.mvYAxis, label="FPS")
                     dpg.set_axis_limits(y_axis, 0, 125)
                     fps_series = dpg.add_line_series([], [], label="FPS", parent=y_axis)
@@ -1501,8 +1535,10 @@ class MainGUI:
                     fps_data.append(fps)
                     time_data.append(t_now)
                     avg = sum(fps_data) / len(fps_data)
-                    mn  = min(fps_data)
-                    dpg.set_value(fps_label, f"FPS: {fps:.1f}   Avg: {avg:.1f}   Min: {mn:.1f}")
+                    mn = min(fps_data)
+                    dpg.set_value(
+                        fps_label, f"FPS: {fps:.1f}   Avg: {avg:.1f}   Min: {mn:.1f}"
+                    )
                     xs = list(time_data)
                     dpg.set_value(fps_series, [xs, list(fps_data)])
                     dpg.set_axis_limits(x_axis, max(0.0, t_now - 10.0), t_now + 0.2)
@@ -1515,7 +1551,7 @@ class MainGUI:
                 ]
                 for vtag, viewer in self.controller.viewers.items():
                     vs = viewer.view_state
-                    nn  = bool(vs and vs.display.pixelated_zoom) if vs else False
+                    nn = bool(vs and vs.display.pixelated_zoom) if vs else False
                     tex = getattr(viewer, "texture_tag", "?")
                     mode = "NN " if nn else "Lin"
                     if nn:
@@ -1572,7 +1608,11 @@ class MainGUI:
                     _active_nn.add(_tex)
                     # If this texture is not yet tracked, schedule the dimension scan.
                     if _tex not in _nn_gl_ids and _tex not in _pending_nn:
-                        _shape = _v.get_slice_shape() if getattr(_v, "volume", None) else None
+                        _shape = (
+                            _v.get_slice_shape()
+                            if getattr(_v, "volume", None)
+                            else None
+                        )
                         if _shape:
                             _nn_schedule(_tex, _shape[1], _shape[0])
             gl_nn_apply_pending(_active_nn)

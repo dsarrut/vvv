@@ -50,6 +50,7 @@ DEFAULT_SETTINGS = {
         "window_height": 1000,
         "side_panel_width": 380,
         "nav_panel_width": 75,
+        "sidebar_gap": 0,
     },
     "behavior": {
         "auto_save_history": True,
