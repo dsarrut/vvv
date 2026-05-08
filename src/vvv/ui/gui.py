@@ -1384,7 +1384,7 @@ class MainGUI:
                 "view_coronal": "Coronal View",
                 "view_histogram": "Histogram View",
                 "toggle_interp": "Toggle Pixelated Zoom (NN)",
-                "toggle_experimental_nn": "Toggle NN Overlay Mode (Native/Resampled)",
+                "toggle_experimental_nn": "Toggle NN Overlay Mode",
                 "toggle_strips": "Toggle Voxel Strips",
                 "toggle_grid": "Toggle Voxel Grid",
                 "toggle_legend": "Toggle Legend",
@@ -1477,7 +1477,7 @@ class MainGUI:
 
         # --- DEBUG FPS + RENDER-ROUTE OVERLAY ---
         import platform as _plat
-        from vvv.ui.viewer import _GL_NEAREST_SUPPORTED
+        from vvv.ui.render_strategy import GL_NEAREST_SUPPORTED
 
         fps_label = fps_series = x_axis = y_axis = render_input = None
         fps_data = time_data = None
@@ -1538,7 +1538,7 @@ class MainGUI:
 
                 # ---- render-route info (copyable text, updated every frame) ----
                 lines = [
-                    f"Platform: {_plat.system()}   GL Nearest-Neighbor Support: {'Enabled' if _GL_NEAREST_SUPPORTED else 'Disabled'}",
+                    f"Platform: {_plat.system()}   GL Nearest-Neighbor Support: {'Enabled' if GL_NEAREST_SUPPORTED else 'Disabled'}",
                 ]
                 for vtag, viewer in self.controller.viewers.items():
                     vs = viewer.view_state

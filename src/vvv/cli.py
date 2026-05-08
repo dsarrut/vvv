@@ -232,12 +232,12 @@ def main(no_history, datasets, linkall, sync, debug, fast_gl):
     datasets = [ds for ds in datasets if ds.strip()]
     image_tasks = parse_cli_arguments(datasets)
 
-    import vvv.ui.viewer as viewer_mod
+    import vvv.ui.render_strategy as rs_mod
     if fast_gl:
         import platform as _platform
-        viewer_mod._GL_NEAREST_SUPPORTED = _platform.system() in ("Linux", "Windows")
+        rs_mod.GL_NEAREST_SUPPORTED = _platform.system() in ("Linux", "Windows")
     else:
-        viewer_mod._GL_NEAREST_SUPPORTED = False
+        rs_mod.GL_NEAREST_SUPPORTED = False
 
     # --- Setup Application ---
     icon_png = get_resource_path(os.path.join("icons", "py_vv.png"))

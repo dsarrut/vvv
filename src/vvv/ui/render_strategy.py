@@ -3,6 +3,81 @@ from vvv.maths.image import SliceRenderer
 from vvv.config import COLORMAPS
 from vvv.utils import ViewMode
 
+import platform as _platform
+GL_NEAREST_SUPPORTED = _platform.system() in ("Linux", "Windows")
+_gl_nearest_fn = None
+
+def try_set_gl_nearest():
+    """Call glTexParameteri(GL_NEAREST) on the currently-bound 2D texture.
+
+    DPG leaves its new texture bound after add_dynamic_texture(), so calling
+    this immediately after that creates a GL_NEAREST texture at no extra cost.
+    Silently does nothing if GL is unavailable (headless tests, bad context…).
+    """
+    global _gl_nearest_fn
+    if _gl_nearest_fn is None:
+        import ctypes, ctypes.util, platform
+        try:
+            sys = platform.system()
+            if sys == "Linux":
+                lib = ctypes.CDLL(ctypes.util.find_library("GL") or "libGL.so.1")
+            elif sys == "Windows":
+                lib = ctypes.windll.opengl32  # type: ignore[attr-defined]
+            else:
+                # macOS uses Metal via DearPyGui — raw GL calls crash with no context
+                _gl_nearest_fn = False
+                return
+            _GL_TEXTURE_2D        = 0x0DE1
+            _GL_TEXTURE_MIN_FILTER = 0x2801
+            _GL_TEXTURE_MAG_FILTER = 0x2800
+            _GL_NEAREST            = 0x2600
+
+            def _set():
+                try:
+                    lib.glTexParameteri(_GL_TEXTURE_2D, _GL_TEXTURE_MIN_FILTER, _GL_NEAREST)
+                    lib.glTexParameteri(_GL_TEXTURE_2D, _GL_TEXTURE_MAG_FILTER, _GL_NEAREST)
+                except Exception:
+                    pass
+
+            _gl_nearest_fn = _set
+        except Exception:
+            _gl_nearest_fn = False
+
+    if callable(_gl_nearest_fn):
+        _gl_nearest_fn()
+
+def blend_slices_cpu(base_2d, ov_2d, opacity, shift_x, shift_y):
+    """Alpha blends an overlay slice onto a base slice on the CPU."""
+    h, w = base_2d.shape[:2]
+    oh, ow = ov_2d.shape[:2]
+
+    sx = int(round(shift_x))
+    sy = int(round(shift_y))
+
+    out = base_2d.copy()
+
+    x0_base = max(0, sx)
+    x1_base = min(w, sx + ow)
+    y0_base = max(0, sy)
+    y1_base = min(h, sy + oh)
+
+    x0_ov = max(0, -sx)
+    x1_ov = min(ow, w - sx)
+    y0_ov = max(0, -sy)
+    y1_ov = min(oh, h - sy)
+
+    if x0_base >= x1_base or y0_base >= y1_base:
+        return out
+
+    b_roi = base_2d[y0_base:y1_base, x0_base:x1_base]
+    o_roi = ov_2d[y0_ov:y1_ov, x0_ov:x1_ov]
+
+    alpha_ov = o_roi[..., 3:4] * opacity
+    out[y0_base:y1_base, x0_base:x1_base, :3] = o_roi[..., :3] * alpha_ov + b_roi[..., :3] * (1.0 - alpha_ov)
+    out[y0_base:y1_base, x0_base:x1_base, 3:4] = alpha_ov + b_roi[..., 3:4] * (1.0 - alpha_ov)
+
+    return out
+
 
 def compute_software_nearest_neighbor(
     rgba_img, pmin, pmax, canvas_w, canvas_h, out_buffer=None, last_crop=None
@@ -122,7 +197,7 @@ def compute_software_nearest_neighbor(
     return out_buffer, (y0, y1, x0, x1)
 
 
-def compute_native_voxel_overlay(viewer, pmin, pmax, canvas_w, canvas_h):
+def compute_native_voxel_overlay(viewer, pmin, pmax, canvas_w, canvas_h, target_buffer=None, opacity=1.0):
     """Render the overlay at its native voxel resolution in NN pixelated mode.
 
     Instead of NN-mapping the pre-resampled overlay (at CT resolution), this maps
@@ -212,19 +287,22 @@ def compute_native_voxel_overlay(viewer, pmin, pmax, canvas_w, canvas_h):
     except np.linalg.LinAlgError:
         pass
 
-    if not hasattr(viewer, "_native_ov_buf") or viewer._native_ov_buf.shape[:2] != (canvas_h, canvas_w):
-        viewer._native_ov_buf = np.zeros((canvas_h, canvas_w, 4), dtype=np.float32)
-        viewer._last_native_ov_crop = None
+    if target_buffer is None:
+        if not hasattr(viewer, "_native_ov_buf") or viewer._native_ov_buf.shape[:2] != (canvas_h, canvas_w):
+            viewer._native_ov_buf = np.zeros((canvas_h, canvas_w, 4), dtype=np.float32)
+            viewer._last_native_ov_crop = None
 
-    rgba = viewer._native_ov_buf
-    if getattr(viewer, "_last_native_ov_crop", None):
-        oy0, oy1, ox0, ox1 = viewer._last_native_ov_crop
-        rgba[oy0:oy1, ox0:ox1] = 0.0
+        rgba = viewer._native_ov_buf
+        if getattr(viewer, "_last_native_ov_crop", None):
+            oy0, oy1, ox0, ox1 = viewer._last_native_ov_crop
+            rgba[oy0:oy1, ox0:ox1] = 0.0
 
-    viewer._last_native_ov_crop = (c_y0, c_y1, c_x0, c_x1)
+        viewer._last_native_ov_crop = (c_y0, c_y1, c_x0, c_x1)
+    else:
+        rgba = target_buffer
 
     if c_x0 >= c_x1 or c_y0 >= c_y1:
-        return rgba.ravel()
+        return rgba.ravel() if target_buffer is None else None
 
     A_total = A_total.astype(np.float32)
     b_total = b_total.astype(np.float32)
@@ -278,7 +356,16 @@ def compute_native_voxel_overlay(viewer, pmin, pmax, canvas_w, canvas_h):
         if in_bounds.any():
             norm = SliceRenderer.normalize_wl(valid_vals, ovs.display.ww, ovs.display.wl)
             lut = COLORMAPS.get(ovs.display.colormap, COLORMAPS["Grayscale"])
+            new_colors = lut[(norm * 255).astype(np.uint8)]
             rgba_crop = rgba[c_y0:c_y1, c_x0:c_x1]
-            rgba_crop[in_bounds] = lut[(norm * 255).astype(np.uint8)]
+            
+            if target_buffer is not None:
+                # CPU Pre-compositing: Alpha Blend directly into the base image array
+                alpha = new_colors[:, 3:4] * opacity
+                dst_colors = rgba_crop[in_bounds]
+                rgba_crop[in_bounds, :3] = new_colors[:, :3] * alpha + dst_colors[:, :3] * (1.0 - alpha)
+                rgba_crop[in_bounds, 3:4] = alpha + dst_colors[:, 3:4] * (1.0 - alpha)
+            else:
+                rgba_crop[in_bounds] = new_colors
 
-    return rgba.ravel()
+    return rgba.ravel() if target_buffer is None else None
