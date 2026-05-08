@@ -29,15 +29,31 @@ This document outlines the four main rendering pathways and their platform-speci
 - **Rendering:** `SliceRenderer.get_slice_rgba()` blends these two arrays together on the CPU into a single, native-resolution RGBA flat array. This single texture is uploaded to the GPU and stretched bilinearly to fit the screen.
 
 ## 4. Two Images Fusion, Nearest Neighbor (NN)
-**All Platforms (The Native Voxel Overlay Engine):**
-- **Bypassing ITK:** The background SimpleITK resampler is completely ignored. VVV recognizes that resampling a 4mm SPECT to a 1mm CT destroys the "true" blocky resolution of the SPECT.
-- **Dual Crop Analytics:** VVV triggers `_render_overlay_as_native_voxels()`. This engine analytically maps the screen Canvas pixels backward through the registration matrices directly into the raw 3D overlay array.
-  - **Screen Crop:** Quickly projects the 3D corners of the overlay onto the screen, completely skipping math for background pixels.
-  - **Image Crop:** Slices a tiny block from the massive NumPy array to maximize CPU L1/L2 cache hits during extreme zoom.
-- **RLE Generation:** Identifies pixel blocks using Run-Length Encoding and blasts them to a Persistent Canvas Buffer (`_native_ov_buf`) using SIMD `np.repeat`.
+VVV implements five distinct NN rendering strategies (defined in `NNMode`), allowing users to toggle between them (default key: `J`) depending on OS capabilities and performance needs.
 
-**Linux & Windows (Base Image):**
-- The base image remains a tiny, native-resolution texture. It uses the `GL_NEAREST` hack to stretch across the screen, sitting perfectly underneath the Canvas-sized overlay texture.
+**0. Hardware GL_NEAREST (Linux & Windows Only):**
+- **Pipeline:** Leaves both Base and ITK-resampled Overlay images as small, native-resolution textures.
+- **Scaling:** Uses ctypes to inject `glTexParameteri(GL_NEAREST)` so the GPU handles the blocky upscaling automatically. Near zero CPU cost.
 
-**macOS (Base Image):**
-- Lacking `GL_NEAREST`, the Base image is also routed through the CPU `_get_screen_mapped_texture()` engine. Both the Base and Overlay are uploaded as massive Canvas-sized textures and drawn 1:1 on top of each other.
+**1. SW Dual-Tex Native (Default Fallback for macOS):**
+- **Pipeline:** Creates two massive screen-sized (canvas) textures.
+- **Base:** Upscaled using the CPU-based Run-Length Encoding (RLE) mapping (`compute_software_nearest_neighbor`).
+- **Overlay:** Uses the "Native Voxel Overlay Engine" (`compute_native_voxel_overlay`). It analytically maps canvas pixels backward through registration matrices directly into the raw 3D overlay array, bypassing SimpleITK resampling to preserve true voxel blockiness (e.g., 4mm SPECT over 1mm CT).
+
+**2. SW Dual-Tex Resampled:**
+- **Pipeline:** Creates two canvas-sized textures.
+- **Base & Overlay:** Both use the CPU RLE mapper on the ITK-resampled slice grids. Fast, but loses the "true" physical voxel size of the original overlay if it differs from the base grid.
+
+**3. SW Single-Tex Merged (Pre-Compositing):**
+- **Pipeline:** Creates exactly one canvas-sized texture, cutting GPU upload bandwidth in half.
+- **Math:** Alpha-blends the ITK-resampled overlay slice directly onto the base slice *on the CPU* (`blend_slices_cpu`), then runs the RLE upscaler on the combined single image.
+
+**4. SW Single-Tex Native:**
+- **Pipeline:** Creates exactly one canvas-sized texture.
+- **Math:** First runs the RLE upscaler on the base image, then directly alpha-blends the blocky "Native Voxel" overlay pixels into the exact same memory buffer on the CPU before uploading to the GPU.
+
+## 5. Lazy Rendering (Interaction Optimizations)
+To maintain 60+ FPS during heavy continuous interactions (Panning, Zooming, Window/Leveling) on macOS software paths, VVV employs "Lazy" states triggered by `_mark_lazy_interaction()`:
+
+- **Lazy NN:** During interaction, the heavy overlay NN math is skipped. The user drags the pixelated base image smoothly. Once the mouse rests for 150ms (`lazy_nn_settle_ms`), a full dual-texture NN upload fires to restore the overlay.
+- **Lazy Lin:** During interaction, the entire viewer drops out of pixelated mode entirely and uses hardware Bilinear scaling (fastest possible framerate). Once resting for 150ms, it snaps back into the blocky NN modes.

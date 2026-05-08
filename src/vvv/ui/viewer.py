@@ -1174,6 +1174,9 @@ class SliceViewer:
             ww = max(1e-20, p_max - p_min)
             wl = (p_max + p_min) / 2
 
+            if self.lazy_nn or self.lazy_lin:
+                self._mark_lazy_interaction()
+
             if target == "overlay":
                 ovs = self.controller.view_states.get(vs.display.overlay_id)
                 if ovs:
