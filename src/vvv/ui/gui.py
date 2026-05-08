@@ -1384,6 +1384,7 @@ class MainGUI:
                 "view_coronal": "Coronal View",
                 "view_histogram": "Histogram View",
                 "toggle_interp": "Toggle Pixelated Zoom (NN)",
+                "toggle_experimental_nn": "Toggle NN Overlay Mode (Native/Resampled)",
                 "toggle_strips": "Toggle Voxel Strips",
                 "toggle_grid": "Toggle Voxel Grid",
                 "toggle_legend": "Toggle Legend",
@@ -1475,16 +1476,8 @@ class MainGUI:
                 dpg.render_dearpygui_frame()
 
         # --- DEBUG FPS + RENDER-ROUTE OVERLAY ---
-        from vvv.ui.viewer import (
-            _get_gl,
-            _nn_gl_ids,
-            _nn_debug,
-            _pending_nn,
-            _nn_schedule,
-            gl_nn_apply_pending,
-            gl_nn_reapply_all,
-        )
         import platform as _plat
+        from vvv.ui.viewer import _GL_NEAREST_SUPPORTED
 
         fps_label = fps_series = x_axis = y_axis = render_input = None
         fps_data = time_data = None
@@ -1544,28 +1537,15 @@ class MainGUI:
                     dpg.set_axis_limits(x_axis, max(0.0, t_now - 10.0), t_now + 0.2)
 
                 # ---- render-route info (copyable text, updated every frame) ----
-                gl_loaded = _get_gl() is not None
                 lines = [
-                    f"Platform: {_plat.system()}   GL lib: {'loaded' if gl_loaded else 'N/A (macOS/Metal)'}",
-                    f"pending_nn: {len(_pending_nn)}   registered_nn: {len(_nn_gl_ids)}",
+                    f"Platform: {_plat.system()}   GL Nearest-Neighbor Support: {'Enabled' if _GL_NEAREST_SUPPORTED else 'Disabled'}",
                 ]
                 for vtag, viewer in self.controller.viewers.items():
                     vs = viewer.view_state
                     nn = bool(vs and vs.display.pixelated_zoom) if vs else False
                     tex = getattr(viewer, "texture_tag", "?")
                     mode = "NN " if nn else "Lin"
-                    if nn:
-                        if tex in _nn_gl_ids:
-                            status = _nn_debug.get(tex, "ok")
-                        elif tex in _pending_nn:
-                            status = _nn_debug.get(tex, f"pending {_pending_nn[tex]}")
-                        elif tex in _nn_debug:
-                            status = _nn_debug[tex]
-                        else:
-                            status = "no info"
-                    else:
-                        status = ""
-                    lines.append(f"{vtag}: {mode}  {tex}  {status}")
+                    lines.append(f"{vtag}: {mode}  {tex}")
                 dpg.set_value(render_input, "\n".join(lines))
 
             if time.time() > self.status_message_expire_time:
@@ -1597,26 +1577,6 @@ class MainGUI:
             self.controller.tick()
 
             dpg.render_dearpygui_frame()
-
-            # After render: GL textures now exist. Maintain GL_NEAREST only for
-            # viewers currently in NN mode; restore GL_LINEAR for all others.
-            _active_nn = set()
-            for _v in self.controller.viewers.values():
-                _vs = getattr(_v, "view_state", None)
-                _tex = getattr(_v, "texture_tag", None)
-                if _tex and _vs and getattr(_vs.display, "pixelated_zoom", False):
-                    _active_nn.add(_tex)
-                    # If this texture is not yet tracked, schedule the dimension scan.
-                    if _tex not in _nn_gl_ids and _tex not in _pending_nn:
-                        _shape = (
-                            _v.get_slice_shape()
-                            if getattr(_v, "volume", None)
-                            else None
-                        )
-                        if _shape:
-                            _nn_schedule(_tex, _shape[1], _shape[0])
-            gl_nn_apply_pending(_active_nn)
-            gl_nn_reapply_all(_active_nn)
 
         # Shutdown sequence
         cleanup_os_drop()  # null GLFW drop callback before DPG destroys the window

@@ -570,8 +570,7 @@ def load_workspace_sequence(gui, controller, filepath):
             max_workers=min(total_files, 8)
         ) as executor:
             future_to_path = {
-                executor.submit(controller.file.load_image, p, ignore_history=True): p
-                for p in paths_list
+                executor.submit(controller.file.load_image, p): p for p in paths_list
             }
             futures: list[concurrent.futures.Future | None] = [
                 f for f in future_to_path.keys()
@@ -635,6 +634,8 @@ def load_workspace_sequence(gui, controller, filepath):
                         controller.volumes[ov_id].is_overlay_only = True
                         ov_vs = controller.view_states[ov_id]
                         ov_vs.display.colormap = ov_info.get("colormap", "Grayscale")
+                        if "threshold" in ov_info and ov_info["threshold"] is not None:
+                            ov_vs.display.base_threshold = ov_info["threshold"]
 
                         vs.set_overlay(ov_id, controller.volumes[ov_id], controller)
                         vs.display.overlay_mode = ov_info.get("mode", "Registration")

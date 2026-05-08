@@ -30,6 +30,7 @@ DEFAULT_SETTINGS = {
         "view_coronal": "F3",
         "view_histogram": "F4",
         "toggle_interp": "K",
+        "toggle_experimental_nn": "J",
         "toggle_strips": "M",
         "toggle_legend": "L",
         "toggle_grid": "G",
