@@ -10,7 +10,9 @@ from vvv.ui.render_strategy import (
     compute_native_voxel_overlay,
     blend_slices_cpu,
     GL_NEAREST_SUPPORTED,
-    try_set_gl_nearest
+    try_set_gl_nearest,
+    NNMode,
+    DEFAULT_NN_MODE,
 )
 from typing import Any
 
@@ -156,8 +158,8 @@ class SliceViewer:
         self.last_orientation: ViewMode | None = None
         self.last_drawn_shape: tuple | None = None
         self.last_pixelated = False
-        self.last_nn_mode = 1
-        self.experimental_nn_mode = 0 if GL_NEAREST_SUPPORTED else 1
+        self.last_nn_mode: NNMode = DEFAULT_NN_MODE
+        self.nn_mode: NNMode = DEFAULT_NN_MODE
         self._old_texture_to_delete: str | None = None
         self._textures_to_delete: list[str] = []
 
@@ -495,15 +497,12 @@ class SliceViewer:
         display_slice_shape = self.get_slice_shape()
         h, w = display_slice_shape[0], display_slice_shape[1]
 
-        is_hw_gl = GL_NEAREST_SUPPORTED and self.experimental_nn_mode == 0
+        is_hw_gl = self._is_hw_gl
         nn_active = bool(vs and vs.display.pixelated_zoom)
         nn_needs_canvas = nn_active and not is_hw_gl
 
         if nn_needs_canvas:
-            layout = self.controller.gui.ui_cfg["layout"]
-            pad = layout.get("viewport_padding", 4) * 2
-            base_w = int(max(1, self.quad_w - pad))
-            base_h = int(max(1, self.quad_h - pad))
+            base_w, base_h = self._get_canvas_size()
             ov_w, ov_h = base_w, base_h
         else:
             base_w, base_h = w, h
@@ -917,7 +916,7 @@ class SliceViewer:
 
         pixelated = vs.display.pixelated_zoom
         pixelated_changed = pixelated != self.last_pixelated
-        mode_changed = self.experimental_nn_mode != getattr(self, "last_nn_mode", 1)
+        mode_changed = self.nn_mode != self.last_nn_mode
 
         if pixelated_changed:
             self.is_geometry_dirty = True
@@ -928,7 +927,7 @@ class SliceViewer:
             and ov_id in self.controller.view_states
             and vs.display.overlay_mode == "Alpha"
         )
-        is_hw_gl = GL_NEAREST_SUPPORTED and self.experimental_nn_mode == 0
+        is_hw_gl = self._is_hw_gl
         is_canvas_sized = pixelated and not is_hw_gl
 
         rebuild_texture = (
@@ -952,7 +951,7 @@ class SliceViewer:
             self.last_orientation = self.orientation
             self.last_drawn_shape = current_shape
             self.last_pixelated = pixelated
-            self.last_nn_mode = self.experimental_nn_mode
+            self.last_nn_mode = self.nn_mode
             self.is_viewer_data_dirty = True
 
         # --- 2. CAMERA SYNC MATH ---
@@ -1533,53 +1532,52 @@ class SliceViewer:
         if not vs:
             return
 
-        is_hw_gl = GL_NEAREST_SUPPORTED and self.experimental_nn_mode == 0
-
-        if vs.display.pixelated_zoom and not is_hw_gl and not self.should_use_voxels_strips():
-            layout = self.controller.gui.ui_cfg["layout"]
-            pad = layout.get("viewport_padding", 4) * 2
-            canvas_w = int(max(1, self.quad_w - pad))
-            canvas_h = int(max(1, self.quad_h - pad))
-            actual_shape = getattr(self, "last_rgba_shape", self.get_slice_shape())
-
-            rgba_2d = np.asarray(self.last_rgba_flat).reshape(actual_shape[0], actual_shape[1], 4)
-
-            # MODE 3: CPU merge of the Base and Overlay slices before NN math runs
-            if self.experimental_nn_mode == 3 and vs.display.overlay_id and vs.display.overlay_mode == "Alpha":
-                if self.last_overlay_rgba_flat is not None:
-                    ov_actual_shape = getattr(self, "last_overlay_rgba_shape", self.get_slice_shape())
-                    ov_rgba_2d = np.asarray(self.last_overlay_rgba_flat).reshape(ov_actual_shape[0], ov_actual_shape[1], 4)
-                    rgba_2d = blend_slices_cpu(
-                        rgba_2d, 
-                        ov_rgba_2d, 
-                        vs.display.overlay_opacity, 
-                        self.active_overlay_shift_x, 
-                        self.active_overlay_shift_y
-                    )
-
-            if not hasattr(self, "_nn_base_buf") or self._nn_base_buf.shape[:2] != (canvas_h, canvas_w):
-                self._nn_base_buf = np.zeros((canvas_h, canvas_w, 4), dtype=np.float32)
-                self._nn_base_crop = None
-
-            nn_base, crop = compute_software_nearest_neighbor(
-                rgba_2d, self.current_pmin, self.current_pmax, canvas_w, canvas_h,
-                out_buffer=self._nn_base_buf, last_crop=self._nn_base_crop
-            )
-            self._nn_base_crop = crop
-
-            # MODE 4: Single-Tex Native Precomposition
-            if self.experimental_nn_mode == 4 and vs.display.overlay_id and vs.display.overlay_mode == "Alpha":
-                if nn_base is rgba_2d:  # Identity mapping passed back the slice cache, make a copy!
-                    self._nn_base_buf[:rgba_2d.shape[0], :rgba_2d.shape[1]] = rgba_2d
-                    nn_base = self._nn_base_buf
-                compute_native_voxel_overlay(
-                    self, self.current_pmin, self.current_pmax, canvas_w, canvas_h,
-                    target_buffer=nn_base, opacity=vs.display.overlay_opacity
-                )
-
-            dpg.set_value(self.texture_tag, nn_base.ravel())  # type: ignore
-        else:
+        if not (vs.display.pixelated_zoom and not self._is_hw_gl and not self.should_use_voxels_strips()):
             dpg.set_value(self.texture_tag, self.last_rgba_flat)  # type: ignore
+            return
+
+        canvas_w, canvas_h = self._get_canvas_size()
+        actual_shape = getattr(self, "last_rgba_shape", self.get_slice_shape())
+        rgba_2d = np.asarray(self.last_rgba_flat).reshape(actual_shape[0], actual_shape[1], 4)
+
+        has_alpha_overlay = (
+            vs.display.overlay_id
+            and vs.display.overlay_mode == "Alpha"
+            and self.last_overlay_rgba_flat is not None
+        )
+
+        # SW_SINGLE_MERGED: CPU alpha-blend overlay into base before NN scaling
+        if self.nn_mode == NNMode.SW_SINGLE_MERGED and has_alpha_overlay:
+            ov_actual_shape = getattr(self, "last_overlay_rgba_shape", self.get_slice_shape())
+            ov_rgba_2d = np.asarray(self.last_overlay_rgba_flat).reshape(ov_actual_shape[0], ov_actual_shape[1], 4)
+            rgba_2d = blend_slices_cpu(
+                rgba_2d, ov_rgba_2d,
+                vs.display.overlay_opacity,
+                self.active_overlay_shift_x,
+                self.active_overlay_shift_y,
+            )
+
+        if not hasattr(self, "_nn_base_buf") or self._nn_base_buf.shape[:2] != (canvas_h, canvas_w):
+            self._nn_base_buf = np.zeros((canvas_h, canvas_w, 4), dtype=np.float32)
+            self._nn_base_crop = None
+
+        nn_base, crop = compute_software_nearest_neighbor(
+            rgba_2d, self.current_pmin, self.current_pmax, canvas_w, canvas_h,
+            out_buffer=self._nn_base_buf, last_crop=self._nn_base_crop
+        )
+        self._nn_base_crop = crop
+
+        # SW_SINGLE_NATIVE: paint overlay at native voxel resolution into the NN base
+        if self.nn_mode == NNMode.SW_SINGLE_NATIVE and has_alpha_overlay:
+            if nn_base is rgba_2d:  # identity pass returned the slice cache — copy first
+                self._nn_base_buf[:rgba_2d.shape[0], :rgba_2d.shape[1]] = rgba_2d
+                nn_base = self._nn_base_buf
+            compute_native_voxel_overlay(
+                self, self.current_pmin, self.current_pmax, canvas_w, canvas_h,
+                target_buffer=nn_base, opacity=vs.display.overlay_opacity
+            )
+
+        dpg.set_value(self.texture_tag, nn_base.ravel())  # type: ignore
 
     def _upload_overlay_texture(self):
         if not hasattr(self, "overlay_texture_tag") or not dpg.does_item_exist(self.overlay_texture_tag):
@@ -1592,39 +1590,50 @@ class SliceViewer:
         if self.last_overlay_rgba_flat is None:
             return
 
-        layout = self.controller.gui.ui_cfg["layout"]
-        pad = layout.get("viewport_padding", 4) * 2
-        canvas_w = int(max(1, self.quad_w - pad))
-        canvas_h = int(max(1, self.quad_h - pad))
+        is_sw_nn = vs.display.pixelated_zoom and not self._is_hw_gl and not self.should_use_voxels_strips()
 
-        is_hw_gl = GL_NEAREST_SUPPORTED and self.experimental_nn_mode == 0
-
-        if vs.display.pixelated_zoom and not is_hw_gl and not self.should_use_voxels_strips():
-            if self.experimental_nn_mode in (3, 4):
-                return  # Base texture successfully absorbed the overlay on the CPU!
-
-            if self.experimental_nn_mode in (1, 4):
-                ov_rgba_display = compute_native_voxel_overlay(
-                    self, self.current_pmin, self.current_pmax, canvas_w, canvas_h
-                )
-                if ov_rgba_display is not None:
-                    dpg.set_value(self.overlay_texture_tag, ov_rgba_display)  # type: ignore
-            else:
-                ov_actual_shape = getattr(self, "last_overlay_rgba_shape", self.get_slice_shape())
-                ov_rgba_2d = np.asarray(self.last_overlay_rgba_flat).reshape(ov_actual_shape[0], ov_actual_shape[1], 4)
-
-                if not hasattr(self, "_nn_ov_buf") or self._nn_ov_buf.shape[:2] != (canvas_h, canvas_w):
-                    self._nn_ov_buf = np.zeros((canvas_h, canvas_w, 4), dtype=np.float32)
-                    self._nn_ov_crop = None
-
-                nn_ov, crop = compute_software_nearest_neighbor(
-                    ov_rgba_2d, self.current_pmin, self.current_pmax, canvas_w, canvas_h,
-                    out_buffer=self._nn_ov_buf, last_crop=self._nn_ov_crop
-                )
-                self._nn_ov_crop = crop
-                dpg.set_value(self.overlay_texture_tag, nn_ov.ravel())  # type: ignore
-        else:
+        if not is_sw_nn:
             dpg.set_value(self.overlay_texture_tag, self.last_overlay_rgba_flat)  # type: ignore
+            return
+
+        # Modes SW_SINGLE_MERGED and SW_SINGLE_NATIVE precomposite the overlay into the
+        # base texture on the CPU — no separate overlay upload needed.
+        if self.nn_mode in (NNMode.SW_SINGLE_MERGED, NNMode.SW_SINGLE_NATIVE):
+            return
+
+        canvas_w, canvas_h = self._get_canvas_size()
+
+        if self.nn_mode == NNMode.SW_DUAL_NATIVE:
+            ov_rgba_display = compute_native_voxel_overlay(
+                self, self.current_pmin, self.current_pmax, canvas_w, canvas_h
+            )
+            if ov_rgba_display is not None:
+                dpg.set_value(self.overlay_texture_tag, ov_rgba_display)  # type: ignore
+        else:
+            # SW_DUAL_RESAMPLED: NN-scale the ITK-resampled overlay
+            ov_actual_shape = getattr(self, "last_overlay_rgba_shape", self.get_slice_shape())
+            ov_rgba_2d = np.asarray(self.last_overlay_rgba_flat).reshape(ov_actual_shape[0], ov_actual_shape[1], 4)
+
+            if not hasattr(self, "_nn_ov_buf") or self._nn_ov_buf.shape[:2] != (canvas_h, canvas_w):
+                self._nn_ov_buf = np.zeros((canvas_h, canvas_w, 4), dtype=np.float32)
+                self._nn_ov_crop = None
+
+            nn_ov, crop = compute_software_nearest_neighbor(
+                ov_rgba_2d, self.current_pmin, self.current_pmax, canvas_w, canvas_h,
+                out_buffer=self._nn_ov_buf, last_crop=self._nn_ov_crop
+            )
+            self._nn_ov_crop = crop
+            dpg.set_value(self.overlay_texture_tag, nn_ov.ravel())  # type: ignore
+
+    def _get_canvas_size(self) -> tuple[int, int]:
+        """Returns (canvas_w, canvas_h) in pixels, accounting for viewport padding."""
+        pad = self.controller.gui.ui_cfg["layout"].get("viewport_padding", 4) * 2
+        return int(max(1, self.quad_w - pad)), int(max(1, self.quad_h - pad))
+
+    @property
+    def _is_hw_gl(self) -> bool:
+        """True when the hardware GL_NEAREST path is active (Linux/Windows only)."""
+        return GL_NEAREST_SUPPORTED and self.nn_mode == NNMode.HW_GL_NEAREST
 
     def should_use_voxels_strips(self):
         vs = self.view_state
@@ -1689,14 +1698,10 @@ class SliceViewer:
                 # Base image positioning: on Linux/Windows GL_NEAREST handles NN upscaling
                 # so the slice-sized texture is positioned at its physical screen extent.
                 # On macOS the canvas-sized NN texture covers the full canvas instead.
-                is_hw_gl = GL_NEAREST_SUPPORTED and self.experimental_nn_mode == 0
-                is_sw_nn = vs.display.pixelated_zoom and not is_hw_gl and not self.should_use_voxels_strips()
+                is_sw_nn = vs.display.pixelated_zoom and not self._is_hw_gl and not self.should_use_voxels_strips()
 
                 if is_sw_nn:
-                    layout = self.controller.gui.ui_cfg["layout"]
-                    pad = layout.get("viewport_padding", 4) * 2
-                    canvas_w = int(max(1, self.quad_w - pad))
-                    canvas_h = int(max(1, self.quad_h - pad))
+                    canvas_w, canvas_h = self._get_canvas_size()
                     dpg.configure_item(
                         self.image_tag, pmin=[0, 0], pmax=[canvas_w, canvas_h]
                     )
@@ -1706,16 +1711,13 @@ class SliceViewer:
                     )
 
                 if has_overlay:
-                    is_precomposited = is_sw_nn and self.experimental_nn_mode in (3, 4)
+                    is_precomposited = is_sw_nn and self.nn_mode in (NNMode.SW_SINGLE_MERGED, NNMode.SW_SINGLE_NATIVE)
 
                     if is_precomposited:
                         if dpg.does_item_exist(self.overlay_image_tag):
                             dpg.configure_item(self.overlay_image_tag, show=False)
                     elif is_sw_nn:
-                        layout = self.controller.gui.ui_cfg["layout"]
-                        pad = layout.get("viewport_padding", 4) * 2
-                        canvas_w = int(max(1, self.quad_w - pad))
-                        canvas_h = int(max(1, self.quad_h - pad))
+                        canvas_w, canvas_h = self._get_canvas_size()
                         dpg.configure_item(
                             self.overlay_image_tag,
                             pmin=[0, 0],
@@ -2013,7 +2015,7 @@ class SliceViewer:
             "view_coronal": lambda: self.set_orientation(ViewMode.CORONAL),
             "view_histogram": self.action_view_histogram,
             "toggle_interp": self.action_toggle_pixelated_zoom,
-            "toggle_experimental_nn": self.action_toggle_experimental_nn,
+            "toggle_experimental_nn": self.action_toggle_nn_mode,
             "toggle_strips": self.action_toggle_strips,
             "toggle_legend": self.action_toggle_legend,
             "toggle_filename": self.action_toggle_filename,
@@ -2075,21 +2077,26 @@ class SliceViewer:
             vs.display.pixelated_zoom = not vs.display.pixelated_zoom
         vs.is_data_dirty = True
 
-    def action_toggle_experimental_nn(self):
+    def action_toggle_nn_mode(self):
         vs = self.view_state
         if not vs:
             return
-        min_mode = 0 if GL_NEAREST_SUPPORTED else 1
-        self.experimental_nn_mode += 1
-        if self.experimental_nn_mode > 4:
-            self.experimental_nn_mode = min_mode
+        available = [m for m in NNMode if GL_NEAREST_SUPPORTED or m != NNMode.HW_GL_NEAREST]
+        current_idx = available.index(self.nn_mode) if self.nn_mode in available else 0
+        self.nn_mode = available[(current_idx + 1) % len(available)]
         if vs.display.pixelated_zoom:
             self.is_geometry_dirty = True
             self.is_viewer_data_dirty = True
             vs.is_data_dirty = True
         self.controller.ui_needs_refresh = True
-        modes = {0: "Hardware GL", 1: "SW Dual-Tex Native", 2: "SW Dual-Tex Resampled", 3: "SW Single-Tex Resampled", 4: "SW Single-Tex Native"}
-        self.controller.status_message = f"NN Overlay: {modes.get(self.experimental_nn_mode, 'Unknown')}"
+        labels = {
+            NNMode.HW_GL_NEAREST:     "Hardware GL_NEAREST",
+            NNMode.SW_DUAL_NATIVE:    "SW Dual-Tex Native",
+            NNMode.SW_DUAL_RESAMPLED: "SW Dual-Tex Resampled",
+            NNMode.SW_SINGLE_MERGED:  "SW Single-Tex Merged",
+            NNMode.SW_SINGLE_NATIVE:  "SW Single-Tex Native",
+        }
+        self.controller.status_message = f"NN Mode: {labels[self.nn_mode]}"
 
     def action_toggle_strips(self):
         vs = self.view_state

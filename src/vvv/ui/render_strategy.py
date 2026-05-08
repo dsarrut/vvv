@@ -2,10 +2,22 @@ import numpy as np
 from vvv.maths.image import SliceRenderer
 from vvv.config import COLORMAPS
 from vvv.utils import ViewMode
+from enum import IntEnum
 
 import platform as _platform
 GL_NEAREST_SUPPORTED = _platform.system() in ("Linux", "Windows")
 _gl_nearest_fn = None
+
+
+class NNMode(IntEnum):
+    HW_GL_NEAREST     = 0  # GPU GL_NEAREST filter — Linux/Windows only
+    SW_DUAL_NATIVE    = 1  # 2 textures; overlay at true voxel resolution via affine math
+    SW_DUAL_RESAMPLED = 2  # 2 textures; overlay NN-scaled from ITK-resampled grid
+    SW_SINGLE_MERGED  = 3  # 1 texture; CPU alpha-blend base+overlay then NN scale
+    SW_SINGLE_NATIVE  = 4  # 1 texture; NN base + native-voxel overlay painted in
+
+
+DEFAULT_NN_MODE: NNMode = NNMode.HW_GL_NEAREST if GL_NEAREST_SUPPORTED else NNMode.SW_DUAL_NATIVE
 
 def try_set_gl_nearest():
     """Call glTexParameteri(GL_NEAREST) on the currently-bound 2D texture.

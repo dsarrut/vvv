@@ -1477,7 +1477,7 @@ class MainGUI:
 
         # --- DEBUG FPS + RENDER-ROUTE OVERLAY ---
         import platform as _plat
-        from vvv.ui.render_strategy import GL_NEAREST_SUPPORTED
+        from vvv.ui.render_strategy import GL_NEAREST_SUPPORTED, NNMode
 
         fps_label = fps_series = x_axis = y_axis = render_input = None
         fps_data = time_data = None
@@ -1540,11 +1540,24 @@ class MainGUI:
                 lines = [
                     f"Platform: {_plat.system()}   GL Nearest-Neighbor Support: {'Enabled' if GL_NEAREST_SUPPORTED else 'Disabled'}",
                 ]
+                _nn_labels = {
+                    NNMode.HW_GL_NEAREST:     "HW GL_NEAREST",
+                    NNMode.SW_DUAL_NATIVE:    "SW Dual-Native",
+                    NNMode.SW_DUAL_RESAMPLED: "SW Dual-Resampled",
+                    NNMode.SW_SINGLE_MERGED:  "SW Single-Merged",
+                    NNMode.SW_SINGLE_NATIVE:  "SW Single-Native",
+                }
                 for vtag, viewer in self.controller.viewers.items():
                     vs = viewer.view_state
-                    nn = bool(vs and vs.display.pixelated_zoom) if vs else False
+                    pix = bool(vs and vs.display.pixelated_zoom) if vs else False
                     tex = getattr(viewer, "texture_tag", "?")
-                    mode = "NN " if nn else "Lin"
+                    nn_mode = getattr(viewer, "nn_mode", None)
+                    if pix and nn_mode is not None:
+                        mode = _nn_labels.get(nn_mode, f"mode-{nn_mode}")
+                    elif pix:
+                        mode = "NN"
+                    else:
+                        mode = "Bilinear"
                     lines.append(f"{vtag}: {mode}  {tex}")
                 dpg.set_value(render_input, "\n".join(lines))
 
