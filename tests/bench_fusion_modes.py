@@ -104,7 +104,7 @@ def execute_action(action, viewers):
             v.update_render(force_reblend=True)
 
 
-def bench_mode(pix_zoom, nn_mode, actions, viewers, vs_base, n_iters, lazy=False):
+def bench_mode(pix_zoom, nn_mode, actions, viewers, vs_base, n_iters, lazy=False, n_warmup=3):
     """Run all actions for one mode, return list of FPS values."""
     vs_base.display.pixelated_zoom = pix_zoom
     row = []
@@ -120,7 +120,7 @@ def bench_mode(pix_zoom, nn_mode, actions, viewers, vs_base, n_iters, lazy=False
             v.is_geometry_dirty = True
             v.update_render(force_reblend=True)
 
-        for _ in range(3):  # warmup
+        for _ in range(n_warmup):  # warmup
             execute_action(action, viewers)
 
         t0 = time.perf_counter()
@@ -140,23 +140,38 @@ def main():
     parser = argparse.ArgumentParser(description="VVV Fusion Modes Benchmark")
     parser.add_argument("--save-csv", metavar="FILE", help="Save FPS results as CSV")
     parser.add_argument("--quick", action="store_true", help="Use 10 iterations instead of 50")
+    parser.add_argument("--very-quick", action="store_true", help="Use 2 iterations and tiny volumes for CI tests")
     args = parser.parse_args()
 
-    n_iters = 10 if args.quick else 50
+    if args.very_quick:
+        n_iters = 2
+        n_warmup = 1
+        v_shape = (10, 64, 64)
+        o_shape = (10, 32, 32)
+    elif args.quick:
+        n_iters = 10
+        n_warmup = 3
+        v_shape = (1000, 512, 512)
+        o_shape = (800, 256, 256)
+    else:
+        n_iters = 50
+        n_warmup = 3
+        v_shape = (1000, 512, 512)
+        o_shape = (800, 256, 256)
 
-    print("Setting up large benchmark data (512x512x1000 base, 256x256x800 overlay)...")
+    print(f"Setting up benchmark data ({v_shape[2]}x{v_shape[1]}x{v_shape[0]} base, {o_shape[2]}x{o_shape[1]}x{o_shape[0]} overlay)...")
     with tempfile.TemporaryDirectory() as tmpdir:
         base_path = os.path.join(tmpdir, "base.nii")
         ov_path   = os.path.join(tmpdir, "ov.nii")
 
-        base_data = np.empty((1000, 512, 512), dtype=np.float32)
-        base_data[:] = np.linspace(0, 100, 512, dtype=np.float32)[None, None, :]
+        base_data = np.empty(v_shape, dtype=np.float32)
+        base_data[:] = np.linspace(0, 100, v_shape[2], dtype=np.float32)[None, None, :]
         base_img = sitk.GetImageFromArray(base_data)
         base_img.SetSpacing((1.0, 1.0, 1.0))
         sitk.WriteImage(base_img, base_path)
 
-        ov_data = np.empty((800, 256, 256), dtype=np.float32)
-        ov_data[:] = np.linspace(0, 100, 256, dtype=np.float32)[None, None, :]
+        ov_data = np.empty(o_shape, dtype=np.float32)
+        ov_data[:] = np.linspace(0, 100, o_shape[2], dtype=np.float32)[None, None, :]
         ov_img = sitk.GetImageFromArray(ov_data)
         ov_img.SetSpacing((1.25, 2.0, 2.0))
         sitk.WriteImage(ov_img, ov_path)
@@ -216,7 +231,7 @@ def main():
 
         full_results = []
         for mode_name, pix_zoom, nn_mode in sw_modes:
-            row = bench_mode(pix_zoom, nn_mode, actions_full, viewers, vs_base, n_iters, lazy=False)
+            row = bench_mode(pix_zoom, nn_mode, actions_full, viewers, vs_base, n_iters, lazy=False, n_warmup=n_warmup)
             print(fmt_row(mode_name, row))
             full_results.append((mode_name, "full", row))
 
@@ -238,7 +253,7 @@ def main():
 
         lazy_results = []
         for mode_name, pix_zoom, nn_mode in lazy_modes:
-            row = bench_mode(pix_zoom, nn_mode, actions_lazy, viewers, vs_base, n_iters, lazy=True)
+            row = bench_mode(pix_zoom, nn_mode, actions_lazy, viewers, vs_base, n_iters, lazy=True, n_warmup=n_warmup)
             print(fmt_row(mode_name, row))
             lazy_results.append((mode_name, "lazy", row))
 
