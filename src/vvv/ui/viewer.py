@@ -2325,8 +2325,6 @@ class SliceViewer:
         # Update the slice_idx property, which will internally call vs.update_crosshair_from_phys
         self.slice_idx = int(new_display_slice_idx)
 
-        if self.lazy_nn or self.lazy_lin:
-            self._mark_lazy_interaction()
         self.controller.sync.propagate_sync(self.image_id)
         self.is_viewer_data_dirty = True
 
@@ -2385,8 +2383,6 @@ class SliceViewer:
         )
 
         if not is_ctrl and not is_shift and is_button:
-            if self.lazy_nn or self.lazy_lin:
-                self._mark_lazy_interaction()
             px, py = self.get_mouse_slice_coords(ignore_hover=True, allow_outside=True)
             if px is not None:
                 self.update_crosshair_data(px, py)

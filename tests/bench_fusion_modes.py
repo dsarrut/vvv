@@ -34,6 +34,7 @@ dpg_mock.get_item_height.return_value = 650
 dpg_mock.set_value.return_value = None
 dpg_mock.configure_item.return_value = None
 dpg_mock.get_item_state.return_value = {"visible": True}
+dpg_mock.get_drawing_mouse_pos.return_value = [500, 325]
 sys.modules['dearpygui.dearpygui'] = dpg_mock
 
 # 2. Path Setup
@@ -89,6 +90,18 @@ def execute_action(action, viewers):
             v.zoom *= 0.95
             v.is_geometry_dirty = True
             v.update_render(force_reblend=False)
+    elif action == "W/L (W)":
+        for v in viewers:
+            if v.mouse_phys_coord is None:
+                v.update_crosshair_data(v.quad_w / 2, v.quad_h / 2)
+            v.apply_local_auto_window(target="base")
+            v.update_render(force_reblend=True)
+    elif action == "W/L (X)":
+        for v in viewers:
+            if v.mouse_phys_coord is None:
+                v.update_crosshair_data(v.quad_w / 2, v.quad_h / 2)
+            v.apply_local_auto_window(target="overlay")
+            v.update_render(force_reblend=True)
 
 
 def bench_mode(pix_zoom, nn_mode, actions, viewers, vs_base, n_iters, lazy=False):
@@ -191,14 +204,14 @@ def main():
         ]
 
         # ── Section 1: full NN every frame ──────────────────────────────────
-        actions_full = ["Slicing", "Pan Move", "Zoom In", "Zoom Out"]
+        actions_full = ["Slicing", "Pan Move", "Zoom In", "Zoom Out", "W/L (W)", "W/L (X)"]
         os_label = platform.system()
-        sep = "-" * 78
+        sep = "-" * 102
 
-        print(f"\n{'═'*78}")
+        print(f"\n{'═'*102}")
         print(f"  {os_label}  ·  Full NN every frame (lazy_nn=False)  ·  {n_iters} iters/action")
-        print(f"{'═'*78}")
-        print(f"{'Mode':<28} | {'Slicing':>9} | {'Pan Move':>9} | {'Zoom In':>9} | {'Zoom Out':>9}")
+        print(f"{'═'*102}")
+        print(f"{'Mode':<28} | {'Slicing':>9} | {'Pan Move':>9} | {'Zoom In':>9} | {'Zoom Out':>9} | {'W/L (W)':>9} | {'W/L (X)':>9}")
         print(sep)
 
         full_results = []
@@ -236,7 +249,7 @@ def main():
             with open(args.save_csv, "w", newline="") as f:
                 w = csv.writer(f)
                 w.writerow(["mode", "strategy", "platform", "overlay_ready",
-                             "Slicing", "Pan/Pan-live", "Zoom-In/Settle", "Zoom-Out"])
+                             "Slicing", "Pan/Pan-live", "Zoom-In/Settle", "Zoom-Out", "W/L_W", "W/L_X"])
                 for mode_name, strategy, row in full_results + lazy_results:
                     w.writerow([mode_name, strategy, os_label, overlay_ready]
                                + [f"{fps:.2f}" for fps in row])
