@@ -31,6 +31,7 @@ DEFAULT_SETTINGS = {
         "view_histogram": "F4",
         "toggle_interp": "K",
         "toggle_experimental_nn": "J",
+        "toggle_lazy_nn": "E",
         "toggle_strips": "M",
         "toggle_legend": "L",
         "toggle_grid": "G",

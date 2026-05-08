@@ -1454,6 +1454,7 @@ class MainGUI:
         self.update_sidebar_info(self.context_viewer)
 
     def run(self, boot_generator=None, debug=False):
+        self.controller.debug_mode = debug
         dpg.setup_dearpygui()
 
         if not dpg.does_item_exist("global_texture_registry"):
@@ -1537,9 +1538,6 @@ class MainGUI:
                     dpg.set_axis_limits(x_axis, max(0.0, t_now - 10.0), t_now + 0.2)
 
                 # ---- render-route info (copyable text, updated every frame) ----
-                lines = [
-                    f"Platform: {_plat.system()}   GL Nearest-Neighbor Support: {'Enabled' if GL_NEAREST_SUPPORTED else 'Disabled'}",
-                ]
                 _nn_labels = {
                     NNMode.HW_GL_NEAREST:     "HW GL_NEAREST",
                     NNMode.SW_DUAL_NATIVE:    "SW Dual-Native",
@@ -1547,18 +1545,33 @@ class MainGUI:
                     NNMode.SW_SINGLE_MERGED:  "SW Single-Merged",
                     NNMode.SW_SINGLE_NATIVE:  "SW Single-Native",
                 }
+                # Summarise lazy state across all viewers for a quick top-level read
+                all_lazy   = all(getattr(v, "lazy_nn", False) for v in self.controller.viewers.values())
+                any_lazy   = any(getattr(v, "lazy_nn", False) for v in self.controller.viewers.values())
+                lazy_summary = "ALL ON" if all_lazy else ("SOME ON" if any_lazy else "OFF")
+                lines = [
+                    f"Platform: {_plat.system()}   GL: {'ON' if GL_NEAREST_SUPPORTED else 'OFF'}",
+                    f"Lazy NN (E): {lazy_summary}   debug_mode: {getattr(self.controller, 'debug_mode', False)}",
+                ]
                 for vtag, viewer in self.controller.viewers.items():
                     vs = viewer.view_state
                     pix = bool(vs and vs.display.pixelated_zoom) if vs else False
                     tex = getattr(viewer, "texture_tag", "?")
                     nn_mode = getattr(viewer, "nn_mode", None)
+                    lazy = getattr(viewer, "lazy_nn", False)
                     if pix and nn_mode is not None:
                         mode = _nn_labels.get(nn_mode, f"mode-{nn_mode}")
+                        if lazy:
+                            settled = getattr(viewer, "_nn_settle_done", True)
+                            lazy_s = "settled" if settled else "live→bilinear"
+                            mode += f"  [lazy ON: {lazy_s}]"
+                        else:
+                            mode += "  [lazy OFF]"
                     elif pix:
-                        mode = "NN"
+                        mode = "NN  [lazy OFF]" if not lazy else "NN  [lazy ON]"
                     else:
                         mode = "Bilinear"
-                    lines.append(f"{vtag}: {mode}  {tex}")
+                    lines.append(f"  {vtag}: {mode}")
                 dpg.set_value(render_input, "\n".join(lines))
 
             if time.time() > self.status_message_expire_time:

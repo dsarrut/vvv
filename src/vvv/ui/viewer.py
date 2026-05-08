@@ -1,3 +1,4 @@
+import time
 import numpy as np
 from vvv.utils import ViewMode, slice_to_voxel, voxel_to_slice, fmt
 import dearpygui.dearpygui as dpg
@@ -160,6 +161,10 @@ class SliceViewer:
         self.last_pixelated = False
         self.last_nn_mode: NNMode = DEFAULT_NN_MODE
         self.nn_mode: NNMode = DEFAULT_NN_MODE
+        self.lazy_nn: bool = False          # bilinear during interaction, NN after settle
+        self.lazy_nn_settle_ms: int = 150   # ms of inactivity before NN re-upload fires
+        self._last_move_time: float = 0.0
+        self._nn_settle_done: bool = True
         self._old_texture_to_delete: str | None = None
         self._textures_to_delete: list[str] = []
 
@@ -1056,6 +1061,20 @@ class SliceViewer:
             self.update_stuff_in_image_only()
             self.is_geometry_dirty = False
 
+        # Lazy NN settle: once the interaction window has expired, do a single NN re-upload
+        if (self.lazy_nn
+                and not self._nn_settle_done
+                and self._last_move_time > 0
+                and time.time() - self._last_move_time >= self.lazy_nn_settle_ms / 1000.0):
+            self._nn_settle_done = True  # set before uploads so is_lazy_live=False inside them
+            vs_lazy = self.view_state
+            if vs_lazy and vs_lazy.display.pixelated_zoom and not self._is_hw_gl:
+                self._upload_base_texture()
+                self._upload_overlay_texture()
+                # Re-evaluate overlay visibility directly — avoids the is_geometry_dirty
+                # feedback loop that would reset _last_move_time via update_render().
+                self.update_stuff_in_image_only()
+
         return did_update_data
 
     def apply_local_auto_window(self, fov_fraction=0.20, target="base"):
@@ -1546,8 +1565,14 @@ class SliceViewer:
             and self.last_overlay_rgba_flat is not None
         )
 
+        # Lazy NN during active interaction: base NN only, overlay skipped.
+        # Uploading last_rgba_flat directly would cause garbage (slice-sized data
+        # into a canvas-sized texture). Instead we NN-map the base without any
+        # overlay compositing — overlay reappears after the settle fires.
+        is_lazy_live = self.lazy_nn and time.time() - self._last_move_time < self.lazy_nn_settle_ms / 1000.0
+
         # SW_SINGLE_MERGED: CPU alpha-blend overlay into base before NN scaling
-        if self.nn_mode == NNMode.SW_SINGLE_MERGED and has_alpha_overlay:
+        if not is_lazy_live and self.nn_mode == NNMode.SW_SINGLE_MERGED and has_alpha_overlay:
             ov_actual_shape = getattr(self, "last_overlay_rgba_shape", self.get_slice_shape())
             ov_rgba_2d = np.asarray(self.last_overlay_rgba_flat).reshape(ov_actual_shape[0], ov_actual_shape[1], 4)
             rgba_2d = blend_slices_cpu(
@@ -1568,7 +1593,7 @@ class SliceViewer:
         self._nn_base_crop = crop
 
         # SW_SINGLE_NATIVE: paint overlay at native voxel resolution into the NN base
-        if self.nn_mode == NNMode.SW_SINGLE_NATIVE and has_alpha_overlay:
+        if not is_lazy_live and self.nn_mode == NNMode.SW_SINGLE_NATIVE and has_alpha_overlay:
             if nn_base is rgba_2d:  # identity pass returned the slice cache — copy first
                 self._nn_base_buf[:rgba_2d.shape[0], :rgba_2d.shape[1]] = rgba_2d
                 nn_base = self._nn_base_buf
@@ -1594,6 +1619,11 @@ class SliceViewer:
 
         if not is_sw_nn:
             dpg.set_value(self.overlay_texture_tag, self.last_overlay_rgba_flat)  # type: ignore
+            return
+
+        # Lazy NN during active interaction: skip overlay upload entirely.
+        # The base texture already shows a correct (overlay-free) NN frame.
+        if self.lazy_nn and time.time() - self._last_move_time < self.lazy_nn_settle_ms / 1000.0:
             return
 
         # Modes SW_SINGLE_MERGED and SW_SINGLE_NATIVE precomposite the overlay into the
@@ -1712,8 +1742,12 @@ class SliceViewer:
 
                 if has_overlay:
                     is_precomposited = is_sw_nn and self.nn_mode in (NNMode.SW_SINGLE_MERGED, NNMode.SW_SINGLE_NATIVE)
+                    is_lazy_live = self.lazy_nn and time.time() - self._last_move_time < self.lazy_nn_settle_ms / 1000.0
 
-                    if is_precomposited:
+                    if is_precomposited or (is_sw_nn and is_lazy_live):
+                        # Precomposited: overlay baked into base — or lazy-live: overlay texture
+                        # is stale and would appear frozen while the base moves. Hide it; the
+                        # settle re-upload will restore it with the correct position.
                         if dpg.does_item_exist(self.overlay_image_tag):
                             dpg.configure_item(self.overlay_image_tag, show=False)
                     elif is_sw_nn:
@@ -2016,6 +2050,7 @@ class SliceViewer:
             "view_histogram": self.action_view_histogram,
             "toggle_interp": self.action_toggle_pixelated_zoom,
             "toggle_experimental_nn": self.action_toggle_nn_mode,
+            "toggle_lazy_nn": self.action_toggle_lazy_nn,
             "toggle_strips": self.action_toggle_strips,
             "toggle_legend": self.action_toggle_legend,
             "toggle_filename": self.action_toggle_filename,
@@ -2083,11 +2118,24 @@ class SliceViewer:
             return
         available = [m for m in NNMode if GL_NEAREST_SUPPORTED or m != NNMode.HW_GL_NEAREST]
         current_idx = available.index(self.nn_mode) if self.nn_mode in available else 0
-        self.nn_mode = available[(current_idx + 1) % len(available)]
-        if vs.display.pixelated_zoom:
-            self.is_geometry_dirty = True
-            self.is_viewer_data_dirty = True
-            vs.is_data_dirty = True
+        new_mode = available[(current_idx + 1) % len(available)]
+
+        # In debug mode: apply to every viewer across every image.
+        # In normal mode: apply only to viewers of the same image (shared view_state).
+        if getattr(self.controller, "debug_mode", False):
+            target_viewers = list(self.controller.viewers.values())
+        else:
+            target_viewers = [v for v in self.controller.viewers.values()
+                              if v.image_id == self.image_id]
+
+        for v in target_viewers:
+            v.nn_mode = new_mode
+            v_vs = v.view_state
+            if v_vs and v_vs.display.pixelated_zoom:
+                v.is_geometry_dirty = True
+                v.is_viewer_data_dirty = True
+                v_vs.is_data_dirty = True
+
         self.controller.ui_needs_refresh = True
         labels = {
             NNMode.HW_GL_NEAREST:     "Hardware GL_NEAREST",
@@ -2096,7 +2144,30 @@ class SliceViewer:
             NNMode.SW_SINGLE_MERGED:  "SW Single-Tex Merged",
             NNMode.SW_SINGLE_NATIVE:  "SW Single-Tex Native",
         }
-        self.controller.status_message = f"NN Mode: {labels[self.nn_mode]}"
+        suffix = " (all viewers)" if getattr(self.controller, "debug_mode", False) else ""
+        self.controller.status_message = f"NN Mode: {labels[new_mode]}{suffix}"
+
+    def action_toggle_lazy_nn(self):
+        new_lazy = not self.lazy_nn
+
+        if getattr(self.controller, "debug_mode", False):
+            target_viewers = list(self.controller.viewers.values())
+        else:
+            target_viewers = [v for v in self.controller.viewers.values()
+                              if v.image_id == self.image_id]
+
+        for v in target_viewers:
+            v.lazy_nn = new_lazy
+            if not new_lazy:
+                v._nn_settle_done = True
+            elif v.view_state and v.view_state.display.pixelated_zoom:
+                # Immediately re-upload NN after turning lazy off to clear any bilinear frame
+                v.is_viewer_data_dirty = True
+
+        state = "ON" if new_lazy else "OFF"
+        suffix = " (all viewers)" if getattr(self.controller, "debug_mode", False) else ""
+        self.controller.status_message = f"Lazy NN: {state}  (bilinear during drag, NN after {self.lazy_nn_settle_ms}ms){suffix}"
+        self.controller.ui_needs_refresh = True
 
     def action_toggle_strips(self):
         vs = self.view_state
@@ -2143,6 +2214,8 @@ class SliceViewer:
                 val = dpg.mvKey_F
             if val is None and action_name == "toggle_experimental_nn":
                 val = dpg.mvKey_J
+            if action_name == "toggle_lazy_nn":
+                val = dpg.mvKey_E
 
             mapped_key = (
                 getattr(dpg, f"mvKey_{val}", val) if isinstance(val, str) else val
@@ -2238,6 +2311,9 @@ class SliceViewer:
             self.pan_offset[0] = self.drag_start_pan[0] + total_dx
             self.pan_offset[1] = self.drag_start_pan[1] + total_dy
             self.is_geometry_dirty = True
+            if self.lazy_nn:
+                self._last_move_time = time.time()
+                self._nn_settle_done = False
             self.controller.sync.propagate_camera(self)
             # Prevent self-snapping
             cent = self.get_center_physical_coord()
@@ -2268,6 +2344,9 @@ class SliceViewer:
         self.pan_offset[1] += dy
 
         self.is_geometry_dirty = True
+        if self.lazy_nn:
+            self._last_move_time = time.time()
+            self._nn_settle_done = False
         self.controller.sync.propagate_camera(self)
 
         # Prevent self-snapping
