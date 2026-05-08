@@ -2385,6 +2385,19 @@ class SliceViewer:
         if not is_ctrl and not is_shift and is_button:
             px, py = self.get_mouse_slice_coords(ignore_hover=True, allow_outside=True)
             if px is not None:
+                # Performance: Dragging the crosshair forces other orthogonal synced viewers 
+                # to slice rapidly. To keep the crosshair drag at 60fps, we selectively trigger 
+                # lazy modes on them, but keep the active viewer perfectly sharp.
+                now = time.time()
+                my_vs = self.view_state
+                for v in self.controller.viewers.values():
+                    if v.orientation != self.orientation and (v.lazy_nn or v.lazy_lin):
+                        v_vs = v.view_state
+                        if v_vs and my_vs and (v.image_id == self.image_id or (my_vs.sync_group > 0 and my_vs.sync_group == v_vs.sync_group)):
+                            v._last_move_time = now
+                            v._nn_settle_done = False
+                            v._lazy_live_flag = True
+
                 self.update_crosshair_data(px, py)
                 self.controller.sync.propagate_sync(self.image_id)
 
