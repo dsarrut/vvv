@@ -85,8 +85,9 @@ def blend_slices_cpu(base_2d, ov_2d, opacity, shift_x, shift_y):
     o_roi = ov_2d[y0_ov:y1_ov, x0_ov:x1_ov]
 
     alpha_ov = o_roi[..., 3:4] * opacity
-    out[y0_base:y1_base, x0_base:x1_base, :3] = o_roi[..., :3] * alpha_ov + b_roi[..., :3] * (1.0 - alpha_ov)
-    out[y0_base:y1_base, x0_base:x1_base, 3:4] = alpha_ov + b_roi[..., 3:4] * (1.0 - alpha_ov)
+    inv_alpha = 1.0 - alpha_ov
+    out[y0_base:y1_base, x0_base:x1_base, :3] = o_roi[..., :3] * alpha_ov + b_roi[..., :3] * inv_alpha
+    out[y0_base:y1_base, x0_base:x1_base, 3:4] = alpha_ov + b_roi[..., 3:4] * inv_alpha
 
     return out
 
@@ -374,9 +375,10 @@ def compute_native_voxel_overlay(viewer, pmin, pmax, canvas_w, canvas_h, target_
             if target_buffer is not None:
                 # CPU Pre-compositing: Alpha Blend directly into the base image array
                 alpha = new_colors[:, 3:4] * opacity
+                inv_alpha = 1.0 - alpha
                 dst_colors = rgba_crop[in_bounds]
-                rgba_crop[in_bounds, :3] = new_colors[:, :3] * alpha + dst_colors[:, :3] * (1.0 - alpha)
-                rgba_crop[in_bounds, 3:4] = alpha + dst_colors[:, 3:4] * (1.0 - alpha)
+                rgba_crop[in_bounds, :3] = new_colors[:, :3] * alpha + dst_colors[:, :3] * inv_alpha
+                rgba_crop[in_bounds, 3:4] = alpha + dst_colors[:, 3:4] * inv_alpha
             else:
                 rgba_crop[in_bounds] = new_colors
 

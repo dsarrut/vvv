@@ -1639,7 +1639,7 @@ class SliceViewer:
 
         # Lazy NN during active interaction: skip overlay upload entirely.
         # The base texture already shows a correct (overlay-free) NN frame.
-        if self.lazy_nn and time.time() - self._last_move_time < self.lazy_nn_settle_ms / 1000.0:
+        if self.lazy_nn and self._is_lazy_live():
             return
 
         # Modes SW_SINGLE_MERGED and SW_SINGLE_NATIVE precomposite the overlay into the

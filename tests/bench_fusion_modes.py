@@ -69,6 +69,8 @@ def execute_action(action, viewers):
         for v in viewers:
             v.pan_offset[0] += 5.0
             v.is_geometry_dirty = True
+            if action == "Pan (lazy-live)":
+                v._mark_lazy_interaction()
             v.update_render(force_reblend=False)
     elif action == "Pan (lazy-settle)":
         # Simulate tick()'s settle path: direct NN upload without triggering a new move.
