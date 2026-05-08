@@ -515,6 +515,10 @@ class SliceViewer:
             base_w, base_h = w, h
             ov_w, ov_h = w, h
 
+        # Track current texture dimensions for safe upload validation
+        self._tex_w, self._tex_h = base_w, base_h
+        self._ov_tex_w, self._ov_tex_h = ov_w, ov_h
+
         # 1. Generate unique tags based on dimensions
         new_texture_tag    = f"tex_{self.tag}_{base_w}x{base_h}"
         new_ov_texture_tag = f"tex_ov_{self.tag}_{ov_w}x{ov_h}"
@@ -1560,7 +1564,8 @@ class SliceViewer:
             return
 
         if not (self._effective_pixelated_zoom() and not self._is_hw_gl and not self.should_use_voxels_strips()):
-            dpg.set_value(self.texture_tag, self.last_rgba_flat)  # type: ignore
+            self._safe_set_texture(self.texture_tag, self.last_rgba_flat,
+                                   getattr(self, "_tex_w", 1), getattr(self, "_tex_h", 1))
             return
 
         canvas_w, canvas_h = self._get_canvas_size()
@@ -1577,7 +1582,8 @@ class SliceViewer:
         # Uploading last_rgba_flat directly would cause garbage (slice-sized data
         # into a canvas-sized texture). Instead we NN-map the base without any
         # overlay compositing — overlay reappears after the settle fires.
-        is_lazy_live = self.lazy_nn and time.time() - self._last_move_time < self.lazy_nn_settle_ms / 1000.0
+        # lazy_nn: skip overlay compositing during live interaction
+        is_lazy_live = self.lazy_nn and self._is_lazy_live()
 
         # SW_SINGLE_MERGED: CPU alpha-blend overlay into base before NN scaling
         if not is_lazy_live and self.nn_mode == NNMode.SW_SINGLE_MERGED and has_alpha_overlay:
@@ -1610,7 +1616,8 @@ class SliceViewer:
                 target_buffer=nn_base, opacity=vs.display.overlay_opacity
             )
 
-        dpg.set_value(self.texture_tag, nn_base.ravel())  # type: ignore
+        self._safe_set_texture(self.texture_tag, nn_base.ravel(),
+                               getattr(self, "_tex_w", 1), getattr(self, "_tex_h", 1))
 
     def _upload_overlay_texture(self):
         if not hasattr(self, "overlay_texture_tag") or not dpg.does_item_exist(self.overlay_texture_tag):
@@ -1626,7 +1633,8 @@ class SliceViewer:
         is_sw_nn = self._effective_pixelated_zoom() and not self._is_hw_gl and not self.should_use_voxels_strips()
 
         if not is_sw_nn:
-            dpg.set_value(self.overlay_texture_tag, self.last_overlay_rgba_flat)  # type: ignore
+            self._safe_set_texture(self.overlay_texture_tag, self.last_overlay_rgba_flat,
+                                   getattr(self, "_ov_tex_w", 1), getattr(self, "_ov_tex_h", 1))
             return
 
         # Lazy NN during active interaction: skip overlay upload entirely.
@@ -1646,7 +1654,8 @@ class SliceViewer:
                 self, self.current_pmin, self.current_pmax, canvas_w, canvas_h
             )
             if ov_rgba_display is not None:
-                dpg.set_value(self.overlay_texture_tag, ov_rgba_display)  # type: ignore
+                self._safe_set_texture(self.overlay_texture_tag, ov_rgba_display,
+                                       getattr(self, "_ov_tex_w", 1), getattr(self, "_ov_tex_h", 1))
         else:
             # SW_DUAL_RESAMPLED: NN-scale the ITK-resampled overlay
             ov_actual_shape = getattr(self, "last_overlay_rgba_shape", self.get_slice_shape())
@@ -1661,7 +1670,19 @@ class SliceViewer:
                 out_buffer=self._nn_ov_buf, last_crop=self._nn_ov_crop
             )
             self._nn_ov_crop = crop
-            dpg.set_value(self.overlay_texture_tag, nn_ov.ravel())  # type: ignore
+            self._safe_set_texture(self.overlay_texture_tag, nn_ov.ravel(),
+                                   getattr(self, "_ov_tex_w", 1), getattr(self, "_ov_tex_h", 1))
+
+    def _safe_set_texture(self, tag: str, data, tex_w: int, tex_h: int) -> bool:
+        """Upload data to a DPG texture after validating the buffer size matches.
+        Returns False (and marks dirty for retry) if there is a size mismatch."""
+        expected = tex_w * tex_h * 4
+        actual = len(data) if hasattr(data, "__len__") else -1
+        if actual != expected:
+            self.is_viewer_data_dirty = True
+            return False
+        dpg.set_value(tag, data)  # type: ignore
+        return True
 
     def _get_canvas_size(self) -> tuple[int, int]:
         """Returns (canvas_w, canvas_h) in pixels, accounting for viewport padding."""
@@ -1772,7 +1793,7 @@ class SliceViewer:
 
                 if has_overlay:
                     is_precomposited = is_sw_nn and self.nn_mode in (NNMode.SW_SINGLE_MERGED, NNMode.SW_SINGLE_NATIVE)
-                    is_lazy_live = self.lazy_nn and time.time() - self._last_move_time < self.lazy_nn_settle_ms / 1000.0
+                    is_lazy_live = self.lazy_nn and self._is_lazy_live()
 
                     if is_precomposited or (is_sw_nn and is_lazy_live):
                         # Precomposited: overlay baked into base — or lazy-live: overlay texture
@@ -2361,6 +2382,8 @@ class SliceViewer:
         )
 
         if not is_ctrl and not is_shift and is_button:
+            if self.lazy_nn or self.lazy_lin:
+                self._mark_lazy_interaction()
             px, py = self.get_mouse_slice_coords(ignore_hover=True, allow_outside=True)
             if px is not None:
                 self.update_crosshair_data(px, py)
