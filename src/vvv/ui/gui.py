@@ -1546,29 +1546,33 @@ class MainGUI:
                     NNMode.SW_SINGLE_NATIVE:  "SW Single-Native",
                 }
                 # Summarise lazy state across all viewers for a quick top-level read
-                all_lazy   = all(getattr(v, "lazy_nn", False) for v in self.controller.viewers.values())
-                any_lazy   = any(getattr(v, "lazy_nn", False) for v in self.controller.viewers.values())
-                lazy_summary = "ALL ON" if all_lazy else ("SOME ON" if any_lazy else "OFF")
+                def _lazy_summary(attr):
+                    vs = self.controller.viewers.values()
+                    a = all(getattr(v, attr, False) for v in vs)
+                    n = any(getattr(v, attr, False) for v in vs)
+                    return "ALL ON" if a else ("SOME ON" if n else "OFF")
                 lines = [
-                    f"Platform: {_plat.system()}   GL: {'ON' if GL_NEAREST_SUPPORTED else 'OFF'}",
-                    f"Lazy NN (E): {lazy_summary}   debug_mode: {getattr(self.controller, 'debug_mode', False)}",
+                    f"Platform: {_plat.system()}   GL: {'ON' if GL_NEAREST_SUPPORTED else 'OFF'}   debug: {getattr(self.controller, 'debug_mode', False)}",
+                    f"Lazy-NN (E): {_lazy_summary('lazy_nn')}   Lazy-Lin (T): {_lazy_summary('lazy_lin')}",
                 ]
                 for vtag, viewer in self.controller.viewers.items():
                     vs = viewer.view_state
                     pix = bool(vs and vs.display.pixelated_zoom) if vs else False
                     tex = getattr(viewer, "texture_tag", "?")
-                    nn_mode = getattr(viewer, "nn_mode", None)
-                    lazy = getattr(viewer, "lazy_nn", False)
+                    nn_mode   = getattr(viewer, "nn_mode", None)
+                    lazy_nn   = getattr(viewer, "lazy_nn", False)
+                    lazy_lin  = getattr(viewer, "lazy_lin", False)
+                    settled   = getattr(viewer, "_nn_settle_done", True)
+                    live_s    = "" if settled else " LIVE"
+                    lazy_tag  = ""
+                    if lazy_lin:
+                        lazy_tag = f"  [lazy-lin{live_s}]"
+                    elif lazy_nn:
+                        lazy_tag = f"  [lazy-nn{live_s}]"
                     if pix and nn_mode is not None:
-                        mode = _nn_labels.get(nn_mode, f"mode-{nn_mode}")
-                        if lazy:
-                            settled = getattr(viewer, "_nn_settle_done", True)
-                            lazy_s = "settled" if settled else "live→bilinear"
-                            mode += f"  [lazy ON: {lazy_s}]"
-                        else:
-                            mode += "  [lazy OFF]"
+                        mode = _nn_labels.get(nn_mode, f"mode-{nn_mode}") + lazy_tag
                     elif pix:
-                        mode = "NN  [lazy OFF]" if not lazy else "NN  [lazy ON]"
+                        mode = "NN" + lazy_tag
                     else:
                         mode = "Bilinear"
                     lines.append(f"  {vtag}: {mode}")

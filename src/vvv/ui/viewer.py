@@ -161,10 +161,12 @@ class SliceViewer:
         self.last_pixelated = False
         self.last_nn_mode: NNMode = DEFAULT_NN_MODE
         self.nn_mode: NNMode = DEFAULT_NN_MODE
-        self.lazy_nn: bool = False          # bilinear during interaction, NN after settle
+        self.lazy_nn: bool = False          # base-NN only during interaction (overlay hidden)
+        self.lazy_lin: bool = False         # full bilinear GPU during interaction (overlay visible)
         self.lazy_nn_settle_ms: int = 150   # ms of inactivity before NN re-upload fires
         self._last_move_time: float = 0.0
         self._nn_settle_done: bool = True
+        self._lazy_live_flag: bool = False  # stable within a tick; avoids time.time() races
         self._old_texture_to_delete: str | None = None
         self._textures_to_delete: list[str] = []
 
@@ -503,7 +505,7 @@ class SliceViewer:
         h, w = display_slice_shape[0], display_slice_shape[1]
 
         is_hw_gl = self._is_hw_gl
-        nn_active = bool(vs and vs.display.pixelated_zoom)
+        nn_active = self._effective_pixelated_zoom()
         nn_needs_canvas = nn_active and not is_hw_gl
 
         if nn_needs_canvas:
@@ -919,7 +921,7 @@ class SliceViewer:
         current_shape = self.get_slice_shape()
         shape_changed = current_shape != self.last_drawn_shape
 
-        pixelated = vs.display.pixelated_zoom
+        pixelated = self._effective_pixelated_zoom()
         pixelated_changed = pixelated != self.last_pixelated
         mode_changed = self.nn_mode != self.last_nn_mode
 
@@ -1061,19 +1063,25 @@ class SliceViewer:
             self.update_stuff_in_image_only()
             self.is_geometry_dirty = False
 
-        # Lazy NN settle: once the interaction window has expired, do a single NN re-upload
-        if (self.lazy_nn
-                and not self._nn_settle_done
+        # Lazy settle: once the interaction window has expired, restore full NN rendering.
+        if (not self._nn_settle_done
                 and self._last_move_time > 0
                 and time.time() - self._last_move_time >= self.lazy_nn_settle_ms / 1000.0):
-            self._nn_settle_done = True  # set before uploads so is_lazy_live=False inside them
+            self._nn_settle_done = True
+            self._lazy_live_flag = False  # cleared here so next tick sees stable False
             vs_lazy = self.view_state
             if vs_lazy and vs_lazy.display.pixelated_zoom and not self._is_hw_gl:
-                self._upload_base_texture()
-                self._upload_overlay_texture()
-                # Re-evaluate overlay visibility directly — avoids the is_geometry_dirty
-                # feedback loop that would reset _last_move_time via update_render().
-                self.update_stuff_in_image_only()
+                if self.lazy_lin:
+                    # lazy_lin: _effective_pixelated_zoom() just flipped back to True.
+                    # pixelated_changed will be detected next tick and trigger a full rebuild.
+                    self.is_geometry_dirty = True
+                    self.is_viewer_data_dirty = True
+                else:
+                    # lazy_nn: texture is already canvas-sized; just re-upload NN+overlay
+                    # and refresh overlay visibility in one shot.
+                    self._upload_base_texture()
+                    self._upload_overlay_texture()
+                    self.update_stuff_in_image_only()
 
         return did_update_data
 
@@ -1551,7 +1559,7 @@ class SliceViewer:
         if not vs:
             return
 
-        if not (vs.display.pixelated_zoom and not self._is_hw_gl and not self.should_use_voxels_strips()):
+        if not (self._effective_pixelated_zoom() and not self._is_hw_gl and not self.should_use_voxels_strips()):
             dpg.set_value(self.texture_tag, self.last_rgba_flat)  # type: ignore
             return
 
@@ -1615,7 +1623,7 @@ class SliceViewer:
         if self.last_overlay_rgba_flat is None:
             return
 
-        is_sw_nn = vs.display.pixelated_zoom and not self._is_hw_gl and not self.should_use_voxels_strips()
+        is_sw_nn = self._effective_pixelated_zoom() and not self._is_hw_gl and not self.should_use_voxels_strips()
 
         if not is_sw_nn:
             dpg.set_value(self.overlay_texture_tag, self.last_overlay_rgba_flat)  # type: ignore
@@ -1664,6 +1672,28 @@ class SliceViewer:
     def _is_hw_gl(self) -> bool:
         """True when the hardware GL_NEAREST path is active (Linux/Windows only)."""
         return GL_NEAREST_SUPPORTED and self.nn_mode == NNMode.HW_GL_NEAREST
+
+    def _is_lazy_live(self) -> bool:
+        """True while the user is actively interacting (stable within one tick)."""
+        return self._lazy_live_flag
+
+    def _mark_lazy_interaction(self):
+        """Record interaction time and raise the live flag on all lazy-enabled viewers."""
+        now = time.time()
+        for v in self.controller.viewers.values():
+            if v.lazy_nn or v.lazy_lin:
+                v._last_move_time = now
+                v._nn_settle_done = False
+                v._lazy_live_flag = True
+
+    def _effective_pixelated_zoom(self) -> bool:
+        """Returns False during lazy_lin interaction so the whole pipeline uses GPU bilinear."""
+        vs = self.view_state
+        if not vs or not vs.display.pixelated_zoom:
+            return False
+        if self.lazy_lin and self._is_lazy_live():
+            return False
+        return True
 
     def should_use_voxels_strips(self):
         vs = self.view_state
@@ -1728,7 +1758,7 @@ class SliceViewer:
                 # Base image positioning: on Linux/Windows GL_NEAREST handles NN upscaling
                 # so the slice-sized texture is positioned at its physical screen extent.
                 # On macOS the canvas-sized NN texture covers the full canvas instead.
-                is_sw_nn = vs.display.pixelated_zoom and not self._is_hw_gl and not self.should_use_voxels_strips()
+                is_sw_nn = self._effective_pixelated_zoom() and not self._is_hw_gl and not self.should_use_voxels_strips()
 
                 if is_sw_nn:
                     canvas_w, canvas_h = self._get_canvas_size()
@@ -2051,6 +2081,7 @@ class SliceViewer:
             "toggle_interp": self.action_toggle_pixelated_zoom,
             "toggle_experimental_nn": self.action_toggle_nn_mode,
             "toggle_lazy_nn": self.action_toggle_lazy_nn,
+            "toggle_lazy_lin": self.action_toggle_lazy_lin,
             "toggle_strips": self.action_toggle_strips,
             "toggle_legend": self.action_toggle_legend,
             "toggle_filename": self.action_toggle_filename,
@@ -2147,6 +2178,29 @@ class SliceViewer:
         suffix = " (all viewers)" if getattr(self.controller, "debug_mode", False) else ""
         self.controller.status_message = f"NN Mode: {labels[new_mode]}{suffix}"
 
+    def action_toggle_lazy_lin(self):
+        new_val = not self.lazy_lin
+
+        if getattr(self.controller, "debug_mode", False):
+            target_viewers = list(self.controller.viewers.values())
+        else:
+            target_viewers = [v for v in self.controller.viewers.values()
+                              if v.image_id == self.image_id]
+
+        for v in target_viewers:
+            v.lazy_lin = new_val
+            if not new_val:
+                v._nn_settle_done = True
+                v._lazy_live_flag = False
+                v.is_geometry_dirty = True   # force immediate NN rebuild when turning off
+
+        state = "ON" if new_val else "OFF"
+        suffix = " (all viewers)" if getattr(self.controller, "debug_mode", False) else ""
+        self.controller.status_message = (
+            f"Lazy-Lin: {state}  (bilinear+fusion during drag, NN after {self.lazy_nn_settle_ms}ms){suffix}"
+        )
+        self.controller.ui_needs_refresh = True
+
     def action_toggle_lazy_nn(self):
         new_lazy = not self.lazy_nn
 
@@ -2160,6 +2214,7 @@ class SliceViewer:
             v.lazy_nn = new_lazy
             if not new_lazy:
                 v._nn_settle_done = True
+                v._lazy_live_flag = False
             elif v.view_state and v.view_state.display.pixelated_zoom:
                 # Immediately re-upload NN after turning lazy off to clear any bilinear frame
                 v.is_viewer_data_dirty = True
@@ -2216,6 +2271,8 @@ class SliceViewer:
                 val = dpg.mvKey_J
             if action_name == "toggle_lazy_nn":
                 val = dpg.mvKey_E
+            if action_name == "toggle_lazy_lin":
+                val = dpg.mvKey_T
 
             mapped_key = (
                 getattr(dpg, f"mvKey_{val}", val) if isinstance(val, str) else val
@@ -2244,6 +2301,8 @@ class SliceViewer:
         # Update the slice_idx property, which will internally call vs.update_crosshair_from_phys
         self.slice_idx = int(new_display_slice_idx)
 
+        if self.lazy_nn or self.lazy_lin:
+            self._mark_lazy_interaction()
         self.controller.sync.propagate_sync(self.image_id)
         self.is_viewer_data_dirty = True
 
@@ -2311,9 +2370,8 @@ class SliceViewer:
             self.pan_offset[0] = self.drag_start_pan[0] + total_dx
             self.pan_offset[1] = self.drag_start_pan[1] + total_dy
             self.is_geometry_dirty = True
-            if self.lazy_nn:
-                self._last_move_time = time.time()
-                self._nn_settle_done = False
+            if self.lazy_nn or self.lazy_lin:
+                self._mark_lazy_interaction()
             self.controller.sync.propagate_camera(self)
             # Prevent self-snapping
             cent = self.get_center_physical_coord()
@@ -2344,9 +2402,8 @@ class SliceViewer:
         self.pan_offset[1] += dy
 
         self.is_geometry_dirty = True
-        if self.lazy_nn:
-            self._last_move_time = time.time()
-            self._nn_settle_done = False
+        if self.lazy_nn or self.lazy_lin:
+            self._mark_lazy_interaction()
         self.controller.sync.propagate_camera(self)
 
         # Prevent self-snapping
