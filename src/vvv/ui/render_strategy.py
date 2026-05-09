@@ -19,6 +19,37 @@ class NNMode(IntEnum):
 
 DEFAULT_NN_MODE: NNMode = NNMode.HW_GL_NEAREST if GL_NEAREST_SUPPORTED else NNMode.SW_DUAL_NATIVE
 
+
+def select_nn_mode(cfg: dict, has_fusion: bool) -> NNMode:
+    """Derive the active NNMode from rendering config and fusion state."""
+    if GL_NEAREST_SUPPORTED and cfg.get("gl_nearest", True):
+        return NNMode.HW_GL_NEAREST
+
+    st_cfg = cfg.get("single_texture", "Auto")
+    is_single = has_fusion if st_cfg == "Auto" else (st_cfg is True or st_cfg == "Single")
+
+    nv_cfg = cfg.get("native_voxel", "Auto")
+    is_native = True if nv_cfg == "Auto" else (nv_cfg is True or nv_cfg == "Native")
+
+    if is_single and is_native:
+        return NNMode.SW_SINGLE_NATIVE
+    if is_single:
+        return NNMode.SW_SINGLE_MERGED
+    if is_native:
+        return NNMode.SW_DUAL_NATIVE
+    return NNMode.SW_DUAL_RESAMPLED
+
+
+def should_use_lazy_lin(cfg: dict, has_fusion: bool, is_hw: bool) -> bool:
+    """Return True if lazy-lin (bilinear-during-drag) should be active."""
+    if is_hw:
+        return False
+    ll_cfg = cfg.get("lazy_lin", "Auto")
+    if ll_cfg == "Auto":
+        return has_fusion
+    return ll_cfg is True or ll_cfg == "On"
+
+
 def try_set_gl_nearest():
     """Call glTexParameteri(GL_NEAREST) on the currently-bound 2D texture.
 

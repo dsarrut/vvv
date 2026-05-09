@@ -104,14 +104,18 @@ def execute_action(action, viewers):
             v.update_render(force_reblend=True)
 
 
-def bench_mode(pix_zoom, nn_mode, actions, viewers, vs_base, n_iters, lazy=False, n_warmup=3):
+def bench_mode(pix_zoom, nn_mode, actions, viewers, vs_base, n_iters, lazy_lin=False, n_warmup=3):
     """Run all actions for one mode, return list of FPS values."""
     vs_base.display.pixelated_zoom = pix_zoom
     row = []
     for action in actions:
         for v in viewers:
-            v.nn_mode = nn_mode
-            v.lazy_nn = lazy
+            v.controller.settings.data["rendering"] = {
+                "gl_nearest": nn_mode == NNMode.HW_GL_NEAREST,
+                "single_texture": "Single" if nn_mode in (NNMode.SW_SINGLE_MERGED, NNMode.SW_SINGLE_NATIVE) else "Dual",
+                "native_voxel": "Native" if nn_mode in (NNMode.SW_DUAL_NATIVE, NNMode.SW_SINGLE_NATIVE) else "Resampled",
+                "lazy_lin": "On" if lazy_lin else "Off"
+            }
             v._nn_settle_done = True
             v._last_move_time = 0.0
             v.zoom = 1.0
@@ -231,7 +235,7 @@ def main():
 
         full_results = []
         for mode_name, pix_zoom, nn_mode in sw_modes:
-            row = bench_mode(pix_zoom, nn_mode, actions_full, viewers, vs_base, n_iters, lazy=False, n_warmup=n_warmup)
+            row = bench_mode(pix_zoom, nn_mode, actions_full, viewers, vs_base, n_iters, lazy_lin=False, n_warmup=n_warmup)
             print(fmt_row(mode_name, row))
             full_results.append((mode_name, "full", row))
 
@@ -253,7 +257,7 @@ def main():
 
         lazy_results = []
         for mode_name, pix_zoom, nn_mode in lazy_modes:
-            row = bench_mode(pix_zoom, nn_mode, actions_lazy, viewers, vs_base, n_iters, lazy=True, n_warmup=n_warmup)
+            row = bench_mode(pix_zoom, nn_mode, actions_lazy, viewers, vs_base, n_iters, lazy_lin=True, n_warmup=n_warmup)
             print(fmt_row(mode_name, row))
             lazy_results.append((mode_name, "lazy", row))
 

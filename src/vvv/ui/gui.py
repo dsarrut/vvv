@@ -36,6 +36,7 @@ from vvv.ui.ui_sequences import (
 )
 from vvv.ui.ui_drop import install_os_drop, cleanup_os_drop
 from vvv.ui.ui_workspace import build_workspace_nav_icons
+from vvv.ui.render_strategy import GL_NEAREST_SUPPORTED, NNMode
 
 
 class MainGUI:
@@ -102,6 +103,7 @@ class MainGUI:
 
         # Go
         self.build_main_layout()
+        self._init_rendering_menu()
         self.register_handlers()
 
         # Force UI into the empty/disabled state on boot
@@ -206,6 +208,51 @@ class MainGUI:
                         show=False,
                         callback=self.on_save_workspace_current_clicked,
                     )
+
+                with dpg.menu(label="Rendering"):
+                    dpg.add_menu_item(
+                        label="NN Interpolation  [K]",
+                        tag="menu_item_pixelated",
+                        check=True,
+                        callback=self.on_menu_pixelated_zoom_toggled,
+                    )
+                    dpg.add_separator()
+                    with dpg.menu(label="NN Options"):
+                        lazy_combo = dpg.add_combo(
+                            ["Auto", "On", "Off"],
+                            label="Lazy-Lin",
+                            tag="menu_combo_lazy_lin",
+                            width=100,
+                            callback=self.on_adv_rendering_changed,
+                        )
+                        with dpg.tooltip(lazy_combo):
+                            dpg.add_text("Auto: use bilinear during drag when fusion is active,\nrestore NN after interaction stops.\nOn/Off: force always on or always off.")
+                        tex_combo = dpg.add_combo(
+                            ["Auto", "Single", "Dual"],
+                            label="Texture Mode",
+                            tag="menu_combo_single_tex",
+                            width=100,
+                            callback=self.on_adv_rendering_changed,
+                        )
+                        with dpg.tooltip(tex_combo):
+                            dpg.add_text("Auto: Single texture when fusion is active, Dual otherwise.\nSingle: CPU-blend base+overlay into one canvas texture.\nDual: separate textures for base and overlay.")
+                        vox_combo = dpg.add_combo(
+                            ["Auto", "Native", "Resampled"],
+                            label="Voxel Mode",
+                            tag="menu_combo_native_vox",
+                            width=100,
+                            callback=self.on_adv_rendering_changed,
+                        )
+                        with dpg.tooltip(vox_combo):
+                            dpg.add_text("Auto/Native: overlay rendered at its true voxel resolution.\nResampled: overlay NN-scaled from the base image grid.")
+                        if GL_NEAREST_SUPPORTED:
+                            gl_check = dpg.add_checkbox(
+                                label="Hardware NN Filter",
+                                tag="menu_check_gl_nearest",
+                                callback=self.on_adv_rendering_changed,
+                            )
+                            with dpg.tooltip(gl_check):
+                                dpg.add_text("Use GPU GL_NEAREST for fast hardware NN upscaling.\nNot available on macOS.")
 
                 dpg.add_spacer(width=20)
                 dpg.add_text(
@@ -591,6 +638,9 @@ class MainGUI:
                 dpg.configure_item("check_interpolation", label="NN")
             else:
                 dpg.configure_item("check_interpolation", label="Linear")
+
+        if dpg.does_item_exist("menu_item_pixelated"):
+            dpg.set_value("menu_item_pixelated", vs.display.pixelated_zoom)
 
     def highlight_active_image_in_list(self, active_img_id):
         highlight_active_image_in_list(self, active_img_id)
@@ -1321,6 +1371,61 @@ class MainGUI:
                 if v.image_id:
                     v.action_center_view()
 
+    def on_menu_pixelated_zoom_toggled(self, sender, app_data, user_data):
+        if self.context_viewer and self.context_viewer.view_state:
+            self.context_viewer.view_state.display.pixelated_zoom = app_data
+            self.context_viewer.view_state.is_data_dirty = True
+            self.controller.ui_needs_refresh = True
+
+    def _init_rendering_menu(self):
+        cfg = self.controller.settings.data.get("rendering", {})
+        viewer = self.context_viewer
+
+        has_fusion = False
+        is_hw = False
+        if viewer:
+            vs = viewer.view_state
+            has_fusion = bool(vs and vs.display.overlay_id and vs.display.overlay_mode == "Alpha")
+            from vvv.ui.render_strategy import GL_NEAREST_SUPPORTED
+            use_gl = cfg.get("gl_nearest", True)
+            is_hw = GL_NEAREST_SUPPORTED and use_gl
+
+        ll_auto_str = f"Auto ({'On' if (has_fusion and not is_hw) else 'Off'})"
+        st_auto_str = f"Auto ({'Single' if has_fusion else 'Dual'})"
+        nv_auto_str = "Auto (Native)"
+
+        if dpg.does_item_exist("menu_combo_lazy_lin"):
+            dpg.configure_item("menu_combo_lazy_lin", items=[ll_auto_str, "On", "Off"], enabled=not is_hw)
+            v = cfg.get("lazy_lin", "Auto")
+            dpg.set_value("menu_combo_lazy_lin", ll_auto_str if v == "Auto" else ("On" if v else "Off"))
+
+        if dpg.does_item_exist("menu_combo_single_tex"):
+            dpg.configure_item("menu_combo_single_tex", items=[st_auto_str, "Single", "Dual"])
+            v = cfg.get("single_texture", "Auto")
+            dpg.set_value("menu_combo_single_tex", st_auto_str if v == "Auto" else ("Single" if v else "Dual"))
+
+        if dpg.does_item_exist("menu_combo_native_vox"):
+            dpg.configure_item("menu_combo_native_vox", items=[nv_auto_str, "Native", "Resampled"])
+            v = cfg.get("native_voxel", "Auto")
+            dpg.set_value("menu_combo_native_vox", nv_auto_str if v == "Auto" else ("Native" if v else "Resampled"))
+
+        if dpg.does_item_exist("menu_check_gl_nearest"):
+            dpg.set_value("menu_check_gl_nearest", cfg.get("gl_nearest", True))
+
+    def on_adv_rendering_changed(self, sender, app_data, user_data):
+        cfg = self.controller.settings.data.setdefault("rendering", {})
+        if sender == "menu_combo_lazy_lin":
+            cfg["lazy_lin"] = "Auto" if app_data.startswith("Auto") else (app_data == "On")
+        elif sender == "menu_combo_single_tex":
+            cfg["single_texture"] = "Auto" if app_data.startswith("Auto") else (app_data == "Single")
+        elif sender == "menu_combo_native_vox":
+            cfg["native_voxel"] = "Auto" if app_data.startswith("Auto") else (app_data == "Native")
+        elif sender == "menu_check_gl_nearest":
+            cfg["gl_nearest"] = app_data
+        self.controller.save_settings()
+        self.controller._flag_all_viewers_dirty()
+        self._init_rendering_menu()
+
     # ==========================================
     # 5. MODALS & POPUPS
     # ==========================================
@@ -1384,7 +1489,6 @@ class MainGUI:
                 "view_coronal": "Coronal View",
                 "view_histogram": "Histogram View",
                 "toggle_interp": "Toggle Pixelated Zoom (NN)",
-                "toggle_experimental_nn": "Toggle NN Overlay Mode",
                 "toggle_strips": "Toggle Voxel Strips",
                 "toggle_grid": "Toggle Voxel Grid",
                 "toggle_legend": "Toggle Legend",
@@ -1450,6 +1554,8 @@ class MainGUI:
         self.extraction_ui.refresh_extraction_ui()
         self.dvf_ui.refresh_dvf_ui()
 
+        self._init_rendering_menu()
+
         # Safely update the sidebar between frames when the DPG stack is completely empty!
         self.update_sidebar_info(self.context_viewer)
 
@@ -1478,7 +1584,6 @@ class MainGUI:
 
         # --- DEBUG FPS + RENDER-ROUTE OVERLAY ---
         import platform as _plat
-        from vvv.ui.render_strategy import GL_NEAREST_SUPPORTED, NNMode
 
         fps_label = fps_series = x_axis = y_axis = render_input = None
         fps_data = time_data = None
@@ -1553,22 +1658,19 @@ class MainGUI:
                     return "ALL ON" if a else ("SOME ON" if n else "OFF")
                 lines = [
                     f"Platform: {_plat.system()}   GL: {'ON' if GL_NEAREST_SUPPORTED else 'OFF'}   debug: {getattr(self.controller, 'debug_mode', False)}",
-                    f"Lazy-NN (E): {_lazy_summary('lazy_nn')}   Lazy-Lin (T): {_lazy_summary('lazy_lin')}",
+                    f"Lazy-Lin: {_lazy_summary('lazy_lin')}",
                 ]
                 for vtag, viewer in self.controller.viewers.items():
                     vs = viewer.view_state
                     pix = bool(vs and vs.display.pixelated_zoom) if vs else False
                     tex = getattr(viewer, "texture_tag", "?")
                     nn_mode   = getattr(viewer, "nn_mode", None)
-                    lazy_nn   = getattr(viewer, "lazy_nn", False)
                     lazy_lin  = getattr(viewer, "lazy_lin", False)
                     settled   = getattr(viewer, "_nn_settle_done", True)
                     live_s    = "" if settled else " LIVE"
                     lazy_tag  = ""
                     if lazy_lin:
                         lazy_tag = f"  [lazy-lin{live_s}]"
-                    elif lazy_nn:
-                        lazy_tag = f"  [lazy-nn{live_s}]"
                     if pix and nn_mode is not None:
                         mode = _nn_labels.get(nn_mode, f"mode-{nn_mode}") + lazy_tag
                     elif pix:

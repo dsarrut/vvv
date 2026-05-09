@@ -11,6 +11,12 @@ DEFAULT_SETTINGS = {
         "viewer": [10, 246, 7, 120],
         "legend_bg": [0, 0, 0, 150],
     },
+    "rendering": {
+        "lazy_lin": "Auto",
+        "gl_nearest": True,
+        "single_texture": "Auto",
+        "native_voxel": "Auto",
+    },
     "physics": {"auto_window_fov": 0.20, "voxel_strip_threshold": 5000},
     "shortcuts": {
         "open_file": "O",
@@ -30,9 +36,6 @@ DEFAULT_SETTINGS = {
         "view_coronal": "F3",
         "view_histogram": "F4",
         "toggle_interp": "K",
-        "toggle_experimental_nn": "J",
-        "toggle_lazy_nn": "E",
-        "toggle_lazy_lin": "T",
         "toggle_strips": "M",
         "toggle_legend": "L",
         "toggle_grid": "G",

@@ -213,8 +213,7 @@ class IntensitiesUI:
         viewer = self.gui.context_viewer
         if not viewer or not viewer.view_state:
             return
-        if viewer.lazy_nn or viewer.lazy_lin:
-            viewer._mark_lazy_interaction()
+        viewer._mark_lazy_interaction()
         viewer.view_state.display.ww = max(1e-20, app_data)
         if dpg.does_item_exist("combo_wl_presets"):
             dpg.set_value("combo_wl_presets", "Custom")
@@ -224,8 +223,7 @@ class IntensitiesUI:
         viewer = self.gui.context_viewer
         if not viewer or not viewer.view_state:
             return
-        if viewer.lazy_nn or viewer.lazy_lin:
-            viewer._mark_lazy_interaction()
+        viewer._mark_lazy_interaction()
         viewer.view_state.display.wl = app_data
         if dpg.does_item_exist("combo_wl_presets"):
             dpg.set_value("combo_wl_presets", "Custom")
