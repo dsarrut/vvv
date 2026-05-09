@@ -14,6 +14,8 @@ try:
     import numba
     _NUMBA_AVAILABLE = True
 except ImportError:
+    import typing as _typing
+    numba: _typing.Any = None
     _NUMBA_AVAILABLE = False
 
 if _NUMBA_AVAILABLE:
