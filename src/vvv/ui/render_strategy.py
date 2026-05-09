@@ -8,6 +8,81 @@ import platform as _platform
 GL_NEAREST_SUPPORTED = _platform.system() in ("Linux", "Windows")
 _gl_nearest_fn = None
 
+try:
+    import os as _os
+    _os.environ.setdefault("KMP_WARNINGS", "0")  # suppress OMP nested-parallelism info message
+    import numba
+    _NUMBA_AVAILABLE = True
+except ImportError:
+    _NUMBA_AVAILABLE = False
+
+if _NUMBA_AVAILABLE:
+    @numba.njit(parallel=True, cache=True, fastmath=True)
+    def _native_ov_kernel_nb(
+        ov_data,      # (D, H, W) any numeric dtype
+        rgba,         # (canvas_h, canvas_w, 4) float32 — written in-place
+        B_eff,        # (3,) float32 — affine offset incl. depth contribution
+        C_col,        # (3,) float32 — per-row axis column vector
+        C_row,        # (3,) float32 — per-col axis column vector
+        iy_adj,       # (crop_h,) float32 — orientation-adjusted row coords
+        ix_adj,       # (crop_w,) float32 — orientation-adjusted col coords
+        lut,          # (256, 4) float32, values 0-1
+        wl_min,       # float32
+        wl_scale,     # float32 = 1/ww
+        threshold,    # float32 — use -inf for "no threshold"
+        opacity,      # float32
+        c_y0,         # int — crop row offset into rgba
+        c_x0,         # int — crop col offset into rgba
+        ov_D,         # int
+        ov_H,         # int
+        ov_W,         # int
+        precomposite, # bool — True: alpha-blend into base; False: write standalone
+    ):
+        crop_h = len(iy_adj)
+        crop_w = len(ix_adj)
+        for cy in numba.prange(crop_h):
+            iy = iy_adj[cy]
+            # Hoist row contribution out of inner loop
+            Bx = B_eff[0] + C_col[0] * iy
+            By = B_eff[1] + C_col[1] * iy
+            Bz = B_eff[2] + C_col[2] * iy
+            for cx in range(crop_w):
+                ix = ix_adj[cx]
+                sx = Bx + C_row[0] * ix
+                sy = By + C_row[1] * ix
+                sz = Bz + C_row[2] * ix
+                xi = int(sx)
+                yi = int(sy)
+                zi = int(sz)
+                if xi < 0 or xi >= ov_W or yi < 0 or yi >= ov_H or zi < 0 or zi >= ov_D:
+                    continue
+                val = numba.float32(ov_data[zi, yi, xi])
+                if val <= threshold:
+                    continue
+                norm = (val - wl_min) * wl_scale
+                if norm < 0.0:
+                    norm = 0.0
+                if norm > 1.0:
+                    norm = 1.0
+                lut_idx = int(norm * 255.0)
+                r = lut[lut_idx, 0]
+                g = lut[lut_idx, 1]
+                b = lut[lut_idx, 2]
+                a = lut[lut_idx, 3] * opacity
+                ry = cy + c_y0
+                rx = cx + c_x0
+                if precomposite:
+                    inv_a = 1.0 - a
+                    rgba[ry, rx, 0] = r * a + rgba[ry, rx, 0] * inv_a
+                    rgba[ry, rx, 1] = g * a + rgba[ry, rx, 1] * inv_a
+                    rgba[ry, rx, 2] = b * a + rgba[ry, rx, 2] * inv_a
+                    rgba[ry, rx, 3] = a + rgba[ry, rx, 3] * inv_a
+                else:
+                    rgba[ry, rx, 0] = r
+                    rgba[ry, rx, 1] = g
+                    rgba[ry, rx, 2] = b
+                    rgba[ry, rx, 3] = a
+
 
 class NNMode(IntEnum):
     HW_GL_NEAREST     = 0  # GPU GL_NEAREST filter — Linux/Windows only
@@ -40,13 +115,18 @@ def select_nn_mode(cfg: dict, has_fusion: bool) -> NNMode:
     return NNMode.SW_DUAL_RESAMPLED
 
 
-def should_use_lazy_lin(cfg: dict, has_fusion: bool, is_hw: bool) -> bool:
-    """Return True if lazy-lin (bilinear-during-drag) should be active."""
+def should_use_lazy_lin(cfg: dict, has_fusion: bool, is_hw: bool, use_numba: bool = False) -> bool:
+    """Return True if lazy-lin (bilinear-during-drag) should be active.
+
+    Auto mode enables lazy-lin only when: fusion is active, HW path is not used,
+    AND Numba is not available (Numba makes the SW render fast enough to skip lazy-lin).
+    Explicit On/Off overrides always win regardless of Numba.
+    """
     if is_hw:
         return False
     ll_cfg = cfg.get("lazy_lin", "Auto")
     if ll_cfg == "Auto":
-        return has_fusion
+        return has_fusion and not use_numba
     return ll_cfg is True or ll_cfg == "On"
 
 
@@ -351,7 +431,7 @@ def compute_native_voxel_overlay(viewer, pmin, pmax, canvas_w, canvas_h, target_
     A_total = A_total.astype(np.float32)
     b_total = b_total.astype(np.float32)
     C0, C1, C2 = A_total[:, 0], A_total[:, 1], A_total[:, 2]
-    B_eff = b_total + 0.5  
+    B_eff = b_total + 0.5
 
     ix_disp = (np.arange(c_x0, c_x1, dtype=np.float32) + 0.5 - pmin[0]) * (slice_w / disp_w)
     iy_disp = (np.arange(c_y0, c_y1, dtype=np.float32) + 0.5 - pmin[1]) * (slice_h / disp_h)
@@ -359,16 +439,46 @@ def compute_native_voxel_overlay(viewer, pmin, pmax, canvas_w, canvas_h, target_
     if viewer.orientation == ViewMode.AXIAL:
         itk_x, itk_y = ix_disp - 0.5, iy_disp - 0.5
         B_eff += C2 * depth
+        C_col, C_row = C1, C0
+        iy_adj, ix_adj = itk_y, itk_x
         vec_w, vec_h = C0[:, None] * itk_x, C1[:, None] * itk_y
     elif viewer.orientation == ViewMode.SAGITTAL:
         itk_y, itk_z = slice_w - ix_disp - 0.5, slice_h - iy_disp - 0.5
         B_eff += C0 * depth
+        C_col, C_row = C2, C1
+        iy_adj, ix_adj = itk_z, itk_y
         vec_w, vec_h = C1[:, None] * itk_y, C2[:, None] * itk_z
     else:  # CORONAL
         itk_x, itk_z = ix_disp - 0.5, slice_h - iy_disp - 0.5
         B_eff += C1 * depth
+        C_col, C_row = C2, C0
+        iy_adj, ix_adj = itk_z, itk_x
         vec_w, vec_h = C0[:, None] * itk_x, C2[:, None] * itk_z
 
+    lut = COLORMAPS.get(ovs.display.colormap, COLORMAPS["Grayscale"])
+    thr_val = ovs.display.base_threshold
+
+    use_numba = _NUMBA_AVAILABLE and viewer.controller.settings.data.get("rendering", {}).get("numba", True)
+
+    if use_numba:
+        thr_nb = np.float32(thr_val if thr_val is not None else -np.inf)
+        wl_min = np.float32(ovs.display.wl - ovs.display.ww * 0.5)
+        wl_scale = np.float32(1.0 / max(ovs.display.ww, 1e-20))
+        ov_arr = np.ascontiguousarray(ov_data)
+        if target_buffer is None:
+            rgba[c_y0:c_y1, c_x0:c_x1] = 0.0
+        _native_ov_kernel_nb(
+            ov_arr, rgba,
+            B_eff.astype(np.float32),
+            C_col.astype(np.float32), C_row.astype(np.float32),
+            iy_adj.astype(np.float32), ix_adj.astype(np.float32),
+            lut, wl_min, wl_scale, thr_nb, np.float32(opacity),
+            c_y0, c_x0, ov_D, ov_H, ov_W,
+            target_buffer is not None,
+        )
+        return rgba.ravel() if target_buffer is None else None
+
+    # --- NumPy fallback (no numba) ---
     s_x = B_eff[0] + vec_h[0][:, None] + vec_w[0]
     s_y = B_eff[1] + vec_h[1][:, None] + vec_w[1]
     s_z = B_eff[2] + vec_h[2][:, None] + vec_w[2]
@@ -392,19 +502,16 @@ def compute_native_voxel_overlay(viewer, pmin, pmax, canvas_w, canvas_h, target_
             flat_idx = z_nn * (ov_H * ov_W) + y_nn * ov_W + x_nn
             valid_vals = ov_data.ravel()[flat_idx].astype(np.float32)
 
-        threshold = ovs.display.base_threshold
-        if threshold is not None:
-            thr_mask = valid_vals > threshold
+        if thr_val is not None:
+            thr_mask = valid_vals > thr_val
             valid_vals, in_bounds[in_bounds] = valid_vals[thr_mask], thr_mask
 
         if in_bounds.any():
             norm = SliceRenderer.normalize_wl(valid_vals, ovs.display.ww, ovs.display.wl)
-            lut = COLORMAPS.get(ovs.display.colormap, COLORMAPS["Grayscale"])
             new_colors = lut[(norm * 255).astype(np.uint8)]
             rgba_crop = rgba[c_y0:c_y1, c_x0:c_x1]
-            
+
             if target_buffer is not None:
-                # CPU Pre-compositing: Alpha Blend directly into the base image array
                 alpha = new_colors[:, 3:4] * opacity
                 inv_alpha = 1.0 - alpha
                 dst_colors = rgba_crop[in_bounds]

@@ -85,6 +85,12 @@ class TestShouldUseLazyLin:
     def test_auto_fusion_no_hw_is_true(self):
         assert should_use_lazy_lin({"lazy_lin": "Auto"}, has_fusion=True, is_hw=False) is True
 
+    def test_auto_fusion_numba_disables_lazy(self):
+        assert should_use_lazy_lin({"lazy_lin": "Auto"}, has_fusion=True, is_hw=False, use_numba=True) is False
+
+    def test_explicit_on_overrides_numba(self):
+        assert should_use_lazy_lin({"lazy_lin": "On"}, has_fusion=True, is_hw=False, use_numba=True) is True
+
     def test_auto_fusion_hw_is_false(self):
         assert should_use_lazy_lin({"lazy_lin": "Auto"}, has_fusion=True, is_hw=True) is False
 
