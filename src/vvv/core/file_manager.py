@@ -224,6 +224,10 @@ class FileManager:
 
         # for home as ~
         def portable_path(p):
+            if isinstance(p, list):
+                return [portable_path(x) for x in p]
+            if isinstance(p, str) and p.startswith("4D:"):
+                return p
             home = os.path.expanduser("~")
             abs_p = os.path.abspath(p)
             if abs_p.startswith(home):
@@ -247,12 +251,11 @@ class FileManager:
 
         # 2. Save Images & ViewStates
         for vs_id, vs in self.controller.view_states.items():
-            # Never skip an image if it occupies a Viewer
             is_overlay = getattr(
                 self.controller.volumes[vs_id], "is_overlay_only", False
             )
-            if is_overlay and vs_id not in active_viewer_ids:
-                continue
+            if is_overlay and vs_id in active_viewer_ids:
+                is_overlay = False
 
             vol = self.controller.volumes[vs_id]
 
@@ -264,6 +267,7 @@ class FileManager:
             ):
                 ov_vol = self.controller.volumes[vs.display.overlay_id]
                 overlay_info = {
+                    "id": vs.display.overlay_id,
                     "path": portable_path(ov_vol.file_paths[0]),
                     "mode": vs.display.overlay_mode,
                     "opacity": vs.display.overlay_opacity,
@@ -280,13 +284,14 @@ class FileManager:
                     if r_vol.file_paths:
                         rois_list.append(
                             {
-                                "path": portable_path(r_vol.file_paths[0]),
+                                "path": portable_path(r_vol.file_paths) if len(r_vol.file_paths) > 1 else portable_path(r_vol.file_paths[0]),
                                 "state": roi_state.to_dict(),
                             }
                         )
 
             workspace["images"][vs_id] = {
-                "path": portable_path(vol.file_paths[0]),
+                "path": portable_path(vol.file_paths) if len(vol.file_paths) > 1 else portable_path(vol.file_paths[0]),
+                "is_overlay_only": is_overlay,
                 "sync_group": vs.sync_group,
                 "display": vs.display.to_dict(),
                 "camera": vs.camera.to_dict(),
