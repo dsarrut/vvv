@@ -65,6 +65,21 @@ class SyncManager:
     # PUBLIC SYNC METHODS
     # ==========================================
 
+    def propagate_transform_sync(self, source_vs_id):
+        """Notify sync group that the source image's transform changed.
+
+        Unlike propagate_sync, this does NOT update crosshair_voxel (which would
+        move the crosshair on screen) or pan/zoom. It only marks synced images as
+        data-dirty so they redraw with the correct slice_idx, which auto-derives
+        from crosshair_phys_coord via _get_crosshair_display_voxel().
+        """
+        source_vs = self.controller.view_states.get(source_vs_id)
+        if not source_vs:
+            return
+        target_ids = self.get_sync_group_vs_ids(source_vs_id, active_only=True)
+        dirty_ids = [tid for tid in target_ids if tid != source_vs_id]
+        self.trigger_redraw(dirty_ids)
+
     def propagate_time_idx(self, source_vs_id):
         """Propagate time_idx to all sync group members, clamping to their max timepoints."""
         source_vs = self.controller.view_states.get(source_vs_id)
@@ -89,63 +104,22 @@ class SyncManager:
 
         target_ids = self.get_sync_group_vs_ids(source_vs_id, active_only=True)
 
-        # Use the explicit display-aware method to get the true World Coordinate
-        is_src_buf = source_vs.base_display_data is not None and source_vs.space.has_rotation()
-        is_src_buf = source_vs.base_display_data is not None and source_vs.space.has_rotation() # type: ignore
-        world_phys = source_vs.space.display_to_world(
-            np.array(source_vs.camera.crosshair_voxel[:3]), is_buffered=is_src_buf
-        )
+        world_phys = source_vs.camera.crosshair_phys_coord
 
         for target_id in target_ids:
+            if target_id == source_vs_id:
+                continue
+
             target_vs = self.controller.view_states.get(target_id)
             if not target_vs:
                 continue
 
-            if target_id == source_vs_id:
-                source_vox = source_vs.camera.crosshair_voxel
-                target_vs.camera.crosshair_voxel = source_vox.copy()
-                target_vs.camera.crosshair_phys_coord = world_phys
-
-                target_vs.camera.slices[ViewMode.AXIAL] = int(source_vox[2])
-                target_vs.camera.slices[ViewMode.SAGITTAL] = int(source_vox[0])
-                target_vs.camera.slices[ViewMode.CORONAL] = int(source_vox[1])
-            else:
-                phys_pos = world_phys
-                target_vol = target_vs.volume
-
-                is_tgt_buf = target_vs.base_display_data is not None and target_vs.space.has_rotation()
-                target_vox = target_vs.space.world_to_display(
-                    phys_pos, is_buffered=is_tgt_buf
-                )
-
-                if source_vs.volume.num_timepoints > 1:
-                    nt = target_vs.volume.num_timepoints
-                    target_vs.camera.time_idx = min(source_vs.camera.time_idx, nt - 1)
-
-                target_vs.camera.crosshair_voxel = [
-                    target_vox[0],
-                    target_vox[1],
-                    target_vox[2],
-                    target_vs.camera.time_idx,
-                ]
-                target_vs.camera.crosshair_phys_coord = phys_pos
-
-                target_vs.camera.slices[ViewMode.AXIAL] = int(
-                    np.clip(np.floor(target_vox[2] + 0.5), 0, target_vol.shape3d[0] - 1)
-                )
-                target_vs.camera.slices[ViewMode.SAGITTAL] = int(
-                    np.clip(np.floor(target_vox[0] + 0.5), 0, target_vol.shape3d[2] - 1)
-                )
-                target_vs.camera.slices[ViewMode.CORONAL] = int(
-                    np.clip(np.floor(target_vox[1] + 0.5), 0, target_vol.shape3d[1] - 1)
-                )
-
-            # --- Pure Physical Coordinates for Value Lookup ---
-            # Update time_idx first, as update_crosshair_from_phys uses it.
             if source_vs.volume.num_timepoints > 1:
                 nt = target_vs.volume.num_timepoints
                 target_vs.camera.time_idx = min(source_vs.camera.time_idx, nt - 1)
+
             target_vs.update_crosshair_from_phys(world_phys)
+
         self.trigger_redraw(target_ids)
 
     def propagate_colormap(self, source_vs_id):

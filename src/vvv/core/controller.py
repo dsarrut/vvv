@@ -252,7 +252,7 @@ class Controller:
             # 1. Base Image Value (World -> Original Voxel Array)
             base_val = None
             # is_buffered=False forces it to ignore the resampled UI bounding box and use the raw array.
-            base_vox = vs.space.world_to_display(phys_coord, is_buffered=False)
+            base_vox = vs.world_to_display(phys_coord, is_buffered=False)
             ix, iy, iz = [int(np.floor(c + 0.5)) for c in base_vox[:3]]
 
             mz, my, mx = vol.shape3d
@@ -272,7 +272,7 @@ class Controller:
                 ov_vs = self.view_states[vs.display.overlay_id]
 
                 # Use the overlay's own spatial engine to map the world point into its original array
-                ov_vox = ov_vs.space.world_to_display(phys_coord, is_buffered=False)
+                ov_vox = ov_vs.world_to_display(phys_coord, is_buffered=False)
                 ox, oy, oz = [int(np.floor(c + 0.5)) for c in ov_vox[:3]]
                 omz, omy, omx = ov_vol.shape3d
 
@@ -427,6 +427,90 @@ class Controller:
         vs.space.set_manual_transform(
             tx, ty, tz, math.radians(rx_deg), math.radians(ry_deg), math.radians(rz_deg)
         )
+
+    def bake_transform_to_volume(self, vs_id):
+        """Permanently apply the registration transform by resampling the volume in-place.
+
+        Runs in a background thread.  Uses the same tombstone pattern as reload_image
+        to safely sever old C++ memory before swapping in the new resampled data.
+        After baking, the transform is reset to identity and the image is indistinguishable
+        from one loaded without any transform.
+        """
+        import threading
+        import SimpleITK as sitk
+
+        vs = self.view_states.get(vs_id)
+        vol = self.volumes.get(vs_id)
+        if not vs or not vol or not vs.space.transform or not vs.space.is_active:
+            return
+
+        anchor_world = (
+            vs.camera.crosshair_phys_coord.copy()
+            if vs.camera.crosshair_phys_coord is not None
+            else None
+        )
+
+        def _do_bake():
+            with vs.loading_shield():
+                try:
+                    # Build reference grid (same size/spacing/origin/direction as original)
+                    ref = sitk.Image(
+                        int(vol.shape3d[2]), int(vol.shape3d[1]), int(vol.shape3d[0]),
+                        sitk.sitkFloat32,
+                    )
+                    ref.SetSpacing(vol.spacing.tolist())
+                    ref.SetOrigin(vol.origin.tolist())
+                    ref.SetDirection(vol.matrix.flatten().tolist())
+
+                    resampler = sitk.ResampleImageFilter()
+                    resampler.SetReferenceImage(ref)
+                    resampler.SetInterpolator(sitk.sitkLinear)
+                    resampler.SetDefaultPixelValue(float(np.min(vol.data) if vol.data is not None else 0))
+                    resampler.SetTransform(vs.space.transform)
+
+                    src_img = sitk.Cast(vol.sitk_image, sitk.sitkFloat32)
+                    new_sitk = resampler.Execute(src_img)
+
+                    # Capture pre-bake state for overlay rebuild
+                    old_state = self._capture_pre_reload_state(vs, vol)
+
+                    # Sever old C++ bindings (tombstone pattern)
+                    self._tombstone_image_memory(vs_id, vs, vol)
+
+                    # Swap in the resampled data
+                    vol.sitk_image = sitk.Cast(new_sitk, vol.sitk_image.GetPixelID()
+                                                if vol.sitk_image else sitk.sitkFloat32)
+                    vol.data = sitk.GetArrayViewFromImage(vol.sitk_image)
+
+                    # Reset transform to identity
+                    vs.space.transform = None
+                    vs.space.is_active = False
+                    vs.base_display_data = None
+                    vs._sitk_base_cache = None
+                    vs._is_interactive_rotation = False
+                    vs._reg_anchor_world = None
+
+                    # Rebuild spatial engine (origin/spacing/matrix unchanged, no transform)
+                    from vvv.maths.geometry import SpatialEngine
+                    vs.space = SpatialEngine(vol, view_state=vs)
+
+                    # Remap crosshair to new native voxel (transform is now identity)
+                    if anchor_world is not None:
+                        vs.update_crosshair_from_phys(anchor_world)
+
+                    # Rebuild overlays that depended on this image
+                    self._rebuild_dependent_overlays(vs_id, vs, vol, old_state)
+
+                    self.update_all_viewers_of_image(vs_id)
+                    self.sync.propagate_sync(vs_id)
+                    self.status_message = "Transform baked into image"
+                    self.ui_needs_refresh = True
+
+                except Exception as e:
+                    self.status_message = f"Bake failed: {e}"
+                    self.ui_needs_refresh = True
+
+        threading.Thread(target=_do_bake, daemon=True).start()
 
     def reset_settings(self):
         self.settings.reset()
