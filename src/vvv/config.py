@@ -11,6 +11,12 @@ DEFAULT_SETTINGS = {
         "viewer": [10, 246, 7, 120],
         "legend_bg": [0, 0, 0, 150],
     },
+    "rendering": {
+        "lazy_lin": "Auto",
+        "gl_nearest": True,
+        "single_texture": "Auto",
+        "native_voxel": "Auto",
+    },
     "physics": {"auto_window_fov": 0.20, "voxel_strip_threshold": 5000},
     "shortcuts": {
         "open_file": "O",
@@ -50,6 +56,7 @@ DEFAULT_SETTINGS = {
         "window_height": 1000,
         "side_panel_width": 380,
         "nav_panel_width": 75,
+        "sidebar_gap": 0,
     },
     "behavior": {
         "auto_save_history": True,

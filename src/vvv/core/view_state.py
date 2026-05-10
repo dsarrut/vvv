@@ -1,5 +1,4 @@
 import numpy as np
-import SimpleITK as sitk
 from contextlib import contextmanager
 from vvv.config import WL_PRESETS
 from vvv.maths.geometry import SpatialEngine
@@ -656,6 +655,8 @@ class ViewState:
             self.base_display_data = None
             return
 
+        import SimpleITK as sitk
+
         # The Tombstone Pattern
         self.base_display_data = None
         _ = self._sitk_base_cache  # keep sitk object alive until Execute() returns
@@ -708,6 +709,8 @@ class ViewState:
             or self.display.overlay_id not in controller.view_states
         ):
             return
+
+        import SimpleITK as sitk
 
         ovs = controller.view_states[self.display.overlay_id]
         other_vol = ovs.volume

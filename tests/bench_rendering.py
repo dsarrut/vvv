@@ -34,6 +34,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from vvv.maths.image import SliceRenderer, RenderLayer
 from vvv.utils import ViewMode
 from vvv.ui.viewer import SliceViewer
+from vvv.ui.render_strategy import compute_software_nearest_neighbor
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -239,7 +240,7 @@ def run_nn_mapping(
     pm, px = pmin_pmax(img_w, img_h, canvas_w, canvas_h, zoom)
 
     def _fn():
-        SliceViewer._get_screen_mapped_texture(rgba, pm, px, canvas_w, canvas_h)
+        compute_software_nearest_neighbor(rgba, pm, px, canvas_w, canvas_h)
 
     mean_ms, min_ms, max_ms = bench(_fn, n_warmup, n_iter)
     label = f"img {img_w}×{img_h}  canvas {canvas_w}×{canvas_h}  {zoom_name}"
@@ -291,12 +292,12 @@ def run_full_pipeline(
 
                 if nn_mode:
                     rgba_2d = rgba.reshape((shape[0], shape[1], 4))
-                    SliceViewer._get_screen_mapped_texture(
+                    compute_software_nearest_neighbor(
                         rgba_2d, pm, px, canvas_w, canvas_h
                     )
                     if ov_rgba is not None and ov_shape is not None:
                         ov_2d = ov_rgba.reshape((ov_shape[0], ov_shape[1], 4))
-                        SliceViewer._get_screen_mapped_texture(
+                        compute_software_nearest_neighbor(
                             ov_2d, pm, px, canvas_w, canvas_h
                         )
 
@@ -306,6 +307,36 @@ def run_full_pipeline(
         per_max = total_max / N_SLICES
         sh = slice_shape(vol.shape, ori)
         label = f"{mode_label} {ov_label}  {ORI_NAMES[ori]}  slice={sh[0]}×{sh[1]}px  canvas {canvas_w}×{canvas_h}"
+        lines.append(row(label, per_ms, per_min, per_max))
+
+
+def run_auto_window(
+    vol: np.ndarray,
+    lines: list[str],
+    n_warmup: int,
+    n_iter: int,
+) -> None:
+    """Benchmark np.percentile calculation for Auto W/L."""
+    for ori in ORIENTATIONS:
+        n_s = max_slices(vol.shape, ori)
+        slices = np.linspace(1, n_s - 2, N_SLICES, dtype=int)
+
+        def _fn():
+            for s in slices:
+                slice_data = SliceRenderer.get_raw_slice(vol, False, 0, int(s), ori)
+                h, w = slice_data.shape[:2]
+                r_h, r_w = max(1, int(h * 0.1)), max(1, int(w * 0.1))
+                cy, cx = h // 2, w // 2
+                patch = slice_data[cy - r_h : cy + r_h, cx - r_w : cx + r_w]
+                if patch.size > 0:
+                    np.percentile(patch, [2, 98])
+
+        total_ms, total_min, total_max = bench(_fn, n_warmup, n_iter)
+        per_ms = total_ms / N_SLICES
+        per_min = total_min / N_SLICES
+        per_max = total_max / N_SLICES
+        sh = slice_shape(vol.shape, ori)
+        label = f"{ORI_NAMES[ori]} ({n_s} slices, patch={int(sh[0]*0.2)}×{int(sh[1]*0.2)}px)"
         lines.append(row(label, per_ms, per_min, per_max))
 
 
@@ -406,6 +437,19 @@ def main(save: bool = False, quick: bool = False) -> None:
         run_full_pipeline(vol, ov, canvas_w, canvas_h, False, lines, n_warmup, n_iter)
         run_full_pipeline(vol, ov, canvas_w, canvas_h, True, lines, n_warmup, n_iter)
         del vol, ov
+
+    # ── Section 6: Auto Window (np.percentile) ────────────────────────────────
+    section("6. AUTO-WINDOW CALCULATION — np.percentile (20% FOV patch)", lines)
+
+    for vol_name, vol_shape in VOLUME_SHAPES.items():
+        lines.append(f"\n  ── Volume: {vol_name}  shape={vol_shape}")
+        try:
+            vol = make_volume(vol_shape, rng)
+        except MemoryError:
+            lines.append("  !! Skipped — not enough memory.")
+            continue
+        run_auto_window(vol, lines, n_warmup, n_iter)
+        del vol
 
     # ── Footer ────────────────────────────────────────────────────────────────
     lines += ["", "=" * 90, "  END OF BENCHMARK", "=" * 90]

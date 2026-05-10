@@ -3,7 +3,6 @@ import glob
 import shlex
 import time
 import numpy as np
-import SimpleITK as sitk
 from vvv.utils import ViewMode
 from vvv.config import COLORMAPS
 from dataclasses import dataclass
@@ -94,7 +93,9 @@ class SliceRenderer:
     @staticmethod
     def _blend_alpha(base_rgba, over_rgba, opacity):
         # Alpha channel of over_rgba already contains 0.0 where thresholded, and 1.0 otherwise.
-        op_mask = over_rgba[..., 3:4] * opacity
+        op_mask = over_rgba[..., 3:4]
+        if opacity != 1.0:
+            np.multiply(op_mask, opacity, out=op_mask)
 
         # --- THE IN-PLACE OPTIMIZATION ---
         # Instead of: base_rgba = base_rgba * (1.0 - op_mask) + over_rgba * op_mask
@@ -554,6 +555,7 @@ class VolumeData:
             raw_sitk_image
         )
 
+        import SimpleITK as sitk
         self.sitk_image = straighten_image(
             raw_sitk_image, os.path.basename(self.file_paths[0]), is_label_map=is_roi
         )
@@ -590,6 +592,7 @@ class VolumeData:
         Master router for loading images. Handles standard ITK formats,
         synchrotron/detector formats via fabio, and a custom XDR fallback.
         """
+        import SimpleITK as sitk
 
         # --- 1. Fabio Format Router (Extensions we KNOW SimpleITK fails on) ---
         filename = os.path.basename(paths[0])
@@ -681,6 +684,7 @@ class VolumeData:
             vol_array = np.stack(slices, axis=0)
 
         # 4. Rebuild as a SimpleITK Image
+        import SimpleITK as sitk
         sitk_img = sitk.GetImageFromArray(vol_array)
 
         # Fabio headers are highly format-dependent (and often lack physical spacing).
@@ -831,6 +835,7 @@ class VolumeData:
         vol_array = vol_array.astype(vol_array.dtype.newbyteorder("="))
 
         # 5. Build the SimpleITK Image
+        import SimpleITK as sitk
         sitk_img = sitk.GetImageFromArray(vol_array)
 
         # Cast numpy.float32 to native Python float.
@@ -886,6 +891,7 @@ class VolumeData:
             )  # Pad 2D projection to 3D for VVV
 
         # 6. Build SimpleITK Image
+        import SimpleITK as sitk
         sitk_img = sitk.GetImageFromArray(vol_array)
         sitk_img.SetSpacing((spacing_x, spacing_y, 1.0))
 
@@ -907,6 +913,7 @@ class VolumeData:
 
     def _crop_raw_sitk_image(self, sitk_img, mode="Ignore BG (val)", target_val=0.0):
         """Uses ITK's C++ engine to instantly crop empty space before heavy resampling."""
+        import SimpleITK as sitk
         # 0. Guard against RGB/Vector images crashing the mathematical threshold filter
         if sitk_img.GetNumberOfComponentsPerPixel() > 1:
             return sitk_img
@@ -1027,6 +1034,7 @@ class VolumeData:
         return (self.inverse_matrix @ (phys - self.origin)) / self.spacing
 
     def reload(self):
+        import SimpleITK as sitk
         from vvv.maths.image_utils import straighten_image
 
         try:

@@ -1,5 +1,4 @@
 import numpy as np
-import SimpleITK as sitk
 
 
 class SpatialEngine:
@@ -120,6 +119,7 @@ class SpatialEngine:
     # 3. TRANSFORM CONTROLLERS
     # ==========================================
     def set_manual_transform(self, tx, ty, tz, rx_rad, ry_rad, rz_rad):
+        import SimpleITK as sitk
         if not self.transform:
             self.transform = sitk.Euler3DTransform()
             self.transform.SetCenter(self.cor.tolist())
@@ -144,6 +144,7 @@ class SpatialEngine:
         return abs(rx) > tolerance or abs(ry) > tolerance or abs(rz) > tolerance
 
     def get_rotation_only_transform(self):
+        import SimpleITK as sitk
         if not self.transform:
             return (
                 sitk.Euler3DTransform()

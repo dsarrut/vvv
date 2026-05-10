@@ -18,6 +18,12 @@ class IntensitiesUI:
         with dpg.group(tag="tab_intensities", show=False):
             build_section_title("Window / Level", cfg_c["text_header"])
 
+            dpg.add_text(
+                "No Image Selected",
+                tag="text_intensities_active_title",
+                color=cfg_c["text_active"],
+            )
+
             with dpg.group(horizontal=True):
                 dpg.add_text("Preset: ")
                 dpg.add_combo(
@@ -73,6 +79,25 @@ class IntensitiesUI:
     def refresh_intensities_ui(self):
         viewer = self.gui.context_viewer
         has_image = bool(viewer and viewer.view_state and viewer.volume)
+
+        if dpg.does_item_exist("text_intensities_active_title"):
+            if has_image:
+                name_str, is_outdated = self.controller.get_image_display_name(
+                    viewer.image_id
+                )
+                dpg.set_value("text_intensities_active_title", name_str)
+                col = (
+                    self.gui.ui_cfg["colors"]["outdated"]
+                    if is_outdated
+                    else self.gui.ui_cfg["colors"]["text_active"]
+                )
+                dpg.configure_item("text_intensities_active_title", color=col)
+            else:
+                dpg.set_value("text_intensities_active_title", "No Image Selected")
+                dpg.configure_item(
+                    "text_intensities_active_title",
+                    color=self.gui.ui_cfg["colors"]["text_active"],
+                )
 
         is_rgb = viewer.volume.is_rgb if has_image else False
         thr = viewer.view_state.display.base_threshold if has_image else None
@@ -188,6 +213,7 @@ class IntensitiesUI:
         viewer = self.gui.context_viewer
         if not viewer or not viewer.view_state:
             return
+        viewer._mark_lazy_interaction()
         viewer.view_state.display.ww = max(1e-20, app_data)
         if dpg.does_item_exist("combo_wl_presets"):
             dpg.set_value("combo_wl_presets", "Custom")
@@ -197,6 +223,7 @@ class IntensitiesUI:
         viewer = self.gui.context_viewer
         if not viewer or not viewer.view_state:
             return
+        viewer._mark_lazy_interaction()
         viewer.view_state.display.wl = app_data
         if dpg.does_item_exist("combo_wl_presets"):
             dpg.set_value("combo_wl_presets", "Custom")

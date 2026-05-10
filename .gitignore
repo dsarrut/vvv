@@ -196,4 +196,5 @@ vv_settings_osx
 pyrightconfig.json
 GEMINI.md
 .claude/
+bench*txt
 

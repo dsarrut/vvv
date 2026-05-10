@@ -617,6 +617,7 @@ def load_workspace_sequence(gui, controller, filepath):
                 if "dvf" in img_data:
                     vs.dvf.from_dict(img_data["dvf"])
                 vs.sync_group = img_data.get("sync_group", 0)
+                vs.sync_wl_group = img_data.get("sync_wl_group", 0)
 
                 if hasattr(gui, "roi_ui"):
                     gui.roi_ui.roi_filters[new_id] = img_data.get("roi_filter", "")
@@ -633,6 +634,8 @@ def load_workspace_sequence(gui, controller, filepath):
                         controller.volumes[ov_id].is_overlay_only = True
                         ov_vs = controller.view_states[ov_id]
                         ov_vs.display.colormap = ov_info.get("colormap", "Grayscale")
+                        if "threshold" in ov_info and ov_info["threshold"] is not None:
+                            ov_vs.display.base_threshold = ov_info["threshold"]
 
                         vs.set_overlay(ov_id, controller.volumes[ov_id], controller)
                         vs.display.overlay_mode = ov_info.get("mode", "Registration")

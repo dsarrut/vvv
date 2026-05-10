@@ -133,6 +133,8 @@ class InteractionManager:
             if not viewer or not viewer.view_state:
                 return
 
+            viewer._mark_lazy_interaction()
+
             vs = viewer.view_state
 
             base_sens = self.controller.settings.data["interaction"].get(

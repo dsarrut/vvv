@@ -2,7 +2,6 @@ import os
 import json
 import threading
 import numpy as np
-import SimpleITK as sitk
 from vvv.utils import ViewMode
 from vvv.config import ROI_COLORS
 from vvv.maths.image import VolumeData
@@ -97,6 +96,7 @@ class ROIManager:
 
     def _apply_binarization_rule(self, mask_vol, mode, target_val):
         """Applies the target value rules and safely updates the SimpleITK header."""
+        import SimpleITK as sitk
         if mode == "Target FG (val)":
             mask_vol.data = (mask_vol.data == target_val).astype(np.uint8)
         else:
@@ -110,6 +110,7 @@ class ROIManager:
 
     def process_binary_mask(self, base_vol, mask_vol, skip_initial_crop=False):
         """Helper to natively crop, align, and resample a binary mask."""
+        import SimpleITK as sitk
 
         # --- 1. NATIVE CROP FIRST ---
         if not skip_initial_crop:
@@ -304,6 +305,7 @@ class ROIManager:
 
     def extract_label_from_image(self, base_id, filepath, img, data, val_int, name, color, bbox):
         """Fast-path NumPy slicing to extract a specific label from a pre-loaded label map."""
+        import SimpleITK as sitk
         dim = img.GetDimension()
         is_pre_cropped = False
 
@@ -485,6 +487,7 @@ class ROIManager:
 
     def load_rtstruct_roi(self, base_id, filepath, roi_info, ds=None):
         """Registers the RT-Struct ROI and maps its DICOM polygons to 2D slices."""
+        import SimpleITK as sitk
         vs = self.controller.view_states[base_id]
         base_vol = self.controller.volumes[base_id]
 
@@ -670,22 +673,59 @@ class ROIManager:
             return
 
         mask_vol = self.controller.volumes[roi_id]
-        roi_state = self.controller.view_states[base_id].rois[roi_id]
+        vs = self.controller.view_states[base_id]
+        roi_state = vs.rois[roi_id]
+        
+        source_type = getattr(roi_state, "source_type", "Binary")
+        filepath = mask_vol.file_paths[0] if mask_vol.file_paths else None
 
-        if getattr(roi_state, "rtstruct_info", None) is not None:
-            if self.controller.gui:
-                self.controller.gui.show_status_message(
-                    "RT-Struct ROIs cannot be hot-reloaded.", color=[255, 100, 100]
+        # --- NATIVE BATCH RELOADING FOR COMPLEX FILES ---
+        if source_type == "Label Map" and filepath and self.controller.gui:
+            rois_to_delete = []
+            for rid, rstate in list(vs.rois.items()):
+                rvol = self.controller.volumes.get(rid)
+                if rvol and rvol.file_paths and rvol.file_paths[0] == filepath:
+                    rois_to_delete.append(rid)
+            for rid in rois_to_delete:
+                self.close_roi(base_id, rid)
+                
+            from vvv.ui.ui_sequences import load_label_map_sequence
+            self.controller.gui.tasks.append(
+                load_label_map_sequence(self.controller.gui, self.controller, base_id, filepath)
+            )
+            return
+
+        if source_type == "RT-Struct" and filepath and self.controller.gui:
+            selected_rois = []
+            rois_to_delete = []
+            for rid, rstate in list(vs.rois.items()):
+                rvol = self.controller.volumes.get(rid)
+                if rvol and rvol.file_paths and rvol.file_paths[0] == filepath:
+                    if getattr(rstate, "rtstruct_info", None):
+                        # Preserve user's visual preferences during the reload
+                        rinfo = dict(rstate.rtstruct_info)
+                        rinfo["color"] = rstate.color
+                        rinfo["name"] = rstate.name
+                        selected_rois.append(rinfo)
+                    rois_to_delete.append(rid)
+                    
+            for rid in rois_to_delete:
+                self.close_roi(base_id, rid)
+
+            if selected_rois:
+                from vvv.ui.ui_sequences import load_rtstruct_sequence
+                self.controller.gui.tasks.append(
+                    load_rtstruct_sequence(self.controller.gui, self.controller, base_id, filepath, selected_rois)
                 )
             return
 
+        # --- STANDARD BINARY MASK RELOAD ---
         if self.controller.gui:
             self.controller.gui.show_status_message(
                 f"Reloading: {roi_state.name} ...",
                 color=self.controller.gui.ui_cfg["colors"]["working"],
             )
 
-        vs = self.controller.view_states[base_id]
         with vs.loading_shield():
             mask_vol.reload()
 

@@ -55,6 +55,8 @@ class HistoryManager:
             "origin": [float(x) for x in vol.origin],
             "camera": vs.camera.to_dict(),
             "display": vs.display.to_dict(),
+            "sync_group": vs.sync_group,
+            "sync_wl_group": getattr(vs, "sync_wl_group", 0),
         }
 
         # Enforce the 100 files limit by deleting the oldest item(s) at the front of the dict

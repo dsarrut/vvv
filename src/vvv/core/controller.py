@@ -61,6 +61,7 @@ class Controller:
         self.next_image_id = 0
 
         self.ui_needs_refresh = False
+        self.debug_mode = False
         self.status_message: str | None = None
 
     def get_next_image_id(self, current_id):

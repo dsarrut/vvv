@@ -223,12 +223,21 @@ def parse_cli_arguments(datasets):
     is_flag=True,
     help="Ignore saved history and load with defaults.",
 )
-def main(no_history, datasets, linkall, sync):
+@click.option("--debug", is_flag=True, help="Show FPS debug overlay with graph.")
+@click.option("--fast-gl", is_flag=True, help="Enable experimental fast GL nearest-neighbor (Linux/Windows).")
+def main(no_history, datasets, linkall, sync, debug, fast_gl):
     """Entry point for the VVV command line interface."""
 
     # Parse the tasks cleanly
     datasets = [ds for ds in datasets if ds.strip()]
     image_tasks = parse_cli_arguments(datasets)
+
+    import vvv.ui.render_strategy as rs_mod
+    if fast_gl:
+        import platform as _platform
+        rs_mod.GL_NEAREST_SUPPORTED = _platform.system() in ("Linux", "Windows")
+    else:
+        rs_mod.GL_NEAREST_SUPPORTED = False
 
     # --- Setup Application ---
     icon_png = get_resource_path(os.path.join("icons", "py_vv.png"))
@@ -270,7 +279,7 @@ def main(no_history, datasets, linkall, sync):
         boot_gen = gui.create_boot_sequence(image_tasks, sync, linkall)
 
     # 3. Run the application
-    gui.run(boot_generator=boot_gen)
+    gui.run(boot_generator=boot_gen, debug=debug)
 
 
 if __name__ == "__main__":

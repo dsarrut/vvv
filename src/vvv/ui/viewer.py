@@ -1,9 +1,22 @@
+import time
 import numpy as np
 from vvv.utils import ViewMode, slice_to_voxel, voxel_to_slice, fmt
 import dearpygui.dearpygui as dpg
 from vvv.ui.drawing import OverlayDrawer
 from vvv.maths.image import SliceRenderer, RenderLayer, ROILayer, VolumeData
+from vvv.config import COLORMAPS
 from vvv.core.view_state import ViewState
+from vvv.ui.render_strategy import (
+    compute_software_nearest_neighbor,
+    compute_native_voxel_overlay,
+    blend_slices_cpu,
+    GL_NEAREST_SUPPORTED,
+    try_set_gl_nearest,
+    NNMode,
+    DEFAULT_NN_MODE,
+    select_nn_mode,
+    should_use_lazy_lin,
+)
 from typing import Any
 
 
@@ -148,6 +161,11 @@ class SliceViewer:
         self.last_orientation: ViewMode | None = None
         self.last_drawn_shape: tuple | None = None
         self.last_pixelated = False
+        self.last_nn_mode: NNMode | None = None
+        self.lazy_settle_ms: int = 150   # ms of inactivity before NN re-upload fires
+        self._last_move_time: float = 0.0
+        self._nn_settle_done: bool = True
+        self._lazy_live_flag: bool = False  # stable within a tick; avoids time.time() races
         self._old_texture_to_delete: str | None = None
         self._textures_to_delete: list[str] = []
 
@@ -230,6 +248,21 @@ class SliceViewer:
                 tag=self.overlay_texture_tag,
                 parent="global_texture_registry",
             )
+
+    @property
+    def has_fusion(self) -> bool:
+        vs = self.view_state
+        return bool(vs and vs.display.overlay_id and vs.display.overlay_mode == "Alpha")
+
+    @property
+    def nn_mode(self) -> NNMode:
+        cfg = self.controller.settings.data.get("rendering", {})
+        return select_nn_mode(cfg, self.has_fusion)
+
+    @property
+    def lazy_lin(self) -> bool:
+        cfg = self.controller.settings.data.get("rendering", {})
+        return should_use_lazy_lin(cfg, self.has_fusion, self._is_hw_gl)
 
     @property
     def view_state(self) -> ViewState | None:
@@ -482,32 +515,41 @@ class SliceViewer:
         if not self.is_image_orientation() or not vol:
             return False
 
-        # Use the shape of the *displayed* slice for texture dimensions
         display_slice_shape = self.get_slice_shape()
         h, w = display_slice_shape[0], display_slice_shape[1]
 
-        if vs and vs.display.pixelated_zoom:
-            # Instead of the original image size, the texture size becomes the exact screen canvas size!
-            layout = self.controller.gui.ui_cfg["layout"]
-            pad = layout.get("viewport_padding", 4) * 2
-            w = int(max(1, self.quad_w - pad))
-            h = int(max(1, self.quad_h - pad))
+        is_hw_gl = self._is_hw_gl
+        nn_active = self._effective_pixelated_zoom()
+        nn_needs_canvas = nn_active and not is_hw_gl
 
-        # 1. Generate a unique tag based on the viewer and the specific dimensions
-        new_texture_tag = f"tex_{self.tag}_{w}x{h}"
-        new_ov_texture_tag = f"tex_ov_{self.tag}_{w}x{h}"
+        if nn_needs_canvas:
+            base_w, base_h = self._get_canvas_size()
+            ov_w, ov_h = base_w, base_h
+        else:
+            base_w, base_h = w, h
+            ov_w, ov_h = w, h
+
+        # Track current texture dimensions for safe upload validation
+        self._tex_w, self._tex_h = base_w, base_h
+        self._ov_tex_w, self._ov_tex_h = ov_w, ov_h
+
+        # 1. Generate unique tags based on dimensions
+        new_texture_tag    = f"tex_{self.tag}_{base_w}x{base_h}"
+        new_ov_texture_tag = f"tex_ov_{self.tag}_{ov_w}x{ov_h}"
 
         # Always unhide the parent canvas.
         if dpg.does_item_exist(self.img_node_tag):
             dpg.configure_item(self.img_node_tag, show=True)
 
-        # 2. If the current texture tag perfectly matches the new one, reuse the VRAM
-        if self.texture_tag == new_texture_tag and dpg.does_item_exist(
-            self.texture_tag
-        ):
+        # 2. If both tags match existing textures, nothing to do
+        base_exists = self.texture_tag == new_texture_tag and dpg.does_item_exist(self.texture_tag)
+        ov_exists   = (hasattr(self, "overlay_texture_tag")
+                       and self.overlay_texture_tag == new_ov_texture_tag
+                       and dpg.does_item_exist(self.overlay_texture_tag))
+        if base_exists and ov_exists:
             return False
 
-        # Store the old texture for safe deletion in the binding phase
+        # Store old textures for safe deletion in the binding phase
         if self.texture_tag and self.texture_tag != new_texture_tag:
             self._old_texture_to_delete = self.texture_tag
 
@@ -520,23 +562,27 @@ class SliceViewer:
 
         if not dpg.does_item_exist(new_texture_tag):
             dpg.add_dynamic_texture(
-                width=w,
-                height=h,
-                default_value=np.zeros(w * h * 4, dtype=np.float32),  # type: ignore
+                width=base_w,
+                height=base_h,
+                default_value=np.zeros(base_w * base_h * 4, dtype=np.float32),  # type: ignore
                 tag=new_texture_tag,
                 parent="global_texture_registry",
             )
+            if is_hw_gl:
+                try_set_gl_nearest()
 
         if not dpg.does_item_exist(new_ov_texture_tag):
             dpg.add_dynamic_texture(
-                width=w,
-                height=h,
-                default_value=np.zeros(w * h * 4, dtype=np.float32),  # type: ignore
+                width=ov_w,
+                height=ov_h,
+                default_value=np.zeros(ov_w * ov_h * 4, dtype=np.float32),  # type: ignore
                 tag=new_ov_texture_tag,
                 parent="global_texture_registry",
             )
+            if is_hw_gl:
+                try_set_gl_nearest()
 
-        # 6. Update the viewer's state to track the new texture
+        # Update viewer state
         self.texture_tag = new_texture_tag
         self.overlay_texture_tag = new_ov_texture_tag
         return True
@@ -554,7 +600,9 @@ class SliceViewer:
         # We must safely delete the old draw items and recreate them to point to the new VRAM.
         if dpg.does_item_exist(self.image_tag):
             dpg.delete_item(self.image_tag)
-        if hasattr(self, "overlay_image_tag") and dpg.does_item_exist(self.overlay_image_tag):
+        if hasattr(self, "overlay_image_tag") and dpg.does_item_exist(
+            self.overlay_image_tag
+        ):
             dpg.delete_item(self.overlay_image_tag)
 
         self.image_tag = dpg.draw_image(
@@ -805,13 +853,9 @@ class SliceViewer:
         )
 
         if dpg.does_item_exist(self.image_tag):
-            if vs.display.pixelated_zoom:
-                # Lock the Quad to the window and let Python do the math instead of the GPU
-                dpg.configure_item(
-                    self.image_tag, pmin=[0, 0], pmax=[canvas_w, canvas_h]
-                )
-            else:
-                dpg.configure_item(self.image_tag, pmin=pmin, pmax=pmax)
+            # GL_NEAREST handles NN upscaling on the GPU, so the base image always
+            # uses its physical screen position regardless of pixelated_zoom.
+            dpg.configure_item(self.image_tag, pmin=pmin, pmax=pmax)
 
     def calculate_pan_to_center_crosshair(self, win_w, win_h):
         vs = self.view_state
@@ -895,17 +939,30 @@ class SliceViewer:
         current_shape = self.get_slice_shape()
         shape_changed = current_shape != self.last_drawn_shape
 
-        pixelated = vs.display.pixelated_zoom
+        pixelated = self._effective_pixelated_zoom()
         pixelated_changed = pixelated != self.last_pixelated
+        current_nn_mode = self.nn_mode
+        mode_changed = current_nn_mode != self.last_nn_mode
 
-        # If pixelated zoom is active, size_changed MUST trigger a texture rebuild
-        # because the texture dimension literally matches the screen dimension.
+        if pixelated_changed:
+            self.is_geometry_dirty = True
+
+        ov_id = vs.display.overlay_id if vs else None
+        has_nn_overlay = (
+            ov_id is not None
+            and ov_id in self.controller.view_states
+            and vs.display.overlay_mode == "Alpha"
+        )
+        is_hw_gl = self._is_hw_gl
+        is_canvas_sized = pixelated and not is_hw_gl
+
         rebuild_texture = (
             image_changed
             or orientation_changed
             or shape_changed
             or pixelated_changed
-            or (pixelated and size_changed)
+            or mode_changed
+            or (size_changed and is_canvas_sized)
         )
 
         if size_changed:
@@ -920,6 +977,7 @@ class SliceViewer:
             self.last_orientation = self.orientation
             self.last_drawn_shape = current_shape
             self.last_pixelated = pixelated
+            self.last_nn_mode = current_nn_mode
             self.is_viewer_data_dirty = True
 
         # --- 2. CAMERA SYNC MATH ---
@@ -984,10 +1042,13 @@ class SliceViewer:
             texture_changed = self.ensure_texture_exists()
 
         # --- 5. DATA UPLOAD ---
-        needs_reblend = vs.is_data_dirty or self.is_viewer_data_dirty
-        needs_nn_remap = (
-            self.is_geometry_dirty and pixelated and not self.should_use_voxels_strips()
-        )
+        # texture_changed means a brand-new (empty) texture was just created → must fill it.
+        needs_reblend = vs.is_data_dirty or self.is_viewer_data_dirty or texture_changed
+        
+        needs_nn_remap = False
+        if self.is_geometry_dirty and pixelated and not self.should_use_voxels_strips():
+            if not is_hw_gl:
+                needs_nn_remap = True
 
         if needs_reblend or needs_nn_remap:
             self.is_viewer_data_dirty = False
@@ -1001,95 +1062,39 @@ class SliceViewer:
 
         # --- 6. GEOMETRY PUSH ---
         if self.is_geometry_dirty:
-            # ONLY call resize if we didn't just create the node via draw_image
-            if not (rebuild_texture and texture_changed):
+            if rebuild_texture and texture_changed:
+                # bind_texture_to_node already created the draw_image node; no need to
+                # reconfigure the image quad inside resize(). But the DPG window and
+                # drawlist dimensions must still be updated on any size change.
+                if size_changed:
+                    layout = self.controller.gui.ui_cfg["layout"]
+                    pad = layout.get("viewport_padding", 4) * 2
+                    cw = int(max(1, win_w - pad))
+                    ch = int(max(1, win_h - pad))
+                    if dpg.does_item_exist(f"win_{self.tag}"):
+                        dpg.set_item_width(f"win_{self.tag}", win_w)
+                        dpg.set_item_height(f"win_{self.tag}", win_h)
+                    if dpg.does_item_exist(f"drawlist_{self.tag}"):
+                        dpg.set_item_width(f"drawlist_{self.tag}", cw)
+                        dpg.set_item_height(f"drawlist_{self.tag}", ch)
+            else:
                 self.resize(win_w, win_h)
             self.update_stuff_in_image_only()
             self.is_geometry_dirty = False
 
+        # Lazy settle: once the interaction window has expired, restore full NN rendering.
+        if (not self._nn_settle_done
+                and self._last_move_time > 0
+                and time.time() - self._last_move_time >= self.lazy_settle_ms / 1000.0):
+            self._nn_settle_done = True
+            self._lazy_live_flag = False  # cleared here so next tick sees stable False
+            vs_lazy = self.view_state
+            if vs_lazy and vs_lazy.display.pixelated_zoom and not self._is_hw_gl:
+                if self.lazy_lin:
+                    self.is_geometry_dirty = True
+                    self.is_viewer_data_dirty = True
+
         return did_update_data
-
-    @staticmethod
-    def _get_screen_mapped_texture(rgba_img, pmin, pmax, canvas_w, canvas_h):
-        """Extracts the exact viewport region and upscales using pure Nearest Neighbor math."""
-        h, w = rgba_img.shape[:2]
-
-        disp_w = max(1e-5, pmax[0] - pmin[0])
-        disp_h = max(1e-5, pmax[1] - pmin[1])
-
-        # 1D index arrays only (cheap: O(canvas_w + canvas_h)).
-        # +0.5 samples the center of each screen pixel; +1e-5 prevents float64
-        # boundary jitter (e.g. 3.9999999 flooring to 3 instead of 4).
-        ix_full = np.floor((np.arange(canvas_w) + 0.5 - pmin[0]) * w / disp_w + 1e-5).astype(np.int32)
-        iy_full = np.floor((np.arange(canvas_h) + 0.5 - pmin[1]) * h / disp_h + 1e-5).astype(np.int32)
-
-        valid_x = (ix_full >= 0) & (ix_full < w)
-        valid_y = (iy_full >= 0) & (iy_full < h)
-
-        if not valid_x.any() or not valid_y.any():
-            return np.zeros((canvas_h, canvas_w, 4), dtype=rgba_img.dtype)
-
-        all_valid = bool(valid_x.all()) and bool(valid_y.all())
-
-        if all_valid:
-            # Identity mapping: canvas == image AND ix/iy are exactly [0..w-1]/[0..h-1].
-            # Guard with endpoint check (O(1)) to reject zoom-in on same-size image.
-            if (
-                canvas_w == w
-                and canvas_h == h
-                and int(ix_full[0]) == 0
-                and int(ix_full[-1]) == w - 1
-                and int(iy_full[0]) == 0
-                and int(iy_full[-1]) == h - 1
-            ):
-                return rgba_img
-            ix, iy = ix_full, iy_full
-            x0 = y0 = 0
-            x1, y1 = canvas_w, canvas_h
-        else:
-            # Restrict to the valid sub-rectangle [x0:x1) × [y0:y1).
-            # This eliminates the black-border region from all heavy work.
-            x0 = int(np.argmax(valid_x))
-            x1 = canvas_w - int(np.argmax(valid_x[::-1]))
-            y0 = int(np.argmax(valid_y))
-            y1 = canvas_h - int(np.argmax(valid_y[::-1]))
-            ix = ix_full[x0:x1]
-            iy = iy_full[y0:y1]
-
-        vw, vh = x1 - x0, y1 - y0
-
-        # Fast path when every image pixel covers ≥1 screen pixel in both axes
-        # (any zoom level where NN looks different from linear).
-        # ix/iy are then monotone non-decreasing with many repeated values.
-        # Extract the small visible ROI once and tile with np.repeat
-        # (sequential SIMD copies) instead of scatter-gather fancy indexing.
-        if vw >= w and vh >= h:
-            ix_new = np.empty(vw, dtype=bool)
-            iy_new = np.empty(vh, dtype=bool)
-            ix_new[0] = iy_new[0] = True
-            ix_new[1:] = ix[1:] != ix[:-1]
-            iy_new[1:] = iy[1:] != iy[:-1]
-            unique_ix = ix[ix_new]
-            unique_iy = iy[iy_new]
-            ix_cnt = np.diff(np.where(np.append(ix_new, True))[0])
-            iy_cnt = np.diff(np.where(np.append(iy_new, True))[0])
-            if len(unique_iy) == h and len(unique_ix) == w:
-                # Fill case: all source rows/cols present — skip 2D fancy-index copy.
-                # np.repeat directly on rgba_img saves one full-image allocation.
-                tile = np.repeat(np.repeat(rgba_img, iy_cnt, axis=0), ix_cnt, axis=1)
-            else:
-                roi = rgba_img[unique_iy[:, None], unique_ix[None, :]]
-                tile = np.repeat(np.repeat(roi, iy_cnt, axis=0), ix_cnt, axis=1)
-        else:
-            # Zoomed out past 1:1 — NN and linear look identical; fancy-index the subregion.
-            tile = rgba_img[iy[:, None], ix[None, :]]
-
-        if all_valid:
-            return tile  # No black border: return the tile directly, no extra allocation.
-
-        out = np.zeros((canvas_h, canvas_w, 4), dtype=rgba_img.dtype)
-        out[y0:y1, x0:x1] = tile
-        return out
 
     def apply_local_auto_window(self, fov_fraction=0.20, target="base"):
         vol = self.volume
@@ -1175,6 +1180,8 @@ class SliceViewer:
             p_min, p_max = np.percentile(patch, [2, 98])
             ww = max(1e-20, p_max - p_min)
             wl = (p_max + p_min) / 2
+
+            self._mark_lazy_interaction()
 
             if target == "overlay":
                 ovs = self.controller.view_states.get(vs.display.overlay_id)
@@ -1504,94 +1511,209 @@ class SliceViewer:
                 dpg.configure_item(plot_tag, show=False)
 
         if force_reblend or self.last_rgba_flat is None:
-            # 1. Cleanly package all layers
-            base_layer = self._package_base_layer()
-            overlay_layer = self._package_overlay_layer()
-            active_rois = self._package_roi_layers()
+            self._compute_raw_slice_buffers()
 
-            if base_layer is None:
-                return
+        if self.should_use_voxels_strips():
+            return
 
-            # GPU DELEGATION: Render Base & Overlay Separately
-            if vs.display.overlay_mode == "Alpha" and overlay_layer is not None:
-                rgba_flat, actual_shape = SliceRenderer.get_slice_rgba(
-                    base=base_layer,
-                    overlay=None,
-                    overlay_opacity=1.0,
-                    overlay_mode="Alpha",
-                    slice_idx=self.slice_idx,
-                    orientation=self.orientation,
-                    rois=active_rois,
-                )
-                self.last_rgba_flat = rgba_flat
-                self.last_rgba_shape = actual_shape
+        self._upload_base_texture()
+        self._upload_overlay_texture()
 
-                ov_rgba_flat, ov_actual_shape = SliceRenderer.get_slice_rgba(
-                    base=overlay_layer,
-                    overlay=None,
-                    overlay_opacity=1.0,
-                    overlay_mode="Alpha",
-                    slice_idx=self.slice_idx - overlay_layer.offset_slice,
-                    orientation=self.orientation,
-                    rois=[],
-                )
-                self.last_overlay_rgba_flat = ov_rgba_flat
-                self.last_overlay_rgba_shape = ov_actual_shape
-            else:
-                rgba_flat, actual_shape = SliceRenderer.get_slice_rgba(
-                    base=base_layer,
-                    overlay=overlay_layer,
-                    overlay_opacity=vs.display.overlay_opacity,
-                    overlay_mode=vs.display.overlay_mode,
-                    slice_idx=self.slice_idx,
-                    orientation=self.orientation,
-                    checkerboard_size=vs.display.overlay_checkerboard_size,
-                    checkerboard_swap=vs.display.overlay_checkerboard_swap,
-                    rois=active_rois,
-                )
-                self.last_rgba_flat = rgba_flat
-                self.last_rgba_shape = actual_shape
-                self.last_overlay_rgba_flat = None
-                self.last_overlay_rgba_shape = None
-        else:
-            rgba_flat = self.last_rgba_flat
-            actual_shape = getattr(self, "last_rgba_shape", self.get_slice_shape())
+    def _compute_raw_slice_buffers(self):
+        vs = self.view_state
+        base_layer = self._package_base_layer()
+        overlay_layer = self._package_overlay_layer()
+        active_rois = self._package_roi_layers()
 
-        # ---- APPLY NEAREST NEIGHBOR SCREEN MAPPING ----
-        ov_rgba_display = self.last_overlay_rgba_flat
-        if vs.display.pixelated_zoom and not self.should_use_voxels_strips():
-            layout = self.controller.gui.ui_cfg["layout"]
-            pad = layout.get("viewport_padding", 4) * 2
-            canvas_w = int(max(1, self.quad_w - pad))
-            canvas_h = int(max(1, self.quad_h - pad))
+        if not vs or base_layer is None:
+            return
 
-            rgba_2d = rgba_flat.reshape((actual_shape[0], actual_shape[1], 4))
-            rgba_mapped = self._get_screen_mapped_texture(
-                rgba_2d, self.current_pmin, self.current_pmax, canvas_w, canvas_h
+        # Render Base & Overlay Separately
+        if vs.display.overlay_mode == "Alpha" and overlay_layer is not None:
+            self.last_rgba_flat, self.last_rgba_shape = SliceRenderer.get_slice_rgba(
+                base=base_layer,
+                overlay=None,
+                overlay_opacity=1.0,
+                overlay_mode="Alpha",
+                slice_idx=self.slice_idx,
+                orientation=self.orientation,
+                rois=active_rois,
             )
-            rgba_flat = rgba_mapped.ravel()
 
-            if self.last_overlay_rgba_flat is not None:
-                ov_actual_shape = getattr(
-                    self, "last_overlay_rgba_shape", self.get_slice_shape()
-                )
-                ov_rgba_2d = self.last_overlay_rgba_flat.reshape(
-                    (ov_actual_shape[0], ov_actual_shape[1], 4)
-                )
-                ov_rgba_mapped = self._get_screen_mapped_texture(
-                    ov_rgba_2d, self.current_pmin, self.current_pmax, canvas_w, canvas_h
-                )
-                ov_rgba_display = ov_rgba_mapped.ravel()
+            self.last_overlay_rgba_flat, self.last_overlay_rgba_shape = SliceRenderer.get_slice_rgba(
+                base=overlay_layer,
+                overlay=None,
+                overlay_opacity=1.0,
+                overlay_mode="Alpha",
+                slice_idx=self.slice_idx - overlay_layer.offset_slice,
+                orientation=self.orientation,
+                rois=[],
+            )
+        else:
+            self.last_rgba_flat, self.last_rgba_shape = SliceRenderer.get_slice_rgba(
+                base=base_layer,
+                overlay=overlay_layer,
+                overlay_opacity=vs.display.overlay_opacity,
+                overlay_mode=vs.display.overlay_mode,
+                slice_idx=self.slice_idx,
+                orientation=self.orientation,
+                checkerboard_size=vs.display.overlay_checkerboard_size,
+                checkerboard_swap=vs.display.overlay_checkerboard_swap,
+                rois=active_rois,
+            )
+            self.last_overlay_rgba_flat = None
+            self.last_overlay_rgba_shape = None
 
-        if dpg.does_item_exist(self.texture_tag):
-            dpg.set_value(self.texture_tag, rgba_flat)  # type: ignore
+    def _upload_base_texture(self):
+        if not dpg.does_item_exist(self.texture_tag) or self.last_rgba_flat is None:
+            return
 
-        if (
-            ov_rgba_display is not None
-            and hasattr(self, "overlay_texture_tag")
-            and dpg.does_item_exist(self.overlay_texture_tag)
-        ):
-            dpg.set_value(self.overlay_texture_tag, ov_rgba_display)  # type: ignore
+        vs = self.view_state
+        if not vs:
+            return
+
+        if not (self._effective_pixelated_zoom() and not self._is_hw_gl and not self.should_use_voxels_strips()):
+            self._safe_set_texture(self.texture_tag, self.last_rgba_flat,
+                                   getattr(self, "_tex_w", 1), getattr(self, "_tex_h", 1))
+            return
+
+        canvas_w, canvas_h = self._get_canvas_size()
+        actual_shape = getattr(self, "last_rgba_shape", self.get_slice_shape())
+        rgba_2d = np.asarray(self.last_rgba_flat).reshape(actual_shape[0], actual_shape[1], 4)
+
+        has_alpha_overlay = (
+            vs.display.overlay_id
+            and vs.display.overlay_mode == "Alpha"
+            and self.last_overlay_rgba_flat is not None
+        )
+
+        is_lazy_live = False
+
+        # SW_SINGLE_MERGED: CPU alpha-blend overlay into base before NN scaling
+        if not is_lazy_live and self.nn_mode == NNMode.SW_SINGLE_MERGED and has_alpha_overlay:
+            ov_actual_shape = getattr(self, "last_overlay_rgba_shape", self.get_slice_shape())
+            ov_rgba_2d = np.asarray(self.last_overlay_rgba_flat).reshape(ov_actual_shape[0], ov_actual_shape[1], 4)
+            rgba_2d = blend_slices_cpu(
+                rgba_2d, ov_rgba_2d,
+                vs.display.overlay_opacity,
+                self.active_overlay_shift_x,
+                self.active_overlay_shift_y,
+            )
+
+        if not hasattr(self, "_nn_base_buf") or self._nn_base_buf.shape[:2] != (canvas_h, canvas_w):
+            self._nn_base_buf = np.zeros((canvas_h, canvas_w, 4), dtype=np.float32)
+            self._nn_base_crop = None
+
+        nn_base, crop = compute_software_nearest_neighbor(
+            rgba_2d, self.current_pmin, self.current_pmax, canvas_w, canvas_h,
+            out_buffer=self._nn_base_buf, last_crop=self._nn_base_crop
+        )
+        self._nn_base_crop = crop
+
+        # SW_SINGLE_NATIVE: paint overlay at native voxel resolution into the NN base
+        if not is_lazy_live and self.nn_mode == NNMode.SW_SINGLE_NATIVE and has_alpha_overlay:
+            if nn_base is rgba_2d:  # identity pass returned the slice cache — copy first
+                self._nn_base_buf[:rgba_2d.shape[0], :rgba_2d.shape[1]] = rgba_2d
+                nn_base = self._nn_base_buf
+            compute_native_voxel_overlay(
+                self, self.current_pmin, self.current_pmax, canvas_w, canvas_h,
+                target_buffer=nn_base, opacity=vs.display.overlay_opacity
+            )
+
+        self._safe_set_texture(self.texture_tag, nn_base.ravel(),
+                               getattr(self, "_tex_w", 1), getattr(self, "_tex_h", 1))
+
+    def _upload_overlay_texture(self):
+        if not hasattr(self, "overlay_texture_tag") or not dpg.does_item_exist(self.overlay_texture_tag):
+            return
+
+        vs = self.view_state
+        if not vs or not vs.display.overlay_id or vs.display.overlay_mode != "Alpha":
+            return
+
+        if self.last_overlay_rgba_flat is None:
+            return
+
+        is_sw_nn = self._effective_pixelated_zoom() and not self._is_hw_gl and not self.should_use_voxels_strips()
+
+        if not is_sw_nn:
+            self._safe_set_texture(self.overlay_texture_tag, self.last_overlay_rgba_flat,
+                                   getattr(self, "_ov_tex_w", 1), getattr(self, "_ov_tex_h", 1))
+            return
+
+        # Modes SW_SINGLE_MERGED and SW_SINGLE_NATIVE precomposite the overlay into the
+        # base texture on the CPU — no separate overlay upload needed.
+        if self.nn_mode in (NNMode.SW_SINGLE_MERGED, NNMode.SW_SINGLE_NATIVE):
+            return
+
+        canvas_w, canvas_h = self._get_canvas_size()
+
+        if self.nn_mode == NNMode.SW_DUAL_NATIVE:
+            ov_rgba_display = compute_native_voxel_overlay(
+                self, self.current_pmin, self.current_pmax, canvas_w, canvas_h
+            )
+            if ov_rgba_display is not None:
+                self._safe_set_texture(self.overlay_texture_tag, ov_rgba_display,
+                                       getattr(self, "_ov_tex_w", 1), getattr(self, "_ov_tex_h", 1))
+        else:
+            # SW_DUAL_RESAMPLED: NN-scale the ITK-resampled overlay
+            ov_actual_shape = getattr(self, "last_overlay_rgba_shape", self.get_slice_shape())
+            ov_rgba_2d = np.asarray(self.last_overlay_rgba_flat).reshape(ov_actual_shape[0], ov_actual_shape[1], 4)
+
+            if not hasattr(self, "_nn_ov_buf") or self._nn_ov_buf.shape[:2] != (canvas_h, canvas_w):
+                self._nn_ov_buf = np.zeros((canvas_h, canvas_w, 4), dtype=np.float32)
+                self._nn_ov_crop = None
+
+            nn_ov, crop = compute_software_nearest_neighbor(
+                ov_rgba_2d, self.current_pmin, self.current_pmax, canvas_w, canvas_h,
+                out_buffer=self._nn_ov_buf, last_crop=self._nn_ov_crop
+            )
+            self._nn_ov_crop = crop
+            self._safe_set_texture(self.overlay_texture_tag, nn_ov.ravel(),
+                                   getattr(self, "_ov_tex_w", 1), getattr(self, "_ov_tex_h", 1))
+
+    def _safe_set_texture(self, tag: str, data, tex_w: int, tex_h: int) -> bool:
+        """Upload data to a DPG texture after validating the buffer size matches.
+        Returns False (and marks dirty for retry) if there is a size mismatch."""
+        expected = tex_w * tex_h * 4
+        actual = len(data) if hasattr(data, "__len__") else -1
+        if actual != expected:
+            self.is_viewer_data_dirty = True
+            return False
+        dpg.set_value(tag, data)  # type: ignore
+        return True
+
+    def _get_canvas_size(self) -> tuple[int, int]:
+        """Returns (canvas_w, canvas_h) in pixels, accounting for viewport padding."""
+        pad = self.controller.gui.ui_cfg["layout"].get("viewport_padding", 4) * 2
+        return int(max(1, self.quad_w - pad)), int(max(1, self.quad_h - pad))
+
+    @property
+    def _is_hw_gl(self) -> bool:
+        """True when the hardware GL_NEAREST path is active (Linux/Windows only)."""
+        return GL_NEAREST_SUPPORTED and self.nn_mode == NNMode.HW_GL_NEAREST
+
+    def _is_lazy_live(self) -> bool:
+        """True while the user is actively interacting (stable within one tick)."""
+        return self._lazy_live_flag
+
+    def _mark_lazy_interaction(self):
+        """Record interaction time and raise the live flag on all lazy-enabled viewers."""
+        now = time.time()
+        for v in self.controller.viewers.values():
+            if v.lazy_lin:
+                v._last_move_time = now
+                v._nn_settle_done = False
+                v._lazy_live_flag = True
+
+    def _effective_pixelated_zoom(self) -> bool:
+        """Returns False during lazy_lin interaction so the whole pipeline uses GPU bilinear."""
+        vs = self.view_state
+        if not vs or not vs.display.pixelated_zoom:
+            return False
+        if self.lazy_lin and self._is_lazy_live():
+            return False
+        return True
 
     def should_use_voxels_strips(self):
         vs = self.view_state
@@ -1653,38 +1775,37 @@ class SliceViewer:
                     and dpg.does_item_exist(self.overlay_image_tag)
                 )
 
-                if vs.display.pixelated_zoom:
-                    layout = self.controller.gui.ui_cfg["layout"]
-                    pad = layout.get("viewport_padding", 4) * 2
-                    canvas_w = int(max(1, self.quad_w - pad))
-                    canvas_h = int(max(1, self.quad_h - pad))
+                # Base image positioning: on Linux/Windows GL_NEAREST handles NN upscaling
+                # so the slice-sized texture is positioned at its physical screen extent.
+                # On macOS the canvas-sized NN texture covers the full canvas instead.
+                is_sw_nn = self._effective_pixelated_zoom() and not self._is_hw_gl and not self.should_use_voxels_strips()
+
+                if is_sw_nn:
+                    canvas_w, canvas_h = self._get_canvas_size()
                     dpg.configure_item(
                         self.image_tag, pmin=[0, 0], pmax=[canvas_w, canvas_h]
                     )
-
-                    if has_overlay:
-                        disp_w = self.current_pmax[0] - self.current_pmin[0]
-                        disp_h = self.current_pmax[1] - self.current_pmin[1]
-                        shift_x = (
-                            self.active_overlay_shift_x * (disp_w / w) if w > 0 else 0
-                        )
-                        shift_y = (
-                            self.active_overlay_shift_y * (disp_h / h) if h > 0 else 0
-                        )
-                        dpg.configure_item(
-                            self.overlay_image_tag,
-                            pmin=[shift_x, shift_y],
-                            pmax=[canvas_w + shift_x, canvas_h + shift_y],
-                            color=[255, 255, 255, op],
-                            show=True,
-                        )
-
                 else:
                     dpg.configure_item(
                         self.image_tag, pmin=self.current_pmin, pmax=self.current_pmax
                     )
 
-                    if has_overlay:
+                if has_overlay:
+                    is_precomposited = is_sw_nn and self.nn_mode in (NNMode.SW_SINGLE_MERGED, NNMode.SW_SINGLE_NATIVE)
+
+                    if is_precomposited:
+                        if dpg.does_item_exist(self.overlay_image_tag):
+                            dpg.configure_item(self.overlay_image_tag, show=False)
+                    elif is_sw_nn:
+                        canvas_w, canvas_h = self._get_canvas_size()
+                        dpg.configure_item(
+                            self.overlay_image_tag,
+                            pmin=[0, 0],
+                            pmax=[canvas_w, canvas_h],
+                            color=[255, 255, 255, op],
+                            show=True,
+                        )
+                    else:
                         disp_w = self.current_pmax[0] - self.current_pmin[0]
                         disp_h = self.current_pmax[1] - self.current_pmin[1]
                         shift_x = (
@@ -1693,18 +1814,12 @@ class SliceViewer:
                         shift_y = (
                             self.active_overlay_shift_y * (disp_h / h) if h > 0 else 0
                         )
-                        ov_pmin = [
-                            self.current_pmin[0] + shift_x,
-                            self.current_pmin[1] + shift_y,
-                        ]
-                        ov_pmax = [
-                            self.current_pmax[0] + shift_x,
-                            self.current_pmax[1] + shift_y,
-                        ]
                         dpg.configure_item(
                             self.overlay_image_tag,
-                            pmin=ov_pmin,
-                            pmax=ov_pmax,
+                            pmin=[self.current_pmin[0] + shift_x,
+                                  self.current_pmin[1] + shift_y],
+                            pmax=[self.current_pmax[0] + shift_x,
+                                  self.current_pmax[1] + shift_y],
                             color=[255, 255, 255, op],
                             show=True,
                         )
@@ -2091,6 +2206,41 @@ class SliceViewer:
             if key == mapped_key:
                 action_func()
                 return
+                
+        # Secret developer debugging bindings
+        if getattr(self.controller, "debug_mode", False):
+            if key == dpg.mvKey_J:
+                cfg = self.controller.settings.data.setdefault("rendering", {})
+                st = cfg.get("single_texture", "Auto")
+                nv = cfg.get("native_voxel", "Auto")
+                if st == "Auto": st, nv = True, True
+                elif st is True and nv is True: st, nv = True, False
+                elif st is True and nv is False: st, nv = False, False
+                elif st is False and nv is False: st, nv = False, True
+                else: st, nv = "Auto", "Auto"
+                cfg["single_texture"] = st
+                cfg["native_voxel"] = nv
+                self.controller.save_settings()
+                self.controller._flag_all_viewers_dirty()
+                self.controller.status_message = f"Debug NN: Single={st}, Native={nv}"
+                self.controller.ui_needs_refresh = True
+                if self.controller.gui:
+                    self.controller.gui._init_rendering_menu()
+                return
+            if key == dpg.mvKey_T:
+                cfg = self.controller.settings.data.setdefault("rendering", {})
+                ll = cfg.get("lazy_lin", "Auto")
+                if ll == "Auto": ll = True
+                elif ll is True: ll = False
+                else: ll = "Auto"
+                cfg["lazy_lin"] = ll
+                self.controller.save_settings()
+                self.controller._flag_all_viewers_dirty()
+                self.controller.status_message = f"Debug Lazy-Lin: {ll}"
+                self.controller.ui_needs_refresh = True
+                if self.controller.gui:
+                    self.controller.gui._init_rendering_menu()
+                return
 
     def on_scroll(self, delta=1):
         vs = self.view_state
@@ -2172,6 +2322,19 @@ class SliceViewer:
         if not is_ctrl and not is_shift and is_button:
             px, py = self.get_mouse_slice_coords(ignore_hover=True, allow_outside=True)
             if px is not None:
+                # Performance: Dragging the crosshair forces other orthogonal synced viewers 
+                # to slice rapidly. To keep the crosshair drag at 60fps, we selectively trigger 
+                # lazy modes on them, but keep the active viewer perfectly sharp.
+                now = time.time()
+                my_vs = self.view_state
+                for v in self.controller.viewers.values():
+                    if v.orientation != self.orientation and v.lazy_lin:
+                        v_vs = v.view_state
+                        if v_vs and my_vs and (v.image_id == self.image_id or (my_vs.sync_group > 0 and my_vs.sync_group == v_vs.sync_group)):
+                            v._last_move_time = now
+                            v._nn_settle_done = False
+                            v._lazy_live_flag = True
+
                 self.update_crosshair_data(px, py)
                 self.controller.sync.propagate_sync(self.image_id)
 
@@ -2179,6 +2342,7 @@ class SliceViewer:
             self.pan_offset[0] = self.drag_start_pan[0] + total_dx
             self.pan_offset[1] = self.drag_start_pan[1] + total_dy
             self.is_geometry_dirty = True
+            self._mark_lazy_interaction()  # no-op if no viewer has lazy_lin; covers synced viewers that do
             self.controller.sync.propagate_camera(self)
             # Prevent self-snapping
             cent = self.get_center_physical_coord()
@@ -2209,6 +2373,7 @@ class SliceViewer:
         self.pan_offset[1] += dy
 
         self.is_geometry_dirty = True
+        self._mark_lazy_interaction()  # no-op if no viewer has lazy_lin; covers synced viewers that do
         self.controller.sync.propagate_camera(self)
 
         # Prevent self-snapping
