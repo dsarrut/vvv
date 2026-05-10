@@ -2348,15 +2348,17 @@ class SliceViewer:
         total_dx = current_pos[0] - self.drag_start_mouse[0]
         total_dy = current_pos[1] - self.drag_start_mouse[1]
 
-        is_button = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
-        is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(
-            dpg.mvKey_RControl
-        )
-        is_shift = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(
-            dpg.mvKey_RShift
-        )
+        is_button_left = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
+        is_button_mid = dpg.is_mouse_button_down(dpg.mvMouseButton_Middle)
 
-        if not is_ctrl and not is_shift and is_button:
+        is_cmd = dpg.is_key_down(getattr(dpg, "mvKey_LWin", 343)) or dpg.is_key_down(getattr(dpg, "mvKey_RWin", 347)) or dpg.is_key_down(343) or dpg.is_key_down(347)
+        is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl)
+        is_shift = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(dpg.mvKey_RShift)
+
+        is_pan_mod = is_cmd or is_ctrl
+        is_pan_drag = (is_pan_mod and is_button_left) or is_button_mid
+
+        if not is_pan_drag and not is_shift and is_button_left:
             px, py = self.get_mouse_slice_coords(ignore_hover=True, allow_outside=True)
             if px is not None:
                 # Performance: Dragging the crosshair forces other orthogonal synced viewers 
@@ -2375,7 +2377,7 @@ class SliceViewer:
                 self.update_crosshair_data(px, py)
                 self.controller.sync.propagate_sync(self.image_id)
 
-        elif is_ctrl and is_button and self.drag_start_pan is not None:
+        elif is_pan_drag and self.drag_start_pan is not None:
             if vs:
                 vs.clear_reg_anchors()
             self.pan_offset[0] = self.drag_start_pan[0] + total_dx

@@ -1500,14 +1500,26 @@ class MainGUI:
             no_collapse=False,
             on_close=lambda: dpg.delete_item(window_tag),
         ):
+            import sys
+            is_mac = sys.platform == "darwin"
+            cmd_name = "Cmd" if is_mac else "Ctrl"
+
             dpg.add_spacer(height=5)
             dpg.add_text("Mouse Controls", color=active_col)
             dpg.add_separator()
-            dpg.add_text("Left Click         : Move crosshair")
-            dpg.add_text("Scroll Wheel       : Change slice")
-            dpg.add_text("Ctrl + Scroll      : Zoom in/out")
-            dpg.add_text("Ctrl + Drag        : Pan view")
-            dpg.add_text("Shift + Move       : Adjust Window/Level (X/Y axis)")
+            if is_mac:
+                dpg.add_text("Left Click         : Move crosshair")
+                dpg.add_text("Scroll Wheel       : Change slice")
+                dpg.add_text("Cmd/Ctrl + Scroll  : Zoom in/out")
+                dpg.add_text("Cmd/Ctrl + L-Drag  : Pan view")
+                dpg.add_text("Mid-Drag           : Pan view")
+                dpg.add_text("Shift+Drag / R-Drag: Adjust Window/Level")
+            else:
+                dpg.add_text("Left Click         : Move crosshair")
+                dpg.add_text("Scroll Wheel       : Change slice")
+                dpg.add_text("Ctrl + Scroll      : Zoom in/out")
+                dpg.add_text("Ctrl+L-Drag / M-Drag: Pan view")
+                dpg.add_text("Shift+Drag / R-Drag: Adjust Window/Level")
 
             dpg.add_spacer(height=15)
             dpg.add_text("Keyboard Shortcuts", color=active_col)
@@ -1547,7 +1559,7 @@ class MainGUI:
                 if k == 518:
                     return "Page Down"
                 if key_name == "open_file":
-                    return f"Ctrl + {k}"
+                    return f"{cmd_name} + {k}"
                 if key_name == "hard_reset":
                     return f"Shift + {k}"
                 return str(k)

@@ -235,6 +235,8 @@ def test_cli_boot_sequence_logic(headless_gui_app, synthetic_volume_factory):
 
 def test_gui_interaction_modifiers(headless_gui_app, monkeypatch):
     """Verifies that holding the Ctrl key changes the mouse scroll from Slicing to Zooming."""
+    import sys
+    monkeypatch.setattr(sys, "platform", "linux")
     controller, gui, viewer, vs_id = headless_gui_app
     vs = viewer.view_state
 
