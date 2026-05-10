@@ -162,10 +162,17 @@ def handle_wl_group_change(gui, sender, value, user_data):
 
     # Auto-pull W/L from an existing master in this group
     master_vs_id = None
-    for other_id, other_vs in list(gui.controller.view_states.items()):
-        if other_id != vs_id and other_vs.sync_wl_group == new_group_id:
-            master_vs_id = other_id
-            break
+    active_viewer = gui.context_viewer
+    if active_viewer and active_viewer.image_id in gui.controller.view_states:
+        active_vs = gui.controller.view_states[active_viewer.image_id]
+        if active_vs.sync_wl_group == new_group_id:
+            master_vs_id = active_viewer.image_id
+
+    if not master_vs_id:
+        for other_id, other_vs in list(gui.controller.view_states.items()):
+            if other_id != vs_id and other_vs.sync_wl_group == new_group_id:
+                master_vs_id = other_id
+                break
 
     if master_vs_id:
         # State-Only Fix: Let the SyncManager handle the robust broadcast!

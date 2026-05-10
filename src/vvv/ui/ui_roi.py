@@ -226,9 +226,17 @@ class RoiUI:
             dpg.add_spacer(height=10)
 
             # --- BOTTOM: The Detail Panel ---
-            build_section_title("Selected ROI Properties", cfg_c["text_header"])
+            with dpg.group(tag="roi_detail_header_group", show=False):
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Selected ROI Properties", color=cfg_c["text_header"])
+                    btn_close_detail = dpg.add_button(label="\uf00d", width=20, callback=gui.roi_ui.on_close_roi_properties)
+                    if dpg.does_item_exist("icon_font_tag"):
+                        dpg.bind_item_font(btn_close_detail, "icon_font_tag")
+                    if dpg.does_item_exist("delete_button_theme"):
+                        dpg.bind_item_theme(btn_close_detail, "delete_button_theme")
+                dpg.add_separator()
 
-            with dpg.child_window(border=False, no_scrollbar=True):
+            with dpg.child_window(tag="roi_detail_window", border=False, no_scrollbar=True, show=False):
                 dpg.add_group(tag="roi_detail_container")
 
     def refresh_rois_ui(self):
@@ -395,26 +403,40 @@ class RoiUI:
 
     def refresh_roi_detail_ui(self):
         container = "roi_detail_container"
+        header = "roi_detail_header_group"
+        window = "roi_detail_window"
         if not dpg.does_item_exist(container):
             return
 
         dpg.delete_item(container, children_only=True)
         viewer = self.gui.context_viewer
 
-        if (
-            not viewer
-            or not viewer.view_state
-            or not self.active_roi_id
-            or self.active_roi_id not in viewer.view_state.rois
-        ):
+        has_selection = (
+            viewer
+            and viewer.view_state
+            and self.active_roi_id
+            and self.active_roi_id in viewer.view_state.rois
+        )
+
+        if not has_selection:
+            if dpg.does_item_exist(header):
+                dpg.configure_item(header, show=False)
+            if dpg.does_item_exist(window):
+                dpg.configure_item(window, show=False)
             dpg.add_text(
                 "Select a ROI from the list above.",
                 color=self.gui.ui_cfg["colors"]["text_dim"],
                 parent=container,
             )
             self.clear_roi_stats()
+            self.gui.on_window_resize()
             return
 
+        if dpg.does_item_exist(header):
+            dpg.configure_item(header, show=True)
+        if dpg.does_item_exist(window):
+            dpg.configure_item(window, show=True)
+            
         roi_state = viewer.view_state.rois[self.active_roi_id]
         roi_vol = self.controller.volumes.get(self.active_roi_id)
         dim_col = self.gui.ui_cfg["colors"]["text_dim"]
@@ -528,6 +550,7 @@ class RoiUI:
                         dpg.add_text("---", tag="roi_stat_mass")
 
         self.update_roi_stats_ui()
+        self.gui.on_window_resize()
 
     def clear_roi_stats(self):
         tags = [
@@ -1041,6 +1064,11 @@ class RoiUI:
         if getattr(self, "active_roi_id", None) == user_data:
             self.active_roi_id = None
 
+        self.controller.ui_needs_refresh = True
+
+    def on_close_roi_properties(self, sender, app_data, user_data):
+        self.active_roi_id = None
+        self.refresh_rois_ui()
         self.controller.ui_needs_refresh = True
 
     def on_roi_close_all(self, sender, app_data, user_data):

@@ -340,10 +340,19 @@ class Controller:
 
         # Find the "Source of Truth" for this new group
         master_vs_id = None
-        for other_id, other_vs in list(self.view_states.items()):
-            if other_id != vs_id and other_vs.sync_group == group_id:
-                master_vs_id = other_id
-                break
+        active_viewer = self.gui.context_viewer if self.gui else None
+        
+        # If the active viewer is in the same sync group, use it as master
+        if active_viewer and active_viewer.image_id in self.view_states:
+            active_vs = self.view_states[active_viewer.image_id]
+            if active_vs.sync_group == group_id:
+                master_vs_id = active_viewer.image_id
+
+        if not master_vs_id:
+            for other_id, other_vs in list(self.view_states.items()):
+                if other_id != vs_id and other_vs.sync_group == group_id:
+                    master_vs_id = other_id
+                    break
 
         # Find all viewers currently displaying any image in this group
         group_viewer_tags = [
@@ -354,8 +363,6 @@ class Controller:
 
         if not group_viewer_tags:
             return
-
-        self.sync.propagate_ppm(group_viewer_tags)
 
         # Snap the newly synced viewers to the master's physical center
         if master_vs_id:

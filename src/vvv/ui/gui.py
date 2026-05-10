@@ -1114,8 +1114,17 @@ class MainGUI:
             inner_w = col_w - cfg["left_inner_m"] - cfg["right_inner_m"]
 
             if dpg.does_item_exist("roi_list_window"):
-                list_h = top_h - cfg["roi_detail_h"] - 195
+                detail_shown = dpg.does_item_exist("roi_detail_header_group") and dpg.is_item_shown("roi_detail_header_group")
+                detail_h = cfg.get("roi_detail_h", 300) if detail_shown else 0
+                
+                # 250px provides padding for the top controls and the "Export" button below the list
+                list_h = top_h - detail_h - 250
+                
                 dpg.set_item_width("roi_list_window", inner_w)
+                dpg.set_item_height("roi_list_window", max(50, int(list_h)))
+                
+                if dpg.does_item_exist("roi_detail_window"):
+                    dpg.set_item_height("roi_detail_window", max(10, detail_h - 30))
 
         r_x = l_x + l_w + cfg["gap_center"]
         avail_w = window_w - r_x - cfg["right_m_right"]
