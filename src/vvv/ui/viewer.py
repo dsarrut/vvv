@@ -16,6 +16,7 @@ from vvv.ui.render_strategy import (
     DEFAULT_NN_MODE,
     select_nn_mode,
     should_use_lazy_lin,
+    _NUMBA_AVAILABLE,
 )
 from typing import Any
 
@@ -262,7 +263,8 @@ class SliceViewer:
     @property
     def lazy_lin(self) -> bool:
         cfg = self.controller.settings.data.get("rendering", {})
-        return should_use_lazy_lin(cfg, self.has_fusion, self._is_hw_gl)
+        use_numba = _NUMBA_AVAILABLE and cfg.get("numba", True)
+        return should_use_lazy_lin(cfg, self.has_fusion, self._is_hw_gl, use_numba)
 
     @property
     def view_state(self) -> ViewState | None:

@@ -16,6 +16,7 @@ DEFAULT_SETTINGS = {
         "gl_nearest": True,
         "single_texture": "Auto",
         "native_voxel": "Auto",
+        "numba": True,
     },
     "physics": {"auto_window_fov": 0.20, "voxel_strip_threshold": 5000},
     "shortcuts": {

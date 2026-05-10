@@ -253,6 +253,15 @@ class MainGUI:
                             )
                             with dpg.tooltip(gl_check):
                                 dpg.add_text("Use GPU GL_NEAREST for fast hardware NN upscaling.\nNot available on macOS.")
+                        from vvv.ui.render_strategy import _NUMBA_AVAILABLE
+                        if _NUMBA_AVAILABLE:
+                            nb_check = dpg.add_checkbox(
+                                label="Numba Acceleration",
+                                tag="menu_check_numba",
+                                callback=self.on_adv_rendering_changed,
+                            )
+                            with dpg.tooltip(nb_check):
+                                dpg.add_text("Use Numba JIT for native voxel overlay rendering.\n~40x faster than NumPy for SW NN modes on macOS.\nDisable to fall back to NumPy (useful for debugging).")
 
                 dpg.add_spacer(width=20)
                 dpg.add_text(
@@ -1383,12 +1392,35 @@ class MainGUI:
 
         has_fusion = False
         is_hw = False
+        nn_on = False
         if viewer:
             vs = viewer.view_state
             has_fusion = bool(vs and vs.display.overlay_id and vs.display.overlay_mode == "Alpha")
-            from vvv.ui.render_strategy import GL_NEAREST_SUPPORTED
             use_gl = cfg.get("gl_nearest", True)
             is_hw = GL_NEAREST_SUPPORTED and use_gl
+            nn_on = bool(vs and vs.display.pixelated_zoom)
+
+        # Build the effective-mode suffix shown on the top-level menu item
+        if nn_on:
+            if is_hw:
+                _mode_tag = "HW GL_NEAREST"
+            else:
+                _st = cfg.get("single_texture", "Auto")
+                _nv = cfg.get("native_voxel", "Auto")
+                _is_single = has_fusion if _st == "Auto" else (_st is True or _st == "Single")
+                _is_native = True if _nv == "Auto" else (_nv is True or _nv == "Native")
+                _ll = cfg.get("lazy_lin", "Auto")
+                _lazy_on = (has_fusion and not is_hw) if _ll == "Auto" else (_ll is True or _ll == "On")
+                _tex = "Single" if _is_single else "Dual"
+                _vox = "Native" if _is_native else "Resampled"
+                _lazy = " + Lazy" if _lazy_on else ""
+                _mode_tag = f"{_tex}-{_vox}{_lazy}"
+            nn_label = f"NN: {_mode_tag}  [K]"
+        else:
+            nn_label = "NN Interpolation  [K]"
+
+        if dpg.does_item_exist("menu_item_pixelated"):
+            dpg.configure_item("menu_item_pixelated", label=nn_label)
 
         ll_auto_str = f"Auto ({'On' if (has_fusion and not is_hw) else 'Off'})"
         st_auto_str = f"Auto ({'Single' if has_fusion else 'Dual'})"
@@ -1412,6 +1444,9 @@ class MainGUI:
         if dpg.does_item_exist("menu_check_gl_nearest"):
             dpg.set_value("menu_check_gl_nearest", cfg.get("gl_nearest", True))
 
+        if dpg.does_item_exist("menu_check_numba"):
+            dpg.set_value("menu_check_numba", cfg.get("numba", True))
+
     def on_adv_rendering_changed(self, sender, app_data, user_data):
         cfg = self.controller.settings.data.setdefault("rendering", {})
         if sender == "menu_combo_lazy_lin":
@@ -1422,6 +1457,8 @@ class MainGUI:
             cfg["native_voxel"] = "Auto" if app_data.startswith("Auto") else (app_data == "Native")
         elif sender == "menu_check_gl_nearest":
             cfg["gl_nearest"] = app_data
+        elif sender == "menu_check_numba":
+            cfg["numba"] = app_data
         self.controller.save_settings()
         self.controller._flag_all_viewers_dirty()
         self._init_rendering_menu()
