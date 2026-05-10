@@ -289,15 +289,25 @@ class FileManager:
                             }
                         )
 
+            roi_filter = ""
+            roi_sort = 0
+            if self.controller.gui and hasattr(self.controller.gui, "roi_ui"):
+                roi_filter = self.controller.gui.roi_ui.roi_filters.get(vs_id, "")
+                roi_sort = self.controller.gui.roi_ui.roi_sort_orders.get(vs_id, 0)
+
             workspace["images"][vs_id] = {
                 "path": portable_path(vol.file_paths) if len(vol.file_paths) > 1 else portable_path(vol.file_paths[0]),
                 "is_overlay_only": is_overlay,
                 "sync_group": vs.sync_group,
+                "sync_wl_group": getattr(vs, "sync_wl_group", 0),
                 "display": vs.display.to_dict(),
                 "camera": vs.camera.to_dict(),
                 "extraction": vs.extraction.to_dict(),
+                "dvf": vs.dvf.to_dict(),
                 "overlay": overlay_info,
                 "rois": rois_list,
+                "roi_filter": roi_filter,
+                "roi_sort_order": roi_sort,
             }
 
         with open(filepath, "w") as f:

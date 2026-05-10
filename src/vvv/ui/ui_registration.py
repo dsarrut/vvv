@@ -109,12 +109,25 @@ class RegistrationUI:
                     tag="check_reg_apply",
                     callback=gui.reg_ui.on_reg_apply_toggled,
                 )
-                dpg.add_button(
-                    label="Bake into Image",
-                    tag="btn_reg_bake",
-                    callback=gui.reg_ui.on_reg_bake_clicked,
-                    width=-1,
-                )
+                with dpg.group(horizontal=True):
+                    dpg.add_button(
+                        label="Bake into Image",
+                        tag="btn_reg_bake",
+                        callback=gui.reg_ui.on_reg_bake_clicked,
+                        width=-28,
+                    )
+                    btn_help_bake = dpg.add_button(label="\uf059", width=20)
+                    if dpg.does_item_exist("icon_font_tag"):
+                        dpg.bind_item_font(btn_help_bake, "icon_font_tag")
+                    if dpg.does_item_exist("icon_button_theme"):
+                        dpg.bind_item_theme(btn_help_bake, "icon_button_theme")
+                    with dpg.tooltip(btn_help_bake):
+                        dpg.add_text(
+                            "Permanently applies the active spatial transform to the\n"
+                            "underlying 3D pixel grid and resets the sliders to zero.\n"
+                            "You can then 'Save' the resulting aligned image to disk.",
+                            color=cfg_c.get("text_dim", [150, 150, 150])
+                        )
                 dpg.add_separator()
 
                 # --- MIDDLE: Read-Only Math (Matrix & CoR) ---
