@@ -133,6 +133,12 @@ class SpatialEngine:
             return (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
         return self.transform.GetParameters()
 
+    def has_translation(self, tolerance=1e-5):
+        if not self.transform or not self.is_active:
+            return False
+        tx, ty, tz = self.transform.GetTranslation()
+        return abs(tx) > tolerance or abs(ty) > tolerance or abs(tz) > tolerance
+
     def has_rotation(self, tolerance=1e-5):
         if not self.transform:
             return False

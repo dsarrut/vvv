@@ -86,7 +86,11 @@ class OverlayDrawer:
                 dpg.configure_item(viewer.xh_line_v, show=False)
             return
         
-        vx, vy, vz = viewer.view_state.camera.crosshair_voxel[:3]
+        display_vox = viewer._get_crosshair_display_voxel()
+        if display_vox is None:
+            return
+            
+        vx, vy, vz = display_vox[:3]
         shape = viewer.get_slice_shape() # This is now the display slice shape
 
         # Failsafe against zero-division from corrupted or 0-dimension images

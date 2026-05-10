@@ -7,6 +7,21 @@ from vvv.ui.gui import MainGUI
 from vvv.ui.viewer import SliceViewer
 
 
+@pytest.fixture(scope="session")
+def synthetic_volume_factory(tmp_path_factory):
+    """A factory to quickly generate 3D NIfTI files on disk for testing."""
+
+    def _create_vol(name="test_vol.nii.gz", val=100.0, shape=(5, 5, 5)):
+        data = np.full(shape, val, dtype=np.float32)
+        img = sitk.GetImageFromArray(data)
+        img.SetSpacing((1.0, 1.0, 1.0))
+        path = tmp_path_factory.mktemp("gui_data") / name
+        sitk.WriteImage(img, str(path))
+        return str(path)
+
+    return _create_vol
+
+
 @pytest.fixture
 def headless_gui_app(tmp_path):
     """

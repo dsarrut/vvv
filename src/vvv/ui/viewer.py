@@ -9,6 +9,7 @@ from vvv.core.view_state import ViewState
 from vvv.ui.render_strategy import (
     compute_software_nearest_neighbor,
     compute_native_voxel_overlay,
+    compute_native_voxel_base,
     blend_slices_cpu,
     GL_NEAREST_SUPPORTED,
     try_set_gl_nearest,
@@ -338,11 +339,11 @@ class SliceViewer:
         vs = self.view_state
         if vs is None or vs.camera.crosshair_phys_coord is None:
             return None
-        v = vs.space.world_to_display(
+        v = vs.world_to_display(
             vs.camera.crosshair_phys_coord, is_buffered=self._is_buffered()
         )
         if v is None:
-            v = vs.space.world_to_display(
+            v = vs.world_to_display(
                 vs.camera.crosshair_phys_coord, is_buffered=False
             )
         return v
@@ -404,7 +405,7 @@ class SliceViewer:
             new_display_voxel[1] = value
 
         # Convert this new display voxel back to physical world coordinates
-        new_phys = vs.space.display_to_world(
+        new_phys = vs.display_to_world(
             np.array(new_display_voxel), is_buffered=self._is_buffered()
         )
         if new_phys is None:
@@ -712,7 +713,7 @@ class SliceViewer:
 
         # Use the viewer's current slice_idx (which is the display slice index)
         v = slice_to_voxel(slice_x, slice_y, self.slice_idx, self.orientation, shape)
-        return vs.space.display_to_world(np.array(v), is_buffered=self._is_buffered())
+        return vs.display_to_world(np.array(v), is_buffered=self._is_buffered())
 
     def get_mouse_slice_coords(self, ignore_hover=False, allow_outside=False):
         vol = self.volume
@@ -780,12 +781,16 @@ class SliceViewer:
         base_scale = min(target_w / mm_w, target_h / mm_h)
 
         if base_scale > 0:
+            if vs:
+                vs.clear_reg_anchors()
             self.zoom = target_ppm / base_scale
             self.is_geometry_dirty = True
 
     def center_on_physical_coord(self, phys_coord):
         vs = self.view_state
         vol = self.volume
+        if vs:
+            vs.clear_reg_anchors()
         if not vs or not vol or phys_coord is None:
             return
 
@@ -794,7 +799,7 @@ class SliceViewer:
         if not win_w or not win_h:
             return
 
-        v = vs.space.world_to_display(phys_coord, is_buffered=self._is_buffered())
+        v = vs.world_to_display(phys_coord, is_buffered=self._is_buffered())
         if v is None:
             return
         shape = self.get_slice_shape()
@@ -1223,7 +1228,7 @@ class SliceViewer:
         display_voxel = slice_to_voxel(
             pix_x, pix_y, self.slice_idx, self.orientation, display_slice_shape
         )
-        phys = vs.space.display_to_world(
+        phys = vs.display_to_world(
             np.array(display_voxel[:3]), is_buffered=self._is_buffered()
         )
         if phys is None:
@@ -1357,9 +1362,13 @@ class SliceViewer:
             vs.display, "baked_overlay_translation", (0.0, 0.0, 0.0)
         )
 
-        dx_mm = live_dx - baked_dx
-        dy_mm = live_dy - baked_dy
-        dz_mm = live_dz - baked_dz
+        # Mathematical safeguard: 2D translation offset is only valid if there is NO interactive rotation happening!
+        if getattr(ovs, "_is_interactive_rotation", False) or getattr(base_vs, "_is_interactive_rotation", False):
+            dx_mm, dy_mm, dz_mm = 0.0, 0.0, 0.0
+        else:
+            dx_mm = live_dx - baked_dx
+            dy_mm = live_dy - baked_dy
+            dz_mm = live_dz - baked_dz
 
         sp_x, sp_y, sp_z = vol.spacing
 
@@ -1574,7 +1583,30 @@ class SliceViewer:
         if not vs:
             return
 
-        if not (self._effective_pixelated_zoom() and not self._is_hw_gl and not self.should_use_voxels_strips()):
+        is_pixelated_sw = (self._effective_pixelated_zoom()
+                           and not self._is_hw_gl
+                           and not self.should_use_voxels_strips())
+
+        # --- Interactive rotation preview (works in any zoom mode) ---
+        if vs._is_interactive_rotation:
+            # Full 3D MPR affine kernel for both in-plane and out-of-plane
+            if is_pixelated_sw:
+                canvas_w, canvas_h = self._get_canvas_size()
+                fast_rgba = compute_native_voxel_base(
+                    self, self.current_pmin, self.current_pmax, canvas_w, canvas_h
+                )
+            else:
+                sh, sw = self.get_slice_shape()
+                fast_rgba = compute_native_voxel_base(
+                    self, [0.0, 0.0], [float(sw), float(sh)], sw, sh
+                )
+            if fast_rgba is not None:
+                self._safe_set_texture(self.texture_tag, fast_rgba,
+                                       getattr(self, "_tex_w", 1), getattr(self, "_tex_h", 1))
+                return
+
+        # --- Normal rendering path ---
+        if not is_pixelated_sw:
             self._safe_set_texture(self.texture_tag, self.last_rgba_flat,
                                    getattr(self, "_tex_w", 1), getattr(self, "_tex_h", 1))
             return
@@ -1930,7 +1962,7 @@ class SliceViewer:
             idx = self.slice_idx
             shape = self.get_slice_shape()
             v = slice_to_voxel(pix_x, pix_y, idx, self.orientation, shape)
-            phys = vs.space.display_to_world(
+            phys = vs.display_to_world(
                 np.array(v), is_buffered=self._is_buffered()
             )
 
@@ -1958,13 +1990,13 @@ class SliceViewer:
 
             self._external_tracker_active = True
             is_external = True
-            v = vs.space.world_to_display(phys, is_buffered=self._is_buffered())
+        v = vs.world_to_display(phys, is_buffered=self._is_buffered())
 
         # --- THE NEUTRALIZED SPATIAL ENGINE ---
         # Even if we are viewing a rotated buffer, we consistently calculate the 'Native Voxel'
         # for reporting. This ensures tracker text and crosshair math remain resilient to
         # 'Straighten on Load' and manual registration offsets.
-        native_v = vs.space.world_to_display(phys, is_buffered=False)
+        native_v = vs.world_to_display(phys, is_buffered=False)
 
         # --- The drawing logic remains exactly the same! ---
         col = self.controller.settings.data["colors"]["tracker_text"]
@@ -2140,6 +2172,9 @@ class SliceViewer:
             self.controller.ui_needs_refresh = True
 
     def action_center_view(self):
+        vs = self.view_state
+        if vs:
+            vs.clear_reg_anchors()
         self.needs_recenter = True
         self.is_geometry_dirty = True
         self.controller.sync.propagate_camera(self)
@@ -2341,6 +2376,8 @@ class SliceViewer:
                 self.controller.sync.propagate_sync(self.image_id)
 
         elif is_ctrl and is_button and self.drag_start_pan is not None:
+            if vs:
+                vs.clear_reg_anchors()
             self.pan_offset[0] = self.drag_start_pan[0] + total_dx
             self.pan_offset[1] = self.drag_start_pan[1] + total_dy
             self.is_geometry_dirty = True
@@ -2365,6 +2402,8 @@ class SliceViewer:
         mx, my = dpg.get_drawing_mouse_pos()
         oz = self.zoom
         speed = self.controller.settings.data["interaction"]["zoom_speed"]
+        if vs:
+            vs.clear_reg_anchors()
         new_zoom = max(
             1e-5, self.zoom * (speed if direction == "in" else (1.0 / speed))
         )

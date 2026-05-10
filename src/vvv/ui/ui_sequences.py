@@ -540,38 +540,64 @@ def load_workspace_sequence(gui, controller, filepath):
     warnings = []
 
     # --- PHASE 1: GATHER ALL UNIQUE FILES TO LOAD ---
-    paths_to_load = set()
+    tasks_to_load = []
+    legacy_overlays = []
     for old_id, img_data in ws.get("images", {}).items():
         # Add Base Image
         raw_path = img_data.get("path")
         if raw_path:
-            p = os.path.expanduser(raw_path)
-            if os.path.exists(p):
-                paths_to_load.add(p)
+            if isinstance(raw_path, list):
+                p0 = os.path.expanduser(raw_path[0])
+                if os.path.exists(p0):
+                    tasks_to_load.append((old_id, tuple(os.path.expanduser(p) for p in raw_path)))
+                else:
+                    warnings.append(f"Missing DICOM File: {os.path.basename(raw_path[0])}")
+            elif isinstance(raw_path, str) and raw_path.startswith("4D:"):
+                tasks_to_load.append((old_id, raw_path))
             else:
-                warnings.append(f"Missing File: {os.path.basename(raw_path)}")
+                p = os.path.expanduser(raw_path)
+                if os.path.exists(p):
+                    tasks_to_load.append((old_id, p))
+                else:
+                    warnings.append(f"Missing File: {os.path.basename(raw_path)}")
 
         # Add Fusion Overlay
         ov_info = img_data.get("overlay")
-        if ov_info:
-            ov_path = os.path.expanduser(ov_info["path"])
-            if os.path.exists(ov_path):
-                paths_to_load.add(ov_path)
-            else:
-                warnings.append(f"Missing Overlay: {os.path.basename(ov_info['path'])}")
+        if ov_info and "id" not in ov_info:
+            ov_raw_path = ov_info.get("path")
+            if ov_raw_path:
+                if isinstance(ov_raw_path, list):
+                    p0 = os.path.expanduser(ov_raw_path[0])
+                    if os.path.exists(p0):
+                        legacy_overlays.append((old_id, tuple(os.path.expanduser(p) for p in ov_raw_path)))
+                    else:
+                        warnings.append(f"Missing Overlay DICOM: {os.path.basename(ov_raw_path[0])}")
+                elif isinstance(ov_raw_path, str) and ov_raw_path.startswith("4D:"):
+                    legacy_overlays.append((old_id, ov_raw_path))
+                else:
+                    ov_path = os.path.expanduser(ov_raw_path)
+                    if os.path.exists(ov_path):
+                        legacy_overlays.append((old_id, ov_path))
+                    else:
+                        warnings.append(f"Missing Overlay: {os.path.basename(ov_raw_path)}")
 
-    paths_list = list(paths_to_load)
-    total_files = len(paths_list)
-    path_map = {}  # Maps absolute file paths to the newly generated vs_id
+    total_files = len(tasks_to_load) + len(legacy_overlays)
+    id_map = {}
+    legacy_overlay_map = {}
 
     # --- PHASE 2: PARALLEL LOAD ALL IMAGES & OVERLAYS ---
     if total_files > 0:
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=min(total_files, 8)
         ) as executor:
-            future_to_path = {
-                executor.submit(controller.file.load_image, p): p for p in paths_list
-            }
+            future_to_path = {}
+            for old_id, p in tasks_to_load:
+                f = executor.submit(controller.file.load_image, list(p) if isinstance(p, tuple) else p)
+                future_to_path[f] = ("base", old_id, p)
+            for parent_old_id, p in legacy_overlays:
+                f = executor.submit(controller.file.load_image, list(p) if isinstance(p, tuple) else p)
+                future_to_path[f] = ("legacy_ov", parent_old_id, p)
+            
             futures: list[concurrent.futures.Future | None] = [
                 f for f in future_to_path.keys()
             ]
@@ -583,9 +609,17 @@ def load_workspace_sequence(gui, controller, filepath):
                         p = future_to_path[future]
                         try:
                             new_id = future.result()
-                            path_map[p] = new_id
+                            task_type, task_id, _p = future_to_path[future]
+                            if task_type == "base":
+                                id_map[task_id] = new_id
+                            else:
+                                legacy_overlay_map[task_id] = new_id
                         except Exception as e:
-                            warnings.append(f"- {os.path.basename(p)}: {e}")
+                            task_type, task_id, _p = future_to_path[future]
+                            if isinstance(_p, tuple):
+                                warnings.append(f"- {os.path.basename(_p[0])}: {e}")
+                            else:
+                                warnings.append(f"- {os.path.basename(_p)}: {e}")
 
                         futures[i] = None
                         completed += 1
@@ -600,46 +634,63 @@ def load_workspace_sequence(gui, controller, filepath):
                 time.sleep(0.01)
 
     # --- PHASE 3: APPLY STATES SYNCHRONOUSLY ---
-    id_map = {}
     for old_id, img_data in ws.get("images", {}).items():
-        raw_path = img_data.get("path")
-        if raw_path:
-            p = os.path.expanduser(raw_path)
-            if p in path_map:
-                new_id = path_map[p]
-                id_map[old_id] = new_id
+        if old_id in id_map:
+            new_id = id_map[old_id]
+            
+            controller.volumes[new_id].is_overlay_only = img_data.get("is_overlay_only", False)
 
-                vs = controller.view_states[new_id]
-                vs.display.from_dict(img_data.get("display", {}))
-                vs.camera.from_dict(img_data.get("camera", {}))
-                if "extraction" in img_data:
-                    vs.extraction.from_dict(img_data["extraction"])
-                if "dvf" in img_data:
-                    vs.dvf.from_dict(img_data["dvf"])
-                vs.sync_group = img_data.get("sync_group", 0)
-                vs.sync_wl_group = img_data.get("sync_wl_group", 0)
+            vs = controller.view_states[new_id]
+            vs.display.from_dict(img_data.get("display", {}))
+            vs.camera.from_dict(img_data.get("camera", {}))
+            if "extraction" in img_data:
+                vs.extraction.from_dict(img_data["extraction"])
+            if "dvf" in img_data:
+                vs.dvf.from_dict(img_data["dvf"])
+            vs.sync_group = img_data.get("sync_group", 0)
+            vs.sync_wl_group = img_data.get("sync_wl_group", 0)
 
-                if hasattr(gui, "roi_ui"):
-                    gui.roi_ui.roi_filters[new_id] = img_data.get("roi_filter", "")
-                    gui.roi_ui.roi_sort_orders[new_id] = img_data.get(
-                        "roi_sort_order", 0
-                    )
+            if hasattr(gui, "roi_ui"):
+                gui.roi_ui.roi_filters[new_id] = img_data.get("roi_filter", "")
+                gui.roi_ui.roi_sort_orders[new_id] = img_data.get(
+                    "roi_sort_order", 0
+                )
 
-                # Apply Overlays immediately since they are already loaded in RAM
-                ov_info = img_data.get("overlay")
-                if ov_info:
-                    ov_path = os.path.expanduser(ov_info["path"])
-                    if ov_path in path_map:
-                        ov_id = path_map[ov_path]
+            # Apply Overlays immediately since they are already loaded in RAM
+            ov_info = img_data.get("overlay")
+            if ov_info:
+                ov_id = None
+                if "id" in ov_info:
+                    ov_id = id_map.get(ov_info["id"])
+                else:
+                    # Legacy support
+                    ov_id = legacy_overlay_map.get(old_id)
+                    if not ov_id:
+                        ov_raw_path = ov_info.get("path")
+                        if ov_raw_path:
+                            if isinstance(ov_raw_path, list):
+                                ov_p = tuple(os.path.expanduser(x) for x in ov_raw_path)
+                            elif isinstance(ov_raw_path, str) and ov_raw_path.startswith("4D:"):
+                                ov_p = ov_raw_path
+                            else:
+                                ov_p = os.path.expanduser(ov_raw_path)
+                                
+                                for t_old_id, t_p in tasks_to_load:
+                                    if t_p == ov_p and t_old_id in id_map:
+                                        ov_id = id_map[t_old_id]
+                                        break
+                                    
+                if ov_id and ov_id in controller.volumes:
+                    if "id" not in ov_info:
                         controller.volumes[ov_id].is_overlay_only = True
-                        ov_vs = controller.view_states[ov_id]
-                        ov_vs.display.colormap = ov_info.get("colormap", "Grayscale")
-                        if "threshold" in ov_info and ov_info["threshold"] is not None:
-                            ov_vs.display.base_threshold = ov_info["threshold"]
+                    ov_vs = controller.view_states[ov_id]
+                    ov_vs.display.colormap = ov_info.get("colormap", "Grayscale")
+                    if "threshold" in ov_info and ov_info["threshold"] is not None:
+                        ov_vs.display.base_threshold = ov_info["threshold"]
 
-                        vs.set_overlay(ov_id, controller.volumes[ov_id], controller)
-                        vs.display.overlay_mode = ov_info.get("mode", "Registration")
-                        vs.display.overlay_opacity = ov_info.get("opacity", 0.5)
+                    vs.set_overlay(ov_id, controller.volumes[ov_id], controller)
+                    vs.display.overlay_mode = ov_info.get("mode", "Registration")
+                    vs.display.overlay_opacity = ov_info.get("opacity", 0.5)
 
     # --- PHASE 4: MAP VIEWERS ---
     for tag, v_data in ws.get("viewers", {}).items():
@@ -668,17 +719,29 @@ def load_workspace_sequence(gui, controller, filepath):
             new_id = id_map[old_id]
             for roi_data in img_data.get("rois", []):
                 raw_r_path = roi_data.get("path", "")
-                r_path = os.path.expanduser(raw_r_path)
-                if r_path and os.path.exists(r_path):
-                    valid_rois_to_load.append(
-                        {
-                            "new_id": new_id,
-                            "path": r_path,
-                            "state": roi_data.get("state", {}),
-                        }
-                    )
-                elif r_path:
-                    warnings.append(f"Missing ROI: {os.path.basename(raw_r_path)}")
+                if raw_r_path:
+                    if isinstance(raw_r_path, list):
+                        r_path = tuple(os.path.expanduser(x) for x in raw_r_path)
+                        if os.path.exists(r_path[0]):
+                            valid_rois_to_load.append({
+                                "new_id": new_id,
+                                "path": r_path,
+                                "state": roi_data.get("state", {}),
+                            })
+                        else:
+                            warnings.append(f"Missing ROI DICOM: {os.path.basename(r_path[0])}")
+                    elif isinstance(raw_r_path, str) and raw_r_path.startswith("4D:"):
+                        warnings.append("4D ROIs are not supported.")
+                    else:
+                        r_path = os.path.expanduser(raw_r_path)
+                        if os.path.exists(r_path):
+                            valid_rois_to_load.append({
+                                "new_id": new_id,
+                                "path": r_path,
+                                "state": roi_data.get("state", {}),
+                            })
+                        else:
+                            warnings.append(f"Missing ROI: {os.path.basename(raw_r_path)}")
 
     total_rois = len(valid_rois_to_load)
 
@@ -696,17 +759,21 @@ def load_workspace_sequence(gui, controller, filepath):
         def process_file_group(r_path, tasks):
             results = []
             is_rtstruct = any(t["state"].get("rtstruct_info") for t in tasks)
+            
+            actual_path = list(r_path) if isinstance(r_path, tuple) else r_path
+            path_for_print = os.path.basename(actual_path[0]) if isinstance(actual_path, list) else os.path.basename(actual_path)
 
             if is_rtstruct:
                 try:
                     import pydicom
 
-                    ds = pydicom.dcmread(r_path, force=True)
+                    rt_path = actual_path[0] if isinstance(actual_path, list) else actual_path
+                    ds = pydicom.dcmread(rt_path, force=True)
                     for task in tasks:
                         try:
                             roi_id = controller.roi.load_rtstruct_roi(
                                 task["new_id"],
-                                r_path,
+                                rt_path,
                                 task["state"]["rtstruct_info"],
                                 ds=ds,
                             )
@@ -725,12 +792,12 @@ def load_workspace_sequence(gui, controller, filepath):
                             (
                                 task,
                                 None,
-                                f"- Failed to read {os.path.basename(r_path)}: {e}",
+                                    f"- Failed to read {path_for_print}: {e}",
                             )
                         )
             else:
                 try:
-                    img = sitk.ReadImage(r_path)
+                    img = sitk.ReadImage(actual_path)
                     data = sitk.GetArrayViewFromImage(img)
                     bboxes = None
 
@@ -754,7 +821,7 @@ def load_workspace_sequence(gui, controller, filepath):
                                 if float(val_int) == target_val:
                                     roi_id = controller.roi.extract_label_from_image(
                                         task["new_id"],
-                                        r_path,
+                                        actual_path,
                                         img,
                                         data,
                                         val_int,
@@ -767,7 +834,7 @@ def load_workspace_sequence(gui, controller, filepath):
                             if roi_id is None:
                                 roi_id = controller.roi.load_binary_mask(
                                     task["new_id"],
-                                    r_path,
+                                    actual_path,
                                     name=task["state"].get("name"),
                                     color=task["state"].get("color", [255, 0, 0]),
                                     mode=mode,
@@ -784,7 +851,7 @@ def load_workspace_sequence(gui, controller, filepath):
                             (
                                 task,
                                 None,
-                                f"- Failed to read {os.path.basename(r_path)}: {e}",
+                                    f"- Failed to read {path_for_print}: {e}",
                             )
                         )
 
@@ -851,12 +918,15 @@ def load_workspace_sequence(gui, controller, filepath):
     for old_id, img_data in ws.get("images", {}).items():
         ov_info = img_data.get("overlay")
         if ov_info:
-            ov_path = os.path.expanduser(ov_info["path"])
-            if ov_path in path_map:
-                ov_id = path_map[ov_path]
-                if ov_id in controller.view_states and ov_id not in ordered_vs:
-                    ordered_vs[ov_id] = controller.view_states[ov_id]
-                    ordered_vol[ov_id] = controller.volumes[ov_id]
+            ov_id = None
+            if "id" in ov_info:
+                ov_id = id_map.get(ov_info["id"])
+            else:
+                ov_id = legacy_overlay_map.get(old_id)
+                
+            if ov_id and ov_id in controller.view_states and ov_id not in ordered_vs:
+                ordered_vs[ov_id] = controller.view_states[ov_id]
+                ordered_vol[ov_id] = controller.volumes[ov_id]
 
     # 3. Add any remaining items (like pre-existing images and ROIs)
     for v_id, vs in list(controller.view_states.items()):

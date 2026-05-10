@@ -109,6 +109,13 @@ class RegistrationUI:
                     tag="check_reg_apply",
                     callback=gui.reg_ui.on_reg_apply_toggled,
                 )
+                dpg.add_button(
+                    label="Bake into Image",
+                    tag="btn_reg_bake",
+                    callback=gui.reg_ui.on_reg_bake_clicked,
+                    width=-1,
+                )
+                dpg.add_separator()
 
                 # --- MIDDLE: Read-Only Math (Matrix & CoR) ---
                 dpg.add_spacer(height=10)
@@ -234,29 +241,6 @@ class RegistrationUI:
                         label="Invert", width=-1, callback=gui.reg_ui.on_reg_invert_clicked
                     )
 
-    def _snap_viewer_to_world_pos(self, viewer, world_pos):
-        """Calculates the new local voxel coordinates and updates the camera slices to stay pinned to a world point."""
-        vs = viewer.view_state
-        is_buf = vs.base_display_data is not None and vs.space.has_rotation() # Only use buffered geometry if rotation is active
-        new_local_vox = vs.space.world_to_display(world_pos, is_buffered=is_buf)
-        sh = vs.volume.shape3d
-
-        from vvv.utils import ViewMode
-
-        vs.camera.crosshair_voxel = [
-            new_local_vox[0],
-            new_local_vox[1],
-            new_local_vox[2],
-            vs.camera.time_idx,
-        ]
-        vs.camera.slices[ViewMode.AXIAL] = int(np.clip(new_local_vox[2], 0, sh[0] - 1))
-        vs.camera.slices[ViewMode.SAGITTAL] = int(
-            np.clip(new_local_vox[0], 0, sh[2] - 1)
-        )
-        vs.camera.slices[ViewMode.CORONAL] = int(
-            np.clip(new_local_vox[1], 0, sh[1] - 1)
-        )
-
     def pull_reg_sliders_from_transform(self):
         """ONLY call this when loading a file, switching images, or resetting. NOT during drag!"""
         viewer = self.gui.context_viewer
@@ -379,6 +363,13 @@ class RegistrationUI:
             active_vs = self.controller.view_states.get(active_image_id)
             if active_vs:
                 active_vs.update_base_display_data()
+                # Quality resample done: exit fast-preview mode
+                active_vs._is_interactive_rotation = False
+                # Sync crosshair with the freshly resampled buffer so slice_idx and
+                # values reflect the new geometry. Only needed if base image rotated!
+                if active_vs.base_display_data is not None:
+                    if active_vs.camera.crosshair_phys_coord is not None:
+                        active_vs.update_crosshair_from_phys(active_vs.camera.crosshair_phys_coord)
                 if active_vs.display.overlay_id:
                     active_vs.update_overlay_display_data(self.controller)
                     active_vs.is_data_dirty = True
@@ -389,7 +380,7 @@ class RegistrationUI:
                     vs.is_data_dirty = True
 
             self.controller.update_all_viewers_of_image(active_image_id)
-            
+
             # Feedback when done
             self.controller.status_message = "Resampling complete"
             self.controller.ui_needs_refresh = True
@@ -406,41 +397,165 @@ class RegistrationUI:
             self._reg_debounce_timer = threading.Timer(0.3, _do_resample)
             self._reg_debounce_timer.start()
 
-    def apply_transform_and_keep_world_fixed(
-        self, viewer, new_state_val=None, skip_manual_update=False
-    ):
+    # ------------------------------------------------------------------
+    # Transform drag helpers (The Pin Model)
+    # ------------------------------------------------------------------
+
+    def _ensure_drag_anchor(self, vs):
+        """Capture all drag anchors at the start of a gesture.
+
+        Captures: world pin, native voxel WITHOUT transform, and per-orientation pan.
+        Re-captures when the crosshair moved since the last drag (user navigated between gestures).
+        During a continuous drag, crosshair_phys_coord is never changed, so anchors are stable.
+        """
+        phys = vs.camera.crosshair_phys_coord
+        if phys is None:
+            return
+        if vs._reg_anchor_world is None or not np.allclose(phys, vs._reg_anchor_world, atol=0.01):
+            vs._reg_anchor_world = phys.copy()
+            # Native voxel WITHOUT transform: raw geometry inverse (no registration)
+            vs._reg_anchor_native_vox = vs.space.phys_to_raw_voxel(phys).copy()
+            # Per-orientation pan at drag start (one entry per orientation)
+            vs._reg_anchor_pan = {k: list(v) for k, v in vs.camera.pan.items()}
+
+    def _on_transform_drag(self, viewer):
+        """Called on every slider event.
+
+        For TRANSLATION (no rotation):
+          - camera.crosshair_voxel is updated to the new native voxel under the world pin
+          - camera.pan is adjusted by the compensating amount so the crosshair SCREEN
+            position stays fixed — the image visually shifts, the crosshair doesn't drift
+          - is_geometry_dirty=True so the mapper recalculates pmin/pmax from the new pan
+
+        For ROTATION:
+          - crosshair_voxel and pan are NOT changed (only value updates)
+          - _is_interactive_rotation=True routes viewer.tick() to the fast Numba preview
+          - debounced ITK resample triggered for quality settle
+
+        Pan compensation math (see geometry derivation in plans):
+          AXIAL:    pan_delta = [-dn[0]*dw/sw, -dn[1]*dh/sh]
+          CORONAL:  pan_delta = [-dn[0]*dw/sw, +dn[2]*dh/sh]
+          SAGITTAL: pan_delta = [+dn[1]*dw/sw, +dn[2]*dh/sh]
+        where dn = native_vox_new - native_vox_orig_without_transform
+        """
         vs = viewer.view_state
         if not vs or not viewer.image_id:
             return
-        vs_id = viewer.image_id # Ensure vs_id is available
+        vs_id = viewer.image_id
 
-        # 1. Capture the WORLD position of the crosshair anchor BEFORE the change
-        # This is our absolute anatomical reference point.
-        is_buf = vs.base_display_data is not None and vs.space.has_rotation()
-        anchor_world_pos = vs.space.display_to_world(np.array(vs.camera.crosshair_voxel[:3]), is_buffered=is_buf)
+        # 1. Capture all anchors at the start of the drag gesture
+        self._ensure_drag_anchor(vs)
+        anchor = vs._reg_anchor_world
+        native_orig = vs._reg_anchor_native_vox
+        anchor_pan = vs._reg_anchor_pan
+        if anchor is None or native_orig is None or anchor_pan is None:
+            return
 
-        # 2. Update the Transform State
+        # 2. Apply new transform parameters from sliders
+        vals = [dpg.get_value(t) for t in self.SLIDER_TAGS]
+        self.controller.update_transform_manual(
+            vs_id, vals[3], vals[4], vals[5], vals[0], vals[1], vals[2]
+        )
+
+        # 3. Map the fixed world anchor through the NEW transform → new native voxel
+        native_new = vs.world_to_display(anchor, is_buffered=False)
+        if native_new is None:
+            return
+
+        # 4. Clamp native voxel to valid range
+        sh = vs.volume.shape3d
+        ix = int(np.clip(np.round(native_new[0]), 0, sh[2] - 1))
+        iy = int(np.clip(np.round(native_new[1]), 0, sh[1] - 1))
+        iz = int(np.clip(np.round(native_new[2]), 0, sh[0] - 1))
+
+        # 5. Update value at the crosshair (reads from new native voxel under world pin)
+        vs.crosshair_value = vs._read_voxel_value(ix, iy, iz, use_buffer=False)
+
+        has_rotation = vs.space.is_active and vs.space.has_rotation()
+
+        if not has_rotation:
+            # --- TRANSLATION PATH ---
+            # Clear stale rotation buffer (e.g. after Reset — rotation removed, buffer stale)
+            if vs.base_display_data is not None:
+                vs.base_display_data = None
+                vs._sitk_base_cache = None
+
+            # delta_native: how the native voxel moved due to the translation
+            dn = native_new - native_orig
+
+            # Update crosshair voxel AND pan simultaneously so screen position stays fixed
+            vs.camera.crosshair_voxel = [native_new[0], native_new[1], native_new[2], vs.camera.time_idx]
+            vs.camera.slices[ViewMode.AXIAL]    = iz
+            vs.camera.slices[ViewMode.SAGITTAL] = ix
+            vs.camera.slices[ViewMode.CORONAL]  = iy
+
+            for v in self.controller.viewers.values():
+                if v.image_id != vs_id:
+                    continue
+                orientation = v.orientation
+                dw = v.current_pmax[0] - v.current_pmin[0]
+                dh = v.current_pmax[1] - v.current_pmin[1]
+                sl_h, sl_w = v.get_slice_shape()
+                if sl_w <= 0 or sl_h <= 0 or dw <= 0 or dh <= 0:
+                    continue
+
+                if orientation == ViewMode.AXIAL:
+                    dpx = -dn[0] * dw / sl_w
+                    dpy = -dn[1] * dh / sl_h
+                elif orientation == ViewMode.CORONAL:
+                    dpx = -dn[0] * dw / sl_w
+                    dpy =  dn[2] * dh / sl_h
+                elif orientation == ViewMode.SAGITTAL:
+                    dpx =  dn[1] * dw / sl_w
+                    dpy =  dn[2] * dh / sl_h
+                else:
+                    continue
+
+                base_pan = anchor_pan.get(orientation, [0.0, 0.0])
+                vs.camera.pan[orientation] = [base_pan[0] + dpx, base_pan[1] + dpy]
+
+            vs._is_interactive_rotation = False
+            vs.is_data_dirty = True
+            vs.is_geometry_dirty = True  # pan changed → recalculate pmin/pmax
+            self.trigger_debounced_rotation_update(vs_id)
+
+        else:
+            # --- ROTATION PATH ---
+            # Don't touch crosshair_voxel or pan — fast preview handles visual rotation
+            vs._is_interactive_rotation = True
+            vs.is_data_dirty = True
+            self.trigger_debounced_rotation_update(vs_id)
+
+        # 6. Notify synced images to redraw
+        self.controller.sync.propagate_transform_sync(vs_id)
+        self.controller.ui_needs_refresh = True
+
+    def _on_transform_settled(self, viewer, new_state_val=None):
+        """Called for discrete actions (apply/toggle), not during continuous drag.
+
+        Performs a full crosshair reconcile and re-centers the camera on the anchor.
+        Safe to call target_center here because this is a one-shot user action.
+        """
+        vs = viewer.view_state
+        if not vs or not viewer.image_id:
+            return
+        vs_id = viewer.image_id
+
+        # Use the stored anchor if available, otherwise derive from current state
+        anchor = vs._reg_anchor_world
+        if anchor is None:
+            anchor = vs.camera.crosshair_phys_coord
+
+        # Apply toggle state if provided
         if new_state_val is not None:
             vs.space.is_active = new_state_val
 
-        if not skip_manual_update:
-            # Pull slider values (Rx, Ry, Rz, Tx, Ty, Tz) into the SpatialEngine
-            vals = [dpg.get_value(t) for t in self.SLIDER_TAGS]
-            self.controller.update_transform_manual(
-                vs_id, vals[3], vals[4], vals[5], vals[0], vals[1], vals[2]
-            )
+        # Full crosshair reconcile (safe: drag is over)
+        vs.update_crosshair_from_phys(anchor)
 
-        # 3. Update Crosshair (Local Voxel) to stay pinned to the same World anatomy using the new central method
-        vs.update_crosshair_from_phys(anchor_world_pos)
+        # Clear all drag state
+        vs.clear_reg_anchors()
 
-        # 4. ABSOLUTE RE-CENTERING (Anti-Drift Guardrail)
-        # We tell the view_state: "Make sure this physical point stays centered."
-        # This forces the viewer.tick() to solve for the pan_offset on the next frame.
-        target_ids = self.controller.sync.get_sync_group_vs_ids(vs_id, active_only=True)
-        for tid in target_ids:
-            self.controller.view_states[tid].camera.target_center = anchor_world_pos
-
-        # 5. Flag Dirty Flags for Redraw
         for v in self.controller.viewers.values():
             if v.image_id == vs_id:
                 v.is_geometry_dirty = True
@@ -448,9 +563,25 @@ class RegistrationUI:
         self.controller.update_all_viewers_of_image(vs_id, data_dirty=vs.space.has_rotation())
         self.controller.ui_needs_refresh = True
 
-        # 6. Trigger 3D resample if rotation is involved
         if vs.space.is_active or new_state_val is not None:
             self.trigger_debounced_rotation_update(vs_id)
+
+    def apply_transform_and_keep_world_fixed(
+        self, viewer, new_state_val=None, skip_manual_update=False
+    ):
+        """Legacy entry point — delegates to the new settled path for discrete actions."""
+        vs = viewer.view_state
+        if not vs or not viewer.image_id:
+            return
+        vs_id = viewer.image_id
+
+        if not skip_manual_update:
+            vals = [dpg.get_value(t) for t in self.SLIDER_TAGS]
+            self.controller.update_transform_manual(
+                vs_id, vals[3], vals[4], vals[5], vals[0], vals[1], vals[2]
+            )
+
+        self._on_transform_settled(viewer, new_state_val=new_state_val)
 
     # --- Callbacks ---
     def on_reg_load_clicked(self, sender, app_data, user_data):
@@ -464,8 +595,7 @@ class RegistrationUI:
         if isinstance(file_path, str):
             vs = viewer.view_state
             # Capture the current world position of the crosshair BEFORE loading the new transform
-            is_buf = vs.base_display_data is not None and vs.space.has_rotation()
-            world_pos = vs.space.display_to_world(np.array(vs.camera.crosshair_voxel[:3]), is_buffered=is_buf)
+            world_pos = vs.camera.crosshair_phys_coord
 
             if self.controller.load_transform(viewer.image_id, file_path):
                 # Dynamically remember the exact file path for "Save"
@@ -475,7 +605,8 @@ class RegistrationUI:
                 # Automatically enable the transform so the user sees it immediately
                 vs.space.is_active = True
 
-                self._snap_viewer_to_world_pos(viewer, world_pos)
+                if world_pos is not None:
+                    vs.update_crosshair_from_phys(world_pos)
 
                 self.controller.update_all_viewers_of_image(viewer.image_id)
                 self.gui.update_sidebar_crosshair(viewer)
@@ -563,12 +694,27 @@ class RegistrationUI:
         # Immediately trigger the transform update
         self.on_reg_manual_changed(sender, app_data, user_data)
 
+    def on_reg_bake_clicked(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.image_id:
+            return
+        vs = viewer.view_state
+        if not vs or not vs.space.transform or not vs.space.is_active:
+            self.gui.show_status_message(
+                "No active transform to bake.", color=self.gui.ui_cfg["colors"]["warning"]
+            )
+            return
+        self.gui.show_status_message(
+            "Baking transform...", color=self.gui.ui_cfg["colors"]["working"]
+        )
+        self.controller.bake_transform_to_volume(viewer.image_id)
+        self.pull_reg_sliders_from_transform()
+        self.controller.ui_needs_refresh = True
+
     def on_reg_apply_toggled(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer
         if viewer and viewer.image_id:
-            self.apply_transform_and_keep_world_fixed(
-                viewer, new_state_val=app_data, skip_manual_update=True
-            )
+            self._on_transform_settled(viewer, new_state_val=app_data)
 
     def on_reg_step_changed(self, sender, app_data, user_data):
         speed = 1.0 if app_data == "Coarse" else 0.1
@@ -580,7 +726,7 @@ class RegistrationUI:
         viewer = self.gui.context_viewer
         if not viewer or not viewer.image_id:
             return
-        self.apply_transform_and_keep_world_fixed(viewer)
+        self._on_transform_drag(viewer)
         self.controller.ui_needs_refresh = True
 
     def on_reg_reset_clicked(self, sender, app_data, user_data):
@@ -590,7 +736,7 @@ class RegistrationUI:
         for tag in self.SLIDER_TAGS:
             if dpg.does_item_exist(tag):
                 dpg.set_value(tag, 0.0)
-        self.on_reg_manual_changed(sender, app_data, user_data)
+        self.apply_transform_and_keep_world_fixed(viewer, skip_manual_update=False)
         self.pull_reg_sliders_from_transform()
 
     def on_reg_invert_clicked(self, sender, app_data, user_data):
@@ -612,7 +758,7 @@ class RegistrationUI:
         for tag, val in zip(self.SLIDER_TAGS, vals):
             if dpg.does_item_exist(tag):
                 dpg.set_value(tag, val)
-        self.on_reg_manual_changed(sender, app_data, user_data)
+        self.apply_transform_and_keep_world_fixed(viewer, skip_manual_update=False)
         self.pull_reg_sliders_from_transform()
 
     def on_reg_center_cor_clicked(self, sender, app_data, user_data):
@@ -626,7 +772,8 @@ class RegistrationUI:
             if vs.space.transform
             else self.controller.get_volume_physical_center(vol)
         )
-        self._snap_viewer_to_world_pos(viewer, center)
+        if center is not None:
+            vs.update_crosshair_from_phys(center)
         # State-Only Camera Snapping
         target_ids = self.controller.sync.get_sync_group_vs_ids(
             viewer.image_id, active_only=True

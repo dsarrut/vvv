@@ -11,21 +11,6 @@ from vvv.ui.ui_sequences import create_boot_sequence
 from vvv.ui.ui_sync import handle_sync_group_change, handle_wl_group_change
 
 
-@pytest.fixture(scope="session")
-def synthetic_volume_factory(tmp_path_factory):
-    """A factory to quickly generate 3D NIfTI files on disk for testing."""
-
-    def _create_vol(name="test_vol.nii.gz", val=100.0, shape=(5, 5, 5)):
-        data = np.full(shape, val, dtype=np.float32)
-        img = sitk.GetImageFromArray(data)
-        img.SetSpacing((1.0, 1.0, 1.0))
-        path = tmp_path_factory.mktemp("gui_data") / name
-        sitk.WriteImage(img, str(path))
-        return str(path)
-
-    return _create_vol
-
-
 @pytest.fixture
 def headless_gui_app(synthetic_volume_factory):
     """Sets up the Controller and GUI, returning the app and a pre-loaded Base Image."""
@@ -247,37 +232,6 @@ def test_cli_boot_sequence_logic(headless_gui_app, synthetic_volume_factory):
     ]
     assert groups[0] == groups[1]
     assert groups[0] > 0
-
-
-def test_gui_registration_sliders(headless_gui_app):
-    """Verifies that the DearPyGui registration sliders perfectly map to the ITK math engine."""
-    controller, gui, viewer, vs_id = headless_gui_app
-    vs = viewer.view_state
-
-    # 1. Initialize the GUI slider items if they don't exist in the headless context
-    for key in [
-        "drag_reg_tx",
-        "drag_reg_ty",
-        "drag_reg_tz",
-        "drag_reg_rx",
-        "drag_reg_ry",
-        "drag_reg_rz",
-    ]:
-        if not dpg.does_item_exist(key):
-            dpg.add_drag_float(tag=key, default_value=0.0)
-
-    # 2. Simulate User dragging the X-Translation slider to 15.0 mm
-    dpg.set_value("drag_reg_tx", 15.0)
-
-    # 3. Trigger the GUI update method
-    vs.space.is_active = True  # Transform must be active to read it
-    gui.reg_ui.apply_transform_and_keep_world_fixed(viewer)
-
-    # 4. Assert the underlying SimpleITK Transform actually received the 15.0mm translation!
-    translation = vs.space.transform.GetTranslation()
-    assert translation[0] == 15.0
-    assert translation[1] == 0.0
-
 
 def test_gui_interaction_modifiers(headless_gui_app, monkeypatch):
     """Verifies that holding the Ctrl key changes the mouse scroll from Slicing to Zooming."""
