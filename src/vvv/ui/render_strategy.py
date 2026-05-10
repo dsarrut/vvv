@@ -443,16 +443,19 @@ def compute_native_voxel_base(viewer, pmin, pmax, canvas_w, canvas_h):
         B_eff += C2 * depth
         C_col, C_row = C1, C0
         iy_adj, ix_adj = itk_y, itk_x
+        vec_w, vec_h = C0[:, None] * itk_x, C1[:, None] * itk_y
     elif viewer.orientation == ViewMode.SAGITTAL:
         itk_y, itk_z = slice_w - ix_disp - 0.5, slice_h - iy_disp - 0.5
         B_eff += C0 * depth
         C_col, C_row = C2, C1
         iy_adj, ix_adj = itk_z, itk_y
+        vec_w, vec_h = C1[:, None] * itk_y, C2[:, None] * itk_z
     else:
         itk_x, itk_z = ix_disp - 0.5, slice_h - iy_disp - 0.5
         B_eff += C1 * depth
         C_col, C_row = C2, C0
         iy_adj, ix_adj = itk_z, itk_x
+        vec_w, vec_h = C0[:, None] * itk_x, C2[:, None] * itk_z
 
     lut = COLORMAPS.get(vs.display.colormap, COLORMAPS["Grayscale"])
     use_numba = _NUMBA_AVAILABLE and viewer.controller.settings.data.get("rendering", {}).get("numba", True)
@@ -474,19 +477,7 @@ def compute_native_voxel_base(viewer, pmin, pmax, canvas_w, canvas_h):
         )
         return rgba.ravel()
 
-    # NumPy fallback
-    vec_w = None
-    vec_h = None
-    if viewer.orientation == ViewMode.AXIAL:
-        vec_w = C0[:, None] * itk_x
-        vec_h = C1[:, None] * itk_y
-    elif viewer.orientation == ViewMode.SAGITTAL:
-        vec_w = C1[:, None] * itk_y
-        vec_h = C2[:, None] * itk_z
-    else:
-        vec_w = C0[:, None] * itk_x
-        vec_h = C2[:, None] * itk_z
-
+    # --- NumPy fallback (no numba) ---
     s_x = B_eff[0] + vec_h[0][:, None] + vec_w[0]
     s_y = B_eff[1] + vec_h[1][:, None] + vec_w[1]
     s_z = B_eff[2] + vec_h[2][:, None] + vec_w[2]
