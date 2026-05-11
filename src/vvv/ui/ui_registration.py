@@ -43,7 +43,6 @@ class RegistrationUI:
     def __init__(self, gui, controller):
         self.gui = gui
         self.controller = controller
-        self._reg_debounce_timer = None
 
     @staticmethod
     def build_tab_reg(gui):
@@ -366,15 +365,11 @@ class RegistrationUI:
                     f"{center[0]:.1f}, {center[1]:.1f}, {center[2]:.1f}",
                 )
 
-    def trigger_debounced_rotation_update(self, active_image_id, immediate=False):
+    def trigger_resample(self, active_image_id):
         """
-        [ASYNC_BOUNDARY]: Fires a background threading.Timer.
+        [ASYNC_BOUNDARY]: Fires a background thread to resample the image.
         Math happens off-main-thread to keep the UI from freezing.
         """
-
-        timer = getattr(self, "_reg_debounce_timer", None)
-        if timer is not None:
-            timer.cancel()
 
         def _do_resample():
             active_vs = self.controller.view_states.get(active_image_id)
@@ -400,17 +395,8 @@ class RegistrationUI:
             self.controller.status_message = "Resampling complete"
             self.controller.ui_needs_refresh = True
 
-        # Execute instantly if requested
-        if immediate:
-            _do_resample()
-            # It is safe to update UI here because 'immediate' runs on the main thread
-            self.gui.show_status_message(
-                "Transform applied", color=self.gui.ui_cfg["colors"]["text_status_ok"]
-            )
-        else:
-            # Spin up the background thread purely for the math
-            self._reg_debounce_timer = threading.Timer(0.3, _do_resample)
-            self._reg_debounce_timer.start()
+        self.gui.show_status_message("Resampling display...", color=self.gui.ui_cfg["colors"]["working"])
+        threading.Thread(target=_do_resample, daemon=True).start()
 
     # --- Callbacks ---
     def on_reg_load_clicked(self, sender, app_data, user_data):
@@ -442,7 +428,7 @@ class RegistrationUI:
                 self.pull_reg_sliders_from_transform()
 
                 # Instantly trigger resample for loaded file
-                self.trigger_debounced_rotation_update(viewer.image_id, immediate=True)
+                self.trigger_resample(viewer.image_id)
                 if dpg.does_item_exist("btn_reg_resample"):
                     dpg.bind_item_theme("btn_reg_resample", 0)
                 self.controller.ui_needs_refresh = True
@@ -508,7 +494,7 @@ class RegistrationUI:
                 self.pull_reg_sliders_from_transform()
                 if dpg.does_item_exist("btn_reg_resample"):
                     dpg.bind_item_theme("btn_reg_resample", 0)
-                self.trigger_debounced_rotation_update(viewer.image_id, immediate=True)
+                self.trigger_resample(viewer.image_id)
                 self.gui.show_status_message(f"Reloaded: {os.path.basename(full_path)}")
         else:
             self.on_reg_load_clicked(sender, app_data, user_data)
@@ -569,7 +555,7 @@ class RegistrationUI:
         if dpg.does_item_exist("btn_reg_resample"):
             dpg.bind_item_theme("btn_reg_resample", 0)
             
-        self.trigger_debounced_rotation_update(vs_id, immediate=True)
+        self.trigger_resample(vs_id)
 
     def on_reg_manual_changed(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer

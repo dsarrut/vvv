@@ -2348,8 +2348,6 @@ class SliceViewer:
                 self.controller.sync.propagate_sync(self.image_id)
 
         elif is_pan_drag and self.drag_start_pan is not None:
-            if vs:
-                vs.clear_reg_anchors()
             self.pan_offset[0] = self.drag_start_pan[0] + total_dx
             self.pan_offset[1] = self.drag_start_pan[1] + total_dy
             self.is_geometry_dirty = True
