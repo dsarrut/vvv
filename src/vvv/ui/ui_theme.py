@@ -258,6 +258,14 @@ def register_dynamic_themes(ui_cfg, controller):
             with dpg.theme_component(dpg.mvAll):
                 dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["outdated"])
 
+    if not dpg.does_item_exist("orange_button_theme"):
+        with dpg.theme(tag="orange_button_theme"):
+            with dpg.theme_component(dpg.mvButton):
+                dpg.add_theme_color(dpg.mvThemeCol_Button, cfg_c["outdated"])
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, [min(255, c + 30) for c in cfg_c["outdated"]])
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, [min(255, c + 50) for c in cfg_c["outdated"]])
+                dpg.add_theme_color(dpg.mvThemeCol_Text, [0, 0, 0, 255])
+
     if not dpg.does_item_exist("theme_rounded_nav"):
         with dpg.theme(tag="theme_rounded_nav"):
             with dpg.theme_component(dpg.mvButton):

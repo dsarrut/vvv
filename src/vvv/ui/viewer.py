@@ -9,7 +9,6 @@ from vvv.core.view_state import ViewState
 from vvv.ui.render_strategy import (
     compute_software_nearest_neighbor,
     compute_native_voxel_overlay,
-    compute_native_voxel_base,
     blend_slices_cpu,
     GL_NEAREST_SUPPORTED,
     try_set_gl_nearest,
@@ -781,16 +780,12 @@ class SliceViewer:
         base_scale = min(target_w / mm_w, target_h / mm_h)
 
         if base_scale > 0:
-            if vs:
-                vs.clear_reg_anchors()
             self.zoom = target_ppm / base_scale
             self.is_geometry_dirty = True
 
     def center_on_physical_coord(self, phys_coord):
         vs = self.view_state
         vol = self.volume
-        if vs:
-            vs.clear_reg_anchors()
         if not vs or not vol or phys_coord is None:
             return
 
@@ -1362,13 +1357,9 @@ class SliceViewer:
             vs.display, "baked_overlay_translation", (0.0, 0.0, 0.0)
         )
 
-        # Mathematical safeguard: 2D translation offset is only valid if there is NO interactive rotation happening!
-        if getattr(ovs, "_is_interactive_rotation", False) or getattr(base_vs, "_is_interactive_rotation", False):
-            dx_mm, dy_mm, dz_mm = 0.0, 0.0, 0.0
-        else:
-            dx_mm = live_dx - baked_dx
-            dy_mm = live_dy - baked_dy
-            dz_mm = live_dz - baked_dz
+        dx_mm = live_dx - baked_dx
+        dy_mm = live_dy - baked_dy
+        dz_mm = live_dz - baked_dz
 
         sp_x, sp_y, sp_z = vol.spacing
 
@@ -1586,24 +1577,6 @@ class SliceViewer:
         is_pixelated_sw = (self._effective_pixelated_zoom()
                            and not self._is_hw_gl
                            and not self.should_use_voxels_strips())
-
-        # --- Interactive rotation preview (works in any zoom mode) ---
-        if vs._is_interactive_rotation:
-            # Full 3D MPR affine kernel for both in-plane and out-of-plane
-            if is_pixelated_sw:
-                canvas_w, canvas_h = self._get_canvas_size()
-                fast_rgba = compute_native_voxel_base(
-                    self, self.current_pmin, self.current_pmax, canvas_w, canvas_h
-                )
-            else:
-                sh, sw = self.get_slice_shape()
-                fast_rgba = compute_native_voxel_base(
-                    self, [0.0, 0.0], [float(sw), float(sh)], sw, sh
-                )
-            if fast_rgba is not None:
-                self._safe_set_texture(self.texture_tag, fast_rgba,
-                                       getattr(self, "_tex_w", 1), getattr(self, "_tex_h", 1))
-                return
 
         # --- Normal rendering path ---
         if not is_pixelated_sw:
@@ -2172,9 +2145,6 @@ class SliceViewer:
             self.controller.ui_needs_refresh = True
 
     def action_center_view(self):
-        vs = self.view_state
-        if vs:
-            vs.clear_reg_anchors()
         self.needs_recenter = True
         self.is_geometry_dirty = True
         self.controller.sync.propagate_camera(self)
@@ -2404,8 +2374,6 @@ class SliceViewer:
         mx, my = dpg.get_drawing_mouse_pos()
         oz = self.zoom
         speed = self.controller.settings.data["interaction"]["zoom_speed"]
-        if vs:
-            vs.clear_reg_anchors()
         new_zoom = max(
             1e-5, self.zoom * (speed if direction == "in" else (1.0 / speed))
         )

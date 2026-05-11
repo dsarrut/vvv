@@ -65,21 +65,6 @@ class SyncManager:
     # PUBLIC SYNC METHODS
     # ==========================================
 
-    def propagate_transform_sync(self, source_vs_id):
-        """Notify sync group that the source image's transform changed.
-
-        Unlike propagate_sync, this does NOT update crosshair_voxel (which would
-        move the crosshair on screen) or pan/zoom. It only marks synced images as
-        data-dirty so they redraw with the correct slice_idx, which auto-derives
-        from crosshair_phys_coord via _get_crosshair_display_voxel().
-        """
-        source_vs = self.controller.view_states.get(source_vs_id)
-        if not source_vs:
-            return
-        target_ids = self.get_sync_group_vs_ids(source_vs_id, active_only=True)
-        dirty_ids = [tid for tid in target_ids if tid != source_vs_id]
-        self.trigger_redraw(dirty_ids)
-
     def propagate_time_idx(self, source_vs_id):
         """Propagate time_idx to all sync group members, clamping to their max timepoints."""
         source_vs = self.controller.view_states.get(source_vs_id)

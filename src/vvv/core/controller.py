@@ -494,8 +494,6 @@ class Controller:
                     vs.space.is_active = False
                     vs.base_display_data = None
                     vs._sitk_base_cache = None
-                    vs._is_interactive_rotation = False
-                    vs._reg_anchor_world = None
 
                     # Rebuild spatial engine (origin/spacing/matrix unchanged, no transform)
                     from vvv.maths.geometry import SpatialEngine

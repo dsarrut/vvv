@@ -458,23 +458,12 @@ class ViewState:
         self.space = SpatialEngine(volume, view_state=self) # Pass self to SpatialEngine
         self.base_display_data: np.ndarray | None = None
         self._sitk_base_cache = None
-        self._reg_anchor_world: np.ndarray | None = None  # world pin captured at drag start; cleared on settle
-        self._reg_anchor_native_vox: np.ndarray | None = None  # native voxel at drag start WITHOUT transform
-        self._reg_anchor_pan: dict | None = None  # per-orientation pan at drag start
-        self._is_interactive_rotation: bool = False  # routes viewer.tick() to fast Numba path during rotation drag
         self.hist_data_x = None
         self.hist_data_y = None
         self.histogram_is_dirty = True
         self.use_log_y = True
         self.init_crosshair_to_slices()
         self.init_default_window_level()
-
-    def clear_reg_anchors(self):
-        """Clears drag anchors so manual pan/zoom doesn't get overwritten by stale offsets."""
-        self._reg_anchor_world = None
-        self._reg_anchor_native_vox = None
-        self._reg_anchor_pan = None
-        self._is_interactive_rotation = False
 
     def display_to_world(self, display_voxel, is_buffered):
         """Bypasses double-rotation for ITK buffered arrays. World = Native + Translation."""
@@ -587,31 +576,12 @@ class ViewState:
                 if self.display.ww <= 1e-20:
                     self.display.ww = max(abs(p1) * 0.1, 1e-20)
                     self.display.wl = (p99 + p1) / 2
-    def update_crosshair_voxel_from_native(self, native_vox: np.ndarray):
-        """Update voxel coords, slices, and crosshair value from a native voxel during transform drag.
-
-        Intentionally does NOT touch crosshair_phys_coord or trigger geometry redraw —
-        the camera (pan/zoom/screen position) stays fixed while the image moves underneath.
-        """
-        if native_vox is None:
-            return
-        ix = int(np.clip(np.round(native_vox[0]), 0, self.volume.shape3d[2] - 1))
-        iy = int(np.clip(np.round(native_vox[1]), 0, self.volume.shape3d[1] - 1))
-        iz = int(np.clip(np.round(native_vox[2]), 0, self.volume.shape3d[0] - 1))
-        self.camera.crosshair_voxel = [native_vox[0], native_vox[1], native_vox[2], self.camera.time_idx]
-        self.camera.slices[ViewMode.AXIAL]    = iz
-        self.camera.slices[ViewMode.SAGITTAL] = ix
-        self.camera.slices[ViewMode.CORONAL]  = iy
-        self.crosshair_value = self._read_voxel_value(ix, iy, iz, use_buffer=False)
-        self.is_data_dirty = True
-        # is_geometry_dirty intentionally NOT set — pan/zoom/crosshair screen position must not change
 
     def update_crosshair_from_phys(self, new_phys_coord: np.ndarray):
         """
         Updates the crosshair's native voxel and physical coordinates based on a new physical point.
         This is the central point for all crosshair updates.
         """
-        self.clear_reg_anchors()
         if new_phys_coord is None:
             return
 
@@ -654,7 +624,6 @@ class ViewState:
         self.histogram_is_dirty = False
 
     def reset_view(self):
-        self.clear_reg_anchors()
         self.camera.zoom = {
             ViewMode.AXIAL: 1.0,
             ViewMode.SAGITTAL: 1.0,
@@ -674,7 +643,6 @@ class ViewState:
         self.is_data_dirty = True
 
     def hard_reset(self):
-        self.clear_reg_anchors()
         self.camera = CameraState(self.volume, parent_vs=self)
         self.display = DisplayState(parent_vs=self)
         self.init_default_window_level()
