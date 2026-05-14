@@ -435,6 +435,7 @@ class Controller:
         vs.space.set_manual_transform(
             tx, ty, tz, math.radians(rx_deg), math.radians(ry_deg), math.radians(rz_deg)
         )
+        vs._resample_version += 1  # invalidate any in-flight resample for this image
 
     def resample_image(self, image_id):
         """Spawn a background thread that resamples image_id and all dependent overlays.
@@ -445,6 +446,11 @@ class Controller:
         """
         def _do():
             vs = self.view_states.get(image_id)
+            # Snapshot the transform version before starting the slow ITK work.
+            # If the user changes the transform mid-resample, the version increments
+            # and we discard the stale result rather than displaying a ghost image.
+            captured_version = vs._resample_version if vs else 0
+
             if vs:
                 vs.reset_preview_rotation()
                 vs.update_base_display_data()
@@ -455,6 +461,11 @@ class Controller:
             for other_vs in self.view_states.values():
                 if other_vs.display.overlay_id == image_id:
                     other_vs.update_overlay_display_data(self)
+
+            # Transform changed while we were computing — result is stale.
+            # Don't touch crosshair, don't mark viewers dirty, don't display anything.
+            if vs and vs._resample_version != captured_version:
+                return
 
             # Sync crosshair AFTER all overlay resampling: update_crosshair_from_phys
             # sets is_data_dirty which the controller tick propagates to viewers. If this

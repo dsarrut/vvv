@@ -456,7 +456,8 @@ class ViewState:
         self.contours = {}
         self.crosshair_value = None # This will be set by init_crosshair_to_slices
         self.space = SpatialEngine(volume, view_state=self) # Pass self to SpatialEngine
-        self.needs_resample: bool = False  # True when transform changed since last resample
+        self.needs_resample: bool = False   # True when transform changed since last resample
+        self._resample_version: int = 0     # incremented on every transform change
         self.base_display_data: np.ndarray | None = None
         self._sitk_base_cache = None
         self._preview_R: "np.ndarray | None" = None    # current rotation for on-demand preview

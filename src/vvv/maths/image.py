@@ -160,22 +160,25 @@ class SliceRenderer:
 
     @staticmethod
     def _shift_2d_array(arr, dx, dy):
-        """Rapidly translates a 2D NumPy array by pixel offsets without wrapping."""
+        """Translate a 2D array by pixel offsets, replicating the border for out-of-bounds pixels.
+
+        Uses np.pad(mode='edge') so pixels that shift outside the image show the nearest
+        border value rather than zero — avoids the artificial black/zero border that
+        appears when a CT overlay is translated far from the fixed image.
+        """
         if dx == 0 and dy == 0:
             return arr
 
         h, w = arr.shape[:2]
-        res = np.zeros_like(arr)
-
-        src_y0, src_y1 = max(0, -dy), min(h, h - dy)
-        src_x0, src_x1 = max(0, -dx), min(w, w - dx)
-        dst_y0, dst_y1 = max(0, dy), min(h, h + dy)
-        dst_x0, dst_x1 = max(0, dx), min(w, w + dx)
-
-        if src_y0 < src_y1 and src_x0 < src_x1:
-            res[dst_y0:dst_y1, dst_x0:dst_x1] = arr[src_y0:src_y1, src_x0:src_x1]
-
-        return res
+        pad_y, pad_x = abs(dy), abs(dx)
+        pad_spec = (
+            ((pad_y, pad_y), (pad_x, pad_x))
+            if arr.ndim == 2
+            else ((pad_y, pad_y), (pad_x, pad_x), (0, 0))
+        )
+        padded = np.pad(arr, pad_spec, mode="edge")
+        y0, x0 = pad_y - dy, pad_x - dx
+        return np.ascontiguousarray(padded[y0 : y0 + h, x0 : x0 + w])
 
     @staticmethod
     def _apply_rois(base_rgba, rois):

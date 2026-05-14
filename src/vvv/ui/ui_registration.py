@@ -234,6 +234,7 @@ class RegistrationUI:
                     label="Auto-Update Display",
                     tag="check_reg_auto_resample",
                     default_value=False,
+                    callback=gui.reg_ui.on_reg_auto_resample_toggled,
                 )
                 dpg.add_button(
                     label="Update Display", width=-1, tag="btn_reg_resample", callback=gui.reg_ui.on_reg_resample_clicked
@@ -388,6 +389,18 @@ class RegistrationUI:
 
     def _is_auto_resample_enabled(self):
         return dpg.does_item_exist("check_reg_auto_resample") and dpg.get_value("check_reg_auto_resample")
+
+    def on_reg_auto_resample_toggled(self, _sender, app_data, _user_data):
+        if not app_data:
+            self._cancel_auto_timer()
+            return
+        # Just enabled — fire immediately if a resample is already pending
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.image_id:
+            return
+        vs = self.controller.view_states.get(viewer.image_id)
+        if vs and vs.needs_resample:
+            self.trigger_resample(viewer.image_id)
 
     def _cancel_auto_timer(self):
         with self._auto_timer_lock:
