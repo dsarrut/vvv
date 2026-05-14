@@ -30,7 +30,7 @@ class DvfUI:
             )
 
             with dpg.group(tag="group_dvf_controls", show=False):
-                dpg.add_text("Display Mode:")
+                dpg.add_text("Display Mode:", tag="text_dvf_display_mode")
                 dpg.add_radio_button(
                     items=["Component", "RGB", "Vector Field"],
                     default_value="Component",
@@ -52,10 +52,13 @@ class DvfUI:
                         max_val=10.0,
                         default_val=1.0,
                         format="%.0f px",
+                        label_width=90,
+                        help_text="Thickness of the vector lines.",
+                        gui=gui,
                     )
 
                     build_stepped_slider(
-                        "Arrow >  ",
+                        "Arrow >",
                         "drag_dvf_min_arrow",
                         callback=gui.dvf_ui.on_min_arrow_changed,
                         step_callback=gui.dvf_ui.on_step_button_clicked,
@@ -63,10 +66,13 @@ class DvfUI:
                         max_val=500.0,
                         default_val=3.0,
                         format="%.1f mm",
+                        help_text="Minimum vector magnitude required to draw an arrowhead.",
+                        gui=gui,
+                        label_width=90,
                     )
 
                     build_stepped_slider(
-                        "Show >   ",
+                        "Show >",
                         "drag_dvf_min_draw",
                         callback=gui.dvf_ui.on_min_draw_changed,
                         step_callback=gui.dvf_ui.on_step_button_clicked,
@@ -78,6 +84,9 @@ class DvfUI:
                         color_tag="color_dvf_min",
                         color_cb=gui.dvf_ui.on_color_min_changed,
                         color_default=(0, 255, 255, 255),
+                        help_text="Minimum vector magnitude required to draw the vector at all.",
+                        gui=gui,
+                        label_width=90,
                     )
 
                     build_stepped_slider(
@@ -93,6 +102,9 @@ class DvfUI:
                         color_tag="color_dvf_max",
                         color_cb=gui.dvf_ui.on_color_max_changed,
                         color_default=(255, 0, 0, 255),
+                        help_text="Magnitude value at which the colormap reaches its maximum intensity (e.g. Red).",
+                        gui=gui,
+                        label_width=90,
                     )
                     dpg.add_spacer(height=5)
 
@@ -105,10 +117,13 @@ class DvfUI:
                         max_val=100.0,
                         default_val=5.0,
                         format="%.0f px",
+                        help_text="Spacing between rendered vectors (in pixels). Higher sampling improves performance.",
+                        gui=gui,
+                        label_width=90,
                     )
 
                     build_stepped_slider(
-                        "Scale:   ",
+                        "Scale:",
                         "drag_dvf_scale",
                         callback=gui.dvf_ui.on_scale_changed,
                         step_callback=gui.dvf_ui.on_step_button_clicked,
@@ -116,6 +131,25 @@ class DvfUI:
                         max_val=100.0,
                         default_val=1.0,
                         format="%.1f x",
+                        help_text="Visual multiplier for vector lengths.",
+                        gui=gui,
+                        label_width=90,
+                    )
+                    
+                    dpg.add_spacer(height=5)
+
+                    build_stepped_slider(
+                        "Precision:",
+                        "drag_dvf_precision",
+                        callback=gui.dvf_ui.on_precision_changed,
+                        step_callback=gui.dvf_ui.on_step_button_clicked,
+                        min_val=0.0,
+                        max_val=6.0,
+                        default_val=2.0,
+                        format="%.0f",
+                        help_text="Number of decimal places displayed in the crosshair and tracker.",
+                        gui=gui,
+                        label_width=90,
                     )
 
     def _get_target_vs(self, viewer):
@@ -165,6 +199,9 @@ class DvfUI:
 
         dvf_state = target_vs.dvf
 
+        if dpg.does_item_exist("text_dvf_display_mode"):
+            dpg.configure_item("text_dvf_display_mode", show=is_base)
+
         if dpg.does_item_exist("radio_dvf_mode"):
             dpg.configure_item("radio_dvf_mode", show=is_base)
             if not dpg.is_item_active("radio_dvf_mode") and is_base:
@@ -186,6 +223,8 @@ class DvfUI:
             dpg.set_value("drag_dvf_min_draw", float(dvf_state.vector_min_length_draw))
         if dpg.does_item_exist("drag_dvf_color_max_mag") and not dpg.is_item_active("drag_dvf_color_max_mag"):
             dpg.set_value("drag_dvf_color_max_mag", float(dvf_state.vector_color_max_mag))
+        if dpg.does_item_exist("drag_dvf_precision") and not dpg.is_item_active("drag_dvf_precision"):
+            dpg.set_value("drag_dvf_precision", float(dvf_state.vector_precision))
 
         for tag, prop in [("color_dvf_min", "vector_color_min"), ("color_dvf_max", "vector_color_max")]:
             if dpg.does_item_exist(tag):
@@ -238,6 +277,13 @@ class DvfUI:
         if not target_vs:
             return
         target_vs.dvf.vector_color_max_mag = max(0.1, app_data)
+        
+    def on_precision_changed(self, sender, app_data, user_data):
+        target_vs, _ = self._get_target_vs(self.gui.context_viewer)
+        if not target_vs:
+            return
+        target_vs.dvf.vector_precision = int(app_data)
+        self.controller.ui_needs_refresh = True
 
     def on_color_min_changed(self, sender, app_data, user_data):
         target_vs, _ = self._get_target_vs(self.gui.context_viewer)
@@ -282,5 +328,9 @@ class DvfUI:
             target_vs.dvf.vector_min_length_draw = max(0.0, new_val)
         elif tag == "drag_dvf_color_max_mag":
             target_vs.dvf.vector_color_max_mag = max(0.1, new_val)
+        elif tag == "drag_dvf_precision":
+            new_val = max(0.0, min(6.0, new_val))
+            target_vs.dvf.vector_precision = int(new_val)
+            self.controller.ui_needs_refresh = True
 
         dpg.set_value(tag, new_val)

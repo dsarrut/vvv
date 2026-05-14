@@ -6,7 +6,7 @@ import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 from vvv.utils import ViewMode, voxel_to_slice
-from vvv.ui.ui_components import build_stepped_slider, build_section_title
+from vvv.ui.ui_components import build_stepped_slider, build_section_title, build_help_button
 from vvv.ui.render_strategy import compute_preview_2d_affine, compute_overlay_preview_2d_affine
 
 
@@ -125,12 +125,14 @@ class RegistrationUI:
                 with dpg.group(horizontal=True):
                     dpg.add_text("Transform File: ")
                     dpg.add_text("None", tag="text_reg_filename", color=cfg_c["text_dim"])
+                    build_help_button("A Transform file (.tfm, .mat, .txt) contains a rigid 3D spatial matrix (Translations and Rotations) that aligns this image with another.", gui)
 
                 # --- CoR Goto and Set ---
                 dpg.add_spacer(height=10)
                 with dpg.group(horizontal=True):
                     dpg.add_text("CoR:")
-                    dpg.add_input_text(tag="input_reg_cor", width=-1, readonly=True)
+                    dpg.add_input_text(tag="input_reg_cor", width=-28, readonly=True)
+                    build_help_button("Center of Rotation (CoR): The 3D pivot point around which rotations are applied. Snapping it to your crosshair makes rotating around anatomical landmarks easy.", gui)
                 with dpg.group(horizontal=True):
                     b = dpg.add_button(
                         label="\uf05b ", callback=gui.reg_ui.on_reg_center_cor_clicked
@@ -236,9 +238,11 @@ class RegistrationUI:
                     default_value=False,
                     callback=gui.reg_ui.on_reg_auto_resample_toggled,
                 )
-                dpg.add_button(
-                    label="Update Display", width=-1, tag="btn_reg_resample", callback=gui.reg_ui.on_reg_resample_clicked
-                )
+                with dpg.group(horizontal=True):
+                    dpg.add_button(
+                        label="Update Display", width=-28, tag="btn_reg_resample", callback=gui.reg_ui.on_reg_resample_clicked
+                    )
+                    build_help_button("Auto-Update: Automatically recalculates the full ITK resample when you stop dragging sliders.\nUpdate Display: Manually trigger the high-quality ITK resample to confirm alignment.", gui)
                 with dpg.group(horizontal=True):
                     dpg.add_button(
                         label="Commit to Volume",
@@ -246,18 +250,12 @@ class RegistrationUI:
                         callback=gui.reg_ui.on_reg_bake_clicked,
                         width=-28,
                     )
-                    btn_help_bake = dpg.add_button(label="\uf059", width=20)
-                    if dpg.does_item_exist("icon_font_tag"):
-                        dpg.bind_item_font(btn_help_bake, "icon_font_tag")
-                    if dpg.does_item_exist("icon_button_theme"):
-                        dpg.bind_item_theme(btn_help_bake, "icon_button_theme")
-                    with dpg.tooltip(btn_help_bake):
-                        dpg.add_text(
-                            "Permanently applies the active spatial transform to the\n"
-                            "underlying 3D pixel grid and resets the sliders to zero.\n"
-                            "You can then 'Save' the resulting aligned image to disk.",
-                            color=cfg_c.get("text_dim", [150, 150, 150])
-                        )
+                    build_help_button(
+                        "Permanently applies the active spatial transform to the\n"
+                        "underlying 3D pixel grid and resets the sliders to zero.\n"
+                        "You can then 'Save' the resulting aligned image to disk.",
+                        gui
+                    )
 
                 # --- Affine Matrix ---
                 dpg.add_spacer(height=10)

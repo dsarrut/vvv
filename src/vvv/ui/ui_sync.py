@@ -1,5 +1,6 @@
 import dearpygui.dearpygui as dpg
-from vvv.ui.ui_components import build_section_title
+from vvv.ui.ui_components import build_section_title, build_help_button, build_beginner_tooltip
+from vvv.ui.ui_image_list import highlight_active_image_in_list
 
 """
 ARCHITECTURE MANDATES (UI Components):
@@ -26,26 +27,28 @@ def build_tab_sync(gui):
         with dpg.group(horizontal=True):
             dpg.add_button(
                 label="Link All",
-                callback=lambda: gui.controller.link_all(),
+                callback=lambda: gui.controller.sync.link_all(),
                 width=95,
             )
             dpg.add_button(
                 label="Unlink All",
-                callback=lambda: gui.controller.unlink_all(),
+                callback=lambda: gui.controller.sync.unlink_all(),
                 width=95,
             )
+            build_help_button("Spatial Sync groups images together. When you pan, zoom, or scroll through slices in one image, all other images in the same group will automatically follow.", gui)
 
         with dpg.group(horizontal=True):
             dpg.add_button(
                 label="Link All W/L",
-                callback=lambda: gui.controller.link_all_wl(),
+                callback=lambda: gui.controller.sync.link_all_wl(),
                 width=95,
             )
             dpg.add_button(
                 label="Unlink All W/L",
-                callback=lambda: gui.controller.unlink_all_wl(),
+                callback=lambda: gui.controller.sync.unlink_all_wl(),
                 width=95,
             )
+            build_help_button("Window/Level Sync groups images together radiometrically. Changing contrast or colormap on one instantly applies to all others in the group.", gui)
 
         dpg.add_spacer(height=10)
         dpg.add_separator()
@@ -89,8 +92,7 @@ def refresh_sync_ui(gui):
                 name_str, is_outdated = gui.controller.get_image_display_name(vs_id)
                 lbl_id = dpg.add_text(name_str)
 
-                with dpg.tooltip(lbl_id):
-                    dpg.add_text(vs.volume.get_human_readable_file_path())
+                build_beginner_tooltip(lbl_id, vs.volume.get_human_readable_file_path(), gui)
 
                 if is_outdated:
                     dpg.configure_item(lbl_id, color=gui.ui_cfg["colors"]["outdated"])
@@ -126,7 +128,7 @@ def refresh_sync_ui(gui):
             dpg.add_spacer(height=2, parent=container)
 
     if gui.context_viewer and gui.context_viewer.image_id:
-        gui.highlight_active_image_in_list(gui.context_viewer.image_id)
+        highlight_active_image_in_list(gui, gui.context_viewer.image_id)
 
 
 def handle_sync_group_change(gui, sender, value, user_data):

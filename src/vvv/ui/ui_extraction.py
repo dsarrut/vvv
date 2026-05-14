@@ -1,6 +1,6 @@
 import numpy as np
 import dearpygui.dearpygui as dpg
-from vvv.ui.ui_components import build_section_title, build_stepped_slider
+from vvv.ui.ui_components import build_section_title, build_stepped_slider, build_help_button
 from vvv.core.view_state import ViewMode
 
 
@@ -72,6 +72,7 @@ class ExtractionUI:
                     tag="check_ext_subpixel",
                     callback=self.on_threshold_drag,
                 )
+                build_help_button("Live Preview: Renders the threshold dynamically as colored contours.\nSub-Pixel: Uses marching squares interpolation for sub-voxel accuracy instead of blocky pixels.", self.gui)
 
             # --- NEW: Thickness Slider ---
             dpg.add_spacer(height=5)
@@ -121,28 +122,28 @@ class ExtractionUI:
                 dpg.add_combo(
                     ["Constant", "Image"],
                     default_value="Constant",
-                    width=95,
+                    width=85,
                     tag="combo_ext_fg_mode",
                     callback=self.on_gen_mode_changed,
                 )
                 dpg.add_input_float(
                     default_value=1.0,
-                    width=95,
+                    width=75,
                     tag="input_ext_fg_val",
                     step=0,
                     callback=self.on_gen_mode_changed,
                 )
+                build_help_button("BG/FG Generation Rules: Voxels inside the threshold range get the FG value. Voxels outside get the BG value. 'Image' keeps the original voxel values.", self.gui)
 
             dpg.add_spacer(height=5)
-            btn_create = dpg.add_button(
-                label="Create Image",
-                width=-1,
-                height=30,
-                tag="btn_ext_create",
-                callback=self.on_create_image_clicked,
-            )
-            if dpg.does_item_exist("icon_button_theme"):
-                dpg.bind_item_theme(btn_create, "icon_button_theme")
+            with dpg.group(horizontal=True):
+                dpg.add_button(
+                    label="Create Image",
+                    width=-28,
+                    tag="btn_ext_create",
+                    callback=self.on_create_image_clicked,
+                )
+                build_help_button("Bakes the current threshold range into a brand new standalone image volume in memory.", self.gui)
 
     def refresh_extraction_ui(self):
         viewer = self.gui.context_viewer

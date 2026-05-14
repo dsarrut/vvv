@@ -65,6 +65,7 @@ def build_ui_config(controller):
             "outdated": [255, 180, 50],
             "working": [255, 180, 50],
             "warning": [255, 100, 100],
+            "help": [100, 180, 255],
         },
     }
 
@@ -257,6 +258,20 @@ def register_dynamic_themes(ui_cfg, controller):
         with dpg.theme(tag="outdated_item_theme"):
             with dpg.theme_component(dpg.mvAll):
                 dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["outdated"])
+
+    if not dpg.does_item_exist("help_button_theme"):
+        with dpg.theme(tag="help_button_theme"):
+            with dpg.theme_component(dpg.mvButton):
+                dpg.add_theme_color(dpg.mvThemeCol_Button, [0, 0, 0, 0])
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, [60, 60, 60])
+                dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c.get("help", [100, 180, 255]))
+                dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 3)
+
+    if not dpg.does_item_exist("theme_help_nav"):
+        with dpg.theme(tag="theme_help_nav"):
+            with dpg.theme_component(dpg.mvButton):
+                dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 6)
+                dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c.get("help", [100, 180, 255]))
 
     if not dpg.does_item_exist("orange_button_theme"):
         with dpg.theme(tag="orange_button_theme"):

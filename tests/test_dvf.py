@@ -235,6 +235,7 @@ def test_dvf_state_defaults():
     assert state.vector_color_max_mag == pytest.approx(10.0)
     assert state.vector_min_length_arrow == pytest.approx(3.0)
     assert state.vector_min_length_draw == pytest.approx(0.0)
+    assert state.vector_precision == 2
 
 
 def test_dvf_state_serialization_roundtrip():
@@ -249,6 +250,7 @@ def test_dvf_state_serialization_roundtrip():
     original.vector_color_max_mag = 25.0
     original.vector_min_length_arrow = 0.5
     original.vector_min_length_draw = 0.3
+    original.vector_precision = 4
 
     restored = DVFState()
     restored.from_dict(original.to_dict())
@@ -262,6 +264,7 @@ def test_dvf_state_serialization_roundtrip():
     assert restored.vector_color_max_mag == pytest.approx(25.0)
     assert restored.vector_min_length_arrow == pytest.approx(0.5)
     assert restored.vector_min_length_draw == pytest.approx(0.3)
+    assert restored.vector_precision == 4
 
 
 def test_dvf_state_dirty_flag(dvf_app):

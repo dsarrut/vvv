@@ -21,6 +21,22 @@ def fmt(values, precision=3):
     return " ".join([f"{round(float(x), precision):g}" for x in values])
 
 
+def format_pixel_value(val, vol, time_idx, dvf_precision=2):
+    """Format a pixel/voxel value as a human-readable string.
+
+    Handles scalar, RGB, and DVF volumes. Returns '-' for None values.
+    """
+    if val is None:
+        return "-"
+    if getattr(vol, "is_rgb", False):
+        return f"{val[0]:g} {val[1]:g} {val[2]:g}"
+    if getattr(vol, "is_dvf", False):
+        mag = np.linalg.norm(val)
+        comps = [f"*{v:.{dvf_precision}f}" if i == time_idx else f"{v:.{dvf_precision}f}" for i, v in enumerate(val)]
+        return f"[{' '.join(comps)}] L:{mag:.{dvf_precision}f}"
+    return f"{val:g}"
+
+
 def slice_to_voxel(slice_x, slice_y, slice_idx, orientation, shape):
     """Converts 2D screen coordinates [0, W] to 3D ITK continuous voxel array [-0.5, W-0.5]."""
     real_h, real_w = shape[0], shape[1]

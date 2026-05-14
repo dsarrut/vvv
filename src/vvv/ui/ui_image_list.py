@@ -1,5 +1,5 @@
 import dearpygui.dearpygui as dpg
-from vvv.ui.ui_components import build_section_title
+from vvv.ui.ui_components import build_section_title, build_help_button, build_beginner_tooltip
 
 """
 ARCHITECTURE MANDATES (UI Components):
@@ -59,6 +59,13 @@ def refresh_image_list_ui(gui):
             with dpg.theme_component(dpg.mvCheckbox):
                 dpg.add_theme_color(dpg.mvThemeCol_Text, muted_col)
 
+    viewer_tooltips = {
+        "V1": "Top Left viewer",
+        "V2": "Top Right viewer",
+        "V3": "Bottom Left viewer",
+        "V4": "Bottom Right viewer"
+    }
+
     for idx, (vs_id, vs) in enumerate(list(gui.controller.view_states.items()), start=1):
         with dpg.group(parent=container, horizontal=True):
             # --- Left Column: 2x2 Grid ---
@@ -72,6 +79,7 @@ def refresh_image_list_ui(gui):
                             user_data={"img_id": vs_id, "v_tag": v_tag},
                             callback=gui.on_image_viewer_toggle,
                         )
+                        build_beginner_tooltip(cb, viewer_tooltips[v_tag], gui)
                         dpg.bind_item_theme(cb, "muted_checkbox_theme")
                 with dpg.group(horizontal=True, horizontal_spacing=3):
                     for v_tag in ["V3", "V4"]:
@@ -82,6 +90,7 @@ def refresh_image_list_ui(gui):
                             user_data={"img_id": vs_id, "v_tag": v_tag},
                             callback=gui.on_image_viewer_toggle,
                         )
+                        build_beginner_tooltip(cb, viewer_tooltips[v_tag], gui)
                         dpg.bind_item_theme(cb, "muted_checkbox_theme")
 
             # --- Right Column: Info & Actions ---
@@ -91,8 +100,7 @@ def refresh_image_list_ui(gui):
                     name_str, is_outdated = gui.controller.get_image_display_name(vs_id)
                     lbl_id = dpg.add_text(name_str)
 
-                    with dpg.tooltip(lbl_id):
-                        dpg.add_text(vs.volume.get_human_readable_file_path())
+                    build_beginner_tooltip(lbl_id, vs.volume.get_human_readable_file_path(), gui)
 
                     if is_outdated:
                         dpg.configure_item(
@@ -130,6 +138,8 @@ def refresh_image_list_ui(gui):
                         dpg.bind_item_theme(btn_close, "delete_button_theme")
                     if dpg.does_item_exist("icon_button_theme"):
                         dpg.bind_item_theme(btn_reload, "icon_button_theme")
+                        
+                    build_help_button("The 4 checkboxes assign this image to the 4 viewers (V1: Top Left, V2: Top Right, V3: Bottom Left, V4: Bottom Right).", gui)
 
         dpg.add_spacer(height=4, parent=container)
         dpg.add_separator(parent=container)
@@ -137,4 +147,4 @@ def refresh_image_list_ui(gui):
 
     gui.refresh_recent_menu()
     if gui.context_viewer and gui.context_viewer.image_id:
-        gui.highlight_active_image_in_list(gui.context_viewer.image_id)
+        highlight_active_image_in_list(gui, gui.context_viewer.image_id)

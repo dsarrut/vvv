@@ -5,7 +5,7 @@ import time
 import threading
 import collections
 import numpy as np
-from vvv.utils import fmt, ViewMode
+from vvv.utils import fmt, ViewMode, format_pixel_value
 from vvv.ui.ui_roi import RoiUI
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_fusion import FusionUI
@@ -18,7 +18,7 @@ from vvv.ui.ui_registration import RegistrationUI
 from vvv.resources import load_fonts, setup_themes
 from vvv.ui.ui_dvf import DvfUI
 from vvv.ui.ui_interaction import InteractionManager
-from vvv.ui.ui_components import build_section_title
+from vvv.ui.ui_components import build_section_title, build_help_button
 from vvv.ui.ui_sync import build_tab_sync, refresh_sync_ui
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 from vvv.ui.ui_theme import build_ui_config, register_dynamic_themes
@@ -60,6 +60,8 @@ class MainGUI:
         self.image_label_tags = {}
         self.sync_label_tags = {}
         self.current_workspace_path: str | None = None
+        self.is_beginner_mode = False
+        self.beginner_tags = []
 
         # internal states
         self._is_roi_tab_active = None
@@ -357,17 +359,35 @@ class MainGUI:
             with dpg.tooltip(btn_settings):
                 dpg.add_text("Settings")
 
-            btn_help = dpg.add_button(
-                label="\uf059",
-                width=-1,
-                height=cfg_l["nav_btn_h"],
-                callback=self.show_help_window,
-            )
-            dpg.bind_item_theme(btn_help, "theme_rounded_nav")
-            if dpg.does_item_exist("icon_font_tag"):
-                dpg.bind_item_font(btn_help, "icon_font_tag")
-            with dpg.tooltip(btn_help):
-                dpg.add_text("Help & Shortcuts")
+            dpg.add_spacer(height=1)
+
+            with dpg.group(horizontal=True, horizontal_spacing=5):
+                btn_beginner = dpg.add_button(
+                    label="\uf77c",  # Baby
+                    width=31,
+                    height=cfg_l["nav_btn_h"],
+                    callback=self.on_toggle_beginner_mode,
+                )
+                dpg.bind_item_theme(btn_beginner, "theme_rounded_nav")
+                if dpg.does_item_exist("icon_font_tag"):
+                    dpg.bind_item_font(btn_beginner, "icon_font_tag")
+                with dpg.tooltip(btn_beginner):
+                    dpg.add_text("Toggle Beginner Mode (Tooltips & Explanations)")
+
+                btn_help = dpg.add_button(
+                    label="\uf059",
+                    width=-1,
+                    height=cfg_l["nav_btn_h"],
+                    callback=self.show_help_window,
+                )
+                if dpg.does_item_exist("theme_help_nav"):
+                    dpg.bind_item_theme(btn_help, "theme_help_nav")
+                else:
+                    dpg.bind_item_theme(btn_help, "theme_rounded_nav")
+                if dpg.does_item_exist("icon_font_tag"):
+                    dpg.bind_item_font(btn_help, "icon_font_tag")
+                with dpg.tooltip(btn_help):
+                    dpg.add_text("Help & Shortcuts")
 
         dpg.pop_container_stack()
 
@@ -420,17 +440,21 @@ class MainGUI:
                     self.create_labeled_field("Value", tag="info_val")
                     self.create_labeled_field("Voxel", tag="info_vox")
                     self.create_labeled_field("Coord", tag="info_phys")
-                    self.create_labeled_field("ppm", tag="info_ppm")
-                    self.create_labeled_field("FOV", tag="info_scale")
+                    self.create_labeled_field("ppm", tag="info_ppm", help_text="Pixels Per Millimeter: Current zoom scale.")
+                    self.create_labeled_field("FOV", tag="info_scale", help_text="Field of View: Physical dimensions (mm) currently visible.")
 
-    def create_labeled_field(self, label, tag):
+    def create_labeled_field(self, label, tag, help_text=None):
         """Helper to create a labeled read-only input field."""
         dim_col = self.ui_cfg["colors"]["text_dim"]
         with dpg.group(horizontal=True):
             dpg.add_text(
                 f"{label}:" if label else "", tag=f"{tag}_label", color=dim_col
             )
-            dpg.add_input_text(tag=tag, readonly=True, width=-1)
+            if help_text:
+                dpg.add_input_text(tag=tag, readonly=True, width=-28)
+                build_help_button(help_text, self)
+            else:
+                dpg.add_input_text(tag=tag, readonly=True, width=-1)
 
     def build_visibility_controls(self):
         dim_col = self.ui_cfg["colors"]["text_dim"]
@@ -446,6 +470,7 @@ class MainGUI:
                         user_data="axis",
                         default_value=True,
                     )
+                    build_help_button("Toggle display elements: Axis, Grid, Tracker, Crosshair, Scale Bar, Legend.", self)
                     dpg.add_checkbox(
                         label="Pixels grid",
                         tag="check_grid",
@@ -493,6 +518,7 @@ class MainGUI:
                             user_data="filename",
                             width=45,
                         )
+                        build_help_button("Toggle filename text overlay.", self)
                     with dpg.group(horizontal=True):
                         dpg.add_text("Interp:", color=dim_col)
                         dpg.add_selectable(
@@ -502,6 +528,7 @@ class MainGUI:
                             user_data="interpolation",
                             width=55,
                         )
+                        build_help_button("Interpolation: Linear (smooth), NN (pixelated), or Stripe (extreme zoom).", self)
 
     def build_viewer_grid(self):
         """Creates the 2x2 grid of slice viewers."""
@@ -650,15 +677,6 @@ class MainGUI:
 
         if dpg.does_item_exist("menu_item_pixelated"):
             dpg.set_value("menu_item_pixelated", vs.display.pixelated_zoom)
-
-    def highlight_active_image_in_list(self, active_img_id):
-        highlight_active_image_in_list(self, active_img_id)
-
-    def refresh_image_list_ui(self):
-        refresh_image_list_ui(self)
-
-    def refresh_sync_ui(self):
-        refresh_sync_ui(self)
 
     def refresh_rois_ui(self):
         """Pass-through bridge to the delegated ROI UI."""
@@ -896,39 +914,12 @@ class MainGUI:
             )
 
             if info is not None:
-                val = info["base_val"]
-                if val is None:
-                    val_str = "-"
-                else:
-                    if getattr(vol, "is_rgb", False):
-                        val_str = f"{val[0]:g} {val[1]:g} {val[2]:g}"
-                    elif getattr(vol, "is_dvf", False):
-                        mag = np.linalg.norm(val)
-                        comps = []
-                        for i, v in enumerate(val):
-                            comps.append(
-                                f"*{v:g}" if i == vs.camera.time_idx else f"{v:g}"
-                            )
-                        val_str = f"[{' '.join(comps)}] L:{mag:g}"
-                    else:
-                        val_str = f"{val:g}"
+                time_idx = vs.camera.time_idx
+                val_str = format_pixel_value(info["base_val"], vol, time_idx)
 
                 if info["overlay_val"] is not None:
-                    ov_val = info["overlay_val"]
-                    ov_id = vs.display.overlay_id
-                    ov_vol = self.controller.volumes.get(ov_id)
-                    if ov_vol and getattr(ov_vol, "is_dvf", False):
-                        mag = np.linalg.norm(ov_val)
-                        comps = []
-                        for i, v in enumerate(ov_val):
-                            comps.append(
-                                f"*{v:g}" if i == vs.camera.time_idx else f"{v:g}"
-                            )
-                        val_str += f" ([{' '.join(comps)}] L:{mag:g})"
-                    elif ov_vol and getattr(ov_vol, "is_rgb", False):
-                        val_str += f" ({ov_val[0]:g} {ov_val[1]:g} {ov_val[2]:g})"
-                    else:
-                        val_str += f" ({ov_val:g})"
+                    ov_vol = self.controller.volumes.get(vs.display.overlay_id)
+                    val_str += f" ({format_pixel_value(info['overlay_val'], ov_vol, time_idx)})"
 
                 if info["rois"]:
                     val_str += f"  {', '.join(info['rois'])}"
@@ -984,7 +975,7 @@ class MainGUI:
 
             dpg.bind_item_theme(f"win_{self.context_viewer.tag}", theme)
 
-            self.highlight_active_image_in_list(viewer.image_id)
+            highlight_active_image_in_list(self, viewer.image_id)
             self.update_sidebar_info(viewer)
             self.update_sidebar_crosshair(viewer)
             self.reg_ui.pull_reg_sliders_from_transform()
@@ -995,6 +986,24 @@ class MainGUI:
     # ==========================================
     # 4. EVENT HANDLERS
     # ==========================================
+
+    def on_toggle_beginner_mode(self, sender, app_data, user_data):
+        self.is_beginner_mode = not self.is_beginner_mode
+        for tag in self.beginner_tags:
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, show=self.is_beginner_mode)
+        
+        if hasattr(self, "beginner_sliders"):
+            for tag in self.beginner_sliders:
+                if dpg.does_item_exist(tag):
+                    dpg.configure_item(tag, width=-100 if self.is_beginner_mode else -60)
+
+        if self.is_beginner_mode:
+            dpg.bind_item_theme(sender, "active_nav_button_theme")
+        else:
+            dpg.bind_item_theme(sender, "theme_rounded_nav")
+        
+        self.show_status_message(f"Beginner Mode {'ON' if self.is_beginner_mode else 'OFF'}")
 
     def on_nav_clicked(self, sender, app_data, user_data):
         """Replaces on_tab_changed. Handles hiding/showing the content groups."""
@@ -1067,7 +1076,7 @@ class MainGUI:
 
                 bot_h = (
                     2 * cfg["nav_btn_h"]
-                ) + 8  # 2 buttons (35px) + 1 gap (8px) = 78px
+                ) + 8  # 2 rows of buttons (35px) + 1 gap (8px)
                 if dpg.does_item_exist("nav_bot_group"):
                     dpg.set_item_pos("nav_bot_group", [4, l_h - bot_h])
 
@@ -1602,8 +1611,15 @@ class MainGUI:
 
     def _refresh_all_ui_panels(self):
         """Consolidated handler to rebuild all dynamic side panels."""
-        self.refresh_image_list_ui()
-        self.refresh_sync_ui()
+        if getattr(self.controller, "ui_needs_layout_rebuild", False):
+            from vvv.ui.ui_theme import build_ui_config
+
+            self.ui_cfg = build_ui_config(self.controller)
+            self.on_window_resize()
+            self.controller.ui_needs_layout_rebuild = False
+
+        refresh_image_list_ui(self)
+        refresh_sync_ui(self)
         self.refresh_rois_ui()
         self.fusion_ui.refresh_fusion_ui()
         self.reg_ui.refresh_reg_ui()

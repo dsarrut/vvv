@@ -62,6 +62,7 @@ class Controller:
         self.next_image_id = 0
 
         self.ui_needs_refresh = False
+        self.ui_needs_layout_rebuild = False
         self.debug_mode = False
         self.status_message: str | None = None
 
@@ -73,18 +74,6 @@ class Controller:
             return keys[0]
         next_idx = (keys.index(current_id) + 1) % len(keys)
         return keys[next_idx]
-
-    def link_all(self):
-        self.sync.link_all()
-
-    def unlink_all(self):
-        self.sync.unlink_all()
-
-    def link_all_wl(self):
-        self.sync.link_all_wl()
-
-    def unlink_all_wl(self):
-        self.sync.unlink_all_wl()
 
     def default_viewers_orientation(self):
         n = len(self.view_states)
@@ -381,16 +370,19 @@ class Controller:
     def update_all_viewers_of_image(self, vs_id, data_dirty=True):
         if vs_id in self.view_states and data_dirty:
             self.view_states[vs_id].is_data_dirty = True
-
             # GUARDRAIL 3: Push the data flag to viewers to prevent them
             # from rendering tombstoned C++ memory during the 1-frame Bridge gap.
-            for v in self.viewers.values():
-                if v.image_id == vs_id or (v.view_state and v.view_state.display.overlay_id == vs_id):
-                    v.is_viewer_data_dirty = True
-
+            self._flag_viewers_for_image(vs_id, data_dirty=True)
         if not data_dirty:
-            for v in self.viewers.values():
-                if v.image_id == vs_id or (v.view_state and v.view_state.display.overlay_id == vs_id):
+            self._flag_viewers_for_image(vs_id, geometry_dirty=True)
+
+    def _flag_viewers_for_image(self, vs_id, data_dirty=False, geometry_dirty=False):
+        """Set dirty flags on all viewers that display vs_id as base image or overlay."""
+        for v in self.viewers.values():
+            if v.image_id == vs_id or (v.view_state and v.view_state.display.overlay_id == vs_id):
+                if data_dirty:
+                    v.is_viewer_data_dirty = True
+                if geometry_dirty:
                     v.is_geometry_dirty = True
 
     def _flag_all_viewers_dirty(self):
@@ -416,14 +408,10 @@ class Controller:
 
         d[keys[-1]] = value
 
-        if (
-            self.gui and keys[0] == "layout"
-        ):  # Only rebuild the UI if layout settings change
-            from vvv.ui.ui_theme import build_ui_config
+        if keys[0] == "layout":
+            self.ui_needs_layout_rebuild = True
 
-            self.gui.ui_cfg = build_ui_config(self)
-            self.gui.on_window_resize()
-
+        self.ui_needs_refresh = True
         self._flag_all_viewers_dirty()
 
     def update_transform_manual(self, vs_id, tx, ty, tz, rx_deg, ry_deg, rz_deg):
@@ -753,8 +741,7 @@ class Controller:
                     vs.crosshair_value = vol.data[iz, iy, ix]
 
         vs.histogram_is_dirty = True
-        vs.is_data_dirty = True
-        vs.is_geometry_dirty = True
+        vs.mark_both_dirty()
         self.update_all_viewers_of_image(vs_id)
 
         return shape_changed
@@ -805,12 +792,7 @@ class Controller:
             is_data = getattr(vs, "is_data_dirty", False)
 
             if is_geom or is_data:
-                for v in self.viewers.values():
-                    if v.image_id == vs_id or (v.view_state and v.view_state.display.overlay_id == vs_id):
-                        if is_geom:
-                            v.is_geometry_dirty = True
-                        if is_data:
-                            v.is_viewer_data_dirty = True
+                self._flag_viewers_for_image(vs_id, data_dirty=is_data, geometry_dirty=is_geom)
 
             # Safe Reset (ONLY after all viewers in the loop have been flagged)
             vs.is_data_dirty = False
