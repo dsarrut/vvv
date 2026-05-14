@@ -993,6 +993,11 @@ class MainGUI:
             if dpg.does_item_exist(tag):
                 dpg.configure_item(tag, show=self.is_beginner_mode)
         
+        if hasattr(self, "beginner_sliders"):
+            for tag in self.beginner_sliders:
+                if dpg.does_item_exist(tag):
+                    dpg.configure_item(tag, width=-100 if self.is_beginner_mode else -60)
+
         if self.is_beginner_mode:
             dpg.bind_item_theme(sender, "active_nav_button_theme")
         else:

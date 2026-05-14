@@ -135,6 +135,22 @@ class DvfUI:
                         gui=gui,
                         label_width=90,
                     )
+                    
+                    dpg.add_spacer(height=5)
+
+                    build_stepped_slider(
+                        "Precision:",
+                        "drag_dvf_precision",
+                        callback=gui.dvf_ui.on_precision_changed,
+                        step_callback=gui.dvf_ui.on_step_button_clicked,
+                        min_val=0.0,
+                        max_val=6.0,
+                        default_val=2.0,
+                        format="%.0f",
+                        help_text="Number of decimal places displayed in the crosshair and tracker.",
+                        gui=gui,
+                        label_width=90,
+                    )
 
     def _get_target_vs(self, viewer):
         if not viewer or not viewer.view_state:
@@ -207,6 +223,8 @@ class DvfUI:
             dpg.set_value("drag_dvf_min_draw", float(dvf_state.vector_min_length_draw))
         if dpg.does_item_exist("drag_dvf_color_max_mag") and not dpg.is_item_active("drag_dvf_color_max_mag"):
             dpg.set_value("drag_dvf_color_max_mag", float(dvf_state.vector_color_max_mag))
+        if dpg.does_item_exist("drag_dvf_precision") and not dpg.is_item_active("drag_dvf_precision"):
+            dpg.set_value("drag_dvf_precision", float(dvf_state.vector_precision))
 
         for tag, prop in [("color_dvf_min", "vector_color_min"), ("color_dvf_max", "vector_color_max")]:
             if dpg.does_item_exist(tag):
@@ -259,6 +277,13 @@ class DvfUI:
         if not target_vs:
             return
         target_vs.dvf.vector_color_max_mag = max(0.1, app_data)
+        
+    def on_precision_changed(self, sender, app_data, user_data):
+        target_vs, _ = self._get_target_vs(self.gui.context_viewer)
+        if not target_vs:
+            return
+        target_vs.dvf.vector_precision = int(app_data)
+        self.controller.ui_needs_refresh = True
 
     def on_color_min_changed(self, sender, app_data, user_data):
         target_vs, _ = self._get_target_vs(self.gui.context_viewer)
@@ -303,5 +328,9 @@ class DvfUI:
             target_vs.dvf.vector_min_length_draw = max(0.0, new_val)
         elif tag == "drag_dvf_color_max_mag":
             target_vs.dvf.vector_color_max_mag = max(0.1, new_val)
+        elif tag == "drag_dvf_precision":
+            new_val = max(0.0, min(6.0, new_val))
+            target_vs.dvf.vector_precision = int(new_val)
+            self.controller.ui_needs_refresh = True
 
         dpg.set_value(tag, new_val)

@@ -100,8 +100,7 @@ def refresh_image_list_ui(gui):
                     name_str, is_outdated = gui.controller.get_image_display_name(vs_id)
                     lbl_id = dpg.add_text(name_str)
 
-                    with dpg.tooltip(lbl_id):
-                        dpg.add_text(vs.volume.get_human_readable_file_path())
+                    build_beginner_tooltip(lbl_id, vs.volume.get_human_readable_file_path(), gui)
 
                     if is_outdated:
                         dpg.configure_item(

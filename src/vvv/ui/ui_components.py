@@ -15,8 +15,9 @@ def build_help_button(text, gui):
         dpg.bind_item_font(btn, "icon_font_tag")
     if dpg.does_item_exist("help_button_theme"):
         dpg.bind_item_theme(btn, "help_button_theme")
-    with dpg.tooltip(btn):
-        dpg.add_text(text, color=gui.ui_cfg["colors"].get("text_dim", [150, 150, 150]))
+        
+    build_beginner_tooltip(btn, text, gui)
+    
     if not hasattr(gui, "beginner_tags"):
         gui.beginner_tags = []
     gui.beginner_tags.append(tag)
@@ -102,10 +103,12 @@ def build_stepped_slider(
         else:
             dpg.add_text(label)
 
+        is_beg = getattr(gui, "is_beginner_mode", False) if gui else False
+
         # 1. The Slider
         dpg.add_drag_float(
             tag=tag,
-            width=-85 if help_text else -55,
+            width=-100 if (help_text and is_beg) else -60,
             format=format,
             speed=1.0,
             min_value=min_val,
@@ -166,5 +169,12 @@ def build_stepped_slider(
             )
             
         if help_text and gui:
-            dpg.add_spacer(width=2)
+            sp_tag = dpg.add_spacer(width=2, show=is_beg)
             build_help_button(help_text, gui)
+            if not hasattr(gui, "beginner_sliders"):
+                gui.beginner_sliders = []
+            if tag not in gui.beginner_sliders:
+                gui.beginner_sliders.append(tag)
+            if not hasattr(gui, "beginner_tags"):
+                gui.beginner_tags = []
+            gui.beginner_tags.append(sp_tag)

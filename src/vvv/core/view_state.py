@@ -357,6 +357,7 @@ class DVFState:
         self.vector_color_min = [0, 255, 255, 255]  # Cyan
         self.vector_color_max = [255, 0, 0, 255]
         
+        self.vector_precision = 2
         self.vector_sampling = 5
         self.vector_color_max_mag = 10.0
         
@@ -397,6 +398,7 @@ class DVFState:
             "vector_color_max_mag": float(self.vector_color_max_mag),
             "vector_min_length_arrow": float(self.vector_min_length_arrow),
             "vector_min_length_draw": float(self.vector_min_length_draw),
+            "vector_precision": int(self.vector_precision),
         }
 
     def from_dict(self, d):
@@ -411,6 +413,7 @@ class DVFState:
         self.vector_color_max_mag = d.get("vector_color_max_mag", self.vector_color_max_mag)
         self.vector_min_length_arrow = d.get("vector_min_length_arrow", self.vector_min_length_arrow)
         self.vector_min_length_draw = d.get("vector_min_length_draw", self.vector_min_length_draw)
+        self.vector_precision = int(d.get("vector_precision", self.vector_precision))
 
 
 class ViewState:

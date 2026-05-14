@@ -1,5 +1,5 @@
 import dearpygui.dearpygui as dpg
-from vvv.ui.ui_components import build_section_title, build_help_button
+from vvv.ui.ui_components import build_section_title, build_help_button, build_beginner_tooltip
 from vvv.ui.ui_image_list import highlight_active_image_in_list
 
 """
@@ -92,8 +92,7 @@ def refresh_sync_ui(gui):
                 name_str, is_outdated = gui.controller.get_image_display_name(vs_id)
                 lbl_id = dpg.add_text(name_str)
 
-                with dpg.tooltip(lbl_id):
-                    dpg.add_text(vs.volume.get_human_readable_file_path())
+                build_beginner_tooltip(lbl_id, vs.volume.get_human_readable_file_path(), gui)
 
                 if is_outdated:
                     dpg.configure_item(lbl_id, color=gui.ui_cfg["colors"]["outdated"])

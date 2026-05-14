@@ -21,7 +21,7 @@ def fmt(values, precision=3):
     return " ".join([f"{round(float(x), precision):g}" for x in values])
 
 
-def format_pixel_value(val, vol, time_idx):
+def format_pixel_value(val, vol, time_idx, dvf_precision=2):
     """Format a pixel/voxel value as a human-readable string.
 
     Handles scalar, RGB, and DVF volumes. Returns '-' for None values.
@@ -32,8 +32,8 @@ def format_pixel_value(val, vol, time_idx):
         return f"{val[0]:g} {val[1]:g} {val[2]:g}"
     if getattr(vol, "is_dvf", False):
         mag = np.linalg.norm(val)
-        comps = [f"*{v:g}" if i == time_idx else f"{v:g}" for i, v in enumerate(val)]
-        return f"[{' '.join(comps)}] L:{mag:g}"
+        comps = [f"*{v:.{dvf_precision}f}" if i == time_idx else f"{v:.{dvf_precision}f}" for i, v in enumerate(val)]
+        return f"[{' '.join(comps)}] L:{mag:.{dvf_precision}f}"
     return f"{val:g}"
 
 

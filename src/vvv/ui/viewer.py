@@ -1923,6 +1923,7 @@ class SliceViewer:
             target_phys_tuple,
             is_hovered,
             vs.display.overlay_id,
+            vs.dvf.vector_precision,
         )
         if self._last_tracker_state == tracker_state:
             return
@@ -2001,12 +2002,15 @@ class SliceViewer:
                 )
 
             time_idx = vs.camera.time_idx
-            text_lines = [format_pixel_value(val, vol, time_idx)]
+            dvf_prec = vs.dvf.vector_precision if getattr(vol, "is_dvf", False) else 2
+            text_lines = [format_pixel_value(val, vol, time_idx, dvf_prec)]
 
             if info["overlay_val"] is not None:
                 ov_val = info["overlay_val"]
                 ov_vol = self.controller.volumes.get(vs.display.overlay_id)
-                text_lines[0] += f" ({format_pixel_value(ov_val, ov_vol, time_idx)})"
+                ov_vs = self.controller.view_states.get(vs.display.overlay_id)
+                ov_dvf_prec = ov_vs.dvf.vector_precision if (ov_vs and getattr(ov_vol, "is_dvf", False)) else 2
+                text_lines[0] += f" ({format_pixel_value(ov_val, ov_vol, time_idx, ov_dvf_prec)})"
 
             if info["rois"]:
                 text_lines[0] += f"  {', '.join(info['rois'])}"
