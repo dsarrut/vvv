@@ -1908,6 +1908,7 @@ class SliceViewer:
         ):
             dpg.set_value(self.tracker_tag, "")
             self._external_tracker_active = False
+            self._last_tracker_state = None
             return
 
         is_dragging = False
@@ -1923,8 +1924,11 @@ class SliceViewer:
         target_phys = vs.camera.target_tracker_phys
         target_phys_tuple = tuple(target_phys) if target_phys is not None else None
 
+        is_hovered = dpg.is_item_hovered(f"win_{self.tag}")
+
         # Throttle: Only run heavy ITK physics if the spatial reality actually shifted
         tracker_state = (
+            self.image_id,
             mx,
             my,
             self.slice_idx,  # This is now the display slice index
@@ -1934,6 +1938,8 @@ class SliceViewer:
             self.pan_offset[1],
             is_dragging,
             target_phys_tuple,
+            is_hovered,
+            vs.display.overlay_id,
         )
         if self._last_tracker_state == tracker_state:
             return
