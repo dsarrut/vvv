@@ -8,82 +8,77 @@ import platform as _platform
 GL_NEAREST_SUPPORTED = _platform.system() in ("Linux", "Windows")
 _gl_nearest_fn = None
 
-try:
-    import os as _os
-    _os.environ.setdefault("KMP_WARNINGS", "0")  # suppress OMP nested-parallelism info message
-    import numba
-    _NUMBA_AVAILABLE = True
-except ImportError:
-    import typing as _typing
-    numba: _typing.Any = None
-    _NUMBA_AVAILABLE = False
+numba = None
+_NUMBA_AVAILABLE = False
+_native_ov_kernel_nb = None
+_numba_init_done = False
 
-if _NUMBA_AVAILABLE:
-    @numba.njit(parallel=True, cache=True, fastmath=True)
-    def _native_ov_kernel_nb(
-        ov_data,      # (D, H, W) any numeric dtype
-        rgba,         # (canvas_h, canvas_w, 4) float32 — written in-place
-        B_eff,        # (3,) float32 — affine offset incl. depth contribution
-        C_col,        # (3,) float32 — per-row axis column vector
-        C_row,        # (3,) float32 — per-col axis column vector
-        iy_adj,       # (crop_h,) float32 — orientation-adjusted row coords
-        ix_adj,       # (crop_w,) float32 — orientation-adjusted col coords
-        lut,          # (256, 4) float32, values 0-1
-        wl_min,       # float32
-        wl_scale,     # float32 = 1/ww
-        threshold,    # float32 — use -inf for "no threshold"
-        opacity,      # float32
-        c_y0,         # int — crop row offset into rgba
-        c_x0,         # int — crop col offset into rgba
-        ov_D,         # int
-        ov_H,         # int
-        ov_W,         # int
-        precomposite, # bool — True: alpha-blend into base; False: write standalone
-    ):
-        crop_h = len(iy_adj)
-        crop_w = len(ix_adj)
-        for cy in numba.prange(crop_h):
-            iy = iy_adj[cy]
-            # Hoist row contribution out of inner loop
-            Bx = B_eff[0] + C_col[0] * iy
-            By = B_eff[1] + C_col[1] * iy
-            Bz = B_eff[2] + C_col[2] * iy
-            for cx in range(crop_w):
-                ix = ix_adj[cx]
-                sx = Bx + C_row[0] * ix
-                sy = By + C_row[1] * ix
-                sz = Bz + C_row[2] * ix
-                xi = int(sx)
-                yi = int(sy)
-                zi = int(sz)
-                if xi < 0 or xi >= ov_W or yi < 0 or yi >= ov_H or zi < 0 or zi >= ov_D:
-                    continue
-                val = numba.float32(ov_data[zi, yi, xi])
-                if val <= threshold:
-                    continue
-                norm = (val - wl_min) * wl_scale
-                if norm < 0.0:
-                    norm = 0.0
-                if norm > 1.0:
-                    norm = 1.0
-                lut_idx = int(norm * 255.0)
-                r = lut[lut_idx, 0]
-                g = lut[lut_idx, 1]
-                b = lut[lut_idx, 2]
-                a = lut[lut_idx, 3] * opacity
-                ry = cy + c_y0
-                rx = cx + c_x0
-                if precomposite:
-                    inv_a = 1.0 - a
-                    rgba[ry, rx, 0] = r * a + rgba[ry, rx, 0] * inv_a
-                    rgba[ry, rx, 1] = g * a + rgba[ry, rx, 1] * inv_a
-                    rgba[ry, rx, 2] = b * a + rgba[ry, rx, 2] * inv_a
-                    rgba[ry, rx, 3] = a + rgba[ry, rx, 3] * inv_a
-                else:
-                    rgba[ry, rx, 0] = r
-                    rgba[ry, rx, 1] = g
-                    rgba[ry, rx, 2] = b
-                    rgba[ry, rx, 3] = a
+
+def _init_numba():
+    global numba, _NUMBA_AVAILABLE, _native_ov_kernel_nb, _numba_init_done
+    if _numba_init_done:
+        return
+    _numba_init_done = True
+    try:
+        import os as _os
+        _os.environ.setdefault("KMP_WARNINGS", "0")
+        import numba as _nb
+        numba = _nb
+
+        @numba.njit(parallel=True, cache=True, fastmath=True)
+        def _kernel(
+            ov_data, rgba, B_eff, C_col, C_row, iy_adj, ix_adj,
+            lut, wl_min, wl_scale, threshold, opacity,
+            c_y0, c_x0, ov_D, ov_H, ov_W, precomposite,
+        ):
+            crop_h = len(iy_adj)
+            crop_w = len(ix_adj)
+            for cy in numba.prange(crop_h):
+                iy = iy_adj[cy]
+                Bx = B_eff[0] + C_col[0] * iy
+                By = B_eff[1] + C_col[1] * iy
+                Bz = B_eff[2] + C_col[2] * iy
+                for cx in range(crop_w):
+                    ix = ix_adj[cx]
+                    sx = Bx + C_row[0] * ix
+                    sy = By + C_row[1] * ix
+                    sz = Bz + C_row[2] * ix
+                    xi = int(sx)
+                    yi = int(sy)
+                    zi = int(sz)
+                    if xi < 0 or xi >= ov_W or yi < 0 or yi >= ov_H or zi < 0 or zi >= ov_D:
+                        continue
+                    val = np.float32(ov_data[zi, yi, xi])
+                    if val <= threshold:
+                        continue
+                    norm = (val - wl_min) * wl_scale
+                    if norm < 0.0:
+                        norm = 0.0
+                    if norm > 1.0:
+                        norm = 1.0
+                    lut_idx = int(norm * 255.0)
+                    r = lut[lut_idx, 0]
+                    g = lut[lut_idx, 1]
+                    b = lut[lut_idx, 2]
+                    a = lut[lut_idx, 3] * opacity
+                    ry = cy + c_y0
+                    rx = cx + c_x0
+                    if precomposite:
+                        inv_a = 1.0 - a
+                        rgba[ry, rx, 0] = r * a + rgba[ry, rx, 0] * inv_a
+                        rgba[ry, rx, 1] = g * a + rgba[ry, rx, 1] * inv_a
+                        rgba[ry, rx, 2] = b * a + rgba[ry, rx, 2] * inv_a
+                        rgba[ry, rx, 3] = a + rgba[ry, rx, 3] * inv_a
+                    else:
+                        rgba[ry, rx, 0] = r
+                        rgba[ry, rx, 1] = g
+                        rgba[ry, rx, 2] = b
+                        rgba[ry, rx, 3] = a
+
+        _native_ov_kernel_nb = _kernel
+        _NUMBA_AVAILABLE = True
+    except ImportError:
+        _NUMBA_AVAILABLE = False
 
 
 class NNMode(IntEnum):
@@ -474,6 +469,7 @@ def compute_native_voxel_overlay(viewer, pmin, pmax, canvas_w, canvas_h, target_
     lut = COLORMAPS.get(ovs.display.colormap, COLORMAPS["Grayscale"])
     thr_val = ovs.display.base_threshold
 
+    _init_numba()
     use_numba = _NUMBA_AVAILABLE and viewer.controller.settings.data.get("rendering", {}).get("numba", True)
 
     if use_numba:

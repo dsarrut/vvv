@@ -6,6 +6,7 @@ from vvv.ui.drawing import OverlayDrawer
 from vvv.maths.image import SliceRenderer, RenderLayer, ROILayer, VolumeData
 from vvv.config import COLORMAPS
 from vvv.core.view_state import ViewState
+import vvv.ui.render_strategy as _rs
 from vvv.ui.render_strategy import (
     compute_software_nearest_neighbor,
     compute_native_voxel_overlay,
@@ -16,7 +17,6 @@ from vvv.ui.render_strategy import (
     DEFAULT_NN_MODE,
     select_nn_mode,
     should_use_lazy_lin,
-    _NUMBA_AVAILABLE,
 )
 from typing import Any
 
@@ -267,7 +267,7 @@ class SliceViewer:
     @property
     def lazy_lin(self) -> bool:
         cfg = self._rendering_cfg
-        use_numba = _NUMBA_AVAILABLE and cfg.get("numba", True)
+        use_numba = _rs._NUMBA_AVAILABLE and cfg.get("numba", True)
         return should_use_lazy_lin(cfg, self.has_fusion, self._is_hw_gl, use_numba)
 
     @property
