@@ -470,6 +470,43 @@ class ViewState:
         self.init_crosshair_to_slices()
         self.init_default_window_level()
 
+    def compute_overlay_pixel_shift(self, overlay_vs, vol_spacing, orientation):
+        """Return (dx_pix, dy_pix, dz_pix) for live overlay alignment.
+
+        Computes the difference between the current transform translations and the
+        translations that were baked into overlay_data at the last resample, converts
+        to pixel units, then remaps axes to match the orientation-specific flipud/fliplr
+        applied by SliceRenderer.extract_slice. If those flips change, the sign
+        conventions here must change in sync.
+        """
+        base_tx, base_ty, base_tz = 0.0, 0.0, 0.0
+        if self.space.transform and self.space.is_active:
+            base_tx, base_ty, base_tz = self.space.transform.GetTranslation()
+
+        ov_tx, ov_ty, ov_tz = 0.0, 0.0, 0.0
+        if overlay_vs.space.transform and overlay_vs.space.is_active:
+            ov_tx, ov_ty, ov_tz = overlay_vs.space.transform.GetTranslation()
+
+        live_dx = ov_tx - base_tx
+        live_dy = ov_ty - base_ty
+        live_dz = ov_tz - base_tz
+
+        baked_dx, baked_dy, baked_dz = getattr(
+            self.display, "baked_overlay_translation", (0.0, 0.0, 0.0)
+        )
+
+        sp_x, sp_y, sp_z = vol_spacing
+        px_x = (live_dx - baked_dx) / sp_x if sp_x else 0.0
+        px_y = (live_dy - baked_dy) / sp_y if sp_y else 0.0
+        px_z = (live_dz - baked_dz) / sp_z if sp_z else 0.0
+
+        if orientation == ViewMode.AXIAL:
+            return px_x, px_y, px_z
+        elif orientation == ViewMode.CORONAL:
+            return px_x, -px_z, px_y
+        else:  # SAGITTAL
+            return -px_y, -px_z, px_x
+
     def clear_preview_slices(self):
         """Full reset: clears cached slices and the rotation transform used for on-demand rendering."""
         self._preview_slices.clear()

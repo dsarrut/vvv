@@ -1351,45 +1351,9 @@ class SliceViewer:
                     if ovs.volume.shape3d[0] == 1 and abs(ov_vox[2]) > 0.5:
                         return None
 
-        # ---Calculate Relative Pixel Shift ---
-        base_vs = vs
-        base_tx, base_ty, base_tz = 0.0, 0.0, 0.0
-        if base_vs.space.transform and base_vs.space.is_active:
-            base_tx, base_ty, base_tz = base_vs.space.transform.GetTranslation()
-
-        ov_tx, ov_ty, ov_tz = 0.0, 0.0, 0.0
-        if ovs.space.transform and ovs.space.is_active:
-            ov_tx, ov_ty, ov_tz = ovs.space.transform.GetTranslation()
-
-        live_dx = ov_tx - base_tx
-        live_dy = ov_ty - base_ty
-        live_dz = ov_tz - base_tz
-
-        baked_dx, baked_dy, baked_dz = getattr(
-            vs.display, "baked_overlay_translation", (0.0, 0.0, 0.0)
-        )
-
-        dx_mm = live_dx - baked_dx
-        dy_mm = live_dy - baked_dy
-        dz_mm = live_dz - baked_dz
-
-        sp_x, sp_y, sp_z = vol.spacing
-
-        px_x = dx_mm / sp_x if sp_x else 0
-        px_y = dy_mm / sp_y if sp_y else 0
-        px_z = dz_mm / sp_z if sp_z else 0
-
+        # --- Calculate Relative Pixel Shift ---
+        dx, dy, dz = vs.compute_overlay_pixel_shift(ovs, vol.spacing, self.orientation)
         off_x, off_y, off_slice = 0, 0, 0
-        dx, dy, dz = 0.0, 0.0, 0.0
-
-        # Sign conventions mirror the flipud/fliplr applied in SliceRenderer.extract_slice.
-        # If those flips change, these signs must change in sync.
-        if self.orientation == ViewMode.AXIAL:
-            dx, dy, dz = px_x, px_y, px_z
-        elif self.orientation == ViewMode.CORONAL:
-            dx, dy, dz = px_x, -px_z, px_y
-        elif self.orientation == ViewMode.SAGITTAL:
-            dx, dy, dz = -px_y, -px_z, px_x
 
         self.active_overlay_shift_x = dx
         self.active_overlay_shift_y = dy
