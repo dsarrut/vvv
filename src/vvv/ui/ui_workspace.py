@@ -66,16 +66,18 @@ def build_workspace_nav_icons(gui):
             if dpg.does_item_exist("icon_font_tag"):
                 dpg.bind_item_font(btn, "icon_font_tag")
 
-            with dpg.tooltip(btn):
+            tt_id = dpg.generate_uuid()
+            with dpg.tooltip(btn, tag=tt_id, show=getattr(gui, "is_beginner_mode", False)):
+                if not hasattr(gui, "beginner_tags"):
+                    gui.beginner_tags = []
+                gui.beginner_tags.append(tt_id)
+
                 if tooltip_tag:
                     dpg.add_text(label, tag=tooltip_tag)
                 else:
                     dpg.add_text(label)
                     
-                # Beginner mode explanation text
-                beg_tag = dpg.add_text("A Workspace saves your exact session (loaded images, overlays, window/level, and ROIs) so you can resume your work later.", show=getattr(gui, "is_beginner_mode", False), color=cfg_c["text_dim"])
-                if not hasattr(gui, "beginner_tags"): gui.beginner_tags = []
-                gui.beginner_tags.append(beg_tag)
+                dpg.add_text("A Workspace saves your exact session (loaded images, overlays, window/level, and ROIs) so you can resume your work later.", color=cfg_c["text_dim"])
 
             if tag == "ws_nav_btn_save":
                 txt = dpg.add_text("", tag="ws_nav_filename_text", color=cfg_c["text_dim"])
