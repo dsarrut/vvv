@@ -42,6 +42,8 @@ class RegistrationUI:
         "drag_reg_tz",
     ]
 
+    _AUTO_RESAMPLE_DELAY = 0.7  # seconds of inactivity before auto-resample fires
+
     def __init__(self, gui, controller):
         self.gui = gui
         self.controller = controller
@@ -49,6 +51,9 @@ class RegistrationUI:
         self._preview_lock = threading.Lock()
         self._preview_queue = queue.Queue()
         threading.Thread(target=self._preview_worker_loop, daemon=True).start()
+        self._auto_timer: "threading.Timer | None" = None
+        self._auto_timer_lock = threading.Lock()
+        self._auto_timer_vs_id: str | None = None
 
     def _preview_worker_loop(self):
         while True:
@@ -228,6 +233,11 @@ class RegistrationUI:
                 dpg.add_spacer(height=5)
                 
                 # --- Resample & Bake ---
+                dpg.add_checkbox(
+                    label="Auto Resample",
+                    tag="check_reg_auto_resample",
+                    default_value=False,
+                )
                 dpg.add_button(
                     label="Resample Display", width=-1, tag="btn_reg_resample", callback=gui.reg_ui.on_reg_resample_clicked
                 )
@@ -378,6 +388,33 @@ class RegistrationUI:
 
     def _is_live_preview_enabled(self):
         return True
+
+    def _is_auto_resample_enabled(self):
+        return dpg.does_item_exist("check_reg_auto_resample") and dpg.get_value("check_reg_auto_resample")
+
+    def _cancel_auto_timer(self):
+        with self._auto_timer_lock:
+            if self._auto_timer is not None:
+                self._auto_timer.cancel()
+                self._auto_timer = None
+
+    def _schedule_auto_resample(self, vs_id):
+        """Debounce: cancel any pending auto-resample and restart the countdown."""
+        with self._auto_timer_lock:
+            if self._auto_timer is not None:
+                self._auto_timer.cancel()
+            self._auto_timer_vs_id = vs_id
+            t = threading.Timer(self._AUTO_RESAMPLE_DELAY, self._fire_auto_resample)
+            t.daemon = True
+            self._auto_timer = t
+        t.start()
+
+    def _fire_auto_resample(self):
+        with self._auto_timer_lock:
+            self._auto_timer = None
+            vs_id = self._auto_timer_vs_id
+        if vs_id:
+            self.trigger_resample(vs_id)
 
     def _trigger_fast_preview(self, image_id, version, R, center, viewer_slices):
         """Background worker: compute per-slice 2D previews using pre-extracted numpy data.
@@ -617,11 +654,12 @@ class RegistrationUI:
                 dpg.configure_item(tag, speed=speed)
                 
     def on_reg_resample_clicked(self, sender, app_data, user_data):
+        self._cancel_auto_timer()
         viewer = self.gui.context_viewer
         if not viewer or not viewer.image_id:
             return
         vs_id = viewer.image_id
-        
+
         if dpg.does_item_exist("btn_reg_resample"):
             dpg.bind_item_theme("btn_reg_resample", 0)
             
@@ -692,9 +730,13 @@ class RegistrationUI:
             # too would cause a flicker frame showing raw/old data before the preview arrives.
             self.controller.update_all_viewers_of_image(vs_id)
 
+        if self._is_auto_resample_enabled() and vs and vs.needs_resample:
+            self._schedule_auto_resample(vs_id)
+
         self.controller.ui_needs_refresh = True
 
     def on_reg_reset_clicked(self, sender, app_data, user_data):
+        self._cancel_auto_timer()
         viewer = self.gui.context_viewer
         if not viewer or not viewer.image_id:
             return
