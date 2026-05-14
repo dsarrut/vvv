@@ -239,14 +239,15 @@ class InteractionManager:
             viewer.update_tracker()
 
         # 2. OUTSIDE THE LOOP: Update the master UI state safely
-        if self.gui.context_viewer and not is_dragging:
-            show_xh = (
-                self.gui.context_viewer.view_state.camera.show_crosshair
-                if self.gui.context_viewer.view_state
-                else False
-            )
-            theme = "active_black_viewer_theme" if show_xh else "black_viewer_theme"
-            dpg.bind_item_theme(f"win_{self.gui.context_viewer.tag}", theme)
+        if self.gui.context_viewer:
+            if not is_dragging:
+                show_xh = (
+                    self.gui.context_viewer.view_state.camera.show_crosshair
+                    if self.gui.context_viewer.view_state
+                    else False
+                )
+                theme = "active_black_viewer_theme" if show_xh else "black_viewer_theme"
+                dpg.bind_item_theme(f"win_{self.gui.context_viewer.tag}", theme)
 
             # High-frequency 60fps text updates MUST be done directly, not via the heavy UI refresh flag!
             self.gui.update_sidebar_crosshair(self.gui.context_viewer)
