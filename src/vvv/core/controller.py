@@ -1,5 +1,6 @@
 import os
 import json
+import threading
 import numpy as np
 import concurrent.futures
 from typing import Any
@@ -435,6 +436,43 @@ class Controller:
             tx, ty, tz, math.radians(rx_deg), math.radians(ry_deg), math.radians(rz_deg)
         )
 
+    def resample_image(self, image_id):
+        """Spawn a background thread that resamples image_id and all dependent overlays.
+
+        Separated from the UI layer so it can be called from any context (manual button,
+        auto-resample timer, load/reload callbacks) without coupling to RegistrationUI.
+        The caller is responsible for showing any status message before calling this.
+        """
+        def _do():
+            vs = self.view_states.get(image_id)
+            if vs:
+                vs.clear_preview_slices()
+                vs.update_base_display_data()
+                if vs.display.overlay_id:
+                    vs.update_overlay_display_data(self)
+
+            # Resample every view that uses image_id as its overlay.
+            for other_vs in self.view_states.values():
+                if other_vs.display.overlay_id == image_id:
+                    other_vs.update_overlay_display_data(self)
+
+            # Sync crosshair AFTER all overlay resampling: update_crosshair_from_phys
+            # sets is_data_dirty which the controller tick propagates to viewers. If this
+            # ran before overlay resampling, the render loop could fire while overlay_data
+            # is in its tombstone (None) state → visible flash of one image only.
+            if vs and vs.base_display_data is not None:
+                if vs.camera.crosshair_phys_coord is not None:
+                    vs.update_crosshair_from_phys(vs.camera.crosshair_phys_coord)
+
+            if vs:
+                vs.needs_resample = False
+
+            self.update_all_viewers_of_image(image_id)
+            self.status_message = "Resampling complete"
+            self.ui_needs_refresh = True
+
+        threading.Thread(target=_do, daemon=True).start()
+
     def bake_transform_to_volume(self, vs_id):
         """Permanently apply the registration transform by resampling the volume in-place.
 
@@ -443,7 +481,6 @@ class Controller:
         After baking, the transform is reset to identity and the image is indistinguishable
         from one loaded without any transform.
         """
-        import threading
         import SimpleITK as sitk
 
         vs = self.view_states.get(vs_id)

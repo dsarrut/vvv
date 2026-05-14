@@ -472,44 +472,10 @@ class RegistrationUI:
 
         self.controller.update_all_viewers_of_image(image_id)
 
-    def trigger_resample(self, active_image_id):
-        """
-        [ASYNC_BOUNDARY]: Fires a background thread to resample the image.
-        Math happens off-main-thread to keep the UI from freezing.
-        """
-
-        def _do_resample():
-            active_vs = self.controller.view_states.get(active_image_id)
-            if active_vs:
-                active_vs.clear_preview_slices()
-                active_vs.update_base_display_data()
-                if active_vs.display.overlay_id:
-                    active_vs.update_overlay_display_data(self.controller)
-
-            # Resample every view that uses active_image_id as its overlay.
-            for vs in self.controller.view_states.values():
-                if vs.display.overlay_id == active_image_id:
-                    vs.update_overlay_display_data(self.controller)
-
-            # Sync crosshair AFTER all overlay resampling: update_crosshair_from_phys
-            # sets is_data_dirty which the controller tick propagates to viewers. If this
-            # ran before overlay resampling, the render loop could fire while overlay_data
-            # is in its tombstone (None) state → visible flash of one image only.
-            if active_vs and active_vs.base_display_data is not None:
-                if active_vs.camera.crosshair_phys_coord is not None:
-                    active_vs.update_crosshair_from_phys(active_vs.camera.crosshair_phys_coord)
-
-            if active_vs:
-                active_vs.needs_resample = False
-
-            self.controller.update_all_viewers_of_image(active_image_id)
-
-            # Feedback when done
-            self.controller.status_message = "Resampling complete"
-            self.controller.ui_needs_refresh = True
-
+    def trigger_resample(self, image_id):
+        """Show a status message then delegate all resampling work to the Controller."""
         self.gui.show_status_message("Resampling display...", color=self.gui.ui_cfg["colors"]["working"])
-        threading.Thread(target=_do_resample, daemon=True).start()
+        self.controller.resample_image(image_id)
 
     # --- Callbacks ---
     def on_reg_load_clicked(self, sender, app_data, user_data):
