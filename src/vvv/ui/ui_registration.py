@@ -448,19 +448,21 @@ class RegistrationUI:
             if active_vs:
                 active_vs.clear_preview_slices()
                 active_vs.update_base_display_data()
-                # Sync crosshair with the freshly resampled buffer so slice_idx and
-                # values reflect the new geometry. Only needed if base image rotated!
-                if active_vs.base_display_data is not None:
-                    if active_vs.camera.crosshair_phys_coord is not None:
-                        active_vs.update_crosshair_from_phys(active_vs.camera.crosshair_phys_coord)
                 if active_vs.display.overlay_id:
                     active_vs.update_overlay_display_data(self.controller)
-                    active_vs.is_data_dirty = True
 
+            # Resample every view that uses active_image_id as its overlay.
             for vs in self.controller.view_states.values():
                 if vs.display.overlay_id == active_image_id:
                     vs.update_overlay_display_data(self.controller)
-                    vs.is_data_dirty = True
+
+            # Sync crosshair AFTER all overlay resampling: update_crosshair_from_phys
+            # sets is_data_dirty which the controller tick propagates to viewers. If this
+            # ran before overlay resampling, the render loop could fire while overlay_data
+            # is in its tombstone (None) state → visible flash of one image only.
+            if active_vs and active_vs.base_display_data is not None:
+                if active_vs.camera.crosshair_phys_coord is not None:
+                    active_vs.update_crosshair_from_phys(active_vs.camera.crosshair_phys_coord)
 
             self.controller.update_all_viewers_of_image(active_image_id)
 
@@ -730,12 +732,9 @@ class RegistrationUI:
         for tag, val in zip(self.SLIDER_TAGS, vals):
             if dpg.does_item_exist(tag):
                 dpg.set_value(tag, val)
-        self.controller.update_transform_manual(
-            viewer.image_id, vals[3], vals[4], vals[5], vals[0], vals[1], vals[2]
-        )
-        if dpg.does_item_exist("btn_reg_resample"):
-            dpg.bind_item_theme("btn_reg_resample", "orange_button_theme")
-        self.controller.ui_needs_refresh = True
+        # Delegate to on_reg_manual_changed so preview, dirty flags, and button theme
+        # are all handled identically to a slider drag (same pattern as step buttons).
+        self.on_reg_manual_changed(sender, app_data, user_data)
 
     def on_reg_center_cor_clicked(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer
