@@ -6,6 +6,7 @@ import dearpygui.dearpygui as dpg
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 from vvv.utils import ViewMode, voxel_to_slice
 from vvv.ui.ui_components import build_stepped_slider, build_section_title
+from vvv.ui.render_strategy import compute_preview_2d_affine
 
 
 class RegistrationUI:
@@ -375,73 +376,6 @@ class RegistrationUI:
     def _is_live_preview_enabled(self):
         return dpg.does_item_exist("check_reg_live_preview") and dpg.get_value("check_reg_live_preview")
 
-    def _compute_preview_slice(self, viewer, R, center):
-        """Compute a fast 2D preview slice for one viewer using vectorized numpy sampling.
-
-        R and center must be plain numpy arrays extracted from the ITK transform on the
-        main thread before this method is called — ITK objects must never be accessed
-        from a background thread (not thread-safe → segfault).
-        """
-        vs = viewer.view_state
-        if not vs:
-            return None
-        vol = vs.volume
-        if getattr(vol, "is_dvf", False):
-            return None
-
-        orientation = viewer.orientation
-        slice_idx = viewer.slice_idx
-        shape = vol.shape3d  # numpy (Z, Y, X)
-        spacing = vol.spacing  # ITK order (x, y, z)
-
-        # Build the ITK voxel grid for each output pixel in this slice.
-        # ITK convention: index = (x, y, z) = (col, row, z)
-        if orientation == ViewMode.AXIAL:
-            # extract_slice returns data[z, :, :] shape (Y, X); no flips
-            rows, cols = np.meshgrid(np.arange(shape[1]), np.arange(shape[2]), indexing="ij")
-            vox_N = np.column_stack([cols.ravel(), rows.ravel(), np.full(rows.size, slice_idx, dtype=np.float64)])
-        elif orientation == ViewMode.SAGITTAL:
-            # extract_slice returns flipud(fliplr(data[:, :, x])) shape (Z, Y)
-            # Output pixel (r,c) ← before flips (Z-1-r, Y-1-c) ← numpy (Z-1-r, Y-1-c, x) → ITK (x, Y-1-c, Z-1-r)
-            rows, cols = np.meshgrid(np.arange(shape[0]), np.arange(shape[1]), indexing="ij")
-            vox_N = np.column_stack([
-                np.full(rows.size, slice_idx, dtype=np.float64),
-                (shape[1] - 1 - cols).ravel().astype(np.float64),
-                (shape[0] - 1 - rows).ravel().astype(np.float64),
-            ])
-        else:  # CORONAL
-            # extract_slice returns flipud(data[:, y, :]) shape (Z, X)
-            # Output pixel (r,c) ← before flip (Z-1-r, c) → ITK (c, y, Z-1-r)
-            rows, cols = np.meshgrid(np.arange(shape[0]), np.arange(shape[2]), indexing="ij")
-            vox_N = np.column_stack([
-                cols.ravel().astype(np.float64),
-                np.full(rows.size, slice_idx, dtype=np.float64),
-                (shape[0] - 1 - rows).ravel().astype(np.float64),
-            ])
-
-        # Voxel (ITK) → physical
-        phys_N = vol.origin + (vox_N * spacing) @ vol.matrix.T  # (N, 3)
-
-        # Apply inverse rotation: p_in = R^T @ (p_out - center) + center
-        # Vectorized: (p - center) @ R  (row-vector form of R^T applied column-wise)
-        phys_in_N = (phys_N - center) @ R + center  # (N, 3)
-
-        # Physical → voxel (ITK)
-        vox_in_N = ((phys_in_N - vol.origin) @ vol.inverse_matrix.T) / spacing  # (N, 3)
-
-        # Round and clamp to valid bounds
-        x_in = np.clip(np.round(vox_in_N[:, 0]).astype(np.intp), 0, shape[2] - 1)
-        y_in = np.clip(np.round(vox_in_N[:, 1]).astype(np.intp), 0, shape[1] - 1)
-        z_in = np.clip(np.round(vox_in_N[:, 2]).astype(np.intp), 0, shape[0] - 1)
-
-        data = vol.data
-        if data.ndim == 4:
-            t_idx = min(vs.camera.time_idx, data.shape[0] - 1)
-            data = data[t_idx]
-
-        sampled = data[z_in, y_in, x_in].reshape(rows.shape)
-        return np.ascontiguousarray(sampled)
-
     def _trigger_fast_preview(self, image_id, version, R, center):
         """Background worker: compute per-slice 2D previews using pre-extracted numpy R/center.
 
@@ -462,7 +396,12 @@ class RegistrationUI:
         for viewer in self.controller.viewers.values():
             if viewer.image_id != image_id:
                 continue
-            preview = self._compute_preview_slice(viewer, R, center)
+            vol = viewer.volume
+            if getattr(vol, "is_dvf", False):
+                continue
+            preview = compute_preview_2d_affine(
+                vol, viewer.orientation, viewer.slice_idx, R, center, vs.camera.time_idx
+            )
             if preview is not None:
                 new_previews[(viewer.orientation, viewer.slice_idx)] = preview
 

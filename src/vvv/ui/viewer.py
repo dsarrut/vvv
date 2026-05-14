@@ -9,6 +9,7 @@ from vvv.core.view_state import ViewState
 from vvv.ui.render_strategy import (
     compute_software_nearest_neighbor,
     compute_native_voxel_overlay,
+    compute_preview_2d_affine,
     blend_slices_cpu,
     GL_NEAREST_SUPPORTED,
     try_set_gl_nearest,
@@ -19,47 +20,6 @@ from vvv.ui.render_strategy import (
     _NUMBA_AVAILABLE,
 )
 from typing import Any
-
-
-def _compute_preview_2d(vol, orientation, slice_idx, R, center, time_idx):
-    """Fast per-slice preview via inverse rotation sampling on the raw volume (nearest-neighbor).
-
-    Identical math to RegistrationUI._compute_preview_slice but callable from the
-    render path so any slice can be computed on demand when it is not yet cached.
-    """
-    shape = vol.shape3d  # (Z, Y, X) numpy
-    spacing = vol.spacing
-    if orientation == ViewMode.AXIAL:
-        rows, cols = np.meshgrid(np.arange(shape[1]), np.arange(shape[2]), indexing="ij")
-        vox_N = np.column_stack([cols.ravel(), rows.ravel(), np.full(rows.size, slice_idx, dtype=np.float64)])
-    elif orientation == ViewMode.SAGITTAL:
-        rows, cols = np.meshgrid(np.arange(shape[0]), np.arange(shape[1]), indexing="ij")
-        vox_N = np.column_stack([
-            np.full(rows.size, slice_idx, dtype=np.float64),
-            (shape[1] - 1 - cols).ravel().astype(np.float64),
-            (shape[0] - 1 - rows).ravel().astype(np.float64),
-        ])
-    else:  # CORONAL
-        rows, cols = np.meshgrid(np.arange(shape[0]), np.arange(shape[2]), indexing="ij")
-        vox_N = np.column_stack([
-            cols.ravel().astype(np.float64),
-            np.full(rows.size, slice_idx, dtype=np.float64),
-            (shape[0] - 1 - rows).ravel().astype(np.float64),
-        ])
-
-    phys_N = vol.origin + (vox_N * spacing) @ vol.matrix.T
-    phys_in_N = (phys_N - center) @ R + center  # apply R^T per row (inverse rotation)
-    vox_in_N = ((phys_in_N - vol.origin) @ vol.inverse_matrix.T) / spacing
-
-    x_in = np.clip(np.round(vox_in_N[:, 0]).astype(np.intp), 0, shape[2] - 1)
-    y_in = np.clip(np.round(vox_in_N[:, 1]).astype(np.intp), 0, shape[1] - 1)
-    z_in = np.clip(np.round(vox_in_N[:, 2]).astype(np.intp), 0, shape[0] - 1)
-
-    data = vol.data
-    if data.ndim == 4:
-        data = data[min(time_idx, data.shape[0] - 1)]
-
-    return np.ascontiguousarray(data[z_in, y_in, x_in].reshape(rows.shape))
 
 
 class ViewportMapper:
@@ -1342,7 +1302,7 @@ class SliceViewer:
         key = (self.orientation, self.slice_idx)
         preview = vs._preview_slices.get(key)
         if preview is None and vs._preview_R is not None and not getattr(vol, "is_dvf", False):
-            preview = _compute_preview_2d(
+            preview = compute_preview_2d_affine(
                 vol, self.orientation, self.slice_idx,
                 vs._preview_R, vs._preview_center, vs.camera.time_idx,
             )
