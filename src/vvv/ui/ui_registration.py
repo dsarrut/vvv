@@ -55,13 +55,14 @@ class RegistrationUI:
             req = self._preview_queue.get()
             if req is None:
                 break
+            # Drain: skip all but the latest queued request
             while not self._preview_queue.empty():
                 try:
                     req = self._preview_queue.get_nowait()
                 except queue.Empty:
                     break
-            vs_id, version, R, center = req
-            self._trigger_fast_preview(vs_id, version, R, center)
+            vs_id, version, R, center, viewer_slices = req
+            self._trigger_fast_preview(vs_id, version, R, center, viewer_slices)
 
     @staticmethod
     def build_tab_reg(gui):
@@ -392,16 +393,17 @@ class RegistrationUI:
     def _is_live_preview_enabled(self):
         return dpg.does_item_exist("check_reg_live_preview") and dpg.get_value("check_reg_live_preview")
 
-    def _trigger_fast_preview(self, image_id, version, R, center):
-        """Background worker: compute per-slice 2D previews using pre-extracted numpy R/center.
+    def _trigger_fast_preview(self, image_id, version, R, center, viewer_slices):
+        """Background worker: compute per-slice 2D previews using pre-extracted numpy data.
 
-        R and center are plain numpy arrays captured on the main thread — this function
-        never touches SimpleITK objects so it is safe to run off the main thread.
+        R, center, and viewer_slices are all captured on the main thread before this is
+        called — this function never touches SimpleITK objects and is safe off-thread.
+        viewer_slices: dict mapping id(viewer) → (orientation, slice_idx).
 
         Builds results locally, then atomically replaces _preview_slices only if no
         newer request has arrived (version check). This prevents two bugs:
-        - The old preview disappearing mid-compute (would cause a jump to unrotated view)
-        - A slow earlier thread overwriting the result of a faster later thread
+        - The old preview disappearing mid-compute (causes a jump to unrotated view)
+        - A slow earlier request overwriting the result of a faster later one
         """
         vs = self.controller.view_states.get(image_id)
         if not vs:
@@ -412,14 +414,18 @@ class RegistrationUI:
         for viewer in self.controller.viewers.values():
             if viewer.image_id != image_id:
                 continue
+            ctx = viewer_slices.get(id(viewer))
+            if ctx is None:
+                continue
+            orientation, slice_idx = ctx
             vol = viewer.volume
             if getattr(vol, "is_dvf", False):
                 continue
             preview = compute_preview_2d_affine(
-                vol, viewer.orientation, viewer.slice_idx, R, center, vs.camera.time_idx
+                vol, orientation, slice_idx, R, center, vs.camera.time_idx
             )
             if preview is not None:
-                new_previews[(viewer.orientation, viewer.slice_idx)] = preview
+                new_previews[(orientation, slice_idx)] = preview
 
         # Atomic replace only if still the latest request
         with self._preview_lock:
@@ -654,7 +660,15 @@ class RegistrationUI:
             rot_transform = vs.space.get_rotation_only_transform()
             R = np.array(rot_transform.GetMatrix(), dtype=np.float64).reshape(3, 3)
             center = np.array(rot_transform.GetCenter(), dtype=np.float64)
-            self._preview_queue.put((vs_id, version, R, center))
+            # Also snapshot viewer slice indices on the main thread: viewer.slice_idx
+            # calls world_to_display → SpatialEngine → transform.GetInverse() — ITK,
+            # so it must not be called from the worker thread.
+            viewer_slices = {
+                id(v): (v.orientation, v.slice_idx)
+                for v in self.controller.viewers.values()
+                if v.image_id == vs_id
+            }
+            self._preview_queue.put((vs_id, version, R, center, viewer_slices))
             preview_thread_spawned = True
 
         if not preview_thread_spawned:
@@ -675,9 +689,13 @@ class RegistrationUI:
             if dpg.does_item_exist(tag):
                 dpg.set_value(tag, 0.0)
         self.controller.update_transform_manual(viewer.image_id, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-        # Invalidate any in-flight preview thread
+        # Invalidate any in-flight preview and clear state immediately on the main thread
+        # so the viewer doesn't briefly show a stale rotation preview after reset.
         with self._preview_lock:
             self._preview_version += 1
+        vs = self.controller.view_states.get(viewer.image_id)
+        if vs:
+            vs.clear_preview_slices()
         # Immediately resample: for identity, update_base_display_data just clears the
         # stale rotated buffer (no ITK resampling), so this returns almost instantly.
         if dpg.does_item_exist("btn_reg_resample"):
