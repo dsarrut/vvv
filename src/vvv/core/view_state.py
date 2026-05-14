@@ -2,7 +2,7 @@ import numpy as np
 from contextlib import contextmanager
 from vvv.config import WL_PRESETS
 from vvv.maths.geometry import SpatialEngine
-from vvv.utils import ViewMode, slice_to_voxel
+from vvv.utils import ViewMode
 
 _SENTINEL = object()
 
@@ -456,12 +456,14 @@ class ViewState:
         self.contours = {}
         self.crosshair_value = None # This will be set by init_crosshair_to_slices
         self.space = SpatialEngine(volume, view_state=self) # Pass self to SpatialEngine
+        self.needs_resample: bool = False     # True when transform changed since last resample
+        self._resample_job_counter: int = 0  # monotonically increasing job ID generator
+        self._active_resample_job: int = 0   # 0 = idle, N = job N is currently running
         self.base_display_data: np.ndarray | None = None
         self._sitk_base_cache = None
-        self._reg_anchor_world: np.ndarray | None = None  # world pin captured at drag start; cleared on settle
-        self._reg_anchor_native_vox: np.ndarray | None = None  # native voxel at drag start WITHOUT transform
-        self._reg_anchor_pan: dict | None = None  # per-orientation pan at drag start
-        self._is_interactive_rotation: bool = False  # routes viewer.tick() to fast Numba path during rotation drag
+        self._preview_R: "np.ndarray | None" = None    # current rotation for on-demand preview
+        self._preview_center: "np.ndarray | None" = None
+        self._preview_slice_needed: bool = False  # set by viewer on cache miss
         self.hist_data_x = None
         self.hist_data_y = None
         self.histogram_is_dirty = True
@@ -469,12 +471,54 @@ class ViewState:
         self.init_crosshair_to_slices()
         self.init_default_window_level()
 
-    def clear_reg_anchors(self):
-        """Clears drag anchors so manual pan/zoom doesn't get overwritten by stale offsets."""
-        self._reg_anchor_world = None
-        self._reg_anchor_native_vox = None
-        self._reg_anchor_pan = None
-        self._is_interactive_rotation = False
+    def compute_overlay_pixel_shift(self, overlay_vs, vol_spacing, orientation):
+        """Return (dx_pix, dy_pix, dz_pix) for live overlay alignment.
+
+        Computes the difference between the current transform translations and the
+        translations that were baked into overlay_data at the last resample, converts
+        to pixel units, then remaps axes to match the orientation-specific flipud/fliplr
+        applied by SliceRenderer.extract_slice. If those flips change, the sign
+        conventions here must change in sync.
+        """
+        base_tx, base_ty, base_tz = 0.0, 0.0, 0.0
+        if self.space.transform and self.space.is_active:
+            base_tx, base_ty, base_tz = self.space.transform.GetTranslation()
+
+        ov_tx, ov_ty, ov_tz = 0.0, 0.0, 0.0
+        if overlay_vs.space.transform and overlay_vs.space.is_active:
+            ov_tx, ov_ty, ov_tz = overlay_vs.space.transform.GetTranslation()
+
+        live_dx = ov_tx - base_tx
+        live_dy = ov_ty - base_ty
+        live_dz = ov_tz - base_tz
+
+        baked_dx, baked_dy, baked_dz = getattr(
+            self.display, "baked_overlay_translation", (0.0, 0.0, 0.0)
+        )
+
+        sp_x, sp_y, sp_z = vol_spacing
+        px_x = (live_dx - baked_dx) / sp_x if sp_x else 0.0
+        px_y = (live_dy - baked_dy) / sp_y if sp_y else 0.0
+        px_z = (live_dz - baked_dz) / sp_z if sp_z else 0.0
+
+        if orientation == ViewMode.AXIAL:
+            return px_x, px_y, px_z
+        elif orientation == ViewMode.CORONAL:
+            return px_x, -px_z, px_y
+        else:  # SAGITTAL
+            return -px_y, -px_z, px_x
+
+    def reset_preview_rotation(self):
+        """Clear the shared rotation state used by all viewers for on-demand preview rendering.
+
+        Setting _preview_R = None acts as a master switch: the render loop checks it
+        before using any viewer-local slice caches, so stale viewer caches are silently
+        ignored without needing the Controller to touch View objects directly.
+        Viewer-local slice dicts (_preview_slices, _overlay_preview_slices) are
+        managed by the View layer (RegistrationUI / Viewer) and are not cleared here.
+        """
+        self._preview_R = None
+        self._preview_center = None
 
     def display_to_world(self, display_voxel, is_buffered):
         """Bypasses double-rotation for ITK buffered arrays. World = Native + Translation."""
@@ -587,31 +631,12 @@ class ViewState:
                 if self.display.ww <= 1e-20:
                     self.display.ww = max(abs(p1) * 0.1, 1e-20)
                     self.display.wl = (p99 + p1) / 2
-    def update_crosshair_voxel_from_native(self, native_vox: np.ndarray):
-        """Update voxel coords, slices, and crosshair value from a native voxel during transform drag.
-
-        Intentionally does NOT touch crosshair_phys_coord or trigger geometry redraw —
-        the camera (pan/zoom/screen position) stays fixed while the image moves underneath.
-        """
-        if native_vox is None:
-            return
-        ix = int(np.clip(np.round(native_vox[0]), 0, self.volume.shape3d[2] - 1))
-        iy = int(np.clip(np.round(native_vox[1]), 0, self.volume.shape3d[1] - 1))
-        iz = int(np.clip(np.round(native_vox[2]), 0, self.volume.shape3d[0] - 1))
-        self.camera.crosshair_voxel = [native_vox[0], native_vox[1], native_vox[2], self.camera.time_idx]
-        self.camera.slices[ViewMode.AXIAL]    = iz
-        self.camera.slices[ViewMode.SAGITTAL] = ix
-        self.camera.slices[ViewMode.CORONAL]  = iy
-        self.crosshair_value = self._read_voxel_value(ix, iy, iz, use_buffer=False)
-        self.is_data_dirty = True
-        # is_geometry_dirty intentionally NOT set — pan/zoom/crosshair screen position must not change
 
     def update_crosshair_from_phys(self, new_phys_coord: np.ndarray):
         """
         Updates the crosshair's native voxel and physical coordinates based on a new physical point.
         This is the central point for all crosshair updates.
         """
-        self.clear_reg_anchors()
         if new_phys_coord is None:
             return
 
@@ -654,7 +679,6 @@ class ViewState:
         self.histogram_is_dirty = False
 
     def reset_view(self):
-        self.clear_reg_anchors()
         self.camera.zoom = {
             ViewMode.AXIAL: 1.0,
             ViewMode.SAGITTAL: 1.0,
@@ -674,7 +698,6 @@ class ViewState:
         self.is_data_dirty = True
 
     def hard_reset(self):
-        self.clear_reg_anchors()
         self.camera = CameraState(self.volume, parent_vs=self)
         self.display = DisplayState(parent_vs=self)
         self.init_default_window_level()
@@ -768,10 +791,11 @@ class ViewState:
         ovs = controller.view_states[self.display.overlay_id]
         other_vol = ovs.volume
 
-        # The Tombstone Pattern
-        # Sever the Numpy view BEFORE releasing the GIL to SimpleITK!
-        self.display.overlay_data = None
-        _ = self.display._sitk_overlay_cache  # keep sitk object alive until Execute() returns
+        # Late-tombstone pattern: keep the old overlay_data numpy view valid throughout
+        # Execute() so renders during the long ITK computation still show the previous
+        # overlay rather than Nothing (ghost). The old ITK object is kept alive via a
+        # local reference and released only AFTER the new data is atomically assigned.
+        _old_cache = self.display._sitk_overlay_cache
         self.display._sitk_overlay_cache = None
 
         # Build a safe 3D reference image to prevent ITK dimension mismatch exceptions
@@ -823,6 +847,11 @@ class ViewState:
         else:
             self.display._sitk_overlay_cache = None
             self.display.overlay_data = other_vol.data
+
+        # Release old ITK object now that overlay_data points to new data.
+        # Doing it here (after assignment) guarantees the old numpy view was never
+        # accessed after the old cache was freed.
+        _old_cache = None  # noqa: F841
 
         # Record what was baked in so the 2D shift can subtract it.
         baked_tx, baked_ty, baked_tz = 0.0, 0.0, 0.0

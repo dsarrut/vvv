@@ -65,21 +65,6 @@ class SyncManager:
     # PUBLIC SYNC METHODS
     # ==========================================
 
-    def propagate_transform_sync(self, source_vs_id):
-        """Notify sync group that the source image's transform changed.
-
-        Unlike propagate_sync, this does NOT update crosshair_voxel (which would
-        move the crosshair on screen) or pan/zoom. It only marks synced images as
-        data-dirty so they redraw with the correct slice_idx, which auto-derives
-        from crosshair_phys_coord via _get_crosshair_display_voxel().
-        """
-        source_vs = self.controller.view_states.get(source_vs_id)
-        if not source_vs:
-            return
-        target_ids = self.get_sync_group_vs_ids(source_vs_id, active_only=True)
-        dirty_ids = [tid for tid in target_ids if tid != source_vs_id]
-        self.trigger_redraw(dirty_ids)
-
     def propagate_time_idx(self, source_vs_id):
         """Propagate time_idx to all sync group members, clamping to their max timepoints."""
         source_vs = self.controller.view_states.get(source_vs_id)
@@ -294,13 +279,30 @@ class SyncManager:
         if not self.controller.view_states:
             return
 
+        # Determine the master image id
+        master_vs_id = None
+        active_viewer = self.controller.gui.context_viewer if self.controller.gui else None
+        if active_viewer and active_viewer.image_id in self.controller.view_states:
+            master_vs_id = active_viewer.image_id
+            
+        if not master_vs_id:
+            master_vs_id = next(iter(self.controller.view_states))
+
         for vs in list(self.controller.view_states.values()):
             vs.sync_group = 1
 
-        # Trigger the sync propagation logic you built in Step 2
-        # (Assuming the first loaded view state acts as the master)
-        first_vs_id = next(iter(self.controller.view_states))
-        self.controller.set_sync_group(first_vs_id, 1)
+        master_viewer = next(
+            (v for v in self.controller.viewers.values() if v.image_id == master_vs_id),
+            None,
+        )
+        if master_viewer:
+            self.propagate_camera(master_viewer)
+            
+        self.propagate_sync(master_vs_id)
+        
+        for vs_id in list(self.controller.view_states.keys()):
+            self.controller.update_all_viewers_of_image(vs_id)
+
         self.controller.ui_needs_refresh = True
 
     def unlink_all(self):
@@ -317,13 +319,20 @@ class SyncManager:
         if not self.controller.view_states:
             return
 
+        master_vs_id = None
+        active_viewer = self.controller.gui.context_viewer if self.controller.gui else None
+        if active_viewer and active_viewer.image_id in self.controller.view_states:
+            master_vs_id = active_viewer.image_id
+            
+        if not master_vs_id:
+            master_vs_id = next(iter(self.controller.view_states))
+
         for vs in list(self.controller.view_states.values()):
             vs.sync_wl_group = 1
 
         # State-Only: Instantly broadcast the W/L and Colormap to the whole group.
-        first_vs_id = next(iter(self.controller.view_states))
-        self.propagate_window_level(first_vs_id)
-        self.propagate_colormap(first_vs_id)
+        self.propagate_window_level(master_vs_id)
+        self.propagate_colormap(master_vs_id)
 
         # Flag the GUI to refresh the sync tab
         self.controller.ui_needs_refresh = True

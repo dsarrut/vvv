@@ -171,12 +171,15 @@ def open_file_dialog(
                 return [] if multiple else None
 
     elif sys.platform == "win32":  # Windows
+        start_dir_esc = start_dir.replace("'", "''")
+        title_esc = title.replace("'", "''")
+        
         if is_directory:
             script = (
                 f"Add-Type -AssemblyName System.Windows.Forms;"
                 f"$f = New-Object System.Windows.Forms.FolderBrowserDialog;"
-                f"$f.Description = '{title}';"
-                f"$f.SelectedPath = '{start_dir}';"
+                f"$f.Description = '{title_esc}';"
+                f"$f.SelectedPath = '{start_dir_esc}';"
                 f"$form = New-Object System.Windows.Forms.Form;"
                 f"$form.TopMost = $true;"
                 f"if ($f.ShowDialog($form) -eq 'OK') {{ $f.SelectedPath }}"
@@ -192,8 +195,8 @@ def open_file_dialog(
             script = (
                 f"Add-Type -AssemblyName System.Windows.Forms;"
                 f"$f = New-Object System.Windows.Forms.OpenFileDialog;"
-                f"$f.Title = '{title}';"
-                f"$f.InitialDirectory = '{start_dir}';"
+                f"$f.Title = '{title_esc}';"
+                f"$f.InitialDirectory = '{start_dir_esc}';"
                 f"$f.Filter = '{win_filter}';"
                 f"$f.Multiselect = {mult_str};"
                 f"$f.ShowHelp = $true;"
@@ -310,12 +313,16 @@ def save_file_dialog(title="Save File", default_name="workspace.vvw", start_dir=
                 return None
 
     elif sys.platform == "win32":  # Windows
+        start_dir_esc = start_dir.replace("'", "''")
+        title_esc = title.replace("'", "''")
+        default_name_esc = default_name.replace("'", "''")
+        
         script = (
             f"Add-Type -AssemblyName System.Windows.Forms;"
             f"$f = New-Object System.Windows.Forms.SaveFileDialog;"
-            f"$f.Title = '{title}';"
-            f"$f.InitialDirectory = '{start_dir}';"
-            f"$f.FileName = '{default_name}';"
+            f"$f.Title = '{title_esc}';"
+            f"$f.InitialDirectory = '{start_dir_esc}';"
+            f"$f.FileName = '{default_name_esc}';"
             f"$f.Filter = '{filter_name} (*.{ext})|*.{ext}|All Files (*.*)|*.*';"
             f"$form = New-Object System.Windows.Forms.Form;"
             f"$form.TopMost = $true;"

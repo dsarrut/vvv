@@ -649,11 +649,10 @@ class ROIManager:
         cy = (y0 + y1 - 1) / 2.0
         cz = (z0 + z1 - 1) / 2.0
 
+        base_vol = self.controller.volumes[base_id]
         vs = self.controller.view_states[base_id]
-        vs.camera.crosshair_voxel = [cx, cy, cz, vs.camera.time_idx]
-        vs.camera.crosshair_phys_coord = mask_vol.voxel_coord_to_physic_coord(
-            np.array([cx, cy, cz])
-        )
+        phys_center = base_vol.voxel_coord_to_physic_coord(np.array([cx, cy, cz]))
+        vs.update_crosshair_from_phys(phys_center)
 
         self.controller.sync.propagate_sync(base_id)
 
@@ -663,7 +662,7 @@ class ROIManager:
         )
         for tid in target_ids:
             t_vs = self.controller.view_states[tid]
-            t_vs.camera.target_center = vs.camera.crosshair_phys_coord
+            t_vs.camera.target_center = phys_center
 
     def reload_roi(self, base_id, roi_id):
         if (

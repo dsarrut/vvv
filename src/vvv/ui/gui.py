@@ -1114,8 +1114,17 @@ class MainGUI:
             inner_w = col_w - cfg["left_inner_m"] - cfg["right_inner_m"]
 
             if dpg.does_item_exist("roi_list_window"):
-                list_h = top_h - cfg["roi_detail_h"] - 195
+                detail_shown = dpg.does_item_exist("roi_detail_header_group") and dpg.is_item_shown("roi_detail_header_group")
+                detail_h = cfg.get("roi_detail_h", 300) if detail_shown else 0
+                
+                # 250px provides padding for the top controls and the "Export" button below the list
+                list_h = top_h - detail_h - 250
+                
                 dpg.set_item_width("roi_list_window", inner_w)
+                dpg.set_item_height("roi_list_window", max(50, int(list_h)))
+                
+                if dpg.does_item_exist("roi_detail_window"):
+                    dpg.set_item_height("roi_detail_window", max(10, detail_h - 30))
 
         r_x = l_x + l_w + cfg["gap_center"]
         avail_w = window_w - r_x - cfg["right_m_right"]
@@ -1491,14 +1500,26 @@ class MainGUI:
             no_collapse=False,
             on_close=lambda: dpg.delete_item(window_tag),
         ):
+            import sys
+            is_mac = sys.platform == "darwin"
+            cmd_name = "Cmd" if is_mac else "Ctrl"
+
             dpg.add_spacer(height=5)
             dpg.add_text("Mouse Controls", color=active_col)
             dpg.add_separator()
-            dpg.add_text("Left Click         : Move crosshair")
-            dpg.add_text("Scroll Wheel       : Change slice")
-            dpg.add_text("Ctrl + Scroll      : Zoom in/out")
-            dpg.add_text("Ctrl + Drag        : Pan view")
-            dpg.add_text("Shift + Move       : Adjust Window/Level (X/Y axis)")
+            if is_mac:
+                dpg.add_text("Left Click         : Move crosshair")
+                dpg.add_text("Scroll Wheel       : Change slice")
+                dpg.add_text("Cmd/Ctrl + Scroll  : Zoom in/out")
+                dpg.add_text("Cmd/Ctrl + L-Drag  : Pan view")
+                dpg.add_text("Mid-Drag           : Pan view")
+                dpg.add_text("Shift+Drag / R-Drag: Adjust Window/Level")
+            else:
+                dpg.add_text("Left Click         : Move crosshair")
+                dpg.add_text("Scroll Wheel       : Change slice")
+                dpg.add_text("Ctrl + Scroll      : Zoom in/out")
+                dpg.add_text("Ctrl+L-Drag / M-Drag: Pan view")
+                dpg.add_text("Shift+Drag / R-Drag: Adjust Window/Level")
 
             dpg.add_spacer(height=15)
             dpg.add_text("Keyboard Shortcuts", color=active_col)
@@ -1538,7 +1559,7 @@ class MainGUI:
                 if k == 518:
                     return "Page Down"
                 if key_name == "open_file":
-                    return f"Ctrl + {k}"
+                    return f"{cmd_name} + {k}"
                 if key_name == "hard_reset":
                     return f"Shift + {k}"
                 return str(k)

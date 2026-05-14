@@ -1,11 +1,13 @@
 import os
 import math
 import threading
+import queue
 import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 from vvv.utils import ViewMode, voxel_to_slice
 from vvv.ui.ui_components import build_stepped_slider, build_section_title
+from vvv.ui.render_strategy import compute_preview_2d_affine, compute_overlay_preview_2d_affine
 
 
 class RegistrationUI:
@@ -40,10 +42,32 @@ class RegistrationUI:
         "drag_reg_tz",
     ]
 
+    _AUTO_RESAMPLE_DELAY = 0.7  # seconds of inactivity before auto-resample fires
+
     def __init__(self, gui, controller):
         self.gui = gui
         self.controller = controller
-        self._reg_debounce_timer = None
+        self._preview_version = 0
+        self._preview_lock = threading.Lock()
+        self._preview_queue = queue.Queue()
+        threading.Thread(target=self._preview_worker_loop, daemon=True).start()
+        self._auto_timer: "threading.Timer | None" = None
+        self._auto_timer_lock = threading.Lock()
+        self._auto_timer_vs_id: str | None = None
+
+    def _preview_worker_loop(self):
+        while True:
+            req = self._preview_queue.get()
+            if req is None:
+                break
+            # Drain: skip all but the latest queued request
+            while not self._preview_queue.empty():
+                try:
+                    req = self._preview_queue.get_nowait()
+                except queue.Empty:
+                    break
+            vs_id, version, R, center, viewer_slices = req
+            self._trigger_fast_preview(vs_id, version, R, center, viewer_slices)
 
     @staticmethod
     def build_tab_reg(gui):
@@ -66,25 +90,23 @@ class RegistrationUI:
                 show=False,
             )
 
+
             with dpg.group(tag="group_registration_controls"):
-                # --- TOP: File Management & Apply ---
+                # --- TOP: File Management ---
                 dpg.add_spacer(height=10)
                 with dpg.group(horizontal=True):
                     dpg.add_button(
-                        label="Load",
-                        width=50,
+                        label="Load Matrix",
                         tag="btn_reg_load",
                         callback=gui.reg_ui.on_reg_load_clicked,
                     )
                     dpg.add_button(
-                        label="Save",
-                        width=50,
+                        label="Save Matrix",
                         tag="btn_reg_save",
                         callback=gui.reg_ui.on_reg_save_clicked,
                     )
                     dpg.add_button(
                         label="Save As",
-                        width=65,
                         tag="btn_reg_save_as",
                         callback=gui.reg_ui.on_reg_save_as_clicked,
                     )
@@ -101,59 +123,25 @@ class RegistrationUI:
                         dpg.bind_item_theme(btn_reload, "icon_button_theme")
 
                 with dpg.group(horizontal=True):
-                    dpg.add_text("File: ")
+                    dpg.add_text("Transform File: ")
                     dpg.add_text("None", tag="text_reg_filename", color=cfg_c["text_dim"])
 
-                dpg.add_checkbox(
-                    label="Apply Transform to Viewers",
-                    tag="check_reg_apply",
-                    callback=gui.reg_ui.on_reg_apply_toggled,
-                )
-                dpg.add_button(
-                    label="Bake into Image",
-                    tag="btn_reg_bake",
-                    callback=gui.reg_ui.on_reg_bake_clicked,
-                    width=-1,
-                )
-                dpg.add_separator()
-
-                # --- MIDDLE: Read-Only Math (Matrix & CoR) ---
+                # --- CoR Goto and Set ---
                 dpg.add_spacer(height=10)
-                build_section_title("Affine Matrix", cfg_c["text_header"])
-                with dpg.group(tag="group_reg_matrix"):
-                    with dpg.table(
-                        header_row=False,
-                        borders_innerV=True,
-                        borders_innerH=True,
-                        resizable=False,
-                    ):
-                        for _ in range(4):
-                            dpg.add_table_column()
-                        for r in range(4):
-                            with dpg.table_row():
-                                for c in range(4):
-                                    dpg.add_text(
-                                        "0.000",
-                                        tag=f"txt_reg_m_{r}_{c}",
-                                        color=cfg_c["text_dim"],
-                                    )
-
-                dpg.add_spacer(height=5)
                 with dpg.group(horizontal=True):
                     dpg.add_text("CoR:")
-                    dpg.add_input_text(tag="input_reg_cor", width=125, readonly=True)
+                    dpg.add_input_text(tag="input_reg_cor", width=-1, readonly=True)
+                with dpg.group(horizontal=True):
                     b = dpg.add_button(
                         label="\uf05b ", callback=gui.reg_ui.on_reg_center_cor_clicked
                     )
                     if dpg.does_item_exist("icon_font_tag"):
                         dpg.bind_item_font(b, "icon_font_tag")
-                    # Sets the CoR to the current crosshair
                     dpg.add_button(
-                        label="Set",
-                        callback=gui.reg_ui.on_reg_cor_to_crosshair_clicked,
+                        label="Snap to Crosshair", width=-1, callback=gui.reg_ui.on_reg_cor_to_crosshair_clicked
                     )
 
-                # --- BOTTOM: Manual 6-DOF Tweaking ---
+                # --- Rigid Adjustment ---
                 dpg.add_spacer(height=10)
                 build_section_title(
                     "Rigid Adjustment (Euler R = Rz Ry Rx)", cfg_c["text_header"]
@@ -233,13 +221,58 @@ class RegistrationUI:
                 dpg.add_spacer(height=5)
                 with dpg.group(horizontal=True):
                     dpg.add_button(
-                        label="Reset to ID",
-                        width=120,
+                        label="Reset to Identity",
                         callback=gui.reg_ui.on_reg_reset_clicked,
                     )
                     dpg.add_button(
-                        label="Invert", width=-1, callback=gui.reg_ui.on_reg_invert_clicked
+                        label="Invert Transform", width=-1, callback=gui.reg_ui.on_reg_invert_clicked
                     )
+                dpg.add_spacer(height=5)
+                
+                # --- Resample & Bake ---
+                dpg.add_checkbox(
+                    label="Auto-Update Display",
+                    tag="check_reg_auto_resample",
+                    default_value=False,
+                    callback=gui.reg_ui.on_reg_auto_resample_toggled,
+                )
+                dpg.add_button(
+                    label="Update Display", width=-1, tag="btn_reg_resample", callback=gui.reg_ui.on_reg_resample_clicked
+                )
+                with dpg.group(horizontal=True):
+                    dpg.add_button(
+                        label="Commit to Volume",
+                        tag="btn_reg_bake",
+                        callback=gui.reg_ui.on_reg_bake_clicked,
+                        width=-28,
+                    )
+                    btn_help_bake = dpg.add_button(label="\uf059", width=20)
+                    if dpg.does_item_exist("icon_font_tag"):
+                        dpg.bind_item_font(btn_help_bake, "icon_font_tag")
+                    if dpg.does_item_exist("icon_button_theme"):
+                        dpg.bind_item_theme(btn_help_bake, "icon_button_theme")
+                    with dpg.tooltip(btn_help_bake):
+                        dpg.add_text(
+                            "Permanently applies the active spatial transform to the\n"
+                            "underlying 3D pixel grid and resets the sliders to zero.\n"
+                            "You can then 'Save' the resulting aligned image to disk.",
+                            color=cfg_c.get("text_dim", [150, 150, 150])
+                        )
+
+                # --- Affine Matrix ---
+                dpg.add_spacer(height=10)
+                dpg.add_separator()
+                dpg.add_spacer(height=10)
+                build_section_title("Affine Matrix", cfg_c["text_header"])
+                with dpg.group(tag="group_reg_matrix"):
+                    with dpg.table(
+                        header_row=False, borders_innerV=True, borders_innerH=True, resizable=False,
+                    ):
+                        for _ in range(4): dpg.add_table_column()
+                        for r in range(4):
+                            with dpg.table_row():
+                                for c in range(4):
+                                    dpg.add_text("0.000", tag=f"txt_reg_m_{r}_{c}", color=cfg_c["text_dim"])
 
     def pull_reg_sliders_from_transform(self):
         """ONLY call this when loading a file, switching images, or resetting. NOT during drag!"""
@@ -267,10 +300,44 @@ class RegistrationUI:
                 if dpg.does_item_exist(tag):
                     dpg.set_value(tag, 0.0)
 
+    def _check_preview_slice_needed(self, vs_id):
+        """Re-enqueue the preview worker when a viewer reported a cache miss.
+
+        Called from the GUI tick (Thread 6) so ITK reads (get_rotation_only_transform)
+        are safe and no render-thread computation is needed.
+        """
+        vs = self.controller.view_states.get(vs_id)
+        if not vs or vs._preview_R is None or not vs._preview_slice_needed:
+            return
+        vs._preview_slice_needed = False
+        if not vs.space.has_rotation():
+            return
+        rot_transform = vs.space.get_rotation_only_transform()
+        R = np.array(rot_transform.GetMatrix(), dtype=np.float64).reshape(3, 3)
+        center = np.array(rot_transform.GetCenter(), dtype=np.float64)
+        viewer_slices = {}
+        for v in self.controller.viewers.values():
+            if v.image_id == vs_id:
+                viewer_slices[id(v)] = ("base", v.orientation, v.slice_idx)
+            elif v.view_state and v.view_state.display.overlay_id == vs_id:
+                viewer_slices[id(v)] = ("overlay", v.orientation, v.slice_idx)
+        if not viewer_slices:
+            return
+        with self._preview_lock:
+            self._preview_version += 1
+            version = self._preview_version
+        self._preview_queue.put((vs_id, version, R, center, viewer_slices))
+
     def refresh_reg_ui(self):
         viewer = self.gui.context_viewer
         if not viewer or not viewer.view_state:
             return
+
+        # Check if any viewer reported a slice cache miss while the preview was active.
+        # Re-enqueues the worker (safely, on Thread 6) so the new slice is computed
+        # without blocking the render loop or creating ghost states.
+        if viewer.image_id:
+            self._check_preview_slice_needed(viewer.image_id)
 
         vs = viewer.view_state
         vol = self.controller.volumes.get(viewer.image_id)
@@ -298,10 +365,12 @@ class RegistrationUI:
         if is_dvf:
             return
 
+        if dpg.does_item_exist("btn_reg_resample"):
+            theme = "orange_button_theme" if vs.needs_resample else 0
+            dpg.bind_item_theme("btn_reg_resample", theme)
+
         if dpg.does_item_exist("text_reg_filename"):
             dpg.set_value("text_reg_filename", vs.space.transform_file)
-        if dpg.does_item_exist("check_reg_apply"):
-            dpg.set_value("check_reg_apply", vs.space.is_active)
 
         if vol:
             is_2d = min(vol.shape3d) == 1
@@ -349,239 +418,125 @@ class RegistrationUI:
                     f"{center[0]:.1f}, {center[1]:.1f}, {center[2]:.1f}",
                 )
 
-    def trigger_debounced_rotation_update(self, active_image_id, immediate=False):
-        """
-        [ASYNC_BOUNDARY]: Fires a background threading.Timer.
-        Math happens off-main-thread to keep the UI from freezing.
-        """
+    def _is_live_preview_enabled(self):
+        return True
 
-        timer = getattr(self, "_reg_debounce_timer", None)
-        if timer is not None:
-            timer.cancel()
+    def _is_auto_resample_enabled(self):
+        return dpg.does_item_exist("check_reg_auto_resample") and dpg.get_value("check_reg_auto_resample")
 
-        def _do_resample():
-            active_vs = self.controller.view_states.get(active_image_id)
-            if active_vs:
-                active_vs.update_base_display_data()
-                # Quality resample done: exit fast-preview mode
-                active_vs._is_interactive_rotation = False
-                # Sync crosshair with the freshly resampled buffer so slice_idx and
-                # values reflect the new geometry. Only needed if base image rotated!
-                if active_vs.base_display_data is not None:
-                    if active_vs.camera.crosshair_phys_coord is not None:
-                        active_vs.update_crosshair_from_phys(active_vs.camera.crosshair_phys_coord)
-                if active_vs.display.overlay_id:
-                    active_vs.update_overlay_display_data(self.controller)
-                    active_vs.is_data_dirty = True
-
-            for vs in self.controller.view_states.values():
-                if vs.display.overlay_id == active_image_id:
-                    vs.update_overlay_display_data(self.controller)
-                    vs.is_data_dirty = True
-
-            self.controller.update_all_viewers_of_image(active_image_id)
-
-            # Feedback when done
-            self.controller.status_message = "Resampling complete"
-            self.controller.ui_needs_refresh = True
-
-        # Execute instantly if requested
-        if immediate:
-            _do_resample()
-            # It is safe to update UI here because 'immediate' runs on the main thread
-            self.gui.show_status_message(
-                "Transform applied", color=self.gui.ui_cfg["colors"]["text_status_ok"]
-            )
-        else:
-            # Spin up the background thread purely for the math
-            self._reg_debounce_timer = threading.Timer(0.3, _do_resample)
-            self._reg_debounce_timer.start()
-
-    # ------------------------------------------------------------------
-    # Transform drag helpers (The Pin Model)
-    # ------------------------------------------------------------------
-
-    def _ensure_drag_anchor(self, vs):
-        """Capture all drag anchors at the start of a gesture.
-
-        Captures: world pin, native voxel WITHOUT transform, and per-orientation pan.
-        Re-captures when the crosshair moved since the last drag (user navigated between gestures).
-        During a continuous drag, crosshair_phys_coord is never changed, so anchors are stable.
-        """
-        phys = vs.camera.crosshair_phys_coord
-        if phys is None:
+    def on_reg_auto_resample_toggled(self, _sender, app_data, _user_data):
+        if not app_data:
+            self._cancel_auto_timer()
             return
-        if vs._reg_anchor_world is None or not np.allclose(phys, vs._reg_anchor_world, atol=0.01):
-            vs._reg_anchor_world = phys.copy()
-            # Native voxel WITHOUT transform: raw geometry inverse (no registration)
-            vs._reg_anchor_native_vox = vs.space.phys_to_raw_voxel(phys).copy()
-            # Per-orientation pan at drag start (one entry per orientation)
-            vs._reg_anchor_pan = {k: list(v) for k, v in vs.camera.pan.items()}
-
-    def _on_transform_drag(self, viewer):
-        """Called on every slider event.
-
-        For TRANSLATION (no rotation):
-          - camera.crosshair_voxel is updated to the new native voxel under the world pin
-          - camera.pan is adjusted by the compensating amount so the crosshair SCREEN
-            position stays fixed — the image visually shifts, the crosshair doesn't drift
-          - is_geometry_dirty=True so the mapper recalculates pmin/pmax from the new pan
-
-        For ROTATION:
-          - crosshair_voxel and pan are NOT changed (only value updates)
-          - _is_interactive_rotation=True routes viewer.tick() to the fast Numba preview
-          - debounced ITK resample triggered for quality settle
-
-        Pan compensation math (see geometry derivation in plans):
-          AXIAL:    pan_delta = [-dn[0]*dw/sw, -dn[1]*dh/sh]
-          CORONAL:  pan_delta = [-dn[0]*dw/sw, +dn[2]*dh/sh]
-          SAGITTAL: pan_delta = [+dn[1]*dw/sw, +dn[2]*dh/sh]
-        where dn = native_vox_new - native_vox_orig_without_transform
-        """
-        vs = viewer.view_state
-        if not vs or not viewer.image_id:
+        # Just enabled — fire immediately if a resample is already pending
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.image_id:
             return
-        vs_id = viewer.image_id
+        vs = self.controller.view_states.get(viewer.image_id)
+        if vs and vs.needs_resample:
+            self.trigger_resample(viewer.image_id)
 
-        # 1. Capture all anchors at the start of the drag gesture
-        self._ensure_drag_anchor(vs)
-        anchor = vs._reg_anchor_world
-        native_orig = vs._reg_anchor_native_vox
-        anchor_pan = vs._reg_anchor_pan
-        if anchor is None or native_orig is None or anchor_pan is None:
+    def _cancel_auto_timer(self):
+        with self._auto_timer_lock:
+            if self._auto_timer is not None:
+                self._auto_timer.cancel()
+                self._auto_timer = None
+
+    def _schedule_auto_resample(self, vs_id):
+        """Debounce: cancel any pending auto-resample and restart the countdown."""
+        with self._auto_timer_lock:
+            if self._auto_timer is not None:
+                self._auto_timer.cancel()
+            self._auto_timer_vs_id = vs_id
+            t = threading.Timer(self._AUTO_RESAMPLE_DELAY, self._fire_auto_resample)
+            t.daemon = True
+            self._auto_timer = t
+        t.start()
+
+    def _fire_auto_resample(self):
+        with self._auto_timer_lock:
+            self._auto_timer = None
+            vs_id = self._auto_timer_vs_id
+        if vs_id:
+            self.trigger_resample(vs_id)
+
+    def _trigger_fast_preview(self, image_id, version, R, center, viewer_slices):
+        """Background worker: compute per-slice 2D previews using pre-extracted numpy data.
+
+        R, center, and viewer_slices are all captured on the main thread before this is
+        called — this function never touches SimpleITK objects and is safe off-thread.
+        viewer_slices: dict mapping id(viewer) → (orientation, slice_idx).
+
+        Builds results locally, then atomically replaces _preview_slices only if no
+        newer request has arrived (version check). This prevents two bugs:
+        - The old preview disappearing mid-compute (causes a jump to unrotated view)
+        - A slow earlier request overwriting the result of a faster later one
+        """
+        vs = self.controller.view_states.get(image_id)
+        if not vs:
             return
 
-        # 2. Apply new transform parameters from sliders
-        vals = [dpg.get_value(t) for t in self.SLIDER_TAGS]
-        self.controller.update_transform_manual(
-            vs_id, vals[3], vals[4], vals[5], vals[0], vals[1], vals[2]
-        )
+        # Build previews locally — old previews stay visible during computation
+        new_previews = {}
+        new_overlay_previews = {}
+        overlay_vol = vs.volume  # the moving image volume (B)
 
-        # 3. Map the fixed world anchor through the NEW transform → new native voxel
-        native_new = vs.world_to_display(anchor, is_buffered=False)
-        if native_new is None:
-            return
+        for viewer in self.controller.viewers.values():
+            ctx = viewer_slices.get(id(viewer))
+            if ctx is None:
+                continue
+            kind, orientation, slice_idx = ctx
 
-        # 4. Clamp native voxel to valid range
-        sh = vs.volume.shape3d
-        ix = int(np.clip(np.round(native_new[0]), 0, sh[2] - 1))
-        iy = int(np.clip(np.round(native_new[1]), 0, sh[1] - 1))
-        iz = int(np.clip(np.round(native_new[2]), 0, sh[0] - 1))
-
-        # 5. Update value at the crosshair (reads from new native voxel under world pin)
-        vs.crosshair_value = vs._read_voxel_value(ix, iy, iz, use_buffer=False)
-
-        has_rotation = vs.space.is_active and vs.space.has_rotation()
-
-        if not has_rotation:
-            # --- TRANSLATION PATH ---
-            # Clear stale rotation buffer (e.g. after Reset — rotation removed, buffer stale)
-            if vs.base_display_data is not None:
-                vs.base_display_data = None
-                vs._sitk_base_cache = None
-
-            # delta_native: how the native voxel moved due to the translation
-            dn = native_new - native_orig
-
-            # Update crosshair voxel AND pan simultaneously so screen position stays fixed
-            vs.camera.crosshair_voxel = [native_new[0], native_new[1], native_new[2], vs.camera.time_idx]
-            vs.camera.slices[ViewMode.AXIAL]    = iz
-            vs.camera.slices[ViewMode.SAGITTAL] = ix
-            vs.camera.slices[ViewMode.CORONAL]  = iy
-
-            for v in self.controller.viewers.values():
-                if v.image_id != vs_id:
+            if kind == "base":
+                vol = viewer.volume
+                if getattr(vol, "is_dvf", False):
                     continue
-                orientation = v.orientation
-                dw = v.current_pmax[0] - v.current_pmin[0]
-                dh = v.current_pmax[1] - v.current_pmin[1]
-                sl_h, sl_w = v.get_slice_shape()
-                if sl_w <= 0 or sl_h <= 0 or dw <= 0 or dh <= 0:
+                preview = compute_preview_2d_affine(
+                    vol, orientation, slice_idx, R, center, vs.camera.time_idx
+                )
+                if preview is not None:
+                    new_previews[(orientation, slice_idx)] = preview
+
+            elif kind == "overlay":
+                base_vol = viewer.volume  # A's volume
+                if base_vol is None or getattr(base_vol, "is_dvf", False):
                     continue
+                t_idx = min(vs.camera.time_idx, overlay_vol.num_timepoints - 1)
+                ov_preview = compute_overlay_preview_2d_affine(
+                    base_vol, overlay_vol, orientation, slice_idx, R, center, t_idx
+                )
+                if ov_preview is not None:
+                    new_overlay_previews[(orientation, slice_idx)] = ov_preview
 
-                if orientation == ViewMode.AXIAL:
-                    dpx = -dn[0] * dw / sl_w
-                    dpy = -dn[1] * dh / sl_h
-                elif orientation == ViewMode.CORONAL:
-                    dpx = -dn[0] * dw / sl_w
-                    dpy =  dn[2] * dh / sl_h
-                elif orientation == ViewMode.SAGITTAL:
-                    dpx =  dn[1] * dw / sl_w
-                    dpy =  dn[2] * dh / sl_h
-                else:
-                    continue
+        # Atomic: update shared rotation state on ViewState under the lock.
+        # Viewer-local slice dicts are assigned after — dict replacement is GIL-atomic
+        # and the worker is single-threaded (queue drain), so no concurrent writer exists.
+        with self._preview_lock:
+            if self._preview_version != version:
+                return
+            vs._preview_R = R
+            vs._preview_center = center
 
-                base_pan = anchor_pan.get(orientation, [0.0, 0.0])
-                vs.camera.pan[orientation] = [base_pan[0] + dpx, base_pan[1] + dpy]
+        for viewer in self.controller.viewers.values():
+            if viewer.image_id == image_id:
+                viewer._preview_slices = new_previews
+            elif viewer.view_state and viewer.view_state.display.overlay_id == image_id:
+                viewer._overlay_preview_slices = new_overlay_previews
 
-            vs._is_interactive_rotation = False
+        # Signal for re-render via is_data_dirty rather than directly setting
+        # v.is_viewer_data_dirty. The controller tick propagates is_data_dirty on
+        # Thread 6 (DPG callback thread), which is single-threaded — so renders only
+        # fire after ALL viewer dict assignments above are visible, eliminating the
+        # race that caused ghost images in fusion mode when dirty flags were set directly
+        # from the worker thread (Thread 8) before all dicts were fully assigned.
+        if vs:
             vs.is_data_dirty = True
-            vs.is_geometry_dirty = True  # pan changed → recalculate pmin/pmax
-            self.trigger_debounced_rotation_update(vs_id)
-
-        else:
-            # --- ROTATION PATH ---
-            # Don't touch crosshair_voxel or pan — fast preview handles visual rotation
-            vs._is_interactive_rotation = True
-            vs.is_data_dirty = True
-            self.trigger_debounced_rotation_update(vs_id)
-
-        # 6. Notify synced images to redraw
-        self.controller.sync.propagate_transform_sync(vs_id)
         self.controller.ui_needs_refresh = True
 
-    def _on_transform_settled(self, viewer, new_state_val=None):
-        """Called for discrete actions (apply/toggle), not during continuous drag.
-
-        Performs a full crosshair reconcile and re-centers the camera on the anchor.
-        Safe to call target_center here because this is a one-shot user action.
-        """
-        vs = viewer.view_state
-        if not vs or not viewer.image_id:
-            return
-        vs_id = viewer.image_id
-
-        # Use the stored anchor if available, otherwise derive from current state
-        anchor = vs._reg_anchor_world
-        if anchor is None:
-            anchor = vs.camera.crosshair_phys_coord
-
-        # Apply toggle state if provided
-        if new_state_val is not None:
-            vs.space.is_active = new_state_val
-
-        # Full crosshair reconcile (safe: drag is over)
-        vs.update_crosshair_from_phys(anchor)
-
-        # Clear all drag state
-        vs.clear_reg_anchors()
-
-        for v in self.controller.viewers.values():
-            if v.image_id == vs_id:
-                v.is_geometry_dirty = True
-
-        self.controller.update_all_viewers_of_image(vs_id, data_dirty=vs.space.has_rotation())
-        self.controller.ui_needs_refresh = True
-
-        if vs.space.is_active or new_state_val is not None:
-            self.trigger_debounced_rotation_update(vs_id)
-
-    def apply_transform_and_keep_world_fixed(
-        self, viewer, new_state_val=None, skip_manual_update=False
-    ):
-        """Legacy entry point — delegates to the new settled path for discrete actions."""
-        vs = viewer.view_state
-        if not vs or not viewer.image_id:
-            return
-        vs_id = viewer.image_id
-
-        if not skip_manual_update:
-            vals = [dpg.get_value(t) for t in self.SLIDER_TAGS]
-            self.controller.update_transform_manual(
-                vs_id, vals[3], vals[4], vals[5], vals[0], vals[1], vals[2]
-            )
-
-        self._on_transform_settled(viewer, new_state_val=new_state_val)
+    def trigger_resample(self, image_id):
+        """Show a status message then delegate all resampling work to the Controller."""
+        self.gui.show_status_message("Resampling display...", color=self.gui.ui_cfg["colors"]["working"])
+        self.controller.resample_image(image_id)
 
     # --- Callbacks ---
     def on_reg_load_clicked(self, sender, app_data, user_data):
@@ -613,7 +568,9 @@ class RegistrationUI:
                 self.pull_reg_sliders_from_transform()
 
                 # Instantly trigger resample for loaded file
-                self.trigger_debounced_rotation_update(viewer.image_id, immediate=True)
+                self.trigger_resample(viewer.image_id)
+                if dpg.does_item_exist("btn_reg_resample"):
+                    dpg.bind_item_theme("btn_reg_resample", 0)
                 self.controller.ui_needs_refresh = True
             else:
                 self.gui.show_message("Error", "Failed to parse transform file.")
@@ -675,7 +632,9 @@ class RegistrationUI:
             if self.controller.load_transform(viewer.image_id, full_path):
                 self.controller.ui_needs_refresh = True
                 self.pull_reg_sliders_from_transform()
-                self.trigger_debounced_rotation_update(viewer.image_id)
+                if dpg.does_item_exist("btn_reg_resample"):
+                    dpg.bind_item_theme("btn_reg_resample", 0)
+                self.trigger_resample(viewer.image_id)
                 self.gui.show_status_message(f"Reloaded: {os.path.basename(full_path)}")
         else:
             self.on_reg_load_clicked(sender, app_data, user_data)
@@ -711,33 +670,119 @@ class RegistrationUI:
         self.pull_reg_sliders_from_transform()
         self.controller.ui_needs_refresh = True
 
-    def on_reg_apply_toggled(self, sender, app_data, user_data):
-        viewer = self.gui.context_viewer
-        if viewer and viewer.image_id:
-            self._on_transform_settled(viewer, new_state_val=app_data)
 
     def on_reg_step_changed(self, sender, app_data, user_data):
         speed = 1.0 if app_data == "Coarse" else 0.1
         for tag in self.SLIDER_TAGS:
             if dpg.does_item_exist(tag):
                 dpg.configure_item(tag, speed=speed)
+                
+    def on_reg_resample_clicked(self, sender, app_data, user_data):
+        self._cancel_auto_timer()
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.image_id:
+            return
+        vs_id = viewer.image_id
+
+        if dpg.does_item_exist("btn_reg_resample"):
+            dpg.bind_item_theme("btn_reg_resample", 0)
+            
+        self.trigger_resample(vs_id)
 
     def on_reg_manual_changed(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer
         if not viewer or not viewer.image_id:
             return
-        self._on_transform_drag(viewer)
+        vs_id = viewer.image_id
+        
+        vs = self.controller.view_states.get(vs_id)
+        if vs:
+            vs.space.is_active = True
+            
+        vals = [dpg.get_value(t) for t in self.SLIDER_TAGS]
+        self.controller.update_transform_manual(
+            vs_id, vals[3], vals[4], vals[5], vals[0], vals[1], vals[2]
+        )
+        if dpg.does_item_exist("btn_reg_resample"):
+            dpg.bind_item_theme("btn_reg_resample", "orange_button_theme")
+        if vs:
+            vs.needs_resample = True
+
+        has_rotation = vs is not None and vs.space.has_rotation()
+
+        with self._preview_lock:
+            self._preview_version += 1
+            version = self._preview_version
+
+        if vs:
+            if has_rotation:
+                # Keep viewer slice caches intact — they hold the last delivered
+                # preview. If the controller tick propagates a stale is_data_dirty
+                # before the new worker result arrives, the viewer finds the OLD
+                # preview in the cache and shows it rather than falling back to
+                # base_display_data (a different-rotation full resample = ghost).
+                # The worker atomically replaces the dicts when the new preview is ready.
+                pass
+            else:
+                # Translation-only: disable the preview path so stale rotation previews
+                # from a prior session are not used.
+                vs.reset_preview_rotation()
+
+        preview_thread_spawned = False
+        if self._is_live_preview_enabled() and has_rotation:
+            # Extract ITK transform data as numpy on the main thread — ITK objects
+            # must never be read/written from background threads (not thread-safe).
+            rot_transform = vs.space.get_rotation_only_transform()
+            R = np.array(rot_transform.GetMatrix(), dtype=np.float64).reshape(3, 3)
+            center = np.array(rot_transform.GetCenter(), dtype=np.float64)
+            # Also snapshot viewer slice indices on the main thread: viewer.slice_idx
+            # calls world_to_display → SpatialEngine → transform.GetInverse() — ITK,
+            # so it must not be called from the worker thread.
+            viewer_slices = {}
+            for v in self.controller.viewers.values():
+                if v.image_id == vs_id:
+                    viewer_slices[id(v)] = ("base", v.orientation, v.slice_idx)
+                elif v.view_state and v.view_state.display.overlay_id == vs_id:
+                    # Fusion viewer: capture slice_idx on main thread (ITK-safe here)
+                    viewer_slices[id(v)] = ("overlay", v.orientation, v.slice_idx)
+            self._preview_queue.put((vs_id, version, R, center, viewer_slices))
+            preview_thread_spawned = True
+
+        if not preview_thread_spawned:
+            # Translation-only (or preview disabled): mark viewers dirty immediately so
+            # the render loop re-extracts the slice at the new slice_idx.
+            # For rotation with live preview, the background thread calls
+            # update_all_viewers_of_image when the preview is ready — calling it here
+            # too would cause a flicker frame showing raw/old data before the preview arrives.
+            self.controller.update_all_viewers_of_image(vs_id)
+
+        if self._is_auto_resample_enabled() and vs and vs.needs_resample:
+            self._schedule_auto_resample(vs_id)
+
         self.controller.ui_needs_refresh = True
 
     def on_reg_reset_clicked(self, sender, app_data, user_data):
+        self._cancel_auto_timer()
         viewer = self.gui.context_viewer
         if not viewer or not viewer.image_id:
             return
         for tag in self.SLIDER_TAGS:
             if dpg.does_item_exist(tag):
                 dpg.set_value(tag, 0.0)
-        self.apply_transform_and_keep_world_fixed(viewer, skip_manual_update=False)
-        self.pull_reg_sliders_from_transform()
+        self.controller.update_transform_manual(viewer.image_id, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        # Invalidate any in-flight preview and clear state immediately on the main thread
+        # so the viewer doesn't briefly show a stale rotation preview after reset.
+        with self._preview_lock:
+            self._preview_version += 1
+        vs = self.controller.view_states.get(viewer.image_id)
+        if vs:
+            vs.reset_preview_rotation()
+        # Immediately resample: for identity, update_base_display_data just clears the
+        # stale rotated buffer (no ITK resampling), so this returns almost instantly.
+        if dpg.does_item_exist("btn_reg_resample"):
+            dpg.bind_item_theme("btn_reg_resample", 0)
+        self.trigger_resample(viewer.image_id)
+        self.controller.ui_needs_refresh = True
 
     def on_reg_invert_clicked(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer
@@ -758,8 +803,9 @@ class RegistrationUI:
         for tag, val in zip(self.SLIDER_TAGS, vals):
             if dpg.does_item_exist(tag):
                 dpg.set_value(tag, val)
-        self.apply_transform_and_keep_world_fixed(viewer, skip_manual_update=False)
-        self.pull_reg_sliders_from_transform()
+        # Delegate to on_reg_manual_changed so preview, dirty flags, and button theme
+        # are all handled identically to a slider drag (same pattern as step buttons).
+        self.on_reg_manual_changed(sender, app_data, user_data)
 
     def on_reg_center_cor_clicked(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer
@@ -815,11 +861,14 @@ class RegistrationUI:
 
         vs.space.transform.SetCenter(new_center_tuple)
         vs.space.transform.SetTranslation(new_translation)
+        vs.space.is_active = True
 
         self.pull_reg_sliders_from_transform()
+        if dpg.does_item_exist("btn_reg_resample"):
+            dpg.bind_item_theme("btn_reg_resample", "orange_button_theme")
+        vs = viewer.view_state
+        if vs:
+            vs.needs_resample = True
         self.controller.ui_needs_refresh = True
-
-        # Instantly sync the 3D buffer so the math doesn't glitch
-        self.trigger_debounced_rotation_update(viewer.image_id, immediate=True)
 
         self.gui.show_status_message("CoR snapped to Crosshair")

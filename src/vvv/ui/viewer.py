@@ -9,7 +9,6 @@ from vvv.core.view_state import ViewState
 from vvv.ui.render_strategy import (
     compute_software_nearest_neighbor,
     compute_native_voxel_overlay,
-    compute_native_voxel_base,
     blend_slices_cpu,
     GL_NEAREST_SUPPORTED,
     try_set_gl_nearest,
@@ -175,6 +174,11 @@ class SliceViewer:
         self.overlay_image_tag = f"img_ov_{tag_id}"
         self.active_overlay_shift_x = 0.0
         self.active_overlay_shift_y = 0.0
+        # Per-viewer render caches for live rotation preview (View-only data).
+        # Keyed by (orientation, slice_idx). Populated by RegistrationUI worker
+        # and by the on-demand path in _package_base/overlay_layer.
+        self._preview_slices: dict = {}
+        self._overlay_preview_slices: dict = {}
         self.last_overlay_rgba_flat: np.ndarray | None = None
         self._last_tracker_state: tuple | None = None
         self._was_hovered = False
@@ -781,16 +785,12 @@ class SliceViewer:
         base_scale = min(target_w / mm_w, target_h / mm_h)
 
         if base_scale > 0:
-            if vs:
-                vs.clear_reg_anchors()
             self.zoom = target_ppm / base_scale
             self.is_geometry_dirty = True
 
     def center_on_physical_coord(self, phys_coord):
         vs = self.view_state
         vol = self.volume
-        if vs:
-            vs.clear_reg_anchors()
         if not vs or not vol or phys_coord is None:
             return
 
@@ -1273,11 +1273,27 @@ class SliceViewer:
                     pass
             f_name = f"({img_idx_str}) {vol.get_human_readable_file_path()}"
 
+        ov_id = self.view_state.display.overlay_id
+        if ov_id and ov_id in self.controller.volumes:
+            ov_vol = self.controller.volumes[ov_id]
+            if show_state == 1:
+                ov_name, _ = self.controller.get_image_display_name(ov_id)
+            else:
+                ov_idx_str = "?"
+                try:
+                    idx = list(self.controller.view_states.keys()).index(ov_id) + 1
+                    ov_idx_str = str(idx)
+                except ValueError:
+                    pass
+                ov_name = f"({ov_idx_str}) {ov_vol.get_human_readable_file_path()}"
+            f_name += f"\n+ {ov_name}"
+
         dpg.set_value(self.filename_text_tag, f_name)
 
         # Calculate width manually based on string length.
         # (This prevents the 1-frame centering lag caused by get_item_rect_size)
-        tw = len(f_name) * 7.2  # 7.2 pixels per char is the standard ImGui font average
+        max_line_len = max(len(line) for line in f_name.split("\n"))
+        tw = max_line_len * 7.2  # 7.2 pixels per char is the standard ImGui font average
 
         # Center it dynamically at the top of the viewer
         dpg.set_item_pos(
@@ -1290,18 +1306,34 @@ class SliceViewer:
         if not vs or not vol:
             return None
 
-        # Use the display buffer if it exists, otherwise fall back to raw data
-        display_data = (
-            vs.base_display_data
-            if getattr(vs, "base_display_data", None) is not None
-            else vol.data
-        )
+        dvf_mode = vs.dvf.display_mode if getattr(vol, "is_dvf", False) else "Component"
+
+        preview = None
+        if vs._preview_R is not None and not getattr(vol, "is_dvf", False):
+            key = (self.orientation, self.slice_idx)
+            preview = self._preview_slices.get(key)
+            if preview is None:
+                # Cache miss (e.g. user scrolled to a new slice).
+                # Signal the worker — and use raw vol.data as fallback so a cache miss
+                # never exposes base_display_data (a stale full-resample at a DIFFERENT
+                # rotation angle). A briefly unrotated image is far less jarring than
+                # a flash to a completely different rotation (ghost).
+                vs._preview_slice_needed = True
+
+        # In preview mode, bypass base_display_data to prevent ghost flashes.
+        # Outside preview mode, use the resampled buffer if available.
+        if vs._preview_R is not None:
+            display_data = vol.data
+        else:
+            display_data = (
+                vs.base_display_data
+                if getattr(vs, "base_display_data", None) is not None
+                else vol.data
+            )
 
         # Tombstone failsafe: Prevent the renderer from choking on dead memory
         if display_data is None:
             display_data = np.zeros((1, 1, 1), dtype=np.float32)
-
-        dvf_mode = vs.dvf.display_mode if getattr(vol, "is_dvf", False) else "Component"
 
         return RenderLayer(
             data=display_data,
@@ -1314,6 +1346,7 @@ class SliceViewer:
             time_idx=vs.camera.time_idx,
             spacing_2d=vol.get_physical_aspect_ratio(self.orientation),
             dvf_mode=dvf_mode,
+            preview_override=preview,
         )
 
     def _package_overlay_layer(self):
@@ -1344,49 +1377,9 @@ class SliceViewer:
                     if ovs.volume.shape3d[0] == 1 and abs(ov_vox[2]) > 0.5:
                         return None
 
-        # ---Calculate Relative Pixel Shift ---
-        base_vs = vs
-        base_tx, base_ty, base_tz = 0.0, 0.0, 0.0
-        if base_vs.space.transform and base_vs.space.is_active:
-            base_tx, base_ty, base_tz = base_vs.space.transform.GetTranslation()
-
-        ov_tx, ov_ty, ov_tz = 0.0, 0.0, 0.0
-        if ovs.space.transform and ovs.space.is_active:
-            ov_tx, ov_ty, ov_tz = ovs.space.transform.GetTranslation()
-
-        live_dx = ov_tx - base_tx
-        live_dy = ov_ty - base_ty
-        live_dz = ov_tz - base_tz
-
-        baked_dx, baked_dy, baked_dz = getattr(
-            vs.display, "baked_overlay_translation", (0.0, 0.0, 0.0)
-        )
-
-        # Mathematical safeguard: 2D translation offset is only valid if there is NO interactive rotation happening!
-        if getattr(ovs, "_is_interactive_rotation", False) or getattr(base_vs, "_is_interactive_rotation", False):
-            dx_mm, dy_mm, dz_mm = 0.0, 0.0, 0.0
-        else:
-            dx_mm = live_dx - baked_dx
-            dy_mm = live_dy - baked_dy
-            dz_mm = live_dz - baked_dz
-
-        sp_x, sp_y, sp_z = vol.spacing
-
-        px_x = dx_mm / sp_x if sp_x else 0
-        px_y = dy_mm / sp_y if sp_y else 0
-        px_z = dz_mm / sp_z if sp_z else 0
-
+        # --- Calculate Relative Pixel Shift ---
+        dx, dy, dz = vs.compute_overlay_pixel_shift(ovs, vol.spacing, self.orientation)
         off_x, off_y, off_slice = 0, 0, 0
-        dx, dy, dz = 0.0, 0.0, 0.0
-
-        # Sign conventions mirror the flipud/fliplr applied in SliceRenderer.extract_slice.
-        # If those flips change, these signs must change in sync.
-        if self.orientation == ViewMode.AXIAL:
-            dx, dy, dz = px_x, px_y, px_z
-        elif self.orientation == ViewMode.CORONAL:
-            dx, dy, dz = px_x, -px_z, px_y
-        elif self.orientation == ViewMode.SAGITTAL:
-            dx, dy, dz = -px_y, -px_z, px_x
 
         self.active_overlay_shift_x = dx
         self.active_overlay_shift_y = dy
@@ -1402,6 +1395,20 @@ class SliceViewer:
 
         off_slice = int(round(dz))
 
+        # Live rotation preview for the overlay.
+        # _preview_R lives on ovs (ViewState) as shared rotation state.
+        # The slice cache lives on self (Viewer) — render artifact, not model state.
+        # Gate on _preview_R FIRST so stale cache entries are never used after resample.
+        overlay_preview = None
+        if ovs._preview_R is not None and vs.display.overlay_data is not None:
+            ov_key = (self.orientation, self.slice_idx)
+            overlay_preview = self._overlay_preview_slices.get(ov_key)
+            if overlay_preview is None:
+                # Cache miss — signal worker; suppress overlay_data (stale resample at
+                # a different rotation would look like a ghost in the fusion view).
+                ovs._preview_slice_needed = True
+                return None  # no overlay this frame; worker will deliver the correct one
+
         return RenderLayer(
             data=vs.display.overlay_data,
             is_rgb=getattr(ovs.volume, "is_rgb", False),
@@ -1415,6 +1422,7 @@ class SliceViewer:
             offset_x=off_x,
             offset_y=off_y,
             offset_slice=off_slice,
+            preview_override=overlay_preview,
         )
 
     def _package_roi_layers(self):
@@ -1586,24 +1594,6 @@ class SliceViewer:
         is_pixelated_sw = (self._effective_pixelated_zoom()
                            and not self._is_hw_gl
                            and not self.should_use_voxels_strips())
-
-        # --- Interactive rotation preview (works in any zoom mode) ---
-        if vs._is_interactive_rotation:
-            # Full 3D MPR affine kernel for both in-plane and out-of-plane
-            if is_pixelated_sw:
-                canvas_w, canvas_h = self._get_canvas_size()
-                fast_rgba = compute_native_voxel_base(
-                    self, self.current_pmin, self.current_pmax, canvas_w, canvas_h
-                )
-            else:
-                sh, sw = self.get_slice_shape()
-                fast_rgba = compute_native_voxel_base(
-                    self, [0.0, 0.0], [float(sw), float(sh)], sw, sh
-                )
-            if fast_rgba is not None:
-                self._safe_set_texture(self.texture_tag, fast_rgba,
-                                       getattr(self, "_tex_w", 1), getattr(self, "_tex_h", 1))
-                return
 
         # --- Normal rendering path ---
         if not is_pixelated_sw:
@@ -2172,9 +2162,6 @@ class SliceViewer:
             self.controller.ui_needs_refresh = True
 
     def action_center_view(self):
-        vs = self.view_state
-        if vs:
-            vs.clear_reg_anchors()
         self.needs_recenter = True
         self.is_geometry_dirty = True
         self.controller.sync.propagate_camera(self)
@@ -2348,15 +2335,17 @@ class SliceViewer:
         total_dx = current_pos[0] - self.drag_start_mouse[0]
         total_dy = current_pos[1] - self.drag_start_mouse[1]
 
-        is_button = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
-        is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(
-            dpg.mvKey_RControl
-        )
-        is_shift = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(
-            dpg.mvKey_RShift
-        )
+        is_button_left = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
+        is_button_mid = dpg.is_mouse_button_down(dpg.mvMouseButton_Middle)
 
-        if not is_ctrl and not is_shift and is_button:
+        is_cmd = dpg.is_key_down(getattr(dpg, "mvKey_LWin", 343)) or dpg.is_key_down(getattr(dpg, "mvKey_RWin", 347)) or dpg.is_key_down(343) or dpg.is_key_down(347)
+        is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl)
+        is_shift = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(dpg.mvKey_RShift)
+
+        is_pan_mod = is_cmd or is_ctrl
+        is_pan_drag = (is_pan_mod and is_button_left) or is_button_mid
+
+        if not is_pan_drag and not is_shift and is_button_left:
             px, py = self.get_mouse_slice_coords(ignore_hover=True, allow_outside=True)
             if px is not None:
                 # Performance: Dragging the crosshair forces other orthogonal synced viewers 
@@ -2375,9 +2364,7 @@ class SliceViewer:
                 self.update_crosshair_data(px, py)
                 self.controller.sync.propagate_sync(self.image_id)
 
-        elif is_ctrl and is_button and self.drag_start_pan is not None:
-            if vs:
-                vs.clear_reg_anchors()
+        elif is_pan_drag and self.drag_start_pan is not None:
             self.pan_offset[0] = self.drag_start_pan[0] + total_dx
             self.pan_offset[1] = self.drag_start_pan[1] + total_dy
             self.is_geometry_dirty = True
@@ -2402,8 +2389,6 @@ class SliceViewer:
         mx, my = dpg.get_drawing_mouse_pos()
         oz = self.zoom
         speed = self.controller.settings.data["interaction"]["zoom_speed"]
-        if vs:
-            vs.clear_reg_anchors()
         new_zoom = max(
             1e-5, self.zoom * (speed if direction == "in" else (1.0 / speed))
         )

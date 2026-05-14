@@ -11,7 +11,8 @@ class NavigationTool:
         self.drag_viewer = None
 
     def on_click(self, button):
-        if button != dpg.mvMouseButton_Left:
+        # Allow Left, Middle, and Right clicks to lock the viewer for dragging
+        if button not in (dpg.mvMouseButton_Left, dpg.mvMouseButton_Middle, dpg.mvMouseButton_Right):
             return
 
         viewer = self.manager.get_hovered_viewer()
@@ -26,9 +27,14 @@ class NavigationTool:
         self.drag_viewer.on_mouse_down()
 
         if viewer.orientation != ViewMode.HISTOGRAM:
-            if not dpg.is_key_down(dpg.mvKey_LShift) and not dpg.is_key_down(
-                dpg.mvKey_LControl
-            ):
+            is_cmd = dpg.is_key_down(getattr(dpg, "mvKey_LWin", 343)) or dpg.is_key_down(getattr(dpg, "mvKey_RWin", 347)) or dpg.is_key_down(343) or dpg.is_key_down(347)
+            is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl)
+            is_shift = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(dpg.mvKey_RShift)
+            
+            is_pan_mod = is_cmd or is_ctrl
+            
+            # Crosshair snap ONLY on un-modified Left Click
+            if button == dpg.mvMouseButton_Left and not is_shift and not is_pan_mod:
                 px, py = viewer.get_mouse_slice_coords(ignore_hover=True)
                 if px is not None:
                     viewer.update_crosshair_data(px, py)
@@ -50,10 +56,10 @@ class NavigationTool:
     def on_scroll(self, delta):
         target = self.manager.get_hovered_viewer()
         if target:
-            is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(
-                dpg.mvKey_RControl
-            )
-            if is_ctrl:
+            is_cmd = dpg.is_key_down(getattr(dpg, "mvKey_LWin", 343)) or dpg.is_key_down(getattr(dpg, "mvKey_RWin", 347)) or dpg.is_key_down(343) or dpg.is_key_down(347)
+            is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl)
+            is_zoom_mod = is_cmd or is_ctrl
+            if is_zoom_mod:
                 target.on_zoom("in" if delta > 0 else "out")
             else:
                 target.on_scroll(int(delta))
@@ -123,13 +129,15 @@ class InteractionManager:
         dy = current_pos[1] - self.last_mouse_pos[1]
         self.last_mouse_pos = current_pos
 
-        # Check for Shift (handling cross-platform key codes)
-        is_shift = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(
-            dpg.mvKey_RShift
-        )
+        is_shift = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(dpg.mvKey_RShift)
+        is_right = dpg.is_mouse_button_down(dpg.mvMouseButton_Right)
 
-        if is_shift:
-            viewer = self.get_hovered_viewer()
+        # W/L Drag: Shift + Move/Drag or Right-Drag
+        is_wl_drag = is_shift or is_right
+
+        if is_wl_drag:
+            # Use the locked drag target if available so it doesn't break if the mouse leaves the viewer
+            viewer = getattr(self.active_tool, "drag_viewer", None) or self.get_hovered_viewer()
             if not viewer or not viewer.view_state:
                 return
 

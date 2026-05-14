@@ -1,7 +1,7 @@
 import time
 import threading
 import dearpygui.dearpygui as dpg
-from vvv.ui.ui_components import build_section_title
+from vvv.ui.ui_components import build_section_title, build_stepped_slider
 
 
 class FusionUI:
@@ -40,35 +40,29 @@ class FusionUI:
                         callback=gui.fusion_ui.on_fusion_opacity_changed,
                     )
 
-                # W/L & Threshold Layout (Matches Active Viewer)
-                dim_color = cfg_c["text_dim"]
-                with dpg.group(horizontal=True):
-                    with dpg.group(horizontal=True):
-                        dpg.add_text("Window", color=dim_color)
-                        dpg.add_input_text(
-                            tag="fusion_info_window",
-                            width=65,
-                            on_enter=True,
-                            callback=gui.fusion_ui.on_fusion_wl_change,
-                        )
-                    dpg.add_spacer(width=5)
-                    with dpg.group(horizontal=True):
-                        dpg.add_text("Level", color=dim_color)
-                        dpg.add_input_text(
-                            tag="fusion_info_level",
-                            width=65,
-                            on_enter=True,
-                            callback=gui.fusion_ui.on_fusion_wl_change,
-                        )
+                build_stepped_slider(
+                    "Window:",
+                    "drag_fusion_ww",
+                    callback=gui.fusion_ui.on_fusion_ww_changed,
+                    step_callback=gui.fusion_ui.on_step_button_clicked,
+                    min_val=1e-5,
+                )
+                build_stepped_slider(
+                    "Level: ",
+                    "drag_fusion_wl",
+                    callback=gui.fusion_ui.on_fusion_wl_changed,
+                    step_callback=gui.fusion_ui.on_step_button_clicked,
+                )
 
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Min Threshold", color=dim_color)
-                    dpg.add_input_text(
-                        tag="fusion_info_threshold",
-                        width=65,
-                        on_enter=True,
-                        callback=gui.fusion_ui.on_fusion_wl_change,
-                    )
+                build_stepped_slider(
+                    "Min Thr:",
+                    "drag_fusion_threshold",
+                    callback=gui.fusion_ui.on_fusion_threshold_changed,
+                    step_callback=gui.fusion_ui.on_step_button_clicked,
+                    has_checkbox=True,
+                    check_tag="check_fusion_threshold",
+                    check_cb=gui.fusion_ui.on_fusion_threshold_toggle,
+                )
 
                 with dpg.group(horizontal=True):
                     dpg.add_text("Mode   ")
@@ -117,13 +111,28 @@ class FusionUI:
 
             # Empty out texts and disable
             for t in [
-                "fusion_info_window",
-                "fusion_info_level",
-                "fusion_info_threshold",
+                "drag_fusion_ww",
+                "drag_fusion_wl",
             ]:
                 if dpg.does_item_exist(t):
-                    dpg.set_value(t, "")
+                    dpg.set_value(t, 0.0)
                     dpg.configure_item(t, enabled=False)
+                    if dpg.does_item_exist(f"btn_{t}_minus"):
+                        dpg.configure_item(f"btn_{t}_minus", enabled=False)
+                    if dpg.does_item_exist(f"btn_{t}_plus"):
+                        dpg.configure_item(f"btn_{t}_plus", enabled=False)
+
+            if dpg.does_item_exist("check_fusion_threshold"):
+                dpg.set_value("check_fusion_threshold", False)
+                dpg.configure_item("check_fusion_threshold", enabled=False)
+
+            if dpg.does_item_exist("drag_fusion_threshold"):
+                dpg.set_value("drag_fusion_threshold", 0.0)
+                dpg.configure_item("drag_fusion_threshold", enabled=False)
+                if dpg.does_item_exist("btn_drag_fusion_threshold_minus"):
+                    dpg.configure_item("btn_drag_fusion_threshold_minus", enabled=False)
+                if dpg.does_item_exist("btn_drag_fusion_threshold_plus"):
+                    dpg.configure_item("btn_drag_fusion_threshold_plus", enabled=False)
 
             if dpg.does_item_exist("slider_fusion_opacity"):
                 dpg.set_value("slider_fusion_opacity", 0.0)
@@ -189,40 +198,69 @@ class FusionUI:
                     dpg.set_value("slider_fusion_opacity", 0.0)
 
             # Enable/Disable New W/L Text Boxes
-            tags_to_enable = ["fusion_info_threshold", "combo_fusion_mode"]
+            tags_to_enable = ["combo_fusion_mode"]
+            has_thr = False
+            thr = None
+            ov_vs = None
             if has_overlay:
-                ov_vs = self.controller.view_states.get(
-                    viewer.view_state.display.overlay_id
-                )
+                ov_vs = self.controller.view_states.get(viewer.view_state.display.overlay_id)
                 if ov_vs and ov_vs.volume:
                     is_ov_rgb = ov_vs.volume.is_rgb
                     is_ov_dvf = getattr(ov_vs.volume, "is_dvf", False)
                     if not is_ov_rgb and not is_ov_dvf:
                         tags_to_enable.extend(
-                            ["fusion_info_window", "fusion_info_level"]
+                            ["drag_fusion_ww", "drag_fusion_wl"]
                         )
-                    else:
-                        val_str = "DVF" if is_ov_dvf else "RGB"
-                        dpg.set_value("fusion_info_window", val_str)
-                        dpg.set_value("fusion_info_level", val_str)
+                        if not dpg.is_item_active("drag_fusion_ww"):
+                            dpg.set_value("drag_fusion_ww", ov_vs.display.ww)
+                        if not dpg.is_item_active("drag_fusion_wl"):
+                            dpg.set_value("drag_fusion_wl", ov_vs.display.wl)
+                        
+                        dynamic_speed = max(0.1, ov_vs.display.ww * 0.005)
+                        dpg.configure_item("drag_fusion_ww", speed=dynamic_speed)
+                        dpg.configure_item("drag_fusion_wl", speed=dynamic_speed)
+
+                    thr = ov_vs.display.base_threshold
+                    has_thr = thr is not None
             else:
                 # Explicitly wipe the text inputs clean if there is no fusion overlay
                 for t in [
-                    "fusion_info_window",
-                    "fusion_info_level",
-                    "fusion_info_threshold",
+                    "drag_fusion_ww",
+                    "drag_fusion_wl",
                 ]:
                     if dpg.does_item_exist(t):
-                        dpg.set_value(t, "")
+                        dpg.set_value(t, 0.0)
 
             for t in [
-                "fusion_info_window",
-                "fusion_info_level",
-                "fusion_info_threshold",
+                "drag_fusion_ww",
+                "drag_fusion_wl",
                 "combo_fusion_mode",
             ]:
                 if dpg.does_item_exist(t):
-                    dpg.configure_item(t, enabled=(t in tags_to_enable and has_overlay))
+                    is_enabled = (t in tags_to_enable and has_overlay)
+                    dpg.configure_item(t, enabled=is_enabled)
+                    if dpg.does_item_exist(f"btn_{t}_minus"):
+                        dpg.configure_item(f"btn_{t}_minus", enabled=is_enabled)
+                    if dpg.does_item_exist(f"btn_{t}_plus"):
+                        dpg.configure_item(f"btn_{t}_plus", enabled=is_enabled)
+
+            if dpg.does_item_exist("check_fusion_threshold"):
+                dpg.set_value("check_fusion_threshold", has_thr)
+                dpg.configure_item("check_fusion_threshold", enabled=has_overlay)
+
+            if dpg.does_item_exist("drag_fusion_threshold"):
+                if has_thr and not dpg.is_item_active("drag_fusion_threshold"):
+                    dpg.set_value("drag_fusion_threshold", thr)
+                thr_enabled = has_overlay and has_thr
+                dpg.configure_item("drag_fusion_threshold", enabled=thr_enabled)
+                if dpg.does_item_exist("btn_drag_fusion_threshold_minus"):
+                    dpg.configure_item("btn_drag_fusion_threshold_minus", enabled=thr_enabled)
+                if dpg.does_item_exist("btn_drag_fusion_threshold_plus"):
+                    dpg.configure_item("btn_drag_fusion_threshold_plus", enabled=thr_enabled)
+                
+                if has_overlay and ov_vs:
+                    dynamic_speed = max(0.1, ov_vs.display.ww * 0.005)
+                    dpg.configure_item("drag_fusion_threshold", speed=dynamic_speed)
 
             if dpg.does_item_exist("combo_fusion_mode"):
                 is_ov_dvf = False
@@ -278,13 +316,12 @@ class FusionUI:
             or not viewer.view_state.display.overlay_id
         ):
             for t in [
-                "fusion_info_window",
-                "fusion_info_level",
-                "fusion_info_threshold",
+                "drag_fusion_ww",
+                "drag_fusion_wl",
             ]:
-                if dpg.does_item_exist(t) and not dpg.is_item_focused(t):
-                    if dpg.get_value(t) != "":
-                        dpg.set_value(t, "")
+                if dpg.does_item_exist(t) and not dpg.is_item_active(t):
+                    if dpg.get_value(t) != 0.0:
+                        dpg.set_value(t, 0.0)
             return
 
         ov_vs = self.controller.view_states.get(viewer.view_state.display.overlay_id)
@@ -292,73 +329,119 @@ class FusionUI:
             return
 
         # 1. Overlay W/L (from Overlay's ViewState)
-        if not ov_vs.volume.is_rgb:
-            if dpg.does_item_exist("fusion_info_window") and not dpg.is_item_focused(
-                "fusion_info_window"
-            ):
-                current_ww = dpg.get_value("fusion_info_window")
-                new_ww = f"{ov_vs.display.ww:g}"
+        if not ov_vs.volume.is_rgb and not getattr(ov_vs.volume, "is_dvf", False):
+            if dpg.does_item_exist("drag_fusion_ww") and not dpg.is_item_active("drag_fusion_ww"):
+                current_ww = dpg.get_value("drag_fusion_ww")
+                new_ww = ov_vs.display.ww
                 if current_ww != new_ww:
-                    dpg.set_value("fusion_info_window", new_ww)
+                    dpg.set_value("drag_fusion_ww", new_ww)
 
-            if dpg.does_item_exist("fusion_info_level") and not dpg.is_item_focused(
-                "fusion_info_level"
-            ):
-                current_wl = dpg.get_value("fusion_info_level")
-                new_wl = f"{ov_vs.display.wl:g}"
+            if dpg.does_item_exist("drag_fusion_wl") and not dpg.is_item_active("drag_fusion_wl"):
+                current_wl = dpg.get_value("drag_fusion_wl")
+                new_wl = ov_vs.display.wl
                 if current_wl != new_wl:
-                    dpg.set_value("fusion_info_level", new_wl)
+                    dpg.set_value("drag_fusion_wl", new_wl)
 
         # 2. Overlay Threshold (Now synced perfectly with Image B's Base Settings)
-        if dpg.does_item_exist("fusion_info_threshold") and not dpg.is_item_focused(
-            "fusion_info_threshold"
-        ):
-            current_thr = dpg.get_value("fusion_info_threshold")
-            new_thr = (
-                f"{ov_vs.display.base_threshold:g}"
-                if ov_vs.display.base_threshold is not None
-                else ""
-            )
-            if current_thr != new_thr:
-                dpg.set_value("fusion_info_threshold", new_thr)
+        if dpg.does_item_exist("drag_fusion_threshold") and not dpg.is_item_active("drag_fusion_threshold"):
+            current_thr = dpg.get_value("drag_fusion_threshold")
+            new_thr = ov_vs.display.base_threshold
+            if new_thr is not None and current_thr != new_thr:
+                dpg.set_value("drag_fusion_threshold", new_thr)
 
     # Callbacks
-    def on_fusion_wl_change(self, sender, app_data, user_data):
+    def on_fusion_ww_changed(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer
-        if (
-            not viewer
-            or not viewer.view_state
-            or not viewer.view_state.display.overlay_id
-        ):
+        if not viewer or not viewer.view_state or not viewer.view_state.display.overlay_id:
             return
 
-        try:
-            new_ww = float(dpg.get_value("fusion_info_window"))
-            new_wl = float(dpg.get_value("fusion_info_level"))
+        ovs = self.controller.view_states.get(viewer.view_state.display.overlay_id)
+        if not ovs or getattr(ovs.volume, "is_rgb", False):
+            return
 
-            thr_str = dpg.get_value("fusion_info_threshold")
-            new_thr = float(thr_str) if thr_str.strip() else None
+        ovs.display.ww = max(1e-20, app_data)
+        viewer.view_state.is_data_dirty = True
+        ovs.is_data_dirty = True
+        self.controller.sync.propagate_window_level(viewer.view_state.display.overlay_id)
+        self.controller.update_all_viewers_of_image(viewer.image_id)
 
+    def on_fusion_wl_changed(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state or not viewer.view_state.display.overlay_id:
+            return
+
+        ovs = self.controller.view_states.get(viewer.view_state.display.overlay_id)
+        if not ovs or getattr(ovs.volume, "is_rgb", False):
+            return
+
+        ovs.display.wl = app_data
+        viewer.view_state.is_data_dirty = True
+        ovs.is_data_dirty = True
+        self.controller.sync.propagate_window_level(viewer.view_state.display.overlay_id)
+        self.controller.update_all_viewers_of_image(viewer.image_id)
+
+    def on_fusion_threshold_toggle(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state or not viewer.view_state.display.overlay_id:
+            return
+        ovs = self.controller.view_states.get(viewer.view_state.display.overlay_id)
+        if not ovs:
+            return
+
+        is_enabled = app_data
+        if is_enabled:
+            val = dpg.get_value("drag_fusion_threshold")
+            ovs.display.base_threshold = val
+        else:
+            ovs.display.base_threshold = None
+
+        viewer.view_state.is_data_dirty = True
+        ovs.is_data_dirty = True
+        self.controller.sync.propagate_window_level(viewer.view_state.display.overlay_id)
+        self.controller.update_all_viewers_of_image(viewer.image_id)
+        self.controller.ui_needs_refresh = True
+
+    def on_fusion_threshold_changed(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state or not viewer.view_state.display.overlay_id:
+            return
+        ovs = self.controller.view_states.get(viewer.view_state.display.overlay_id)
+        if not ovs:
+            return
+
+        ovs.display.base_threshold = app_data
+        if dpg.does_item_exist("check_fusion_threshold"):
+            dpg.set_value("check_fusion_threshold", True)
+            
+        viewer.view_state.is_data_dirty = True
+        ovs.is_data_dirty = True
+        self.controller.sync.propagate_window_level(viewer.view_state.display.overlay_id)
+        self.controller.update_all_viewers_of_image(viewer.image_id)
+
+    def on_step_button_clicked(self, sender, app_data, user_data):
+        target_tag = user_data["tag"]
+        direction = user_data["dir"]
+        
+        viewer = self.gui.context_viewer
+        step_size = 1.0
+        if viewer and viewer.view_state and viewer.view_state.display.overlay_id:
             ovs = self.controller.view_states.get(viewer.view_state.display.overlay_id)
-            if not ovs:
-                return
-
-            # Update the properties directly on Image B!
-            ovs.display.base_threshold = new_thr
-
-            if not ovs.volume.is_rgb:
-                ovs.display.ww = max(1e-20, new_ww)
-                ovs.display.wl = new_wl
-                self.controller.sync.propagate_window_level(
-                    viewer.view_state.display.overlay_id
-                )
-
-            viewer.view_state.is_data_dirty = True
-            ovs.is_data_dirty = True
-
-            self.controller.update_all_viewers_of_image(viewer.image_id)
-        except ValueError:
-            pass
+            if ovs:
+                step_size = max(0.1, ovs.display.ww * 0.02)
+                
+        current_val = dpg.get_value(target_tag)
+        new_val = current_val + (step_size * direction)
+        
+        if target_tag == "drag_fusion_ww":
+            new_val = max(1e-5, new_val)
+            dpg.set_value(target_tag, new_val)
+            self.on_fusion_ww_changed(sender, new_val, user_data)
+        elif target_tag == "drag_fusion_wl":
+            dpg.set_value(target_tag, new_val)
+            self.on_fusion_wl_changed(sender, new_val, user_data)
+        elif target_tag == "drag_fusion_threshold":
+            dpg.set_value(target_tag, new_val)
+            self.on_fusion_threshold_changed(sender, new_val, user_data)
 
     def on_fusion_target_selected(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer

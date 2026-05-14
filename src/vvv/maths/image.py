@@ -28,6 +28,7 @@ class RenderLayer:
     offset_y: int = 0
     offset_slice: int = 0
     dvf_mode: str = "Component"
+    preview_override: "np.ndarray | None" = None  # 2D fast preview slice, bypasses extraction
 
 
 @dataclass
@@ -159,22 +160,25 @@ class SliceRenderer:
 
     @staticmethod
     def _shift_2d_array(arr, dx, dy):
-        """Rapidly translates a 2D NumPy array by pixel offsets without wrapping."""
+        """Translate a 2D array by pixel offsets, replicating the border for out-of-bounds pixels.
+
+        Uses np.pad(mode='edge') so pixels that shift outside the image show the nearest
+        border value rather than zero — avoids the artificial black/zero border that
+        appears when a CT overlay is translated far from the fixed image.
+        """
         if dx == 0 and dy == 0:
             return arr
 
         h, w = arr.shape[:2]
-        res = np.zeros_like(arr)
-
-        src_y0, src_y1 = max(0, -dy), min(h, h - dy)
-        src_x0, src_x1 = max(0, -dx), min(w, w - dx)
-        dst_y0, dst_y1 = max(0, dy), min(h, h + dy)
-        dst_x0, dst_x1 = max(0, dx), min(w, w + dx)
-
-        if src_y0 < src_y1 and src_x0 < src_x1:
-            res[dst_y0:dst_y1, dst_x0:dst_x1] = arr[src_y0:src_y1, src_x0:src_x1]
-
-        return res
+        pad_y, pad_x = abs(dy), abs(dx)
+        pad_spec = (
+            ((pad_y, pad_y), (pad_x, pad_x))
+            if arr.ndim == 2
+            else ((pad_y, pad_y), (pad_x, pad_x), (0, 0))
+        )
+        padded = np.pad(arr, pad_spec, mode="edge")
+        y0, x0 = pad_y - dy, pad_x - dx
+        return np.ascontiguousarray(padded[y0 : y0 + h, x0 : x0 + w])
 
     @staticmethod
     def _apply_rois(base_rgba, rois):
@@ -375,9 +379,12 @@ class SliceRenderer:
                 base_rgba = np.stack([r_n, g_n, b_n, np.ones_like(r_n)], axis=-1)
                 base_norm = (r_n + g_n + b_n) / 3.0
         else:
-            base_slice = SliceRenderer._extract_layer(
-                base.data, base.is_rgb, base.time_idx, slice_idx, orientation, max_s
-            )
+            if base.preview_override is not None:
+                base_slice = base.preview_override
+            else:
+                base_slice = SliceRenderer._extract_layer(
+                    base.data, base.is_rgb, base.time_idx, slice_idx, orientation, max_s
+                )
 
             if base_slice is None:  # Out of bounds
                 black_slice = np.zeros((h, w, 4), dtype=np.float32)
@@ -400,16 +407,21 @@ class SliceRenderer:
         if overlay is not None and overlay.data is not None and overlay_opacity > 0.0:
             target_slice = slice_idx - overlay.offset_slice
 
-            over_slice = SliceRenderer._extract_layer(
-                overlay.data,
-                overlay.is_rgb,
-                overlay.time_idx,
-                target_slice,
-                orientation,
-                max_s,
-                overlay.offset_x,
-                overlay.offset_y,
-            )
+            if overlay.preview_override is not None:
+                over_slice = overlay.preview_override
+                if overlay.offset_x != 0 or overlay.offset_y != 0:
+                    over_slice = SliceRenderer._shift_2d_array(over_slice, overlay.offset_x, overlay.offset_y)
+            else:
+                over_slice = SliceRenderer._extract_layer(
+                    overlay.data,
+                    overlay.is_rgb,
+                    overlay.time_idx,
+                    target_slice,
+                    orientation,
+                    max_s,
+                    overlay.offset_x,
+                    overlay.offset_y,
+                )
 
             if over_slice is None:
                 # Overlay is out of bounds, but base is visible. Render transparent space.
