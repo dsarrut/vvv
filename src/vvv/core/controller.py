@@ -446,7 +446,7 @@ class Controller:
         def _do():
             vs = self.view_states.get(image_id)
             if vs:
-                vs.clear_preview_slices()
+                vs.reset_preview_rotation()
                 vs.update_base_display_data()
                 if vs.display.overlay_id:
                     vs.update_overlay_display_data(self)

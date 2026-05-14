@@ -461,14 +461,20 @@ class RegistrationUI:
                 if ov_preview is not None:
                     new_overlay_previews[(orientation, slice_idx)] = ov_preview
 
-        # Atomic replace only if still the latest request
+        # Atomic: update shared rotation state on ViewState under the lock.
+        # Viewer-local slice dicts are assigned after — dict replacement is GIL-atomic
+        # and the worker is single-threaded (queue drain), so no concurrent writer exists.
         with self._preview_lock:
             if self._preview_version != version:
                 return
             vs._preview_R = R
             vs._preview_center = center
-            vs._preview_slices = new_previews
-            vs._overlay_preview_slices = new_overlay_previews
+
+        for viewer in self.controller.viewers.values():
+            if viewer.image_id == image_id:
+                viewer._preview_slices = new_previews
+            elif viewer.view_state and viewer.view_state.display.overlay_id == image_id:
+                viewer._overlay_preview_slices = new_overlay_previews
 
         self.controller.update_all_viewers_of_image(image_id)
 
@@ -655,15 +661,21 @@ class RegistrationUI:
 
         if vs:
             if has_rotation:
-                # Keep _preview_R alive so render-loop cache misses use the previous
-                # (ghost) rotation matrix rather than jumping to base_display_data.
-                # This prevents a flicker frame when the new worker result hasn't
-                # arrived yet but is_viewer_data_dirty was already set by the last delivery.
-                vs.invalidate_preview_cache()
+                # Keep vs._preview_R alive: the on-demand path in _package_base_layer
+                # uses it to render a "ghost" preview at the previous rotation angle
+                # while the new worker result is computing, preventing a flicker frame
+                # that would show base_display_data (old full-resample data) instead.
+                # Clear viewer slice caches so stale entries don't survive into the
+                # new rotation angle — they'll be repopulated on-demand via _preview_R.
+                for v in self.controller.viewers.values():
+                    if v.image_id == vs_id:
+                        v._preview_slices.clear()
+                    elif v.view_state and v.view_state.display.overlay_id == vs_id:
+                        v._overlay_preview_slices.clear()
             else:
-                # Translation-only: _preview_R from a prior rotation session must be
-                # cleared so on-demand rendering doesn't apply stale rotation to new slices.
-                vs.clear_preview_slices()
+                # Translation-only: disable the on-demand preview path entirely so
+                # stale rotation previews from a prior session are never rendered.
+                vs.reset_preview_rotation()
 
         preview_thread_spawned = False
         if self._is_live_preview_enabled() and has_rotation:
@@ -713,7 +725,7 @@ class RegistrationUI:
             self._preview_version += 1
         vs = self.controller.view_states.get(viewer.image_id)
         if vs:
-            vs.clear_preview_slices()
+            vs.reset_preview_rotation()
         # Immediately resample: for identity, update_base_display_data just clears the
         # stale rotated buffer (no ITK resampling), so this returns almost instantly.
         if dpg.does_item_exist("btn_reg_resample"):

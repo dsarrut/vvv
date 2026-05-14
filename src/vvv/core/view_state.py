@@ -459,9 +459,7 @@ class ViewState:
         self.needs_resample: bool = False  # True when transform changed since last resample
         self.base_display_data: np.ndarray | None = None
         self._sitk_base_cache = None
-        self._preview_slices: dict = {}          # (orientation, slice_idx) → 2D base preview
-        self._overlay_preview_slices: dict = {}  # (orientation, slice_idx) → 2D overlay preview
-        self._preview_R: "np.ndarray | None" = None    # rotation matrix for on-demand preview
+        self._preview_R: "np.ndarray | None" = None    # current rotation for on-demand preview
         self._preview_center: "np.ndarray | None" = None
         self.hist_data_x = None
         self.hist_data_y = None
@@ -507,23 +505,17 @@ class ViewState:
         else:  # SAGITTAL
             return -px_y, -px_z, px_x
 
-    def clear_preview_slices(self):
-        """Full reset: clears cached slices and the rotation transform used for on-demand rendering."""
-        self._preview_slices.clear()
-        self._overlay_preview_slices.clear()
+    def reset_preview_rotation(self):
+        """Clear the shared rotation state used by all viewers for on-demand preview rendering.
+
+        Setting _preview_R = None acts as a master switch: the render loop checks it
+        before using any viewer-local slice caches, so stale viewer caches are silently
+        ignored without needing the Controller to touch View objects directly.
+        Viewer-local slice dicts (_preview_slices, _overlay_preview_slices) are
+        managed by the View layer (RegistrationUI / Viewer) and are not cleared here.
+        """
         self._preview_R = None
         self._preview_center = None
-
-    def invalidate_preview_cache(self):
-        """Clears only the slice caches, keeping _preview_R/_preview_center alive.
-
-        Used during rotation dragging so that render-loop cache misses fall back to
-        on-demand computation with the previous (ghost) rotation matrix rather than
-        jumping to base_display_data (old full-resample data) — prevents the flicker
-        that occurs between clear_preview_slices() and the new worker delivery.
-        """
-        self._preview_slices.clear()
-        self._overlay_preview_slices.clear()
 
     def display_to_world(self, display_voxel, is_buffered):
         """Bypasses double-rotation for ITK buffered arrays. World = Native + Translation."""

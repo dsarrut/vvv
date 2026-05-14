@@ -176,6 +176,11 @@ class SliceViewer:
         self.overlay_image_tag = f"img_ov_{tag_id}"
         self.active_overlay_shift_x = 0.0
         self.active_overlay_shift_y = 0.0
+        # Per-viewer render caches for live rotation preview (View-only data).
+        # Keyed by (orientation, slice_idx). Populated by RegistrationUI worker
+        # and by the on-demand path in _package_base/overlay_layer.
+        self._preview_slices: dict = {}
+        self._overlay_preview_slices: dict = {}
         self.last_overlay_rgba_flat: np.ndarray | None = None
         self._last_tracker_state: tuple | None = None
         self._was_hovered = False
@@ -1300,14 +1305,16 @@ class SliceViewer:
 
         dvf_mode = vs.dvf.display_mode if getattr(vol, "is_dvf", False) else "Component"
 
-        key = (self.orientation, self.slice_idx)
-        preview = vs._preview_slices.get(key)
-        if preview is None and vs._preview_R is not None and not getattr(vol, "is_dvf", False):
-            preview = compute_preview_2d_affine(
-                vol, self.orientation, self.slice_idx,
-                vs._preview_R, vs._preview_center, vs.camera.time_idx,
-            )
-            vs._preview_slices[key] = preview
+        preview = None
+        if vs._preview_R is not None and not getattr(vol, "is_dvf", False):
+            key = (self.orientation, self.slice_idx)
+            preview = self._preview_slices.get(key)
+            if preview is None:
+                preview = compute_preview_2d_affine(
+                    vol, self.orientation, self.slice_idx,
+                    vs._preview_R, vs._preview_center, vs.camera.time_idx,
+                )
+                self._preview_slices[key] = preview
 
         return RenderLayer(
             data=display_data,
@@ -1369,17 +1376,21 @@ class SliceViewer:
 
         off_slice = int(round(dz))
 
-        # Live rotation preview for the overlay: keyed in ovs (the moving image's view state)
-        # so that invalidate_preview_cache() on the moving image clears it automatically.
-        ov_key = (self.orientation, self.slice_idx)
-        overlay_preview = ovs._overlay_preview_slices.get(ov_key)
-        if overlay_preview is None and ovs._preview_R is not None and vs.display.overlay_data is not None:
-            t_idx = min(vs.camera.time_idx, ovs.volume.num_timepoints - 1)
-            overlay_preview = compute_overlay_preview_2d_affine(
-                vol, ovs.volume, self.orientation, self.slice_idx,
-                ovs._preview_R, ovs._preview_center, t_idx,
-            )
-            ovs._overlay_preview_slices[ov_key] = overlay_preview
+        # Live rotation preview for the overlay.
+        # _preview_R lives on ovs (ViewState) as shared rotation state.
+        # The slice cache lives on self (Viewer) — render artifact, not model state.
+        # Gate on _preview_R FIRST so stale cache entries are never used after resample.
+        overlay_preview = None
+        if ovs._preview_R is not None and vs.display.overlay_data is not None:
+            ov_key = (self.orientation, self.slice_idx)
+            overlay_preview = self._overlay_preview_slices.get(ov_key)
+            if overlay_preview is None:
+                t_idx = min(vs.camera.time_idx, ovs.volume.num_timepoints - 1)
+                overlay_preview = compute_overlay_preview_2d_affine(
+                    vol, ovs.volume, self.orientation, self.slice_idx,
+                    ovs._preview_R, ovs._preview_center, t_idx,
+                )
+                self._overlay_preview_slices[ov_key] = overlay_preview
 
         return RenderLayer(
             data=vs.display.overlay_data,
