@@ -643,18 +643,26 @@ class RegistrationUI:
             dpg.bind_item_theme("btn_reg_resample", "orange_button_theme")
 
         vs = self.controller.view_states.get(vs_id)
-        # Always invalidate any in-flight preview and clear stale preview state.
-        # This is critical for translation-only changes: if _preview_R was set from a
-        # prior rotation preview, leaving it would cause _compute_preview_2d to apply
-        # that old rotation to every new slice the user scrolls to.
+        has_rotation = vs is not None and vs.space.has_rotation()
+
         with self._preview_lock:
             self._preview_version += 1
             version = self._preview_version
+
         if vs:
-            vs.clear_preview_slices()
+            if has_rotation:
+                # Keep _preview_R alive so render-loop cache misses use the previous
+                # (ghost) rotation matrix rather than jumping to base_display_data.
+                # This prevents a flicker frame when the new worker result hasn't
+                # arrived yet but is_viewer_data_dirty was already set by the last delivery.
+                vs.invalidate_preview_cache()
+            else:
+                # Translation-only: _preview_R from a prior rotation session must be
+                # cleared so on-demand rendering doesn't apply stale rotation to new slices.
+                vs.clear_preview_slices()
 
         preview_thread_spawned = False
-        if self._is_live_preview_enabled() and vs and vs.space.has_rotation():
+        if self._is_live_preview_enabled() and has_rotation:
             # Extract ITK transform data as numpy on the main thread — ITK objects
             # must never be read/written from background threads (not thread-safe).
             rot_transform = vs.space.get_rotation_only_transform()

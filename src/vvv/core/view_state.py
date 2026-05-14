@@ -469,9 +469,20 @@ class ViewState:
         self.init_default_window_level()
 
     def clear_preview_slices(self):
+        """Full reset: clears cached slices and the rotation transform used for on-demand rendering."""
         self._preview_slices.clear()
         self._preview_R = None
         self._preview_center = None
+
+    def invalidate_preview_cache(self):
+        """Clears only the slice cache, keeping _preview_R/_preview_center alive.
+
+        Used during rotation dragging so that render-loop cache misses fall back to
+        on-demand computation with the previous (ghost) rotation matrix rather than
+        jumping to base_display_data (old full-resample data) — prevents the flicker
+        that occurs between clear_preview_slices() and the new worker delivery.
+        """
+        self._preview_slices.clear()
 
     def display_to_world(self, display_voxel, is_buffered):
         """Bypasses double-rotation for ITK buffered arrays. World = Native + Translation."""
