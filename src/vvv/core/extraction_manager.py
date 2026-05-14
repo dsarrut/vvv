@@ -27,6 +27,7 @@ class ExtractionManager:
             roi_min.last_computed_threshold_max = None
             roi_min.last_computed_subpixel = None
             roi_min.last_computed_time_idx = None
+            roi_min.last_computed_transform = None
             self.controller.contours.add_contour(img_id, roi_min)
         else:
             roi_min.color = vs.extraction.preview_color_min
@@ -46,6 +47,7 @@ class ExtractionManager:
             roi_max.last_computed_threshold_max = None
             roi_max.last_computed_subpixel = None
             roi_max.last_computed_time_idx = None
+            roi_max.last_computed_transform = None
             self.controller.contours.add_contour(img_id, roi_max)
         else:
             roi_max.color = vs.extraction.preview_color_max
@@ -71,75 +73,81 @@ class ExtractionManager:
         return cleared
 
     def update_preview(
-        self, img_id, vol, vs, threshold_min, threshold_max, visible_targets
+        self, img_id, vol, vs, threshold_min, threshold_max, ori, s_idx, slice_data
     ):
         """The Lazy Engine: Computes missing slices on the fly."""
         roi_min, roi_max = self._get_or_create_preview_rois(img_id, vs)
 
-        # Clear draft if the slider OR the subpixel flag moved
+        current_transform = vs.space.get_parameters() if vs.space.is_active else None
+
+        # Clear draft if the slider OR the subpixel flag moved OR transform changed
         if (
             getattr(roi_min, "last_computed_threshold_min", None) != threshold_min
             or getattr(roi_min, "last_computed_threshold_max", None) != threshold_max
             or getattr(roi_min, "last_computed_subpixel", None) != vs.extraction.subpixel_accurate
             or getattr(roi_min, "last_computed_time_idx", None) != vs.camera.time_idx
+            or getattr(roi_min, "last_computed_transform", None) != current_transform
         ):
 
-            for ori in roi_min.polygons:
-                roi_min.polygons[ori].clear()
-            for ori in roi_max.polygons:
-                roi_max.polygons[ori].clear()
+            for o in roi_min.polygons:
+                roi_min.polygons[o].clear()
+            for o in roi_max.polygons:
+                roi_max.polygons[o].clear()
 
             roi_min.last_computed_threshold_min = threshold_min
             roi_min.last_computed_threshold_max = threshold_max
             roi_min.last_computed_subpixel = vs.extraction.subpixel_accurate
             roi_min.last_computed_time_idx = vs.camera.time_idx
+            roi_min.last_computed_transform = current_transform
             roi_max.last_computed_threshold_min = threshold_min
             roi_max.last_computed_threshold_max = threshold_max
             roi_max.last_computed_subpixel = vs.extraction.subpixel_accurate
             roi_max.last_computed_time_idx = vs.camera.time_idx
+            roi_max.last_computed_transform = current_transform
 
         extracted_any = False
-        for ori, s_idx in visible_targets:
-            if s_idx not in roi_min.polygons[ori]:
-                sw, sh = vol.get_physical_aspect_ratio(ori)
-                slice_data = SliceRenderer.get_raw_slice(vol.data, False, vs.camera.time_idx, s_idx, ori)
+        if s_idx not in roi_min.polygons[ori]:
+            sw, sh = vol.get_physical_aspect_ratio(ori)
 
-                if vs.extraction.subpixel_accurate:
-                    c_max = np.max(slice_data)
+            if slice_data is None or slice_data.size == 0:
+                roi_min.polygons[ori][s_idx] = []
+                roi_max.polygons[ori][s_idx] = []
+            elif vs.extraction.subpixel_accurate:
+                c_max = np.max(slice_data)
 
-                    if c_max >= threshold_min:
-                        roi_min.polygons[ori][s_idx] = extract_2d_contours_from_slice(
-                            slice_data, threshold_min, sw, sh
-                        )
-                    else:
-                        roi_min.polygons[ori][s_idx] = []
-
-                    if c_max >= threshold_max:
-                        roi_max.polygons[ori][s_idx] = extract_2d_contours_from_slice(
-                            slice_data, threshold_max, sw, sh
-                        )
-                    else:
-                        roi_max.polygons[ori][s_idx] = []
-
+                if c_max >= threshold_min:
+                    roi_min.polygons[ori][s_idx] = extract_2d_contours_from_slice(
+                        slice_data, threshold_min, sw, sh
+                    )
                 else:
-                    mask_min = (slice_data >= threshold_min).astype(np.uint8)
-                    mask_max = (slice_data >= threshold_max).astype(np.uint8)
+                    roi_min.polygons[ori][s_idx] = []
 
-                    if np.any(mask_min):
-                        roi_min.polygons[ori][s_idx] = extract_2d_contours_from_slice(
-                            mask_min, 0.5, sw, sh
-                        )
-                    else:
-                        roi_min.polygons[ori][s_idx] = []
+                if c_max >= threshold_max:
+                    roi_max.polygons[ori][s_idx] = extract_2d_contours_from_slice(
+                        slice_data, threshold_max, sw, sh
+                    )
+                else:
+                    roi_max.polygons[ori][s_idx] = []
 
-                    if np.any(mask_max):
-                        roi_max.polygons[ori][s_idx] = extract_2d_contours_from_slice(
-                            mask_max, 0.5, sw, sh
-                        )
-                    else:
-                        roi_max.polygons[ori][s_idx] = []
+            else:
+                mask_min = (slice_data >= threshold_min).astype(np.uint8)
+                mask_max = (slice_data >= threshold_max).astype(np.uint8)
 
-                extracted_any = True
+                if np.any(mask_min):
+                    roi_min.polygons[ori][s_idx] = extract_2d_contours_from_slice(
+                        mask_min, 0.5, sw, sh
+                    )
+                else:
+                    roi_min.polygons[ori][s_idx] = []
+
+                if np.any(mask_max):
+                    roi_max.polygons[ori][s_idx] = extract_2d_contours_from_slice(
+                        mask_max, 0.5, sw, sh
+                    )
+                else:
+                    roi_max.polygons[ori][s_idx] = []
+
+            extracted_any = True
 
         if extracted_any:
             self.controller.ui_needs_refresh = True

@@ -1861,15 +1861,32 @@ class SliceViewer:
         # Ensure extraction preview is computed before delegating to the View drawer
         ext = getattr(vs, "extraction", None)
         if ext and ext.is_enabled and ext.show_preview:
+            preview_2d = None
+            if vs._preview_R is not None and not getattr(vol, "is_dvf", False):
+                key = (self.orientation, self.slice_idx)
+                preview_2d = self._preview_slices.get(key)
+            
+            if preview_2d is not None:
+                slice_data = preview_2d
+            else:
+                display_data = (
+                    vs.base_display_data
+                    if getattr(vs, "base_display_data", None) is not None
+                    else vol.data
+                )
+                slice_data = SliceRenderer.get_raw_slice(
+                    display_data, False, vs.camera.time_idx, self.slice_idx, self.orientation
+                )
+
             self.controller.extraction.update_preview(
                 self.image_id,
                 vol,
                 vs,
                 ext.threshold_min,
                 ext.threshold_max,
-                [
-                    (self.orientation, self.slice_idx)
-                ],  # This is now the display slice index
+                self.orientation,
+                self.slice_idx,
+                slice_data
             )
 
         self.controller.roi.update_roi_contours(self)

@@ -28,6 +28,7 @@ class ContourROI:
         self.last_computed_threshold_max = None
         self.last_computed_subpixel = None
         self.last_computed_time_idx = None
+        self.last_computed_transform = None
 
 def extract_2d_contours_from_slice(slice2d, threshold, sw=1.0, sh=1.0):
     """

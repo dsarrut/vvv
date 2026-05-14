@@ -78,13 +78,13 @@ def build_stepped_slider(
 
     with dpg.group(horizontal=True):
         if has_checkbox:
-            dpg.add_checkbox(tag=check_tag, enabled=False, callback=check_cb)
+            dpg.add_checkbox(tag=check_tag or 0, enabled=False, callback=check_cb)  # type: ignore
 
         if has_color:
             dpg.add_color_edit(
                 default_value=color_default,
-                tag=color_tag,
-                callback=color_cb,
+                tag=color_tag or 0,
+                callback=color_cb,  # type: ignore
                 no_inputs=True,
                 no_label=True,
                 no_alpha=True,
