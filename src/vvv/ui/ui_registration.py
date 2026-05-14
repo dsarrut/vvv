@@ -1,6 +1,7 @@
 import os
 import math
 import threading
+import queue
 import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
@@ -46,6 +47,21 @@ class RegistrationUI:
         self.controller = controller
         self._preview_version = 0
         self._preview_lock = threading.Lock()
+        self._preview_queue = queue.Queue()
+        threading.Thread(target=self._preview_worker_loop, daemon=True).start()
+
+    def _preview_worker_loop(self):
+        while True:
+            req = self._preview_queue.get()
+            if req is None:
+                break
+            while not self._preview_queue.empty():
+                try:
+                    req = self._preview_queue.get_nowait()
+                except queue.Empty:
+                    break
+            vs_id, version, R, center = req
+            self._trigger_fast_preview(vs_id, version, R, center)
 
     @staticmethod
     def build_tab_reg(gui):
@@ -638,11 +654,7 @@ class RegistrationUI:
             rot_transform = vs.space.get_rotation_only_transform()
             R = np.array(rot_transform.GetMatrix(), dtype=np.float64).reshape(3, 3)
             center = np.array(rot_transform.GetCenter(), dtype=np.float64)
-            threading.Thread(
-                target=self._trigger_fast_preview,
-                args=(vs_id, version, R, center),
-                daemon=True,
-            ).start()
+            self._preview_queue.put((vs_id, version, R, center))
             preview_thread_spawned = True
 
         if not preview_thread_spawned:
