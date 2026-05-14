@@ -9,8 +9,6 @@ from vvv.core.view_state import ViewState
 from vvv.ui.render_strategy import (
     compute_software_nearest_neighbor,
     compute_native_voxel_overlay,
-    compute_preview_2d_affine,
-    compute_overlay_preview_2d_affine,
     blend_slices_cpu,
     GL_NEAREST_SUPPORTED,
     try_set_gl_nearest,
@@ -1275,11 +1273,27 @@ class SliceViewer:
                     pass
             f_name = f"({img_idx_str}) {vol.get_human_readable_file_path()}"
 
+        ov_id = self.view_state.display.overlay_id
+        if ov_id and ov_id in self.controller.volumes:
+            ov_vol = self.controller.volumes[ov_id]
+            if show_state == 1:
+                ov_name, _ = self.controller.get_image_display_name(ov_id)
+            else:
+                ov_idx_str = "?"
+                try:
+                    idx = list(self.controller.view_states.keys()).index(ov_id) + 1
+                    ov_idx_str = str(idx)
+                except ValueError:
+                    pass
+                ov_name = f"({ov_idx_str}) {ov_vol.get_human_readable_file_path()}"
+            f_name += f"\n+ {ov_name}"
+
         dpg.set_value(self.filename_text_tag, f_name)
 
         # Calculate width manually based on string length.
         # (This prevents the 1-frame centering lag caused by get_item_rect_size)
-        tw = len(f_name) * 7.2  # 7.2 pixels per char is the standard ImGui font average
+        max_line_len = max(len(line) for line in f_name.split("\n"))
+        tw = max_line_len * 7.2  # 7.2 pixels per char is the standard ImGui font average
 
         # Center it dynamically at the top of the viewer
         dpg.set_item_pos(
@@ -1292,17 +1306,6 @@ class SliceViewer:
         if not vs or not vol:
             return None
 
-        # Use the display buffer if it exists, otherwise fall back to raw data
-        display_data = (
-            vs.base_display_data
-            if getattr(vs, "base_display_data", None) is not None
-            else vol.data
-        )
-
-        # Tombstone failsafe: Prevent the renderer from choking on dead memory
-        if display_data is None:
-            display_data = np.zeros((1, 1, 1), dtype=np.float32)
-
         dvf_mode = vs.dvf.display_mode if getattr(vol, "is_dvf", False) else "Component"
 
         preview = None
@@ -1310,11 +1313,27 @@ class SliceViewer:
             key = (self.orientation, self.slice_idx)
             preview = self._preview_slices.get(key)
             if preview is None:
-                preview = compute_preview_2d_affine(
-                    vol, self.orientation, self.slice_idx,
-                    vs._preview_R, vs._preview_center, vs.camera.time_idx,
-                )
-                self._preview_slices[key] = preview
+                # Cache miss (e.g. user scrolled to a new slice).
+                # Signal the worker — and use raw vol.data as fallback so a cache miss
+                # never exposes base_display_data (a stale full-resample at a DIFFERENT
+                # rotation angle). A briefly unrotated image is far less jarring than
+                # a flash to a completely different rotation (ghost).
+                vs._preview_slice_needed = True
+
+        # In preview mode, bypass base_display_data to prevent ghost flashes.
+        # Outside preview mode, use the resampled buffer if available.
+        if vs._preview_R is not None:
+            display_data = vol.data
+        else:
+            display_data = (
+                vs.base_display_data
+                if getattr(vs, "base_display_data", None) is not None
+                else vol.data
+            )
+
+        # Tombstone failsafe: Prevent the renderer from choking on dead memory
+        if display_data is None:
+            display_data = np.zeros((1, 1, 1), dtype=np.float32)
 
         return RenderLayer(
             data=display_data,
@@ -1385,12 +1404,10 @@ class SliceViewer:
             ov_key = (self.orientation, self.slice_idx)
             overlay_preview = self._overlay_preview_slices.get(ov_key)
             if overlay_preview is None:
-                t_idx = min(vs.camera.time_idx, ovs.volume.num_timepoints - 1)
-                overlay_preview = compute_overlay_preview_2d_affine(
-                    vol, ovs.volume, self.orientation, self.slice_idx,
-                    ovs._preview_R, ovs._preview_center, t_idx,
-                )
-                self._overlay_preview_slices[ov_key] = overlay_preview
+                # Cache miss — signal worker; suppress overlay_data (stale resample at
+                # a different rotation would look like a ghost in the fusion view).
+                ovs._preview_slice_needed = True
+                return None  # no overlay this frame; worker will deliver the correct one
 
         return RenderLayer(
             data=vs.display.overlay_data,
