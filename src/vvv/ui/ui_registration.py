@@ -239,6 +239,7 @@ class RegistrationUI:
                 dpg.add_button(
                     label="Update Display", width=-1, tag="btn_reg_resample", callback=gui.reg_ui.on_reg_resample_clicked
                 )
+                dpg.add_text("", tag="text_resample_job_info", color=cfg_c["text_dim"])
                 with dpg.group(horizontal=True):
                     dpg.add_button(
                         label="Commit to Volume",
@@ -300,10 +301,44 @@ class RegistrationUI:
                 if dpg.does_item_exist(tag):
                     dpg.set_value(tag, 0.0)
 
+    def _check_preview_slice_needed(self, vs_id):
+        """Re-enqueue the preview worker when a viewer reported a cache miss.
+
+        Called from the GUI tick (Thread 6) so ITK reads (get_rotation_only_transform)
+        are safe and no render-thread computation is needed.
+        """
+        vs = self.controller.view_states.get(vs_id)
+        if not vs or vs._preview_R is None or not vs._preview_slice_needed:
+            return
+        vs._preview_slice_needed = False
+        if not vs.space.has_rotation():
+            return
+        rot_transform = vs.space.get_rotation_only_transform()
+        R = np.array(rot_transform.GetMatrix(), dtype=np.float64).reshape(3, 3)
+        center = np.array(rot_transform.GetCenter(), dtype=np.float64)
+        viewer_slices = {}
+        for v in self.controller.viewers.values():
+            if v.image_id == vs_id:
+                viewer_slices[id(v)] = ("base", v.orientation, v.slice_idx)
+            elif v.view_state and v.view_state.display.overlay_id == vs_id:
+                viewer_slices[id(v)] = ("overlay", v.orientation, v.slice_idx)
+        if not viewer_slices:
+            return
+        with self._preview_lock:
+            self._preview_version += 1
+            version = self._preview_version
+        self._preview_queue.put((vs_id, version, R, center, viewer_slices))
+
     def refresh_reg_ui(self):
         viewer = self.gui.context_viewer
         if not viewer or not viewer.view_state:
             return
+
+        # Check if any viewer reported a slice cache miss while the preview was active.
+        # Re-enqueues the worker (safely, on Thread 6) so the new slice is computed
+        # without blocking the render loop or creating ghost states.
+        if viewer.image_id:
+            self._check_preview_slice_needed(viewer.image_id)
 
         vs = viewer.view_state
         vol = self.controller.volumes.get(viewer.image_id)
@@ -334,6 +369,13 @@ class RegistrationUI:
         if dpg.does_item_exist("btn_reg_resample"):
             theme = "orange_button_theme" if vs.needs_resample else 0
             dpg.bind_item_theme("btn_reg_resample", theme)
+
+        if dpg.does_item_exist("text_resample_job_info"):
+            job = vs._active_resample_job
+            dpg.set_value(
+                "text_resample_job_info",
+                f"[resampling job #{job}]" if job else "",
+            )
 
         if dpg.does_item_exist("text_reg_filename"):
             dpg.set_value("text_reg_filename", vs.space.transform_file)
@@ -489,7 +531,15 @@ class RegistrationUI:
             elif viewer.view_state and viewer.view_state.display.overlay_id == image_id:
                 viewer._overlay_preview_slices = new_overlay_previews
 
-        self.controller.update_all_viewers_of_image(image_id)
+        # Signal for re-render via is_data_dirty rather than directly setting
+        # v.is_viewer_data_dirty. The controller tick propagates is_data_dirty on
+        # Thread 6 (DPG callback thread), which is single-threaded — so renders only
+        # fire after ALL viewer dict assignments above are visible, eliminating the
+        # race that caused ghost images in fusion mode when dirty flags were set directly
+        # from the worker thread (Thread 8) before all dicts were fully assigned.
+        if vs:
+            vs.is_data_dirty = True
+        self.controller.ui_needs_refresh = True
 
     def trigger_resample(self, image_id):
         """Show a status message then delegate all resampling work to the Controller."""
@@ -674,20 +724,16 @@ class RegistrationUI:
 
         if vs:
             if has_rotation:
-                # Keep vs._preview_R alive: the on-demand path in _package_base_layer
-                # uses it to render a "ghost" preview at the previous rotation angle
-                # while the new worker result is computing, preventing a flicker frame
-                # that would show base_display_data (old full-resample data) instead.
-                # Clear viewer slice caches so stale entries don't survive into the
-                # new rotation angle — they'll be repopulated on-demand via _preview_R.
-                for v in self.controller.viewers.values():
-                    if v.image_id == vs_id:
-                        v._preview_slices.clear()
-                    elif v.view_state and v.view_state.display.overlay_id == vs_id:
-                        v._overlay_preview_slices.clear()
+                # Keep viewer slice caches intact — they hold the last delivered
+                # preview. If the controller tick propagates a stale is_data_dirty
+                # before the new worker result arrives, the viewer finds the OLD
+                # preview in the cache and shows it rather than falling back to
+                # base_display_data (a different-rotation full resample = ghost).
+                # The worker atomically replaces the dicts when the new preview is ready.
+                pass
             else:
-                # Translation-only: disable the on-demand preview path entirely so
-                # stale rotation previews from a prior session are never rendered.
+                # Translation-only: disable the preview path so stale rotation previews
+                # from a prior session are not used.
                 vs.reset_preview_rotation()
 
         preview_thread_spawned = False

@@ -2,7 +2,7 @@ import numpy as np
 from contextlib import contextmanager
 from vvv.config import WL_PRESETS
 from vvv.maths.geometry import SpatialEngine
-from vvv.utils import ViewMode, slice_to_voxel
+from vvv.utils import ViewMode
 
 _SENTINEL = object()
 
@@ -456,12 +456,14 @@ class ViewState:
         self.contours = {}
         self.crosshair_value = None # This will be set by init_crosshair_to_slices
         self.space = SpatialEngine(volume, view_state=self) # Pass self to SpatialEngine
-        self.needs_resample: bool = False   # True when transform changed since last resample
-        self._resample_version: int = 0     # incremented on every transform change
+        self.needs_resample: bool = False     # True when transform changed since last resample
+        self._resample_job_counter: int = 0  # monotonically increasing job ID generator
+        self._active_resample_job: int = 0   # 0 = idle, N = job N is currently running
         self.base_display_data: np.ndarray | None = None
         self._sitk_base_cache = None
         self._preview_R: "np.ndarray | None" = None    # current rotation for on-demand preview
         self._preview_center: "np.ndarray | None" = None
+        self._preview_slice_needed: bool = False  # set by viewer on cache miss
         self.hist_data_x = None
         self.hist_data_y = None
         self.histogram_is_dirty = True
@@ -789,10 +791,11 @@ class ViewState:
         ovs = controller.view_states[self.display.overlay_id]
         other_vol = ovs.volume
 
-        # The Tombstone Pattern
-        # Sever the Numpy view BEFORE releasing the GIL to SimpleITK!
-        self.display.overlay_data = None
-        _ = self.display._sitk_overlay_cache  # keep sitk object alive until Execute() returns
+        # Late-tombstone pattern: keep the old overlay_data numpy view valid throughout
+        # Execute() so renders during the long ITK computation still show the previous
+        # overlay rather than Nothing (ghost). The old ITK object is kept alive via a
+        # local reference and released only AFTER the new data is atomically assigned.
+        _old_cache = self.display._sitk_overlay_cache
         self.display._sitk_overlay_cache = None
 
         # Build a safe 3D reference image to prevent ITK dimension mismatch exceptions
@@ -844,6 +847,11 @@ class ViewState:
         else:
             self.display._sitk_overlay_cache = None
             self.display.overlay_data = other_vol.data
+
+        # Release old ITK object now that overlay_data points to new data.
+        # Doing it here (after assignment) guarantees the old numpy view was never
+        # accessed after the old cache was freed.
+        _old_cache = None  # noqa: F841
 
         # Record what was baked in so the 2D shift can subtract it.
         baked_tx, baked_ty, baked_tz = 0.0, 0.0, 0.0

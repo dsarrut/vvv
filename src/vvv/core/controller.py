@@ -435,54 +435,87 @@ class Controller:
         vs.space.set_manual_transform(
             tx, ty, tz, math.radians(rx_deg), math.radians(ry_deg), math.radians(rz_deg)
         )
-        vs._resample_version += 1  # invalidate any in-flight resample for this image
+        vs._active_resample_job = 0  # mark any in-flight resample as inproductive
 
     def resample_image(self, image_id):
         """Spawn a background thread that resamples image_id and all dependent overlays.
 
-        Separated from the UI layer so it can be called from any context (manual button,
-        auto-resample timer, load/reload callbacks) without coupling to RegistrationUI.
-        The caller is responsible for showing any status message before calling this.
+        Each call gets a unique job ID.  If the transform changes mid-resample
+        (update_transform_manual sets _active_resample_job = 0), the thread detects
+        it is inproductive at the end and discards the result without touching viewers.
         """
+        vs = self.view_states.get(image_id)
+        if not vs:
+            return
+
+        vs._resample_job_counter += 1
+        my_job_id = vs._resample_job_counter
+        vs._active_resample_job = my_job_id
+        self.ui_needs_refresh = True  # update UI debug indicator immediately
+
         def _do():
             vs = self.view_states.get(image_id)
-            # Snapshot the transform version before starting the slow ITK work.
-            # If the user changes the transform mid-resample, the version increments
-            # and we discard the stale result rather than displaying a ghost image.
-            captured_version = vs._resample_version if vs else 0
+            if not vs:
+                return
 
-            if vs:
-                vs.reset_preview_rotation()
-                vs.update_base_display_data()
-                if vs.display.overlay_id:
-                    vs.update_overlay_display_data(self)
+            vs.reset_preview_rotation()
+            vs.update_base_display_data()
 
-            # Resample every view that uses image_id as its overlay.
+            # --- Early exit: check before touching any overlay data ---
+            # If the transform changed during base resampling, overlay_data was never
+            # modified so the old (pre-resample) overlay is still valid — no ghost.
+            if vs._active_resample_job != my_job_id:
+                self._discard_resample(my_job_id)
+                return
+
+            if vs.display.overlay_id:
+                vs.update_overlay_display_data(self)
+
             for other_vs in self.view_states.values():
                 if other_vs.display.overlay_id == image_id:
                     other_vs.update_overlay_display_data(self)
 
-            # Transform changed while we were computing — result is stale.
-            # Don't touch crosshair, don't mark viewers dirty, don't display anything.
-            if vs and vs._resample_version != captured_version:
+            # --- Late exit: check after overlay resampling ---
+            # If the transform changed during overlay resampling, the overlays now hold
+            # wrong-transform data (late-tombstone kept old valid during Execute, but
+            # assigned new wrong result afterwards). Clear them so viewers show "no
+            # overlay" briefly rather than a ghost at the wrong rotation angle.
+            if vs._active_resample_job != my_job_id:
+                self._clear_overlay_data(image_id)
+                self._discard_resample(my_job_id)
                 return
 
-            # Sync crosshair AFTER all overlay resampling: update_crosshair_from_phys
-            # sets is_data_dirty which the controller tick propagates to viewers. If this
-            # ran before overlay resampling, the render loop could fire while overlay_data
-            # is in its tombstone (None) state → visible flash of one image only.
-            if vs and vs.base_display_data is not None:
-                if vs.camera.crosshair_phys_coord is not None:
-                    vs.update_crosshair_from_phys(vs.camera.crosshair_phys_coord)
+            # Sync crosshair AFTER all overlay resampling (avoids tombstone flash).
+            if vs.base_display_data is not None and vs.camera.crosshair_phys_coord is not None:
+                vs.update_crosshair_from_phys(vs.camera.crosshair_phys_coord)
 
-            if vs:
-                vs.needs_resample = False
-
+            vs._active_resample_job = 0
+            vs.needs_resample = False
             self.update_all_viewers_of_image(image_id)
             self.status_message = "Resampling complete"
             self.ui_needs_refresh = True
 
         threading.Thread(target=_do, daemon=True).start()
+
+    def _discard_resample(self, job_id):
+        self.status_message = f"Resample #{job_id} discarded (transform changed)"
+        self.ui_needs_refresh = True
+
+    def _clear_overlay_data(self, image_id):
+        """Clear overlay data that was written with a wrong transform during a discarded resample.
+
+        Called when a resample is discarded AFTER overlay resampling has already run.
+        Sets overlay_data to None so viewers show no overlay rather than a ghost at
+        the wrong rotation. The next valid resample will restore correct overlay data.
+        """
+        vs = self.view_states.get(image_id)
+        if vs and vs.display.overlay_id:
+            vs.display.overlay_data = None
+            vs.display._sitk_overlay_cache = None
+        for other_vs in self.view_states.values():
+            if other_vs.display.overlay_id == image_id:
+                other_vs.display.overlay_data = None
+                other_vs.display._sitk_overlay_cache = None
 
     def bake_transform_to_volume(self, vs_id):
         """Permanently apply the registration transform by resampling the volume in-place.
