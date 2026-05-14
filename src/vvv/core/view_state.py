@@ -595,6 +595,11 @@ class ViewState:
             return data[t, iz, iy, ix]
         return data[iz, iy, ix]
 
+    def mark_both_dirty(self):
+        """Convenience method: mark both data and geometry as dirty in a single call."""
+        self.is_data_dirty = True
+        self.is_geometry_dirty = True
+
     def init_crosshair_to_slices(self):
         self.camera.crosshair_voxel = [
             self.camera.slices[ViewMode.SAGITTAL],
@@ -667,9 +672,7 @@ class ViewState:
         # 4. Read value from the NATIVE data using native indices
         self.crosshair_value = self._read_voxel_value(ix, iy, iz, use_buffer=False)
 
-        # Flag data dirty to ensure UI updates
-        self.is_data_dirty = True
-        self.is_geometry_dirty = True  # Crosshair position changed
+        self.mark_both_dirty()
 
     def update_histogram(self):
         flat_data = self.volume.data.flatten()
@@ -702,8 +705,7 @@ class ViewState:
         self.display = DisplayState(parent_vs=self)
         self.init_default_window_level()
         self.init_crosshair_to_slices()
-        self.is_data_dirty = True
-        self.is_geometry_dirty = True
+        self.mark_both_dirty()
 
     def apply_wl_preset(self, preset_name):
         if getattr(self.volume, "is_rgb", False) or preset_name == "Custom":

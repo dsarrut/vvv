@@ -137,4 +137,4 @@ def refresh_image_list_ui(gui):
 
     gui.refresh_recent_menu()
     if gui.context_viewer and gui.context_viewer.image_id:
-        gui.highlight_active_image_in_list(gui.context_viewer.image_id)
+        highlight_active_image_in_list(gui, gui.context_viewer.image_id)

@@ -5,7 +5,7 @@ import time
 import threading
 import collections
 import numpy as np
-from vvv.utils import fmt, ViewMode
+from vvv.utils import fmt, ViewMode, format_pixel_value
 from vvv.ui.ui_roi import RoiUI
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_fusion import FusionUI
@@ -651,15 +651,6 @@ class MainGUI:
         if dpg.does_item_exist("menu_item_pixelated"):
             dpg.set_value("menu_item_pixelated", vs.display.pixelated_zoom)
 
-    def highlight_active_image_in_list(self, active_img_id):
-        highlight_active_image_in_list(self, active_img_id)
-
-    def refresh_image_list_ui(self):
-        refresh_image_list_ui(self)
-
-    def refresh_sync_ui(self):
-        refresh_sync_ui(self)
-
     def refresh_rois_ui(self):
         """Pass-through bridge to the delegated ROI UI."""
         self.roi_ui.refresh_rois_ui()
@@ -896,39 +887,12 @@ class MainGUI:
             )
 
             if info is not None:
-                val = info["base_val"]
-                if val is None:
-                    val_str = "-"
-                else:
-                    if getattr(vol, "is_rgb", False):
-                        val_str = f"{val[0]:g} {val[1]:g} {val[2]:g}"
-                    elif getattr(vol, "is_dvf", False):
-                        mag = np.linalg.norm(val)
-                        comps = []
-                        for i, v in enumerate(val):
-                            comps.append(
-                                f"*{v:g}" if i == vs.camera.time_idx else f"{v:g}"
-                            )
-                        val_str = f"[{' '.join(comps)}] L:{mag:g}"
-                    else:
-                        val_str = f"{val:g}"
+                time_idx = vs.camera.time_idx
+                val_str = format_pixel_value(info["base_val"], vol, time_idx)
 
                 if info["overlay_val"] is not None:
-                    ov_val = info["overlay_val"]
-                    ov_id = vs.display.overlay_id
-                    ov_vol = self.controller.volumes.get(ov_id)
-                    if ov_vol and getattr(ov_vol, "is_dvf", False):
-                        mag = np.linalg.norm(ov_val)
-                        comps = []
-                        for i, v in enumerate(ov_val):
-                            comps.append(
-                                f"*{v:g}" if i == vs.camera.time_idx else f"{v:g}"
-                            )
-                        val_str += f" ([{' '.join(comps)}] L:{mag:g})"
-                    elif ov_vol and getattr(ov_vol, "is_rgb", False):
-                        val_str += f" ({ov_val[0]:g} {ov_val[1]:g} {ov_val[2]:g})"
-                    else:
-                        val_str += f" ({ov_val:g})"
+                    ov_vol = self.controller.volumes.get(vs.display.overlay_id)
+                    val_str += f" ({format_pixel_value(info['overlay_val'], ov_vol, time_idx)})"
 
                 if info["rois"]:
                     val_str += f"  {', '.join(info['rois'])}"
@@ -984,7 +948,7 @@ class MainGUI:
 
             dpg.bind_item_theme(f"win_{self.context_viewer.tag}", theme)
 
-            self.highlight_active_image_in_list(viewer.image_id)
+            highlight_active_image_in_list(self, viewer.image_id)
             self.update_sidebar_info(viewer)
             self.update_sidebar_crosshair(viewer)
             self.reg_ui.pull_reg_sliders_from_transform()
@@ -1602,8 +1566,15 @@ class MainGUI:
 
     def _refresh_all_ui_panels(self):
         """Consolidated handler to rebuild all dynamic side panels."""
-        self.refresh_image_list_ui()
-        self.refresh_sync_ui()
+        if getattr(self.controller, "ui_needs_layout_rebuild", False):
+            from vvv.ui.ui_theme import build_ui_config
+
+            self.ui_cfg = build_ui_config(self.controller)
+            self.on_window_resize()
+            self.controller.ui_needs_layout_rebuild = False
+
+        refresh_image_list_ui(self)
+        refresh_sync_ui(self)
         self.refresh_rois_ui()
         self.fusion_ui.refresh_fusion_ui()
         self.reg_ui.refresh_reg_ui()

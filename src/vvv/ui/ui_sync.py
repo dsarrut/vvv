@@ -1,5 +1,6 @@
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import build_section_title
+from vvv.ui.ui_image_list import highlight_active_image_in_list
 
 """
 ARCHITECTURE MANDATES (UI Components):
@@ -26,24 +27,24 @@ def build_tab_sync(gui):
         with dpg.group(horizontal=True):
             dpg.add_button(
                 label="Link All",
-                callback=lambda: gui.controller.link_all(),
+                callback=lambda: gui.controller.sync.link_all(),
                 width=95,
             )
             dpg.add_button(
                 label="Unlink All",
-                callback=lambda: gui.controller.unlink_all(),
+                callback=lambda: gui.controller.sync.unlink_all(),
                 width=95,
             )
 
         with dpg.group(horizontal=True):
             dpg.add_button(
                 label="Link All W/L",
-                callback=lambda: gui.controller.link_all_wl(),
+                callback=lambda: gui.controller.sync.link_all_wl(),
                 width=95,
             )
             dpg.add_button(
                 label="Unlink All W/L",
-                callback=lambda: gui.controller.unlink_all_wl(),
+                callback=lambda: gui.controller.sync.unlink_all_wl(),
                 width=95,
             )
 
@@ -126,7 +127,7 @@ def refresh_sync_ui(gui):
             dpg.add_spacer(height=2, parent=container)
 
     if gui.context_viewer and gui.context_viewer.image_id:
-        gui.highlight_active_image_in_list(gui.context_viewer.image_id)
+        highlight_active_image_in_list(gui, gui.context_viewer.image_id)
 
 
 def handle_sync_group_change(gui, sender, value, user_data):

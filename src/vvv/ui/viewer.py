@@ -1,6 +1,6 @@
 import time
 import numpy as np
-from vvv.utils import ViewMode, slice_to_voxel, voxel_to_slice, fmt
+from vvv.utils import ViewMode, slice_to_voxel, voxel_to_slice, fmt, format_pixel_value
 import dearpygui.dearpygui as dpg
 from vvv.ui.drawing import OverlayDrawer
 from vvv.maths.image import SliceRenderer, RenderLayer, ROILayer, VolumeData
@@ -262,12 +262,11 @@ class SliceViewer:
 
     @property
     def nn_mode(self) -> NNMode:
-        cfg = self.controller.settings.data.get("rendering", {})
-        return select_nn_mode(cfg, self.has_fusion)
+        return select_nn_mode(self._rendering_cfg, self.has_fusion)
 
     @property
     def lazy_lin(self) -> bool:
-        cfg = self.controller.settings.data.get("rendering", {})
+        cfg = self._rendering_cfg
         use_numba = _NUMBA_AVAILABLE and cfg.get("numba", True)
         return should_use_lazy_lin(cfg, self.has_fusion, self._is_hw_gl, use_numba)
 
@@ -692,9 +691,8 @@ class SliceViewer:
         if not vs or not vol:
             return None
 
-        win_w = dpg.get_item_width(f"win_{self.tag}")
-        win_h = dpg.get_item_height(f"win_{self.tag}")
-        if not win_w or not win_h:
+        win_w, win_h = self._get_window_dims()
+        if not win_w:
             return None
 
         cx = (win_w - self.mapper.margin_left * 2.0) / 2.0
@@ -743,9 +741,8 @@ class SliceViewer:
         if not vs or not vol:
             return 1.0
 
-        win_w = dpg.get_item_width(f"win_{self.tag}")
-        win_h = dpg.get_item_height(f"win_{self.tag}")
-        if not win_w or not win_h:
+        win_w, win_h = self._get_window_dims()
+        if not win_w:
             return 1.0
 
         sw, sh = vol.get_physical_aspect_ratio(self.orientation)
@@ -767,9 +764,8 @@ class SliceViewer:
         if not vs or not vol:
             return
 
-        win_w = dpg.get_item_width(f"win_{self.tag}")
-        win_h = dpg.get_item_height(f"win_{self.tag}")
-        if not win_w or not win_h:
+        win_w, win_h = self._get_window_dims()
+        if not win_w:
             return
 
         sw, sh = vol.get_physical_aspect_ratio(self.orientation)
@@ -794,9 +790,8 @@ class SliceViewer:
         if not vs or not vol or phys_coord is None:
             return
 
-        win_w = dpg.get_item_width(f"win_{self.tag}")
-        win_h = dpg.get_item_height(f"win_{self.tag}")
-        if not win_w or not win_h:
+        win_w, win_h = self._get_window_dims()
+        if not win_w:
             return
 
         v = vs.world_to_display(phys_coord, is_buffered=self._is_buffered())
@@ -825,12 +820,7 @@ class SliceViewer:
         dpg.set_item_width(f"win_{self.tag}", quad_w)
         dpg.set_item_height(f"win_{self.tag}", quad_h)
 
-        # The true rendering canvas is now 8 pixels smaller due to the 4px WindowPadding
-        layout = self.controller.gui.ui_cfg["layout"]
-        pad = layout.get("viewport_padding", 4) * 2
-        canvas_w = int(max(1, quad_w - pad))
-        canvas_h = int(max(1, quad_h - pad))
-
+        canvas_w, canvas_h = self._get_canvas_size()
         if dpg.does_item_exist(f"drawlist_{self.tag}"):
             dpg.set_item_width(f"drawlist_{self.tag}", canvas_w)
             dpg.set_item_height(f"drawlist_{self.tag}", canvas_h)
@@ -933,10 +923,8 @@ class SliceViewer:
             return False
 
         did_update_data = False
-        win_w = dpg.get_item_width(f"win_{self.tag}")
-        win_h = dpg.get_item_height(f"win_{self.tag}")
-
-        if not win_w or not win_h or win_w <= 0 or win_h <= 0:
+        win_w, win_h = self._get_window_dims()
+        if not win_w:
             return False
 
         # --- 1. STATE TRIGGERS ---
@@ -988,42 +976,11 @@ class SliceViewer:
             self.is_viewer_data_dirty = True
 
         # --- 2. CAMERA SYNC MATH ---
-        vs_ppm: float | None = vs.camera.target_ppm
-        vs_center: list | tuple | np.ndarray | None = vs.camera.target_center
-
-        last_ppm = self.last_consumed_ppm
-        ppm_changed = (vs_ppm is not None) and (
-            last_ppm is None or abs(vs_ppm - last_ppm) > 1e-5
-        )
-
-        last_center = self.last_consumed_center
-        center_changed = False
-        if vs_center is not None:
-            if last_center is None:
-                center_changed = True
-            else:
-                center_changed = (
-                    abs(vs_center[0] - last_center[0]) > 1e-5
-                    or abs(vs_center[1] - last_center[1]) > 1e-5
-                    or abs(vs_center[2] - last_center[2]) > 1e-5
-                )
-
-        if ppm_changed or center_changed:
-            if ppm_changed and vs_ppm is not None:
-                self.set_pixels_per_mm(vs_ppm)
-                self.last_consumed_ppm = vs_ppm
-            if center_changed and vs_center is not None:
-                self.center_on_physical_coord(vs_center)
-                self.last_consumed_center = list(vs_center)
-            self.needs_recenter = False
-            self.is_geometry_dirty = True
+        self._apply_camera_sync(vs)
 
         # --- 3. PRE-CALCULATE PERFECT BOUNDS ---
         if rebuild_texture or self.needs_recenter or self.is_geometry_dirty:
-            layout = self.controller.gui.ui_cfg["layout"]
-            pad = layout.get("viewport_padding", 4) * 2
-            canvas_w = int(max(1, win_w - pad))
-            canvas_h = int(max(1, win_h - pad))
+            canvas_w, canvas_h = self._get_canvas_size()
             sw, sh = vol.get_physical_aspect_ratio(self.orientation)
 
             if self.needs_recenter:
@@ -1074,10 +1031,7 @@ class SliceViewer:
                 # reconfigure the image quad inside resize(). But the DPG window and
                 # drawlist dimensions must still be updated on any size change.
                 if size_changed:
-                    layout = self.controller.gui.ui_cfg["layout"]
-                    pad = layout.get("viewport_padding", 4) * 2
-                    cw = int(max(1, win_w - pad))
-                    ch = int(max(1, win_h - pad))
+                    cw, ch = self._get_canvas_size()
                     if dpg.does_item_exist(f"win_{self.tag}"):
                         dpg.set_item_width(f"win_{self.tag}", win_w)
                         dpg.set_item_height(f"win_{self.tag}", win_h)
@@ -1102,6 +1056,34 @@ class SliceViewer:
                     self.is_viewer_data_dirty = True
 
         return did_update_data
+
+    def _apply_camera_sync(self, vs):
+        """Consume target_ppm and target_center from ViewState, updating zoom/pan if changed."""
+        vs_ppm = vs.camera.target_ppm
+        vs_center = vs.camera.target_center
+
+        ppm_changed = vs_ppm is not None and (
+            self.last_consumed_ppm is None or abs(vs_ppm - self.last_consumed_ppm) > 1e-5
+        )
+
+        center_changed = False
+        if vs_center is not None:
+            if self.last_consumed_center is None:
+                center_changed = True
+            else:
+                center_changed = any(
+                    abs(vs_center[i] - self.last_consumed_center[i]) > 1e-5 for i in range(3)
+                )
+
+        if ppm_changed or center_changed:
+            if ppm_changed:
+                self.set_pixels_per_mm(vs_ppm)
+                self.last_consumed_ppm = vs_ppm
+            if center_changed:
+                self.center_on_physical_coord(vs_center)
+                self.last_consumed_center = list(vs_center)
+            self.needs_recenter = False
+            self.is_geometry_dirty = True
 
     def apply_local_auto_window(self, fov_fraction=0.20, target="base"):
         vol = self.volume
@@ -1237,8 +1219,6 @@ class SliceViewer:
         vs.update_crosshair_from_phys(phys)
 
     def update_crosshair_from_slice(self):
-        # This method is now redundant as slice_idx setter calls update_crosshair_from_phys
-        # and set_current_slice_to_crosshair handles initial setup.
         pass
 
     def update_filename_overlay(self):
@@ -1707,6 +1687,24 @@ class SliceViewer:
         dpg.set_value(tag, data)  # type: ignore
         return True
 
+    @property
+    def _rendering_cfg(self) -> dict:
+        return self.controller.settings.data.get("rendering", {})
+
+    @property
+    def _interaction_cfg(self) -> dict:
+        return self.controller.settings.data.get("interaction", {})
+
+    @property
+    def _physics_cfg(self) -> dict:
+        return self.controller.settings.data.get("physics", {})
+
+    def _get_window_dims(self) -> tuple[int, int]:
+        """Returns (win_w, win_h) for this viewer's window, or (0, 0) if not yet sized."""
+        w = dpg.get_item_width(f"win_{self.tag}")
+        h = dpg.get_item_height(f"win_{self.tag}")
+        return (int(w), int(h)) if w and h and w > 0 and h > 0 else (0, 0)
+
     def _get_canvas_size(self) -> tuple[int, int]:
         """Returns (canvas_w, canvas_h) in pixels, accounting for viewport padding."""
         pad = self.controller.gui.ui_cfg["layout"].get("viewport_padding", 4) * 2
@@ -1761,9 +1759,70 @@ class SliceViewer:
             shape[0], int((win_h - pmin[1]) / vox_h) + 1
         )
 
-        m = self.controller.settings.data["physics"]["voxel_strip_threshold"]
+        m = self._physics_cfg["voxel_strip_threshold"]
         is_active = 0 < (end_x - start_x) * (end_y - start_y) < m
         return is_active
+
+    def _configure_image_display(self, h, w, vs):
+        """Position base image and overlay DPG draw_image nodes for the current frame."""
+        if self.should_use_voxels_strips() and self.last_rgba_flat is not None:
+            if dpg.does_item_exist(self.image_tag):
+                dpg.configure_item(self.image_tag, show=False)
+            if hasattr(self, "overlay_image_tag") and dpg.does_item_exist(self.overlay_image_tag):
+                dpg.configure_item(self.overlay_image_tag, show=False)
+            self.drawer.draw_voxels_as_strips(self.last_rgba_flat, h, w)
+            return
+
+        if self.active_strips_node and dpg.does_item_exist(self.active_strips_node):
+            dpg.configure_item(self.active_strips_node, show=False)
+
+        if not dpg.does_item_exist(self.image_tag):
+            return
+
+        dpg.configure_item(self.image_tag, show=True)
+
+        op = int(vs.display.overlay_opacity * 255)
+        has_overlay = (
+            self.last_overlay_rgba_flat is not None
+            and hasattr(self, "overlay_image_tag")
+            and dpg.does_item_exist(self.overlay_image_tag)
+        )
+
+        # On Linux/Windows GL_NEAREST handles NN upscaling so the slice-sized texture is
+        # positioned at its physical screen extent. On macOS the canvas-sized NN texture
+        # covers the full canvas instead.
+        is_sw_nn = self._effective_pixelated_zoom() and not self._is_hw_gl and not self.should_use_voxels_strips()
+
+        if is_sw_nn:
+            canvas_w, canvas_h = self._get_canvas_size()
+            dpg.configure_item(self.image_tag, pmin=[0, 0], pmax=[canvas_w, canvas_h])
+        else:
+            dpg.configure_item(self.image_tag, pmin=self.current_pmin, pmax=self.current_pmax)
+
+        if has_overlay:
+            is_precomposited = is_sw_nn and self.nn_mode in (NNMode.SW_SINGLE_MERGED, NNMode.SW_SINGLE_NATIVE)
+            if is_precomposited:
+                dpg.configure_item(self.overlay_image_tag, show=False)
+            elif is_sw_nn:
+                canvas_w, canvas_h = self._get_canvas_size()
+                dpg.configure_item(
+                    self.overlay_image_tag,
+                    pmin=[0, 0], pmax=[canvas_w, canvas_h],
+                    color=[255, 255, 255, op], show=True,
+                )
+            else:
+                disp_w = self.current_pmax[0] - self.current_pmin[0]
+                disp_h = self.current_pmax[1] - self.current_pmin[1]
+                shift_x = self.active_overlay_shift_x * (disp_w / w) if w > 0 else 0
+                shift_y = self.active_overlay_shift_y * (disp_h / h) if h > 0 else 0
+                dpg.configure_item(
+                    self.overlay_image_tag,
+                    pmin=[self.current_pmin[0] + shift_x, self.current_pmin[1] + shift_y],
+                    pmax=[self.current_pmax[0] + shift_x, self.current_pmax[1] + shift_y],
+                    color=[255, 255, 255, op], show=True,
+                )
+        elif hasattr(self, "overlay_image_tag") and dpg.does_item_exist(self.overlay_image_tag):
+            dpg.configure_item(self.overlay_image_tag, show=False)
 
     def update_stuff_in_image_only(self):
         vs = self.view_state
@@ -1777,83 +1836,7 @@ class SliceViewer:
             shape = self.get_slice_shape()
             h, w = shape[0], shape[1]
 
-        if self.should_use_voxels_strips() and self.last_rgba_flat is not None:
-            if dpg.does_item_exist(self.image_tag):
-                dpg.configure_item(self.image_tag, show=False)
-            if hasattr(self, "overlay_image_tag") and dpg.does_item_exist(
-                self.overlay_image_tag
-            ):
-                dpg.configure_item(self.overlay_image_tag, show=False)
-            self.drawer.draw_voxels_as_strips(self.last_rgba_flat, h, w)
-        else:
-            if self.active_strips_node and dpg.does_item_exist(self.active_strips_node):
-                dpg.configure_item(self.active_strips_node, show=False)
-
-            if dpg.does_item_exist(self.image_tag):
-                dpg.configure_item(self.image_tag, show=True)
-
-                op = int(vs.display.overlay_opacity * 255)
-                has_overlay = (
-                    self.last_overlay_rgba_flat is not None
-                    and hasattr(self, "overlay_image_tag")
-                    and dpg.does_item_exist(self.overlay_image_tag)
-                )
-
-                # Base image positioning: on Linux/Windows GL_NEAREST handles NN upscaling
-                # so the slice-sized texture is positioned at its physical screen extent.
-                # On macOS the canvas-sized NN texture covers the full canvas instead.
-                is_sw_nn = self._effective_pixelated_zoom() and not self._is_hw_gl and not self.should_use_voxels_strips()
-
-                if is_sw_nn:
-                    canvas_w, canvas_h = self._get_canvas_size()
-                    dpg.configure_item(
-                        self.image_tag, pmin=[0, 0], pmax=[canvas_w, canvas_h]
-                    )
-                else:
-                    dpg.configure_item(
-                        self.image_tag, pmin=self.current_pmin, pmax=self.current_pmax
-                    )
-
-                if has_overlay:
-                    is_precomposited = is_sw_nn and self.nn_mode in (NNMode.SW_SINGLE_MERGED, NNMode.SW_SINGLE_NATIVE)
-
-                    if is_precomposited:
-                        if dpg.does_item_exist(self.overlay_image_tag):
-                            dpg.configure_item(self.overlay_image_tag, show=False)
-                    elif is_sw_nn:
-                        canvas_w, canvas_h = self._get_canvas_size()
-                        dpg.configure_item(
-                            self.overlay_image_tag,
-                            pmin=[0, 0],
-                            pmax=[canvas_w, canvas_h],
-                            color=[255, 255, 255, op],
-                            show=True,
-                        )
-                    else:
-                        disp_w = self.current_pmax[0] - self.current_pmin[0]
-                        disp_h = self.current_pmax[1] - self.current_pmin[1]
-                        shift_x = (
-                            self.active_overlay_shift_x * (disp_w / w) if w > 0 else 0
-                        )
-                        shift_y = (
-                            self.active_overlay_shift_y * (disp_h / h) if h > 0 else 0
-                        )
-                        dpg.configure_item(
-                            self.overlay_image_tag,
-                            pmin=[self.current_pmin[0] + shift_x,
-                                  self.current_pmin[1] + shift_y],
-                            pmax=[self.current_pmax[0] + shift_x,
-                                  self.current_pmax[1] + shift_y],
-                            color=[255, 255, 255, op],
-                            show=True,
-                        )
-
-                if (
-                    not has_overlay
-                    and hasattr(self, "overlay_image_tag")
-                    and dpg.does_item_exist(self.overlay_image_tag)
-                ):
-                    dpg.configure_item(self.overlay_image_tag, show=False)
+        self._configure_image_display(h, w, vs)
 
         if vs.camera.show_grid:
             self.drawer.draw_voxel_grid(h, w)
@@ -2017,37 +2000,13 @@ class SliceViewer:
                     phys,
                 )
 
-            if val is None:
-                val_str = "-"
-            else:
-                if getattr(vol, "is_rgb", False):
-                    val_str = f"{val[0]:g} {val[1]:g} {val[2]:g}"
-                elif getattr(vol, "is_dvf", False):
-                    mag = np.linalg.norm(val)
-                    comps = []
-                    for i, v in enumerate(val):
-                        s = fmt(v, 2)
-                        comps.append(f"*{s}" if i == vs.camera.time_idx else s)
-                    val_str = f"[{' '.join(comps)}] L:{fmt(mag, 2)}"
-                else:
-                    val_str = f"{val:g}"
-            text_lines = [f"{val_str}"]
+            time_idx = vs.camera.time_idx
+            text_lines = [format_pixel_value(val, vol, time_idx)]
 
             if info["overlay_val"] is not None:
                 ov_val = info["overlay_val"]
-                ov_id = vs.display.overlay_id
-                ov_vol = self.controller.volumes.get(ov_id)
-                if ov_vol and getattr(ov_vol, "is_dvf", False):
-                    mag = np.linalg.norm(ov_val)
-                    comps = []
-                    for i, v in enumerate(ov_val):
-                        s = fmt(v, 2)
-                        comps.append(f"*{s}" if i == vs.camera.time_idx else s)
-                    text_lines[0] += f" ([{' '.join(comps)}] L:{fmt(mag, 2)})"
-                elif ov_vol and getattr(ov_vol, "is_rgb", False):
-                    text_lines[0] += f" ({ov_val[0]:g} {ov_val[1]:g} {ov_val[2]:g})"
-                else:
-                    text_lines[0] += f" ({ov_val:g})"
+                ov_vol = self.controller.volumes.get(vs.display.overlay_id)
+                text_lines[0] += f" ({format_pixel_value(ov_val, ov_vol, time_idx)})"
 
             if info["rois"]:
                 text_lines[0] += f"  {', '.join(info['rois'])}"
@@ -2095,24 +2054,20 @@ class SliceViewer:
         self._shortcut_map = {
             "next_image": self.action_next_image,
             "auto_window": lambda: self.apply_local_auto_window(
-                fov_fraction=self.controller.settings.data["physics"].get(
-                    "auto_window_fov", 0.20
-                ),
+                fov_fraction=self._physics_cfg.get("auto_window_fov", 0.20),
                 target="base",
             ),
             "auto_window_overlay": lambda: self.apply_local_auto_window(
-                fov_fraction=self.controller.settings.data["physics"].get(
-                    "auto_window_fov", 0.20
-                ),
+                fov_fraction=self._physics_cfg.get("auto_window_fov", 0.20),
                 target="overlay",
             ),
             "scroll_up": lambda: self.on_scroll(1),
             "scroll_down": lambda: self.on_scroll(-1),
             "fast_scroll_up": lambda: self.on_scroll(
-                self.controller.settings.data["interaction"]["fast_scroll_steps"]
+                self._interaction_cfg["fast_scroll_steps"]
             ),
             "fast_scroll_down": lambda: self.on_scroll(
-                -self.controller.settings.data["interaction"]["fast_scroll_steps"]
+                -self._interaction_cfg["fast_scroll_steps"]
             ),
             "time_forward": lambda: self.on_time_scroll(1),
             "time_backward": lambda: self.on_time_scroll(-1),
@@ -2126,11 +2081,11 @@ class SliceViewer:
             "view_histogram": self.action_view_histogram,
             "toggle_interp": self.action_toggle_pixelated_zoom,
             "toggle_strips": self.action_toggle_strips,
-            "toggle_legend": self.action_toggle_legend,
+            "toggle_legend": lambda: self._toggle_camera_bool("show_legend"),
             "toggle_filename": self.action_toggle_filename,
-            "toggle_grid": self.action_toggle_grid,
-            "toggle_axis": self.action_toggle_axis,
-            "toggle_scalebar": self.action_toggle_scalebar,
+            "toggle_grid": lambda: self._toggle_camera_bool("show_grid"),
+            "toggle_axis": lambda: self._toggle_camera_bool("show_axis"),
+            "toggle_scalebar": lambda: self._toggle_camera_bool("show_scalebar"),
             "hide_all": self.hide_everything,
         }
 
@@ -2193,23 +2148,10 @@ class SliceViewer:
         vs.display.use_voxel_strips = not vs.display.use_voxel_strips
         vs.is_data_dirty = True
 
-    def action_toggle_legend(self):
-        self.show_legend = not self.show_legend
-
-    def action_toggle_grid(self):
+    def _toggle_camera_bool(self, field):
         vs = self.view_state
         if vs:
-            vs.camera.show_grid = not vs.camera.show_grid
-
-    def action_toggle_axis(self):
-        vs = self.view_state
-        if vs:
-            vs.camera.show_axis = not vs.camera.show_axis
-
-    def action_toggle_scalebar(self):
-        vs = self.view_state
-        if vs:
-            vs.camera.show_scalebar = not vs.camera.show_scalebar
+            setattr(vs.camera, field, not getattr(vs.camera, field))
 
     def action_toggle_filename(self):
         vs = self.view_state
@@ -2394,7 +2336,7 @@ class SliceViewer:
 
         mx, my = dpg.get_drawing_mouse_pos()
         oz = self.zoom
-        speed = self.controller.settings.data["interaction"]["zoom_speed"]
+        speed = self._interaction_cfg["zoom_speed"]
         new_zoom = max(
             1e-5, self.zoom * (speed if direction == "in" else (1.0 / speed))
         )
