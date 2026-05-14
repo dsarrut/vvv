@@ -404,16 +404,21 @@ class SliceRenderer:
         if overlay is not None and overlay.data is not None and overlay_opacity > 0.0:
             target_slice = slice_idx - overlay.offset_slice
 
-            over_slice = SliceRenderer._extract_layer(
-                overlay.data,
-                overlay.is_rgb,
-                overlay.time_idx,
-                target_slice,
-                orientation,
-                max_s,
-                overlay.offset_x,
-                overlay.offset_y,
-            )
+            if overlay.preview_override is not None:
+                over_slice = overlay.preview_override
+                if overlay.offset_x != 0 or overlay.offset_y != 0:
+                    over_slice = SliceRenderer._shift_2d_array(over_slice, overlay.offset_x, overlay.offset_y)
+            else:
+                over_slice = SliceRenderer._extract_layer(
+                    overlay.data,
+                    overlay.is_rgb,
+                    overlay.time_idx,
+                    target_slice,
+                    orientation,
+                    max_s,
+                    overlay.offset_x,
+                    overlay.offset_y,
+                )
 
             if over_slice is None:
                 # Overlay is out of bounds, but base is visible. Render transparent space.

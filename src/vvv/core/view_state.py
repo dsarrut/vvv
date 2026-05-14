@@ -456,9 +456,11 @@ class ViewState:
         self.contours = {}
         self.crosshair_value = None # This will be set by init_crosshair_to_slices
         self.space = SpatialEngine(volume, view_state=self) # Pass self to SpatialEngine
+        self.needs_resample: bool = False  # True when transform changed since last resample
         self.base_display_data: np.ndarray | None = None
         self._sitk_base_cache = None
-        self._preview_slices: dict = {}  # keyed by (orientation, slice_idx) → 2D array
+        self._preview_slices: dict = {}          # (orientation, slice_idx) → 2D base preview
+        self._overlay_preview_slices: dict = {}  # (orientation, slice_idx) → 2D overlay preview
         self._preview_R: "np.ndarray | None" = None    # rotation matrix for on-demand preview
         self._preview_center: "np.ndarray | None" = None
         self.hist_data_x = None
@@ -471,11 +473,12 @@ class ViewState:
     def clear_preview_slices(self):
         """Full reset: clears cached slices and the rotation transform used for on-demand rendering."""
         self._preview_slices.clear()
+        self._overlay_preview_slices.clear()
         self._preview_R = None
         self._preview_center = None
 
     def invalidate_preview_cache(self):
-        """Clears only the slice cache, keeping _preview_R/_preview_center alive.
+        """Clears only the slice caches, keeping _preview_R/_preview_center alive.
 
         Used during rotation dragging so that render-loop cache misses fall back to
         on-demand computation with the previous (ghost) rotation matrix rather than
@@ -483,6 +486,7 @@ class ViewState:
         that occurs between clear_preview_slices() and the new worker delivery.
         """
         self._preview_slices.clear()
+        self._overlay_preview_slices.clear()
 
     def display_to_world(self, display_voxel, is_buffered):
         """Bypasses double-rotation for ITK buffered arrays. World = Native + Translation."""

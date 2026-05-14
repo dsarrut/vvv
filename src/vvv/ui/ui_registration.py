@@ -7,7 +7,7 @@ import dearpygui.dearpygui as dpg
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 from vvv.utils import ViewMode, voxel_to_slice
 from vvv.ui.ui_components import build_stepped_slider, build_section_title
-from vvv.ui.render_strategy import compute_preview_2d_affine
+from vvv.ui.render_strategy import compute_preview_2d_affine, compute_overlay_preview_2d_affine
 
 
 class RegistrationUI:
@@ -84,6 +84,7 @@ class RegistrationUI:
                 color=cfg_c.get("outdated", [255, 200, 50]),
                 show=False,
             )
+
 
             with dpg.group(tag="group_registration_controls"):
                 # --- TOP: File Management ---
@@ -322,6 +323,10 @@ class RegistrationUI:
         if is_dvf:
             return
 
+        if dpg.does_item_exist("btn_reg_resample"):
+            theme = "orange_button_theme" if vs.needs_resample else 0
+            dpg.bind_item_theme("btn_reg_resample", theme)
+
         if dpg.does_item_exist("text_reg_filename"):
             dpg.set_value("text_reg_filename", vs.space.transform_file)
 
@@ -390,23 +395,37 @@ class RegistrationUI:
         if not vs:
             return
 
-        # Build preview locally — old preview stays visible during computation
+        # Build previews locally — old previews stay visible during computation
         new_previews = {}
+        new_overlay_previews = {}
+        overlay_vol = vs.volume  # the moving image volume (B)
+
         for viewer in self.controller.viewers.values():
-            if viewer.image_id != image_id:
-                continue
             ctx = viewer_slices.get(id(viewer))
             if ctx is None:
                 continue
-            orientation, slice_idx = ctx
-            vol = viewer.volume
-            if getattr(vol, "is_dvf", False):
-                continue
-            preview = compute_preview_2d_affine(
-                vol, orientation, slice_idx, R, center, vs.camera.time_idx
-            )
-            if preview is not None:
-                new_previews[(orientation, slice_idx)] = preview
+            kind, orientation, slice_idx = ctx
+
+            if kind == "base":
+                vol = viewer.volume
+                if getattr(vol, "is_dvf", False):
+                    continue
+                preview = compute_preview_2d_affine(
+                    vol, orientation, slice_idx, R, center, vs.camera.time_idx
+                )
+                if preview is not None:
+                    new_previews[(orientation, slice_idx)] = preview
+
+            elif kind == "overlay":
+                base_vol = viewer.volume  # A's volume
+                if base_vol is None or getattr(base_vol, "is_dvf", False):
+                    continue
+                t_idx = min(vs.camera.time_idx, overlay_vol.num_timepoints - 1)
+                ov_preview = compute_overlay_preview_2d_affine(
+                    base_vol, overlay_vol, orientation, slice_idx, R, center, t_idx
+                )
+                if ov_preview is not None:
+                    new_overlay_previews[(orientation, slice_idx)] = ov_preview
 
         # Atomic replace only if still the latest request
         with self._preview_lock:
@@ -415,6 +434,7 @@ class RegistrationUI:
             vs._preview_R = R
             vs._preview_center = center
             vs._preview_slices = new_previews
+            vs._overlay_preview_slices = new_overlay_previews
 
         self.controller.update_all_viewers_of_image(image_id)
 
@@ -444,6 +464,9 @@ class RegistrationUI:
             if active_vs and active_vs.base_display_data is not None:
                 if active_vs.camera.crosshair_phys_coord is not None:
                     active_vs.update_crosshair_from_phys(active_vs.camera.crosshair_phys_coord)
+
+            if active_vs:
+                active_vs.needs_resample = False
 
             self.controller.update_all_viewers_of_image(active_image_id)
 
@@ -620,6 +643,8 @@ class RegistrationUI:
         )
         if dpg.does_item_exist("btn_reg_resample"):
             dpg.bind_item_theme("btn_reg_resample", "orange_button_theme")
+        if vs:
+            vs.needs_resample = True
 
         has_rotation = vs is not None and vs.space.has_rotation()
 
@@ -649,11 +674,13 @@ class RegistrationUI:
             # Also snapshot viewer slice indices on the main thread: viewer.slice_idx
             # calls world_to_display → SpatialEngine → transform.GetInverse() — ITK,
             # so it must not be called from the worker thread.
-            viewer_slices = {
-                id(v): (v.orientation, v.slice_idx)
-                for v in self.controller.viewers.values()
-                if v.image_id == vs_id
-            }
+            viewer_slices = {}
+            for v in self.controller.viewers.values():
+                if v.image_id == vs_id:
+                    viewer_slices[id(v)] = ("base", v.orientation, v.slice_idx)
+                elif v.view_state and v.view_state.display.overlay_id == vs_id:
+                    # Fusion viewer: capture slice_idx on main thread (ITK-safe here)
+                    viewer_slices[id(v)] = ("overlay", v.orientation, v.slice_idx)
             self._preview_queue.put((vs_id, version, R, center, viewer_slices))
             preview_thread_spawned = True
 
@@ -771,6 +798,9 @@ class RegistrationUI:
         self.pull_reg_sliders_from_transform()
         if dpg.does_item_exist("btn_reg_resample"):
             dpg.bind_item_theme("btn_reg_resample", "orange_button_theme")
+        vs = viewer.view_state
+        if vs:
+            vs.needs_resample = True
         self.controller.ui_needs_refresh = True
 
         self.gui.show_status_message("CoR snapped to Crosshair")

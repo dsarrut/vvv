@@ -10,6 +10,7 @@ from vvv.ui.render_strategy import (
     compute_software_nearest_neighbor,
     compute_native_voxel_overlay,
     compute_preview_2d_affine,
+    compute_overlay_preview_2d_affine,
     blend_slices_cpu,
     GL_NEAREST_SUPPORTED,
     try_set_gl_nearest,
@@ -1404,6 +1405,18 @@ class SliceViewer:
 
         off_slice = int(round(dz))
 
+        # Live rotation preview for the overlay: keyed in ovs (the moving image's view state)
+        # so that invalidate_preview_cache() on the moving image clears it automatically.
+        ov_key = (self.orientation, self.slice_idx)
+        overlay_preview = ovs._overlay_preview_slices.get(ov_key)
+        if overlay_preview is None and ovs._preview_R is not None and vs.display.overlay_data is not None:
+            t_idx = min(vs.camera.time_idx, ovs.volume.num_timepoints - 1)
+            overlay_preview = compute_overlay_preview_2d_affine(
+                vol, ovs.volume, self.orientation, self.slice_idx,
+                ovs._preview_R, ovs._preview_center, t_idx,
+            )
+            ovs._overlay_preview_slices[ov_key] = overlay_preview
+
         return RenderLayer(
             data=vs.display.overlay_data,
             is_rgb=getattr(ovs.volume, "is_rgb", False),
@@ -1417,6 +1430,7 @@ class SliceViewer:
             offset_x=off_x,
             offset_y=off_y,
             offset_slice=off_slice,
+            preview_override=overlay_preview,
         )
 
     def _package_roi_layers(self):

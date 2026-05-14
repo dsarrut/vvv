@@ -539,6 +539,52 @@ def compute_native_voxel_overlay(viewer, pmin, pmax, canvas_w, canvas_h, target_
     return rgba.ravel() if target_buffer is None else None
 
 
+def compute_overlay_preview_2d_affine(base_vol, overlay_vol, orientation, slice_idx, R, center, time_idx):
+    """Fast overlay preview for fusion viewers.
+
+    Builds the output grid from base_vol's current slice, applies the overlay's inverse
+    rotation (R^T) to map each pixel to overlay_vol's space, then samples overlay_vol.
+    Translation is already handled by _package_overlay_layer's pixel-offset mechanism,
+    so only the rotation component is applied here — consistent with how base previews work.
+    """
+    shape = base_vol.shape3d  # (Z, Y, X) of the BASE image (A)
+    if orientation == ViewMode.AXIAL:
+        rows, cols = np.meshgrid(np.arange(shape[1]), np.arange(shape[2]), indexing="ij")
+        vox_N = np.column_stack([cols.ravel(), rows.ravel(), np.full(rows.size, slice_idx, dtype=np.float64)])
+    elif orientation == ViewMode.SAGITTAL:
+        rows, cols = np.meshgrid(np.arange(shape[0]), np.arange(shape[1]), indexing="ij")
+        vox_N = np.column_stack([
+            np.full(rows.size, slice_idx, dtype=np.float64),
+            (shape[1] - 1 - cols).ravel().astype(np.float64),
+            (shape[0] - 1 - rows).ravel().astype(np.float64),
+        ])
+    else:  # CORONAL
+        rows, cols = np.meshgrid(np.arange(shape[0]), np.arange(shape[2]), indexing="ij")
+        vox_N = np.column_stack([
+            cols.ravel().astype(np.float64),
+            np.full(rows.size, slice_idx, dtype=np.float64),
+            (shape[0] - 1 - rows).ravel().astype(np.float64),
+        ])
+
+    # Base voxel → base physical
+    phys_N = base_vol.origin + (vox_N * base_vol.spacing) @ base_vol.matrix.T
+    # Apply overlay's inverse rotation: phys_ov = R^T @ (phys_base - center) + center
+    phys_ov_N = (phys_N - center) @ R + center
+    # Overlay physical → overlay voxel
+    ov_shape = overlay_vol.shape3d
+    vox_ov_N = ((phys_ov_N - overlay_vol.origin) @ overlay_vol.inverse_matrix.T) / overlay_vol.spacing
+
+    x_in = np.clip(np.round(vox_ov_N[:, 0]).astype(np.intp), 0, ov_shape[2] - 1)
+    y_in = np.clip(np.round(vox_ov_N[:, 1]).astype(np.intp), 0, ov_shape[1] - 1)
+    z_in = np.clip(np.round(vox_ov_N[:, 2]).astype(np.intp), 0, ov_shape[0] - 1)
+
+    data = overlay_vol.data
+    if data.ndim == 4:
+        data = data[min(time_idx, data.shape[0] - 1)]
+
+    return np.ascontiguousarray(data[z_in, y_in, x_in].reshape(rows.shape))
+
+
 def compute_preview_2d_affine(vol, orientation, slice_idx, R, center, time_idx):
     """Fast per-slice preview via inverse rotation sampling on the raw volume (nearest-neighbor)."""
     shape = vol.shape3d  # (Z, Y, X) numpy
