@@ -458,12 +458,20 @@ class ViewState:
         self.space = SpatialEngine(volume, view_state=self) # Pass self to SpatialEngine
         self.base_display_data: np.ndarray | None = None
         self._sitk_base_cache = None
+        self._preview_slices: dict = {}  # keyed by (orientation, slice_idx) → 2D array
+        self._preview_R: "np.ndarray | None" = None    # rotation matrix for on-demand preview
+        self._preview_center: "np.ndarray | None" = None
         self.hist_data_x = None
         self.hist_data_y = None
         self.histogram_is_dirty = True
         self.use_log_y = True
         self.init_crosshair_to_slices()
         self.init_default_window_level()
+
+    def clear_preview_slices(self):
+        self._preview_slices.clear()
+        self._preview_R = None
+        self._preview_center = None
 
     def display_to_world(self, display_voxel, is_buffered):
         """Bypasses double-rotation for ITK buffered arrays. World = Native + Translation."""

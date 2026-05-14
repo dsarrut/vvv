@@ -43,6 +43,8 @@ class RegistrationUI:
     def __init__(self, gui, controller):
         self.gui = gui
         self.controller = controller
+        self._preview_version = 0
+        self._preview_lock = threading.Lock()
 
     @staticmethod
     def build_tab_reg(gui):
@@ -253,6 +255,11 @@ class RegistrationUI:
                         label="Invert", width=-1, callback=gui.reg_ui.on_reg_invert_clicked
                     )
                 dpg.add_spacer(height=5)
+                dpg.add_checkbox(
+                    label="Live Preview (fast, nearest-neighbor)",
+                    tag="check_reg_live_preview",
+                    default_value=False,
+                )
                 dpg.add_button(
                     label="Resample Display", width=-1, tag="btn_reg_resample", callback=gui.reg_ui.on_reg_resample_clicked
                 )
@@ -365,6 +372,110 @@ class RegistrationUI:
                     f"{center[0]:.1f}, {center[1]:.1f}, {center[2]:.1f}",
                 )
 
+    def _is_live_preview_enabled(self):
+        return dpg.does_item_exist("check_reg_live_preview") and dpg.get_value("check_reg_live_preview")
+
+    def _compute_preview_slice(self, viewer, R, center):
+        """Compute a fast 2D preview slice for one viewer using vectorized numpy sampling.
+
+        R and center must be plain numpy arrays extracted from the ITK transform on the
+        main thread before this method is called — ITK objects must never be accessed
+        from a background thread (not thread-safe → segfault).
+        """
+        vs = viewer.view_state
+        if not vs:
+            return None
+        vol = vs.volume
+        if getattr(vol, "is_dvf", False):
+            return None
+
+        orientation = viewer.orientation
+        slice_idx = viewer.slice_idx
+        shape = vol.shape3d  # numpy (Z, Y, X)
+        spacing = vol.spacing  # ITK order (x, y, z)
+
+        # Build the ITK voxel grid for each output pixel in this slice.
+        # ITK convention: index = (x, y, z) = (col, row, z)
+        if orientation == ViewMode.AXIAL:
+            # extract_slice returns data[z, :, :] shape (Y, X); no flips
+            rows, cols = np.meshgrid(np.arange(shape[1]), np.arange(shape[2]), indexing="ij")
+            vox_N = np.column_stack([cols.ravel(), rows.ravel(), np.full(rows.size, slice_idx, dtype=np.float64)])
+        elif orientation == ViewMode.SAGITTAL:
+            # extract_slice returns flipud(fliplr(data[:, :, x])) shape (Z, Y)
+            # Output pixel (r,c) ← before flips (Z-1-r, Y-1-c) ← numpy (Z-1-r, Y-1-c, x) → ITK (x, Y-1-c, Z-1-r)
+            rows, cols = np.meshgrid(np.arange(shape[0]), np.arange(shape[1]), indexing="ij")
+            vox_N = np.column_stack([
+                np.full(rows.size, slice_idx, dtype=np.float64),
+                (shape[1] - 1 - cols).ravel().astype(np.float64),
+                (shape[0] - 1 - rows).ravel().astype(np.float64),
+            ])
+        else:  # CORONAL
+            # extract_slice returns flipud(data[:, y, :]) shape (Z, X)
+            # Output pixel (r,c) ← before flip (Z-1-r, c) → ITK (c, y, Z-1-r)
+            rows, cols = np.meshgrid(np.arange(shape[0]), np.arange(shape[2]), indexing="ij")
+            vox_N = np.column_stack([
+                cols.ravel().astype(np.float64),
+                np.full(rows.size, slice_idx, dtype=np.float64),
+                (shape[0] - 1 - rows).ravel().astype(np.float64),
+            ])
+
+        # Voxel (ITK) → physical
+        phys_N = vol.origin + (vox_N * spacing) @ vol.matrix.T  # (N, 3)
+
+        # Apply inverse rotation: p_in = R^T @ (p_out - center) + center
+        # Vectorized: (p - center) @ R  (row-vector form of R^T applied column-wise)
+        phys_in_N = (phys_N - center) @ R + center  # (N, 3)
+
+        # Physical → voxel (ITK)
+        vox_in_N = ((phys_in_N - vol.origin) @ vol.inverse_matrix.T) / spacing  # (N, 3)
+
+        # Round and clamp to valid bounds
+        x_in = np.clip(np.round(vox_in_N[:, 0]).astype(np.intp), 0, shape[2] - 1)
+        y_in = np.clip(np.round(vox_in_N[:, 1]).astype(np.intp), 0, shape[1] - 1)
+        z_in = np.clip(np.round(vox_in_N[:, 2]).astype(np.intp), 0, shape[0] - 1)
+
+        data = vol.data
+        if data.ndim == 4:
+            t_idx = min(vs.camera.time_idx, data.shape[0] - 1)
+            data = data[t_idx]
+
+        sampled = data[z_in, y_in, x_in].reshape(rows.shape)
+        return np.ascontiguousarray(sampled)
+
+    def _trigger_fast_preview(self, image_id, version, R, center):
+        """Background worker: compute per-slice 2D previews using pre-extracted numpy R/center.
+
+        R and center are plain numpy arrays captured on the main thread — this function
+        never touches SimpleITK objects so it is safe to run off the main thread.
+
+        Builds results locally, then atomically replaces _preview_slices only if no
+        newer request has arrived (version check). This prevents two bugs:
+        - The old preview disappearing mid-compute (would cause a jump to unrotated view)
+        - A slow earlier thread overwriting the result of a faster later thread
+        """
+        vs = self.controller.view_states.get(image_id)
+        if not vs:
+            return
+
+        # Build preview locally — old preview stays visible during computation
+        new_previews = {}
+        for viewer in self.controller.viewers.values():
+            if viewer.image_id != image_id:
+                continue
+            preview = self._compute_preview_slice(viewer, R, center)
+            if preview is not None:
+                new_previews[(viewer.orientation, viewer.slice_idx)] = preview
+
+        # Atomic replace only if still the latest request
+        with self._preview_lock:
+            if self._preview_version != version:
+                return
+            vs._preview_R = R
+            vs._preview_center = center
+            vs._preview_slices = new_previews
+
+        self.controller.update_all_viewers_of_image(image_id)
+
     def trigger_resample(self, active_image_id):
         """
         [ASYNC_BOUNDARY]: Fires a background thread to resample the image.
@@ -374,6 +485,7 @@ class RegistrationUI:
         def _do_resample():
             active_vs = self.controller.view_states.get(active_image_id)
             if active_vs:
+                active_vs.clear_preview_slices()
                 active_vs.update_base_display_data()
                 # Sync crosshair with the freshly resampled buffer so slice_idx and
                 # values reflect the new geometry. Only needed if base image rotated!
@@ -568,6 +680,40 @@ class RegistrationUI:
         )
         if dpg.does_item_exist("btn_reg_resample"):
             dpg.bind_item_theme("btn_reg_resample", "orange_button_theme")
+
+        vs = self.controller.view_states.get(vs_id)
+        # Always invalidate any in-flight preview and clear stale preview state.
+        # This is critical for translation-only changes: if _preview_R was set from a
+        # prior rotation preview, leaving it would cause _compute_preview_2d to apply
+        # that old rotation to every new slice the user scrolls to.
+        with self._preview_lock:
+            self._preview_version += 1
+            version = self._preview_version
+        if vs:
+            vs.clear_preview_slices()
+
+        preview_thread_spawned = False
+        if self._is_live_preview_enabled() and vs and vs.space.has_rotation():
+            # Extract ITK transform data as numpy on the main thread — ITK objects
+            # must never be read/written from background threads (not thread-safe).
+            rot_transform = vs.space.get_rotation_only_transform()
+            R = np.array(rot_transform.GetMatrix(), dtype=np.float64).reshape(3, 3)
+            center = np.array(rot_transform.GetCenter(), dtype=np.float64)
+            threading.Thread(
+                target=self._trigger_fast_preview,
+                args=(vs_id, version, R, center),
+                daemon=True,
+            ).start()
+            preview_thread_spawned = True
+
+        if not preview_thread_spawned:
+            # Translation-only (or preview disabled): mark viewers dirty immediately so
+            # the render loop re-extracts the slice at the new slice_idx.
+            # For rotation with live preview, the background thread calls
+            # update_all_viewers_of_image when the preview is ready — calling it here
+            # too would cause a flicker frame showing raw/old data before the preview arrives.
+            self.controller.update_all_viewers_of_image(vs_id)
+
         self.controller.ui_needs_refresh = True
 
     def on_reg_reset_clicked(self, sender, app_data, user_data):
@@ -578,9 +724,14 @@ class RegistrationUI:
             if dpg.does_item_exist(tag):
                 dpg.set_value(tag, 0.0)
         self.controller.update_transform_manual(viewer.image_id, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        # Invalidate any in-flight preview thread
+        with self._preview_lock:
+            self._preview_version += 1
+        # Immediately resample: for identity, update_base_display_data just clears the
+        # stale rotated buffer (no ITK resampling), so this returns almost instantly.
         if dpg.does_item_exist("btn_reg_resample"):
-            dpg.bind_item_theme("btn_reg_resample", "orange_button_theme")
-        self.pull_reg_sliders_from_transform()
+            dpg.bind_item_theme("btn_reg_resample", 0)
+        self.trigger_resample(viewer.image_id)
         self.controller.ui_needs_refresh = True
 
     def on_reg_invert_clicked(self, sender, app_data, user_data):
@@ -607,7 +758,6 @@ class RegistrationUI:
         )
         if dpg.does_item_exist("btn_reg_resample"):
             dpg.bind_item_theme("btn_reg_resample", "orange_button_theme")
-        self.pull_reg_sliders_from_transform()
         self.controller.ui_needs_refresh = True
 
     def on_reg_center_cor_clicked(self, sender, app_data, user_data):

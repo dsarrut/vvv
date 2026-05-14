@@ -28,6 +28,7 @@ class RenderLayer:
     offset_y: int = 0
     offset_slice: int = 0
     dvf_mode: str = "Component"
+    preview_override: "np.ndarray | None" = None  # 2D fast preview slice, bypasses extraction
 
 
 @dataclass
@@ -375,9 +376,12 @@ class SliceRenderer:
                 base_rgba = np.stack([r_n, g_n, b_n, np.ones_like(r_n)], axis=-1)
                 base_norm = (r_n + g_n + b_n) / 3.0
         else:
-            base_slice = SliceRenderer._extract_layer(
-                base.data, base.is_rgb, base.time_idx, slice_idx, orientation, max_s
-            )
+            if base.preview_override is not None:
+                base_slice = base.preview_override
+            else:
+                base_slice = SliceRenderer._extract_layer(
+                    base.data, base.is_rgb, base.time_idx, slice_idx, orientation, max_s
+                )
 
             if base_slice is None:  # Out of bounds
                 black_slice = np.zeros((h, w, 4), dtype=np.float32)
