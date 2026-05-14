@@ -86,7 +86,7 @@ class RegistrationUI:
             )
 
             with dpg.group(tag="group_registration_controls"):
-                # --- TOP: File Management & Apply ---
+                # --- TOP: File Management ---
                 dpg.add_spacer(height=10)
                 with dpg.group(horizontal=True):
                     dpg.add_button(
@@ -123,54 +123,8 @@ class RegistrationUI:
                     dpg.add_text("File: ")
                     dpg.add_text("None", tag="text_reg_filename", color=cfg_c["text_dim"])
 
-                dpg.add_checkbox(
-                    label="Apply Transform to Viewers",
-                    tag="check_reg_apply",
-                    callback=gui.reg_ui.on_reg_apply_toggled,
-                )
-                with dpg.group(horizontal=True):
-                    dpg.add_button(
-                        label="Bake into Image",
-                        tag="btn_reg_bake",
-                        callback=gui.reg_ui.on_reg_bake_clicked,
-                        width=-28,
-                    )
-                    btn_help_bake = dpg.add_button(label="\uf059", width=20)
-                    if dpg.does_item_exist("icon_font_tag"):
-                        dpg.bind_item_font(btn_help_bake, "icon_font_tag")
-                    if dpg.does_item_exist("icon_button_theme"):
-                        dpg.bind_item_theme(btn_help_bake, "icon_button_theme")
-                    with dpg.tooltip(btn_help_bake):
-                        dpg.add_text(
-                            "Permanently applies the active spatial transform to the\n"
-                            "underlying 3D pixel grid and resets the sliders to zero.\n"
-                            "You can then 'Save' the resulting aligned image to disk.",
-                            color=cfg_c.get("text_dim", [150, 150, 150])
-                        )
-                dpg.add_separator()
-
-                # --- MIDDLE: Read-Only Math (Matrix & CoR) ---
+                # --- CoR Goto and Set ---
                 dpg.add_spacer(height=10)
-                build_section_title("Affine Matrix", cfg_c["text_header"])
-                with dpg.group(tag="group_reg_matrix"):
-                    with dpg.table(
-                        header_row=False,
-                        borders_innerV=True,
-                        borders_innerH=True,
-                        resizable=False,
-                    ):
-                        for _ in range(4):
-                            dpg.add_table_column()
-                        for r in range(4):
-                            with dpg.table_row():
-                                for c in range(4):
-                                    dpg.add_text(
-                                        "0.000",
-                                        tag=f"txt_reg_m_{r}_{c}",
-                                        color=cfg_c["text_dim"],
-                                    )
-
-                dpg.add_spacer(height=5)
                 with dpg.group(horizontal=True):
                     dpg.add_text("CoR:")
                     dpg.add_input_text(tag="input_reg_cor", width=125, readonly=True)
@@ -179,13 +133,11 @@ class RegistrationUI:
                     )
                     if dpg.does_item_exist("icon_font_tag"):
                         dpg.bind_item_font(b, "icon_font_tag")
-                    # Sets the CoR to the current crosshair
                     dpg.add_button(
-                        label="Set",
-                        callback=gui.reg_ui.on_reg_cor_to_crosshair_clicked,
+                        label="Set", callback=gui.reg_ui.on_reg_cor_to_crosshair_clicked
                     )
 
-                # --- BOTTOM: Manual 6-DOF Tweaking ---
+                # --- Rigid Adjustment ---
                 dpg.add_spacer(height=10)
                 build_section_title(
                     "Rigid Adjustment (Euler R = Rz Ry Rx)", cfg_c["text_header"]
@@ -273,14 +225,45 @@ class RegistrationUI:
                         label="Invert", width=-1, callback=gui.reg_ui.on_reg_invert_clicked
                     )
                 dpg.add_spacer(height=5)
-                dpg.add_checkbox(
-                    label="Live Preview (fast, nearest-neighbor)",
-                    tag="check_reg_live_preview",
-                    default_value=False,
-                )
+                
+                # --- Resample & Bake ---
                 dpg.add_button(
                     label="Resample Display", width=-1, tag="btn_reg_resample", callback=gui.reg_ui.on_reg_resample_clicked
                 )
+                with dpg.group(horizontal=True):
+                    dpg.add_button(
+                        label="Bake into Image",
+                        tag="btn_reg_bake",
+                        callback=gui.reg_ui.on_reg_bake_clicked,
+                        width=-28,
+                    )
+                    btn_help_bake = dpg.add_button(label="\uf059", width=20)
+                    if dpg.does_item_exist("icon_font_tag"):
+                        dpg.bind_item_font(btn_help_bake, "icon_font_tag")
+                    if dpg.does_item_exist("icon_button_theme"):
+                        dpg.bind_item_theme(btn_help_bake, "icon_button_theme")
+                    with dpg.tooltip(btn_help_bake):
+                        dpg.add_text(
+                            "Permanently applies the active spatial transform to the\n"
+                            "underlying 3D pixel grid and resets the sliders to zero.\n"
+                            "You can then 'Save' the resulting aligned image to disk.",
+                            color=cfg_c.get("text_dim", [150, 150, 150])
+                        )
+
+                # --- Affine Matrix ---
+                dpg.add_spacer(height=10)
+                dpg.add_separator()
+                dpg.add_spacer(height=10)
+                build_section_title("Affine Matrix", cfg_c["text_header"])
+                with dpg.group(tag="group_reg_matrix"):
+                    with dpg.table(
+                        header_row=False, borders_innerV=True, borders_innerH=True, resizable=False,
+                    ):
+                        for _ in range(4): dpg.add_table_column()
+                        for r in range(4):
+                            with dpg.table_row():
+                                for c in range(4):
+                                    dpg.add_text("0.000", tag=f"txt_reg_m_{r}_{c}", color=cfg_c["text_dim"])
 
     def pull_reg_sliders_from_transform(self):
         """ONLY call this when loading a file, switching images, or resetting. NOT during drag!"""
@@ -341,8 +324,6 @@ class RegistrationUI:
 
         if dpg.does_item_exist("text_reg_filename"):
             dpg.set_value("text_reg_filename", vs.space.transform_file)
-        if dpg.does_item_exist("check_reg_apply"):
-            dpg.set_value("check_reg_apply", vs.space.is_active)
 
         if vol:
             is_2d = min(vol.shape3d) == 1
@@ -391,7 +372,7 @@ class RegistrationUI:
                 )
 
     def _is_live_preview_enabled(self):
-        return dpg.does_item_exist("check_reg_live_preview") and dpg.get_value("check_reg_live_preview")
+        return True
 
     def _trigger_fast_preview(self, image_id, version, R, center, viewer_slices):
         """Background worker: compute per-slice 2D previews using pre-extracted numpy data.
@@ -605,15 +586,6 @@ class RegistrationUI:
         self.pull_reg_sliders_from_transform()
         self.controller.ui_needs_refresh = True
 
-    def on_reg_apply_toggled(self, sender, app_data, user_data):
-        viewer = self.gui.context_viewer
-        if viewer and viewer.image_id:
-            vs = viewer.view_state
-            if vs:
-                vs.space.is_active = app_data
-                if dpg.does_item_exist("btn_reg_resample"):
-                    dpg.bind_item_theme("btn_reg_resample", "orange_button_theme")
-                self.controller.ui_needs_refresh = True
 
     def on_reg_step_changed(self, sender, app_data, user_data):
         speed = 1.0 if app_data == "Coarse" else 0.1
@@ -637,6 +609,11 @@ class RegistrationUI:
         if not viewer or not viewer.image_id:
             return
         vs_id = viewer.image_id
+        
+        vs = self.controller.view_states.get(vs_id)
+        if vs:
+            vs.space.is_active = True
+            
         vals = [dpg.get_value(t) for t in self.SLIDER_TAGS]
         self.controller.update_transform_manual(
             vs_id, vals[3], vals[4], vals[5], vals[0], vals[1], vals[2]
@@ -644,7 +621,6 @@ class RegistrationUI:
         if dpg.does_item_exist("btn_reg_resample"):
             dpg.bind_item_theme("btn_reg_resample", "orange_button_theme")
 
-        vs = self.controller.view_states.get(vs_id)
         has_rotation = vs is not None and vs.space.has_rotation()
 
         with self._preview_lock:
@@ -790,6 +766,7 @@ class RegistrationUI:
 
         vs.space.transform.SetCenter(new_center_tuple)
         vs.space.transform.SetTranslation(new_translation)
+        vs.space.is_active = True
 
         self.pull_reg_sliders_from_transform()
         if dpg.does_item_exist("btn_reg_resample"):
