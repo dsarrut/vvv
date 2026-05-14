@@ -239,7 +239,6 @@ class RegistrationUI:
                 dpg.add_button(
                     label="Update Display", width=-1, tag="btn_reg_resample", callback=gui.reg_ui.on_reg_resample_clicked
                 )
-                dpg.add_text("", tag="text_resample_job_info", color=cfg_c["text_dim"])
                 with dpg.group(horizontal=True):
                     dpg.add_button(
                         label="Commit to Volume",
@@ -369,13 +368,6 @@ class RegistrationUI:
         if dpg.does_item_exist("btn_reg_resample"):
             theme = "orange_button_theme" if vs.needs_resample else 0
             dpg.bind_item_theme("btn_reg_resample", theme)
-
-        if dpg.does_item_exist("text_resample_job_info"):
-            job = vs._active_resample_job
-            dpg.set_value(
-                "text_resample_job_info",
-                f"[resampling job #{job}]" if job else "",
-            )
 
         if dpg.does_item_exist("text_reg_filename"):
             dpg.set_value("text_reg_filename", vs.space.transform_file)
