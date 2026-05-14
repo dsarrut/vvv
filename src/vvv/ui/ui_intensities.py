@@ -40,6 +40,8 @@ class IntensitiesUI:
                 callback=gui.intensities_ui.on_ww_changed,
                 step_callback=gui.intensities_ui.on_step_button_clicked,
                 min_val=1e-5,
+                help_text="Window / Level controls image contrast and brightness.\nWindow: The range of visible values.\nLevel: The center point of the visible range.",
+                gui=gui,
             )
             build_stepped_slider(
                 "Level:  ",
@@ -69,6 +71,8 @@ class IntensitiesUI:
                 has_checkbox=True,
                 check_tag="check_min_threshold",
                 check_cb=gui.intensities_ui.on_threshold_toggle,
+                help_text="Pixels below this threshold value are rendered completely transparent.",
+                gui=gui,
             )
 
             dpg.add_spacer(height=5)

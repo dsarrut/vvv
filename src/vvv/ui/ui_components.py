@@ -7,6 +7,30 @@ def build_section_title(label, color):
     dpg.add_separator()
 
 
+def build_help_button(text, gui):
+    """A reusable help icon button that only appears when Beginner Mode is active."""
+    tag = dpg.generate_uuid()
+    btn = dpg.add_button(label="\uf059", width=20, tag=tag, show=getattr(gui, "is_beginner_mode", False))
+    if dpg.does_item_exist("icon_font_tag"):
+        dpg.bind_item_font(btn, "icon_font_tag")
+    if dpg.does_item_exist("help_button_theme"):
+        dpg.bind_item_theme(btn, "help_button_theme")
+    with dpg.tooltip(btn):
+        dpg.add_text(text, color=gui.ui_cfg["colors"].get("text_dim", [150, 150, 150]))
+    if not hasattr(gui, "beginner_tags"):
+        gui.beginner_tags = []
+    gui.beginner_tags.append(tag)
+    return btn
+
+def build_beginner_tooltip(parent, text, gui):
+    """A reusable tooltip attached to an existing widget that only appears when Beginner Mode is active."""
+    tag = dpg.add_tooltip(parent=parent, show=getattr(gui, "is_beginner_mode", False))
+    dpg.add_text(text, parent=tag, color=gui.ui_cfg["colors"].get("text_dim", [150, 150, 150]))
+    if not hasattr(gui, "beginner_tags"):
+        gui.beginner_tags = []
+    gui.beginner_tags.append(tag)
+    return tag
+
 def build_stepped_slider(
     label,
     tag,
@@ -23,6 +47,9 @@ def build_stepped_slider(
     color_tag=None,
     color_cb=None,
     color_default=(255, 0, 0, 255),
+    help_text=None,
+    gui=None,
+    label_width=None,
 ):
     """A reusable UI component for a slider with + and - step buttons."""
 
@@ -64,13 +91,21 @@ def build_stepped_slider(
                 height=20,
             )
 
-        dpg.add_text(label)
+        if label_width:
+            lw = label_width
+            if has_color:
+                spacing = gui.ui_cfg["layout"].get("sidebar_item_gap", 8) if (gui and hasattr(gui, "ui_cfg")) else 8
+                lw -= (20 + spacing)
+            t = dpg.add_input_text(default_value=label.strip(), width=lw, readonly=True)
+            if dpg.does_item_exist("sleek_readonly_theme"):
+                dpg.bind_item_theme(t, "sleek_readonly_theme")
+        else:
+            dpg.add_text(label)
 
         # 1. The Slider
-        # Width = -55 ensures room for the two 20px buttons + padding on the right
         dpg.add_drag_float(
             tag=tag,
-            width=-55,
+            width=-85 if help_text else -55,
             format=format,
             speed=1.0,
             min_value=min_val,
@@ -104,7 +139,7 @@ def build_stepped_slider(
             dpg.add_selectable(
                 label="Fast (10.0x)", user_data=10.0, callback=_change_speed
             )
-
+            
         # 3. The Plus Button
         btn_plus = f"btn_{tag}_plus"
         dpg.add_button(
@@ -129,3 +164,7 @@ def build_stepped_slider(
             dpg.add_selectable(
                 label="Fast (10.0x)", user_data=10.0, callback=_change_speed
             )
+            
+        if help_text and gui:
+            dpg.add_spacer(width=2)
+            build_help_button(help_text, gui)

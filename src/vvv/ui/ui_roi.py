@@ -1,7 +1,7 @@
 import os
 import json
 import dearpygui.dearpygui as dpg
-from vvv.ui.ui_components import build_section_title
+from vvv.ui.ui_components import build_section_title, build_help_button
 from vvv.ui.ui_sequences import load_batch_rois_sequence
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 
@@ -95,6 +95,7 @@ class RoiUI:
                     width=130,
                     callback=gui.roi_ui.on_roi_mode_changed,
                 )
+                build_help_button("Ignore BG: Makes '0' transparent and keeps everything else.\nTarget FG: Keeps only the exact 'Val' specified.\nLabel Map: Extracts all unique integer values as separate ROIs.", gui)
 
             with dpg.group(horizontal=True, tag="group_roi_mode2"):
                 dpg.add_text("Val:")

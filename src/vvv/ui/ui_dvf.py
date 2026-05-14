@@ -30,7 +30,7 @@ class DvfUI:
             )
 
             with dpg.group(tag="group_dvf_controls", show=False):
-                dpg.add_text("Display Mode:")
+                dpg.add_text("Display Mode:", tag="text_dvf_display_mode")
                 dpg.add_radio_button(
                     items=["Component", "RGB", "Vector Field"],
                     default_value="Component",
@@ -52,10 +52,13 @@ class DvfUI:
                         max_val=10.0,
                         default_val=1.0,
                         format="%.0f px",
+                        label_width=90,
+                        help_text="Thickness of the vector lines.",
+                        gui=gui,
                     )
 
                     build_stepped_slider(
-                        "Arrow >  ",
+                        "Arrow >",
                         "drag_dvf_min_arrow",
                         callback=gui.dvf_ui.on_min_arrow_changed,
                         step_callback=gui.dvf_ui.on_step_button_clicked,
@@ -63,10 +66,13 @@ class DvfUI:
                         max_val=500.0,
                         default_val=3.0,
                         format="%.1f mm",
+                        help_text="Minimum vector magnitude required to draw an arrowhead.",
+                        gui=gui,
+                        label_width=90,
                     )
 
                     build_stepped_slider(
-                        "Show >   ",
+                        "Show >",
                         "drag_dvf_min_draw",
                         callback=gui.dvf_ui.on_min_draw_changed,
                         step_callback=gui.dvf_ui.on_step_button_clicked,
@@ -78,6 +84,9 @@ class DvfUI:
                         color_tag="color_dvf_min",
                         color_cb=gui.dvf_ui.on_color_min_changed,
                         color_default=(0, 255, 255, 255),
+                        help_text="Minimum vector magnitude required to draw the vector at all.",
+                        gui=gui,
+                        label_width=90,
                     )
 
                     build_stepped_slider(
@@ -93,6 +102,9 @@ class DvfUI:
                         color_tag="color_dvf_max",
                         color_cb=gui.dvf_ui.on_color_max_changed,
                         color_default=(255, 0, 0, 255),
+                        help_text="Magnitude value at which the colormap reaches its maximum intensity (e.g. Red).",
+                        gui=gui,
+                        label_width=90,
                     )
                     dpg.add_spacer(height=5)
 
@@ -105,10 +117,13 @@ class DvfUI:
                         max_val=100.0,
                         default_val=5.0,
                         format="%.0f px",
+                        help_text="Spacing between rendered vectors (in pixels). Higher sampling improves performance.",
+                        gui=gui,
+                        label_width=90,
                     )
 
                     build_stepped_slider(
-                        "Scale:   ",
+                        "Scale:",
                         "drag_dvf_scale",
                         callback=gui.dvf_ui.on_scale_changed,
                         step_callback=gui.dvf_ui.on_step_button_clicked,
@@ -116,6 +131,9 @@ class DvfUI:
                         max_val=100.0,
                         default_val=1.0,
                         format="%.1f x",
+                        help_text="Visual multiplier for vector lengths.",
+                        gui=gui,
+                        label_width=90,
                     )
 
     def _get_target_vs(self, viewer):
@@ -164,6 +182,9 @@ class DvfUI:
             return
 
         dvf_state = target_vs.dvf
+
+        if dpg.does_item_exist("text_dvf_display_mode"):
+            dpg.configure_item("text_dvf_display_mode", show=is_base)
 
         if dpg.does_item_exist("radio_dvf_mode"):
             dpg.configure_item("radio_dvf_mode", show=is_base)

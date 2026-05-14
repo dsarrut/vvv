@@ -1,7 +1,7 @@
 import time
 import threading
 import dearpygui.dearpygui as dpg
-from vvv.ui.ui_components import build_section_title, build_stepped_slider
+from vvv.ui.ui_components import build_section_title, build_stepped_slider, build_help_button, build_beginner_tooltip
 
 
 class FusionUI:
@@ -30,6 +30,7 @@ class FusionUI:
                         width=-1,
                         callback=gui.fusion_ui.on_fusion_target_selected,
                     )
+                build_beginner_tooltip("combo_fusion_select", "Select the image to fuse as an overlay on top of the base image.", gui)
                 with dpg.group(horizontal=True):
                     dpg.add_text("Opacity")
                     dpg.add_slider_float(
@@ -63,15 +64,17 @@ class FusionUI:
                     check_tag="check_fusion_threshold",
                     check_cb=gui.fusion_ui.on_fusion_threshold_toggle,
                 )
+                build_beginner_tooltip("drag_fusion_threshold", "Pixels below this value will be completely transparent.", gui)
 
                 with dpg.group(horizontal=True):
                     dpg.add_text("Mode   ")
                     combo = dpg.add_combo(
                         ["Alpha", "Registration", "Checkerboard", "DVF"],
                         tag="combo_fusion_mode",
-                        width=-1,
+                        width=-30,
                         callback=gui.fusion_ui.on_fusion_mode_changed,
                     )
+                    build_help_button("Alpha: Standard transparency blending.\nRegistration: Red/Green difference map.\nCheckerboard: Alternating squares of base and overlay.\nDVF: Renders vectors as arrows.", gui)
                     with dpg.tooltip(combo, tag="tooltip_fusion_mode", show=False):
                         dpg.add_text("Base image format restricts blending to Alpha mode only.")
                 dpg.add_text(

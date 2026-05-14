@@ -82,6 +82,7 @@ def load_fonts():
                                 0xF00D,
                                 0xF15D,
                                 0xF15E,
+                                0xF77C,  # Baby icon
                             ]
                         )
                         dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)

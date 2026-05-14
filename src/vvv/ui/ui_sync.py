@@ -1,5 +1,5 @@
 import dearpygui.dearpygui as dpg
-from vvv.ui.ui_components import build_section_title
+from vvv.ui.ui_components import build_section_title, build_help_button
 from vvv.ui.ui_image_list import highlight_active_image_in_list
 
 """
@@ -35,6 +35,7 @@ def build_tab_sync(gui):
                 callback=lambda: gui.controller.sync.unlink_all(),
                 width=95,
             )
+            build_help_button("Spatial Sync groups images together. When you pan, zoom, or scroll through slices in one image, all other images in the same group will automatically follow.", gui)
 
         with dpg.group(horizontal=True):
             dpg.add_button(
@@ -47,6 +48,7 @@ def build_tab_sync(gui):
                 callback=lambda: gui.controller.sync.unlink_all_wl(),
                 width=95,
             )
+            build_help_button("Window/Level Sync groups images together radiometrically. Changing contrast or colormap on one instantly applies to all others in the group.", gui)
 
         dpg.add_spacer(height=10)
         dpg.add_separator()
