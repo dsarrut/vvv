@@ -96,20 +96,17 @@ class RegistrationUI:
                 dpg.add_spacer(height=10)
                 with dpg.group(horizontal=True):
                     dpg.add_button(
-                        label="Load",
-                        width=50,
+                        label="Load Matrix",
                         tag="btn_reg_load",
                         callback=gui.reg_ui.on_reg_load_clicked,
                     )
                     dpg.add_button(
-                        label="Save",
-                        width=50,
+                        label="Save Matrix",
                         tag="btn_reg_save",
                         callback=gui.reg_ui.on_reg_save_clicked,
                     )
                     dpg.add_button(
                         label="Save As",
-                        width=65,
                         tag="btn_reg_save_as",
                         callback=gui.reg_ui.on_reg_save_as_clicked,
                     )
@@ -126,21 +123,22 @@ class RegistrationUI:
                         dpg.bind_item_theme(btn_reload, "icon_button_theme")
 
                 with dpg.group(horizontal=True):
-                    dpg.add_text("File: ")
+                    dpg.add_text("Transform File: ")
                     dpg.add_text("None", tag="text_reg_filename", color=cfg_c["text_dim"])
 
                 # --- CoR Goto and Set ---
                 dpg.add_spacer(height=10)
                 with dpg.group(horizontal=True):
                     dpg.add_text("CoR:")
-                    dpg.add_input_text(tag="input_reg_cor", width=125, readonly=True)
+                    dpg.add_input_text(tag="input_reg_cor", width=-1, readonly=True)
+                with dpg.group(horizontal=True):
                     b = dpg.add_button(
                         label="\uf05b ", callback=gui.reg_ui.on_reg_center_cor_clicked
                     )
                     if dpg.does_item_exist("icon_font_tag"):
                         dpg.bind_item_font(b, "icon_font_tag")
                     dpg.add_button(
-                        label="Set", callback=gui.reg_ui.on_reg_cor_to_crosshair_clicked
+                        label="Snap to Crosshair", width=-1, callback=gui.reg_ui.on_reg_cor_to_crosshair_clicked
                     )
 
                 # --- Rigid Adjustment ---
@@ -223,27 +221,26 @@ class RegistrationUI:
                 dpg.add_spacer(height=5)
                 with dpg.group(horizontal=True):
                     dpg.add_button(
-                        label="Reset to ID",
-                        width=120,
+                        label="Reset to Identity",
                         callback=gui.reg_ui.on_reg_reset_clicked,
                     )
                     dpg.add_button(
-                        label="Invert", width=-1, callback=gui.reg_ui.on_reg_invert_clicked
+                        label="Invert Transform", width=-1, callback=gui.reg_ui.on_reg_invert_clicked
                     )
                 dpg.add_spacer(height=5)
                 
                 # --- Resample & Bake ---
                 dpg.add_checkbox(
-                    label="Auto Resample",
+                    label="Auto-Update Display",
                     tag="check_reg_auto_resample",
                     default_value=False,
                 )
                 dpg.add_button(
-                    label="Resample Display", width=-1, tag="btn_reg_resample", callback=gui.reg_ui.on_reg_resample_clicked
+                    label="Update Display", width=-1, tag="btn_reg_resample", callback=gui.reg_ui.on_reg_resample_clicked
                 )
                 with dpg.group(horizontal=True):
                     dpg.add_button(
-                        label="Bake into Image",
+                        label="Commit to Volume",
                         tag="btn_reg_bake",
                         callback=gui.reg_ui.on_reg_bake_clicked,
                         width=-28,
