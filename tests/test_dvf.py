@@ -118,6 +118,9 @@ def test_dvf_component_scroll(dvf_app):
     """on_time_scroll cycles through the three displacement components."""
     controller, viewer, vs_id = dvf_app
     vs = controller.view_states[vs_id]
+    
+    # Time scrolling is disabled in "Vector Field" mode, so we must switch to "Component"
+    vs.dvf.display_mode = "Component"
     viewer.set_image(vs_id)
     viewer.set_orientation(ViewMode.AXIAL)
     viewer.update_crosshair_data(pix_x=2.5, pix_y=2.5)
