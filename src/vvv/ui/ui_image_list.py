@@ -43,6 +43,39 @@ def highlight_active_image_in_list(gui, active_img_id):
             else:
                 dpg.bind_item_theme(label_tag, "")
 
+def sync_image_list_ui(gui):
+    """Synchronizes the image list sliders every frame without a full rebuild."""
+    for vs_id, vs in gui.controller.view_states.items():
+        slider_tag = f"slider_time_{vs_id}"
+        if dpg.does_item_exist(slider_tag):
+            if not dpg.is_item_active(slider_tag):
+                if dpg.get_value(slider_tag) != vs.camera.time_idx:
+                    dpg.set_value(slider_tag, vs.camera.time_idx)
+            
+            is_dvf = getattr(vs.volume, "is_dvf", False)
+            is_enabled = not is_dvf or vs.dvf.display_mode == "Component"
+            if dpg.get_item_configuration(slider_tag)["enabled"] != is_enabled:
+                dpg.configure_item(slider_tag, enabled=is_enabled)
+
+def _on_time_slider_changed(gui, vs_id, time_idx):
+    """Updates the time slice of a 4D image when the slider is dragged."""
+    vs = gui.controller.view_states.get(vs_id)
+    if not vs:
+        return
+
+    is_dvf = getattr(vs.volume, "is_dvf", False)
+    if is_dvf and vs.dvf.display_mode != "Component":
+        if dpg.does_item_exist(f"slider_time_{vs_id}"):
+            dpg.set_value(f"slider_time_{vs_id}", vs.camera.time_idx)
+        return
+
+    vs.camera.time_idx = time_idx
+    if vs.camera.crosshair_phys_coord is not None:
+        vs.update_crosshair_from_phys(vs.camera.crosshair_phys_coord)
+    gui.controller.sync.propagate_time_idx(vs_id)
+    gui.controller.sync.propagate_sync(vs_id)
+    vs.is_data_dirty = True
+
 
 def refresh_image_list_ui(gui):
     """Dynamically rebuilds the pure Image list UI."""
@@ -129,6 +162,26 @@ def refresh_image_list_ui(gui):
                         callback=lambda s, a, u: gui.controller.file.close_image(u),
                         user_data=vs_id,
                     )
+                    
+                    if vs.volume.num_timepoints > 1:
+                        dpg.add_spacer(width=5)
+                        dpg.add_text("4D")
+                        
+                        is_dvf = getattr(vs.volume, "is_dvf", False)
+                        is_enabled = not is_dvf or vs.dvf.display_mode == "Component"
+
+                        reserve_w = 20 + len(str(vs.volume.num_timepoints)) * 8
+                        dpg.add_slider_int(
+                            tag=f"slider_time_{vs_id}",
+                            width=-reserve_w,
+                            min_value=0,
+                            max_value=vs.volume.num_timepoints - 1,
+                            default_value=vs.camera.time_idx,
+                            enabled=is_enabled,
+                            callback=lambda s, a, u: _on_time_slider_changed(gui, u, a),
+                            user_data=vs_id,
+                        )
+                        dpg.add_text(f"/ {vs.volume.num_timepoints}")
 
                     if dpg.does_item_exist("icon_font_tag"):
                         dpg.bind_item_font(btn_save, "icon_font_tag")

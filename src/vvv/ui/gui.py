@@ -27,6 +27,7 @@ from vvv.ui.ui_image_list import (
     build_tab_images,
     refresh_image_list_ui,
     highlight_active_image_in_list,
+    sync_image_list_ui,
 )
 from vvv.ui.ui_sequences import (
     load_single_image_sequence,
@@ -678,6 +679,7 @@ class MainGUI:
 
         # Sync the Fusion overlay values
         self.fusion_ui.sync_fusion_ui()
+        sync_image_list_ui(self)
 
         # Sync Interpolation mode text
         if vs.display.use_voxel_strips:

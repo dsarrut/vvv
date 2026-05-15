@@ -2270,6 +2270,9 @@ class SliceViewer:
         if nt <= 1:
             return
 
+        if getattr(vol, "is_dvf", False) and vs.dvf.display_mode != "Component":
+            return
+
         # Loop the time index
         vs.camera.time_idx = (vs.camera.time_idx + delta) % nt
 
