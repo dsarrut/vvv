@@ -10,6 +10,7 @@ class IntensitiesUI:
     def __init__(self, gui, controller):
         self.gui = gui
         self.controller = controller
+        self._hist_max_y = 1.0
 
     @staticmethod
     def build_tab_intensities(gui):
@@ -79,6 +80,50 @@ class IntensitiesUI:
             with dpg.group(horizontal=True):
                 dpg.add_text("Image Range:", color=cfg_c["text_dim"])
                 dpg.add_text("---", tag="text_intensities_minmax")
+
+            dpg.add_spacer(height=4)
+            with dpg.plot(
+                tag="wl_hist_plot",
+                height=120,
+                width=-1,
+                no_title=True,
+                no_mouse_pos=True,
+                no_box_select=True,
+                show=False,
+            ):
+                dpg.add_plot_axis(dpg.mvXAxis, tag="wl_hist_x_axis")
+                with dpg.plot_axis(dpg.mvYAxis, tag="wl_hist_y_axis", no_tick_labels=True):
+                    dpg.add_shade_series(
+                        [0.0, 1.0], [1.0, 1.0], y2=[0.0, 0.0],
+                        tag="wl_hist_shade",
+                    )
+                    dpg.add_line_series([], [], tag="wl_hist_series")
+                dpg.add_drag_line(
+                    tag="wl_hist_lower",
+                    color=[100, 180, 255, 220],
+                    thickness=2.0,
+                    default_value=0.0,
+                    callback=gui.intensities_ui.on_hist_drag_lower,
+                )
+                dpg.add_drag_line(
+                    tag="wl_hist_upper",
+                    color=[255, 160, 80, 220],
+                    thickness=2.0,
+                    default_value=1.0,
+                    callback=gui.intensities_ui.on_hist_drag_upper,
+                )
+
+            with dpg.theme(tag="wl_shade_theme"):
+                with dpg.theme_component(dpg.mvShadeSeries):
+                    dpg.add_theme_color(
+                        dpg.mvPlotCol_Fill, [100, 180, 255, 30],
+                        category=dpg.mvThemeCat_Plots,
+                    )
+                    dpg.add_theme_color(
+                        dpg.mvPlotCol_Line, [0, 0, 0, 0],
+                        category=dpg.mvThemeCat_Plots,
+                    )
+            dpg.bind_item_theme("wl_hist_shade", "wl_shade_theme")
 
     def refresh_intensities_ui(self):
         viewer = self.gui.context_viewer
@@ -164,6 +209,75 @@ class IntensitiesUI:
         for t in ["drag_ww", "drag_wl", "drag_min_threshold"]:
             if dpg.does_item_exist(t):
                 dpg.configure_item(t, speed=dynamic_speed)
+
+        self._refresh_wl_histogram(viewer, has_image, is_rgb)
+
+    def _refresh_wl_histogram(self, viewer, has_image, is_rgb):
+        if not dpg.does_item_exist("wl_hist_plot"):
+            return
+
+        if not has_image or is_rgb:
+            dpg.configure_item("wl_hist_plot", show=False)
+            return
+
+        vs = viewer.view_state
+        if vs.histogram_is_dirty:
+            vs.update_histogram()
+            use_log = vs.use_log_y
+            y_data = np.log10(vs.hist_data_y + 1) if use_log else vs.hist_data_y
+            self._hist_max_y = float(np.max(y_data)) if len(y_data) > 0 else 1.0
+            dpg.set_value("wl_hist_series", [vs.hist_data_x.tolist(), y_data.tolist()])
+            dpg.fit_axis_data("wl_hist_x_axis")
+            dpg.fit_axis_data("wl_hist_y_axis")
+
+        wl = vs.display.wl
+        ww = vs.display.ww
+        lower = wl - ww / 2
+        upper = wl + ww / 2
+        dpg.set_value("wl_hist_lower", lower)
+        dpg.set_value("wl_hist_upper", upper)
+        max_y = self._hist_max_y
+        dpg.set_value("wl_hist_shade", [[lower, upper], [max_y, max_y], [0.0, 0.0]])
+
+        dpg.configure_item("wl_hist_plot", show=True)
+
+    def on_hist_drag_lower(self, _sender, app_data, _user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state or app_data is None:
+            return
+        upper = dpg.get_value("wl_hist_upper")
+        if upper is None:
+            return
+        lower = min(float(app_data), upper - 1e-5)
+        wl = (lower + upper) / 2
+        ww = max(1e-5, upper - lower)
+        viewer._mark_lazy_interaction()
+        viewer.view_state.display.ww = ww
+        viewer.view_state.display.wl = wl
+        dpg.set_value("drag_ww", ww)
+        dpg.set_value("drag_wl", wl)
+        if dpg.does_item_exist("combo_wl_presets"):
+            dpg.set_value("combo_wl_presets", "Custom")
+        self.controller.sync.propagate_window_level(viewer.image_id)
+
+    def on_hist_drag_upper(self, _sender, app_data, _user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state or app_data is None:
+            return
+        lower = dpg.get_value("wl_hist_lower")
+        if lower is None:
+            return
+        upper = max(float(app_data), lower + 1e-5)
+        wl = (lower + upper) / 2
+        ww = max(1e-5, upper - lower)
+        viewer._mark_lazy_interaction()
+        viewer.view_state.display.ww = ww
+        viewer.view_state.display.wl = wl
+        dpg.set_value("drag_ww", ww)
+        dpg.set_value("drag_wl", wl)
+        if dpg.does_item_exist("combo_wl_presets"):
+            dpg.set_value("combo_wl_presets", "Custom")
+        self.controller.sync.propagate_window_level(viewer.image_id)
 
     def on_step_button_clicked(self, sender, app_data, user_data):
         target_tag = user_data["tag"]
