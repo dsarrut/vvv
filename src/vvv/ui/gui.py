@@ -62,6 +62,7 @@ class MainGUI:
         self.current_workspace_path: str | None = None
         self.is_beginner_mode = False
         self.beginner_tags = []
+        self.beginner_sliders: list = []
 
         # internal states
         self._is_roi_tab_active = None
@@ -958,10 +959,9 @@ class MainGUI:
         for tag in self.beginner_tags:
             self._safe_configure(tag, show=self.is_beginner_mode)
 
-        if hasattr(self, "beginner_sliders"):
-            w = -100 if self.is_beginner_mode else -60
-            for tag in self.beginner_sliders:
-                self._safe_configure(tag, width=w)
+        w = -100 if self.is_beginner_mode else -60
+        for tag in self.beginner_sliders:
+            self._safe_configure(tag, width=w)
 
         if self.is_beginner_mode:
             dpg.bind_item_theme(sender, "active_nav_button_theme")

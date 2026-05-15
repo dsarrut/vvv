@@ -33,7 +33,7 @@ def _init_numba():
         ):
             crop_h = len(iy_adj)
             crop_w = len(ix_adj)
-            for cy in numba.prange(crop_h):
+            for cy in numba.prange(crop_h):  # type: ignore[union-attr]
                 iy = iy_adj[cy]
                 Bx = B_eff[0] + C_col[0] * iy
                 By = B_eff[1] + C_col[1] * iy
@@ -479,7 +479,7 @@ def compute_native_voxel_overlay(viewer, pmin, pmax, canvas_w, canvas_h, target_
         ov_arr = np.ascontiguousarray(ov_data)
         if target_buffer is None:
             rgba[c_y0:c_y1, c_x0:c_x1] = 0.0
-        _native_ov_kernel_nb(
+        _native_ov_kernel_nb(  # type: ignore[misc]
             ov_arr, rgba,
             B_eff.astype(np.float32),
             C_col.astype(np.float32), C_row.astype(np.float32),
