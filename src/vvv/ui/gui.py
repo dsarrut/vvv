@@ -117,6 +117,18 @@ class MainGUI:
     # 2. LAYOUT BUILDERS
     # ==========================================
 
+    def _safe_set(self, tag, value):
+        if dpg.does_item_exist(tag):
+            dpg.set_value(tag, value)
+
+    def _safe_configure(self, tag, **kwargs):
+        if dpg.does_item_exist(tag):
+            dpg.configure_item(tag, **kwargs)
+
+    def _set_enabled(self, enabled, *tags):
+        for tag in tags:
+            self._safe_configure(tag, enabled=enabled)
+
     def build_main_layout(self):
         """Constructs the root window and main subdivisions."""
         with dpg.window(
@@ -667,16 +679,14 @@ class MainGUI:
         self.fusion_ui.sync_fusion_ui()
 
         # Sync Interpolation mode text
-        if dpg.does_item_exist("check_interpolation"):
-            if vs.display.use_voxel_strips:
-                dpg.configure_item("check_interpolation", label="Stripe")
-            elif vs.display.pixelated_zoom:
-                dpg.configure_item("check_interpolation", label="NN")
-            else:
-                dpg.configure_item("check_interpolation", label="Linear")
+        if vs.display.use_voxel_strips:
+            self._safe_configure("check_interpolation", label="Stripe")
+        elif vs.display.pixelated_zoom:
+            self._safe_configure("check_interpolation", label="NN")
+        else:
+            self._safe_configure("check_interpolation", label="Linear")
 
-        if dpg.does_item_exist("menu_item_pixelated"):
-            dpg.set_value("menu_item_pixelated", vs.display.pixelated_zoom)
+        self._safe_set("menu_item_pixelated", vs.display.pixelated_zoom)
 
     def refresh_rois_ui(self):
         """Pass-through bridge to the delegated ROI UI."""
@@ -766,75 +776,32 @@ class MainGUI:
             and len(viewer.view_state.rois) > 0
         )
 
-        ui_states = [
-            (
-                has_image,
-                [
-                    "check_axis",
-                    "check_grid",
-                    "check_tracker",
-                    "check_crosshair",
-                    "check_scalebar",
-                    "check_legend",
-                    "check_filename",
-                    "check_interpolation",
-                    "check_show_contour",
-                    "btn_roi_load",
-                    "combo_roi_mode",
-                    "input_roi_val",
-                ],
-            ),
-            (
-                has_rois,
-                [
-                    "btn_roi_show_all",
-                    "btn_roi_contour_all",
-                    "btn_roi_hide_all",
-                    "btn_roi_export_stats",
-                    "slider_roi_global_opacity",
-                    "slider_roi_global_thickness",
-                ],
-            ),
-            (
+        self._set_enabled(
+            has_image,
+            "check_axis", "check_grid", "check_tracker", "check_crosshair",
+            "check_scalebar", "check_legend", "check_filename", "check_interpolation",
+            "check_show_contour", "btn_roi_load", "combo_roi_mode", "input_roi_val",
+        )
+        self._set_enabled(
+            has_rois,
+            "btn_roi_show_all", "btn_roi_contour_all", "btn_roi_hide_all",
+            "btn_roi_export_stats", "slider_roi_global_opacity", "slider_roi_global_thickness",
+        )
+        if not has_image:
+            self._set_enabled(
                 False,
-                (
-                    [
-                        "combo_fusion_select",
-                        "slider_fusion_opacity",
-                        "input_fusion_threshold",
-                        "combo_fusion_mode",
-                    ]
-                    if not has_image
-                    else []
-                ),
-            ),
-        ]
-
-        # Apply enabled/disabled states
-        for state, tags in ui_states:
-            for t in tags:
-                if dpg.does_item_exist(t):
-                    dpg.configure_item(t, enabled=state)
+                "combo_fusion_select", "slider_fusion_opacity",
+                "input_fusion_threshold", "combo_fusion_mode",
+            )
 
         # Handle early exit UI clearing
         if not has_image:
-            text_tags = [
-                "info_name",
-                "info_size",
-                "info_spacing",
-                "info_origin",
-                "info_memory",
-                "info_voxel_type",
-                "info_matrix",
-                "info_val",
-                "info_vox",
-                "info_phys",
-                "info_ppm",
-                "info_scale",
-            ]
-            for t in text_tags:
-                if dpg.does_item_exist(t):
-                    dpg.set_value(t, "")
+            for t in (
+                "info_name", "info_size", "info_spacing", "info_origin", "info_memory",
+                "info_voxel_type", "info_matrix", "info_val", "info_vox", "info_phys",
+                "info_ppm", "info_scale",
+            ):
+                self._safe_set(t, "")
 
             self.fusion_ui.refresh_fusion_ui()
             return
@@ -854,8 +821,7 @@ class MainGUI:
         dpg.set_value("info_spacing", fmt(vol.spacing, 4))
         dpg.set_value("info_origin", fmt(vol.origin, 2))
         dpg.set_value("info_matrix", vol.matrix_display_str)
-        if dpg.does_item_exist("info_matrix_tooltip"):
-            dpg.set_value("info_matrix_tooltip", vol.matrix_tooltip_str)
+        self._safe_set("info_matrix_tooltip", vol.matrix_tooltip_str)
 
         num_pixels = (
             vol.sitk_image.GetNumberOfPixels()
@@ -990,13 +956,12 @@ class MainGUI:
     def on_toggle_beginner_mode(self, sender, app_data, user_data):
         self.is_beginner_mode = not self.is_beginner_mode
         for tag in self.beginner_tags:
-            if dpg.does_item_exist(tag):
-                dpg.configure_item(tag, show=self.is_beginner_mode)
-        
+            self._safe_configure(tag, show=self.is_beginner_mode)
+
         if hasattr(self, "beginner_sliders"):
+            w = -100 if self.is_beginner_mode else -60
             for tag in self.beginner_sliders:
-                if dpg.does_item_exist(tag):
-                    dpg.configure_item(tag, width=-100 if self.is_beginner_mode else -60)
+                self._safe_configure(tag, width=w)
 
         if self.is_beginner_mode:
             dpg.bind_item_theme(sender, "active_nav_button_theme")
@@ -1012,14 +977,9 @@ class MainGUI:
         # 1. Update Button Highlighting & Show/Hide Content
         for name, tag in self.nav_items:
             btn_tag = f"nav_btn_{tag}"
-
-            # Button theme
             if dpg.does_item_exist(btn_tag):
                 dpg.bind_item_theme(btn_tag, "theme_rounded_nav")
-
-            # Show the selected tool group, hide the rest
-            if dpg.does_item_exist(tag):
-                dpg.configure_item(tag, show=(tag == target_tab_tag))
+            self._safe_configure(tag, show=(tag == target_tab_tag))
 
         # Highlight the clicked button
         if dpg.does_item_exist("active_nav_button_theme"):
@@ -1324,55 +1284,34 @@ class MainGUI:
         has_path = bool(self.current_workspace_path)
 
         # --- Nav: enable/disable Save icon and show current filename ---
-        if dpg.does_item_exist("ws_nav_btn_save"):
-            dpg.configure_item("ws_nav_btn_save", enabled=has_path)
-        if dpg.does_item_exist("ws_nav_filename_text"):
-            if self.current_workspace_path:
-                name = os.path.splitext(os.path.basename(self.current_workspace_path))[
-                    0
-                ]
-            else:
-                name = ""
-            dpg.set_value("ws_nav_filename_text", name)
-            # Left align the text with 5pt spacing
-            dpg.configure_item("ws_nav_filename_text", indent=5)
-        if dpg.does_item_exist("ws_nav_path_tooltip"):
-            dpg.set_value("ws_nav_path_tooltip", self.current_workspace_path or "")
+        self._safe_configure("ws_nav_btn_save", enabled=has_path)
+        if self.current_workspace_path:
+            name = os.path.splitext(os.path.basename(self.current_workspace_path))[0]
+        else:
+            name = ""
+        self._safe_set("ws_nav_filename_text", name)
+        self._safe_configure("ws_nav_filename_text", indent=5)
+        self._safe_set("ws_nav_path_tooltip", self.current_workspace_path or "")
 
         # --- Nav: update Save tooltip with filename + content summary ---
-        if dpg.does_item_exist("ws_save_tooltip_text"):
-            if self.current_workspace_path:
-                name = os.path.basename(self.current_workspace_path)
-                n_images = len(getattr(self.controller, "volumes", {}))
-                n_rois = sum(
-                    len(getattr(vs, "rois", []))
-                    for vs in getattr(self.controller, "view_states", {}).values()
-                )
-                parts = []
-                if n_images:
-                    parts.append(f"{n_images} image{'s' if n_images != 1 else ''}")
-                if n_rois:
-                    parts.append(f"{n_rois} ROI{'s' if n_rois != 1 else ''}")
-                summary = "  ·  ".join(parts) if parts else ""
-                dpg.set_value(
-                    "ws_save_tooltip_text", f"Save Workspace\n{name}\n{summary}"
-                )
-            else:
-                dpg.set_value(
-                    "ws_save_tooltip_text", "Save Workspace\n(no workspace open)"
-                )
-
-        # --- Menu item ---
-        if dpg.does_item_exist("menu_save_workspace"):
-            if self.current_workspace_path:
-                display_name = os.path.basename(self.current_workspace_path)
-                dpg.configure_item(
-                    "menu_save_workspace",
-                    show=True,
-                    label=f"Save Workspace ({display_name})",
-                )
-            else:
-                dpg.configure_item("menu_save_workspace", show=False)
+        if self.current_workspace_path:
+            name = os.path.basename(self.current_workspace_path)
+            n_images = len(getattr(self.controller, "volumes", {}))
+            n_rois = sum(
+                len(getattr(vs, "rois", []))
+                for vs in getattr(self.controller, "view_states", {}).values()
+            )
+            parts = []
+            if n_images:
+                parts.append(f"{n_images} image{'s' if n_images != 1 else ''}")
+            if n_rois:
+                parts.append(f"{n_rois} ROI{'s' if n_rois != 1 else ''}")
+            summary = "  ·  ".join(parts) if parts else ""
+            self._safe_set("ws_save_tooltip_text", f"Save Workspace\n{name}\n{summary}")
+            self._safe_configure("menu_save_workspace", show=True, label=f"Save Workspace ({name})")
+        else:
+            self._safe_set("ws_save_tooltip_text", "Save Workspace\n(no workspace open)")
+            self._safe_configure("menu_save_workspace", show=False)
 
     def on_recent_file_clicked(self, sender, app_data, user_data):
         path = user_data
@@ -1437,33 +1376,26 @@ class MainGUI:
         else:
             nn_label = "NN Interpolation  [K]"
 
-        if dpg.does_item_exist("menu_item_pixelated"):
-            dpg.configure_item("menu_item_pixelated", label=nn_label)
+        self._safe_configure("menu_item_pixelated", label=nn_label)
 
         ll_auto_str = f"Auto ({'On' if (has_fusion and not is_hw) else 'Off'})"
         st_auto_str = f"Auto ({'Single' if has_fusion else 'Dual'})"
         nv_auto_str = "Auto (Native)"
 
-        if dpg.does_item_exist("menu_combo_lazy_lin"):
-            dpg.configure_item("menu_combo_lazy_lin", items=[ll_auto_str, "On", "Off"], enabled=not is_hw)
-            v = cfg.get("lazy_lin", "Auto")
-            dpg.set_value("menu_combo_lazy_lin", ll_auto_str if v == "Auto" else ("On" if v else "Off"))
+        self._safe_configure("menu_combo_lazy_lin", items=[ll_auto_str, "On", "Off"], enabled=not is_hw)
+        v = cfg.get("lazy_lin", "Auto")
+        self._safe_set("menu_combo_lazy_lin", ll_auto_str if v == "Auto" else ("On" if v else "Off"))
 
-        if dpg.does_item_exist("menu_combo_single_tex"):
-            dpg.configure_item("menu_combo_single_tex", items=[st_auto_str, "Single", "Dual"])
-            v = cfg.get("single_texture", "Auto")
-            dpg.set_value("menu_combo_single_tex", st_auto_str if v == "Auto" else ("Single" if v else "Dual"))
+        self._safe_configure("menu_combo_single_tex", items=[st_auto_str, "Single", "Dual"])
+        v = cfg.get("single_texture", "Auto")
+        self._safe_set("menu_combo_single_tex", st_auto_str if v == "Auto" else ("Single" if v else "Dual"))
 
-        if dpg.does_item_exist("menu_combo_native_vox"):
-            dpg.configure_item("menu_combo_native_vox", items=[nv_auto_str, "Native", "Resampled"])
-            v = cfg.get("native_voxel", "Auto")
-            dpg.set_value("menu_combo_native_vox", nv_auto_str if v == "Auto" else ("Native" if v else "Resampled"))
+        self._safe_configure("menu_combo_native_vox", items=[nv_auto_str, "Native", "Resampled"])
+        v = cfg.get("native_voxel", "Auto")
+        self._safe_set("menu_combo_native_vox", nv_auto_str if v == "Auto" else ("Native" if v else "Resampled"))
 
-        if dpg.does_item_exist("menu_check_gl_nearest"):
-            dpg.set_value("menu_check_gl_nearest", cfg.get("gl_nearest", True))
-
-        if dpg.does_item_exist("menu_check_numba"):
-            dpg.set_value("menu_check_numba", cfg.get("numba", True))
+        self._safe_set("menu_check_gl_nearest", cfg.get("gl_nearest", True))
+        self._safe_set("menu_check_numba", cfg.get("numba", True))
 
     def on_adv_rendering_changed(self, sender, app_data, user_data):
         cfg = self.controller.settings.data.setdefault("rendering", {})
