@@ -176,11 +176,11 @@ class ProfileUI:
         mid_phys = (profile.pt1_phys + profile.pt2_phys) / 2.0
         length_mm = np.linalg.norm(profile.pt2_phys - profile.pt1_phys)
 
-        # 2. Adjust Zoom and Center for ALL active viewers of this image via State Targets
+        # 2. Adjust Zoom (60% FOV) and Center for ALL active viewers of this image via State Targets
         win_w = viewer.quad_w - (viewer.mapper.margin_left * 2)
         win_h = viewer.quad_h - (viewer.mapper.margin_top * 2)
         if length_mm > 1e-5 and win_w > 0 and win_h > 0:
-            target_ppm = (min(win_w, win_h) * 0.75) / length_mm
+            target_ppm = (min(win_w, win_h) * 0.60) / length_mm
             vs.camera.target_ppm = target_ppm
 
         # 2. Update physical center and slice index simultaneously

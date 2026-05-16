@@ -26,23 +26,13 @@ class NavigationTool:
 
         # Handle Profile Manipulation Grab
         if button == dpg.mvMouseButton_Left and viewer.profile_mode == ProfileInteractionMode.IDLE:
-            m_pos = dpg.get_drawing_mouse_pos()
-            for p_id, p in viewer.view_state.profiles.items():
-                if not p.visible or p.orientation != viewer.orientation or p.slice_idx != viewer.slice_idx:
-                    continue
-                for handle_key, phys in [("start", p.pt1_phys), ("end", p.pt2_phys)]:
-                    v = viewer.view_state.world_to_display(phys, is_buffered=viewer._is_buffered())
-                    if v is None: continue
-                    sx, sy = voxel_to_slice(v[0], v[1], v[2], viewer.orientation, viewer.get_slice_shape())
-                    # Map voxel coords to screen pixels
-                    pmin, pmax = viewer.current_pmin, viewer.current_pmax
-                    real_h, real_w = viewer.get_slice_shape()
-                    px = (sx / real_w) * (pmax[0] - pmin[0]) + pmin[0]
-                    py = (sy / real_h) * (pmax[1] - pmin[1]) + pmin[1]
-                    if math.hypot(m_pos[0] - px, m_pos[1] - py) < 8.0:
-                        viewer.profile_mode = ProfileInteractionMode.MANIPULATING
-                        viewer.active_profile_id, viewer.active_handle = p_id, handle_key
-                        return
+            p_id, handle_key = self.manager._check_profile_handle_hover(viewer)
+            if p_id:
+                viewer.profile_mode = ProfileInteractionMode.MANIPULATING
+                viewer.active_profile_id, viewer.active_handle = p_id, handle_key
+                # Trigger the viewer's anchor
+                self.drag_viewer.on_mouse_down()
+                return
 
         # Trigger the viewer's anchor
         self.drag_viewer.on_mouse_down()
@@ -160,6 +150,51 @@ class InteractionManager:
     # DPG event routers
     # ==========================================
 
+    def _check_profile_handle_hover(self, viewer):
+        """Returns (profile_id, handle_key) if mouse is near an endpoint, else (None, None)."""
+        if not viewer or not viewer.view_state or not viewer.is_image_orientation():
+            return None, None
+        
+        try:
+            m_pos = dpg.get_drawing_mouse_pos()
+        except Exception:
+            return None, None
+
+        vs = viewer.view_state
+        shape = viewer.get_slice_shape()
+        real_h, real_w = max(1, shape[0]), max(1, shape[1])
+        pmin, pmax = viewer.current_pmin, viewer.current_pmax
+        disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
+        
+        v_idx, _, _, _ = viewer._ORIENTATION_MAP.get(viewer.orientation, (None, 0, None, None))
+        if v_idx is None: return None, None
+        
+        curr_z = viewer.slice_idx
+
+        for p_id, p in vs.profiles.items():
+            if not p.visible: continue
+            
+            # Map points to display voxel space
+            v1 = vs.world_to_display(p.pt1_phys, is_buffered=viewer._is_buffered())
+            v2 = vs.world_to_display(p.pt2_phys, is_buffered=viewer._is_buffered())
+            if v1 is None or v2 is None: continue
+            
+            for handle_key, v_disp in [("start", v1), ("end", v2)]:
+                # Interaction depth tolerance must match drawing tolerance (0.5 voxels)
+                if abs(curr_z - v_disp[v_idx]) > 0.5:
+                    continue
+                
+                # Project to screen pixels
+                tx, ty = voxel_to_slice(v_disp[0], v_disp[1], v_disp[2], viewer.orientation, shape)
+                px = (tx / real_w) * disp_w + pmin[0]
+                py = (ty / real_h) * disp_h + pmin[1]
+                
+                # 10px interaction radius
+                if math.hypot(m_pos[0] - px, m_pos[1] - py) < 10.0:
+                    return p_id, handle_key
+                    
+        return None, None
+
     def on_mouse_click(self, sender, app_data, user_data):
         self.active_tool.on_click(app_data)
 
@@ -183,6 +218,15 @@ class InteractionManager:
 
         # W/L Drag: Shift + Move/Drag or Right-Drag
         is_wl_drag = is_shift or is_right
+        
+        # Profile handle hover cursor
+        hover_viewer = self.get_hovered_viewer()
+        if hover_viewer and not is_wl_drag and not dpg.is_mouse_button_down(dpg.mvMouseButton_Left):
+            p_id, _ = self._check_profile_handle_hover(hover_viewer)
+            if p_id:
+                dpg.set_mouse_cursor(dpg.mvMouseCursor_Hand)
+            else:
+                dpg.set_mouse_cursor(dpg.mvMouseCursor_Arrow)
 
         if is_wl_drag:
             # Use the locked drag target if available so it doesn't break if the mouse leaves the viewer
