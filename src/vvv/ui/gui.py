@@ -1609,6 +1609,7 @@ class MainGUI:
                 "toggle_grid": "Toggle Voxel Grid",
                 "toggle_legend": "Toggle Legend",
                 "hide_all": "Show/Hide Overlays",
+                "add_profile": "Add Intensity Profile",
             }
 
             def format_key(key_name, k):

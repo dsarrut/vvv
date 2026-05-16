@@ -2331,7 +2331,9 @@ class SliceViewer:
                 return
 
         # Profile Tool Keyboard State Machine
-        if key == dpg.mvKey_P:
+        _profile_val = shortcuts.get("add_profile", "P")
+        _profile_key = getattr(dpg, f"mvKey_{_profile_val}", _profile_val) if isinstance(_profile_val, str) else _profile_val
+        if key == _profile_key:
             if self.profile_mode == ProfileInteractionMode.IDLE:
                 if self.view_state:
                     # Create instant horizontal profile in FOV center

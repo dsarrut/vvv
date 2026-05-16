@@ -1,7 +1,7 @@
 import math
 import json
 import dearpygui.dearpygui as dpg
-from vvv.ui.ui_components import build_section_title
+from vvv.ui.ui_components import build_section_title, build_help_button
 from vvv.utils import ViewMode, fmt, voxel_to_slice, slice_to_voxel
 from vvv.ui.file_dialog import save_file_dialog
 from vvv.config import ROI_COLORS
@@ -44,6 +44,14 @@ class ProfileUI:
                     tag="btn_profile_add",
                     enabled=True,
                     callback=self.on_btn_add_clicked,
+                )
+                build_help_button(
+                    "Press P (configurable in Settings > Shortcuts) to add a new\n"
+                    "intensity profile on the active slice. A horizontal line will\n"
+                    "appear at the center of the view.\n\n"
+                    "Drag the endpoints directly on the image to reposition it.\n"
+                    "Click the plot icon () in the list to open the intensity curve.",
+                    gui,
                 )
 
             dpg.add_spacer(height=5)
@@ -330,6 +338,19 @@ class ProfileUI:
             with dpg.tooltip(btn_del):
                 dpg.add_text("Delete profile")
 
+            build_help_button(
+                "Toolbar buttons (left to right):\n"
+                "  [color]  : Change the profile line color\n"
+                "  [close]  : Close this plot window\n"
+                "  [H / V]  : Force the profile horizontal or vertical\n"
+                "  [snap]   : Snap both endpoints to the nearest voxel center\n"
+                "  [goto]   : Center the camera on this profile and zoom to fit\n"
+                "  [up/dn]  : Move the profile up or down one slice\n"
+                "  [delete] : Remove this profile\n\n"
+                "You can also drag the endpoints or the midpoint directly on the image.",
+                self.gui,
+            )
+
         # Orientation display
         ori_str = ORI_MAP.get(profile.orientation, "??")
         dpg.add_text(
@@ -393,6 +414,15 @@ class ProfileUI:
                 width=-1,
                 callback=self.on_export_profile_clicked,
                 user_data=profile.id,
+            )
+            build_help_button(
+                "Fit Plot    : Auto-scales both axes to the current data range\n"
+                "Linear / Log: Toggles the Y axis between linear and log scale\n"
+                "Export JSON : Saves the full profile data (distance, intensity,\n"
+                "              physical coordinates, voxel indices) to a JSON file\n\n"
+                "P1 / P2 (mm): The 3D physical coordinates of each endpoint.\n"
+                "              You can type values directly to reposition precisely.",
+                self.gui,
             )
 
     def _update_plot_header(self, profile):

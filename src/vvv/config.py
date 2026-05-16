@@ -49,6 +49,7 @@ DEFAULT_SETTINGS = {
         "hide_all": "H",
         "time_forward": "Right",
         "time_backward": "Left",
+        "add_profile": "P",
     },
     "interaction": {
         "zoom_speed": 1.1,
