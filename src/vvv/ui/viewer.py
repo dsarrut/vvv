@@ -913,6 +913,7 @@ class SliceViewer:
         vs.camera.show_scalebar = new_state
         vs.camera.show_filename = 1 if new_state else 0
         vs.camera.show_grid = False
+        vs.camera.show_profiles = new_state
         vs.camera.show_contour = new_state
         vs.is_data_dirty = True
 

@@ -651,6 +651,12 @@ class OverlayDrawer:
         pmin, pmax = viewer.current_pmin, viewer.current_pmax
         disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
 
+        # Load profile dimming preferences
+        prof_cfg = viewer.controller.settings.data.get(
+            "profiles", {"dim_opacity": 0.6, "dim_thickness": 1.5}
+        )
+        dim_base_alpha = int(prof_cfg["dim_opacity"] * 255)
+
         for p_id, profile in viewer.view_state.profiles.items():
             if (
                 not profile
@@ -695,10 +701,21 @@ class OverlayDrawer:
                 if s1 and s2:
                     col = list(profile.color)
                     if is_adjacent:
-                        # Gradual dimming over ±6 slices
-                        alpha = int(max(20, 150 - (depth_diff * 20)))
+                        # Gradual dimming over ±6 slices relative to the settings base
+                        alpha = int(
+                            max(
+                                20,
+                                dim_base_alpha - (depth_diff * (dim_base_alpha / 7.5)),
+                            )
+                        )
                         col[3] = alpha
-                        dpg.draw_line(s1, s2, color=col, thickness=1.0, parent=node)
+                        dpg.draw_line(
+                            s1,
+                            s2,
+                            color=col,
+                            thickness=prof_cfg["dim_thickness"],
+                            parent=node,
+                        )
                     else:
                         dpg.draw_line(s1, s2, color=col, thickness=2.0, parent=node)
                         dpg.draw_circle(
