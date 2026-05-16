@@ -1,4 +1,3 @@
-from vvv.utils import ViewMode
 import numpy as np
 
 
@@ -21,15 +20,7 @@ class ProfileManager:
         if dist == 0:
             return None
 
-        sp = vol.spacing  # [x, y, z]
-        if profile.orientation == ViewMode.AXIAL:
-            in_plane = [sp[0], sp[1]]
-        elif profile.orientation == ViewMode.SAGITTAL:
-            in_plane = [sp[1], sp[2]]
-        else:
-            in_plane = [sp[0], sp[2]]
-
-        step = min(in_plane)
+        step = min(vol.spacing)
         num_points = max(2, int(np.ceil(dist / step)) + 1)
 
         t = np.linspace(0, 1, num_points)
@@ -77,22 +68,34 @@ class ProfileManager:
             return []
         distances, intensities, pts_phys, vs, vol = result
 
+        sx, sy, sz = vol.shape3d[2], vol.shape3d[1], vol.shape3d[0]
+
         export_list = []
         for i, phys in enumerate(pts_phys):
             vox = vol.physic_coord_to_voxel_coord(phys)
-            native_vox = vs.world_to_display(phys, is_buffered=False)
+            x, y, z = vox
+            in_bounds = (0.0 <= x <= sx - 1) and (0.0 <= y <= sy - 1) and (0.0 <= z <= sz - 1)
+            display_vox = vs.world_to_display(phys, is_buffered=False)
             export_list.append(
                 {
                     "distance_mm": float(distances[i]),
                     "intensity": float(intensities[i]),
+                    "in_bounds": in_bounds,
                     "point_phys_mm": phys.tolist(),
-                    "point_voxel_index": vox.tolist(),
-                    "point_native_voxel": native_vox.tolist() if native_vox is not None else None,
+                    "point_voxel_coord": vox.tolist(),
+                    "point_voxel_index": [int(round(x)), int(round(y)), int(round(z))],
+                    "point_display_voxel": display_vox.tolist() if display_vox is not None else None,
                 }
             )
 
         return {
             "profile_name": profile.name,
             "image_name": vol.name,
+            "coordinate_systems": {
+                "point_phys_mm": "World-space physical coordinates (mm)",
+                "point_voxel_coord": "Fractional voxel coordinates used for trilinear interpolation (x, y, z)",
+                "point_voxel_index": "Nearest integer voxel index for direct array access (x, y, z)",
+                "point_display_voxel": "Voxel coordinates in un-buffered display space (post-registration, pre-padding)",
+            },
             "data": export_list,
         }
