@@ -704,7 +704,14 @@ class ViewState:
         self.mark_both_dirty()
 
     def update_histogram(self):
-        flat_data = self.volume.data.flatten()
+        data = self.volume.data
+        if getattr(self.volume, "is_dvf", False) and data.ndim >= 4:
+            # DVF shape: (3, z, y, x) or (n_time, 3, z, y, x).
+            # Histogram the displacement magnitude so mixed components are not averaged.
+            vec = data if data.ndim == 4 else data[0]  # (3, z, y, x)
+            flat_data = np.sqrt(np.sum(vec.astype(np.float64) ** 2, axis=0)).flatten()
+        else:
+            flat_data = data.flatten()
         hist, bin_edges = np.histogram(flat_data, bins=256)
         self.hist_data_y = hist.astype(np.float32)
         self.hist_data_x = bin_edges[:-1].astype(np.float32)

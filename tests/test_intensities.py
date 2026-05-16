@@ -1,5 +1,7 @@
 """
 Tests for the WL histogram panel:
+  - DVF images: magnitude histogram instead of mixed-component histogram
+
   - DisplayState histogram fields (defaults, serialization, no-rerender)
   - ViewState.use_log_y property delegation
   - Histogram computation and dirty-flag management
@@ -11,10 +13,14 @@ Tests for the WL histogram panel:
 
 import numpy as np
 import pytest
+import SimpleITK as sitk
 import dearpygui.dearpygui as dpg
 
 from vvv.config import COLORMAPS
 from vvv.core.view_state import DisplayState
+from vvv.core.controller import Controller
+from vvv.ui.gui import MainGUI
+from vvv.ui.viewer import SliceViewer
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -562,3 +568,84 @@ def test_colorscale_pure_numpy_logic():
     assert len(inside) >= 2
     red_inside = colors[inside, 0]
     assert red_inside[0] <= red_inside[-1]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 9. DVF histogram: displacement magnitude, not mixed components
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Vector [3, 4, 0] at voxel (2,2,2) → magnitude = 5.0 (3-4-5 triple)
+_DVF_VEC = np.array([3.0, 4.0, 0.0], dtype=np.float32)
+_DVF_MAG = 5.0
+
+
+@pytest.fixture(scope="module")
+def dvf_viewer(tmp_path_factory):
+    """5×5×5 DVF with one non-zero vector [3,4,0] → magnitude 5.0."""
+    data = np.zeros((5, 5, 5, 3), dtype=np.float32)
+    data[2, 2, 2] = _DVF_VEC
+    sitk_img = sitk.GetImageFromArray(data, isVector=True)
+    sitk_img.SetSpacing((1.0, 1.0, 1.0))
+    path = tmp_path_factory.mktemp("dvf_hist") / "dvf.nrrd"
+    sitk.WriteImage(sitk_img, str(path))
+
+    controller = Controller()
+    for tag in ["V1", "V2", "V3", "V4"]:
+        controller.viewers[tag] = SliceViewer(tag, controller)
+    gui = MainGUI(controller)
+    controller.gui = gui
+    vs_id = controller.file.load_image(str(path))
+    viewer = controller.viewers["V1"]
+    viewer.set_image(vs_id)
+    gui.context_viewer = viewer
+    return viewer
+
+
+def test_dvf_volume_is_detected_as_dvf(dvf_viewer):
+    assert dvf_viewer.volume.is_dvf is True
+    assert dvf_viewer.volume.is_rgb is False
+
+
+def test_dvf_histogram_uses_magnitude_not_components(dvf_viewer):
+    """update_histogram must produce a magnitude distribution, not a mixed
+    flat array of all three displacement components."""
+    vs = dvf_viewer.view_state
+    vs.update_histogram()
+
+    # All voxels except one have zero displacement → magnitude = 0.
+    # One voxel has magnitude = 5.0.
+    # Histogram bins should cover [0, 5] and all counts should be ≥ 0.
+    assert vs.hist_data_x is not None
+    assert vs.hist_data_y is not None
+    assert vs.hist_data_x[0] >= 0.0, "DVF magnitude must be non-negative"
+    assert vs.hist_data_x[-1] >= 0.0
+
+
+def test_dvf_histogram_max_bin_is_near_magnitude(dvf_viewer):
+    """The highest non-zero bin must be close to the known magnitude of 5.0."""
+    vs = dvf_viewer.view_state
+    vs.update_histogram()
+
+    # Find the last occupied bin
+    nonzero = np.where(vs.hist_data_y > 0)[0]
+    assert len(nonzero) > 0
+    last_bin_center = float(vs.hist_data_x[nonzero[-1]])
+    assert last_bin_center == pytest.approx(_DVF_MAG, rel=0.05)
+
+
+def test_dvf_histogram_counts_sum_to_voxel_count(dvf_viewer):
+    """Magnitude histogram must account for every spatial voxel."""
+    vs = dvf_viewer.view_state
+    vs.update_histogram()
+
+    vol = dvf_viewer.volume
+    n_voxels = int(np.prod(vol.data.shape[1:]))  # (z, y, x) only
+    assert int(vs.hist_data_y.sum()) == n_voxels
+
+
+def test_dvf_histogram_all_x_values_non_negative(dvf_viewer):
+    """Magnitude is always ≥ 0; no bin should have a negative center."""
+    vs = dvf_viewer.view_state
+    vs.update_histogram()
+
+    assert float(vs.hist_data_x[0]) >= 0.0
