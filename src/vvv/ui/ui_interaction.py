@@ -1,6 +1,11 @@
 import math
 import numpy as np
-from vvv.utils import ViewMode, ProfileInteractionMode, voxel_to_slice
+from vvv.utils import (
+    ViewMode,
+    ProfileInteractionMode,
+    voxel_to_slice,
+    slice_to_voxel,
+)
 import dearpygui.dearpygui as dpg
 
 
@@ -74,16 +79,26 @@ class NavigationTool:
                     ignore_hover=True, allow_outside=True
                 )
                 if px is not None:
-                    p = self.drag_viewer.view_state.profiles[
-                        self.drag_viewer.active_profile_id
-                    ]
-                    v = self.drag_viewer.view_state.world_to_display(
-                        self.drag_viewer.mouse_phys_coord, is_buffered=False
+                    vs = self.drag_viewer.view_state
+                    p = vs.profiles[self.drag_viewer.active_profile_id]
+
+                    # Calculate physical position directly from slice coords for smoother manipulation
+                    shape = self.drag_viewer.get_slice_shape()
+                    v = slice_to_voxel(
+                        px,
+                        py,
+                        self.drag_viewer.slice_idx,
+                        self.drag_viewer.orientation,
+                        shape,
                     )
+                    phys = vs.display_to_world(
+                        np.array(v), is_buffered=self.drag_viewer._is_buffered()
+                    )
+
                     if self.drag_viewer.active_handle == "start":
-                        p.pt1_phys = self.drag_viewer.mouse_phys_coord.copy()
+                        p.pt1_phys = phys
                     else:
-                        p.pt2_phys = self.drag_viewer.mouse_phys_coord.copy()
+                        p.pt2_phys = phys
 
                     # Trigger real-time plot update
                     self._update_profile_plot(p)
@@ -189,11 +204,13 @@ class InteractionManager:
             return None, None
 
         win_tag = f"win_{viewer.tag}"
-        state = dpg.get_item_state(win_tag)
-        if not state or not state.get("visible"):
+        if not dpg.does_item_exist(win_tag):
             return None, None
 
-        m_pos = state["mouse_pos"]
+        try:
+            m_pos = dpg.get_drawing_mouse_pos()
+        except Exception:
+            return None, None
 
         vs = viewer.view_state
         shape = viewer.get_slice_shape()
@@ -220,19 +237,19 @@ class InteractionManager:
                 continue
 
             for handle_key, v_disp in [("start", v1), ("end", v2)]:
-                # Interaction depth tolerance must match drawing tolerance (0.5 voxels)
+                # 1. Depth Check (must match drawing.py tolerance)
                 if abs(curr_z - v_disp[v_idx]) > 0.5:
                     continue
 
-                # Project to screen pixels
+                # 2. Screen Proximity Check
                 tx, ty = voxel_to_slice(
                     v_disp[0], v_disp[1], v_disp[2], viewer.orientation, shape
                 )
                 px = (tx / real_w) * disp_w + pmin[0]
                 py = (ty / real_h) * disp_h + pmin[1]
 
-                # 10px interaction radius
-                if math.hypot(m_pos[0] - px, m_pos[1] - py) < 10.0:
+                # 12px interaction radius for more forgiving "grabs"
+                if math.hypot(m_pos[0] - px, m_pos[1] - py) < 12.0:
                     return p_id, handle_key
 
         return None, None
@@ -362,22 +379,6 @@ class InteractionManager:
 
         # Safely check if the active tool is currently dragging something
         is_dragging = getattr(self.active_tool, "drag_viewer", None) is not None
-
-        # --- CURSOR MANAGEMENT (Active State Machine) ---
-        if hasattr(dpg, "set_mouse_cursor") and not dpg.is_mouse_button_down(
-            dpg.mvMouseButton_Right
-        ):
-            cursor = dpg.mvMouseCursor_Arrow
-            if (
-                hover_viewer
-                and not is_dragging
-                and hover_viewer.profile_mode == ProfileInteractionMode.IDLE
-            ):
-                p_id, _ = self._check_profile_handle_hover(hover_viewer)
-                if p_id:
-                    cursor = dpg.mvMouseCursor_Hand
-
-            dpg.set_mouse_cursor(cursor)
 
         if mode == "hover":
             if (

@@ -13,8 +13,6 @@ class ViewMode(Enum):
 
 class ProfileInteractionMode(Enum):
     IDLE = auto()
-    DRAWING_START = auto()
-    DRAWING_ACTIVE = auto()
     MANIPULATING = auto()
 
 
@@ -41,7 +39,10 @@ def format_pixel_value(val, vol, time_idx, dvf_precision=2):
         return f"{val[0]:g} {val[1]:g} {val[2]:g}"
     if getattr(vol, "is_dvf", False):
         mag = np.linalg.norm(val)
-        comps = [f"*{v:.{dvf_precision}f}" if i == time_idx else f"{v:.{dvf_precision}f}" for i, v in enumerate(val)]
+        comps = [
+            f"*{v:.{dvf_precision}f}" if i == time_idx else f"{v:.{dvf_precision}f}"
+            for i, v in enumerate(val)
+        ]
         return f"[{' '.join(comps)}] L:{mag:.{dvf_precision}f}"
     return f"{val:g}"
 

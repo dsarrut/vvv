@@ -1,6 +1,13 @@
 import time
 import numpy as np
-from vvv.utils import ViewMode, slice_to_voxel, voxel_to_slice, fmt, format_pixel_value, ProfileInteractionMode
+from vvv.utils import (
+    ViewMode,
+    slice_to_voxel,
+    voxel_to_slice,
+    fmt,
+    format_pixel_value,
+    ProfileInteractionMode,
+)
 import dearpygui.dearpygui as dpg
 from vvv.ui.drawing import OverlayDrawer
 from vvv.maths.image import SliceRenderer, RenderLayer, ROILayer, VolumeData
@@ -57,8 +64,8 @@ class ViewportMapper:
         final_scale = base_scale * zoom
         new_w, new_h = mm_w * final_scale, mm_h * final_scale
 
-        off_x = (target_w - new_w) / 2.0 + pan_offset[0]
-        off_y = (target_h - new_h) / 2.0 + pan_offset[1]
+        off_x = (target_w - new_w) / 2.0 + pan_offset[0] + self.margin_left
+        off_y = (target_h - new_h) / 2.0 + pan_offset[1] + self.margin_top
 
         self.pmin = [off_x, off_y]
         self.pmax = [off_x + new_w, off_y + new_h]
@@ -163,10 +170,12 @@ class SliceViewer:
         self.last_drawn_shape: tuple | None = None
         self.last_pixelated = False
         self.last_nn_mode: NNMode | None = None
-        self.lazy_settle_ms: int = 150   # ms of inactivity before NN re-upload fires
+        self.lazy_settle_ms: int = 150  # ms of inactivity before NN re-upload fires
         self._last_move_time: float = 0.0
         self._nn_settle_done: bool = True
-        self._lazy_live_flag: bool = False  # stable within a tick; avoids time.time() races
+        self._lazy_live_flag: bool = (
+            False  # stable within a tick; avoids time.time() races
+        )
         self._old_texture_to_delete: str | None = None
         self._textures_to_delete: list[str] = []
 
@@ -233,8 +242,7 @@ class SliceViewer:
         # Profile Tool Transient Interaction State
         self.profile_mode = ProfileInteractionMode.IDLE
         self.active_profile_id = None
-        self.temp_mouse_phys = None
-        self.active_handle = None # "start" or "end"
+        self.active_handle = None  # "start" or "end"
 
         # Sub-modules
         self.drawer = OverlayDrawer(self)
@@ -353,9 +361,7 @@ class SliceViewer:
             vs.camera.crosshair_phys_coord, is_buffered=self._is_buffered()
         )
         if v is None:
-            v = vs.world_to_display(
-                vs.camera.crosshair_phys_coord, is_buffered=False
-            )
+            v = vs.world_to_display(vs.camera.crosshair_phys_coord, is_buffered=False)
         return v
 
     def get_display_num_slices(self):
@@ -547,7 +553,7 @@ class SliceViewer:
         self._ov_tex_w, self._ov_tex_h = ov_w, ov_h
 
         # 1. Generate unique tags based on dimensions
-        new_texture_tag    = f"tex_{self.tag}_{base_w}x{base_h}"
+        new_texture_tag = f"tex_{self.tag}_{base_w}x{base_h}"
         new_ov_texture_tag = f"tex_ov_{self.tag}_{ov_w}x{ov_h}"
 
         # Always unhide the parent canvas.
@@ -555,10 +561,14 @@ class SliceViewer:
             dpg.configure_item(self.img_node_tag, show=True)
 
         # 2. If both tags match existing textures, nothing to do
-        base_exists = self.texture_tag == new_texture_tag and dpg.does_item_exist(self.texture_tag)
-        ov_exists   = (hasattr(self, "overlay_texture_tag")
-                       and self.overlay_texture_tag == new_ov_texture_tag
-                       and dpg.does_item_exist(self.overlay_texture_tag))
+        base_exists = self.texture_tag == new_texture_tag and dpg.does_item_exist(
+            self.texture_tag
+        )
+        ov_exists = (
+            hasattr(self, "overlay_texture_tag")
+            and self.overlay_texture_tag == new_ov_texture_tag
+            and dpg.does_item_exist(self.overlay_texture_tag)
+        )
         if base_exists and ov_exists:
             return False
 
@@ -1016,7 +1026,7 @@ class SliceViewer:
         # --- 5. DATA UPLOAD ---
         # texture_changed means a brand-new (empty) texture was just created → must fill it.
         needs_reblend = vs.is_data_dirty or self.is_viewer_data_dirty or texture_changed
-        
+
         needs_nn_remap = False
         if self.is_geometry_dirty and pixelated and not self.should_use_voxels_strips():
             if not is_hw_gl:
@@ -1052,9 +1062,11 @@ class SliceViewer:
             self.is_geometry_dirty = False
 
         # Lazy settle: once the interaction window has expired, restore full NN rendering.
-        if (not self._nn_settle_done
-                and self._last_move_time > 0
-                and time.time() - self._last_move_time >= self.lazy_settle_ms / 1000.0):
+        if (
+            not self._nn_settle_done
+            and self._last_move_time > 0
+            and time.time() - self._last_move_time >= self.lazy_settle_ms / 1000.0
+        ):
             self._nn_settle_done = True
             self._lazy_live_flag = False  # cleared here so next tick sees stable False
             vs_lazy = self.view_state
@@ -1071,7 +1083,8 @@ class SliceViewer:
         vs_center = vs.camera.target_center
 
         ppm_changed = vs_ppm is not None and (
-            self.last_consumed_ppm is None or abs(vs_ppm - self.last_consumed_ppm) > 1e-5
+            self.last_consumed_ppm is None
+            or abs(vs_ppm - self.last_consumed_ppm) > 1e-5
         )
 
         center_changed = False
@@ -1080,7 +1093,8 @@ class SliceViewer:
                 center_changed = True
             else:
                 center_changed = any(
-                    abs(vs_center[i] - self.last_consumed_center[i]) > 1e-5 for i in range(3)
+                    abs(vs_center[i] - self.last_consumed_center[i]) > 1e-5
+                    for i in range(3)
                 )
 
         if ppm_changed or center_changed:
@@ -1281,7 +1295,9 @@ class SliceViewer:
         # Calculate width manually based on string length.
         # (This prevents the 1-frame centering lag caused by get_item_rect_size)
         max_line_len = max(len(line) for line in f_name.split("\n"))
-        tw = max_line_len * 7.2  # 7.2 pixels per char is the standard ImGui font average
+        tw = (
+            max_line_len * 7.2
+        )  # 7.2 pixels per char is the standard ImGui font average
 
         # Center it dynamically at the top of the viewer
         dpg.set_item_pos(
@@ -1395,7 +1411,9 @@ class SliceViewer:
                 # Cache miss — signal worker; suppress overlay_data (stale resample at
                 # a different rotation would look like a ghost in the fusion view).
                 ovs._preview_slice_needed = True
-                return None  # no overlay this frame; worker will deliver the correct one
+                return (
+                    None  # no overlay this frame; worker will deliver the correct one
+                )
 
         return RenderLayer(
             data=vs.display.overlay_data,
@@ -1547,14 +1565,16 @@ class SliceViewer:
                 rois=active_rois,
             )
 
-            self.last_overlay_rgba_flat, self.last_overlay_rgba_shape = SliceRenderer.get_slice_rgba(
-                base=overlay_layer,
-                overlay=None,
-                overlay_opacity=1.0,
-                overlay_mode="Alpha",
-                slice_idx=self.slice_idx - overlay_layer.offset_slice,
-                orientation=self.orientation,
-                rois=[],
+            self.last_overlay_rgba_flat, self.last_overlay_rgba_shape = (
+                SliceRenderer.get_slice_rgba(
+                    base=overlay_layer,
+                    overlay=None,
+                    overlay_opacity=1.0,
+                    overlay_mode="Alpha",
+                    slice_idx=self.slice_idx - overlay_layer.offset_slice,
+                    orientation=self.orientation,
+                    rois=[],
+                )
             )
         else:
             self.last_rgba_flat, self.last_rgba_shape = SliceRenderer.get_slice_rgba(
@@ -1579,19 +1599,27 @@ class SliceViewer:
         if not vs:
             return
 
-        is_pixelated_sw = (self._effective_pixelated_zoom()
-                           and not self._is_hw_gl
-                           and not self.should_use_voxels_strips())
+        is_pixelated_sw = (
+            self._effective_pixelated_zoom()
+            and not self._is_hw_gl
+            and not self.should_use_voxels_strips()
+        )
 
         # --- Normal rendering path ---
         if not is_pixelated_sw:
-            self._safe_set_texture(self.texture_tag, self.last_rgba_flat,
-                                   getattr(self, "_tex_w", 1), getattr(self, "_tex_h", 1))
+            self._safe_set_texture(
+                self.texture_tag,
+                self.last_rgba_flat,
+                getattr(self, "_tex_w", 1),
+                getattr(self, "_tex_h", 1),
+            )
             return
 
         canvas_w, canvas_h = self._get_canvas_size()
         actual_shape = getattr(self, "last_rgba_shape", self.get_slice_shape())
-        rgba_2d = np.asarray(self.last_rgba_flat).reshape(actual_shape[0], actual_shape[1], 4)
+        rgba_2d = np.asarray(self.last_rgba_flat).reshape(
+            actual_shape[0], actual_shape[1], 4
+        )
 
         has_alpha_overlay = (
             vs.display.overlay_id
@@ -1602,41 +1630,75 @@ class SliceViewer:
         is_lazy_live = False
 
         # SW_SINGLE_MERGED: CPU alpha-blend overlay into base before NN scaling
-        if not is_lazy_live and self.nn_mode == NNMode.SW_SINGLE_MERGED and has_alpha_overlay:
-            ov_actual_shape = getattr(self, "last_overlay_rgba_shape", self.get_slice_shape())
-            ov_rgba_2d = np.asarray(self.last_overlay_rgba_flat).reshape(ov_actual_shape[0], ov_actual_shape[1], 4)
+        if (
+            not is_lazy_live
+            and self.nn_mode == NNMode.SW_SINGLE_MERGED
+            and has_alpha_overlay
+        ):
+            ov_actual_shape = getattr(
+                self, "last_overlay_rgba_shape", self.get_slice_shape()
+            )
+            ov_rgba_2d = np.asarray(self.last_overlay_rgba_flat).reshape(
+                ov_actual_shape[0], ov_actual_shape[1], 4
+            )
             rgba_2d = blend_slices_cpu(
-                rgba_2d, ov_rgba_2d,
+                rgba_2d,
+                ov_rgba_2d,
                 vs.display.overlay_opacity,
                 self.active_overlay_shift_x,
                 self.active_overlay_shift_y,
             )
 
-        if not hasattr(self, "_nn_base_buf") or self._nn_base_buf.shape[:2] != (canvas_h, canvas_w):
+        if not hasattr(self, "_nn_base_buf") or self._nn_base_buf.shape[:2] != (
+            canvas_h,
+            canvas_w,
+        ):
             self._nn_base_buf = np.zeros((canvas_h, canvas_w, 4), dtype=np.float32)
             self._nn_base_crop = None
 
         nn_base, crop = compute_software_nearest_neighbor(
-            rgba_2d, self.current_pmin, self.current_pmax, canvas_w, canvas_h,
-            out_buffer=self._nn_base_buf, last_crop=self._nn_base_crop
+            rgba_2d,
+            self.current_pmin,
+            self.current_pmax,
+            canvas_w,
+            canvas_h,
+            out_buffer=self._nn_base_buf,
+            last_crop=self._nn_base_crop,
         )
         self._nn_base_crop = crop
 
         # SW_SINGLE_NATIVE: paint overlay at native voxel resolution into the NN base
-        if not is_lazy_live and self.nn_mode == NNMode.SW_SINGLE_NATIVE and has_alpha_overlay:
-            if nn_base is rgba_2d:  # identity pass returned the slice cache — copy first
-                self._nn_base_buf[:rgba_2d.shape[0], :rgba_2d.shape[1]] = rgba_2d
+        if (
+            not is_lazy_live
+            and self.nn_mode == NNMode.SW_SINGLE_NATIVE
+            and has_alpha_overlay
+        ):
+            if (
+                nn_base is rgba_2d
+            ):  # identity pass returned the slice cache — copy first
+                self._nn_base_buf[: rgba_2d.shape[0], : rgba_2d.shape[1]] = rgba_2d
                 nn_base = self._nn_base_buf
             compute_native_voxel_overlay(
-                self, self.current_pmin, self.current_pmax, canvas_w, canvas_h,
-                target_buffer=nn_base, opacity=vs.display.overlay_opacity
+                self,
+                self.current_pmin,
+                self.current_pmax,
+                canvas_w,
+                canvas_h,
+                target_buffer=nn_base,
+                opacity=vs.display.overlay_opacity,
             )
 
-        self._safe_set_texture(self.texture_tag, nn_base.ravel(),
-                               getattr(self, "_tex_w", 1), getattr(self, "_tex_h", 1))
+        self._safe_set_texture(
+            self.texture_tag,
+            nn_base.ravel(),
+            getattr(self, "_tex_w", 1),
+            getattr(self, "_tex_h", 1),
+        )
 
     def _upload_overlay_texture(self):
-        if not hasattr(self, "overlay_texture_tag") or not dpg.does_item_exist(self.overlay_texture_tag):
+        if not hasattr(self, "overlay_texture_tag") or not dpg.does_item_exist(
+            self.overlay_texture_tag
+        ):
             return
 
         vs = self.view_state
@@ -1646,11 +1708,19 @@ class SliceViewer:
         if self.last_overlay_rgba_flat is None:
             return
 
-        is_sw_nn = self._effective_pixelated_zoom() and not self._is_hw_gl and not self.should_use_voxels_strips()
+        is_sw_nn = (
+            self._effective_pixelated_zoom()
+            and not self._is_hw_gl
+            and not self.should_use_voxels_strips()
+        )
 
         if not is_sw_nn:
-            self._safe_set_texture(self.overlay_texture_tag, self.last_overlay_rgba_flat,
-                                   getattr(self, "_ov_tex_w", 1), getattr(self, "_ov_tex_h", 1))
+            self._safe_set_texture(
+                self.overlay_texture_tag,
+                self.last_overlay_rgba_flat,
+                getattr(self, "_ov_tex_w", 1),
+                getattr(self, "_ov_tex_h", 1),
+            )
             return
 
         # Modes SW_SINGLE_MERGED and SW_SINGLE_NATIVE precomposite the overlay into the
@@ -1665,24 +1735,44 @@ class SliceViewer:
                 self, self.current_pmin, self.current_pmax, canvas_w, canvas_h
             )
             if ov_rgba_display is not None:
-                self._safe_set_texture(self.overlay_texture_tag, ov_rgba_display,
-                                       getattr(self, "_ov_tex_w", 1), getattr(self, "_ov_tex_h", 1))
+                self._safe_set_texture(
+                    self.overlay_texture_tag,
+                    ov_rgba_display,
+                    getattr(self, "_ov_tex_w", 1),
+                    getattr(self, "_ov_tex_h", 1),
+                )
         else:
             # SW_DUAL_RESAMPLED: NN-scale the ITK-resampled overlay
-            ov_actual_shape = getattr(self, "last_overlay_rgba_shape", self.get_slice_shape())
-            ov_rgba_2d = np.asarray(self.last_overlay_rgba_flat).reshape(ov_actual_shape[0], ov_actual_shape[1], 4)
+            ov_actual_shape = getattr(
+                self, "last_overlay_rgba_shape", self.get_slice_shape()
+            )
+            ov_rgba_2d = np.asarray(self.last_overlay_rgba_flat).reshape(
+                ov_actual_shape[0], ov_actual_shape[1], 4
+            )
 
-            if not hasattr(self, "_nn_ov_buf") or self._nn_ov_buf.shape[:2] != (canvas_h, canvas_w):
+            if not hasattr(self, "_nn_ov_buf") or self._nn_ov_buf.shape[:2] != (
+                canvas_h,
+                canvas_w,
+            ):
                 self._nn_ov_buf = np.zeros((canvas_h, canvas_w, 4), dtype=np.float32)
                 self._nn_ov_crop = None
 
             nn_ov, crop = compute_software_nearest_neighbor(
-                ov_rgba_2d, self.current_pmin, self.current_pmax, canvas_w, canvas_h,
-                out_buffer=self._nn_ov_buf, last_crop=self._nn_ov_crop
+                ov_rgba_2d,
+                self.current_pmin,
+                self.current_pmax,
+                canvas_w,
+                canvas_h,
+                out_buffer=self._nn_ov_buf,
+                last_crop=self._nn_ov_crop,
             )
             self._nn_ov_crop = crop
-            self._safe_set_texture(self.overlay_texture_tag, nn_ov.ravel(),
-                                   getattr(self, "_ov_tex_w", 1), getattr(self, "_ov_tex_h", 1))
+            self._safe_set_texture(
+                self.overlay_texture_tag,
+                nn_ov.ravel(),
+                getattr(self, "_ov_tex_w", 1),
+                getattr(self, "_ov_tex_h", 1),
+            )
 
     def _safe_set_texture(self, tag: str, data, tex_w: int, tex_h: int) -> bool:
         """Upload data to a DPG texture after validating the buffer size matches.
@@ -1776,7 +1866,9 @@ class SliceViewer:
         if self.should_use_voxels_strips() and self.last_rgba_flat is not None:
             if dpg.does_item_exist(self.image_tag):
                 dpg.configure_item(self.image_tag, show=False)
-            if hasattr(self, "overlay_image_tag") and dpg.does_item_exist(self.overlay_image_tag):
+            if hasattr(self, "overlay_image_tag") and dpg.does_item_exist(
+                self.overlay_image_tag
+            ):
                 dpg.configure_item(self.overlay_image_tag, show=False)
             self.drawer.draw_voxels_as_strips(self.last_rgba_flat, h, w)
             return
@@ -1799,24 +1891,35 @@ class SliceViewer:
         # On Linux/Windows GL_NEAREST handles NN upscaling so the slice-sized texture is
         # positioned at its physical screen extent. On macOS the canvas-sized NN texture
         # covers the full canvas instead.
-        is_sw_nn = self._effective_pixelated_zoom() and not self._is_hw_gl and not self.should_use_voxels_strips()
+        is_sw_nn = (
+            self._effective_pixelated_zoom()
+            and not self._is_hw_gl
+            and not self.should_use_voxels_strips()
+        )
 
         if is_sw_nn:
             canvas_w, canvas_h = self._get_canvas_size()
             dpg.configure_item(self.image_tag, pmin=[0, 0], pmax=[canvas_w, canvas_h])
         else:
-            dpg.configure_item(self.image_tag, pmin=self.current_pmin, pmax=self.current_pmax)
+            dpg.configure_item(
+                self.image_tag, pmin=self.current_pmin, pmax=self.current_pmax
+            )
 
         if has_overlay:
-            is_precomposited = is_sw_nn and self.nn_mode in (NNMode.SW_SINGLE_MERGED, NNMode.SW_SINGLE_NATIVE)
+            is_precomposited = is_sw_nn and self.nn_mode in (
+                NNMode.SW_SINGLE_MERGED,
+                NNMode.SW_SINGLE_NATIVE,
+            )
             if is_precomposited:
                 dpg.configure_item(self.overlay_image_tag, show=False)
             elif is_sw_nn:
                 canvas_w, canvas_h = self._get_canvas_size()
                 dpg.configure_item(
                     self.overlay_image_tag,
-                    pmin=[0, 0], pmax=[canvas_w, canvas_h],
-                    color=[255, 255, 255, op], show=True,
+                    pmin=[0, 0],
+                    pmax=[canvas_w, canvas_h],
+                    color=[255, 255, 255, op],
+                    show=True,
                 )
             else:
                 disp_w = self.current_pmax[0] - self.current_pmin[0]
@@ -1825,11 +1928,20 @@ class SliceViewer:
                 shift_y = self.active_overlay_shift_y * (disp_h / h) if h > 0 else 0
                 dpg.configure_item(
                     self.overlay_image_tag,
-                    pmin=[self.current_pmin[0] + shift_x, self.current_pmin[1] + shift_y],
-                    pmax=[self.current_pmax[0] + shift_x, self.current_pmax[1] + shift_y],
-                    color=[255, 255, 255, op], show=True,
+                    pmin=[
+                        self.current_pmin[0] + shift_x,
+                        self.current_pmin[1] + shift_y,
+                    ],
+                    pmax=[
+                        self.current_pmax[0] + shift_x,
+                        self.current_pmax[1] + shift_y,
+                    ],
+                    color=[255, 255, 255, op],
+                    show=True,
                 )
-        elif hasattr(self, "overlay_image_tag") and dpg.does_item_exist(self.overlay_image_tag):
+        elif hasattr(self, "overlay_image_tag") and dpg.does_item_exist(
+            self.overlay_image_tag
+        ):
             dpg.configure_item(self.overlay_image_tag, show=False)
 
     def update_stuff_in_image_only(self):
@@ -1873,7 +1985,7 @@ class SliceViewer:
             if vs._preview_R is not None and not getattr(vol, "is_dvf", False):
                 key = (self.orientation, self.slice_idx)
                 preview_2d = self._preview_slices.get(key)
-            
+
             if preview_2d is not None:
                 slice_data = preview_2d
             else:
@@ -1883,7 +1995,11 @@ class SliceViewer:
                     else vol.data
                 )
                 slice_data = SliceRenderer.get_raw_slice(
-                    display_data, False, vs.camera.time_idx, self.slice_idx, self.orientation
+                    display_data,
+                    False,
+                    vs.camera.time_idx,
+                    self.slice_idx,
+                    self.orientation,
                 )
 
             self.controller.extraction.update_preview(
@@ -1894,7 +2010,7 @@ class SliceViewer:
                 ext.threshold_max,
                 self.orientation,
                 self.slice_idx,
-                slice_data
+                slice_data,
             )
 
         self.controller.roi.update_roi_contours(self)
@@ -1955,10 +2071,6 @@ class SliceViewer:
             return
         self._last_tracker_state = tracker_state
 
-        # Update live drawing cursor position
-        if self.profile_mode == ProfileInteractionMode.DRAWING_ACTIVE:
-            self.temp_mouse_phys = self.mouse_phys_coord
-
         # 1. LOCAL VIEWER: Are we the active hover source?
         pix_x, pix_y = self.get_mouse_slice_coords(
             ignore_hover=is_dragging, allow_outside=is_dragging
@@ -1972,9 +2084,7 @@ class SliceViewer:
             idx = self.slice_idx
             shape = self.get_slice_shape()
             v = slice_to_voxel(pix_x, pix_y, idx, self.orientation, shape)
-            phys = vs.display_to_world(
-                np.array(v), is_buffered=self._is_buffered()
-            )
+            phys = vs.display_to_world(np.array(v), is_buffered=self._is_buffered())
 
             # Clear our own passive target so we don't fight ourselves
             vs.camera.target_tracker_phys = None
@@ -2039,8 +2149,14 @@ class SliceViewer:
                 ov_val = info["overlay_val"]
                 ov_vol = self.controller.volumes.get(vs.display.overlay_id)
                 ov_vs = self.controller.view_states.get(vs.display.overlay_id)
-                ov_dvf_prec = ov_vs.dvf.vector_precision if (ov_vs and getattr(ov_vol, "is_dvf", False)) else 2
-                text_lines[0] += f" ({format_pixel_value(ov_val, ov_vol, time_idx, ov_dvf_prec)})"
+                ov_dvf_prec = (
+                    ov_vs.dvf.vector_precision
+                    if (ov_vs and getattr(ov_vol, "is_dvf", False))
+                    else 2
+                )
+                text_lines[
+                    0
+                ] += f" ({format_pixel_value(ov_val, ov_vol, time_idx, ov_dvf_prec)})"
 
             if info["rois"]:
                 text_lines[0] += f"  {', '.join(info['rois'])}"
@@ -2216,40 +2332,55 @@ class SliceViewer:
         # Profile Tool Keyboard State Machine
         if key == dpg.mvKey_P:
             if self.profile_mode == ProfileInteractionMode.IDLE:
-                self.profile_mode = ProfileInteractionMode.DRAWING_START
-                self.controller.status_message = "Profile: Click Space to start line"
-                self.controller.ui_needs_refresh = True
+                if self.view_state:
+                    # Create instant horizontal profile in FOV center
+                    shape = self.get_slice_shape()
+                    real_h, real_w = shape[0], shape[1]
+                    can_w, can_h = self._get_canvas_size()
+                    if can_w <= 0:
+                        return
 
-        elif key == dpg.mvKey_Spacebar:
-            if self.profile_mode == ProfileInteractionMode.DRAWING_START:
-                if self.mouse_phys_coord is not None:
+                    mx_mid, my_mid = can_w / 2.0, can_h / 2.0
+                    line_len_px = can_w * (2.0 / 3.0)
+
+                    sx1, sy1 = self.mapper.screen_to_image(
+                        mx_mid - line_len_px / 2.0,
+                        my_mid,
+                        real_w,
+                        real_h,
+                        allow_outside=True,
+                    )
+                    sx2, sy2 = self.mapper.screen_to_image(
+                        mx_mid + line_len_px / 2.0,
+                        my_mid,
+                        real_w,
+                        real_h,
+                        allow_outside=True,
+                    )
+                    if sx1 is None or sx2 is None:
+                        return
+
                     p = ProfileLineState()
                     p.id = dpg.generate_uuid()
                     p.name = f"Profile {len(self.view_state.profiles) + 1}"
-                    p.pt1_phys = self.mouse_phys_coord.copy()
-                    p.pt2_phys = self.mouse_phys_coord.copy()
+                    v1 = slice_to_voxel(
+                        sx1, sy1, self.slice_idx, self.orientation, shape
+                    )
+                    v2 = slice_to_voxel(
+                        sx2, sy2, self.slice_idx, self.orientation, shape
+                    )
+                    is_buf = self._is_buffered()
+                    p.pt1_phys = self.view_state.display_to_world(
+                        v1, is_buffered=is_buf
+                    )
+                    p.pt2_phys = self.view_state.display_to_world(
+                        v2, is_buffered=is_buf
+                    )
                     p.orientation = self.orientation
                     p.slice_idx = self.slice_idx
                     self.view_state.profiles[p.id] = p
-                    self.active_profile_id = p.id
-                    self.profile_mode = ProfileInteractionMode.DRAWING_ACTIVE
-                    self.controller.status_message = "type space to finish the profile"
-            elif self.profile_mode == ProfileInteractionMode.DRAWING_ACTIVE:
-                if self.temp_mouse_phys is not None:
-                    p = self.view_state.profiles[self.active_profile_id]
-                    p.pt2_phys = self.temp_mouse_phys.copy()
-                    self.profile_mode = ProfileInteractionMode.IDLE
                     self.controller.gui.profile_ui.on_profile_clicked(None, None, p.id)
                     self.controller.status_message = "Profile created"
-                    self.controller.ui_needs_refresh = True
-
-        elif key == dpg.mvKey_Escape:
-            if self.profile_mode in (ProfileInteractionMode.DRAWING_ACTIVE, ProfileInteractionMode.DRAWING_START):
-                if self.active_profile_id in self.view_state.profiles:
-                    del self.view_state.profiles[self.active_profile_id]
-                self.profile_mode = ProfileInteractionMode.IDLE
-                self.active_profile_id = None
-                self.controller.status_message = "Profile creation cancelled"
                 self.controller.ui_needs_refresh = True
 
         # Secret developer debugging bindings
@@ -2258,11 +2389,16 @@ class SliceViewer:
                 cfg = self.controller.settings.data.setdefault("rendering", {})
                 st = cfg.get("single_texture", "Auto")
                 nv = cfg.get("native_voxel", "Auto")
-                if st == "Auto": st, nv = True, True
-                elif st is True and nv is True: st, nv = True, False
-                elif st is True and nv is False: st, nv = False, False
-                elif st is False and nv is False: st, nv = False, True
-                else: st, nv = "Auto", "Auto"
+                if st == "Auto":
+                    st, nv = True, True
+                elif st is True and nv is True:
+                    st, nv = True, False
+                elif st is True and nv is False:
+                    st, nv = False, False
+                elif st is False and nv is False:
+                    st, nv = False, True
+                else:
+                    st, nv = "Auto", "Auto"
                 cfg["single_texture"] = st
                 cfg["native_voxel"] = nv
                 self.controller.save_settings()
@@ -2275,9 +2411,12 @@ class SliceViewer:
             if key == dpg.mvKey_T:
                 cfg = self.controller.settings.data.setdefault("rendering", {})
                 ll = cfg.get("lazy_lin", "Auto")
-                if ll == "Auto": ll = True
-                elif ll is True: ll = False
-                else: ll = "Auto"
+                if ll == "Auto":
+                    ll = True
+                elif ll is True:
+                    ll = False
+                else:
+                    ll = "Auto"
                 cfg["lazy_lin"] = ll
                 self.controller.save_settings()
                 self.controller._flag_all_viewers_dirty()
@@ -2288,9 +2427,6 @@ class SliceViewer:
                 return
 
     def on_scroll(self, delta=1):
-        if self.profile_mode == ProfileInteractionMode.DRAWING_ACTIVE:
-            return # Lock plane
-
         vs = self.view_state
         vol = self.volume
         if (
@@ -2365,9 +2501,18 @@ class SliceViewer:
         is_button_left = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
         is_button_mid = dpg.is_mouse_button_down(dpg.mvMouseButton_Middle)
 
-        is_cmd = dpg.is_key_down(getattr(dpg, "mvKey_LWin", 343)) or dpg.is_key_down(getattr(dpg, "mvKey_RWin", 347)) or dpg.is_key_down(343) or dpg.is_key_down(347)
-        is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl)
-        is_shift = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(dpg.mvKey_RShift)
+        is_cmd = (
+            dpg.is_key_down(getattr(dpg, "mvKey_LWin", 343))
+            or dpg.is_key_down(getattr(dpg, "mvKey_RWin", 347))
+            or dpg.is_key_down(343)
+            or dpg.is_key_down(347)
+        )
+        is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(
+            dpg.mvKey_RControl
+        )
+        is_shift = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(
+            dpg.mvKey_RShift
+        )
 
         is_pan_mod = is_cmd or is_ctrl
         is_pan_drag = (is_pan_mod and is_button_left) or is_button_mid
@@ -2375,15 +2520,25 @@ class SliceViewer:
         if not is_pan_drag and not is_shift and is_button_left:
             px, py = self.get_mouse_slice_coords(ignore_hover=True, allow_outside=True)
             if px is not None:
-                # Performance: Dragging the crosshair forces other orthogonal synced viewers 
-                # to slice rapidly. To keep the crosshair drag at 60fps, we selectively trigger 
+                # Performance: Dragging the crosshair forces other orthogonal synced viewers
+                # to slice rapidly. To keep the crosshair drag at 60fps, we selectively trigger
                 # lazy modes on them, but keep the active viewer perfectly sharp.
                 now = time.time()
                 my_vs = self.view_state
                 for v in self.controller.viewers.values():
                     if v.orientation != self.orientation and v.lazy_lin:
                         v_vs = v.view_state
-                        if v_vs and my_vs and (v.image_id == self.image_id or (my_vs.sync_group > 0 and my_vs.sync_group == v_vs.sync_group)):
+                        if (
+                            v_vs
+                            and my_vs
+                            and (
+                                v.image_id == self.image_id
+                                or (
+                                    my_vs.sync_group > 0
+                                    and my_vs.sync_group == v_vs.sync_group
+                                )
+                            )
+                        ):
                             v._last_move_time = now
                             v._nn_settle_done = False
                             v._lazy_live_flag = True
