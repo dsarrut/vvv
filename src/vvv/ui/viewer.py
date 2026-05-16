@@ -2233,7 +2233,7 @@ class SliceViewer:
                     self.view_state.profiles[p.id] = p
                     self.active_profile_id = p.id
                     self.profile_mode = ProfileInteractionMode.DRAWING_ACTIVE
-                    self.controller.status_message = "Profile: Click Space to finish"
+                    self.controller.status_message = "type space to finish the profile"
             elif self.profile_mode == ProfileInteractionMode.DRAWING_ACTIVE:
                 if self.temp_mouse_phys is not None:
                     p = self.view_state.profiles[self.active_profile_id]

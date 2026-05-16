@@ -647,6 +647,13 @@ class OverlayDrawer:
         pmin, pmax = viewer.current_pmin, viewer.current_pmax
         disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
 
+        # Case: Dim other viewers during active profile creation
+        is_any_drawing = any(v.profile_mode != ProfileInteractionMode.IDLE for v in viewer.controller.viewers.values())
+        if is_any_drawing and viewer.profile_mode == ProfileInteractionMode.IDLE:
+            # Draw a dark transparent rectangle over the entire viewer area
+            dpg.draw_rectangle([0, 0], [viewer.quad_w, viewer.quad_h], 
+                               color=[0, 0, 0, 160], fill=[0, 0, 0, 160], parent=node)
+
         for p_id, profile in viewer.view_state.profiles.items():
             if not profile or not profile.visible or profile.pt1_phys is None or profile.pt2_phys is None:
                 continue

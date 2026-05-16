@@ -1,6 +1,8 @@
+import json
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import build_section_title
 from vvv.utils import ViewMode, fmt
+from vvv.ui.file_dialog import save_file_dialog
 import numpy as np
 
 class ProfileUI:
@@ -69,11 +71,13 @@ class ProfileUI:
                 )
                 
                 # Name (clickable)
-                dpg.add_selectable(
-                    label=profile.name,
+                dpg.add_input_text(
+                    default_value=profile.name,
                     user_data=p_id,
-                    callback=self.on_profile_clicked
+                    callback=self.on_profile_name_changed,
+                    on_enter=True
                 )
+                dpg.add_button(label="\uf08e", user_data=p_id, callback=self.on_profile_clicked)
                 
                 # Goto button
                 btn_goto = dpg.add_button(label="\uf05b", user_data=p_id, callback=self.on_goto_clicked)
@@ -102,6 +106,17 @@ class ProfileUI:
             viewer.view_state.is_geometry_dirty = True
             self.controller.ui_needs_refresh = True
 
+    def on_profile_name_changed(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+        profile = viewer.view_state.profiles.get(user_data)
+        if profile:
+            profile.name = app_data
+            win_tag = f"plot_win_{profile.id}"
+            if dpg.does_item_exist(win_tag):
+                dpg.configure_item(win_tag, label=f"Profile: {profile.name}")
+
     def on_profile_clicked(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer
         if not viewer or not viewer.view_state:
@@ -120,18 +135,59 @@ class ProfileUI:
         if distances is None or intensities is None:
             return
 
-        with dpg.window(tag=win_tag, label=f"Profile: {profile.name}", width=400, height=300, on_close=self.on_plot_closed, user_data=profile.id):
-            with dpg.plot(label="", height=-1, width=-1):
+        with dpg.window(tag=win_tag, label=f"Profile: {profile.name}", width=450, height=550, on_close=self.on_plot_closed, user_data=profile.id):
+            with dpg.group(horizontal=True):
+                btn_center = dpg.add_button(label="\uf05b", callback=self.on_goto_clicked, user_data=profile.id)
+                if dpg.does_item_exist("icon_font_tag"):
+                    dpg.bind_item_font(btn_center, "icon_font_tag")
+                
+                btn_export = dpg.add_button(label="\uf0c7 Export JSON", callback=self.on_export_profile_clicked, user_data=profile.id)
+                if dpg.does_item_exist("icon_font_tag"):
+                    dpg.bind_item_font(btn_export, "icon_font_tag")
+                if dpg.does_item_exist("icon_button_theme"):
+                    dpg.bind_item_theme(btn_export, "icon_button_theme")
+
+            dpg.add_spacer(height=5)
+
+            with dpg.plot(label="", height=300, width=-1):
                 dpg.add_plot_axis(dpg.mvXAxis, label="Distance (mm)", tag=f"xaxis_{profile.id}")
                 y_axis = dpg.add_plot_axis(dpg.mvYAxis, label="Intensity", tag=f"yaxis_{profile.id}")
                 dpg.add_line_series(distances, intensities, label=profile.name, parent=y_axis, tag=f"series_{profile.id}")
             
             dpg.add_separator()
-            dpg.add_text("P1: ---", tag=f"text_info_p1_{profile.id}")
-            dpg.add_text("P2: ---", tag=f"text_info_p2_{profile.id}")
+            
+            for i in [1, 2]:
+                with dpg.group(horizontal=True):
+                    dpg.add_text(f"P{i} (mm):")
+                    dpg.add_input_floatx(
+                        tag=f"input_phys_p{i}_{profile.id}",
+                        size=3, width=-1,
+                        callback=self.on_profile_coord_edited,
+                        user_data={"id": profile.id, "pt": i}
+                    )
+                dpg.add_text("Voxel: [---]", tag=f"text_vox_p{i}_{profile.id}", color=self.gui.ui_cfg["colors"]["text_dim"])
         
         profile.plot_open = True
         self.update_plot_info(viewer.image_id, profile)
+
+    def on_export_profile_clicked(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.image_id: return
+        
+        profile = viewer.view_state.profiles.get(user_data)
+        if not profile: return
+
+        default_name = f"profile_{profile.name.replace(' ', '_')}.json"
+        file_path = save_file_dialog("Export Profile Data", default_name=default_name)
+        
+        if file_path:
+            data = self.controller.profiles.get_full_export_data(viewer.image_id, profile)
+            try:
+                with open(file_path, "w") as f:
+                    json.dump(data, f, indent=4)
+                self.gui.show_status_message(f"Exported: {profile.name}")
+            except Exception as e:
+                self.gui.show_message("Export Failed", str(e))
 
     def update_plot_info(self, vs_id, profile):
         vs = self.controller.view_states.get(vs_id)
@@ -139,15 +195,39 @@ class ProfileUI:
             return
             
         for i, pt_phys in enumerate([profile.pt1_phys, profile.pt2_phys], 1):
-            tag = f"text_info_p{i}_{profile.id}"
-            if dpg.does_item_exist(tag):
-                # Physical coords
-                phys_str = fmt(pt_phys, 1)
-                # Native Voxel coords
+            input_tag = f"input_phys_p{i}_{profile.id}"
+            vox_tag = f"text_vox_p{i}_{profile.id}"
+            
+            if dpg.does_item_exist(input_tag) and not dpg.is_item_active(input_tag):
+                dpg.set_value(input_tag, pt_phys.tolist())
+                
+            if dpg.does_item_exist(vox_tag):
                 v_native = vs.world_to_display(pt_phys, is_buffered=False)
                 vox_str = fmt(v_native, 1) if v_native is not None else "Out"
-                
-                dpg.set_value(tag, f"P{i}: {phys_str} mm | Voxel: [{vox_str}]")
+                dpg.set_value(vox_tag, f"Voxel: [{vox_str}]")
+
+    def on_profile_coord_edited(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+            
+        p_id, pt_idx = user_data["id"], user_data["pt"]
+        profile = viewer.view_state.profiles.get(p_id)
+        if not profile:
+            return
+            
+        new_val = np.array(app_data)
+        if pt_idx == 1:
+            profile.pt1_phys = new_val
+        else:
+            profile.pt2_phys = new_val
+            
+        # Update plot and visual clues
+        viewer.is_geometry_dirty = True
+        self.update_plot_info(viewer.image_id, profile)
+        distances, intensities = self.controller.profiles.get_profile_data(viewer.image_id, profile)
+        if distances:
+            dpg.set_value(f"series_{profile.id}", [distances, intensities])
 
     def on_btn_add_clicked(self, sender, app_data, user_data):
         if self.gui.context_viewer:
