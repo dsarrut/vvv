@@ -1,5 +1,6 @@
 import math
-from vvv.utils import ViewMode
+import numpy as np
+from vvv.utils import ViewMode, ProfileInteractionMode, voxel_to_slice
 import dearpygui.dearpygui as dpg
 
 
@@ -23,6 +24,26 @@ class NavigationTool:
         self.drag_viewer = viewer
         self.manager.gui.set_context_viewer(viewer)
 
+        # Handle Profile Manipulation Grab
+        if button == dpg.mvMouseButton_Left and viewer.profile_mode == ProfileInteractionMode.IDLE:
+            m_pos = dpg.get_drawing_mouse_pos()
+            for p_id, p in viewer.view_state.profiles.items():
+                if not p.visible or p.orientation != viewer.orientation or p.slice_idx != viewer.slice_idx:
+                    continue
+                for handle_key, phys in [("start", p.pt1_phys), ("end", p.pt2_phys)]:
+                    v = viewer.view_state.world_to_display(phys, is_buffered=viewer._is_buffered())
+                    if v is None: continue
+                    sx, sy = voxel_to_slice(v[0], v[1], v[2], viewer.orientation, viewer.get_slice_shape())
+                    # Map voxel coords to screen pixels
+                    pmin, pmax = viewer.current_pmin, viewer.current_pmax
+                    real_h, real_w = viewer.get_slice_shape()
+                    px = (sx / real_w) * (pmax[0] - pmin[0]) + pmin[0]
+                    py = (sy / real_h) * (pmax[1] - pmin[1]) + pmin[1]
+                    if math.hypot(m_pos[0] - px, m_pos[1] - py) < 8.0:
+                        viewer.profile_mode = ProfileInteractionMode.MANIPULATING
+                        viewer.active_profile_id, viewer.active_handle = p_id, handle_key
+                        return
+
         # Trigger the viewer's anchor
         self.drag_viewer.on_mouse_down()
 
@@ -42,6 +63,21 @@ class NavigationTool:
 
     def on_drag(self, drag_data):
         if self.drag_viewer:
+            if self.drag_viewer.profile_mode == ProfileInteractionMode.MANIPULATING:
+                px, py = self.drag_viewer.get_mouse_slice_coords(ignore_hover=True, allow_outside=True)
+                if px is not None:
+                    p = self.drag_viewer.view_state.profiles[self.drag_viewer.active_profile_id]
+                    v = self.drag_viewer.view_state.world_to_display(self.drag_viewer.mouse_phys_coord, is_buffered=False)
+                    if self.drag_viewer.active_handle == "start":
+                        p.pt1_phys = self.drag_viewer.mouse_phys_coord.copy()
+                    else:
+                        p.pt2_phys = self.drag_viewer.mouse_phys_coord.copy()
+                    
+                    # Trigger real-time plot update
+                    self._update_profile_plot(p)
+                    self.drag_viewer.is_geometry_dirty = True
+                return
+                
             self.drag_viewer.on_drag(drag_data)
 
     def on_release(self, button):
@@ -50,8 +86,18 @@ class NavigationTool:
             self.drag_viewer.drag_start_mouse = None
             self.drag_viewer.drag_start_pan = None
             self.drag_viewer.last_dx, self.drag_viewer.last_dy = 0, 0
-
+            
+            if self.drag_viewer.profile_mode == ProfileInteractionMode.MANIPULATING:
+                self.drag_viewer.profile_mode = ProfileInteractionMode.IDLE
+                
             self.drag_viewer = None
+
+    def _update_profile_plot(self, profile):
+        win_tag = f"plot_win_{profile.id}"
+        if dpg.does_item_exist(win_tag):
+            distances, intensities = self.manager.controller.profiles.get_profile_data(self.drag_viewer.image_id, profile)
+            if distances:
+                dpg.set_value(f"series_{profile.id}", [distances, intensities])
 
     def on_scroll(self, delta):
         target = self.manager.get_hovered_viewer()

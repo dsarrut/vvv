@@ -11,6 +11,13 @@ class ViewMode(Enum):
     HISTOGRAM = auto()
 
 
+class ProfileInteractionMode(Enum):
+    IDLE = auto()
+    DRAWING_START = auto()
+    DRAWING_ACTIVE = auto()
+    MANIPULATING = auto()
+
+
 def fmt(values, precision=3):
     if isinstance(values, (int, float, np.number)):
         return f"{round(float(values), precision):g}"

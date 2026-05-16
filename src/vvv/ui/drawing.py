@@ -1,7 +1,7 @@
 import numpy as np
 from vvv.config import COLORMAPS
 import dearpygui.dearpygui as dpg
-from vvv.utils import voxel_to_slice, ViewMode
+from vvv.utils import voxel_to_slice, ViewMode, ProfileInteractionMode
 
 
 class OverlayDrawer:
@@ -619,6 +619,14 @@ class OverlayDrawer:
         dpg.configure_item(node, show=True)
 
     def draw_profiles(self):
+        def get_screen_pos(phys):
+            v = viewer.view_state.world_to_display(phys, is_buffered=viewer._is_buffered())
+            if v is None: return None
+            tx, ty = voxel_to_slice(v[0], v[1], v[2], viewer.orientation, shape)
+            sx = (tx / real_w) * disp_w + pmin[0]
+            sy = (ty / real_h) * disp_h + pmin[1]
+            return [sx, sy]
+
         viewer = self.viewer
 
         if (
@@ -635,45 +643,26 @@ class OverlayDrawer:
             return
 
         dpg.delete_item(node, children_only=True)
+        shape = viewer.get_slice_shape()
+        real_h, real_w = max(1, shape[0]), max(1, shape[1])
+        pmin, pmax = viewer.current_pmin, viewer.current_pmax
+        disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
 
         for p_id, profile in viewer.view_state.profiles.items():
-            if not profile.visible:
+            if not profile.visible or profile.orientation != viewer.orientation or profile.slice_idx != viewer.slice_idx:
                 continue
-            if profile.orientation != viewer.orientation:
-                continue
-            if profile.slice_idx != viewer.slice_idx:
-                continue
-            if profile.pt1_phys is None or profile.pt2_phys is None:
-                continue
-
-            v1 = viewer.view_state.world_to_display(profile.pt1_phys, is_buffered=viewer._is_buffered())
-            v2 = viewer.view_state.world_to_display(profile.pt2_phys, is_buffered=viewer._is_buffered())
             
-            if v1 is None or v2 is None:
-                continue
-
-            shape = viewer.get_slice_shape()
-            t1x, t1y = voxel_to_slice(v1[0], v1[1], v1[2], viewer.orientation, shape)
-            t2x, t2y = voxel_to_slice(v2[0], v2[1], v2[2], viewer.orientation, shape)
-
-            pmin, pmax = viewer.current_pmin, viewer.current_pmax
-            disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
+            s1 = get_screen_pos(profile.pt1_phys)
+            if viewer.profile_mode == ProfileInteractionMode.DRAWING_ACTIVE and p_id == viewer.active_profile_id:
+                s2 = get_screen_pos(viewer.temp_mouse_phys)
+            else:
+                s2 = get_screen_pos(profile.pt2_phys)
             
-            real_h, real_w = max(1, shape[0]), max(1, shape[1])
-            
-            s1x = (t1x / real_w) * disp_w + pmin[0]
-            s1y = (t1y / real_h) * disp_h + pmin[1]
-            
-            s2x = (t2x / real_w) * disp_w + pmin[0]
-            s2y = (t2y / real_h) * disp_h + pmin[1]
-
-            dpg.draw_line(
-                [s1x, s1y],
-                [s2x, s2y],
-                color=profile.color,
-                thickness=2.0,
-                parent=node,
-            )
+            if s1 and s2:
+                dpg.draw_line(s1, s2, color=profile.color, thickness=2.0, parent=node)
+                # Draw interactive handles
+                dpg.draw_circle(s1, 4, color=[255, 255, 255], fill=profile.color, parent=node)
+                dpg.draw_circle(s2, 4, color=[255, 255, 255], fill=profile.color, parent=node)
 
         dpg.configure_item(node, show=True)
 

@@ -1,11 +1,11 @@
 import time
 import numpy as np
-from vvv.utils import ViewMode, slice_to_voxel, voxel_to_slice, fmt, format_pixel_value
+from vvv.utils import ViewMode, slice_to_voxel, voxel_to_slice, fmt, format_pixel_value, ProfileInteractionMode
 import dearpygui.dearpygui as dpg
 from vvv.ui.drawing import OverlayDrawer
 from vvv.maths.image import SliceRenderer, RenderLayer, ROILayer, VolumeData
 from vvv.config import COLORMAPS
-from vvv.core.view_state import ViewState
+from vvv.core.view_state import ViewState, ProfileLineState
 import vvv.ui.render_strategy as _rs
 from vvv.ui.render_strategy import (
     compute_software_nearest_neighbor,
@@ -229,6 +229,12 @@ class SliceViewer:
         # State-Only Sync Trackers
         self.last_consumed_ppm: float | None = None
         self.last_consumed_center: list[float] | None = None
+
+        # Profile Tool Transient Interaction State
+        self.profile_mode = ProfileInteractionMode.IDLE
+        self.active_profile_id = None
+        self.temp_mouse_phys = None
+        self.active_handle = None # "start" or "end"
 
         # Sub-modules
         self.drawer = OverlayDrawer(self)
@@ -1949,6 +1955,10 @@ class SliceViewer:
             return
         self._last_tracker_state = tracker_state
 
+        # Update live drawing cursor position
+        if self.profile_mode == ProfileInteractionMode.DRAWING_ACTIVE:
+            self.temp_mouse_phys = self.mouse_phys_coord
+
         # 1. LOCAL VIEWER: Are we the active hover source?
         pix_x, pix_y = self.get_mouse_slice_coords(
             ignore_hover=is_dragging, allow_outside=is_dragging
@@ -2202,7 +2212,46 @@ class SliceViewer:
             if key == mapped_key:
                 action_func()
                 return
-                
+
+        # Profile Tool Keyboard State Machine
+        if key == dpg.mvKey_P:
+            if self.profile_mode == ProfileInteractionMode.IDLE:
+                self.profile_mode = ProfileInteractionMode.DRAWING_START
+                self.controller.status_message = "Profile: Click Space to start line"
+                self.controller.ui_needs_refresh = True
+
+        elif key == dpg.mvKey_Spacebar:
+            if self.profile_mode == ProfileInteractionMode.DRAWING_START:
+                if self.mouse_phys_coord is not None:
+                    p = ProfileLineState()
+                    p.id = dpg.generate_uuid()
+                    p.name = f"Profile {len(self.view_state.profiles) + 1}"
+                    p.pt1_phys = self.mouse_phys_coord.copy()
+                    p.pt2_phys = self.mouse_phys_coord.copy()
+                    p.orientation = self.orientation
+                    p.slice_idx = self.slice_idx
+                    self.view_state.profiles[p.id] = p
+                    self.active_profile_id = p.id
+                    self.profile_mode = ProfileInteractionMode.DRAWING_ACTIVE
+                    self.controller.status_message = "Profile: Click Space to finish"
+            elif self.profile_mode == ProfileInteractionMode.DRAWING_ACTIVE:
+                if self.temp_mouse_phys is not None:
+                    p = self.view_state.profiles[self.active_profile_id]
+                    p.pt2_phys = self.temp_mouse_phys.copy()
+                    self.profile_mode = ProfileInteractionMode.IDLE
+                    self.controller.gui.profile_ui.on_profile_clicked(None, None, p.id)
+                    self.controller.status_message = "Profile created"
+                    self.controller.ui_needs_refresh = True
+
+        elif key == dpg.mvKey_Escape:
+            if self.profile_mode in (ProfileInteractionMode.DRAWING_ACTIVE, ProfileInteractionMode.DRAWING_START):
+                if self.active_profile_id in self.view_state.profiles:
+                    del self.view_state.profiles[self.active_profile_id]
+                self.profile_mode = ProfileInteractionMode.IDLE
+                self.active_profile_id = None
+                self.controller.status_message = "Profile creation cancelled"
+                self.controller.ui_needs_refresh = True
+
         # Secret developer debugging bindings
         if getattr(self.controller, "debug_mode", False):
             if key == dpg.mvKey_J:
@@ -2239,6 +2288,9 @@ class SliceViewer:
                 return
 
     def on_scroll(self, delta=1):
+        if self.profile_mode == ProfileInteractionMode.DRAWING_ACTIVE:
+            return # Lock plane
+
         vs = self.view_state
         vol = self.volume
         if (

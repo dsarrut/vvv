@@ -17,7 +17,7 @@ class ProfileUI:
             dpg.add_text("No Image Selected", tag="text_profile_active_title", color=cfg_c["text_active"])
             
             with dpg.group(horizontal=True):
-                dpg.add_button(label="Add Profile (P)", tag="btn_profile_add", enabled=False)
+                dpg.add_button(label="Add Profile (P)", tag="btn_profile_add", enabled=True, callback=self.on_btn_add_clicked)
                 dpg.add_button(label="Debug: Add 10 Profiles", tag="btn_profile_debug", callback=self.on_debug_add_profiles)
                 
             dpg.add_spacer(height=5)
@@ -120,9 +120,13 @@ class ProfileUI:
             with dpg.plot(label="", height=-1, width=-1):
                 dpg.add_plot_axis(dpg.mvXAxis, label="Distance (mm)", tag=f"xaxis_{profile.id}")
                 y_axis = dpg.add_plot_axis(dpg.mvYAxis, label="Intensity", tag=f"yaxis_{profile.id}")
-                dpg.add_line_series(distances, intensities, label=profile.name, parent=y_axis)
+                dpg.add_line_series(distances, intensities, label=profile.name, parent=y_axis, tag=f"series_{profile.id}")
         
         profile.plot_open = True
+
+    def on_btn_add_clicked(self, sender, app_data, user_data):
+        if self.gui.context_viewer:
+            self.gui.context_viewer.on_key_press(dpg.mvKey_P)
 
     def on_plot_closed(self, sender, app_data, user_data):
         dpg.delete_item(sender)
