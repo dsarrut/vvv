@@ -15,6 +15,10 @@ class NavigationTool:
     def __init__(self, manager):
         self.manager = manager
         self.drag_viewer = None
+        # Profile drag state
+        self.profile_drag_start_p1 = None
+        self.profile_drag_start_p2 = None
+        self.profile_drag_start_mouse_phys = None
 
     def on_click(self, button):
         # Allow Left, Middle, and Right clicks to lock the viewer for dragging
@@ -42,6 +46,24 @@ class NavigationTool:
             if p_id:
                 viewer.profile_mode = ProfileInteractionMode.MANIPULATING
                 viewer.active_profile_id, viewer.active_handle = p_id, handle_key
+
+                # Initialize delta-drag state for segment movement
+                if handle_key == "middle":
+                    p = viewer.view_state.profiles[p_id]
+                    self.profile_drag_start_p1 = p.pt1_phys.copy()
+                    self.profile_drag_start_p2 = p.pt2_phys.copy()
+
+                    px, py = viewer.get_mouse_slice_coords(ignore_hover=True)
+                    if px is not None:
+                        shape = viewer.get_slice_shape()
+                        v = slice_to_voxel(
+                            px, py, viewer.slice_idx, viewer.orientation, shape
+                        )
+                        self.profile_drag_start_mouse_phys = (
+                            viewer.view_state.display_to_world(
+                                np.array(v), is_buffered=viewer._is_buffered()
+                            )
+                        )
                 # Trigger the viewer's anchor
                 self.drag_viewer.on_mouse_down()
                 return
@@ -97,8 +119,12 @@ class NavigationTool:
 
                     if self.drag_viewer.active_handle == "start":
                         p.pt1_phys = phys
-                    else:
+                    elif self.drag_viewer.active_handle == "end":
                         p.pt2_phys = phys
+                    elif self.drag_viewer.active_handle == "middle":
+                        delta = phys - self.profile_drag_start_mouse_phys
+                        p.pt1_phys = self.profile_drag_start_p1 + delta
+                        p.pt2_phys = self.profile_drag_start_p2 + delta
 
                     # Trigger real-time plot update
                     self._update_profile_plot(p)
@@ -116,6 +142,9 @@ class NavigationTool:
 
             if self.drag_viewer.profile_mode == ProfileInteractionMode.MANIPULATING:
                 self.drag_viewer.profile_mode = ProfileInteractionMode.IDLE
+                self.profile_drag_start_p1 = None
+                self.profile_drag_start_p2 = None
+                self.profile_drag_start_mouse_phys = None
 
             self.drag_viewer = None
 
@@ -236,21 +265,39 @@ class InteractionManager:
             if v1 is None or v2 is None:
                 continue
 
-            for handle_key, v_disp in [("start", v1), ("end", v2)]:
-                # 1. Depth Check (must match drawing.py tolerance)
-                if abs(curr_z - v_disp[v_idx]) > 0.5:
-                    continue
+            # Project endpoints to screen pixels
+            tx1, ty1 = voxel_to_slice(v1[0], v1[1], v1[2], viewer.orientation, shape)
+            px1 = (tx1 / real_w) * disp_w + pmin[0]
+            py1 = (ty1 / real_h) * disp_h + pmin[1]
 
-                # 2. Screen Proximity Check
-                tx, ty = voxel_to_slice(
-                    v_disp[0], v_disp[1], v_disp[2], viewer.orientation, shape
-                )
-                px = (tx / real_w) * disp_w + pmin[0]
-                py = (ty / real_h) * disp_h + pmin[1]
+            tx2, ty2 = voxel_to_slice(v2[0], v2[1], v2[2], viewer.orientation, shape)
+            px2 = (tx2 / real_w) * disp_w + pmin[0]
+            py2 = (ty2 / real_h) * disp_h + pmin[1]
 
-                # 12px interaction radius for more forgiving "grabs"
-                if math.hypot(m_pos[0] - px, m_pos[1] - py) < 12.0:
-                    return p_id, handle_key
+            # 1. Handle Proximity Check (Depth-first)
+            if abs(curr_z - v1[v_idx]) <= 0.5:
+                if math.hypot(m_pos[0] - px1, m_pos[1] - py1) < 12.0:
+                    return p_id, "start"
+
+            if abs(curr_z - v2[v_idx]) <= 0.5:
+                if math.hypot(m_pos[0] - px2, m_pos[1] - py2) < 12.0:
+                    return p_id, "end"
+
+            # 2. Segment Draggable Middle (Center 50% of the line)
+            # Check if segment is in-plane enough to be draggable
+            if abs(curr_z - v1[v_idx]) <= 1.0 and abs(curr_z - v2[v_idx]) <= 1.0:
+                dx, dy = px2 - px1, py2 - py1
+                seg_len_sq = dx * dx + dy * dy
+                if seg_len_sq > 1e-5:
+                    # Projection parameter t [0..1]
+                    t = ((m_pos[0] - px1) * dx + (m_pos[1] - py1) * dy) / seg_len_sq
+
+                    if 0.25 <= t <= 0.75:
+                        # Perpendicular distance check
+                        proj_x = px1 + t * dx
+                        proj_y = py1 + t * dy
+                        if math.hypot(m_pos[0] - proj_x, m_pos[1] - proj_y) < 10.0:
+                            return p_id, "middle"
 
         return None, None
 

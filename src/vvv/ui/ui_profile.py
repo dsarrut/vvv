@@ -1,3 +1,4 @@
+import math
 import json
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import build_section_title
@@ -337,11 +338,17 @@ class ProfileUI:
         sx1, sy1 = voxel_to_slice(v1[0], v1[1], v1[2], viewer.orientation, shape)
         sx2, sy2 = voxel_to_slice(v2[0], v2[1], v2[2], viewer.orientation, shape)
 
-        # 3. Force in-plane and align
+        # 3. Calculate current center and length in pixel space
+        cx, cy = (sx1 + sx2) / 2.0, (sy1 + sy2) / 2.0
+        length = math.hypot(sx2 - sx1, sy2 - sy1)
+
+        # 4. Snap based on center point
         if direction == "h":
-            sy2 = sy1
+            sx1, sy1 = cx - length / 2.0, cy
+            sx2, sy2 = cx + length / 2.0, cy
         else:
-            sx2 = sx1
+            sx1, sy1 = cx, cy - length / 2.0
+            sx2, sy2 = cx, cy + length / 2.0
 
         v1_new = slice_to_voxel(sx1, sy1, viewer.slice_idx, viewer.orientation, shape)
         v2_new = slice_to_voxel(sx2, sy2, viewer.slice_idx, viewer.orientation, shape)
