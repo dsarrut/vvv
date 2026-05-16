@@ -82,6 +82,7 @@ def load_fonts():
                                 0xF00D,
                                 0xF15D,
                                 0xF15E,
+                                0xF061, # right arrow
                                 0xF35D, # external window icon
                                 0xF77C,  # Baby icon
                             ]

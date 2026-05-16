@@ -12,6 +12,8 @@ class IntensitiesUI:
         self.controller = controller
         self._hist_max_y = 1.0
         self._hist_bin_width = 1.0
+        self._hist_min_x = 0.0
+        self._hist_max_x = 1.0
         self._last_colormap = ""
         self._last_popup_image_id = None
         self._last_sidebar_image_id = None
@@ -320,6 +322,8 @@ class IntensitiesUI:
             x_edges = vs.hist_data_x
             if len(x_edges) > 1:
                 self._hist_bin_width = float(x_edges[1] - x_edges[0])
+                self._hist_min_x = float(x_edges[0])
+                self._hist_max_x = float(x_edges[-1]) + self._hist_bin_width
             x_centers = (x_edges + self._hist_bin_width / 2).tolist()
             x_edges_list = x_edges.tolist()
             y_list = y_data.tolist()
@@ -407,14 +411,11 @@ class IntensitiesUI:
             if self._hist_max_y > 0 and dpg.does_item_exist("wl_hist_popup_shade"):
                 dpg.set_value("wl_hist_popup_shade", shade_val)
 
-        # Colormap scale bar in popup
-        if dpg.does_item_exist("wl_popup_colorscale_range"):
-            cmap_name = vs.display.colormap
-            if cmap_name != self._last_colormap and dpg.does_item_exist("wl_colorscale_tex"):
-                cmap = COLORMAPS.get(cmap_name, COLORMAPS["Grayscale"])
-                dpg.set_value("wl_colorscale_tex", cmap.flatten().tolist())
-                self._last_colormap = cmap_name
-            dpg.set_value("wl_popup_colorscale_range", f"{lower:g}  →  {upper:g}")
+        # Colormap scale bar in popup — redraw texture with WL-aware gradient
+        if dpg.does_item_exist("wl_popup_colorscale_min"):
+            self._update_colorscale_texture(vs)
+            dpg.set_value("wl_popup_colorscale_min", f"{lower:g}")
+            dpg.set_value("wl_popup_colorscale_max", f"{upper:g}")
 
         # Trigger histogram compute when intensity tab becomes visible
         tab_shown = dpg.is_item_shown("tab_intensities")
@@ -454,6 +455,27 @@ class IntensitiesUI:
                     cur = dpg.get_value(tag)
                     if cur and cur > 0:
                         dpg.configure_item(tag, speed=max(0.01, cur * 0.005))
+
+    def _update_colorscale_texture(self, vs):
+        if not dpg.does_item_exist("wl_colorscale_tex"):
+            return
+        dsp = vs.display
+        view_center = dsp.hist_x_center if dsp.hist_x_center is not None else dsp.wl
+        view_range = dsp.hist_x_range if dsp.hist_x_range is not None else (self._hist_max_x - self._hist_min_x)
+        img_min = view_center - view_range / 2
+        img_max = view_center + view_range / 2
+        if img_max <= img_min:
+            return
+        cmap = COLORMAPS.get(vs.display.colormap, COLORMAPS["Grayscale"])
+        wl, ww = vs.display.wl, vs.display.ww
+        lower, upper = wl - ww / 2, wl + ww / 2
+        x = np.linspace(img_min, img_max, 256, dtype=np.float32)
+        t = np.clip((x - lower) / max(ww, 1e-10), 0.0, 1.0)
+        idx = (t * 255).astype(np.int32)
+        colors = cmap[idx].copy()
+        colors[x < lower] = [0.0, 0.0, 0.0, 1.0]
+        colors[x > upper] = [1.0, 1.0, 1.0, 1.0]
+        dpg.set_value("wl_colorscale_tex", colors.flatten().tolist())
 
     def _apply_hist_x_limits(self, dsp):
         center = dsp.hist_x_center
@@ -651,7 +673,12 @@ class IntensitiesUI:
                 width=660, height=20,
                 tag="wl_popup_colorscale_img",
             )
-            dpg.add_text("---", tag="wl_popup_colorscale_range", color=[160, 160, 160, 255])
+            with dpg.group(horizontal=True):
+                dpg.add_text("---", tag="wl_popup_colorscale_min", color=[160, 160, 160, 255])
+                arrow = dpg.add_text("", color=[160, 160, 160, 255])
+                if dpg.does_item_exist("icon_font_tag"):
+                    dpg.bind_item_font(arrow, "icon_font_tag")
+                dpg.add_text("---", tag="wl_popup_colorscale_max", color=[160, 160, 160, 255])
 
             # Control buttons
             dpg.add_spacer(height=6)
@@ -700,10 +727,10 @@ class IntensitiesUI:
             margin = ww * 2.0 / 3.0
             dpg.set_axis_limits("wl_hist_popup_x_axis", wl - margin, wl + margin)
             # Populate colorscale immediately
-            cmap = COLORMAPS.get(vs.display.colormap, COLORMAPS["Grayscale"])
-            dpg.set_value("wl_colorscale_tex", cmap.flatten().tolist())
-            self._last_colormap = vs.display.colormap
-            dpg.set_value("wl_popup_colorscale_range", f"{wl - ww/2:g}  →  {wl + ww/2:g}")
+            self._update_colorscale_texture(vs)
+            lower, upper = wl - ww / 2, wl + ww / 2
+            dpg.set_value("wl_popup_colorscale_min", f"{lower:g}")
+            dpg.set_value("wl_popup_colorscale_max", f"{upper:g}")
 
     def on_hist_popup_drag_lower(self, _sender, app_data, _user_data):
         pos = float(app_data) if app_data is not None else dpg.get_value("wl_hist_popup_lower")
