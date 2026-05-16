@@ -289,6 +289,9 @@ class FileManager:
                             }
                         )
 
+            # Extract Profiles Info
+            profiles_list = [p.to_dict() for p in vs.profiles.values()]
+
             roi_filter = ""
             roi_sort = 0
             if self.controller.gui and hasattr(self.controller.gui, "roi_ui"):
@@ -306,6 +309,7 @@ class FileManager:
                 "dvf": vs.dvf.to_dict(),
                 "overlay": overlay_info,
                 "rois": rois_list,
+                "profiles": profiles_list,
                 "roi_filter": roi_filter,
                 "roi_sort_order": roi_sort,
             }
