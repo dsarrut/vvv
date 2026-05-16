@@ -1,7 +1,7 @@
 import json
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import build_section_title
-from vvv.utils import ViewMode, fmt
+from vvv.utils import ViewMode, fmt, voxel_to_slice, slice_to_voxel
 from vvv.ui.file_dialog import save_file_dialog
 from vvv.config import ROI_COLORS
 import numpy as np
@@ -43,6 +43,8 @@ class ProfileUI:
                     scrollY=True,
                 ):
                     dpg.add_table_column(width_stretch=True)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
@@ -100,6 +102,28 @@ class ProfileUI:
                 with dpg.tooltip(btn_plot):
                     dpg.add_text("Open intensity plot")
 
+                # Horizontal alignment
+                btn_h = dpg.add_button(
+                    label="\uf07e",
+                    user_data=(p_id, "h"),
+                    callback=self.on_align_clicked,
+                )
+                if dpg.does_item_exist("icon_font_tag"):
+                    dpg.bind_item_font(btn_h, "icon_font_tag")
+                with dpg.tooltip(btn_h):
+                    dpg.add_text("Align purely horizontal on current slice")
+
+                # Vertical alignment
+                btn_v = dpg.add_button(
+                    label="\uf07d",
+                    user_data=(p_id, "v"),
+                    callback=self.on_align_clicked,
+                )
+                if dpg.does_item_exist("icon_font_tag"):
+                    dpg.bind_item_font(btn_v, "icon_font_tag")
+                with dpg.tooltip(btn_v):
+                    dpg.add_text("Align purely vertical on current slice")
+
                 # Goto button
                 btn_goto = dpg.add_button(
                     label="\uf05b", user_data=p_id, callback=self.on_goto_clicked
@@ -150,13 +174,14 @@ class ProfileUI:
         if not viewer or not viewer.view_state:
             return
 
-        profile = viewer.view_state.profiles.get(user_data)
-        if not profile:
+        p_id = user_data
+        win_tag = f"plot_win_{p_id}"
+        if dpg.does_item_exist(win_tag):
+            self.on_plot_closed(win_tag, None, p_id)
             return
 
-        win_tag = f"plot_win_{profile.id}"
-        if dpg.does_item_exist(win_tag):
-            dpg.focus_item(win_tag)
+        profile = viewer.view_state.profiles.get(p_id)
+        if not profile:
             return
 
         distances, intensities = self.controller.profiles.get_profile_data(
@@ -289,6 +314,52 @@ class ProfileUI:
         )
         if distances:
             dpg.set_value(f"series_{profile.id}", [distances, intensities])
+
+    def on_align_clicked(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+
+        p_id, direction = user_data
+        vs = viewer.view_state
+        p = vs.profiles.get(p_id)
+        if not p:
+            return
+
+        is_buf = viewer._is_buffered()
+        shape = viewer.get_slice_shape()
+
+        # 1. Map to display voxel space
+        v1 = vs.world_to_display(p.pt1_phys, is_buffered=is_buf)
+        v2 = vs.world_to_display(p.pt2_phys, is_buffered=is_buf)
+
+        # 2. Map to 2D slice coordinates
+        sx1, sy1 = voxel_to_slice(v1[0], v1[1], v1[2], viewer.orientation, shape)
+        sx2, sy2 = voxel_to_slice(v2[0], v2[1], v2[2], viewer.orientation, shape)
+
+        # 3. Force in-plane and align
+        if direction == "h":
+            sy2 = sy1
+        else:
+            sx2 = sx1
+
+        v1_new = slice_to_voxel(sx1, sy1, viewer.slice_idx, viewer.orientation, shape)
+        v2_new = slice_to_voxel(sx2, sy2, viewer.slice_idx, viewer.orientation, shape)
+
+        p.pt1_phys = vs.display_to_world(v1_new, is_buffered=is_buf)
+        p.pt2_phys = vs.display_to_world(v2_new, is_buffered=is_buf)
+        p.orientation = viewer.orientation
+        p.slice_idx = viewer.slice_idx
+
+        # 4. Refresh plot and viewer
+        vs.is_geometry_dirty = True
+        self.update_plot_info(viewer.image_id, p)
+        distances, intensities = self.controller.profiles.get_profile_data(
+            viewer.image_id, p
+        )
+        if distances:
+            dpg.set_value(f"series_{p.id}", [distances, intensities])
+        self.controller.ui_needs_refresh = True
 
     def on_btn_add_clicked(self, sender, app_data, user_data):
         if self.gui.context_viewer:
