@@ -230,16 +230,22 @@ class IntensitiesUI:
             dpg.fit_axis_data("wl_hist_x_axis")
             dpg.fit_axis_data("wl_hist_y_axis")
 
+        dpg.configure_item("wl_hist_plot", show=True)
+
+    def sync_wl_lines(self, viewer, vs):
+        """Update histogram drag line positions every frame — called from sync_bound_ui."""
+        if not dpg.does_item_exist("wl_hist_lower"):
+            return
+        if getattr(viewer.volume, "is_rgb", False):
+            return
         wl = vs.display.wl
         ww = vs.display.ww
         lower = wl - ww / 2
         upper = wl + ww / 2
         dpg.set_value("wl_hist_lower", lower)
         dpg.set_value("wl_hist_upper", upper)
-        max_y = self._hist_max_y
-        dpg.set_value("wl_hist_shade", [[lower, upper], [max_y, max_y], [0.0, 0.0]])
-
-        dpg.configure_item("wl_hist_plot", show=True)
+        if self._hist_max_y > 0 and dpg.does_item_exist("wl_hist_shade"):
+            dpg.set_value("wl_hist_shade", [[lower, upper], [self._hist_max_y, self._hist_max_y], [0.0, 0.0]])
 
     def on_hist_drag_lower(self, _sender, app_data, _user_data):
         viewer = self.gui.context_viewer
