@@ -185,6 +185,13 @@ class DisplayState:
         self.overlay_checkerboard_swap = False
         self.pixelated_zoom = False
         self.use_voxel_strips = False
+        # Histogram display preferences (not in _DATA_FIELDS — no rerender)
+        self.hist_use_bars = False
+        self.hist_use_log = True
+        self.hist_auto_center = False
+        self.hist_x_center = None
+        self.hist_x_range = None
+        self.hist_y_max = None
 
     def __setattr__(self, name, value):
         if name in self._DATA_FIELDS and getattr(self, name, _SENTINEL) != value:
@@ -209,6 +216,12 @@ class DisplayState:
             "overlay_mode": str(self.overlay_mode),
             "overlay_checkerboard_size": float(self.overlay_checkerboard_size),
             "overlay_checkerboard_swap": bool(self.overlay_checkerboard_swap),
+            "hist_use_bars": bool(self.hist_use_bars),
+            "hist_use_log": bool(self.hist_use_log),
+            "hist_auto_center": bool(self.hist_auto_center),
+            "hist_x_center": self.hist_x_center,
+            "hist_x_range": self.hist_x_range,
+            "hist_y_max": self.hist_y_max,
         }
 
     def from_dict(self, d):
@@ -226,6 +239,12 @@ class DisplayState:
         self.overlay_checkerboard_swap = d.get(
             "overlay_checkerboard_swap", self.overlay_checkerboard_swap
         )
+        self.hist_use_bars = d.get("hist_use_bars", False)
+        self.hist_use_log = d.get("hist_use_log", True)
+        self.hist_auto_center = d.get("hist_auto_center", False)
+        self.hist_x_center = d.get("hist_x_center", None)
+        self.hist_x_range = d.get("hist_x_range", None)
+        self.hist_y_max = d.get("hist_y_max", None)
 
 
 class ExtractionState:
@@ -470,9 +489,16 @@ class ViewState:
         self.hist_data_x = None
         self.hist_data_y = None
         self.histogram_is_dirty = True
-        self.use_log_y = True
         self.init_crosshair_to_slices()
         self.init_default_window_level()
+
+    @property
+    def use_log_y(self):
+        return self.display.hist_use_log
+
+    @use_log_y.setter
+    def use_log_y(self, value):
+        self.display.hist_use_log = value
 
     def compute_overlay_pixel_shift(self, overlay_vs, vol_spacing, orientation):
         """Return (dx_pix, dy_pix, dz_pix) for live overlay alignment.
