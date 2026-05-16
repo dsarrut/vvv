@@ -34,7 +34,8 @@ class ProfileManager:
         if dist == 0:
             return None, None
 
-        num_points = max(2, int(dist / step))
+        # Ensure sampling density is at least equal to pixel density (1 per mm/step)
+        num_points = max(2, int(np.ceil(dist / step)) + 1)
 
         distances = np.linspace(0, dist, num_points)
         t = np.linspace(0, 1, num_points)
