@@ -1,6 +1,6 @@
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import build_section_title
-from vvv.utils import ViewMode
+from vvv.utils import ViewMode, fmt
 import numpy as np
 
 class ProfileUI:
@@ -76,7 +76,11 @@ class ProfileUI:
                 )
                 
                 # Goto button
-                btn_goto = dpg.add_button(label="Goto", user_data=p_id, callback=self.on_goto_clicked)
+                btn_goto = dpg.add_button(label="\uf05b", user_data=p_id, callback=self.on_goto_clicked)
+                if dpg.does_item_exist("icon_font_tag"):
+                    dpg.bind_item_font(btn_goto, "icon_font_tag")
+                with dpg.tooltip(btn_goto):
+                    dpg.add_text("Center camera on this profile")
                 
                 # Delete icon
                 btn_delete = dpg.add_button(label="\uf00d", width=20, user_data=p_id, callback=self.on_delete_clicked)
@@ -121,8 +125,29 @@ class ProfileUI:
                 dpg.add_plot_axis(dpg.mvXAxis, label="Distance (mm)", tag=f"xaxis_{profile.id}")
                 y_axis = dpg.add_plot_axis(dpg.mvYAxis, label="Intensity", tag=f"yaxis_{profile.id}")
                 dpg.add_line_series(distances, intensities, label=profile.name, parent=y_axis, tag=f"series_{profile.id}")
+            
+            dpg.add_separator()
+            dpg.add_text("P1: ---", tag=f"text_info_p1_{profile.id}")
+            dpg.add_text("P2: ---", tag=f"text_info_p2_{profile.id}")
         
         profile.plot_open = True
+        self.update_plot_info(viewer.image_id, profile)
+
+    def update_plot_info(self, vs_id, profile):
+        vs = self.controller.view_states.get(vs_id)
+        if not vs or not profile:
+            return
+            
+        for i, pt_phys in enumerate([profile.pt1_phys, profile.pt2_phys], 1):
+            tag = f"text_info_p{i}_{profile.id}"
+            if dpg.does_item_exist(tag):
+                # Physical coords
+                phys_str = fmt(pt_phys, 1)
+                # Native Voxel coords
+                v_native = vs.world_to_display(pt_phys, is_buffered=False)
+                vox_str = fmt(v_native, 1) if v_native is not None else "Out"
+                
+                dpg.set_value(tag, f"P{i}: {phys_str} mm | Voxel: [{vox_str}]")
 
     def on_btn_add_clicked(self, sender, app_data, user_data):
         if self.gui.context_viewer:
@@ -144,13 +169,24 @@ class ProfileUI:
         if not profile:
             return
             
+        vs = viewer.view_state
         viewer.set_orientation(profile.orientation)
-        viewer.slice_idx = profile.slice_idx
-        
-        # Also re-center camera on the profile mid-point
+
+        # 1. Calculate midpoint and physical length
         mid_phys = (profile.pt1_phys + profile.pt2_phys) / 2.0
-        viewer.center_on_physical_coord(mid_phys)
-        viewer.update_crosshair_data(viewer.quad_w / 2.0, viewer.quad_h / 2.0)
+        length_mm = np.linalg.norm(profile.pt2_phys - profile.pt1_phys)
+
+        # 2. Adjust Zoom and Center for ALL active viewers of this image via State Targets
+        win_w = viewer.quad_w - (viewer.mapper.margin_left * 2)
+        win_h = viewer.quad_h - (viewer.mapper.margin_top * 2)
+        if length_mm > 1e-5 and win_w > 0 and win_h > 0:
+            target_ppm = (min(win_w, win_h) * 0.75) / length_mm
+            vs.camera.target_ppm = target_ppm
+
+        # 2. Update physical center and slice index simultaneously
+        viewer.slice_idx = profile.slice_idx
+        vs.camera.target_center = mid_phys
+        vs.update_crosshair_from_phys(mid_phys)
         
         self.controller.sync.propagate_sync(viewer.image_id)
         self.controller.ui_needs_refresh = True

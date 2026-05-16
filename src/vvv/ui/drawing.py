@@ -619,10 +619,9 @@ class OverlayDrawer:
         dpg.configure_item(node, show=True)
 
     def draw_profiles(self):
-        def get_screen_pos(phys):
-            v = viewer.view_state.world_to_display(phys, is_buffered=viewer._is_buffered())
-            if v is None: return None
-            tx, ty = voxel_to_slice(v[0], v[1], v[2], viewer.orientation, shape)
+        def get_screen_pos(v_disp):
+            if v_disp is None: return None
+            tx, ty = voxel_to_slice(v_disp[0], v_disp[1], v_disp[2], viewer.orientation, shape)
             sx = (tx / real_w) * disp_w + pmin[0]
             sy = (ty / real_h) * disp_h + pmin[1]
             return [sx, sy]
@@ -649,20 +648,53 @@ class OverlayDrawer:
         disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
 
         for p_id, profile in viewer.view_state.profiles.items():
-            if not profile.visible or profile.orientation != viewer.orientation or profile.slice_idx != viewer.slice_idx:
+            if not profile or not profile.visible or profile.pt1_phys is None or profile.pt2_phys is None:
                 continue
             
-            s1 = get_screen_pos(profile.pt1_phys)
-            if viewer.profile_mode == ProfileInteractionMode.DRAWING_ACTIVE and p_id == viewer.active_profile_id:
-                s2 = get_screen_pos(viewer.temp_mouse_phys)
-            else:
-                s2 = get_screen_pos(profile.pt2_phys)
+            # Map points to the viewer's current display voxel space
+            v1 = viewer.view_state.world_to_display(profile.pt1_phys, is_buffered=viewer._is_buffered())
+            v2 = viewer.view_state.world_to_display(profile.pt2_phys, is_buffered=viewer._is_buffered())
+            if v1 is None or v2 is None:
+                continue
+
+            # Find the depth axis for the current orientation
+            v_idx, _, _, _ = viewer._ORIENTATION_MAP.get(viewer.orientation, (None, 0, None, None))
+            if v_idx is None: continue
             
-            if s1 and s2:
-                dpg.draw_line(s1, s2, color=profile.color, thickness=2.0, parent=node)
-                # Draw interactive handles
-                dpg.draw_circle(s1, 4, color=[255, 255, 255], fill=profile.color, parent=node)
-                dpg.draw_circle(s2, 4, color=[255, 255, 255], fill=profile.color, parent=node)
+            z1, z2 = v1[v_idx], v2[v_idx]
+            curr_z = viewer.slice_idx
+            depth_min, depth_max = min(z1, z2), max(z1, z2)
+            
+            # Case 1: The segment is (mostly) in-plane for the current orientation
+            if abs(z1 - z2) < 0.5:
+                # Only draw if the viewer is at the correct depth (0.5 voxel tolerance)
+                if abs(curr_z - z1) > 0.5:
+                    continue
+
+                s1 = get_screen_pos(v1)
+                if viewer.profile_mode == ProfileInteractionMode.DRAWING_ACTIVE and p_id == viewer.active_profile_id:
+                    v_mouse = viewer.view_state.world_to_display(viewer.temp_mouse_phys, is_buffered=viewer._is_buffered())
+                    s2 = get_screen_pos(v_mouse)
+                else:
+                    s2 = get_screen_pos(v2)
+                
+                if s1 and s2:
+                    dpg.draw_line(s1, s2, color=profile.color, thickness=2.0, parent=node)
+                    dpg.draw_circle(s1, 4, color=[255, 255, 255], fill=profile.color, parent=node)
+                    dpg.draw_circle(s2, 4, color=[255, 255, 255], fill=profile.color, parent=node)
+            
+            # Case 2: The segment is cross-plane (Show clue ring)
+            else:
+                # Only show clue if within 5 slices of the segment's depth range
+                if depth_min - 5 <= curr_z <= depth_max + 5:
+                    mid_phys = (profile.pt1_phys + profile.pt2_phys) / 2.0
+                    v_mid = viewer.view_state.world_to_display(mid_phys, is_buffered=viewer._is_buffered())
+                    smid = get_screen_pos(v_mid)
+                    if smid:
+                        dim_col = list(profile.color)
+                        dim_col[3] = 120 
+                        dpg.draw_circle(smid, 7, color=dim_col, thickness=1.0, parent=node)
+                        dpg.draw_circle(smid, 2, color=dim_col, fill=dim_col, parent=node)
 
         dpg.configure_item(node, show=True)
 

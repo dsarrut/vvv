@@ -98,6 +98,9 @@ class NavigationTool:
             distances, intensities = self.manager.controller.profiles.get_profile_data(self.drag_viewer.image_id, profile)
             if distances:
                 dpg.set_value(f"series_{profile.id}", [distances, intensities])
+            
+            # Update mm/voxel info text in the plot window
+            self.manager.gui.profile_ui.update_plot_info(self.drag_viewer.image_id, profile)
 
     def on_scroll(self, delta):
         target = self.manager.get_hovered_viewer()
