@@ -18,6 +18,10 @@ DEFAULT_SETTINGS = {
         "native_voxel": "Auto",
         "numba": True,
     },
+    "profiles": {
+        "dim_opacity": 0.6,
+        "dim_thickness": 1.5,
+    },
     "physics": {"auto_window_fov": 0.20, "voxel_strip_threshold": 5000},
     "shortcuts": {
         "open_file": "O",
@@ -45,6 +49,7 @@ DEFAULT_SETTINGS = {
         "hide_all": "H",
         "time_forward": "Right",
         "time_backward": "Left",
+        "add_profile": "P",
     },
     "interaction": {
         "zoom_speed": 1.1,

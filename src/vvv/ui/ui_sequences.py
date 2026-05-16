@@ -634,6 +634,7 @@ def load_workspace_sequence(gui, controller, filepath):
                 time.sleep(0.01)
 
     # --- PHASE 3: APPLY STATES SYNCHRONOUSLY ---
+    from vvv.core.view_state import ProfileLineState
     for old_id, img_data in ws.get("images", {}).items():
         if old_id in id_map:
             new_id = id_map[old_id]
@@ -649,6 +650,12 @@ def load_workspace_sequence(gui, controller, filepath):
                 vs.dvf.from_dict(img_data["dvf"])
             vs.sync_group = img_data.get("sync_group", 0)
             vs.sync_wl_group = img_data.get("sync_wl_group", 0)
+
+            # Restore Profiles
+            for p_dict in img_data.get("profiles", []):
+                p = ProfileLineState()
+                p.from_dict(p_dict)
+                vs.profiles[p.id] = p
 
             if hasattr(gui, "roi_ui"):
                 gui.roi_ui.roi_filters[new_id] = img_data.get("roi_filter", "")
@@ -945,6 +952,12 @@ def load_workspace_sequence(gui, controller, filepath):
     for new_id in id_map.values():
         controller.sync.propagate_sync(new_id)
         controller.update_all_viewers_of_image(new_id)
+
+        # Re-open restored plot windows
+        vs = controller.view_states[new_id]
+        for p_id, p in vs.profiles.items():
+            if getattr(p, "plot_open", False):
+                gui.profile_ui.on_profile_clicked(None, None, p_id)
 
     controller.ui_needs_refresh = True
     gui.on_window_resize()

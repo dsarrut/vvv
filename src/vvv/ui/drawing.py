@@ -1,7 +1,7 @@
 import numpy as np
 from vvv.config import COLORMAPS
 import dearpygui.dearpygui as dpg
-from vvv.utils import voxel_to_slice, ViewMode
+from vvv.utils import voxel_to_slice, ViewMode, ProfileInteractionMode
 
 
 class OverlayDrawer:
@@ -85,13 +85,13 @@ class OverlayDrawer:
                 dpg.configure_item(viewer.xh_line_h, show=False)
                 dpg.configure_item(viewer.xh_line_v, show=False)
             return
-        
+
         display_vox = viewer._get_crosshair_display_voxel()
         if display_vox is None:
             return
-            
+
         vx, vy, vz = display_vox[:3]
-        shape = viewer.get_slice_shape() # This is now the display slice shape
+        shape = viewer.get_slice_shape()  # This is now the display slice shape
 
         # Failsafe against zero-division from corrupted or 0-dimension images
         real_h, real_w = max(1, shape[0]), max(1, shape[1])
@@ -618,6 +618,134 @@ class OverlayDrawer:
 
         dpg.configure_item(node, show=True)
 
+    def draw_profiles(self):
+        def get_screen_pos(v_disp):
+            if v_disp is None:
+                return None
+            tx, ty = voxel_to_slice(
+                v_disp[0], v_disp[1], v_disp[2], viewer.orientation, shape
+            )
+            sx = (tx / real_w) * disp_w + pmin[0]
+            sy = (ty / real_h) * disp_h + pmin[1]
+            return [sx, sy]
+
+        viewer = self.viewer
+
+        if (
+            not viewer.is_image_orientation()
+            or not viewer.view_state
+            or not viewer.volume
+            or not getattr(viewer.view_state.camera, "show_profiles", True)
+        ):
+            if dpg.does_item_exist(viewer.profile_node_tag):
+                dpg.configure_item(viewer.profile_node_tag, show=False)
+            return
+
+        node = viewer.profile_node_tag
+        if not dpg.does_item_exist(node):
+            return
+
+        dpg.delete_item(node, children_only=True)
+        shape = viewer.get_slice_shape()
+        real_h, real_w = max(1, shape[0]), max(1, shape[1])
+        pmin, pmax = viewer.current_pmin, viewer.current_pmax
+        disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
+
+        # Load profile dimming preferences
+        prof_cfg = viewer.controller.settings.data.get(
+            "profiles", {"dim_opacity": 0.6, "dim_thickness": 1.5}
+        )
+        dim_base_alpha = int(prof_cfg["dim_opacity"] * 255)
+
+        for p_id, profile in viewer.view_state.profiles.items():
+            if (
+                not profile
+                or not profile.visible
+                or profile.pt1_phys is None
+                or profile.pt2_phys is None
+            ):
+                continue
+
+            # Map points to the viewer's current display voxel space
+            v1 = viewer.view_state.world_to_display(
+                profile.pt1_phys, is_buffered=viewer._is_buffered()
+            )
+            v2 = viewer.view_state.world_to_display(
+                profile.pt2_phys, is_buffered=viewer._is_buffered()
+            )
+            if v1 is None or v2 is None:
+                continue
+
+            # Find the depth axis for the current orientation
+            v_idx, _, _, _ = viewer._ORIENTATION_MAP.get(
+                viewer.orientation, (None, 0, None, None)
+            )
+            if v_idx is None:
+                continue
+
+            z1, z2 = v1[v_idx], v2[v_idx]
+            curr_z = viewer.slice_idx
+            depth_min, depth_max = min(z1, z2), max(z1, z2)
+
+            # Case 1: The segment is (mostly) in-plane for the current orientation
+            if profile.orientation == viewer.orientation and abs(z1 - z2) < 0.5:
+                depth_diff = abs(curr_z - z1)
+                # Draw on current slice (0.5 tol) and extended adjacent range (6.5 tol)
+                if depth_diff > 6.5:
+                    continue
+
+                is_adjacent = depth_diff > 0.5
+                s1 = get_screen_pos(v1)
+                s2 = get_screen_pos(v2)
+
+                if s1 and s2:
+                    col = list(profile.color)
+                    if is_adjacent:
+                        # Gradual dimming over ±6 slices relative to the settings base
+                        alpha = int(
+                            max(
+                                20,
+                                dim_base_alpha - (depth_diff * (dim_base_alpha / 7.5)),
+                            )
+                        )
+                        col[3] = alpha
+                        dpg.draw_line(
+                            s1,
+                            s2,
+                            color=col,
+                            thickness=prof_cfg["dim_thickness"],
+                            parent=node,
+                        )
+                    else:
+                        dpg.draw_line(s1, s2, color=col, thickness=2.0, parent=node)
+                        dpg.draw_circle(
+                            s1, 4, color=[255, 255, 255], fill=col, parent=node
+                        )
+                        dpg.draw_circle(
+                            s2, 4, color=[255, 255, 255], fill=col, parent=node
+                        )
+
+            # Case 2: The segment is cross-plane (Show clue ring)
+            else:
+                # Only show clue if within 5 slices of the segment's depth range
+                if depth_min - 5 <= curr_z <= depth_max + 5:
+                    mid_phys = (profile.pt1_phys + profile.pt2_phys) / 2.0
+                    v_mid = viewer.view_state.world_to_display(
+                        mid_phys, is_buffered=viewer._is_buffered()
+                    )
+                    smid = get_screen_pos(v_mid)
+                    if smid:
+                        dim_col = list(profile.color)
+                        dim_col[3] = 120
+                        dpg.draw_circle(
+                            smid, 7, color=dim_col, thickness=1.0, parent=node
+                        )
+                        dpg.draw_circle(
+                            smid, 2, color=dim_col, fill=dim_col, parent=node
+                        )
+
+        dpg.configure_item(node, show=True)
+
     def draw_vector_field(self):
         viewer = self.viewer
         vs = viewer.view_state
@@ -647,7 +775,17 @@ class OverlayDrawer:
 
         targets = []
         if draw_base:
-            targets.append((vs, vs.base_display_data if vs.base_display_data is not None else vol.data, False))
+            targets.append(
+                (
+                    vs,
+                    (
+                        vs.base_display_data
+                        if vs.base_display_data is not None
+                        else vol.data
+                    ),
+                    False,
+                )
+            )
         if draw_ov:
             targets.append((ov_vs, vs.display.overlay_data, True))
 
@@ -669,7 +807,7 @@ class OverlayDrawer:
         end_x = min(real_w, int((win_w - pmin[0]) / vox_w) + 1)
         start_y = max(0, int(-pmin[1] / vox_h))
         end_y = min(real_h, int((win_h - pmin[1]) / vox_h) + 1)
-        
+
         ppm = viewer.get_pixels_per_mm()
         from vvv.maths.image import SliceRenderer
 
@@ -684,8 +822,16 @@ class OverlayDrawer:
                 s_idx = viewer.slice_idx - layer.offset_slice
                 disp_w = pmax[0] - pmin[0]
                 disp_h = pmax[1] - pmin[1]
-                shift_x = viewer.active_overlay_shift_x * (disp_w / real_w) if real_w > 0 else 0.0
-                shift_y = viewer.active_overlay_shift_y * (disp_h / real_h) if real_h > 0 else 0.0
+                shift_x = (
+                    viewer.active_overlay_shift_x * (disp_w / real_w)
+                    if real_w > 0
+                    else 0.0
+                )
+                shift_y = (
+                    viewer.active_overlay_shift_y * (disp_h / real_h)
+                    if real_h > 0
+                    else 0.0
+                )
             else:
                 s_idx = viewer.slice_idx
                 shift_x, shift_y = 0.0, 0.0
@@ -706,9 +852,9 @@ class OverlayDrawer:
 
             stride_x = max(1, int(target_vs.dvf.vector_sampling))
             stride_y = stride_x
-            
+
             scale = target_vs.dvf.vector_scale
-            
+
             c_min = np.array(target_vs.dvf.vector_color_min, dtype=np.float32)
             c_max = np.array(target_vs.dvf.vector_color_max, dtype=np.float32)
             t_min = target_vs.dvf.vector_min_length_draw
@@ -739,7 +885,12 @@ class OverlayDrawer:
                     # Interpolate color based on magnitude
                     t_col = min(1.0, max(0.0, (mag_3d - t_min) / (t_max - t_min)))
                     c_interp = c_min + t_col * (c_max - c_min)
-                    color = [int(c_interp[0]), int(c_interp[1]), int(c_interp[2]), int(c_interp[3])]
+                    color = [
+                        int(c_interp[0]),
+                        int(c_interp[1]),
+                        int(c_interp[2]),
+                        int(c_interp[3]),
+                    ]
 
                     # Anchor to the center of the voxel's bounding box and apply shift
                     screen_x = pmin[0] + shift_x + (x + 0.5) * vox_w
@@ -750,7 +901,16 @@ class OverlayDrawer:
                     end_y_px = screen_y + (v_val * ppm * scale)
 
                     # Dynamically scale arrowhead size
-                    arrow_size = int(max(1.0, min(4.0, np.hypot(h_val * ppm * scale, v_val * ppm * scale) * 0.3)))
+                    arrow_size = int(
+                        max(
+                            1.0,
+                            min(
+                                4.0,
+                                np.hypot(h_val * ppm * scale, v_val * ppm * scale)
+                                * 0.3,
+                            ),
+                        )
+                    )
 
                     if mag_3d < target_vs.dvf.vector_min_length_arrow:
                         dpg.draw_line(
@@ -758,7 +918,7 @@ class OverlayDrawer:
                             [end_x_px, end_y_px],
                             color=color,
                             thickness=thickness,
-                            parent=node_tag
+                            parent=node_tag,
                         )
                     else:
                         dpg.draw_arrow(
@@ -767,7 +927,7 @@ class OverlayDrawer:
                             color=color,
                             thickness=thickness,
                             size=arrow_size,
-                            parent=node_tag
+                            parent=node_tag,
                         )
 
         dpg.configure_item(node_tag, show=True)
