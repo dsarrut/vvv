@@ -11,7 +11,7 @@ from vvv.utils import (
 import dearpygui.dearpygui as dpg
 from vvv.ui.drawing import OverlayDrawer
 from vvv.maths.image import SliceRenderer, RenderLayer, ROILayer, VolumeData
-from vvv.config import COLORMAPS
+from vvv.config import COLORMAPS, ROI_COLORS
 from vvv.core.view_state import ViewState, ProfileLineState
 import vvv.ui.render_strategy as _rs
 from vvv.ui.render_strategy import (
@@ -2363,6 +2363,10 @@ class SliceViewer:
                     p = ProfileLineState()
                     p.id = dpg.generate_uuid()
                     p.name = f"Profile {len(self.view_state.profiles) + 1}"
+                    # Use standard ROI colors for consistency
+                    color_idx = len(self.view_state.profiles)
+                    p.color = list(ROI_COLORS[color_idx % len(ROI_COLORS)]) + [255]
+
                     v1 = slice_to_voxel(
                         sx1, sy1, self.slice_idx, self.orientation, shape
                     )
@@ -2381,6 +2385,7 @@ class SliceViewer:
                     self.view_state.profiles[p.id] = p
                     self.controller.gui.profile_ui.on_profile_clicked(None, None, p.id)
                     self.controller.status_message = "Profile created"
+                    self.is_geometry_dirty = True
                 self.controller.ui_needs_refresh = True
 
         # Secret developer debugging bindings

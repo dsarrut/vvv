@@ -3,7 +3,9 @@ import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import build_section_title
 from vvv.utils import ViewMode, fmt
 from vvv.ui.file_dialog import save_file_dialog
+from vvv.config import ROI_COLORS
 import numpy as np
+
 
 class ProfileUI:
     def __init__(self, gui, controller):
@@ -12,24 +14,38 @@ class ProfileUI:
 
     def build_tab_profile(self, gui):
         cfg_c = gui.ui_cfg["colors"]
-        
+
         with dpg.group(tag="tab_profile", show=False):
             build_section_title("Intensity Profiles", cfg_c["text_header"])
-            
-            dpg.add_text("No Image Selected", tag="text_profile_active_title", color=cfg_c["text_active"])
-            
+
+            dpg.add_text(
+                "No Image Selected",
+                tag="text_profile_active_title",
+                color=cfg_c["text_active"],
+            )
+
             with dpg.group(horizontal=True):
-                dpg.add_button(label="Add Profile (P)", tag="btn_profile_add", enabled=True, callback=self.on_btn_add_clicked)
-                dpg.add_button(label="Debug: Add 10 Profiles", tag="btn_profile_debug", callback=self.on_debug_add_profiles)
-                
+                dpg.add_button(
+                    label="Add Profile (P)",
+                    tag="btn_profile_add",
+                    enabled=True,
+                    callback=self.on_btn_add_clicked,
+                )
+
             dpg.add_spacer(height=5)
-            
+
             with dpg.child_window(tag="profile_list_window", height=200, border=True):
-                with dpg.table(tag="profile_list_table", header_row=False, resizable=False, borders_innerH=True, scrollY=True):
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+                with dpg.table(
+                    tag="profile_list_table",
+                    header_row=False,
+                    resizable=False,
+                    borders_innerH=True,
+                    scrollY=True,
+                ):
                     dpg.add_table_column(width_stretch=True)
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=40)
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
 
     def refresh_profile_ui(self):
         viewer = self.gui.context_viewer
@@ -37,13 +53,22 @@ class ProfileUI:
 
         if dpg.does_item_exist("text_profile_active_title"):
             if has_image:
-                name_str, is_outdated = self.controller.get_image_display_name(viewer.image_id)
+                name_str, is_outdated = self.controller.get_image_display_name(
+                    viewer.image_id
+                )
                 dpg.set_value("text_profile_active_title", name_str)
-                col = self.gui.ui_cfg["colors"]["outdated"] if is_outdated else self.gui.ui_cfg["colors"]["text_active"]
+                col = (
+                    self.gui.ui_cfg["colors"]["outdated"]
+                    if is_outdated
+                    else self.gui.ui_cfg["colors"]["text_active"]
+                )
                 dpg.configure_item("text_profile_active_title", color=col)
             else:
                 dpg.set_value("text_profile_active_title", "No Image Selected")
-                dpg.configure_item("text_profile_active_title", color=self.gui.ui_cfg["colors"]["text_active"])
+                dpg.configure_item(
+                    "text_profile_active_title",
+                    color=self.gui.ui_cfg["colors"]["text_active"],
+                )
 
         table_id = "profile_list_table"
         if not dpg.does_item_exist(table_id):
@@ -51,43 +76,46 @@ class ProfileUI:
 
         current_scroll = dpg.get_y_scroll(table_id)
         dpg.delete_item(table_id, children_only=True, slot=1)
-        
+
         if not has_image:
             return
 
         vs = viewer.view_state
         for p_id, profile in vs.profiles.items():
             with dpg.table_row(parent=table_id):
-                # Color picker
-                dpg.add_color_edit(
-                    default_value=profile.color,
-                    no_inputs=True,
-                    no_label=True,
-                    no_alpha=True,
-                    width=20,
-                    height=20,
-                    user_data=p_id,
-                    callback=self.on_color_changed
-                )
-                
                 # Name (clickable)
                 dpg.add_input_text(
                     default_value=profile.name,
                     user_data=p_id,
                     callback=self.on_profile_name_changed,
-                    on_enter=True
+                    on_enter=True,
                 )
-                dpg.add_button(label="\uf08e", user_data=p_id, callback=self.on_profile_clicked)
-                
+
+                # New window icon
+                btn_plot = dpg.add_button(
+                    label="\uf08e", user_data=p_id, callback=self.on_profile_clicked
+                )
+                if dpg.does_item_exist("icon_font_tag"):
+                    dpg.bind_item_font(btn_plot, "icon_font_tag")
+                with dpg.tooltip(btn_plot):
+                    dpg.add_text("Open intensity plot")
+
                 # Goto button
-                btn_goto = dpg.add_button(label="\uf05b", user_data=p_id, callback=self.on_goto_clicked)
+                btn_goto = dpg.add_button(
+                    label="\uf05b", user_data=p_id, callback=self.on_goto_clicked
+                )
                 if dpg.does_item_exist("icon_font_tag"):
                     dpg.bind_item_font(btn_goto, "icon_font_tag")
                 with dpg.tooltip(btn_goto):
                     dpg.add_text("Center camera on this profile")
-                
+
                 # Delete icon
-                btn_delete = dpg.add_button(label="\uf00d", width=20, user_data=p_id, callback=self.on_delete_clicked)
+                btn_delete = dpg.add_button(
+                    label="\uf00d",
+                    width=20,
+                    user_data=p_id,
+                    callback=self.on_delete_clicked,
+                )
                 if dpg.does_item_exist("icon_font_tag"):
                     dpg.bind_item_font(btn_delete, "icon_font_tag")
                 if dpg.does_item_exist("delete_button_theme"):
@@ -121,67 +149,98 @@ class ProfileUI:
         viewer = self.gui.context_viewer
         if not viewer or not viewer.view_state:
             return
-            
+
         profile = viewer.view_state.profiles.get(user_data)
         if not profile:
             return
-            
+
         win_tag = f"plot_win_{profile.id}"
         if dpg.does_item_exist(win_tag):
             dpg.focus_item(win_tag)
             return
 
-        distances, intensities = self.controller.profiles.get_profile_data(viewer.image_id, profile)
+        distances, intensities = self.controller.profiles.get_profile_data(
+            viewer.image_id, profile
+        )
         if distances is None or intensities is None:
             return
 
-        with dpg.window(tag=win_tag, label=f"Profile: {profile.name}", width=450, height=550, on_close=self.on_plot_closed, user_data=profile.id):
+        with dpg.window(
+            tag=win_tag,
+            label=f"Profile: {profile.name}",
+            width=450,
+            height=550,
+            on_close=self.on_plot_closed,
+            user_data=profile.id,
+        ):
             with dpg.group(horizontal=True):
-                btn_center = dpg.add_button(label="\uf05b", callback=self.on_goto_clicked, user_data=profile.id)
+                btn_center = dpg.add_button(
+                    label="\uf05b", callback=self.on_goto_clicked, user_data=profile.id
+                )
                 if dpg.does_item_exist("icon_font_tag"):
                     dpg.bind_item_font(btn_center, "icon_font_tag")
-                
-                btn_export = dpg.add_button(label="\uf0c7 Export JSON", callback=self.on_export_profile_clicked, user_data=profile.id)
-                if dpg.does_item_exist("icon_font_tag"):
-                    dpg.bind_item_font(btn_export, "icon_font_tag")
-                if dpg.does_item_exist("icon_button_theme"):
-                    dpg.bind_item_theme(btn_export, "icon_button_theme")
+
+                btn_export = dpg.add_button(
+                    label="Export to JSON",
+                    width=-1,
+                    callback=self.on_export_profile_clicked,
+                    user_data=profile.id,
+                )
 
             dpg.add_spacer(height=5)
 
             with dpg.plot(label="", height=300, width=-1):
-                dpg.add_plot_axis(dpg.mvXAxis, label="Distance (mm)", tag=f"xaxis_{profile.id}")
-                y_axis = dpg.add_plot_axis(dpg.mvYAxis, label="Intensity", tag=f"yaxis_{profile.id}")
-                dpg.add_line_series(distances, intensities, label=profile.name, parent=y_axis, tag=f"series_{profile.id}")
-            
+                dpg.add_plot_axis(
+                    dpg.mvXAxis, label="Distance (mm)", tag=f"xaxis_{profile.id}"
+                )
+                y_axis = dpg.add_plot_axis(
+                    dpg.mvYAxis, label="Intensity", tag=f"yaxis_{profile.id}"
+                )
+                dpg.add_line_series(
+                    distances,
+                    intensities,
+                    label=profile.name,
+                    parent=y_axis,
+                    tag=f"series_{profile.id}",
+                )
+
             dpg.add_separator()
-            
+
             for i in [1, 2]:
                 with dpg.group(horizontal=True):
                     dpg.add_text(f"P{i} (mm):")
                     dpg.add_input_floatx(
                         tag=f"input_phys_p{i}_{profile.id}",
-                        size=3, width=-1,
+                        size=3,
+                        width=-1,
                         callback=self.on_profile_coord_edited,
-                        user_data={"id": profile.id, "pt": i}
+                        user_data={"id": profile.id, "pt": i},
                     )
-                dpg.add_text("Voxel: [---]", tag=f"text_vox_p{i}_{profile.id}", color=self.gui.ui_cfg["colors"]["text_dim"])
-        
+                dpg.add_text(
+                    "Voxel: [---]",
+                    tag=f"text_vox_p{i}_{profile.id}",
+                    color=self.gui.ui_cfg["colors"]["text_dim"],
+                )
+
         profile.plot_open = True
         self.update_plot_info(viewer.image_id, profile)
 
     def on_export_profile_clicked(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer
-        if not viewer or not viewer.image_id: return
-        
+        if not viewer or not viewer.image_id:
+            return
+
         profile = viewer.view_state.profiles.get(user_data)
-        if not profile: return
+        if not profile:
+            return
 
         default_name = f"profile_{profile.name.replace(' ', '_')}.json"
         file_path = save_file_dialog("Export Profile Data", default_name=default_name)
-        
+
         if file_path:
-            data = self.controller.profiles.get_full_export_data(viewer.image_id, profile)
+            data = self.controller.profiles.get_full_export_data(
+                viewer.image_id, profile
+            )
             try:
                 with open(file_path, "w") as f:
                     json.dump(data, f, indent=4)
@@ -193,14 +252,14 @@ class ProfileUI:
         vs = self.controller.view_states.get(vs_id)
         if not vs or not profile:
             return
-            
+
         for i, pt_phys in enumerate([profile.pt1_phys, profile.pt2_phys], 1):
             input_tag = f"input_phys_p{i}_{profile.id}"
             vox_tag = f"text_vox_p{i}_{profile.id}"
-            
+
             if dpg.does_item_exist(input_tag) and not dpg.is_item_active(input_tag):
                 dpg.set_value(input_tag, pt_phys.tolist())
-                
+
             if dpg.does_item_exist(vox_tag):
                 v_native = vs.world_to_display(pt_phys, is_buffered=False)
                 vox_str = fmt(v_native, 1) if v_native is not None else "Out"
@@ -210,22 +269,24 @@ class ProfileUI:
         viewer = self.gui.context_viewer
         if not viewer or not viewer.view_state:
             return
-            
+
         p_id, pt_idx = user_data["id"], user_data["pt"]
         profile = viewer.view_state.profiles.get(p_id)
         if not profile:
             return
-            
+
         new_val = np.array(app_data)
         if pt_idx == 1:
             profile.pt1_phys = new_val
         else:
             profile.pt2_phys = new_val
-            
+
         # Update plot and visual clues
         viewer.is_geometry_dirty = True
         self.update_plot_info(viewer.image_id, profile)
-        distances, intensities = self.controller.profiles.get_profile_data(viewer.image_id, profile)
+        distances, intensities = self.controller.profiles.get_profile_data(
+            viewer.image_id, profile
+        )
         if distances:
             dpg.set_value(f"series_{profile.id}", [distances, intensities])
 
@@ -248,7 +309,7 @@ class ProfileUI:
         profile = viewer.view_state.profiles.get(user_data)
         if not profile:
             return
-            
+
         vs = viewer.view_state
         viewer.set_orientation(profile.orientation)
 
@@ -267,7 +328,7 @@ class ProfileUI:
         viewer.slice_idx = profile.slice_idx
         vs.camera.target_center = mid_phys
         vs.update_crosshair_from_phys(mid_phys)
-        
+
         self.controller.sync.propagate_sync(viewer.image_id)
         self.controller.ui_needs_refresh = True
 
@@ -278,11 +339,11 @@ class ProfileUI:
         profile_id = user_data
         if profile_id in viewer.view_state.profiles:
             del viewer.view_state.profiles[profile_id]
-            
+
             win_tag = f"plot_win_{profile_id}"
             if dpg.does_item_exist(win_tag):
                 dpg.delete_item(win_tag)
-                
+
             viewer.view_state.is_geometry_dirty = True
             self.controller.ui_needs_refresh = True
 
@@ -290,22 +351,25 @@ class ProfileUI:
         viewer = self.gui.context_viewer
         if not viewer or not viewer.view_state or not viewer.volume:
             return
-            
+
         vol = viewer.volume
         vs = viewer.view_state
-        
+
         from vvv.core.view_state import ProfileLineState
         import random
-        
+
         for i in range(10):
             p = ProfileLineState()
             p.id = dpg.generate_uuid()
             p.name = f"Profile {len(vs.profiles) + 1}"
-            p.color = [random.randint(50, 255) for _ in range(3)] + [255]
-            
+            color_idx = len(vs.profiles)
+            p.color = list(ROI_COLORS[color_idx % len(ROI_COLORS)]) + [255]
+
             # Random orientation
-            p.orientation = random.choice([ViewMode.AXIAL, ViewMode.SAGITTAL, ViewMode.CORONAL])
-            
+            p.orientation = random.choice(
+                [ViewMode.AXIAL, ViewMode.SAGITTAL, ViewMode.CORONAL]
+            )
+
             # Random slice inside bounds
             s_ax, h_ax, w_ax = 2, 0, 1
             if p.orientation == ViewMode.AXIAL:
@@ -317,26 +381,30 @@ class ProfileUI:
             else:
                 max_s = vol.shape3d[1]
                 s_ax, h_ax, w_ax = 1, 0, 2
-                
+
             # Random slice near the centroid (middle 50%)
             s_min = int(max_s * 0.25)
             s_max = max(s_min, int(max_s * 0.75) - 1)
             p.slice_idx = random.randint(s_min, s_max) if max_s > 1 else 0
-            
+
             # Random points near the centroid of the slice (middle 50%)
             h, w = vol.shape3d[h_ax], vol.shape3d[w_ax]
-            x1, y1 = random.uniform(w * 0.25, w * 0.75), random.uniform(h * 0.25, h * 0.75)
-            x2, y2 = random.uniform(w * 0.25, w * 0.75), random.uniform(h * 0.25, h * 0.75)
-            
+            x1, y1 = random.uniform(w * 0.25, w * 0.75), random.uniform(
+                h * 0.25, h * 0.75
+            )
+            x2, y2 = random.uniform(w * 0.25, w * 0.75), random.uniform(
+                h * 0.25, h * 0.75
+            )
+
             v1 = [0.0, 0.0, 0.0]
             v2 = [0.0, 0.0, 0.0]
             v1[w_ax], v1[h_ax], v1[s_ax] = x1, y1, p.slice_idx
             v2[w_ax], v2[h_ax], v2[s_ax] = x2, y2, p.slice_idx
-            
+
             p.pt1_phys = vs.display_to_world(np.array(v1), is_buffered=False)
             p.pt2_phys = vs.display_to_world(np.array(v2), is_buffered=False)
-            
+
             vs.profiles[p.id] = p
-            
+
         vs.is_geometry_dirty = True
         self.controller.ui_needs_refresh = True

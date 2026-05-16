@@ -102,7 +102,7 @@ class NavigationTool:
 
                     # Trigger real-time plot update
                     self._update_profile_plot(p)
-                    self.drag_viewer.is_geometry_dirty = True
+                    vs.is_geometry_dirty = True
                 return
 
             self.drag_viewer.on_drag(drag_data)
