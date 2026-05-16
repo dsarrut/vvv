@@ -49,6 +49,7 @@ class ProfileUI:
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
 
     def refresh_profile_ui(self):
         viewer = self.gui.context_viewer
@@ -125,6 +126,15 @@ class ProfileUI:
                     dpg.bind_item_font(btn_v, "icon_font_tag")
                 with dpg.tooltip(btn_v):
                     dpg.add_text("Align purely vertical on current slice")
+
+                # Pixel snap
+                btn_snap = dpg.add_button(
+                    label="\uf076", user_data=p_id, callback=self.on_snap_clicked
+                )
+                if dpg.does_item_exist("icon_font_tag"):
+                    dpg.bind_item_font(btn_snap, "icon_font_tag")
+                with dpg.tooltip(btn_snap):
+                    dpg.add_text("Snap endpoints to closest pixel center")
 
                 # Goto button
                 btn_goto = dpg.add_button(
@@ -258,6 +268,13 @@ class ProfileUI:
                 dpg.add_text("Align purely horizontal")
             with dpg.tooltip(btn_v):
                 dpg.add_text("Align purely vertical")
+
+            # 2b. Snap
+            btn_snap = dpg.add_button(
+                label="\uf076", user_data=p_id, callback=self.on_snap_clicked
+            )
+            if icon_font: dpg.bind_item_font(btn_snap, icon_font)
+            with dpg.tooltip(btn_snap): dpg.add_text("Snap to pixel center")
 
             # 3. Goto
             btn_goto = dpg.add_button(
@@ -576,6 +593,38 @@ class ProfileUI:
         if distances:
             dpg.set_value(f"series_{p.id}", [distances, intensities])
         self.controller.ui_needs_refresh = True
+
+    def on_snap_clicked(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+
+        p_id = user_data
+        vs = viewer.view_state
+        p = vs.profiles.get(p_id)
+        if not p:
+            return
+
+        # Snap to closest voxel center in native space
+        v1 = vs.world_to_display(p.pt1_phys, is_buffered=False)
+        v2 = vs.world_to_display(p.pt2_phys, is_buffered=False)
+
+        if v1 is not None and v2 is not None:
+            v1_snapped = np.round(v1)
+            v2_snapped = np.round(v2)
+
+            p.pt1_phys = vs.display_to_world(v1_snapped, is_buffered=False)
+            p.pt2_phys = vs.display_to_world(v2_snapped, is_buffered=False)
+
+            vs.is_geometry_dirty = True
+            self.update_plot_info(viewer.image_id, p)
+            # Update plot data
+            distances, intensities = self.controller.profiles.get_profile_data(
+                viewer.image_id, p
+            )
+            if distances:
+                dpg.set_value(f"series_{p.id}", [distances, intensities])
+            self.controller.ui_needs_refresh = True
 
     def on_btn_add_clicked(self, sender, app_data, user_data):
         if self.gui.context_viewer:

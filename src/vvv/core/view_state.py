@@ -20,6 +20,7 @@ class CameraState:
     show_scalebar: bool
     show_grid: bool
     show_legend: bool
+    show_profiles: bool
     show_filename: int
 
     # Fields that trigger a GEOMETRY redraw
@@ -31,6 +32,7 @@ class CameraState:
         "show_scalebar",
         "show_grid",
         "show_legend",
+        "show_profiles",
         "show_filename",
     }
 
@@ -63,6 +65,7 @@ class CameraState:
         self.show_scalebar = False
         self.show_grid = False
         self.show_legend = False
+        self.show_profiles = True
         self.show_filename = 0
 
         # State-Only Sync Targets
@@ -91,6 +94,7 @@ class CameraState:
             "show_scalebar": bool(self.show_scalebar),
             "show_grid": bool(self.show_grid),
             "show_legend": bool(self.show_legend),
+            "show_profiles": bool(self.show_profiles),
             "show_filename": int(self.show_filename),
             "last_orientation": self.last_orientation.name,
             "crosshair_voxel": (
@@ -128,6 +132,7 @@ class CameraState:
         self.show_scalebar = d.get("show_scalebar", self.show_scalebar)
         self.show_grid = d.get("show_grid", self.show_grid)
         self.show_legend = d.get("show_legend", self.show_legend)
+        self.show_profiles = d.get("show_profiles", self.show_profiles)
         self.show_filename = d.get("show_filename", self.show_filename)
 
         if "last_orientation" in d:

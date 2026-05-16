@@ -635,6 +635,7 @@ class OverlayDrawer:
             not viewer.is_image_orientation()
             or not viewer.view_state
             or not viewer.volume
+            or not getattr(viewer.view_state.camera, "show_profiles", True)
         ):
             if dpg.does_item_exist(viewer.profile_node_tag):
                 dpg.configure_item(viewer.profile_node_tag, show=False)
@@ -683,8 +684,8 @@ class OverlayDrawer:
             # Case 1: The segment is (mostly) in-plane for the current orientation
             if abs(z1 - z2) < 0.5:
                 depth_diff = abs(curr_z - z1)
-                # Draw on current slice (0.5 tol) and adjacent slices (1.5 tol)
-                if depth_diff > 1.5:
+                # Draw on current slice (0.5 tol) and extended adjacent range (6.5 tol)
+                if depth_diff > 6.5:
                     continue
 
                 is_adjacent = depth_diff > 0.5
@@ -694,7 +695,9 @@ class OverlayDrawer:
                 if s1 and s2:
                     col = list(profile.color)
                     if is_adjacent:
-                        col[3] = 60  # Dimmed for adjacent slices
+                        # Gradual dimming over ±6 slices
+                        alpha = int(max(20, 150 - (depth_diff * 20)))
+                        col[3] = alpha
                         dpg.draw_line(s1, s2, color=col, thickness=1.0, parent=node)
                     else:
                         dpg.draw_line(s1, s2, color=col, thickness=2.0, parent=node)

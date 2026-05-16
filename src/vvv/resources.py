@@ -87,6 +87,7 @@ def load_fonts():
                                 0xF15D,
                                 0xF15E,
                                 0xF05B,  #
+                                0xF076,  # Magnet icon for snap
                                 0xF77C,  # Baby icon
                             ]
                         )
