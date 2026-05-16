@@ -43,6 +43,7 @@ class ProfileUI:
                     borders_innerH=True,
                     scrollY=True,
                 ):
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
                     dpg.add_table_column(width_stretch=True)
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
@@ -87,6 +88,18 @@ class ProfileUI:
         vs = viewer.view_state
         for p_id, profile in vs.profiles.items():
             with dpg.table_row(parent=table_id):
+                # Color picker
+                dpg.add_color_edit(
+                    default_value=profile.color,
+                    no_inputs=True,
+                    no_label=True,
+                    no_alpha=True,
+                    width=20,
+                    height=20,
+                    user_data=p_id,
+                    callback=self.on_color_changed,
+                )
+
                 # Name (clickable)
                 dpg.add_input_text(
                     tag=f"input_profile_name_{p_id}",
@@ -273,8 +286,10 @@ class ProfileUI:
             btn_snap = dpg.add_button(
                 label="\uf076", user_data=p_id, callback=self.on_snap_clicked
             )
-            if icon_font: dpg.bind_item_font(btn_snap, icon_font)
-            with dpg.tooltip(btn_snap): dpg.add_text("Snap to pixel center")
+            if icon_font:
+                dpg.bind_item_font(btn_snap, icon_font)
+            with dpg.tooltip(btn_snap):
+                dpg.add_text("Snap to pixel center")
 
             # 3. Goto
             btn_goto = dpg.add_button(
