@@ -599,6 +599,15 @@ class IntensitiesUI:
             dpg.configure_item(popup_tag, show=not cfg.get("show", True))
             return
 
+        # Texture must live in the texture registry, not inside the window
+        if not dpg.does_item_exist("wl_colorscale_tex"):
+            dpg.add_dynamic_texture(
+                width=256, height=1,
+                default_value=[0.5] * (256 * 4),
+                tag="wl_colorscale_tex",
+                parent="global_texture_registry",
+            )
+
         with dpg.window(label="Histogram", tag=popup_tag, width=700, height=560):
             with dpg.plot(
                 tag="wl_hist_popup_plot",
@@ -637,12 +646,6 @@ class IntensitiesUI:
 
             # Colormap scale bar
             dpg.add_spacer(height=4)
-            if not dpg.does_item_exist("wl_colorscale_tex"):
-                dpg.add_dynamic_texture(
-                    width=256, height=1,
-                    default_value=[0.5] * (256 * 4),
-                    tag="wl_colorscale_tex",
-                )
             dpg.add_image(
                 "wl_colorscale_tex",
                 width=660, height=20,
