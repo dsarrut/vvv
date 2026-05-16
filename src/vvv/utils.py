@@ -12,13 +12,15 @@ class ViewMode(Enum):
 
 
 def fmt(values, precision=3):
-    if np.isscalar(values) or isinstance(values, (int, float)):
+    if isinstance(values, (int, float, np.number)):
         return f"{round(float(values), precision):g}"
     # If it's a 2D matrix (like the ITK direction matrix), flatten it first
     if isinstance(values, np.ndarray):
-        values = values.flatten()
+        items = values.flatten()
+    else:
+        items = values
     # Round to max precision, then convert to string to remove trailing zeros
-    return " ".join([f"{round(float(x), precision):g}" for x in values])
+    return " ".join([f"{round(float(x), precision):g}" for x in items])
 
 
 def format_pixel_value(val, vol, time_idx, dvf_precision=2):

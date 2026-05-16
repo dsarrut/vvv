@@ -198,15 +198,18 @@ class ProfileUI:
                 max_s = vol.shape3d[1]
                 s_ax, h_ax, w_ax = 1, 0, 2
                 
-            p.slice_idx = random.randint(0, max_s - 1)
+            # Random slice near the centroid (middle 50%)
+            s_min = int(max_s * 0.25)
+            s_max = max(s_min, int(max_s * 0.75) - 1)
+            p.slice_idx = random.randint(s_min, s_max) if max_s > 1 else 0
             
-            # Random points in the slice
+            # Random points near the centroid of the slice (middle 50%)
             h, w = vol.shape3d[h_ax], vol.shape3d[w_ax]
-            x1, y1 = random.uniform(0, w), random.uniform(0, h)
-            x2, y2 = random.uniform(0, w), random.uniform(0, h)
+            x1, y1 = random.uniform(w * 0.25, w * 0.75), random.uniform(h * 0.25, h * 0.75)
+            x2, y2 = random.uniform(w * 0.25, w * 0.75), random.uniform(h * 0.25, h * 0.75)
             
-            v1 = [0, 0, 0]
-            v2 = [0, 0, 0]
+            v1 = [0.0, 0.0, 0.0]
+            v2 = [0.0, 0.0, 0.0]
             v1[w_ax], v1[h_ax], v1[s_ax] = x1, y1, p.slice_idx
             v2[w_ax], v2[h_ax], v2[s_ax] = x2, y2, p.slice_idx
             
