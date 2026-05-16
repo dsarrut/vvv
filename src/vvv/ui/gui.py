@@ -720,6 +720,7 @@ class MainGUI:
         # Sync the Fusion overlay values
         self.fusion_ui.sync_fusion_ui()
         sync_image_list_ui(self)
+        self.intensities_ui.sync_wl_lines(viewer, vs)
 
         # Sync Interpolation mode text
         if vs.display.use_voxel_strips:
