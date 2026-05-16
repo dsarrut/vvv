@@ -100,7 +100,7 @@ class ProfileManager:
             return []
 
         distances, intensities = self.get_profile_data(vs_id, profile)
-        if not distances:
+        if distances is None or intensities is None:
             return []
 
         p1, p2 = profile.pt1_phys, profile.pt2_phys

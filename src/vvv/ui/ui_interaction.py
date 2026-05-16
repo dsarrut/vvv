@@ -149,6 +149,8 @@ class NavigationTool:
             self.drag_viewer = None
 
     def _update_profile_plot(self, profile):
+        if self.drag_viewer is None:
+            return
         win_tag = f"plot_win_{profile.id}"
         if dpg.does_item_exist(win_tag):
             distances, intensities = self.manager.controller.profiles.get_profile_data(
