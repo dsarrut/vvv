@@ -88,6 +88,7 @@ class ProfileUI:
             with dpg.table_row(parent=table_id):
                 # Name (clickable)
                 dpg.add_input_text(
+                    tag=f"input_profile_name_{p_id}",
                     default_value=profile.name,
                     user_data=p_id,
                     callback=self.on_profile_name_changed,
@@ -195,6 +196,14 @@ class ProfileUI:
         ):
             self._build_plot_window_contents(profile)
 
+        # Position the window at the bottom right of the viewport
+        vp_w = dpg.get_viewport_client_width()
+        vp_h = dpg.get_viewport_client_height()
+        win_w, win_h = 450, 550
+        dpg.set_item_pos(
+            win_tag, [max(10, vp_w - win_w - 20), max(10, vp_h - win_h - 40)]
+        )
+
         profile.plot_open = True
         self.update_plot_info(viewer.image_id, profile)
 
@@ -209,6 +218,86 @@ class ProfileUI:
         if distances is None or intensities is None:
             return
 
+        p_id = profile.id
+        icon_font = "icon_font_tag" if dpg.does_item_exist("icon_font_tag") else None
+
+        # --- Header Toolbar (Matching the list row) ---
+        with dpg.group(horizontal=True):
+            # 0. Color picker
+            dpg.add_color_edit(
+                default_value=profile.color,
+                no_inputs=True,
+                no_label=True,
+                no_alpha=True,
+                width=20,
+                height=20,
+                user_data=p_id,
+                callback=self.on_color_changed,
+            )
+
+            # 1. Plot Toggle (Closes current)
+            btn_plot = dpg.add_button(
+                label="\uf08e", user_data=p_id, callback=self.on_profile_clicked
+            )
+            if icon_font:
+                dpg.bind_item_font(btn_plot, icon_font)
+            with dpg.tooltip(btn_plot):
+                dpg.add_text("Close plot window")
+
+            # 2. Alignment
+            btn_h = dpg.add_button(
+                label="\uf07e", user_data=(p_id, "h"), callback=self.on_align_clicked
+            )
+            btn_v = dpg.add_button(
+                label="\uf07d", user_data=(p_id, "v"), callback=self.on_align_clicked
+            )
+            if icon_font:
+                dpg.bind_item_font(btn_h, icon_font)
+                dpg.bind_item_font(btn_v, icon_font)
+            with dpg.tooltip(btn_h):
+                dpg.add_text("Align purely horizontal")
+            with dpg.tooltip(btn_v):
+                dpg.add_text("Align purely vertical")
+
+            # 3. Goto
+            btn_goto = dpg.add_button(
+                label="\uf05b", callback=self.on_goto_clicked, user_data=p_id
+            )
+            if icon_font:
+                dpg.bind_item_font(btn_goto, icon_font)
+            with dpg.tooltip(btn_goto):
+                dpg.add_text("Center camera on profile")
+
+            # 4. Slice Navigation
+            btn_prev = dpg.add_button(
+                label="\uf062",
+                user_data=(p_id, -1),
+                callback=self.on_change_slice_clicked,
+            )
+            btn_next = dpg.add_button(
+                label="\uf063",
+                user_data=(p_id, 1),
+                callback=self.on_change_slice_clicked,
+            )
+            if icon_font:
+                dpg.bind_item_font(btn_prev, icon_font)
+                dpg.bind_item_font(btn_next, icon_font)
+            with dpg.tooltip(btn_prev):
+                dpg.add_text("Move profile to previous slice")
+            with dpg.tooltip(btn_next):
+                dpg.add_text("Move profile to next slice")
+
+            # 5. Delete
+            btn_del = dpg.add_button(
+                label="\uf00d", user_data=p_id, callback=self.on_delete_clicked
+            )
+            if icon_font:
+                dpg.bind_item_font(btn_del, icon_font)
+            if dpg.does_item_exist("delete_button_theme"):
+                dpg.bind_item_theme(btn_del, "delete_button_theme")
+            with dpg.tooltip(btn_del):
+                dpg.add_text("Delete profile")
+
         # Orientation display
         ori_map = {
             ViewMode.AXIAL: "XY",
@@ -221,33 +310,6 @@ class ProfileUI:
             tag=f"plot_header_text_{profile.id}",
             color=self.gui.ui_cfg["colors"]["text_dim"],
         )
-
-        with dpg.group(horizontal=True):
-            btn_center = dpg.add_button(
-                label="\uf05b", callback=self.on_goto_clicked, user_data=profile.id
-            )
-            if dpg.does_item_exist("icon_font_tag"):
-                dpg.bind_item_font(btn_center, "icon_font_tag")
-            with dpg.tooltip(btn_center):
-                dpg.add_text("Center camera on profile")
-
-            btn_prev = dpg.add_button(
-                label="\uf062",
-                user_data=(profile.id, -1),
-                callback=self.on_change_slice_clicked,
-            )
-            btn_next = dpg.add_button(
-                label="\uf063",
-                user_data=(profile.id, 1),
-                callback=self.on_change_slice_clicked,
-            )
-            if dpg.does_item_exist("icon_font_tag"):
-                dpg.bind_item_font(btn_prev, "icon_font_tag")
-                dpg.bind_item_font(btn_next, "icon_font_tag")
-            with dpg.tooltip(btn_prev):
-                dpg.add_text("Move profile to previous slice")
-            with dpg.tooltip(btn_next):
-                dpg.add_text("Move profile to next slice")
 
         dpg.add_spacer(height=5)
 
