@@ -476,10 +476,13 @@ class ProfileLineState:
         if d.get("pt2_phys"):
             self.pt2_phys = np.array(d["pt2_phys"])
         if "orientation" in d:
-            self.orientation = ViewMode[d["orientation"]]
+            try:
+                self.orientation = ViewMode[d["orientation"]]
+            except KeyError:
+                self.orientation = ViewMode.AXIAL
         self.slice_idx = d.get("slice_idx", self.slice_idx)
         self.visible = d.get("visible", self.visible)
-        self.plot_open = d.get("plot_open", self.plot_open)
+        self.plot_open = False  # windows don't survive workspace reload
         self.use_log = d.get("use_log", False)
 
 

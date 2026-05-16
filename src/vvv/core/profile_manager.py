@@ -6,19 +6,21 @@ class ProfileManager:
     def __init__(self, controller):
         self.controller = controller
 
-    def get_profile_data(self, vs_id, profile):
+    def _sample_points(self, vs_id, profile):
+        """Returns (distances, intensities, pts_phys, vs, vol) or None on failure."""
         vs = self.controller.view_states.get(vs_id)
         vol = self.controller.volumes.get(vs_id)
         if not vs or not vol:
-            return None, None
+            return None
 
-        p1 = profile.pt1_phys
-        p2 = profile.pt2_phys
-
+        p1, p2 = profile.pt1_phys, profile.pt2_phys
         if p1 is None or p2 is None:
-            return None, None
+            return None
 
-        # Determine in-plane spacing based on orientation
+        dist = np.linalg.norm(p2 - p1)
+        if dist == 0:
+            return None
+
         sp = vol.spacing  # [x, y, z]
         if profile.orientation == ViewMode.AXIAL:
             in_plane = [sp[0], sp[1]]
@@ -27,102 +29,65 @@ class ProfileManager:
         else:
             in_plane = [sp[0], sp[2]]
 
-        # Interpolation step matches minimum in-plane spacing
         step = min(in_plane)
-
-        dist = np.linalg.norm(p2 - p1)
-        if dist == 0:
-            return None, None
-
-        # Ensure sampling density is at least equal to pixel density (1 per mm/step)
         num_points = max(2, int(np.ceil(dist / step)) + 1)
 
-        distances = np.linspace(0, dist, num_points)
         t = np.linspace(0, 1, num_points)
-
+        distances = np.linspace(0, dist, num_points)
         pts_phys = p1[None, :] + t[:, None] * (p2 - p1)[None, :]
 
-        intensities = []
-        for i in range(num_points):
-            v_idx = vol.physic_coord_to_voxel_coord(pts_phys[i])
-            x, y, z = v_idx
+        t_idx = min(vs.camera.time_idx, vol.num_timepoints - 1) if vol.num_timepoints > 1 else None
+        is_dvf = getattr(vol, "is_dvf", False)
+        is_rgb = getattr(vol, "is_rgb", False)
 
+        def get_val(ix, iy, iz):
+            if not (0 <= ix < vol.shape3d[2] and 0 <= iy < vol.shape3d[1] and 0 <= iz < vol.shape3d[0]):
+                return 0.0
+            v = vol.data[t_idx, iz, iy, ix] if t_idx is not None else vol.data[iz, iy, ix]
+            return float(np.linalg.norm(v) if is_dvf else np.mean(v) if is_rgb else v)
+
+        intensities = []
+        for pt in pts_phys:
+            x, y, z = vol.physic_coord_to_voxel_coord(pt)
             x0, y0, z0 = int(np.floor(x)), int(np.floor(y)), int(np.floor(z))
             x1, y1, z1 = x0 + 1, y0 + 1, z0 + 1
-
             xd, yd, zd = x - x0, y - y0, z - z0
 
-            def get_val(ix, iy, iz):
-                if (
-                    0 <= ix < vol.shape3d[2]
-                    and 0 <= iy < vol.shape3d[1]
-                    and 0 <= iz < vol.shape3d[0]
-                ):
-                    if vol.num_timepoints > 1:
-                        t_idx = min(vs.camera.time_idx, vol.num_timepoints - 1)
-                        v = vol.data[t_idx, iz, iy, ix]
-                    else:
-                        v = vol.data[iz, iy, ix]
-                    return float(
-                        np.linalg.norm(v)
-                        if getattr(vol, "is_dvf", False)
-                        else np.mean(v) if getattr(vol, "is_rgb", False) else v
-                    )
-                return 0.0
-
-            c000 = get_val(x0, y0, z0)
-            c100 = get_val(x1, y0, z0)
-            c010 = get_val(x0, y1, z0)
-            c110 = get_val(x1, y1, z0)
-            c001 = get_val(x0, y0, z1)
-            c101 = get_val(x1, y0, z1)
-            c011 = get_val(x0, y1, z1)
-            c111 = get_val(x1, y1, z1)
-
-            c00 = c000 * (1 - xd) + c100 * xd
-            c01 = c001 * (1 - xd) + c101 * xd
-            c10 = c010 * (1 - xd) + c110 * xd
-            c11 = c011 * (1 - xd) + c111 * xd
-
+            c00 = get_val(x0, y0, z0) * (1 - xd) + get_val(x1, y0, z0) * xd
+            c01 = get_val(x0, y0, z1) * (1 - xd) + get_val(x1, y0, z1) * xd
+            c10 = get_val(x0, y1, z0) * (1 - xd) + get_val(x1, y1, z0) * xd
+            c11 = get_val(x0, y1, z1) * (1 - xd) + get_val(x1, y1, z1) * xd
             c0 = c00 * (1 - yd) + c10 * yd
             c1 = c01 * (1 - yd) + c11 * yd
+            intensities.append(c0 * (1 - zd) + c1 * zd)
 
-            c = c0 * (1 - zd) + c1 * zd
-            intensities.append(c)
+        return distances, intensities, pts_phys, vs, vol
 
+    def get_profile_data(self, vs_id, profile):
+        result = self._sample_points(vs_id, profile)
+        if result is None:
+            return None, None
+        distances, intensities, _, _, _ = result
         return distances.tolist(), intensities
 
     def get_full_export_data(self, vs_id, profile):
-        """Returns a list of dicts containing mm, voxel, and intensity for every point."""
-        vs = self.controller.view_states.get(vs_id)
-        vol = self.controller.volumes.get(vs_id)
-        if not vs or not vol:
+        """Returns a dict with name, image, and per-point mm/voxel/intensity data."""
+        result = self._sample_points(vs_id, profile)
+        if result is None:
             return []
-
-        distances, intensities = self.get_profile_data(vs_id, profile)
-        if distances is None or intensities is None:
-            return []
-
-        p1, p2 = profile.pt1_phys, profile.pt2_phys
-        t = np.linspace(0, 1, len(distances))
-        pts_phys = p1[None, :] + t[:, None] * (p2 - p1)[None, :]
+        distances, intensities, pts_phys, vs, vol = result
 
         export_list = []
-        for i in range(len(distances)):
-            phys = pts_phys[i]
+        for i, phys in enumerate(pts_phys):
             vox = vol.physic_coord_to_voxel_coord(phys)
-            # Neutralized native voxel (straightened)
             native_vox = vs.world_to_display(phys, is_buffered=False)
-
             export_list.append(
                 {
                     "distance_mm": float(distances[i]),
                     "intensity": float(intensities[i]),
                     "point_phys_mm": phys.tolist(),
                     "point_voxel_index": vox.tolist(),
-                    "point_native_voxel": (
-                        native_vox.tolist() if native_vox is not None else None
-                    ),
+                    "point_native_voxel": native_vox.tolist() if native_vox is not None else None,
                 }
             )
 

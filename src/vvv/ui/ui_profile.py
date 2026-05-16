@@ -7,11 +7,24 @@ from vvv.ui.file_dialog import save_file_dialog
 from vvv.config import ROI_COLORS
 import numpy as np
 
+ORI_MAP = {ViewMode.AXIAL: "XY", ViewMode.SAGITTAL: "YZ", ViewMode.CORONAL: "XZ"}
+
 
 class ProfileUI:
     def __init__(self, gui, controller):
         self.gui = gui
         self.controller = controller
+
+    def _bind_icon_font(self, item):
+        if dpg.does_item_exist("icon_font_tag"):
+            dpg.bind_item_font(item, "icon_font_tag")
+
+    def _refresh_plot_series(self, viewer, profile):
+        distances, intensities = self.controller.profiles.get_profile_data(
+            viewer.image_id, profile
+        )
+        if distances:
+            dpg.set_value(f"series_{profile.id}", [distances, intensities])
 
     def build_tab_profile(self, gui):
         cfg_c = gui.ui_cfg["colors"]
@@ -113,8 +126,7 @@ class ProfileUI:
                 btn_plot = dpg.add_button(
                     label="\uf08e", user_data=p_id, callback=self.on_profile_clicked
                 )
-                if dpg.does_item_exist("icon_font_tag"):
-                    dpg.bind_item_font(btn_plot, "icon_font_tag")
+                self._bind_icon_font(btn_plot)
                 with dpg.tooltip(btn_plot):
                     dpg.add_text("Open intensity plot")
 
@@ -124,8 +136,7 @@ class ProfileUI:
                     user_data=(p_id, "h"),
                     callback=self.on_align_clicked,
                 )
-                if dpg.does_item_exist("icon_font_tag"):
-                    dpg.bind_item_font(btn_h, "icon_font_tag")
+                self._bind_icon_font(btn_h)
                 with dpg.tooltip(btn_h):
                     dpg.add_text("Align purely horizontal on current slice")
 
@@ -135,8 +146,7 @@ class ProfileUI:
                     user_data=(p_id, "v"),
                     callback=self.on_align_clicked,
                 )
-                if dpg.does_item_exist("icon_font_tag"):
-                    dpg.bind_item_font(btn_v, "icon_font_tag")
+                self._bind_icon_font(btn_v)
                 with dpg.tooltip(btn_v):
                     dpg.add_text("Align purely vertical on current slice")
 
@@ -144,8 +154,7 @@ class ProfileUI:
                 btn_snap = dpg.add_button(
                     label="\uf076", user_data=p_id, callback=self.on_snap_clicked
                 )
-                if dpg.does_item_exist("icon_font_tag"):
-                    dpg.bind_item_font(btn_snap, "icon_font_tag")
+                self._bind_icon_font(btn_snap)
                 with dpg.tooltip(btn_snap):
                     dpg.add_text("Snap endpoints to closest pixel center")
 
@@ -153,8 +162,7 @@ class ProfileUI:
                 btn_goto = dpg.add_button(
                     label="\uf05b", user_data=p_id, callback=self.on_goto_clicked
                 )
-                if dpg.does_item_exist("icon_font_tag"):
-                    dpg.bind_item_font(btn_goto, "icon_font_tag")
+                self._bind_icon_font(btn_goto)
                 with dpg.tooltip(btn_goto):
                     dpg.add_text("Center camera on this profile")
 
@@ -165,8 +173,7 @@ class ProfileUI:
                     user_data=p_id,
                     callback=self.on_delete_clicked,
                 )
-                if dpg.does_item_exist("icon_font_tag"):
-                    dpg.bind_item_font(btn_delete, "icon_font_tag")
+                self._bind_icon_font(btn_delete)
                 if dpg.does_item_exist("delete_button_theme"):
                     dpg.bind_item_theme(btn_delete, "delete_button_theme")
 
@@ -242,7 +249,6 @@ class ProfileUI:
             return
 
         p_id = profile.id
-        icon_font = "icon_font_tag" if dpg.does_item_exist("icon_font_tag") else None
 
         # --- Header Toolbar (Matching the list row) ---
         with dpg.group(horizontal=True):
@@ -262,8 +268,7 @@ class ProfileUI:
             btn_plot = dpg.add_button(
                 label="\uf08e", user_data=p_id, callback=self.on_profile_clicked
             )
-            if icon_font:
-                dpg.bind_item_font(btn_plot, icon_font)
+            self._bind_icon_font(btn_plot)
             with dpg.tooltip(btn_plot):
                 dpg.add_text("Close plot window")
 
@@ -274,9 +279,8 @@ class ProfileUI:
             btn_v = dpg.add_button(
                 label="\uf07d", user_data=(p_id, "v"), callback=self.on_align_clicked
             )
-            if icon_font:
-                dpg.bind_item_font(btn_h, icon_font)
-                dpg.bind_item_font(btn_v, icon_font)
+            self._bind_icon_font(btn_h)
+            self._bind_icon_font(btn_v)
             with dpg.tooltip(btn_h):
                 dpg.add_text("Align purely horizontal")
             with dpg.tooltip(btn_v):
@@ -286,8 +290,7 @@ class ProfileUI:
             btn_snap = dpg.add_button(
                 label="\uf076", user_data=p_id, callback=self.on_snap_clicked
             )
-            if icon_font:
-                dpg.bind_item_font(btn_snap, icon_font)
+            self._bind_icon_font(btn_snap)
             with dpg.tooltip(btn_snap):
                 dpg.add_text("Snap to pixel center")
 
@@ -295,8 +298,7 @@ class ProfileUI:
             btn_goto = dpg.add_button(
                 label="\uf05b", callback=self.on_goto_clicked, user_data=p_id
             )
-            if icon_font:
-                dpg.bind_item_font(btn_goto, icon_font)
+            self._bind_icon_font(btn_goto)
             with dpg.tooltip(btn_goto):
                 dpg.add_text("Center camera on profile")
 
@@ -311,9 +313,8 @@ class ProfileUI:
                 user_data=(p_id, 1),
                 callback=self.on_change_slice_clicked,
             )
-            if icon_font:
-                dpg.bind_item_font(btn_prev, icon_font)
-                dpg.bind_item_font(btn_next, icon_font)
+            self._bind_icon_font(btn_prev)
+            self._bind_icon_font(btn_next)
             with dpg.tooltip(btn_prev):
                 dpg.add_text("Move profile to previous slice")
             with dpg.tooltip(btn_next):
@@ -323,20 +324,14 @@ class ProfileUI:
             btn_del = dpg.add_button(
                 label="\uf00d", user_data=p_id, callback=self.on_delete_clicked
             )
-            if icon_font:
-                dpg.bind_item_font(btn_del, icon_font)
+            self._bind_icon_font(btn_del)
             if dpg.does_item_exist("delete_button_theme"):
                 dpg.bind_item_theme(btn_del, "delete_button_theme")
             with dpg.tooltip(btn_del):
                 dpg.add_text("Delete profile")
 
         # Orientation display
-        ori_map = {
-            ViewMode.AXIAL: "XY",
-            ViewMode.SAGITTAL: "YZ",
-            ViewMode.CORONAL: "XZ",
-        }
-        ori_str = ori_map.get(profile.orientation, "??")
+        ori_str = ORI_MAP.get(profile.orientation, "??")
         dpg.add_text(
             f"Orientation: {ori_str} | Slice: {profile.slice_idx}",
             tag=f"plot_header_text_{profile.id}",
@@ -403,12 +398,7 @@ class ProfileUI:
     def _update_plot_header(self, profile):
         header_tag = f"plot_header_text_{profile.id}"
         if dpg.does_item_exist(header_tag):
-            ori_map = {
-                ViewMode.AXIAL: "XY",
-                ViewMode.SAGITTAL: "YZ",
-                ViewMode.CORONAL: "XZ",
-            }
-            ori_str = ori_map.get(profile.orientation, "??")
+            ori_str = ORI_MAP.get(profile.orientation, "??")
             dpg.set_value(
                 header_tag, f"Orientation: {ori_str} | Slice: {profile.slice_idx}"
             )
@@ -429,9 +419,8 @@ class ProfileUI:
         if not profile:
             return
 
-        profile.use_log = not getattr(profile, "use_log", False)
+        profile.use_log = not profile.use_log
 
-        # Redo the whole plot window contents to correctly update the axis type
         win_tag = f"plot_win_{p_id}"
         if dpg.does_item_exist(win_tag):
             dpg.delete_item(win_tag, children_only=True)
@@ -552,11 +541,7 @@ class ProfileUI:
         vs.is_geometry_dirty = True
         self._update_plot_header(p)
         self.update_plot_info(viewer.image_id, p)
-        distances, intensities = self.controller.profiles.get_profile_data(
-            viewer.image_id, p
-        )
-        if distances:
-            dpg.set_value(f"series_{p.id}", [distances, intensities])
+        self._refresh_plot_series(viewer, p)
         self.controller.ui_needs_refresh = True
 
     def on_change_slice_clicked(self, sender, app_data, user_data):
@@ -602,11 +587,7 @@ class ProfileUI:
         # Refresh plot and geometry
         vs.is_geometry_dirty = True
         self.update_plot_info(viewer.image_id, p)
-        distances, intensities = self.controller.profiles.get_profile_data(
-            viewer.image_id, p
-        )
-        if distances:
-            dpg.set_value(f"series_{p.id}", [distances, intensities])
+        self._refresh_plot_series(viewer, p)
         self.controller.ui_needs_refresh = True
 
     def on_snap_clicked(self, sender, app_data, user_data):
@@ -633,12 +614,7 @@ class ProfileUI:
 
             vs.is_geometry_dirty = True
             self.update_plot_info(viewer.image_id, p)
-            # Update plot data
-            distances, intensities = self.controller.profiles.get_profile_data(
-                viewer.image_id, p
-            )
-            if distances:
-                dpg.set_value(f"series_{p.id}", [distances, intensities])
+            self._refresh_plot_series(viewer, p)
             self.controller.ui_needs_refresh = True
 
     def on_btn_add_clicked(self, sender, app_data, user_data):
