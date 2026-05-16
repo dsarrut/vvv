@@ -11,14 +11,21 @@ class ViewMode(Enum):
     HISTOGRAM = auto()
 
 
+class ProfileInteractionMode(Enum):
+    IDLE = auto()
+    MANIPULATING = auto()
+
+
 def fmt(values, precision=3):
-    if np.isscalar(values) or isinstance(values, (int, float)):
+    if isinstance(values, (int, float, np.number)):
         return f"{round(float(values), precision):g}"
     # If it's a 2D matrix (like the ITK direction matrix), flatten it first
     if isinstance(values, np.ndarray):
-        values = values.flatten()
+        items = values.flatten()
+    else:
+        items = values
     # Round to max precision, then convert to string to remove trailing zeros
-    return " ".join([f"{round(float(x), precision):g}" for x in values])
+    return " ".join([f"{round(float(x), precision):g}" for x in items])
 
 
 def format_pixel_value(val, vol, time_idx, dvf_precision=2):
@@ -32,7 +39,10 @@ def format_pixel_value(val, vol, time_idx, dvf_precision=2):
         return f"{val[0]:g} {val[1]:g} {val[2]:g}"
     if getattr(vol, "is_dvf", False):
         mag = np.linalg.norm(val)
-        comps = [f"*{v:.{dvf_precision}f}" if i == time_idx else f"{v:.{dvf_precision}f}" for i, v in enumerate(val)]
+        comps = [
+            f"*{v:.{dvf_precision}f}" if i == time_idx else f"{v:.{dvf_precision}f}"
+            for i, v in enumerate(val)
+        ]
         return f"[{' '.join(comps)}] L:{mag:.{dvf_precision}f}"
     return f"{val:g}"
 

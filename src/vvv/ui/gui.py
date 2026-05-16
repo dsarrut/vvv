@@ -16,6 +16,7 @@ from vvv.ui.ui_dicom import DicomBrowserWindow
 from vvv.ui.ui_intensities import IntensitiesUI
 from vvv.ui.ui_registration import RegistrationUI
 from vvv.resources import load_fonts, setup_themes
+from vvv.ui.ui_profile import ProfileUI
 from vvv.ui.ui_dvf import DvfUI
 from vvv.ui.ui_interaction import InteractionManager
 from vvv.ui.ui_components import build_section_title, build_help_button
@@ -77,6 +78,7 @@ class MainGUI:
             "check_tracker": "camera.show_tracker",
             "check_crosshair": "camera.show_crosshair",
             "check_legend": "camera.show_legend",
+            "check_profiles": "camera.show_profiles",
             "check_scalebar": "camera.show_scalebar",
             "check_filename": "camera.show_filename",
             "drag_ww": "display.ww",
@@ -104,6 +106,7 @@ class MainGUI:
         self.contours_ui = ContoursUI(self, self.controller)
         self.extraction_ui = ExtractionUI(self, self.controller)
         self.dvf_ui = DvfUI(self, self.controller)
+        self.profile_ui = ProfileUI(self, self.controller)
 
         # Go
         self.build_main_layout()
@@ -242,7 +245,9 @@ class MainGUI:
                             callback=self.on_adv_rendering_changed,
                         )
                         with dpg.tooltip(lazy_combo):
-                            dpg.add_text("Auto: use bilinear during drag when fusion is active,\nrestore NN after interaction stops.\nOn/Off: force always on or always off.")
+                            dpg.add_text(
+                                "Auto: use bilinear during drag when fusion is active,\nrestore NN after interaction stops.\nOn/Off: force always on or always off."
+                            )
                         tex_combo = dpg.add_combo(
                             ["Auto", "Single", "Dual"],
                             label="Texture Mode",
@@ -251,7 +256,9 @@ class MainGUI:
                             callback=self.on_adv_rendering_changed,
                         )
                         with dpg.tooltip(tex_combo):
-                            dpg.add_text("Auto: Single texture when fusion is active, Dual otherwise.\nSingle: CPU-blend base+overlay into one canvas texture.\nDual: separate textures for base and overlay.")
+                            dpg.add_text(
+                                "Auto: Single texture when fusion is active, Dual otherwise.\nSingle: CPU-blend base+overlay into one canvas texture.\nDual: separate textures for base and overlay."
+                            )
                         vox_combo = dpg.add_combo(
                             ["Auto", "Native", "Resampled"],
                             label="Voxel Mode",
@@ -260,7 +267,9 @@ class MainGUI:
                             callback=self.on_adv_rendering_changed,
                         )
                         with dpg.tooltip(vox_combo):
-                            dpg.add_text("Auto/Native: overlay rendered at its true voxel resolution.\nResampled: overlay NN-scaled from the base image grid.")
+                            dpg.add_text(
+                                "Auto/Native: overlay rendered at its true voxel resolution.\nResampled: overlay NN-scaled from the base image grid."
+                            )
                         if GL_NEAREST_SUPPORTED:
                             gl_check = dpg.add_checkbox(
                                 label="Hardware NN Filter",
@@ -268,8 +277,11 @@ class MainGUI:
                                 callback=self.on_adv_rendering_changed,
                             )
                             with dpg.tooltip(gl_check):
-                                dpg.add_text("Use GPU GL_NEAREST for fast hardware NN upscaling.\nNot available on macOS.")
+                                dpg.add_text(
+                                    "Use GPU GL_NEAREST for fast hardware NN upscaling.\nNot available on macOS."
+                                )
                         from vvv.ui.render_strategy import _NUMBA_AVAILABLE
+
                         if _NUMBA_AVAILABLE:
                             nb_check = dpg.add_checkbox(
                                 label="Numba Acceleration",
@@ -277,7 +289,9 @@ class MainGUI:
                                 callback=self.on_adv_rendering_changed,
                             )
                             with dpg.tooltip(nb_check):
-                                dpg.add_text("Use Numba JIT for native voxel overlay rendering.\n~40x faster than NumPy for SW NN modes on macOS.\nDisable to fall back to NumPy (useful for debugging).")
+                                dpg.add_text(
+                                    "Use Numba JIT for native voxel overlay rendering.\n~40x faster than NumPy for SW NN modes on macOS.\nDisable to fall back to NumPy (useful for debugging)."
+                                )
 
                 dpg.add_spacer(width=20)
                 dpg.add_text(
@@ -338,6 +352,7 @@ class MainGUI:
             ("Reg", "tab_reg"),
             ("Threshold", "tab_extraction"),
             ("DVF", "tab_dvf"),
+            ("Profiles", "tab_profile"),
         ]
 
         with dpg.group(tag="nav_top_group"):
@@ -419,6 +434,7 @@ class MainGUI:
                 self.reg_ui.build_tab_reg(self)
                 self.extraction_ui.build_tab_extraction(self)
                 self.dvf_ui.build_tab_dvf(self)
+                self.profile_ui.build_tab_profile(self)
 
     def build_sidebar_active_viewer(self):
         cfg_c = self.ui_cfg["colors"]
@@ -454,8 +470,16 @@ class MainGUI:
                     self.create_labeled_field("Value", tag="info_val")
                     self.create_labeled_field("Voxel", tag="info_vox")
                     self.create_labeled_field("Coord", tag="info_phys")
-                    self.create_labeled_field("ppm", tag="info_ppm", help_text="Pixels Per Millimeter: Current zoom scale.")
-                    self.create_labeled_field("FOV", tag="info_scale", help_text="Field of View: Physical dimensions (mm) currently visible.")
+                    self.create_labeled_field(
+                        "ppm",
+                        tag="info_ppm",
+                        help_text="Pixels Per Millimeter: Current zoom scale.",
+                    )
+                    self.create_labeled_field(
+                        "FOV",
+                        tag="info_scale",
+                        help_text="Field of View: Physical dimensions (mm) currently visible.",
+                    )
 
     def create_labeled_field(self, label, tag, help_text=None):
         """Helper to create a labeled read-only input field."""
@@ -484,7 +508,19 @@ class MainGUI:
                         user_data="axis",
                         default_value=True,
                     )
-                    build_help_button("Toggle display elements: Axis, Grid, Tracker, Crosshair, Scale Bar, Legend.", self)
+                    dpg.add_checkbox(
+                        label="Profiles",
+                        tag="check_profiles",
+                        callback=self.on_visibility_toggle,
+                        user_data="profiles",
+                        default_value=True,
+                        show=False,
+                    )
+
+                    build_help_button(
+                        "Toggle display elements: Axis, Grid, Tracker, Crosshair, Scale Bar, Legend.",
+                        self,
+                    )
                     dpg.add_checkbox(
                         label="Pixels grid",
                         tag="check_grid",
@@ -542,7 +578,10 @@ class MainGUI:
                             user_data="interpolation",
                             width=55,
                         )
-                        build_help_button("Interpolation: Linear (smooth), NN (pixelated), or Stripe (extreme zoom).", self)
+                        build_help_button(
+                            "Interpolation: Linear (smooth), NN (pixelated), or Stripe (extreme zoom).",
+                            self,
+                        )
 
     def build_viewer_grid(self):
         """Creates the 2x2 grid of slice viewers."""
@@ -587,6 +626,7 @@ class MainGUI:
                 dpg.add_draw_node(tag=viewer.crosshair_tag)
                 dpg.add_draw_node(tag=viewer.legend_tag)
                 dpg.add_draw_node(tag=viewer.contour_node_tag)
+                dpg.add_draw_node(tag=viewer.profile_node_tag)
                 dpg.add_draw_node(tag=viewer.vector_field_node_tag)
 
             col = self.controller.settings.data["colors"]["tracker_text"]
@@ -782,28 +822,57 @@ class MainGUI:
 
         self._set_enabled(
             has_image,
-            "check_axis", "check_grid", "check_tracker", "check_crosshair",
-            "check_scalebar", "check_legend", "check_filename", "check_interpolation",
-            "check_show_contour", "btn_roi_load", "combo_roi_mode", "input_roi_val",
+            "check_axis",
+            "check_grid",
+            "check_tracker",
+            "check_crosshair",
+            "check_scalebar",
+            "check_legend",
+            "check_filename",
+            "check_interpolation",
+            "check_show_contour",
+            "btn_roi_load",
+            "combo_roi_mode",
+            "input_roi_val",
         )
         self._set_enabled(
             has_rois,
-            "btn_roi_show_all", "btn_roi_contour_all", "btn_roi_hide_all",
-            "btn_roi_export_stats", "slider_roi_global_opacity", "slider_roi_global_thickness",
+            "btn_roi_show_all",
+            "btn_roi_contour_all",
+            "btn_roi_hide_all",
+            "btn_roi_export_stats",
+            "slider_roi_global_opacity",
+            "slider_roi_global_thickness",
         )
+
+        # Profile Visibility Toggle
+        has_profiles = has_image and len(viewer.view_state.profiles) > 0
+        self._safe_configure("check_profiles", show=has_profiles)
+
         if not has_image:
             self._set_enabled(
                 False,
-                "combo_fusion_select", "slider_fusion_opacity",
-                "input_fusion_threshold", "combo_fusion_mode",
+                "combo_fusion_select",
+                "slider_fusion_opacity",
+                "input_fusion_threshold",
+                "combo_fusion_mode",
             )
 
         # Handle early exit UI clearing
         if not has_image:
             for t in (
-                "info_name", "info_size", "info_spacing", "info_origin", "info_memory",
-                "info_voxel_type", "info_matrix", "info_val", "info_vox", "info_phys",
-                "info_ppm", "info_scale",
+                "info_name",
+                "info_size",
+                "info_spacing",
+                "info_origin",
+                "info_memory",
+                "info_voxel_type",
+                "info_matrix",
+                "info_val",
+                "info_vox",
+                "info_phys",
+                "info_ppm",
+                "info_scale",
             ):
                 self._safe_set(t, "")
 
@@ -970,8 +1039,10 @@ class MainGUI:
             dpg.bind_item_theme(sender, "active_nav_button_theme")
         else:
             dpg.bind_item_theme(sender, "theme_rounded_nav")
-        
-        self.show_status_message(f"Beginner Mode {'ON' if self.is_beginner_mode else 'OFF'}")
+
+        self.show_status_message(
+            f"Beginner Mode {'ON' if self.is_beginner_mode else 'OFF'}"
+        )
 
     def on_nav_clicked(self, sender, app_data, user_data):
         """Replaces on_tab_changed. Handles hiding/showing the content groups."""
@@ -1086,15 +1157,17 @@ class MainGUI:
             inner_w = col_w - cfg["left_inner_m"] - cfg["right_inner_m"]
 
             if dpg.does_item_exist("roi_list_window"):
-                detail_shown = dpg.does_item_exist("roi_detail_header_group") and dpg.is_item_shown("roi_detail_header_group")
+                detail_shown = dpg.does_item_exist(
+                    "roi_detail_header_group"
+                ) and dpg.is_item_shown("roi_detail_header_group")
                 detail_h = cfg.get("roi_detail_h", 300) if detail_shown else 0
-                
+
                 # 250px provides padding for the top controls and the "Export" button below the list
                 list_h = top_h - detail_h - 250
-                
+
                 dpg.set_item_width("roi_list_window", inner_w)
                 dpg.set_item_height("roi_list_window", max(50, int(list_h)))
-                
+
                 if dpg.does_item_exist("roi_detail_window"):
                     dpg.set_item_height("roi_detail_window", max(10, detail_h - 30))
 
@@ -1189,7 +1262,15 @@ class MainGUI:
             return
         vs = viewer.view_state
 
-        if user_data in ("axis", "grid", "tracker", "crosshair", "scalebar", "legend"):
+        if user_data in (
+            "axis",
+            "grid",
+            "tracker",
+            "crosshair",
+            "scalebar",
+            "legend",
+            "profiles",
+        ):
             setattr(vs.camera, f"show_{user_data}", value)
         elif user_data == "filename":
             current = getattr(vs.camera, "show_filename", 0)
@@ -1311,9 +1392,13 @@ class MainGUI:
                 parts.append(f"{n_rois} ROI{'s' if n_rois != 1 else ''}")
             summary = "  ·  ".join(parts) if parts else ""
             self._safe_set("ws_save_tooltip_text", f"Save Workspace\n{name}\n{summary}")
-            self._safe_configure("menu_save_workspace", show=True, label=f"Save Workspace ({name})")
+            self._safe_configure(
+                "menu_save_workspace", show=True, label=f"Save Workspace ({name})"
+            )
         else:
-            self._safe_set("ws_save_tooltip_text", "Save Workspace\n(no workspace open)")
+            self._safe_set(
+                "ws_save_tooltip_text", "Save Workspace\n(no workspace open)"
+            )
             self._safe_configure("menu_save_workspace", show=False)
 
     def on_recent_file_clicked(self, sender, app_data, user_data):
@@ -1355,7 +1440,9 @@ class MainGUI:
         nn_on = False
         if viewer:
             vs = viewer.view_state
-            has_fusion = bool(vs and vs.display.overlay_id and vs.display.overlay_mode == "Alpha")
+            has_fusion = bool(
+                vs and vs.display.overlay_id and vs.display.overlay_mode == "Alpha"
+            )
             use_gl = cfg.get("gl_nearest", True)
             is_hw = GL_NEAREST_SUPPORTED and use_gl
             nn_on = bool(vs and vs.display.pixelated_zoom)
@@ -1367,10 +1454,16 @@ class MainGUI:
             else:
                 _st = cfg.get("single_texture", "Auto")
                 _nv = cfg.get("native_voxel", "Auto")
-                _is_single = has_fusion if _st == "Auto" else (_st is True or _st == "Single")
+                _is_single = (
+                    has_fusion if _st == "Auto" else (_st is True or _st == "Single")
+                )
                 _is_native = True if _nv == "Auto" else (_nv is True or _nv == "Native")
                 _ll = cfg.get("lazy_lin", "Auto")
-                _lazy_on = (has_fusion and not is_hw) if _ll == "Auto" else (_ll is True or _ll == "On")
+                _lazy_on = (
+                    (has_fusion and not is_hw)
+                    if _ll == "Auto"
+                    else (_ll is True or _ll == "On")
+                )
                 _tex = "Single" if _is_single else "Dual"
                 _vox = "Native" if _is_native else "Resampled"
                 _lazy = " + Lazy" if _lazy_on else ""
@@ -1385,17 +1478,32 @@ class MainGUI:
         st_auto_str = f"Auto ({'Single' if has_fusion else 'Dual'})"
         nv_auto_str = "Auto (Native)"
 
-        self._safe_configure("menu_combo_lazy_lin", items=[ll_auto_str, "On", "Off"], enabled=not is_hw)
+        self._safe_configure(
+            "menu_combo_lazy_lin", items=[ll_auto_str, "On", "Off"], enabled=not is_hw
+        )
         v = cfg.get("lazy_lin", "Auto")
-        self._safe_set("menu_combo_lazy_lin", ll_auto_str if v == "Auto" else ("On" if v else "Off"))
+        self._safe_set(
+            "menu_combo_lazy_lin",
+            ll_auto_str if v == "Auto" else ("On" if v else "Off"),
+        )
 
-        self._safe_configure("menu_combo_single_tex", items=[st_auto_str, "Single", "Dual"])
+        self._safe_configure(
+            "menu_combo_single_tex", items=[st_auto_str, "Single", "Dual"]
+        )
         v = cfg.get("single_texture", "Auto")
-        self._safe_set("menu_combo_single_tex", st_auto_str if v == "Auto" else ("Single" if v else "Dual"))
+        self._safe_set(
+            "menu_combo_single_tex",
+            st_auto_str if v == "Auto" else ("Single" if v else "Dual"),
+        )
 
-        self._safe_configure("menu_combo_native_vox", items=[nv_auto_str, "Native", "Resampled"])
+        self._safe_configure(
+            "menu_combo_native_vox", items=[nv_auto_str, "Native", "Resampled"]
+        )
         v = cfg.get("native_voxel", "Auto")
-        self._safe_set("menu_combo_native_vox", nv_auto_str if v == "Auto" else ("Native" if v else "Resampled"))
+        self._safe_set(
+            "menu_combo_native_vox",
+            nv_auto_str if v == "Auto" else ("Native" if v else "Resampled"),
+        )
 
         self._safe_set("menu_check_gl_nearest", cfg.get("gl_nearest", True))
         self._safe_set("menu_check_numba", cfg.get("numba", True))
@@ -1403,11 +1511,17 @@ class MainGUI:
     def on_adv_rendering_changed(self, sender, app_data, user_data):
         cfg = self.controller.settings.data.setdefault("rendering", {})
         if sender == "menu_combo_lazy_lin":
-            cfg["lazy_lin"] = "Auto" if app_data.startswith("Auto") else (app_data == "On")
+            cfg["lazy_lin"] = (
+                "Auto" if app_data.startswith("Auto") else (app_data == "On")
+            )
         elif sender == "menu_combo_single_tex":
-            cfg["single_texture"] = "Auto" if app_data.startswith("Auto") else (app_data == "Single")
+            cfg["single_texture"] = (
+                "Auto" if app_data.startswith("Auto") else (app_data == "Single")
+            )
         elif sender == "menu_combo_native_vox":
-            cfg["native_voxel"] = "Auto" if app_data.startswith("Auto") else (app_data == "Native")
+            cfg["native_voxel"] = (
+                "Auto" if app_data.startswith("Auto") else (app_data == "Native")
+            )
         elif sender == "menu_check_gl_nearest":
             cfg["gl_nearest"] = app_data
         elif sender == "menu_check_numba":
@@ -1445,6 +1559,7 @@ class MainGUI:
             on_close=lambda: dpg.delete_item(window_tag),
         ):
             import sys
+
             is_mac = sys.platform == "darwin"
             cmd_name = "Cmd" if is_mac else "Ctrl"
 
@@ -1495,6 +1610,7 @@ class MainGUI:
                 "toggle_grid": "Toggle Voxel Grid",
                 "toggle_legend": "Toggle Legend",
                 "hide_all": "Show/Hide Overlays",
+                "add_profile": "Add Intensity Profile",
             }
 
             def format_key(key_name, k):
@@ -1562,6 +1678,7 @@ class MainGUI:
         self.contours_ui.refresh_contours_ui()
         self.extraction_ui.refresh_extraction_ui()
         self.dvf_ui.refresh_dvf_ui()
+        self.profile_ui.refresh_profile_ui()
 
         self._init_rendering_menu()
 
@@ -1653,18 +1770,20 @@ class MainGUI:
 
                 # ---- render-route info (copyable text, updated every frame) ----
                 _nn_labels = {
-                    NNMode.HW_GL_NEAREST:     "HW GL_NEAREST",
-                    NNMode.SW_DUAL_NATIVE:    "SW Dual-Native",
+                    NNMode.HW_GL_NEAREST: "HW GL_NEAREST",
+                    NNMode.SW_DUAL_NATIVE: "SW Dual-Native",
                     NNMode.SW_DUAL_RESAMPLED: "SW Dual-Resampled",
-                    NNMode.SW_SINGLE_MERGED:  "SW Single-Merged",
-                    NNMode.SW_SINGLE_NATIVE:  "SW Single-Native",
+                    NNMode.SW_SINGLE_MERGED: "SW Single-Merged",
+                    NNMode.SW_SINGLE_NATIVE: "SW Single-Native",
                 }
+
                 # Summarise lazy state across all viewers for a quick top-level read
                 def _lazy_summary(attr):
                     vs = self.controller.viewers.values()
                     a = all(getattr(v, attr, False) for v in vs)
                     n = any(getattr(v, attr, False) for v in vs)
                     return "ALL ON" if a else ("SOME ON" if n else "OFF")
+
                 lines = [
                     f"Platform: {_plat.system()}   GL: {'ON' if GL_NEAREST_SUPPORTED else 'OFF'}   debug: {getattr(self.controller, 'debug_mode', False)}",
                     f"Lazy-Lin: {_lazy_summary('lazy_lin')}",
@@ -1673,11 +1792,11 @@ class MainGUI:
                     vs = viewer.view_state
                     pix = bool(vs and vs.display.pixelated_zoom) if vs else False
                     tex = getattr(viewer, "texture_tag", "?")
-                    nn_mode   = getattr(viewer, "nn_mode", None)
-                    lazy_lin  = getattr(viewer, "lazy_lin", False)
-                    settled   = getattr(viewer, "_nn_settle_done", True)
-                    live_s    = "" if settled else " LIVE"
-                    lazy_tag  = ""
+                    nn_mode = getattr(viewer, "nn_mode", None)
+                    lazy_lin = getattr(viewer, "lazy_lin", False)
+                    settled = getattr(viewer, "_nn_settle_done", True)
+                    live_s = "" if settled else " LIVE"
+                    lazy_tag = ""
                     if lazy_lin:
                         lazy_tag = f"  [lazy-lin{live_s}]"
                     if pix and nn_mode is not None:

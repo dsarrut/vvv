@@ -72,18 +72,24 @@ def load_fonts():
                                 0xF0C5,
                                 0xF06E,
                                 0xF070,
+                                0xF062,
+                                0xF063,
                                 0xF05B,
                                 0xF07C,
                                 0xF0C7,
                                 0xF013,
                                 0xF059,
                                 0xF040,
+                                0xF07D,
+                                0xF07E,
                                 0xF0DC,
                                 0xF00D,
                                 0xF15D,
                                 0xF15E,
                                 0xF061, # right arrow
                                 0xF35D, # external window icon
+                                0xF05B,  #
+                                0xF076,  # Magnet icon for snap
                                 0xF77C,  # Baby icon
                             ]
                         )
