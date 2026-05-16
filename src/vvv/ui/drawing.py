@@ -688,7 +688,7 @@ class OverlayDrawer:
             depth_min, depth_max = min(z1, z2), max(z1, z2)
 
             # Case 1: The segment is (mostly) in-plane for the current orientation
-            if abs(z1 - z2) < 0.5:
+            if profile.orientation == viewer.orientation and abs(z1 - z2) < 0.5:
                 depth_diff = abs(curr_z - z1)
                 # Draw on current slice (0.5 tol) and extended adjacent range (6.5 tol)
                 if depth_diff > 6.5:

@@ -676,7 +676,6 @@ class ProfileUI:
             vs.camera.target_ppm = target_ppm
 
         # 2. Update physical center and slice index simultaneously
-        viewer.slice_idx = profile.slice_idx
         vs.camera.target_center = mid_phys
         vs.update_crosshair_from_phys(mid_phys)
 
