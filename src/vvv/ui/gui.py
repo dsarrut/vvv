@@ -16,6 +16,7 @@ from vvv.ui.ui_dicom import DicomBrowserWindow
 from vvv.ui.ui_intensities import IntensitiesUI
 from vvv.ui.ui_registration import RegistrationUI
 from vvv.resources import load_fonts, setup_themes
+from vvv.ui.ui_profile import ProfileUI
 from vvv.ui.ui_dvf import DvfUI
 from vvv.ui.ui_interaction import InteractionManager
 from vvv.ui.ui_components import build_section_title, build_help_button
@@ -104,6 +105,7 @@ class MainGUI:
         self.contours_ui = ContoursUI(self, self.controller)
         self.extraction_ui = ExtractionUI(self, self.controller)
         self.dvf_ui = DvfUI(self, self.controller)
+        self.profile_ui = ProfileUI(self, self.controller)
 
         # Go
         self.build_main_layout()
@@ -338,6 +340,7 @@ class MainGUI:
             ("Reg", "tab_reg"),
             ("Threshold", "tab_extraction"),
             ("DVF", "tab_dvf"),
+            ("Profiles", "tab_profile"),
         ]
 
         with dpg.group(tag="nav_top_group"):
@@ -419,6 +422,7 @@ class MainGUI:
                 self.reg_ui.build_tab_reg(self)
                 self.extraction_ui.build_tab_extraction(self)
                 self.dvf_ui.build_tab_dvf(self)
+                self.profile_ui.build_tab_profile(self)
 
     def build_sidebar_active_viewer(self):
         cfg_c = self.ui_cfg["colors"]
@@ -587,6 +591,7 @@ class MainGUI:
                 dpg.add_draw_node(tag=viewer.crosshair_tag)
                 dpg.add_draw_node(tag=viewer.legend_tag)
                 dpg.add_draw_node(tag=viewer.contour_node_tag)
+                dpg.add_draw_node(tag=viewer.profile_node_tag)
                 dpg.add_draw_node(tag=viewer.vector_field_node_tag)
 
             col = self.controller.settings.data["colors"]["tracker_text"]
@@ -1561,6 +1566,7 @@ class MainGUI:
         self.contours_ui.refresh_contours_ui()
         self.extraction_ui.refresh_extraction_ui()
         self.dvf_ui.refresh_dvf_ui()
+        self.profile_ui.refresh_profile_ui()
 
         self._init_rendering_menu()
 

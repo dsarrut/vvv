@@ -416,6 +416,46 @@ class DVFState:
         self.vector_precision = int(d.get("vector_precision", self.vector_precision))
 
 
+class ProfileLineState:
+    def __init__(self):
+        self.id = ""
+        self.name = ""
+        self.color = [0, 255, 255, 255]
+        self.pt1_phys = None
+        self.pt2_phys = None
+        self.orientation = ViewMode.AXIAL
+        self.slice_idx = 0
+        self.visible = True
+        self.plot_open = False
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "color": list(self.color),
+            "pt1_phys": [float(x) for x in self.pt1_phys] if self.pt1_phys is not None else None,
+            "pt2_phys": [float(x) for x in self.pt2_phys] if self.pt2_phys is not None else None,
+            "orientation": self.orientation.name,
+            "slice_idx": int(self.slice_idx),
+            "visible": bool(self.visible),
+            "plot_open": bool(self.plot_open)
+        }
+
+    def from_dict(self, d):
+        self.id = d.get("id", self.id)
+        self.name = d.get("name", self.name)
+        self.color = d.get("color", self.color)
+        if d.get("pt1_phys"):
+            self.pt1_phys = np.array(d["pt1_phys"])
+        if d.get("pt2_phys"):
+            self.pt2_phys = np.array(d["pt2_phys"])
+        if "orientation" in d:
+            self.orientation = ViewMode[d["orientation"]]
+        self.slice_idx = d.get("slice_idx", self.slice_idx)
+        self.visible = d.get("visible", self.visible)
+        self.plot_open = d.get("plot_open", self.plot_open)
+
+
 class ViewState:
     """
     The exclusive Source of Truth for an image's presentation state.
@@ -457,6 +497,7 @@ class ViewState:
         self.sync_wl_group = 0  # Radiometric group support
         self.rois = {}
         self.contours = {}
+        self.profiles = {}
         self.crosshair_value = None # This will be set by init_crosshair_to_slices
         self.space = SpatialEngine(volume, view_state=self) # Pass self to SpatialEngine
         self.needs_resample: bool = False     # True when transform changed since last resample

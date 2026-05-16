@@ -13,6 +13,7 @@ from vvv.core.contour_manager import ContourManager
 from vvv.core.history_manager import HistoryManager
 from vvv.core.settings_manager import SettingsManager
 from vvv.core.extraction_manager import ExtractionManager
+from vvv.core.profile_manager import ProfileManager
 
 
 class Controller:
@@ -57,6 +58,7 @@ class Controller:
         self.settings = SettingsManager()
         self.history = HistoryManager()
         self.extraction = ExtractionManager(self)
+        self.profiles = ProfileManager(self)
 
         self.use_history = True
         self.next_image_id = 0

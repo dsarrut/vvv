@@ -618,6 +618,65 @@ class OverlayDrawer:
 
         dpg.configure_item(node, show=True)
 
+    def draw_profiles(self):
+        viewer = self.viewer
+
+        if (
+            not viewer.is_image_orientation()
+            or not viewer.view_state
+            or not viewer.volume
+        ):
+            if dpg.does_item_exist(viewer.profile_node_tag):
+                dpg.configure_item(viewer.profile_node_tag, show=False)
+            return
+
+        node = viewer.profile_node_tag
+        if not dpg.does_item_exist(node):
+            return
+
+        dpg.delete_item(node, children_only=True)
+
+        for p_id, profile in viewer.view_state.profiles.items():
+            if not profile.visible:
+                continue
+            if profile.orientation != viewer.orientation:
+                continue
+            if profile.slice_idx != viewer.slice_idx:
+                continue
+            if profile.pt1_phys is None or profile.pt2_phys is None:
+                continue
+
+            v1 = viewer.view_state.world_to_display(profile.pt1_phys, is_buffered=viewer._is_buffered())
+            v2 = viewer.view_state.world_to_display(profile.pt2_phys, is_buffered=viewer._is_buffered())
+            
+            if v1 is None or v2 is None:
+                continue
+
+            shape = viewer.get_slice_shape()
+            t1x, t1y = voxel_to_slice(v1[0], v1[1], v1[2], viewer.orientation, shape)
+            t2x, t2y = voxel_to_slice(v2[0], v2[1], v2[2], viewer.orientation, shape)
+
+            pmin, pmax = viewer.current_pmin, viewer.current_pmax
+            disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
+            
+            real_h, real_w = max(1, shape[0]), max(1, shape[1])
+            
+            s1x = (t1x / real_w) * disp_w + pmin[0]
+            s1y = (t1y / real_h) * disp_h + pmin[1]
+            
+            s2x = (t2x / real_w) * disp_w + pmin[0]
+            s2y = (t2y / real_h) * disp_h + pmin[1]
+
+            dpg.draw_line(
+                [s1x, s1y],
+                [s2x, s2y],
+                color=profile.color,
+                thickness=2.0,
+                parent=node,
+            )
+
+        dpg.configure_item(node, show=True)
+
     def draw_vector_field(self):
         viewer = self.viewer
         vs = viewer.view_state
