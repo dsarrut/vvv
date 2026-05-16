@@ -720,6 +720,7 @@ class IntensitiesUI:
             self._update_hist_series(
                 "wl_hist_popup_series", "wl_hist_popup_y_axis",
                 x_edges.tolist(), x_centers, y_data.tolist(),
+                use_bars=vs.display.hist_use_bars,
             )
             dpg.fit_axis_data("wl_hist_popup_x_axis")
             dpg.fit_axis_data("wl_hist_popup_y_axis")
