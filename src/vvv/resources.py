@@ -72,6 +72,8 @@ def load_fonts():
                                 0xF0C5,
                                 0xF06E,
                                 0xF070,
+                                0xF062,
+                                0xF063,
                                 0xF05B,
                                 0xF07C,
                                 0xF0C7,

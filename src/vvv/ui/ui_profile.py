@@ -185,12 +185,6 @@ class ProfileUI:
         if not profile:
             return
 
-        distances, intensities = self.controller.profiles.get_profile_data(
-            viewer.image_id, profile
-        )
-        if distances is None or intensities is None:
-            return
-
         with dpg.window(
             tag=win_tag,
             label=f"Profile: {profile.name}",
@@ -199,57 +193,159 @@ class ProfileUI:
             on_close=self.on_plot_closed,
             user_data=profile.id,
         ):
-            with dpg.group(horizontal=True):
-                btn_center = dpg.add_button(
-                    label="\uf05b", callback=self.on_goto_clicked, user_data=profile.id
-                )
-                if dpg.does_item_exist("icon_font_tag"):
-                    dpg.bind_item_font(btn_center, "icon_font_tag")
-
-                btn_export = dpg.add_button(
-                    label="Export to JSON",
-                    width=-1,
-                    callback=self.on_export_profile_clicked,
-                    user_data=profile.id,
-                )
-
-            dpg.add_spacer(height=5)
-
-            with dpg.plot(label="", height=300, width=-1):
-                dpg.add_plot_axis(
-                    dpg.mvXAxis, label="Distance (mm)", tag=f"xaxis_{profile.id}"
-                )
-                y_axis = dpg.add_plot_axis(
-                    dpg.mvYAxis, label="Intensity", tag=f"yaxis_{profile.id}"
-                )
-                dpg.add_line_series(
-                    distances,
-                    intensities,
-                    label=profile.name,
-                    parent=y_axis,
-                    tag=f"series_{profile.id}",
-                )
-
-            dpg.add_separator()
-
-            for i in [1, 2]:
-                with dpg.group(horizontal=True):
-                    dpg.add_text(f"P{i} (mm):")
-                    dpg.add_input_floatx(
-                        tag=f"input_phys_p{i}_{profile.id}",
-                        size=3,
-                        width=-1,
-                        callback=self.on_profile_coord_edited,
-                        user_data={"id": profile.id, "pt": i},
-                    )
-                dpg.add_text(
-                    "Voxel: [---]",
-                    tag=f"text_vox_p{i}_{profile.id}",
-                    color=self.gui.ui_cfg["colors"]["text_dim"],
-                )
+            self._build_plot_window_contents(profile)
 
         profile.plot_open = True
         self.update_plot_info(viewer.image_id, profile)
+
+    def _build_plot_window_contents(self, profile):
+        viewer = self.gui.context_viewer
+        if not viewer:
+            return
+
+        distances, intensities = self.controller.profiles.get_profile_data(
+            viewer.image_id, profile
+        )
+        if distances is None or intensities is None:
+            return
+
+        # Orientation display
+        ori_map = {
+            ViewMode.AXIAL: "XY",
+            ViewMode.SAGITTAL: "YZ",
+            ViewMode.CORONAL: "XZ",
+        }
+        ori_str = ori_map.get(profile.orientation, "??")
+        dpg.add_text(
+            f"Orientation: {ori_str} | Slice: {profile.slice_idx}",
+            tag=f"plot_header_text_{profile.id}",
+            color=self.gui.ui_cfg["colors"]["text_dim"],
+        )
+
+        with dpg.group(horizontal=True):
+            btn_center = dpg.add_button(
+                label="\uf05b", callback=self.on_goto_clicked, user_data=profile.id
+            )
+            if dpg.does_item_exist("icon_font_tag"):
+                dpg.bind_item_font(btn_center, "icon_font_tag")
+            with dpg.tooltip(btn_center):
+                dpg.add_text("Center camera on profile")
+
+            btn_prev = dpg.add_button(
+                label="\uf062",
+                user_data=(profile.id, -1),
+                callback=self.on_change_slice_clicked,
+            )
+            btn_next = dpg.add_button(
+                label="\uf063",
+                user_data=(profile.id, 1),
+                callback=self.on_change_slice_clicked,
+            )
+            if dpg.does_item_exist("icon_font_tag"):
+                dpg.bind_item_font(btn_prev, "icon_font_tag")
+                dpg.bind_item_font(btn_next, "icon_font_tag")
+            with dpg.tooltip(btn_prev):
+                dpg.add_text("Move profile to previous slice")
+            with dpg.tooltip(btn_next):
+                dpg.add_text("Move profile to next slice")
+
+        dpg.add_spacer(height=5)
+
+        with dpg.plot(label="", height=300, width=-1):
+            dpg.add_plot_axis(
+                dpg.mvXAxis, label="Distance (mm)", tag=f"xaxis_{profile.id}"
+            )
+            y_axis = dpg.add_plot_axis(
+                dpg.mvYAxis,
+                label="Intensity",
+                tag=f"yaxis_{profile.id}",
+                log_scale=getattr(profile, "use_log", False),
+            )
+            dpg.add_line_series(
+                distances,
+                intensities,
+                label=profile.name,
+                parent=y_axis,
+                tag=f"series_{profile.id}",
+            )
+
+        dpg.add_separator()
+
+        for i in [1, 2]:
+            with dpg.group(horizontal=True):
+                dpg.add_text(f"P{i} (mm):")
+                dpg.add_input_floatx(
+                    tag=f"input_phys_p{i}_{profile.id}",
+                    size=3,
+                    width=-1,
+                    callback=self.on_profile_coord_edited,
+                    user_data={"id": profile.id, "pt": i},
+                )
+            dpg.add_text(
+                "Voxel: [---]",
+                tag=f"text_vox_p{i}_{profile.id}",
+                color=self.gui.ui_cfg["colors"]["text_dim"],
+            )
+
+        dpg.add_spacer(height=5)
+        with dpg.group(horizontal=True):
+            dpg.add_button(
+                label="Fit Plot",
+                user_data=profile.id,
+                callback=self.on_fit_plot_clicked,
+            )
+            dpg.add_button(
+                label="Linear / Log",
+                user_data=profile.id,
+                callback=self.on_toggle_log_clicked,
+            )
+            dpg.add_button(
+                label="Export JSON",
+                width=-1,
+                callback=self.on_export_profile_clicked,
+                user_data=profile.id,
+            )
+
+    def _update_plot_header(self, profile):
+        header_tag = f"plot_header_text_{profile.id}"
+        if dpg.does_item_exist(header_tag):
+            ori_map = {
+                ViewMode.AXIAL: "XY",
+                ViewMode.SAGITTAL: "YZ",
+                ViewMode.CORONAL: "XZ",
+            }
+            ori_str = ori_map.get(profile.orientation, "??")
+            dpg.set_value(
+                header_tag, f"Orientation: {ori_str} | Slice: {profile.slice_idx}"
+            )
+
+    def on_fit_plot_clicked(self, sender, app_data, user_data):
+        p_id = user_data
+        if dpg.does_item_exist(f"xaxis_{p_id}"):
+            dpg.fit_axis_data(f"xaxis_{p_id}")
+        if dpg.does_item_exist(f"yaxis_{p_id}"):
+            dpg.fit_axis_data(f"yaxis_{p_id}")
+
+    def on_toggle_log_clicked(self, sender, app_data, user_data):
+        p_id = user_data
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+        profile = viewer.view_state.profiles.get(p_id)
+        if not profile:
+            return
+
+        profile.use_log = not getattr(profile, "use_log", False)
+
+        # Redo the whole plot window contents to correctly update the axis type
+        win_tag = f"plot_win_{p_id}"
+        if dpg.does_item_exist(win_tag):
+            dpg.delete_item(win_tag, children_only=True)
+            dpg.push_container_stack(win_tag)
+            self._build_plot_window_contents(profile)
+            dpg.pop_container_stack()
+            self.update_plot_info(viewer.image_id, profile)
+            self.on_fit_plot_clicked(None, None, p_id)
 
     def on_export_profile_clicked(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer
@@ -359,6 +455,57 @@ class ProfileUI:
         p.slice_idx = viewer.slice_idx
 
         # 4. Refresh plot and viewer
+        vs.is_geometry_dirty = True
+        self._update_plot_header(p)
+        self.update_plot_info(viewer.image_id, p)
+        distances, intensities = self.controller.profiles.get_profile_data(
+            viewer.image_id, p
+        )
+        if distances:
+            dpg.set_value(f"series_{p.id}", [distances, intensities])
+        self.controller.ui_needs_refresh = True
+
+    def on_change_slice_clicked(self, sender, app_data, user_data):
+        p_id, delta = user_data
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+        vs = viewer.view_state
+        p = vs.profiles.get(p_id)
+        if not p:
+            return
+
+        is_buf = viewer._is_buffered()
+        v1 = vs.world_to_display(p.pt1_phys, is_buffered=is_buf)
+        v2 = vs.world_to_display(p.pt2_phys, is_buffered=is_buf)
+
+        v_idx, _, _, _ = viewer._ORIENTATION_MAP.get(
+            p.orientation, (None, 0, None, None)
+        )
+        if v_idx is None:
+            return
+
+        # Clamp to image boundaries
+        max_s = viewer.get_display_num_slices()
+        new_idx = np.clip(p.slice_idx + delta, 0, max_s - 1)
+        if new_idx == p.slice_idx:
+            return
+
+        actual_delta = new_idx - p.slice_idx
+        v1[v_idx] += actual_delta
+        v2[v_idx] += actual_delta
+        p.slice_idx = int(new_idx)
+
+        p.pt1_phys = vs.display_to_world(v1, is_buffered=is_buf)
+        p.pt2_phys = vs.display_to_world(v2, is_buffered=is_buf)
+
+        # Update Viewer to follow the profile nudge
+        viewer.slice_idx = p.slice_idx
+        self.controller.sync.propagate_sync(viewer.image_id)
+
+        self._update_plot_header(p)
+
+        # Refresh plot and geometry
         vs.is_geometry_dirty = True
         self.update_plot_info(viewer.image_id, p)
         distances, intensities = self.controller.profiles.get_profile_data(

@@ -94,7 +94,9 @@ class CameraState:
             "show_filename": int(self.show_filename),
             "last_orientation": self.last_orientation.name,
             "crosshair_voxel": (
-                [float(x) for x in self.crosshair_voxel] if self.crosshair_voxel else None
+                [float(x) for x in self.crosshair_voxel]
+                if self.crosshair_voxel
+                else None
             ),
             "crosshair_phys_coord": (
                 [float(x) for x in self.crosshair_phys_coord]
@@ -356,13 +358,18 @@ class DVFState:
         self.vector_min_length_draw = 0.0
         self.vector_color_min = [0, 255, 255, 255]  # Cyan
         self.vector_color_max = [255, 0, 0, 255]
-        
+
         self.vector_precision = 2
         self.vector_sampling = 5
         self.vector_color_max_mag = 10.0
-        
-        if parent_vs and getattr(parent_vs, "volume", None) and getattr(parent_vs.volume, "is_dvf", False):
+
+        if (
+            parent_vs
+            and getattr(parent_vs, "volume", None)
+            and getattr(parent_vs.volume, "is_dvf", False)
+        ):
             import numpy as np
+
             vol = parent_vs.volume
             try:
                 # 1. Compute true Max Magnitude (subsampled 2x for instant calculation)
@@ -408,11 +415,19 @@ class DVFState:
         self.vector_sampling = int(d.get("vector_sampling", self.vector_sampling))
         self.vector_scale = d.get("vector_scale", self.vector_scale)
         self.vector_thickness = d.get("vector_thickness", self.vector_thickness)
-        self.vector_color_min = d.get("vector_color_min", d.get("vector_color", self.vector_color_min))
+        self.vector_color_min = d.get(
+            "vector_color_min", d.get("vector_color", self.vector_color_min)
+        )
         self.vector_color_max = d.get("vector_color_max", self.vector_color_max)
-        self.vector_color_max_mag = d.get("vector_color_max_mag", self.vector_color_max_mag)
-        self.vector_min_length_arrow = d.get("vector_min_length_arrow", self.vector_min_length_arrow)
-        self.vector_min_length_draw = d.get("vector_min_length_draw", self.vector_min_length_draw)
+        self.vector_color_max_mag = d.get(
+            "vector_color_max_mag", self.vector_color_max_mag
+        )
+        self.vector_min_length_arrow = d.get(
+            "vector_min_length_arrow", self.vector_min_length_arrow
+        )
+        self.vector_min_length_draw = d.get(
+            "vector_min_length_draw", self.vector_min_length_draw
+        )
         self.vector_precision = int(d.get("vector_precision", self.vector_precision))
 
 
@@ -427,18 +442,24 @@ class ProfileLineState:
         self.slice_idx = 0
         self.visible = True
         self.plot_open = False
+        self.use_log = False
 
     def to_dict(self):
         return {
             "id": self.id,
             "name": self.name,
             "color": list(self.color),
-            "pt1_phys": [float(x) for x in self.pt1_phys] if self.pt1_phys is not None else None,
-            "pt2_phys": [float(x) for x in self.pt2_phys] if self.pt2_phys is not None else None,
+            "pt1_phys": (
+                [float(x) for x in self.pt1_phys] if self.pt1_phys is not None else None
+            ),
+            "pt2_phys": (
+                [float(x) for x in self.pt2_phys] if self.pt2_phys is not None else None
+            ),
             "orientation": self.orientation.name,
             "slice_idx": int(self.slice_idx),
             "visible": bool(self.visible),
-            "plot_open": bool(self.plot_open)
+            "plot_open": bool(self.plot_open),
+            "use_log": bool(self.use_log),
         }
 
     def from_dict(self, d):
@@ -454,6 +475,7 @@ class ProfileLineState:
         self.slice_idx = d.get("slice_idx", self.slice_idx)
         self.visible = d.get("visible", self.visible)
         self.plot_open = d.get("plot_open", self.plot_open)
+        self.use_log = d.get("use_log", False)
 
 
 class ViewState:
@@ -498,14 +520,20 @@ class ViewState:
         self.rois = {}
         self.contours = {}
         self.profiles = {}
-        self.crosshair_value = None # This will be set by init_crosshair_to_slices
-        self.space = SpatialEngine(volume, view_state=self) # Pass self to SpatialEngine
-        self.needs_resample: bool = False     # True when transform changed since last resample
+        self.crosshair_value = None  # This will be set by init_crosshair_to_slices
+        self.space = SpatialEngine(
+            volume, view_state=self
+        )  # Pass self to SpatialEngine
+        self.needs_resample: bool = (
+            False  # True when transform changed since last resample
+        )
         self._resample_job_counter: int = 0  # monotonically increasing job ID generator
-        self._active_resample_job: int = 0   # 0 = idle, N = job N is currently running
+        self._active_resample_job: int = 0  # 0 = idle, N = job N is currently running
         self.base_display_data: np.ndarray | None = None
         self._sitk_base_cache = None
-        self._preview_R: "np.ndarray | None" = None    # current rotation for on-demand preview
+        self._preview_R: "np.ndarray | None" = (
+            None  # current rotation for on-demand preview
+        )
         self._preview_center: "np.ndarray | None" = None
         self._preview_slice_needed: bool = False  # set by viewer on cache miss
         self.hist_data_x = None
@@ -625,15 +653,27 @@ class ViewState:
         """
         # Ensure indices are within bounds of the target data
         if use_buffer and self.base_display_data is not None:
-            target_shape = self.base_display_data.shape[1:] if self.base_display_data.ndim == 4 else self.base_display_data.shape
+            target_shape = (
+                self.base_display_data.shape[1:]
+                if self.base_display_data.ndim == 4
+                else self.base_display_data.shape
+            )
         else:
             target_shape = self.volume.shape3d
-        
-        if not (0 <= iz < target_shape[0] and 0 <= iy < target_shape[1] and 0 <= ix < target_shape[2]):
-            return None # Out of bounds
 
-        data = self.base_display_data if use_buffer and self.base_display_data is not None else self.volume.data
-        
+        if not (
+            0 <= iz < target_shape[0]
+            and 0 <= iy < target_shape[1]
+            and 0 <= ix < target_shape[2]
+        ):
+            return None  # Out of bounds
+
+        data = (
+            self.base_display_data
+            if use_buffer and self.base_display_data is not None
+            else self.volume.data
+        )
+
         if self.volume.num_timepoints > 1:
             t = min(self.camera.time_idx, self.volume.num_timepoints - 1)
             return data[t, iz, iy, ix]
@@ -655,7 +695,12 @@ class ViewState:
         self.camera.crosshair_phys_coord = self.display_to_world(
             np.array(self.camera.crosshair_voxel[:3]), _buf is not None
         )
-        self.crosshair_value = self._read_voxel_value(int(self.camera.crosshair_voxel[0]), int(self.camera.crosshair_voxel[1]), int(self.camera.crosshair_voxel[2]), use_buffer=False)
+        self.crosshair_value = self._read_voxel_value(
+            int(self.camera.crosshair_voxel[0]),
+            int(self.camera.crosshair_voxel[1]),
+            int(self.camera.crosshair_voxel[2]),
+            use_buffer=False,
+        )
 
     def init_default_window_level(self):
         total_pixels = getattr(self.volume.data, "size", 0)
@@ -693,11 +738,18 @@ class ViewState:
         self.camera.crosshair_phys_coord = new_phys_coord
 
         # 2. Neutralization: Map world back to Native Voxel Space for the central record
-        native_v: np.ndarray | None = self.world_to_display(new_phys_coord, is_buffered=False)
+        native_v: np.ndarray | None = self.world_to_display(
+            new_phys_coord, is_buffered=False
+        )
         if native_v is None:
             return
-        
-        self.camera.crosshair_voxel = [native_v[0], native_v[1], native_v[2], self.camera.time_idx]
+
+        self.camera.crosshair_voxel = [
+            native_v[0],
+            native_v[1],
+            native_v[2],
+            self.camera.time_idx,
+        ]
 
         # 3. Update native slice indices based on the new native voxel
         # This ensures vs.camera.slices always reflects the native image's slice
@@ -706,7 +758,11 @@ class ViewState:
             int(np.clip(np.round(c), 0, limit - 1))
             for c, limit in zip(
                 native_v,
-                [self.volume.shape3d[2], self.volume.shape3d[1], self.volume.shape3d[0]],
+                [
+                    self.volume.shape3d[2],
+                    self.volume.shape3d[1],
+                    self.volume.shape3d[0],
+                ],
             )
         ]
         self.camera.slices[ViewMode.AXIAL] = iz
@@ -806,7 +862,10 @@ class ViewState:
             resampled_img = resampler.Execute(self.volume.sitk_image)
             self._sitk_base_cache = resampled_img
             self.base_display_data = sitk.GetArrayViewFromImage(resampled_img)
-            if getattr(self.volume, "is_dvf", False) and self.base_display_data.ndim == 4:
+            if (
+                getattr(self.volume, "is_dvf", False)
+                and self.base_display_data.ndim == 4
+            ):
                 self.base_display_data = np.moveaxis(self.base_display_data, -1, 0)
         elif target_dim == 4:
             resampled_volumes = []
@@ -877,8 +936,13 @@ class ViewState:
             resampled_img = resampler.Execute(other_vol.sitk_image)
             self.display._sitk_overlay_cache = resampled_img
             self.display.overlay_data = sitk.GetArrayViewFromImage(resampled_img)
-            if getattr(other_vol, "is_dvf", False) and self.display.overlay_data.ndim == 4:
-                self.display.overlay_data = np.moveaxis(self.display.overlay_data, -1, 0)
+            if (
+                getattr(other_vol, "is_dvf", False)
+                and self.display.overlay_data.ndim == 4
+            ):
+                self.display.overlay_data = np.moveaxis(
+                    self.display.overlay_data, -1, 0
+                )
         elif target_dim == 4:
             resampled_volumes = []
             for t in range(other_vol.num_timepoints):
@@ -923,7 +987,7 @@ class ViewState:
             self.display.baked_overlay_translation = (0.0, 0.0, 0.0)
             self.is_data_dirty = True
             return True
-            
+
         if getattr(other_vol, "is_rgb", False):
             return False
 

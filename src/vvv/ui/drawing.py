@@ -682,23 +682,28 @@ class OverlayDrawer:
 
             # Case 1: The segment is (mostly) in-plane for the current orientation
             if abs(z1 - z2) < 0.5:
-                # Only draw if the viewer is at the correct depth (0.5 voxel tolerance)
-                if abs(curr_z - z1) > 0.5:
+                depth_diff = abs(curr_z - z1)
+                # Draw on current slice (0.5 tol) and adjacent slices (1.5 tol)
+                if depth_diff > 1.5:
                     continue
 
+                is_adjacent = depth_diff > 0.5
                 s1 = get_screen_pos(v1)
                 s2 = get_screen_pos(v2)
 
                 if s1 and s2:
-                    dpg.draw_line(
-                        s1, s2, color=profile.color, thickness=2.0, parent=node
-                    )
-                    dpg.draw_circle(
-                        s1, 4, color=[255, 255, 255], fill=profile.color, parent=node
-                    )
-                    dpg.draw_circle(
-                        s2, 4, color=[255, 255, 255], fill=profile.color, parent=node
-                    )
+                    col = list(profile.color)
+                    if is_adjacent:
+                        col[3] = 60  # Dimmed for adjacent slices
+                        dpg.draw_line(s1, s2, color=col, thickness=1.0, parent=node)
+                    else:
+                        dpg.draw_line(s1, s2, color=col, thickness=2.0, parent=node)
+                        dpg.draw_circle(
+                            s1, 4, color=[255, 255, 255], fill=col, parent=node
+                        )
+                        dpg.draw_circle(
+                            s2, 4, color=[255, 255, 255], fill=col, parent=node
+                        )
 
             # Case 2: The segment is cross-plane (Show clue ring)
             else:

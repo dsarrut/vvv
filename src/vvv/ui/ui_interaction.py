@@ -285,7 +285,7 @@ class InteractionManager:
 
             # 2. Segment Draggable Middle (Center 50% of the line)
             # Check if segment is in-plane enough to be draggable
-            if abs(curr_z - v1[v_idx]) <= 1.0 and abs(curr_z - v2[v_idx]) <= 1.0:
+            if abs(curr_z - v1[v_idx]) <= 0.5 and abs(curr_z - v2[v_idx]) <= 0.5:
                 dx, dy = px2 - px1, py2 - py1
                 seg_len_sq = dx * dx + dy * dy
                 if seg_len_sq > 1e-5:
