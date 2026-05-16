@@ -100,17 +100,24 @@ class IntensitiesUI:
                     dpg.add_line_series([], [], tag="wl_hist_series")
                 dpg.add_drag_line(
                     tag="wl_hist_lower",
-                    color=[100, 180, 255, 220],
+                    color=[100, 180, 255, 200],
                     thickness=2.0,
                     default_value=0.0,
                     callback=gui.intensities_ui.on_hist_drag_lower,
                 )
                 dpg.add_drag_line(
                     tag="wl_hist_upper",
-                    color=[255, 160, 80, 220],
+                    color=[100, 180, 255, 200],
                     thickness=2.0,
                     default_value=1.0,
                     callback=gui.intensities_ui.on_hist_drag_upper,
+                )
+                dpg.add_drag_line(
+                    tag="wl_hist_level",
+                    color=[255, 160, 60, 240],
+                    thickness=2.0,
+                    default_value=0.5,
+                    callback=gui.intensities_ui.on_hist_drag_level,
                 )
 
             with dpg.theme(tag="wl_shade_theme"):
@@ -244,43 +251,53 @@ class IntensitiesUI:
         upper = wl + ww / 2
         dpg.set_value("wl_hist_lower", lower)
         dpg.set_value("wl_hist_upper", upper)
+        if dpg.does_item_exist("wl_hist_level"):
+            dpg.set_value("wl_hist_level", wl)
         if self._hist_max_y > 0 and dpg.does_item_exist("wl_hist_shade"):
             dpg.set_value("wl_hist_shade", [[lower, upper], [self._hist_max_y, self._hist_max_y], [0.0, 0.0]])
 
     def on_hist_drag_lower(self, _sender, app_data, _user_data):
         viewer = self.gui.context_viewer
-        if not viewer or not viewer.view_state or app_data is None:
+        if not viewer or not viewer.view_state:
             return
-        upper = dpg.get_value("wl_hist_upper")
-        if upper is None:
+        pos = float(app_data) if app_data is not None else dpg.get_value("wl_hist_lower")
+        if pos is None:
             return
-        lower = min(float(app_data), upper - 1e-5)
-        wl = (lower + upper) / 2
-        ww = max(1e-5, upper - lower)
+        wl = viewer.view_state.display.wl
+        ww = max(1e-5, 2.0 * (wl - pos))
         viewer._mark_lazy_interaction()
         viewer.view_state.display.ww = ww
-        viewer.view_state.display.wl = wl
         dpg.set_value("drag_ww", ww)
-        dpg.set_value("drag_wl", wl)
         if dpg.does_item_exist("combo_wl_presets"):
             dpg.set_value("combo_wl_presets", "Custom")
         self.controller.sync.propagate_window_level(viewer.image_id)
 
     def on_hist_drag_upper(self, _sender, app_data, _user_data):
         viewer = self.gui.context_viewer
-        if not viewer or not viewer.view_state or app_data is None:
+        if not viewer or not viewer.view_state:
             return
-        lower = dpg.get_value("wl_hist_lower")
-        if lower is None:
+        pos = float(app_data) if app_data is not None else dpg.get_value("wl_hist_upper")
+        if pos is None:
             return
-        upper = max(float(app_data), lower + 1e-5)
-        wl = (lower + upper) / 2
-        ww = max(1e-5, upper - lower)
+        wl = viewer.view_state.display.wl
+        ww = max(1e-5, 2.0 * (pos - wl))
         viewer._mark_lazy_interaction()
         viewer.view_state.display.ww = ww
-        viewer.view_state.display.wl = wl
         dpg.set_value("drag_ww", ww)
-        dpg.set_value("drag_wl", wl)
+        if dpg.does_item_exist("combo_wl_presets"):
+            dpg.set_value("combo_wl_presets", "Custom")
+        self.controller.sync.propagate_window_level(viewer.image_id)
+
+    def on_hist_drag_level(self, _sender, app_data, _user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state:
+            return
+        pos = float(app_data) if app_data is not None else dpg.get_value("wl_hist_level")
+        if pos is None:
+            return
+        viewer._mark_lazy_interaction()
+        viewer.view_state.display.wl = pos
+        dpg.set_value("drag_wl", pos)
         if dpg.does_item_exist("combo_wl_presets"):
             dpg.set_value("combo_wl_presets", "Custom")
         self.controller.sync.propagate_window_level(viewer.image_id)
