@@ -56,9 +56,6 @@ class IntensitiesUI:
                 step_callback=gui.intensities_ui.on_step_button_clicked,
             )
 
-            #dpg.add_spacer(height=10)
-            #build_section_title("Colormap & Threshold", cfg_c["text_header"])
-
             with dpg.group(horizontal=True):
                 dpg.add_text("Map:    ")
                 dpg.add_combo(
@@ -205,22 +202,12 @@ class IntensitiesUI:
 
         if dpg.does_item_exist("text_intensities_active_title"):
             if has_image:
-                name_str, is_outdated = self.controller.get_image_display_name(
-                    viewer.image_id
-                )
-                dpg.set_value("text_intensities_active_title", name_str)
-                col = (
-                    self.gui.ui_cfg["colors"]["outdated"]
-                    if is_outdated
-                    else self.gui.ui_cfg["colors"]["text_active"]
-                )
-                dpg.configure_item("text_intensities_active_title", color=col)
+                name_str, is_outdated = self.controller.get_image_display_name(viewer.image_id)
+                color_key = "outdated" if is_outdated else "text_active"
             else:
-                dpg.set_value("text_intensities_active_title", "No Image Selected")
-                dpg.configure_item(
-                    "text_intensities_active_title",
-                    color=self.gui.ui_cfg["colors"]["text_active"],
-                )
+                name_str, color_key = "No Image Selected", "text_active"
+            dpg.set_value("text_intensities_active_title", name_str)
+            dpg.configure_item("text_intensities_active_title", color=self.gui.ui_cfg["colors"][color_key])
 
         is_rgb = viewer.volume.is_rgb if has_image else False
         thr = viewer.view_state.display.base_threshold if has_image else None
@@ -491,7 +478,7 @@ class IntensitiesUI:
         if not dpg.does_item_exist("wl_colorscale_tex") or vs.display.hist_x_center is None:
             return
         dsp = vs.display
-        view_center = dsp.hist_x_center if dsp.hist_x_center is not None else dsp.wl
+        view_center = dsp.hist_x_center
         if dsp.hist_x_range is not None:
             view_range = dsp.hist_x_range
         elif vs.hist_data_x is not None:
@@ -610,52 +597,28 @@ class IntensitiesUI:
         viewer.view_state.histogram_is_dirty = True
         self.controller.ui_needs_refresh = True
 
-    def on_hist_drag_lower(self, _sender, app_data, _user_data):
+    def _on_hist_drag_bound(self, app_data, fallback_tag):
+        pos = float(app_data) if app_data is not None else dpg.get_value(fallback_tag)
+        if pos is None:
+            return
         viewer = self.gui.context_viewer
         if not viewer or not viewer.view_state:
             return
-        pos = float(app_data) if app_data is not None else dpg.get_value("wl_hist_lower")
-        if pos is None:
-            return
-        wl = viewer.view_state.display.wl
-        # Symmetrical change: distance from pos to wl defines half-width
-        ww = max(1e-5, 2.0 * abs(wl - pos))
+        ww = max(1e-5, 2.0 * abs(viewer.view_state.display.wl - pos))
         viewer._mark_lazy_interaction()
         viewer.view_state.display.ww = ww
         dpg.set_value("drag_ww", ww)
         if dpg.does_item_exist("combo_wl_presets"):
             dpg.set_value("combo_wl_presets", "Custom")
-        
-        # Force immediate visual feedback for both lines
         self.sync_wl_lines(viewer, viewer.view_state)
         self.controller.sync.propagate_window_level(viewer.image_id)
 
-    def on_hist_drag_upper(self, _sender, app_data, _user_data):
-        viewer = self.gui.context_viewer
-        if not viewer or not viewer.view_state:
-            return
-        pos = float(app_data) if app_data is not None else dpg.get_value("wl_hist_upper")
+    def _on_hist_drag_level(self, app_data, fallback_tag):
+        pos = float(app_data) if app_data is not None else dpg.get_value(fallback_tag)
         if pos is None:
             return
-        wl = viewer.view_state.display.wl
-        # Symmetrical change: distance from wl to pos defines half-width
-        ww = max(1e-5, 2.0 * abs(pos - wl))
-        viewer._mark_lazy_interaction()
-        viewer.view_state.display.ww = ww
-        dpg.set_value("drag_ww", ww)
-        if dpg.does_item_exist("combo_wl_presets"):
-            dpg.set_value("combo_wl_presets", "Custom")
-
-        # Force immediate visual feedback for both lines
-        self.sync_wl_lines(viewer, viewer.view_state)
-        self.controller.sync.propagate_window_level(viewer.image_id)
-
-    def on_hist_drag_level(self, _sender, app_data, _user_data):
         viewer = self.gui.context_viewer
         if not viewer or not viewer.view_state:
-            return
-        pos = float(app_data) if app_data is not None else dpg.get_value("wl_hist_level")
-        if pos is None:
             return
         viewer._mark_lazy_interaction()
         viewer.view_state.display.wl = pos
@@ -664,6 +627,10 @@ class IntensitiesUI:
             dpg.set_value("combo_wl_presets", "Custom")
         self.sync_wl_lines(viewer, viewer.view_state)
         self.controller.sync.propagate_window_level(viewer.image_id)
+
+    def on_hist_drag_lower(self, _, app_data, __): self._on_hist_drag_bound(app_data, "wl_hist_lower")
+    def on_hist_drag_upper(self, _, app_data, __): self._on_hist_drag_bound(app_data, "wl_hist_upper")
+    def on_hist_drag_level(self, _, app_data, __): self._on_hist_drag_level(app_data, "wl_hist_level")
 
     def on_hist_center(self, _sender, _app_data, _user_data):
         viewer = self.gui.context_viewer
@@ -833,59 +800,9 @@ class IntensitiesUI:
             # Force the drag lines and shaded regions to snap to current state
             self.sync_wl_lines(viewer, vs)
 
-    def on_hist_popup_drag_lower(self, _sender, app_data, _user_data):
-        pos = float(app_data) if app_data is not None else dpg.get_value("wl_hist_popup_lower")
-        if pos is None:
-            return
-        viewer = self.gui.context_viewer
-        if not viewer or not viewer.view_state:
-            return
-        wl = viewer.view_state.display.wl
-        # Symmetrical change
-        ww = max(1e-5, 2.0 * abs(wl - pos))
-        viewer._mark_lazy_interaction()
-        viewer.view_state.display.ww = ww
-        dpg.set_value("drag_ww", ww)
-        if dpg.does_item_exist("combo_wl_presets"):
-            dpg.set_value("combo_wl_presets", "Custom")
-
-        # Sync both sidebar and popup lines
-        self.sync_wl_lines(viewer, viewer.view_state)
-        self.controller.sync.propagate_window_level(viewer.image_id)
-
-    def on_hist_popup_drag_upper(self, _sender, app_data, _user_data):
-        pos = float(app_data) if app_data is not None else dpg.get_value("wl_hist_popup_upper")
-        if pos is None:
-            return
-        viewer = self.gui.context_viewer
-        if not viewer or not viewer.view_state:
-            return
-        wl = viewer.view_state.display.wl
-        # Symmetrical change
-        ww = max(1e-5, 2.0 * abs(pos - wl))
-        viewer._mark_lazy_interaction()
-        viewer.view_state.display.ww = ww
-        dpg.set_value("drag_ww", ww)
-        if dpg.does_item_exist("combo_wl_presets"):
-            dpg.set_value("combo_wl_presets", "Custom")
-            
-        self.sync_wl_lines(viewer, viewer.view_state)
-        self.controller.sync.propagate_window_level(viewer.image_id)
-
-    def on_hist_popup_drag_level(self, _sender, app_data, _user_data):
-        pos = float(app_data) if app_data is not None else dpg.get_value("wl_hist_popup_level")
-        if pos is None:
-            return
-        viewer = self.gui.context_viewer
-        if not viewer or not viewer.view_state:
-            return
-        viewer._mark_lazy_interaction()
-        viewer.view_state.display.wl = pos
-        dpg.set_value("drag_wl", pos)
-        if dpg.does_item_exist("combo_wl_presets"):
-            dpg.set_value("combo_wl_presets", "Custom")
-        self.sync_wl_lines(viewer, viewer.view_state)
-        self.controller.sync.propagate_window_level(viewer.image_id)
+    def on_hist_popup_drag_lower(self, _, app_data, __): self._on_hist_drag_bound(app_data, "wl_hist_popup_lower")
+    def on_hist_popup_drag_upper(self, _, app_data, __): self._on_hist_drag_bound(app_data, "wl_hist_popup_upper")
+    def on_hist_popup_drag_level(self, _, app_data, __): self._on_hist_drag_level(app_data, "wl_hist_popup_level")
 
     def on_step_button_clicked(self, sender, app_data, user_data):
         target_tag = user_data["tag"]
