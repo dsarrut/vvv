@@ -2,7 +2,7 @@ import threading
 import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.config import WL_PRESETS, COLORMAPS
-from vvv.ui.ui_components import build_stepped_slider, build_section_title
+from vvv.ui.ui_components import build_stepped_slider, build_section_title, build_help_button, build_beginner_tooltip
 
 
 class IntensitiesUI:
@@ -147,20 +147,34 @@ class IntensitiesUI:
                 )
                 if dpg.does_item_exist("icon_font_tag"):
                     dpg.bind_item_font(btn_popup, "icon_font_tag")
+                build_help_button(
+                    "Histogram — intensity distribution of the image.\n\n"
+                    "Drag the blue lines to set the Window (lower / upper bounds).\n"
+                    "Drag the orange line to move the Level (center brightness).\n\n"
+                    "Ctr: Center the histogram view on the current Window/Level.\n"
+                    "Auto: Keep the view centered automatically as you drag.\n"
+                    "Bar / Line: Toggle bar vs. line histogram style.\n"
+                    "Lin / Log: Toggle linear vs. logarithmic Y axis.\n"
+                    ": Open in a larger floating window.",
+                    gui,
+                )
             with dpg.group(horizontal=True):
-                dpg.add_text("C:", color=cfg_c["text_dim"])
+                c_lbl = dpg.add_text("C:", color=cfg_c["text_dim"])
+                build_beginner_tooltip(c_lbl, "C — X-axis center of the histogram view.", gui)
                 dpg.add_drag_float(
                     tag="drag_hist_xcenter", default_value=0.0, speed=1.0,
                     min_value=-1e10, max_value=1e10, format="%.4g", width=65,
                     callback=gui.intensities_ui.on_hist_xcenter_drag,
                 )
-                dpg.add_text("W:", color=cfg_c["text_dim"])
+                w_lbl = dpg.add_text("W:", color=cfg_c["text_dim"])
+                build_beginner_tooltip(w_lbl, "W — Width (zoom) of the histogram X axis.", gui)
                 dpg.add_drag_float(
                     tag="drag_hist_xwidth", default_value=1.0, speed=1.0,
                     min_value=1e-5, max_value=1e10, format="%.3g", width=60,
                     callback=gui.intensities_ui.on_hist_xwidth_drag,
                 )
-                dpg.add_text("Y:", color=cfg_c["text_dim"])
+                y_lbl = dpg.add_text("Y:", color=cfg_c["text_dim"])
+                build_beginner_tooltip(y_lbl, "Y — Maximum visible height of the histogram Y axis.", gui)
                 dpg.add_drag_float(
                     tag="drag_hist_ymax", default_value=1.0, speed=0.01,
                     min_value=1e-5, max_value=1e10, format="%.2g", width=-1,
@@ -742,21 +756,35 @@ class IntensitiesUI:
                     width=80, show=use_bars,
                     callback=self.on_hist_bins_drag,
                 )
+                build_help_button(
+                    "Histogram — intensity distribution of the image.\n\n"
+                    "Drag the blue lines to set the Window (lower / upper bounds).\n"
+                    "Drag the orange line to move the Level (center brightness).\n\n"
+                    "Ctr: Center the view on the current Window/Level.\n"
+                    "Auto: Keep the view centered automatically as you drag.\n"
+                    "Bar / Line: Toggle bar vs. line histogram style.\n"
+                    "Lin / Log: Toggle linear vs. logarithmic Y axis.\n"
+                    "Bins: Number of histogram bins (bar mode only).",
+                    self.gui,
+                )
             dpg.add_spacer(height=4)
             with dpg.group(horizontal=True):
-                dpg.add_text("C:")
+                c_lbl = dpg.add_text("C:")
+                build_beginner_tooltip(c_lbl, "C — X-axis center of the histogram view.", self.gui)
                 dpg.add_drag_float(
                     tag="drag_hist_popup_xcenter", default_value=0.0, speed=1.0,
                     min_value=-1e10, max_value=1e10, format="%.4g", width=110,
                     callback=self.on_hist_xcenter_drag,
                 )
-                dpg.add_text("W:")
+                w_lbl = dpg.add_text("W:")
+                build_beginner_tooltip(w_lbl, "W — Width (zoom) of the histogram X axis.", self.gui)
                 dpg.add_drag_float(
                     tag="drag_hist_popup_xwidth", default_value=1.0, speed=1.0,
                     min_value=1e-5, max_value=1e10, format="%.4g", width=110,
                     callback=self.on_hist_xwidth_drag,
                 )
-                dpg.add_text("Y:")
+                y_lbl = dpg.add_text("Y:")
+                build_beginner_tooltip(y_lbl, "Y — Maximum visible height of the histogram Y axis.", self.gui)
                 dpg.add_drag_float(
                     tag="drag_hist_popup_ymax", default_value=1.0, speed=0.01,
                     min_value=1e-5, max_value=1e10, format="%.3g", width=-1,
