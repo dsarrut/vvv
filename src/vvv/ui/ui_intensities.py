@@ -15,11 +15,10 @@ class IntensitiesUI:
         self._last_popup_image_id = None
         self._last_sidebar_image_id = None
         self._intensities_tab_was_shown = False
-        self._computing_hist = False
         self._last_colorscale_state = None
+        self._minmax_cache = {}
 
-    @staticmethod
-    def build_tab_intensities(gui):
+    def build_tab_intensities(self, gui):
         cfg_c = gui.ui_cfg["colors"]
 
         with dpg.group(tag="tab_intensities", show=False):
@@ -265,17 +264,9 @@ class IntensitiesUI:
             else:
                 vol = viewer.volume
                 current_data_id = id(vol.data)
-                if (
-                    not hasattr(vol, "_cached_min_val")
-                    or getattr(vol, "_cached_data_id", None) != current_data_id
-                ):
-                    # Lazy evaluation of image min and max
-                    vol._cached_min_val = float(np.min(vol.data))
-                    vol._cached_max_val = float(np.max(vol.data))
-                    vol._cached_data_id = current_data_id
-
-                min_v = vol._cached_min_val
-                max_v = vol._cached_max_val
+                if current_data_id not in self._minmax_cache:
+                    self._minmax_cache = {current_data_id: (float(np.min(vol.data)), float(np.max(vol.data)))}
+                min_v, max_v = self._minmax_cache[current_data_id]
                 dpg.set_value("text_intensities_minmax", f"{min_v:g} to {max_v:g}")
 
         # Dynamically scale the slider drag speed based on the current window width
@@ -600,8 +591,6 @@ class IntensitiesUI:
             return
         dsp = viewer.view_state.display
         dsp.hist_use_bars = not dsp.hist_use_bars
-        if dpg.does_item_exist("btn_hist_bar"):
-            dpg.configure_item("btn_hist_bar", label="Line" if dsp.hist_use_bars else "Bar")
         for tag in ("drag_hist_popup_bins",):
             if dpg.does_item_exist(tag):
                 dpg.configure_item(tag, show=dsp.hist_use_bars)
@@ -622,8 +611,6 @@ class IntensitiesUI:
             return
         dsp = viewer.view_state.display
         dsp.hist_use_log = not dsp.hist_use_log
-        if dpg.does_item_exist("btn_hist_log"):
-            dpg.configure_item("btn_hist_log", label="Lin" if dsp.hist_use_log else "Log")
         viewer.view_state.histogram_is_dirty = True
         self.controller.ui_needs_refresh = True
 

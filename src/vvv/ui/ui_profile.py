@@ -204,8 +204,7 @@ class ProfileUI:
             return
         profile = viewer.view_state.profiles.get(user_data)
         if profile:
-            scale = 255.0 if all(c <= 1.0 for c in app_data) else 1.0
-            profile.color = [int(c * scale) for c in app_data[:4]]
+            profile.color = list(app_data[:4])
             viewer.view_state.is_geometry_dirty = True
             self.controller.ui_needs_refresh = True
 
