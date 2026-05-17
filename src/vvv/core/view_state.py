@@ -816,9 +816,7 @@ class ViewState:
         else:
             flat_data = data.ravel()
 
-        # Subsample for speed — 500k points give a statistically accurate histogram
-        step = max(1, flat_data.size // 500_000)
-        hist, bin_edges = np.histogram(flat_data[::step], bins=bins)
+        hist, bin_edges = np.histogram(flat_data, bins=bins)
         self.hist_data_y = hist.astype(np.float32)
         self.hist_data_x = bin_edges[:-1].astype(np.float32)
         self.histogram_is_dirty = False

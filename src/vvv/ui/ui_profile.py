@@ -72,6 +72,17 @@ class ProfileUI:
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
+                build_help_button(
+                    "Profile List Columns (left to right):\n"
+                    "  [color]  : Change line color\n"
+                    "  [Name]   : Edit profile name (suppresses shortcuts)\n"
+                    "  [plot]   : Open intensity plot window\n"
+                    "  [H / V]  : Align horizontal or vertical\n"
+                    "  [snap]   : Snap to nearest pixel centers\n"
+                    "  [goto]   : Center camera on profile\n"
+                    "  [delete] : Remove this profile",
+                    gui,
+                )
 
     def refresh_profile_ui(self):
         viewer = self.gui.context_viewer

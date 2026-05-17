@@ -304,8 +304,11 @@ class IntensitiesUI:
             vs.histogram_is_dirty = True
             vs._hist_vol_data_id = current_data_id
 
-        # Lazy: don't pay the compute cost until the intensity panel is visible
-        if vs.histogram_is_dirty and not dpg.is_item_shown("tab_intensities"):
+        # Lazy: only compute if the sidebar tab OR the floating popup is visible
+        sidebar_visible = dpg.is_item_shown("tab_intensities")
+        popup_visible = dpg.does_item_exist("wl_hist_popup_win") and dpg.is_item_shown("wl_hist_popup_win")
+
+        if vs.histogram_is_dirty and not sidebar_visible and not popup_visible:
             return
 
         image_id = getattr(viewer, "image_id", None)
@@ -332,15 +335,16 @@ class IntensitiesUI:
             y_list = y_data.tolist()
             dsp = vs.display
             use_bars = dsp.hist_use_bars
-            # Initialise per-image histogram view state on first load if not already set
+
+            # --- Robust Histogram View Initialization ---
             if dsp.hist_x_center is None:
-                dsp.hist_x_center = float(vs.display.wl)
+                dsp.hist_x_center = float(dsp.wl)
             if dsp.hist_x_range is None:
-                # Default to 2x the WL window to show surrounding context
-                dsp.hist_x_range = dsp.ww * 2.0
+                # Default to a view that fits the current window with some context
+                dsp.hist_x_range = max(1e-5, dsp.ww * 1.5)
             if dsp.hist_y_max is None:
                 dsp.hist_y_max = self._hist_max_y
-
+            
             x_speed = max(0.01, dsp.hist_x_range * 0.005)
             y_speed = max(1e-4, dsp.hist_y_max * 0.005)
 
@@ -393,49 +397,50 @@ class IntensitiesUI:
         dpg.configure_item("wl_hist_plot", show=True)
 
     def sync_wl_lines(self, viewer, vs):
-        """Update histogram drag line positions every frame — called from sync_bound_ui."""
+        """Update histogram drag line positions every frame."""
         if not dpg.does_item_exist("wl_hist_lower"):
             return
-        if getattr(viewer.volume, "is_rgb", False):
+        
+        dsp = vs.display
+        if getattr(viewer.volume, "is_rgb", False) or dsp.wl is None:
             return
-        wl = vs.display.wl
-        ww = vs.display.ww
+
+        wl, ww = dsp.wl, dsp.ww
         lower = wl - ww / 2
         upper = wl + ww / 2
-        dpg.set_value("wl_hist_lower", lower)
-        dpg.set_value("wl_hist_upper", upper)
-        if dpg.does_item_exist("wl_hist_level"):
-            dpg.set_value("wl_hist_level", wl)
-        shade_val = [[lower, upper], [self._hist_max_y, self._hist_max_y], [0.0, 0.0]]
-        if self._hist_max_y > 0 and dpg.does_item_exist("wl_hist_shade"):
-            dpg.set_value("wl_hist_shade", shade_val)
 
-        # Sync popup bars
-        if dpg.does_item_exist("wl_hist_popup_lower"):
-            dpg.set_value("wl_hist_popup_lower", lower)
-            dpg.set_value("wl_hist_popup_upper", upper)
-            if dpg.does_item_exist("wl_hist_popup_level"):
-                dpg.set_value("wl_hist_popup_level", wl)
-            if self._hist_max_y > 0 and dpg.does_item_exist("wl_hist_popup_shade"):
-                dpg.set_value("wl_hist_popup_shade", shade_val)
-
-        # Colormap scale bar in popup — redraw texture with WL-aware gradient
-        if dpg.does_item_exist("wl_popup_colorscale_min") and dpg.does_item_exist("wl_popup_colorscale_max"):
+        # Update Sidebar Plot
+        self._safe_update_plot_elements("", lower, upper, wl)
+        
+        # Update Popup Plot (Only if it exists to avoid [1005] errors)
+        if dpg.does_item_exist("wl_hist_popup_win") and dpg.is_item_shown("wl_hist_popup_win"):
+            self._safe_update_plot_elements("_popup", lower, upper, wl)
             self._update_colorscale_texture(vs)
-            dpg.set_value("wl_popup_colorscale_min", f"{lower:g}")
-            dpg.set_value("wl_popup_colorscale_max", f"{upper:g}")
+            if dpg.does_item_exist("wl_popup_colorscale_min"):
+                dpg.set_value("wl_popup_colorscale_min", f"{lower:g}")
+            if dpg.does_item_exist("wl_popup_colorscale_max"):
+                dpg.set_value("wl_popup_colorscale_max", f"{upper:g}")
 
-        # Trigger histogram compute when intensity tab becomes visible
-        tab_shown = dpg.is_item_shown("tab_intensities")
-        if tab_shown and not self._intensities_tab_was_shown:
-            self.controller.ui_needs_refresh = True
-        self._intensities_tab_was_shown = tab_shown
-
-        # Auto-center per image preference
-        dsp = vs.display
+        # Handle Auto-Center
         if dsp.hist_auto_center:
             dsp.hist_x_center = wl
 
+        # Sync numerical inputs
+        self._sync_drag_floats(dsp)
+        self._apply_hist_x_limits(dsp)
+
+    def _safe_update_plot_elements(self, suffix, lower, upper, wl):
+        """Helper to update drag lines and shade series for sidebar or popup."""
+        dpg.set_value(f"wl_hist{suffix}_lower", lower)
+        dpg.set_value(f"wl_hist{suffix}_upper", upper)
+        if dpg.does_item_exist(f"wl_hist{suffix}_level"):
+            dpg.set_value(f"wl_hist{suffix}_level", wl)
+        
+        shade_val = [[lower, upper], [self._hist_max_y, self._hist_max_y], [0.0, 0.0]]
+        if self._hist_max_y > 0 and dpg.does_item_exist(f"wl_hist{suffix}_shade"):
+            dpg.set_value(f"wl_hist{suffix}_shade", shade_val)
+
+    def _sync_drag_floats(self, dsp):
         # Keep drag float displays in sync (only when not being actively dragged)
         for tag, val in (
             ("drag_hist_xcenter", dsp.hist_x_center),
@@ -461,10 +466,6 @@ class IntensitiesUI:
                     if cur and cur > 0:
                         dpg.configure_item(tag, speed=max(0.01, cur * 0.005))
 
-        # Apply x limits last — must win over any scroll or series update that ran earlier this tick
-        if dsp.hist_x_center is not None and dsp.hist_x_range is not None:
-            self._apply_hist_x_limits(dsp)
-
     def _update_colorscale_texture(self, vs):
         # Ensure the texture exists before trying to update it
         if not dpg.does_item_exist("wl_colorscale_tex") or vs.display.hist_x_center is None:
@@ -488,6 +489,8 @@ class IntensitiesUI:
         dpg.set_value("wl_colorscale_tex", colors.flatten().tolist())
 
     def _apply_hist_x_limits(self, dsp):
+        if dsp.hist_x_center is None or dsp.hist_x_range is None:
+            return
         center = dsp.hist_x_center
         half = (dsp.hist_x_range or 1.0) / 2
         # Explicitly target both the sidebar and popup X-axes
