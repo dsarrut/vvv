@@ -96,6 +96,7 @@ class IntensitiesUI:
                 no_title=True,
                 no_mouse_pos=True,
                 no_box_select=True,
+                zoom_mod=dpg.mvKey_ModCtrl,
                 show=False,
             ):
                 dpg.add_plot_axis(dpg.mvXAxis, tag="wl_hist_x_axis")
@@ -155,19 +156,19 @@ class IntensitiesUI:
                 dpg.add_text("C:", color=cfg_c["text_dim"])
                 dpg.add_drag_float(
                     tag="drag_hist_xcenter", default_value=0.0, speed=1.0,
-                    min_value=0.0, max_value=0.0, format="%.4g", width=65,
+                    min_value=-1e10, max_value=1e10, format="%.4g", width=65,
                     callback=gui.intensities_ui.on_hist_xcenter_drag,
                 )
                 dpg.add_text("W:", color=cfg_c["text_dim"])
                 dpg.add_drag_float(
                     tag="drag_hist_xwidth", default_value=1.0, speed=1.0,
-                    min_value=0.0, max_value=0.0, format="%.3g", width=60,
+                    min_value=1e-5, max_value=1e10, format="%.3g", width=60,
                     callback=gui.intensities_ui.on_hist_xwidth_drag,
                 )
                 dpg.add_text("Y:", color=cfg_c["text_dim"])
                 dpg.add_drag_float(
                     tag="drag_hist_ymax", default_value=1.0, speed=0.01,
-                    min_value=0.0, max_value=0.0, format="%.2g", width=-1,
+                    min_value=1e-5, max_value=1e10, format="%.2g", width=-1,
                     callback=gui.intensities_ui.on_hist_ymax_drag,
                 )
 
@@ -312,10 +313,12 @@ class IntensitiesUI:
         popup_needs_update = popup_exists and image_id != self._last_popup_image_id
         sidebar_image_changed = image_id != self._last_sidebar_image_id
 
+        num_bins = int(dpg.get_value("drag_hist_popup_bins")) if dpg.does_item_exist("drag_hist_popup_bins") else 256
+
         histogram_was_dirty = vs.histogram_is_dirty
         if histogram_was_dirty or popup_needs_update or sidebar_image_changed:
             if histogram_was_dirty:
-                vs.update_histogram()
+                vs.update_histogram(bins=num_bins)
             use_log = vs.use_log_y
             y_data = np.log10(vs.hist_data_y + 1) if use_log else vs.hist_data_y
             self._hist_max_y = float(np.max(y_data)) if len(y_data) > 0 else 1.0
@@ -327,18 +330,20 @@ class IntensitiesUI:
             x_centers = (x_edges + self._hist_bin_width / 2).tolist()
             x_edges_list = x_edges.tolist()
             y_list = y_data.tolist()
-            x_range = float(x_edges[-1] - x_edges[0]) if len(x_edges) > 1 else 1.0
             dsp = vs.display
             use_bars = dsp.hist_use_bars
-            x_speed = max(0.1, x_range * 0.002)
-            y_speed = max(1e-4, self._hist_max_y * 0.002)
-            # Initialise per-image histogram view state on first load
+            # Initialise per-image histogram view state on first load if not already set
             if dsp.hist_x_center is None:
-                dsp.hist_x_center = float(dsp.wl)
+                dsp.hist_x_center = float(vs.display.wl)
             if dsp.hist_x_range is None:
-                dsp.hist_x_range = x_range
+                # Default to 2x the WL window to show surrounding context
+                dsp.hist_x_range = dsp.ww * 2.0
             if dsp.hist_y_max is None:
                 dsp.hist_y_max = self._hist_max_y
+
+            x_speed = max(0.01, dsp.hist_x_range * 0.005)
+            y_speed = max(1e-4, dsp.hist_y_max * 0.005)
+
             if histogram_was_dirty or sidebar_image_changed:
                 self._update_hist_series(
                     "wl_hist_series", "wl_hist_y_axis",
@@ -351,7 +356,7 @@ class IntensitiesUI:
                     ("drag_hist_xwidth", dsp.hist_x_range, x_speed),
                     ("drag_hist_ymax", dsp.hist_y_max, y_speed),
                 ):
-                    if dpg.does_item_exist(tag):
+                    if dpg.does_item_exist(tag) and not dpg.is_item_active(tag):
                         dpg.set_value(tag, val)
                         dpg.configure_item(tag, speed=spd)
                 self._last_sidebar_image_id = image_id
@@ -367,17 +372,20 @@ class IntensitiesUI:
                     ("drag_hist_popup_xwidth", dsp.hist_x_range, x_speed),
                     ("drag_hist_popup_ymax", dsp.hist_y_max, y_speed),
                 ):
-                    if dpg.does_item_exist(tag):
+                    if dpg.does_item_exist(tag) and not dpg.is_item_active(tag):
                         dpg.set_value(tag, val)
                         dpg.configure_item(tag, speed=spd)
                 self._last_popup_image_id = image_id
 
-        # Sync per-image button labels whenever UI refreshes
+        # Sync per-image button labels whenever UI refreshes (sidebar + popup)
         dsp = vs.display
         for tag, t_label, f_label, val in (
-            ("btn_hist_bar", "Line", "Bar", dsp.hist_use_bars),
-            ("btn_hist_log", "Lin", "Log", dsp.hist_use_log),
-            ("btn_hist_auto_center", "Auto*", "Auto", dsp.hist_auto_center),
+            ("btn_hist_bar",             "Line",  "Bar",  dsp.hist_use_bars),
+            ("btn_hist_popup_bar",       "Line",  "Bar",  dsp.hist_use_bars),
+            ("btn_hist_log",             "Lin",   "Log",  dsp.hist_use_log),
+            ("btn_hist_popup_log",       "Lin",   "Log",  dsp.hist_use_log),
+            ("btn_hist_auto_center",     "Auto*", "Auto", dsp.hist_auto_center),
+            ("btn_hist_popup_auto_center","Auto*","Auto", dsp.hist_auto_center),
         ):
             if dpg.does_item_exist(tag):
                 dpg.configure_item(tag, label=t_label if val else f_label)
@@ -412,7 +420,7 @@ class IntensitiesUI:
                 dpg.set_value("wl_hist_popup_shade", shade_val)
 
         # Colormap scale bar in popup — redraw texture with WL-aware gradient
-        if dpg.does_item_exist("wl_popup_colorscale_min"):
+        if dpg.does_item_exist("wl_popup_colorscale_min") and dpg.does_item_exist("wl_popup_colorscale_max"):
             self._update_colorscale_texture(vs)
             dpg.set_value("wl_popup_colorscale_min", f"{lower:g}")
             dpg.set_value("wl_popup_colorscale_max", f"{upper:g}")
@@ -427,9 +435,6 @@ class IntensitiesUI:
         dsp = vs.display
         if dsp.hist_auto_center:
             dsp.hist_x_center = wl
-        if dsp.hist_x_center is not None and dsp.hist_x_range is not None:
-            if dpg.does_item_exist("wl_hist_x_axis"):
-                self._apply_hist_x_limits(dsp)
 
         # Keep drag float displays in sync (only when not being actively dragged)
         for tag, val in (
@@ -456,8 +461,13 @@ class IntensitiesUI:
                     if cur and cur > 0:
                         dpg.configure_item(tag, speed=max(0.01, cur * 0.005))
 
+        # Apply x limits last — must win over any scroll or series update that ran earlier this tick
+        if dsp.hist_x_center is not None and dsp.hist_x_range is not None:
+            self._apply_hist_x_limits(dsp)
+
     def _update_colorscale_texture(self, vs):
-        if not dpg.does_item_exist("wl_colorscale_tex"):
+        # Ensure the texture exists before trying to update it
+        if not dpg.does_item_exist("wl_colorscale_tex") or vs.display.hist_x_center is None:
             return
         dsp = vs.display
         view_center = dsp.hist_x_center if dsp.hist_x_center is not None else dsp.wl
@@ -480,13 +490,26 @@ class IntensitiesUI:
     def _apply_hist_x_limits(self, dsp):
         center = dsp.hist_x_center
         half = (dsp.hist_x_range or 1.0) / 2
-        for axis in ("wl_hist_x_axis", "wl_hist_popup_x_axis"):
+        # Explicitly target both the sidebar and popup X-axes
+        for axis in ["wl_hist_x_axis", "wl_hist_popup_x_axis"]:
             if dpg.does_item_exist(axis):
                 dpg.set_axis_limits(axis, center - half, center + half)
 
     def _update_hist_series(self, series_tag, axis_tag, x_edges, x_centers, y_list, use_bars=False):
+        # Update in-place when the series type matches — avoids DPG resetting
+        # the x-axis to auto-fit mode, which would override set_axis_limits.
         if dpg.does_item_exist(series_tag):
+            existing = dpg.get_item_type(series_tag)
+            type_matches = ("BarSeries" in existing) == use_bars
+            if type_matches:
+                if use_bars:
+                    dpg.set_value(series_tag, [x_centers, y_list])
+                    dpg.configure_item(series_tag, weight=self._hist_bin_width)
+                else:
+                    dpg.set_value(series_tag, [x_edges, y_list])
+                return
             dpg.delete_item(series_tag)
+
         if use_bars:
             dpg.add_bar_series(
                 x_centers, y_list,
@@ -533,6 +556,16 @@ class IntensitiesUI:
         dsp.hist_use_bars = not dsp.hist_use_bars
         if dpg.does_item_exist("btn_hist_bar"):
             dpg.configure_item("btn_hist_bar", label="Line" if dsp.hist_use_bars else "Bar")
+        for tag in ("drag_hist_popup_bins",):
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, show=dsp.hist_use_bars)
+        viewer.view_state.histogram_is_dirty = True
+        self.controller.ui_needs_refresh = True
+
+    def on_hist_bins_drag(self, _sender, _app_data, _user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state:
+            return
         viewer.view_state.histogram_is_dirty = True
         self.controller.ui_needs_refresh = True
 
@@ -601,6 +634,12 @@ class IntensitiesUI:
         dsp.hist_x_center = float(dsp.wl)
         dsp.hist_x_range = dsp.ww * 4.0 / 3.0
         self._apply_hist_x_limits(dsp)
+        for tag in ("drag_hist_xcenter", "drag_hist_popup_xcenter"):
+            if dpg.does_item_exist(tag):
+                dpg.set_value(tag, dsp.hist_x_center)
+        for tag in ("drag_hist_xwidth", "drag_hist_popup_xwidth"):
+            if dpg.does_item_exist(tag):
+                dpg.set_value(tag, dsp.hist_x_range)
 
     def on_hist_auto_center(self, _sender, _app_data, _user_data):
         viewer = self.gui.context_viewer
@@ -684,27 +723,33 @@ class IntensitiesUI:
             dpg.add_spacer(height=6)
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Ctr", width=42, callback=self.on_hist_center)
-                dpg.add_button(label="Auto", width=46, callback=self.on_hist_auto_center)
-                dpg.add_button(label="Bar", width=38, callback=self.on_hist_bar_toggle)
-                dpg.add_button(label="Lin", width=34, callback=self.on_hist_log_toggle)
+                dpg.add_button(label="Auto", width=46, tag="btn_hist_popup_auto_center", callback=self.on_hist_auto_center)
+                dpg.add_button(label="Bar", width=38, tag="btn_hist_popup_bar", callback=self.on_hist_bar_toggle)
+                dpg.add_button(label="Lin", width=34, tag="btn_hist_popup_log", callback=self.on_hist_log_toggle)
+                dpg.add_drag_int(
+                    tag="drag_hist_popup_bins", default_value=256, speed=2.0,
+                    min_value=32, max_value=1024, format="%d bins",
+                    width=80, show=False,
+                    callback=self.on_hist_bins_drag,
+                )
             dpg.add_spacer(height=4)
             with dpg.group(horizontal=True):
                 dpg.add_text("C:")
                 dpg.add_drag_float(
                     tag="drag_hist_popup_xcenter", default_value=0.0, speed=1.0,
-                    min_value=0.0, max_value=0.0, format="%.4g", width=110,
+                    min_value=-1e10, max_value=1e10, format="%.4g", width=110,
                     callback=self.on_hist_xcenter_drag,
                 )
                 dpg.add_text("W:")
                 dpg.add_drag_float(
                     tag="drag_hist_popup_xwidth", default_value=1.0, speed=1.0,
-                    min_value=0.0, max_value=0.0, format="%.4g", width=110,
+                    min_value=1e-5, max_value=1e10, format="%.4g", width=110,
                     callback=self.on_hist_xwidth_drag,
                 )
                 dpg.add_text("Y:")
                 dpg.add_drag_float(
                     tag="drag_hist_popup_ymax", default_value=1.0, speed=0.01,
-                    min_value=0.0, max_value=0.0, format="%.3g", width=-1,
+                    min_value=1e-5, max_value=1e10, format="%.3g", width=-1,
                     callback=self.on_hist_ymax_drag,
                 )
 
@@ -722,14 +767,20 @@ class IntensitiesUI:
                 x_edges.tolist(), x_centers, y_data.tolist(),
                 use_bars=vs.display.hist_use_bars,
             )
-            dpg.fit_axis_data("wl_hist_popup_x_axis")
             dpg.fit_axis_data("wl_hist_popup_y_axis")
-            wl, ww = vs.display.wl, vs.display.ww
-            margin = ww * 2.0 / 3.0
-            dpg.set_axis_limits("wl_hist_popup_x_axis", wl - margin, wl + margin)
+            
+            # Ensure popup initializes with the same view as the sidebar
+            if vs.display.hist_x_center is not None and vs.display.hist_x_range is not None:
+                self._apply_hist_x_limits(vs.display)
+            else:
+                # Fallback to current W/L window
+                wl, ww = vs.display.wl, vs.display.ww
+                margin = ww
+                dpg.set_axis_limits("wl_hist_popup_x_axis", wl - margin, wl + margin)
+
             # Populate colorscale immediately
             self._update_colorscale_texture(vs)
-            lower, upper = wl - ww / 2, wl + ww / 2
+            lower, upper = vs.display.wl - vs.display.ww / 2, vs.display.wl + vs.display.ww / 2
             dpg.set_value("wl_popup_colorscale_min", f"{lower:g}")
             dpg.set_value("wl_popup_colorscale_max", f"{upper:g}")
 

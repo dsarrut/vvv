@@ -808,16 +808,17 @@ class ViewState:
 
         self.mark_both_dirty()
 
-    def update_histogram(self):
+    def update_histogram(self, bins: int = 256):
         data = self.volume.data
         if getattr(self.volume, "is_dvf", False) and data.ndim >= 4:
-            # DVF shape: (3, z, y, x) or (n_time, 3, z, y, x).
-            # Histogram the displacement magnitude so mixed components are not averaged.
             vec = data if data.ndim == 4 else data[0]  # (3, z, y, x)
-            flat_data = np.sqrt(np.sum(vec.astype(np.float64) ** 2, axis=0)).flatten()
+            flat_data = np.sqrt(np.sum(vec.astype(np.float64) ** 2, axis=0)).ravel()
         else:
-            flat_data = data.flatten()
-        hist, bin_edges = np.histogram(flat_data, bins=256)
+            flat_data = data.ravel()
+
+        # Subsample for speed — 500k points give a statistically accurate histogram
+        step = max(1, flat_data.size // 500_000)
+        hist, bin_edges = np.histogram(flat_data[::step], bins=bins)
         self.hist_data_y = hist.astype(np.float32)
         self.hist_data_x = bin_edges[:-1].astype(np.float32)
         self.histogram_is_dirty = False
