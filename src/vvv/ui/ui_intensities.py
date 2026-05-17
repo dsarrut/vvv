@@ -10,14 +10,12 @@ class IntensitiesUI:
     def __init__(self, gui, controller):
         self.gui = gui
         self.controller = controller
-        self._hist_max_y = 1.0
-        self._hist_bin_width = 1.0
-        self._hist_min_x = 0.0
-        self._hist_max_x = 1.0
         self._last_colormap = ""
         self._last_popup_image_id = None
         self._last_sidebar_image_id = None
         self._intensities_tab_was_shown = False
+        self._computing_hist = False
+        self._just_finished_compute = False
 
     @staticmethod
     def build_tab_intensities(gui):
@@ -89,6 +87,12 @@ class IntensitiesUI:
                 dpg.add_text("---", tag="text_intensities_minmax")
 
             dpg.add_spacer(height=4)
+            dpg.add_text(
+                "Computing histogram...",
+                tag="text_hist_computing",
+                show=False,
+                color=cfg_c["working"],
+            )
             with dpg.plot(
                 tag="wl_hist_plot",
                 height=120,
@@ -294,6 +298,7 @@ class IntensitiesUI:
 
         if not has_image or is_rgb:
             dpg.configure_item("wl_hist_plot", show=False)
+            dpg.configure_item("text_hist_computing", show=False)
             return
 
         vs = viewer.view_state
@@ -316,21 +321,45 @@ class IntensitiesUI:
         popup_needs_update = popup_exists and image_id != self._last_popup_image_id
         sidebar_image_changed = image_id != self._last_sidebar_image_id
 
-        num_bins = int(dpg.get_value("drag_hist_popup_bins")) if dpg.does_item_exist("drag_hist_popup_bins") else 256
+        # Capture the recovery flag before clearing it so we can force a series update
+        was_recovery = self._just_finished_compute
+
+        # Detect if we are in the 'recovery' frame after a heavy computation
+        if self._just_finished_compute:
+            self._just_finished_compute = False
+            update_required = True
+        else:
+            update_required = vs.histogram_is_dirty or popup_needs_update or sidebar_image_changed
 
         histogram_was_dirty = vs.histogram_is_dirty
-        if histogram_was_dirty or popup_needs_update or sidebar_image_changed:
+        if update_required:
             if histogram_was_dirty:
-                vs.update_histogram(bins=num_bins)
+                # Defer computation by one frame to allow the "Computing" message to render
+                if not self._computing_hist:
+                    self._computing_hist = True
+                    dpg.configure_item("text_hist_computing", show=True)
+                    dpg.configure_item("wl_hist_plot", show=False)
+                    if dpg.does_item_exist("wl_hist_popup_win"):
+                        self.controller.status_message = "Computing histogram..."
+                    self.controller.ui_needs_refresh = True
+                    return
+
+                try:
+                    vs.update_histogram(bins=vs.display.hist_bins)
+                finally:
+                    self._computing_hist = False
+
+                # Force a follow-up refresh to ensure plot visibility and axis fitting
+                # synchronize correctly on the frame after the heavy compute.
+                self.controller.ui_needs_refresh = True
+                dpg.configure_item("text_hist_computing", show=False)
+
             use_log = vs.use_log_y
             y_data = np.log10(vs.hist_data_y + 1) if use_log else vs.hist_data_y
-            self._hist_max_y = float(np.max(y_data)) if len(y_data) > 0 else 1.0
+            max_y = float(np.max(y_data)) if len(y_data) > 0 else 1.0
             x_edges = vs.hist_data_x
-            if len(x_edges) > 1:
-                self._hist_bin_width = float(x_edges[1] - x_edges[0])
-                self._hist_min_x = float(x_edges[0])
-                self._hist_max_x = float(x_edges[-1]) + self._hist_bin_width
-            x_centers = (x_edges + self._hist_bin_width / 2).tolist()
+            bin_w = vs.get_hist_bin_width()
+            x_centers = (x_edges + bin_w / 2).tolist()
             x_edges_list = x_edges.tolist()
             y_list = y_data.tolist()
             dsp = vs.display
@@ -343,15 +372,15 @@ class IntensitiesUI:
                 # Default to a view that fits the current window with some context
                 dsp.hist_x_range = max(1e-5, dsp.ww * 1.5)
             if dsp.hist_y_max is None:
-                dsp.hist_y_max = self._hist_max_y
+                dsp.hist_y_max = max_y
             
             x_speed = max(0.01, dsp.hist_x_range * 0.005)
-            y_speed = max(1e-4, dsp.hist_y_max * 0.005)
+            y_speed = max(1e-4, float(dsp.hist_y_max) * 0.005)
 
-            if histogram_was_dirty or sidebar_image_changed:
+            if histogram_was_dirty or sidebar_image_changed or was_recovery:
                 self._update_hist_series(
                     "wl_hist_series", "wl_hist_y_axis",
-                    x_edges_list, x_centers, y_list, use_bars=use_bars,
+                    x_edges_list, x_centers, y_list, bin_w, use_bars=use_bars,
                 )
                 self._apply_hist_x_limits(dsp)
                 dpg.set_axis_limits("wl_hist_y_axis", 0.0, dsp.hist_y_max)
@@ -364,10 +393,10 @@ class IntensitiesUI:
                         dpg.set_value(tag, val)
                         dpg.configure_item(tag, speed=spd)
                 self._last_sidebar_image_id = image_id
-            if popup_exists:
+            if popup_exists and (histogram_was_dirty or popup_needs_update or was_recovery):
                 self._update_hist_series(
                     "wl_hist_popup_series", "wl_hist_popup_y_axis",
-                    x_edges_list, x_centers, y_list, use_bars=use_bars,
+                    x_edges_list, x_centers, y_list, bin_w, use_bars=use_bars,
                 )
                 self._apply_hist_x_limits(dsp)
                 dpg.set_axis_limits("wl_hist_popup_y_axis", 0.0, dsp.hist_y_max)
@@ -379,6 +408,8 @@ class IntensitiesUI:
                     if dpg.does_item_exist(tag) and not dpg.is_item_active(tag):
                         dpg.set_value(tag, val)
                         dpg.configure_item(tag, speed=spd)
+                if dpg.does_item_exist("drag_hist_popup_bins") and not dpg.is_item_active("drag_hist_popup_bins"):
+                    dpg.set_value("drag_hist_popup_bins", vs.display.hist_bins)
                 self._last_popup_image_id = image_id
 
         # Sync per-image button labels whenever UI refreshes (sidebar + popup)
@@ -409,12 +440,13 @@ class IntensitiesUI:
         lower = wl - ww / 2
         upper = wl + ww / 2
 
-        # Update Sidebar Plot
-        self._safe_update_plot_elements("", lower, upper, wl)
+        # Update Sidebar Plot (Use the vs directly for max_y metrics)
+        max_y = vs.get_hist_max_y()
+        self._safe_update_plot_elements("", lower, upper, wl, max_y)
         
         # Update Popup Plot (Only if it exists to avoid [1005] errors)
         if dpg.does_item_exist("wl_hist_popup_win") and dpg.is_item_shown("wl_hist_popup_win"):
-            self._safe_update_plot_elements("_popup", lower, upper, wl)
+            self._safe_update_plot_elements("_popup", lower, upper, wl, max_y)
             self._update_colorscale_texture(vs)
             if dpg.does_item_exist("wl_popup_colorscale_min"):
                 dpg.set_value("wl_popup_colorscale_min", f"{lower:g}")
@@ -429,15 +461,15 @@ class IntensitiesUI:
         self._sync_drag_floats(dsp)
         self._apply_hist_x_limits(dsp)
 
-    def _safe_update_plot_elements(self, suffix, lower, upper, wl):
+    def _safe_update_plot_elements(self, suffix, lower, upper, wl, max_y):
         """Helper to update drag lines and shade series for sidebar or popup."""
         dpg.set_value(f"wl_hist{suffix}_lower", lower)
         dpg.set_value(f"wl_hist{suffix}_upper", upper)
         if dpg.does_item_exist(f"wl_hist{suffix}_level"):
             dpg.set_value(f"wl_hist{suffix}_level", wl)
         
-        shade_val = [[lower, upper], [self._hist_max_y, self._hist_max_y], [0.0, 0.0]]
-        if self._hist_max_y > 0 and dpg.does_item_exist(f"wl_hist{suffix}_shade"):
+        shade_val = [[lower, upper], [max_y, max_y], [0.0, 0.0]]
+        if max_y > 0 and dpg.does_item_exist(f"wl_hist{suffix}_shade"):
             dpg.set_value(f"wl_hist{suffix}_shade", shade_val)
 
     def _sync_drag_floats(self, dsp):
@@ -472,7 +504,13 @@ class IntensitiesUI:
             return
         dsp = vs.display
         view_center = dsp.hist_x_center if dsp.hist_x_center is not None else dsp.wl
-        view_range = dsp.hist_x_range if dsp.hist_x_range is not None else (self._hist_max_x - self._hist_min_x)
+        if dsp.hist_x_range is not None:
+            view_range = dsp.hist_x_range
+        elif vs.hist_data_x is not None:
+            view_range = float(vs.hist_data_x[-1] - vs.hist_data_x[0])
+        else:
+            view_range = 1.0
+            
         img_min = view_center - view_range / 2
         img_max = view_center + view_range / 2
         if img_max <= img_min:
@@ -498,7 +536,7 @@ class IntensitiesUI:
             if dpg.does_item_exist(axis):
                 dpg.set_axis_limits(axis, center - half, center + half)
 
-    def _update_hist_series(self, series_tag, axis_tag, x_edges, x_centers, y_list, use_bars=False):
+    def _update_hist_series(self, series_tag, axis_tag, x_edges, x_centers, y_list, bin_w, use_bars=False):
         # Update in-place when the series type matches — avoids DPG resetting
         # the x-axis to auto-fit mode, which would override set_axis_limits.
         if dpg.does_item_exist(series_tag):
@@ -507,7 +545,7 @@ class IntensitiesUI:
             if type_matches:
                 if use_bars:
                     dpg.set_value(series_tag, [x_centers, y_list])
-                    dpg.configure_item(series_tag, weight=self._hist_bin_width)
+                    dpg.configure_item(series_tag, weight=bin_w)
                 else:
                     dpg.set_value(series_tag, [x_edges, y_list])
                 return
@@ -516,7 +554,7 @@ class IntensitiesUI:
         if use_bars:
             dpg.add_bar_series(
                 x_centers, y_list,
-                weight=self._hist_bin_width,
+                weight=bin_w,
                 parent=axis_tag,
                 tag=series_tag,
             )
@@ -569,6 +607,7 @@ class IntensitiesUI:
         viewer = self.gui.context_viewer
         if not viewer or not viewer.view_state:
             return
+        viewer.view_state.display.hist_bins = int(app_data)
         viewer.view_state.histogram_is_dirty = True
         self.controller.ui_needs_refresh = True
 
@@ -764,11 +803,12 @@ class IntensitiesUI:
             y_raw = vs.hist_data_y
             y_data = np.log10(y_raw + 1) if vs.use_log_y else y_raw
             x_edges = vs.hist_data_x
-            x_centers = (x_edges + self._hist_bin_width / 2).tolist()
+            bin_w = vs.get_hist_bin_width()
+            x_centers = (x_edges + bin_w / 2).tolist()
             self._update_hist_series(
                 "wl_hist_popup_series", "wl_hist_popup_y_axis",
                 x_edges.tolist(), x_centers, y_data.tolist(),
-                use_bars=vs.display.hist_use_bars,
+                bin_w, use_bars=vs.display.hist_use_bars,
             )
             dpg.fit_axis_data("wl_hist_popup_y_axis")
             

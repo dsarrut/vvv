@@ -1069,6 +1069,7 @@ class MainGUI:
         if dpg.does_item_exist("av_panel"):
             dpg.configure_item("av_panel", show=not hide_av)
 
+        self.controller.ui_needs_refresh = True
         self.on_window_resize()
 
     def on_window_resize(self):

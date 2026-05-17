@@ -160,6 +160,7 @@ class DisplayState:
     overlay_checkerboard_swap: bool
     pixelated_zoom: bool
     use_voxel_strips: bool
+    hist_bins: int
 
     # Fields that trigger a DATA redraw
     _DATA_FIELDS = {
@@ -174,6 +175,7 @@ class DisplayState:
         "overlay_checkerboard_swap",
         "pixelated_zoom",
         "use_voxel_strips",
+        "hist_bins",
     }
 
     def __init__(self, parent_vs: "ViewState | None" = None):
@@ -196,6 +198,7 @@ class DisplayState:
         self.hist_use_bars = False
         self.hist_use_log = True
         self.hist_auto_center = False
+        self.hist_bins = 256
         self.hist_x_center = None
         self.hist_x_range = None
         self.hist_y_max = None
@@ -226,6 +229,7 @@ class DisplayState:
             "hist_use_bars": bool(self.hist_use_bars),
             "hist_use_log": bool(self.hist_use_log),
             "hist_auto_center": bool(self.hist_auto_center),
+            "hist_bins": int(self.hist_bins),
             "hist_x_center": self.hist_x_center,
             "hist_x_range": self.hist_x_range,
             "hist_y_max": self.hist_y_max,
@@ -249,6 +253,7 @@ class DisplayState:
         self.hist_use_bars = d.get("hist_use_bars", False)
         self.hist_use_log = d.get("hist_use_log", True)
         self.hist_auto_center = d.get("hist_auto_center", False)
+        self.hist_bins = d.get("hist_bins", 256)
         self.hist_x_center = d.get("hist_x_center", None)
         self.hist_x_range = d.get("hist_x_range", None)
         self.hist_y_max = d.get("hist_y_max", None)
@@ -501,7 +506,7 @@ class ProfileLineState:
                 self.orientation = ViewMode.AXIAL
         self.slice_idx = d.get("slice_idx", self.slice_idx)
         self.visible = d.get("visible", self.visible)
-        self.plot_open = False  # windows don't survive workspace reload
+        self.plot_open = d.get("plot_open", False)
         self.use_log = d.get("use_log", False)
 
 
@@ -807,6 +812,19 @@ class ViewState:
         self.crosshair_value = self._read_voxel_value(ix, iy, iz, use_buffer=False)
 
         self.mark_both_dirty()
+
+    def get_hist_max_y(self):
+        """Returns the maximum Y value for the current histogram based on log settings."""
+        if self.hist_data_y is None or len(self.hist_data_y) == 0:
+            return 1.0
+        if self.use_log_y:
+            return float(np.max(np.log10(self.hist_data_y + 1)))
+        return float(np.max(self.hist_data_y))
+
+    def get_hist_bin_width(self):
+        if self.hist_data_x is None or len(self.hist_data_x) < 2:
+            return 1.0
+        return float(self.hist_data_x[1] - self.hist_data_x[0])
 
     def update_histogram(self, bins: int = 256):
         data = self.volume.data
