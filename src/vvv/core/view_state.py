@@ -195,7 +195,7 @@ class DisplayState:
         self.pixelated_zoom = False
         self.use_voxel_strips = False
         # Histogram display preferences (not in _DATA_FIELDS — no rerender)
-        self.hist_use_bars = False
+        self.hist_use_bars = True
         self.hist_use_log = True
         self.hist_auto_center = False
         self.hist_bins = 256

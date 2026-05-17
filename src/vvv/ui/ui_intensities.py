@@ -699,6 +699,10 @@ class IntensitiesUI:
             dpg.configure_item(popup_tag, show=not cfg.get("show", True))
             return
 
+        # Determine if we should show the bins control based on the current mode
+        viewer = self.gui.context_viewer
+        use_bars = viewer.view_state.display.hist_use_bars if (viewer and viewer.view_state) else False
+
         # Texture must live in the texture registry, not inside the window
         if not dpg.does_item_exist("wl_colorscale_tex"):
             dpg.add_dynamic_texture(
@@ -768,7 +772,7 @@ class IntensitiesUI:
                 dpg.add_drag_int(
                     tag="drag_hist_popup_bins", default_value=256, speed=2.0,
                     min_value=32, max_value=1024, format="%d bins",
-                    width=80, show=False,
+                    width=80, show=use_bars,
                     callback=self.on_hist_bins_drag,
                 )
             dpg.add_spacer(height=4)
@@ -802,7 +806,6 @@ class IntensitiesUI:
             popup_tag, [max(10, vp_w - win_w - 20), max(10, vp_h - win_h - 40)]
         )
 
-        viewer = self.gui.context_viewer
         if viewer and viewer.view_state and viewer.view_state.hist_data_x is not None:
             vs = viewer.view_state
             y_raw = vs.hist_data_y
