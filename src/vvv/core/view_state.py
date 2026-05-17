@@ -250,13 +250,13 @@ class DisplayState:
         self.overlay_checkerboard_swap = d.get(
             "overlay_checkerboard_swap", self.overlay_checkerboard_swap
         )
-        self.hist_use_bars = d.get("hist_use_bars", False)
-        self.hist_use_log = d.get("hist_use_log", True)
-        self.hist_auto_center = d.get("hist_auto_center", False)
-        self.hist_bins = d.get("hist_bins", 256)
-        self.hist_x_center = d.get("hist_x_center", None)
-        self.hist_x_range = d.get("hist_x_range", None)
-        self.hist_y_max = d.get("hist_y_max", None)
+        self.hist_use_bars = d.get("hist_use_bars", self.hist_use_bars)
+        self.hist_use_log = d.get("hist_use_log", self.hist_use_log)
+        self.hist_auto_center = d.get("hist_auto_center", self.hist_auto_center)
+        self.hist_bins = d.get("hist_bins", self.hist_bins)
+        self.hist_x_center = d.get("hist_x_center", self.hist_x_center)
+        self.hist_x_range = d.get("hist_x_range", self.hist_x_range)
+        self.hist_y_max = d.get("hist_y_max", self.hist_y_max)
 
 
 class ExtractionState:

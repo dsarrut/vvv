@@ -52,7 +52,7 @@ def _viewer2(controller):
 class TestDisplayStateHistogramFields:
     def test_default_values(self):
         dsp = DisplayState()
-        assert dsp.hist_use_bars is False
+        assert dsp.hist_use_bars is True
         assert dsp.hist_use_log is True
         assert dsp.hist_auto_center is False
         assert dsp.hist_x_center is None
@@ -95,7 +95,7 @@ class TestDisplayStateHistogramFields:
     def test_from_dict_applies_defaults_for_missing_keys(self):
         dsp = DisplayState()
         dsp.from_dict({})
-        assert dsp.hist_use_bars is False
+        assert dsp.hist_use_bars is True
         assert dsp.hist_use_log is True
         assert dsp.hist_auto_center is False
         assert dsp.hist_x_center is None
@@ -243,11 +243,11 @@ def test_bar_toggle_flips_hist_use_bars(headless_gui_app):
     _, gui, viewer, _ = headless_gui_app
     vs = viewer.view_state
 
-    assert vs.display.hist_use_bars is False
-    gui.intensities_ui.on_hist_bar_toggle(None, None, None)
     assert vs.display.hist_use_bars is True
     gui.intensities_ui.on_hist_bar_toggle(None, None, None)
     assert vs.display.hist_use_bars is False
+    gui.intensities_ui.on_hist_bar_toggle(None, None, None)
+    assert vs.display.hist_use_bars is True
 
 
 def test_bar_toggle_marks_histogram_dirty(headless_gui_app):
@@ -425,8 +425,8 @@ def test_bar_type_is_independent_per_viewer(headless_gui_app):
     gui.context_viewer = viewer1
     gui.intensities_ui.on_hist_bar_toggle(None, None, None)
 
-    assert viewer1.view_state.display.hist_use_bars is True
-    assert viewer2.view_state.display.hist_use_bars is False
+    assert viewer1.view_state.display.hist_use_bars is False
+    assert viewer2.view_state.display.hist_use_bars is True
 
 
 def test_log_mode_is_independent_per_viewer(headless_gui_app):
@@ -461,10 +461,10 @@ def test_switching_viewer_preserves_each_image_bar_type(headless_gui_app):
     gui.intensities_ui.on_hist_bar_toggle(None, None, None)
 
     gui.context_viewer = viewer2
-    assert viewer2.view_state.display.hist_use_bars is False
+    assert viewer2.view_state.display.hist_use_bars is True
 
     gui.context_viewer = viewer1
-    assert viewer1.view_state.display.hist_use_bars is True
+    assert viewer1.view_state.display.hist_use_bars is False
 
 
 # ─────────────────────────────────────────────────────────────────────────────

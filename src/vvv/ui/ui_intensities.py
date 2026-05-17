@@ -16,6 +16,7 @@ class IntensitiesUI:
         self._last_sidebar_image_id = None
         self._intensities_tab_was_shown = False
         self._computing_hist = False
+        self._last_colorscale_state = None
 
     @staticmethod
     def build_tab_intensities(gui):
@@ -285,7 +286,9 @@ class IntensitiesUI:
             if dpg.does_item_exist(t):
                 dpg.configure_item(t, speed=dynamic_speed)
 
-        if has_image:
+        # Sync lines independently of whether the tab is shown, 
+        # as the external popup might be visible.
+        if has_image and viewer.view_state:
             self.sync_wl_lines(viewer, viewer.view_state)
 
         self._refresh_wl_histogram(viewer, has_image, is_rgb)
@@ -428,25 +431,23 @@ class IntensitiesUI:
         lower = wl - ww / 2
         upper = wl + ww / 2
 
-        # Update Sidebar Plot (Use the vs directly for max_y metrics)
+        # 1. Update Plot Elements (Sidebar and Popup)
         max_y = vs.get_hist_max_y()
-        self._safe_update_plot_elements("", lower, upper, wl, max_y)
-        
-        # Update Popup Plot (Only if it exists to avoid [1005] errors)
-        if dpg.does_item_exist("wl_hist_popup_win"):
-            self._safe_update_plot_elements("_popup", lower, upper, wl, max_y)
-            self._update_colorscale_texture(vs)
-            # Sync the numerical bounds labels in the popup colormap bar
-            if dpg.does_item_exist("wl_popup_colorscale_min"):
-                dpg.set_value("wl_popup_colorscale_min", f"{lower:g}")
-            if dpg.does_item_exist("wl_popup_colorscale_max"):
-                dpg.set_value("wl_popup_colorscale_max", f"{upper:g}")
+        for suffix in ["", "_popup"]:
+            if dpg.does_item_exist(f"wl_hist{suffix}_lower"):
+                self._safe_update_plot_elements(suffix, lower, upper, wl, max_y)
 
-        # Handle Auto-Center
+        # 2. Update Popup-Specific visuals
+        if dpg.does_item_exist("wl_hist_popup_win") and dpg.is_item_shown("wl_hist_popup_win"):
+            self._update_colorscale_texture(vs)
+            self._safe_set("wl_popup_colorscale_min", f"{lower:g}")
+            self._safe_set("wl_popup_colorscale_max", f"{upper:g}")
+
+        # 3. Handle Auto-Center
         if dsp.hist_auto_center:
             dsp.hist_x_center = wl
 
-        # Sync numerical inputs
+        # 4. Sync numerical inputs
         self._sync_drag_floats(dsp)
         self._apply_hist_x_limits(dsp)
 
@@ -487,12 +488,20 @@ class IntensitiesUI:
                     if cur and cur > 0:
                         dpg.configure_item(tag, speed=max(0.01, cur * 0.005))
 
+    def _safe_set(self, tag, val):
+        if dpg.does_item_exist(tag):
+            dpg.set_value(tag, val)
+
     def _update_colorscale_texture(self, vs):
-        # Ensure the texture exists before trying to update it
-        if not dpg.does_item_exist("wl_colorscale_tex") or vs.display.hist_x_center is None:
+        """Update the colormap preview texture with radiometric state caching."""
+        if not dpg.does_item_exist("wl_colorscale_tex"):
             return
+
         dsp = vs.display
         view_center = dsp.hist_x_center
+        if view_center is None:
+            return
+
         if dsp.hist_x_range is not None:
             view_range = dsp.hist_x_range
         elif vs.hist_data_x is not None:
@@ -504,8 +513,15 @@ class IntensitiesUI:
         img_max = view_center + view_range / 2
         if img_max <= img_min:
             return
-        cmap = COLORMAPS.get(vs.display.colormap, COLORMAPS["Grayscale"])
-        wl, ww = vs.display.wl, vs.display.ww
+
+        # Performance: Skip the expensive numpy->list conversion if nothing changed
+        wl, ww, cmap_name = dsp.wl, dsp.ww, dsp.colormap
+        state = (wl, ww, cmap_name, img_min, img_max)
+        if self._last_colorscale_state == state:
+            return
+        self._last_colorscale_state = state
+
+        cmap = COLORMAPS.get(cmap_name, COLORMAPS["Grayscale"])
         lower, upper = wl - ww / 2, wl + ww / 2
         x = np.linspace(img_min, img_max, 256, dtype=np.float32)
         t = np.clip((x - lower) / max(ww, 1e-10), 0.0, 1.0)
