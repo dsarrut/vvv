@@ -254,6 +254,9 @@ def test_gui_interaction_modifiers(headless_gui_app, monkeypatch):
     # Mock the hovered viewer because the headless UI has no real mouse
     monkeypatch.setattr(gui.interaction, "get_hovered_viewer", lambda: viewer)
 
+    # Ensure modifiers are updated based on the mock
+    gui.interaction.update_trackers()
+
     # 2. Simulate User scrolling the mouse wheel (delta = 1)
     gui.interaction.on_mouse_scroll(sender=None, app_data=1.0, user_data=None)
 

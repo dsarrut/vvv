@@ -1,3 +1,4 @@
+import threading
 import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.config import WL_PRESETS, COLORMAPS
@@ -15,7 +16,6 @@ class IntensitiesUI:
         self._last_sidebar_image_id = None
         self._intensities_tab_was_shown = False
         self._computing_hist = False
-        self._just_finished_compute = False
 
     @staticmethod
     def build_tab_intensities(gui):
@@ -87,12 +87,6 @@ class IntensitiesUI:
                 dpg.add_text("---", tag="text_intensities_minmax")
 
             dpg.add_spacer(height=4)
-            dpg.add_text(
-                "Computing histogram...",
-                tag="text_hist_computing",
-                show=False,
-                color=cfg_c["working"],
-            )
             with dpg.plot(
                 tag="wl_hist_plot",
                 height=120,
@@ -290,6 +284,9 @@ class IntensitiesUI:
             if dpg.does_item_exist(t):
                 dpg.configure_item(t, speed=dynamic_speed)
 
+        if has_image:
+            self.sync_wl_lines(viewer, viewer.view_state)
+
         self._refresh_wl_histogram(viewer, has_image, is_rgb)
 
     def _refresh_wl_histogram(self, viewer, has_image, is_rgb):
@@ -298,7 +295,6 @@ class IntensitiesUI:
 
         if not has_image or is_rgb:
             dpg.configure_item("wl_hist_plot", show=False)
-            dpg.configure_item("text_hist_computing", show=False)
             return
 
         vs = viewer.view_state
@@ -321,39 +317,30 @@ class IntensitiesUI:
         popup_needs_update = popup_exists and image_id != self._last_popup_image_id
         sidebar_image_changed = image_id != self._last_sidebar_image_id
 
-        # Capture the recovery flag before clearing it so we can force a series update
-        was_recovery = self._just_finished_compute
-
-        # Detect if we are in the 'recovery' frame after a heavy computation
-        if self._just_finished_compute:
-            self._just_finished_compute = False
-            update_required = True
-        else:
-            update_required = vs.histogram_is_dirty or popup_needs_update or sidebar_image_changed
-
-        histogram_was_dirty = vs.histogram_is_dirty
-        if update_required:
-            if histogram_was_dirty:
-                # Defer computation by one frame to allow the "Computing" message to render
-                if not self._computing_hist:
-                    self._computing_hist = True
-                    dpg.configure_item("text_hist_computing", show=True)
-                    dpg.configure_item("wl_hist_plot", show=False)
-                    if dpg.does_item_exist("wl_hist_popup_win"):
-                        self.controller.status_message = "Computing histogram..."
-                    self.controller.ui_needs_refresh = True
-                    return
-
-                try:
-                    vs.update_histogram(bins=vs.display.hist_bins)
-                finally:
-                    self._computing_hist = False
-
-                # Force a follow-up refresh to ensure plot visibility and axis fitting
-                # synchronize correctly on the frame after the heavy compute.
+        # Logic: Fast compute immediately (approx), Full compute in background (accurate).
+        force_update_series = False
+        if vs.histogram_is_dirty:
+            # 1. Fast Approximation (Sync)
+            n_vox = viewer.volume.data.size // viewer.volume.num_components
+            step = max(1, n_vox // 100_000)
+            vs.update_histogram(bins=vs.display.hist_bins, subsample_step=step)
+            force_update_series = True
+            
+            # 2. Accurate Compute (Async)
+            def _bg_compute(vs_obj, bins):
+                vs_obj.update_histogram(bins=bins, subsample_step=1)
+                vs_obj.full_hist_ready = True
                 self.controller.ui_needs_refresh = True
-                dpg.configure_item("text_hist_computing", show=False)
+            
+            self.controller.status_message = "Computing accurate histogram..."
+            threading.Thread(target=_bg_compute, args=(vs, vs.display.hist_bins), daemon=True).start()
 
+        if getattr(vs, "full_hist_ready", False):
+            vs.full_hist_ready = False
+            force_update_series = True
+            self.controller.status_message = "Accurate histogram ready"
+
+        if force_update_series or sidebar_image_changed or popup_needs_update:
             use_log = vs.use_log_y
             y_data = np.log10(vs.hist_data_y + 1) if use_log else vs.hist_data_y
             max_y = float(np.max(y_data)) if len(y_data) > 0 else 1.0
@@ -377,7 +364,7 @@ class IntensitiesUI:
             x_speed = max(0.01, dsp.hist_x_range * 0.005)
             y_speed = max(1e-4, float(dsp.hist_y_max) * 0.005)
 
-            if histogram_was_dirty or sidebar_image_changed or was_recovery:
+            if force_update_series or sidebar_image_changed:
                 self._update_hist_series(
                     "wl_hist_series", "wl_hist_y_axis",
                     x_edges_list, x_centers, y_list, bin_w, use_bars=use_bars,
@@ -393,7 +380,7 @@ class IntensitiesUI:
                         dpg.set_value(tag, val)
                         dpg.configure_item(tag, speed=spd)
                 self._last_sidebar_image_id = image_id
-            if popup_exists and (histogram_was_dirty or popup_needs_update or was_recovery):
+            if popup_exists and (force_update_series or popup_needs_update):
                 self._update_hist_series(
                     "wl_hist_popup_series", "wl_hist_popup_y_axis",
                     x_edges_list, x_centers, y_list, bin_w, use_bars=use_bars,
@@ -429,7 +416,7 @@ class IntensitiesUI:
 
     def sync_wl_lines(self, viewer, vs):
         """Update histogram drag line positions every frame."""
-        if not dpg.does_item_exist("wl_hist_lower"):
+        if not vs or not dpg.does_item_exist("wl_hist_lower"):
             return
         
         dsp = vs.display
@@ -445,9 +432,10 @@ class IntensitiesUI:
         self._safe_update_plot_elements("", lower, upper, wl, max_y)
         
         # Update Popup Plot (Only if it exists to avoid [1005] errors)
-        if dpg.does_item_exist("wl_hist_popup_win") and dpg.is_item_shown("wl_hist_popup_win"):
+        if dpg.does_item_exist("wl_hist_popup_win"):
             self._safe_update_plot_elements("_popup", lower, upper, wl, max_y)
             self._update_colorscale_texture(vs)
+            # Sync the numerical bounds labels in the popup colormap bar
             if dpg.does_item_exist("wl_popup_colorscale_min"):
                 dpg.set_value("wl_popup_colorscale_min", f"{lower:g}")
             if dpg.does_item_exist("wl_popup_colorscale_max"):
@@ -607,7 +595,7 @@ class IntensitiesUI:
         viewer = self.gui.context_viewer
         if not viewer or not viewer.view_state:
             return
-        viewer.view_state.display.hist_bins = int(app_data)
+        viewer.view_state.display.hist_bins = int(float(_app_data))
         viewer.view_state.histogram_is_dirty = True
         self.controller.ui_needs_refresh = True
 
@@ -630,12 +618,16 @@ class IntensitiesUI:
         if pos is None:
             return
         wl = viewer.view_state.display.wl
-        ww = max(1e-5, 2.0 * (wl - pos))
+        # Symmetrical change: distance from pos to wl defines half-width
+        ww = max(1e-5, 2.0 * abs(wl - pos))
         viewer._mark_lazy_interaction()
         viewer.view_state.display.ww = ww
         dpg.set_value("drag_ww", ww)
         if dpg.does_item_exist("combo_wl_presets"):
             dpg.set_value("combo_wl_presets", "Custom")
+        
+        # Force immediate visual feedback for both lines
+        self.sync_wl_lines(viewer, viewer.view_state)
         self.controller.sync.propagate_window_level(viewer.image_id)
 
     def on_hist_drag_upper(self, _sender, app_data, _user_data):
@@ -646,12 +638,16 @@ class IntensitiesUI:
         if pos is None:
             return
         wl = viewer.view_state.display.wl
-        ww = max(1e-5, 2.0 * (pos - wl))
+        # Symmetrical change: distance from wl to pos defines half-width
+        ww = max(1e-5, 2.0 * abs(pos - wl))
         viewer._mark_lazy_interaction()
         viewer.view_state.display.ww = ww
         dpg.set_value("drag_ww", ww)
         if dpg.does_item_exist("combo_wl_presets"):
             dpg.set_value("combo_wl_presets", "Custom")
+
+        # Force immediate visual feedback for both lines
+        self.sync_wl_lines(viewer, viewer.view_state)
         self.controller.sync.propagate_window_level(viewer.image_id)
 
     def on_hist_drag_level(self, _sender, app_data, _user_data):
@@ -666,6 +662,7 @@ class IntensitiesUI:
         dpg.set_value("drag_wl", pos)
         if dpg.does_item_exist("combo_wl_presets"):
             dpg.set_value("combo_wl_presets", "Custom")
+        self.sync_wl_lines(viewer, viewer.view_state)
         self.controller.sync.propagate_window_level(viewer.image_id)
 
     def on_hist_center(self, _sender, _app_data, _user_data):
@@ -797,6 +794,14 @@ class IntensitiesUI:
 
         dpg.bind_item_theme("wl_hist_popup_shade", "wl_shade_theme")
 
+        # Position the window at the bottom right of the viewport
+        vp_w = dpg.get_viewport_client_width()
+        vp_h = dpg.get_viewport_client_height()
+        win_w, win_h = 700, 560
+        dpg.set_item_pos(
+            popup_tag, [max(10, vp_w - win_w - 20), max(10, vp_h - win_h - 40)]
+        )
+
         viewer = self.gui.context_viewer
         if viewer and viewer.view_state and viewer.view_state.hist_data_x is not None:
             vs = viewer.view_state
@@ -821,11 +826,9 @@ class IntensitiesUI:
                 margin = ww
                 dpg.set_axis_limits("wl_hist_popup_x_axis", wl - margin, wl + margin)
 
-            # Populate colorscale immediately
-            self._update_colorscale_texture(vs)
-            lower, upper = vs.display.wl - vs.display.ww / 2, vs.display.wl + vs.display.ww / 2
-            dpg.set_value("wl_popup_colorscale_min", f"{lower:g}")
-            dpg.set_value("wl_popup_colorscale_max", f"{upper:g}")
+
+            # Force the drag lines and shaded regions to snap to current state
+            self.sync_wl_lines(viewer, vs)
 
     def on_hist_popup_drag_lower(self, _sender, app_data, _user_data):
         pos = float(app_data) if app_data is not None else dpg.get_value("wl_hist_popup_lower")
@@ -835,12 +838,16 @@ class IntensitiesUI:
         if not viewer or not viewer.view_state:
             return
         wl = viewer.view_state.display.wl
-        ww = max(1e-5, 2.0 * (wl - pos))
+        # Symmetrical change
+        ww = max(1e-5, 2.0 * abs(wl - pos))
         viewer._mark_lazy_interaction()
         viewer.view_state.display.ww = ww
         dpg.set_value("drag_ww", ww)
         if dpg.does_item_exist("combo_wl_presets"):
             dpg.set_value("combo_wl_presets", "Custom")
+
+        # Sync both sidebar and popup lines
+        self.sync_wl_lines(viewer, viewer.view_state)
         self.controller.sync.propagate_window_level(viewer.image_id)
 
     def on_hist_popup_drag_upper(self, _sender, app_data, _user_data):
@@ -851,12 +858,15 @@ class IntensitiesUI:
         if not viewer or not viewer.view_state:
             return
         wl = viewer.view_state.display.wl
-        ww = max(1e-5, 2.0 * (pos - wl))
+        # Symmetrical change
+        ww = max(1e-5, 2.0 * abs(pos - wl))
         viewer._mark_lazy_interaction()
         viewer.view_state.display.ww = ww
         dpg.set_value("drag_ww", ww)
         if dpg.does_item_exist("combo_wl_presets"):
             dpg.set_value("combo_wl_presets", "Custom")
+            
+        self.sync_wl_lines(viewer, viewer.view_state)
         self.controller.sync.propagate_window_level(viewer.image_id)
 
     def on_hist_popup_drag_level(self, _sender, app_data, _user_data):
@@ -871,6 +881,7 @@ class IntensitiesUI:
         dpg.set_value("drag_wl", pos)
         if dpg.does_item_exist("combo_wl_presets"):
             dpg.set_value("combo_wl_presets", "Custom")
+        self.sync_wl_lines(viewer, viewer.view_state)
         self.controller.sync.propagate_window_level(viewer.image_id)
 
     def on_step_button_clicked(self, sender, app_data, user_data):

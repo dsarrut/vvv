@@ -2249,9 +2249,8 @@ class SliceViewer:
 
     def action_reset_view(self):
         # Check if either Left Shift or Right Shift is currently held down
-        is_shift = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(
-            dpg.mvKey_RShift
-        )
+        mods = self.controller.gui.interaction.modifiers
+        is_shift = mods["shift"]
 
         if is_shift:
             # self.view_state.hard_reset()
@@ -2506,26 +2505,13 @@ class SliceViewer:
         total_dx = current_pos[0] - self.drag_start_mouse[0]
         total_dy = current_pos[1] - self.drag_start_mouse[1]
 
+        # Use centralized modifiers (Safe on DPG callback threads)
+        mods = self.controller.gui.interaction.modifiers
+        is_pan_mod = mods["cmd"] or mods["ctrl"]
         is_button_left = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
-        is_button_mid = dpg.is_mouse_button_down(dpg.mvMouseButton_Middle)
+        is_pan_drag = (is_pan_mod and is_button_left) or dpg.is_mouse_button_down(dpg.mvMouseButton_Middle)
 
-        is_cmd = (
-            dpg.is_key_down(getattr(dpg, "mvKey_LWin", 343))
-            or dpg.is_key_down(getattr(dpg, "mvKey_RWin", 347))
-            or dpg.is_key_down(343)
-            or dpg.is_key_down(347)
-        )
-        is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(
-            dpg.mvKey_RControl
-        )
-        is_shift = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(
-            dpg.mvKey_RShift
-        )
-
-        is_pan_mod = is_cmd or is_ctrl
-        is_pan_drag = (is_pan_mod and is_button_left) or is_button_mid
-
-        if not is_pan_drag and not is_shift and is_button_left:
+        if not is_pan_drag and not mods["shift"] and is_button_left:
             px, py = self.get_mouse_slice_coords(ignore_hover=True, allow_outside=True)
             if px is not None:
                 # Performance: Dragging the crosshair forces other orthogonal synced viewers

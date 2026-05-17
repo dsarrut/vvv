@@ -19,6 +19,7 @@ class NavigationTool:
         self.profile_drag_start_p1 = None
         self.profile_drag_start_p2 = None
         self.profile_drag_start_mouse_phys = None
+        self.is_pan_drag = False
 
     def on_click(self, button):
         # Allow Left, Middle, and Right clicks to lock the viewer for dragging
@@ -72,23 +73,12 @@ class NavigationTool:
         self.drag_viewer.on_mouse_down()
 
         if viewer.orientation != ViewMode.HISTOGRAM:
-            is_cmd = (
-                dpg.is_key_down(getattr(dpg, "mvKey_LWin", 343))
-                or dpg.is_key_down(getattr(dpg, "mvKey_RWin", 347))
-                or dpg.is_key_down(343)
-                or dpg.is_key_down(347)
-            )
-            is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(
-                dpg.mvKey_RControl
-            )
-            is_shift = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(
-                dpg.mvKey_RShift
-            )
-
-            is_pan_mod = is_cmd or is_ctrl
-
+            mods = self.manager.modifiers
+            is_pan_mod = mods["cmd"] or mods["ctrl"]
+            self.is_pan_drag = (is_pan_mod and button == dpg.mvMouseButton_Left) or (button == dpg.mvMouseButton_Middle)
+            
             # Crosshair snap ONLY on un-modified Left Click
-            if button == dpg.mvMouseButton_Left and not is_shift and not is_pan_mod:
+            if button == dpg.mvMouseButton_Left and not mods["shift"] and not is_pan_mod:
                 px, py = viewer.get_mouse_slice_coords(ignore_hover=True)
                 if px is not None:
                     viewer.update_crosshair_data(px, py)
@@ -167,16 +157,8 @@ class NavigationTool:
     def on_scroll(self, delta):
         target = self.manager.get_hovered_viewer()
         if target:
-            is_cmd = (
-                dpg.is_key_down(getattr(dpg, "mvKey_LWin", 343))
-                or dpg.is_key_down(getattr(dpg, "mvKey_RWin", 347))
-                or dpg.is_key_down(343)
-                or dpg.is_key_down(347)
-            )
-            is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(
-                dpg.mvKey_RControl
-            )
-            is_zoom_mod = is_cmd or is_ctrl
+            mods = self.manager.modifiers
+            is_zoom_mod = mods["cmd"] or mods["ctrl"]
             if is_zoom_mod:
                 target.on_zoom("in" if delta > 0 else "out")
             else:
@@ -201,6 +183,7 @@ class InteractionManager:
             # Phase 5: "roi_draw": RoiDrawingTool(self),
         }
         self.active_tool_id = "navigation"
+        self.modifiers = {"shift": False, "ctrl": False, "cmd": False}
 
     @property
     def active_tool(self):
@@ -316,13 +299,8 @@ class InteractionManager:
         dy = app_data[1] - self.last_mouse_pos[1]
         self.last_mouse_pos = app_data
 
-        is_shift = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(
-            dpg.mvKey_RShift
-        )
-        is_right = dpg.is_mouse_button_down(dpg.mvMouseButton_Right)
-
-        # W/L Drag: Shift + Move/Drag or Right-Drag
-        is_wl_drag = is_shift or is_right
+        # W/L Drag: Shift + Move or Right-Click Drag
+        is_wl_drag = self.modifiers["shift"] or dpg.is_mouse_button_down(dpg.mvMouseButton_Right)
 
         if is_wl_drag:
             # Use the locked drag target if available so it doesn't break if the mouse leaves the viewer
@@ -392,13 +370,8 @@ class InteractionManager:
         except Exception:
             pass
 
-        # Intercept global Application shortcuts here (like Ctrl+O)
-        is_cmd = dpg.is_key_down(dpg.mvKey_LWin) or dpg.is_key_down(dpg.mvKey_RWin)
-        is_ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(
-            dpg.mvKey_RControl
-        )
-
-        if app_data == dpg.mvKey_O and (is_ctrl or is_cmd):
+        # Global Application shortcuts using centralized modifiers
+        if app_data == dpg.mvKey_O and (self.modifiers["ctrl"] or self.modifiers["cmd"]):
             self.gui.on_open_file_clicked()
             return
 
@@ -425,6 +398,17 @@ class InteractionManager:
             "active_viewer_mode", "hybrid"
         )
         hover_viewer = self.get_hovered_viewer()
+
+        # 0. Update Modifiers (Safe on Main Thread)
+        self.modifiers["shift"] = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(dpg.mvKey_RShift)
+        self.modifiers["ctrl"] = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl)
+        
+        is_cmd = False
+        if hasattr(dpg, "mvKey_LWin"):
+            is_cmd = is_cmd or dpg.is_key_down(dpg.mvKey_LWin)
+        if hasattr(dpg, "mvKey_RWin"):
+            is_cmd = is_cmd or dpg.is_key_down(dpg.mvKey_RWin)
+        self.modifiers["cmd"] = is_cmd
 
         # Safely check if the active tool is currently dragging something
         is_dragging = getattr(self.active_tool, "drag_viewer", None) is not None

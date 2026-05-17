@@ -570,6 +570,7 @@ class ViewState:
         self._preview_slice_needed: bool = False  # set by viewer on cache miss
         self.hist_data_x = None
         self.hist_data_y = None
+        self.full_hist_ready = False
         self.histogram_is_dirty = True
         self.init_crosshair_to_slices()
         self.init_default_window_level()
@@ -826,16 +827,30 @@ class ViewState:
             return 1.0
         return float(self.hist_data_x[1] - self.hist_data_x[0])
 
-    def update_histogram(self, bins: int = 256):
+    def update_histogram(self, bins: int = 256, subsample_step: int = 1):
         data = self.volume.data
         if getattr(self.volume, "is_dvf", False) and data.ndim >= 4:
             vec = data if data.ndim == 4 else data[0]  # (3, z, y, x)
-            flat_data = np.sqrt(np.sum(vec.astype(np.float64) ** 2, axis=0)).ravel()
+            total_count = vec.shape[1] * vec.shape[2] * vec.shape[3]
+            if subsample_step > 1:
+                # Optimized subsampling for vector magnitude
+                flat_vec = vec.reshape(3, -1)[:, ::subsample_step]
+                flat_data = np.sqrt(np.sum(flat_vec.astype(np.float64) ** 2, axis=0))
+            else:
+                flat_data = np.sqrt(np.sum(vec.astype(np.float64) ** 2, axis=0)).ravel()
         else:
-            flat_data = data.ravel()
+            total_count = data.size
+            if subsample_step > 1:
+                flat_data = data.ravel()[::subsample_step]
+            else:
+                flat_data = data.ravel()
 
         hist, bin_edges = np.histogram(flat_data, bins=bins)
-        self.hist_data_y = hist.astype(np.float32)
+        y = hist.astype(np.float32)
+        if subsample_step > 1 and flat_data.size > 0:
+            y *= (total_count / flat_data.size)
+
+        self.hist_data_y = y
         self.hist_data_x = bin_edges[:-1].astype(np.float32)
         self.histogram_is_dirty = False
 
