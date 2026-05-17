@@ -130,10 +130,6 @@ class IntensitiesUI:
                     callback=gui.intensities_ui.on_hist_center,
                 )
                 dpg.add_button(
-                    label="Auto", width=40, tag="btn_hist_auto_center",
-                    callback=gui.intensities_ui.on_hist_auto_center,
-                )
-                dpg.add_button(
                     label="Bar", width=34, tag="btn_hist_bar",
                     callback=gui.intensities_ui.on_hist_bar_toggle,
                 )
@@ -397,12 +393,10 @@ class IntensitiesUI:
         # Sync per-image button labels whenever UI refreshes (sidebar + popup)
         dsp = vs.display
         for tag, t_label, f_label, val in (
-            ("btn_hist_bar",             "Line",  "Bar",  dsp.hist_use_bars),
-            ("btn_hist_popup_bar",       "Line",  "Bar",  dsp.hist_use_bars),
-            ("btn_hist_log",             "Lin",   "Log",  dsp.hist_use_log),
-            ("btn_hist_popup_log",       "Lin",   "Log",  dsp.hist_use_log),
-            ("btn_hist_auto_center",     "Auto*", "Auto", dsp.hist_auto_center),
-            ("btn_hist_popup_auto_center","Auto*","Auto", dsp.hist_auto_center),
+            ("btn_hist_bar",       "Line", "Bar", dsp.hist_use_bars),
+            ("btn_hist_popup_bar", "Line", "Bar", dsp.hist_use_bars),
+            ("btn_hist_log",       "Lin",  "Log", dsp.hist_use_log),
+            ("btn_hist_popup_log", "Lin",  "Log", dsp.hist_use_log),
         ):
             if dpg.does_item_exist(tag):
                 dpg.configure_item(tag, label=t_label if val else f_label)
@@ -434,11 +428,7 @@ class IntensitiesUI:
             self._safe_set("wl_popup_colorscale_min", f"{lower:g}")
             self._safe_set("wl_popup_colorscale_max", f"{upper:g}")
 
-        # 3. Handle Auto-Center
-        if dsp.hist_auto_center:
-            dsp.hist_x_center = wl
-
-        # 4. Sync numerical inputs
+        # 3. Sync numerical inputs
         self._sync_drag_floats(dsp)
         self._apply_hist_x_limits(dsp)
 
@@ -664,18 +654,6 @@ class IntensitiesUI:
             if dpg.does_item_exist(tag):
                 dpg.set_value(tag, dsp.hist_x_range)
 
-    def on_hist_auto_center(self, _sender, _app_data, _user_data):
-        viewer = self.gui.context_viewer
-        if not viewer or not viewer.view_state:
-            return
-        dsp = viewer.view_state.display
-        dsp.hist_auto_center = not dsp.hist_auto_center
-        if dpg.does_item_exist("btn_hist_auto_center"):
-            dpg.configure_item(
-                "btn_hist_auto_center",
-                label="Auto*" if dsp.hist_auto_center else "Auto",
-            )
-
     def on_hist_popup(self, _sender, _app_data, _user_data):
         popup_tag = "wl_hist_popup_win"
         if dpg.does_item_exist(popup_tag):
@@ -750,7 +728,6 @@ class IntensitiesUI:
             dpg.add_spacer(height=6)
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Ctr", width=42, callback=self.on_hist_center)
-                dpg.add_button(label="Auto", width=46, tag="btn_hist_popup_auto_center", callback=self.on_hist_auto_center)
                 dpg.add_button(label="Bar", width=38, tag="btn_hist_popup_bar", callback=self.on_hist_bar_toggle)
                 dpg.add_button(label="Lin", width=34, tag="btn_hist_popup_log", callback=self.on_hist_log_toggle)
                 dpg.add_drag_int(

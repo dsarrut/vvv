@@ -54,7 +54,6 @@ class TestDisplayStateHistogramFields:
         dsp = DisplayState()
         assert dsp.hist_use_bars is True
         assert dsp.hist_use_log is True
-        assert dsp.hist_auto_center is False
         assert dsp.hist_x_center is None
         assert dsp.hist_x_range is None
         assert dsp.hist_y_max is None
@@ -63,14 +62,12 @@ class TestDisplayStateHistogramFields:
         dsp = DisplayState()
         dsp.hist_use_bars = True
         dsp.hist_use_log = False
-        dsp.hist_auto_center = True
         dsp.hist_x_center = -100.0
         dsp.hist_x_range = 500.0
         dsp.hist_y_max = 3.5
         d = dsp.to_dict()
         assert d["hist_use_bars"] is True
         assert d["hist_use_log"] is False
-        assert d["hist_auto_center"] is True
         assert d["hist_x_center"] == pytest.approx(-100.0)
         assert d["hist_x_range"] == pytest.approx(500.0)
         assert d["hist_y_max"] == pytest.approx(3.5)
@@ -80,14 +77,12 @@ class TestDisplayStateHistogramFields:
         dsp.from_dict({
             "hist_use_bars": True,
             "hist_use_log": False,
-            "hist_auto_center": True,
             "hist_x_center": -300.0,
             "hist_x_range": 2000.0,
             "hist_y_max": 6.1,
         })
         assert dsp.hist_use_bars is True
         assert dsp.hist_use_log is False
-        assert dsp.hist_auto_center is True
         assert dsp.hist_x_center == pytest.approx(-300.0)
         assert dsp.hist_x_range == pytest.approx(2000.0)
         assert dsp.hist_y_max == pytest.approx(6.1)
@@ -97,7 +92,6 @@ class TestDisplayStateHistogramFields:
         dsp.from_dict({})
         assert dsp.hist_use_bars is True
         assert dsp.hist_use_log is True
-        assert dsp.hist_auto_center is False
         assert dsp.hist_x_center is None
         assert dsp.hist_x_range is None
         assert dsp.hist_y_max is None
@@ -107,14 +101,15 @@ class TestDisplayStateHistogramFields:
         class FakeVS:
             is_data_dirty = False
 
+        fake_vs = FakeVS()
         dsp = DisplayState()
-        dsp._parent = FakeVS()
+        object.__setattr__(dsp, "_parent", fake_vs)
         dsp.hist_use_bars = True
         dsp.hist_use_log = False
         dsp.hist_x_center = 100.0
         dsp.hist_x_range = 400.0
         dsp.hist_y_max = 5.0
-        assert dsp._parent.is_data_dirty is False
+        assert fake_vs.is_data_dirty is False
 
     def test_roundtrip_serialization(self):
         dsp1 = DisplayState()
@@ -322,15 +317,6 @@ def test_hist_ymax_drag_clamps_to_positive(headless_gui_app):
     assert vs.display.hist_y_max >= 1e-5
 
 
-def test_hist_auto_center_toggles_flag(headless_gui_app):
-    _, gui, viewer, _ = headless_gui_app
-    vs = viewer.view_state
-
-    assert vs.display.hist_auto_center is False
-    gui.intensities_ui.on_hist_auto_center(None, None, None)
-    assert vs.display.hist_auto_center is True
-    gui.intensities_ui.on_hist_auto_center(None, None, None)
-    assert vs.display.hist_auto_center is False
 
 
 def test_callbacks_ignore_none_app_data_without_raising(headless_gui_app):

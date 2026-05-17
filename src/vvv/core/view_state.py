@@ -197,7 +197,6 @@ class DisplayState:
         # Histogram display preferences (not in _DATA_FIELDS — no rerender)
         self.hist_use_bars = True
         self.hist_use_log = True
-        self.hist_auto_center = False
         self.hist_bins = 256
         self.hist_x_center = None
         self.hist_x_range = None
@@ -228,7 +227,6 @@ class DisplayState:
             "overlay_checkerboard_swap": bool(self.overlay_checkerboard_swap),
             "hist_use_bars": bool(self.hist_use_bars),
             "hist_use_log": bool(self.hist_use_log),
-            "hist_auto_center": bool(self.hist_auto_center),
             "hist_bins": int(self.hist_bins),
             "hist_x_center": self.hist_x_center,
             "hist_x_range": self.hist_x_range,
@@ -252,7 +250,6 @@ class DisplayState:
         )
         self.hist_use_bars = d.get("hist_use_bars", self.hist_use_bars)
         self.hist_use_log = d.get("hist_use_log", self.hist_use_log)
-        self.hist_auto_center = d.get("hist_auto_center", self.hist_auto_center)
         self.hist_bins = d.get("hist_bins", self.hist_bins)
         self.hist_x_center = d.get("hist_x_center", self.hist_x_center)
         self.hist_x_range = d.get("hist_x_range", self.hist_x_range)
