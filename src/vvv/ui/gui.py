@@ -1,3 +1,4 @@
+import sys
 import os
 import json
 import shlex
@@ -113,6 +114,7 @@ class MainGUI:
         self.build_main_layout()
         self._init_rendering_menu()
         self.register_handlers()
+        self._update_viewer_help_texts() # Initial update for viewer help texts
 
         # Force UI into the empty/disabled state on boot
         self.update_sidebar_info(None)
@@ -624,6 +626,14 @@ class MainGUI:
             col = self.controller.settings.data["colors"]["tracker_text"]
             dpg.add_text("", tag=viewer.tracker_tag, color=col, pos=[5, 5])
 
+            # Beginner mode help text for non-active viewers
+            viewer_help_tag = f"viewer_help_text_{tag}"
+            mod = "Cmd" if sys.platform == "darwin" else "Ctrl"
+            help_text = f"L-Click: Activate\nScroll: Slice\n{mod}+Scroll: Zoom\n{mod}+Drag: Pan"
+            help_col = self.ui_cfg["colors"]["text_dim"]
+            help_item = dpg.add_text(help_text, tag=viewer_help_tag, color=help_col, show=False)
+            self.beginner_tags.append(viewer_help_tag)
+
             # filename
             dpg.add_text("", tag=f"filename_text_{tag}", color=col, show=False)
 
@@ -985,6 +995,7 @@ class MainGUI:
             highlight_active_image_in_list(self, viewer.image_id)
             self.update_sidebar_info(viewer)
             self.update_sidebar_crosshair(viewer)
+            self._update_viewer_help_texts() # Update help texts when context viewer changes
             self.reg_ui.pull_reg_sliders_from_transform()
 
             # Defer full panel refresh to next frame loop
@@ -1007,6 +1018,7 @@ class MainGUI:
             dpg.bind_item_theme(sender, "active_nav_button_theme")
         else:
             dpg.bind_item_theme(sender, "theme_rounded_nav")
+        self._update_viewer_help_texts() # Update help texts when beginner mode changes
         
         self.show_status_message(f"Beginner Mode {'ON' if self.is_beginner_mode else 'OFF'}")
 
@@ -1154,6 +1166,27 @@ class MainGUI:
                 h = quad_h if i in [0, 1] else avail_h - quad_h
                 dpg.set_item_width(f"win_{tag}", w)
                 dpg.set_item_height(f"win_{tag}", h)
+
+        self._update_viewer_help_texts() # Recalculate positions for viewer help texts
+
+    def _update_viewer_help_texts(self):
+        """Manages visibility and positioning of help text in non-active viewers."""
+        for tag in ["V1", "V2", "V3", "V4"]:
+            viewer_help_tag = f"viewer_help_text_{tag}"
+            if not dpg.does_item_exist(viewer_help_tag):
+                continue
+
+            viewer_obj = self.controller.viewers[tag]
+            viewer_w = viewer_obj.quad_w
+            viewer_h = viewer_obj.quad_h
+
+            is_active_viewer = (self.context_viewer and self.context_viewer.tag == tag)
+            should_show = self.is_beginner_mode and not is_active_viewer
+
+            dpg.configure_item(viewer_help_tag, show=should_show)
+            if should_show:
+                help_text_size = dpg.get_text_size(dpg.get_value(viewer_help_tag))
+                dpg.set_item_pos(viewer_help_tag, [max(5, int((viewer_w - help_text_size[0]) / 2)), max(5, int(viewer_h - help_text_size[1] - 10))])
 
     def on_image_viewer_toggle(self, sender, value, user_data):
         img_id, v_tag = user_data["img_id"], user_data["v_tag"]
