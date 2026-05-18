@@ -20,7 +20,8 @@ from vvv.ui.ui_profile import ProfileUI
 from vvv.ui.ui_dvf import DvfUI
 from vvv.ui.ui_interaction import InteractionManager
 from vvv.ui.ui_components import build_section_title, build_help_button
-from vvv.ui.ui_sync import build_tab_sync, refresh_sync_ui
+from vvv.ui.ui_components import build_beginner_tooltip # Added this line
+from vvv.ui.ui_sync import build_tab_sync, refresh_sync_ui 
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 from vvv.ui.ui_theme import build_ui_config, register_dynamic_themes
 from vvv.ui.ui_notifications import show_message, show_status_message
@@ -344,6 +345,20 @@ class MainGUI:
             ("Profiles", "tab_profile"),
         ]
 
+        tooltip_texts = {
+            "tab_images": "Manage loaded images, assign them to viewers, and perform actions like saving or reloading.",
+            "tab_sync": "Synchronize camera movements (pan, zoom, slice) and radiometric settings (Window/Level) across multiple images.",
+            "tab_fusion": "Blend a secondary image (overlay) on top of the base image using various modes like transparency or checkerboard.",
+            "tab_intensities": "Adjust the contrast (Window/Level), colormap, and apply a minimum threshold to the active image.",
+            "tab_rois": "Load, manage, and analyze Regions of Interest (ROIs) as overlays on your images.",
+            "tab_reg": "Apply 3D rigid transformations (translation, rotation) to the active image for alignment purposes.",
+            "tab_extraction": "Interactively define a scalar range to highlight specific pixel values and generate new mask images.",
+            "tab_dvf": "Visualize Displacement Vector Fields (DVFs) as vector arrows or component images.",
+            "tab_profile": "Draw intensity profiles across your images and view their pixel value distributions.",
+        }
+
+
+
         with dpg.group(tag="nav_top_group"):
             for i, (name, tag) in enumerate(self.nav_items):
                 btn = dpg.add_button(
@@ -358,6 +373,8 @@ class MainGUI:
                 # Highlight the first tool by default using your existing active theme
                 if i == 0 and dpg.does_item_exist("active_nav_button_theme"):
                     dpg.bind_item_theme(btn, "active_nav_button_theme")
+                if tag in tooltip_texts:
+                    build_beginner_tooltip(btn, tooltip_texts[tag], self)
 
             # Workspace icons sit inside nav_top_group so they flow naturally
             # after the last tool button (DVF) without needing absolute positioning.
