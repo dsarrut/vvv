@@ -2590,3 +2590,12 @@ class SliceViewer:
         cent = self.get_center_physical_coord()
         if cent is not None:
             self.last_consumed_center = list(cent)
+
+        # propagate_camera and get_center_physical_coord both call mapper.update()
+        # with win dimensions instead of canvas dimensions, leaving mapper in wrong state.
+        # Restore it so rapid successive zoom events (key-repeat) use correct pmin.
+        canvas_w, canvas_h = self._get_canvas_size()
+        if canvas_w > 1:
+            shape = self.get_slice_shape()
+            sw, sh = vol.get_physical_aspect_ratio(self.orientation)
+            self.mapper.update(canvas_w, canvas_h, shape[1], shape[0], sw, sh, self.zoom, self.pan_offset)
