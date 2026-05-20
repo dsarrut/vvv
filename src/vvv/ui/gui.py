@@ -1777,7 +1777,9 @@ class MainGUI:
                 except StopIteration:
                     self.tasks.pop(0)
 
-            if getattr(self.controller, "ui_needs_refresh", False):
+            # Capture if the frame was flagged for refresh at the start
+            ui_dirty = getattr(self.controller, "ui_needs_refresh", False)
+            if ui_dirty:
                 self._refresh_all_ui_panels()
 
                 # Check for asynchronous status updates
@@ -1785,14 +1787,16 @@ class MainGUI:
                     self.show_status_message(self.controller.status_message)
                     self.controller.status_message = None
 
-                self.controller.ui_needs_refresh = False
-
             self.interaction.update_trackers()
             self.sync_bound_ui()
 
             # Update Plugins
             for plugin in self.plugins:
                 plugin.update(self.plugin_api)
+
+            # Clear the flag only after all logic and plugins have seen it
+            if ui_dirty:
+                self.controller.ui_needs_refresh = False
 
             self.dicom_window.tick()
 

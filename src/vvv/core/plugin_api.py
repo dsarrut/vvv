@@ -5,6 +5,16 @@ class PluginAPI:
         self._gui = gui
         self._controller = gui.controller
 
+    @property
+    def is_dirty(self):
+        """Returns True if the UI or the active viewer state has changed."""
+        viewer = self._gui.context_viewer
+        # Check if the controller flagged a refresh or the active viewer is dirty
+        return (
+            self._controller.ui_needs_refresh or 
+            (viewer and viewer.view_state and viewer.view_state.is_data_dirty)
+        )
+
     def get_active_image_name(self):
         viewer = self._gui.context_viewer
         if viewer and viewer.image_id:
