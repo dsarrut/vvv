@@ -1,0 +1,58 @@
+import numpy as np
+
+
+class PluginAPI:
+    """Restricted surface area exposed to plugins. Plugins must not hold a reference to gui or controller."""
+
+    def __init__(self, gui):
+        self._gui = gui
+        self._controller = gui.controller
+
+    @property
+    def is_dirty(self):
+        viewer = self._gui.context_viewer
+        return self._controller.ui_needs_refresh or (
+            viewer and viewer.view_state and viewer.view_state.is_data_dirty
+        )
+
+    def get_ui_config(self):
+        return self._gui.ui_cfg
+
+    def create_labeled_field(self, label, tag, help_text=None):
+        self._gui.create_labeled_field(label, tag, help_text=help_text)
+
+    def get_active_image_name(self):
+        viewer = self._gui.context_viewer
+        if viewer and viewer.image_id:
+            name, _ = self._controller.get_image_display_name(viewer.image_id)
+            return name
+        return "None"
+
+    def get_crosshair_world(self):
+        viewer = self._gui.context_viewer
+        if viewer and viewer.view_state and viewer.view_state.camera.crosshair_phys_coord is not None:
+            return viewer.view_state.camera.crosshair_phys_coord
+        return [0.0, 0.0, 0.0]
+
+    def get_mouse_position(self):
+        if hasattr(self._gui.interaction, "last_mouse_pos"):
+            return self._gui.interaction.last_mouse_pos
+        return [0, 0]
+
+    def get_active_viewer(self):
+        return self._gui.context_viewer
+
+    def get_viewers(self):
+        return self._controller.viewers
+
+    def get_volumes(self):
+        return self._controller.volumes
+
+    def get_view_states(self):
+        return self._controller.view_states
+
+    def request_refresh(self):
+        self._controller.ui_needs_refresh = True
+
+    def notify(self, msg, color=None):
+        self._gui.show_status_message(msg, color=color)

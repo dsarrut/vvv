@@ -3,27 +3,27 @@ import numpy as np
 from vvv.ui.ui_components import build_section_title
 
 class TestDebugPlugin:
+    plugin_id = "test_debug_plugin"
+    label = "DEBUG"
+    description = "Debug Tracker: Live viewer coordinates and mouse position."
+
     def __init__(self):
-        self.plugin_id = "test_debug_plugin"
-        self.label = "DEBUG"
         self._last_img_name = None
         self._last_coords = None
         self._last_mouse = None
 
-    def create_ui(self, parent, gui):
+    def create_ui(self, parent, api):
         """Creates the static UI skeleton for the test plugin."""
-        cfg_c = gui.ui_cfg["colors"]
-
+        cfg_c = api.get_ui_config()["colors"]
         header_color = cfg_c["text_header"]
 
-        # If parent is None or 0, DPG adds it to the current container stack
-        with dpg.group(parent=parent or 0, tag=self.plugin_id):           
+        with dpg.group(parent=parent or 0, tag=self.plugin_id):
             build_section_title(self.label, color=header_color)
 
             with dpg.group(tag=f"{self.plugin_id}_fields"):
-                gui.create_labeled_field("Active Images", f"{self.plugin_id}_images")
-                gui.create_labeled_field("Crosshair (W)", f"{self.plugin_id}_coords")
-                gui.create_labeled_field("Mouse Tracker", f"{self.plugin_id}_mouse")
+                api.create_labeled_field("Active Images", f"{self.plugin_id}_images")
+                api.create_labeled_field("Crosshair (W)", f"{self.plugin_id}_coords")
+                api.create_labeled_field("Mouse Tracker", f"{self.plugin_id}_mouse")
             
             if dpg.does_item_exist("sleek_readonly_theme"):
                 dpg.bind_item_theme(f"{self.plugin_id}_fields", "sleek_readonly_theme")

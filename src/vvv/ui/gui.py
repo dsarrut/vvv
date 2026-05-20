@@ -13,7 +13,7 @@ from vvv.ui.ui_fusion import FusionUI
 from vvv.ui.ui_contours import ContoursUI
 from vvv.ui.ui_extraction import ExtractionUI
 from vvv.ui.ui_settings import SettingsWindow
-from vvv.core.plugin_api import PluginAPI
+from vvv.plugins.plugin_api import PluginAPI
 from vvv.ui.ui_dicom import DicomBrowserWindow
 from vvv.ui.ui_intensities import IntensitiesUI
 from vvv.plugins.test_plugin import TestDebugPlugin
@@ -376,8 +376,9 @@ class MainGUI:
                     "tab_extraction": "Generate mask images.",
                     "tab_dvf": "Visualize vector fields.",
                     "tab_profile": "Draw intensity profiles.",
-                    "test_debug_plugin": "Debug Tracker: Live coordinates.",
                 }
+                for plugin in self.plugins:
+                    tooltip_texts[plugin.plugin_id] = plugin.description
 
                 for i, (name, tag) in enumerate(self.nav_items):
                     btn = dpg.add_button(
@@ -446,8 +447,7 @@ class MainGUI:
                 
                 # Render Plugins
                 for plugin in self.plugins:
-                    plugin.create_ui(parent=0, gui=self)
-                    # Note: Visibility is handled by on_nav_clicked via the plugin_id
+                    plugin.create_ui(parent=0, api=self.plugin_api)
 
     def build_sidebar_active_viewer(self):
         cfg_c = self.ui_cfg["colors"]
@@ -1171,6 +1171,11 @@ class MainGUI:
                 h = quad_h if i in [0, 1] else avail_h - quad_h
                 dpg.set_item_width(f"win_{tag}", w)
                 dpg.set_item_height(f"win_{tag}", h)
+
+                # Synchronize the viewer object's internal dimensions with the actual UI size.
+                # This is critical for accurate coordinate mapping during zoom/pan operations.
+                v_obj = self.controller.viewers[tag]
+                v_obj.quad_w, v_obj.quad_h = w, h
 
         self._update_viewer_help_texts() # Recalculate positions for viewer help texts
 

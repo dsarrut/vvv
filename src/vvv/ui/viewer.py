@@ -2574,6 +2574,13 @@ class SliceViewer:
         self.pan_offset[0] += dx
         self.pan_offset[1] += dy
 
+        # Keep mapper in sync so rapid scroll events in the same frame use correct pmin
+        win_w, win_h = self._get_window_dims()
+        if win_w:
+            shape = self.get_slice_shape()
+            sw, sh = vol.get_physical_aspect_ratio(self.orientation)
+            self.mapper.update(win_w, win_h, shape[1], shape[0], sw, sh, self.zoom, self.pan_offset)
+
         self.is_geometry_dirty = True
         self._mark_lazy_interaction()  # no-op if no viewer has lazy_lin; covers synced viewers that do
         self.controller.sync.propagate_camera(self)
