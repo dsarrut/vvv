@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import MagicMock, patch
 import numpy as np
-from vvv.plugins.test_plugin import TestDebugPlugin
+from vvv.plugins.test_debug import TestDebugPlugin
 
 class TestTestDebugPlugin(unittest.TestCase):
     def setUp(self):

@@ -16,12 +16,11 @@ from vvv.ui.ui_settings import SettingsWindow
 from vvv.plugins.plugin_api import PluginAPI
 from vvv.ui.ui_dicom import DicomBrowserWindow
 from vvv.ui.ui_intensities import IntensitiesUI
-from vvv.plugins.test_plugin import TestDebugPlugin
-from vvv.plugins.dvf2_plugin import DvfPlugin
+from vvv.plugins.test_debug import TestDebugPlugin
+from vvv.plugins.dvf import DvfPlugin
 from vvv.ui.ui_registration import RegistrationUI
 from vvv.resources import load_fonts, setup_themes
 from vvv.ui.ui_profile import ProfileUI
-from vvv.ui.ui_dvf import DvfUI
 from vvv.ui.ui_interaction import InteractionManager
 from vvv.ui.ui_components import build_section_title, build_help_button
 from vvv.ui.ui_components import build_beginner_tooltip # Added this line
@@ -110,7 +109,6 @@ class MainGUI:
         self.reg_ui = RegistrationUI(self, self.controller)
         self.contours_ui = ContoursUI(self, self.controller)
         self.extraction_ui = ExtractionUI(self, self.controller)
-        self.dvf_ui = DvfUI(self, self.controller)
         self.profile_ui = ProfileUI(self, self.controller)
 
         # Initialize plugin list before building layout to avoid AttributeErrors
@@ -359,7 +357,6 @@ class MainGUI:
                     ("ROIs", "tab_rois"),
                     ("Reg", "tab_reg"),
                     ("Threshold", "tab_extraction"),
-                    ("DVF", "tab_dvf"),
                     ("Profiles", "tab_profile"),
                 ]
 
@@ -375,7 +372,6 @@ class MainGUI:
                     "tab_rois": "Manage regions of interest.",
                     "tab_reg": "Apply rigid transformations.",
                     "tab_extraction": "Generate mask images.",
-                    "tab_dvf": "Visualize vector fields.",
                     "tab_profile": "Draw intensity profiles.",
                 }
                 for plugin in self.plugins:
@@ -443,7 +439,6 @@ class MainGUI:
                 self.roi_ui.build_tab_rois(self)
                 self.reg_ui.build_tab_reg(self)
                 self.extraction_ui.build_tab_extraction(self)
-                self.dvf_ui.build_tab_dvf(self)
                 self.profile_ui.build_tab_profile(self)
                 
                 # Render Plugins
@@ -1643,7 +1638,6 @@ class MainGUI:
         self.intensities_ui.refresh_intensities_ui()
         self.contours_ui.refresh_contours_ui()
         self.extraction_ui.refresh_extraction_ui()
-        self.dvf_ui.refresh_dvf_ui()
         self.profile_ui.refresh_profile_ui()
 
         self._init_rendering_menu()
