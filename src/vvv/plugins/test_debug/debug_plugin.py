@@ -2,8 +2,8 @@ import dearpygui.dearpygui as dpg
 import numpy as np
 from vvv.ui.ui_components import build_section_title
 
-class TestDebugPlugin:
-    plugin_id = "test_debug_plugin"
+class DebugPlugin:
+    plugin_id = "debug"
     label = "DEBUG"
     description = "Debug Tracker: Live viewer coordinates and mouse position."
 

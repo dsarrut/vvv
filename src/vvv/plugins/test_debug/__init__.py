@@ -1,1 +1,1 @@
-from .test_debug import TestDebugPlugin
+from .debug_plugin import DebugPlugin

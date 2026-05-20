@@ -31,6 +31,7 @@ vvv_image_info = "vvv.cli_info:main"
 checkerboard = "vvv.checkerboard:create_checkerboard"
 
 [tool.pytest.ini_options]
+testpaths = ["tests", "src/vvv/plugins"]
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
