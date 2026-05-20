@@ -55,7 +55,7 @@ class DvfUI:
                         format="%.0f px",
                         label_width=90,
                         help_text="Thickness of the vector lines.",
-                        gui=None,
+                        gui=api,
                     )
 
                     build_stepped_slider(
@@ -68,7 +68,7 @@ class DvfUI:
                         default_val=3.0,
                         format="%.1f mm",
                         help_text="Minimum vector magnitude required to draw an arrowhead.",
-                        gui=None,
+                        gui=api,
                         label_width=90,
                     )
 
@@ -86,7 +86,7 @@ class DvfUI:
                         color_cb=self._c.on_color_min_changed,
                         color_default=(0, 255, 255, 255),
                         help_text="Minimum vector magnitude required to draw the vector at all.",
-                        gui=None,
+                        gui=api,
                         label_width=90,
                     )
 
@@ -104,7 +104,7 @@ class DvfUI:
                         color_cb=self._c.on_color_max_changed,
                         color_default=(255, 0, 0, 255),
                         help_text="Magnitude value at which the colormap reaches its maximum intensity (e.g. Red).",
-                        gui=None,
+                        gui=api,
                         label_width=90,
                     )
 
@@ -120,7 +120,7 @@ class DvfUI:
                         default_val=5.0,
                         format="%.0f px",
                         help_text="Spacing between rendered vectors (in pixels). Higher sampling improves performance.",
-                        gui=None,
+                        gui=api,
                         label_width=90,
                     )
 
@@ -134,7 +134,7 @@ class DvfUI:
                         default_val=1.0,
                         format="%.1f x",
                         help_text="Visual multiplier for vector lengths.",
-                        gui=None,
+                        gui=api,
                         label_width=90,
                     )
 
@@ -150,6 +150,6 @@ class DvfUI:
                         default_val=2.0,
                         format="%.0f",
                         help_text="Number of decimal places displayed in the crosshair and tracker.",
-                        gui=None,
+                        gui=api,
                         label_width=90,
                     )

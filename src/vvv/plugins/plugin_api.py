@@ -18,6 +18,24 @@ class PluginAPI:
     def get_ui_config(self):
         return self._gui.ui_cfg
 
+    # --- Beginner-mode surface (allows passing api as the `gui` arg to ui_components) ---
+
+    @property
+    def ui_cfg(self):
+        return self._gui.ui_cfg
+
+    @property
+    def is_beginner_mode(self) -> bool:
+        return self._gui.is_beginner_mode
+
+    @property
+    def beginner_tags(self) -> list:
+        return self._gui.beginner_tags
+
+    @property
+    def beginner_sliders(self) -> list:
+        return self._gui.beginner_sliders
+
     def create_labeled_field(self, label, tag, help_text=None):
         self._gui.create_labeled_field(label, tag, help_text=help_text)
 
