@@ -265,6 +265,73 @@ def test_gui_interaction_modifiers(headless_gui_app, monkeypatch):
     assert vs.camera.slices[viewer.orientation] == initial_slice
 
 
+def test_zoom_to_cursor_no_drift(headless_gui_app, monkeypatch):
+    """
+    Regression test: rapid zoom-in then zoom-out (key-repeat, no render between)
+    must not drift the pan anchor away from the mouse position.
+
+    Root cause: get_center_physical_coord() called inside on_zoom() has a side effect —
+    it calls mapper.update(win_w, win_h) but the render uses canvas_w = win_w - pad.
+    Without the fix, the second zoom event uses a corrupted mapper.pmin, shifting the
+    pan by ~0.3-0.5 px per in+out pair.
+    """
+    controller, gui, viewer, vs_id = headless_gui_app
+
+    # Wire image through the layout path so view_state/volume are initialised
+    controller.layout["V1"] = vs_id
+    controller.tick()
+    viewer = controller.viewers["V1"]
+    gui.set_context_viewer(viewer)
+
+    assert viewer.volume is not None, "fixture did not load a volume"
+    assert viewer.is_image_orientation(), "viewer is not in image orientation"
+
+    # Manually prime the mapper to a valid canvas state.
+    # _get_window_dims() returns (0,0) in headless tests so tick() never calls
+    # mapper.update(); we replicate what the render path would do.
+    viewer.quad_w, viewer.quad_h = 500, 500
+    canvas_w, canvas_h = viewer._get_canvas_size()
+    sw, sh = viewer.volume.get_physical_aspect_ratio(viewer.orientation)
+    shape = viewer.get_slice_shape()
+    viewer.mapper.update(canvas_w, canvas_h, shape[1], shape[0], sw, sh, viewer.zoom, viewer.pan_offset)
+
+    # Put the mouse at a clearly off-center position to maximise drift from any pmin error
+    monkeypatch.setattr(dpg, "get_drawing_mouse_pos", lambda: [120.0, 180.0])
+
+    initial_pan = list(viewer.pan_offset)
+    initial_zoom = viewer.zoom
+
+    # Simulate key-repeat: zoom-in then zoom-out with no render between them
+    viewer.on_zoom("in")
+    viewer.on_zoom("out")
+
+    # Pan must return to its starting value (within floating-point tolerance)
+    assert abs(viewer.pan_offset[0] - initial_pan[0]) < 0.01, (
+        f"pan_offset[0] drifted: {initial_pan[0]:.4f} → {viewer.pan_offset[0]:.4f}"
+    )
+    assert abs(viewer.pan_offset[1] - initial_pan[1]) < 0.01, (
+        f"pan_offset[1] drifted: {initial_pan[1]:.4f} → {viewer.pan_offset[1]:.4f}"
+    )
+
+    # Zoom must also return to its starting value
+    assert abs(viewer.zoom - initial_zoom) < 1e-9, (
+        f"zoom drifted: {initial_zoom} → {viewer.zoom}"
+    )
+
+    # Mapper must be in canvas state (not win state) after on_zoom
+    canvas_w, canvas_h = viewer._get_canvas_size()
+    assert canvas_w > 0
+    sw, sh = viewer.volume.get_physical_aspect_ratio(viewer.orientation)
+    shape = viewer.get_slice_shape()
+    from vvv.ui.viewer import ViewportMapper
+    expected = ViewportMapper()
+    expected.update(canvas_w, canvas_h, shape[1], shape[0], sw, sh, viewer.zoom, viewer.pan_offset)
+    assert abs(viewer.mapper.pmin[0] - expected.pmin[0]) < 0.01, (
+        f"mapper not in canvas state after on_zoom: "
+        f"got pmin[0]={viewer.mapper.pmin[0]:.4f}, expected {expected.pmin[0]:.4f}"
+    )
+
+
 def test_gui_sidebar_text_outputs(headless_gui_app):
     """Verifies that the GUI successfully formats and renders text back to the user."""
     controller, gui, viewer, vs_id = headless_gui_app
