@@ -13,8 +13,10 @@ from vvv.ui.ui_fusion import FusionUI
 from vvv.ui.ui_contours import ContoursUI
 from vvv.ui.ui_extraction import ExtractionUI
 from vvv.ui.ui_settings import SettingsWindow
+from vvv.core.plugin_api import PluginAPI
 from vvv.ui.ui_dicom import DicomBrowserWindow
 from vvv.ui.ui_intensities import IntensitiesUI
+from vvv.plugins.test_plugin import TestDebugPlugin
 from vvv.ui.ui_registration import RegistrationUI
 from vvv.resources import load_fonts, setup_themes
 from vvv.ui.ui_profile import ProfileUI
@@ -110,6 +112,11 @@ class MainGUI:
         self.dvf_ui = DvfUI(self, self.controller)
         self.profile_ui = ProfileUI(self, self.controller)
 
+        # Initialize plugin list before building layout to avoid AttributeErrors
+        self.plugins = []
+        self._init_plugins()
+        self.plugin_api = PluginAPI(self)
+
         # Go
         self.build_main_layout()
         self._init_rendering_menu()
@@ -117,9 +124,13 @@ class MainGUI:
         self._update_viewer_help_texts() # Initial update for viewer help texts
 
         # Force UI into the empty/disabled state on boot
-        self.update_sidebar_info(None)
+        self.on_nav_clicked("nav_btn_tab_images", None, "tab_images")
         self.refresh_recent_menu()
         self.controller.ui_needs_refresh = True
+
+    def _init_plugins(self):
+        """Manual registration of plugins for Phase 1."""
+        self.plugins = [TestDebugPlugin()]
 
     # ==========================================
     # 2. LAYOUT BUILDERS
@@ -327,106 +338,95 @@ class MainGUI:
         dpg.bind_item_theme("image_info_group", "sleek_readonly_theme")
         dpg.bind_item_theme("image_crosshair_group", "sleek_readonly_theme")
 
-        self.on_nav_clicked("nav_btn_tab_images", None, "tab_images")
-
     def build_vertical_nav(self):
         """Creates the vertical tool buttons."""
         cfg_l = self.ui_cfg["layout"]
 
-        dpg.push_container_stack("nav_panel")
+        if not dpg.does_item_exist("nav_panel"):
+            return
 
-        self.nav_items = [
-            ("Images", "tab_images"),
-            ("Sync", "tab_sync"),
-            ("Fusion", "tab_fusion"),
-            ("Intensity", "tab_intensities"),
-            ("ROIs", "tab_rois"),
-            ("Reg", "tab_reg"),
-            ("Threshold", "tab_extraction"),
-            ("DVF", "tab_dvf"),
-            ("Profiles", "tab_profile"),
-        ]
+        # Clear and rebuild the navigation panel
+        dpg.delete_item("nav_panel", children_only=True)
 
-        tooltip_texts = {
-            "tab_images": "Manage loaded images, assign them to viewers, and perform actions like saving or reloading.",
-            "tab_sync": "Synchronize camera movements (pan, zoom, slice) and radiometric settings (Window/Level) across multiple images.",
-            "tab_fusion": "Blend a secondary image (overlay) on top of the base image using various modes like transparency or checkerboard.",
-            "tab_intensities": "Adjust the contrast (Window/Level), colormap, and apply a minimum threshold to the active image.",
-            "tab_rois": "Load, manage, and analyze Regions of Interest (ROIs) as overlays on your images.",
-            "tab_reg": "Apply 3D rigid transformations (translation, rotation) to the active image for alignment purposes.",
-            "tab_extraction": "Interactively define a scalar range to highlight specific pixel values and generate new mask images.",
-            "tab_dvf": "Visualize Displacement Vector Fields (DVFs) as vector arrows or component images.",
-            "tab_profile": "Draw intensity profiles across your images and view their pixel value distributions.",
-        }
+        with dpg.group(parent="nav_panel"):
+            with dpg.group(tag="nav_top_group"):
+                self.nav_items = [
+                    ("Images", "tab_images"),
+                    ("Sync", "tab_sync"),
+                    ("Fusion", "tab_fusion"),
+                    ("Intensity", "tab_intensities"),
+                    ("ROIs", "tab_rois"),
+                    ("Reg", "tab_reg"),
+                    ("Threshold", "tab_extraction"),
+                    ("DVF", "tab_dvf"),
+                    ("Profiles", "tab_profile"),
+                ]
 
+                # Add Registered Plugins to navigation
+                for plugin in self.plugins:
+                    self.nav_items.append((plugin.label, plugin.plugin_id))
 
+                tooltip_texts = {
+                    "tab_images": "Manage loaded images.",
+                    "tab_sync": "Synchronize camera movements.",
+                    "tab_fusion": "Blend secondary images.",
+                    "tab_intensities": "Adjust contrast and colormaps.",
+                    "tab_rois": "Manage regions of interest.",
+                    "tab_reg": "Apply rigid transformations.",
+                    "tab_extraction": "Generate mask images.",
+                    "tab_dvf": "Visualize vector fields.",
+                    "tab_profile": "Draw intensity profiles.",
+                    "test_debug_plugin": "Debug Tracker: Live coordinates.",
+                }
 
-        with dpg.group(tag="nav_top_group"):
-            for i, (name, tag) in enumerate(self.nav_items):
-                btn = dpg.add_button(
-                    label=name,
-                    tag=f"nav_btn_{tag}",
+                for i, (name, tag) in enumerate(self.nav_items):
+                    btn = dpg.add_button(
+                        label=name,
+                        tag=f"nav_btn_{tag}",
+                        width=-1,
+                        height=cfg_l["nav_btn_h"],
+                        user_data=tag,
+                        callback=self.on_nav_clicked,
+                    )
+                    dpg.bind_item_theme(btn, "theme_rounded_nav")
+                    if i == 0 and dpg.does_item_exist("active_nav_button_theme"):
+                        dpg.bind_item_theme(btn, "active_nav_button_theme")
+                    if tag in tooltip_texts:
+                        build_beginner_tooltip(btn, tooltip_texts[tag], self)
+
+                build_workspace_nav_icons(self)
+
+            with dpg.group(tag="nav_bot_group"):
+                btn_settings = dpg.add_button(
+                    label="\uf013",
                     width=-1,
                     height=cfg_l["nav_btn_h"],
-                    user_data=tag,
-                    callback=self.on_nav_clicked,
+                    callback=lambda: self.settings_window.show(),
                 )
-                dpg.bind_item_theme(btn, "theme_rounded_nav")
-                # Highlight the first tool by default using your existing active theme
-                if i == 0 and dpg.does_item_exist("active_nav_button_theme"):
-                    dpg.bind_item_theme(btn, "active_nav_button_theme")
-                if tag in tooltip_texts:
-                    build_beginner_tooltip(btn, tooltip_texts[tag], self)
-
-            # Workspace icons sit inside nav_top_group so they flow naturally
-            # after the last tool button (DVF) without needing absolute positioning.
-            build_workspace_nav_icons(self)
-
-        # --- System & Utility Buttons ---
-        with dpg.group(tag="nav_bot_group"):
-            btn_settings = dpg.add_button(
-                label="\uf013",
-                width=-1,
-                height=cfg_l["nav_btn_h"],
-                callback=lambda: self.settings_window.show(),
-            )
-            dpg.bind_item_theme(btn_settings, "theme_rounded_nav")
-            if dpg.does_item_exist("icon_font_tag"):
-                dpg.bind_item_font(btn_settings, "icon_font_tag")
-            with dpg.tooltip(btn_settings):
-                dpg.add_text("Settings")
-
-            dpg.add_spacer(height=1)
-
-            with dpg.group(horizontal=True, horizontal_spacing=5):
-                btn_beginner = dpg.add_button(
-                    label="\uf77c",  # Baby
-                    width=31,
-                    height=cfg_l["nav_btn_h"],
-                    callback=self.on_toggle_beginner_mode,
-                )
-                dpg.bind_item_theme(btn_beginner, "theme_rounded_nav")
+                dpg.bind_item_theme(btn_settings, "theme_rounded_nav")
                 if dpg.does_item_exist("icon_font_tag"):
-                    dpg.bind_item_font(btn_beginner, "icon_font_tag")
-                with dpg.tooltip(btn_beginner):
-                    dpg.add_text("Toggle Beginner Mode (Tooltips & Explanations)")
+                    dpg.bind_item_font(btn_settings, "icon_font_tag")
 
-                btn_help = dpg.add_button(
-                    label="\uf059",
-                    width=-1,
-                    height=cfg_l["nav_btn_h"],
-                    callback=self.show_help_window,
-                )
-                if dpg.does_item_exist("theme_help_nav"):
-                    dpg.bind_item_theme(btn_help, "theme_help_nav")
-                else:
+                with dpg.group(horizontal=True, horizontal_spacing=5):
+                    btn_beginner = dpg.add_button(
+                        label="\uf77c",
+                        width=31,
+                        height=cfg_l["nav_btn_h"],
+                        callback=self.on_toggle_beginner_mode,
+                    )
+                    dpg.bind_item_theme(btn_beginner, "theme_rounded_nav")
+                    if dpg.does_item_exist("icon_font_tag"):
+                        dpg.bind_item_font(btn_beginner, "icon_font_tag")
+
+                    btn_help = dpg.add_button(
+                        label="\uf059",
+                        width=-1,
+                        height=cfg_l["nav_btn_h"],
+                        callback=self.show_help_window,
+                    )
                     dpg.bind_item_theme(btn_help, "theme_rounded_nav")
-                if dpg.does_item_exist("icon_font_tag"):
-                    dpg.bind_item_font(btn_help, "icon_font_tag")
-                with dpg.tooltip(btn_help):
-                    dpg.add_text("Help & Shortcuts")
-
-        dpg.pop_container_stack()
+                    if dpg.does_item_exist("icon_font_tag"):
+                        dpg.bind_item_font(btn_help, "icon_font_tag")
 
     def build_sidebar_top(self):
         """Builds the content containers without the native tab_bar."""
@@ -443,6 +443,11 @@ class MainGUI:
                 self.extraction_ui.build_tab_extraction(self)
                 self.dvf_ui.build_tab_dvf(self)
                 self.profile_ui.build_tab_profile(self)
+                
+                # Render Plugins
+                for plugin in self.plugins:
+                    plugin.create_ui(parent=0, gui=self)
+                    # Note: Visibility is handled by on_nav_clicked via the plugin_id
 
     def build_sidebar_active_viewer(self):
         cfg_c = self.ui_cfg["colors"]
@@ -1784,6 +1789,10 @@ class MainGUI:
 
             self.interaction.update_trackers()
             self.sync_bound_ui()
+
+            # Update Plugins
+            for plugin in self.plugins:
+                plugin.update(self.plugin_api)
 
             self.dicom_window.tick()
 
