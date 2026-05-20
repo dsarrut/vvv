@@ -17,6 +17,7 @@ from vvv.plugins.plugin_api import PluginAPI
 from vvv.ui.ui_dicom import DicomBrowserWindow
 from vvv.ui.ui_intensities import IntensitiesUI
 from vvv.plugins.test_plugin import TestDebugPlugin
+from vvv.plugins.dvf2_plugin import DvfPlugin
 from vvv.ui.ui_registration import RegistrationUI
 from vvv.resources import load_fonts, setup_themes
 from vvv.ui.ui_profile import ProfileUI
@@ -129,8 +130,8 @@ class MainGUI:
         self.controller.ui_needs_refresh = True
 
     def _init_plugins(self):
-        """Manual registration of plugins for Phase 1."""
-        self.plugins = [TestDebugPlugin()]
+        """Manual registration of plugins for Phase 2."""
+        self.plugins = [TestDebugPlugin(), DvfPlugin()]
 
     # ==========================================
     # 2. LAYOUT BUILDERS

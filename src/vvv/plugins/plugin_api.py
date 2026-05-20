@@ -48,6 +48,9 @@ class PluginAPI:
     def get_volumes(self):
         return self._controller.volumes
 
+    def get_image_display_name(self, image_id):
+        return self._controller.get_image_display_name(image_id)
+
     def get_view_states(self):
         return self._controller.view_states
 
