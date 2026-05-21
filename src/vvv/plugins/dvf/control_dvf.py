@@ -10,6 +10,12 @@ class DvfController:
     def _t(self, name: str) -> str:
         return f"{self._plugin_id}_{name}"
 
+    def _sync_float(self, tag_name: str, value: float):
+        """Helper to update a slider only if the user isn't currently dragging it."""
+        tag = self._t(tag_name)
+        if dpg.does_item_exist(tag) and not dpg.is_item_active(tag):
+            dpg.set_value(tag, float(value))
+
     def bind(self, api: PluginAPI) -> None:
         self._api = api
 
@@ -87,9 +93,7 @@ class DvfController:
             ("color_max_mag", "vector_color_max_mag"),
             ("precision", "vector_precision"),
         ]:
-            tag = self._t(tag_name)
-            if dpg.does_item_exist(tag) and not dpg.is_item_active(tag):
-                dpg.set_value(tag, float(getattr(dvf_state, attr)))
+            self._sync_float(tag_name, getattr(dvf_state, attr))
 
         for tag_name, prop in [("color_min", "vector_color_min"), ("color_max", "vector_color_max")]:
             tag = self._t(tag_name)
