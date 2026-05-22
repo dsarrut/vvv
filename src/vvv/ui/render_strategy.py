@@ -559,6 +559,8 @@ def compute_native_voxel_overlay(
             ov_W,
             target_buffer is not None,
         )
+        if target_buffer is not None:
+            viewer._last_single_native_ov_crop = (c_y0, c_y1, c_x0, c_x1)
         return rgba.ravel() if target_buffer is None else None
 
     # --- NumPy fallback (no numba) ---
@@ -620,6 +622,8 @@ def compute_native_voxel_overlay(
             else:
                 rgba_crop[in_bounds] = new_colors
 
+    if target_buffer is not None:
+        viewer._last_single_native_ov_crop = (c_y0, c_y1, c_x0, c_x1)
     return rgba.ravel() if target_buffer is None else None
 
 

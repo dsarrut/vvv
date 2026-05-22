@@ -58,7 +58,7 @@ class TestIntensityPlugin(unittest.TestCase):
 
     def test_plugin_metadata(self):
         self.assertEqual(self.plugin.plugin_id, "intensity_plugin")
-        self.assertEqual(self.plugin.label, "Intensity Plugin")
+        self.assertEqual(self.plugin.label, "Intensity")
         self.assertIsNotNone(self.plugin.description)
 
     def test_create_ui(self):

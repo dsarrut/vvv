@@ -1650,6 +1650,13 @@ class SliceViewer:
                 self.active_overlay_shift_y,
             )
 
+        # Clear the previous overlay crop bounds in the base buffer if they exist
+        if getattr(self, "_last_single_native_ov_crop", None) is not None:
+            if hasattr(self, "_nn_base_buf"):
+                oy0, oy1, ox0, ox1 = self._last_single_native_ov_crop
+                self._nn_base_buf[oy0:oy1, ox0:ox1] = 0.0
+            self._last_single_native_ov_crop = None
+
         if not hasattr(self, "_nn_base_buf") or self._nn_base_buf.shape[:2] != (
             canvas_h,
             canvas_w,
