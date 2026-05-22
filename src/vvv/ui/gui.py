@@ -354,7 +354,7 @@ class MainGUI:
                     ("Images", "tab_images"),
                     ("Sync", "tab_sync"),
                     ("Fusion", "tab_fusion"),
-                    ("Intensity", "tab_intensities"),
+                    # ("Intensity", "tab_intensities"),
                     ("ROIs", "tab_rois"),
                     ("Reg", "tab_reg"),
                     ("Threshold", "tab_extraction"),
@@ -369,7 +369,7 @@ class MainGUI:
                     "tab_images": "Manage loaded images.",
                     "tab_sync": "Synchronize camera movements.",
                     "tab_fusion": "Blend secondary images.",
-                    "tab_intensities": "Adjust contrast and colormaps.",
+                    # "tab_intensities": "Adjust contrast and colormaps.",
                     "tab_rois": "Manage regions of interest.",
                     "tab_reg": "Apply rigid transformations.",
                     "tab_extraction": "Generate mask images.",
@@ -724,7 +724,7 @@ class MainGUI:
         # Sync the Fusion overlay values
         self.fusion_ui.sync_fusion_ui()
         sync_image_list_ui(self)
-        self.intensities_ui.sync_wl_lines(viewer, vs)
+        # self.intensities_ui.sync_wl_lines(viewer, vs)
 
         # Sync Interpolation mode text
         if vs.display.use_voxel_strips:
@@ -1636,7 +1636,7 @@ class MainGUI:
         self.refresh_rois_ui()
         self.fusion_ui.refresh_fusion_ui()
         self.reg_ui.refresh_reg_ui()
-        self.intensities_ui.refresh_intensities_ui()
+        # self.intensities_ui.refresh_intensities_ui()
         self.contours_ui.refresh_contours_ui()
         self.extraction_ui.refresh_extraction_ui()
         self.profile_ui.refresh_profile_ui()
