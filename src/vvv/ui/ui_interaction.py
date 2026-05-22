@@ -155,6 +155,8 @@ class NavigationTool:
             )
 
     def on_scroll(self, delta):
+        if self.drag_viewer is not None:
+            return
         target = self.manager.get_hovered_viewer()
         if target:
             mods = self.manager.modifiers

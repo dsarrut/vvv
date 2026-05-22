@@ -709,18 +709,18 @@ class SliceViewer:
         if not vs or not vol:
             return None
 
-        win_w, win_h = self._get_window_dims()
-        if not win_w:
+        canvas_w, canvas_h = self._get_canvas_size()
+        if canvas_w <= 1:
             return None
 
-        cx = (win_w - self.mapper.margin_left * 2.0) / 2.0
-        cy = (win_h - self.mapper.margin_top * 2.0) / 2.0
+        cx = (canvas_w - self.mapper.margin_left * 2.0) / 2.0
+        cy = (canvas_h - self.mapper.margin_top * 2.0) / 2.0
         shape = self.get_slice_shape()
         real_h, real_w = shape[0], shape[1]
         sw, sh = vol.get_physical_aspect_ratio(self.orientation)
 
         pmin, pmax = self.mapper.update(
-            win_w, win_h, real_w, real_h, sw, sh, self.zoom, self.pan_offset
+            canvas_w, canvas_h, real_w, real_h, sw, sh, self.zoom, self.pan_offset
         )
         disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
 
@@ -759,8 +759,8 @@ class SliceViewer:
         if not vs or not vol:
             return 1.0
 
-        win_w, win_h = self._get_window_dims()
-        if not win_w:
+        canvas_w, canvas_h = self._get_canvas_size()
+        if canvas_w <= 1:
             return 1.0
 
         sw, sh = vol.get_physical_aspect_ratio(self.orientation)
@@ -769,8 +769,8 @@ class SliceViewer:
 
         mm_w, mm_h = real_w * sw, real_h * sh
         target_w, target_h = (
-            win_w - self.mapper.margin_left * 2.0,
-            win_h - self.mapper.margin_top * 2.0,
+            canvas_w - self.mapper.margin_left * 2.0,
+            canvas_h - self.mapper.margin_top * 2.0,
         )
 
         base_scale = min(target_w / mm_w, target_h / mm_h)
@@ -782,8 +782,8 @@ class SliceViewer:
         if not vs or not vol:
             return
 
-        win_w, win_h = self._get_window_dims()
-        if not win_w:
+        canvas_w, canvas_h = self._get_canvas_size()
+        if canvas_w <= 1:
             return
 
         sw, sh = vol.get_physical_aspect_ratio(self.orientation)
@@ -792,8 +792,8 @@ class SliceViewer:
 
         mm_w, mm_h = real_w * sw, real_h * sh
         target_w, target_h = (
-            win_w - self.mapper.margin_left * 2.0,
-            win_h - self.mapper.margin_top * 2.0,
+            canvas_w - self.mapper.margin_left * 2.0,
+            canvas_h - self.mapper.margin_top * 2.0,
         )
 
         base_scale = min(target_w / mm_w, target_h / mm_h)
@@ -808,8 +808,8 @@ class SliceViewer:
         if not vs or not vol or phys_coord is None:
             return
 
-        win_w, win_h = self._get_window_dims()
-        if not win_w:
+        canvas_w, canvas_h = self._get_canvas_size()
+        if canvas_w <= 1:
             return
 
         v = vs.world_to_display(phys_coord, is_buffered=self._is_buffered())
@@ -821,7 +821,7 @@ class SliceViewer:
 
         tx, ty = voxel_to_slice(v[0], v[1], v[2], self.orientation, shape)
         self.pan_offset = self.mapper.calculate_center_pan(
-            tx, ty, win_w, win_h, real_w, real_h, sw, sh, self.zoom
+            tx, ty, canvas_w, canvas_h, real_w, real_h, sw, sh, self.zoom
         )
         self.is_geometry_dirty = True
 
