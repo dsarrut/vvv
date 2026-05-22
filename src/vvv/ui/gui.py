@@ -15,9 +15,7 @@ from vvv.ui.ui_extraction import ExtractionUI
 from vvv.ui.ui_settings import SettingsWindow
 from vvv.plugins.plugin_api import PluginAPI
 from vvv.ui.ui_dicom import DicomBrowserWindow
-from vvv.plugins.test_debug import DebugPlugin
-from vvv.plugins.dvf import DvfPlugin
-from vvv.plugins.intensity import IntensityPlugin
+from vvv.plugins import discover_plugins
 from vvv.ui.ui_registration import RegistrationUI
 from vvv.resources import load_fonts, setup_themes
 from vvv.ui.ui_profile import ProfileUI
@@ -127,8 +125,8 @@ class MainGUI:
         self.controller.ui_needs_refresh = True
 
     def _init_plugins(self):
-        """Manual registration of plugins for Phase 2."""
-        self.plugins = [DebugPlugin(), DvfPlugin(), IntensityPlugin()]
+        """Discover and load plugins dynamically."""
+        self.plugins = discover_plugins()
 
     # ==========================================
     # 2. LAYOUT BUILDERS

@@ -69,6 +69,52 @@ class TestPluginAPI(unittest.TestCase):
         self.api.request_refresh()
         self.assertTrue(self.mock_controller.ui_needs_refresh)
 
+    def test_discover_plugins_success(self):
+        from vvv.plugins import discover_plugins
+        plugins = discover_plugins()
+        plugin_ids = {p.plugin_id for p in plugins}
+        self.assertIn("dvf", plugin_ids)
+        self.assertIn("intensity_plugin", plugin_ids)
+        self.assertIn("debug", plugin_ids)
+        
+        for p in plugins:
+            self.assertTrue(hasattr(p, "label"))
+            self.assertTrue(hasattr(p, "create_ui"))
+            self.assertTrue(hasattr(p, "update"))
+
+    def test_discover_plugins_robustness(self):
+        from unittest.mock import patch
+        from vvv.plugins import discover_plugins
+        
+        mock_modules = [
+            (None, "not_a_package", False),
+            (None, "broken_plugin", True),
+            (None, "intensity", True),
+        ]
+        
+        with patch("pkgutil.iter_modules", return_value=mock_modules):
+            with patch("importlib.import_module") as mock_import:
+                def side_effect(name):
+                    if "broken_plugin" in name:
+                        raise ImportError("Mocked import error")
+                    if "intensity" in name:
+                        class MockPluginClass:
+                            plugin_id = "mock_intensity"
+                            label = "Mock Intensity"
+                            def create_ui(self, parent, api): pass
+                            def update(self, api): pass
+                        mock_mod = MagicMock()
+                        mock_mod.MockPluginClass = MockPluginClass
+                        mock_mod.__dir__ = lambda *a, **kw: ["MockPluginClass"]
+                        return mock_mod
+                    raise ImportError("Unknown module")
+                
+                mock_import.side_effect = side_effect
+                plugins = discover_plugins()
+                
+                self.assertEqual(len(plugins), 1)
+                self.assertEqual(plugins[0].plugin_id, "mock_intensity")
+
 
 if __name__ == "__main__":
     unittest.main()
