@@ -137,6 +137,12 @@ class IntensityUI:
                 )
                 if dpg.does_item_exist("icon_font_tag"):
                     dpg.bind_item_font(btn_popup, "icon_font_tag")
+                dpg.add_text(
+                    "computing full histogram",
+                    tag=self._t("txt_computing_full_hist"),
+                    color=[255, 160, 40, 255],
+                    show=False,
+                )
                 build_help_button(
                     "Histogram — intensity distribution of the image.\n\n"
                     "Drag the blue lines to set the Window (lower / upper bounds).\n"
@@ -282,6 +288,12 @@ class IntensityUI:
                     min_value=32, max_value=1024, format="%d bins",
                     width=80, show=use_bars,
                     callback=self._c.on_hist_bins_drag,
+                )
+                dpg.add_text(
+                    "computing full histogram",
+                    tag=self._t("txt_popup_computing_full_hist"),
+                    color=[255, 160, 40, 255],
+                    show=False,
                 )
                 build_help_button(
                     "Histogram — intensity distribution of the image.\n\n"

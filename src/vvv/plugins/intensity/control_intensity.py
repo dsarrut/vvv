@@ -202,10 +202,12 @@ class IntensityController:
             # 2. Accurate Compute (Async)
             def _bg_compute(vs_obj, bins):
                 vs_obj.update_histogram(bins=bins, subsample_step=1)
+                vs_obj.computing_full_hist = False
                 vs_obj.full_hist_ready = True
                 self._api.request_refresh()
 
             self._api._controller.status_message = "Computing accurate histogram..."
+            vs.computing_full_hist = True
             threading.Thread(
                 target=_bg_compute,
                 args=(vs, vs.display.hist_bins),
@@ -234,7 +236,7 @@ class IntensityController:
                 dsp.hist_x_center = float(dsp.wl)
             if dsp.hist_x_range is None:
                 # Default to a view that fits the current window with some context
-                dsp.hist_x_range = max(1e-5, dsp.ww * 1.5)
+                dsp.hist_x_range = max(1e-5, dsp.ww / 0.3)
             if dsp.hist_y_max is None:
                 dsp.hist_y_max = max_y
 
@@ -308,6 +310,16 @@ class IntensityController:
                 dpg.configure_item(tag, label=t_label if val else f_label)
 
         dpg.configure_item(plot_tag, show=True)
+
+        is_computing = (
+            has_image
+            and not is_rgb
+            and getattr(viewer.view_state, "computing_full_hist", False)
+        )
+        for tag_suffix in ("txt_computing_full_hist", "txt_popup_computing_full_hist"):
+            tag = self._t(tag_suffix)
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, show=is_computing)
 
     def _update_hist_series(
         self, series_tag, axis_tag, x_edges, x_centers, y_list, bin_w, use_bars=False
@@ -590,7 +602,7 @@ class IntensityController:
             return
         dsp = viewer.view_state.display
         dsp.hist_x_center = float(dsp.wl)
-        dsp.hist_x_range = dsp.ww * 4.0 / 3.0
+        dsp.hist_x_range = dsp.ww / 0.3
         self._apply_hist_x_limits(dsp)
         for tag_suffix in ("drag_hist_xcenter", "drag_hist_popup_xcenter"):
             tag = self._t(tag_suffix)
@@ -636,7 +648,7 @@ class IntensityController:
                         self._apply_hist_x_limits(vs.display)
                     else:
                         wl, ww = vs.display.wl, vs.display.ww
-                        margin = ww
+                        margin = ww / 0.6
                         popup_x_axis = self._t("wl_hist_popup_x_axis")
                         if dpg.does_item_exist(popup_x_axis):
                             dpg.set_axis_limits(
@@ -698,6 +710,7 @@ class IntensityController:
             return
         dsp = viewer.view_state.display
         dsp.hist_use_log = not dsp.hist_use_log
+        dsp.hist_y_max = None
         viewer.view_state.histogram_is_dirty = True
         self._api.request_refresh()
 

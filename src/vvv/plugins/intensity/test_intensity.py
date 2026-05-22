@@ -128,14 +128,46 @@ class TestIntensityPlugin(unittest.TestCase):
         # Center
         c.on_hist_center(None, None, None)
         self.assertEqual(self.mock_viewer.view_state.display.hist_x_center, 50.0)
+        self.assertEqual(self.mock_viewer.view_state.display.hist_x_range, self.mock_viewer.view_state.display.ww / 0.3)
         
         # Log toggle
         c.on_hist_log_toggle(None, None, None)
         self.assertTrue(self.mock_viewer.view_state.display.hist_use_log)
+        self.assertIsNone(self.mock_viewer.view_state.display.hist_y_max)
         
         # Bar toggle
         c.on_hist_bar_toggle(None, None, None)
         self.assertTrue(self.mock_viewer.view_state.display.hist_use_bars)
+
+    @patch("dearpygui.dearpygui.is_item_shown", return_value=True)
+    def test_computing_full_hist_visibility(self, mock_shown):
+        c = self.plugin._controller
+        c.bind(self.mock_api)
+        
+        # Create UI first to set up the text components
+        with dpg.window(tag="test_visibility_win"):
+            self.plugin.create_ui(parent="test_visibility_win", api=self.mock_api)
+        c.on_hist_popup(None, None, None)
+        
+        txt_panel = c._t("txt_computing_full_hist")
+        txt_popup = c._t("txt_popup_computing_full_hist")
+        
+        # Prevent the background thread from running by setting dirty to False
+        vs = self.mock_viewer.view_state
+        vs.histogram_is_dirty = False
+        vs._hist_vol_data_id = id(self.mock_viewer.volume.data)
+        
+        # 1. When computing_full_hist is True
+        vs.computing_full_hist = True
+        c._refresh_wl_histogram(self.mock_viewer, has_image=True, is_rgb=False)
+        self.assertTrue(dpg.get_item_configuration(txt_panel)["show"])
+        self.assertTrue(dpg.get_item_configuration(txt_popup)["show"])
+        
+        # 2. When computing_full_hist is False
+        vs.computing_full_hist = False
+        c._refresh_wl_histogram(self.mock_viewer, has_image=True, is_rgb=False)
+        self.assertFalse(dpg.get_item_configuration(txt_panel)["show"])
+        self.assertFalse(dpg.get_item_configuration(txt_popup)["show"])
 
     def test_step_buttons(self):
         c = self.plugin._controller
