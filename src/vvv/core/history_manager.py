@@ -62,6 +62,15 @@ class HistoryManager:
         if getattr(vol, "is_dvf", False):
             entry["dvf"] = vs.dvf.to_dict()
 
+        if controller.gui:
+            plugins_data = {}
+            for plugin in controller.gui.plugins:
+                data = plugin.serialize_image_state(vs_id)
+                if data:
+                    plugins_data[plugin.plugin_id] = data
+            if plugins_data:
+                entry["plugins"] = plugins_data
+
         self.data[key] = entry
 
         # Enforce the 100 files limit by deleting the oldest item(s) at the front of the dict

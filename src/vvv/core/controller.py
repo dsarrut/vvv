@@ -726,7 +726,6 @@ class Controller:
                 else:
                     vs.crosshair_value = vol.data[iz, iy, ix]
 
-        vs.histogram_is_dirty = True
         vs.mark_both_dirty()
         self.update_all_viewers_of_image(vs_id)
 

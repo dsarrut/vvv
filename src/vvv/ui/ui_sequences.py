@@ -648,6 +648,11 @@ def load_workspace_sequence(gui, controller, filepath):
                 vs.extraction.from_dict(img_data["extraction"])
             if "dvf" in img_data:
                 vs.dvf.from_dict(img_data["dvf"])
+            if "plugins" in img_data and gui:
+                for plugin in gui.plugins:
+                    plugin_data = img_data["plugins"].get(plugin.plugin_id, {})
+                    if plugin_data:
+                        plugin.restore_image_state(new_id, plugin_data)
             vs.sync_group = img_data.get("sync_group", 0)
             vs.sync_wl_group = img_data.get("sync_wl_group", 0)
 

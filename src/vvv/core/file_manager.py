@@ -53,6 +53,11 @@ class FileManager:
 
         if self.controller.gui and not is_auto_overlay:
             self.controller.gui.notify_plugins_image_loaded(img_id)
+            if history_entry and "plugins" in history_entry:
+                for plugin in self.controller.gui.plugins:
+                    plugin_data = history_entry["plugins"].get(plugin.plugin_id, {})
+                    if plugin_data:
+                        plugin.restore_image_state(img_id, plugin_data)
 
         # Auto-load overlay
         # Prevent infinite recursion with is_auto_overlay flag
@@ -303,7 +308,7 @@ class FileManager:
                 roi_filter = self.controller.gui.roi_ui.roi_filters.get(vs_id, "")
                 roi_sort = self.controller.gui.roi_ui.roi_sort_orders.get(vs_id, 0)
 
-            workspace["images"][vs_id] = {
+            image_entry = {
                 "path": portable_path(vol.file_paths) if len(vol.file_paths) > 1 else portable_path(vol.file_paths[0]),
                 "is_overlay_only": is_overlay,
                 "sync_group": vs.sync_group,
@@ -318,6 +323,17 @@ class FileManager:
                 "roi_filter": roi_filter,
                 "roi_sort_order": roi_sort,
             }
+
+            if self.controller.gui:
+                plugins_data = {}
+                for plugin in self.controller.gui.plugins:
+                    data = plugin.serialize_image_state(vs_id)
+                    if data:
+                        plugins_data[plugin.plugin_id] = data
+                if plugins_data:
+                    image_entry["plugins"] = plugins_data
+
+            workspace["images"][vs_id] = image_entry
 
         with open(filepath, "w") as f:
             json.dump(workspace, f, indent=4)

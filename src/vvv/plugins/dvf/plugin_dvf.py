@@ -23,6 +23,12 @@ class DvfPlugin:
     def on_image_loaded(self, image_id: str) -> None:
         pass
 
+    def serialize_image_state(self, image_id: str) -> dict:
+        return {}
+
+    def restore_image_state(self, image_id: str, data: dict) -> None:
+        pass
+
     def on_image_removed(self, image_id: str) -> None:
         self._controller.on_image_removed(image_id)
 
