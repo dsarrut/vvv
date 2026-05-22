@@ -1,5 +1,5 @@
 import dearpygui.dearpygui as dpg
-from vvv.ui.ui_components import build_section_title, build_stepped_slider
+from vvv.ui.ui_components import build_section_title, build_stepped_slider, build_help_button
 from .control_dvf import DvfController
 
 
@@ -31,7 +31,15 @@ class DvfUI:
             )
 
             with dpg.group(tag=self._t("controls"), show=False):
-                dpg.add_text("Display Mode:", tag=self._t("display_mode_label"))
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Display Mode:", tag=self._t("display_mode_label"))
+                    build_help_button(
+                        "Display Mode — how the displacement vector field is visualized:\n\n"
+                        "Component: View each spatial component (X, Y, or Z) as a scalar image.\n"
+                        "RGB: Remap vector components to color channels (X->R, Y->G, Z->B).\n"
+                        "Vector Field: Overlay 2D/3D arrow glyphs directly on the slice grid.",
+                        api,
+                    )
                 dpg.add_radio_button(
                     items=["Component", "RGB", "Vector Field"],
                     default_value="Component",

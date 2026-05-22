@@ -633,7 +633,10 @@ class MainGUI:
             # Beginner mode help text for non-active viewers
             viewer_help_tag = f"viewer_help_text_{tag}"
             mod = "Cmd" if sys.platform == "darwin" else "Ctrl"
-            help_text = f"L-Click: Activate\nScroll: Slice\n{mod}+Scroll: Zoom\n{mod}+Drag: Pan"
+            help_text = "Scroll: Slice" \
+                f"\n{mod}+Scroll: Zoom" \
+                f"\n{mod}+Drag: Pan" \
+                "\nShift + Drag: win/level"
             help_col = self.ui_cfg["colors"]["text_dim"]
             help_item = dpg.add_text(help_text, tag=viewer_help_tag, color=help_col, show=False)
             self.beginner_tags.append(viewer_help_tag)
