@@ -98,3 +98,11 @@ class PluginAPI:
     def set_async_status(self, msg):
         """Set a status message from a background thread (picked up by the main loop)."""
         self._controller.status_message = msg
+
+    # --- Plugin settings (persisted in the app settings file under "plugins.<namespace>") ---
+
+    def get_settings(self, namespace: str) -> dict:
+        return self._controller.settings.data.get("plugins", {}).get(namespace, {})
+
+    def set_settings(self, namespace: str, data: dict) -> None:
+        self._controller.settings.data.setdefault("plugins", {})[namespace] = data

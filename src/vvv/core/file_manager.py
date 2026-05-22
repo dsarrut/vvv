@@ -348,6 +348,9 @@ class FileManager:
             del self.controller.view_states[vs_id]
             del self.controller.volumes[vs_id]
 
+            if self.controller.gui:
+                self.controller.gui.notify_plugins_image_removed(vs_id)
+
             # State-Only Fallback: Give empty viewers the next available image
             if self.controller.view_states:
                 first_vs_id = next(iter(self.controller.view_states))

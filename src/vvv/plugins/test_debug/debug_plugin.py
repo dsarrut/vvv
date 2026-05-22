@@ -48,5 +48,14 @@ class DebugPlugin:
             dpg.set_value(f"{self.plugin_id}_coords", f"X: {coords[0]:.1f}, Y: {coords[1]:.1f}, Z: {coords[2]:.1f}")
             self._last_coords = coords
 
+    def on_image_removed(self, image_id: str) -> None:
+        pass
+
+    def save_settings(self, api) -> None:
+        pass
+
+    def load_settings(self, api) -> None:
+        pass
+
     def destroy(self) -> None:
         pass

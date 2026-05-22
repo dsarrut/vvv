@@ -128,6 +128,10 @@ class MainGUI:
         """Discover and load plugins dynamically."""
         self.plugins = discover_plugins()
 
+    def notify_plugins_image_removed(self, image_id: str) -> None:
+        for plugin in self.plugins:
+            plugin.on_image_removed(image_id)
+
     # ==========================================
     # 2. LAYOUT BUILDERS
     # ==========================================
@@ -438,6 +442,7 @@ class MainGUI:
                 # Render Plugins
                 for plugin in self.plugins:
                     plugin.create_ui(parent=0, api=self.plugin_api)
+                    plugin.load_settings(self.plugin_api)
 
     def build_sidebar_active_viewer(self):
         cfg_c = self.ui_cfg["colors"]
@@ -1799,6 +1804,7 @@ class MainGUI:
 
         # Shutdown sequence
         for plugin in self.plugins:
+            plugin.save_settings(self.plugin_api)
             plugin.destroy()
 
         cleanup_os_drop()  # null GLFW drop callback before DPG destroys the window

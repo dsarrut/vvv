@@ -459,6 +459,7 @@ class SliceViewer:
             for vs_id in active_vs_ids:
                 if (
                     vs_id != self.image_id
+                    and vs_id in self.controller.view_states
                     and self.controller.view_states[vs_id].sync_group == target_group
                 ):
                     master_vs_id = vs_id
