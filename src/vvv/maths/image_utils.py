@@ -92,3 +92,25 @@ def straighten_image(img, filename="image", is_label_map=False):
     resampler.SetDefaultPixelValue(bg_val)
 
     return resampler.Execute(img)
+
+
+def compute_colorscale_gradient(
+    wl: float, ww: float, cmap_name: str, img_min: float, img_max: float
+) -> list[float]:
+    """Computes a 256-step RGBA gradient list for visualising a colormap colorscale
+
+    under window/level settings. Values below lower bound are mapped to black,
+    and values above upper bound are mapped to white.
+    """
+    from vvv.config import COLORMAPS
+
+    cmap = COLORMAPS.get(cmap_name, COLORMAPS["Grayscale"])
+    lower, upper = wl - ww / 2.0, wl + ww / 2.0
+    x = np.linspace(img_min, img_max, 256, dtype=np.float32)
+    t = np.clip((x - lower) / max(ww, 1e-10), 0.0, 1.0)
+    idx = (t * 255).astype(np.int32)
+    colors = cmap[idx].copy()
+    colors[x < lower] = [0.0, 0.0, 0.0, 1.0]
+    colors[x > upper] = [1.0, 1.0, 1.0, 1.0]
+    return colors.flatten().tolist()
+

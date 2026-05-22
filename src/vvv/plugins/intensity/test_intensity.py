@@ -234,6 +234,21 @@ class TestIntensityPlugin(unittest.TestCase):
         self.assertIsNotNone(pixels)
         self.assertEqual(len(pixels), 256 * 4)
 
+    def test_compute_colorscale_gradient(self):
+        from vvv.maths.image_utils import compute_colorscale_gradient
+
+        # Test grayscale colormap
+        pixels = compute_colorscale_gradient(
+            wl=50.0, ww=100.0, cmap_name="Grayscale", img_min=-50.0, img_max=150.0
+        )
+        self.assertEqual(len(pixels), 256 * 4)
+        # Check boundary mapping: values below lower (50 - 50 = 0) are mapped to black [0, 0, 0, 1]
+        # At img_min = -50, it is below lower bound. First pixel should be black.
+        self.assertEqual(pixels[:4], [0.0, 0.0, 0.0, 1.0])
+        # At img_max = 150, it is above upper bound (50 + 50 = 100). Last pixel should be white.
+        self.assertEqual(pixels[-4:], [1.0, 1.0, 1.0, 1.0])
+
 
 if __name__ == "__main__":
     unittest.main()
+

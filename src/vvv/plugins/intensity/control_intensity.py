@@ -459,15 +459,10 @@ class IntensityController:
             return
         self._last_colorscale_state = state
 
-        cmap = COLORMAPS.get(cmap_name, COLORMAPS["Grayscale"])
-        lower, upper = wl - ww / 2, wl + ww / 2
-        x = np.linspace(img_min, img_max, 256, dtype=np.float32)
-        t = np.clip((x - lower) / max(ww, 1e-10), 0.0, 1.0)
-        idx = (t * 255).astype(np.int32)
-        colors = cmap[idx].copy()
-        colors[x < lower] = [0.0, 0.0, 0.0, 1.0]
-        colors[x > upper] = [1.0, 1.0, 1.0, 1.0]
-        dpg.set_value(tex_tag, colors.flatten().tolist())
+        from vvv.maths.image_utils import compute_colorscale_gradient
+
+        colors_list = compute_colorscale_gradient(wl, ww, cmap_name, img_min, img_max)
+        dpg.set_value(tex_tag, colors_list)
 
     def _apply_hist_x_limits(self, dsp):
         if dsp.hist_x_center is None or dsp.hist_x_range is None:

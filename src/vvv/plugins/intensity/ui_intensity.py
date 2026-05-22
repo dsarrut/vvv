@@ -177,34 +177,38 @@ class IntensityUI:
                     callback=self._c.on_hist_ymax_drag,
                 )
 
-            with dpg.theme(tag=self._t("wl_shade_theme")):
-                with dpg.theme_component(dpg.mvShadeSeries):
-                    dpg.add_theme_color(
-                        dpg.mvPlotCol_Fill, [100, 180, 255, 30],
-                        category=dpg.mvThemeCat_Plots,
-                    )
-                    dpg.add_theme_color(
-                        dpg.mvPlotCol_Line, [0, 0, 0, 0],
-                        category=dpg.mvThemeCat_Plots,
-                    )
-            dpg.bind_item_theme(self._t("wl_hist_shade"), self._t("wl_shade_theme"))
+            shade_theme = self._t("wl_shade_theme")
+            if not dpg.does_item_exist(shade_theme):
+                with dpg.theme(tag=shade_theme):
+                    with dpg.theme_component(dpg.mvShadeSeries):
+                        dpg.add_theme_color(
+                            dpg.mvPlotCol_Fill, [100, 180, 255, 30],
+                            category=dpg.mvThemeCat_Plots,
+                        )
+                        dpg.add_theme_color(
+                            dpg.mvPlotCol_Line, [0, 0, 0, 0],
+                            category=dpg.mvThemeCat_Plots,
+                        )
+            dpg.bind_item_theme(self._t("wl_hist_shade"), shade_theme)
 
-            with dpg.theme(tag=self._t("wl_hist_series_theme")):
-                with dpg.theme_component(dpg.mvLineSeries):
-                    dpg.add_theme_color(
-                        dpg.mvPlotCol_Line, [120, 220, 140, 230],
-                        category=dpg.mvThemeCat_Plots,
-                    )
-                with dpg.theme_component(dpg.mvBarSeries):
-                    dpg.add_theme_color(
-                        dpg.mvPlotCol_Fill, [120, 220, 140, 180],
-                        category=dpg.mvThemeCat_Plots,
-                    )
-                    dpg.add_theme_color(
-                        dpg.mvPlotCol_Line, [120, 220, 140, 230],
-                        category=dpg.mvThemeCat_Plots,
-                    )
-            dpg.bind_item_theme(self._t("wl_hist_series"), self._t("wl_hist_series_theme"))
+            series_theme = self._t("wl_hist_series_theme")
+            if not dpg.does_item_exist(series_theme):
+                with dpg.theme(tag=series_theme):
+                    with dpg.theme_component(dpg.mvLineSeries):
+                        dpg.add_theme_color(
+                            dpg.mvPlotCol_Line, [120, 220, 140, 230],
+                            category=dpg.mvThemeCat_Plots,
+                        )
+                    with dpg.theme_component(dpg.mvBarSeries):
+                        dpg.add_theme_color(
+                            dpg.mvPlotCol_Fill, [120, 220, 140, 180],
+                            category=dpg.mvThemeCat_Plots,
+                        )
+                        dpg.add_theme_color(
+                            dpg.mvPlotCol_Line, [120, 220, 140, 230],
+                            category=dpg.mvThemeCat_Plots,
+                        )
+            dpg.bind_item_theme(self._t("wl_hist_series"), series_theme)
 
     def create_popup_ui(self, api) -> None:
         popup_tag = self._t("wl_hist_popup_win")
