@@ -230,7 +230,8 @@ class IntensityUI:
                 parent="global_texture_registry",
             )
 
-        with dpg.window(label="Histogram", tag=popup_tag, width=700, height=560):
+        image_name = api.get_active_image_name()
+        with dpg.window(label=f"Histogram {image_name}", tag=popup_tag, width=700, height=560):
             with dpg.plot(
                 tag=self._t("wl_hist_popup_plot"),
                 height=360,
