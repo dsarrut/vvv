@@ -212,18 +212,17 @@ class IntensityUI:
                         )
             dpg.bind_item_theme(self._t("wl_hist_series"), series_theme)
 
-    def create_popup_ui(self, api) -> None:
-        popup_tag = self._t("wl_hist_popup_win")
+    def create_popup_ui(self, api, image_id: str) -> None:
+        popup_tag = self._t(f"wl_hist_popup_win_{image_id}")
         if dpg.does_item_exist(popup_tag):
             cfg = dpg.get_item_configuration(popup_tag)
             dpg.configure_item(popup_tag, show=not cfg.get("show", True))
             return
 
-        viewer = api.get_active_viewer()
-        hs = self._c._hs(viewer)
+        hs = self._c._hist.get(image_id)
         use_bars = hs.use_bars if hs else False
 
-        tex_tag = self._t("wl_colorscale_tex")
+        tex_tag = self._t(f"wl_colorscale_tex_{image_id}")
         if not dpg.does_item_exist(tex_tag):
             dpg.add_dynamic_texture(
                 width=256, height=1,
@@ -232,41 +231,44 @@ class IntensityUI:
                 parent="global_texture_registry",
             )
 
-        image_name = api.get_active_image_name()
+        image_name, _ = api.get_image_display_name(image_id)
         with dpg.window(label=f"Histogram {image_name}", tag=popup_tag, width=700, height=560):
             with dpg.plot(
-                tag=self._t("wl_hist_popup_plot"),
+                tag=self._t(f"wl_hist_popup_plot_{image_id}"),
                 height=360,
                 width=-1,
                 no_title=True,
                 no_mouse_pos=True,
             ):
-                dpg.add_plot_axis(dpg.mvXAxis, tag=self._t("wl_hist_popup_x_axis"))
+                dpg.add_plot_axis(dpg.mvXAxis, tag=self._t(f"wl_hist_popup_x_axis_{image_id}"))
                 with dpg.plot_axis(
-                    dpg.mvYAxis, tag=self._t("wl_hist_popup_y_axis"), no_tick_labels=True
+                    dpg.mvYAxis, tag=self._t(f"wl_hist_popup_y_axis_{image_id}"), no_tick_labels=True
                 ):
                     dpg.add_shade_series(
                         [0.0, 1.0], [1.0, 1.0], y2=[0.0, 0.0],
-                        tag=self._t("wl_hist_popup_shade"),
+                        tag=self._t(f"wl_hist_popup_shade_{image_id}"),
                     )
-                    dpg.add_line_series([], [], tag=self._t("wl_hist_popup_series"))
+                    dpg.add_line_series([], [], tag=self._t(f"wl_hist_popup_series_{image_id}"))
                 dpg.add_drag_line(
-                    tag=self._t("wl_hist_popup_lower"),
+                    tag=self._t(f"wl_hist_popup_lower_{image_id}"),
                     color=[80, 160, 255, 255],
                     thickness=3.0,
                     callback=self._c.on_hist_popup_drag_lower,
+                    user_data=image_id,
                 )
                 dpg.add_drag_line(
-                    tag=self._t("wl_hist_popup_upper"),
+                    tag=self._t(f"wl_hist_popup_upper_{image_id}"),
                     color=[80, 160, 255, 255],
                     thickness=3.0,
                     callback=self._c.on_hist_popup_drag_upper,
+                    user_data=image_id,
                 )
                 dpg.add_drag_line(
-                    tag=self._t("wl_hist_popup_level"),
+                    tag=self._t(f"wl_hist_popup_level_{image_id}"),
                     color=[255, 160, 40, 255],
                     thickness=3.0,
                     callback=self._c.on_hist_popup_drag_level,
+                    user_data=image_id,
                 )
 
             # Colormap scale bar
@@ -274,30 +276,31 @@ class IntensityUI:
             dpg.add_image(
                 tex_tag,
                 width=660, height=20,
-                tag=self._t("wl_popup_colorscale_img"),
+                tag=self._t(f"wl_popup_colorscale_img_{image_id}"),
             )
             with dpg.group(horizontal=True):
-                dpg.add_text("---", tag=self._t("wl_popup_colorscale_min"), color=[160, 160, 160, 255])
+                dpg.add_text("---", tag=self._t(f"wl_popup_colorscale_min_{image_id}"), color=[160, 160, 160, 255])
                 arrow = dpg.add_text("", color=[160, 160, 160, 255])
                 if dpg.does_item_exist("icon_font_tag"):
                     dpg.bind_item_font(arrow, "icon_font_tag")
-                dpg.add_text("---", tag=self._t("wl_popup_colorscale_max"), color=[160, 160, 160, 255])
+                dpg.add_text("---", tag=self._t(f"wl_popup_colorscale_max_{image_id}"), color=[160, 160, 160, 255])
 
             # Control buttons
             dpg.add_spacer(height=6)
             with dpg.group(horizontal=True):
-                dpg.add_button(label="Ctr", width=42, callback=self._c.on_hist_center)
-                dpg.add_button(label="Bar", width=38, tag=self._t("btn_hist_popup_bar"), callback=self._c.on_hist_bar_toggle)
-                dpg.add_button(label="Lin", width=34, tag=self._t("btn_hist_popup_log"), callback=self._c.on_hist_log_toggle)
+                dpg.add_button(label="Ctr", width=42, callback=self._c.on_hist_center, user_data=image_id)
+                dpg.add_button(label="Bar", width=38, tag=self._t(f"btn_hist_popup_bar_{image_id}"), callback=self._c.on_hist_bar_toggle, user_data=image_id)
+                dpg.add_button(label="Lin", width=34, tag=self._t(f"btn_hist_popup_log_{image_id}"), callback=self._c.on_hist_log_toggle, user_data=image_id)
                 dpg.add_drag_int(
-                    tag=self._t("drag_hist_popup_bins"), default_value=256, speed=2.0,
+                    tag=self._t(f"drag_hist_popup_bins_{image_id}"), default_value=256, speed=2.0,
                     min_value=32, max_value=1024, format="%d bins",
                     width=80, show=use_bars,
                     callback=self._c.on_hist_bins_drag,
+                    user_data=image_id,
                 )
                 dpg.add_text(
                     "computing full histogram",
-                    tag=self._t("txt_popup_computing_full_hist"),
+                    tag=self._t(f"txt_popup_computing_full_hist_{image_id}"),
                     color=[255, 160, 40, 255],
                     show=False,
                 )
@@ -317,27 +320,30 @@ class IntensityUI:
                 c_lbl = dpg.add_text("X center:")
                 build_beginner_tooltip(c_lbl, "C — X-axis center of the histogram view.", api)
                 dpg.add_drag_float(
-                    tag=self._t("drag_hist_popup_xcenter"), default_value=0.0, speed=1.0,
+                    tag=self._t(f"drag_hist_popup_xcenter_{image_id}"), default_value=0.0, speed=1.0,
                     min_value=-1e10, max_value=1e10, format="%.5g", width=110,
                     callback=self._c.on_hist_xcenter_drag,
+                    user_data=image_id,
                 )
                 w_lbl = dpg.add_text("X width:")
                 build_beginner_tooltip(w_lbl, "W — Width (zoom) of the histogram X axis.", api)
                 dpg.add_drag_float(
-                    tag=self._t("drag_hist_popup_xwidth"), default_value=1.0, speed=1.0,
+                    tag=self._t(f"drag_hist_popup_xwidth_{image_id}"), default_value=1.0, speed=1.0,
                     min_value=1e-5, max_value=1e10, format="%.5g", width=110,
                     callback=self._c.on_hist_xwidth_drag,
+                    user_data=image_id,
                 )
                 y_lbl = dpg.add_text("Y axis:")
                 build_beginner_tooltip(y_lbl, "Y — Maximum visible height of the histogram Y axis.", api)
                 dpg.add_drag_float(
-                    tag=self._t("drag_hist_popup_ymax"), default_value=1.0, speed=0.01,
+                    tag=self._t(f"drag_hist_popup_ymax_{image_id}"), default_value=1.0, speed=0.01,
                     min_value=1e-5, max_value=1e10, format="%.5g", width=110,
                     callback=self._c.on_hist_ymax_drag,
+                    user_data=image_id,
                 )
 
-        dpg.bind_item_theme(self._t("wl_hist_popup_shade"), self._t("wl_shade_theme"))
-        dpg.bind_item_theme(self._t("wl_hist_popup_series"), self._t("wl_hist_series_theme"))
+        dpg.bind_item_theme(self._t(f"wl_hist_popup_shade_{image_id}"), self._t("wl_shade_theme"))
+        dpg.bind_item_theme(self._t(f"wl_hist_popup_series_{image_id}"), self._t("wl_hist_series_theme"))
 
         # Position the window at the bottom right of the viewport
         vp_w = dpg.get_viewport_client_width()

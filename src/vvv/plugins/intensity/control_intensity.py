@@ -24,6 +24,9 @@ class HistogramState:
         self.computing_full_hist: bool = False
         # Change-detection cache
         self._vol_data_id: int | None = None
+        self._time_idx: int | None = None
+        # Threading
+        self.stop_event = threading.Event()
 
 
 class IntensityController:
@@ -34,11 +37,10 @@ class IntensityController:
 
         self._minmax_cache = {}
         self._last_sidebar_image_id = None
-        self._last_popup_image_id = None
-        self._last_colorscale_state = None
+        self._last_popup_visible = {}
+        self._last_colorscale_states = {}
 
         self._hist: dict[str, HistogramState] = {}
-        self._hist_stop = threading.Event()
 
     def _t(self, name: str) -> str:
         return f"{self._plugin_id}_{name}"
@@ -48,11 +50,22 @@ class IntensityController:
             return self._hist.get(viewer.image_id)
         return None
 
+    def _mark_interaction_for_image(self, image_id: str):
+        if not self._api:
+            return
+        for viewer in self._api.get_viewers().values():
+            if viewer.image_id == image_id:
+                viewer._mark_lazy_interaction()
+
     @staticmethod
-    def _update_histogram(vol, hs: "HistogramState", bins: int, subsample_step: int = 1):
+    def _update_histogram(vol, hs: "HistogramState", bins: int, subsample_step: int = 1, time_idx: int = 0):
         data = vol.data
         if getattr(vol, "is_dvf", False) and data.ndim >= 4:
-            vec = data if data.ndim == 4 else data[0]
+            if data.ndim == 5:
+                t_idx = min(time_idx, data.shape[0] - 1)
+                vec = data[t_idx]
+            else:
+                vec = data
             total_count = vec.shape[1] * vec.shape[2] * vec.shape[3]
             if subsample_step > 1:
                 flat_vec = vec.reshape(3, -1)[:, ::subsample_step]
@@ -60,8 +73,13 @@ class IntensityController:
             else:
                 flat_data = np.sqrt(np.sum(vec.astype(np.float64) ** 2, axis=0)).ravel()
         else:
-            total_count = data.size
-            flat_data = data.ravel()[::subsample_step] if subsample_step > 1 else data.ravel()
+            if data.ndim == 4:
+                t_idx = min(time_idx, data.shape[0] - 1)
+                active_data = data[t_idx]
+            else:
+                active_data = data
+            total_count = active_data.size
+            flat_data = active_data.ravel()[::subsample_step] if subsample_step > 1 else active_data.ravel()
 
         hist, bin_edges = np.histogram(flat_data, bins=bins)
         y = hist.astype(np.float32)
@@ -174,134 +192,176 @@ class IntensityController:
                     cur_preset = dpg.get_value(preset_tag)
                     if cur_preset not in ["Custom", "Optimal", "Min/Max"]:
                         dpg.set_value(preset_tag, "Custom")
-            self.sync_wl_lines(viewer, vs)
+            self.sync_wl_lines_for_image(viewer.image_id)
+
+        # Sync other open popup windows
+        for img_id in self._hist:
+            if img_id != (viewer.image_id if has_image else None):
+                popup_win = self._t(f"wl_hist_popup_win_{img_id}")
+                if dpg.does_item_exist(popup_win) and dpg.is_item_shown(popup_win):
+                    self.sync_wl_lines_for_image(img_id)
 
         self._refresh_wl_histogram(viewer, has_image, is_rgb)
 
     def _refresh_wl_histogram(self, viewer, has_image, is_rgb):
-        plot_tag = self._t("wl_hist_plot")
-        if not dpg.does_item_exist(plot_tag):
-            return
+        sidebar_plot_tag = self._t("wl_hist_plot")
+        if dpg.does_item_exist(sidebar_plot_tag):
+            dpg.configure_item(sidebar_plot_tag, show=(has_image and not is_rgb))
 
-        if not has_image or is_rgb:
-            dpg.configure_item(plot_tag, show=False)
-            return
+        active_img_id = viewer.image_id if (has_image and not is_rgb) else None
 
-        hs = self._hs(viewer)
-        if hs is None:
-            return
+        for img_id, hs in list(self._hist.items()):
+            popup_win = self._t(f"wl_hist_popup_win_{img_id}")
+            popup_visible = dpg.does_item_exist(popup_win) and dpg.is_item_shown(popup_win)
+            is_active = (img_id == active_img_id)
+            sidebar_visible = is_active and dpg.is_item_shown(self._plugin_id)
 
-        # Detect volume data changes (image reload replaces the array object)
-        current_data_id = id(viewer.volume.data)
-        if hs._vol_data_id != current_data_id:
-            hs.is_dirty = True
-            hs._vol_data_id = current_data_id
+            if not sidebar_visible and not popup_visible:
+                continue
 
-        sidebar_visible = dpg.is_item_shown(self._plugin_id)
-        popup_win = self._t("wl_hist_popup_win")
-        popup_visible = dpg.does_item_exist(popup_win) and dpg.is_item_shown(popup_win)
+            vol = self._api.get_volumes().get(img_id)
+            vs = self._api.get_view_states().get(img_id)
+            if not vol or not vs or getattr(vol, "is_rgb", False):
+                continue
 
-        if hs.is_dirty and not sidebar_visible and not popup_visible:
-            return
+            # Detect volume data changes
+            current_data_id = id(vol.data)
+            if hs._vol_data_id != current_data_id:
+                hs.is_dirty = True
+                hs._vol_data_id = current_data_id
 
-        image_id = getattr(viewer, "image_id", None)
-        popup_series = self._t("wl_hist_popup_series")
-        popup_exists = dpg.does_item_exist(popup_series)
-        popup_needs_update = popup_exists and image_id != self._last_popup_image_id
-        sidebar_image_changed = image_id != self._last_sidebar_image_id
+            # Detect timepoint changes
+            time_idx = vs.camera.time_idx if vs else 0
+            if getattr(hs, "_time_idx", None) != time_idx:
+                hs.is_dirty = True
+                hs._time_idx = time_idx
 
-        force_update_series = False
-        if hs.is_dirty:
-            n_vox = viewer.volume.data.size // viewer.volume.num_components
-            step = max(1, n_vox // 100_000)
-            self._update_histogram(viewer.volume, hs, hs.bins, step)
-            force_update_series = True
+            force_update_series = False
+            if hs.is_dirty:
+                n_vox = vol.data.size // vol.num_components
+                step = max(1, n_vox // 100_000)
+                self._update_histogram(vol, hs, hs.bins, step, time_idx)
+                force_update_series = True
 
-            self._hist_stop.clear()
-            stop = self._hist_stop
+                hs.stop_event.clear()
+                stop = hs.stop_event
 
-            def _bg_compute(hs_obj, vol_obj, bins):
-                IntensityController._update_histogram(vol_obj, hs_obj, bins, 1)
-                if stop.is_set():
-                    return
-                hs_obj.computing_full_hist = False
-                hs_obj.full_hist_ready = True
-                self._api.request_refresh()
+                def _bg_compute(hs_obj, vol_obj, bins, t_idx):
+                    IntensityController._update_histogram(vol_obj, hs_obj, bins, 1, t_idx)
+                    if stop.is_set():
+                        return
+                    hs_obj.computing_full_hist = False
+                    hs_obj.full_hist_ready = True
+                    self._api.request_refresh()
 
-            self._api.set_async_status("Computing accurate histogram...")
-            hs.computing_full_hist = True
-            threading.Thread(target=_bg_compute, args=(hs, viewer.volume, hs.bins), daemon=True).start()
+                self._api.set_async_status(f"Computing accurate histogram for {vol.name}...")
+                hs.computing_full_hist = True
+                threading.Thread(target=_bg_compute, args=(hs, vol, hs.bins, time_idx), daemon=True).start()
 
-        if hs.full_hist_ready:
-            hs.full_hist_ready = False
-            force_update_series = True
-            self._api.set_async_status("Accurate histogram ready")
+            if hs.full_hist_ready:
+                hs.full_hist_ready = False
+                force_update_series = True
+                self._api.set_async_status("Accurate histogram ready")
 
-        if force_update_series or sidebar_image_changed or popup_needs_update:
-            y_data = np.log10(hs.data_y + 1) if hs.use_log else hs.data_y
-            max_y = self._compute_max_y(hs.data_y, hs.use_log)
-            bin_w = self._get_hist_bin_width(hs)
-            x_centers = (hs.data_x + bin_w / 2).tolist()
-            x_edges_list = hs.data_x.tolist()
-            y_list = y_data.tolist()
+            sidebar_image_changed = (is_active and img_id != self._last_sidebar_image_id)
+            was_popup_visible = self._last_popup_visible.get(img_id, False)
+            popup_newly_visible = popup_visible and not was_popup_visible
+            self._last_popup_visible[img_id] = popup_visible
 
-            dsp = viewer.view_state.display
-            if hs.x_center is None:
-                hs.x_center = float(dsp.wl)
-            if hs.x_range is None:
-                hs.x_range = max(1e-5, dsp.ww / 0.3)
-            if hs.y_max is None:
-                hs.y_max = max_y
+            if force_update_series or sidebar_image_changed or popup_newly_visible:
+                y_data = np.log10(hs.data_y + 1) if hs.use_log else hs.data_y
+                max_y = self._compute_max_y(hs.data_y, hs.use_log)
+                bin_w = self._get_hist_bin_width(hs)
+                x_centers = (hs.data_x + bin_w / 2).tolist()
+                x_edges_list = hs.data_x.tolist()
+                y_list = y_data.tolist()
 
-            x_speed = max(0.01, hs.x_range * 0.005)
-            y_speed = max(1e-4, float(hs.y_max) * 0.005)
+                if hs.x_center is None:
+                    hs.x_center = float(vs.display.wl)
+                if hs.x_range is None:
+                    hs.x_range = max(1e-5, vs.display.ww / 0.3)
+                if hs.y_max is None:
+                    hs.y_max = max_y
 
-            if force_update_series or sidebar_image_changed:
-                self._update_hist_series(self._t("wl_hist_series"), self._t("wl_hist_y_axis"), x_edges_list, x_centers, y_list, bin_w, use_bars=hs.use_bars)
-                self._apply_hist_x_limits(hs)
-                y_axis = self._t("wl_hist_y_axis")
-                if dpg.does_item_exist(y_axis):
-                    dpg.set_axis_limits(y_axis, 0.0, hs.y_max)
-                for tag_suffix, val, spd in (("drag_hist_xcenter", hs.x_center, x_speed), ("drag_hist_xwidth", hs.x_range, x_speed), ("drag_hist_ymax", hs.y_max, y_speed)):
+                x_speed = max(0.01, hs.x_range * 0.005)
+                y_speed = max(1e-4, float(hs.y_max) * 0.005)
+
+                if is_active and (force_update_series or sidebar_image_changed):
+                    self._update_hist_series(
+                        self._t("wl_hist_series"),
+                        self._t("wl_hist_y_axis"),
+                        x_edges_list,
+                        x_centers,
+                        y_list,
+                        bin_w,
+                        use_bars=hs.use_bars
+                    )
+                    self._apply_hist_x_limits(hs, img_id)
+                    y_axis = self._t("wl_hist_y_axis")
+                    if dpg.does_item_exist(y_axis):
+                        dpg.set_axis_limits(y_axis, 0.0, hs.y_max)
+                    for tag_suffix, val, spd in (
+                        ("drag_hist_xcenter", hs.x_center, x_speed),
+                        ("drag_hist_xwidth", hs.x_range, x_speed),
+                        ("drag_hist_ymax", hs.y_max, y_speed)
+                    ):
+                        tag = self._t(tag_suffix)
+                        if dpg.does_item_exist(tag) and not dpg.is_item_active(tag):
+                            dpg.set_value(tag, val)
+                            dpg.configure_item(tag, speed=spd)
+                    self._last_sidebar_image_id = img_id
+
+                if popup_visible and (force_update_series or popup_newly_visible):
+                    self._update_hist_series(
+                        self._t(f"wl_hist_popup_series_{img_id}"),
+                        self._t(f"wl_hist_popup_y_axis_{img_id}"),
+                        x_edges_list,
+                        x_centers,
+                        y_list,
+                        bin_w,
+                        use_bars=hs.use_bars
+                    )
+                    self._apply_hist_x_limits(hs, img_id)
+                    popup_y_axis = self._t(f"wl_hist_popup_y_axis_{img_id}")
+                    if dpg.does_item_exist(popup_y_axis):
+                        dpg.set_axis_limits(popup_y_axis, 0.0, hs.y_max)
+                    for tag_suffix, val, spd in (
+                        (f"drag_hist_popup_xcenter_{img_id}", hs.x_center, x_speed),
+                        (f"drag_hist_popup_xwidth_{img_id}", hs.x_range, x_speed),
+                        (f"drag_hist_popup_ymax_{img_id}", hs.y_max, y_speed)
+                    ):
+                        tag = self._t(tag_suffix)
+                        if dpg.does_item_exist(tag) and not dpg.is_item_active(tag):
+                            dpg.set_value(tag, val)
+                            dpg.configure_item(tag, speed=spd)
+                    popup_bins = self._t(f"drag_hist_popup_bins_{img_id}")
+                    if dpg.does_item_exist(popup_bins) and not dpg.is_item_active(popup_bins):
+                        dpg.set_value(popup_bins, hs.bins)
+
+            # Update buttons/toggles
+            if is_active:
+                for tag_suffix, t_label, f_label, val in (
+                    ("btn_hist_bar", "Line", "Bar", hs.use_bars),
+                    ("btn_hist_log", "Lin", "Log", hs.use_log),
+                ):
                     tag = self._t(tag_suffix)
-                    if dpg.does_item_exist(tag) and not dpg.is_item_active(tag):
-                        dpg.set_value(tag, val)
-                        dpg.configure_item(tag, speed=spd)
-                self._last_sidebar_image_id = image_id
+                    if dpg.does_item_exist(tag):
+                        dpg.configure_item(tag, label=t_label if val else f_label)
+                txt_panel = self._t("txt_computing_full_hist")
+                if dpg.does_item_exist(txt_panel):
+                    dpg.configure_item(txt_panel, show=hs.computing_full_hist)
 
-            if popup_exists and (force_update_series or popup_needs_update):
-                self._update_hist_series(self._t("wl_hist_popup_series"), self._t("wl_hist_popup_y_axis"), x_edges_list, x_centers, y_list, bin_w, use_bars=hs.use_bars)
-                self._apply_hist_x_limits(hs)
-                popup_y_axis = self._t("wl_hist_popup_y_axis")
-                if dpg.does_item_exist(popup_y_axis):
-                    dpg.set_axis_limits(popup_y_axis, 0.0, hs.y_max)
-                for tag_suffix, val, spd in (("drag_hist_popup_xcenter", hs.x_center, x_speed), ("drag_hist_popup_xwidth", hs.x_range, x_speed), ("drag_hist_popup_ymax", hs.y_max, y_speed)):
+            if popup_visible:
+                for tag_suffix, t_label, f_label, val in (
+                    (f"btn_hist_popup_bar_{img_id}", "Line", "Bar", hs.use_bars),
+                    (f"btn_hist_popup_log_{img_id}", "Lin", "Log", hs.use_log),
+                ):
                     tag = self._t(tag_suffix)
-                    if dpg.does_item_exist(tag) and not dpg.is_item_active(tag):
-                        dpg.set_value(tag, val)
-                        dpg.configure_item(tag, speed=spd)
-                popup_bins = self._t("drag_hist_popup_bins")
-                if dpg.does_item_exist(popup_bins) and not dpg.is_item_active(popup_bins):
-                    dpg.set_value(popup_bins, hs.bins)
-                self._last_popup_image_id = image_id
-
-        for tag_suffix, t_label, f_label, val in (
-            ("btn_hist_bar", "Line", "Bar", hs.use_bars),
-            ("btn_hist_popup_bar", "Line", "Bar", hs.use_bars),
-            ("btn_hist_log", "Lin", "Log", hs.use_log),
-            ("btn_hist_popup_log", "Lin", "Log", hs.use_log),
-        ):
-            tag = self._t(tag_suffix)
-            if dpg.does_item_exist(tag):
-                dpg.configure_item(tag, label=t_label if val else f_label)
-
-        dpg.configure_item(plot_tag, show=True)
-
-        is_computing = has_image and not is_rgb and hs.computing_full_hist
-        for tag_suffix in ("txt_computing_full_hist", "txt_popup_computing_full_hist"):
-            tag = self._t(tag_suffix)
-            if dpg.does_item_exist(tag):
-                dpg.configure_item(tag, show=is_computing)
+                    if dpg.does_item_exist(tag):
+                        dpg.configure_item(tag, label=t_label if val else f_label)
+                txt_popup = self._t(f"txt_popup_computing_full_hist_{img_id}")
+                if dpg.does_item_exist(txt_popup):
+                    dpg.configure_item(txt_popup, show=hs.computing_full_hist)
 
     def _update_hist_series(self, series_tag, axis_tag, x_edges, x_centers, y_list, bin_w, use_bars=False):
         if dpg.does_item_exist(series_tag):
@@ -325,54 +385,95 @@ class IntensityController:
             dpg.bind_item_theme(series_tag, theme)
 
     def sync_wl_lines(self, viewer, vs):
-        """Update histogram drag line positions every frame."""
-        if not vs or not dpg.does_item_exist(self._t("wl_hist_lower")):
+        if viewer and viewer.image_id:
+            self.sync_wl_lines_for_image(viewer.image_id)
+
+    def sync_wl_lines_for_image(self, img_id: str):
+        vs = self._api.get_view_states().get(img_id)
+        if not vs:
+            return
+        hs = self._hist.get(img_id)
+        if not hs:
+            return
+        vol = self._api.get_volumes().get(img_id)
+        if not vol or getattr(vol, "is_rgb", False) or vs.display.wl is None:
             return
 
-        hs = self._hs(viewer)
-        if hs is None:
-            return
-
-        dsp = vs.display
-        if getattr(viewer.volume, "is_rgb", False) or dsp.wl is None:
-            return
-
-        wl, ww = dsp.wl, dsp.ww
+        wl, ww = vs.display.wl, vs.display.ww
         lower = wl - ww / 2
         upper = wl + ww / 2
 
         max_y = self._compute_max_y(hs.data_y, hs.use_log)
-        for suffix in ["", "_popup"]:
-            if dpg.does_item_exist(self._t(f"wl_hist{suffix}_lower")):
-                self._safe_update_plot_elements(suffix, lower, upper, wl, max_y)
 
-        popup_win = self._t("wl_hist_popup_win")
+        # Update sidebar if the modified image is currently active
+        active_viewer = self._api.get_active_viewer()
+        if active_viewer and active_viewer.image_id == img_id:
+            if dpg.does_item_exist(self._t("wl_hist_lower")):
+                self._safe_update_plot_elements(False, img_id, lower, upper, wl, max_y)
+
+        # Update popup
+        popup_win = self._t(f"wl_hist_popup_win_{img_id}")
         if dpg.does_item_exist(popup_win) and dpg.is_item_shown(popup_win):
-            self._update_colorscale_texture(vs, hs)
-            self._safe_set(self._t("wl_popup_colorscale_min"), f"{lower:g}")
-            self._safe_set(self._t("wl_popup_colorscale_max"), f"{upper:g}")
+            if dpg.does_item_exist(self._t(f"wl_hist_popup_lower_{img_id}")):
+                self._safe_update_plot_elements(True, img_id, lower, upper, wl, max_y)
+            self._update_colorscale_texture_for_image(img_id, vs, hs)
+            self._safe_set(self._t(f"wl_popup_colorscale_min_{img_id}"), f"{lower:g}")
+            self._safe_set(self._t(f"wl_popup_colorscale_max_{img_id}"), f"{upper:g}")
 
-        self._sync_drag_floats(hs)
-        self._apply_hist_x_limits(hs)
+        self._sync_drag_floats_for_image(img_id, hs)
+        self._apply_hist_x_limits(hs, img_id)
 
-    def _safe_update_plot_elements(self, suffix, lower, upper, wl, max_y):
-        dpg.set_value(self._t(f"wl_hist{suffix}_lower"), lower)
-        dpg.set_value(self._t(f"wl_hist{suffix}_upper"), upper)
-        if dpg.does_item_exist(self._t(f"wl_hist{suffix}_level")):
-            dpg.set_value(self._t(f"wl_hist{suffix}_level"), wl)
+    def _safe_update_plot_elements(self, is_popup, img_id, lower, upper, wl, max_y):
+        if is_popup:
+            lower_tag = self._t(f"wl_hist_popup_lower_{img_id}")
+            upper_tag = self._t(f"wl_hist_popup_upper_{img_id}")
+            level_tag = self._t(f"wl_hist_popup_level_{img_id}")
+            shade_tag = self._t(f"wl_hist_popup_shade_{img_id}")
+        else:
+            lower_tag = self._t("wl_hist_lower")
+            upper_tag = self._t("wl_hist_upper")
+            level_tag = self._t("wl_hist_level")
+            shade_tag = self._t("wl_hist_shade")
+
+        dpg.set_value(lower_tag, lower)
+        dpg.set_value(upper_tag, upper)
+        if dpg.does_item_exist(level_tag):
+            dpg.set_value(level_tag, wl)
         shade_val = [[lower, upper], [max_y, max_y], [0.0, 0.0]]
-        shade_tag = self._t(f"wl_hist{suffix}_shade")
         if max_y > 0 and dpg.does_item_exist(shade_tag):
             dpg.set_value(shade_tag, shade_val)
 
-    def _sync_drag_floats(self, hs: HistogramState):
+    def _sync_drag_floats_for_image(self, img_id: str, hs: HistogramState):
+        active_viewer = self._api.get_active_viewer()
+        if active_viewer and active_viewer.image_id == img_id:
+            for tag_suffix, val in (
+                ("drag_hist_xcenter", hs.x_center),
+                ("drag_hist_xwidth", hs.x_range),
+                ("drag_hist_ymax", hs.y_max),
+            ):
+                tag = self._t(tag_suffix)
+                if val is not None and dpg.does_item_exist(tag) and not dpg.is_item_active(tag):
+                    dpg.set_value(tag, val)
+
+            x_range = hs.x_range
+            if x_range and x_range > 0:
+                center_speed = max(0.01, x_range * 0.005)
+                for tag_suffix in ("drag_hist_xcenter",):
+                    tag = self._t(tag_suffix)
+                    if dpg.does_item_exist(tag) and not dpg.is_item_active(tag):
+                        dpg.configure_item(tag, speed=center_speed)
+                for tag_suffix in ("drag_hist_xwidth",):
+                    tag = self._t(tag_suffix)
+                    if dpg.does_item_exist(tag) and not dpg.is_item_active(tag):
+                        cur = dpg.get_value(tag)
+                        if cur and cur > 0:
+                            dpg.configure_item(tag, speed=max(0.01, cur * 0.005))
+
+        # Popup floats
         for tag_suffix, val in (
-            ("drag_hist_xcenter", hs.x_center),
-            ("drag_hist_popup_xcenter", hs.x_center),
-            ("drag_hist_xwidth", hs.x_range),
-            ("drag_hist_popup_xwidth", hs.x_range),
-            ("drag_hist_ymax", hs.y_max),
-            ("drag_hist_popup_ymax", hs.y_max),
+            (f"drag_hist_popup_xcenter_{img_id}", hs.x_center),
+            (f"drag_hist_popup_xwidth_{img_id}", hs.x_range),
+            (f"drag_hist_popup_ymax_{img_id}", hs.y_max),
         ):
             tag = self._t(tag_suffix)
             if val is not None and dpg.does_item_exist(tag) and not dpg.is_item_active(tag):
@@ -381,23 +482,21 @@ class IntensityController:
         x_range = hs.x_range
         if x_range and x_range > 0:
             center_speed = max(0.01, x_range * 0.005)
-            for tag_suffix in ("drag_hist_xcenter", "drag_hist_popup_xcenter"):
-                tag = self._t(tag_suffix)
-                if dpg.does_item_exist(tag) and not dpg.is_item_active(tag):
-                    dpg.configure_item(tag, speed=center_speed)
-            for tag_suffix in ("drag_hist_xwidth", "drag_hist_popup_xwidth"):
-                tag = self._t(tag_suffix)
-                if dpg.does_item_exist(tag) and not dpg.is_item_active(tag):
-                    cur = dpg.get_value(tag)
-                    if cur and cur > 0:
-                        dpg.configure_item(tag, speed=max(0.01, cur * 0.005))
+            tag = self._t(f"drag_hist_popup_xcenter_{img_id}")
+            if dpg.does_item_exist(tag) and not dpg.is_item_active(tag):
+                dpg.configure_item(tag, speed=center_speed)
+            tag = self._t(f"drag_hist_popup_xwidth_{img_id}")
+            if dpg.does_item_exist(tag) and not dpg.is_item_active(tag):
+                cur = dpg.get_value(tag)
+                if cur and cur > 0:
+                    dpg.configure_item(tag, speed=max(0.01, cur * 0.005))
 
     def _safe_set(self, tag, val):
         if dpg.does_item_exist(tag):
             dpg.set_value(tag, val)
 
-    def _update_colorscale_texture(self, vs, hs: HistogramState):
-        tex_tag = self._t("wl_colorscale_tex")
+    def _update_colorscale_texture_for_image(self, img_id: str, vs, hs: HistogramState):
+        tex_tag = self._t(f"wl_colorscale_tex_{img_id}")
         if not dpg.does_item_exist(tex_tag):
             return
 
@@ -420,23 +519,31 @@ class IntensityController:
         dsp = vs.display
         wl, ww, cmap_name = dsp.wl, dsp.ww, dsp.colormap
         state = (wl, ww, cmap_name, img_min, img_max)
-        if self._last_colorscale_state == state:
+        if self._last_colorscale_states.get(img_id) == state:
             return
-        self._last_colorscale_state = state
+        self._last_colorscale_states[img_id] = state
 
         from vvv.maths.image_utils import compute_colorscale_gradient
         colors_list = compute_colorscale_gradient(wl, ww, cmap_name, img_min, img_max)
         dpg.set_value(tex_tag, colors_list)
 
-    def _apply_hist_x_limits(self, hs: HistogramState):
+    def _apply_hist_x_limits(self, hs: HistogramState, img_id: str):
         if hs.x_center is None or hs.x_range is None:
             return
         center = hs.x_center
         half = (hs.x_range or 1.0) / 2
-        for axis_suffix in ["_x_axis", "_popup_x_axis"]:
-            axis = self._t(f"wl_hist{axis_suffix}")
+
+        # Sidebar axis (only if active)
+        active_viewer = self._api.get_active_viewer()
+        if active_viewer and active_viewer.image_id == img_id:
+            axis = self._t("wl_hist_x_axis")
             if dpg.does_item_exist(axis):
                 dpg.set_axis_limits(axis, center - half, center + half)
+
+        # Popup axis
+        axis = self._t(f"wl_hist_popup_x_axis_{img_id}")
+        if dpg.does_item_exist(axis):
+            dpg.set_axis_limits(axis, center - half, center + half)
 
     # --- Callbacks ---
 
@@ -498,152 +605,226 @@ class IntensityController:
         self._api.propagate_window_level(viewer.image_id)
         self._api.request_refresh()
 
-    def _on_hist_drag_bound(self, app_data, fallback_tag):
-        pos = float(app_data) if app_data is not None else dpg.get_value(fallback_tag)
-        if pos is None:
-            return
-        viewer = self._api.get_active_viewer()
-        if not viewer or not viewer.view_state:
-            return
-        ww = max(1e-5, 2.0 * abs(viewer.view_state.display.wl - pos))
-        viewer._mark_lazy_interaction()
-        viewer.view_state.display.ww = ww
-        dpg.set_value(self._t("drag_ww"), ww)
-        preset_tag = self._t("combo_wl_presets")
-        if dpg.does_item_exist(preset_tag):
-            dpg.set_value(preset_tag, "Custom")
-        self.sync_wl_lines(viewer, viewer.view_state)
-        self._api.propagate_window_level(viewer.image_id)
+    def _on_hist_drag_bound(self, app_data, fallback_tag, image_id: str = None):
+        if image_id is None:
+            viewer = self._api.get_active_viewer()
+            if not viewer:
+                return
+            image_id = viewer.image_id
 
-    def _on_hist_drag_level(self, app_data, fallback_tag):
         pos = float(app_data) if app_data is not None else dpg.get_value(fallback_tag)
         if pos is None:
             return
-        viewer = self._api.get_active_viewer()
-        if not viewer or not viewer.view_state:
+
+        vs = self._api.get_view_states().get(image_id)
+        if not vs:
             return
-        viewer._mark_lazy_interaction()
-        viewer.view_state.display.wl = pos
-        dpg.set_value(self._t("drag_wl"), pos)
-        preset_tag = self._t("combo_wl_presets")
-        if dpg.does_item_exist(preset_tag):
-            dpg.set_value(preset_tag, "Custom")
-        self.sync_wl_lines(viewer, viewer.view_state)
-        self._api.propagate_window_level(viewer.image_id)
+
+        ww = max(1e-5, 2.0 * abs(vs.display.wl - pos))
+        self._mark_interaction_for_image(image_id)
+        vs.display.ww = ww
+
+        # Update sidebar if the modified image is currently active
+        active_viewer = self._api.get_active_viewer()
+        if active_viewer and active_viewer.image_id == image_id:
+            dpg.set_value(self._t("drag_ww"), ww)
+            preset_tag = self._t("combo_wl_presets")
+            if dpg.does_item_exist(preset_tag):
+                dpg.set_value(preset_tag, "Custom")
+
+        self.sync_wl_lines_for_image(image_id)
+        self._api.propagate_window_level(image_id)
+
+    def _on_hist_drag_level(self, app_data, fallback_tag, image_id: str = None):
+        if image_id is None:
+            viewer = self._api.get_active_viewer()
+            if not viewer:
+                return
+            image_id = viewer.image_id
+
+        pos = float(app_data) if app_data is not None else dpg.get_value(fallback_tag)
+        if pos is None:
+            return
+
+        vs = self._api.get_view_states().get(image_id)
+        if not vs:
+            return
+
+        self._mark_interaction_for_image(image_id)
+        vs.display.wl = pos
+
+        active_viewer = self._api.get_active_viewer()
+        if active_viewer and active_viewer.image_id == image_id:
+            dpg.set_value(self._t("drag_wl"), pos)
+            preset_tag = self._t("combo_wl_presets")
+            if dpg.does_item_exist(preset_tag):
+                dpg.set_value(preset_tag, "Custom")
+
+        self.sync_wl_lines_for_image(image_id)
+        self._api.propagate_window_level(image_id)
 
     def on_hist_drag_lower(self, _, app_data, __): self._on_hist_drag_bound(app_data, self._t("wl_hist_lower"))
     def on_hist_drag_upper(self, _, app_data, __): self._on_hist_drag_bound(app_data, self._t("wl_hist_upper"))
     def on_hist_drag_level(self, _, app_data, __): self._on_hist_drag_level(app_data, self._t("wl_hist_level"))
-    def on_hist_popup_drag_lower(self, _, app_data, __): self._on_hist_drag_bound(app_data, self._t("wl_hist_popup_lower"))
-    def on_hist_popup_drag_upper(self, _, app_data, __): self._on_hist_drag_bound(app_data, self._t("wl_hist_popup_upper"))
-    def on_hist_popup_drag_level(self, _, app_data, __): self._on_hist_drag_level(app_data, self._t("wl_hist_popup_level"))
+    def on_hist_popup_drag_lower(self, _, app_data, user_data): self._on_hist_drag_bound(app_data, self._t(f"wl_hist_popup_lower_{user_data}"), user_data)
+    def on_hist_popup_drag_upper(self, _, app_data, user_data): self._on_hist_drag_bound(app_data, self._t(f"wl_hist_popup_upper_{user_data}"), user_data)
+    def on_hist_popup_drag_level(self, _, app_data, user_data): self._on_hist_drag_level(app_data, self._t(f"wl_hist_popup_level_{user_data}"), user_data)
 
-    def on_hist_center(self, _sender, _app_data, _user_data):
-        viewer = self._api.get_active_viewer()
-        if not viewer or not viewer.view_state:
+    def on_hist_center(self, _sender, _app_data, user_data):
+        image_id = user_data
+        if image_id is None:
+            viewer = self._api.get_active_viewer()
+            if not viewer:
+                return
+            image_id = viewer.image_id
+
+        vs = self._api.get_view_states().get(image_id)
+        hs = self._hist.get(image_id)
+        if not vs or not hs:
             return
-        hs = self._hs(viewer)
-        if hs is None:
-            return
-        dsp = viewer.view_state.display
+
+        dsp = vs.display
         hs.x_center = float(dsp.wl)
         hs.x_range = dsp.ww / 0.3
-        self._apply_hist_x_limits(hs)
-        for tag_suffix in ("drag_hist_xcenter", "drag_hist_popup_xcenter"):
+        self._apply_hist_x_limits(hs, image_id)
+
+        # Update sidebar floats if this image is active
+        active_viewer = self._api.get_active_viewer()
+        if active_viewer and active_viewer.image_id == image_id:
+            for tag_suffix in ("drag_hist_xcenter", "drag_hist_xwidth"):
+                tag = self._t(tag_suffix)
+                if dpg.does_item_exist(tag):
+                    dpg.set_value(tag, hs.x_center if "xcenter" in tag_suffix else hs.x_range)
+
+        # Update popup floats
+        for tag_suffix in (f"drag_hist_popup_xcenter_{image_id}", f"drag_hist_popup_xwidth_{image_id}"):
             tag = self._t(tag_suffix)
             if dpg.does_item_exist(tag):
-                dpg.set_value(tag, hs.x_center)
-        for tag_suffix in ("drag_hist_xwidth", "drag_hist_popup_xwidth"):
-            tag = self._t(tag_suffix)
-            if dpg.does_item_exist(tag):
-                dpg.set_value(tag, hs.x_range)
+                dpg.set_value(tag, hs.x_center if "xcenter" in tag_suffix else hs.x_range)
 
     def on_hist_popup(self, sender, app_data, user_data):
-        if self._ui and self._api:
-            self._ui.create_popup_ui(self._api)
-            viewer = self._api.get_active_viewer()
-            if viewer and viewer.view_state:
-                vs = viewer.view_state
-                hs = self._hs(viewer)
-                self._last_popup_image_id = viewer.image_id
-                if hs and hs.data_x is not None:
+        if not self._ui or not self._api:
+            return
+        viewer = self._api.get_active_viewer()
+        if not viewer or not viewer.image_id:
+            return
+        image_id = viewer.image_id
+        self._ui.create_popup_ui(self._api, image_id)
+
+        popup_win = self._t(f"wl_hist_popup_win_{image_id}")
+        if dpg.does_item_exist(popup_win) and dpg.is_item_shown(popup_win):
+            hs = self._hist.get(image_id)
+            vs = self._api.get_view_states().get(image_id)
+            if hs and vs:
+                if hs.data_x is not None:
                     y_raw = hs.data_y
                     y_data = np.log10(y_raw + 1) if hs.use_log else y_raw
                     bin_w = self._get_hist_bin_width(hs)
                     x_centers = (hs.data_x + bin_w / 2).tolist()
-                    self._update_hist_series(self._t("wl_hist_popup_series"), self._t("wl_hist_popup_y_axis"), hs.data_x.tolist(), x_centers, y_data.tolist(), bin_w, use_bars=hs.use_bars)
-                    popup_y_axis = self._t("wl_hist_popup_y_axis")
+                    self._update_hist_series(
+                        self._t(f"wl_hist_popup_series_{image_id}"),
+                        self._t(f"wl_hist_popup_y_axis_{image_id}"),
+                        hs.data_x.tolist(),
+                        x_centers,
+                        y_data.tolist(),
+                        bin_w,
+                        use_bars=hs.use_bars
+                    )
+                    popup_y_axis = self._t(f"wl_hist_popup_y_axis_{image_id}")
                     if dpg.does_item_exist(popup_y_axis):
                         dpg.fit_axis_data(popup_y_axis)
                     if hs.x_center is not None and hs.x_range is not None:
-                        self._apply_hist_x_limits(hs)
+                        self._apply_hist_x_limits(hs, image_id)
                     else:
                         wl, ww = vs.display.wl, vs.display.ww
-                        popup_x_axis = self._t("wl_hist_popup_x_axis")
+                        popup_x_axis = self._t(f"wl_hist_popup_x_axis_{image_id}")
                         if dpg.does_item_exist(popup_x_axis):
                             dpg.set_axis_limits(popup_x_axis, wl - ww / 0.6, wl + ww / 0.6)
-                self.sync_wl_lines(viewer, vs)
+                self.sync_wl_lines_for_image(image_id)
 
-    def on_hist_xcenter_drag(self, _sender, app_data, _user_data):
-        viewer = self._api.get_active_viewer()
-        if not viewer or not viewer.view_state or app_data is None:
+    def on_hist_xcenter_drag(self, _sender, app_data, user_data):
+        image_id = user_data
+        if image_id is None:
+            viewer = self._api.get_active_viewer()
+            if not viewer:
+                return
+            image_id = viewer.image_id
+        if app_data is None:
             return
-        hs = self._hs(viewer)
+        hs = self._hist.get(image_id)
         if hs:
             hs.x_center = float(app_data)
-            self._apply_hist_x_limits(hs)
+            self._apply_hist_x_limits(hs, image_id)
 
-    def on_hist_xwidth_drag(self, _sender, app_data, _user_data):
-        viewer = self._api.get_active_viewer()
-        if not viewer or not viewer.view_state or app_data is None:
+    def on_hist_xwidth_drag(self, _sender, app_data, user_data):
+        image_id = user_data
+        if image_id is None:
+            viewer = self._api.get_active_viewer()
+            if not viewer:
+                return
+            image_id = viewer.image_id
+        if app_data is None:
             return
-        hs = self._hs(viewer)
+        hs = self._hist.get(image_id)
         if hs:
             hs.x_range = max(1e-5, float(app_data))
-            self._apply_hist_x_limits(hs)
+            self._apply_hist_x_limits(hs, image_id)
 
-    def on_hist_ymax_drag(self, _sender, app_data, _user_data):
-        viewer = self._api.get_active_viewer()
-        if not viewer or not viewer.view_state or app_data is None:
+    def on_hist_ymax_drag(self, _sender, app_data, user_data):
+        image_id = user_data
+        if image_id is None:
+            viewer = self._api.get_active_viewer()
+            if not viewer:
+                return
+            image_id = viewer.image_id
+        if app_data is None:
             return
-        hs = self._hs(viewer)
+        hs = self._hist.get(image_id)
         if hs:
             hs.y_max = max(1e-5, float(app_data))
-            for axis_suffix in ("wl_hist_y_axis", "wl_hist_popup_y_axis"):
-                axis = self._t(axis_suffix)
+            for axis in (self._t("wl_hist_y_axis"), self._t(f"wl_hist_popup_y_axis_{image_id}")):
                 if dpg.does_item_exist(axis):
                     dpg.set_axis_limits(axis, 0.0, hs.y_max)
 
-    def on_hist_bar_toggle(self, _sender, _app_data, _user_data):
-        viewer = self._api.get_active_viewer()
-        if not viewer or not viewer.view_state:
-            return
-        hs = self._hs(viewer)
+    def on_hist_bar_toggle(self, _sender, _app_data, user_data):
+        image_id = user_data
+        if image_id is None:
+            viewer = self._api.get_active_viewer()
+            if not viewer:
+                return
+            image_id = viewer.image_id
+        hs = self._hist.get(image_id)
         if hs is None:
             return
         hs.use_bars = not hs.use_bars
-        tag = self._t("drag_hist_popup_bins")
+        tag = self._t(f"drag_hist_popup_bins_{image_id}")
         if dpg.does_item_exist(tag):
             dpg.configure_item(tag, show=hs.use_bars)
         hs.is_dirty = True
         self._api.request_refresh()
 
-    def on_hist_bins_drag(self, _sender, _app_data, _user_data):
-        viewer = self._api.get_active_viewer()
-        if not viewer or not viewer.view_state:
-            return
-        hs = self._hs(viewer)
+    def on_hist_bins_drag(self, _sender, _app_data, user_data):
+        image_id = user_data
+        if image_id is None:
+            viewer = self._api.get_active_viewer()
+            if not viewer:
+                return
+            image_id = viewer.image_id
+        hs = self._hist.get(image_id)
         if hs is None:
             return
         hs.bins = int(float(_app_data))
         hs.is_dirty = True
         self._api.request_refresh()
 
-    def on_hist_log_toggle(self, _sender, _app_data, _user_data):
-        viewer = self._api.get_active_viewer()
-        if not viewer or not viewer.view_state:
-            return
-        hs = self._hs(viewer)
+    def on_hist_log_toggle(self, _sender, _app_data, user_data):
+        image_id = user_data
+        if image_id is None:
+            viewer = self._api.get_active_viewer()
+            if not viewer:
+                return
+            image_id = viewer.image_id
+        hs = self._hist.get(image_id)
         if hs is None:
             return
         hs.use_log = not hs.use_log
@@ -674,15 +855,16 @@ class IntensityController:
         self._hist[image_id] = HistogramState()
 
     def on_image_removed(self, image_id: str) -> None:
-        self._hist_stop.set()
-        self._hist.pop(image_id, None)
-        popup_win = self._t("wl_hist_popup_win")
+        hs = self._hist.pop(image_id, None)
+        if hs is not None:
+            hs.stop_event.set()
+        popup_win = self._t(f"wl_hist_popup_win_{image_id}")
         if dpg.does_item_exist(popup_win):
             dpg.delete_item(popup_win)
+        self._last_colorscale_states.pop(image_id, None)
+        self._last_popup_visible.pop(image_id, None)
         if self._last_sidebar_image_id == image_id:
             self._last_sidebar_image_id = None
-        if self._last_popup_image_id == image_id:
-            self._last_popup_image_id = None
 
     def serialize_image_state(self, image_id: str) -> dict:
         hs = self._hist.get(image_id)
@@ -715,4 +897,9 @@ class IntensityController:
         pass
 
     def destroy(self) -> None:
-        self._hist_stop.set()
+        for hs in self._hist.values():
+            hs.stop_event.set()
+        for img_id in list(self._hist.keys()):
+            popup_win = self._t(f"wl_hist_popup_win_{img_id}")
+            if dpg.does_item_exist(popup_win):
+                dpg.delete_item(popup_win)

@@ -26,10 +26,14 @@ class TestIntensityPlugin(unittest.TestCase):
         self.mock_viewer.view_state.display.wl = 50.0
         self.mock_viewer.view_state.display.colormap = "Grayscale"
         self.mock_viewer.view_state.display.base_threshold = None
+        self.mock_viewer.view_state.camera.time_idx = 0
 
         self.mock_api.get_active_viewer.return_value = self.mock_viewer
         self.mock_api.get_active_image_name.return_value = "image.nii"
         self.mock_api.get_image_display_name.return_value = ("image.nii", False)
+        self.mock_api.get_volumes.return_value = {"test_img_id": self.mock_viewer.volume}
+        self.mock_api.get_view_states.return_value = {"test_img_id": self.mock_viewer.view_state}
+        self.mock_api.get_viewers.return_value = {"test_viewer_id": self.mock_viewer}
         self.mock_api.get_ui_config.return_value = {
             "colors": {
                 "text_header": [255, 255, 255],
@@ -76,7 +80,7 @@ class TestIntensityPlugin(unittest.TestCase):
             self.plugin.create_ui(parent="test_popup_win", api=self.mock_api)
 
         self.plugin._controller.on_hist_popup(None, None, None)
-        popup_tag = f"{self.plugin.plugin_id}_wl_hist_popup_win"
+        popup_tag = f"{self.plugin.plugin_id}_wl_hist_popup_win_test_img_id"
         self.assertTrue(dpg.does_item_exist(popup_tag))
 
     def test_preset_changed(self):
@@ -143,11 +147,12 @@ class TestIntensityPlugin(unittest.TestCase):
         c.on_hist_popup(None, None, None)
 
         txt_panel = c._t("txt_computing_full_hist")
-        txt_popup = c._t("txt_popup_computing_full_hist")
+        txt_popup = c._t("txt_popup_computing_full_hist_test_img_id")
 
         hs = self._hs()
         hs.is_dirty = False
         hs._vol_data_id = id(self.mock_viewer.volume.data)
+        hs._time_idx = 0
 
         hs.computing_full_hist = True
         c._refresh_wl_histogram(self.mock_viewer, has_image=True, is_rgb=False)
@@ -209,8 +214,8 @@ class TestIntensityPlugin(unittest.TestCase):
         hs.x_center = 50.0
         hs.x_range = 200.0
 
-        c._update_colorscale_texture(self.mock_viewer.view_state, hs)
-        tex_tag = c._t("wl_colorscale_tex")
+        c._update_colorscale_texture_for_image("test_img_id", self.mock_viewer.view_state, hs)
+        tex_tag = c._t("wl_colorscale_tex_test_img_id")
         self.assertTrue(dpg.does_item_exist(tex_tag))
 
         pixels = dpg.get_value(tex_tag)
