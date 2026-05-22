@@ -72,15 +72,58 @@ class TestPluginAPI(unittest.TestCase):
     def test_discover_plugins_success(self):
         from vvv.plugins import discover_plugins
         plugins = discover_plugins()
-        plugin_ids = {p.plugin_id for p in plugins}
-        self.assertIn("dvf", plugin_ids)
-        self.assertIn("intensity_plugin", plugin_ids)
-        self.assertIn("debug", plugin_ids)
+        plugin_ids = [p.plugin_id for p in plugins]
+        # Assert specific plugins exist and verify their sorted order
+        self.assertEqual(plugin_ids, ["intensity_plugin", "debug", "dvf"])
         
         for p in plugins:
             self.assertTrue(hasattr(p, "label"))
             self.assertTrue(hasattr(p, "create_ui"))
             self.assertTrue(hasattr(p, "update"))
+
+    def test_discover_plugins_sorting(self):
+        from unittest.mock import patch
+        from vvv.plugins import discover_plugins
+        
+        mock_modules = [
+            (None, "p1", True),
+            (None, "p2", True),
+            (None, "p3", True),
+        ]
+        
+        with patch("pkgutil.iter_modules", return_value=mock_modules):
+            with patch("importlib.import_module") as mock_import:
+                class MockP1:
+                    plugin_id = "p1"
+                    label = "P1"
+                    order = 50
+                    def create_ui(self, parent, api): pass
+                    def update(self, api): pass
+                    
+                class MockP2:
+                    plugin_id = "p2"
+                    label = "P2"
+                    # no order attribute
+                    def create_ui(self, parent, api): pass
+                    def update(self, api): pass
+                    
+                class MockP3:
+                    plugin_id = "p3"
+                    label = "P3"
+                    order = 10
+                    def create_ui(self, parent, api): pass
+                    def update(self, api): pass
+                    
+                modules_map = {
+                    "vvv.plugins.p1": MagicMock(MockP1=MockP1, __dir__=lambda *a: ["MockP1"]),
+                    "vvv.plugins.p2": MagicMock(MockP2=MockP2, __dir__=lambda *a: ["MockP2"]),
+                    "vvv.plugins.p3": MagicMock(MockP3=MockP3, __dir__=lambda *a: ["MockP3"]),
+                }
+                mock_import.side_effect = lambda name: modules_map[name]
+                
+                plugins = discover_plugins()
+                plugin_ids = [p.plugin_id for p in plugins]
+                self.assertEqual(plugin_ids, ["p3", "p1", "p2"])
 
     def test_discover_plugins_robustness(self):
         from unittest.mock import patch

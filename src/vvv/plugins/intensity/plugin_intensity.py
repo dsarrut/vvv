@@ -7,6 +7,7 @@ class IntensityPlugin:
     plugin_id = "intensity_plugin"
     label = "Intensity"
     description = "Adjust window/level, colormaps, thresholds, and view the image histogram."
+    order = 10
 
     def __init__(self):
         self._controller = IntensityController(self.plugin_id)

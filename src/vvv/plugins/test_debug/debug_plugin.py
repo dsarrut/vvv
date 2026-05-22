@@ -6,6 +6,7 @@ class DebugPlugin:
     plugin_id = "debug"
     label = "DEBUG"
     description = "Debug Tracker: Live viewer coordinates and mouse position."
+    order = 20
 
     def __init__(self):
         self._last_img_name = None

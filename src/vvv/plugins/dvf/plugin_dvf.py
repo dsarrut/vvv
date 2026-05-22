@@ -7,6 +7,7 @@ class DvfPlugin:
     plugin_id = "dvf"
     label = "DVF"
     description = "Displacement Vector Fields visualization."
+    order = 1000
 
     def __init__(self):
         self._controller = DvfController(self.plugin_id)

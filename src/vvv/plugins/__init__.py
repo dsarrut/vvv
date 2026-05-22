@@ -49,6 +49,7 @@ def discover_plugins():
             # Prevent import errors in a single plugin from crashing the whole app
             print(f"Error importing plugin module {full_module_name}: {imp_err}")
             
+    plugins.sort(key=lambda p: (getattr(p, "order", 999), p.plugin_id))
     return plugins
 
 __all__ = ["discover_plugins"]
