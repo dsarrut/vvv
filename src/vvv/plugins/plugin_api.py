@@ -10,10 +10,19 @@ class PluginAPI:
 
     @property
     def is_dirty(self):
+        if self._controller.ui_needs_refresh:
+            return True
         viewer = self._gui.context_viewer
-        return self._controller.ui_needs_refresh or (
-            viewer and viewer.view_state and viewer.view_state.is_data_dirty
-        )
+        if not viewer or not viewer.view_state:
+            return False
+        if viewer.view_state.is_data_dirty:
+            return True
+        ov_id = viewer.view_state.display.overlay_id
+        if ov_id:
+            ov_vs = self._controller.view_states.get(ov_id)
+            if ov_vs and ov_vs.is_data_dirty:
+                return True
+        return False
 
     def get_ui_config(self):
         return self._gui.ui_cfg

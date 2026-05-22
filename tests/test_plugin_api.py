@@ -22,6 +22,20 @@ class TestPluginAPI(unittest.TestCase):
         self.mock_gui.context_viewer = mock_viewer
         self.assertTrue(self.api.is_dirty)
 
+    def test_is_dirty_overlay(self):
+        self.mock_controller.ui_needs_refresh = False
+        mock_viewer = MagicMock()
+        mock_viewer.view_state.is_data_dirty = False
+        mock_viewer.view_state.display.overlay_id = "overlay_img"
+        
+        mock_overlay_vs = MagicMock()
+        mock_overlay_vs.is_data_dirty = True
+        
+        self.mock_controller.view_states = {"overlay_img": mock_overlay_vs}
+        self.mock_gui.context_viewer = mock_viewer
+        
+        self.assertTrue(self.api.is_dirty)
+
     def test_get_active_image_name(self):
         mock_viewer = MagicMock()
         mock_viewer.image_id = "img_1"
