@@ -218,9 +218,8 @@ class IntensityUI:
             return
 
         viewer = api.get_active_viewer()
-        use_bars = False
-        if viewer and viewer.view_state:
-            use_bars = getattr(viewer.view_state.display, "hist_use_bars", False)
+        hs = self._c._hs(viewer)
+        use_bars = hs.use_bars if hs else False
 
         tex_tag = self._t("wl_colorscale_tex")
         if not dpg.does_item_exist(tex_tag):
