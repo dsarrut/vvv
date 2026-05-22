@@ -128,6 +128,10 @@ class MainGUI:
         """Discover and load plugins dynamically."""
         self.plugins = discover_plugins()
 
+    def notify_plugins_image_loaded(self, image_id: str) -> None:
+        for plugin in self.plugins:
+            plugin.on_image_loaded(image_id)
+
     def notify_plugins_image_removed(self, image_id: str) -> None:
         for plugin in self.plugins:
             plugin.on_image_removed(image_id)

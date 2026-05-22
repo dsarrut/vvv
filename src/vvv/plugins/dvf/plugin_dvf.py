@@ -20,6 +20,9 @@ class DvfPlugin:
     def update(self, api: PluginAPI) -> None:
         self._controller.update(api)
 
+    def on_image_loaded(self, image_id: str) -> None:
+        pass
+
     def on_image_removed(self, image_id: str) -> None:
         self._controller.on_image_removed(image_id)
 

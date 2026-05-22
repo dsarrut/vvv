@@ -748,6 +748,9 @@ class IntensityController:
 
     # --- Lifecycle ---
 
+    def on_image_loaded(self, image_id: str) -> None:
+        pass
+
     def on_image_removed(self, image_id: str) -> None:
         self._hist_stop.set()
         popup_win = self._t("wl_hist_popup_win")

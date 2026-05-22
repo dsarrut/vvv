@@ -51,6 +51,9 @@ class FileManager:
         self.controller.volumes[img_id] = vol
         self.controller.view_states[img_id] = vs
 
+        if self.controller.gui and not is_auto_overlay:
+            self.controller.gui.notify_plugins_image_loaded(img_id)
+
         # Auto-load overlay
         # Prevent infinite recursion with is_auto_overlay flag
         if history_entry and history_entry.get("overlay_path") and not is_auto_overlay:
