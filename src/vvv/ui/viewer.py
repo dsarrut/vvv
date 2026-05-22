@@ -682,7 +682,7 @@ class SliceViewer:
             self.controller.ui_needs_refresh = True
 
     def is_image_orientation(self):
-        return self.orientation in [ViewMode.AXIAL, ViewMode.SAGITTAL, ViewMode.CORONAL]
+        return True
 
     def get_slice_shape(self):
         if not self.view_state or not self.volume:
@@ -1524,18 +1524,9 @@ class SliceViewer:
             return
 
         drawlist_tag = f"drawlist_{self.tag}"
-        plot_tag = f"plot_{self.tag}"
 
-        if not self.is_image_orientation():
-            if dpg.does_item_exist(drawlist_tag):
-                dpg.configure_item(drawlist_tag, show=False)
-            self.drawer.draw_histogram_view()
-            return
-        else:
-            if dpg.does_item_exist(drawlist_tag):
-                dpg.configure_item(drawlist_tag, show=True)
-            if dpg.does_item_exist(plot_tag):
-                dpg.configure_item(plot_tag, show=False)
+        if dpg.does_item_exist(drawlist_tag):
+            dpg.configure_item(drawlist_tag, show=True)
 
         if force_reblend or self.last_rgba_flat is None:
             self._compute_raw_slice_buffers()
@@ -2237,7 +2228,6 @@ class SliceViewer:
             "view_axial": lambda: self.set_orientation(ViewMode.AXIAL),
             "view_sagittal": lambda: self.set_orientation(ViewMode.SAGITTAL),
             "view_coronal": lambda: self.set_orientation(ViewMode.CORONAL),
-            "view_histogram": self.action_view_histogram,
             "toggle_interp": self.action_toggle_pixelated_zoom,
             "toggle_strips": self.action_toggle_strips,
             "toggle_legend": lambda: self._toggle_camera_bool("show_legend"),
@@ -2284,9 +2274,6 @@ class SliceViewer:
         self.needs_recenter = True
         self.is_geometry_dirty = True
         self.controller.sync.propagate_camera(self)
-
-    def action_view_histogram(self):
-        self.set_orientation(ViewMode.HISTOGRAM)
 
     def action_toggle_pixelated_zoom(self):
         vs = self.view_state

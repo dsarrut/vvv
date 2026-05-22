@@ -1564,7 +1564,6 @@ class MainGUI:
                 "view_axial": "Axial View",
                 "view_sagittal": "Sagittal View",
                 "view_coronal": "Coronal View",
-                "view_histogram": "Histogram View",
                 "toggle_interp": "Toggle Pixelated Zoom (NN)",
                 "toggle_strips": "Toggle Voxel Strips",
                 "toggle_grid": "Toggle Voxel Grid",

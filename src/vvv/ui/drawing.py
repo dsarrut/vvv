@@ -261,59 +261,6 @@ class OverlayDrawer:
         dpg.configure_item(front_node, show=False)
         viewer.active_axes_idx = back_idx
 
-    def draw_histogram_view(self):
-        viewer = self.viewer
-        if not viewer.view_state:
-            return
-
-        # Guard against tombstone memory drops mid-frame
-        if getattr(viewer.volume, "data", None) is None:
-            return
-
-        plot_tag = f"plot_{viewer.tag}"
-
-        if not dpg.does_item_exist(plot_tag):
-            with dpg.plot(
-                label=f"Histogram: {viewer.volume.name}",
-                parent=f"win_{viewer.tag}",
-                tag=plot_tag,
-                width=-1,
-                height=-1,
-            ):
-                dpg.add_plot_axis(
-                    dpg.mvXAxis, label="Voxel Value", tag=f"x_axis_{viewer.tag}"
-                )
-                dpg.add_plot_axis(
-                    dpg.mvYAxis, label="Count", tag=f"y_axis_{viewer.tag}"
-                )
-                dpg.add_line_series(
-                    [],
-                    [],
-                    label="Freq",
-                    parent=f"y_axis_{viewer.tag}",
-                    tag=f"series_{viewer.tag}",
-                )
-            viewer.view_state.histogram_is_dirty = True
-
-        dpg.configure_item(plot_tag, show=True)
-
-        if viewer.view_state.histogram_is_dirty:
-            viewer.view_state.update_histogram()
-        else:
-            return
-
-        y_data = (
-            np.log10(viewer.view_state.hist_data_y + 1)
-            if viewer.view_state.use_log_y
-            else viewer.view_state.hist_data_y
-        )
-        dpg.set_value(
-            f"series_{viewer.tag}",
-            [viewer.view_state.hist_data_x.tolist(), y_data.tolist()],
-        )
-        dpg.fit_axis_data(f"x_axis_{viewer.tag}")
-        dpg.fit_axis_data(f"y_axis_{viewer.tag}")
-
     def draw_scale_bar(self):
         viewer = self.viewer
 

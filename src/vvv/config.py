@@ -39,7 +39,6 @@ DEFAULT_SETTINGS = {
         "view_axial": "F1",
         "view_sagittal": "F2",
         "view_coronal": "F3",
-        "view_histogram": "F4",
         "toggle_interp": "K",
         "toggle_strips": "M",
         "toggle_legend": "L",

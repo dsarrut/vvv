@@ -340,9 +340,6 @@ class SliceRenderer:
         checkerboard_swap: bool = False,
         rois=(),
     ):
-        if orientation == ViewMode.HISTOGRAM:
-            return np.array([0, 0, 0, 255], dtype=np.float32), (1, 1)
-
         if orientation not in SliceRenderer._AXIS_MAP:
             return np.zeros(4, dtype=np.float32), (1, 1)
 

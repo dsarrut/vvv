@@ -1,7 +1,6 @@
 import math
 import numpy as np
 from vvv.utils import (
-    ViewMode,
     ProfileInteractionMode,
     voxel_to_slice,
     slice_to_voxel,
@@ -72,17 +71,16 @@ class NavigationTool:
         # Trigger the viewer's anchor
         self.drag_viewer.on_mouse_down()
 
-        if viewer.orientation != ViewMode.HISTOGRAM:
-            mods = self.manager.modifiers
-            is_pan_mod = mods["cmd"] or mods["ctrl"]
-            self.is_pan_drag = (is_pan_mod and button == dpg.mvMouseButton_Left) or (button == dpg.mvMouseButton_Middle)
-            
-            # Crosshair snap ONLY on un-modified Left Click
-            if button == dpg.mvMouseButton_Left and not mods["shift"] and not is_pan_mod:
-                px, py = viewer.get_mouse_slice_coords(ignore_hover=True)
-                if px is not None:
-                    viewer.update_crosshair_data(px, py)
-                    self.manager.controller.sync.propagate_sync(viewer.image_id)
+        mods = self.manager.modifiers
+        is_pan_mod = mods["cmd"] or mods["ctrl"]
+        self.is_pan_drag = (is_pan_mod and button == dpg.mvMouseButton_Left) or (button == dpg.mvMouseButton_Middle)
+
+        # Crosshair snap ONLY on un-modified Left Click
+        if button == dpg.mvMouseButton_Left and not mods["shift"] and not is_pan_mod:
+            px, py = viewer.get_mouse_slice_coords(ignore_hover=True)
+            if px is not None:
+                viewer.update_crosshair_data(px, py)
+                self.manager.controller.sync.propagate_sync(viewer.image_id)
 
     def on_drag(self, drag_data):
         if self.drag_viewer:
