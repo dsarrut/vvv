@@ -27,11 +27,6 @@ class TestIntensityPlugin(unittest.TestCase):
         self.mock_viewer.view_state.display.colormap = "Grayscale"
         self.mock_viewer.view_state.display.base_threshold = None
 
-        # Histogram computed data (still on ViewState until Step 4)
-        self.mock_viewer.view_state.hist_data_x = np.array([0.0, 10.0, 20.0])
-        self.mock_viewer.view_state.hist_data_y = np.array([5.0, 10.0, 15.0])
-        self.mock_viewer.view_state.get_hist_bin_width.return_value = 10.0
-
         self.mock_api.get_active_viewer.return_value = self.mock_viewer
         self.mock_api.get_active_image_name.return_value = "image.nii"
         self.mock_api.get_image_display_name.return_value = ("image.nii", False)
@@ -48,6 +43,11 @@ class TestIntensityPlugin(unittest.TestCase):
         c = self.plugin._controller
         c.bind(self.mock_api)
         c.on_image_loaded("test_img_id")
+
+        hs = self._hs()
+        hs.data_x = np.array([0.0, 10.0, 20.0], dtype=np.float32)
+        hs.data_y = np.array([5.0, 10.0, 15.0], dtype=np.float32)
+        hs.is_dirty = False
 
     def _hs(self):
         """Shortcut to the HistogramState for the mock image."""
@@ -145,16 +145,16 @@ class TestIntensityPlugin(unittest.TestCase):
         txt_panel = c._t("txt_computing_full_hist")
         txt_popup = c._t("txt_popup_computing_full_hist")
 
-        vs = self.mock_viewer.view_state
-        vs.histogram_is_dirty = False
-        c._hist["test_img_id"]._vol_data_id = id(self.mock_viewer.volume.data)
+        hs = self._hs()
+        hs.is_dirty = False
+        hs._vol_data_id = id(self.mock_viewer.volume.data)
 
-        vs.computing_full_hist = True
+        hs.computing_full_hist = True
         c._refresh_wl_histogram(self.mock_viewer, has_image=True, is_rgb=False)
         self.assertTrue(dpg.get_item_configuration(txt_panel)["show"])
         self.assertTrue(dpg.get_item_configuration(txt_popup)["show"])
 
-        vs.computing_full_hist = False
+        hs.computing_full_hist = False
         c._refresh_wl_histogram(self.mock_viewer, has_image=True, is_rgb=False)
         self.assertFalse(dpg.get_item_configuration(txt_panel)["show"])
         self.assertFalse(dpg.get_item_configuration(txt_popup)["show"])
