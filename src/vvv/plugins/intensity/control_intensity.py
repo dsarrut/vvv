@@ -25,6 +25,9 @@ class HistogramState:
         # Change-detection cache
         self._vol_data_id: int | None = None
         self._time_idx: int | None = None
+        # Full-resolution histogram cache: time_idx → (data_x, data_y)
+        # Populated by the background thread; cleared when bins, bounds, or data change.
+        self._hist_cache: dict[int, tuple[np.ndarray, np.ndarray]] = {}
         # Threading
         self.stop_event = threading.Event()
 
@@ -224,11 +227,12 @@ class IntensityController:
             if not vol or not vs or getattr(vol, "is_rgb", False):
                 continue
 
-            # Detect volume data changes
+            # Detect volume data changes (invalidates the entire per-timepoint cache)
             current_data_id = id(vol.data)
             if hs._vol_data_id != current_data_id:
                 hs.is_dirty = True
                 hs._vol_data_id = current_data_id
+                hs._hist_cache.clear()
 
             # Detect timepoint changes
             time_idx = vs.camera.time_idx if vs else 0
@@ -238,25 +242,35 @@ class IntensityController:
 
             force_update_series = False
             if hs.is_dirty:
-                n_vox = vol.data.size // vol.num_components
-                step = max(1, n_vox // 100_000)
-                self._update_histogram(vol, hs, hs.bins, step, time_idx)
-                force_update_series = True
+                cached = hs._hist_cache.get(time_idx)
+                if cached is not None:
+                    # Cache hit: instant switch, no thread needed
+                    hs.data_x, hs.data_y = cached
+                    hs.is_dirty = False
+                    hs.computing_full_hist = False
+                    force_update_series = True
+                else:
+                    # Cache miss: fast approx immediately, accurate in background
+                    n_vox = vol.data.size // vol.num_components
+                    step = max(1, n_vox // 100_000)
+                    self._update_histogram(vol, hs, hs.bins, step, time_idx)
+                    force_update_series = True
 
-                hs.stop_event.clear()
-                stop = hs.stop_event
+                    hs.stop_event.clear()
+                    stop = hs.stop_event
 
-                def _bg_compute(hs_obj, vol_obj, bins, t_idx):
-                    IntensityController._update_histogram(vol_obj, hs_obj, bins, 1, t_idx)
-                    if stop.is_set():
-                        return
-                    hs_obj.computing_full_hist = False
-                    hs_obj.full_hist_ready = True
-                    self._api.request_refresh()
+                    def _bg_compute(hs_obj, vol_obj, bins, t_idx):
+                        IntensityController._update_histogram(vol_obj, hs_obj, bins, 1, t_idx)
+                        if stop.is_set():
+                            return
+                        hs_obj._hist_cache[t_idx] = (hs_obj.data_x.copy(), hs_obj.data_y.copy())
+                        hs_obj.computing_full_hist = False
+                        hs_obj.full_hist_ready = True
+                        self._api.request_refresh()
 
-                self._api.set_async_status(f"Computing accurate histogram for {vol.name}...")
-                hs.computing_full_hist = True
-                threading.Thread(target=_bg_compute, args=(hs, vol, hs.bins, time_idx), daemon=True).start()
+                    self._api.set_async_status(f"Computing accurate histogram for {vol.name}...")
+                    hs.computing_full_hist = True
+                    threading.Thread(target=_bg_compute, args=(hs, vol, hs.bins, time_idx), daemon=True).start()
 
             if hs.full_hist_ready:
                 hs.full_hist_ready = False
@@ -814,6 +828,7 @@ class IntensityController:
         if hs is None:
             return
         hs.bins = int(float(_app_data))
+        hs._hist_cache.clear()  # different bin count → cached histograms are invalid
         hs.is_dirty = True
         self._api.request_refresh()
 
