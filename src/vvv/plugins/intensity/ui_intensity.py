@@ -155,25 +155,27 @@ class IntensityUI:
                     api,
                 )
             with dpg.group(horizontal=True):
-                c_lbl = dpg.add_text("C:", color=cfg_c["text_dim"])
+                c_lbl = dpg.add_text("X center:", color=cfg_c["text_dim"])
                 build_beginner_tooltip(c_lbl, "C — X-axis center of the histogram view.", api)
                 dpg.add_drag_float(
                     tag=self._t("drag_hist_xcenter"), default_value=0.0, speed=1.0,
-                    min_value=-1e10, max_value=1e10, format="%.4g", width=65,
+                    min_value=-1e10, max_value=1e10, format="%.5g", width=80,
                     callback=self._c.on_hist_xcenter_drag,
                 )
-                w_lbl = dpg.add_text("W:", color=cfg_c["text_dim"])
+                w_lbl = dpg.add_text("X width:", color=cfg_c["text_dim"])
                 build_beginner_tooltip(w_lbl, "W — Width (zoom) of the histogram X axis.", api)
                 dpg.add_drag_float(
                     tag=self._t("drag_hist_xwidth"), default_value=1.0, speed=1.0,
-                    min_value=1e-5, max_value=1e10, format="%.3g", width=60,
+                    min_value=1e-5, max_value=1e10, format="%.5g", width=80,
                     callback=self._c.on_hist_xwidth_drag,
                 )
-                y_lbl = dpg.add_text("Y:", color=cfg_c["text_dim"])
+            
+            with dpg.group(horizontal=True):
+                y_lbl = dpg.add_text("Y axis:", color=cfg_c["text_dim"])
                 build_beginner_tooltip(y_lbl, "Y — Maximum visible height of the histogram Y axis.", api)
                 dpg.add_drag_float(
                     tag=self._t("drag_hist_ymax"), default_value=1.0, speed=0.01,
-                    min_value=1e-5, max_value=1e10, format="%.2g", width=-1,
+                    min_value=1e-5, max_value=1e10, format="%.5g", width=80,
                     callback=self._c.on_hist_ymax_drag,
                 )
 
@@ -312,25 +314,25 @@ class IntensityUI:
                 )
             dpg.add_spacer(height=4)
             with dpg.group(horizontal=True):
-                c_lbl = dpg.add_text("C:")
+                c_lbl = dpg.add_text("X center:")
                 build_beginner_tooltip(c_lbl, "C — X-axis center of the histogram view.", api)
                 dpg.add_drag_float(
                     tag=self._t("drag_hist_popup_xcenter"), default_value=0.0, speed=1.0,
-                    min_value=-1e10, max_value=1e10, format="%.4g", width=110,
+                    min_value=-1e10, max_value=1e10, format="%.5g", width=110,
                     callback=self._c.on_hist_xcenter_drag,
                 )
-                w_lbl = dpg.add_text("W:")
+                w_lbl = dpg.add_text("X width:")
                 build_beginner_tooltip(w_lbl, "W — Width (zoom) of the histogram X axis.", api)
                 dpg.add_drag_float(
                     tag=self._t("drag_hist_popup_xwidth"), default_value=1.0, speed=1.0,
-                    min_value=1e-5, max_value=1e10, format="%.4g", width=110,
+                    min_value=1e-5, max_value=1e10, format="%.5g", width=110,
                     callback=self._c.on_hist_xwidth_drag,
                 )
-                y_lbl = dpg.add_text("Y:")
+                y_lbl = dpg.add_text("Y axis:")
                 build_beginner_tooltip(y_lbl, "Y — Maximum visible height of the histogram Y axis.", api)
                 dpg.add_drag_float(
                     tag=self._t("drag_hist_popup_ymax"), default_value=1.0, speed=0.01,
-                    min_value=1e-5, max_value=1e10, format="%.3g", width=-1,
+                    min_value=1e-5, max_value=1e10, format="%.5g", width=110,
                     callback=self._c.on_hist_ymax_drag,
                 )
 
