@@ -49,7 +49,7 @@ class HistoryManager:
             del self.data[key]
 
         # Only save intrinsic physical and display state. No Overlays or ROIs.
-        self.data[key] = {
+        entry = {
             "shape3d": [int(x) for x in vol.shape3d],
             "spacing": [float(x) for x in vol.spacing],
             "origin": [float(x) for x in vol.origin],
@@ -58,6 +58,11 @@ class HistoryManager:
             "sync_group": vs.sync_group,
             "sync_wl_group": getattr(vs, "sync_wl_group", 0),
         }
+
+        if getattr(vol, "is_dvf", False):
+            entry["dvf"] = vs.dvf.to_dict()
+
+        self.data[key] = entry
 
         # Enforce the 100 files limit by deleting the oldest item(s) at the front of the dict
         while len(self.data) > self.max_history_files:

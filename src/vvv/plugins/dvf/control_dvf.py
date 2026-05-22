@@ -197,21 +197,7 @@ class DvfController:
         pass
 
     def save_settings(self, api) -> None:
-        target_vs, _ = self._get_target_vs()
-        if target_vs is None:
-            return
-        dvf = target_vs.dvf
-        api.set_settings(self._plugin_id, {
-            "vector_sampling": dvf.vector_sampling,
-            "vector_scale": dvf.vector_scale,
-            "vector_thickness": dvf.vector_thickness,
-            "vector_min_length_arrow": dvf.vector_min_length_arrow,
-            "vector_min_length_draw": dvf.vector_min_length_draw,
-            "vector_color_max_mag": dvf.vector_color_max_mag,
-            "vector_precision": dvf.vector_precision,
-            "vector_color_min": list(dvf.vector_color_min),
-            "vector_color_max": list(dvf.vector_color_max),
-        })
+        pass
 
     def load_settings(self, api) -> None:
         pass

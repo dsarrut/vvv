@@ -28,6 +28,8 @@ class FileManager:
         if history_entry:
             vs.camera.from_dict(history_entry["camera"])
             vs.display.from_dict(history_entry["display"])
+            if "dvf" in history_entry and getattr(vol, "is_dvf", False):
+                vs.dvf.from_dict(history_entry["dvf"])
 
             # Re-derive the crosshair_value based on restored voxel
             if vs.camera.crosshair_voxel is not None:

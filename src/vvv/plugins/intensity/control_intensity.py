@@ -17,11 +17,6 @@ class IntensityController:
         self._last_popup_image_id = None
         self._last_colorscale_state = None
 
-        # Defaults loaded from settings, applied to each new image's histogram
-        self._default_hist_use_bars = True
-        self._default_hist_use_log = True
-        self._default_hist_bins = 256
-
         # Stop event for the background histogram thread
         self._hist_stop = threading.Event()
 
@@ -201,12 +196,6 @@ class IntensityController:
         # Logic: Fast compute immediately (approx), Full compute in background (accurate).
         force_update_series = False
         if vs.histogram_is_dirty:
-            # Apply per-session defaults on first histogram compute for this image
-            if vs.hist_data_x is None:
-                vs.display.hist_use_bars = self._default_hist_use_bars
-                vs.display.hist_use_log = self._default_hist_use_log
-                vs.display.hist_bins = self._default_hist_bins
-
             # 1. Fast Approximation (Sync)
             n_vox = viewer.volume.data.size // viewer.volume.num_components
             step = max(1, n_vox // 100_000)
@@ -770,20 +759,10 @@ class IntensityController:
             self._last_popup_image_id = None
 
     def save_settings(self, api) -> None:
-        viewer = api.get_active_viewer()
-        if viewer and viewer.view_state:
-            dsp = viewer.view_state.display
-            api.set_settings(self._plugin_id, {
-                "hist_use_bars": bool(dsp.hist_use_bars),
-                "hist_use_log": bool(dsp.hist_use_log),
-                "hist_bins": int(dsp.hist_bins),
-            })
+        pass
 
     def load_settings(self, api) -> None:
-        s = api.get_settings(self._plugin_id)
-        self._default_hist_use_bars = s.get("hist_use_bars", self._default_hist_use_bars)
-        self._default_hist_use_log = s.get("hist_use_log", self._default_hist_use_log)
-        self._default_hist_bins = s.get("hist_bins", self._default_hist_bins)
+        pass
 
     def destroy(self) -> None:
         self._hist_stop.set()
