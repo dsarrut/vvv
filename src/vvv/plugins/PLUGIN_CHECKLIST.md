@@ -4,6 +4,13 @@ Use this checklist when implementing or reviewing a plugin.
 
 ---
 
+## Enabling / disabling
+
+- Set `order = -1` (any negative value) to disable a plugin without removing it from the codebase. Discovery instantiates it but does not register it, so no UI, no hooks, no cost at runtime.
+- Positive `order` controls sidebar position (lower = higher up). Default is 999.
+
+---
+
 ## Core lifecycle
 
 - [ ] `on_image_loaded(image_id)` — creates per-image state entry

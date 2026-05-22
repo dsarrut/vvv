@@ -42,6 +42,8 @@ def discover_plugins():
                 ):
                     try:
                         plugin_instance = attr()
+                        if getattr(plugin_instance, "order", 999) < 0:
+                            continue
                         plugins.append(plugin_instance)
                     except Exception as inst_err:
                         print(f"Error instantiating plugin {attr_name} from {full_module_name}: {inst_err}")
