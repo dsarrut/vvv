@@ -5,7 +5,7 @@ from .control_intensity import IntensityController
 
 class IntensityPlugin:
     plugin_id = "intensity_plugin"
-    label = "Intensity Plugin"
+    label = "Intensity"
     description = "Adjust window/level, colormaps, thresholds, and view the image histogram."
 
     def __init__(self):

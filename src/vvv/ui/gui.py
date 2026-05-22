@@ -15,7 +15,6 @@ from vvv.ui.ui_extraction import ExtractionUI
 from vvv.ui.ui_settings import SettingsWindow
 from vvv.plugins.plugin_api import PluginAPI
 from vvv.ui.ui_dicom import DicomBrowserWindow
-from vvv.ui.ui_intensities import IntensitiesUI
 from vvv.plugins.test_debug import DebugPlugin
 from vvv.plugins.dvf import DvfPlugin
 from vvv.plugins.intensity import IntensityPlugin
@@ -105,7 +104,6 @@ class MainGUI:
         self.dicom_window = DicomBrowserWindow(self.controller, self)
         self.interaction = InteractionManager(self, self.controller)
         self.fusion_ui = FusionUI(self, self.controller)
-        self.intensities_ui = IntensitiesUI(self, self.controller)
         self.roi_ui = RoiUI(self, self.controller)
         self.reg_ui = RegistrationUI(self, self.controller)
         self.contours_ui = ContoursUI(self, self.controller)
@@ -436,7 +434,6 @@ class MainGUI:
                 build_tab_images(self)
                 build_tab_sync(self)
                 self.fusion_ui.build_tab_fusion(self)
-                self.intensities_ui.build_tab_intensities(self)
                 self.roi_ui.build_tab_rois(self)
                 self.reg_ui.build_tab_reg(self)
                 self.extraction_ui.build_tab_extraction(self)
@@ -724,7 +721,6 @@ class MainGUI:
         # Sync the Fusion overlay values
         self.fusion_ui.sync_fusion_ui()
         sync_image_list_ui(self)
-        # self.intensities_ui.sync_wl_lines(viewer, vs)
 
         # Sync Interpolation mode text
         if vs.display.use_voxel_strips:
@@ -1636,7 +1632,6 @@ class MainGUI:
         self.refresh_rois_ui()
         self.fusion_ui.refresh_fusion_ui()
         self.reg_ui.refresh_reg_ui()
-        # self.intensities_ui.refresh_intensities_ui()
         self.contours_ui.refresh_contours_ui()
         self.extraction_ui.refresh_extraction_ui()
         self.profile_ui.refresh_profile_ui()
