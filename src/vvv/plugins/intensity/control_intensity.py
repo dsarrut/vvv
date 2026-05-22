@@ -206,7 +206,7 @@ class IntensityController:
                 vs_obj.full_hist_ready = True
                 self._api.request_refresh()
 
-            self._api._controller.status_message = "Computing accurate histogram..."
+            self._api.set_async_status("Computing accurate histogram...")
             vs.computing_full_hist = True
             threading.Thread(
                 target=_bg_compute,
@@ -217,7 +217,7 @@ class IntensityController:
         if getattr(vs, "full_hist_ready", False):
             vs.full_hist_ready = False
             force_update_series = True
-            self._api._controller.status_message = "Accurate histogram ready"
+            self._api.set_async_status("Accurate histogram ready")
 
         if force_update_series or sidebar_image_changed or popup_needs_update:
             use_log = vs.use_log_y
@@ -481,7 +481,7 @@ class IntensityController:
         if not viewer or not viewer.view_state:
             return
         viewer.view_state.apply_wl_preset(app_data)
-        self._api._controller.sync.propagate_window_level(viewer.image_id)
+        self._api.propagate_window_level(viewer.image_id)
         self._api.request_refresh()
 
     def on_ww_changed(self, sender, app_data, user_data):
@@ -493,7 +493,7 @@ class IntensityController:
         preset_tag = self._t("combo_wl_presets")
         if dpg.does_item_exist(preset_tag):
             dpg.set_value(preset_tag, "Custom")
-        self._api._controller.sync.propagate_window_level(viewer.image_id)
+        self._api.propagate_window_level(viewer.image_id)
 
     def on_wl_changed(self, sender, app_data, user_data):
         viewer = self._api.get_active_viewer()
@@ -504,14 +504,14 @@ class IntensityController:
         preset_tag = self._t("combo_wl_presets")
         if dpg.does_item_exist(preset_tag):
             dpg.set_value(preset_tag, "Custom")
-        self._api._controller.sync.propagate_window_level(viewer.image_id)
+        self._api.propagate_window_level(viewer.image_id)
 
     def on_colormap_changed(self, sender, app_data, user_data):
         viewer = self._api.get_active_viewer()
         if not viewer or not viewer.view_state:
             return
         viewer.view_state.display.colormap = app_data
-        self._api._controller.sync.propagate_colormap(viewer.image_id)
+        self._api.propagate_colormap(viewer.image_id)
 
     def on_threshold_changed(self, sender, app_data, user_data):
         viewer = self._api.get_active_viewer()
@@ -521,7 +521,7 @@ class IntensityController:
         check_tag = self._t("check_min_threshold")
         if dpg.does_item_exist(check_tag):
             dpg.set_value(check_tag, True)
-        self._api._controller.sync.propagate_window_level(viewer.image_id)
+        self._api.propagate_window_level(viewer.image_id)
 
     def on_threshold_toggle(self, sender, app_data, user_data):
         viewer = self._api.get_active_viewer()
@@ -533,7 +533,7 @@ class IntensityController:
             viewer.view_state.display.base_threshold = val
         else:
             viewer.view_state.display.base_threshold = None
-        self._api._controller.sync.propagate_window_level(viewer.image_id)
+        self._api.propagate_window_level(viewer.image_id)
         self._api.request_refresh()
 
     def _on_hist_drag_bound(self, app_data, fallback_tag):
@@ -553,7 +553,7 @@ class IntensityController:
         if dpg.does_item_exist(preset_tag):
             dpg.set_value(preset_tag, "Custom")
         self.sync_wl_lines(viewer, viewer.view_state)
-        self._api._controller.sync.propagate_window_level(viewer.image_id)
+        self._api.propagate_window_level(viewer.image_id)
 
     def _on_hist_drag_level(self, app_data, fallback_tag):
         pos = (
@@ -571,7 +571,7 @@ class IntensityController:
         if dpg.does_item_exist(preset_tag):
             dpg.set_value(preset_tag, "Custom")
         self.sync_wl_lines(viewer, viewer.view_state)
-        self._api._controller.sync.propagate_window_level(viewer.image_id)
+        self._api.propagate_window_level(viewer.image_id)
 
     def on_hist_drag_lower(self, _, app_data, __):
         self._on_hist_drag_bound(app_data, self._t("wl_hist_lower"))

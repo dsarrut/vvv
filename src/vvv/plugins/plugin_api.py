@@ -86,3 +86,15 @@ class PluginAPI:
 
     def notify(self, msg, color=None):
         self._gui.show_status_message(msg, color=color)
+
+    # --- Sync actions (wraps controller internals; keeps plugins off the controller directly) ---
+
+    def propagate_window_level(self, image_id):
+        self._controller.sync.propagate_window_level(image_id)
+
+    def propagate_colormap(self, image_id):
+        self._controller.sync.propagate_colormap(image_id)
+
+    def set_async_status(self, msg):
+        """Set a status message from a background thread (picked up by the main loop)."""
+        self._controller.status_message = msg

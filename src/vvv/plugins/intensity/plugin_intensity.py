@@ -20,3 +20,6 @@ class IntensityPlugin:
 
     def update(self, api: PluginAPI) -> None:
         self._controller.update(api)
+
+    def destroy(self) -> None:
+        pass

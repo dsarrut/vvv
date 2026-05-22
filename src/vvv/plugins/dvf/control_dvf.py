@@ -34,9 +34,6 @@ class DvfController:
         return None, False
 
     def update(self, api: PluginAPI) -> None:
-        if not api.is_dirty:
-            return
-
         viewer = api.get_active_viewer()
         target_vs, is_base = self._get_target_vs()
         is_dvf = target_vs is not None

@@ -88,7 +88,7 @@ class TestIntensityPlugin(unittest.TestCase):
         c.on_preset_changed(None, "CT: Bone", None)
         
         self.mock_viewer.view_state.apply_wl_preset.assert_called_with("CT: Bone")
-        self.mock_api._controller.sync.propagate_window_level.assert_called_with("test_img_id")
+        self.mock_api.propagate_window_level.assert_called_with("test_img_id")
         self.mock_api.request_refresh.assert_called()
 
     def test_ww_wl_changed(self):
@@ -101,7 +101,7 @@ class TestIntensityPlugin(unittest.TestCase):
         c.on_wl_changed(None, 60.0, None)
         self.assertEqual(self.mock_viewer.view_state.display.wl, 60.0)
         
-        self.mock_api._controller.sync.propagate_window_level.assert_called_with("test_img_id")
+        self.mock_api.propagate_window_level.assert_called_with("test_img_id")
 
     def test_colormap_changed(self):
         c = self.plugin._controller
@@ -109,7 +109,7 @@ class TestIntensityPlugin(unittest.TestCase):
         c.on_colormap_changed(None, "Hot", None)
         
         self.assertEqual(self.mock_viewer.view_state.display.colormap, "Hot")
-        self.mock_api._controller.sync.propagate_colormap.assert_called_with("test_img_id")
+        self.mock_api.propagate_colormap.assert_called_with("test_img_id")
 
     def test_threshold_callbacks(self):
         c = self.plugin._controller

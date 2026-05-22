@@ -1782,9 +1782,10 @@ class MainGUI:
             self.interaction.update_trackers()
             self.sync_bound_ui()
 
-            # Update Plugins
-            for plugin in self.plugins:
-                plugin.update(self.plugin_api)
+            # Update Plugins (only when state has changed)
+            if self.plugin_api.is_dirty:
+                for plugin in self.plugins:
+                    plugin.update(self.plugin_api)
 
             # Clear the flag only after all logic and plugins have seen it
             if ui_dirty:
@@ -1797,6 +1798,9 @@ class MainGUI:
             dpg.render_dearpygui_frame()
 
         # Shutdown sequence
+        for plugin in self.plugins:
+            plugin.destroy()
+
         cleanup_os_drop()  # null GLFW drop callback before DPG destroys the window
 
         auto_save = self.controller.settings.data.get("behavior", {}).get(

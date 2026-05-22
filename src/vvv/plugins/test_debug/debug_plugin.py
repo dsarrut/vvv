@@ -33,26 +33,20 @@ class DebugPlugin:
             dpg.add_separator()
 
     def update(self, api):
-        """Step 4: Update values from the PluginAPI."""
-        
-        # 1. Check mouse position (high frequency, might not trip is_dirty)
         mouse = np.array(api.get_mouse_position())
         if self._last_mouse is None or not np.array_equal(mouse, self._last_mouse):
             dpg.set_value(f"{self.plugin_id}_mouse", f"Px: {int(mouse[0])}, Py: {int(mouse[1])}")
             self._last_mouse = mouse
 
-        # 2. Early exit if the rest of the viewer state hasn't changed
-        if not api.is_dirty:
-            return
-
-        # Image Name
         img_name = api.get_active_image_name()
         if img_name != self._last_img_name:
             dpg.set_value(f"{self.plugin_id}_images", img_name)
             self._last_img_name = img_name
 
-        # Crosshair Coordinates (using numpy for robust float comparison)
         coords = np.array(api.get_crosshair_world())
         if self._last_coords is None or not np.allclose(coords, self._last_coords, atol=1e-3):
             dpg.set_value(f"{self.plugin_id}_coords", f"X: {coords[0]:.1f}, Y: {coords[1]:.1f}, Z: {coords[2]:.1f}")
             self._last_coords = coords
+
+    def destroy(self) -> None:
+        pass
