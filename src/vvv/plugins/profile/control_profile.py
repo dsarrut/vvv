@@ -40,6 +40,8 @@ class ProfilePluginController:
                     win_tag = self._t(f"plot_win_{p_id}")
                     if dpg.does_item_exist(win_tag):
                         dpg.delete_item(win_tag)
+        if self._ui:
+            self._ui._last_profile_key = None
 
     def serialize_image_state(self, _image_id: str) -> dict:
         return {}
@@ -287,10 +289,11 @@ class ProfilePluginController:
                 p.pt1_phys = new_val
             else:
                 p.pt2_phys = new_val
-            viewer.is_geometry_dirty = True
+            viewer.view_state.is_geometry_dirty = True
             if self._ui:
                 self._ui.update_plot_info(p)
                 self._ui.refresh_plot_series(p)
+            api.request_refresh()
 
     def on_toggle_log_clicked(self, sender, app_data, user_data):
         api = self._api
