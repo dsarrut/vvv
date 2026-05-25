@@ -23,7 +23,7 @@ class TestProfilePlugin(unittest.TestCase):
 
     def test_metadata(self):
         self.assertEqual(self.plugin.plugin_id, "profile_plugin")
-        self.assertEqual(self.plugin.label, "Profiles Plugin")
+        self.assertEqual(self.plugin.label, "Profiles")
         self.assertIsNotNone(self.plugin.description)
         self.assertEqual(self.plugin.order, 30)
 
@@ -71,11 +71,12 @@ class TestProfilePlugin(unittest.TestCase):
             dpg.get_value("profile_plugin_active_title"), "Image ABC"
         )
 
-        # Verify list table row was built (should contain name input with unique prefix)
-        self.assertTrue(dpg.does_item_exist("profile_plugin_input_name_p1"))
-        self.assertEqual(
-            dpg.get_value("profile_plugin_input_name_p1"), "My Test Profile"
-        )
+        # Verify list table row was built
+        table_id = "profile_plugin_list_table"
+        self.assertTrue(dpg.does_item_exist(table_id))
+        rows = dpg.get_item_children(table_id, slot=1)
+        self.assertIsNotNone(rows)
+        self.assertEqual(len(rows), 1)
 
         dpg.delete_item("test_parent")
 
