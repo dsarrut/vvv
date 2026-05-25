@@ -14,7 +14,7 @@ class DvfController:
         """Helper to update a slider only if the user isn't currently dragging it."""
         tag = self._t(tag_name)
         if dpg.does_item_exist(tag) and not dpg.is_item_active(tag):
-            dpg.set_value(tag, float(value))
+            dpg.set_value(tag, value)
 
     def bind(self, api: PluginAPI) -> None:
         self._api = api
@@ -51,7 +51,9 @@ class DvfController:
                 dpg.configure_item(active_title, color=col)
             else:
                 dpg.set_value(active_title, "No Image Selected")
-                dpg.configure_item(active_title, color=api.get_ui_config()["colors"]["text_active"])
+                dpg.configure_item(
+                    active_title, color=api.get_ui_config()["colors"]["text_active"]
+                )
 
         warning_tag = self._t("warning")
         if dpg.does_item_exist(warning_tag):
@@ -92,7 +94,10 @@ class DvfController:
         ]:
             self._sync_float(tag_name, getattr(dvf_state, attr))
 
-        for tag_name, prop in [("color_min", "vector_color_min"), ("color_max", "vector_color_max")]:
+        for tag_name, prop in [
+            ("color_min", "vector_color_min"),
+            ("color_max", "vector_color_max"),
+        ]:
             tag = self._t(tag_name)
             if dpg.does_item_exist(tag):
                 raw_ui_col = dpg.get_value(tag)[:4]
