@@ -2,6 +2,9 @@ import importlib
 import pkgutil
 import os
 
+from vvv.plugins.plugin_api import PluginProtocol
+
+
 def discover_plugins():
     """
     Dynamically discovers and instantiates plugins in the vvv.plugins package.
@@ -32,21 +35,22 @@ def discover_plugins():
                     continue
                 attr = getattr(module, attr_name)
                 
-                # Check if it is a class and implements the duck-typed Plugin interface
-                if (
+                if not (
                     isinstance(attr, type)
                     and hasattr(attr, "plugin_id")
-                    and hasattr(attr, "label")
                     and hasattr(attr, "create_ui")
-                    and hasattr(attr, "update")
                 ):
-                    try:
-                        plugin_instance = attr()
-                        if getattr(plugin_instance, "order", 999) < 0:
-                            continue
-                        plugins.append(plugin_instance)
-                    except Exception as inst_err:
-                        print(f"Error instantiating plugin {attr_name} from {full_module_name}: {inst_err}")
+                    continue
+                try:
+                    plugin_instance = attr()
+                    if not isinstance(plugin_instance, PluginProtocol):
+                        print(f"Plugin {attr_name} from {full_module_name} does not fully implement PluginProtocol")
+                        continue
+                    if getattr(plugin_instance, "order", 999) < 0:
+                        continue
+                    plugins.append(plugin_instance)
+                except Exception as inst_err:
+                    print(f"Error instantiating plugin {attr_name} from {full_module_name}: {inst_err}")
         except Exception as imp_err:
             # Prevent import errors in a single plugin from crashing the whole app
             print(f"Error importing plugin module {full_module_name}: {imp_err}")

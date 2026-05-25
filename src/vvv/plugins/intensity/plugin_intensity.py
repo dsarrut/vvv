@@ -1,9 +1,9 @@
-from vvv.plugins.plugin_api import PluginAPI
+from vvv.plugins.plugin_api import PluginAPI, PluginProtocol
 from .ui_intensity import IntensityUI
 from .control_intensity import IntensityController
 
 
-class IntensityPlugin:
+class IntensityPlugin(PluginProtocol):
     plugin_id = "intensity_plugin"
     label = "Intensity"
     description = "Adjust window/level, colormaps, thresholds, and view the image histogram."

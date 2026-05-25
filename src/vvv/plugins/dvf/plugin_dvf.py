@@ -1,9 +1,9 @@
-from vvv.plugins.plugin_api import PluginAPI
+from vvv.plugins.plugin_api import PluginAPI, PluginProtocol
 from .ui_dvf import DvfUI
 from .control_dvf import DvfController
 
 
-class DvfPlugin:
+class DvfPlugin(PluginProtocol):
     plugin_id = "dvf"
     label = "DVF"
     description = "Displacement Vector Fields visualization."

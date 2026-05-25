@@ -1,9 +1,9 @@
-from vvv.plugins.plugin_api import PluginAPI
+from vvv.plugins.plugin_api import PluginAPI, PluginProtocol
 from .ui_profile import ProfilePluginUI
 from .control_profile import ProfilePluginController
 
 
-class ProfilePlugin:
+class ProfilePlugin(PluginProtocol):
     plugin_id = "profile_plugin"
     label = "Profiles"
     description = "Interactive Intensity Profiles"

@@ -3,6 +3,23 @@ from unittest.mock import MagicMock
 from vvv.plugins.plugin_api import PluginAPI
 
 
+class _MockPlugin:
+    """Minimal valid PluginProtocol implementation for tests."""
+    plugin_id = "mock"
+    label = "Mock"
+    order = 999
+
+    def create_ui(self, parent, api): pass
+    def update(self, api): pass
+    def on_image_loaded(self, _image_id): pass
+    def on_image_removed(self, _image_id): pass
+    def serialize_image_state(self, _image_id): return {}
+    def restore_image_state(self, _image_id, _data): pass
+    def save_settings(self, api): pass
+    def load_settings(self, api): pass
+    def destroy(self): pass
+
+
 class TestPluginAPI(unittest.TestCase):
     def setUp(self):
         self.mock_gui = MagicMock()
@@ -93,26 +110,20 @@ class TestPluginAPI(unittest.TestCase):
         
         with patch("pkgutil.iter_modules", return_value=mock_modules):
             with patch("importlib.import_module") as mock_import:
-                class MockP1:
+                class MockP1(_MockPlugin):
                     plugin_id = "p1"
                     label = "P1"
                     order = 50
-                    def create_ui(self, parent, api): pass
-                    def update(self, api): pass
-                    
-                class MockP2:
+
+                class MockP2(_MockPlugin):
                     plugin_id = "p2"
                     label = "P2"
-                    # no order attribute
-                    def create_ui(self, parent, api): pass
-                    def update(self, api): pass
-                    
-                class MockP3:
+                    # no order attribute — falls back to _MockPlugin.order (999)
+
+                class MockP3(_MockPlugin):
                     plugin_id = "p3"
                     label = "P3"
                     order = 10
-                    def create_ui(self, parent, api): pass
-                    def update(self, api): pass
                     
                 modules_map = {
                     "vvv.plugins.p1": MagicMock(MockP1=MockP1, __dir__=lambda *a: ["MockP1"]),
@@ -141,11 +152,9 @@ class TestPluginAPI(unittest.TestCase):
                     if "broken_plugin" in name:
                         raise ImportError("Mocked import error")
                     if "intensity" in name:
-                        class MockPluginClass:
+                        class MockPluginClass(_MockPlugin):
                             plugin_id = "mock_intensity"
                             label = "Mock Intensity"
-                            def create_ui(self, parent, api): pass
-                            def update(self, api): pass
                         mock_mod = MagicMock()
                         mock_mod.MockPluginClass = MockPluginClass
                         mock_mod.__dir__ = lambda *a, **kw: ["MockPluginClass"]

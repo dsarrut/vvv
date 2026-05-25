@@ -1,9 +1,9 @@
-from vvv.plugins.plugin_api import PluginAPI
+from vvv.plugins.plugin_api import PluginAPI, PluginProtocol
 from .ui_threshold import ThresholdUI
 from .control_threshold import ThresholdController
 
 
-class ThresholdPlugin:
+class ThresholdPlugin(PluginProtocol):
     plugin_id = "threshold_plugin"
     label = "Threshold Plugin"
     description = "Interactive Thresholding and Image Mask Generation (Plugin version)."
