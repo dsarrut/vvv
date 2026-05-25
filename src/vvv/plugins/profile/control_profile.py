@@ -5,6 +5,7 @@ import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI
 from vvv.utils import ViewMode, voxel_to_slice, slice_to_voxel
 from vvv.ui.file_dialog import save_file_dialog
+from vvv.core.view_state import ProfileLineState
 
 
 class ProfilePluginController:
@@ -36,15 +37,29 @@ class ProfilePluginController:
             vs = self._api.get_view_states().get(image_id)
             if vs:
                 for p_id in vs.profiles:
-                    win_tag = f"profile_plugin_plot_win_{p_id}"
+                    win_tag = self._t(f"plot_win_{p_id}")
                     if dpg.does_item_exist(win_tag):
                         dpg.delete_item(win_tag)
 
     def serialize_image_state(self, image_id: str) -> dict:
-        return {}
+        if not self._api:
+            return {}
+        vs = self._api.get_view_states().get(image_id)
+        if not vs:
+            return {}
+        return {"profiles": {p_id: p.to_dict() for p_id, p in vs.profiles.items()}}
 
     def restore_image_state(self, image_id: str, data: dict) -> None:
-        pass
+        if not self._api:
+            return
+        vs = self._api.get_view_states().get(image_id)
+        if not vs:
+            return
+        vs.profiles.clear()
+        for p_id, p_data in data.get("profiles", {}).items():
+            p = ProfileLineState()
+            p.from_dict(p_data)
+            vs.profiles[p_id] = p
 
     def save_settings(self, api: PluginAPI) -> None:
         pass
@@ -56,7 +71,7 @@ class ProfilePluginController:
         if self._api:
             for vs in self._api.get_view_states().values():
                 for p_id in vs.profiles:
-                    win_tag = f"profile_plugin_plot_win_{p_id}"
+                    win_tag = self._t(f"plot_win_{p_id}")
                     if dpg.does_item_exist(win_tag):
                         dpg.delete_item(win_tag)
 
@@ -88,9 +103,10 @@ class ProfilePluginController:
         profile = viewer.view_state.profiles.get(user_data)
         if profile:
             profile.name = app_data
-            win_tag = f"profile_plugin_plot_win_{profile.id}"
+            win_tag = self._t(f"plot_win_{profile.id}")
             if dpg.does_item_exist(win_tag):
-                dpg.configure_item(win_tag, label=f"Profile: {profile.name} (Plugin)")
+                image_name, _ = self._api.get_image_display_name(viewer.image_id)
+                dpg.configure_item(win_tag, label=f"Profile: {profile.name} [{image_name}]")
             self._api.request_refresh()
 
     def on_delete_clicked(self, sender, app_data, user_data):
@@ -101,7 +117,7 @@ class ProfilePluginController:
         if profile_id in viewer.view_state.profiles:
             del viewer.view_state.profiles[profile_id]
 
-            win_tag = f"profile_plugin_plot_win_{profile_id}"
+            win_tag = self._t(f"plot_win_{profile_id}")
             if dpg.does_item_exist(win_tag):
                 dpg.delete_item(win_tag)
 

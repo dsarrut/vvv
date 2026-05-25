@@ -183,7 +183,7 @@ class ProfilePluginUI:
             return
 
         p_id = user_data
-        win_tag = f"profile_plugin_plot_win_{p_id}"
+        win_tag = self._t(f"plot_win_{p_id}")
         if dpg.does_item_exist(win_tag):
             self.on_plot_closed(win_tag, None, p_id)
             return
@@ -192,9 +192,10 @@ class ProfilePluginUI:
         if not profile:
             return
 
+        image_name, _ = self._c._api.get_image_display_name(viewer.image_id)
         with dpg.window(
             tag=win_tag,
-            label=f"Profile: {profile.name} (Plugin)",
+            label=f"Profile: {profile.name} [{image_name}]",
             width=450,
             height=550,
             on_close=self.on_plot_closed,
@@ -322,7 +323,7 @@ class ProfilePluginUI:
         ori_str = ORI_MAP.get(profile.orientation, "??")
         dpg.add_text(
             f"Orientation: {ori_str} | Slice: {profile.slice_idx}",
-            tag=f"profile_plugin_plot_header_text_{profile.id}",
+            tag=self._t(f"plot_header_text_{profile.id}"),
             color=cfg_c["text_dim"],
         )
 
@@ -330,12 +331,12 @@ class ProfilePluginUI:
 
         with dpg.plot(label="", height=300, width=-1):
             dpg.add_plot_axis(
-                dpg.mvXAxis, label="Distance (mm)", tag=f"profile_plugin_xaxis_{profile.id}"
+                dpg.mvXAxis, label="Distance (mm)", tag=self._t(f"xaxis_{profile.id}")
             )
             y_axis = dpg.add_plot_axis(
                 dpg.mvYAxis,
                 label="Intensity",
-                tag=f"profile_plugin_yaxis_{profile.id}",
+                tag=self._t(f"yaxis_{profile.id}"),
                 log_scale=getattr(profile, "use_log", False),
             )
             dpg.add_line_series(
@@ -343,7 +344,7 @@ class ProfilePluginUI:
                 intensities,
                 label=profile.name,
                 parent=y_axis,
-                tag=f"profile_plugin_series_{profile.id}",
+                tag=self._t(f"series_{profile.id}"),
             )
 
         dpg.add_separator()
@@ -352,7 +353,7 @@ class ProfilePluginUI:
             with dpg.group(horizontal=True):
                 dpg.add_text(f"P{i} (mm):")
                 dpg.add_input_floatx(
-                    tag=f"profile_plugin_input_phys_p{i}_{profile.id}",
+                    tag=self._t(f"input_phys_p{i}_{profile.id}"),
                     size=3,
                     width=-1,
                     callback=self._c.on_profile_coord_edited,
@@ -360,7 +361,7 @@ class ProfilePluginUI:
                 )
             dpg.add_text(
                 "Voxel: [---]",
-                tag=f"profile_plugin_text_vox_p{i}_{profile.id}",
+                tag=self._t(f"text_vox_p{i}_{profile.id}"),
                 color=cfg_c["text_dim"],
             )
 
@@ -393,7 +394,7 @@ class ProfilePluginUI:
             )
 
     def rebuild_plot_window_contents(self, profile):
-        win_tag = f"profile_plugin_plot_win_{profile.id}"
+        win_tag = self._t(f"plot_win_{profile.id}")
         if dpg.does_item_exist(win_tag):
             dpg.delete_item(win_tag, children_only=True)
             dpg.push_container_stack(win_tag)
@@ -408,8 +409,8 @@ class ProfilePluginUI:
             return
         vs = viewer.view_state
         for i, pt_phys in enumerate([profile.pt1_phys, profile.pt2_phys], 1):
-            input_tag = f"profile_plugin_input_phys_p{i}_{profile.id}"
-            vox_tag = f"profile_plugin_text_vox_p{i}_{profile.id}"
+            input_tag = self._t(f"input_phys_p{i}_{profile.id}")
+            vox_tag = self._t(f"text_vox_p{i}_{profile.id}")
 
             if dpg.does_item_exist(input_tag) and not dpg.is_item_active(input_tag):
                 dpg.set_value(input_tag, pt_phys.tolist())
@@ -420,7 +421,7 @@ class ProfilePluginUI:
                 dpg.set_value(vox_tag, f"Voxel: [{vox_str}]")
 
     def update_plot_header(self, profile):
-        header_tag = f"profile_plugin_plot_header_text_{profile.id}"
+        header_tag = self._t(f"plot_header_text_{profile.id}")
         if dpg.does_item_exist(header_tag):
             ori_str = ORI_MAP.get(profile.orientation, "??")
             dpg.set_value(header_tag, f"Orientation: {ori_str} | Slice: {profile.slice_idx}")
@@ -430,16 +431,16 @@ class ProfilePluginUI:
         if not viewer or not viewer.image_id:
             return
         distances, intensities = self._c._api.get_profile_data(viewer.image_id, profile)
-        series_tag = f"profile_plugin_series_{profile.id}"
+        series_tag = self._t(f"series_{profile.id}")
         if dpg.does_item_exist(series_tag) and distances is not None:
             dpg.set_value(series_tag, [distances, intensities])
 
     def on_fit_plot_clicked(self, sender, app_data, user_data):
         p_id = user_data
-        if dpg.does_item_exist(f"profile_plugin_xaxis_{p_id}"):
-            dpg.fit_axis_data(f"profile_plugin_xaxis_{p_id}")
-        if dpg.does_item_exist(f"profile_plugin_yaxis_{p_id}"):
-            dpg.fit_axis_data(f"profile_plugin_yaxis_{p_id}")
+        if dpg.does_item_exist(self._t(f"xaxis_{p_id}")):
+            dpg.fit_axis_data(self._t(f"xaxis_{p_id}"))
+        if dpg.does_item_exist(self._t(f"yaxis_{p_id}")):
+            dpg.fit_axis_data(self._t(f"yaxis_{p_id}"))
 
     def on_plot_closed(self, sender, app_data, user_data):
         dpg.delete_item(sender)
