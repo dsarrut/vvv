@@ -1,5 +1,5 @@
 import dearpygui.dearpygui as dpg
-from vvv.ui.ui_components import build_section_title, build_help_button
+from vvv.ui.ui_components import build_section_title, build_help_button, build_beginner_tooltip
 from vvv.utils import ViewMode, fmt
 from .control_profile import ProfilePluginController
 
@@ -25,17 +25,28 @@ class ProfilePluginUI:
         with dpg.group(parent=parent or 0, tag=self._plugin_id):
             build_section_title("Profiles Plugin", cfg_c["text_header"])
 
-            dpg.add_text(
+            active_title = dpg.add_text(
                 "No Image Selected",
                 tag=self._t("active_title"),
                 color=cfg_c["text_active"],
             )
+            build_beginner_tooltip(
+                active_title,
+                "The currently active image. Profiles you draw belong to this image.",
+                api,
+            )
 
             with dpg.group(horizontal=True):
-                dpg.add_button(
+                btn_add = dpg.add_button(
                     label="Add Profile (P)",
                     tag=self._t("btn_add"),
                     callback=self._c.on_btn_add_clicked,
+                )
+                build_beginner_tooltip(
+                    btn_add,
+                    "Adds a new intensity profile line to the active image.\n"
+                    "You can also press P while hovering over a viewer.",
+                    api,
                 )
                 build_help_button(
                     "Press P (configurable in Settings > Shortcuts) to add a new\n"
@@ -185,7 +196,10 @@ class ProfilePluginUI:
         dpg.set_y_scroll(table_id, current_scroll)
 
     def on_plot_clicked(self, sender, app_data, user_data):
-        viewer = self._c._api.get_active_viewer() if self._c._api else None
+        api = self._c._api
+        if not api:
+            return
+        viewer = api.get_active_viewer()
         if not viewer or not viewer.image_id:
             return
 
@@ -199,7 +213,7 @@ class ProfilePluginUI:
         if not profile:
             return
 
-        image_name, _ = self._c._api.get_image_display_name(viewer.image_id)
+        image_name, _ = api.get_image_display_name(viewer.image_id)
         with dpg.window(
             tag=win_tag,
             label=f"Profile: {profile.name} [{image_name}]",
@@ -222,16 +236,19 @@ class ProfilePluginUI:
         self.update_plot_info(profile)
 
     def build_plot_window_contents(self, profile):
-        viewer = self._c._api.get_active_viewer() if self._c._api else None
+        api = self._c._api
+        if not api:
+            return
+        viewer = api.get_active_viewer()
         if not viewer or not viewer.image_id:
             return
 
-        distances, intensities = self._c._api.get_profile_data(viewer.image_id, profile)
+        distances, intensities = api.get_profile_data(viewer.image_id, profile)
         if distances is None or intensities is None:
             return
 
         p_id = profile.id
-        cfg_c = self._c._api.get_ui_config()["colors"]
+        cfg_c = api.get_ui_config()["colors"]
 
         # --- Header Toolbar ---
         with dpg.group(horizontal=True):
@@ -434,10 +451,13 @@ class ProfilePluginUI:
             dpg.set_value(header_tag, f"Orientation: {ori_str} | Slice: {profile.slice_idx}")
 
     def refresh_plot_series(self, profile):
-        viewer = self._c._api.get_active_viewer() if self._c._api else None
+        api = self._c._api
+        if not api:
+            return
+        viewer = api.get_active_viewer()
         if not viewer or not viewer.image_id:
             return
-        distances, intensities = self._c._api.get_profile_data(viewer.image_id, profile)
+        distances, intensities = api.get_profile_data(viewer.image_id, profile)
         series_tag = self._t(f"series_{profile.id}")
         if dpg.does_item_exist(series_tag) and distances is not None:
             dpg.set_value(series_tag, [distances, intensities])
