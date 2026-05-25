@@ -17,7 +17,6 @@ from vvv.ui.ui_dicom import DicomBrowserWindow
 from vvv.plugins import discover_plugins
 from vvv.ui.ui_registration import RegistrationUI
 from vvv.resources import load_fonts, setup_themes
-from vvv.ui.ui_profile import ProfileUI
 from vvv.ui.ui_interaction import InteractionManager
 from vvv.ui.ui_components import build_section_title, build_help_button
 from vvv.ui.ui_components import build_beginner_tooltip # Added this line
@@ -104,7 +103,6 @@ class MainGUI:
         self.roi_ui = RoiUI(self, self.controller)
         self.reg_ui = RegistrationUI(self, self.controller)
         self.contours_ui = ContoursUI(self, self.controller)
-        self.profile_ui = ProfileUI(self, self.controller)
 
         # Initialize plugin list before building layout to avoid AttributeErrors
         self.plugins = []
@@ -358,7 +356,6 @@ class MainGUI:
                     ("Fusion", "tab_fusion"),
                     ("ROIs", "tab_rois"),
                     ("Reg", "tab_reg"),
-                    ("Profiles", "tab_profile"),
                 ]
 
                 # Add Registered Plugins to navigation
@@ -371,7 +368,6 @@ class MainGUI:
                     "tab_fusion": "Blend secondary images.",
                     "tab_rois": "Manage regions of interest.",
                     "tab_reg": "Apply rigid transformations.",
-                    "tab_profile": "Draw intensity profiles.",
                 }
                 for plugin in self.plugins:
                     tooltip_texts[plugin.plugin_id] = plugin.description
@@ -436,7 +432,6 @@ class MainGUI:
                 self.fusion_ui.build_tab_fusion(self)
                 self.roi_ui.build_tab_rois(self)
                 self.reg_ui.build_tab_reg(self)
-                self.profile_ui.build_tab_profile(self)
                 
                 # Render Plugins
                 for plugin in self.plugins:
@@ -1635,7 +1630,6 @@ class MainGUI:
         self.fusion_ui.refresh_fusion_ui()
         self.reg_ui.refresh_reg_ui()
         self.contours_ui.refresh_contours_ui()
-        self.profile_ui.refresh_profile_ui()
 
         self._init_rendering_menu()
 

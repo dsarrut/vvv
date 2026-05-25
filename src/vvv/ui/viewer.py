@@ -2388,12 +2388,9 @@ class SliceViewer:
                     p.slice_idx = self.slice_idx
                     self.view_state.profiles[p.id] = p
                     if self.controller.gui:
-                        if dpg.is_item_shown("profile_plugin"):
-                            profile_plugin = next((pl for pl in self.controller.gui.plugins if pl.plugin_id == "profile_plugin"), None)
-                            if profile_plugin:
-                                profile_plugin._ui.on_plot_clicked(None, None, p.id)
-                        else:
-                            self.controller.gui.profile_ui.on_profile_clicked(None, None, p.id)
+                        profile_plugin = next((pl for pl in self.controller.gui.plugins if pl.plugin_id == "profile_plugin"), None)
+                        if profile_plugin:
+                            profile_plugin._ui.on_plot_clicked(None, None, p.id)
                     self.controller.status_message = "Profile created"
                     self.is_geometry_dirty = True
                 self.controller.ui_needs_refresh = True

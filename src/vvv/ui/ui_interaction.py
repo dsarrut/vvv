@@ -139,19 +139,6 @@ class NavigationTool:
     def _update_profile_plot(self, profile):
         if self.drag_viewer is None:
             return
-        win_tag = f"plot_win_{profile.id}"
-        if dpg.does_item_exist(win_tag):
-            distances, intensities = self.manager.controller.profiles.get_profile_data(
-                self.drag_viewer.image_id, profile
-            )
-            if distances:
-                dpg.set_value(f"series_{profile.id}", [distances, intensities])
-
-            # Update mm/voxel info text in the plot window
-            self.manager.gui.profile_ui.update_plot_info(
-                self.drag_viewer.image_id, profile
-            )
-
         plugin_win_tag = f"profile_plugin_plot_win_{profile.id}"
         if dpg.does_item_exist(plugin_win_tag):
             profile_plugin = next((p for p in self.manager.gui.plugins if p.plugin_id == "profile_plugin"), None)

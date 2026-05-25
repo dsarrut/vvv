@@ -1,8 +1,9 @@
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import build_section_title, build_help_button
-from vvv.ui.ui_profile import ORI_MAP
-from vvv.utils import fmt
+from vvv.utils import ViewMode, fmt
 from .control_profile import ProfilePluginController
+
+ORI_MAP = {ViewMode.AXIAL: "XY", ViewMode.SAGITTAL: "YZ", ViewMode.CORONAL: "XZ"}
 
 
 class ProfilePluginUI:

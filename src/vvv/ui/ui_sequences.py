@@ -962,7 +962,9 @@ def load_workspace_sequence(gui, controller, filepath):
         vs = controller.view_states[new_id]
         for p_id, p in vs.profiles.items():
             if getattr(p, "plot_open", False):
-                gui.profile_ui.on_profile_clicked(None, None, p_id)
+                profile_plugin = next((pl for pl in gui.plugins if pl.plugin_id == "profile_plugin"), None)
+                if profile_plugin:
+                    profile_plugin._ui.on_plot_clicked(None, None, p_id)
 
     controller.ui_needs_refresh = True
     gui.on_window_resize()
