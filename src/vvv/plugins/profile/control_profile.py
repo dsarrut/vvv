@@ -1,5 +1,6 @@
 import json
 import math
+from typing import Optional
 import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI
@@ -12,7 +13,7 @@ class ProfilePluginController:
 
     def __init__(self, plugin_id: str):
         self._plugin_id = plugin_id
-        self._api = None
+        self._api: Optional[PluginAPI] = None
         self._ui = None
 
     def _t(self, name: str) -> str:
@@ -72,17 +73,23 @@ class ProfilePluginController:
         viewer.on_key_press(dpg.mvKey_P)
 
     def on_color_changed(self, sender, app_data, user_data):
-        viewer = self._api.get_active_viewer() if self._api else None
+        api = self._api
+        if not api:
+            return
+        viewer = api.get_active_viewer()
         if not viewer or not viewer.view_state:
             return
         profile = viewer.view_state.profiles.get(user_data)
         if profile:
             profile.color = [int(c * 255) for c in app_data[:4]]
             viewer.view_state.is_geometry_dirty = True
-            self._api.request_refresh()
+            api.request_refresh()
 
     def on_profile_name_changed(self, sender, app_data, user_data):
-        viewer = self._api.get_active_viewer() if self._api else None
+        api = self._api
+        if not api:
+            return
+        viewer = api.get_active_viewer()
         if not viewer or not viewer.view_state:
             return
         profile = viewer.view_state.profiles.get(user_data)
@@ -90,12 +97,15 @@ class ProfilePluginController:
             profile.name = app_data
             win_tag = self._t(f"plot_win_{profile.id}")
             if dpg.does_item_exist(win_tag):
-                image_name, _ = self._api.get_image_display_name(viewer.image_id)
+                image_name, _ = api.get_image_display_name(viewer.image_id)
                 dpg.configure_item(win_tag, label=f"Profile: {profile.name} [{image_name}]")
-            self._api.request_refresh()
+            api.request_refresh()
 
     def on_delete_clicked(self, sender, app_data, user_data):
-        viewer = self._api.get_active_viewer() if self._api else None
+        api = self._api
+        if not api:
+            return
+        viewer = api.get_active_viewer()
         if not viewer or not viewer.view_state:
             return
         profile_id = user_data
@@ -107,10 +117,13 @@ class ProfilePluginController:
                 dpg.delete_item(win_tag)
 
             viewer.view_state.is_geometry_dirty = True
-            self._api.request_refresh()
+            api.request_refresh()
 
     def on_align_clicked(self, sender, app_data, user_data):
-        viewer = self._api.get_active_viewer() if self._api else None
+        api = self._api
+        if not api:
+            return
+        viewer = api.get_active_viewer()
         if not viewer or not viewer.view_state:
             return
 
@@ -152,10 +165,13 @@ class ProfilePluginController:
             self._ui.update_plot_header(p)
             self._ui.update_plot_info(p)
             self._ui.refresh_plot_series(p)
-        self._api.request_refresh()
+        api.request_refresh()
 
     def on_snap_clicked(self, sender, app_data, user_data):
-        viewer = self._api.get_active_viewer() if self._api else None
+        api = self._api
+        if not api:
+            return
+        viewer = api.get_active_viewer()
         if not viewer or not viewer.view_state:
             return
 
@@ -179,10 +195,13 @@ class ProfilePluginController:
             if self._ui:
                 self._ui.update_plot_info(p)
                 self._ui.refresh_plot_series(p)
-            self._api.request_refresh()
+            api.request_refresh()
 
     def on_goto_clicked(self, sender, app_data, user_data):
-        viewer = self._api.get_active_viewer() if self._api else None
+        api = self._api
+        if not api:
+            return
+        viewer = api.get_active_viewer()
         if not viewer or not viewer.view_state:
             return
         profile = viewer.view_state.profiles.get(user_data)
@@ -204,12 +223,15 @@ class ProfilePluginController:
         vs.camera.target_center = mid_phys
         vs.update_crosshair_from_phys(mid_phys)
 
-        self._api.propagate_sync(viewer.image_id)
-        self._api.request_refresh()
+        api.propagate_sync(viewer.image_id)
+        api.request_refresh()
 
     def on_change_slice_clicked(self, sender, app_data, user_data):
+        api = self._api
+        if not api:
+            return
         p_id, delta = user_data
-        viewer = self._api.get_active_viewer() if self._api else None
+        viewer = api.get_active_viewer()
         if not viewer or not viewer.view_state:
             return
         vs = viewer.view_state
@@ -241,17 +263,20 @@ class ProfilePluginController:
         p.pt2_phys = vs.display_to_world(v2, is_buffered=is_buf)
 
         viewer.slice_idx = p.slice_idx
-        self._api.propagate_sync(viewer.image_id)
+        api.propagate_sync(viewer.image_id)
 
         vs.is_geometry_dirty = True
         if self._ui:
             self._ui.update_plot_header(p)
             self._ui.update_plot_info(p)
             self._ui.refresh_plot_series(p)
-        self._api.request_refresh()
+        api.request_refresh()
 
     def on_profile_coord_edited(self, sender, app_data, user_data):
-        viewer = self._api.get_active_viewer() if self._api else None
+        api = self._api
+        if not api:
+            return
+        viewer = api.get_active_viewer()
         if not viewer or not viewer.view_state:
             return
         p_id, pt_idx = user_data["id"], user_data["pt"]
@@ -268,8 +293,11 @@ class ProfilePluginController:
                 self._ui.refresh_plot_series(p)
 
     def on_toggle_log_clicked(self, sender, app_data, user_data):
+        api = self._api
+        if not api:
+            return
         p_id = user_data
-        viewer = self._api.get_active_viewer() if self._api else None
+        viewer = api.get_active_viewer()
         if not viewer or not viewer.view_state:
             return
         p = viewer.view_state.profiles.get(p_id)
@@ -279,7 +307,10 @@ class ProfilePluginController:
                 self._ui.rebuild_plot_window_contents(p)
 
     def on_export_profile_clicked(self, sender, app_data, user_data):
-        viewer = self._api.get_active_viewer() if self._api else None
+        api = self._api
+        if not api:
+            return
+        viewer = api.get_active_viewer()
         if not viewer or not viewer.image_id:
             return
         p = viewer.view_state.profiles.get(user_data)
@@ -289,10 +320,10 @@ class ProfilePluginController:
         default_name = f"profile_plugin_{p.name.replace(' ', '_')}.json"
         file_path = save_file_dialog("Export Profile Data", default_name=default_name)
         if file_path:
-            data = self._api.get_full_export_data(viewer.image_id, p)
+            data = api.get_full_export_data(viewer.image_id, p)
             try:
                 with open(file_path, "w") as f:
                     json.dump(data, f, indent=4)
-                self._api.notify(f"Exported: {p.name}")
+                api.notify(f"Exported: {p.name}")
             except Exception as e:
-                self._api.notify(f"Export Failed: {e}")
+                api.notify(f"Export Failed: {e}")

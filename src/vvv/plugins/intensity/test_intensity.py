@@ -125,6 +125,7 @@ class TestIntensityPlugin(unittest.TestCase):
         # Center — sets x_center/x_range from current wl/ww
         c.on_hist_center(None, None, None)
         self.assertEqual(hs.x_center, 50.0)
+        assert hs.x_range is not None
         self.assertAlmostEqual(hs.x_range, 100.0 / 0.3)
 
         # Log toggle — flips use_log, resets y_max
