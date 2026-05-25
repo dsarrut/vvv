@@ -95,6 +95,15 @@ class PluginAPI:
     def propagate_colormap(self, image_id):
         self._controller.sync.propagate_colormap(image_id)
 
+    def propagate_sync(self, image_id):
+        self._controller.sync.propagate_sync(image_id)
+
+    def get_profile_data(self, image_id, profile):
+        return self._controller.profiles.get_profile_data(image_id, profile)
+
+    def get_full_export_data(self, image_id, profile):
+        return self._controller.profiles.get_full_export_data(image_id, profile)
+
     def set_async_status(self, msg):
         """Set a status message from a background thread (picked up by the main loop)."""
         self._controller.status_message = msg

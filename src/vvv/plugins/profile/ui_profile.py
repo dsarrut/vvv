@@ -1,7 +1,8 @@
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import build_section_title, build_help_button
 from vvv.ui.ui_profile import ORI_MAP
-from .control_profile import ProfilePluginController, MockProfile
+from vvv.utils import fmt
+from .control_profile import ProfilePluginController
 
 
 class ProfilePluginUI:
@@ -35,10 +36,11 @@ class ProfilePluginUI:
                     callback=self._c.on_btn_add_clicked,
                 )
                 build_help_button(
-                    "Profiles Plugin (UI-only for now).\n\n"
-                    "Pressing the Add button generates a mock profile entry in the table.\n"
-                    "Click the plot icon () in the list to open the mock intensity curve window.\n"
-                    "You can rename mock profiles, edit colors, and open multiple plot windows.",
+                    "Press P (configurable in Settings > Shortcuts) to add a new\n"
+                    "intensity profile on the active slice. A horizontal line will\n"
+                    "appear at the center of the view.\n\n"
+                    "Drag the endpoints directly on the image to reposition it.\n"
+                    "Click the plot icon () in the list to open the intensity curve.",
                     api,
                 )
 
@@ -70,7 +72,7 @@ class ProfilePluginUI:
         if dpg.does_item_exist(active_title):
             if has_image:
                 name_str, is_outdated = api.get_image_display_name(viewer.image_id)
-                dpg.set_value(active_title, f"{name_str} [Plugin UI Only]")
+                dpg.set_value(active_title, name_str)
                 col = (
                     api.get_ui_config()["colors"]["outdated"]
                     if is_outdated
@@ -94,8 +96,7 @@ class ProfilePluginUI:
         if not has_image:
             return
 
-        state = self._c.get_image_state(viewer.image_id)
-        for p_id, profile in state.profiles.items():
+        for p_id, profile in viewer.view_state.profiles.items():
             with dpg.table_row(parent=table_id):
                 # Color picker
                 dpg.add_color_edit(
@@ -124,7 +125,7 @@ class ProfilePluginUI:
                 )
                 self._bind_icon_font(btn_plot)
                 with dpg.tooltip(btn_plot):
-                    dpg.add_text("Open mock intensity plot")
+                    dpg.add_text("Open intensity plot")
 
                 # Horizontal alignment
                 btn_h = dpg.add_button(
@@ -134,7 +135,7 @@ class ProfilePluginUI:
                 )
                 self._bind_icon_font(btn_h)
                 with dpg.tooltip(btn_h):
-                    dpg.add_text("Align purely horizontal (stub)")
+                    dpg.add_text("Align purely horizontal on current slice")
 
                 # Vertical alignment
                 btn_v = dpg.add_button(
@@ -144,7 +145,7 @@ class ProfilePluginUI:
                 )
                 self._bind_icon_font(btn_v)
                 with dpg.tooltip(btn_v):
-                    dpg.add_text("Align purely vertical (stub)")
+                    dpg.add_text("Align purely vertical on current slice")
 
                 # Pixel snap
                 btn_snap = dpg.add_button(
@@ -152,7 +153,7 @@ class ProfilePluginUI:
                 )
                 self._bind_icon_font(btn_snap)
                 with dpg.tooltip(btn_snap):
-                    dpg.add_text("Snap to closest pixel center (stub)")
+                    dpg.add_text("Snap endpoints to closest pixel center")
 
                 # Goto button
                 btn_goto = dpg.add_button(
@@ -160,7 +161,7 @@ class ProfilePluginUI:
                 )
                 self._bind_icon_font(btn_goto)
                 with dpg.tooltip(btn_goto):
-                    dpg.add_text("Center camera on this profile (stub)")
+                    dpg.add_text("Center camera on this profile")
 
                 # Delete icon
                 btn_delete = dpg.add_button(
@@ -181,13 +182,12 @@ class ProfilePluginUI:
             return
 
         p_id = user_data
-        win_tag = f"plot_win_{p_id}"
+        win_tag = f"profile_plugin_plot_win_{p_id}"
         if dpg.does_item_exist(win_tag):
             self.on_plot_closed(win_tag, None, p_id)
             return
 
-        state = self._c.get_image_state(viewer.image_id)
-        profile = state.profiles.get(p_id)
+        profile = viewer.view_state.profiles.get(p_id)
         if not profile:
             return
 
@@ -212,8 +212,15 @@ class ProfilePluginUI:
         profile.plot_open = True
         self.update_plot_info(profile)
 
-    def build_plot_window_contents(self, profile: MockProfile):
-        distances, intensities = self._c.get_mock_profile_data(profile)
+    def build_plot_window_contents(self, profile):
+        viewer = self._c._api.get_active_viewer() if self._c._api else None
+        if not viewer or not viewer.image_id:
+            return
+
+        distances, intensities = self._c._api.get_profile_data(viewer.image_id, profile)
+        if distances is None or intensities is None:
+            return
+
         p_id = profile.id
         cfg_c = self._c._api.get_ui_config()["colors"]
 
@@ -249,9 +256,9 @@ class ProfilePluginUI:
             self._bind_icon_font(btn_h)
             self._bind_icon_font(btn_v)
             with dpg.tooltip(btn_h):
-                dpg.add_text("Align purely horizontal (stub)")
+                dpg.add_text("Align purely horizontal")
             with dpg.tooltip(btn_v):
-                dpg.add_text("Align purely vertical (stub)")
+                dpg.add_text("Align purely vertical")
 
             # 2b. Snap
             btn_snap = dpg.add_button(
@@ -259,7 +266,7 @@ class ProfilePluginUI:
             )
             self._bind_icon_font(btn_snap)
             with dpg.tooltip(btn_snap):
-                dpg.add_text("Snap to pixel center (stub)")
+                dpg.add_text("Snap to pixel center")
 
             # 3. Goto
             btn_goto = dpg.add_button(
@@ -267,7 +274,7 @@ class ProfilePluginUI:
             )
             self._bind_icon_font(btn_goto)
             with dpg.tooltip(btn_goto):
-                dpg.add_text("Center camera on profile (stub)")
+                dpg.add_text("Center camera on profile")
 
             # 4. Slice Navigation
             btn_prev = dpg.add_button(
@@ -283,9 +290,9 @@ class ProfilePluginUI:
             self._bind_icon_font(btn_prev)
             self._bind_icon_font(btn_next)
             with dpg.tooltip(btn_prev):
-                dpg.add_text("Move profile to previous slice (stub)")
+                dpg.add_text("Move profile to previous slice")
             with dpg.tooltip(btn_next):
-                dpg.add_text("Move profile to next slice (stub)")
+                dpg.add_text("Move profile to next slice")
 
             # 5. Delete
             btn_del = dpg.add_button(
@@ -301,19 +308,20 @@ class ProfilePluginUI:
                 "Toolbar buttons (left to right):\n"
                 "  [color]  : Change the profile line color\n"
                 "  [close]  : Close this plot window\n"
-                "  [H / V]  : Align horizontal/vertical (stub)\n"
-                "  [snap]   : Snap to voxel center (stub)\n"
-                "  [goto]   : Center camera on profile (stub)\n"
-                "  [up/dn]  : Move profile to previous/next slice (stub)\n"
-                "  [delete] : Remove this profile",
+                "  [H / V]  : Force the profile horizontal or vertical\n"
+                "  [snap]   : Snap both endpoints to the nearest voxel center\n"
+                "  [goto]   : Center the camera on this profile and zoom to fit\n"
+                "  [up/dn]  : Move the profile up or down one slice\n"
+                "  [delete] : Remove this profile\n\n"
+                "You can also drag the endpoints or the midpoint directly on the image.",
                 self._c._api,
             )
 
         # Orientation display
         ori_str = ORI_MAP.get(profile.orientation, "??")
         dpg.add_text(
-            f"Orientation: {ori_str} | Slice: {profile.slice_idx} (Plugin UI Only)",
-            tag=f"plot_header_text_{profile.id}",
+            f"Orientation: {ori_str} | Slice: {profile.slice_idx}",
+            tag=f"profile_plugin_plot_header_text_{profile.id}",
             color=cfg_c["text_dim"],
         )
 
@@ -321,12 +329,12 @@ class ProfilePluginUI:
 
         with dpg.plot(label="", height=300, width=-1):
             dpg.add_plot_axis(
-                dpg.mvXAxis, label="Distance (mm)", tag=f"xaxis_{profile.id}"
+                dpg.mvXAxis, label="Distance (mm)", tag=f"profile_plugin_xaxis_{profile.id}"
             )
             y_axis = dpg.add_plot_axis(
                 dpg.mvYAxis,
                 label="Intensity",
-                tag=f"yaxis_{profile.id}",
+                tag=f"profile_plugin_yaxis_{profile.id}",
                 log_scale=getattr(profile, "use_log", False),
             )
             dpg.add_line_series(
@@ -334,7 +342,7 @@ class ProfilePluginUI:
                 intensities,
                 label=profile.name,
                 parent=y_axis,
-                tag=f"series_{profile.id}",
+                tag=f"profile_plugin_series_{profile.id}",
             )
 
         dpg.add_separator()
@@ -343,7 +351,7 @@ class ProfilePluginUI:
             with dpg.group(horizontal=True):
                 dpg.add_text(f"P{i} (mm):")
                 dpg.add_input_floatx(
-                    tag=f"input_phys_p{i}_{profile.id}",
+                    tag=f"profile_plugin_input_phys_p{i}_{profile.id}",
                     size=3,
                     width=-1,
                     callback=self._c.on_profile_coord_edited,
@@ -351,7 +359,7 @@ class ProfilePluginUI:
                 )
             dpg.add_text(
                 "Voxel: [---]",
-                tag=f"text_vox_p{i}_{profile.id}",
+                tag=f"profile_plugin_text_vox_p{i}_{profile.id}",
                 color=cfg_c["text_dim"],
             )
 
@@ -376,14 +384,15 @@ class ProfilePluginUI:
             build_help_button(
                 "Fit Plot    : Auto-scales both axes to the current data range\n"
                 "Linear / Log: Toggles the Y axis between linear and log scale\n"
-                "Export JSON : Saves the full mock profile data to a JSON file\n\n"
+                "Export JSON : Saves the full profile data (distance, intensity,\n"
+                "              physical coordinates, voxel indices) to a JSON file\n\n"
                 "P1 / P2 (mm): The 3D physical coordinates of each endpoint.\n"
-                "              You can type values directly to reposition them.",
+                "              You can type values directly to reposition precisely.",
                 self._c._api,
             )
 
-    def rebuild_plot_window_contents(self, profile: MockProfile):
-        win_tag = f"plot_win_{profile.id}"
+    def rebuild_plot_window_contents(self, profile):
+        win_tag = f"profile_plugin_plot_win_{profile.id}"
         if dpg.does_item_exist(win_tag):
             dpg.delete_item(win_tag, children_only=True)
             dpg.push_container_stack(win_tag)
@@ -392,36 +401,49 @@ class ProfilePluginUI:
             self.update_plot_info(profile)
             self.on_fit_plot_clicked(None, None, profile.id)
 
-    def update_plot_info(self, profile: MockProfile):
+    def update_plot_info(self, profile):
+        viewer = self._c._api.get_active_viewer() if self._c._api else None
+        if not viewer or not viewer.view_state:
+            return
+        vs = viewer.view_state
         for i, pt_phys in enumerate([profile.pt1_phys, profile.pt2_phys], 1):
-            input_tag = f"input_phys_p{i}_{profile.id}"
-            vox_tag = f"text_vox_p{i}_{profile.id}"
+            input_tag = f"profile_plugin_input_phys_p{i}_{profile.id}"
+            vox_tag = f"profile_plugin_text_vox_p{i}_{profile.id}"
 
             if dpg.does_item_exist(input_tag) and not dpg.is_item_active(input_tag):
                 dpg.set_value(input_tag, pt_phys.tolist())
 
             if dpg.does_item_exist(vox_tag):
-                vox_str = ", ".join(f"{float(x):.1f}" for x in pt_phys)
+                v_native = vs.world_to_display(pt_phys, is_buffered=False)
+                vox_str = fmt(v_native, 1) if v_native is not None else "Out"
                 dpg.set_value(vox_tag, f"Voxel: [{vox_str}]")
 
-    def refresh_plot_series(self, profile: MockProfile):
-        distances, intensities = self._c.get_mock_profile_data(profile)
-        series_tag = f"series_{profile.id}"
-        if dpg.does_item_exist(series_tag):
+    def update_plot_header(self, profile):
+        header_tag = f"profile_plugin_plot_header_text_{profile.id}"
+        if dpg.does_item_exist(header_tag):
+            ori_str = ORI_MAP.get(profile.orientation, "??")
+            dpg.set_value(header_tag, f"Orientation: {ori_str} | Slice: {profile.slice_idx}")
+
+    def refresh_plot_series(self, profile):
+        viewer = self._c._api.get_active_viewer() if self._c._api else None
+        if not viewer or not viewer.image_id:
+            return
+        distances, intensities = self._c._api.get_profile_data(viewer.image_id, profile)
+        series_tag = f"profile_plugin_series_{profile.id}"
+        if dpg.does_item_exist(series_tag) and distances is not None:
             dpg.set_value(series_tag, [distances, intensities])
 
     def on_fit_plot_clicked(self, sender, app_data, user_data):
         p_id = user_data
-        if dpg.does_item_exist(f"xaxis_{p_id}"):
-            dpg.fit_axis_data(f"xaxis_{p_id}")
-        if dpg.does_item_exist(f"yaxis_{p_id}"):
-            dpg.fit_axis_data(f"yaxis_{p_id}")
+        if dpg.does_item_exist(f"profile_plugin_xaxis_{p_id}"):
+            dpg.fit_axis_data(f"profile_plugin_xaxis_{p_id}")
+        if dpg.does_item_exist(f"profile_plugin_yaxis_{p_id}"):
+            dpg.fit_axis_data(f"profile_plugin_yaxis_{p_id}")
 
     def on_plot_closed(self, sender, app_data, user_data):
         dpg.delete_item(sender)
         viewer = self._c._api.get_active_viewer() if self._c._api else None
-        if viewer and viewer.image_id:
-            state = self._c.get_image_state(viewer.image_id)
-            profile = state.profiles.get(user_data)
+        if viewer and viewer.view_state:
+            profile = viewer.view_state.profiles.get(user_data)
             if profile:
                 profile.plot_open = False

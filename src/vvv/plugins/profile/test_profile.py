@@ -1,7 +1,9 @@
 import unittest
 from unittest.mock import MagicMock
+import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.plugins.profile.plugin_profile import ProfilePlugin
+from vvv.core.view_state import ProfileLineState
 
 
 class TestProfilePlugin(unittest.TestCase):
@@ -26,24 +28,8 @@ class TestProfilePlugin(unittest.TestCase):
         self.assertEqual(self.plugin.order, 30)
 
     def test_state_lifecycle(self):
-        # State pre-populates with two mock profiles when get_image_state is called
-        self.plugin.on_image_loaded("image1")
-        state = self.plugin._controller.get_image_state("image1")
-        self.assertEqual(len(state.profiles), 2)
-
-        # Serialization
-        serialized = self.plugin.serialize_image_state("image1")
-        self.assertIn("profiles", serialized)
-        self.assertEqual(len(serialized["profiles"]), 2)
-
-        # Restore state
-        self.plugin.restore_image_state("image2", serialized)
-        state2 = self.plugin._controller.get_image_state("image2")
-        self.assertEqual(len(state2.profiles), 2)
-
-        # Removal
-        self.plugin.on_image_removed("image1")
-        self.assertNotIn("image1", self.plugin._controller._states)
+        self.assertEqual(self.plugin.serialize_image_state("image1"), {})
+        self.plugin.restore_image_state("image1", {"profiles": {}})
 
     def test_create_ui(self):
         if not dpg.is_dearpygui_running():
@@ -66,6 +52,15 @@ class TestProfilePlugin(unittest.TestCase):
         viewer = MagicMock()
         viewer.image_id = "image_abc"
         viewer.view_state = MagicMock()
+
+        # Add a real profile to profiles dict
+        profile = ProfileLineState()
+        profile.id = "p1"
+        profile.name = "My Test Profile"
+        profile.pt1_phys = np.array([0.0, 0.0, 0.0])
+        profile.pt2_phys = np.array([10.0, 10.0, 0.0])
+        viewer.view_state.profiles = {"p1": profile}
+
         viewer.volume = MagicMock()
         viewer.volume.is_rgb = False
         self.mock_api.get_active_viewer.return_value = viewer
@@ -73,7 +68,13 @@ class TestProfilePlugin(unittest.TestCase):
 
         self.plugin.update(self.mock_api)
         self.assertEqual(
-            dpg.get_value("profile_plugin_active_title"), "Image ABC [Plugin UI Only]"
+            dpg.get_value("profile_plugin_active_title"), "Image ABC"
+        )
+
+        # Verify list table row was built (should contain name input with unique prefix)
+        self.assertTrue(dpg.does_item_exist("profile_plugin_input_name_p1"))
+        self.assertEqual(
+            dpg.get_value("profile_plugin_input_name_p1"), "My Test Profile"
         )
 
         dpg.delete_item("test_parent")

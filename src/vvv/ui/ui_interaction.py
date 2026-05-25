@@ -152,6 +152,13 @@ class NavigationTool:
                 self.drag_viewer.image_id, profile
             )
 
+        plugin_win_tag = f"profile_plugin_plot_win_{profile.id}"
+        if dpg.does_item_exist(plugin_win_tag):
+            profile_plugin = next((p for p in self.manager.gui.plugins if p.plugin_id == "profile_plugin"), None)
+            if profile_plugin:
+                profile_plugin._ui.refresh_plot_series(profile)
+                profile_plugin._ui.update_plot_info(profile)
+
     def on_scroll(self, delta):
         if self.drag_viewer is not None:
             return
