@@ -489,8 +489,6 @@ class OverlayDrawer:
                 dpg.configure_item(viewer.contour_node_tag, show=False)
             return
 
-        ext = getattr(viewer.view_state, "extraction", None)
-
         node = viewer.contour_node_tag
         if not dpg.does_item_exist(node):
             return
@@ -520,16 +518,13 @@ class OverlayDrawer:
 
         # Also track the mathematical state of the preview
         ext_math_state = None
-        if ext and ext.is_enabled and ext.show_preview:
-            ext_math_state = (ext.threshold_min, ext.threshold_max, ext.subpixel_accurate)
-        else:
-            thr_plugin = None
-            if viewer.controller.gui and hasattr(viewer.controller.gui, "plugins"):
-                thr_plugin = next((p for p in viewer.controller.gui.plugins if p.plugin_id == "threshold_plugin"), None)
-            if thr_plugin and viewer.image_id:
-                thr_state = thr_plugin._controller.get_image_state(viewer.image_id)
-                if thr_state and thr_state.is_enabled and thr_state.show_preview:
-                    ext_math_state = (thr_state.threshold_min, thr_state.threshold_max, thr_state.subpixel_accurate)
+        thr_plugin = None
+        if viewer.controller.gui and hasattr(viewer.controller.gui, "plugins"):
+            thr_plugin = next((p for p in viewer.controller.gui.plugins if p.plugin_id == "threshold_plugin"), None)
+        if thr_plugin and viewer.image_id:
+            thr_state = thr_plugin._controller.get_image_state(viewer.image_id)
+            if thr_state and thr_state.is_enabled and thr_state.show_preview:
+                ext_math_state = (thr_state.threshold_min, thr_state.threshold_max, thr_state.subpixel_accurate)
 
         current_state = (
             viewer.image_id,

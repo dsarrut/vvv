@@ -11,7 +11,6 @@ from vvv.ui.ui_roi import RoiUI
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_fusion import FusionUI
 from vvv.ui.ui_contours import ContoursUI
-from vvv.ui.ui_extraction import ExtractionUI
 from vvv.ui.ui_settings import SettingsWindow
 from vvv.plugins.plugin_api import PluginAPI
 from vvv.ui.ui_dicom import DicomBrowserWindow
@@ -105,7 +104,6 @@ class MainGUI:
         self.roi_ui = RoiUI(self, self.controller)
         self.reg_ui = RegistrationUI(self, self.controller)
         self.contours_ui = ContoursUI(self, self.controller)
-        self.extraction_ui = ExtractionUI(self, self.controller)
         self.profile_ui = ProfileUI(self, self.controller)
 
         # Initialize plugin list before building layout to avoid AttributeErrors
@@ -360,7 +358,6 @@ class MainGUI:
                     ("Fusion", "tab_fusion"),
                     ("ROIs", "tab_rois"),
                     ("Reg", "tab_reg"),
-                    ("Threshold", "tab_extraction"),
                     ("Profiles", "tab_profile"),
                 ]
 
@@ -374,7 +371,6 @@ class MainGUI:
                     "tab_fusion": "Blend secondary images.",
                     "tab_rois": "Manage regions of interest.",
                     "tab_reg": "Apply rigid transformations.",
-                    "tab_extraction": "Generate mask images.",
                     "tab_profile": "Draw intensity profiles.",
                 }
                 for plugin in self.plugins:
@@ -440,7 +436,6 @@ class MainGUI:
                 self.fusion_ui.build_tab_fusion(self)
                 self.roi_ui.build_tab_rois(self)
                 self.reg_ui.build_tab_reg(self)
-                self.extraction_ui.build_tab_extraction(self)
                 self.profile_ui.build_tab_profile(self)
                 
                 # Render Plugins
@@ -1640,7 +1635,6 @@ class MainGUI:
         self.fusion_ui.refresh_fusion_ui()
         self.reg_ui.refresh_reg_ui()
         self.contours_ui.refresh_contours_ui()
-        self.extraction_ui.refresh_extraction_ui()
         self.profile_ui.refresh_profile_ui()
 
         self._init_rendering_menu()

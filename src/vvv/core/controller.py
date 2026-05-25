@@ -12,7 +12,6 @@ from vvv.core.sync_manager import SyncManager
 from vvv.core.contour_manager import ContourManager
 from vvv.core.history_manager import HistoryManager
 from vvv.core.settings_manager import SettingsManager
-from vvv.core.extraction_manager import ExtractionManager
 from vvv.core.profile_manager import ProfileManager
 
 
@@ -57,7 +56,6 @@ class Controller:
         self.contours = ContourManager(self)
         self.settings = SettingsManager()
         self.history = HistoryManager()
-        self.extraction = ExtractionManager(self)
         self.profiles = ProfileManager(self)
 
         self.use_history = True
