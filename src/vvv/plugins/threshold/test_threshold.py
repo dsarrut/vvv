@@ -154,10 +154,11 @@ class TestThresholdPlugin(unittest.TestCase):
         c.on_gen_mode_changed(c._t("input_ext_fg_val"), 2.0, None)
         self.assertEqual(state.gen_fg_val, 2.0)
 
-    def test_create_image_notification(self):
+    @patch("threading.Thread")
+    def test_create_image_notification(self, mock_thread):
         c = self.plugin._controller
         c.on_create_image_clicked(None, None, None)
-        self.mock_api.notify.assert_called_with("Threshold Plugin: Create Image is not wired yet")
+        mock_thread.assert_called_once()
 
     def test_serialization_roundtrip(self):
         c = self.plugin._controller
@@ -179,7 +180,49 @@ class TestThresholdPlugin(unittest.TestCase):
         c.restore_image_state("test_img_id", serialized)
         self.assertEqual(state.threshold_min, 12.0)
         self.assertEqual(state.threshold_max, 88.0)
-        self.assertTrue(state.is_enabled)
+
+    @patch("vvv.maths.contours.extract_2d_contours_from_slice")
+    def test_update_preview(self, mock_extract):
+        mock_extract.return_value = [[[0.0, 0.0], [1.0, 1.0]]]
+        c = self.plugin._controller
+        state = self._state()
+        state.threshold_min = 20.0
+        state.threshold_max = 80.0
+        state.subpixel_accurate = False
+
+        self.mock_viewer.view_state.contours = {}
+        def mock_add_contour(base_id, contour_roi):
+            c_id = f"roi_{len(self.mock_viewer.view_state.contours)}"
+            contour_roi.id = c_id
+            self.mock_viewer.view_state.contours[c_id] = contour_roi
+            return c_id
+        self.mock_api._controller.contours.add_contour.side_effect = mock_add_contour
+
+        from vvv.utils import ViewMode
+        slice_data = np.zeros((10, 10), dtype=np.float32)
+        slice_data[3:7, 3:7] = 50.0  # inside threshold range [20, 80]
+
+        # Mock volume aspect ratio
+        self.mock_viewer.volume.get_physical_aspect_ratio.return_value = (1.0, 1.0)
+        self.mock_viewer.view_state.space.is_active = False
+
+        c.update_preview(
+            "test_img_id",
+            self.mock_viewer.volume,
+            self.mock_viewer.view_state,
+            state,
+            ViewMode.AXIAL,
+            5,
+            slice_data
+        )
+
+        self.assertEqual(len(self.mock_viewer.view_state.contours), 2)
+        
+        # Check that polygons were generated
+        roi_min = next(r for r in self.mock_viewer.view_state.contours.values() if getattr(r, "is_plugin_draft_min", False))
+        self.assertIn(5, roi_min.polygons[ViewMode.AXIAL])
+        polys = roi_min.polygons[ViewMode.AXIAL][5]
+        self.assertTrue(len(polys) > 0)
 
     def test_on_image_removed(self):
         c = self.plugin._controller

@@ -1,6 +1,7 @@
 import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI
+from vvv.maths.contours import ContourROI
 
 
 class ThresholdState:
@@ -10,8 +11,8 @@ class ThresholdState:
         self.is_enabled = False
         self.threshold_min = 0.0
         self.threshold_max = 1.0
-        self.show_preview = False
-        self.subpixel_accurate = False
+        self.show_preview = True
+        self.subpixel_accurate = True
         self.preview_color_min = [255, 0, 0, 255]
         self.preview_color_max = [0, 0, 255, 255]
         self.preview_thickness = 2.0
@@ -77,11 +78,12 @@ class ThresholdController:
     def get_image_state(self, image_id: str) -> ThresholdState:
         if image_id not in self._states:
             self._states[image_id] = ThresholdState()
-            if self._api:
-                vol = self._api.get_volumes().get(image_id)
-                if vol is not None:
-                    self._init_state_from_volume(self._states[image_id], vol)
-        return self._states[image_id]
+        state = self._states[image_id]
+        if not state.is_initialized and self._api:
+            vol = self._api.get_volumes().get(image_id)
+            if vol is not None:
+                self._init_state_from_volume(state, vol)
+        return state
 
     def _init_state_from_volume(self, state: ThresholdState, vol) -> None:
         if vol is not None:
@@ -104,6 +106,10 @@ class ThresholdController:
         self.get_image_state(image_id)
 
     def on_image_removed(self, image_id: str) -> None:
+        if self._api:
+            vs = self._api.get_view_states().get(image_id)
+            if vs:
+                self.clear_preview(image_id, vs)
         self._states.pop(image_id, None)
         if self._last_sidebar_image_id == image_id:
             self._last_sidebar_image_id = None
@@ -117,6 +123,10 @@ class ThresholdController:
     def restore_image_state(self, image_id: str, data: dict) -> None:
         state = self.get_image_state(image_id)
         state.from_dict(data)
+        if self._api:
+            vs = self._api.get_view_states().get(image_id)
+            if vs:
+                vs.is_geometry_dirty = True
 
     def save_settings(self, api: PluginAPI) -> None:
         pass
@@ -127,6 +137,149 @@ class ThresholdController:
     def destroy(self) -> None:
         pass
 
+    def _get_or_create_preview_rois(self, img_id, vs, state):
+        """Retrieves or initializes the transient Plugin Draft ROIs inside the ViewState."""
+        roi_min = next(
+            (c for c in vs.contours.values() if getattr(c, "is_plugin_draft_min", False)), None
+        )
+        if not roi_min:
+            roi_min = ContourROI(
+                name="Plugin Draft Min",
+                color=state.preview_color_min,
+                thickness=state.preview_thickness,
+            )
+            roi_min.is_plugin_draft_min = True
+            roi_min.last_computed_threshold_min = None
+            roi_min.last_computed_threshold_max = None
+            roi_min.last_computed_subpixel = None
+            roi_min.last_computed_time_idx = None
+            roi_min.last_computed_transform = None
+            self._api._controller.contours.add_contour(img_id, roi_min)
+        else:
+            roi_min.color = state.preview_color_min
+            roi_min.thickness = state.preview_thickness
+
+        roi_max = next(
+            (c for c in vs.contours.values() if getattr(c, "is_plugin_draft_max", False)), None
+        )
+        if not roi_max:
+            roi_max = ContourROI(
+                name="Plugin Draft Max",
+                color=state.preview_color_max,
+                thickness=state.preview_thickness,
+            )
+            roi_max.is_plugin_draft_max = True
+            roi_max.last_computed_threshold_min = None
+            roi_max.last_computed_threshold_max = None
+            roi_max.last_computed_subpixel = None
+            roi_max.last_computed_time_idx = None
+            roi_max.last_computed_transform = None
+            self._api._controller.contours.add_contour(img_id, roi_max)
+        else:
+            roi_max.color = state.preview_color_max
+            roi_max.thickness = state.preview_thickness
+
+        return roi_min, roi_max
+
+    def clear_preview(self, img_id, vs):
+        """Removes the plugin draft ROIs from the image's state."""
+        roi_min = next(
+            (c for c in vs.contours.values() if getattr(c, "is_plugin_draft_min", False)), None
+        )
+        roi_max = next(
+            (c for c in vs.contours.values() if getattr(c, "is_plugin_draft_max", False)), None
+        )
+        cleared = False
+        if roi_min:
+            self._api._controller.contours.remove_contour(img_id, roi_min.id)
+            cleared = True
+        if roi_max:
+            self._api._controller.contours.remove_contour(img_id, roi_max.id)
+            cleared = True
+        return cleared
+
+    def update_preview(
+        self, img_id, vol, vs, state, ori, s_idx, slice_data
+    ):
+        """Computes missing slices on the fly for the plugin's preview contours."""
+        from vvv.maths.contours import extract_2d_contours_from_slice
+        
+        roi_min, roi_max = self._get_or_create_preview_rois(img_id, vs, state)
+
+        current_transform = vs.space.get_parameters() if vs.space.is_active else None
+
+        cache_mismatch = (
+            getattr(roi_min, "last_computed_threshold_min", None) != state.threshold_min
+            or getattr(roi_min, "last_computed_threshold_max", None) != state.threshold_max
+            or getattr(roi_min, "last_computed_subpixel", None) != state.subpixel_accurate
+            or getattr(roi_min, "last_computed_time_idx", None) != vs.camera.time_idx
+            or getattr(roi_min, "last_computed_transform", None) != current_transform
+        )
+
+        # Clear draft if the slider OR the subpixel flag moved OR transform changed
+        if cache_mismatch:
+            for o in roi_min.polygons:
+                roi_min.polygons[o].clear()
+            for o in roi_max.polygons:
+                roi_max.polygons[o].clear()
+
+            roi_min.last_computed_threshold_min = state.threshold_min
+            roi_min.last_computed_threshold_max = state.threshold_max
+            roi_min.last_computed_subpixel = state.subpixel_accurate
+            roi_min.last_computed_time_idx = vs.camera.time_idx
+            roi_min.last_computed_transform = current_transform
+            roi_max.last_computed_threshold_min = state.threshold_min
+            roi_max.last_computed_threshold_max = state.threshold_max
+            roi_max.last_computed_subpixel = state.subpixel_accurate
+            roi_max.last_computed_time_idx = vs.camera.time_idx
+            roi_max.last_computed_transform = current_transform
+
+        extracted_any = False
+        if s_idx not in roi_min.polygons[ori]:
+            sw, sh = vol.get_physical_aspect_ratio(ori)
+
+            if slice_data is None or slice_data.size == 0:
+                roi_min.polygons[ori][s_idx] = []
+                roi_max.polygons[ori][s_idx] = []
+            elif state.subpixel_accurate:
+                c_max = np.max(slice_data)
+
+                if c_max >= state.threshold_min:
+                    roi_min.polygons[ori][s_idx] = extract_2d_contours_from_slice(
+                        slice_data, state.threshold_min, sw, sh
+                    )
+                else:
+                    roi_min.polygons[ori][s_idx] = []
+
+                if c_max >= state.threshold_max:
+                    roi_max.polygons[ori][s_idx] = extract_2d_contours_from_slice(
+                        slice_data, state.threshold_max, sw, sh
+                    )
+                else:
+                    roi_max.polygons[ori][s_idx] = []
+
+            else:
+                mask_min = (slice_data >= state.threshold_min).astype(np.uint8)
+                mask_max = (slice_data >= state.threshold_max).astype(np.uint8)
+
+                if np.any(mask_min):
+                    roi_min.polygons[ori][s_idx] = extract_2d_contours_from_slice(
+                        mask_min, 0.5, sw, sh
+                    )
+                else:
+                    roi_min.polygons[ori][s_idx] = []
+
+                if np.any(mask_max):
+                    roi_max.polygons[ori][s_idx] = extract_2d_contours_from_slice(
+                        mask_max, 0.5, sw, sh
+                    )
+                else:
+                    roi_max.polygons[ori][s_idx] = []
+
+            extracted_any = True
+
+        pass
+
     # --- Callbacks ---
 
     def on_enable_toggle(self, sender, app_data, user_data):
@@ -135,6 +288,11 @@ class ThresholdController:
             return
         state = self.get_image_state(viewer.image_id)
         state.is_enabled = app_data
+        if not app_data:
+            self.clear_preview(viewer.image_id, viewer.view_state)
+        else:
+            state.show_preview = True
+        viewer.view_state.is_geometry_dirty = True
         self._api.request_refresh()
 
     def on_threshold_drag(self, sender, app_data, user_data):
@@ -153,6 +311,8 @@ class ThresholdController:
 
         elif sender == self._t("check_ext_preview"):
             state.show_preview = app_data
+            if not app_data:
+                self.clear_preview(viewer.image_id, viewer.view_state)
 
         elif sender == self._t("check_ext_subpixel"):
             state.subpixel_accurate = app_data
@@ -174,6 +334,7 @@ class ThresholdController:
                     state.threshold_min = val
                 state.threshold_max = val
 
+        viewer.view_state.is_geometry_dirty = True
         self._api.request_refresh()
 
     def on_step_button_clicked(self, sender, app_data, user_data):
@@ -202,6 +363,7 @@ class ThresholdController:
                 state.threshold_min = new_val
             state.threshold_max = new_val
 
+        viewer.view_state.is_geometry_dirty = True
         self._api.request_refresh()
 
     def on_gen_mode_changed(self, sender, app_data, user_data):
@@ -222,5 +384,108 @@ class ThresholdController:
         self._api.request_refresh()
 
     def on_create_image_clicked(self, sender, app_data, user_data):
-        if self._api:
-            self._api.notify("Threshold Plugin: Create Image is not wired yet")
+        viewer = self._api.get_active_viewer()
+        if not viewer or not viewer.view_state or not viewer.volume:
+            return
+
+        vol = viewer.volume
+        state = self.get_image_state(viewer.image_id)
+        vs = viewer.view_state
+
+        def _extract():
+            import SimpleITK as sitk
+            from vvv.maths.image import VolumeData
+            from vvv.core.view_state import ViewState
+            import threading
+
+            self._api.set_async_status("Generating thresholded image...")
+            self._api.request_refresh()
+
+            try:
+                # 1. Generate Masks
+                new_data = np.zeros_like(vol.data)
+
+                # Frame-by-frame processing to prevent massive RAM spikes on 4D volumes
+                if vol.data.ndim == 4:
+                    for t in range(vol.data.shape[0]):
+                        mask_fg = (vol.data[t] >= state.threshold_min) & (vol.data[t] <= state.threshold_max)
+                        mask_bg = ~mask_fg
+
+                        if state.gen_fg_mode == "Constant":
+                            new_data[t, mask_fg] = state.gen_fg_val
+                        else:
+                            new_data[t, mask_fg] = vol.data[t, mask_fg]
+
+                        if state.gen_bg_mode == "Constant":
+                            new_data[t, mask_bg] = state.gen_bg_val
+                        else:
+                            new_data[t, mask_bg] = vol.data[t, mask_bg]
+                else:
+                    mask_fg = (vol.data >= state.threshold_min) & (vol.data <= state.threshold_max)
+                    mask_bg = ~mask_fg
+
+                    if state.gen_fg_mode == "Constant":
+                        new_data[mask_fg] = state.gen_fg_val
+                    else:
+                        new_data[mask_fg] = vol.data[mask_fg]
+
+                    if state.gen_bg_mode == "Constant":
+                        new_data[mask_bg] = state.gen_bg_val
+                    else:
+                        new_data[mask_bg] = vol.data[mask_bg]
+
+                # 2. Build the ITK Image
+                if getattr(vol, "is_dvf", False):
+                    data_to_build = np.moveaxis(new_data, 0, -1)
+                    new_img = sitk.GetImageFromArray(data_to_build, isVector=True)
+                elif vol.data.ndim == 4:
+                    vols = [sitk.GetImageFromArray(new_data[t]) for t in range(new_data.shape[0])]
+                    new_img = sitk.JoinSeries(vols)
+                else:
+                    new_img = sitk.GetImageFromArray(new_data)
+                new_img.SetSpacing(vol.sitk_image.GetSpacing())
+                new_img.SetOrigin(vol.sitk_image.GetOrigin())
+                new_img.SetDirection(vol.sitk_image.GetDirection())
+
+                # 3. Bypass Disk I/O to Create VolumeData
+                new_vol = VolumeData.__new__(VolumeData)
+                new_vol.path = vol.path
+                new_vol.file_paths = list(vol.file_paths)
+                new_vol.name = f"Thr: {vol.name}"
+                new_vol.sitk_image = new_img
+                new_vol.data = new_data
+                new_vol.matrix_display_str = vol.matrix_display_str
+                new_vol.matrix_tooltip_str = vol.matrix_tooltip_str
+                new_vol.read_image_metadata()
+                new_vol.last_mtime = 0
+                new_vol._last_check_time = 0
+                new_vol._is_outdated = False
+
+                # 4. Build ViewState and Mount it!
+                new_vs = ViewState(new_vol)
+                new_vs.camera.from_dict(
+                    vs.camera.to_dict()
+                )  # Inherit zoom, pan, and slices!
+
+                controller = self._api._controller
+                new_id = str(controller.next_image_id)
+                controller.next_image_id += 1
+
+                controller.volumes[new_id] = new_vol
+                controller.view_states[new_id] = new_vs
+
+                # Swap the active viewer over to the new image
+                if controller.gui and controller.gui.context_viewer:
+                    target_tag = controller.gui.context_viewer.tag
+                    controller.layout[target_tag] = new_id
+
+                self._api.set_async_status("Threshold image generated successfully")
+                self._api.request_refresh()
+
+            except Exception as e:
+                self._api.set_async_status(f"Failed to generate image: {e}")
+                self._api.request_refresh()
+                raise e
+
+        import threading
+        threading.Thread(target=_extract, daemon=True).start()

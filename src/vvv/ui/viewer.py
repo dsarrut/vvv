@@ -1980,7 +1980,19 @@ class SliceViewer:
 
         # Ensure extraction preview is computed before delegating to the View drawer
         ext = getattr(vs, "extraction", None)
-        if ext and ext.is_enabled and ext.show_preview:
+        
+        thr_plugin = None
+        if self.controller.gui and hasattr(self.controller.gui, "plugins"):
+            thr_plugin = next((p for p in self.controller.gui.plugins if p.plugin_id == "threshold_plugin"), None)
+            
+        thr_state = None
+        if thr_plugin and self.image_id:
+            thr_state = thr_plugin._controller.get_image_state(self.image_id)
+            
+        core_active = ext and ext.is_enabled and ext.show_preview
+        plugin_active = thr_state and thr_state.is_enabled and thr_state.show_preview
+        
+        if core_active or plugin_active:
             preview_2d = None
             if vs._preview_R is not None and not getattr(vol, "is_dvf", False):
                 key = (self.orientation, self.slice_idx)
@@ -2002,16 +2014,28 @@ class SliceViewer:
                     self.orientation,
                 )
 
-            self.controller.extraction.update_preview(
-                self.image_id,
-                vol,
-                vs,
-                ext.threshold_min,
-                ext.threshold_max,
-                self.orientation,
-                self.slice_idx,
-                slice_data,
-            )
+            if core_active:
+                self.controller.extraction.update_preview(
+                    self.image_id,
+                    vol,
+                    vs,
+                    ext.threshold_min,
+                    ext.threshold_max,
+                    self.orientation,
+                    self.slice_idx,
+                    slice_data,
+                )
+
+            if plugin_active:
+                thr_plugin._controller.update_preview(
+                    self.image_id,
+                    vol,
+                    vs,
+                    thr_state,
+                    self.orientation,
+                    self.slice_idx,
+                    slice_data,
+                )
 
         self.controller.roi.update_roi_contours(self)
 

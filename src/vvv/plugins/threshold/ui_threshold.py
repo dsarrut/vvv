@@ -68,12 +68,14 @@ class ThresholdUI:
                     label="Live Preview",
                     tag=self._t("check_ext_preview"),
                     callback=self._c.on_threshold_drag,
+                    default_value=True,
                 )
 
                 dpg.add_checkbox(
                     label="Sub-Pixel",
                     tag=self._t("check_ext_subpixel"),
                     callback=self._c.on_threshold_drag,
+                    default_value=True,
                 )
                 build_help_button("Live Preview: Renders the threshold dynamically as colored contours.\nSub-Pixel: Uses marching squares interpolation for sub-voxel accuracy instead of blocky pixels.", api)
 
