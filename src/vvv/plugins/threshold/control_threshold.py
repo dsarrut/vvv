@@ -15,7 +15,7 @@ class ThresholdState:
         self.subpixel_accurate = True
         self.preview_color_min = [255, 0, 0, 255]
         self.preview_color_max = [0, 0, 255, 255]
-        self.preview_thickness = 2.0
+        self.preview_thickness = 0.5
         self.gen_bg_mode = "Constant"
         self.gen_bg_val = 0.0
         self.gen_fg_mode = "Constant"
@@ -94,8 +94,8 @@ class ThresholdController:
                 vol._cached_data_id = current_data_id
 
             if not state.is_initialized:
-                state.threshold_min = vol._cached_min_val
-                state.threshold_max = vol._cached_max_val
+                state.threshold_min = float(np.clip(0.0, vol._cached_min_val, vol._cached_max_val))
+                state.threshold_max = vol._cached_max_val + 1.0
                 state.is_initialized = True
 
     def update(self, api: PluginAPI) -> None:
@@ -323,7 +323,7 @@ class ThresholdController:
         elif sender in (self._t("drag_ext_threshold_min"), self._t("drag_ext_threshold_max")):
             val = dpg.get_value(sender)
             if hasattr(viewer.volume, "_cached_min_val"):
-                val = float(np.clip(val, viewer.volume._cached_min_val, viewer.volume._cached_max_val))
+                val = float(np.clip(val, viewer.volume._cached_min_val, viewer.volume._cached_max_val + 1.0))
 
             if sender == self._t("drag_ext_threshold_min"):
                 if val > state.threshold_max:
@@ -352,7 +352,7 @@ class ThresholdController:
         new_val = current_val + (step_size * direction)
 
         if hasattr(viewer.volume, "_cached_min_val"):
-            new_val = np.clip(new_val, viewer.volume._cached_min_val, viewer.volume._cached_max_val)
+            new_val = np.clip(new_val, viewer.volume._cached_min_val, viewer.volume._cached_max_val + 1.0)
 
         if is_min:
             if new_val > state.threshold_max:

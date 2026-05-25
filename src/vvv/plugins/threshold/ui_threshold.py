@@ -230,8 +230,8 @@ class ThresholdUI:
         # Auto-clamp state to physical bounds
         if ext_state.threshold_min < vol._cached_min_val:
             ext_state.threshold_min = vol._cached_min_val
-        if ext_state.threshold_max > vol._cached_max_val:
-            ext_state.threshold_max = vol._cached_max_val
+        if ext_state.threshold_max > vol._cached_max_val + 1.0:
+            ext_state.threshold_max = vol._cached_max_val + 1.0
 
         # Dynamic Range Texts
         min_v = ext_state.threshold_min
@@ -263,7 +263,7 @@ class ThresholdUI:
         for tag in [self._t("drag_ext_threshold_min"), self._t("drag_ext_threshold_max")]:
             if dpg.does_item_exist(tag):
                 dpg.configure_item(
-                    tag, min_value=vol._cached_min_val, max_value=vol._cached_max_val, speed=speed
+                    tag, min_value=vol._cached_min_val, max_value=vol._cached_max_val + 1.0, speed=speed
                 )
 
         # Context Switch Snap
