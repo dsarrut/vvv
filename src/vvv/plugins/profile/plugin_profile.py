@@ -5,7 +5,7 @@ from .control_profile import ProfilePluginController
 
 class ProfilePlugin:
     plugin_id = "profile_plugin"
-    label = "Profiles Plugin"
+    label = "Profiles"
     description = "Interactive Intensity Profiles"
     order = 30
 

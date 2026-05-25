@@ -10,6 +10,7 @@ class ProfilePluginUI:
     def __init__(self, plugin_id: str, controller: ProfilePluginController):
         self._plugin_id = plugin_id
         self._c = controller
+        self._last_profile_key = None
 
     def _t(self, name: str) -> str:
         return f"{self._plugin_id}_{name}"
@@ -91,6 +92,13 @@ class ProfilePluginUI:
         if not dpg.does_item_exist(table_id):
             return
 
+        profile_key = (
+            (viewer.image_id, tuple(viewer.view_state.profiles.keys())) if has_image else None
+        )
+        if profile_key == self._last_profile_key:
+            return
+        self._last_profile_key = profile_key
+
         current_scroll = dpg.get_y_scroll(table_id)
         dpg.delete_item(table_id, children_only=True, slot=1)
 
@@ -113,7 +121,6 @@ class ProfilePluginUI:
 
                 # Name
                 dpg.add_input_text(
-                    tag=self._t(f"input_name_{p_id}"),
                     default_value=profile.name,
                     user_data=p_id,
                     callback=self._c.on_profile_name_changed,

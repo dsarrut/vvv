@@ -5,7 +5,6 @@ import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI
 from vvv.utils import ViewMode, voxel_to_slice, slice_to_voxel
 from vvv.ui.file_dialog import save_file_dialog
-from vvv.core.view_state import ProfileLineState
 
 
 class ProfilePluginController:
@@ -41,25 +40,11 @@ class ProfilePluginController:
                     if dpg.does_item_exist(win_tag):
                         dpg.delete_item(win_tag)
 
-    def serialize_image_state(self, image_id: str) -> dict:
-        if not self._api:
-            return {}
-        vs = self._api.get_view_states().get(image_id)
-        if not vs:
-            return {}
-        return {"profiles": {p_id: p.to_dict() for p_id, p in vs.profiles.items()}}
+    def serialize_image_state(self, _image_id: str) -> dict:
+        return {}
 
     def restore_image_state(self, image_id: str, data: dict) -> None:
-        if not self._api:
-            return
-        vs = self._api.get_view_states().get(image_id)
-        if not vs:
-            return
-        vs.profiles.clear()
-        for p_id, p_data in data.get("profiles", {}).items():
-            p = ProfileLineState()
-            p.from_dict(p_data)
-            vs.profiles[p_id] = p
+        pass
 
     def save_settings(self, api: PluginAPI) -> None:
         pass
@@ -92,7 +77,7 @@ class ProfilePluginController:
             return
         profile = viewer.view_state.profiles.get(user_data)
         if profile:
-            profile.color = list(app_data[:4])
+            profile.color = [int(c * 255) for c in app_data[:4]]
             viewer.view_state.is_geometry_dirty = True
             self._api.request_refresh()
 
