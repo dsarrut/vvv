@@ -340,7 +340,7 @@ class OverlayDrawer:
         text = f"{bar_mm:g} mm"
         text_x = int(x1 + (bar_px / 2) - ((len(text) * 7) / 2))
         dpg.draw_text(
-            [text_x, int(y - 20)],
+            [text_x, y - 20],
             text,
             color=color,
             size=14,
@@ -520,11 +520,22 @@ class OverlayDrawer:
         ext_math_state = None
         thr_plugin = None
         if viewer.controller.gui and hasattr(viewer.controller.gui, "plugins"):
-            thr_plugin = next((p for p in viewer.controller.gui.plugins if p.plugin_id == "threshold_plugin"), None)
+            thr_plugin = next(
+                (
+                    p
+                    for p in viewer.controller.gui.plugins
+                    if p.plugin_id == "threshold_plugin"
+                ),
+                None,
+            )
         if thr_plugin and viewer.image_id:
             thr_state = thr_plugin._controller.get_image_state(viewer.image_id)
             if thr_state and thr_state.is_enabled and thr_state.show_preview:
-                ext_math_state = (thr_state.threshold_min, thr_state.threshold_max, thr_state.subpixel_accurate)
+                ext_math_state = (
+                    thr_state.threshold_min,
+                    thr_state.threshold_max,
+                    thr_state.subpixel_accurate,
+                )
 
         current_state = (
             viewer.image_id,
@@ -650,11 +661,9 @@ class OverlayDrawer:
                     col = list(profile.color)
                     if is_adjacent:
                         # Gradual dimming over ±6 slices relative to the settings base
-                        alpha = int(
-                            max(
-                                20,
-                                dim_base_alpha - (depth_diff * (dim_base_alpha / 7.5)),
-                            )
+                        alpha = max(
+                            20,
+                            dim_base_alpha - (depth_diff * (dim_base_alpha / 7.5)),
                         )
                         col[3] = alpha
                         dpg.draw_line(

@@ -106,7 +106,7 @@ ROI_COLORS = [
 ]
 
 
-def generate_colormaps():
+def generate_colormaps() -> dict[str, np.ndarray]:
     cmaps = {}
     x = np.linspace(0, 1, 256)
     ones = np.ones(256)
