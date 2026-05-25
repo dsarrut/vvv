@@ -1,5 +1,7 @@
+import threading
 import numpy as np
 import dearpygui.dearpygui as dpg
+from typing import Optional
 from vvv.plugins.plugin_api import PluginAPI
 from vvv.maths.contours import ContourROI
 
@@ -61,10 +63,11 @@ class ThresholdController:
 
     def __init__(self, plugin_id: str):
         self._plugin_id = plugin_id
-        self._api = None
+        self._api: Optional[PluginAPI] = None
         self._ui = None
         self._states: dict[str, ThresholdState] = {}
         self._last_sidebar_image_id = None
+        self._generation_stop: Optional[threading.Event] = None
 
     def _t(self, name: str) -> str:
         return f"{self._plugin_id}_{name}"
@@ -135,10 +138,15 @@ class ThresholdController:
         pass
 
     def destroy(self) -> None:
-        pass
+        if self._generation_stop:
+            self._generation_stop.set()
+        if self._api:
+            for img_id, vs in self._api.get_view_states().items():
+                self.clear_preview(img_id, vs)
 
     def _get_or_create_preview_rois(self, img_id, vs, state):
         """Retrieves or initializes the transient Plugin Draft ROIs inside the ViewState."""
+        assert self._api is not None
         roi_min = next(
             (c for c in vs.contours.values() if getattr(c, "is_plugin_draft_min", False)), None
         )
@@ -183,6 +191,8 @@ class ThresholdController:
 
     def clear_preview(self, img_id, vs):
         """Removes the plugin draft ROIs from the image's state."""
+        if not self._api:
+            return False
         roi_min = next(
             (c for c in vs.contours.values() if getattr(c, "is_plugin_draft_min", False)), None
         )
@@ -278,12 +288,13 @@ class ThresholdController:
 
             extracted_any = True
 
-        pass
-
     # --- Callbacks ---
 
     def on_enable_toggle(self, sender, app_data, user_data):
-        viewer = self._api.get_active_viewer()
+        api = self._api
+        if not api:
+            return
+        viewer = api.get_active_viewer()
         if not viewer or not viewer.view_state:
             return
         state = self.get_image_state(viewer.image_id)
@@ -293,10 +304,13 @@ class ThresholdController:
         else:
             state.show_preview = True
         viewer.view_state.is_geometry_dirty = True
-        self._api.request_refresh()
+        api.request_refresh()
 
     def on_threshold_drag(self, sender, app_data, user_data):
-        viewer = self._api.get_active_viewer()
+        api = self._api
+        if not api:
+            return
+        viewer = api.get_active_viewer()
         if not viewer or not viewer.view_state:
             return
         state = self.get_image_state(viewer.image_id)
@@ -335,10 +349,13 @@ class ThresholdController:
                 state.threshold_max = val
 
         viewer.view_state.is_geometry_dirty = True
-        self._api.request_refresh()
+        api.request_refresh()
 
     def on_step_button_clicked(self, sender, app_data, user_data):
-        viewer = self._api.get_active_viewer()
+        api = self._api
+        if not api:
+            return
+        viewer = api.get_active_viewer()
         if not viewer or not viewer.view_state:
             return
 
@@ -364,10 +381,13 @@ class ThresholdController:
             state.threshold_max = new_val
 
         viewer.view_state.is_geometry_dirty = True
-        self._api.request_refresh()
+        api.request_refresh()
 
     def on_gen_mode_changed(self, sender, app_data, user_data):
-        viewer = self._api.get_active_viewer()
+        api = self._api
+        if not api:
+            return
+        viewer = api.get_active_viewer()
         if not viewer or not viewer.view_state:
             return
         state = self.get_image_state(viewer.image_id)
@@ -381,10 +401,13 @@ class ThresholdController:
         elif sender == self._t("input_ext_fg_val"):
             state.gen_fg_val = app_data
 
-        self._api.request_refresh()
+        api.request_refresh()
 
     def on_create_image_clicked(self, sender, app_data, user_data):
-        viewer = self._api.get_active_viewer()
+        api = self._api
+        if not api:
+            return
+        viewer = api.get_active_viewer()
         if not viewer or not viewer.view_state or not viewer.volume:
             return
 
@@ -392,14 +415,19 @@ class ThresholdController:
         state = self.get_image_state(viewer.image_id)
         vs = viewer.view_state
 
+        stop_event = threading.Event()
+        self._generation_stop = stop_event
+
         def _extract():
             import SimpleITK as sitk
             from vvv.maths.image import VolumeData
             from vvv.core.view_state import ViewState
-            import threading
 
-            self._api.set_async_status("Generating thresholded image...")
-            self._api.request_refresh()
+            if stop_event.is_set():
+                return
+
+            api.set_async_status("Generating thresholded image...")
+            api.request_refresh()
 
             try:
                 # 1. Generate Masks
@@ -467,7 +495,7 @@ class ThresholdController:
                     vs.camera.to_dict()
                 )  # Inherit zoom, pan, and slices!
 
-                controller = self._api._controller
+                controller = api._controller
                 new_id = str(controller.next_image_id)
                 controller.next_image_id += 1
 
@@ -479,13 +507,13 @@ class ThresholdController:
                     target_tag = controller.gui.context_viewer.tag
                     controller.layout[target_tag] = new_id
 
-                self._api.set_async_status("Threshold image generated successfully")
-                self._api.request_refresh()
+                controller.gui.notify_plugins_image_loaded(new_id)
+                api.set_async_status("Threshold image generated successfully")
+                api.request_refresh()
 
             except Exception as e:
-                self._api.set_async_status(f"Failed to generate image: {e}")
-                self._api.request_refresh()
+                api.set_async_status(f"Failed to generate image: {e}")
+                api.request_refresh()
                 raise e
 
-        import threading
         threading.Thread(target=_extract, daemon=True).start()

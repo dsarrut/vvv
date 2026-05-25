@@ -1,6 +1,6 @@
 import numpy as np
 import dearpygui.dearpygui as dpg
-from vvv.ui.ui_components import build_section_title, build_stepped_slider, build_help_button
+from vvv.ui.ui_components import build_section_title, build_stepped_slider, build_help_button, build_beginner_tooltip
 from .control_threshold import ThresholdController
 
 
@@ -91,6 +91,7 @@ class ThresholdUI:
                     default_value=2.0,
                     callback=self._c.on_threshold_drag,
                 )
+            build_beginner_tooltip(self._t("drag_ext_thickness"), "Controls the thickness of the preview contour lines in mm.", api)
 
             # Image Generation
             dpg.add_spacer(height=10)
@@ -121,6 +122,7 @@ class ThresholdUI:
                     step=0,
                     callback=self._c.on_gen_mode_changed,
                 )
+            build_beginner_tooltip(self._t("combo_ext_bg_mode"), "Background: value assigned to voxels outside the threshold range. 'Constant' uses a fixed value; 'Image' keeps the original.", api)
 
             with dpg.group(horizontal=True):
                 dpg.add_text("FG:")
@@ -139,6 +141,7 @@ class ThresholdUI:
                     callback=self._c.on_gen_mode_changed,
                 )
                 build_help_button("BG/FG Generation Rules: Voxels inside the threshold range get the FG value. Voxels outside get the BG value. 'Image' keeps the original voxel values.", api)
+            build_beginner_tooltip(self._t("combo_ext_fg_mode"), "Foreground: value assigned to voxels inside the threshold range. 'Constant' uses a fixed value; 'Image' keeps the original.", api)
 
             dpg.add_spacer(height=5)
             with dpg.group(horizontal=True):
