@@ -17,7 +17,6 @@ from vvv.ui.ui_settings import SettingsWindow
 from vvv.plugins.plugin_api import PluginAPI
 from vvv.ui.ui_dicom import DicomBrowserWindow
 from vvv.plugins import discover_plugins
-from vvv.ui.ui_registration import RegistrationUI
 from vvv.resources import load_fonts, setup_themes
 from vvv.ui.ui_interaction import InteractionManager
 from vvv.ui.ui_components import build_section_title, build_help_button
@@ -107,7 +106,6 @@ class MainGUI:
         self.interaction = InteractionManager(self, self.controller)
         self.fusion_ui = FusionUI(self, self.controller)
         self.roi_ui = RoiUI(self, self.controller)
-        self.reg_ui = RegistrationUI(self, self.controller)
         self.contours_ui = ContoursUI(self, self.controller)
 
         # Initialize plugin list before building layout to avoid AttributeErrors
@@ -377,7 +375,6 @@ class MainGUI:
                     ("Sync", "tab_sync"),
                     ("Fusion", "tab_fusion"),
                     ("ROIs", "tab_rois"),
-                    ("Reg", "tab_reg"),
                 ]
 
                 # Add Registered Plugins to navigation
@@ -389,7 +386,6 @@ class MainGUI:
                     "tab_sync": "Synchronize camera movements.",
                     "tab_fusion": "Blend secondary images.",
                     "tab_rois": "Manage regions of interest.",
-                    "tab_reg": "Apply rigid transformations.",
                 }
                 for plugin in self.plugins:
                     tooltip_texts[plugin.plugin_id] = plugin.description
@@ -453,7 +449,6 @@ class MainGUI:
                 build_tab_sync(self)
                 self.fusion_ui.build_tab_fusion(self)
                 self.roi_ui.build_tab_rois(self)
-                self.reg_ui.build_tab_reg(self)
 
                 # Render Plugins
                 for plugin in self.plugins:
@@ -1056,7 +1051,6 @@ class MainGUI:
             self.update_sidebar_info(viewer)
             self.update_sidebar_crosshair(viewer)
             self._update_viewer_help_texts()  # Update help texts when context viewer changes
-            self.reg_ui.pull_reg_sliders_from_transform()
 
             # Defer full panel refresh to next frame loop
             self.controller.ui_needs_refresh = True
@@ -1103,7 +1097,7 @@ class MainGUI:
         is_roi = target_tab_tag == "tab_rois"
         self._is_roi_tab_active = is_roi
 
-        hide_av = target_tab_tag in ["tab_rois", "tab_reg", "registration_plugin"]
+        hide_av = target_tab_tag in ["tab_rois", "registration_plugin"]
         self._hide_av_panel = hide_av
 
         if dpg.does_item_exist("av_panel"):
@@ -1744,7 +1738,6 @@ class MainGUI:
         refresh_sync_ui(self)
         self.refresh_rois_ui()
         self.fusion_ui.refresh_fusion_ui()
-        self.reg_ui.refresh_reg_ui()
         self.contours_ui.refresh_contours_ui()
 
         self._init_rendering_menu()

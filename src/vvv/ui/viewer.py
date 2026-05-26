@@ -184,7 +184,7 @@ class SliceViewer:
         self.active_overlay_shift_x = 0.0
         self.active_overlay_shift_y = 0.0
         # Per-viewer render caches for live rotation preview (View-only data).
-        # Keyed by (orientation, slice_idx). Populated by RegistrationUI worker
+        # Keyed by (orientation, slice_idx). Populated by registration plugin worker
         # and by the on-demand path in _package_base/overlay_layer.
         self._preview_slices: dict = {}
         self._overlay_preview_slices: dict = {}

@@ -194,7 +194,7 @@ class RegistrationPluginUI(PluginTagMixin):
 
                 # --- Resample & Bake ---
                 dpg.add_checkbox(
-                    label="Auto-Update Display",
+                    label="Auto-Update Preview",
                     tag=self._t("check_reg_auto_resample"),
                     default_value=False,
                     callback=self._c.on_reg_auto_resample_toggled,

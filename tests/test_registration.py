@@ -10,24 +10,28 @@ def test_gui_registration_sliders(headless_gui_app):
     controller, gui, viewer, vs_id = headless_gui_app
     vs = viewer.view_state
 
+    reg_plugin = next(p for p in gui.plugins if p.plugin_id == "registration_plugin")
+    reg_ctrl = reg_plugin._controller
+    pid = "registration_plugin"
+
     # 1. Initialize the GUI slider items if they don't exist in the headless context
     for key in [
-        "drag_reg_tx",
-        "drag_reg_ty",
-        "drag_reg_tz",
-        "drag_reg_rx",
-        "drag_reg_ry",
-        "drag_reg_rz",
+        f"{pid}_drag_reg_tx",
+        f"{pid}_drag_reg_ty",
+        f"{pid}_drag_reg_tz",
+        f"{pid}_drag_reg_rx",
+        f"{pid}_drag_reg_ry",
+        f"{pid}_drag_reg_rz",
     ]:
         if not dpg.does_item_exist(key):
             dpg.add_drag_float(tag=key, default_value=0.0, parent="PrimaryWindow")
 
     # 2. Simulate User dragging the X-Translation slider to 15.0 mm
-    dpg.set_value("drag_reg_tx", 15.0)
+    dpg.set_value(f"{pid}_drag_reg_tx", 15.0)
 
     # 3. Trigger the GUI update method
     vs.space.is_active = True  # Transform must be active to read it
-    gui.reg_ui.on_reg_manual_changed(None, None, None)
+    reg_ctrl.on_reg_manual_changed(None, None, None)
 
     # 4. Assert the underlying SimpleITK Transform actually received the 15.0mm translation!
     translation = vs.space.transform.GetTranslation()
@@ -81,9 +85,12 @@ def test_registration_preview_generation(headless_gui_app):
     
     viewer_slices = {id(viewer): ("base", viewer.orientation, viewer.slice_idx)}
     
+    reg_plugin = next(p for p in gui.plugins if p.plugin_id == "registration_plugin")
+    reg_ctrl = reg_plugin._controller
+
     # 2. Fire the preview generator directly (simulating the background worker)
-    gui.reg_ui._preview_version = 1
-    gui.reg_ui._trigger_fast_preview(vs_id, version=1, R=R, center=center, viewer_slices=viewer_slices)
+    reg_ctrl._preview_version = 1
+    reg_ctrl._trigger_fast_preview(vs_id, version=1, R=R, center=center, viewer_slices=viewer_slices)
     
     # 3. Assert the cache was populated correctly
     assert vs._preview_R is R
@@ -97,29 +104,42 @@ def test_registration_preview_generation(headless_gui_app):
 def test_registration_auto_update_display(headless_gui_app):
     """Verifies that the Auto-Update Display checkbox correctly schedules a resample."""
     controller, gui, viewer, vs_id = headless_gui_app
-    
+
+    reg_plugin = next(p for p in gui.plugins if p.plugin_id == "registration_plugin")
+    reg_ctrl = reg_plugin._controller
+    pid = "registration_plugin"
+
     # 1. Mock the resample method to track if it gets called
     controller.resample_image = MagicMock()
-    
+
     # 2. Enable Auto-Update and ensure sliders exist
-    if not dpg.does_item_exist("check_reg_auto_resample"):
-        dpg.add_checkbox(tag="check_reg_auto_resample", default_value=True, parent="PrimaryWindow")
+    check_tag = f"{pid}_check_reg_auto_resample"
+    if not dpg.does_item_exist(check_tag):
+        dpg.add_checkbox(tag=check_tag, default_value=True, parent="PrimaryWindow")
     else:
-        dpg.set_value("check_reg_auto_resample", True)
-    for key in gui.reg_ui.SLIDER_TAGS:
+        dpg.set_value(check_tag, True)
+    slider_tags = [
+        f"{pid}_drag_reg_rx",
+        f"{pid}_drag_reg_ry",
+        f"{pid}_drag_reg_rz",
+        f"{pid}_drag_reg_tx",
+        f"{pid}_drag_reg_ty",
+        f"{pid}_drag_reg_tz",
+    ]
+    for key in slider_tags:
         if not dpg.does_item_exist(key):
             dpg.add_drag_float(tag=key, default_value=0.0, parent="PrimaryWindow")
-            
+
     # 3. Trigger a manual change
-    gui.reg_ui.on_reg_manual_changed(None, None, None)
-    
+    reg_ctrl.on_reg_manual_changed(None, None, None)
+
     # 4. Verify the debounce timer was set
-    assert gui.reg_ui._auto_timer is not None
-    assert gui.reg_ui._auto_timer_vs_id == vs_id
-    
+    assert reg_ctrl._auto_timer is not None
+    assert reg_ctrl._auto_timer_vs_id == vs_id
+
     # 5. Fire the timer manually to avoid waiting for 0.7s in tests
-    gui.reg_ui._fire_auto_resample()
-    
+    reg_ctrl._fire_auto_resample()
+
     # 6. Assert the ITK resample was requested
     controller.resample_image.assert_called_once_with(vs_id)
 

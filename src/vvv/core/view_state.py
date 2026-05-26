@@ -634,7 +634,7 @@ class ViewState:
         before using any viewer-local slice caches, so stale viewer caches are silently
         ignored without needing the Controller to touch View objects directly.
         Viewer-local slice dicts (_preview_slices, _overlay_preview_slices) are
-        managed by the View layer (RegistrationUI / Viewer) and are not cleared here.
+        managed by the View layer (registration plugin / Viewer) and are not cleared here.
         """
         self._preview_R = None
         self._preview_center = None
