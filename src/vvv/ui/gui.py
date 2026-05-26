@@ -58,6 +58,8 @@ class MainGUI:
         self.context_viewer = None
         self.last_window_size = None
         self.tasks = []
+        self._main_thread_callbacks = collections.deque()
+        self._main_thread_lock = threading.Lock()
         self.status_message_expire_time = float("inf")
         self.image_label_tags = {}
         self.sync_label_tags = {}
@@ -123,6 +125,11 @@ class MainGUI:
     def _init_plugins(self):
         """Discover and load plugins dynamically."""
         self.plugins = discover_plugins()
+
+    def schedule_main_thread(self, callback):
+        """Schedule a callback to be run on the main thread during the next frame tick."""
+        with self._main_thread_lock:
+            self._main_thread_callbacks.append(callback)
 
     def notify_plugins_image_loaded(self, image_id: str) -> None:
         for plugin in self.plugins:
@@ -1699,6 +1706,17 @@ class MainGUI:
                     fps_series = dpg.add_line_series([], [], label="FPS", parent=y_axis)
 
         while dpg.is_dearpygui_running():
+            # Process thread-safe callbacks scheduled from background threads
+            callbacks_to_run = []
+            with self._main_thread_lock:
+                while self._main_thread_callbacks:
+                    callbacks_to_run.append(self._main_thread_callbacks.popleft())
+            for cb in callbacks_to_run:
+                try:
+                    cb()
+                except Exception as cb_err:
+                    import sys
+                    print(f"Error executing scheduled main-thread callback: {cb_err}", file=sys.stderr)
             if debug:
                 assert fps_data is not None and time_data is not None
                 assert fps_label is not None and fps_series is not None

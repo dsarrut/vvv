@@ -415,6 +415,9 @@ class ThresholdController(PluginTagMixin):
         stop_event = threading.Event()
         self._generation_stop = stop_event
 
+        api.set_async_status("Generating thresholded image...")
+        api.request_refresh()
+
         def _extract():
             import SimpleITK as sitk
             from vvv.maths.image import VolumeData
@@ -422,9 +425,6 @@ class ThresholdController(PluginTagMixin):
 
             if stop_event.is_set():
                 return
-
-            api.set_async_status("Generating thresholded image...")
-            api.request_refresh()
 
             try:
                 # 1. Generate Masks
@@ -472,45 +472,59 @@ class ThresholdController(PluginTagMixin):
                 new_img.SetOrigin(vol.sitk_image.GetOrigin())
                 new_img.SetDirection(vol.sitk_image.GetDirection())
 
-                # 3. Bypass Disk I/O to Create VolumeData
-                new_vol = VolumeData.__new__(VolumeData)
-                new_vol.path = vol.path
-                new_vol.file_paths = list(vol.file_paths)
-                new_vol.name = f"Thr: {vol.name}"
-                new_vol.sitk_image = new_img
-                new_vol.data = new_data
-                new_vol.matrix_display_str = vol.matrix_display_str
-                new_vol.matrix_tooltip_str = vol.matrix_tooltip_str
-                new_vol.read_image_metadata()
-                new_vol.last_mtime = 0
-                new_vol._last_check_time = 0
-                new_vol._is_outdated = False
+                if stop_event.is_set():
+                    return
 
-                # 4. Build ViewState and Mount it!
-                new_vs = ViewState(new_vol)
-                new_vs.camera.from_dict(
-                    vs.camera.to_dict()
-                )  # Inherit zoom, pan, and slices!
+                def _mount_on_main():
+                    if stop_event.is_set():
+                        return
+                    try:
+                        # 3. Bypass Disk I/O to Create VolumeData
+                        new_vol = VolumeData.__new__(VolumeData)
+                        new_vol.path = vol.path
+                        new_vol.file_paths = list(vol.file_paths)
+                        new_vol.name = f"Thr: {vol.name}"
+                        new_vol.sitk_image = new_img
+                        new_vol.data = new_data
+                        new_vol.matrix_display_str = vol.matrix_display_str
+                        new_vol.matrix_tooltip_str = vol.matrix_tooltip_str
+                        new_vol.read_image_metadata()
+                        new_vol.last_mtime = 0
+                        new_vol._last_check_time = 0
+                        new_vol._is_outdated = False
 
-                controller = api._controller
-                new_id = str(controller.next_image_id)
-                controller.next_image_id += 1
+                        # 4. Build ViewState and Mount it!
+                        new_vs = ViewState(new_vol)
+                        new_vs.camera.from_dict(
+                            vs.camera.to_dict()
+                        )  # Inherit zoom, pan, and slices!
 
-                controller.volumes[new_id] = new_vol
-                controller.view_states[new_id] = new_vs
+                        controller = api._controller
+                        new_id = str(controller.next_image_id)
+                        controller.next_image_id += 1
 
-                # Swap the active viewer over to the new image
-                if controller.gui and controller.gui.context_viewer:
-                    target_tag = controller.gui.context_viewer.tag
-                    controller.layout[target_tag] = new_id
+                        controller.volumes[new_id] = new_vol
+                        controller.view_states[new_id] = new_vs
 
-                controller.gui.notify_plugins_image_loaded(new_id)
-                api.set_async_status("Threshold image generated successfully")
-                api.request_refresh()
+                        # Swap the active viewer over to the new image
+                        if controller.gui and controller.gui.context_viewer:
+                            target_tag = controller.gui.context_viewer.tag
+                            controller.layout[target_tag] = new_id
+
+                        controller.gui.notify_plugins_image_loaded(new_id)
+                        api.set_async_status("Threshold image generated successfully")
+                        api.request_refresh()
+                    except Exception as inner_e:
+                        api.set_async_status(f"Failed to mount generated image: {inner_e}")
+                        api.request_refresh()
+
+                api.run_on_main_thread(_mount_on_main)
 
             except Exception as e:
-                api.set_async_status(f"Failed to generate image: {e}")
-                api.request_refresh()
+                def _handle_error():
+                    api.set_async_status(f"Failed to generate image: {e}")
+                    api.request_refresh()
+                api.run_on_main_thread(_handle_error)
                 raise e
 
         threading.Thread(target=_extract, daemon=True).start()

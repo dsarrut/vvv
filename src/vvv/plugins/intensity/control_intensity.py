@@ -62,8 +62,8 @@ class IntensityController(PluginTagMixin):
                 viewer._mark_lazy_interaction()
 
     @staticmethod
-    def _update_histogram(
-        vol, hs: "HistogramState", bins: int, subsample_step: int = 1, time_idx: int = 0
+    def _compute_histogram_data(
+        vol, bins: int, subsample_step: int = 1, time_idx: int = 0
     ):
         data = vol.data
         if getattr(vol, "is_dvf", False) and data.ndim >= 4:
@@ -96,8 +96,15 @@ class IntensityController(PluginTagMixin):
         if subsample_step > 1 and flat_data.size > 0:
             y *= total_count / flat_data.size
 
+        return bin_edges[:-1].astype(np.float32), y
+
+    @staticmethod
+    def _update_histogram(
+        vol, hs: "HistogramState", bins: int, subsample_step: int = 1, time_idx: int = 0
+    ):
+        x, y = IntensityController._compute_histogram_data(vol, bins, subsample_step, time_idx)
+        hs.data_x = x
         hs.data_y = y
-        hs.data_x = bin_edges[:-1].astype(np.float32)
         hs.is_dirty = False
 
     @staticmethod
@@ -292,18 +299,24 @@ class IntensityController(PluginTagMixin):
                     stop = hs.stop_event
 
                     def _bg_compute(hs_obj, vol_obj, bins, t_idx):
-                        IntensityController._update_histogram(
-                            vol_obj, hs_obj, bins, 1, t_idx
+                        x, y = IntensityController._compute_histogram_data(
+                            vol_obj, bins, 1, t_idx
                         )
                         if stop.is_set():
                             return
-                        hs_obj._hist_cache[t_idx] = (
-                            hs_obj.data_x.copy(),
-                            hs_obj.data_y.copy(),
-                        )
-                        hs_obj.computing_full_hist = False
-                        hs_obj.full_hist_ready = True
-                        self._api.request_refresh()
+
+                        def _on_main_thread():
+                            if stop.is_set():
+                                return
+                            hs_obj.data_x = x
+                            hs_obj.data_y = y
+                            hs_obj.is_dirty = False
+                            hs_obj._hist_cache[t_idx] = (x.copy(), y.copy())
+                            hs_obj.computing_full_hist = False
+                            hs_obj.full_hist_ready = True
+                            self._api.request_refresh()
+
+                        self._api.run_on_main_thread(_on_main_thread)
 
                     self._api.set_async_status(
                         f"Computing accurate histogram for {vol.name}..."

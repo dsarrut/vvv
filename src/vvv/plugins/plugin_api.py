@@ -140,6 +140,10 @@ class PluginAPI:
         """Set a status message from a background thread (picked up by the main loop)."""
         self._controller.status_message = msg
 
+    def run_on_main_thread(self, callback):
+        """Schedule a callback to be executed on the main GUI thread."""
+        self._gui.schedule_main_thread(callback)
+
     # --- Plugin settings (persisted in the app settings file under "plugins.<namespace>") ---
 
     def get_settings(self, namespace: str) -> dict:
