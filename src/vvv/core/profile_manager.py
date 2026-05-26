@@ -31,7 +31,11 @@ class ProfileManager:
         is_dvf = getattr(vol, "is_dvf", False)
         is_rgb = getattr(vol, "is_rgb", False)
 
-        use_buffer = isinstance(vs.base_display_data, np.ndarray)
+        # During live rotation preview the buffer is stale (reflects an older transform).
+        # world_to_display(is_buffered=True) only strips translation, so it would sample
+        # from the wrong voxels. Fall through to the full ITK inverse-transform path instead.
+        in_preview = vs._preview_R is not None
+        use_buffer = not in_preview and isinstance(vs.base_display_data, np.ndarray)
         data = vs.base_display_data if use_buffer else vol.data
         if use_buffer:
             target_shape = (
@@ -57,7 +61,11 @@ class ProfileManager:
                 else:
                     x, y, z = vox
             else:
-                x, y, z = vol.physic_coord_to_voxel_coord(pt)
+                vox = vs.world_to_display(pt, is_buffered=False)
+                if vox is None:
+                    x, y, z = 0.0, 0.0, 0.0
+                else:
+                    x, y, z = vox
             x0, y0, z0 = int(np.floor(x)), int(np.floor(y)), int(np.floor(z))
             x1, y1, z1 = x0 + 1, y0 + 1, z0 + 1
             xd, yd, zd = x - x0, y - y0, z - z0

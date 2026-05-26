@@ -35,7 +35,10 @@ class TestProfileExtraction(unittest.TestCase):
 
         self.vs = MagicMock()
         self.vs.camera.time_idx = 0
-        self.vs.world_to_display.return_value = np.array([0.0, 0.0, 0.0])
+        self.vs._preview_R = None          # no live preview in these unit tests
+        self.vs.base_display_data = None   # no ITK buffer; forces vol.data path
+        # Identity mapping: world coord == voxel coord (no transform, no resampling)
+        self.vs.world_to_display.side_effect = lambda pt, is_buffered: np.array(pt[:3], dtype=float)
 
         self.controller.volumes = {"v1": self.vol}
         self.controller.view_states = {"v1": self.vs}
