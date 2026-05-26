@@ -180,7 +180,7 @@ class SliceViewer:
         self._textures_to_delete: list[str] = []
 
         self.overlay_texture_tag = f"tex_ov_{tag_id}"
-        self.overlay_image_tag = f"img_ov_{tag_id}"
+        self.overlay_image_tag: int | str = f"img_ov_{tag_id}"
         self.active_overlay_shift_x = 0.0
         self.active_overlay_shift_y = 0.0
         # Per-viewer render caches for live rotation preview (View-only data).
@@ -189,12 +189,13 @@ class SliceViewer:
         self._preview_slices: dict = {}
         self._overlay_preview_slices: dict = {}
         self.last_overlay_rgba_flat: np.ndarray | None = None
+        self.last_overlay_rgba_shape: tuple | None = None
         self._last_tracker_state: tuple | None = None
         self._was_hovered = False
         self._external_tracker_active = False
 
         self.texture_tag = f"tex_{tag_id}"
-        self.image_tag = f"img_{tag_id}"
+        self.image_tag: int | str = f"img_{tag_id}"
         self.img_node_tag = f"img_node_{tag_id}"
         self.strips_a_tag = f"strips_node_A_{tag_id}"
         self.strips_b_tag = f"strips_node_B_{tag_id}"
@@ -1103,7 +1104,7 @@ class SliceViewer:
             if ppm_changed:
                 self.set_pixels_per_mm(vs_ppm)
                 self.last_consumed_ppm = vs_ppm
-            if center_changed:
+            if center_changed and vs_center is not None:
                 self.center_on_physical_coord(vs_center)
                 self.last_consumed_center = list(vs_center)
             self.needs_recenter = False
@@ -1647,9 +1648,10 @@ class SliceViewer:
             )
 
         # Clear the previous overlay crop bounds in the base buffer if they exist
-        if getattr(self, "_last_single_native_ov_crop", None) is not None:
+        _prev_crop = getattr(self, "_last_single_native_ov_crop", None)
+        if _prev_crop is not None:
             if hasattr(self, "_nn_base_buf"):
-                oy0, oy1, ox0, ox1 = self._last_single_native_ov_crop
+                oy0, oy1, ox0, ox1 = _prev_crop
                 self._nn_base_buf[oy0:oy1, ox0:ox1] = 0.0
             self._last_single_native_ov_crop = None
 
@@ -1992,7 +1994,7 @@ class SliceViewer:
             
         plugin_active = thr_state and thr_state.is_enabled and thr_state.show_preview
         
-        if plugin_active:
+        if plugin_active and thr_plugin is not None:
             preview_2d = None
             if vs._preview_R is not None and not getattr(vol, "is_dvf", False):
                 key = (self.orientation, self.slice_idx)
@@ -2369,7 +2371,7 @@ class SliceViewer:
                         return
 
                     p = ProfileLineState()
-                    p.id = dpg.generate_uuid()
+                    p.id = str(dpg.generate_uuid())
                     p.name = f"Profile {len(self.view_state.profiles) + 1}"
                     # Use standard ROI colors for consistency
                     color_idx = len(self.view_state.profiles)
