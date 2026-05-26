@@ -130,11 +130,40 @@ class PluginAPI:
     def propagate_sync(self, image_id):
         self._controller.sync.propagate_sync(image_id)
 
+    def get_sync_group_vs_ids(self, image_id, active_only=False) -> list[str]:
+        return self._controller.sync.get_sync_group_vs_ids(image_id, active_only=active_only)
+
     def get_profile_data(self, image_id, profile):
         return self._controller.profiles.get_profile_data(image_id, profile)
 
     def get_full_export_data(self, image_id, profile):
         return self._controller.profiles.get_full_export_data(image_id, profile)
+
+    # --- Registration operations ---
+
+    def load_transform(self, image_id, file_path) -> bool:
+        return self._controller.load_transform(image_id, file_path)
+
+    def save_transform(self, image_id, file_path) -> bool:
+        return self._controller.save_transform(image_id, file_path)
+
+    def resample_image(self, image_id) -> None:
+        self._controller.resample_image(image_id)
+
+    def bake_transform_to_volume(self, image_id) -> None:
+        self._controller.bake_transform_to_volume(image_id)
+
+    def update_transform_manual(self, image_id, tx, ty, tz, rx, ry, rz) -> None:
+        self._controller.update_transform_manual(image_id, tx, ty, tz, rx, ry, rz)
+
+    def get_volume_physical_center(self, volume) -> list[float]:
+        return self._controller.get_volume_physical_center(volume)
+
+    def update_all_viewers_of_image(self, image_id) -> None:
+        self._controller.update_all_viewers_of_image(image_id)
+
+    def update_sidebar_crosshair(self, viewer) -> None:
+        self._gui.update_sidebar_crosshair(viewer)
 
     def set_async_status(self, msg):
         """Set a status message from a background thread (picked up by the main loop)."""

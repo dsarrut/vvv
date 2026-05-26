@@ -1,3 +1,5 @@
+import math
+import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import build_stepped_slider, build_section_title, build_help_button
 from vvv.plugins.plugin_api import PluginTagMixin
@@ -262,7 +264,7 @@ class RegistrationPluginUI(PluginTagMixin):
         is_dvf = False
         if has_image:
             vol = viewer.volume
-            is_dvf = bool(getattr(vol, "is_dvf", False))
+            is_dvf = (getattr(vol, "is_dvf", False) is True)
         if dpg.does_item_exist(warning_tag):
             dpg.configure_item(warning_tag, show=is_dvf)
 
@@ -270,6 +272,18 @@ class RegistrationPluginUI(PluginTagMixin):
         ctrls_group = self._t("group_registration_controls")
         if dpg.does_item_exist(ctrls_group):
             dpg.configure_item(ctrls_group, show=not is_dvf)
+
+        if is_dvf:
+            return
+
+        # Update button theme for Resample
+        resample_btn = self._t("btn_reg_resample")
+        if dpg.does_item_exist(resample_btn):
+            needs_resample = False
+            if has_image and viewer.view_state:
+                needs_resample = getattr(viewer.view_state, "needs_resample", False)
+            theme = "orange_button_theme" if needs_resample else 0
+            dpg.bind_item_theme(resample_btn, theme)
 
         # Transform file text
         file_tag = self._t("text_reg_filename")
@@ -293,22 +307,113 @@ class RegistrationPluginUI(PluginTagMixin):
                 if dpg.does_item_exist(f"btn_{tag}_plus"):
                     dpg.configure_item(f"btn_{tag}_plus", enabled=not is_2d)
 
-        # Update affine matrix display with identity/zeros for UI phase
-        for r in range(4):
-            for c in range(4):
-                tag = self._t(f"txt_reg_m_{r}_{c}")
-                if dpg.does_item_exist(tag):
-                    val = "1.000" if r == c else "0.000"
+        # Update sliders from transform (if not active/dragging)
+        slider_tags = [
+            self._t("drag_reg_rx"),
+            self._t("drag_reg_ry"),
+            self._t("drag_reg_rz"),
+            self._t("drag_reg_tx"),
+            self._t("drag_reg_ty"),
+            self._t("drag_reg_tz"),
+        ]
+        if has_image and viewer.view_state and viewer.view_state.space.transform:
+            params = viewer.view_state.space.get_parameters()
+            vals = [
+                math.degrees(params[0]),
+                math.degrees(params[1]),
+                math.degrees(params[2]),
+                params[3],
+                params[4],
+                params[5],
+            ]
+            for tag, val in zip(slider_tags, vals):
+                if dpg.does_item_exist(tag) and not dpg.is_item_active(tag):
                     dpg.set_value(tag, val)
+        else:
+            for tag in slider_tags:
+                if dpg.does_item_exist(tag) and not dpg.is_item_active(tag):
+                    dpg.set_value(tag, 0.0)
+
+        # Update affine matrix display
+        if has_image and viewer.view_state and viewer.view_state.space.transform:
+            matrix = np.array(viewer.view_state.space.transform.GetMatrix()).reshape(3, 3)
+            params = viewer.view_state.space.get_parameters()
+
+            for r in range(3):
+                for c in range(3):
+                    tag = self._t(f"txt_reg_m_{r}_{c}")
+                    if dpg.does_item_exist(tag):
+                        dpg.set_value(tag, f"{matrix[r, c]:.4f}")
+                tag_t = self._t(f"txt_reg_m_{r}_3")
+                if dpg.does_item_exist(tag_t):
+                    dpg.set_value(tag_t, f"{params[r+3]:.2f}")
+
+            for c, val in enumerate(["0.000", "0.000", "0.000", "1.000"]):
+                tag_b = self._t(f"txt_reg_m_3_{c}")
+                if dpg.does_item_exist(tag_b):
+                    dpg.set_value(tag_b, val)
+        else:
+            for r in range(4):
+                for c in range(4):
+                    tag = self._t(f"txt_reg_m_{r}_{c}")
+                    if dpg.does_item_exist(tag):
+                        val = "1.000" if r == c else "0.000"
+                        dpg.set_value(tag, val)
 
         # CoR text
         cor_tag = self._t("input_reg_cor")
         if dpg.does_item_exist(cor_tag):
-            if has_image and getattr(viewer.view_state, "space", None) and viewer.view_state.space.transform:
+            if has_image and viewer.view_state and viewer.view_state.space.transform:
                 center = viewer.view_state.space.transform.GetCenter()
                 dpg.set_value(
                     cor_tag,
                     f"{center[0]:.1f}, {center[1]:.1f}, {center[2]:.1f}",
                 )
+            elif has_image and viewer.volume:
+                center = api.get_volume_physical_center(viewer.volume)
+                if center is not None and isinstance(center, (list, tuple, np.ndarray)) and len(center) >= 3:
+                    dpg.set_value(
+                        cor_tag,
+                        f"{center[0]:.1f}, {center[1]:.1f}, {center[2]:.1f}",
+                    )
+                else:
+                    dpg.set_value(cor_tag, "0.0, 0.0, 0.0")
             else:
                 dpg.set_value(cor_tag, "0.0, 0.0, 0.0")
+
+    def pull_reg_sliders_from_transform(self) -> None:
+        """ONLY call this when loading a file, switching images, or resetting. NOT during drag!"""
+        api = self._c._api
+        if not api:
+            return
+        viewer = api.get_active_viewer()
+        if not viewer or not viewer.image_id:
+            return
+
+        vs = viewer.view_state
+        slider_tags = [
+            self._t("drag_reg_rx"),
+            self._t("drag_reg_ry"),
+            self._t("drag_reg_rz"),
+            self._t("drag_reg_tx"),
+            self._t("drag_reg_ty"),
+            self._t("drag_reg_tz"),
+        ]
+        if vs and vs.space.transform:
+            params = vs.space.get_parameters()
+            vals = [
+                math.degrees(params[0]),
+                math.degrees(params[1]),
+                math.degrees(params[2]),
+                params[3],
+                params[4],
+                params[5],
+            ]
+
+            for tag, val in zip(slider_tags, vals):
+                if dpg.does_item_exist(tag):
+                    dpg.set_value(tag, val)
+        else:
+            for tag in slider_tags:
+                if dpg.does_item_exist(tag):
+                    dpg.set_value(tag, 0.0)
