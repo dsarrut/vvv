@@ -2,18 +2,16 @@ import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import build_section_title, build_help_button, build_beginner_tooltip
 from vvv.utils import ViewMode, fmt
 from .control_profile import ProfilePluginController
+from vvv.plugins.plugin_api import PluginTagMixin
 
 ORI_MAP = {ViewMode.AXIAL: "XY", ViewMode.SAGITTAL: "YZ", ViewMode.CORONAL: "XZ"}
 
 
-class ProfilePluginUI:
+class ProfilePluginUI(PluginTagMixin):
     def __init__(self, plugin_id: str, controller: ProfilePluginController):
         self._plugin_id = plugin_id
         self._c = controller
         self._last_profile_key = None
-
-    def _t(self, name: str) -> str:
-        return f"{self._plugin_id}_{name}"
 
     def _bind_icon_font(self, item):
         if dpg.does_item_exist("icon_font_tag"):

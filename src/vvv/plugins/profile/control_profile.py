@@ -3,21 +3,18 @@ import math
 from typing import Optional
 import numpy as np
 import dearpygui.dearpygui as dpg
-from vvv.plugins.plugin_api import PluginAPI
+from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.utils import ViewMode, voxel_to_slice, slice_to_voxel
 from vvv.ui.file_dialog import save_file_dialog
 
 
-class ProfilePluginController:
+class ProfilePluginController(PluginTagMixin):
     """Controller for interactive profiles plugin."""
 
     def __init__(self, plugin_id: str):
         self._plugin_id = plugin_id
         self._api: Optional[PluginAPI] = None
         self._ui = None
-
-    def _t(self, name: str) -> str:
-        return f"{self._plugin_id}_{name}"
 
     def bind(self, api: PluginAPI) -> None:
         self._api = api

@@ -2,7 +2,7 @@ import threading
 import numpy as np
 import dearpygui.dearpygui as dpg
 from typing import Optional
-from vvv.plugins.plugin_api import PluginAPI
+from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.maths.contours import ContourROI
 
 
@@ -58,7 +58,7 @@ class ThresholdState:
         self.is_initialized = True
 
 
-class ThresholdController:
+class ThresholdController(PluginTagMixin):
     """Manages thresholding state and UI callbacks for the plugin without active image wiring."""
 
     def __init__(self, plugin_id: str):
@@ -68,9 +68,6 @@ class ThresholdController:
         self._states: dict[str, ThresholdState] = {}
         self._last_sidebar_image_id = None
         self._generation_stop: Optional[threading.Event] = None
-
-    def _t(self, name: str) -> str:
-        return f"{self._plugin_id}_{name}"
 
     def bind(self, api: PluginAPI) -> None:
         self._api = api

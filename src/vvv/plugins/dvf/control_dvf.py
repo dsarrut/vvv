@@ -1,14 +1,11 @@
 import dearpygui.dearpygui as dpg
-from vvv.plugins.plugin_api import PluginAPI
+from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 
 
-class DvfController:
+class DvfController(PluginTagMixin):
     def __init__(self, plugin_id: str):
         self._plugin_id = plugin_id
         self._api: PluginAPI  # bound in DvfPlugin.create_ui
-
-    def _t(self, name: str) -> str:
-        return f"{self._plugin_id}_{name}"
 
     def _sync_float(self, tag_name: str, value: float):
         """Helper to update a slider only if the user isn't currently dragging it."""

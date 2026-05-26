@@ -1,15 +1,13 @@
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import build_section_title, build_stepped_slider, build_help_button
 from .control_dvf import DvfController
+from vvv.plugins.plugin_api import PluginTagMixin
 
 
-class DvfUI:
+class DvfUI(PluginTagMixin):
     def __init__(self, plugin_id: str, controller: DvfController):
         self._plugin_id = plugin_id
         self._c = controller
-
-    def _t(self, name: str) -> str:
-        return f"{self._plugin_id}_{name}"
 
     def create_ui(self, parent, api) -> None:
         cfg_c = api.get_ui_config()["colors"]

@@ -5,6 +5,15 @@ from typing import Protocol, runtime_checkable
 import numpy as np
 
 
+class PluginTagMixin:
+    """Provides DPG tag namespacing for plugin controllers and UIs."""
+
+    _plugin_id: str
+
+    def _t(self, name: str) -> str:
+        return f"{self._plugin_id}_{name}"
+
+
 @runtime_checkable
 class PluginProtocol(Protocol):
     """Structural interface every plugin must satisfy."""

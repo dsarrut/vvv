@@ -2,15 +2,13 @@ import dearpygui.dearpygui as dpg
 from vvv.config import WL_PRESETS, COLORMAPS
 from vvv.ui.ui_components import build_stepped_slider, build_section_title, build_help_button, build_beginner_tooltip
 from .control_intensity import IntensityController
+from vvv.plugins.plugin_api import PluginTagMixin
 
 
-class IntensityUI:
+class IntensityUI(PluginTagMixin):
     def __init__(self, plugin_id: str, controller: IntensityController):
         self._plugin_id = plugin_id
         self._c = controller
-
-    def _t(self, name: str) -> str:
-        return f"{self._plugin_id}_{name}"
 
     def create_ui(self, parent, api) -> None:
         cfg_c = api.get_ui_config()["colors"]

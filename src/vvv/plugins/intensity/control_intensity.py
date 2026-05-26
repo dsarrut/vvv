@@ -2,7 +2,7 @@ import threading
 from typing import TYPE_CHECKING, Optional
 import numpy as np
 import dearpygui.dearpygui as dpg
-from vvv.plugins.plugin_api import PluginAPI
+from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.config import WL_PRESETS, COLORMAPS
 
 if TYPE_CHECKING:
@@ -36,7 +36,7 @@ class HistogramState:
         self.stop_event = threading.Event()
 
 
-class IntensityController:
+class IntensityController(PluginTagMixin):
     def __init__(self, plugin_id: str):
         self._plugin_id = plugin_id
         self._api: PluginAPI = None  # type: ignore
@@ -48,9 +48,6 @@ class IntensityController:
         self._last_colorscale_states = {}
 
         self._hist: dict[str, HistogramState] = {}
-
-    def _t(self, name: str) -> str:
-        return f"{self._plugin_id}_{name}"
 
     def _hs(self, viewer) -> HistogramState | None:
         if viewer and viewer.image_id:
