@@ -1,0 +1,314 @@
+import dearpygui.dearpygui as dpg
+from vvv.ui.ui_components import build_stepped_slider, build_section_title, build_help_button
+from vvv.plugins.plugin_api import PluginTagMixin
+from .control_registration import RegistrationPluginController
+
+
+class RegistrationPluginUI(PluginTagMixin):
+    def __init__(self, plugin_id: str, controller: RegistrationPluginController):
+        self._plugin_id = plugin_id
+        self._c = controller
+
+    def _bind_icon_font(self, item):
+        if dpg.does_item_exist("icon_font_tag"):
+            dpg.bind_item_font(item, "icon_font_tag")
+
+    def create_ui(self, parent, api) -> None:
+        cfg_c = api.get_ui_config()["colors"]
+
+        with dpg.group(parent=parent or 0, tag=self._plugin_id):
+            build_section_title("Registration Plugin", cfg_c["text_header"])
+
+            dpg.add_text(
+                "No Image Selected",
+                tag=self._t("text_reg_active_title"),
+                color=cfg_c["text_active"],
+            )
+
+            dpg.add_text(
+                "Registration disabled: DVF active",
+                tag=self._t("text_reg_dvf_warning"),
+                color=cfg_c.get("outdated", [255, 200, 50]),
+                show=False,
+            )
+
+            with dpg.group(tag=self._t("group_registration_controls")):
+                # --- TOP: File Management ---
+                dpg.add_spacer(height=10)
+                with dpg.group(horizontal=True):
+                    dpg.add_button(
+                        label="Load Matrix",
+                        tag=self._t("btn_reg_load"),
+                        callback=self._c.on_reg_load_clicked,
+                    )
+                    dpg.add_button(
+                        label="Save Matrix",
+                        tag=self._t("btn_reg_save"),
+                        callback=self._c.on_reg_save_clicked,
+                    )
+                    dpg.add_button(
+                        label="Save As",
+                        tag=self._t("btn_reg_save_as"),
+                        callback=self._c.on_reg_save_as_clicked,
+                    )
+
+                    btn_reload = dpg.add_button(
+                        label="\uf01e",
+                        width=20,
+                        tag=self._t("btn_reg_reload"),
+                        callback=self._c.on_reg_reload_clicked,
+                    )
+                    self._bind_icon_font(btn_reload)
+                    if dpg.does_item_exist("icon_button_theme"):
+                        dpg.bind_item_theme(btn_reload, "icon_button_theme")
+
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Transform File: ")
+                    dpg.add_text("None", tag=self._t("text_reg_filename"), color=cfg_c["text_dim"])
+                    build_help_button(
+                        "A Transform file (.tfm, .mat, .txt) contains a rigid 3D spatial matrix (Translations and Rotations) that aligns this image with another.",
+                        api
+                    )
+
+                # --- CoR Goto and Set ---
+                dpg.add_spacer(height=10)
+                with dpg.group(horizontal=True):
+                    dpg.add_text("CoR:")
+                    dpg.add_input_text(tag=self._t("input_reg_cor"), width=-28, readonly=True)
+                    build_help_button(
+                        "Center of Rotation (CoR): The 3D pivot point around which rotations are applied. Snapping it to your crosshair makes rotating around anatomical landmarks easy.",
+                        api
+                    )
+                with dpg.group(horizontal=True):
+                    b = dpg.add_button(
+                        label="\uf05b ", callback=self._c.on_reg_center_cor_clicked
+                    )
+                    self._bind_icon_font(b)
+                    dpg.add_button(
+                        label="Snap to Crosshair",
+                        width=-1,
+                        callback=self._c.on_reg_cor_to_crosshair_clicked,
+                    )
+
+                # --- Rigid Adjustment ---
+                dpg.add_spacer(height=10)
+                build_section_title(
+                    "Rigid Adjustment (Euler R = Rz Ry Rx)", cfg_c["text_header"]
+                )
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Step:")
+                    dpg.add_radio_button(
+                        items=["Coarse", "Fine"],
+                        default_value="Coarse",
+                        horizontal=True,
+                        tag=self._t("radio_reg_step"),
+                        callback=self._c.on_reg_step_changed,
+                    )
+
+                dpg.add_spacer(height=5)
+
+                # Translation Drag Floats
+                build_stepped_slider(
+                    "Tx ",
+                    self._t("drag_reg_tx"),
+                    callback=self._c.on_reg_manual_changed,
+                    step_callback=self._c.on_reg_step_button_clicked,
+                    min_val=-5000.0,
+                    max_val=5000.0,
+                    format="%.2f mm",
+                )
+                build_stepped_slider(
+                    "Ty ",
+                    self._t("drag_reg_ty"),
+                    callback=self._c.on_reg_manual_changed,
+                    step_callback=self._c.on_reg_step_button_clicked,
+                    min_val=-5000.0,
+                    max_val=5000.0,
+                    format="%.2f mm",
+                )
+                build_stepped_slider(
+                    "Tz ",
+                    self._t("drag_reg_tz"),
+                    callback=self._c.on_reg_manual_changed,
+                    step_callback=self._c.on_reg_step_button_clicked,
+                    min_val=-5000.0,
+                    max_val=5000.0,
+                    format="%.2f mm",
+                )
+
+                dpg.add_spacer(height=5)
+
+                # Rotation Drag Floats (Euler)
+                build_stepped_slider(
+                    "Rx ",
+                    self._t("drag_reg_rx"),
+                    callback=self._c.on_reg_manual_changed,
+                    step_callback=self._c.on_reg_step_button_clicked,
+                    min_val=-360.0,
+                    max_val=360.0,
+                    format="%.2f \u00b0",
+                )
+                build_stepped_slider(
+                    "Ry ",
+                    self._t("drag_reg_ry"),
+                    callback=self._c.on_reg_manual_changed,
+                    step_callback=self._c.on_reg_step_button_clicked,
+                    min_val=-360.0,
+                    max_val=360.0,
+                    format="%.2f \u00b0",
+                )
+                build_stepped_slider(
+                    "Rz ",
+                    self._t("drag_reg_rz"),
+                    callback=self._c.on_reg_manual_changed,
+                    step_callback=self._c.on_reg_step_button_clicked,
+                    min_val=-360.0,
+                    max_val=360.0,
+                    format="%.2f \u00b0",
+                )
+
+                dpg.add_spacer(height=5)
+                with dpg.group(horizontal=True):
+                    dpg.add_button(
+                        label="Reset to Identity",
+                        callback=self._c.on_reg_reset_clicked,
+                    )
+                    dpg.add_button(
+                        label="Invert Transform",
+                        width=-1,
+                        callback=self._c.on_reg_invert_clicked,
+                    )
+                dpg.add_spacer(height=5)
+
+                # --- Resample & Bake ---
+                dpg.add_checkbox(
+                    label="Auto-Update Display",
+                    tag=self._t("check_reg_auto_resample"),
+                    default_value=False,
+                    callback=self._c.on_reg_auto_resample_toggled,
+                )
+                with dpg.group(horizontal=True):
+                    dpg.add_button(
+                        label="Update Display",
+                        width=-28,
+                        tag=self._t("btn_reg_resample"),
+                        callback=self._c.on_reg_resample_clicked,
+                    )
+                    build_help_button(
+                        "Auto-Update: Automatically recalculates the full ITK resample when you stop dragging sliders.\nUpdate Display: Manually trigger the high-quality ITK resample to confirm alignment.",
+                        api
+                    )
+                with dpg.group(horizontal=True):
+                    dpg.add_button(
+                        label="Commit to Volume",
+                        tag=self._t("btn_reg_bake"),
+                        callback=self._c.on_reg_bake_clicked,
+                        width=-28,
+                    )
+                    build_help_button(
+                        "Permanently applies the active spatial transform to the\n"
+                        "underlying 3D pixel grid and resets the sliders to zero.\n"
+                        "You can then 'Save' the resulting aligned image to disk.",
+                        api
+                    )
+
+                # --- Affine Matrix ---
+                dpg.add_spacer(height=10)
+                dpg.add_separator()
+                dpg.add_spacer(height=10)
+                build_section_title("Affine Matrix", cfg_c["text_header"])
+                with dpg.group(tag=self._t("group_reg_matrix")):
+                    with dpg.table(
+                        header_row=False,
+                        borders_innerV=True,
+                        borders_innerH=True,
+                        resizable=False,
+                    ):
+                        for _ in range(4):
+                            dpg.add_table_column()
+                        for r in range(4):
+                            with dpg.table_row():
+                                for c in range(4):
+                                    dpg.add_text(
+                                        "0.000",
+                                        tag=self._t(f"txt_reg_m_{r}_{c}"),
+                                        color=cfg_c["text_dim"],
+                                    )
+
+    def update_ui(self, api) -> None:
+        viewer = api.get_active_viewer()
+        has_image = bool(viewer and viewer.view_state and viewer.volume)
+
+        # Update active title
+        title_tag = self._t("text_reg_active_title")
+        if dpg.does_item_exist(title_tag):
+            if has_image:
+                name_str, is_outdated = api.get_image_display_name(viewer.image_id)
+                dpg.set_value(title_tag, name_str)
+                col = (
+                    api.get_ui_config()["colors"]["outdated"]
+                    if is_outdated
+                    else api.get_ui_config()["colors"]["text_active"]
+                )
+                dpg.configure_item(title_tag, color=col)
+            else:
+                dpg.set_value(title_tag, "No Image Selected")
+                dpg.configure_item(
+                    title_tag, color=api.get_ui_config()["colors"]["text_active"]
+                )
+
+        # DVF warning
+        warning_tag = self._t("text_reg_dvf_warning")
+        is_dvf = False
+        if has_image:
+            vol = viewer.volume
+            is_dvf = bool(getattr(vol, "is_dvf", False))
+        if dpg.does_item_exist(warning_tag):
+            dpg.configure_item(warning_tag, show=is_dvf)
+
+        # Registration controls group
+        ctrls_group = self._t("group_registration_controls")
+        if dpg.does_item_exist(ctrls_group):
+            dpg.configure_item(ctrls_group, show=not is_dvf)
+
+        # Transform file text
+        file_tag = self._t("text_reg_filename")
+        if dpg.does_item_exist(file_tag):
+            if has_image and getattr(viewer.view_state, "space", None):
+                dpg.set_value(file_tag, viewer.view_state.space.transform_file)
+            else:
+                dpg.set_value(file_tag, "None")
+
+        # Disable out-of-plane sliders if 2D
+        if has_image:
+            vol = viewer.volume
+            is_2d = min(vol.shape3d) == 1 if vol else False
+            out_of_plane_tags = ["drag_reg_rx", "drag_reg_ry", "drag_reg_tz"]
+            for name in out_of_plane_tags:
+                tag = self._t(name)
+                if dpg.does_item_exist(tag):
+                    dpg.configure_item(tag, enabled=not is_2d)
+                if dpg.does_item_exist(f"btn_{tag}_minus"):
+                    dpg.configure_item(f"btn_{tag}_minus", enabled=not is_2d)
+                if dpg.does_item_exist(f"btn_{tag}_plus"):
+                    dpg.configure_item(f"btn_{tag}_plus", enabled=not is_2d)
+
+        # Update affine matrix display with identity/zeros for UI phase
+        for r in range(4):
+            for c in range(4):
+                tag = self._t(f"txt_reg_m_{r}_{c}")
+                if dpg.does_item_exist(tag):
+                    val = "1.000" if r == c else "0.000"
+                    dpg.set_value(tag, val)
+
+        # CoR text
+        cor_tag = self._t("input_reg_cor")
+        if dpg.does_item_exist(cor_tag):
+            if has_image and getattr(viewer.view_state, "space", None) and viewer.view_state.space.transform:
+                center = viewer.view_state.space.transform.GetCenter()
+                dpg.set_value(
+                    cor_tag,
+                    f"{center[0]:.1f}, {center[1]:.1f}, {center[2]:.1f}",
+                )
+            else:
+                dpg.set_value(cor_tag, "0.0, 0.0, 0.0")
