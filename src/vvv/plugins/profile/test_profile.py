@@ -67,9 +67,7 @@ class TestProfilePlugin(unittest.TestCase):
         self.mock_api.get_image_display_name.return_value = ("Image ABC", False)
 
         self.plugin.update(self.mock_api)
-        self.assertEqual(
-            dpg.get_value("profile_plugin_active_title"), "Image ABC"
-        )
+        self.assertEqual(dpg.get_value("profile_plugin_active_title"), "Image ABC")
 
         # Verify list table row was built
         table_id = "profile_plugin_list_table"
@@ -99,7 +97,10 @@ class TestProfilePlugin(unittest.TestCase):
         viewer.volume = MagicMock()
         self.mock_api.get_active_viewer.return_value = viewer
         self.mock_api.get_image_display_name.return_value = ("Image ABC", False)
-        self.mock_api.get_profile_data.return_value = (np.array([0, 10]), np.array([100, 200]))
+        self.mock_api.get_profile_data.return_value = (
+            np.array([0, 10]),
+            np.array([100, 200]),
+        )
 
         # Render list
         self.plugin.update(self.mock_api)
@@ -136,7 +137,10 @@ class TestProfilePlugin(unittest.TestCase):
         viewer.volume = MagicMock()
         self.mock_api.get_active_viewer.return_value = viewer
         self.mock_api.get_image_display_name.return_value = ("Image ABC", False)
-        self.mock_api.get_profile_data.return_value = (np.array([0, 10]), np.array([100, 200]))
+        self.mock_api.get_profile_data.return_value = (
+            np.array([0, 10]),
+            np.array([100, 200]),
+        )
 
         # Render list
         self.plugin.update(self.mock_api)
@@ -148,7 +152,7 @@ class TestProfilePlugin(unittest.TestCase):
         self.assertTrue(profile.plot_open)
 
         # Set a custom position
-        custom_pos = [150, 250]
+        custom_pos = [150.0, 250.0]
         dpg.set_item_pos(win_tag, custom_pos)
 
         # Close the plot window (which should capture the position)

@@ -84,25 +84,31 @@ class CameraState:
 
     def to_dict(self):
         return {
+            # pyrefly: ignore [unnecessary-type-conversion]
             "zoom": {k.name: float(v) for k, v in self.zoom.items()},
+            # pyrefly: ignore [unnecessary-type-conversion]
             "pan": {k.name: [float(p) for p in v] for k, v in self.pan.items()},
             "slices": {k.name: int(v) for k, v in self.slices.items()},
+            # pyrefly: ignore [unnecessary-type-conversion]
             "time_idx": int(self.time_idx),
-            "show_axis": bool(self.show_axis),
-            "show_tracker": bool(self.show_tracker),
-            "show_crosshair": bool(self.show_crosshair),
-            "show_scalebar": bool(self.show_scalebar),
-            "show_grid": bool(self.show_grid),
-            "show_legend": bool(self.show_legend),
-            "show_profiles": bool(self.show_profiles),
+            "show_axis": self.show_axis,
+            "show_tracker": self.show_tracker,
+            "show_crosshair": self.show_crosshair,
+            "show_scalebar": self.show_scalebar,
+            "show_grid": self.show_grid,
+            "show_legend": self.show_legend,
+            "show_profiles": self.show_profiles,
+            # pyrefly: ignore [unnecessary-type-conversion]
             "show_filename": int(self.show_filename),
             "last_orientation": self.last_orientation.name,
             "crosshair_voxel": (
+                # pyrefly: ignore [unnecessary-type-conversion]
                 [float(x) for x in self.crosshair_voxel]
                 if self.crosshair_voxel
                 else None
             ),
             "crosshair_phys_coord": (
+                # pyrefly: ignore [unnecessary-type-conversion]
                 [float(x) for x in self.crosshair_phys_coord]
                 if self.crosshair_phys_coord is not None
                 else None
@@ -207,18 +213,27 @@ class DisplayState:
 
     def to_dict(self):
         return {
+            # pyrefly: ignore [unnecessary-type-conversion]
             "ww": float(self.ww),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "wl": float(self.wl),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "colormap": str(self.colormap),
             "base_threshold": (
-                float(self.base_threshold) if self.base_threshold is not None else None
+                # pyrefly: ignore [unnecessary-type-conversion]
+                float(self.base_threshold)
+                if self.base_threshold is not None
+                else None
             ),
-            "pixelated_zoom": bool(self.pixelated_zoom),
-            "use_voxel_strips": bool(self.use_voxel_strips),
+            "pixelated_zoom": self.pixelated_zoom,
+            "use_voxel_strips": self.use_voxel_strips,
+            # pyrefly: ignore [unnecessary-type-conversion]
             "overlay_opacity": float(self.overlay_opacity),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "overlay_mode": str(self.overlay_mode),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "overlay_checkerboard_size": float(self.overlay_checkerboard_size),
-            "overlay_checkerboard_swap": bool(self.overlay_checkerboard_swap),
+            "overlay_checkerboard_swap": self.overlay_checkerboard_swap,
         }
 
     def from_dict(self, d):
@@ -289,17 +304,24 @@ class ExtractionState:
 
     def to_dict(self):
         return {
-            "is_enabled": bool(self.is_enabled),
+            "is_enabled": self.is_enabled,
+            # pyrefly: ignore [unnecessary-type-conversion]
             "threshold_min": float(self.threshold_min),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "threshold_max": float(self.threshold_max),
-            "show_preview": bool(self.show_preview),
+            "show_preview": self.show_preview,
             "preview_color_min": list(self.preview_color_min),
             "preview_color_max": list(self.preview_color_max),
-            "subpixel_accurate": bool(self.subpixel_accurate),
+            "subpixel_accurate": self.subpixel_accurate,
+            # pyrefly: ignore [unnecessary-type-conversion]
             "preview_thickness": float(self.preview_thickness),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "gen_bg_mode": str(self.gen_bg_mode),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "gen_bg_val": float(self.gen_bg_val),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "gen_fg_mode": str(self.gen_fg_mode),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "gen_fg_val": float(self.gen_fg_val),
         }
 
@@ -404,15 +426,23 @@ class DVFState:
 
     def to_dict(self):
         return {
+            # pyrefly: ignore [unnecessary-type-conversion]
             "display_mode": str(self.display_mode),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "vector_sampling": int(self.vector_sampling),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "vector_scale": float(self.vector_scale),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "vector_thickness": float(self.vector_thickness),
             "vector_color_min": list(self.vector_color_min),
             "vector_color_max": list(self.vector_color_max),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "vector_color_max_mag": float(self.vector_color_max_mag),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "vector_min_length_arrow": float(self.vector_min_length_arrow),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "vector_min_length_draw": float(self.vector_min_length_draw),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "vector_precision": int(self.vector_precision),
         }
 
@@ -465,11 +495,14 @@ class ProfileLineState:
                 [float(x) for x in self.pt2_phys] if self.pt2_phys is not None else None
             ),
             "orientation": self.orientation.name,
+            # pyrefly: ignore [unnecessary-type-conversion]
             "slice_idx": int(self.slice_idx),
-            "visible": bool(self.visible),
-            "plot_open": bool(self.plot_open),
-            "use_log": bool(self.use_log),
-            "plot_position": list(self.plot_position) if self.plot_position is not None else None,
+            "visible": self.visible,
+            "plot_open": self.plot_open,
+            "use_log": self.use_log,
+            "plot_position": (
+                list(self.plot_position) if self.plot_position is not None else None
+            ),
         }
 
     def from_dict(self, d):
@@ -827,9 +860,11 @@ class ViewState:
             max_v = float(np.max(self.volume.data))
             self.display.ww = max(1e-20, max_v - min_v)
             self.display.wl = (max_v + min_v) / 2
-        elif preset_name in WL_PRESETS and WL_PRESETS[preset_name] is not None:
-            self.display.ww = WL_PRESETS[preset_name]["ww"]
-            self.display.wl = WL_PRESETS[preset_name]["wl"]
+        else:
+            preset = WL_PRESETS.get(preset_name)
+            if preset is not None:
+                self.display.ww = preset["ww"]
+                self.display.wl = preset["wl"]
 
     def update_base_display_data(self):
         if not self.space.is_active or not self.space.has_rotation():
