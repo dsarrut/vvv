@@ -40,7 +40,14 @@ class ProfilePluginController(PluginTagMixin):
         if self._ui:
             self._ui._last_profile_key = None
 
-    def serialize_image_state(self, _image_id: str) -> dict:
+    def serialize_image_state(self, image_id: str) -> dict:
+        if self._api:
+            vs = self._api.get_view_states().get(image_id)
+            if vs:
+                for p_id, profile in vs.profiles.items():
+                    win_tag = self._t(f"plot_win_{p_id}")
+                    if dpg.does_item_exist(win_tag):
+                        profile.plot_position = dpg.get_item_pos(win_tag)
         return {}
 
     def restore_image_state(self, image_id: str, data: dict) -> None:

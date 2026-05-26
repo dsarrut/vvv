@@ -451,6 +451,7 @@ class ProfileLineState:
         self.visible = True
         self.plot_open = False
         self.use_log = False
+        self.plot_position = None
 
     def to_dict(self):
         return {
@@ -468,6 +469,7 @@ class ProfileLineState:
             "visible": bool(self.visible),
             "plot_open": bool(self.plot_open),
             "use_log": bool(self.use_log),
+            "plot_position": list(self.plot_position) if self.plot_position is not None else None,
         }
 
     def from_dict(self, d):
@@ -487,6 +489,7 @@ class ProfileLineState:
         self.visible = d.get("visible", self.visible)
         self.plot_open = d.get("plot_open", False)
         self.use_log = d.get("use_log", False)
+        self.plot_position = d.get("plot_position", None)
 
 
 class ViewState:

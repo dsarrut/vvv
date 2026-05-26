@@ -55,6 +55,28 @@ class ProfilePluginUI(PluginTagMixin):
                     api,
                 )
 
+            with dpg.group(horizontal=True):
+                btn_open_all = dpg.add_button(
+                    label="Open All Plots",
+                    tag=self._t("btn_open_all"),
+                    callback=self.on_open_all_clicked,
+                )
+                build_beginner_tooltip(
+                    btn_open_all,
+                    "Opens intensity plot windows for all profiles of the active image.",
+                    api,
+                )
+                btn_close_all = dpg.add_button(
+                    label="Close All Plots",
+                    tag=self._t("btn_close_all"),
+                    callback=self.on_close_all_clicked,
+                )
+                build_beginner_tooltip(
+                    btn_close_all,
+                    "Closes intensity plot windows for all profiles of the active image.",
+                    api,
+                )
+
             dpg.add_spacer(height=5)
 
             with dpg.child_window(tag=self._t("list_window"), height=200, border=True):
@@ -193,6 +215,30 @@ class ProfilePluginUI(PluginTagMixin):
 
         dpg.set_y_scroll(table_id, current_scroll)
 
+    def on_open_all_clicked(self, sender, app_data, user_data):
+        api = self._c._api
+        if not api:
+            return
+        viewer = api.get_active_viewer()
+        if not viewer or not viewer.view_state:
+            return
+        for p_id in list(viewer.view_state.profiles.keys()):
+            win_tag = self._t(f"plot_win_{p_id}")
+            if not dpg.does_item_exist(win_tag):
+                self.on_plot_clicked(None, None, p_id)
+
+    def on_close_all_clicked(self, sender, app_data, user_data):
+        api = self._c._api
+        if not api:
+            return
+        viewer = api.get_active_viewer()
+        if not viewer or not viewer.view_state:
+            return
+        for p_id in list(viewer.view_state.profiles.keys()):
+            win_tag = self._t(f"plot_win_{p_id}")
+            if dpg.does_item_exist(win_tag):
+                self.on_plot_closed(win_tag, None, p_id)
+
     def on_plot_clicked(self, sender, app_data, user_data):
         api = self._c._api
         if not api:
@@ -222,13 +268,17 @@ class ProfilePluginUI(PluginTagMixin):
         ):
             self.build_plot_window_contents(profile)
 
-        # Position the window at the bottom right of the viewport
-        vp_w = dpg.get_viewport_client_width()
-        vp_h = dpg.get_viewport_client_height()
-        win_w, win_h = 450, 550
-        dpg.set_item_pos(
-            win_tag, [max(10, vp_w - win_w - 20), max(10, vp_h - win_h - 40)]
-        )
+        # Position the window
+        if getattr(profile, "plot_position", None) is not None:
+            dpg.set_item_pos(win_tag, profile.plot_position)
+        else:
+            # Position the window at the bottom right of the viewport
+            vp_w = dpg.get_viewport_client_width()
+            vp_h = dpg.get_viewport_client_height()
+            win_w, win_h = 450, 550
+            dpg.set_item_pos(
+                win_tag, [max(10, vp_w - win_w - 20), max(10, vp_h - win_h - 40)]
+            )
 
         profile.plot_open = True
         self.update_plot_info(profile)
@@ -468,9 +518,11 @@ class ProfilePluginUI(PluginTagMixin):
             dpg.fit_axis_data(self._t(f"yaxis_{p_id}"))
 
     def on_plot_closed(self, sender, app_data, user_data):
-        dpg.delete_item(sender)
         viewer = self._c._api.get_active_viewer() if self._c._api else None
         if viewer and viewer.view_state:
             profile = viewer.view_state.profiles.get(user_data)
             if profile:
                 profile.plot_open = False
+                if dpg.does_item_exist(sender):
+                    profile.plot_position = dpg.get_item_pos(sender)
+        dpg.delete_item(sender)
