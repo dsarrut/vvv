@@ -15,6 +15,7 @@ class SpatialEngine:
         # Transform State
         self.transform = None
         self.transform_file = "None"
+        self.full_transform_path = None
         self.is_active = False
 
         # Center of Rotation (Anatomical center)

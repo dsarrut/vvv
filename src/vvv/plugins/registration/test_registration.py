@@ -35,7 +35,7 @@ class TestRegistrationPlugin(unittest.TestCase):
         vs = MagicMock()
         vs.space.is_active = True
         vs.space.transform_file = "test.tfm"
-        vs.space._full_transform_path = "/path/to/test.tfm"
+        vs.space.full_transform_path = "/path/to/test.tfm"
         mock_transform = MagicMock()
         mock_transform.GetParameters.return_value = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
         mock_transform.GetCenter.return_value = [10.0, 20.0, 30.0]
@@ -64,7 +64,7 @@ class TestRegistrationPlugin(unittest.TestCase):
         
         self.assertTrue(vs.space.is_active)
         self.assertEqual(vs.space.transform_file, "test.tfm")
-        self.assertEqual(vs.space._full_transform_path, "/path/to/test.tfm")
+        self.assertEqual(vs.space.full_transform_path, "/path/to/test.tfm")
         self.assertIsNotNone(vs.space.transform)
         # Euler3DTransform is created from SimpleITK:
         self.assertEqual(list(vs.space.transform.GetParameters()), [1.0, 2.0, 3.0, 4.0, 5.0, 6.0])

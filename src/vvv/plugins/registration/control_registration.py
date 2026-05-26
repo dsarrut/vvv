@@ -90,7 +90,7 @@ class RegistrationPluginController(PluginTagMixin):
         state_dict = {
             "is_active": vs.space.is_active,
             "transform_file": vs.space.transform_file,
-            "full_transform_path": getattr(vs.space, "_full_transform_path", None)
+            "full_transform_path": vs.space.full_transform_path
         }
 
         if vs.space.transform:
@@ -118,7 +118,7 @@ class RegistrationPluginController(PluginTagMixin):
 
         vs.space.is_active = data.get("is_active", False)
         vs.space.transform_file = data.get("transform_file", "None")
-        setattr(vs.space, "_full_transform_path", data.get("full_transform_path", None))
+        vs.space.full_transform_path = data.get("full_transform_path", None)
 
         params = data.get("transform_params")
         center = data.get("transform_center")
@@ -310,7 +310,7 @@ class RegistrationPluginController(PluginTagMixin):
             world_pos = vs.camera.crosshair_phys_coord
 
             if self._api.load_transform(viewer.image_id, file_path):
-                setattr(vs.space, "_full_transform_path", file_path)
+                vs.space.full_transform_path = file_path
                 self._api.notify(f"Loaded {os.path.basename(file_path)}")
                 vs.space.is_active = True
 
@@ -347,7 +347,7 @@ class RegistrationPluginController(PluginTagMixin):
             )
             return
 
-        full_path = getattr(vs.space, "_full_transform_path", None)
+        full_path = vs.space.full_transform_path
         if full_path and os.path.exists(os.path.dirname(full_path)):
             self._api.save_transform(viewer.image_id, full_path)
             self._api.notify(f"Saved: {os.path.basename(full_path)}")
@@ -378,7 +378,7 @@ class RegistrationPluginController(PluginTagMixin):
         file_path = save_file_dialog("Save Transform As", default_name=default_name)
         if file_path:
             self._api.save_transform(viewer.image_id, file_path)
-            setattr(vs.space, "_full_transform_path", file_path)
+            vs.space.full_transform_path = file_path
             self._api.notify(f"Saved: {os.path.basename(file_path)}")
             self._api.request_refresh()
 
@@ -389,7 +389,7 @@ class RegistrationPluginController(PluginTagMixin):
         if not viewer or not viewer.view_state:
             return
 
-        full_path = getattr(viewer.view_state.space, "_full_transform_path", None)
+        full_path = viewer.view_state.space.full_transform_path
         if full_path and os.path.exists(full_path):
             if self._api.load_transform(viewer.image_id, full_path):
                 self._api.request_refresh()
