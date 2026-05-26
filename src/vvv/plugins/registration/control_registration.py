@@ -1,9 +1,10 @@
+from __future__ import annotations
 import os
 import math
 import queue
 import threading
 import numpy as np
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
@@ -11,6 +12,9 @@ from vvv.ui.render_strategy import (
     compute_preview_2d_affine,
     compute_overlay_preview_2d_affine,
 )
+
+if TYPE_CHECKING:
+    from vvv.core.view_state import ViewState
 
 
 class RegistrationPluginController(PluginTagMixin):
@@ -76,11 +80,10 @@ class RegistrationPluginController(PluginTagMixin):
             vs_id, version, R, center, viewer_slices = req
             self._trigger_fast_preview(vs_id, version, R, center, viewer_slices)
 
-
     def _trigger_fast_preview(self, image_id, version, R, center, viewer_slices):
         if not self._api:
             return
-        vs = self._api.get_view_states().get(image_id)
+        vs: ViewState | None = self._api.get_view_states().get(image_id)
         if not vs:
             return
 
@@ -134,7 +137,7 @@ class RegistrationPluginController(PluginTagMixin):
     def _check_preview_slice_needed(self, vs_id):
         if not self._api:
             return
-        vs = self._api.get_view_states().get(vs_id)
+        vs: ViewState | None = self._api.get_view_states().get(vs_id)
         if not vs or vs._preview_R is None or not vs._preview_slice_needed:
             return
         vs._preview_slice_needed = False
@@ -434,7 +437,7 @@ class RegistrationPluginController(PluginTagMixin):
         with self._preview_lock:
             self._preview_version += 1
 
-        vs = self._api.get_view_states().get(viewer.image_id)
+        vs: ViewState | None = self._api.get_view_states().get(viewer.image_id)
         if vs:
             vs.reset_preview_rotation()
             vs.needs_resample = True
@@ -504,7 +507,7 @@ class RegistrationPluginController(PluginTagMixin):
             color=self._api.get_ui_config()["colors"].get("working"),
         )
         self._api.resample_image(vs_id)
-        vs = self._api.get_view_states().get(vs_id)
+        vs: ViewState | None = self._api.get_view_states().get(vs_id)
         if vs:
             vs.needs_resample = False
 
@@ -516,7 +519,8 @@ class RegistrationPluginController(PluginTagMixin):
             return
         vs_id = viewer.image_id
 
-        vs = self._api.get_view_states().get(vs_id)
+        vs: ViewState | None = self._api.get_view_states().get(vs_id)
+
         if vs:
             vs.space.is_active = True
 
@@ -543,14 +547,11 @@ class RegistrationPluginController(PluginTagMixin):
             self._preview_version += 1
             version = self._preview_version
 
-        if vs:
-            if has_rotation:
-                pass
-            else:
-                vs.reset_preview_rotation()
+        if vs and not has_rotation:
+            vs.reset_preview_rotation()
 
         preview_thread_spawned = False
-        if self._is_live_preview_enabled() and has_rotation:
+        if self._is_live_preview_enabled() and has_rotation and vs:
             rot_transform = vs.space.get_rotation_only_transform()
             matrix_val = rot_transform.GetMatrix()
             if (
