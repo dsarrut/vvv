@@ -31,15 +31,33 @@ class ProfileManager:
         is_dvf = getattr(vol, "is_dvf", False)
         is_rgb = getattr(vol, "is_rgb", False)
 
+        use_buffer = isinstance(vs.base_display_data, np.ndarray)
+        data = vs.base_display_data if use_buffer else vol.data
+        if use_buffer:
+            target_shape = (
+                data.shape[1:]
+                if data.ndim == 4
+                else data.shape
+            )
+        else:
+            target_shape = vol.shape3d
+
         def get_val(ix, iy, iz):
-            if not (0 <= ix < vol.shape3d[2] and 0 <= iy < vol.shape3d[1] and 0 <= iz < vol.shape3d[0]):
+            if not (0 <= ix < target_shape[2] and 0 <= iy < target_shape[1] and 0 <= iz < target_shape[0]):
                 return 0.0
-            v = vol.data[t_idx, iz, iy, ix] if t_idx is not None else vol.data[iz, iy, ix]
+            v = data[t_idx, iz, iy, ix] if t_idx is not None else data[iz, iy, ix]
             return float(np.linalg.norm(v) if is_dvf else np.mean(v) if is_rgb else v)
 
         intensities = []
         for pt in pts_phys:
-            x, y, z = vol.physic_coord_to_voxel_coord(pt)
+            if use_buffer:
+                vox = vs.world_to_display(pt, is_buffered=True)
+                if vox is None:
+                    x, y, z = 0.0, 0.0, 0.0
+                else:
+                    x, y, z = vox
+            else:
+                x, y, z = vol.physic_coord_to_voxel_coord(pt)
             x0, y0, z0 = int(np.floor(x)), int(np.floor(y)), int(np.floor(z))
             x1, y1, z1 = x0 + 1, y0 + 1, z0 + 1
             xd, yd, zd = x - x0, y - y0, z - z0
@@ -68,11 +86,19 @@ class ProfileManager:
             return []
         distances, intensities, pts_phys, vs, vol = result
 
-        sx, sy, sz = vol.shape3d[2], vol.shape3d[1], vol.shape3d[0]
+        use_buffer = isinstance(vs.base_display_data, np.ndarray)
+        if use_buffer:
+            sx, sy, sz = vs.base_display_data.shape[-1], vs.base_display_data.shape[-2], vs.base_display_data.shape[-3]
+        else:
+            sx, sy, sz = vol.shape3d[2], vol.shape3d[1], vol.shape3d[0]
 
         export_list = []
         for i, phys in enumerate(pts_phys):
-            vox = vol.physic_coord_to_voxel_coord(phys)
+            if use_buffer:
+                vox_val = vs.world_to_display(phys, is_buffered=True)
+                vox = vox_val if vox_val is not None else np.array([0.0, 0.0, 0.0])
+            else:
+                vox = vol.physic_coord_to_voxel_coord(phys)
             x, y, z = vox
             in_bounds = (0.0 <= x <= sx - 1) and (0.0 <= y <= sy - 1) and (0.0 <= z <= sz - 1)
             display_vox = vs.world_to_display(phys, is_buffered=False)

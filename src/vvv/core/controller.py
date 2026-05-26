@@ -530,7 +530,7 @@ class Controller:
                     resampler.SetReferenceImage(ref)
                     resampler.SetInterpolator(sitk.sitkLinear)
                     resampler.SetDefaultPixelValue(float(np.min(vol.data) if vol.data is not None else 0))
-                    resampler.SetTransform(vs.space.transform)
+                    resampler.SetTransform(vs.space.transform.GetInverse())
 
                     src_img = sitk.Cast(vol.sitk_image, sitk.sitkFloat32)
                     new_sitk = resampler.Execute(src_img)

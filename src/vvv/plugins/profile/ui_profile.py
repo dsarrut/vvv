@@ -100,6 +100,15 @@ class ProfilePluginUI(PluginTagMixin):
         viewer = api.get_active_viewer()
         has_image = bool(viewer and viewer.view_state and viewer.volume)
 
+        # Refresh open plots
+        if has_image:
+            for p_id, profile in viewer.view_state.profiles.items():
+                if getattr(profile, "plot_open", False):
+                    win_tag = self._t(f"plot_win_{p_id}")
+                    if dpg.does_item_exist(win_tag):
+                        self.refresh_plot_series(profile)
+                        self.update_plot_info(profile)
+
         # Update active image title
         active_title = self._t("active_title")
         if dpg.does_item_exist(active_title):

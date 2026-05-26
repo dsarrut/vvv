@@ -201,13 +201,13 @@ class RegistrationPluginUI(PluginTagMixin):
                 )
                 with dpg.group(horizontal=True):
                     dpg.add_button(
-                        label="Update Display",
+                        label="Update Preview",
                         width=-28,
                         tag=self._t("btn_reg_resample"),
                         callback=self._c.on_reg_resample_clicked,
                     )
                     build_help_button(
-                        "Auto-Update: Automatically recalculates the full ITK resample when you stop dragging sliders.\nUpdate Display: Manually trigger the high-quality ITK resample to confirm alignment.",
+                        "Auto-Update: Automatically recalculates the full ITK resample when you stop dragging sliders.\nUpdate Preview: Manually trigger the high-quality ITK resample to confirm alignment.",
                         api,
                     )
                 with dpg.group(horizontal=True):
