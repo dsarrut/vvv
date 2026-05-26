@@ -445,19 +445,17 @@ class Controller:
                 return
 
             if vs.display.overlay_id:
-                vs.update_overlay_display_data(self)
+                vs.update_overlay_display_data(self, image_id, my_job_id)
 
             for other_vs in self.view_states.values():
                 if other_vs.display.overlay_id == image_id:
-                    other_vs.update_overlay_display_data(self)
+                    other_vs.update_overlay_display_data(self, image_id, my_job_id)
 
             # --- Late exit: check after overlay resampling ---
             # If the transform changed during overlay resampling, the overlays now hold
-            # wrong-transform data (late-tombstone kept old valid during Execute, but
-            # assigned new wrong result afterwards). Clear them so viewers show "no
-            # overlay" briefly rather than a ghost at the wrong rotation angle.
+            # wrong-transform data. We discard the resample, but we do not clear the overlay
+            # data to None here because that causes a jarring flash/flicker.
             if vs._active_resample_job != my_job_id:
-                self._clear_overlay_data(image_id)
                 self._discard_resample(my_job_id)
                 return
 
@@ -486,12 +484,14 @@ class Controller:
         """
         vs = self.view_states.get(image_id)
         if vs and vs.display.overlay_id:
-            vs.display.overlay_data = None
-            vs.display._sitk_overlay_cache = None
+            with vs.display._lock:
+                vs.display.overlay_data = None
+                vs.display._sitk_overlay_cache = None
         for other_vs in self.view_states.values():
             if other_vs.display.overlay_id == image_id:
-                other_vs.display.overlay_data = None
-                other_vs.display._sitk_overlay_cache = None
+                with other_vs.display._lock:
+                    other_vs.display.overlay_data = None
+                    other_vs.display._sitk_overlay_cache = None
 
     def bake_transform_to_volume(self, vs_id):
         """Permanently apply the registration transform by resampling the volume in-place.
@@ -660,16 +660,19 @@ class Controller:
         """Severs all Numpy views pointing to ITK C++ memory to prevent segfaults."""
         vs.base_display_data = None
         vs._sitk_base_cache = None
-        vs.display.overlay_data = None
-        vs.display._sitk_overlay_cache = None
+        with vs.display._lock:
+            vs.display.overlay_data = None
+            vs.display._sitk_overlay_cache = None
         vol.data = None
 
         for other_vs in self.view_states.values():
             if getattr(other_vs.display, "overlay_id", None) == vs_id:
-                other_vs.display.overlay_data = (
-                    None  # Sever the other viewstate's overlay if it points to us
-                )
-                other_vs.display._sitk_overlay_cache = None  # Also sever the cache
+                with other_vs.display._lock:
+                    other_vs.display.overlay_data = (
+                        None  # Sever the other viewstate's overlay if it points to us
+                    )
+                    other_vs.display._sitk_overlay_cache = None  # Also sever the cache
+
 
         # Instantly blind the viewers so DPG doesn't read dead memory
         for v in self.viewers.values():

@@ -1,8 +1,10 @@
+import threading
 import numpy as np
 from contextlib import contextmanager
 from vvv.config import WL_PRESETS
 from vvv.maths.geometry import SpatialEngine
 from vvv.utils import ViewMode
+
 
 _SENTINEL = object()
 
@@ -187,9 +189,11 @@ class DisplayState:
 
     def __init__(self, parent_vs: "ViewState | None" = None):
         self._parent = parent_vs
+        self._lock = threading.Lock()
         self.overlay_data: np.ndarray | None = None
         self._sitk_overlay_cache = None
         self.baked_overlay_translation = (0.0, 0.0, 0.0)
+
         self.ww = 1.0
         self.wl = 0.5
         self.colormap = "Grayscale"
@@ -917,7 +921,7 @@ class ViewState:
             self._sitk_base_cache = joined_img
             self.base_display_data = sitk.GetArrayViewFromImage(joined_img)
 
-    def update_overlay_display_data(self, controller):
+    def update_overlay_display_data(self, controller, image_id=None, job_id=None):
         """
         [ASYNC_BOUNDARY]: SimpleITK ResampleImageFilter.Execute()
         Releases the GIL. The Tombstone Pattern here is the only thing
@@ -972,15 +976,21 @@ class ViewState:
         target_dim = other_vol.sitk_image.GetDimension()
         if target_dim == 3:
             resampled_img = resampler.Execute(other_vol.sitk_image)
-            self.display._sitk_overlay_cache = resampled_img
-            self.display.overlay_data = sitk.GetArrayViewFromImage(resampled_img)
+            if job_id is not None and image_id is not None:
+                if controller.view_states[image_id]._active_resample_job != job_id:
+                    with self.display._lock:
+                        self.display._sitk_overlay_cache = _old_cache
+                    return
+            overlay_data = sitk.GetArrayViewFromImage(resampled_img)
             if (
                 getattr(other_vol, "is_dvf", False)
-                and self.display.overlay_data.ndim == 4
+                and overlay_data.ndim == 4
             ):
-                self.display.overlay_data = np.moveaxis(
-                    self.display.overlay_data, -1, 0
+                overlay_data = np.moveaxis(
+                    overlay_data, -1, 0
                 )
+            new_cache = resampled_img
+            new_data = overlay_data
         elif target_dim == 4:
             resampled_volumes = []
             for t in range(other_vol.num_timepoints):
@@ -990,11 +1000,21 @@ class ViewState:
                 vol_3d = sitk.Extract(other_vol.sitk_image, size, index)
                 resampled_volumes.append(resampler.Execute(vol_3d))
             joined_img = sitk.JoinSeries(resampled_volumes)
-            self.display._sitk_overlay_cache = joined_img
-            self.display.overlay_data = sitk.GetArrayViewFromImage(joined_img)
+            if job_id is not None and image_id is not None:
+                if controller.view_states[image_id]._active_resample_job != job_id:
+                    with self.display._lock:
+                        self.display._sitk_overlay_cache = _old_cache
+                    return
+            new_cache = joined_img
+            new_data = sitk.GetArrayViewFromImage(joined_img)
         else:
-            self.display._sitk_overlay_cache = None
-            self.display.overlay_data = other_vol.data
+            if job_id is not None and image_id is not None:
+                if controller.view_states[image_id]._active_resample_job != job_id:
+                    with self.display._lock:
+                        self.display._sitk_overlay_cache = _old_cache
+                    return
+            new_cache = None
+            new_data = other_vol.data
 
         # Release old ITK object now that overlay_data points to new data.
         # Doing it here (after assignment) guarantees the old numpy view was never
@@ -1010,21 +1030,29 @@ class ViewState:
         if self.space.transform and self.space.is_active:
             base_tx, base_ty, base_tz = self.space.transform.GetTranslation()
 
-        self.display.baked_overlay_translation = (
+        baked_overlay_translation = (
             baked_tx - base_tx,
             baked_ty - base_ty,
             baked_tz - base_tz,
         )
+
+        with self.display._lock:
+            self.display._sitk_overlay_cache = new_cache
+            self.display.overlay_data = new_data
+            self.display.baked_overlay_translation = baked_overlay_translation
+
         self.is_data_dirty = True
 
     def set_overlay(self, overlay_id, other_vol, controller=None):
         if overlay_id is None or other_vol is None:
-            self.display.overlay_id = None
-            self.display.overlay_data = None
-            self.display._sitk_overlay_cache = None
-            self.display.baked_overlay_translation = (0.0, 0.0, 0.0)
+            with self.display._lock:
+                self.display.overlay_id = None
+                self.display.overlay_data = None
+                self.display._sitk_overlay_cache = None
+                self.display.baked_overlay_translation = (0.0, 0.0, 0.0)
             self.is_data_dirty = True
             return True
+
 
         if getattr(other_vol, "is_rgb", False):
             return False

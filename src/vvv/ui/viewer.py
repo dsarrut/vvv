@@ -1358,80 +1358,84 @@ class SliceViewer:
     def _package_overlay_layer(self):
         vs = self.view_state
         vol = self.volume
-        if not vs or not vol or vs.display.overlay_data is None:
+        if not vs or not vol:
             return None
-        if vs.display.overlay_id not in self.controller.view_states:
-            return None
+        with vs.display._lock:
+            if vs.display.overlay_data is None:
+                return None
+            if vs.display.overlay_id not in self.controller.view_states:
+                return None
 
-        ovs = self.controller.view_states[vs.display.overlay_id]
+            ovs = self.controller.view_states[vs.display.overlay_id]
 
-        # ---------------------------------------------------------
-        # 2D OVERLAY PHYSICAL CLAMPING
-        # ---------------------------------------------------------
-        # If the overlay is inherently 2D, verify the base camera is actually looking at its physical plane
-        if min(ovs.volume.shape3d) == 1:
-            center_phys = self.get_center_physical_coord()
-            if center_phys is not None:
-                # Map the base view back into the overlay's native index space
-                ov_vox = ovs.space.world_to_display(center_phys, is_buffered=False)
-                if ov_vox is not None:
-                    # Check out-of-plane distances. Continuous index > 0.5 means we scrolled past it.
-                    if ovs.volume.shape3d[2] == 1 and abs(ov_vox[0]) > 0.5:
-                        return None
-                    if ovs.volume.shape3d[1] == 1 and abs(ov_vox[1]) > 0.5:
-                        return None
-                    if ovs.volume.shape3d[0] == 1 and abs(ov_vox[2]) > 0.5:
-                        return None
+            # ---------------------------------------------------------
+            # 2D OVERLAY PHYSICAL CLAMPING
+            # ---------------------------------------------------------
+            # If the overlay is inherently 2D, verify the base camera is actually looking at its physical plane
+            if min(ovs.volume.shape3d) == 1:
+                center_phys = self.get_center_physical_coord()
+                if center_phys is not None:
+                    # Map the base view back into the overlay's native index space
+                    ov_vox = ovs.space.world_to_display(center_phys, is_buffered=False)
+                    if ov_vox is not None:
+                        # Check out-of-plane distances. Continuous index > 0.5 means we scrolled past it.
+                        if ovs.volume.shape3d[2] == 1 and abs(ov_vox[0]) > 0.5:
+                            return None
+                        if ovs.volume.shape3d[1] == 1 and abs(ov_vox[1]) > 0.5:
+                            return None
+                        if ovs.volume.shape3d[0] == 1 and abs(ov_vox[2]) > 0.5:
+                            return None
 
-        # --- Calculate Relative Pixel Shift ---
-        dx, dy, dz = vs.compute_overlay_pixel_shift(ovs, vol.spacing, self.orientation)
-        off_x, off_y, off_slice = 0, 0, 0
+            # --- Calculate Relative Pixel Shift ---
+            dx, dy, dz = vs.compute_overlay_pixel_shift(ovs, vol.spacing, self.orientation)
+            off_x, off_y, off_slice = 0, 0, 0
 
-        self.active_overlay_shift_x = dx
-        self.active_overlay_shift_y = dy
+            self.active_overlay_shift_x = dx
+            self.active_overlay_shift_y = dy
 
-        # Delegate to GPU if Alpha or DVF, fallback to CPU Array Slicing if Registration/Checkerboard
-        if vs.display.overlay_mode in ("Alpha", "DVF"):
-            off_x, off_y = 0, 0
-        else:
-            off_x = int(round(dx))
-            off_y = int(round(dy))
-            self.active_overlay_shift_x = 0.0
-            self.active_overlay_shift_y = 0.0
+            # Delegate to GPU if Alpha or DVF, fallback to CPU Array Slicing if Registration/Checkerboard
+            if vs.display.overlay_mode in ("Alpha", "DVF"):
+                off_x, off_y = 0, 0
+            else:
+                off_x = int(round(dx))
+                off_y = int(round(dy))
+                self.active_overlay_shift_x = 0.0
+                self.active_overlay_shift_y = 0.0
 
-        off_slice = int(round(dz))
+            off_slice = int(round(dz))
 
-        # Live rotation preview for the overlay.
-        # _preview_R lives on ovs (ViewState) as shared rotation state.
-        # The slice cache lives on self (Viewer) — render artifact, not model state.
-        # Gate on _preview_R FIRST so stale cache entries are never used after resample.
-        overlay_preview = None
-        if ovs._preview_R is not None and vs.display.overlay_data is not None:
-            ov_key = (self.orientation, self.slice_idx)
-            overlay_preview = self._overlay_preview_slices.get(ov_key)
-            if overlay_preview is None:
-                # Cache miss — signal worker; suppress overlay_data (stale resample at
-                # a different rotation would look like a ghost in the fusion view).
-                ovs._preview_slice_needed = True
-                return (
-                    None  # no overlay this frame; worker will deliver the correct one
-                )
+            # Live rotation preview for the overlay.
+            # _preview_R lives on ovs (ViewState) as shared rotation state.
+            # The slice cache lives on self (Viewer) — render artifact, not model state.
+            # Gate on _preview_R FIRST so stale cache entries are never used after resample.
+            overlay_preview = None
+            if ovs._preview_R is not None and vs.display.overlay_data is not None:
+                ov_key = (self.orientation, self.slice_idx)
+                overlay_preview = self._overlay_preview_slices.get(ov_key)
+                if overlay_preview is None:
+                    # Cache miss — signal worker; suppress overlay_data (stale resample at
+                    # a different rotation would look like a ghost in the fusion view).
+                    ovs._preview_slice_needed = True
+                    return (
+                        None  # no overlay this frame; worker will deliver the correct one
+                    )
 
-        return RenderLayer(
-            data=vs.display.overlay_data,
-            is_rgb=getattr(ovs.volume, "is_rgb", False),
-            num_components=ovs.volume.num_components,
-            ww=ovs.display.ww,
-            wl=ovs.display.wl,
-            cmap_name=ovs.display.colormap,
-            threshold=ovs.display.base_threshold,
-            time_idx=min(vs.camera.time_idx, ovs.volume.num_timepoints - 1),
-            spacing_2d=vol.get_physical_aspect_ratio(self.orientation),
-            offset_x=off_x,
-            offset_y=off_y,
-            offset_slice=off_slice,
-            preview_override=overlay_preview,
-        )
+            return RenderLayer(
+                data=vs.display.overlay_data,
+                is_rgb=getattr(ovs.volume, "is_rgb", False),
+                num_components=ovs.volume.num_components,
+                ww=ovs.display.ww,
+                wl=ovs.display.wl,
+                cmap_name=ovs.display.colormap,
+                threshold=vs.display.base_threshold,
+                time_idx=min(vs.camera.time_idx, ovs.volume.num_timepoints - 1),
+                spacing_2d=vol.get_physical_aspect_ratio(self.orientation),
+                offset_x=off_x,
+                offset_y=off_y,
+                offset_slice=off_slice,
+                preview_override=overlay_preview,
+            )
+
 
     def _package_roi_layers(self):
         vs = self.view_state

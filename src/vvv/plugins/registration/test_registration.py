@@ -22,7 +22,7 @@ class TestRegistrationPlugin(unittest.TestCase):
 
     def test_metadata(self):
         self.assertEqual(self.plugin.plugin_id, "registration_plugin")
-        self.assertEqual(self.plugin.label, "Registration Plugin")
+        self.assertEqual(self.plugin.label, "Transform")
         self.assertIsNotNone(self.plugin.description)
         self.assertEqual(self.plugin.order, 40)
 

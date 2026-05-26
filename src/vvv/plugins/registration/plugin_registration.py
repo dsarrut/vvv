@@ -5,7 +5,7 @@ from .control_registration import RegistrationPluginController
 
 class RegistrationPlugin(PluginProtocol):
     plugin_id = "registration_plugin"
-    label = "Registration Plugin"
+    label = "Transform"
     description = "Transform tools for image alignment"
     order = 40
 

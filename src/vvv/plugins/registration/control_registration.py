@@ -71,8 +71,11 @@ class RegistrationPluginController(PluginTagMixin):
                     req = self._preview_queue.get_nowait()
                 except queue.Empty:
                     break
+            if req is None:
+                break
             vs_id, version, R, center, viewer_slices = req
             self._trigger_fast_preview(vs_id, version, R, center, viewer_slices)
+
 
     def _trigger_fast_preview(self, image_id, version, R, center, viewer_slices):
         if not self._api:
