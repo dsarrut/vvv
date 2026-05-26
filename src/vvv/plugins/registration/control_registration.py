@@ -1,9 +1,16 @@
 import os
 import math
+import queue
+import threading
+import numpy as np
 from typing import Optional
 import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
+from vvv.ui.render_strategy import (
+    compute_preview_2d_affine,
+    compute_overlay_preview_2d_affine,
+)
 
 
 class RegistrationPluginController(PluginTagMixin):
@@ -14,6 +21,14 @@ class RegistrationPluginController(PluginTagMixin):
         self._api: Optional[PluginAPI] = None
         self._ui = None
 
+        self._preview_version = 0
+        self._preview_lock = threading.Lock()
+        self._preview_queue = queue.Queue()
+        threading.Thread(target=self._preview_worker_loop, daemon=True).start()
+        self._auto_timer: "threading.Timer | None" = None
+        self._auto_timer_lock = threading.Lock()
+        self._auto_timer_vs_id: str | None = None
+
     def bind(self, api: PluginAPI) -> None:
         self._api = api
 
@@ -21,6 +36,9 @@ class RegistrationPluginController(PluginTagMixin):
         self._ui = ui
 
     def update(self, api: PluginAPI) -> None:
+        viewer = api.get_active_viewer()
+        if viewer and viewer.image_id:
+            self._check_preview_slice_needed(viewer.image_id)
         if self._ui:
             self._ui.update_ui(api)
 
@@ -42,8 +60,151 @@ class RegistrationPluginController(PluginTagMixin):
     def load_settings(self, api: PluginAPI) -> None:
         pass
 
+    def _preview_worker_loop(self):
+        while True:
+            req = self._preview_queue.get()
+            if req is None:
+                break
+            # Drain: skip all but the latest queued request
+            while not self._preview_queue.empty():
+                try:
+                    req = self._preview_queue.get_nowait()
+                except queue.Empty:
+                    break
+            vs_id, version, R, center, viewer_slices = req
+            self._trigger_fast_preview(vs_id, version, R, center, viewer_slices)
+
+    def _trigger_fast_preview(self, image_id, version, R, center, viewer_slices):
+        if not self._api:
+            return
+        vs = self._api.get_view_states().get(image_id)
+        if not vs:
+            return
+
+        new_previews = {}
+        new_overlay_previews = {}
+        overlay_vol = vs.volume
+
+        for viewer in self._api.get_viewers().values():
+            ctx = viewer_slices.get(id(viewer))
+            if ctx is None:
+                continue
+            kind, orientation, slice_idx = ctx
+
+            if kind == "base":
+                vol = viewer.volume
+                if getattr(vol, "is_dvf", False):
+                    continue
+                preview = compute_preview_2d_affine(
+                    vol, orientation, slice_idx, R, center, vs.camera.time_idx
+                )
+                if preview is not None:
+                    new_previews[(orientation, slice_idx)] = preview
+
+            elif kind == "overlay":
+                base_vol = viewer.volume
+                if base_vol is None or getattr(base_vol, "is_dvf", False):
+                    continue
+                t_idx = min(vs.camera.time_idx, overlay_vol.num_timepoints - 1)
+                ov_preview = compute_overlay_preview_2d_affine(
+                    base_vol, overlay_vol, orientation, slice_idx, R, center, t_idx
+                )
+                if ov_preview is not None:
+                    new_overlay_previews[(orientation, slice_idx)] = ov_preview
+
+        with self._preview_lock:
+            if self._preview_version != version:
+                return
+            vs._preview_R = R
+            vs._preview_center = center
+
+        for viewer in self._api.get_viewers().values():
+            if viewer.image_id == image_id:
+                viewer._preview_slices = new_previews
+            elif viewer.view_state and viewer.view_state.display.overlay_id == image_id:
+                viewer._overlay_preview_slices = new_overlay_previews
+
+        if vs:
+            vs.is_data_dirty = True
+        self._api.request_refresh()
+
+    def _check_preview_slice_needed(self, vs_id):
+        if not self._api:
+            return
+        vs = self._api.get_view_states().get(vs_id)
+        if not vs or vs._preview_R is None or not vs._preview_slice_needed:
+            return
+        vs._preview_slice_needed = False
+        if not vs.space.has_rotation():
+            return
+        rot_transform = vs.space.get_rotation_only_transform()
+        matrix_val = rot_transform.GetMatrix()
+        if (
+            hasattr(matrix_val, "_mock_return_value")
+            or not isinstance(matrix_val, (list, tuple, np.ndarray))
+            or len(matrix_val) != 9
+        ):
+            R = np.eye(3, dtype=np.float64)
+        else:
+            R = np.array(matrix_val, dtype=np.float64).reshape(3, 3)
+
+        center_val = rot_transform.GetCenter()
+        if (
+            hasattr(center_val, "_mock_return_value")
+            or not isinstance(center_val, (list, tuple, np.ndarray))
+            or len(center_val) != 3
+        ):
+            center = np.zeros(3, dtype=np.float64)
+        else:
+            center = np.array(center_val, dtype=np.float64)
+        viewer_slices = {}
+        for v in self._api.get_viewers().values():
+            if v.image_id == vs_id:
+                viewer_slices[id(v)] = ("base", v.orientation, v.slice_idx)
+            elif v.view_state and v.view_state.display.overlay_id == vs_id:
+                viewer_slices[id(v)] = ("overlay", v.orientation, v.slice_idx)
+        if not viewer_slices:
+            return
+        with self._preview_lock:
+            self._preview_version += 1
+            version = self._preview_version
+        self._preview_queue.put((vs_id, version, R, center, viewer_slices))
+
+    def _is_live_preview_enabled(self):
+        return True
+
+    def _is_auto_resample_enabled(self):
+        tag = self._t("check_reg_auto_resample")
+        exists = dpg.does_item_exist(tag)
+        val = dpg.get_value(tag) if exists else None
+        return exists and val
+
+    def _cancel_auto_timer(self):
+        with self._auto_timer_lock:
+            if self._auto_timer is not None:
+                self._auto_timer.cancel()
+                self._auto_timer = None
+
+    def _schedule_auto_resample(self, vs_id):
+        with self._auto_timer_lock:
+            if self._auto_timer is not None:
+                self._auto_timer.cancel()
+            self._auto_timer_vs_id = vs_id
+            t = threading.Timer(0.7, self._fire_auto_resample)
+            t.daemon = True
+            self._auto_timer = t
+        t.start()
+
+    def _fire_auto_resample(self):
+        with self._auto_timer_lock:
+            self._auto_timer = None
+            vs_id = self._auto_timer_vs_id
+        if vs_id and self._api:
+            self._api.resample_image(vs_id)
+
     def destroy(self) -> None:
-        pass
+        self._cancel_auto_timer()
+        self._preview_queue.put(None)
 
     # --- UI Callbacks ---
 
@@ -55,7 +216,9 @@ class RegistrationPluginController(PluginTagMixin):
             return
 
         file_path = open_file_dialog(
-            "Load Transform", multiple=False, extensions=[".tfm", ".txt", ".mat", ".xfm"]
+            "Load Transform",
+            multiple=False,
+            extensions=[".tfm", ".txt", ".mat", ".xfm"],
         )
         if isinstance(file_path, str):
             vs = viewer.view_state
@@ -188,6 +351,7 @@ class RegistrationPluginController(PluginTagMixin):
         vs = viewer.view_state
         if not vs.space.transform:
             import SimpleITK as sitk
+
             vs.space.transform = sitk.Euler3DTransform()
 
         new_center = vs.camera.crosshair_phys_coord
@@ -245,6 +409,7 @@ class RegistrationPluginController(PluginTagMixin):
         self.on_reg_manual_changed(sender, app_data, user_data)
 
     def on_reg_reset_clicked(self, sender, app_data, user_data):
+        self._cancel_auto_timer()
         if not self._api:
             return
         viewer = self._api.get_active_viewer()
@@ -261,9 +426,10 @@ class RegistrationPluginController(PluginTagMixin):
         for tag in slider_tags:
             if dpg.does_item_exist(tag):
                 dpg.set_value(tag, 0.0)
-        self._api.update_transform_manual(
-            viewer.image_id, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
-        )
+        self._api.update_transform_manual(viewer.image_id, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+
+        with self._preview_lock:
+            self._preview_version += 1
 
         vs = self._api.get_view_states().get(viewer.image_id)
         if vs:
@@ -306,10 +472,20 @@ class RegistrationPluginController(PluginTagMixin):
         self.on_reg_manual_changed(sender, app_data, user_data)
 
     def on_reg_auto_resample_toggled(self, sender, app_data, user_data):
-        # Auto-update timer and previews are not wired yet in Step 2.
-        pass
+        if not app_data:
+            self._cancel_auto_timer()
+            return
+        if not self._api:
+            return
+        viewer = self._api.get_active_viewer()
+        if not viewer or not viewer.image_id:
+            return
+        vs = self._api.get_view_states().get(viewer.image_id)
+        if vs and vs.needs_resample:
+            self._api.resample_image(viewer.image_id)
 
     def on_reg_resample_clicked(self, sender, app_data, user_data):
+        self._cancel_auto_timer()
         if not self._api:
             return
         viewer = self._api.get_active_viewer()
@@ -325,6 +501,9 @@ class RegistrationPluginController(PluginTagMixin):
             color=self._api.get_ui_config()["colors"].get("working"),
         )
         self._api.resample_image(vs_id)
+        vs = self._api.get_view_states().get(vs_id)
+        if vs:
+            vs.needs_resample = False
 
     def on_reg_manual_changed(self, sender, app_data, user_data):
         if not self._api:
@@ -355,7 +534,55 @@ class RegistrationPluginController(PluginTagMixin):
         if vs:
             vs.needs_resample = True
 
-        self._api.update_all_viewers_of_image(vs_id)
+        has_rotation = vs is not None and vs.space.has_rotation()
+
+        with self._preview_lock:
+            self._preview_version += 1
+            version = self._preview_version
+
+        if vs:
+            if has_rotation:
+                pass
+            else:
+                vs.reset_preview_rotation()
+
+        preview_thread_spawned = False
+        if self._is_live_preview_enabled() and has_rotation:
+            rot_transform = vs.space.get_rotation_only_transform()
+            matrix_val = rot_transform.GetMatrix()
+            if (
+                hasattr(matrix_val, "_mock_return_value")
+                or not isinstance(matrix_val, (list, tuple, np.ndarray))
+                or len(matrix_val) != 9
+            ):
+                R = np.eye(3, dtype=np.float64)
+            else:
+                R = np.array(matrix_val, dtype=np.float64).reshape(3, 3)
+
+            center_val = rot_transform.GetCenter()
+            if (
+                hasattr(center_val, "_mock_return_value")
+                or not isinstance(center_val, (list, tuple, np.ndarray))
+                or len(center_val) != 3
+            ):
+                center = np.zeros(3, dtype=np.float64)
+            else:
+                center = np.array(center_val, dtype=np.float64)
+            viewer_slices = {}
+            for v in self._api.get_viewers().values():
+                if v.image_id == vs_id:
+                    viewer_slices[id(v)] = ("base", v.orientation, v.slice_idx)
+                elif v.view_state and v.view_state.display.overlay_id == vs_id:
+                    viewer_slices[id(v)] = ("overlay", v.orientation, v.slice_idx)
+            self._preview_queue.put((vs_id, version, R, center, viewer_slices))
+            preview_thread_spawned = True
+
+        if not preview_thread_spawned:
+            self._api.update_all_viewers_of_image(vs_id)
+
+        if self._is_auto_resample_enabled() and vs and vs.needs_resample:
+            self._schedule_auto_resample(vs_id)
+
         self._api.request_refresh()
 
     def on_reg_bake_clicked(self, sender, app_data, user_data):

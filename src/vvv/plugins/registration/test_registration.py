@@ -168,6 +168,82 @@ class TestRegistrationPlugin(unittest.TestCase):
 
         dpg.delete_item("test_parent")
 
+    def test_preview_worker_thread_lifecycle(self):
+        controller = self.plugin._controller
+        self.assertIsNotNone(controller._preview_queue)
+        self.assertIsNotNone(controller._preview_lock)
+        controller.destroy()
+        self.assertIsNone(controller._preview_queue.get())
+
+    def test_check_preview_slice_needed(self):
+        controller = self.plugin._controller
+        controller.bind(self.mock_api)
+        
+        vs = MagicMock()
+        vs._preview_R = None
+        vs._preview_slice_needed = False
+        self.mock_api.get_view_states.return_value = {"image_abc": vs}
+        
+        controller._check_preview_slice_needed("image_abc")
+        self.assertFalse(vs._preview_slice_needed)
+
+        vs._preview_R = MagicMock()
+        vs._preview_slice_needed = True
+        vs.space.has_rotation.return_value = False
+        
+        controller._check_preview_slice_needed("image_abc")
+        self.assertFalse(vs._preview_slice_needed)
+        
+        vs._preview_slice_needed = True
+        vs.space.has_rotation.return_value = True
+        
+        rot_mock = MagicMock()
+        rot_mock.GetMatrix.return_value = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+        rot_mock.GetCenter.return_value = [0, 0, 0]
+        vs.space.get_rotation_only_transform.return_value = rot_mock
+        
+        viewer1 = MagicMock()
+        viewer1.image_id = "image_abc"
+        viewer1.orientation = 0
+        viewer1.slice_idx = 5
+        self.mock_api.get_viewers.return_value = {"v1": viewer1}
+
+        controller._check_preview_slice_needed("image_abc")
+        req = controller._preview_queue.get()
+        self.assertEqual(req[0], "image_abc")
+        controller.destroy()
+
+    def test_auto_resample_schedule(self):
+        controller = self.plugin._controller
+        controller.bind(self.mock_api)
+        
+        # Setup mock active viewer and view state
+        viewer = MagicMock()
+        viewer.image_id = "image_abc"
+        vs = MagicMock()
+        vs.needs_resample = True
+        self.mock_api.get_active_viewer.return_value = viewer
+        self.mock_api.get_view_states.return_value = {"image_abc": vs}
+
+        # Mock the auto-resample checkbox to be True
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+
+        dpg.set_value("registration_plugin_check_reg_auto_resample", True)
+
+        # Call on_reg_manual_changed
+        controller.on_reg_manual_changed(None, None, None)
+
+        # The timer should be scheduled
+        self.assertIsNotNone(controller._auto_timer)
+        self.assertEqual(controller._auto_timer_vs_id, "image_abc")
+
+        # Clean up
+        controller.destroy()
+        dpg.delete_item("test_parent")
+
 
 if __name__ == "__main__":
     unittest.main()

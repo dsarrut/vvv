@@ -1,7 +1,11 @@
 import math
 import numpy as np
 import dearpygui.dearpygui as dpg
-from vvv.ui.ui_components import build_stepped_slider, build_section_title, build_help_button
+from vvv.ui.ui_components import (
+    build_stepped_slider,
+    build_section_title,
+    build_help_button,
+)
 from vvv.plugins.plugin_api import PluginTagMixin
 from .control_registration import RegistrationPluginController
 
@@ -66,20 +70,26 @@ class RegistrationPluginUI(PluginTagMixin):
 
                 with dpg.group(horizontal=True):
                     dpg.add_text("Transform File: ")
-                    dpg.add_text("None", tag=self._t("text_reg_filename"), color=cfg_c["text_dim"])
+                    dpg.add_text(
+                        "None",
+                        tag=self._t("text_reg_filename"),
+                        color=cfg_c["text_dim"],
+                    )
                     build_help_button(
                         "A Transform file (.tfm, .mat, .txt) contains a rigid 3D spatial matrix (Translations and Rotations) that aligns this image with another.",
-                        api
+                        api,
                     )
 
                 # --- CoR Goto and Set ---
                 dpg.add_spacer(height=10)
                 with dpg.group(horizontal=True):
                     dpg.add_text("CoR:")
-                    dpg.add_input_text(tag=self._t("input_reg_cor"), width=-28, readonly=True)
+                    dpg.add_input_text(
+                        tag=self._t("input_reg_cor"), width=-28, readonly=True
+                    )
                     build_help_button(
                         "Center of Rotation (CoR): The 3D pivot point around which rotations are applied. Snapping it to your crosshair makes rotating around anatomical landmarks easy.",
-                        api
+                        api,
                     )
                 with dpg.group(horizontal=True):
                     b = dpg.add_button(
@@ -87,8 +97,8 @@ class RegistrationPluginUI(PluginTagMixin):
                     )
                     self._bind_icon_font(b)
                     dpg.add_button(
-                        label="Snap to Crosshair",
-                        width=-1,
+                        label="Snap CoR",
+                        width=100,
                         callback=self._c.on_reg_cor_to_crosshair_clicked,
                     )
 
@@ -198,7 +208,7 @@ class RegistrationPluginUI(PluginTagMixin):
                     )
                     build_help_button(
                         "Auto-Update: Automatically recalculates the full ITK resample when you stop dragging sliders.\nUpdate Display: Manually trigger the high-quality ITK resample to confirm alignment.",
-                        api
+                        api,
                     )
                 with dpg.group(horizontal=True):
                     dpg.add_button(
@@ -211,7 +221,7 @@ class RegistrationPluginUI(PluginTagMixin):
                         "Permanently applies the active spatial transform to the\n"
                         "underlying 3D pixel grid and resets the sliders to zero.\n"
                         "You can then 'Save' the resulting aligned image to disk.",
-                        api
+                        api,
                     )
 
                 # --- Affine Matrix ---
@@ -264,7 +274,7 @@ class RegistrationPluginUI(PluginTagMixin):
         is_dvf = False
         if has_image:
             vol = viewer.volume
-            is_dvf = (getattr(vol, "is_dvf", False) is True)
+            is_dvf = getattr(vol, "is_dvf", False) is True
         if dpg.does_item_exist(warning_tag):
             dpg.configure_item(warning_tag, show=is_dvf)
 
@@ -336,7 +346,9 @@ class RegistrationPluginUI(PluginTagMixin):
 
         # Update affine matrix display
         if has_image and viewer.view_state and viewer.view_state.space.transform:
-            matrix = np.array(viewer.view_state.space.transform.GetMatrix()).reshape(3, 3)
+            matrix = np.array(viewer.view_state.space.transform.GetMatrix()).reshape(
+                3, 3
+            )
             params = viewer.view_state.space.get_parameters()
 
             for r in range(3):
@@ -371,7 +383,11 @@ class RegistrationPluginUI(PluginTagMixin):
                 )
             elif has_image and viewer.volume:
                 center = api.get_volume_physical_center(viewer.volume)
-                if center is not None and isinstance(center, (list, tuple, np.ndarray)) and len(center) >= 3:
+                if (
+                    center is not None
+                    and isinstance(center, (list, tuple, np.ndarray))
+                    and len(center) >= 3
+                ):
                     dpg.set_value(
                         cor_tag,
                         f"{center[0]:.1f}, {center[1]:.1f}, {center[2]:.1f}",

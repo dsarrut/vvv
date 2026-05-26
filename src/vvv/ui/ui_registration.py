@@ -6,8 +6,15 @@ import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 from vvv.utils import ViewMode, voxel_to_slice
-from vvv.ui.ui_components import build_stepped_slider, build_section_title, build_help_button
-from vvv.ui.render_strategy import compute_preview_2d_affine, compute_overlay_preview_2d_affine
+from vvv.ui.ui_components import (
+    build_stepped_slider,
+    build_section_title,
+    build_help_button,
+)
+from vvv.ui.render_strategy import (
+    compute_preview_2d_affine,
+    compute_overlay_preview_2d_affine,
+)
 
 
 class RegistrationUI:
@@ -90,7 +97,6 @@ class RegistrationUI:
                 show=False,
             )
 
-
             with dpg.group(tag="group_registration_controls"):
                 # --- TOP: File Management ---
                 dpg.add_spacer(height=10)
@@ -124,15 +130,23 @@ class RegistrationUI:
 
                 with dpg.group(horizontal=True):
                     dpg.add_text("Transform File: ")
-                    dpg.add_text("None", tag="text_reg_filename", color=cfg_c["text_dim"])
-                    build_help_button("A Transform file (.tfm, .mat, .txt) contains a rigid 3D spatial matrix (Translations and Rotations) that aligns this image with another.", gui)
+                    dpg.add_text(
+                        "None", tag="text_reg_filename", color=cfg_c["text_dim"]
+                    )
+                    build_help_button(
+                        "A Transform file (.tfm, .mat, .txt) contains a rigid 3D spatial matrix (Translations and Rotations) that aligns this image with another.",
+                        gui,
+                    )
 
                 # --- CoR Goto and Set ---
                 dpg.add_spacer(height=10)
                 with dpg.group(horizontal=True):
                     dpg.add_text("CoR:")
                     dpg.add_input_text(tag="input_reg_cor", width=-28, readonly=True)
-                    build_help_button("Center of Rotation (CoR): The 3D pivot point around which rotations are applied. Snapping it to your crosshair makes rotating around anatomical landmarks easy.", gui)
+                    build_help_button(
+                        "Center of Rotation (CoR): The 3D pivot point around which rotations are applied. Snapping it to your crosshair makes rotating around anatomical landmarks easy.",
+                        gui,
+                    )
                 with dpg.group(horizontal=True):
                     b = dpg.add_button(
                         label="\uf05b ", callback=gui.reg_ui.on_reg_center_cor_clicked
@@ -140,7 +154,9 @@ class RegistrationUI:
                     if dpg.does_item_exist("icon_font_tag"):
                         dpg.bind_item_font(b, "icon_font_tag")
                     dpg.add_button(
-                        label="Snap to Crosshair", width=-1, callback=gui.reg_ui.on_reg_cor_to_crosshair_clicked
+                        label="Snap CoR",
+                        width=-1,
+                        callback=gui.reg_ui.on_reg_cor_to_crosshair_clicked,
                     )
 
                 # --- Rigid Adjustment ---
@@ -227,10 +243,12 @@ class RegistrationUI:
                         callback=gui.reg_ui.on_reg_reset_clicked,
                     )
                     dpg.add_button(
-                        label="Invert Transform", width=-1, callback=gui.reg_ui.on_reg_invert_clicked
+                        label="Invert Transform",
+                        width=-1,
+                        callback=gui.reg_ui.on_reg_invert_clicked,
                     )
                 dpg.add_spacer(height=5)
-                
+
                 # --- Resample & Bake ---
                 dpg.add_checkbox(
                     label="Auto-Update Display",
@@ -240,9 +258,15 @@ class RegistrationUI:
                 )
                 with dpg.group(horizontal=True):
                     dpg.add_button(
-                        label="Update Display", width=-28, tag="btn_reg_resample", callback=gui.reg_ui.on_reg_resample_clicked
+                        label="Update Display",
+                        width=-28,
+                        tag="btn_reg_resample",
+                        callback=gui.reg_ui.on_reg_resample_clicked,
                     )
-                    build_help_button("Auto-Update: Automatically recalculates the full ITK resample when you stop dragging sliders.\nUpdate Display: Manually trigger the high-quality ITK resample to confirm alignment.", gui)
+                    build_help_button(
+                        "Auto-Update: Automatically recalculates the full ITK resample when you stop dragging sliders.\nUpdate Display: Manually trigger the high-quality ITK resample to confirm alignment.",
+                        gui,
+                    )
                 with dpg.group(horizontal=True):
                     dpg.add_button(
                         label="Commit to Volume",
@@ -254,7 +278,7 @@ class RegistrationUI:
                         "Permanently applies the active spatial transform to the\n"
                         "underlying 3D pixel grid and resets the sliders to zero.\n"
                         "You can then 'Save' the resulting aligned image to disk.",
-                        gui
+                        gui,
                     )
 
                 # --- Affine Matrix ---
@@ -264,13 +288,21 @@ class RegistrationUI:
                 build_section_title("Affine Matrix", cfg_c["text_header"])
                 with dpg.group(tag="group_reg_matrix"):
                     with dpg.table(
-                        header_row=False, borders_innerV=True, borders_innerH=True, resizable=False,
+                        header_row=False,
+                        borders_innerV=True,
+                        borders_innerH=True,
+                        resizable=False,
                     ):
-                        for _ in range(4): dpg.add_table_column()
+                        for _ in range(4):
+                            dpg.add_table_column()
                         for r in range(4):
                             with dpg.table_row():
                                 for c in range(4):
-                                    dpg.add_text("0.000", tag=f"txt_reg_m_{r}_{c}", color=cfg_c["text_dim"])
+                                    dpg.add_text(
+                                        "0.000",
+                                        tag=f"txt_reg_m_{r}_{c}",
+                                        color=cfg_c["text_dim"],
+                                    )
 
     def pull_reg_sliders_from_transform(self):
         """ONLY call this when loading a file, switching images, or resetting. NOT during drag!"""
@@ -420,7 +452,9 @@ class RegistrationUI:
         return True
 
     def _is_auto_resample_enabled(self):
-        return dpg.does_item_exist("check_reg_auto_resample") and dpg.get_value("check_reg_auto_resample")
+        return dpg.does_item_exist("check_reg_auto_resample") and dpg.get_value(
+            "check_reg_auto_resample"
+        )
 
     def on_reg_auto_resample_toggled(self, _sender, app_data, _user_data):
         if not app_data:
@@ -533,7 +567,9 @@ class RegistrationUI:
 
     def trigger_resample(self, image_id):
         """Show a status message then delegate all resampling work to the Controller."""
-        self.gui.show_status_message("Resampling display...", color=self.gui.ui_cfg["colors"]["working"])
+        self.gui.show_status_message(
+            "Resampling display...", color=self.gui.ui_cfg["colors"]["working"]
+        )
         self.controller.resample_image(image_id)
 
     # --- Callbacks ---
@@ -543,7 +579,9 @@ class RegistrationUI:
             return
 
         file_path = open_file_dialog(
-            "Load Transform", multiple=False, extensions=[".tfm", ".txt", ".mat", ".xfm"]
+            "Load Transform",
+            multiple=False,
+            extensions=[".tfm", ".txt", ".mat", ".xfm"],
         )
         if isinstance(file_path, str):
             vs = viewer.view_state
@@ -554,7 +592,7 @@ class RegistrationUI:
                 # Dynamically remember the exact file path for "Save"
                 vs.space._full_transform_path = file_path
                 self.gui.show_status_message(f"Loaded {os.path.basename(file_path)}")
-                
+
                 # Automatically enable the transform so the user sees it immediately
                 vs.space.is_active = True
 
@@ -658,7 +696,8 @@ class RegistrationUI:
         vs = viewer.view_state
         if not vs or not vs.space.transform or not vs.space.is_active:
             self.gui.show_status_message(
-                "No active transform to bake.", color=self.gui.ui_cfg["colors"]["warning"]
+                "No active transform to bake.",
+                color=self.gui.ui_cfg["colors"]["warning"],
             )
             return
         self.gui.show_status_message(
@@ -668,13 +707,12 @@ class RegistrationUI:
         self.pull_reg_sliders_from_transform()
         self.controller.ui_needs_refresh = True
 
-
     def on_reg_step_changed(self, sender, app_data, user_data):
         speed = 1.0 if app_data == "Coarse" else 0.1
         for tag in self.SLIDER_TAGS:
             if dpg.does_item_exist(tag):
                 dpg.configure_item(tag, speed=speed)
-                
+
     def on_reg_resample_clicked(self, sender, app_data, user_data):
         self._cancel_auto_timer()
         viewer = self.gui.context_viewer
@@ -684,7 +722,7 @@ class RegistrationUI:
 
         if dpg.does_item_exist("btn_reg_resample"):
             dpg.bind_item_theme("btn_reg_resample", 0)
-            
+
         self.trigger_resample(vs_id)
 
     def on_reg_manual_changed(self, sender, app_data, user_data):
@@ -692,11 +730,11 @@ class RegistrationUI:
         if not viewer or not viewer.image_id:
             return
         vs_id = viewer.image_id
-        
+
         vs = self.controller.view_states.get(vs_id)
         if vs:
             vs.space.is_active = True
-            
+
         vals = [dpg.get_value(t) for t in self.SLIDER_TAGS]
         self.controller.update_transform_manual(
             vs_id, vals[3], vals[4], vals[5], vals[0], vals[1], vals[2]
@@ -767,7 +805,9 @@ class RegistrationUI:
         for tag in self.SLIDER_TAGS:
             if dpg.does_item_exist(tag):
                 dpg.set_value(tag, 0.0)
-        self.controller.update_transform_manual(viewer.image_id, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        self.controller.update_transform_manual(
+            viewer.image_id, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+        )
         # Invalidate any in-flight preview and clear state immediately on the main thread
         # so the viewer doesn't briefly show a stale rotation preview after reset.
         with self._preview_lock:
