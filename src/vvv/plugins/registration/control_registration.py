@@ -32,6 +32,7 @@ class RegistrationPluginController(PluginTagMixin):
         self._auto_timer: "threading.Timer | None" = None
         self._auto_timer_lock = threading.Lock()
         self._auto_timer_vs_id: str | None = None
+        self._last_data_ids: dict[str, int] = {}
 
     def bind(self, api: PluginAPI) -> None:
         self._api = api
@@ -40,6 +41,18 @@ class RegistrationPluginController(PluginTagMixin):
         self._ui = ui
 
     def update(self, api: PluginAPI) -> None:
+        # Detect reload of any loaded volume
+        for img_id, vol in api.get_volumes().items():
+            curr_id = id(vol.data)
+            if img_id not in self._last_data_ids:
+                self._last_data_ids[img_id] = curr_id
+            elif self._last_data_ids[img_id] != curr_id:
+                self._last_data_ids[img_id] = curr_id
+                vs = api.get_view_states().get(img_id)
+                if vs and vs.space.is_active:
+                    vs.needs_resample = True
+                    api.resample_image(img_id)
+
         viewer = api.get_active_viewer()
         if viewer and viewer.image_id:
             self._check_preview_slice_needed(viewer.image_id)
@@ -50,13 +63,79 @@ class RegistrationPluginController(PluginTagMixin):
         pass
 
     def on_image_removed(self, image_id: str) -> None:
-        pass
+        self._last_data_ids.pop(image_id, None)
+        with self._auto_timer_lock:
+            if self._auto_timer_vs_id == image_id and self._auto_timer is not None:
+                self._auto_timer.cancel()
+                self._auto_timer = None
+                self._auto_timer_vs_id = None
 
     def serialize_image_state(self, image_id: str) -> dict:
-        return {}
+        import inspect
+        frame = inspect.currentframe()
+        is_workspace = False
+        while frame:
+            if frame.f_code.co_name == "save_workspace":
+                is_workspace = True
+                break
+            frame = frame.f_back
+
+        if not is_workspace or not self._api:
+            return {}
+
+        vs = self._api.get_view_states().get(image_id)
+        if not vs or not vs.space:
+            return {}
+
+        state_dict = {
+            "is_active": vs.space.is_active,
+            "transform_file": vs.space.transform_file,
+            "full_transform_path": getattr(vs.space, "_full_transform_path", None)
+        }
+
+        if vs.space.transform:
+            state_dict["transform_params"] = list(vs.space.transform.GetParameters())
+            state_dict["transform_center"] = list(vs.space.transform.GetCenter())
+
+        return state_dict
 
     def restore_image_state(self, image_id: str, data: dict) -> None:
-        pass
+        import inspect
+        frame = inspect.currentframe()
+        is_workspace = False
+        while frame:
+            if frame.f_code.co_name == "load_workspace_sequence":
+                is_workspace = True
+                break
+            frame = frame.f_back
+
+        if not is_workspace or not data or not self._api:
+            return
+
+        vs = self._api.get_view_states().get(image_id)
+        if not vs or not vs.space:
+            return
+
+        vs.space.is_active = data.get("is_active", False)
+        vs.space.transform_file = data.get("transform_file", "None")
+        setattr(vs.space, "_full_transform_path", data.get("full_transform_path", None))
+
+        params = data.get("transform_params")
+        center = data.get("transform_center")
+        if params is not None and center is not None:
+            import SimpleITK as sitk
+            t = sitk.Euler3DTransform()
+            t.SetCenter(tuple(center))
+            t.SetParameters(tuple(params))
+            vs.space.transform = t
+        else:
+            vs.space.transform = None
+
+        if vs.space.is_active:
+            vs.needs_resample = True
+            self._api.resample_image(image_id)
+        else:
+            self._api.update_all_viewers_of_image(image_id)
 
     def save_settings(self, api: PluginAPI) -> None:
         pass
@@ -231,7 +310,7 @@ class RegistrationPluginController(PluginTagMixin):
             world_pos = vs.camera.crosshair_phys_coord
 
             if self._api.load_transform(viewer.image_id, file_path):
-                vs.space._full_transform_path = file_path
+                setattr(vs.space, "_full_transform_path", file_path)
                 self._api.notify(f"Loaded {os.path.basename(file_path)}")
                 vs.space.is_active = True
 
@@ -299,7 +378,7 @@ class RegistrationPluginController(PluginTagMixin):
         file_path = save_file_dialog("Save Transform As", default_name=default_name)
         if file_path:
             self._api.save_transform(viewer.image_id, file_path)
-            vs.space._full_transform_path = file_path
+            setattr(vs.space, "_full_transform_path", file_path)
             self._api.notify(f"Saved: {os.path.basename(file_path)}")
             self._api.request_refresh()
 

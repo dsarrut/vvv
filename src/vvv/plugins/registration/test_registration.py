@@ -27,8 +27,50 @@ class TestRegistrationPlugin(unittest.TestCase):
         self.assertEqual(self.plugin.order, 40)
 
     def test_state_lifecycle(self):
+        # 1. Standard call (should be ignored, return {})
         self.assertEqual(self.plugin.serialize_image_state("image1"), {})
-        self.plugin.restore_image_state("image1", {})
+
+        # Setup mock ViewState and space
+        self.plugin._controller.bind(self.mock_api)
+        vs = MagicMock()
+        vs.space.is_active = True
+        vs.space.transform_file = "test.tfm"
+        vs.space._full_transform_path = "/path/to/test.tfm"
+        mock_transform = MagicMock()
+        mock_transform.GetParameters.return_value = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+        mock_transform.GetCenter.return_value = [10.0, 20.0, 30.0]
+        vs.space.transform = mock_transform
+        self.mock_api.get_view_states.return_value = {"image1": vs}
+
+        # 2. Call wrapped in a function named 'save_workspace'
+        def save_workspace():
+            return self.plugin.serialize_image_state("image1")
+
+        state = save_workspace()
+        self.assertTrue(state.get("is_active"))
+        self.assertEqual(state.get("transform_file"), "test.tfm")
+        self.assertEqual(state.get("full_transform_path"), "/path/to/test.tfm")
+        self.assertEqual(state.get("transform_params"), [1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+        self.assertEqual(state.get("transform_center"), [10.0, 20.0, 30.0])
+
+        # 3. Call restore_image_state wrapped in a function named 'load_workspace_sequence'
+        # Reset vs.space
+        vs.space.transform = None
+        
+        def load_workspace_sequence():
+            self.plugin.restore_image_state("image1", state)
+
+        load_workspace_sequence()
+        
+        self.assertTrue(vs.space.is_active)
+        self.assertEqual(vs.space.transform_file, "test.tfm")
+        self.assertEqual(vs.space._full_transform_path, "/path/to/test.tfm")
+        self.assertIsNotNone(vs.space.transform)
+        # Euler3DTransform is created from SimpleITK:
+        self.assertEqual(list(vs.space.transform.GetParameters()), [1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+        self.assertEqual(list(vs.space.transform.GetCenter()), [10.0, 20.0, 30.0])
+        
+        self.mock_api.resample_image.assert_called_with("image1")
 
     def test_create_ui(self):
         if not dpg.is_dearpygui_running():
@@ -242,6 +284,74 @@ class TestRegistrationPlugin(unittest.TestCase):
 
         # Clean up
         controller.destroy()
+        dpg.delete_item("test_parent")
+
+    def test_empty_state_and_reload(self):
+        controller = self.plugin._controller
+        controller.bind(self.mock_api)
+        
+        # 1. Test Empty State UI hiding
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+            
+        self.mock_api.get_active_viewer.return_value = None
+        self.plugin.update(self.mock_api)
+        
+        # group_registration_controls should be hidden
+        self.assertFalse(dpg.is_item_shown("registration_plugin_group_registration_controls"))
+        
+        # 2. Test Reload Detection
+        vol = MagicMock()
+        vol.data = np.zeros((10, 10, 10))
+        self.mock_api.get_volumes.return_value = {"image_abc": vol}
+        
+        vs = MagicMock()
+        vs.space.is_active = True
+        self.mock_api.get_view_states.return_value = {"image_abc": vs}
+        
+        # First update initializes tracking cache
+        self.plugin.update(self.mock_api)
+        self.mock_api.resample_image.assert_not_called()
+        
+        # Simulate reload by replacing data array
+        vol.data = np.zeros((10, 10, 10))  # different id()
+        self.plugin.update(self.mock_api)
+        
+        # resample_image should be called
+        self.mock_api.resample_image.assert_called_with("image_abc")
+        self.assertTrue(vs.needs_resample)
+        
+        dpg.delete_item("test_parent")
+
+    def test_beginner_mode(self):
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+            
+        viewer = MagicMock()
+        viewer.image_id = "image_abc"
+        viewer.view_state = MagicMock()
+        viewer.view_state.space.transform = None
+        viewer.volume = MagicMock()
+        viewer.volume.shape3d = [100, 100, 100]
+        self.mock_api.get_active_viewer.return_value = viewer
+        self.mock_api.get_image_display_name.return_value = ("Image ABC", False)
+        
+        # 1. Test is_beginner_mode = True
+        self.mock_api.is_beginner_mode = True
+        self.plugin.update(self.mock_api)
+        self.assertFalse(dpg.is_item_shown("registration_plugin_group_reg_cor"))
+        self.assertFalse(dpg.is_item_shown("registration_plugin_group_reg_matrix_section"))
+        
+        # 2. Test is_beginner_mode = False
+        self.mock_api.is_beginner_mode = False
+        self.plugin.update(self.mock_api)
+        self.assertTrue(dpg.is_item_shown("registration_plugin_group_reg_cor"))
+        self.assertTrue(dpg.is_item_shown("registration_plugin_group_reg_matrix_section"))
+        
         dpg.delete_item("test_parent")
 
 
