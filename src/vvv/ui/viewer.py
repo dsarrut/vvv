@@ -1428,7 +1428,7 @@ class SliceViewer:
                 ww=ovs.display.ww,
                 wl=ovs.display.wl,
                 cmap_name=ovs.display.colormap,
-                threshold=vs.display.base_threshold,
+                threshold=ovs.display.base_threshold,
                 time_idx=min(vs.camera.time_idx, ovs.volume.num_timepoints - 1),
                 spacing_2d=vol.get_physical_aspect_ratio(self.orientation),
                 offset_x=off_x,

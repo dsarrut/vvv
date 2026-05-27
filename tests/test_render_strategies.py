@@ -102,3 +102,28 @@ class TestShouldUseLazyLin:
 
     def test_explicit_off(self):
         assert should_use_lazy_lin({"lazy_lin": False}, has_fusion=True, is_hw=False) is False
+
+
+def test_overlay_threshold_applied(headless_gui_app):
+    """Verifies that the overlay's threshold is correctly packaged and separate from the base threshold."""
+    controller, gui, viewer, base_id = headless_gui_app
+
+    # Mount an overlay
+    vs2_id = list(controller.view_states.keys())[1]
+    vs_base = viewer.view_state
+    vs_overlay = controller.view_states[vs2_id]
+    
+    vs_base.set_overlay(vs2_id, controller.volumes[vs2_id], controller)
+    vs_base.display.overlay_mode = "Alpha"
+
+    # Set distinct threshold values
+    vs_base.display.base_threshold = 10.0
+    vs_overlay.display.base_threshold = 20.0
+
+    # Package layers
+    base_layer = viewer._package_base_layer()
+    overlay_layer = viewer._package_overlay_layer()
+
+    # Assert thresholds are correctly retrieved from their respective ViewStates
+    assert base_layer.threshold == 10.0
+    assert overlay_layer.threshold == 20.0
