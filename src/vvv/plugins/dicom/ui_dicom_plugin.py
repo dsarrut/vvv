@@ -1,6 +1,8 @@
 import os
+import threading
 import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginTagMixin
+from vvv.ui.file_dialog import open_file_dialog
 
 
 class DicomPluginUI(PluginTagMixin):
@@ -10,11 +12,16 @@ class DicomPluginUI(PluginTagMixin):
         self.window_tag = self._t("window")
         self.api = None
 
-        # State persistence (placeholders)
+        # State Persistence
         self.last_folder = os.getcwd()
         self.scanned_series = []
         self.active_series = None
         self.active_idx = -1
+
+        # Asynchronous State
+        self.scan_progress = 0.0
+        self.scan_status_text = ""
+        self.scan_finished = False
 
     def create_ui(self, parent, api) -> None:
         self.api = api
@@ -39,6 +46,24 @@ class DicomPluginUI(PluginTagMixin):
 
             dpg.add_spacer(height=5)
             dpg.add_text("Note: You can also open the browser directly from the File menu.", color=cfg_c["text_dim"])
+
+    def tick(self) -> None:
+        if not dpg.does_item_exist(self.window_tag) or not dpg.is_item_shown(self.window_tag):
+            return
+
+        if self.scan_finished:
+            if dpg.does_item_exist(self.window_tag):
+                dpg.configure_item(self._t("scan_progress"), show=False)
+                dpg.set_value(self._t("scan_status"), f"  ({len(self.scanned_series)} found)")
+                dpg.configure_item(self._t("btn_scan"), enabled=True)
+                self._populate_series_list()
+            self.scan_finished = False
+            return
+
+        # Update progress and status text while scanning
+        if dpg.does_item_exist(self._t("scan_progress")):
+            dpg.set_value(self._t("scan_progress"), self.scan_progress)
+            dpg.set_value(self._t("scan_status"), self.scan_status_text)
 
     def show_window(self) -> None:
         if dpg.does_item_exist(self.window_tag):
@@ -98,6 +123,7 @@ class DicomPluginUI(PluginTagMixin):
                         )
                         dpg.add_text("", tag=self._t("scan_status"), color=[255, 255, 0])
 
+                    # Progress bar hidden by default
                     dpg.add_progress_bar(
                         tag=self._t("scan_progress"),
                         width=-1,
@@ -191,17 +217,131 @@ class DicomPluginUI(PluginTagMixin):
             [max(50, vp_width // 2 - 450), max(50, vp_height // 2 - 300)],
         )
 
-    def tick(self) -> None:
-        pass
+        # Re-populate state if reopened!
+        if self.scanned_series:
+            dpg.set_value(self._t("scan_status"), f"  ({len(self.scanned_series)} found)")
+            self._populate_series_list()
 
     def on_select_folder(self) -> None:
-        pass
+        folder = open_file_dialog("Select DICOM Directory", is_directory=True)
+        if folder:
+            self.last_folder = folder
+            dpg.set_value(self._t("folder_path"), folder)
 
     def on_scan_clicked(self) -> None:
-        pass
+        folder = dpg.get_value(self._t("folder_path"))
+        if not folder or not os.path.exists(folder):
+            dpg.set_value(self._t("scan_status"), "  (Invalid Path)")
+            return
+
+        self.last_folder = folder
+        self.scanned_series = []
+        self.active_series = None
+        self.active_idx = -1
+        recurse = dpg.get_value(self._t("check_recurse"))
+        dpg.set_value(self._t("scan_status"), "  (Scanning...)")
+        dpg.configure_item(self._t("scan_progress"), show=True)
+        dpg.configure_item(self._t("btn_scan"), enabled=False)
+        dpg.delete_item(self._t("series_list"), children_only=True)
+
+        # Run scan in background so UI doesn't freeze
+        threading.Thread(
+            target=self._run_scan, args=(folder, recurse), daemon=True
+        ).start()
+
+    def _run_scan(self, folder, recurse):
+        # Consume the generator yielded from PluginAPI (which delegates to controller/file.py)
+        for result in self.api.scan_dicom_folder(folder, recursive=recurse):
+            if len(result) == 2:
+                pct, dirname = result
+                self.scan_progress = pct
+                label = dirname if len(dirname) <= 30 else dirname[:27] + "..."
+                self.scan_status_text = f"  {label}"
+            elif len(result) == 3:
+                _, _, self.scanned_series = result
+
+        # Signal completion
+        self.scan_finished = True
+
+    def _populate_series_list(self):
+        if not dpg.does_item_exist(self._t("series_list")):
+            return
+        dpg.delete_item(self._t("series_list"), children_only=True)
+
+        for idx, s in enumerate(self.scanned_series):
+            label = f"[{s['modality']}] {s['series_desc']}\n  {s['date']} | {len(s['files'])} files"
+            dpg.add_selectable(
+                label=label,
+                height=35,
+                parent=self._t("series_list"),
+                user_data=idx,
+                tag=self._t(f"sel_{idx}"),
+                callback=self.on_series_selected,
+            )
+
+    def on_series_selected(self, sender, app_data, user_data):
+        # Deselect all others safely (Comparing Aliases and Integer IDs)
+        children = dpg.get_item_children(self._t("series_list"), 1)
+        if children:
+            for child in children:
+                if child != sender and dpg.get_item_alias(child) != sender:
+                    dpg.set_value(child, False)
+
+        # Force active highlight (Essential for Keyboard arrows!)
+        if dpg.does_item_exist(sender):
+            dpg.set_value(sender, True)
+
+        self.active_idx = user_data
+        self.active_series = self.scanned_series[user_data]
+        s = self.active_series
+
+        dpg.set_value(self._t("lbl_patient"), s["patient_name"])
+        dpg.set_value(self._t("lbl_study"), s["study_desc"])
+        dpg.set_value(self._t("lbl_size"), s["size"])
+        dpg.set_value(self._t("lbl_spacing"), s["spacing"])
+
+        first_file = os.path.basename(s["files"][0]) if s["files"] else "Unknown"
+        dir_path = os.path.dirname(s["files"][0]) if s["files"] else "Unknown"
+        dpg.set_value(self._t("lbl_file"), first_file)
+        dpg.set_value(self._t("lbl_dir"), dir_path)
+
+        # --- DYNAMIC TABLE POPULATION ---
+        if dpg.does_item_exist(self._t("tags_table")):
+            # Delete all existing rows
+            rows = dpg.get_item_children(self._t("tags_table"), 1)
+            if rows:
+                for row in rows:
+                    dpg.delete_item(row)
+
+            # Generate fresh rows only for tags that actually exist
+            for tag, name, val in s["tags"]:
+                with dpg.table_row(parent=self._t("tags_table")):
+                    dpg.add_text(tag, color=[150, 255, 150])
+                    cfg_c = self.api.get_ui_config()["colors"]
+                    dpg.add_text(name, color=cfg_c["text_dim"])
+                    dpg.add_text(val)
 
     def on_open_clicked(self) -> None:
-        pass
+        if not self.active_series:
+            return
 
-    def on_series_selected(self, sender, app_data, user_data) -> None:
-        pass
+        # Cast the SimpleITK tuple into a standard list
+        file_list = list(self.active_series["files"])
+
+        # Call load_dicom_series via PluginAPI to register task on main thread
+        self.api.load_dicom_series(file_list)
+        
+        # Delete window
+        dpg.delete_item(self.window_tag)
+
+    def move_selection(self, delta):
+        """Called by the Interaction Manager to shift selection up/down via arrows."""
+        if not self.scanned_series:
+            return
+
+        idx = max(0, min(len(self.scanned_series) - 1, self.active_idx + delta))
+        sender = self._t(f"sel_{idx}")
+        if dpg.does_item_exist(sender):
+            dpg.set_value(sender, True)
+            self.on_series_selected(sender, None, idx)
+            dpg.focus_item(sender)

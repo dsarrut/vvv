@@ -398,6 +398,21 @@ class InteractionManager:
                 dicom_win.move_selection(1)
                 return
 
+        # Plugin DICOM Browser Arrow Keys
+        dicom_plugin = next((p for p in self.gui.plugins if p.plugin_id == "dicom_plugin"), None)
+        if (
+            dicom_plugin
+            and hasattr(dicom_plugin, "_ui")
+            and dpg.does_item_exist(dicom_plugin._ui.window_tag)
+            and dpg.is_item_shown(dicom_plugin._ui.window_tag)
+        ):
+            if app_data == dpg.mvKey_Up:
+                dicom_plugin._ui.move_selection(-1)
+                return
+            elif app_data == dpg.mvKey_Down:
+                dicom_plugin._ui.move_selection(1)
+                return
+
         # Pass everything else to the Active Tool
         self.active_tool.on_key_press(app_data)
 

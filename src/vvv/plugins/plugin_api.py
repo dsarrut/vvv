@@ -179,6 +179,15 @@ class PluginAPI:
         """Schedule a callback to be executed on the main GUI thread."""
         self._gui.schedule_main_thread(callback)
 
+    def scan_dicom_folder(self, folder, recursive=True):
+        return self._controller.file.scan_dicom_folder(folder, recursive=recursive)
+
+    def load_dicom_series(self, file_list: list[str]) -> None:
+        from vvv.ui.ui_sequences import load_batch_images_sequence
+        self._gui.tasks.append(
+            load_batch_images_sequence(self._gui, self._controller, [file_list])
+        )
+
     # --- Plugin settings (persisted in the app settings file under "plugins.<namespace>") ---
 
     def get_settings(self, namespace: str) -> dict:
