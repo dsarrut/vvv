@@ -1,7 +1,8 @@
 import os
 import threading
+from typing import Optional
 import dearpygui.dearpygui as dpg
-from vvv.plugins.plugin_api import PluginTagMixin
+from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.ui.file_dialog import open_file_dialog
 
 
@@ -10,7 +11,7 @@ class DicomPluginUI(PluginTagMixin):
         self._plugin_id = plugin_id
         self._c = controller
         self.window_tag = self._t("window")
-        self.api = None
+        self.api: Optional[PluginAPI] = None
 
         # State Persistence
         self.last_folder = os.getcwd()
@@ -71,6 +72,7 @@ class DicomPluginUI(PluginTagMixin):
             dpg.focus_item(self.window_tag)
             return
 
+        assert self.api is not None
         cfg_c = self.api.get_ui_config()["colors"]
 
         with dpg.window(
@@ -252,6 +254,7 @@ class DicomPluginUI(PluginTagMixin):
         ).start()
 
     def _run_scan(self, folder, recurse):
+        assert self.api is not None
         # Consume the generator yielded from PluginAPI (which delegates to controller/file.py)
         for result in self.api.scan_dicom_folder(folder, recursive=recurse):
             if self._stop_event.is_set():
@@ -342,11 +345,12 @@ class DicomPluginUI(PluginTagMixin):
                 for row in rows:
                     dpg.delete_item(row)
 
+            assert self.api is not None
+            cfg_c = self.api.get_ui_config()["colors"]
             # Generate fresh rows only for tags that actually exist
             for tag, name, val in s["tags"]:
                 with dpg.table_row(parent=self._t("tags_table")):
                     dpg.add_text(clean_string(tag), color=[150, 255, 150])
-                    cfg_c = self.api.get_ui_config()["colors"]
                     dpg.add_text(clean_string(name), color=cfg_c["text_dim"])
                     dpg.add_text(clean_string(val))
 
@@ -358,6 +362,7 @@ class DicomPluginUI(PluginTagMixin):
         file_list = list(self.active_series["files"])
 
         # Call load_dicom_series via PluginAPI to register task on main thread
+        assert self.api is not None
         self.api.load_dicom_series(file_list)
         
         # Delete window

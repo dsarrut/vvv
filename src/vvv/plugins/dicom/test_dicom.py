@@ -82,6 +82,7 @@ class TestDicomPlugin(unittest.TestCase):
         # Test selecting a series
         ui.on_series_selected(ui._t("sel_0"), None, 0)
         self.assertEqual(ui.active_idx, 0)
+        assert ui.active_series is not None
         self.assertEqual(ui.active_series["patient_name"], "John Doe")
         self.assertEqual(dpg.get_value(ui._t("lbl_patient")), "John Doe")
 
@@ -125,6 +126,7 @@ class TestDicomPlugin(unittest.TestCase):
         
         # Verify the displayed string is sanitized
         self.assertEqual(dpg.get_value(ui._t("lbl_patient")), "JohnDoe")
+        assert ui.active_series is not None
         self.assertEqual(ui.active_series["patient_name"], "John\x00Doe\udc80")  # raw dict remains unmodified, UI is cleaned
 
         dpg.delete_item("test_parent")
@@ -164,6 +166,7 @@ class TestDicomPlugin(unittest.TestCase):
 
         # Verify the displayed string is sanitized
         self.assertEqual(dpg.get_value("dicom_lbl_patient"), "JohnDoe")
+        assert browser.active_series is not None
         self.assertEqual(browser.active_series["patient_name"], "John\x00Doe\udc80")
 
         dpg.delete_item(browser.window_tag)
