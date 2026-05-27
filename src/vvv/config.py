@@ -60,7 +60,7 @@ DEFAULT_SETTINGS = {
         "window_width": 1400,
         "window_height": 1000,
         "side_panel_width": 380,
-        "nav_panel_width": 75,
+        "nav_panel_width": 80,
         "sidebar_gap": 0,
     },
     "behavior": {

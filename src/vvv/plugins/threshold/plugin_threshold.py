@@ -5,8 +5,8 @@ from .control_threshold import ThresholdController
 
 class ThresholdPlugin(PluginProtocol):
     plugin_id = "threshold_plugin"
-    label = "Threshold Plugin"
-    description = "Interactive Thresholding and Image Mask Generation (Plugin version)."
+    label = "Threshold"
+    description = "Interactive Thresholding and Image Mask Generation."
     order = 20
 
     def __init__(self):

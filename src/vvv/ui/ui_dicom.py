@@ -252,9 +252,11 @@ class DicomBrowserWindow:
 
     def on_series_selected(self, sender, app_data, user_data):
         # Deselect all others safely (Comparing Aliases and Integer IDs)
-        for child in dpg.get_item_children("dicom_series_list", 1):
-            if child != sender and dpg.get_item_alias(child) != sender:
-                dpg.set_value(child, False)
+        children = dpg.get_item_children("dicom_series_list", 1)
+        if children:
+            for child in children:
+                if child != sender and dpg.get_item_alias(child) != sender:
+                    dpg.set_value(child, False)
 
         # Force active highlight (Essential for Keyboard arrows!)
         if dpg.does_item_exist(sender):
@@ -277,8 +279,10 @@ class DicomBrowserWindow:
         # --- DYNAMIC TABLE POPULATION ---
         if dpg.does_item_exist("dicom_tags_table"):
             # Delete all existing rows
-            for row in dpg.get_item_children("dicom_tags_table", 1):
-                dpg.delete_item(row)
+            rows = dpg.get_item_children("dicom_tags_table", 1)
+            if rows:
+                for row in rows:
+                    dpg.delete_item(row)
 
             # Generate fresh rows only for tags that actually exist
             for tag, name, val in s["tags"]:

@@ -593,7 +593,7 @@ class VolumeData:
 
         # Modification tracking
         self.last_mtime = self._get_latest_mtime()
-        self._last_check_time = 0
+        self._last_check_time: float = 0.0
         self._is_outdated = False
 
     def read_image_from_disk(self, paths):
@@ -794,11 +794,13 @@ class VolumeData:
 
         if nki_compression:
             import struct
+            from typing import Any
             from vvv.maths.nki_decompress import nki_private_decompress
 
             raw_comp_array = np.fromfile(path, dtype=np.uint8, offset=data_offset)
             org_size, nki_mode = struct.unpack("<II", raw_comp_array[:8].tobytes())
-            decompressed_1d = nki_private_decompress(raw_comp_array, org_size, nki_mode)
+            decompress_fn: Any = nki_private_decompress
+            decompressed_1d: np.ndarray = decompress_fn(raw_comp_array, org_size, nki_mode)
 
             if decompressed_1d.size < expected_elements:
                 raise ValueError(

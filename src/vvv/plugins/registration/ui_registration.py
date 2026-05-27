@@ -23,7 +23,7 @@ class RegistrationPluginUI(PluginTagMixin):
         cfg_c = api.get_ui_config()["colors"]
 
         with dpg.group(parent=parent or 0, tag=self._plugin_id):
-            build_section_title("Registration Plugin", cfg_c["text_header"])
+            build_section_title("Transform", cfg_c["text_header"])
 
             dpg.add_text(
                 "No Image Selected",
@@ -32,7 +32,7 @@ class RegistrationPluginUI(PluginTagMixin):
             )
 
             dpg.add_text(
-                "Registration disabled: DVF active",
+                "Transform disabled: DVF active",
                 tag=self._t("text_reg_dvf_warning"),
                 color=cfg_c.get("outdated", [255, 200, 50]),
                 show=False,

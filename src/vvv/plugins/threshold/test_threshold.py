@@ -50,7 +50,7 @@ class TestThresholdPlugin(unittest.TestCase):
 
     def test_plugin_metadata(self):
         self.assertEqual(self.plugin.plugin_id, "threshold_plugin")
-        self.assertEqual(self.plugin.label, "Threshold Plugin")
+        self.assertEqual(self.plugin.label, "Threshold")
         self.assertEqual(self.plugin.order, 20)
         self.assertIsNotNone(self.plugin.description)
 

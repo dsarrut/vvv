@@ -163,10 +163,15 @@ class Controller:
 
     def add_recent_file(self, path):
         """Adds a path to the recent files list in settings and caps it at 10."""
-        if "behavior" not in self.settings.data:
-            self.settings.data["behavior"] = {}
+        behavior: Any = self.settings.data.setdefault("behavior", {})
+        if not isinstance(behavior, dict):
+            behavior = {}
+            self.settings.data["behavior"] = behavior
 
-        recent = self.settings.data["behavior"].get("recent_files", [])
+        recent: Any = behavior.setdefault("recent_files", [])
+        if not isinstance(recent, list):
+            recent = []
+            behavior["recent_files"] = recent
 
         # Convert list (DICOM series) to JSON string to make it hashable and storable
         path_str = json.dumps(path) if isinstance(path, list) else path
@@ -176,7 +181,7 @@ class Controller:
         recent.insert(0, path_str)
 
         # Cap at 20
-        self.settings.data["behavior"]["recent_files"] = recent[:20]
+        behavior["recent_files"] = recent[:20]
 
     def get_volume_physical_center(self, vol):
         """Calculates the exact physical center of an image volume for the CoR."""
@@ -384,7 +389,7 @@ class Controller:
         if not keys or keys[-1] is None:
             return
 
-        d = self.settings.data
+        d: Any = self.settings.data
         for key in keys[:-1]:
             d = d[key]
 
@@ -503,8 +508,8 @@ class Controller:
         """
         import SimpleITK as sitk
 
-        vs = self.view_states.get(vs_id)
-        vol = self.volumes.get(vs_id)
+        vs: Any = self.view_states.get(vs_id)
+        vol: Any = self.volumes.get(vs_id)
         if not vs or not vol or not vs.space.transform or not vs.space.is_active:
             return
 
@@ -515,6 +520,8 @@ class Controller:
         )
 
         def _do_bake():
+            assert vs is not None
+            assert vol is not None
             with vs.loading_shield():
                 try:
                     # Build reference grid (same size/spacing/origin/direction as original)
@@ -530,7 +537,9 @@ class Controller:
                     resampler.SetReferenceImage(ref)
                     resampler.SetInterpolator(sitk.sitkLinear)
                     resampler.SetDefaultPixelValue(float(np.min(vol.data) if vol.data is not None else 0))
-                    resampler.SetTransform(vs.space.transform.GetInverse())
+                    transform = vs.space.transform
+                    assert transform is not None
+                    resampler.SetTransform(transform.GetInverse())
 
                     src_img = sitk.Cast(vol.sitk_image, sitk.sitkFloat32)
                     new_sitk = resampler.Execute(src_img)
