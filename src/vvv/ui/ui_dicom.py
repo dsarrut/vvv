@@ -239,10 +239,20 @@ class DicomBrowserWindow:
             return
         dpg.delete_item("dicom_series_list", children_only=True)
 
+        def clean_string(val):
+            if val is None:
+                return ""
+            try:
+                val_str = str(val).replace('\x00', '')
+                val_str = "".join(c for c in val_str if not (0xD800 <= ord(c) <= 0xDFFF))
+                return val_str.encode('utf-8', 'ignore').decode('utf-8')
+            except Exception:
+                return "Unknown"
+
         for idx, s in enumerate(self.scanned_series):
             label = f"[{s['modality']}] {s['series_desc']}\n  {s['date']} | {len(s['files'])} files"
             dpg.add_selectable(
-                label=label,
+                label=clean_string(label),
                 height=35,
                 parent="dicom_series_list",
                 user_data=idx,
@@ -266,15 +276,25 @@ class DicomBrowserWindow:
         self.active_series = self.scanned_series[user_data]
         s = self.active_series
 
-        dpg.set_value("dicom_lbl_patient", s["patient_name"])
-        dpg.set_value("dicom_lbl_study", s["study_desc"])
-        dpg.set_value("dicom_lbl_size", s["size"])
-        dpg.set_value("dicom_lbl_spacing", s["spacing"])
+        def clean_string(val):
+            if val is None:
+                return ""
+            try:
+                val_str = str(val).replace('\x00', '')
+                val_str = "".join(c for c in val_str if not (0xD800 <= ord(c) <= 0xDFFF))
+                return val_str.encode('utf-8', 'ignore').decode('utf-8')
+            except Exception:
+                return "Unknown"
+
+        dpg.set_value("dicom_lbl_patient", clean_string(s["patient_name"]))
+        dpg.set_value("dicom_lbl_study", clean_string(s["study_desc"]))
+        dpg.set_value("dicom_lbl_size", clean_string(s["size"]))
+        dpg.set_value("dicom_lbl_spacing", clean_string(s["spacing"]))
 
         first_file = os.path.basename(s["files"][0]) if s["files"] else "Unknown"
         dir_path = os.path.dirname(s["files"][0]) if s["files"] else "Unknown"
-        dpg.set_value("dicom_lbl_file", first_file)
-        dpg.set_value("dicom_lbl_dir", dir_path)
+        dpg.set_value("dicom_lbl_file", clean_string(first_file))
+        dpg.set_value("dicom_lbl_dir", clean_string(dir_path))
 
         # --- DYNAMIC TABLE POPULATION ---
         if dpg.does_item_exist("dicom_tags_table"):
@@ -287,9 +307,9 @@ class DicomBrowserWindow:
             # Generate fresh rows only for tags that actually exist
             for tag, name, val in s["tags"]:
                 with dpg.table_row(parent="dicom_tags_table"):
-                    dpg.add_text(tag, color=[150, 255, 150])
-                    dpg.add_text(name, color=self.gui.ui_cfg["colors"]["text_dim"])
-                    dpg.add_text(val)
+                    dpg.add_text(clean_string(tag), color=[150, 255, 150])
+                    dpg.add_text(clean_string(name), color=self.gui.ui_cfg["colors"]["text_dim"])
+                    dpg.add_text(clean_string(val))
 
     def on_open_clicked(self):
         if not self.active_series:

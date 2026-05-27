@@ -119,12 +119,27 @@ class FileManager:
                             file_reader.SetFileName(file_names[0])
                             file_reader.ReadImageInformation()
 
+                            def clean_string(val):
+                                if val is None:
+                                    return ""
+                                try:
+                                    # Convert to string and strip null bytes
+                                    val_str = str(val).replace('\x00', '')
+                                    # Filter out surrogate escapes (range 0xD800 to 0xDFFF)
+                                    val_str = "".join(c for c in val_str if not (0xD800 <= ord(c) <= 0xDFFF))
+                                    # Encode as utf-8, ignoring any invalid bytes, and decode back
+                                    return val_str.encode('utf-8', 'ignore').decode('utf-8')
+                                except Exception:
+                                    return "Unknown"
+
                             def get_tag(tag, default=""):
-                                return (
-                                    file_reader.GetMetaData(tag).strip()
-                                    if file_reader.HasMetaDataKey(tag)
-                                    else default
-                                )
+                                if file_reader.HasMetaDataKey(tag):
+                                    try:
+                                        val = file_reader.GetMetaData(tag).strip()
+                                        return clean_string(val)
+                                    except Exception:
+                                        return default
+                                return default
 
                             # --- FORMAT DATE & TIME ---
                             d_str = get_tag("0008|0020")
@@ -139,11 +154,15 @@ class FileManager:
                             dose_str = ""
                             for k in file_reader.GetMetaDataKeys():
                                 if "0018|1074" in k:  # Radionuclide Total Dose
-                                    raw_dose = file_reader.GetMetaData(k).strip()
                                     try:
-                                        dose_str = f"{float(raw_dose) / 1e6:.2f} MBq"
+                                        raw_dose = file_reader.GetMetaData(k).strip()
+                                        try:
+                                            dose_str = f"{float(raw_dose) / 1e6:.2f} MBq"
+                                        except:
+                                            dose_str = raw_dose
                                     except:
-                                        dose_str = raw_dose
+                                        dose_str = ""
+                                    dose_str = clean_string(dose_str)
                                     break
 
                             size_tup = file_reader.GetSize()

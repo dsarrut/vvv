@@ -96,6 +96,78 @@ class TestDicomPlugin(unittest.TestCase):
 
         dpg.delete_item("test_parent")
 
+    def test_string_sanitization(self):
+        # Construct series data containing a surrogate escape '\udc80' and a null byte '\x00'
+        series_with_bad_data = {
+            "modality": "CT",
+            "series_desc": "Bad\x00CT\udc80Series",
+            "date": "2026-01-01",
+            "files": ["/path/to/bad.dcm"],
+            "patient_name": "John\x00Doe\udc80",
+            "study_desc": "Bad\udc80Study",
+            "size": "512x512x2",
+            "spacing": "1x1x2",
+            "tags": [("0010,0010", "PatientName", "John\x00Doe\udc80")],
+        }
+
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+        
+        self.plugin.show_window()
+        ui = self.plugin._ui
+        ui.scanned_series = [series_with_bad_data]
+        ui._populate_series_list()
+
+        # Select the series to verify no exceptions are raised and surrogates/nulls are stripped
+        ui.on_series_selected(ui._t("sel_0"), None, 0)
+        
+        # Verify the displayed string is sanitized
+        self.assertEqual(dpg.get_value(ui._t("lbl_patient")), "JohnDoe")
+        self.assertEqual(ui.active_series["patient_name"], "John\x00Doe\udc80")  # raw dict remains unmodified, UI is cleaned
+
+        dpg.delete_item("test_parent")
+
+    def test_native_string_sanitization(self):
+        from vvv.ui.ui_dicom import DicomBrowserWindow
+        mock_gui = MagicMock()
+        mock_gui.ui_cfg = {
+            "colors": {
+                "text_header": [255, 255, 255],
+                "text_dim": [128, 128, 128],
+            }
+        }
+        mock_controller = MagicMock()
+        browser = DicomBrowserWindow(mock_controller, mock_gui)
+
+        series_with_bad_data = {
+            "modality": "CT",
+            "series_desc": "Bad\x00CT\udc80Series",
+            "date": "2026-01-01",
+            "files": ["/path/to/bad.dcm"],
+            "patient_name": "John\x00Doe\udc80",
+            "study_desc": "Bad\udc80Study",
+            "size": "512x512x2",
+            "spacing": "1x1x2",
+            "tags": [("0010,0010", "PatientName", "John\x00Doe\udc80")],
+        }
+
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        browser.show()
+        browser.scanned_series = [series_with_bad_data]
+        browser._populate_series_list()
+
+        # Select the series to verify no exceptions are raised and surrogates/nulls are stripped
+        browser.on_series_selected("dicom_sel_0", None, 0)
+
+        # Verify the displayed string is sanitized
+        self.assertEqual(dpg.get_value("dicom_lbl_patient"), "JohnDoe")
+        self.assertEqual(browser.active_series["patient_name"], "John\x00Doe\udc80")
+
+        dpg.delete_item(browser.window_tag)
+
 
 if __name__ == "__main__":
     unittest.main()

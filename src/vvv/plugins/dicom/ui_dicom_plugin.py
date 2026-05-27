@@ -268,10 +268,20 @@ class DicomPluginUI(PluginTagMixin):
             return
         dpg.delete_item(self._t("series_list"), children_only=True)
 
+        def clean_string(val):
+            if val is None:
+                return ""
+            try:
+                val_str = str(val).replace('\x00', '')
+                val_str = "".join(c for c in val_str if not (0xD800 <= ord(c) <= 0xDFFF))
+                return val_str.encode('utf-8', 'ignore').decode('utf-8')
+            except Exception:
+                return "Unknown"
+
         for idx, s in enumerate(self.scanned_series):
             label = f"[{s['modality']}] {s['series_desc']}\n  {s['date']} | {len(s['files'])} files"
             dpg.add_selectable(
-                label=label,
+                label=clean_string(label),
                 height=35,
                 parent=self._t("series_list"),
                 user_data=idx,
@@ -295,15 +305,25 @@ class DicomPluginUI(PluginTagMixin):
         self.active_series = self.scanned_series[user_data]
         s = self.active_series
 
-        dpg.set_value(self._t("lbl_patient"), s["patient_name"])
-        dpg.set_value(self._t("lbl_study"), s["study_desc"])
-        dpg.set_value(self._t("lbl_size"), s["size"])
-        dpg.set_value(self._t("lbl_spacing"), s["spacing"])
+        def clean_string(val):
+            if val is None:
+                return ""
+            try:
+                val_str = str(val).replace('\x00', '')
+                val_str = "".join(c for c in val_str if not (0xD800 <= ord(c) <= 0xDFFF))
+                return val_str.encode('utf-8', 'ignore').decode('utf-8')
+            except Exception:
+                return "Unknown"
+
+        dpg.set_value(self._t("lbl_patient"), clean_string(s["patient_name"]))
+        dpg.set_value(self._t("lbl_study"), clean_string(s["study_desc"]))
+        dpg.set_value(self._t("lbl_size"), clean_string(s["size"]))
+        dpg.set_value(self._t("lbl_spacing"), clean_string(s["spacing"]))
 
         first_file = os.path.basename(s["files"][0]) if s["files"] else "Unknown"
         dir_path = os.path.dirname(s["files"][0]) if s["files"] else "Unknown"
-        dpg.set_value(self._t("lbl_file"), first_file)
-        dpg.set_value(self._t("lbl_dir"), dir_path)
+        dpg.set_value(self._t("lbl_file"), clean_string(first_file))
+        dpg.set_value(self._t("lbl_dir"), clean_string(dir_path))
 
         # --- DYNAMIC TABLE POPULATION ---
         if dpg.does_item_exist(self._t("tags_table")):
@@ -316,10 +336,10 @@ class DicomPluginUI(PluginTagMixin):
             # Generate fresh rows only for tags that actually exist
             for tag, name, val in s["tags"]:
                 with dpg.table_row(parent=self._t("tags_table")):
-                    dpg.add_text(tag, color=[150, 255, 150])
+                    dpg.add_text(clean_string(tag), color=[150, 255, 150])
                     cfg_c = self.api.get_ui_config()["colors"]
-                    dpg.add_text(name, color=cfg_c["text_dim"])
-                    dpg.add_text(val)
+                    dpg.add_text(clean_string(name), color=cfg_c["text_dim"])
+                    dpg.add_text(clean_string(val))
 
     def on_open_clicked(self) -> None:
         if not self.active_series:
