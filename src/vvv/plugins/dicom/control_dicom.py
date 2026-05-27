@@ -14,7 +14,8 @@ class DicomPluginController(PluginTagMixin):
         self.api = api
 
     def update(self, api) -> None:
-        pass
+        if self._ui:
+            self._ui.update(api)
 
     def on_image_loaded(self, image_id: str) -> None:
         pass

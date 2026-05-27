@@ -43,6 +43,8 @@ class DicomPluginUI(PluginTagMixin):
                 callback=self.show_window,
                 tag=self._t("btn_open_sidebar")
             )
+            from vvv.ui.ui_components import build_beginner_tooltip
+            build_beginner_tooltip(btn_open_win, "Open the DICOM series scanning and browsing window.", api)
             if dpg.does_item_exist("icon_button_theme"):
                 dpg.bind_item_theme(btn_open_win, "icon_button_theme")
 
@@ -104,6 +106,8 @@ class DicomPluginUI(PluginTagMixin):
                     default_value=True,
                     tag=self._t("check_recurse"),
                 )
+                from vvv.ui.ui_components import build_beginner_tooltip
+                build_beginner_tooltip(self._t("check_recurse"), "Scan all nested directories inside the selected directory.", self.api)
                 dpg.add_spacer(width=10)
                 dpg.add_button(
                     label="Scan Folder",
@@ -177,10 +181,10 @@ class DicomPluginUI(PluginTagMixin):
                         )
                         dpg.add_text("---", tag=self._t("lbl_spacing"))
 
-                    dpg.add_spacer(height=10)
-                    dpg.add_separator()
+                    dpg.add_spacer(height=10, tag=self._t("metadata_spacer"))
+                    dpg.add_separator(tag=self._t("metadata_sep"))
                     dpg.add_text(
-                        "DICOM Metadata", color=cfg_c["text_header"]
+                        "DICOM Metadata", color=cfg_c["text_header"], tag=self._t("metadata_header")
                     )
 
                     # Middle: Tags Table
@@ -208,6 +212,8 @@ class DicomPluginUI(PluginTagMixin):
                         callback=self.on_open_clicked,
                         tag=self._t("btn_open")
                     )
+                    from vvv.ui.ui_components import build_beginner_tooltip
+                    build_beginner_tooltip(btn_open, "Load the selected DICOM series files as a 3D volume.", self.api)
                     if dpg.does_item_exist("icon_button_theme"):
                         dpg.bind_item_theme(btn_open, "icon_button_theme")
 
@@ -219,6 +225,19 @@ class DicomPluginUI(PluginTagMixin):
             self.window_tag,
             [max(50, vp_width // 2 - 450), max(50, vp_height // 2 - 300)],
         )
+
+        # Configure advanced items based on beginner mode initially
+        assert self.api is not None
+        is_beg = self.api.is_beginner_mode
+        advanced_tags = [
+            self._t("metadata_spacer"),
+            self._t("metadata_sep"),
+            self._t("metadata_header"),
+            self._t("table_panel"),
+        ]
+        for tag in advanced_tags:
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, show=not is_beg)
 
         # Re-populate state if reopened!
         if self.scanned_series:
@@ -379,3 +398,17 @@ class DicomPluginUI(PluginTagMixin):
             dpg.set_value(sender, True)
             self.on_series_selected(sender, None, idx)
             dpg.focus_item(sender)
+
+    def update(self, api) -> None:
+        """Dynamically toggle visibility of advanced controls based on beginner mode."""
+        is_beg = api.is_beginner_mode
+        if dpg.does_item_exist(self.window_tag):
+            advanced_tags = [
+                self._t("metadata_spacer"),
+                self._t("metadata_sep"),
+                self._t("metadata_header"),
+                self._t("table_panel"),
+            ]
+            for tag in advanced_tags:
+                if dpg.does_item_exist(tag):
+                    dpg.configure_item(tag, show=not is_beg)

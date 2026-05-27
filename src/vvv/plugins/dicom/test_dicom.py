@@ -10,6 +10,7 @@ class TestDicomPlugin(unittest.TestCase):
     def setUp(self):
         self.plugin = DicomPlugin()
         self.mock_api = MagicMock()
+        self.mock_api.is_beginner_mode = False
         self.mock_api.get_ui_config.return_value = {
             "colors": {
                 "text_header": [255, 255, 255],
@@ -129,6 +130,27 @@ class TestDicomPlugin(unittest.TestCase):
         assert ui.active_series is not None
         self.assertEqual(ui.active_series["patient_name"], "John\x00Doe\udc80")  # raw dict remains unmodified, UI is cleaned
 
+        dpg.delete_item("test_parent")
+
+    def test_beginner_mode(self):
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+        
+        # Test beginner mode hides advanced metadata tags
+        self.mock_api.is_beginner_mode = True
+        self.plugin.show_window()
+        self.assertFalse(dpg.is_item_shown(self.plugin._ui._t("table_panel")))
+        self.assertFalse(dpg.is_item_shown(self.plugin._ui._t("metadata_header")))
+
+        # Test non-beginner mode shows advanced metadata tags
+        self.mock_api.is_beginner_mode = False
+        self.plugin.update(self.mock_api)
+        self.assertTrue(dpg.is_item_shown(self.plugin._ui._t("table_panel")))
+        self.assertTrue(dpg.is_item_shown(self.plugin._ui._t("metadata_header")))
+
+        dpg.delete_item(self.plugin._ui.window_tag)
         dpg.delete_item("test_parent")
 
     def test_destroy(self):

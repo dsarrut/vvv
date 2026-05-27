@@ -202,10 +202,11 @@ class MainGUI:
                     )
                     with dpg.menu(label="Open Recent...", tag="menu_recent_files"):
                         pass
-                    dpg.add_menu_item(
+                    menu_item_dicom = dpg.add_menu_item(
                         label="Open DICOM Browser...",
                         callback=self.open_dicom_plugin_window,
                     )
+                    build_beginner_tooltip(menu_item_dicom, "Scan local directories for DICOM series and load them.", self)
                     dpg.add_menu_item(
                         label="Open a 4D Sequence...",
                         callback=self.on_open_4d_sequence_clicked,
@@ -1071,6 +1072,10 @@ class MainGUI:
         else:
             dpg.bind_item_theme(sender, "theme_rounded_nav")
         self._update_viewer_help_texts()  # Update help texts when beginner mode changes
+
+        self.controller.ui_needs_refresh = True
+        for plugin in self.plugins:
+            plugin.update(self.plugin_api)
 
         self.show_status_message(
             f"Beginner Mode {'ON' if self.is_beginner_mode else 'OFF'}"
