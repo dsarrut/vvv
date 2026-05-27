@@ -293,6 +293,21 @@ class InteractionManager:
         dy = app_data[1] - self.last_mouse_pos[1]
         self.last_mouse_pos = app_data
 
+        # Check profile hover state on mouse move
+        hover_viewer = self.get_hovered_viewer()
+        for viewer in self.controller.viewers.values():
+            old_hovered_id = getattr(viewer, "hovered_profile_id", None)
+            old_hovered_handle = getattr(viewer, "hovered_handle_key", None)
+
+            p_id, handle_key = None, None
+            if viewer == hover_viewer:
+                p_id, handle_key = self._check_profile_handle_hover(viewer)
+
+            if p_id != old_hovered_id or handle_key != old_hovered_handle:
+                viewer.hovered_profile_id = p_id
+                viewer.hovered_handle_key = handle_key
+                viewer.is_geometry_dirty = True
+
         # W/L Drag: Shift + Move or Right-Click Drag
         is_wl_drag = self.modifiers["shift"] or dpg.is_mouse_button_down(dpg.mvMouseButton_Right)
 

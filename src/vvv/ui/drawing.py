@@ -674,13 +674,49 @@ class OverlayDrawer:
                             parent=node,
                         )
                     else:
-                        dpg.draw_line(s1, s2, color=col, thickness=2.0, parent=node)
-                        dpg.draw_circle(
-                            s1, 4, color=[255, 255, 255], fill=col, parent=node
+                        # Determine active (manipulating) or hovered state
+                        is_active = (
+                            viewer.profile_mode == ProfileInteractionMode.MANIPULATING
+                            and getattr(viewer, "active_profile_id", None) == p_id
                         )
-                        dpg.draw_circle(
-                            s2, 4, color=[255, 255, 255], fill=col, parent=node
+                        active_handle = getattr(viewer, "active_handle", None) if is_active else None
+
+                        is_hovered = (
+                            not is_active
+                            and getattr(viewer, "hovered_profile_id", None) == p_id
                         )
+                        hovered_handle = getattr(viewer, "hovered_handle_key", None) if is_hovered else None
+
+                        highlight_handle = active_handle or hovered_handle
+
+                        line_thick = 3.5 if highlight_handle == "middle" else 2.0
+                        dpg.draw_line(s1, s2, color=col, thickness=line_thick, parent=node)
+
+                        # Draw start circle (with a glowing halo if hovered/active)
+                        if highlight_handle == "start":
+                            dpg.draw_circle(
+                                s1, 8, color=[255, 255, 255, 180], thickness=1.5, parent=node
+                            )
+                            dpg.draw_circle(
+                                s1, 5, color=[255, 255, 255], fill=col, parent=node
+                            )
+                        else:
+                            dpg.draw_circle(
+                                s1, 4, color=[255, 255, 255], fill=col, parent=node
+                            )
+
+                        # Draw end circle (with a glowing halo if hovered/active)
+                        if highlight_handle == "end":
+                            dpg.draw_circle(
+                                s2, 8, color=[255, 255, 255, 180], thickness=1.5, parent=node
+                            )
+                            dpg.draw_circle(
+                                s2, 5, color=[255, 255, 255], fill=col, parent=node
+                            )
+                        else:
+                            dpg.draw_circle(
+                                s2, 4, color=[255, 255, 255], fill=col, parent=node
+                            )
 
             # Case 2: The segment is cross-plane (Show clue ring)
             else:
