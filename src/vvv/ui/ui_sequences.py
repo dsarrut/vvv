@@ -592,10 +592,18 @@ def load_workspace_sequence(gui, controller, filepath):
         ) as executor:
             future_to_path = {}
             for old_id, p in tasks_to_load:
-                f = executor.submit(controller.file.load_image, list(p) if isinstance(p, tuple) else p)
+                f = executor.submit(
+                    controller.file.load_image,
+                    list(p) if isinstance(p, tuple) else p,
+                    ignore_history=True
+                )
                 future_to_path[f] = ("base", old_id, p)
             for parent_old_id, p in legacy_overlays:
-                f = executor.submit(controller.file.load_image, list(p) if isinstance(p, tuple) else p)
+                f = executor.submit(
+                    controller.file.load_image,
+                    list(p) if isinstance(p, tuple) else p,
+                    ignore_history=True
+                )
                 future_to_path[f] = ("legacy_ov", parent_old_id, p)
             
             futures: list[concurrent.futures.Future | None] = [

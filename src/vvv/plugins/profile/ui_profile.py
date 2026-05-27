@@ -54,6 +54,18 @@ class ProfilePluginUI(PluginTagMixin):
                     "Click the plot icon () in the list to open the intensity curve.",
                     api,
                 )
+                dpg.add_spacer(width=10)
+                chk_show = dpg.add_checkbox(
+                    label="Show on Image",
+                    tag=self._t("check_show_profiles"),
+                    callback=self.on_show_profiles_changed,
+                    default_value=True,
+                )
+                build_beginner_tooltip(
+                    chk_show,
+                    "Toggles drawing the profile lines directly on the image viewer.",
+                    api,
+                )
 
             with dpg.group(horizontal=True):
                 btn_open_all = dpg.add_button(
@@ -99,6 +111,15 @@ class ProfilePluginUI(PluginTagMixin):
     def update_ui(self, api) -> None:
         viewer = api.get_active_viewer()
         has_image = bool(viewer and viewer.view_state and viewer.volume)
+
+        # Update our show_profiles checkbox
+        chk_show = self._t("check_show_profiles")
+        if dpg.does_item_exist(chk_show):
+            dpg.configure_item(chk_show, enabled=has_image)
+            if has_image and not dpg.is_item_active(chk_show):
+                val = viewer.view_state.camera.show_profiles
+                val_bool = bool(val) if isinstance(val, (bool, int)) else True
+                dpg.set_value(chk_show, val_bool)
 
         # Refresh open plots
         if has_image:
@@ -223,6 +244,17 @@ class ProfilePluginUI(PluginTagMixin):
                     dpg.bind_item_theme(btn_delete, "delete_button_theme")
 
         dpg.set_y_scroll(table_id, current_scroll)
+
+    def on_show_profiles_changed(self, sender, app_data, user_data):
+        api = self._c._api
+        if not api:
+            return
+        viewer = api.get_active_viewer()
+        if viewer and viewer.view_state:
+            viewer.view_state.camera.show_profiles = app_data
+            viewer.is_geometry_dirty = True
+            if dpg.does_item_exist("check_profiles"):
+                dpg.set_value("check_profiles", app_data)
 
     def on_open_all_clicked(self, sender, app_data, user_data):
         api = self._c._api
