@@ -15,7 +15,6 @@ from vvv.ui.ui_fusion import FusionUI
 from vvv.ui.ui_contours import ContoursUI
 from vvv.ui.ui_settings import SettingsWindow
 from vvv.plugins.plugin_api import PluginAPI
-from vvv.ui.ui_dicom import DicomBrowserWindow
 from vvv.plugins import discover_plugins
 from vvv.resources import load_fonts, setup_themes
 from vvv.ui.ui_interaction import InteractionManager
@@ -102,7 +101,6 @@ class MainGUI:
         setup_themes()
         register_dynamic_themes(self.ui_cfg, self.controller)
         self.settings_window = SettingsWindow(self.controller)
-        self.dicom_window = DicomBrowserWindow(self.controller, self)
         self.interaction = InteractionManager(self, self.controller)
         self.fusion_ui = FusionUI(self, self.controller)
         self.roi_ui = RoiUI(self, self.controller)
@@ -206,10 +204,6 @@ class MainGUI:
                         pass
                     dpg.add_menu_item(
                         label="Open DICOM Browser...",
-                        callback=lambda: self.dicom_window.show(),
-                    )
-                    dpg.add_menu_item(
-                        label="Open DICOM Browser (Plugin)...",
                         callback=self.open_dicom_plugin_window,
                     )
                     dpg.add_menu_item(
@@ -1924,8 +1918,6 @@ class MainGUI:
             # Clear the flag only after all logic and plugins have seen it
             if ui_dirty:
                 self.controller.ui_needs_refresh = False
-
-            self.dicom_window.tick()
 
             # Call tick on plugins (e.g. for high-frequency progress indicators)
             for plugin in self.plugins:

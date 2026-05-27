@@ -131,46 +131,6 @@ class TestDicomPlugin(unittest.TestCase):
 
         dpg.delete_item("test_parent")
 
-    def test_native_string_sanitization(self):
-        from vvv.ui.ui_dicom import DicomBrowserWindow
-        mock_gui = MagicMock()
-        mock_gui.ui_cfg = {
-            "colors": {
-                "text_header": [255, 255, 255],
-                "text_dim": [128, 128, 128],
-            }
-        }
-        mock_controller = MagicMock()
-        browser = DicomBrowserWindow(mock_controller, mock_gui)
-
-        series_with_bad_data = {
-            "modality": "CT",
-            "series_desc": "Bad\x00CT\udc80Series",
-            "date": "2026-01-01",
-            "files": ["/path/to/bad.dcm"],
-            "patient_name": "John\x00Doe\udc80",
-            "study_desc": "Bad\udc80Study",
-            "size": "512x512x2",
-            "spacing": "1x1x2",
-            "tags": [("0010,0010", "PatientName", "John\x00Doe\udc80")],
-        }
-
-        if not dpg.is_dearpygui_running():
-            dpg.create_context()
-        browser.show()
-        browser.scanned_series = [series_with_bad_data]
-        browser._populate_series_list()
-
-        # Select the series to verify no exceptions are raised and surrogates/nulls are stripped
-        browser.on_series_selected("dicom_sel_0", None, 0)
-
-        # Verify the displayed string is sanitized
-        self.assertEqual(dpg.get_value("dicom_lbl_patient"), "JohnDoe")
-        assert browser.active_series is not None
-        self.assertEqual(browser.active_series["patient_name"], "John\x00Doe\udc80")
-
-        dpg.delete_item(browser.window_tag)
-
     def test_destroy(self):
         if not dpg.is_dearpygui_running():
             dpg.create_context()
