@@ -168,6 +168,18 @@ class TestDicomPlugin(unittest.TestCase):
 
         dpg.delete_item(browser.window_tag)
 
+    def test_destroy(self):
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+        self.plugin.show_window()
+        self.assertTrue(dpg.does_item_exist(self.plugin._ui.window_tag))
+        self.plugin.destroy()
+        self.assertFalse(dpg.does_item_exist(self.plugin._ui.window_tag))
+        self.assertTrue(self.plugin._ui._stop_event.is_set())
+        dpg.delete_item("test_parent")
+
 
 if __name__ == "__main__":
     unittest.main()

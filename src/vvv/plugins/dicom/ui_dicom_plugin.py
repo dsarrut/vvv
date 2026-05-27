@@ -22,6 +22,7 @@ class DicomPluginUI(PluginTagMixin):
         self.scan_progress = 0.0
         self.scan_status_text = ""
         self.scan_finished = False
+        self._stop_event = threading.Event()
 
     def create_ui(self, parent, api) -> None:
         self.api = api
@@ -244,6 +245,7 @@ class DicomPluginUI(PluginTagMixin):
         dpg.configure_item(self._t("btn_scan"), enabled=False)
         dpg.delete_item(self._t("series_list"), children_only=True)
 
+        self._stop_event.clear()
         # Run scan in background so UI doesn't freeze
         threading.Thread(
             target=self._run_scan, args=(folder, recurse), daemon=True
@@ -252,6 +254,8 @@ class DicomPluginUI(PluginTagMixin):
     def _run_scan(self, folder, recurse):
         # Consume the generator yielded from PluginAPI (which delegates to controller/file.py)
         for result in self.api.scan_dicom_folder(folder, recursive=recurse):
+            if self._stop_event.is_set():
+                return
             if len(result) == 2:
                 pct, dirname = result
                 self.scan_progress = pct
@@ -262,6 +266,11 @@ class DicomPluginUI(PluginTagMixin):
 
         # Signal completion
         self.scan_finished = True
+
+    def destroy(self) -> None:
+        self._stop_event.set()
+        if dpg.does_item_exist(self.window_tag):
+            dpg.delete_item(self.window_tag)
 
     def _populate_series_list(self):
         if not dpg.does_item_exist(self._t("series_list")):

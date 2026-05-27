@@ -35,4 +35,5 @@ class DicomPluginController(PluginTagMixin):
         pass
 
     def destroy(self) -> None:
-        pass
+        if self._ui:
+            self._ui.destroy()
