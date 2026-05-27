@@ -158,11 +158,11 @@ def should_use_lazy_lin(
     return ll_cfg is True or ll_cfg == "On"
 
 
-def try_set_gl_nearest():
-    """Call glTexParameteri(GL_NEAREST) on the currently-bound 2D texture.
+def try_set_gl_nearest(nearest: bool = True):
+    """Call glTexParameteri(GL_NEAREST or GL_LINEAR) on the currently-bound 2D texture.
 
-    DPG leaves its new texture bound after add_dynamic_texture(), so calling
-    this immediately after that creates a GL_NEAREST texture at no extra cost.
+    DPG leaves its new texture bound after add_dynamic_texture() and set_value(),
+    so calling this immediately after that updates the filtering parameters.
     Silently does nothing if GL is unavailable (headless tests, bad context…).
     """
     global _gl_nearest_fn
@@ -183,14 +183,16 @@ def try_set_gl_nearest():
             _GL_TEXTURE_MIN_FILTER = 0x2801
             _GL_TEXTURE_MAG_FILTER = 0x2800
             _GL_NEAREST = 0x2600
+            _GL_LINEAR = 0x2601
 
-            def _set():
+            def _set(is_nearest):
+                val = _GL_NEAREST if is_nearest else _GL_LINEAR
                 try:
                     lib.glTexParameteri(
-                        _GL_TEXTURE_2D, _GL_TEXTURE_MIN_FILTER, _GL_NEAREST
+                        _GL_TEXTURE_2D, _GL_TEXTURE_MIN_FILTER, val
                     )
                     lib.glTexParameteri(
-                        _GL_TEXTURE_2D, _GL_TEXTURE_MAG_FILTER, _GL_NEAREST
+                        _GL_TEXTURE_2D, _GL_TEXTURE_MAG_FILTER, val
                     )
                 except Exception:
                     pass
@@ -200,7 +202,7 @@ def try_set_gl_nearest():
             _gl_nearest_fn = False
 
     if callable(_gl_nearest_fn):
-        _gl_nearest_fn()
+        _gl_nearest_fn(nearest)
 
 
 def blend_slices_cpu(base_2d, ov_2d, opacity, shift_x, shift_y):

@@ -224,7 +224,7 @@ def parse_cli_arguments(datasets):
     help="Ignore saved history and load with defaults.",
 )
 @click.option("--debug", is_flag=True, help="Show FPS debug overlay with graph.")
-@click.option("--fast-gl", is_flag=True, help="Enable experimental fast GL nearest-neighbor (Linux/Windows).")
+@click.option("--fast-gl/--no-fast-gl", default=True, help="Enable/disable fast GL nearest-neighbor (Linux/Windows).")
 def main(no_history, datasets, linkall, sync, debug, fast_gl):
     """Entry point for the VVV command line interface."""
 
