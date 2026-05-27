@@ -7,7 +7,7 @@ class ThresholdPlugin(PluginProtocol):
     plugin_id = "threshold_plugin"
     label = "Threshold"
     description = "Interactive Thresholding and Image Mask Generation."
-    order = 20
+    order = 30
 
     def __init__(self):
         self._controller = ThresholdController(self.plugin_id)

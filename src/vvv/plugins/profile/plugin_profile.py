@@ -7,7 +7,7 @@ class ProfilePlugin(PluginProtocol):
     plugin_id = "profile_plugin"
     label = "Profiles"
     description = "Interactive Intensity Profiles"
-    order = 30
+    order = 20
 
     def __init__(self):
         self._controller = ProfilePluginController(self.plugin_id)
