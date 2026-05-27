@@ -82,3 +82,8 @@ Use this checklist when implementing or reviewing a plugin.
 - [ ] **`update()` is called only when dirty** — avoid expensive recomputation; use caches (`_last_image_id`, `id(vol.data)`) to skip redundant work
 - [ ] **Overlay images** — does the plugin need to react to the overlay as well as the base image? (see DVF `_get_target_vs` pattern)
 - [ ] **`is_auto_overlay` images** — `on_image_loaded` is NOT dispatched for auto-loaded overlays; plugin state only covers base images
+- [ ] **Styling & Colors** — avoid hardcoded colors (e.g. RGB red/blue/green lists) for UI text, warnings, or headers. Query `api.get_ui_config()["colors"]` to respect the global theme colors (e.g. `text_header`, `text_dim`).
+- [ ] **Theme Binding** — bind standard DearPyGui themes (e.g. `icon_button_theme`) rather than manually styling buttons, keeping UI controls visually unified.
+- [ ] **Settings Persistence** — verify that any global plugin settings (like default threshold modes, auto-refresh toggles) are successfully loaded and saved via `load_settings` and `save_settings` into the main settings manager.
+- [ ] **Unified Settings** — check if important UI element properties (like some sizes, colors) are managed in `ui_theme.py` and settings files.
+
