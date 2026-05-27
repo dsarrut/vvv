@@ -25,7 +25,7 @@ class TestProfilePlugin(unittest.TestCase):
         self.assertEqual(self.plugin.plugin_id, "profile_plugin")
         self.assertEqual(self.plugin.label, "Profiles")
         self.assertIsNotNone(self.plugin.description)
-        self.assertEqual(self.plugin.order, 30)
+        self.assertEqual(self.plugin.order, 20)
 
     def test_state_lifecycle(self):
         self.assertEqual(self.plugin.serialize_image_state("image1"), {})

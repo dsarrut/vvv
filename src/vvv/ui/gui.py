@@ -209,6 +209,10 @@ class MainGUI:
                         callback=lambda: self.dicom_window.show(),
                     )
                     dpg.add_menu_item(
+                        label="Open DICOM Browser (Plugin)...",
+                        callback=self.open_dicom_plugin_window,
+                    )
+                    dpg.add_menu_item(
                         label="Open a 4D Sequence...",
                         callback=self.on_open_4d_sequence_clicked,
                     )
@@ -1305,6 +1309,11 @@ class MainGUI:
                 load_batch_images_sequence(self, self.controller, image_files)
             )
 
+    def open_dicom_plugin_window(self):
+        dicom_plugin = next((p for p in self.plugins if p.plugin_id == "dicom_plugin"), None)
+        if dicom_plugin:
+            dicom_plugin.show_window()
+
     def on_open_4d_sequence_clicked(self, sender=None, app_data=None, user_data=None):
         file_paths = open_file_dialog(
             "Select multiple images for 4D Sequence", multiple=True
@@ -1917,6 +1926,11 @@ class MainGUI:
                 self.controller.ui_needs_refresh = False
 
             self.dicom_window.tick()
+
+            # Call tick on plugins (e.g. for high-frequency progress indicators)
+            for plugin in self.plugins:
+                if hasattr(plugin, "tick"):
+                    plugin.tick()
 
             self.controller.tick()
 
