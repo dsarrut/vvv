@@ -9,7 +9,7 @@ class RoiPluginUI(PluginTagMixin):
     def __init__(self, plugin_id: str, controller):
         self._plugin_id = plugin_id
         self._c = controller
-        self.api: Optional[PluginAPI] = None
+        self.api: PluginAPI = None  # type: ignore
         self.roi_selectables = {}
 
     def create_ui(self, parent, api: PluginAPI) -> None:

@@ -58,7 +58,7 @@ class TestRoiPlugin(unittest.TestCase):
 
     def test_metadata(self):
         self.assertEqual(self.plugin.plugin_id, "roi_plugin")
-        self.assertEqual(self.plugin.label, "ROIs (Plugin)")
+        self.assertEqual(self.plugin.label, "ROIs")
         self.assertEqual(self.plugin.order, 70)
         self.assertIsNotNone(self.plugin.description)
 
