@@ -158,7 +158,7 @@ def should_use_lazy_lin(
     return ll_cfg is True or ll_cfg == "On"
 
 
-def try_set_gl_nearest(nearest: bool = True, width: int = None, height: int = None):
+def try_set_gl_nearest(nearest: bool = True, width: int | None = None, height: int | None = None):
     """Apply GL_NEAREST or GL_LINEAR to textures.
 
     If width and height are specified, scans the OpenGL context for all textures
