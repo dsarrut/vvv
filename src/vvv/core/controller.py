@@ -389,6 +389,9 @@ class Controller:
         if not keys or keys[-1] is None:
             return
 
+        if isinstance(keys, str):
+            keys = [keys]
+
         d: Any = self.settings.data
         for key in keys[:-1]:
             d = d[key]

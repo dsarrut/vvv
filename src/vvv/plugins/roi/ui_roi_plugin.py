@@ -1003,9 +1003,9 @@ class RoiPluginUI(PluginTagMixin):
 
     def save_settings(self, api: PluginAPI) -> None:
         if dpg.does_item_exist(self._t("combo_roi_mode")):
-            api._controller.update_setting(f"{self._plugin_id}_default_mode", dpg.get_value(self._t("combo_roi_mode")))
+            api._controller.update_setting(["behavior", f"{self._plugin_id}_default_mode"], dpg.get_value(self._t("combo_roi_mode")))
         if dpg.does_item_exist(self._t("input_roi_val")):
-            api._controller.update_setting(f"{self._plugin_id}_default_val", dpg.get_value(self._t("input_roi_val")))
+            api._controller.update_setting(["behavior", f"{self._plugin_id}_default_val"], dpg.get_value(self._t("input_roi_val")))
 
     def load_settings(self, api: PluginAPI) -> None:
         ctrl = api._controller
