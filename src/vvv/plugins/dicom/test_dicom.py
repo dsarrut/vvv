@@ -138,13 +138,13 @@ class TestDicomPlugin(unittest.TestCase):
         with dpg.window(tag="test_parent"):
             self.plugin.create_ui(parent="test_parent", api=self.mock_api)
         
-        # Test beginner mode hides advanced metadata tags
+        # Test beginner mode does not hide advanced metadata tags
         self.mock_api.is_beginner_mode = True
         self.plugin.show_window()
-        self.assertFalse(dpg.is_item_shown(self.plugin._ui._t("table_panel")))
-        self.assertFalse(dpg.is_item_shown(self.plugin._ui._t("metadata_header")))
+        self.assertTrue(dpg.is_item_shown(self.plugin._ui._t("table_panel")))
+        self.assertTrue(dpg.is_item_shown(self.plugin._ui._t("metadata_header")))
 
-        # Test non-beginner mode shows advanced metadata tags
+        # Test non-beginner mode also shows advanced metadata tags
         self.mock_api.is_beginner_mode = False
         self.plugin.update(self.mock_api)
         self.assertTrue(dpg.is_item_shown(self.plugin._ui._t("table_panel")))

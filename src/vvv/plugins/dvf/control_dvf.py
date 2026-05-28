@@ -65,9 +65,9 @@ class DvfController(PluginTagMixin):
 
         dvf_state = target_vs.dvf
 
-        display_mode_label = self._t("display_mode_label")
-        if dpg.does_item_exist(display_mode_label):
-            dpg.configure_item(display_mode_label, show=is_base)
+        display_mode_group = self._t("display_mode_group")
+        if dpg.does_item_exist(display_mode_group):
+            dpg.configure_item(display_mode_group, show=is_base)
 
         radio_mode = self._t("radio_mode")
         if dpg.does_item_exist(radio_mode):

@@ -106,6 +106,8 @@ class ThresholdController(PluginTagMixin):
         self.get_image_state(image_id)
 
     def on_image_removed(self, image_id: str) -> None:
+        if self._generation_stop:
+            self._generation_stop.set()
         if self._api:
             vs = self._api.get_view_states().get(image_id)
             if vs:

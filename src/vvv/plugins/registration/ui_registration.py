@@ -412,19 +412,7 @@ class RegistrationPluginUI(PluginTagMixin):
             else:
                 dpg.set_value(cor_tag, "0.0, 0.0, 0.0")
 
-        # Toggle visibility of advanced controls based on beginner mode
-        is_beg = api.is_beginner_mode
-        advanced_tags = [
-            self._t("btn_reg_save_as"),
-            self._t("btn_reg_reload"),
-            self._t("group_reg_cor"),
-            self._t("btn_reg_invert"),
-            self._t("btn_reg_bake"),
-            self._t("group_reg_matrix_section"),
-        ]
-        for tag in advanced_tags:
-            if dpg.does_item_exist(tag):
-                dpg.configure_item(tag, show=not is_beg)
+
 
     def pull_reg_sliders_from_transform(self) -> None:
         """ONLY call this when loading a file, switching images, or resetting. NOT during drag!"""

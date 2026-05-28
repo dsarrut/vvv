@@ -29,7 +29,7 @@ class DvfUI(PluginTagMixin):
             )
 
             with dpg.group(tag=self._t("controls"), show=False):
-                with dpg.group(horizontal=True):
+                with dpg.group(tag=self._t("display_mode_group"), horizontal=True):
                     dpg.add_text("Display Mode:", tag=self._t("display_mode_label"))
                     build_help_button(
                         "Display Mode — how the displacement vector field is visualized:\n\n"

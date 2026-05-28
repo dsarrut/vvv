@@ -343,8 +343,8 @@ class TestRegistrationPlugin(unittest.TestCase):
         # 1. Test is_beginner_mode = True
         self.mock_api.is_beginner_mode = True
         self.plugin.update(self.mock_api)
-        self.assertFalse(dpg.is_item_shown("registration_plugin_group_reg_cor"))
-        self.assertFalse(dpg.is_item_shown("registration_plugin_group_reg_matrix_section"))
+        self.assertTrue(dpg.is_item_shown("registration_plugin_group_reg_cor"))
+        self.assertTrue(dpg.is_item_shown("registration_plugin_group_reg_matrix_section"))
         
         # 2. Test is_beginner_mode = False
         self.mock_api.is_beginner_mode = False

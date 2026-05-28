@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 import SimpleITK as sitk
+import dearpygui.dearpygui as dpg
 from vvv.core.controller import Controller
 from vvv.core.view_state import DVFState
 from vvv.maths.image import SliceRenderer

@@ -226,18 +226,7 @@ class DicomPluginUI(PluginTagMixin):
             [max(50, vp_width // 2 - 450), max(50, vp_height // 2 - 300)],
         )
 
-        # Configure advanced items based on beginner mode initially
         assert self.api is not None
-        is_beg = self.api.is_beginner_mode
-        advanced_tags = [
-            self._t("metadata_spacer"),
-            self._t("metadata_sep"),
-            self._t("metadata_header"),
-            self._t("table_panel"),
-        ]
-        for tag in advanced_tags:
-            if dpg.does_item_exist(tag):
-                dpg.configure_item(tag, show=not is_beg)
 
         # Re-populate state if reopened!
         if self.scanned_series:
@@ -400,15 +389,4 @@ class DicomPluginUI(PluginTagMixin):
             dpg.focus_item(sender)
 
     def update(self, api) -> None:
-        """Dynamically toggle visibility of advanced controls based on beginner mode."""
-        is_beg = api.is_beginner_mode
-        if dpg.does_item_exist(self.window_tag):
-            advanced_tags = [
-                self._t("metadata_spacer"),
-                self._t("metadata_sep"),
-                self._t("metadata_header"),
-                self._t("table_panel"),
-            ]
-            for tag in advanced_tags:
-                if dpg.does_item_exist(tag):
-                    dpg.configure_item(tag, show=not is_beg)
+        pass
