@@ -2,7 +2,7 @@ import os
 import dearpygui.dearpygui as dpg
 from typing import Optional
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
-from vvv.ui.ui_components import build_section_title, build_help_button
+from vvv.ui.ui_components import build_section_title, build_help_button, build_beginner_tooltip
 
 
 class RoiPluginUI(PluginTagMixin):
@@ -68,6 +68,7 @@ class RoiPluginUI(PluginTagMixin):
                     callback=self.on_load_roi_clicked,
                     tag=self._t("btn_roi_load"),
                 )
+                build_beginner_tooltip(btn_load, "Click to load NIfTI masks, DICOM RT-Struct files, or Label Maps.", self.api)
 
             with dpg.group(horizontal=True, tag=self._t("group_roi_mode")):
                 dpg.add_text("Rule:")
@@ -78,6 +79,7 @@ class RoiPluginUI(PluginTagMixin):
                     width=130,
                     callback=self.on_roi_mode_changed,
                 )
+                build_beginner_tooltip(self._t("combo_roi_mode"), "Choose how voxels are selected from the loaded image to form the ROI.", self.api)
                 build_help_button(
                     "Ignore BG: Makes '0' transparent and keeps everything else.\nTarget FG: Keeps only the exact 'Val' specified.\nLabel Map: Extracts all unique integer values as separate ROIs.",
                     self.api._gui
@@ -146,6 +148,7 @@ class RoiPluginUI(PluginTagMixin):
                     default_value=0.5,
                     callback=self.on_roi_global_opacity_changed,
                 )
+                build_beginner_tooltip(self._t("slider_roi_global_opacity"), "Adjust raster transparency for all loaded ROIs simultaneously.", self.api)
                 dpg.add_text("Thk:")
                 dpg.add_slider_float(
                     tag=self._t("slider_roi_global_thickness"),
@@ -155,6 +158,7 @@ class RoiPluginUI(PluginTagMixin):
                     default_value=1.0,
                     callback=self.on_roi_global_thickness_changed,
                 )
+                build_beginner_tooltip(self._t("slider_roi_global_thickness"), "Adjust contour line thickness for all loaded ROIs simultaneously.", self.api)
 
             dpg.add_separator()
 
@@ -175,6 +179,7 @@ class RoiPluginUI(PluginTagMixin):
                     width=-30,
                     callback=self.on_roi_filter_changed,
                 )
+                build_beginner_tooltip(self._t("input_roi_filter"), "Type to search and filter the list of ROIs by name.", self.api)
                 btn_clear_filter = dpg.add_button(
                     label="\uf00d",
                     width=20,
@@ -551,11 +556,18 @@ class RoiPluginUI(PluginTagMixin):
 
         self._rtstruct_cb_ids = []
 
+        viewer = self.api.get_active_viewer()
+        image_id = viewer.image_id if (viewer and viewer.image_id) else ""
+        name_str = ""
+        if image_id:
+            name_str, _ = self.api.get_image_display_name(image_id)
+        label_title = f"Select ROIs to Load - {name_str}" if name_str else "Select ROIs to Load"
+
         with dpg.window(
             tag=modal_tag,
             modal=True,
             show=True,
-            label="Select ROIs to Load (Plugin)",
+            label=label_title,
             no_collapse=True,
             width=450,
             height=500,
@@ -983,3 +995,23 @@ class RoiPluginUI(PluginTagMixin):
         dpg.set_value(self._t("roi_stat_std"), f"{stats['std']:.2f}")
         dpg.set_value(self._t("roi_stat_peak"), f"{stats['peak']:.2f}")
         dpg.set_value(self._t("roi_stat_mass"), f"{stats['mass']:.2f} g")
+
+    def close_rtstruct_modal(self):
+        modal_tag = self._t("rtstruct_selection_modal")
+        if dpg.does_item_exist(modal_tag):
+            dpg.delete_item(modal_tag)
+
+    def save_settings(self, api: PluginAPI) -> None:
+        if dpg.does_item_exist(self._t("combo_roi_mode")):
+            api._controller.update_setting(f"{self._plugin_id}_default_mode", dpg.get_value(self._t("combo_roi_mode")))
+        if dpg.does_item_exist(self._t("input_roi_val")):
+            api._controller.update_setting(f"{self._plugin_id}_default_val", dpg.get_value(self._t("input_roi_val")))
+
+    def load_settings(self, api: PluginAPI) -> None:
+        ctrl = api._controller
+        mode = ctrl.settings.data.get("behavior", {}).get(f"{self._plugin_id}_default_mode", "Ignore BG (val)")
+        val = ctrl.settings.data.get("behavior", {}).get(f"{self._plugin_id}_default_val", 0.0)
+        if dpg.does_item_exist(self._t("combo_roi_mode")):
+            dpg.set_value(self._t("combo_roi_mode"), mode)
+        if dpg.does_item_exist(self._t("input_roi_val")):
+            dpg.set_value(self._t("input_roi_val"), float(val))

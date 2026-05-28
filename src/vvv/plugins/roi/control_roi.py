@@ -41,23 +41,35 @@ class RoiPluginController(PluginTagMixin):
     def on_image_removed(self, image_id: str) -> None:
         if self.active_roi_id == image_id:
             self.active_roi_id = None
+        self.roi_filters.pop(image_id, None)
+        self.roi_sort_orders.pop(image_id, None)
         if self.ui:
+            self.ui.close_rtstruct_modal()
             self.ui.refresh_rois_ui()
 
     def serialize_image_state(self, image_id: str) -> dict:
-        return {}
+        return {
+            "roi_filter": self.roi_filters.get(image_id, ""),
+            "roi_sort_order": self.roi_sort_orders.get(image_id, 0),
+        }
 
     def restore_image_state(self, image_id: str, data: dict) -> None:
-        pass
+        if "roi_filter" in data:
+            self.roi_filters[image_id] = data["roi_filter"]
+        if "roi_sort_order" in data:
+            self.roi_sort_orders[image_id] = data["roi_sort_order"]
 
     def save_settings(self, api: PluginAPI) -> None:
-        pass
+        if self.ui:
+            self.ui.save_settings(api)
 
     def load_settings(self, api: PluginAPI) -> None:
-        pass
+        if self.ui:
+            self.ui.load_settings(api)
 
     def destroy(self) -> None:
-        pass
+        if self.ui:
+            self.ui.close_rtstruct_modal()
 
     # --- Actions called from UI ---
 

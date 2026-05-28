@@ -51,6 +51,8 @@ class TestRoiPlugin(unittest.TestCase):
         }
         self.mock_api.get_ui_config.return_value = ui_cfg
         self.mock_api.ui_cfg = ui_cfg
+        self.mock_api.is_beginner_mode = False
+        self.mock_api.beginner_tags = []
         self.mock_api.get_active_viewer.return_value = None
         self.mock_api.get_image_display_name.return_value = ("Test Image", False)
         self.mock_api.get_volumes.return_value = {}
@@ -88,8 +90,8 @@ class TestRoiPlugin(unittest.TestCase):
         self.plugin.update(self.mock_api)
         self.plugin.on_image_loaded("img1")
         self.plugin.on_image_removed("img1")
-        self.assertEqual(self.plugin.serialize_image_state("img1"), {})
-        self.plugin.restore_image_state("img1", {})
+        self.assertEqual(self.plugin.serialize_image_state("img1"), {"roi_filter": "", "roi_sort_order": 0})
+        self.plugin.restore_image_state("img1", {"roi_filter": "", "roi_sort_order": 0})
         self.plugin.save_settings(self.mock_api)
         self.plugin.load_settings(self.mock_api)
 
