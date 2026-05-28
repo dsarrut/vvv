@@ -9,7 +9,6 @@ import threading
 import collections
 import numpy as np
 from vvv.utils import fmt, ViewMode, format_pixel_value
-from vvv.ui.ui_roi import RoiUI
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_fusion import FusionUI
 from vvv.ui.ui_contours import ContoursUI
@@ -104,7 +103,6 @@ class MainGUI:
         self.settings_window = SettingsWindow(self.controller)
         self.interaction = InteractionManager(self, self.controller)
         self.fusion_ui = FusionUI(self, self.controller)
-        self.roi_ui = RoiUI(self, self.controller)
         self.contours_ui = ContoursUI(self, self.controller)
 
         # Initialize plugin list before building layout to avoid AttributeErrors
@@ -462,7 +460,6 @@ class MainGUI:
                 build_tab_sync(self)
                 self.fusion_ui.build_tab_fusion(self)
                 pass
-                # self.roi_ui.build_tab_rois(self)
 
                 # Hidden dummy container for plugins that should not show in sidebar
                 dpg.add_group(tag="hidden_plugin_parent", show=False)
@@ -786,8 +783,9 @@ class MainGUI:
 
     def refresh_rois_ui(self):
         """Pass-through bridge to the delegated ROI UI."""
-        pass
-        # self.roi_ui.refresh_rois_ui()
+        roi_plugin = next((p for p in self.plugins if p.plugin_id == "roi_plugin"), None)
+        if roi_plugin and hasattr(roi_plugin, "_ui"):
+            roi_plugin._ui.refresh_rois_ui()
 
     def refresh_recent_menu(self):
         if not dpg.does_item_exist("menu_recent_files"):
@@ -1048,12 +1046,15 @@ class MainGUI:
             dpg.bind_item_theme(f"win_{self.context_viewer.tag}", "black_viewer_theme")
 
         # Safely deselect ROI if it doesn't belong to the new image
-        if getattr(self.roi_ui, "active_roi_id", None):
-            if (
-                viewer.view_state
-                and self.roi_ui.active_roi_id not in viewer.view_state.rois
-            ):
-                self.roi_ui.active_roi_id = None
+        roi_plugin = next((p for p in self.plugins if p.plugin_id == "roi_plugin"), None)
+        if roi_plugin and hasattr(roi_plugin, "_controller"):
+            ctrl = roi_plugin._controller
+            if ctrl.active_roi_id:
+                if (
+                    viewer.view_state
+                    and ctrl.active_roi_id not in viewer.view_state.rois
+                ):
+                    ctrl.active_roi_id = None
 
         self.context_viewer = viewer
 

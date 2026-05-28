@@ -112,17 +112,23 @@ def test_gui_roi_interactions(headless_gui_app, synthetic_volume_factory):
     roi_path = synthetic_volume_factory("roi.nii.gz", val=1.0)
     roi_id = controller.roi.load_binary_mask(base_id, roi_path, name="TestROI")
 
-    # Tell GUI which ROI is "active" in the list
-    gui.active_roi_id = roi_id
+    # Get ROI plugin
+    roi_plugin = next((p for p in gui.plugins if p.plugin_id == "roi_plugin"), None)
+    assert roi_plugin is not None
+    roi_ui = roi_plugin._ui
+    roi_ctrl = roi_plugin._controller
+
+    # Tell GUI/Plugin which ROI is "active" in the list
+    roi_ctrl.active_roi_id = roi_id
 
     # 1. Simulate Color Change (DPG uses normalized 0.0 - 1.0 floats for colors)
-    gui.roi_ui.on_roi_color_changed(
+    roi_ui.on_roi_color_changed(
         sender=None, app_data=[1.0, 0.0, 0.0, 1.0], user_data=roi_id
     )
     assert vs.rois[roi_id].color == [255, 0, 0]
 
     # 2. Simulate Opacity Change Slider
-    gui.roi_ui.on_roi_opacity_changed(sender=None, app_data=0.35, user_data=roi_id)
+    roi_ui.on_roi_opacity_changed(sender=None, app_data=0.35, user_data=roi_id)
     assert vs.rois[roi_id].opacity == 0.35
 
     # 3. Simulate Visibility "Eye" Icon Click (Tri-State Toggle)
@@ -130,17 +136,17 @@ def test_gui_roi_interactions(headless_gui_app, synthetic_volume_factory):
     assert vs.rois[roi_id].is_contour is False
 
     # Click 1: Raster -> Contour
-    gui.roi_ui.on_roi_toggle_visible(sender=None, app_data=None, user_data=roi_id)
+    roi_ui.on_roi_toggle_visible(sender=None, app_data=None, user_data=roi_id)
     assert vs.rois[roi_id].visible is True
     assert vs.rois[roi_id].is_contour is True
 
     # Click 2: Contour -> Hidden
-    gui.roi_ui.on_roi_toggle_visible(sender=None, app_data=None, user_data=roi_id)
+    roi_ui.on_roi_toggle_visible(sender=None, app_data=None, user_data=roi_id)
     assert vs.rois[roi_id].visible is False
     assert vs.rois[roi_id].is_contour is False
 
     # Click 3: Hidden -> Raster
-    gui.roi_ui.on_roi_toggle_visible(sender=None, app_data=None, user_data=roi_id)
+    roi_ui.on_roi_toggle_visible(sender=None, app_data=None, user_data=roi_id)
     assert vs.rois[roi_id].visible is True
     assert vs.rois[roi_id].is_contour is False
 
@@ -378,11 +384,16 @@ def test_gui_roi_filtering_and_bulk_actions(headless_gui_app, synthetic_volume_f
     # All should be visible by default
     assert all(vs.rois[r].visible for r in [roi1, roi2, roi3])
 
+    # Get ROI plugin
+    roi_plugin = next((p for p in gui.plugins if p.plugin_id == "roi_plugin"), None)
+    assert roi_plugin is not None
+    roi_ui = roi_plugin._ui
+
     # 2. Simulate User typing "ap" into the filter box (matches Apple and Apricot)
-    gui.roi_ui.on_roi_filter_changed(None, "ap", None)
+    roi_ui.on_roi_filter_changed(None, "ap", None)
 
     # 3. Simulate User clicking "Hide All"
-    gui.roi_ui.on_roi_hide_all(None, None, None)
+    roi_ui.on_roi_hide_all(None, None, None)
 
     # 4. Assert that ONLY the filtered items were acted upon!
     assert vs.rois[roi1].visible is False  # Apple hidden

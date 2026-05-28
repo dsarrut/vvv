@@ -670,11 +670,11 @@ def load_workspace_sequence(gui, controller, filepath):
                 p.from_dict(p_dict)
                 vs.profiles[p.id] = p
 
-            if hasattr(gui, "roi_ui"):
-                gui.roi_ui.roi_filters[new_id] = img_data.get("roi_filter", "")
-                gui.roi_ui.roi_sort_orders[new_id] = img_data.get(
-                    "roi_sort_order", 0
-                )
+            # Restore ROI plugin filters and sort orders
+            roi_plugin = next((p for p in gui.plugins if p.plugin_id == "roi_plugin"), None) if gui else None
+            if roi_plugin and hasattr(roi_plugin, "_controller"):
+                roi_plugin._controller.roi_filters[new_id] = img_data.get("roi_filter", "")
+                roi_plugin._controller.roi_sort_orders[new_id] = img_data.get("roi_sort_order", 0)
 
             # Apply Overlays immediately since they are already loaded in RAM
             ov_info = img_data.get("overlay")

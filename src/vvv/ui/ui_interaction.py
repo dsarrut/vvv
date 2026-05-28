@@ -359,14 +359,19 @@ class InteractionManager:
 
     def on_key_press(self, sender, app_data, user_data):
         # Prevent keyboard shortcuts from triggering while typing in text/number fields
-        if hasattr(self.gui, "roi_ui"):
-            for input_id in self.gui.roi_ui.roi_selectables.values():
+        roi_plugin = next((p for p in self.gui.plugins if p.plugin_id == "roi_plugin"), None) if self.gui else None
+        if roi_plugin and hasattr(roi_plugin, "_ui"):
+            ui = roi_plugin._ui
+            for input_id in ui.roi_selectables.values():
                 if dpg.does_item_exist(input_id) and dpg.is_item_focused(input_id):
                     return
 
-            if dpg.does_item_exist("input_roi_filter") and dpg.is_item_focused(
-                "input_roi_filter"
-            ):
+            filter_tag = ui._t("input_roi_filter")
+            if dpg.does_item_exist(filter_tag) and dpg.is_item_focused(filter_tag):
+                return
+
+            val_tag = ui._t("input_roi_val")
+            if dpg.does_item_exist(val_tag) and dpg.is_item_focused(val_tag):
                 return
 
         try:

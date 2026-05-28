@@ -5,8 +5,8 @@ from .control_roi import RoiPluginController
 
 class RoiPlugin(PluginProtocol):
     plugin_id = "roi_plugin"
-    label = "ROIs (Plugin)"
-    description = "Manage regions of interest (Plugin version)."
+    label = "ROIs"
+    description = "Manage regions of interest."
     order = 70
 
     def __init__(self):

@@ -323,9 +323,11 @@ class FileManager:
 
             roi_filter = ""
             roi_sort = 0
-            if self.controller.gui and hasattr(self.controller.gui, "roi_ui"):
-                roi_filter = self.controller.gui.roi_ui.roi_filters.get(vs_id, "")
-                roi_sort = self.controller.gui.roi_ui.roi_sort_orders.get(vs_id, 0)
+            if self.controller.gui:
+                roi_plugin = next((p for p in self.controller.gui.plugins if p.plugin_id == "roi_plugin"), None)
+                if roi_plugin and hasattr(roi_plugin, "_controller"):
+                    roi_filter = roi_plugin._controller.roi_filters.get(vs_id, "")
+                    roi_sort = roi_plugin._controller.roi_sort_orders.get(vs_id, 0)
 
             image_entry = {
                 "path": portable_path(vol.file_paths) if len(vol.file_paths) > 1 else portable_path(vol.file_paths[0]),
