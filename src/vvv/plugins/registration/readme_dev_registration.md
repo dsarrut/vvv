@@ -12,7 +12,7 @@ This plugin provides interactive rigid 3D spatial alignment (translation and rot
 
 ## 1. Transform State Ownership & Workspace Serialization
 
-Registration state lives in the **core** layout model under `ViewState.space` (an instance of the `SpatialEngine` class defined in [geometry.py](file:///Users/dsarrut/src/py/vvv/src/vvv/maths/geometry.py)):
+Registration state lives in the **core** layout model under `ViewState.space` (an instance of the `SpatialEngine` class defined in [geometry.py](../../maths/geometry.py)):
 
 - The actual transform is a `SimpleITK.Euler3DTransform`.
 - `vs.space.is_active` flags whether the transform is currently active.
