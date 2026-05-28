@@ -374,7 +374,7 @@ class MainGUI:
                     ("Images", "tab_images"),
                     ("Sync", "tab_sync"),
                     ("Fusion", "tab_fusion"),
-                    ("ROIs", "tab_rois"),
+                    # ("ROIs", "tab_rois"),
                 ]
 
                 # Add Registered Plugins to navigation
@@ -461,7 +461,8 @@ class MainGUI:
                 build_tab_images(self)
                 build_tab_sync(self)
                 self.fusion_ui.build_tab_fusion(self)
-                self.roi_ui.build_tab_rois(self)
+                pass
+                # self.roi_ui.build_tab_rois(self)
 
                 # Hidden dummy container for plugins that should not show in sidebar
                 dpg.add_group(tag="hidden_plugin_parent", show=False)
@@ -785,7 +786,8 @@ class MainGUI:
 
     def refresh_rois_ui(self):
         """Pass-through bridge to the delegated ROI UI."""
-        self.roi_ui.refresh_rois_ui()
+        pass
+        # self.roi_ui.refresh_rois_ui()
 
     def refresh_recent_menu(self):
         if not dpg.does_item_exist("menu_recent_files"):
