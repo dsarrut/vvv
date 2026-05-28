@@ -1112,14 +1112,14 @@ class MainGUI:
             self._safe_configure(tag, show=(tag == target_tab_tag))
 
         # Highlight the clicked button
-        if dpg.does_item_exist("active_nav_button_theme"):
+        if sender and dpg.does_item_exist(sender) and dpg.does_item_exist("active_nav_button_theme"):
             dpg.bind_item_theme(sender, "active_nav_button_theme")
 
         # 2. Trigger the old UI layout logic
-        is_roi = target_tab_tag == "tab_rois"
+        is_roi = target_tab_tag in ["tab_rois", "roi_plugin"]
         self._is_roi_tab_active = is_roi
 
-        hide_av = target_tab_tag in ["tab_rois", "registration_plugin"]
+        hide_av = target_tab_tag in ["tab_rois", "registration_plugin", "roi_plugin"]
         self._hide_av_panel = hide_av
 
         if dpg.does_item_exist("av_panel"):

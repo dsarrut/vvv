@@ -497,3 +497,32 @@ def test_synced_viewers_same_image_zoom_stable(headless_gui_app, monkeypatch):
     )
 
 
+def test_gui_roi_plugin_hides_active_viewer(headless_gui_app):
+    """Verifies that selecting the ROI plugin tab hides the Active Viewer panel."""
+    controller, gui, _, _ = headless_gui_app
+
+    # Ensure context exists
+    if not dpg.is_dearpygui_running():
+        dpg.create_context()
+
+    # Create UI panels so av_panel exists
+    if not dpg.does_item_exist("av_panel"):
+        with dpg.window(tag="PrimaryWindow"):
+            dpg.add_child_window(tag="av_panel")
+
+    # Initial state (on Images tab) -> Active Viewer is shown
+    gui.on_nav_clicked(None, None, "tab_images")
+    assert gui._hide_av_panel is False
+    assert dpg.is_item_shown("av_panel")
+
+    # Select ROI Plugin -> Active Viewer is hidden
+    gui.on_nav_clicked(None, None, "roi_plugin")
+    assert gui._hide_av_panel is True
+    assert dpg.is_item_shown("av_panel") is False
+
+    # Switch back to Images -> Active Viewer is shown again
+    gui.on_nav_clicked(None, None, "tab_images")
+    assert gui._hide_av_panel is False
+    assert dpg.is_item_shown("av_panel")
+
+    dpg.delete_item("PrimaryWindow")
