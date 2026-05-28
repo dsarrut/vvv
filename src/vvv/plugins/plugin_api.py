@@ -165,8 +165,8 @@ class PluginAPI:
     def get_volume_physical_center(self, volume) -> list[float]:
         return self._controller.get_volume_physical_center(volume)
 
-    def update_all_viewers_of_image(self, image_id) -> None:
-        self._controller.update_all_viewers_of_image(image_id)
+    def update_all_viewers_of_image(self, image_id, data_dirty=True) -> None:
+        self._controller.update_all_viewers_of_image(image_id, data_dirty=data_dirty)
 
     def update_sidebar_crosshair(self, viewer) -> None:
         self._gui.update_sidebar_crosshair(viewer)
@@ -186,6 +186,41 @@ class PluginAPI:
         from vvv.ui.ui_sequences import load_batch_images_sequence
         self._gui.tasks.append(
             load_batch_images_sequence(self._gui, self._controller, [file_list])
+        )
+
+    # --- ROI operations ---
+
+    def parse_rtstruct(self, filepath) -> list[dict]:
+        return self._controller.roi.parse_rtstruct(filepath)
+
+    def close_roi(self, image_id, roi_id) -> None:
+        self._controller.roi.close_roi(image_id, roi_id)
+
+    def reload_roi(self, image_id, roi_id) -> None:
+        self._controller.roi.reload_roi(image_id, roi_id)
+
+    def center_on_roi(self, image_id, roi_id) -> None:
+        self._controller.roi.center_on_roi(image_id, roi_id)
+
+    def save_image(self, image_id, file_path) -> None:
+        self._controller.save_image(image_id, file_path)
+
+    def load_rtstruct(self, image_id, filepath, selected_rois) -> None:
+        from vvv.ui.ui_sequences import load_rtstruct_sequence
+        self._gui.tasks.append(
+            load_rtstruct_sequence(self._gui, self._controller, image_id, filepath, selected_rois)
+        )
+
+    def load_label_map(self, image_id, file_paths) -> None:
+        from vvv.ui.ui_sequences import load_label_map_sequence
+        self._gui.tasks.append(
+            load_label_map_sequence(self._gui, self._controller, image_id, file_paths)
+        )
+
+    def load_batch_rois(self, image_id, file_paths, source_type, mode, val) -> None:
+        from vvv.ui.ui_sequences import load_batch_rois_sequence
+        self._gui.tasks.append(
+            load_batch_rois_sequence(self._gui, self._controller, image_id, file_paths, source_type, mode, val)
         )
 
     # --- Plugin settings (persisted in the app settings file under "plugins.<namespace>") ---

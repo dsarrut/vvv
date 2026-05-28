@@ -526,3 +526,68 @@ def test_gui_roi_plugin_hides_active_viewer(headless_gui_app):
     assert dpg.is_item_shown("av_panel")
 
     dpg.delete_item("PrimaryWindow")
+
+
+def test_gui_roi_plugin_resizes_list_window(headless_gui_app):
+    """Verifies that the ROI plugin list window is correctly resized on window resize."""
+    from unittest.mock import patch
+    controller, gui, _, _ = headless_gui_app
+
+    if not dpg.is_dearpygui_running():
+        dpg.create_context()
+
+    window_tag = "PrimaryWindow_test_resize"
+    created_window = False
+    created_items = []
+
+    if not dpg.does_item_exist(window_tag):
+        dpg.add_window(tag=window_tag)
+        created_window = True
+
+    for tag in ["top_panel", "roi_plugin_roi_list_window", "roi_plugin_roi_detail_window"]:
+        if not dpg.does_item_exist(tag):
+            dpg.add_child_window(tag=tag, parent=window_tag)
+            created_items.append(tag)
+
+    if not dpg.does_item_exist("roi_plugin_roi_detail_header_group"):
+        dpg.add_group(tag="roi_plugin_roi_detail_header_group", parent=window_tag)
+        created_items.append("roi_plugin_roi_detail_header_group")
+
+    # Mock viewport dimensions
+    with patch('dearpygui.dearpygui.get_viewport_client_width', return_value=1000), \
+         patch('dearpygui.dearpygui.get_viewport_client_height', return_value=800):
+        # Configure layout variables
+        gui.ui_cfg["layout"]["nav_panel_w"] = 100
+        gui.ui_cfg["layout"]["left_inner_m"] = 5
+        gui.ui_cfg["layout"]["right_inner_m"] = 5
+        gui.ui_cfg["layout"]["sidebar_gap"] = 5
+        gui.ui_cfg["layout"]["panel_ch_h"] = 100
+        gui.ui_cfg["layout"]["panel_av_h"] = 100
+        gui.ui_cfg["layout"]["roi_detail_h"] = 300
+
+        # Set ROI plugin active
+        gui._hide_av_panel = True
+
+        # Resize with detail panel hidden
+        dpg.configure_item("roi_plugin_roi_detail_header_group", show=False)
+        gui.on_window_resize()
+
+        h_hidden = dpg.get_item_height("roi_plugin_roi_list_window")
+
+        # Resize with detail panel shown
+        dpg.configure_item("roi_plugin_roi_detail_header_group", show=True)
+        gui.on_window_resize()
+
+        h_shown = dpg.get_item_height("roi_plugin_roi_list_window")
+
+        # The list window height when detail is hidden should be larger than when detail is shown
+        assert h_hidden > h_shown
+
+    # Clean up created items
+    for tag in reversed(created_items):
+        if dpg.does_item_exist(tag):
+            dpg.delete_item(tag)
+    if created_window and dpg.does_item_exist(window_tag):
+        dpg.delete_item(window_tag)
+
+
