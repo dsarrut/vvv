@@ -1106,17 +1106,17 @@ class MainGUI:
     def on_nav_clicked(self, sender, app_data, user_data):
         """Replaces on_tab_changed. Handles hiding/showing the content groups."""
         target_tab_tag = user_data
+        self.active_tab = target_tab_tag
 
         # 1. Update Button Highlighting & Show/Hide Content
         for name, tag in self.nav_items:
             btn_tag = f"nav_btn_{tag}"
             if dpg.does_item_exist(btn_tag):
-                dpg.bind_item_theme(btn_tag, "theme_rounded_nav")
+                if tag == target_tab_tag and dpg.does_item_exist("active_nav_button_theme"):
+                    dpg.bind_item_theme(btn_tag, "active_nav_button_theme")
+                else:
+                    dpg.bind_item_theme(btn_tag, "theme_rounded_nav")
             self._safe_configure(tag, show=(tag == target_tab_tag))
-
-        # Highlight the clicked button
-        if sender and dpg.does_item_exist(sender) and dpg.does_item_exist("active_nav_button_theme"):
-            dpg.bind_item_theme(sender, "active_nav_button_theme")
 
         # 2. Trigger the old UI layout logic
         is_roi = target_tab_tag in ["tab_rois", "roi_plugin"]
