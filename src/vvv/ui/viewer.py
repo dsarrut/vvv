@@ -594,7 +594,7 @@ class SliceViewer:
                 parent="global_texture_registry",
             )
             if is_hw_gl:
-                try_set_gl_nearest(nn_active)
+                try_set_gl_nearest(nn_active, base_w, base_h)
 
         if not dpg.does_item_exist(new_ov_texture_tag):
             dpg.add_dynamic_texture(
@@ -605,7 +605,7 @@ class SliceViewer:
                 parent="global_texture_registry",
             )
             if is_hw_gl:
-                try_set_gl_nearest(nn_active)
+                try_set_gl_nearest(nn_active, ov_w, ov_h)
 
         # Update viewer state
         self.texture_tag = new_texture_tag
@@ -1790,7 +1790,7 @@ class SliceViewer:
             return False
         dpg.set_value(tag, data)  # type: ignore
         if GL_NEAREST_SUPPORTED:
-            try_set_gl_nearest(self._effective_pixelated_zoom() and self._is_hw_gl)
+            try_set_gl_nearest(self._effective_pixelated_zoom() and self._is_hw_gl, tex_w, tex_h)
         return True
 
     @property

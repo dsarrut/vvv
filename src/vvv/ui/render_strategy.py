@@ -158,12 +158,12 @@ def should_use_lazy_lin(
     return ll_cfg is True or ll_cfg == "On"
 
 
-def try_set_gl_nearest(nearest: bool = True):
-    """Call glTexParameteri(GL_NEAREST or GL_LINEAR) on the currently-bound 2D texture.
+def try_set_gl_nearest(nearest: bool = True, width: int = None, height: int = None):
+    """Apply GL_NEAREST or GL_LINEAR to textures.
 
-    DPG leaves its new texture bound after add_dynamic_texture() and set_value(),
-    so calling this immediately after that updates the filtering parameters.
-    Silently does nothing if GL is unavailable (headless tests, bad context…).
+    If width and height are specified, scans the OpenGL context for all textures
+    matching those dimensions and sets their filter parameters.
+    Otherwise, applies the parameters to the currently bound texture.
     """
     global _gl_nearest_fn
     if _gl_nearest_fn is None:
@@ -182,18 +182,38 @@ def try_set_gl_nearest(nearest: bool = True):
             _GL_TEXTURE_2D = 0x0DE1
             _GL_TEXTURE_MIN_FILTER = 0x2801
             _GL_TEXTURE_MAG_FILTER = 0x2800
+            _GL_TEXTURE_WIDTH = 0x1000
+            _GL_TEXTURE_HEIGHT = 0x1001
+            _GL_TEXTURE_BINDING_2D = 0x8069
             _GL_NEAREST = 0x2600
             _GL_LINEAR = 0x2601
 
-            def _set(is_nearest):
+            def _set(is_nearest, w_val=None, h_val=None):
                 val = _GL_NEAREST if is_nearest else _GL_LINEAR
                 try:
-                    lib.glTexParameteri(
-                        _GL_TEXTURE_2D, _GL_TEXTURE_MIN_FILTER, val
-                    )
-                    lib.glTexParameteri(
-                        _GL_TEXTURE_2D, _GL_TEXTURE_MAG_FILTER, val
-                    )
+                    # Save current binding
+                    prev = ctypes.c_int()
+                    lib.glGetIntegerv(_GL_TEXTURE_BINDING_2D, ctypes.byref(prev))
+
+                    if w_val is not None and h_val is not None:
+                        # Scan texture IDs up to 256
+                        for tex_id in range(1, 256):
+                            if lib.glIsTexture(tex_id):
+                                lib.glBindTexture(_GL_TEXTURE_2D, tex_id)
+                                tw = ctypes.c_int()
+                                th = ctypes.c_int()
+                                lib.glGetTexLevelParameteriv(_GL_TEXTURE_2D, 0, _GL_TEXTURE_WIDTH, ctypes.byref(tw))
+                                lib.glGetTexLevelParameteriv(_GL_TEXTURE_2D, 0, _GL_TEXTURE_HEIGHT, ctypes.byref(th))
+                                if tw.value == w_val and th.value == h_val:
+                                    lib.glTexParameteri(_GL_TEXTURE_2D, _GL_TEXTURE_MIN_FILTER, val)
+                                    lib.glTexParameteri(_GL_TEXTURE_2D, _GL_TEXTURE_MAG_FILTER, val)
+                    else:
+                        # Apply to currently bound texture
+                        lib.glTexParameteri(_GL_TEXTURE_2D, _GL_TEXTURE_MIN_FILTER, val)
+                        lib.glTexParameteri(_GL_TEXTURE_2D, _GL_TEXTURE_MAG_FILTER, val)
+
+                    # Restore binding
+                    lib.glBindTexture(_GL_TEXTURE_2D, prev.value)
                 except Exception:
                     pass
 
@@ -202,7 +222,7 @@ def try_set_gl_nearest(nearest: bool = True):
             _gl_nearest_fn = False
 
     if callable(_gl_nearest_fn):
-        _gl_nearest_fn(nearest)
+        _gl_nearest_fn(nearest, width, height)
 
 
 def blend_slices_cpu(base_2d, ov_2d, opacity, shift_x, shift_y):
