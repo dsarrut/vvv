@@ -1132,142 +1132,141 @@ class MainGUI:
         try:
             window_w = dpg.get_viewport_client_width()
             window_h = dpg.get_viewport_client_height()
+            if not window_w or not window_h:
+                return
+
+            cfg = self.ui_cfg["layout"]
+            m_t, m_l, m_r = cfg["menu_m_top"], cfg["menu_m_left"], cfg["menu_m_right"]
+
+            if dpg.does_item_exist("menu_container"):
+                dpg.set_item_pos("menu_container", [m_l, m_t])
+                dpg.set_item_width("menu_container", window_w - m_l - m_r)
+
+            panels_y = m_t + cfg["menu_h"] + cfg["menu_m_bottom"]
+            nav_w = cfg["nav_panel_w"]  # MUST match the width defined in build_sidebar
+
+            l_x, l_w, l_h = (
+                cfg["left_m_left"],
+                cfg["side_panel_w"],
+                window_h - panels_y - cfg["left_m_bottom"],
+            )
+
+            if dpg.does_item_exist("side_panel_outer"):
+                dpg.set_item_pos("side_panel_outer", [l_x, panels_y])
+
+                # --- Size the Nav Column ---
+                if dpg.does_item_exist("nav_panel"):
+                    dpg.set_item_height("nav_panel", l_h)
+                    dpg.set_item_width("nav_panel", nav_w)
+
+                    if dpg.does_item_exist("nav_top_group"):
+                        dpg.set_item_pos("nav_top_group", [4, 1])  # 1px perfect nudge down
+
+                    bot_h = (
+                        2 * cfg["nav_btn_h"]
+                    ) + 8  # 2 rows of buttons (35px) + 1 gap (8px)
+                    if dpg.does_item_exist("nav_bot_group"):
+                        dpg.set_item_pos("nav_bot_group", [4, l_h - bot_h])
+
+                # --- THE COMPUTED LAYOUT ENGINE ---
+                hide_av = getattr(self, "_hide_av_panel", False)
+                ch_h = cfg["panel_ch_h"] + 15
+                av_h = cfg["panel_av_h"]
+                gap = cfg.get("sidebar_gap", 5)
+
+                # Size the Tool Column
+                col_w = l_w - nav_w - 2
+
+                if hide_av:
+                    if dpg.does_item_exist("av_panel"):
+                        dpg.configure_item("av_panel", show=False)
+                    if dpg.does_item_exist("spacer_av"):
+                        dpg.configure_item("spacer_av", show=False)
+                    top_h = l_h - ch_h - gap - 4
+                else:
+                    if dpg.does_item_exist("av_panel"):
+                        dpg.configure_item("av_panel", show=True)
+                        dpg.set_item_height("av_panel", av_h)
+                    if dpg.does_item_exist("spacer_av"):
+                        dpg.configure_item("spacer_av", show=True, height=gap)
+                    top_h = l_h - av_h - ch_h - (gap * 2) - (4 + 5)
+
+                if dpg.does_item_exist("spacer_ch"):
+                    dpg.configure_item("spacer_ch", height=gap)
+
+                top_h = max(100, int(top_h))
+
+                if dpg.does_item_exist("top_panel"):
+                    dpg.set_item_width("top_panel", col_w)
+                    dpg.set_item_height("top_panel", top_h)
+
+                if dpg.does_item_exist("av_panel"):
+                    dpg.set_item_width("av_panel", col_w)
+
+                if dpg.does_item_exist("ch_panel"):
+                    dpg.set_item_width("ch_panel", col_w)
+                    dpg.set_item_height("ch_panel", ch_h)
+
+                # Recalculate inner width for all the sliders to adapt!
+                inner_w = col_w - cfg["left_inner_m"] - cfg["right_inner_m"]
+
+                if dpg.does_item_exist("roi_list_window"):
+                    detail_shown = dpg.does_item_exist(
+                        "roi_detail_header_group"
+                    ) and dpg.is_item_shown("roi_detail_header_group")
+                    detail_h = cfg.get("roi_detail_h", 300) if detail_shown else 0
+
+                    # 250px provides padding for the top controls and the "Export" button below the list
+                    list_h = top_h - detail_h - 250
+
+                    dpg.set_item_width("roi_list_window", inner_w)
+                    dpg.set_item_height("roi_list_window", max(50, int(list_h)))
+
+                    if dpg.does_item_exist("roi_detail_window"):
+                        dpg.set_item_height("roi_detail_window", max(10, detail_h - 30))
+
+                if dpg.does_item_exist("roi_plugin_roi_list_window"):
+                    detail_shown = dpg.does_item_exist(
+                        "roi_plugin_roi_detail_header_group"
+                    ) and dpg.is_item_shown("roi_plugin_roi_detail_header_group")
+                    detail_h = cfg.get("roi_detail_h", 300) if detail_shown else 0
+
+                    # 250px provides padding for the top controls and the "Export" button below the list
+                    list_h = top_h - detail_h - 250
+
+                    dpg.set_item_width("roi_plugin_roi_list_window", inner_w)
+                    dpg.set_item_height("roi_plugin_roi_list_window", max(50, int(list_h)))
+
+                    if dpg.does_item_exist("roi_plugin_roi_detail_window"):
+                        dpg.set_item_height("roi_plugin_roi_detail_window", max(10, detail_h - 30))
+
+            r_x = l_x + l_w + cfg["gap_center"]
+            avail_w = window_w - r_x - cfg["right_m_right"]
+            avail_h = window_h - panels_y - cfg["right_m_bottom"]
+            quad_w, quad_h = avail_w // 2, avail_h // 2
+
+            if dpg.does_item_exist("viewers_container"):
+                dpg.set_item_pos("viewers_container", [r_x, panels_y])
+                dpg.set_item_width("viewers_container", avail_w)
+                dpg.set_item_height("viewers_container", avail_h)
+
+            for i, tag in enumerate(["V1", "V2", "V3", "V4"]):
+                if dpg.does_item_exist(f"win_{tag}"):
+                    # Distribute remainder pixels to the bottom/right viewers
+                    # to prevent 1px truncation gaps when the window size is odd!
+                    w = quad_w if i in [0, 2] else avail_w - quad_w
+                    h = quad_h if i in [0, 1] else avail_h - quad_h
+                    dpg.set_item_width(f"win_{tag}", w)
+                    dpg.set_item_height(f"win_{tag}", h)
+
+                    # Synchronize the viewer object's internal dimensions with the actual UI size.
+                    # This is critical for accurate coordinate mapping during zoom/pan operations.
+                    v_obj = self.controller.viewers[tag]
+                    v_obj.quad_w, v_obj.quad_h = w, h
+
+            self._update_viewer_help_texts()  # Recalculate positions for viewer help texts
         except Exception:
-            return
-
-        if not window_w or not window_h:
-            return
-
-        cfg = self.ui_cfg["layout"]
-        m_t, m_l, m_r = cfg["menu_m_top"], cfg["menu_m_left"], cfg["menu_m_right"]
-
-        if dpg.does_item_exist("menu_container"):
-            dpg.set_item_pos("menu_container", [m_l, m_t])
-            dpg.set_item_width("menu_container", window_w - m_l - m_r)
-
-        panels_y = m_t + cfg["menu_h"] + cfg["menu_m_bottom"]
-        nav_w = cfg["nav_panel_w"]  # MUST match the width defined in build_sidebar
-
-        l_x, l_w, l_h = (
-            cfg["left_m_left"],
-            cfg["side_panel_w"],
-            window_h - panels_y - cfg["left_m_bottom"],
-        )
-
-        if dpg.does_item_exist("side_panel_outer"):
-            dpg.set_item_pos("side_panel_outer", [l_x, panels_y])
-
-            # --- Size the Nav Column ---
-            if dpg.does_item_exist("nav_panel"):
-                dpg.set_item_height("nav_panel", l_h)
-                dpg.set_item_width("nav_panel", nav_w)
-
-                if dpg.does_item_exist("nav_top_group"):
-                    dpg.set_item_pos("nav_top_group", [4, 1])  # 1px perfect nudge down
-
-                bot_h = (
-                    2 * cfg["nav_btn_h"]
-                ) + 8  # 2 rows of buttons (35px) + 1 gap (8px)
-                if dpg.does_item_exist("nav_bot_group"):
-                    dpg.set_item_pos("nav_bot_group", [4, l_h - bot_h])
-
-            # --- THE COMPUTED LAYOUT ENGINE ---
-            hide_av = getattr(self, "_hide_av_panel", False)
-            ch_h = cfg["panel_ch_h"] + 15
-            av_h = cfg["panel_av_h"]
-            gap = cfg.get("sidebar_gap", 5)
-
-            # Size the Tool Column
-            col_w = l_w - nav_w - 2
-
-            if hide_av:
-                if dpg.does_item_exist("av_panel"):
-                    dpg.configure_item("av_panel", show=False)
-                if dpg.does_item_exist("spacer_av"):
-                    dpg.configure_item("spacer_av", show=False)
-                top_h = l_h - ch_h - gap - 4
-            else:
-                if dpg.does_item_exist("av_panel"):
-                    dpg.configure_item("av_panel", show=True)
-                    dpg.set_item_height("av_panel", av_h)
-                if dpg.does_item_exist("spacer_av"):
-                    dpg.configure_item("spacer_av", show=True, height=gap)
-                top_h = l_h - av_h - ch_h - (gap * 2) - (4 + 5)
-
-            if dpg.does_item_exist("spacer_ch"):
-                dpg.configure_item("spacer_ch", height=gap)
-
-            top_h = max(100, int(top_h))
-
-            if dpg.does_item_exist("top_panel"):
-                dpg.set_item_width("top_panel", col_w)
-                dpg.set_item_height("top_panel", top_h)
-
-            if dpg.does_item_exist("av_panel"):
-                dpg.set_item_width("av_panel", col_w)
-
-            if dpg.does_item_exist("ch_panel"):
-                dpg.set_item_width("ch_panel", col_w)
-                dpg.set_item_height("ch_panel", ch_h)
-
-            # Recalculate inner width for all the sliders to adapt!
-            inner_w = col_w - cfg["left_inner_m"] - cfg["right_inner_m"]
-
-            if dpg.does_item_exist("roi_list_window"):
-                detail_shown = dpg.does_item_exist(
-                    "roi_detail_header_group"
-                ) and dpg.is_item_shown("roi_detail_header_group")
-                detail_h = cfg.get("roi_detail_h", 300) if detail_shown else 0
-
-                # 250px provides padding for the top controls and the "Export" button below the list
-                list_h = top_h - detail_h - 250
-
-                dpg.set_item_width("roi_list_window", inner_w)
-                dpg.set_item_height("roi_list_window", max(50, int(list_h)))
-
-                if dpg.does_item_exist("roi_detail_window"):
-                    dpg.set_item_height("roi_detail_window", max(10, detail_h - 30))
-
-            if dpg.does_item_exist("roi_plugin_roi_list_window"):
-                detail_shown = dpg.does_item_exist(
-                    "roi_plugin_roi_detail_header_group"
-                ) and dpg.is_item_shown("roi_plugin_roi_detail_header_group")
-                detail_h = cfg.get("roi_detail_h", 300) if detail_shown else 0
-
-                # 250px provides padding for the top controls and the "Export" button below the list
-                list_h = top_h - detail_h - 250
-
-                dpg.set_item_width("roi_plugin_roi_list_window", inner_w)
-                dpg.set_item_height("roi_plugin_roi_list_window", max(50, int(list_h)))
-
-                if dpg.does_item_exist("roi_plugin_roi_detail_window"):
-                    dpg.set_item_height("roi_plugin_roi_detail_window", max(10, detail_h - 30))
-
-        r_x = l_x + l_w + cfg["gap_center"]
-        avail_w = window_w - r_x - cfg["right_m_right"]
-        avail_h = window_h - panels_y - cfg["right_m_bottom"]
-        quad_w, quad_h = avail_w // 2, avail_h // 2
-
-        if dpg.does_item_exist("viewers_container"):
-            dpg.set_item_pos("viewers_container", [r_x, panels_y])
-            dpg.set_item_width("viewers_container", avail_w)
-            dpg.set_item_height("viewers_container", avail_h)
-
-        for i, tag in enumerate(["V1", "V2", "V3", "V4"]):
-            if dpg.does_item_exist(f"win_{tag}"):
-                # Distribute remainder pixels to the bottom/right viewers
-                # to prevent 1px truncation gaps when the window size is odd!
-                w = quad_w if i in [0, 2] else avail_w - quad_w
-                h = quad_h if i in [0, 1] else avail_h - quad_h
-                dpg.set_item_width(f"win_{tag}", w)
-                dpg.set_item_height(f"win_{tag}", h)
-
-                # Synchronize the viewer object's internal dimensions with the actual UI size.
-                # This is critical for accurate coordinate mapping during zoom/pan operations.
-                v_obj = self.controller.viewers[tag]
-                v_obj.quad_w, v_obj.quad_h = w, h
-
-        self._update_viewer_help_texts()  # Recalculate positions for viewer help texts
+            pass
 
     def _update_viewer_help_texts(self):
         """Manages visibility and positioning of help text in non-active viewers."""

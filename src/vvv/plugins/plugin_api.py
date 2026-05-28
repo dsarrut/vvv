@@ -202,6 +202,9 @@ class PluginAPI:
     def center_on_roi(self, image_id, roi_id) -> None:
         self._controller.roi.center_on_roi(image_id, roi_id)
 
+    def get_roi_stats(self, base_vs_id, roi_id, is_overlay) -> dict | None:
+        return self._controller.roi.get_roi_stats(base_vs_id=base_vs_id, roi_id=roi_id, is_overlay=is_overlay)
+
     def save_image(self, image_id, file_path) -> None:
         self._controller.save_image(image_id, file_path)
 

@@ -54,6 +54,7 @@ class TestRoiPlugin(unittest.TestCase):
         self.mock_api.get_active_viewer.return_value = None
         self.mock_api.get_image_display_name.return_value = ("Test Image", False)
         self.mock_api.get_volumes.return_value = {}
+        self.mock_api.get_roi_stats.return_value = None
 
     def test_metadata(self):
         self.assertEqual(self.plugin.plugin_id, "roi_plugin")
@@ -367,6 +368,104 @@ class TestRoiPlugin(unittest.TestCase):
         self.assertTrue(dpg.does_item_exist(modal_tag))
 
         dpg.delete_item(modal_tag)
+        dpg.delete_item("test_parent")
+
+    def test_roi_properties_and_stats(self):
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+
+        ui = self.plugin._ui
+        ctrl = self.plugin._controller
+
+        rois = {
+            "roi_1": MockROI("roi_1", "Tumor", [255, 0, 0]),
+        }
+        mock_viewer = MockViewer("img_1", rois)
+        self.mock_api.get_active_viewer.return_value = mock_viewer
+
+        # Mock a volume object
+        mock_vol = MagicMock()
+        mock_vol.shape3d = (10, 20, 30)
+        mock_vol.spacing = (1.0, 1.2, 1.5)
+        self.mock_api.get_volumes.return_value = {"roi_1": mock_vol}
+
+        # Mock stats calculation
+        self.mock_api.get_roi_stats.return_value = {
+            "vol": 5.4,
+            "mean": 12.3,
+            "max": 100.0,
+            "min": 10.0,
+            "std": 1.5,
+            "peak": 95.0,
+            "mass": 6.2,
+        }
+
+        # 1. Test selected properties loading
+        ctrl.on_roi_selected("roi_1")
+        # Rule, size, spacing labels should be displayed, and stats retrieved and populated
+        self.mock_api.get_roi_stats.assert_called_with(
+            base_vs_id="img_1", roi_id="roi_1", is_overlay=False
+        )
+        self.assertEqual(dpg.get_value(ui._t("roi_stat_vol")), "5.40 cc")
+        self.assertEqual(dpg.get_value(ui._t("roi_stat_mean")), "12.30")
+
+        # 2. Test analyze dropdown change
+        dpg.set_value(ui._t("combo_roi_image"), "Active Overlay")
+        ui.on_roi_stat_dropdown_changed(None, "Active Overlay", None)
+        self.mock_api.get_roi_stats.assert_called_with(
+            base_vs_id="img_1", roi_id="roi_1", is_overlay=True
+        )
+
+        # 3. Test opacity changed
+        ui.on_roi_opacity_changed(None, 0.45, "roi_1")
+        self.assertEqual(rois["roi_1"].opacity, 0.45)
+        self.mock_api.update_all_viewers_of_image.assert_called_with("img_1")
+
+        # 4. Test thickness changed
+        ui.on_roi_thickness_changed(None, 2.5, "roi_1")
+        self.assertEqual(rois["roi_1"].thickness, 2.5)
+        self.mock_api.update_all_viewers_of_image.assert_called_with("img_1", data_dirty=False)
+
+        # 5. Test clear stats
+        ui.clear_roi_stats()
+        self.assertEqual(dpg.get_value(ui._t("roi_stat_vol")), "---")
+
+        dpg.delete_item("test_parent")
+
+    def test_update_does_not_refresh_unnecessarily(self):
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+
+        ui = self.plugin._ui
+        ctrl = self.plugin._controller
+
+        rois = {
+            "roi_1": MockROI("roi_1", "Tumor", [255, 0, 0]),
+        }
+        mock_viewer = MockViewer("img_1", rois)
+        self.mock_api.get_active_viewer.return_value = mock_viewer
+
+        # Initial state setup
+        ctrl._last_image_id = "img_1"
+        ctrl._last_roi_ids = {"roi_1"}
+
+        # Mock refresh_rois_ui call
+        with patch.object(ui, 'refresh_rois_ui') as mock_refresh:
+            self.mock_api._controller.ui_needs_refresh = False
+            ctrl.update(self.mock_api)
+            # Should NOT refresh because active image and ROI set are unchanged and ui_needs_refresh is False
+            mock_refresh.assert_not_called()
+
+            # Now set ui_needs_refresh to True
+            self.mock_api._controller.ui_needs_refresh = True
+            ctrl.update(self.mock_api)
+            # Should refresh now!
+            mock_refresh.assert_called_once()
+
         dpg.delete_item("test_parent")
 
 

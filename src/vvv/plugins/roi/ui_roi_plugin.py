@@ -430,46 +430,74 @@ class RoiPluginUI(PluginTagMixin):
         dpg.delete_item(container, children_only=True)
         
         roi_state = viewer.view_state.rois[self._c.active_roi_id]
+        roi_vol = self.api.get_volumes().get(self._c.active_roi_id)
         dim_col = self.api.ui_cfg["colors"]["text_dim"]
 
         with dpg.group(parent=container):
-            # 1. Loading Rule
-            with dpg.group(horizontal=True):
-                dpg.add_text("Rule:", color=dim_col)
-                dpg.add_text(f"{getattr(roi_state, 'source_mode', 'Binary')} ({getattr(roi_state, 'source_val', 1.0):g}) [Mock]")
+            if roi_vol:
+                # 1. Loading Rule
+                mode_str = getattr(roi_state, 'source_mode', 'Binary')
+                val_str = f"{getattr(roi_state, 'source_val', 1.0):g}"
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Rule:", color=dim_col)
+                    dpg.add_text(f"{mode_str} ({val_str})")
 
-            # 2. Dimensions
-            with dpg.group(horizontal=True):
-                dpg.add_text("Size:", color=dim_col)
-                dpg.add_text("256 x 256 x 128 [Mock]")
+                # 2. Dimensions
+                z, y, x = roi_vol.shape3d
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Size:", color=dim_col)
+                    dpg.add_text(f"{x} x {y} x {z}")
 
-            # 3. Spacing
-            with dpg.group(horizontal=True):
-                dpg.add_text("Spacing:", color=dim_col)
-                dpg.add_text("1.000 x 1.000 x 1.500 [Mock]")
+                # 3. Spacing
+                sx, sy, sz = roi_vol.spacing
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Spacing:", color=dim_col)
+                    dpg.add_text(f"{sx:.3f} x {sy:.3f} x {sz:.3f}")
 
-            dpg.add_spacer(height=5)
+                dpg.add_spacer(height=5)
 
             # 4. Opacity/Thickness
             with dpg.group(horizontal=True):
                 if getattr(roi_state, "is_contour", False):
                     dpg.add_text("Thickness:")
+                    active_slider_tag = self._t("slider_roi_thickness")
                     dpg.add_slider_float(
                         default_value=getattr(roi_state, "thickness", 1.0),
                         min_value=0.5,
                         max_value=10.0,
                         width=-1,
-                        callback=self.on_mock_action,
+                        tag=active_slider_tag,
+                        user_data=self._c.active_roi_id,
+                        callback=self.on_roi_thickness_changed,
                     )
                 else:
                     dpg.add_text("Opacity:")
+                    active_slider_tag = self._t("slider_roi_opacity")
                     dpg.add_slider_float(
                         default_value=getattr(roi_state, "opacity", 0.5),
                         min_value=0.0,
                         max_value=1.0,
                         width=-1,
-                        callback=self.on_mock_action,
+                        tag=active_slider_tag,
+                        user_data=self._c.active_roi_id,
+                        callback=self.on_roi_opacity_changed,
                     )
+
+            # Custom grab theme color matching active ROI color
+            theme_tag = self._t("dynamic_roi_slider_theme")
+            if dpg.does_item_exist(theme_tag):
+                dpg.delete_item(theme_tag)
+            with dpg.theme(tag=theme_tag):
+                with dpg.theme_component(dpg.mvSliderFloat):
+                    r, g, b = getattr(roi_state, "color", [255, 0, 0])
+                    dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, [r, g, b, 255])
+                    dpg.add_theme_color(
+                        dpg.mvThemeCol_SliderGrabActive,
+                        [min(255, r + 40), min(255, g + 40), min(255, b + 40), 255],
+                    )
+                    dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, [r, g, b, 100])
+                    dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, [r, g, b, 50])
+            dpg.bind_item_theme(active_slider_tag, theme_tag)
 
             dpg.add_spacer(height=5)
 
@@ -479,8 +507,9 @@ class RoiPluginUI(PluginTagMixin):
                 dpg.add_combo(
                     ["Base Image", "Active Overlay"],
                     default_value="Base Image",
+                    tag=self._t("combo_roi_image"),
                     width=-1,
-                    callback=self.on_mock_action,
+                    callback=self.on_roi_stat_dropdown_changed,
                 )
 
             # 6. Stats Summary
@@ -490,28 +519,29 @@ class RoiPluginUI(PluginTagMixin):
                 with dpg.table_row():
                     with dpg.group(horizontal=True):
                         dpg.add_text("Vol:", color=dim_col)
-                        dpg.add_text("--- [Mock]")
+                        dpg.add_text("---", tag=self._t("roi_stat_vol"))
                     with dpg.group(horizontal=True):
                         dpg.add_text("Mean:", color=dim_col)
-                        dpg.add_text("--- [Mock]")
+                        dpg.add_text("---", tag=self._t("roi_stat_mean"))
                 with dpg.table_row():
                     with dpg.group(horizontal=True):
                         dpg.add_text("Max:", color=dim_col)
-                        dpg.add_text("--- [Mock]")
+                        dpg.add_text("---", tag=self._t("roi_stat_max"))
                     with dpg.group(horizontal=True):
                         dpg.add_text("Min:", color=dim_col)
-                        dpg.add_text("--- [Mock]")
+                        dpg.add_text("---", tag=self._t("roi_stat_min"))
                 with dpg.table_row():
                     with dpg.group(horizontal=True):
                         dpg.add_text("Std:", color=dim_col)
-                        dpg.add_text("--- [Mock]")
+                        dpg.add_text("---", tag=self._t("roi_stat_std"))
                     with dpg.group(horizontal=True):
                         dpg.add_text("Peak:", color=dim_col)
-                        dpg.add_text("--- [Mock]")
+                        dpg.add_text("---", tag=self._t("roi_stat_peak"))
                     with dpg.group(horizontal=True):
                         dpg.add_text("Mass:", color=dim_col)
-                        dpg.add_text("--- [Mock]")
+                        dpg.add_text("---", tag=self._t("roi_stat_mass"))
                         
+        self.update_roi_stats_ui()
         self.api._gui.on_window_resize()
 
     def show_rtstruct_selection_modal(self, filepath, rois_info):
@@ -883,3 +913,73 @@ class RoiPluginUI(PluginTagMixin):
     def on_mock_action(self, sender, app_data, user_data):
         if self.api:
             self.api.notify(f"ROI Plugin [Mock]: Slider or combo callback (sender: {sender})")
+
+    def on_roi_opacity_changed(self, sender, app_data, user_data):
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.view_state:
+            return
+        vs = viewer.view_state
+        vs.rois[user_data].opacity = app_data
+        vs.is_data_dirty = True
+        self.api.update_all_viewers_of_image(viewer.image_id)
+
+    def on_roi_thickness_changed(self, sender, app_data, user_data):
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.view_state:
+            return
+        vs = viewer.view_state
+        vs.rois[user_data].thickness = app_data
+        vs.is_geometry_dirty = True
+        self.api.update_all_viewers_of_image(viewer.image_id, data_dirty=False)
+
+    def on_roi_stat_dropdown_changed(self, sender, app_data, user_data):
+        self.update_roi_stats_ui()
+
+    def clear_roi_stats(self):
+        tags = [
+            "roi_stat_vol",
+            "roi_stat_mean",
+            "roi_stat_max",
+            "roi_stat_min",
+            "roi_stat_std",
+            "roi_stat_peak",
+            "roi_stat_mass",
+        ]
+        for tag in tags:
+            full_tag = self._t(tag)
+            if dpg.does_item_exist(full_tag):
+                dpg.set_value(full_tag, "---")
+
+    def update_roi_stats_ui(self):
+        viewer = self.api.get_active_viewer()
+        if (
+            not viewer
+            or not viewer.view_state
+            or not self._c.active_roi_id
+            or self._c.active_roi_id not in viewer.view_state.rois
+        ):
+            self.clear_roi_stats()
+            return
+
+        combo_tag = self._t("combo_roi_image")
+        is_overlay = (
+            dpg.get_value(combo_tag) == "Active Overlay"
+            if dpg.does_item_exist(combo_tag)
+            else False
+        )
+        
+        stats = self.api.get_roi_stats(
+            base_vs_id=viewer.image_id, roi_id=self._c.active_roi_id, is_overlay=is_overlay
+        )
+
+        if not stats:
+            self.clear_roi_stats()
+            return
+
+        dpg.set_value(self._t("roi_stat_vol"), f"{stats['vol']:.2f} cc")
+        dpg.set_value(self._t("roi_stat_mean"), f"{stats['mean']:.2f}")
+        dpg.set_value(self._t("roi_stat_max"), f"{stats['max']:.2f}")
+        dpg.set_value(self._t("roi_stat_min"), f"{stats['min']:.2f}")
+        dpg.set_value(self._t("roi_stat_std"), f"{stats['std']:.2f}")
+        dpg.set_value(self._t("roi_stat_peak"), f"{stats['peak']:.2f}")
+        dpg.set_value(self._t("roi_stat_mass"), f"{stats['mass']:.2f} g")

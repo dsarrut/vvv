@@ -13,6 +13,9 @@ class RoiPluginController(PluginTagMixin):
         self.roi_filters = {}
         self.roi_sort_orders = {}
 
+        self._last_image_id = None
+        self._last_roi_ids = set()
+
     def bind(self, api: PluginAPI) -> None:
         self.api = api
 
@@ -20,8 +23,15 @@ class RoiPluginController(PluginTagMixin):
         self.ui = ui
 
     def update(self, api: PluginAPI) -> None:
-        # Reactive Update: Rebuild lists when model changes/is dirty
-        if api.is_dirty and self.ui:
+        if not self.ui:
+            return
+        viewer = api.get_active_viewer()
+        image_id = viewer.image_id if (viewer and viewer.image_id) else None
+        roi_ids = set(viewer.view_state.rois.keys()) if (viewer and viewer.view_state and viewer.view_state.rois) else set()
+
+        if api._controller.ui_needs_refresh or image_id != self._last_image_id or roi_ids != self._last_roi_ids:
+            self._last_image_id = image_id
+            self._last_roi_ids = roi_ids
             self.ui.refresh_rois_ui()
 
     def on_image_loaded(self, image_id: str) -> None:
