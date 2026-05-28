@@ -19,6 +19,7 @@ class NavigationTool:
         self.profile_drag_start_p2 = None
         self.profile_drag_start_mouse_phys = None
         self.is_pan_drag = False
+        self.last_pan_time = 0.0
 
     def on_click(self, button):
         # Allow Left, Middle, and Right clicks to lock the viewer for dragging
@@ -128,6 +129,11 @@ class NavigationTool:
             self.drag_viewer.drag_start_pan = None
             self.drag_viewer.last_dx, self.drag_viewer.last_dy = 0, 0
 
+            if self.is_pan_drag:
+                import time
+                self.last_pan_time = time.time()
+                self.is_pan_drag = False
+
             if self.drag_viewer.profile_mode == ProfileInteractionMode.MANIPULATING:
                 self.drag_viewer.profile_mode = ProfileInteractionMode.IDLE
                 self.profile_drag_start_p1 = None
@@ -148,6 +154,9 @@ class NavigationTool:
 
     def on_scroll(self, delta):
         if self.drag_viewer is not None:
+            return
+        import time
+        if time.time() - getattr(self, "last_pan_time", 0.0) < 0.25:
             return
         target = self.manager.get_hovered_viewer()
         if target:

@@ -74,6 +74,7 @@ class CameraState:
         self.target_ppm = None
         self.target_center = None
         self.target_tracker_phys = None
+        self.camera_sync_source_tag = None
 
     def __setattr__(self, name, value):
         if name in self._GEOM_FIELDS and getattr(self, name, _SENTINEL) != value:
@@ -85,11 +86,23 @@ class CameraState:
         object.__setattr__(self, name, value)
 
     def to_dict(self):
+        zoom_dict = {}
+        for k, v in self.zoom.items():
+            if isinstance(k, tuple):
+                zoom_dict[f"{k[0]}:{k[1].name}"] = float(v)
+            else:
+                zoom_dict[k.name] = float(v)
+
+        pan_dict = {}
+        for k, v in self.pan.items():
+            if isinstance(k, tuple):
+                pan_dict[f"{k[0]}:{k[1].name}"] = [float(p) for p in v]
+            else:
+                pan_dict[k.name] = [float(p) for p in v]
+
         return {
-            # pyrefly: ignore [unnecessary-type-conversion]
-            "zoom": {k.name: float(v) for k, v in self.zoom.items()},
-            # pyrefly: ignore [unnecessary-type-conversion]
-            "pan": {k.name: [float(p) for p in v] for k, v in self.pan.items()},
+            "zoom": zoom_dict,
+            "pan": pan_dict,
             "slices": {k.name: int(v) for k, v in self.slices.items()},
             # pyrefly: ignore [unnecessary-type-conversion]
             "time_idx": int(self.time_idx),
@@ -121,9 +134,16 @@ class CameraState:
         def parse_dict(source_dict):
             res = {}
             for k, v in source_dict.items():
-                clean_k = k.split(".")[-1] if "." in k else k
-                if clean_k in ViewMode.__members__:
-                    res[ViewMode[clean_k]] = v
+                if ":" in k:
+                    parts = k.split(":")
+                    viewer_tag = parts[0]
+                    clean_k = parts[1].split(".")[-1] if "." in parts[1] else parts[1]
+                    if clean_k in ViewMode.__members__:
+                        res[(viewer_tag, ViewMode[clean_k])] = v
+                else:
+                    clean_k = k.split(".")[-1] if "." in k else k
+                    if clean_k in ViewMode.__members__:
+                        res[ViewMode[clean_k]] = v
             return res
 
         if "zoom" in d:

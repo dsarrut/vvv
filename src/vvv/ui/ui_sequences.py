@@ -727,6 +727,11 @@ def load_workspace_sequence(gui, controller, filepath):
             viewer.set_image(new_id)
             viewer.orientation = ViewMode[v_data["orientation"]]
             viewer.needs_recenter = False
+
+            if "zoom" in v_data:
+                viewer.zoom = v_data["zoom"]
+            if "pan_offset" in v_data:
+                viewer.pan_offset = v_data["pan_offset"]
     yield
 
     show_loading_modal("Loading image...", "Restoring ROIs...")

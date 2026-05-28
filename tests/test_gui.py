@@ -403,3 +403,97 @@ def test_gui_dicom_not_in_sidebar(headless_gui_app):
     nav_tags = [tag for _, tag in gui.nav_items]
     assert "dicom_plugin" not in nav_tags
 
+
+def test_synced_viewers_same_image_zoom_stable(headless_gui_app, monkeypatch):
+    """
+    Regression test: verify that having two synced viewers displaying the same image
+    does not trigger a zoom feedback loop during dragging/panning.
+    """
+    controller, gui, viewer1, vs_id = headless_gui_app
+
+    # 1. Setup layout: both V1 and V4 show the same image
+    controller.layout["V1"] = vs_id
+    controller.layout["V4"] = vs_id
+
+    controller.tick()
+
+    viewer1 = controller.viewers["V1"]
+    viewer2 = controller.viewers["V4"]
+
+    # 2. Both viewers display AXIAL orientation
+    viewer1.orientation = ViewMode.AXIAL
+    viewer2.orientation = ViewMode.AXIAL
+
+    # 3. Put both viewers in the same sync group (their viewstate shares this)
+    vs = viewer1.view_state
+    assert vs == viewer2.view_state
+    vs.sync_group = 1
+
+    # 4. Give them different canvas sizes (forces different base_scale)
+    viewer1.quad_w, viewer1.quad_h = 400, 400
+    viewer2.quad_w, viewer2.quad_h = 500, 500
+
+    # Manually update their mappers to establish valid pmin/pmax bounds and base_scale
+    for v in [viewer1, viewer2]:
+        canvas_w, canvas_h = v._get_canvas_size()
+        sw, sh = v.volume.get_physical_aspect_ratio(v.orientation)
+        shape = v.get_slice_shape()
+        v.mapper.update(canvas_w, canvas_h, shape[1], shape[0], sw, sh, v.zoom, v.pan_offset)
+        v.last_consumed_ppm = v.get_pixels_per_mm()
+        cent = v.get_center_physical_coord()
+        if cent is not None:
+            v.last_consumed_center = list(cent)
+
+    # Mock mouse pos and click state for drag simulation
+    mouse_pos = [100.0, 100.0]
+    monkeypatch.setattr(dpg, "get_mouse_pos", lambda local=False: mouse_pos)
+    monkeypatch.setattr(
+        dpg, "is_mouse_button_down", lambda button: button == dpg.mvMouseButton_Left
+    )
+    gui.interaction.modifiers["ctrl"] = True
+
+    # Start panning drag on viewer1
+    viewer1.on_mouse_down()
+
+    # Change mouse pos to simulate a drag of 50, 50 px
+    mouse_pos[0] += 50.0
+    mouse_pos[1] += 50.0
+
+    initial_zoom = viewer1.zoom
+
+    # Trigger drag
+    viewer1.on_drag(None)
+
+    # Run the camera sync application on both viewers directly.
+    # viewer1 is the source, and viewer2 is the target.
+    # With decoupled zoom/pan keys, viewer2 should be able to update its local zoom/pan
+    # to stay physically synced with viewer1 without modifying viewer1's zoom/pan.
+    viewer1._apply_camera_sync(vs)
+    viewer2._apply_camera_sync(vs)
+
+    # 1. Assert that the drag source's zoom did not change (no feedback loop)
+    assert abs(viewer1.zoom - initial_zoom) < 1e-9, (
+        f"zoom feedback loop occurred: zoom shifted from {initial_zoom} to {viewer1.zoom}"
+    )
+
+    # 2. Assert that the synced target's zoom successfully updated to stay physically synced
+    # Calculate base scale dynamically to avoid padding/margin constant differences
+    def calc_base_scale(v):
+        canvas_w, canvas_h = v._get_canvas_size()
+        sw, sh = v.volume.get_physical_aspect_ratio(v.orientation)
+        shape = v.get_slice_shape()
+        real_w, real_h = shape[1], shape[0]
+        mm_w, mm_h = real_w * sw, real_h * sh
+        target_w = canvas_w - v.mapper.margin_left * 2.0
+        target_h = canvas_h - v.mapper.margin_top * 2.0
+        return min(target_w / mm_w, target_h / mm_h)
+
+    base_scale_1 = calc_base_scale(viewer1)
+    base_scale_2 = calc_base_scale(viewer2)
+    expected_viewer2_zoom = initial_zoom * (base_scale_1 / base_scale_2)
+
+    assert abs(viewer2.zoom - expected_viewer2_zoom) < 1e-5, (
+        f"viewer2 failed to sync physical scale: got {viewer2.zoom:.4f}, expected {expected_viewer2_zoom:.4f}"
+    )
+
+

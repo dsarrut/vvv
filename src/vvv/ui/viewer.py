@@ -305,27 +305,37 @@ class SliceViewer:
     @property
     def pan_offset(self):
         vs = self.view_state
-        if not vs or self.orientation not in vs.camera.pan:
+        if not vs:
             return [0.0, 0.0]
-        return vs.camera.pan[self.orientation]
+        key = (self.tag, self.orientation)
+        if key not in vs.camera.pan:
+            fallback_val = list(vs.camera.pan.get(self.orientation, [0.0, 0.0]))
+            vs.camera.pan[key] = fallback_val
+        return vs.camera.pan[key]
 
     @pan_offset.setter
     def pan_offset(self, value):
         vs = self.view_state
         if vs:
+            vs.camera.pan[(self.tag, self.orientation)] = value
             vs.camera.pan[self.orientation] = value
 
     @property
     def zoom(self):
         vs = self.view_state
-        if not vs or self.orientation not in vs.camera.zoom:
+        if not vs:
             return 1.0
-        return vs.camera.zoom[self.orientation]
+        key = (self.tag, self.orientation)
+        if key not in vs.camera.zoom:
+            fallback_val = vs.camera.zoom.get(self.orientation, 1.0)
+            vs.camera.zoom[key] = fallback_val
+        return vs.camera.zoom[key]
 
     @zoom.setter
     def zoom(self, value):
         vs = self.view_state
         if vs:
+            vs.camera.zoom[(self.tag, self.orientation)] = value
             vs.camera.zoom[self.orientation] = value
 
     # Mapping for: (Voxel Index, Shape3D Index, Axis Labels, Axis Flip)
@@ -2560,6 +2570,7 @@ class SliceViewer:
             self._mark_lazy_interaction()  # no-op if no viewer has lazy_lin; covers synced viewers that do
             self.controller.sync.propagate_camera(self)
             # Prevent self-snapping
+            self.last_consumed_ppm = self.get_pixels_per_mm()
             cent = self.get_center_physical_coord()
             if cent is not None:
                 self.last_consumed_center = list(cent)

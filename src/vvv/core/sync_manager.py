@@ -205,6 +205,7 @@ class SyncManager:
                 continue
             vs.camera.target_ppm = target_ppm
             vs.camera.target_center = phys_center
+            vs.camera.camera_sync_source_tag = source_viewer.tag
 
     def propagate_camera_to_viewer(self, source_vs_id, target_viewer):
         source_vs = self.controller.view_states.get(source_vs_id)
@@ -216,6 +217,9 @@ class SyncManager:
             target_viewer.view_state.camera.target_ppm = source_vs.camera.target_ppm
             target_viewer.view_state.camera.target_center = (
                 source_vs.camera.target_center
+            )
+            target_viewer.view_state.camera.camera_sync_source_tag = getattr(
+                source_vs.camera, "camera_sync_source_tag", None
             )
         else:
             # If the master hasn't moved yet, extract its starting point
@@ -234,6 +238,7 @@ class SyncManager:
                 target_viewer.view_state.camera.target_center = (
                     source_viewer.get_center_physical_coord()
                 )
+                target_viewer.view_state.camera.camera_sync_source_tag = source_viewer.tag
 
     def propagate_tracker(self, source_viewer, phys=None):
         if not source_viewer.view_state:
