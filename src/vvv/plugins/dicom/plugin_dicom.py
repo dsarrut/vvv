@@ -8,6 +8,7 @@ class DicomPlugin(PluginProtocol):
     label = "DICOM Browser"
     description = "Browse and load DICOM image series."
     order = 40
+    show_in_sidebar = False
 
     def __init__(self):
         self._controller = DicomPluginController(self.plugin_id)

@@ -69,6 +69,7 @@ class MainGUI:
         self.is_beginner_mode = False
         self.beginner_tags = []
         self.beginner_sliders: list = []
+        self.active_tab = "tab_images"
 
         # internal states
         self._is_roi_tab_active = None
@@ -378,7 +379,8 @@ class MainGUI:
 
                 # Add Registered Plugins to navigation
                 for plugin in self.plugins:
-                    self.nav_items.append((plugin.label, plugin.plugin_id))
+                    if getattr(plugin, "show_in_sidebar", True):
+                        self.nav_items.append((plugin.label, plugin.plugin_id))
 
                 tooltip_texts = {
                     "tab_images": "Manage loaded images.",
@@ -387,7 +389,18 @@ class MainGUI:
                     "tab_rois": "Manage regions of interest.",
                 }
                 for plugin in self.plugins:
-                    tooltip_texts[plugin.plugin_id] = plugin.description
+                    if getattr(plugin, "show_in_sidebar", True):
+                        tooltip_texts[plugin.plugin_id] = plugin.description
+
+                # Verify that active_tab still exists in the nav items
+                active_exists = any(tag == getattr(self, "active_tab", None) for _, tag in self.nav_items)
+                if not active_exists:
+                    old_tab = getattr(self, "active_tab", None)
+                    self.active_tab = "tab_images"
+                    if old_tab and dpg.does_item_exist(old_tab):
+                        dpg.configure_item(old_tab, show=False)
+                    if dpg.does_item_exist("tab_images"):
+                        dpg.configure_item("tab_images", show=True)
 
                 for i, (name, tag) in enumerate(self.nav_items):
                     btn = dpg.add_button(
@@ -399,7 +412,8 @@ class MainGUI:
                         callback=self.on_nav_clicked,
                     )
                     dpg.bind_item_theme(btn, "theme_rounded_nav")
-                    if i == 0 and dpg.does_item_exist("active_nav_button_theme"):
+                    is_active = (tag == self.active_tab)
+                    if is_active and dpg.does_item_exist("active_nav_button_theme"):
                         dpg.bind_item_theme(btn, "active_nav_button_theme")
                     if tag in tooltip_texts:
                         build_beginner_tooltip(btn, tooltip_texts[tag], self)
@@ -449,9 +463,14 @@ class MainGUI:
                 self.fusion_ui.build_tab_fusion(self)
                 self.roi_ui.build_tab_rois(self)
 
+                # Hidden dummy container for plugins that should not show in sidebar
+                dpg.add_group(tag="hidden_plugin_parent", show=False)
+
                 # Render Plugins
                 for plugin in self.plugins:
-                    plugin.create_ui(parent=0, api=self.plugin_api)
+                    show_sidebar = getattr(plugin, "show_in_sidebar", True)
+                    parent_tag = 0 if show_sidebar else "hidden_plugin_parent"
+                    plugin.create_ui(parent=parent_tag, api=self.plugin_api)
                     plugin.load_settings(self.plugin_api)
 
     def build_sidebar_active_viewer(self):
@@ -1742,6 +1761,7 @@ class MainGUI:
             self.on_window_resize()
             self.controller.ui_needs_layout_rebuild = False
 
+        self.build_vertical_nav()
         refresh_image_list_ui(self)
         refresh_sync_ui(self)
         self.refresh_rois_ui()

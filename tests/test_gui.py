@@ -388,3 +388,18 @@ def test_gui_roi_filtering_and_bulk_actions(headless_gui_app, synthetic_volume_f
     assert vs.rois[roi1].visible is False  # Apple hidden
     assert vs.rois[roi3].visible is False  # Apricot hidden
     assert vs.rois[roi2].visible is True   # Banana was hidden by filter, so it was protected!
+
+
+def test_gui_dicom_not_in_sidebar(headless_gui_app):
+    """Verifies that the DICOM Browser plugin is not listed in vertical navigation by default."""
+    controller, gui, _, _ = headless_gui_app
+
+    # Ensure context exists
+    if not dpg.is_dearpygui_running():
+        dpg.create_context()
+
+    # Rebuild nav panel and assert dicom_plugin is NOT in nav items
+    gui.build_vertical_nav()
+    nav_tags = [tag for _, tag in gui.nav_items]
+    assert "dicom_plugin" not in nav_tags
+

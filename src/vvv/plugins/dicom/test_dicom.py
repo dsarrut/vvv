@@ -40,7 +40,7 @@ class TestDicomPlugin(unittest.TestCase):
             dpg.create_context()
         with dpg.window(tag="test_parent"):
             self.plugin.create_ui(parent="test_parent", api=self.mock_api)
-        self.assertTrue(dpg.does_item_exist("dicom_plugin"))
+        self.assertEqual(self.plugin._ui.api, self.mock_api)
         dpg.delete_item("test_parent")
 
     def test_scan_and_selection_lifecycle(self):

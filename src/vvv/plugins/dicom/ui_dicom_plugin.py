@@ -27,29 +27,6 @@ class DicomPluginUI(PluginTagMixin):
 
     def create_ui(self, parent, api) -> None:
         self.api = api
-        cfg_c = api.get_ui_config()["colors"]
-
-        with dpg.group(parent=parent or 0, tag=self._plugin_id):
-            from vvv.ui.gui import build_section_title
-            build_section_title("DICOM Browser", cfg_c["text_header"])
-            
-            dpg.add_text("This plugin allows you to scan folders for DICOM series, view metadata, and load them as 3D volumes.")
-            dpg.add_spacer(height=5)
-            
-            btn_open_win = dpg.add_button(
-                label="Open DICOM Browser Window",
-                width=-1,
-                height=30,
-                callback=self.show_window,
-                tag=self._t("btn_open_sidebar")
-            )
-            from vvv.ui.ui_components import build_beginner_tooltip
-            build_beginner_tooltip(btn_open_win, "Open the DICOM series scanning and browsing window.", api)
-            if dpg.does_item_exist("icon_button_theme"):
-                dpg.bind_item_theme(btn_open_win, "icon_button_theme")
-
-            dpg.add_spacer(height=5)
-            dpg.add_text("Note: You can also open the browser directly from the File menu.", color=cfg_c["text_dim"])
 
     def tick(self) -> None:
         if not dpg.does_item_exist(self.window_tag) or not dpg.is_item_shown(self.window_tag):
