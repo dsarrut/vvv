@@ -1561,7 +1561,19 @@ class SliceViewer:
         if not vs or base_layer is None:
             return
 
-        # Render Base & Overlay Separately
+        # TWO RENDERING PATHS — both correct, different reasons:
+        #
+        # PATH A — Alpha mode: produce two separate RGBA textures (base + overlay).
+        #   The GPU composites them at draw time using the opacity value, so the
+        #   opacity slider updates at 60fps without re-running any CPU math.
+        #   Adding a new mode that works like standard transparency → use this path.
+        #
+        # PATH B — Registration / Checkerboard / DVF: produce one pre-blended texture.
+        #   These modes apply pixel-level colour transforms (red/green encoding,
+        #   alternating squares, vector arrows) that cannot be expressed as simple
+        #   GPU alpha compositing, so the CPU must merge base + overlay before upload.
+        #   Adding a new mode with custom per-pixel colour logic → use this path and
+        #   add the blend function to SliceRenderer in image.py.
         if vs.display.overlay.mode == "Alpha" and overlay_layer is not None:
             self.last_rgba_flat, self.last_rgba_shape = SliceRenderer.get_slice_rgba(
                 base=base_layer,
