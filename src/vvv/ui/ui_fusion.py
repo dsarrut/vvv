@@ -300,6 +300,9 @@ class FusionUI:
                         dpg.configure_item("tooltip_fusion_mode", show=False)
                     if dpg.does_item_exist("text_fusion_mode_restricted"):
                         dpg.configure_item("text_fusion_mode_restricted", show=False)
+                    if viewer.view_state.display.overlay.mode == "DVF":
+                        viewer.view_state.display.overlay.mode = "Alpha"
+                        viewer.view_state.is_data_dirty = True
 
                 # Force the UI to reflect the actual mode in state!
                 dpg.set_value("combo_fusion_mode", viewer.view_state.display.overlay.mode)
