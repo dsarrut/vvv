@@ -238,13 +238,18 @@ class SliceRenderer:
 
             t = min(time_idx, data.shape[0] - 1)
 
+            # COUPLING: the flip applied per orientation determines the sign
+            # conventions in ViewState.compute_overlay_pixel_shift(). If you
+            # change a flip here you must update the matching sign there.
             if orientation == ViewMode.AXIAL:
                 return np.ascontiguousarray(data[t, slice_idx, ...])
             elif orientation == ViewMode.SAGITTAL:
+                # flipud inverts Z (display-Y), fliplr inverts Y (display-X)
                 return np.ascontiguousarray(
                     np.flipud(np.fliplr(data[t, :, :, slice_idx, ...]))
                 )
             elif orientation == ViewMode.CORONAL:
+                # flipud inverts Z (display-Y)
                 return np.ascontiguousarray(np.flipud(data[t, :, slice_idx, ...]))
             return None
         except IndexError:

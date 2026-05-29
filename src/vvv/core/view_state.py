@@ -667,6 +667,14 @@ class ViewState:
         px_y = (live_dy - baked_dy) / sp_y if sp_y else 0.0
         px_z = (live_dz - baked_dz) / sp_z if sp_z else 0.0
 
+        # Sign conventions are coupled to the flipud/fliplr applied by
+        # SliceRenderer.extract_slice() (image.py). Each negation below cancels
+        # one of those flips so the shift lands on the correct display pixel:
+        #   AXIAL:    no flips              → no sign changes
+        #   CORONAL:  flipud on (Z,X)       → Z becomes -Z in display-Y
+        #   SAGITTAL: flipud+fliplr on (Z,Y)→ Z becomes -Z in display-Y,
+        #                                     Y becomes -Y in display-X
+        # If extract_slice ever changes its flip behaviour, update signs here too.
         if orientation == ViewMode.AXIAL:
             return px_x, px_y, px_z
         elif orientation == ViewMode.CORONAL:
