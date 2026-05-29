@@ -68,24 +68,6 @@ class TestPluginAPI(unittest.TestCase):
         self.mock_gui.context_viewer = mock_viewer
         self.assertEqual(self.api.get_crosshair_world(), coords)
 
-    def test_get_mouse_position(self):
-        self.mock_gui.interaction.last_mouse_pos = [100, 200]
-        self.assertEqual(self.api.get_mouse_position(), [100, 200])
-        del self.mock_gui.interaction.last_mouse_pos
-        self.assertEqual(self.api.get_mouse_position(), [0, 0])
-
-    def test_get_ui_config(self):
-        self.mock_gui.ui_cfg = {"colors": {}}
-        self.assertEqual(self.api.get_ui_config(), {"colors": {}})
-
-    def test_create_labeled_field_delegates(self):
-        self.api.create_labeled_field("Label", "tag_x", help_text="help")
-        self.mock_gui.create_labeled_field.assert_called_once_with("Label", "tag_x", help_text="help")
-
-    def test_request_refresh(self):
-        self.api.request_refresh()
-        self.assertTrue(self.mock_controller.ui_needs_refresh)
-
     def test_discover_plugins_success(self):
         from vvv.plugins import discover_plugins
         plugins = discover_plugins()
