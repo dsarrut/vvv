@@ -5,8 +5,16 @@ import dearpygui.dearpygui as dpg
 def show_message(title, message):
     """Displays a generic blocking popup message."""
     modal_tag = "generic_message_modal"
-    if dpg.does_item_exist(modal_tag):
-        dpg.delete_item(modal_tag)
+    handler_tag = "generic_message_modal_handler"
+
+    for tag in (modal_tag, handler_tag):
+        if dpg.does_item_exist(tag):
+            dpg.delete_item(tag)
+
+    def dismiss():
+        for tag in (modal_tag, handler_tag):
+            if dpg.does_item_exist(tag):
+                dpg.delete_item(tag)
 
     with dpg.window(
             tag=modal_tag, modal=True, show=True, label=title, no_collapse=True, width=450
@@ -15,9 +23,11 @@ def show_message(title, message):
         dpg.add_spacer(height=10)
         with dpg.group(horizontal=True):
             dpg.add_spacer(width=160)
-            dpg.add_button(
-                label="OK", width=100, callback=lambda: dpg.delete_item(modal_tag)
-            )
+            dpg.add_button(label="OK", width=100, callback=dismiss)
+
+    with dpg.handler_registry(tag=handler_tag):
+        dpg.add_key_press_handler(key=dpg.mvKey_Return, callback=dismiss)
+        dpg.add_key_press_handler(key=dpg.mvKey_Escape, callback=dismiss)
 
     vp_width = max(dpg.get_viewport_client_width(), 800)
     vp_height = max(dpg.get_viewport_client_height(), 600)
