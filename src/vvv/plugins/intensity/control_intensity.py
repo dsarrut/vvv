@@ -102,7 +102,9 @@ class IntensityController(PluginTagMixin):
     def _update_histogram(
         vol, hs: "HistogramState", bins: int, subsample_step: int = 1, time_idx: int = 0
     ):
-        x, y = IntensityController._compute_histogram_data(vol, bins, subsample_step, time_idx)
+        x, y = IntensityController._compute_histogram_data(
+            vol, bins, subsample_step, time_idx
+        )
         hs.data_x = x
         hs.data_y = y
         hs.is_dirty = False
@@ -348,6 +350,7 @@ class IntensityController(PluginTagMixin):
                     y_list = y_data.tolist()
 
                     if hs.x_center is None:
+                        # pyrefly: ignore [unnecessary-type-conversion]
                         hs.x_center = float(vs.display.wl)
                     if hs.x_range is None:
                         hs.x_range = max(1e-5, vs.display.ww / 0.3)
@@ -793,6 +796,7 @@ class IntensityController(PluginTagMixin):
             return
 
         dsp = vs.display
+        # pyrefly: ignore [unnecessary-type-conversion]
         hs.x_center = float(dsp.wl)
         hs.x_range = dsp.ww / 0.3
         self._apply_hist_x_limits(hs, image_id)
@@ -1005,7 +1009,9 @@ class IntensityController(PluginTagMixin):
             "y_max": hs.y_max,
         }
 
-    def restore_image_state(self, image_id: str, data: dict, context: str = "history") -> None:
+    def restore_image_state(
+        self, image_id: str, data: dict, context: str = "history"
+    ) -> None:
         hs = self._hist.get(image_id)
         if hs is None:
             return

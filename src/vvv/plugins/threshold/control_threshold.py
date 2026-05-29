@@ -161,7 +161,7 @@ class ThresholdController(PluginTagMixin):
             roi_min.last_computed_subpixel = None
             roi_min.last_computed_time_idx = None
             roi_min.last_computed_transform = None
-            self._api._controller.contours.add_contour(img_id, roi_min)
+            self._api.add_contour(img_id, roi_min)
         else:
             roi_min.color = state.preview_color_min
             roi_min.thickness = state.preview_thickness
@@ -181,7 +181,7 @@ class ThresholdController(PluginTagMixin):
             roi_max.last_computed_subpixel = None
             roi_max.last_computed_time_idx = None
             roi_max.last_computed_transform = None
-            self._api._controller.contours.add_contour(img_id, roi_max)
+            self._api.add_contour(img_id, roi_max)
         else:
             roi_max.color = state.preview_color_max
             roi_max.thickness = state.preview_thickness
@@ -200,10 +200,10 @@ class ThresholdController(PluginTagMixin):
         )
         cleared = False
         if roi_min:
-            self._api._controller.contours.remove_contour(img_id, roi_min.id)
+            self._api.remove_contour(img_id, roi_min.id)
             cleared = True
         if roi_max:
-            self._api._controller.contours.remove_contour(img_id, roi_max.id)
+            self._api.remove_contour(img_id, roi_max.id)
             cleared = True
         return cleared
 

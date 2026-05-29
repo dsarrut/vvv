@@ -196,7 +196,7 @@ class TestThresholdPlugin(unittest.TestCase):
             contour_roi.id = c_id
             self.mock_viewer.view_state.contours[c_id] = contour_roi
             return c_id
-        self.mock_api._controller.contours.add_contour.side_effect = mock_add_contour
+        self.mock_api.add_contour.side_effect = mock_add_contour
 
         from vvv.utils import ViewMode
         slice_data = np.zeros((10, 10), dtype=np.float32)

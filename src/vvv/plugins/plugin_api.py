@@ -226,6 +226,14 @@ class PluginAPI:
             load_batch_rois_sequence(self._gui, self._controller, image_id, file_paths, source_type, mode, val)
         )
 
+    # --- Contour operations ---
+
+    def add_contour(self, image_id: str, contour_roi) -> None:
+        self._controller.contours.add_contour(image_id, contour_roi)
+
+    def remove_contour(self, image_id: str, contour_id: str) -> None:
+        self._controller.contours.remove_contour(image_id, contour_id)
+
     # --- Plugin settings (persisted in the app settings file under "plugins.<namespace>") ---
 
     def get_settings(self, namespace: str) -> dict:
