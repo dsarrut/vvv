@@ -1,7 +1,6 @@
 import math
 import numpy as np
 from vvv.utils import (
-    ViewMode,
     ProfileInteractionMode,
     voxel_to_slice,
     slice_to_voxel,
@@ -20,6 +19,7 @@ class NavigationTool:
         self.profile_drag_start_p2 = None
         self.profile_drag_start_mouse_phys = None
         self.is_pan_drag = False
+        self.last_pan_time = 0.0
 
     def on_click(self, button):
         # Allow Left, Middle, and Right clicks to lock the viewer for dragging
@@ -72,17 +72,16 @@ class NavigationTool:
         # Trigger the viewer's anchor
         self.drag_viewer.on_mouse_down()
 
-        if viewer.orientation != ViewMode.HISTOGRAM:
-            mods = self.manager.modifiers
-            is_pan_mod = mods["cmd"] or mods["ctrl"]
-            self.is_pan_drag = (is_pan_mod and button == dpg.mvMouseButton_Left) or (button == dpg.mvMouseButton_Middle)
-            
-            # Crosshair snap ONLY on un-modified Left Click
-            if button == dpg.mvMouseButton_Left and not mods["shift"] and not is_pan_mod:
-                px, py = viewer.get_mouse_slice_coords(ignore_hover=True)
-                if px is not None:
-                    viewer.update_crosshair_data(px, py)
-                    self.manager.controller.sync.propagate_sync(viewer.image_id)
+        mods = self.manager.modifiers
+        is_pan_mod = mods["cmd"] or mods["ctrl"]
+        self.is_pan_drag = (is_pan_mod and button == dpg.mvMouseButton_Left) or (button == dpg.mvMouseButton_Middle)
+
+        # Crosshair snap ONLY on un-modified Left Click
+        if button == dpg.mvMouseButton_Left and not mods["shift"] and not is_pan_mod:
+            px, py = viewer.get_mouse_slice_coords(ignore_hover=True)
+            if px is not None:
+                viewer.update_crosshair_data(px, py)
+                self.manager.controller.sync.propagate_sync(viewer.image_id)
 
     def on_drag(self, drag_data):
         if self.drag_viewer:
@@ -130,6 +129,11 @@ class NavigationTool:
             self.drag_viewer.drag_start_pan = None
             self.drag_viewer.last_dx, self.drag_viewer.last_dy = 0, 0
 
+            if self.is_pan_drag:
+                import time
+                self.last_pan_time = time.time()
+                self.is_pan_drag = False
+
             if self.drag_viewer.profile_mode == ProfileInteractionMode.MANIPULATING:
                 self.drag_viewer.profile_mode = ProfileInteractionMode.IDLE
                 self.profile_drag_start_p1 = None
@@ -141,20 +145,19 @@ class NavigationTool:
     def _update_profile_plot(self, profile):
         if self.drag_viewer is None:
             return
-        win_tag = f"plot_win_{profile.id}"
-        if dpg.does_item_exist(win_tag):
-            distances, intensities = self.manager.controller.profiles.get_profile_data(
-                self.drag_viewer.image_id, profile
-            )
-            if distances:
-                dpg.set_value(f"series_{profile.id}", [distances, intensities])
-
-            # Update mm/voxel info text in the plot window
-            self.manager.gui.profile_ui.update_plot_info(
-                self.drag_viewer.image_id, profile
-            )
+        plugin_win_tag = f"profile_plugin_plot_win_{profile.id}"
+        if dpg.does_item_exist(plugin_win_tag):
+            profile_plugin = next((p for p in self.manager.gui.plugins if p.plugin_id == "profile_plugin"), None)
+            if profile_plugin:
+                profile_plugin._ui.refresh_plot_series(profile)
+                profile_plugin._ui.update_plot_info(profile)
 
     def on_scroll(self, delta):
+        if self.drag_viewer is not None:
+            return
+        import time
+        if time.time() - getattr(self, "last_pan_time", 0.0) < 0.25:
+            return
         target = self.manager.get_hovered_viewer()
         if target:
             mods = self.manager.modifiers
@@ -299,6 +302,21 @@ class InteractionManager:
         dy = app_data[1] - self.last_mouse_pos[1]
         self.last_mouse_pos = app_data
 
+        # Check profile hover state on mouse move
+        hover_viewer = self.get_hovered_viewer()
+        for viewer in self.controller.viewers.values():
+            old_hovered_id = getattr(viewer, "hovered_profile_id", None)
+            old_hovered_handle = getattr(viewer, "hovered_handle_key", None)
+
+            p_id, handle_key = None, None
+            if viewer == hover_viewer:
+                p_id, handle_key = self._check_profile_handle_hover(viewer)
+
+            if p_id != old_hovered_id or handle_key != old_hovered_handle:
+                viewer.hovered_profile_id = p_id
+                viewer.hovered_handle_key = handle_key
+                viewer.is_geometry_dirty = True
+
         # W/L Drag: Shift + Move or Right-Click Drag
         is_wl_drag = self.modifiers["shift"] or dpg.is_mouse_button_down(dpg.mvMouseButton_Right)
 
@@ -341,14 +359,19 @@ class InteractionManager:
 
     def on_key_press(self, sender, app_data, user_data):
         # Prevent keyboard shortcuts from triggering while typing in text/number fields
-        if hasattr(self.gui, "roi_ui"):
-            for input_id in self.gui.roi_ui.roi_selectables.values():
+        roi_plugin = next((p for p in self.gui.plugins if p.plugin_id == "roi_plugin"), None) if self.gui else None
+        if roi_plugin and hasattr(roi_plugin, "_ui"):
+            ui = roi_plugin._ui
+            for input_id in ui.roi_selectables.values():
                 if dpg.does_item_exist(input_id) and dpg.is_item_focused(input_id):
                     return
 
-            if dpg.does_item_exist("input_roi_filter") and dpg.is_item_focused(
-                "input_roi_filter"
-            ):
+            filter_tag = ui._t("input_roi_filter")
+            if dpg.does_item_exist(filter_tag) and dpg.is_item_focused(filter_tag):
+                return
+
+            val_tag = ui._t("input_roi_val")
+            if dpg.does_item_exist(val_tag) and dpg.is_item_focused(val_tag):
                 return
 
         try:
@@ -387,6 +410,21 @@ class InteractionManager:
                 return
             elif app_data == dpg.mvKey_Down:
                 dicom_win.move_selection(1)
+                return
+
+        # Plugin DICOM Browser Arrow Keys
+        dicom_plugin = next((p for p in self.gui.plugins if p.plugin_id == "dicom_plugin"), None)
+        if (
+            dicom_plugin
+            and hasattr(dicom_plugin, "_ui")
+            and dpg.does_item_exist(dicom_plugin._ui.window_tag)
+            and dpg.is_item_shown(dicom_plugin._ui.window_tag)
+        ):
+            if app_data == dpg.mvKey_Up:
+                dicom_plugin._ui.move_selection(-1)
+                return
+            elif app_data == dpg.mvKey_Down:
+                dicom_plugin._ui.move_selection(1)
                 return
 
         # Pass everything else to the Active Tool

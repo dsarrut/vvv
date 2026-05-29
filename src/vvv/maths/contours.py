@@ -24,6 +24,8 @@ class ContourROI:
         # Transients used by the Extraction Manager
         self.is_draft_min = False
         self.is_draft_max = False
+        self.is_plugin_draft_min = False
+        self.is_plugin_draft_max = False
         self.last_computed_threshold_min = None
         self.last_computed_threshold_max = None
         self.last_computed_subpixel = None

@@ -12,7 +12,6 @@ from vvv.core.sync_manager import SyncManager
 from vvv.core.contour_manager import ContourManager
 from vvv.core.history_manager import HistoryManager
 from vvv.core.settings_manager import SettingsManager
-from vvv.core.extraction_manager import ExtractionManager
 from vvv.core.profile_manager import ProfileManager
 
 
@@ -57,7 +56,6 @@ class Controller:
         self.contours = ContourManager(self)
         self.settings = SettingsManager()
         self.history = HistoryManager()
-        self.extraction = ExtractionManager(self)
         self.profiles = ProfileManager(self)
 
         self.use_history = True
@@ -165,10 +163,15 @@ class Controller:
 
     def add_recent_file(self, path):
         """Adds a path to the recent files list in settings and caps it at 10."""
-        if "behavior" not in self.settings.data:
-            self.settings.data["behavior"] = {}
+        behavior: Any = self.settings.data.setdefault("behavior", {})
+        if not isinstance(behavior, dict):
+            behavior = {}
+            self.settings.data["behavior"] = behavior
 
-        recent = self.settings.data["behavior"].get("recent_files", [])
+        recent: Any = behavior.setdefault("recent_files", [])
+        if not isinstance(recent, list):
+            recent = []
+            behavior["recent_files"] = recent
 
         # Convert list (DICOM series) to JSON string to make it hashable and storable
         path_str = json.dumps(path) if isinstance(path, list) else path
@@ -178,7 +181,7 @@ class Controller:
         recent.insert(0, path_str)
 
         # Cap at 20
-        self.settings.data["behavior"]["recent_files"] = recent[:20]
+        behavior["recent_files"] = recent[:20]
 
     def get_volume_physical_center(self, vol):
         """Calculates the exact physical center of an image volume for the CoR."""
@@ -386,7 +389,10 @@ class Controller:
         if not keys or keys[-1] is None:
             return
 
-        d = self.settings.data
+        if isinstance(keys, str):
+            keys = [keys]
+
+        d: Any = self.settings.data
         for key in keys[:-1]:
             d = d[key]
 
@@ -447,19 +453,17 @@ class Controller:
                 return
 
             if vs.display.overlay_id:
-                vs.update_overlay_display_data(self)
+                vs.update_overlay_display_data(self, image_id, my_job_id)
 
             for other_vs in self.view_states.values():
                 if other_vs.display.overlay_id == image_id:
-                    other_vs.update_overlay_display_data(self)
+                    other_vs.update_overlay_display_data(self, image_id, my_job_id)
 
             # --- Late exit: check after overlay resampling ---
             # If the transform changed during overlay resampling, the overlays now hold
-            # wrong-transform data (late-tombstone kept old valid during Execute, but
-            # assigned new wrong result afterwards). Clear them so viewers show "no
-            # overlay" briefly rather than a ghost at the wrong rotation angle.
+            # wrong-transform data. We discard the resample, but we do not clear the overlay
+            # data to None here because that causes a jarring flash/flicker.
             if vs._active_resample_job != my_job_id:
-                self._clear_overlay_data(image_id)
                 self._discard_resample(my_job_id)
                 return
 
@@ -488,12 +492,14 @@ class Controller:
         """
         vs = self.view_states.get(image_id)
         if vs and vs.display.overlay_id:
-            vs.display.overlay_data = None
-            vs.display._sitk_overlay_cache = None
+            with vs.display._lock:
+                vs.display.overlay_data = None
+                vs.display._sitk_overlay_cache = None
         for other_vs in self.view_states.values():
             if other_vs.display.overlay_id == image_id:
-                other_vs.display.overlay_data = None
-                other_vs.display._sitk_overlay_cache = None
+                with other_vs.display._lock:
+                    other_vs.display.overlay_data = None
+                    other_vs.display._sitk_overlay_cache = None
 
     def bake_transform_to_volume(self, vs_id):
         """Permanently apply the registration transform by resampling the volume in-place.
@@ -505,8 +511,8 @@ class Controller:
         """
         import SimpleITK as sitk
 
-        vs = self.view_states.get(vs_id)
-        vol = self.volumes.get(vs_id)
+        vs: Any = self.view_states.get(vs_id)
+        vol: Any = self.volumes.get(vs_id)
         if not vs or not vol or not vs.space.transform or not vs.space.is_active:
             return
 
@@ -517,6 +523,8 @@ class Controller:
         )
 
         def _do_bake():
+            assert vs is not None
+            assert vol is not None
             with vs.loading_shield():
                 try:
                     # Build reference grid (same size/spacing/origin/direction as original)
@@ -532,7 +540,9 @@ class Controller:
                     resampler.SetReferenceImage(ref)
                     resampler.SetInterpolator(sitk.sitkLinear)
                     resampler.SetDefaultPixelValue(float(np.min(vol.data) if vol.data is not None else 0))
-                    resampler.SetTransform(vs.space.transform)
+                    transform = vs.space.transform
+                    assert transform is not None
+                    resampler.SetTransform(transform.GetInverse())
 
                     src_img = sitk.Cast(vol.sitk_image, sitk.sitkFloat32)
                     new_sitk = resampler.Execute(src_img)
@@ -662,16 +672,19 @@ class Controller:
         """Severs all Numpy views pointing to ITK C++ memory to prevent segfaults."""
         vs.base_display_data = None
         vs._sitk_base_cache = None
-        vs.display.overlay_data = None
-        vs.display._sitk_overlay_cache = None
+        with vs.display._lock:
+            vs.display.overlay_data = None
+            vs.display._sitk_overlay_cache = None
         vol.data = None
 
         for other_vs in self.view_states.values():
             if getattr(other_vs.display, "overlay_id", None) == vs_id:
-                other_vs.display.overlay_data = (
-                    None  # Sever the other viewstate's overlay if it points to us
-                )
-                other_vs.display._sitk_overlay_cache = None  # Also sever the cache
+                with other_vs.display._lock:
+                    other_vs.display.overlay_data = (
+                        None  # Sever the other viewstate's overlay if it points to us
+                    )
+                    other_vs.display._sitk_overlay_cache = None  # Also sever the cache
+
 
         # Instantly blind the viewers so DPG doesn't read dead memory
         for v in self.viewers.values():
@@ -726,7 +739,6 @@ class Controller:
                 else:
                     vs.crosshair_value = vol.data[iz, iy, ix]
 
-        vs.histogram_is_dirty = True
         vs.mark_both_dirty()
         self.update_all_viewers_of_image(vs_id)
 

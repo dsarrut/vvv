@@ -1,5 +1,6 @@
 import os
 import json
+from typing import Any
 import dearpygui.dearpygui as dpg
 from vvv.core.settings_manager import DEFAULT_SETTINGS
 
@@ -192,7 +193,7 @@ class SettingsWindow:
 
     def reset_single_value(self, keys, widget_tag):
         """Fetches the factory default for a single setting and applies it."""
-        val = DEFAULT_SETTINGS
+        val: Any = DEFAULT_SETTINGS
         for k in keys:
             val = val[k]
 

@@ -180,21 +180,22 @@ class SliceViewer:
         self._textures_to_delete: list[str] = []
 
         self.overlay_texture_tag = f"tex_ov_{tag_id}"
-        self.overlay_image_tag = f"img_ov_{tag_id}"
+        self.overlay_image_tag: int | str = f"img_ov_{tag_id}"
         self.active_overlay_shift_x = 0.0
         self.active_overlay_shift_y = 0.0
         # Per-viewer render caches for live rotation preview (View-only data).
-        # Keyed by (orientation, slice_idx). Populated by RegistrationUI worker
+        # Keyed by (orientation, slice_idx). Populated by registration plugin worker
         # and by the on-demand path in _package_base/overlay_layer.
         self._preview_slices: dict = {}
         self._overlay_preview_slices: dict = {}
         self.last_overlay_rgba_flat: np.ndarray | None = None
+        self.last_overlay_rgba_shape: tuple | None = None
         self._last_tracker_state: tuple | None = None
         self._was_hovered = False
         self._external_tracker_active = False
 
         self.texture_tag = f"tex_{tag_id}"
-        self.image_tag = f"img_{tag_id}"
+        self.image_tag: int | str = f"img_{tag_id}"
         self.img_node_tag = f"img_node_{tag_id}"
         self.strips_a_tag = f"strips_node_A_{tag_id}"
         self.strips_b_tag = f"strips_node_B_{tag_id}"
@@ -304,27 +305,37 @@ class SliceViewer:
     @property
     def pan_offset(self):
         vs = self.view_state
-        if not vs or self.orientation not in vs.camera.pan:
+        if not vs:
             return [0.0, 0.0]
-        return vs.camera.pan[self.orientation]
+        key = (self.tag, self.orientation)
+        if key not in vs.camera.pan:
+            fallback_val = list(vs.camera.pan.get(self.orientation, [0.0, 0.0]))
+            vs.camera.pan[key] = fallback_val
+        return vs.camera.pan[key]
 
     @pan_offset.setter
     def pan_offset(self, value):
         vs = self.view_state
         if vs:
+            vs.camera.pan[(self.tag, self.orientation)] = value
             vs.camera.pan[self.orientation] = value
 
     @property
     def zoom(self):
         vs = self.view_state
-        if not vs or self.orientation not in vs.camera.zoom:
+        if not vs:
             return 1.0
-        return vs.camera.zoom[self.orientation]
+        key = (self.tag, self.orientation)
+        if key not in vs.camera.zoom:
+            fallback_val = vs.camera.zoom.get(self.orientation, 1.0)
+            vs.camera.zoom[key] = fallback_val
+        return vs.camera.zoom[key]
 
     @zoom.setter
     def zoom(self, value):
         vs = self.view_state
         if vs:
+            vs.camera.zoom[(self.tag, self.orientation)] = value
             vs.camera.zoom[self.orientation] = value
 
     # Mapping for: (Voxel Index, Shape3D Index, Axis Labels, Axis Flip)
@@ -459,6 +470,7 @@ class SliceViewer:
             for vs_id in active_vs_ids:
                 if (
                     vs_id != self.image_id
+                    and vs_id in self.controller.view_states
                     and self.controller.view_states[vs_id].sync_group == target_group
                 ):
                     master_vs_id = vs_id
@@ -592,7 +604,7 @@ class SliceViewer:
                 parent="global_texture_registry",
             )
             if is_hw_gl:
-                try_set_gl_nearest()
+                try_set_gl_nearest(nn_active, base_w, base_h)
 
         if not dpg.does_item_exist(new_ov_texture_tag):
             dpg.add_dynamic_texture(
@@ -603,7 +615,7 @@ class SliceViewer:
                 parent="global_texture_registry",
             )
             if is_hw_gl:
-                try_set_gl_nearest()
+                try_set_gl_nearest(nn_active, ov_w, ov_h)
 
         # Update viewer state
         self.texture_tag = new_texture_tag
@@ -681,7 +693,7 @@ class SliceViewer:
             self.controller.ui_needs_refresh = True
 
     def is_image_orientation(self):
-        return self.orientation in [ViewMode.AXIAL, ViewMode.SAGITTAL, ViewMode.CORONAL]
+        return True
 
     def get_slice_shape(self):
         if not self.view_state or not self.volume:
@@ -709,18 +721,18 @@ class SliceViewer:
         if not vs or not vol:
             return None
 
-        win_w, win_h = self._get_window_dims()
-        if not win_w:
+        canvas_w, canvas_h = self._get_canvas_size()
+        if canvas_w <= 1:
             return None
 
-        cx = (win_w - self.mapper.margin_left * 2.0) / 2.0
-        cy = (win_h - self.mapper.margin_top * 2.0) / 2.0
+        cx = (canvas_w - self.mapper.margin_left * 2.0) / 2.0
+        cy = (canvas_h - self.mapper.margin_top * 2.0) / 2.0
         shape = self.get_slice_shape()
         real_h, real_w = shape[0], shape[1]
         sw, sh = vol.get_physical_aspect_ratio(self.orientation)
 
         pmin, pmax = self.mapper.update(
-            win_w, win_h, real_w, real_h, sw, sh, self.zoom, self.pan_offset
+            canvas_w, canvas_h, real_w, real_h, sw, sh, self.zoom, self.pan_offset
         )
         disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
 
@@ -759,8 +771,8 @@ class SliceViewer:
         if not vs or not vol:
             return 1.0
 
-        win_w, win_h = self._get_window_dims()
-        if not win_w:
+        canvas_w, canvas_h = self._get_canvas_size()
+        if canvas_w <= 1:
             return 1.0
 
         sw, sh = vol.get_physical_aspect_ratio(self.orientation)
@@ -769,8 +781,8 @@ class SliceViewer:
 
         mm_w, mm_h = real_w * sw, real_h * sh
         target_w, target_h = (
-            win_w - self.mapper.margin_left * 2.0,
-            win_h - self.mapper.margin_top * 2.0,
+            canvas_w - self.mapper.margin_left * 2.0,
+            canvas_h - self.mapper.margin_top * 2.0,
         )
 
         base_scale = min(target_w / mm_w, target_h / mm_h)
@@ -782,8 +794,8 @@ class SliceViewer:
         if not vs or not vol:
             return
 
-        win_w, win_h = self._get_window_dims()
-        if not win_w:
+        canvas_w, canvas_h = self._get_canvas_size()
+        if canvas_w <= 1:
             return
 
         sw, sh = vol.get_physical_aspect_ratio(self.orientation)
@@ -792,8 +804,8 @@ class SliceViewer:
 
         mm_w, mm_h = real_w * sw, real_h * sh
         target_w, target_h = (
-            win_w - self.mapper.margin_left * 2.0,
-            win_h - self.mapper.margin_top * 2.0,
+            canvas_w - self.mapper.margin_left * 2.0,
+            canvas_h - self.mapper.margin_top * 2.0,
         )
 
         base_scale = min(target_w / mm_w, target_h / mm_h)
@@ -808,8 +820,8 @@ class SliceViewer:
         if not vs or not vol or phys_coord is None:
             return
 
-        win_w, win_h = self._get_window_dims()
-        if not win_w:
+        canvas_w, canvas_h = self._get_canvas_size()
+        if canvas_w <= 1:
             return
 
         v = vs.world_to_display(phys_coord, is_buffered=self._is_buffered())
@@ -821,7 +833,7 @@ class SliceViewer:
 
         tx, ty = voxel_to_slice(v[0], v[1], v[2], self.orientation, shape)
         self.pan_offset = self.mapper.calculate_center_pan(
-            tx, ty, win_w, win_h, real_w, real_h, sw, sh, self.zoom
+            tx, ty, canvas_w, canvas_h, real_w, real_h, sw, sh, self.zoom
         )
         self.is_geometry_dirty = True
 
@@ -1102,7 +1114,7 @@ class SliceViewer:
             if ppm_changed:
                 self.set_pixels_per_mm(vs_ppm)
                 self.last_consumed_ppm = vs_ppm
-            if center_changed:
+            if center_changed and vs_center is not None:
                 self.center_on_physical_coord(vs_center)
                 self.last_consumed_center = list(vs_center)
             self.needs_recenter = False
@@ -1357,80 +1369,84 @@ class SliceViewer:
     def _package_overlay_layer(self):
         vs = self.view_state
         vol = self.volume
-        if not vs or not vol or vs.display.overlay_data is None:
+        if not vs or not vol:
             return None
-        if vs.display.overlay_id not in self.controller.view_states:
-            return None
+        with vs.display._lock:
+            if vs.display.overlay_data is None:
+                return None
+            if vs.display.overlay_id not in self.controller.view_states:
+                return None
 
-        ovs = self.controller.view_states[vs.display.overlay_id]
+            ovs = self.controller.view_states[vs.display.overlay_id]
 
-        # ---------------------------------------------------------
-        # 2D OVERLAY PHYSICAL CLAMPING
-        # ---------------------------------------------------------
-        # If the overlay is inherently 2D, verify the base camera is actually looking at its physical plane
-        if min(ovs.volume.shape3d) == 1:
-            center_phys = self.get_center_physical_coord()
-            if center_phys is not None:
-                # Map the base view back into the overlay's native index space
-                ov_vox = ovs.space.world_to_display(center_phys, is_buffered=False)
-                if ov_vox is not None:
-                    # Check out-of-plane distances. Continuous index > 0.5 means we scrolled past it.
-                    if ovs.volume.shape3d[2] == 1 and abs(ov_vox[0]) > 0.5:
-                        return None
-                    if ovs.volume.shape3d[1] == 1 and abs(ov_vox[1]) > 0.5:
-                        return None
-                    if ovs.volume.shape3d[0] == 1 and abs(ov_vox[2]) > 0.5:
-                        return None
+            # ---------------------------------------------------------
+            # 2D OVERLAY PHYSICAL CLAMPING
+            # ---------------------------------------------------------
+            # If the overlay is inherently 2D, verify the base camera is actually looking at its physical plane
+            if min(ovs.volume.shape3d) == 1:
+                center_phys = self.get_center_physical_coord()
+                if center_phys is not None:
+                    # Map the base view back into the overlay's native index space
+                    ov_vox = ovs.space.world_to_display(center_phys, is_buffered=False)
+                    if ov_vox is not None:
+                        # Check out-of-plane distances. Continuous index > 0.5 means we scrolled past it.
+                        if ovs.volume.shape3d[2] == 1 and abs(ov_vox[0]) > 0.5:
+                            return None
+                        if ovs.volume.shape3d[1] == 1 and abs(ov_vox[1]) > 0.5:
+                            return None
+                        if ovs.volume.shape3d[0] == 1 and abs(ov_vox[2]) > 0.5:
+                            return None
 
-        # --- Calculate Relative Pixel Shift ---
-        dx, dy, dz = vs.compute_overlay_pixel_shift(ovs, vol.spacing, self.orientation)
-        off_x, off_y, off_slice = 0, 0, 0
+            # --- Calculate Relative Pixel Shift ---
+            dx, dy, dz = vs.compute_overlay_pixel_shift(ovs, vol.spacing, self.orientation)
+            off_x, off_y, off_slice = 0, 0, 0
 
-        self.active_overlay_shift_x = dx
-        self.active_overlay_shift_y = dy
+            self.active_overlay_shift_x = dx
+            self.active_overlay_shift_y = dy
 
-        # Delegate to GPU if Alpha or DVF, fallback to CPU Array Slicing if Registration/Checkerboard
-        if vs.display.overlay_mode in ("Alpha", "DVF"):
-            off_x, off_y = 0, 0
-        else:
-            off_x = int(round(dx))
-            off_y = int(round(dy))
-            self.active_overlay_shift_x = 0.0
-            self.active_overlay_shift_y = 0.0
+            # Delegate to GPU if Alpha or DVF, fallback to CPU Array Slicing if Registration/Checkerboard
+            if vs.display.overlay_mode in ("Alpha", "DVF"):
+                off_x, off_y = 0, 0
+            else:
+                off_x = int(round(dx))
+                off_y = int(round(dy))
+                self.active_overlay_shift_x = 0.0
+                self.active_overlay_shift_y = 0.0
 
-        off_slice = int(round(dz))
+            off_slice = int(round(dz))
 
-        # Live rotation preview for the overlay.
-        # _preview_R lives on ovs (ViewState) as shared rotation state.
-        # The slice cache lives on self (Viewer) — render artifact, not model state.
-        # Gate on _preview_R FIRST so stale cache entries are never used after resample.
-        overlay_preview = None
-        if ovs._preview_R is not None and vs.display.overlay_data is not None:
-            ov_key = (self.orientation, self.slice_idx)
-            overlay_preview = self._overlay_preview_slices.get(ov_key)
-            if overlay_preview is None:
-                # Cache miss — signal worker; suppress overlay_data (stale resample at
-                # a different rotation would look like a ghost in the fusion view).
-                ovs._preview_slice_needed = True
-                return (
-                    None  # no overlay this frame; worker will deliver the correct one
-                )
+            # Live rotation preview for the overlay.
+            # _preview_R lives on ovs (ViewState) as shared rotation state.
+            # The slice cache lives on self (Viewer) — render artifact, not model state.
+            # Gate on _preview_R FIRST so stale cache entries are never used after resample.
+            overlay_preview = None
+            if ovs._preview_R is not None and vs.display.overlay_data is not None:
+                ov_key = (self.orientation, self.slice_idx)
+                overlay_preview = self._overlay_preview_slices.get(ov_key)
+                if overlay_preview is None:
+                    # Cache miss — signal worker; suppress overlay_data (stale resample at
+                    # a different rotation would look like a ghost in the fusion view).
+                    ovs._preview_slice_needed = True
+                    return (
+                        None  # no overlay this frame; worker will deliver the correct one
+                    )
 
-        return RenderLayer(
-            data=vs.display.overlay_data,
-            is_rgb=getattr(ovs.volume, "is_rgb", False),
-            num_components=ovs.volume.num_components,
-            ww=ovs.display.ww,
-            wl=ovs.display.wl,
-            cmap_name=ovs.display.colormap,
-            threshold=ovs.display.base_threshold,
-            time_idx=min(vs.camera.time_idx, ovs.volume.num_timepoints - 1),
-            spacing_2d=vol.get_physical_aspect_ratio(self.orientation),
-            offset_x=off_x,
-            offset_y=off_y,
-            offset_slice=off_slice,
-            preview_override=overlay_preview,
-        )
+            return RenderLayer(
+                data=vs.display.overlay_data,
+                is_rgb=getattr(ovs.volume, "is_rgb", False),
+                num_components=ovs.volume.num_components,
+                ww=ovs.display.ww,
+                wl=ovs.display.wl,
+                cmap_name=ovs.display.colormap,
+                threshold=ovs.display.base_threshold,
+                time_idx=min(vs.camera.time_idx, ovs.volume.num_timepoints - 1),
+                spacing_2d=vol.get_physical_aspect_ratio(self.orientation),
+                offset_x=off_x,
+                offset_y=off_y,
+                offset_slice=off_slice,
+                preview_override=overlay_preview,
+            )
+
 
     def _package_roi_layers(self):
         vs = self.view_state
@@ -1523,18 +1539,9 @@ class SliceViewer:
             return
 
         drawlist_tag = f"drawlist_{self.tag}"
-        plot_tag = f"plot_{self.tag}"
 
-        if not self.is_image_orientation():
-            if dpg.does_item_exist(drawlist_tag):
-                dpg.configure_item(drawlist_tag, show=False)
-            self.drawer.draw_histogram_view()
-            return
-        else:
-            if dpg.does_item_exist(drawlist_tag):
-                dpg.configure_item(drawlist_tag, show=True)
-            if dpg.does_item_exist(plot_tag):
-                dpg.configure_item(plot_tag, show=False)
+        if dpg.does_item_exist(drawlist_tag):
+            dpg.configure_item(drawlist_tag, show=True)
 
         if force_reblend or self.last_rgba_flat is None:
             self._compute_raw_slice_buffers()
@@ -1649,6 +1656,14 @@ class SliceViewer:
                 self.active_overlay_shift_x,
                 self.active_overlay_shift_y,
             )
+
+        # Clear the previous overlay crop bounds in the base buffer if they exist
+        _prev_crop = getattr(self, "_last_single_native_ov_crop", None)
+        if _prev_crop is not None:
+            if hasattr(self, "_nn_base_buf"):
+                oy0, oy1, ox0, ox1 = _prev_crop
+                self._nn_base_buf[oy0:oy1, ox0:ox1] = 0.0
+            self._last_single_native_ov_crop = None
 
         if not hasattr(self, "_nn_base_buf") or self._nn_base_buf.shape[:2] != (
             canvas_h,
@@ -1784,6 +1799,8 @@ class SliceViewer:
             self.is_viewer_data_dirty = True
             return False
         dpg.set_value(tag, data)  # type: ignore
+        if GL_NEAREST_SUPPORTED:
+            try_set_gl_nearest(self._effective_pixelated_zoom() and self._is_hw_gl, tex_w, tex_h)
         return True
 
     @property
@@ -1979,9 +1996,17 @@ class SliceViewer:
         self.drawer.draw_legend()
         self.drawer.draw_crosshair()
 
-        # Ensure extraction preview is computed before delegating to the View drawer
-        ext = getattr(vs, "extraction", None)
-        if ext and ext.is_enabled and ext.show_preview:
+        thr_plugin = None
+        if self.controller.gui and hasattr(self.controller.gui, "plugins"):
+            thr_plugin = next((p for p in self.controller.gui.plugins if p.plugin_id == "threshold_plugin"), None)
+            
+        thr_state = None
+        if thr_plugin and self.image_id:
+            thr_state = thr_plugin._controller.get_image_state(self.image_id)
+            
+        plugin_active = thr_state and thr_state.is_enabled and thr_state.show_preview
+        
+        if plugin_active and thr_plugin is not None:
             preview_2d = None
             if vs._preview_R is not None and not getattr(vol, "is_dvf", False):
                 key = (self.orientation, self.slice_idx)
@@ -2003,12 +2028,11 @@ class SliceViewer:
                     self.orientation,
                 )
 
-            self.controller.extraction.update_preview(
+            thr_plugin._controller.update_preview(
                 self.image_id,
                 vol,
                 vs,
-                ext.threshold_min,
-                ext.threshold_max,
+                thr_state,
                 self.orientation,
                 self.slice_idx,
                 slice_data,
@@ -2229,7 +2253,6 @@ class SliceViewer:
             "view_axial": lambda: self.set_orientation(ViewMode.AXIAL),
             "view_sagittal": lambda: self.set_orientation(ViewMode.SAGITTAL),
             "view_coronal": lambda: self.set_orientation(ViewMode.CORONAL),
-            "view_histogram": self.action_view_histogram,
             "toggle_interp": self.action_toggle_pixelated_zoom,
             "toggle_strips": self.action_toggle_strips,
             "toggle_legend": lambda: self._toggle_camera_bool("show_legend"),
@@ -2276,9 +2299,6 @@ class SliceViewer:
         self.needs_recenter = True
         self.is_geometry_dirty = True
         self.controller.sync.propagate_camera(self)
-
-    def action_view_histogram(self):
-        self.set_orientation(ViewMode.HISTOGRAM)
 
     def action_toggle_pixelated_zoom(self):
         vs = self.view_state
@@ -2363,7 +2383,7 @@ class SliceViewer:
                         return
 
                     p = ProfileLineState()
-                    p.id = dpg.generate_uuid()
+                    p.id = str(dpg.generate_uuid())
                     p.name = f"Profile {len(self.view_state.profiles) + 1}"
                     # Use standard ROI colors for consistency
                     color_idx = len(self.view_state.profiles)
@@ -2385,7 +2405,10 @@ class SliceViewer:
                     p.orientation = self.orientation
                     p.slice_idx = self.slice_idx
                     self.view_state.profiles[p.id] = p
-                    self.controller.gui.profile_ui.on_profile_clicked(None, None, p.id)
+                    if self.controller.gui:
+                        profile_plugin = next((pl for pl in self.controller.gui.plugins if pl.plugin_id == "profile_plugin"), None)
+                        if profile_plugin:
+                            profile_plugin._ui.on_plot_clicked(None, None, p.id)
                     self.controller.status_message = "Profile created"
                     self.is_geometry_dirty = True
                 self.controller.ui_needs_refresh = True
@@ -2547,6 +2570,7 @@ class SliceViewer:
             self._mark_lazy_interaction()  # no-op if no viewer has lazy_lin; covers synced viewers that do
             self.controller.sync.propagate_camera(self)
             # Prevent self-snapping
+            self.last_consumed_ppm = self.get_pixels_per_mm()
             cent = self.get_center_physical_coord()
             if cent is not None:
                 self.last_consumed_center = list(cent)
@@ -2573,6 +2597,13 @@ class SliceViewer:
         dx, dy = self.mapper.calculate_zoom_pan_delta(mx + 0.5, my + 0.5, oz, self.zoom)
         self.pan_offset[0] += dx
         self.pan_offset[1] += dy
+
+        # Keep mapper in sync so rapid scroll events in the same frame use correct pmin
+        win_w, win_h = self._get_window_dims()
+        if win_w:
+            shape = self.get_slice_shape()
+            sw, sh = vol.get_physical_aspect_ratio(self.orientation)
+            self.mapper.update(win_w, win_h, shape[1], shape[0], sw, sh, self.zoom, self.pan_offset)
 
         self.is_geometry_dirty = True
         self._mark_lazy_interaction()  # no-op if no viewer has lazy_lin; covers synced viewers that do

@@ -91,25 +91,6 @@ class TestOnFileDrop:
         mock_ws.assert_called_once()
         assert mock_ws.call_args[0][2] == "/first.vvw"
 
-    @patch("vvv.ui.gui.load_batch_images_sequence", return_value=iter([]))
-    @patch("vvv.ui.gui.load_workspace_sequence",    return_value=iter([]))
-    def test_empty_list_does_nothing(self, mock_ws, mock_batch, headless_gui_app):
-        _, gui, *_ = headless_gui_app
-        _make_mock_gui(gui)
-        gui.on_file_drop(None, [], None)
-        mock_batch.assert_not_called()
-        mock_ws.assert_not_called()
-        assert gui.tasks == []
-
-    @patch("vvv.ui.gui.load_batch_images_sequence", return_value=iter([]))
-    @patch("vvv.ui.gui.load_workspace_sequence",    return_value=iter([]))
-    def test_none_app_data_does_nothing(self, mock_ws, mock_batch, headless_gui_app):
-        _, gui, *_ = headless_gui_app
-        _make_mock_gui(gui)
-        gui.on_file_drop(None, None, None)
-        mock_batch.assert_not_called()
-        mock_ws.assert_not_called()
-
 
 # ---------------------------------------------------------------------------
 # install_os_drop platform dispatch

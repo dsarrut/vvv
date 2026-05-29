@@ -1,11 +1,9 @@
 import pytest
-import dearpygui.dearpygui as dpg
 import numpy as np
 import SimpleITK as sitk
 from vvv.core.controller import Controller
 from vvv.ui.gui import MainGUI
 from vvv.ui.viewer import SliceViewer
-
 
 @pytest.fixture(scope="session")
 def synthetic_volume_factory(tmp_path_factory):
@@ -73,38 +71,55 @@ def headless_gui_app(tmp_path):
     return controller, gui, controller.viewers["V1"], vs_id1
 
 
-@pytest.fixture(scope="session", autouse=True)
-def boot_dpg_engine():
-    """Boots the C++ engine exactly ONCE for the entire pytest session."""
-    dpg.create_context()
-    dpg.create_viewport(title="Test Viewport", width=1000, height=800)
-    dpg.setup_dearpygui()
-    yield
-    # The OS will safely reclaim all memory when the pytest process finishes
+@pytest.fixture
+def headless_4d_overlay_app(tmp_path):
+    """
+    Controller + GUI with one 3D and one 4D volume for mixed-feature testing.
 
+    vol_3d: (20, 30, 30), all voxels = 100.0, assigned to V1
+    vol_4d: 4 frames (20, 30, 30), frame t = all voxels t*50.0, assigned to V2
 
-@pytest.fixture(autouse=True)
-def fresh_dpg_context():
-    """Soft-resets the UI state between every single test."""
-    yield  # The test runs here!
+    Returns: (controller, gui, viewer_v1, vs_id_3d, viewer_v2, vs_id_4d)
+    """
+    controller = Controller()
+    controller.use_history = False
+    for tag in ["V1", "V2", "V3", "V4"]:
+        controller.viewers[tag] = SliceViewer(tag, controller)
 
-    # 1. Delete ONLY actual UI Windows
-    for window in dpg.get_windows():
-        if dpg.does_item_exist(window):
-            info = dpg.get_item_info(window)
-            if info and info.get("type") == "mvWindowAppItem":
-                try:
-                    dpg.delete_item(window)
-                except Exception:
-                    pass
+    # 3D volume: all voxels = 100.0
+    arr3d = np.full((20, 30, 30), 100.0, dtype=np.float32)
+    img3d = sitk.GetImageFromArray(arr3d)
+    img3d.SetSpacing((1.0, 1.0, 1.0))
+    path3d = str(tmp_path / "vol_3d.nii.gz")
+    sitk.WriteImage(img3d, path3d)
 
-    # 2. Clean up ALL aliases EXCEPT textures
-    for alias in list(dpg.get_aliases()):
-        alias_str = str(alias)
-        if dpg.does_item_exist(alias_str):
-            if alias_str.startswith("tex_") or alias_str == "global_texture_registry":
-                continue
-            try:
-                dpg.delete_item(alias_str)
-            except Exception:
-                pass
+    # 4D volume: frame t = all voxels float(t) * 50.0
+    frames = [
+        sitk.GetImageFromArray(np.full((20, 30, 30), float(t) * 50.0, dtype=np.float32))
+        for t in range(4)
+    ]
+    img4d = sitk.JoinSeries(frames)
+    path4d = str(tmp_path / "vol_4d.nii.gz")
+    sitk.WriteImage(img4d, path4d)
+
+    vs_id_3d = controller.file.load_image(path3d)
+    vs_id_4d = controller.file.load_image(path4d)
+
+    gui = MainGUI(controller)
+    controller.gui = gui
+
+    controller.layout["V1"] = vs_id_3d
+    controller.layout["V2"] = vs_id_4d
+    controller.layout["V3"] = vs_id_3d
+    controller.layout["V4"] = vs_id_4d
+
+    controller.tick()
+    controller.tick()
+
+    gui.set_context_viewer(controller.viewers["V1"])
+
+    return (
+        controller, gui,
+        controller.viewers["V1"], vs_id_3d,
+        controller.viewers["V2"], vs_id_4d,
+    )

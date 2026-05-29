@@ -51,23 +51,22 @@ class TransformIO:
             content = f.read()
 
         if "TransformParameters" in content and "CenterOfRotationPoint" in content:
-            params = (
-                re.search(r"\(TransformParameters(.*?)\)", content).group(1).split()
-            )
-            center = (
-                re.search(r"\(CenterOfRotationPoint(.*?)\)", content).group(1).split()
-            )
+            params_match = re.search(r"\(TransformParameters(.*?)\)", content)
+            center_match = re.search(r"\(CenterOfRotationPoint(.*?)\)", content)
+            if params_match and center_match:
+                params = params_match.group(1).split()
+                center = center_match.group(1).split()
 
-            new_transform.SetRotation(
-                float(params[0]), float(params[1]), float(params[2])
-            )
-            new_transform.SetTranslation(
-                (float(params[3]), float(params[4]), float(params[5]))
-            )
-            new_transform.SetCenter(
-                (float(center[0]), float(center[1]), float(center[2]))
-            )
-            return new_transform
+                new_transform.SetRotation(
+                    float(params[0]), float(params[1]), float(params[2])
+                )
+                new_transform.SetTranslation(
+                    (float(params[3]), float(params[4]), float(params[5]))
+                )
+                new_transform.SetCenter(
+                    (float(center[0]), float(center[1]), float(center[2]))
+                )
+                return new_transform
 
         # --- 3. Fallback to standard ITK Transform Reader ---
         generic_transform = sitk.ReadTransform(filepath)

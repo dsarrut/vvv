@@ -39,7 +39,6 @@ DEFAULT_SETTINGS = {
         "view_axial": "F1",
         "view_sagittal": "F2",
         "view_coronal": "F3",
-        "view_histogram": "F4",
         "toggle_interp": "K",
         "toggle_strips": "M",
         "toggle_legend": "L",
@@ -61,7 +60,7 @@ DEFAULT_SETTINGS = {
         "window_width": 1400,
         "window_height": 1000,
         "side_panel_width": 380,
-        "nav_panel_width": 75,
+        "nav_panel_width": 80,
         "sidebar_gap": 0,
     },
     "behavior": {
@@ -107,7 +106,7 @@ ROI_COLORS = [
 ]
 
 
-def generate_colormaps():
+def generate_colormaps() -> dict[str, np.ndarray]:
     cmaps = {}
     x = np.linspace(0, 1, 256)
     ones = np.ones(256)

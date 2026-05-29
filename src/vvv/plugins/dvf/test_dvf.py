@@ -1,13 +1,13 @@
 import pytest
 import numpy as np
 import SimpleITK as sitk
+import dearpygui.dearpygui as dpg
 from vvv.core.controller import Controller
 from vvv.core.view_state import DVFState
 from vvv.maths.image import SliceRenderer
 from vvv.ui.gui import MainGUI
 from vvv.ui.viewer import SliceViewer
 from vvv.utils import ViewMode
-
 
 # Center voxel carries vector [3, 4, 0] → magnitude = 5.0 (3-4-5 triple)
 _DVF_VEC = np.array([3.0, 4.0, 0.0], dtype=np.float32)
@@ -118,7 +118,7 @@ def test_dvf_component_scroll(dvf_app):
     """on_time_scroll cycles through the three displacement components."""
     controller, viewer, vs_id = dvf_app
     vs = controller.view_states[vs_id]
-    
+
     # Time scrolling is disabled in "Vector Field" mode, so we must switch to "Component"
     vs.dvf.display_mode = "Component"
     viewer.set_image(vs_id)
@@ -201,7 +201,9 @@ def test_dvf_can_join_sync_group_and_sync_components(dvf_app, tmp_path):
     controller, viewer, vs_id_dvf = dvf_app
 
     # 4D sequence with 3 frames
-    vols = [sitk.GetImageFromArray(np.zeros((5, 5, 5), dtype=np.float32)) for _ in range(3)]
+    vols = [
+        sitk.GetImageFromArray(np.zeros((5, 5, 5), dtype=np.float32)) for _ in range(3)
+    ]
     img = sitk.JoinSeries(vols)
     path = str(tmp_path / "seq.nrrd")
     sitk.WriteImage(img, path)
@@ -280,7 +282,9 @@ def test_dvf_state_dirty_flag(dvf_app):
 
     vs.dvf.display_mode = "Component"
 
+    # pyrefly: ignore [unnecessary-comparison]
     assert vs.is_geometry_dirty is True
+    # pyrefly: ignore [unnecessary-comparison]
     assert vs.is_data_dirty is True
 
 
@@ -295,7 +299,9 @@ def test_dvf_state_no_dirty_on_same_value(dvf_app):
 
     vs.dvf.vector_sampling = 5  # no-op: same value
 
+    # pyrefly: ignore [unnecessary-comparison]
     assert vs.is_geometry_dirty is False
+    # pyrefly: ignore [unnecessary-comparison]
     assert vs.is_data_dirty is False
 
 
@@ -334,8 +340,8 @@ def test_dvf_sagittal_vector_component_mapping(dvf_app):
     vz = SliceRenderer.get_raw_slice(data, False, 2, 2, ViewMode.SAGITTAL)
 
     assert (-vy)[2, 2] == pytest.approx(-4.0)  # h_comp
-    assert (-vz)[2, 2] == pytest.approx(0.0)   # v_comp
-    assert vx[2, 2] == pytest.approx(3.0)       # d_comp
+    assert (-vz)[2, 2] == pytest.approx(0.0)  # v_comp
+    assert vx[2, 2] == pytest.approx(3.0)  # d_comp
 
 
 def test_dvf_coronal_vector_component_mapping(dvf_app):
@@ -350,9 +356,9 @@ def test_dvf_coronal_vector_component_mapping(dvf_app):
     vy = SliceRenderer.get_raw_slice(data, False, 1, 2, ViewMode.CORONAL)
     vz = SliceRenderer.get_raw_slice(data, False, 2, 2, ViewMode.CORONAL)
 
-    assert vx[2, 2] == pytest.approx(3.0)    # h_comp
-    assert (-vz)[2, 2] == pytest.approx(0.0) # v_comp
-    assert vy[2, 2] == pytest.approx(4.0)    # d_comp
+    assert vx[2, 2] == pytest.approx(3.0)  # h_comp
+    assert (-vz)[2, 2] == pytest.approx(0.0)  # v_comp
+    assert vy[2, 2] == pytest.approx(4.0)  # d_comp
 
 
 # ==========================================
@@ -373,8 +379,11 @@ def test_dvf_color_at_zero_magnitude():
     """Magnitude at the minimum threshold maps to vector_color_min (cyan by default)."""
     state = DVFState()
     color = _interpolate_color(
-        0.0, state.vector_color_min, state.vector_color_max,
-        state.vector_min_length_draw, state.vector_color_max_mag,
+        0.0,
+        state.vector_color_min,
+        state.vector_color_max,
+        state.vector_min_length_draw,
+        state.vector_color_max_mag,
     )
     assert color == [0, 255, 255, 255]
 
@@ -385,8 +394,11 @@ def test_dvf_color_at_half_max_magnitude():
     # Default max_mag=10.0, c_min=[0,255,255,255], c_max=[255,0,0,255]
     # At mag=5.0: t=0.5 → [127, 127, 127, 255]
     color = _interpolate_color(
-        5.0, state.vector_color_min, state.vector_color_max,
-        state.vector_min_length_draw, state.vector_color_max_mag,
+        5.0,
+        state.vector_color_min,
+        state.vector_color_max,
+        state.vector_min_length_draw,
+        state.vector_color_max_mag,
     )
     assert color == [127, 127, 127, 255]
 
@@ -395,7 +407,10 @@ def test_dvf_color_clamped_above_max_magnitude():
     """Magnitude beyond vector_color_max_mag is clamped to vector_color_max (red by default)."""
     state = DVFState()
     color = _interpolate_color(
-        999.0, state.vector_color_min, state.vector_color_max,
-        state.vector_min_length_draw, state.vector_color_max_mag,
+        999.0,
+        state.vector_color_min,
+        state.vector_color_max,
+        state.vector_min_length_draw,
+        state.vector_color_max_mag,
     )
     assert color == [255, 0, 0, 255]

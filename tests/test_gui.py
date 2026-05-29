@@ -45,22 +45,23 @@ def test_gui_window_level_and_colormap(headless_gui_app):
     print("Running test_gui_window_level_and_colormap")
     controller, gui, viewer, vs_id = headless_gui_app
     vs = viewer.view_state
+    intensity_plugin = next(p for p in gui.plugins if p.plugin_id == "intensity_plugin")
 
     # 1. Simulate User Typing W/L
-    dpg.set_value("drag_ww", 450.5)
-    dpg.set_value("drag_wl", 50.0)
+    dpg.set_value(intensity_plugin._controller._t("drag_ww"), 450.5)
+    dpg.set_value(intensity_plugin._controller._t("drag_wl"), 50.0)
 
     # 2. Simulate User Pressing Enter
     print("Simulating WL change")
-    gui.intensities_ui.on_ww_changed(None, 450.5, None)
-    gui.intensities_ui.on_wl_changed(None, 50.0, None)
+    intensity_plugin._controller.on_ww_changed(None, 450.5, None)
+    intensity_plugin._controller.on_wl_changed(None, 50.0, None)
 
     # 3. Assert Domain Math Updated
     assert vs.display.ww == 450.5
     assert vs.display.wl == 50.0
 
     # 4. Simulate Colormap Menu Click
-    gui.intensities_ui.on_colormap_changed(None, "Hot", None)
+    intensity_plugin._controller.on_colormap_changed(None, "Hot", None)
 
     # 5. Assert Colormap Updated
     assert vs.display.colormap == "Hot"
@@ -90,10 +91,11 @@ def test_gui_sync_between_images(headless_gui_app, synthetic_volume_factory):
     handle_wl_group_change(gui, None, "G A", vs2_id)
 
     # 3. Simulate UI: Change W/L on Img1
-    dpg.set_value("drag_ww", 999.0)
-    dpg.set_value("drag_wl", 50.0)
-    gui.intensities_ui.on_ww_changed(None, 999.0, None)
-    gui.intensities_ui.on_wl_changed(None, 50.0, None)
+    intensity_plugin = next(p for p in gui.plugins if p.plugin_id == "intensity_plugin")
+    dpg.set_value(intensity_plugin._controller._t("drag_ww"), 999.0)
+    dpg.set_value(intensity_plugin._controller._t("drag_wl"), 50.0)
+    intensity_plugin._controller.on_ww_changed(None, 999.0, None)
+    intensity_plugin._controller.on_wl_changed(None, 50.0, None)
 
     # 4. Assert: Img2 synced, Img3 ignored it
     assert controller.view_states[vs1_id].display.ww == 999.0
@@ -110,17 +112,23 @@ def test_gui_roi_interactions(headless_gui_app, synthetic_volume_factory):
     roi_path = synthetic_volume_factory("roi.nii.gz", val=1.0)
     roi_id = controller.roi.load_binary_mask(base_id, roi_path, name="TestROI")
 
-    # Tell GUI which ROI is "active" in the list
-    gui.active_roi_id = roi_id
+    # Get ROI plugin
+    roi_plugin = next((p for p in gui.plugins if p.plugin_id == "roi_plugin"), None)
+    assert roi_plugin is not None
+    roi_ui = roi_plugin._ui
+    roi_ctrl = roi_plugin._controller
+
+    # Tell GUI/Plugin which ROI is "active" in the list
+    roi_ctrl.active_roi_id = roi_id
 
     # 1. Simulate Color Change (DPG uses normalized 0.0 - 1.0 floats for colors)
-    gui.roi_ui.on_roi_color_changed(
+    roi_ui.on_roi_color_changed(
         sender=None, app_data=[1.0, 0.0, 0.0, 1.0], user_data=roi_id
     )
     assert vs.rois[roi_id].color == [255, 0, 0]
 
     # 2. Simulate Opacity Change Slider
-    gui.roi_ui.on_roi_opacity_changed(sender=None, app_data=0.35, user_data=roi_id)
+    roi_ui.on_roi_opacity_changed(sender=None, app_data=0.35, user_data=roi_id)
     assert vs.rois[roi_id].opacity == 0.35
 
     # 3. Simulate Visibility "Eye" Icon Click (Tri-State Toggle)
@@ -128,17 +136,17 @@ def test_gui_roi_interactions(headless_gui_app, synthetic_volume_factory):
     assert vs.rois[roi_id].is_contour is False
 
     # Click 1: Raster -> Contour
-    gui.roi_ui.on_roi_toggle_visible(sender=None, app_data=None, user_data=roi_id)
+    roi_ui.on_roi_toggle_visible(sender=None, app_data=None, user_data=roi_id)
     assert vs.rois[roi_id].visible is True
     assert vs.rois[roi_id].is_contour is True
 
     # Click 2: Contour -> Hidden
-    gui.roi_ui.on_roi_toggle_visible(sender=None, app_data=None, user_data=roi_id)
+    roi_ui.on_roi_toggle_visible(sender=None, app_data=None, user_data=roi_id)
     assert vs.rois[roi_id].visible is False
     assert vs.rois[roi_id].is_contour is False
 
     # Click 3: Hidden -> Raster
-    gui.roi_ui.on_roi_toggle_visible(sender=None, app_data=None, user_data=roi_id)
+    roi_ui.on_roi_toggle_visible(sender=None, app_data=None, user_data=roi_id)
     assert vs.rois[roi_id].visible is True
     assert vs.rois[roi_id].is_contour is False
 
@@ -376,13 +384,221 @@ def test_gui_roi_filtering_and_bulk_actions(headless_gui_app, synthetic_volume_f
     # All should be visible by default
     assert all(vs.rois[r].visible for r in [roi1, roi2, roi3])
 
+    # Get ROI plugin
+    roi_plugin = next((p for p in gui.plugins if p.plugin_id == "roi_plugin"), None)
+    assert roi_plugin is not None
+    roi_ui = roi_plugin._ui
+
     # 2. Simulate User typing "ap" into the filter box (matches Apple and Apricot)
-    gui.roi_ui.on_roi_filter_changed(None, "ap", None)
+    roi_ui.on_roi_filter_changed(None, "ap", None)
 
     # 3. Simulate User clicking "Hide All"
-    gui.roi_ui.on_roi_hide_all(None, None, None)
+    roi_ui.on_roi_hide_all(None, None, None)
 
     # 4. Assert that ONLY the filtered items were acted upon!
     assert vs.rois[roi1].visible is False  # Apple hidden
     assert vs.rois[roi3].visible is False  # Apricot hidden
     assert vs.rois[roi2].visible is True   # Banana was hidden by filter, so it was protected!
+
+
+def test_gui_dicom_not_in_sidebar(headless_gui_app):
+    """Verifies that the DICOM Browser plugin is not listed in vertical navigation by default."""
+    controller, gui, _, _ = headless_gui_app
+
+    # Ensure context exists
+    if not dpg.is_dearpygui_running():
+        dpg.create_context()
+
+    # Rebuild nav panel and assert dicom_plugin is NOT in nav items
+    gui.build_vertical_nav()
+    nav_tags = [tag for _, tag in gui.nav_items]
+    assert "dicom_plugin" not in nav_tags
+
+
+def test_synced_viewers_same_image_zoom_stable(headless_gui_app, monkeypatch):
+    """
+    Regression test: verify that having two synced viewers displaying the same image
+    does not trigger a zoom feedback loop during dragging/panning.
+    """
+    controller, gui, viewer1, vs_id = headless_gui_app
+
+    # 1. Setup layout: both V1 and V4 show the same image
+    controller.layout["V1"] = vs_id
+    controller.layout["V4"] = vs_id
+
+    controller.tick()
+
+    viewer1 = controller.viewers["V1"]
+    viewer2 = controller.viewers["V4"]
+
+    # 2. Both viewers display AXIAL orientation
+    viewer1.orientation = ViewMode.AXIAL
+    viewer2.orientation = ViewMode.AXIAL
+
+    # 3. Put both viewers in the same sync group (their viewstate shares this)
+    vs = viewer1.view_state
+    assert vs == viewer2.view_state
+    vs.sync_group = 1
+
+    # 4. Give them different canvas sizes (forces different base_scale)
+    viewer1.quad_w, viewer1.quad_h = 400, 400
+    viewer2.quad_w, viewer2.quad_h = 500, 500
+
+    # Manually update their mappers to establish valid pmin/pmax bounds and base_scale
+    for v in [viewer1, viewer2]:
+        canvas_w, canvas_h = v._get_canvas_size()
+        sw, sh = v.volume.get_physical_aspect_ratio(v.orientation)
+        shape = v.get_slice_shape()
+        v.mapper.update(canvas_w, canvas_h, shape[1], shape[0], sw, sh, v.zoom, v.pan_offset)
+        v.last_consumed_ppm = v.get_pixels_per_mm()
+        cent = v.get_center_physical_coord()
+        if cent is not None:
+            v.last_consumed_center = list(cent)
+
+    # Mock mouse pos and click state for drag simulation
+    mouse_pos = [100.0, 100.0]
+    monkeypatch.setattr(dpg, "get_mouse_pos", lambda local=False: mouse_pos)
+    monkeypatch.setattr(
+        dpg, "is_mouse_button_down", lambda button: button == dpg.mvMouseButton_Left
+    )
+    gui.interaction.modifiers["ctrl"] = True
+
+    # Start panning drag on viewer1
+    viewer1.on_mouse_down()
+
+    # Change mouse pos to simulate a drag of 50, 50 px
+    mouse_pos[0] += 50.0
+    mouse_pos[1] += 50.0
+
+    initial_zoom = viewer1.zoom
+
+    # Trigger drag
+    viewer1.on_drag(None)
+
+    # Run the camera sync application on both viewers directly.
+    # viewer1 is the source, and viewer2 is the target.
+    # With decoupled zoom/pan keys, viewer2 should be able to update its local zoom/pan
+    # to stay physically synced with viewer1 without modifying viewer1's zoom/pan.
+    viewer1._apply_camera_sync(vs)
+    viewer2._apply_camera_sync(vs)
+
+    # 1. Assert that the drag source's zoom did not change (no feedback loop)
+    assert abs(viewer1.zoom - initial_zoom) < 1e-9, (
+        f"zoom feedback loop occurred: zoom shifted from {initial_zoom} to {viewer1.zoom}"
+    )
+
+    # 2. Assert that the synced target's zoom successfully updated to stay physically synced
+    # Calculate base scale dynamically to avoid padding/margin constant differences
+    def calc_base_scale(v):
+        canvas_w, canvas_h = v._get_canvas_size()
+        sw, sh = v.volume.get_physical_aspect_ratio(v.orientation)
+        shape = v.get_slice_shape()
+        real_w, real_h = shape[1], shape[0]
+        mm_w, mm_h = real_w * sw, real_h * sh
+        target_w = canvas_w - v.mapper.margin_left * 2.0
+        target_h = canvas_h - v.mapper.margin_top * 2.0
+        return min(target_w / mm_w, target_h / mm_h)
+
+    base_scale_1 = calc_base_scale(viewer1)
+    base_scale_2 = calc_base_scale(viewer2)
+    expected_viewer2_zoom = initial_zoom * (base_scale_1 / base_scale_2)
+
+    assert abs(viewer2.zoom - expected_viewer2_zoom) < 1e-5, (
+        f"viewer2 failed to sync physical scale: got {viewer2.zoom:.4f}, expected {expected_viewer2_zoom:.4f}"
+    )
+
+
+def test_gui_roi_plugin_hides_active_viewer(headless_gui_app):
+    """Verifies that selecting the ROI plugin tab hides the Active Viewer panel."""
+    controller, gui, _, _ = headless_gui_app
+
+    # Ensure context exists
+    if not dpg.is_dearpygui_running():
+        dpg.create_context()
+
+    # Create UI panels so av_panel exists
+    if not dpg.does_item_exist("av_panel"):
+        with dpg.window(tag="PrimaryWindow"):
+            dpg.add_child_window(tag="av_panel")
+
+    # Initial state (on Images tab) -> Active Viewer is shown
+    gui.on_nav_clicked(None, None, "tab_images")
+    assert gui._hide_av_panel is False
+    assert dpg.is_item_shown("av_panel")
+
+    # Select ROI Plugin -> Active Viewer is hidden
+    gui.on_nav_clicked(None, None, "roi_plugin")
+    assert gui._hide_av_panel is True
+    assert dpg.is_item_shown("av_panel") is False
+
+    # Switch back to Images -> Active Viewer is shown again
+    gui.on_nav_clicked(None, None, "tab_images")
+    assert gui._hide_av_panel is False
+    assert dpg.is_item_shown("av_panel")
+
+    dpg.delete_item("PrimaryWindow")
+
+
+def test_gui_roi_plugin_resizes_list_window(headless_gui_app):
+    """Verifies that the ROI plugin list window is correctly resized on window resize."""
+    from unittest.mock import patch
+    controller, gui, _, _ = headless_gui_app
+
+    if not dpg.is_dearpygui_running():
+        dpg.create_context()
+
+    window_tag = "PrimaryWindow_test_resize"
+    created_window = False
+    created_items = []
+
+    if not dpg.does_item_exist(window_tag):
+        dpg.add_window(tag=window_tag)
+        created_window = True
+
+    for tag in ["top_panel", "roi_plugin_roi_list_window", "roi_plugin_roi_detail_window"]:
+        if not dpg.does_item_exist(tag):
+            dpg.add_child_window(tag=tag, parent=window_tag)
+            created_items.append(tag)
+
+    if not dpg.does_item_exist("roi_plugin_roi_detail_header_group"):
+        dpg.add_group(tag="roi_plugin_roi_detail_header_group", parent=window_tag)
+        created_items.append("roi_plugin_roi_detail_header_group")
+
+    # Mock viewport dimensions
+    with patch('dearpygui.dearpygui.get_viewport_client_width', return_value=1000), \
+         patch('dearpygui.dearpygui.get_viewport_client_height', return_value=800):
+        # Configure layout variables
+        gui.ui_cfg["layout"]["nav_panel_w"] = 100
+        gui.ui_cfg["layout"]["left_inner_m"] = 5
+        gui.ui_cfg["layout"]["right_inner_m"] = 5
+        gui.ui_cfg["layout"]["sidebar_gap"] = 5
+        gui.ui_cfg["layout"]["panel_ch_h"] = 100
+        gui.ui_cfg["layout"]["panel_av_h"] = 100
+        gui.ui_cfg["layout"]["roi_detail_h"] = 300
+
+        # Set ROI plugin active
+        gui._hide_av_panel = True
+
+        # Resize with detail panel hidden
+        dpg.configure_item("roi_plugin_roi_detail_header_group", show=False)
+        gui.on_window_resize()
+
+        h_hidden = dpg.get_item_height("roi_plugin_roi_list_window")
+
+        # Resize with detail panel shown
+        dpg.configure_item("roi_plugin_roi_detail_header_group", show=True)
+        gui.on_window_resize()
+
+        h_shown = dpg.get_item_height("roi_plugin_roi_list_window")
+
+        # The list window height when detail is hidden should be larger than when detail is shown
+        assert h_hidden > h_shown
+
+    # Clean up created items
+    for tag in reversed(created_items):
+        if dpg.does_item_exist(tag):
+            dpg.delete_item(tag)
+    if created_window and dpg.does_item_exist(window_tag):
+        dpg.delete_item(window_tag)
+
+

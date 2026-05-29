@@ -1,8 +1,10 @@
+import threading
 import numpy as np
 from contextlib import contextmanager
 from vvv.config import WL_PRESETS
 from vvv.maths.geometry import SpatialEngine
 from vvv.utils import ViewMode
+
 
 _SENTINEL = object()
 
@@ -72,6 +74,7 @@ class CameraState:
         self.target_ppm = None
         self.target_center = None
         self.target_tracker_phys = None
+        self.camera_sync_source_tag = None
 
     def __setattr__(self, name, value):
         if name in self._GEOM_FIELDS and getattr(self, name, _SENTINEL) != value:
@@ -83,26 +86,44 @@ class CameraState:
         object.__setattr__(self, name, value)
 
     def to_dict(self):
+        zoom_dict = {}
+        for k, v in self.zoom.items():
+            if isinstance(k, tuple):
+                zoom_dict[f"{k[0]}:{k[1].name}"] = float(v)
+            else:
+                zoom_dict[k.name] = float(v)
+
+        pan_dict = {}
+        for k, v in self.pan.items():
+            if isinstance(k, tuple):
+                pan_dict[f"{k[0]}:{k[1].name}"] = [float(p) for p in v]
+            else:
+                pan_dict[k.name] = [float(p) for p in v]
+
         return {
-            "zoom": {k.name: float(v) for k, v in self.zoom.items()},
-            "pan": {k.name: [float(p) for p in v] for k, v in self.pan.items()},
+            "zoom": zoom_dict,
+            "pan": pan_dict,
             "slices": {k.name: int(v) for k, v in self.slices.items()},
+            # pyrefly: ignore [unnecessary-type-conversion]
             "time_idx": int(self.time_idx),
-            "show_axis": bool(self.show_axis),
-            "show_tracker": bool(self.show_tracker),
-            "show_crosshair": bool(self.show_crosshair),
-            "show_scalebar": bool(self.show_scalebar),
-            "show_grid": bool(self.show_grid),
-            "show_legend": bool(self.show_legend),
-            "show_profiles": bool(self.show_profiles),
+            "show_axis": self.show_axis,
+            "show_tracker": self.show_tracker,
+            "show_crosshair": self.show_crosshair,
+            "show_scalebar": self.show_scalebar,
+            "show_grid": self.show_grid,
+            "show_legend": self.show_legend,
+            "show_profiles": self.show_profiles,
+            # pyrefly: ignore [unnecessary-type-conversion]
             "show_filename": int(self.show_filename),
             "last_orientation": self.last_orientation.name,
             "crosshair_voxel": (
+                # pyrefly: ignore [unnecessary-type-conversion]
                 [float(x) for x in self.crosshair_voxel]
                 if self.crosshair_voxel
                 else None
             ),
             "crosshair_phys_coord": (
+                # pyrefly: ignore [unnecessary-type-conversion]
                 [float(x) for x in self.crosshair_phys_coord]
                 if self.crosshair_phys_coord is not None
                 else None
@@ -113,9 +134,16 @@ class CameraState:
         def parse_dict(source_dict):
             res = {}
             for k, v in source_dict.items():
-                clean_k = k.split(".")[-1] if "." in k else k
-                if clean_k in ViewMode.__members__:
-                    res[ViewMode[clean_k]] = v
+                if ":" in k:
+                    parts = k.split(":")
+                    viewer_tag = parts[0]
+                    clean_k = parts[1].split(".")[-1] if "." in parts[1] else parts[1]
+                    if clean_k in ViewMode.__members__:
+                        res[(viewer_tag, ViewMode[clean_k])] = v
+                else:
+                    clean_k = k.split(".")[-1] if "." in k else k
+                    if clean_k in ViewMode.__members__:
+                        res[ViewMode[clean_k]] = v
             return res
 
         if "zoom" in d:
@@ -136,7 +164,10 @@ class CameraState:
         self.show_filename = d.get("show_filename", self.show_filename)
 
         if "last_orientation" in d:
-            self.last_orientation = ViewMode[d["last_orientation"]]
+            try:
+                self.last_orientation = ViewMode[d["last_orientation"]]
+            except KeyError:
+                self.last_orientation = ViewMode.AXIAL
         if "crosshair_voxel" in d:
             self.crosshair_voxel = d["crosshair_voxel"]
         if "crosshair_phys_coord" in d and d["crosshair_phys_coord"] is not None:
@@ -160,7 +191,6 @@ class DisplayState:
     overlay_checkerboard_swap: bool
     pixelated_zoom: bool
     use_voxel_strips: bool
-    hist_bins: int
 
     # Fields that trigger a DATA redraw
     _DATA_FIELDS = {
@@ -175,14 +205,15 @@ class DisplayState:
         "overlay_checkerboard_swap",
         "pixelated_zoom",
         "use_voxel_strips",
-        "hist_bins",
     }
 
     def __init__(self, parent_vs: "ViewState | None" = None):
         self._parent = parent_vs
+        self._lock = threading.Lock()
         self.overlay_data: np.ndarray | None = None
         self._sitk_overlay_cache = None
         self.baked_overlay_translation = (0.0, 0.0, 0.0)
+
         self.ww = 1.0
         self.wl = 0.5
         self.colormap = "Grayscale"
@@ -194,13 +225,6 @@ class DisplayState:
         self.overlay_checkerboard_swap = False
         self.pixelated_zoom = False
         self.use_voxel_strips = False
-        # Histogram display preferences (not in _DATA_FIELDS — no rerender)
-        self.hist_use_bars = True
-        self.hist_use_log = True
-        self.hist_bins = 256
-        self.hist_x_center = None
-        self.hist_x_range = None
-        self.hist_y_max = None
 
     def __setattr__(self, name, value):
         if name in self._DATA_FIELDS and getattr(self, name, _SENTINEL) != value:
@@ -213,24 +237,27 @@ class DisplayState:
 
     def to_dict(self):
         return {
+            # pyrefly: ignore [unnecessary-type-conversion]
             "ww": float(self.ww),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "wl": float(self.wl),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "colormap": str(self.colormap),
             "base_threshold": (
-                float(self.base_threshold) if self.base_threshold is not None else None
+                # pyrefly: ignore [unnecessary-type-conversion]
+                float(self.base_threshold)
+                if self.base_threshold is not None
+                else None
             ),
-            "pixelated_zoom": bool(self.pixelated_zoom),
-            "use_voxel_strips": bool(self.use_voxel_strips),
+            "pixelated_zoom": self.pixelated_zoom,
+            "use_voxel_strips": self.use_voxel_strips,
+            # pyrefly: ignore [unnecessary-type-conversion]
             "overlay_opacity": float(self.overlay_opacity),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "overlay_mode": str(self.overlay_mode),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "overlay_checkerboard_size": float(self.overlay_checkerboard_size),
-            "overlay_checkerboard_swap": bool(self.overlay_checkerboard_swap),
-            "hist_use_bars": bool(self.hist_use_bars),
-            "hist_use_log": bool(self.hist_use_log),
-            "hist_bins": int(self.hist_bins),
-            "hist_x_center": self.hist_x_center,
-            "hist_x_range": self.hist_x_range,
-            "hist_y_max": self.hist_y_max,
+            "overlay_checkerboard_swap": self.overlay_checkerboard_swap,
         }
 
     def from_dict(self, d):
@@ -248,12 +275,6 @@ class DisplayState:
         self.overlay_checkerboard_swap = d.get(
             "overlay_checkerboard_swap", self.overlay_checkerboard_swap
         )
-        self.hist_use_bars = d.get("hist_use_bars", self.hist_use_bars)
-        self.hist_use_log = d.get("hist_use_log", self.hist_use_log)
-        self.hist_bins = d.get("hist_bins", self.hist_bins)
-        self.hist_x_center = d.get("hist_x_center", self.hist_x_center)
-        self.hist_x_range = d.get("hist_x_range", self.hist_x_range)
-        self.hist_y_max = d.get("hist_y_max", self.hist_y_max)
 
 
 class ExtractionState:
@@ -307,17 +328,24 @@ class ExtractionState:
 
     def to_dict(self):
         return {
-            "is_enabled": bool(self.is_enabled),
+            "is_enabled": self.is_enabled,
+            # pyrefly: ignore [unnecessary-type-conversion]
             "threshold_min": float(self.threshold_min),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "threshold_max": float(self.threshold_max),
-            "show_preview": bool(self.show_preview),
+            "show_preview": self.show_preview,
             "preview_color_min": list(self.preview_color_min),
             "preview_color_max": list(self.preview_color_max),
-            "subpixel_accurate": bool(self.subpixel_accurate),
+            "subpixel_accurate": self.subpixel_accurate,
+            # pyrefly: ignore [unnecessary-type-conversion]
             "preview_thickness": float(self.preview_thickness),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "gen_bg_mode": str(self.gen_bg_mode),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "gen_bg_val": float(self.gen_bg_val),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "gen_fg_mode": str(self.gen_fg_mode),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "gen_fg_val": float(self.gen_fg_val),
         }
 
@@ -422,15 +450,23 @@ class DVFState:
 
     def to_dict(self):
         return {
+            # pyrefly: ignore [unnecessary-type-conversion]
             "display_mode": str(self.display_mode),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "vector_sampling": int(self.vector_sampling),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "vector_scale": float(self.vector_scale),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "vector_thickness": float(self.vector_thickness),
             "vector_color_min": list(self.vector_color_min),
             "vector_color_max": list(self.vector_color_max),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "vector_color_max_mag": float(self.vector_color_max_mag),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "vector_min_length_arrow": float(self.vector_min_length_arrow),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "vector_min_length_draw": float(self.vector_min_length_draw),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "vector_precision": int(self.vector_precision),
         }
 
@@ -469,6 +505,7 @@ class ProfileLineState:
         self.visible = True
         self.plot_open = False
         self.use_log = False
+        self.plot_position = None
 
     def to_dict(self):
         return {
@@ -482,10 +519,14 @@ class ProfileLineState:
                 [float(x) for x in self.pt2_phys] if self.pt2_phys is not None else None
             ),
             "orientation": self.orientation.name,
+            # pyrefly: ignore [unnecessary-type-conversion]
             "slice_idx": int(self.slice_idx),
-            "visible": bool(self.visible),
-            "plot_open": bool(self.plot_open),
-            "use_log": bool(self.use_log),
+            "visible": self.visible,
+            "plot_open": self.plot_open,
+            "use_log": self.use_log,
+            "plot_position": (
+                list(self.plot_position) if self.plot_position is not None else None
+            ),
         }
 
     def from_dict(self, d):
@@ -505,6 +546,7 @@ class ProfileLineState:
         self.visible = d.get("visible", self.visible)
         self.plot_open = d.get("plot_open", False)
         self.use_log = d.get("use_log", False)
+        self.plot_position = d.get("plot_position", None)
 
 
 class ViewState:
@@ -565,20 +607,8 @@ class ViewState:
         )
         self._preview_center: "np.ndarray | None" = None
         self._preview_slice_needed: bool = False  # set by viewer on cache miss
-        self.hist_data_x = None
-        self.hist_data_y = None
-        self.full_hist_ready = False
-        self.histogram_is_dirty = True
         self.init_crosshair_to_slices()
         self.init_default_window_level()
-
-    @property
-    def use_log_y(self):
-        return self.display.hist_use_log
-
-    @use_log_y.setter
-    def use_log_y(self, value):
-        self.display.hist_use_log = value
 
     def compute_overlay_pixel_shift(self, overlay_vs, vol_spacing, orientation):
         """Return (dx_pix, dy_pix, dz_pix) for live overlay alignment.
@@ -624,7 +654,7 @@ class ViewState:
         before using any viewer-local slice caches, so stale viewer caches are silently
         ignored without needing the Controller to touch View objects directly.
         Viewer-local slice dicts (_preview_slices, _overlay_preview_slices) are
-        managed by the View layer (RegistrationUI / Viewer) and are not cleared here.
+        managed by the View layer (registration plugin / Viewer) and are not cleared here.
         """
         self._preview_R = None
         self._preview_center = None
@@ -811,46 +841,6 @@ class ViewState:
 
         self.mark_both_dirty()
 
-    def get_hist_max_y(self):
-        """Returns the maximum Y value for the current histogram based on log settings."""
-        if self.hist_data_y is None or len(self.hist_data_y) == 0:
-            return 1.0
-        if self.use_log_y:
-            return float(np.max(np.log10(self.hist_data_y + 1)))
-        return float(np.max(self.hist_data_y))
-
-    def get_hist_bin_width(self):
-        if self.hist_data_x is None or len(self.hist_data_x) < 2:
-            return 1.0
-        return float(self.hist_data_x[1] - self.hist_data_x[0])
-
-    def update_histogram(self, bins: int = 256, subsample_step: int = 1):
-        data = self.volume.data
-        if getattr(self.volume, "is_dvf", False) and data.ndim >= 4:
-            vec = data if data.ndim == 4 else data[0]  # (3, z, y, x)
-            total_count = vec.shape[1] * vec.shape[2] * vec.shape[3]
-            if subsample_step > 1:
-                # Optimized subsampling for vector magnitude
-                flat_vec = vec.reshape(3, -1)[:, ::subsample_step]
-                flat_data = np.sqrt(np.sum(flat_vec.astype(np.float64) ** 2, axis=0))
-            else:
-                flat_data = np.sqrt(np.sum(vec.astype(np.float64) ** 2, axis=0)).ravel()
-        else:
-            total_count = data.size
-            if subsample_step > 1:
-                flat_data = data.ravel()[::subsample_step]
-            else:
-                flat_data = data.ravel()
-
-        hist, bin_edges = np.histogram(flat_data, bins=bins)
-        y = hist.astype(np.float32)
-        if subsample_step > 1 and flat_data.size > 0:
-            y *= (total_count / flat_data.size)
-
-        self.hist_data_y = y
-        self.hist_data_x = bin_edges[:-1].astype(np.float32)
-        self.histogram_is_dirty = False
-
     def reset_view(self):
         self.camera.zoom = {
             ViewMode.AXIAL: 1.0,
@@ -894,9 +884,11 @@ class ViewState:
             max_v = float(np.max(self.volume.data))
             self.display.ww = max(1e-20, max_v - min_v)
             self.display.wl = (max_v + min_v) / 2
-        elif preset_name in WL_PRESETS and WL_PRESETS[preset_name] is not None:
-            self.display.ww = WL_PRESETS[preset_name]["ww"]
-            self.display.wl = WL_PRESETS[preset_name]["wl"]
+        else:
+            preset = WL_PRESETS.get(preset_name)
+            if preset is not None:
+                self.display.ww = preset["ww"]
+                self.display.wl = preset["wl"]
 
     def update_base_display_data(self):
         if not self.space.is_active or not self.space.has_rotation():
@@ -949,7 +941,7 @@ class ViewState:
             self._sitk_base_cache = joined_img
             self.base_display_data = sitk.GetArrayViewFromImage(joined_img)
 
-    def update_overlay_display_data(self, controller):
+    def update_overlay_display_data(self, controller, image_id=None, job_id=None):
         """
         [ASYNC_BOUNDARY]: SimpleITK ResampleImageFilter.Execute()
         Releases the GIL. The Tombstone Pattern here is the only thing
@@ -1004,15 +996,21 @@ class ViewState:
         target_dim = other_vol.sitk_image.GetDimension()
         if target_dim == 3:
             resampled_img = resampler.Execute(other_vol.sitk_image)
-            self.display._sitk_overlay_cache = resampled_img
-            self.display.overlay_data = sitk.GetArrayViewFromImage(resampled_img)
+            if job_id is not None and image_id is not None:
+                if controller.view_states[image_id]._active_resample_job != job_id:
+                    with self.display._lock:
+                        self.display._sitk_overlay_cache = _old_cache
+                    return
+            overlay_data = sitk.GetArrayViewFromImage(resampled_img)
             if (
                 getattr(other_vol, "is_dvf", False)
-                and self.display.overlay_data.ndim == 4
+                and overlay_data.ndim == 4
             ):
-                self.display.overlay_data = np.moveaxis(
-                    self.display.overlay_data, -1, 0
+                overlay_data = np.moveaxis(
+                    overlay_data, -1, 0
                 )
+            new_cache = resampled_img
+            new_data = overlay_data
         elif target_dim == 4:
             resampled_volumes = []
             for t in range(other_vol.num_timepoints):
@@ -1022,11 +1020,21 @@ class ViewState:
                 vol_3d = sitk.Extract(other_vol.sitk_image, size, index)
                 resampled_volumes.append(resampler.Execute(vol_3d))
             joined_img = sitk.JoinSeries(resampled_volumes)
-            self.display._sitk_overlay_cache = joined_img
-            self.display.overlay_data = sitk.GetArrayViewFromImage(joined_img)
+            if job_id is not None and image_id is not None:
+                if controller.view_states[image_id]._active_resample_job != job_id:
+                    with self.display._lock:
+                        self.display._sitk_overlay_cache = _old_cache
+                    return
+            new_cache = joined_img
+            new_data = sitk.GetArrayViewFromImage(joined_img)
         else:
-            self.display._sitk_overlay_cache = None
-            self.display.overlay_data = other_vol.data
+            if job_id is not None and image_id is not None:
+                if controller.view_states[image_id]._active_resample_job != job_id:
+                    with self.display._lock:
+                        self.display._sitk_overlay_cache = _old_cache
+                    return
+            new_cache = None
+            new_data = other_vol.data
 
         # Release old ITK object now that overlay_data points to new data.
         # Doing it here (after assignment) guarantees the old numpy view was never
@@ -1042,21 +1050,29 @@ class ViewState:
         if self.space.transform and self.space.is_active:
             base_tx, base_ty, base_tz = self.space.transform.GetTranslation()
 
-        self.display.baked_overlay_translation = (
+        baked_overlay_translation = (
             baked_tx - base_tx,
             baked_ty - base_ty,
             baked_tz - base_tz,
         )
+
+        with self.display._lock:
+            self.display._sitk_overlay_cache = new_cache
+            self.display.overlay_data = new_data
+            self.display.baked_overlay_translation = baked_overlay_translation
+
         self.is_data_dirty = True
 
     def set_overlay(self, overlay_id, other_vol, controller=None):
         if overlay_id is None or other_vol is None:
-            self.display.overlay_id = None
-            self.display.overlay_data = None
-            self.display._sitk_overlay_cache = None
-            self.display.baked_overlay_translation = (0.0, 0.0, 0.0)
+            with self.display._lock:
+                self.display.overlay_id = None
+                self.display.overlay_data = None
+                self.display._sitk_overlay_cache = None
+                self.display.baked_overlay_translation = (0.0, 0.0, 0.0)
             self.is_data_dirty = True
             return True
+
 
         if getattr(other_vol, "is_rgb", False):
             return False

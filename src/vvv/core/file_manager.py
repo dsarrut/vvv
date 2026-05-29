@@ -28,6 +28,8 @@ class FileManager:
         if history_entry:
             vs.camera.from_dict(history_entry["camera"])
             vs.display.from_dict(history_entry["display"])
+            if "dvf" in history_entry and getattr(vol, "is_dvf", False):
+                vs.dvf.from_dict(history_entry["dvf"])
 
             # Re-derive the crosshair_value based on restored voxel
             if vs.camera.crosshair_voxel is not None:
@@ -48,6 +50,14 @@ class FileManager:
 
         self.controller.volumes[img_id] = vol
         self.controller.view_states[img_id] = vs
+
+        if self.controller.gui and not is_auto_overlay:
+            self.controller.gui.notify_plugins_image_loaded(img_id)
+            if history_entry and "plugins" in history_entry:
+                for plugin in self.controller.gui.plugins:
+                    plugin_data = history_entry["plugins"].get(plugin.plugin_id, {})
+                    if plugin_data:
+                        plugin.restore_image_state(img_id, plugin_data, context="history")
 
         # Auto-load overlay
         # Prevent infinite recursion with is_auto_overlay flag
@@ -109,12 +119,27 @@ class FileManager:
                             file_reader.SetFileName(file_names[0])
                             file_reader.ReadImageInformation()
 
+                            def clean_string(val):
+                                if val is None:
+                                    return ""
+                                try:
+                                    # Convert to string and strip null bytes
+                                    val_str = str(val).replace('\x00', '')
+                                    # Filter out surrogate escapes (range 0xD800 to 0xDFFF)
+                                    val_str = "".join(c for c in val_str if not (0xD800 <= ord(c) <= 0xDFFF))
+                                    # Encode as utf-8, ignoring any invalid bytes, and decode back
+                                    return val_str.encode('utf-8', 'ignore').decode('utf-8')
+                                except Exception:
+                                    return "Unknown"
+
                             def get_tag(tag, default=""):
-                                return (
-                                    file_reader.GetMetaData(tag).strip()
-                                    if file_reader.HasMetaDataKey(tag)
-                                    else default
-                                )
+                                if file_reader.HasMetaDataKey(tag):
+                                    try:
+                                        val = file_reader.GetMetaData(tag).strip()
+                                        return clean_string(val)
+                                    except Exception:
+                                        return default
+                                return default
 
                             # --- FORMAT DATE & TIME ---
                             d_str = get_tag("0008|0020")
@@ -129,11 +154,15 @@ class FileManager:
                             dose_str = ""
                             for k in file_reader.GetMetaDataKeys():
                                 if "0018|1074" in k:  # Radionuclide Total Dose
-                                    raw_dose = file_reader.GetMetaData(k).strip()
                                     try:
-                                        dose_str = f"{float(raw_dose) / 1e6:.2f} MBq"
+                                        raw_dose = file_reader.GetMetaData(k).strip()
+                                        try:
+                                            dose_str = f"{float(raw_dose) / 1e6:.2f} MBq"
+                                        except:
+                                            dose_str = raw_dose
                                     except:
-                                        dose_str = raw_dose
+                                        dose_str = ""
+                                    dose_str = clean_string(dose_str)
                                     break
 
                             size_tup = file_reader.GetSize()
@@ -294,11 +323,13 @@ class FileManager:
 
             roi_filter = ""
             roi_sort = 0
-            if self.controller.gui and hasattr(self.controller.gui, "roi_ui"):
-                roi_filter = self.controller.gui.roi_ui.roi_filters.get(vs_id, "")
-                roi_sort = self.controller.gui.roi_ui.roi_sort_orders.get(vs_id, 0)
+            if self.controller.gui:
+                roi_plugin = next((p for p in self.controller.gui.plugins if p.plugin_id == "roi_plugin"), None)
+                if roi_plugin and hasattr(roi_plugin, "_controller"):
+                    roi_filter = roi_plugin._controller.roi_filters.get(vs_id, "")
+                    roi_sort = roi_plugin._controller.roi_sort_orders.get(vs_id, 0)
 
-            workspace["images"][vs_id] = {
+            image_entry = {
                 "path": portable_path(vol.file_paths) if len(vol.file_paths) > 1 else portable_path(vol.file_paths[0]),
                 "is_overlay_only": is_overlay,
                 "sync_group": vs.sync_group,
@@ -313,6 +344,17 @@ class FileManager:
                 "roi_filter": roi_filter,
                 "roi_sort_order": roi_sort,
             }
+
+            if self.controller.gui:
+                plugins_data = {}
+                for plugin in self.controller.gui.plugins:
+                    data = plugin.serialize_image_state(vs_id, context="workspace")
+                    if data:
+                        plugins_data[plugin.plugin_id] = data
+                if plugins_data:
+                    image_entry["plugins"] = plugins_data
+
+            workspace["images"][vs_id] = image_entry
 
         with open(filepath, "w") as f:
             json.dump(workspace, f, indent=4)
@@ -347,6 +389,9 @@ class FileManager:
 
             del self.controller.view_states[vs_id]
             del self.controller.volumes[vs_id]
+
+            if self.controller.gui:
+                self.controller.gui.notify_plugins_image_removed(vs_id)
 
             # State-Only Fallback: Give empty viewers the next available image
             if self.controller.view_states:

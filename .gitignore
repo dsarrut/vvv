@@ -199,3 +199,5 @@ GEMINI.md
 bench*txt
 
 dev_doc/
+uv.lock
+

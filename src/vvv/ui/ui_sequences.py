@@ -592,10 +592,18 @@ def load_workspace_sequence(gui, controller, filepath):
         ) as executor:
             future_to_path = {}
             for old_id, p in tasks_to_load:
-                f = executor.submit(controller.file.load_image, list(p) if isinstance(p, tuple) else p)
+                f = executor.submit(
+                    controller.file.load_image,
+                    list(p) if isinstance(p, tuple) else p,
+                    ignore_history=True
+                )
                 future_to_path[f] = ("base", old_id, p)
             for parent_old_id, p in legacy_overlays:
-                f = executor.submit(controller.file.load_image, list(p) if isinstance(p, tuple) else p)
+                f = executor.submit(
+                    controller.file.load_image,
+                    list(p) if isinstance(p, tuple) else p,
+                    ignore_history=True
+                )
                 future_to_path[f] = ("legacy_ov", parent_old_id, p)
             
             futures: list[concurrent.futures.Future | None] = [
@@ -648,6 +656,11 @@ def load_workspace_sequence(gui, controller, filepath):
                 vs.extraction.from_dict(img_data["extraction"])
             if "dvf" in img_data:
                 vs.dvf.from_dict(img_data["dvf"])
+            if "plugins" in img_data and gui:
+                for plugin in gui.plugins:
+                    plugin_data = img_data["plugins"].get(plugin.plugin_id, {})
+                    if plugin_data:
+                        plugin.restore_image_state(new_id, plugin_data, context="workspace")
             vs.sync_group = img_data.get("sync_group", 0)
             vs.sync_wl_group = img_data.get("sync_wl_group", 0)
 
@@ -657,11 +670,11 @@ def load_workspace_sequence(gui, controller, filepath):
                 p.from_dict(p_dict)
                 vs.profiles[p.id] = p
 
-            if hasattr(gui, "roi_ui"):
-                gui.roi_ui.roi_filters[new_id] = img_data.get("roi_filter", "")
-                gui.roi_ui.roi_sort_orders[new_id] = img_data.get(
-                    "roi_sort_order", 0
-                )
+            # Restore ROI plugin filters and sort orders
+            roi_plugin = next((p for p in gui.plugins if p.plugin_id == "roi_plugin"), None) if gui else None
+            if roi_plugin and hasattr(roi_plugin, "_controller"):
+                roi_plugin._controller.roi_filters[new_id] = img_data.get("roi_filter", "")
+                roi_plugin._controller.roi_sort_orders[new_id] = img_data.get("roi_sort_order", 0)
 
             # Apply Overlays immediately since they are already loaded in RAM
             ov_info = img_data.get("overlay")
@@ -714,6 +727,11 @@ def load_workspace_sequence(gui, controller, filepath):
             viewer.set_image(new_id)
             viewer.orientation = ViewMode[v_data["orientation"]]
             viewer.needs_recenter = False
+
+            if "zoom" in v_data:
+                viewer.zoom = v_data["zoom"]
+            if "pan_offset" in v_data:
+                viewer.pan_offset = v_data["pan_offset"]
     yield
 
     show_loading_modal("Loading image...", "Restoring ROIs...")
@@ -957,7 +975,9 @@ def load_workspace_sequence(gui, controller, filepath):
         vs = controller.view_states[new_id]
         for p_id, p in vs.profiles.items():
             if getattr(p, "plot_open", False):
-                gui.profile_ui.on_profile_clicked(None, None, p_id)
+                profile_plugin = next((pl for pl in gui.plugins if pl.plugin_id == "profile_plugin"), None)
+                if profile_plugin:
+                    profile_plugin._ui.on_plot_clicked(None, None, p_id)
 
     controller.ui_needs_refresh = True
     gui.on_window_resize()

@@ -8,7 +8,6 @@ class ViewMode(Enum):
     AXIAL = auto()
     SAGITTAL = auto()
     CORONAL = auto()
-    HISTOGRAM = auto()
 
 
 class ProfileInteractionMode(Enum):

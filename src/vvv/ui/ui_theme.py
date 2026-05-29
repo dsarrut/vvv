@@ -8,8 +8,8 @@ def build_ui_config(controller):
     is_mac = sys.platform == "darwin"
 
     # Mac Retina scaling makes text blocks taller and gaps slightly tighter
-    av_h = 360 if is_mac else 360  # Active Viewer Height
-    ch_h = 160 if is_mac else 150  # Crosshair Height
+    av_h = 315 if is_mac else 315  # Active Viewer Height
+    ch_h = 145 if is_mac else 145  # Crosshair Height
     item_gap = 6 if is_mac else 8
 
     return {

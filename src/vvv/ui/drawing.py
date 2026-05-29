@@ -261,59 +261,6 @@ class OverlayDrawer:
         dpg.configure_item(front_node, show=False)
         viewer.active_axes_idx = back_idx
 
-    def draw_histogram_view(self):
-        viewer = self.viewer
-        if not viewer.view_state:
-            return
-
-        # Guard against tombstone memory drops mid-frame
-        if getattr(viewer.volume, "data", None) is None:
-            return
-
-        plot_tag = f"plot_{viewer.tag}"
-
-        if not dpg.does_item_exist(plot_tag):
-            with dpg.plot(
-                label=f"Histogram: {viewer.volume.name}",
-                parent=f"win_{viewer.tag}",
-                tag=plot_tag,
-                width=-1,
-                height=-1,
-            ):
-                dpg.add_plot_axis(
-                    dpg.mvXAxis, label="Voxel Value", tag=f"x_axis_{viewer.tag}"
-                )
-                dpg.add_plot_axis(
-                    dpg.mvYAxis, label="Count", tag=f"y_axis_{viewer.tag}"
-                )
-                dpg.add_line_series(
-                    [],
-                    [],
-                    label="Freq",
-                    parent=f"y_axis_{viewer.tag}",
-                    tag=f"series_{viewer.tag}",
-                )
-            viewer.view_state.histogram_is_dirty = True
-
-        dpg.configure_item(plot_tag, show=True)
-
-        if viewer.view_state.histogram_is_dirty:
-            viewer.view_state.update_histogram()
-        else:
-            return
-
-        y_data = (
-            np.log10(viewer.view_state.hist_data_y + 1)
-            if viewer.view_state.use_log_y
-            else viewer.view_state.hist_data_y
-        )
-        dpg.set_value(
-            f"series_{viewer.tag}",
-            [viewer.view_state.hist_data_x.tolist(), y_data.tolist()],
-        )
-        dpg.fit_axis_data(f"x_axis_{viewer.tag}")
-        dpg.fit_axis_data(f"y_axis_{viewer.tag}")
-
     def draw_scale_bar(self):
         viewer = self.viewer
 
@@ -393,7 +340,7 @@ class OverlayDrawer:
         text = f"{bar_mm:g} mm"
         text_x = int(x1 + (bar_px / 2) - ((len(text) * 7) / 2))
         dpg.draw_text(
-            [text_x, int(y - 20)],
+            [text_x, y - 20],
             text,
             color=color,
             size=14,
@@ -542,8 +489,6 @@ class OverlayDrawer:
                 dpg.configure_item(viewer.contour_node_tag, show=False)
             return
 
-        ext = getattr(viewer.view_state, "extraction", None)
-
         node = viewer.contour_node_tag
         if not dpg.does_item_exist(node):
             return
@@ -572,11 +517,25 @@ class OverlayDrawer:
                 )
 
         # Also track the mathematical state of the preview
-        ext_math_state = (
-            (ext.threshold_min, ext.threshold_max, ext.subpixel_accurate)
-            if ext
-            else None
-        )
+        ext_math_state = None
+        thr_plugin = None
+        if viewer.controller.gui and hasattr(viewer.controller.gui, "plugins"):
+            thr_plugin = next(
+                (
+                    p
+                    for p in viewer.controller.gui.plugins
+                    if p.plugin_id == "threshold_plugin"
+                ),
+                None,
+            )
+        if thr_plugin and viewer.image_id:
+            thr_state = thr_plugin._controller.get_image_state(viewer.image_id)
+            if thr_state and thr_state.is_enabled and thr_state.show_preview:
+                ext_math_state = (
+                    thr_state.threshold_min,
+                    thr_state.threshold_max,
+                    thr_state.subpixel_accurate,
+                )
 
         current_state = (
             viewer.image_id,
@@ -702,11 +661,9 @@ class OverlayDrawer:
                     col = list(profile.color)
                     if is_adjacent:
                         # Gradual dimming over ±6 slices relative to the settings base
-                        alpha = int(
-                            max(
-                                20,
-                                dim_base_alpha - (depth_diff * (dim_base_alpha / 7.5)),
-                            )
+                        alpha = max(
+                            20,
+                            dim_base_alpha - (depth_diff * (dim_base_alpha / 7.5)),
                         )
                         col[3] = alpha
                         dpg.draw_line(
@@ -717,13 +674,49 @@ class OverlayDrawer:
                             parent=node,
                         )
                     else:
-                        dpg.draw_line(s1, s2, color=col, thickness=2.0, parent=node)
-                        dpg.draw_circle(
-                            s1, 4, color=[255, 255, 255], fill=col, parent=node
+                        # Determine active (manipulating) or hovered state
+                        is_active = (
+                            viewer.profile_mode == ProfileInteractionMode.MANIPULATING
+                            and getattr(viewer, "active_profile_id", None) == p_id
                         )
-                        dpg.draw_circle(
-                            s2, 4, color=[255, 255, 255], fill=col, parent=node
+                        active_handle = getattr(viewer, "active_handle", None) if is_active else None
+
+                        is_hovered = (
+                            not is_active
+                            and getattr(viewer, "hovered_profile_id", None) == p_id
                         )
+                        hovered_handle = getattr(viewer, "hovered_handle_key", None) if is_hovered else None
+
+                        highlight_handle = active_handle or hovered_handle
+
+                        line_thick = 3.5 if highlight_handle == "middle" else 2.0
+                        dpg.draw_line(s1, s2, color=col, thickness=line_thick, parent=node)
+
+                        # Draw start circle (with a glowing halo if hovered/active)
+                        if highlight_handle == "start":
+                            dpg.draw_circle(
+                                s1, 8, color=[255, 255, 255, 180], thickness=1.5, parent=node
+                            )
+                            dpg.draw_circle(
+                                s1, 5, color=[255, 255, 255], fill=col, parent=node
+                            )
+                        else:
+                            dpg.draw_circle(
+                                s1, 4, color=[255, 255, 255], fill=col, parent=node
+                            )
+
+                        # Draw end circle (with a glowing halo if hovered/active)
+                        if highlight_handle == "end":
+                            dpg.draw_circle(
+                                s2, 8, color=[255, 255, 255, 180], thickness=1.5, parent=node
+                            )
+                            dpg.draw_circle(
+                                s2, 5, color=[255, 255, 255], fill=col, parent=node
+                            )
+                        else:
+                            dpg.draw_circle(
+                                s2, 4, color=[255, 255, 255], fill=col, parent=node
+                            )
 
             # Case 2: The segment is cross-plane (Show clue ring)
             else:
