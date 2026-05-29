@@ -31,8 +31,8 @@ class SyncManager:
                 if viewer.image_id:
                     active_set.add(viewer.image_id)
                     # Also keep the overlay active if it's being displayed.
-                    if viewer.view_state and viewer.view_state.display.overlay_id:
-                        active_set.add(viewer.view_state.display.overlay_id)
+                    if viewer.view_state and viewer.view_state.display.overlay.image_id:
+                        active_set.add(viewer.view_state.display.overlay.image_id)
             group_ids = [tid for tid in group_ids if tid in active_set]
 
         return group_ids
@@ -58,7 +58,7 @@ class SyncManager:
 
         # If any modified image is acting as an overlay, force its base image to redraw too
         for vs in list(self.controller.view_states.values()):
-            if vs.display.overlay_id in modified_ids:
+            if vs.display.overlay.image_id in modified_ids:
                 vs.is_data_dirty = True
 
     # ==========================================
@@ -149,18 +149,18 @@ class SyncManager:
                 continue
 
             # 1. Top-Down
-            if t_vs.display.overlay_id and t_vs.display.overlay_mode == "Registration":
-                ovs = self.controller.view_states.get(t_vs.display.overlay_id)
+            if t_vs.display.overlay.image_id and t_vs.display.overlay.mode == "Registration":
+                ovs = self.controller.view_states.get(t_vs.display.overlay.image_id)
                 if ovs and not getattr(ovs.volume, "is_rgb", False):
                     ovs.display.ww = new_ww
                     ovs.display.wl = new_wl
-                    dirty_ids.add(t_vs.display.overlay_id)
+                    dirty_ids.add(t_vs.display.overlay.image_id)
 
             # 2. Bottom-Up
             for base_id, base_vs in list(self.controller.view_states.items()):
                 if (
-                    base_vs.display.overlay_id == tid
-                    and base_vs.display.overlay_mode == "Registration"
+                    base_vs.display.overlay.image_id == tid
+                    and base_vs.display.overlay.mode == "Registration"
                 ):
                     if not getattr(base_vs.volume, "is_rgb", False):
                         base_vs.display.ww = new_ww
@@ -265,12 +265,12 @@ class SyncManager:
             vs = self.controller.view_states.get(tid)
             if not vs:
                 continue
-            vs.display.overlay_mode = source_vs.display.overlay_mode
-            vs.display.overlay_checkerboard_size = (
-                source_vs.display.overlay_checkerboard_size
+            vs.display.overlay.mode = source_vs.display.overlay.mode
+            vs.display.overlay.checkerboard_size = (
+                source_vs.display.overlay.checkerboard_size
             )
-            vs.display.overlay_checkerboard_swap = (
-                source_vs.display.overlay_checkerboard_swap
+            vs.display.overlay.swap = (
+                source_vs.display.overlay.swap
             )
 
         self.trigger_redraw(target_ids)

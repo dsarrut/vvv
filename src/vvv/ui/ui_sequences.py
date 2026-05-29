@@ -709,8 +709,8 @@ def load_workspace_sequence(gui, controller, filepath):
                         ov_vs.display.base_threshold = ov_info["threshold"]
 
                     vs.set_overlay(ov_id, controller.volumes[ov_id], controller)
-                    vs.display.overlay_mode = ov_info.get("mode", "Registration")
-                    vs.display.overlay_opacity = ov_info.get("opacity", 0.5)
+                    vs.display.overlay.mode = ov_info.get("mode", "Registration")
+                    vs.display.overlay.opacity = ov_info.get("opacity", 0.5)
 
     # --- PHASE 4: MAP VIEWERS ---
     for tag, v_data in ws.get("viewers", {}).items():
@@ -1113,10 +1113,10 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
 
                 base_vs = controller.view_states[base_id]
                 base_vs.set_overlay(fuse_id, fuse_vs.volume, controller)
-                base_vs.display.overlay_opacity = task["fusion"]["opacity"]
+                base_vs.display.overlay.opacity = task["fusion"]["opacity"]
 
                 if "mode" in task["fusion"]:
-                    base_vs.display.overlay_mode = task["fusion"]["mode"]
+                    base_vs.display.overlay.mode = task["fusion"]["mode"]
 
     controller.default_viewers_orientation()
 

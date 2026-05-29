@@ -181,18 +181,18 @@ class FusionUI:
             # Check if overlay is set AND actively exists in memory (guard against stale history references)
             if (
                 viewer.view_state
-                and viewer.view_state.display.overlay_id in self.controller.view_states
+                and viewer.view_state.display.overlay.image_id in self.controller.view_states
             ):
                 has_overlay = True
                 # Use the new helper for the currently selected item
                 opt_name, _ = self.controller.get_image_display_name(
-                    viewer.view_state.display.overlay_id
+                    viewer.view_state.display.overlay.image_id
                 )
                 current_sel = opt_name
 
             dpg.set_value("combo_fusion_select", current_sel)
 
-            mode = viewer.view_state.display.overlay_mode
+            mode = viewer.view_state.display.overlay.mode
             is_chk = mode == "Checkerboard"
             is_reg = mode == "Registration"
             if dpg.does_item_exist("slider_fusion_opacity"):
@@ -210,7 +210,7 @@ class FusionUI:
             thr = None
             ov_vs = None
             if has_overlay:
-                ov_vs = self.controller.view_states.get(viewer.view_state.display.overlay_id)
+                ov_vs = self.controller.view_states.get(viewer.view_state.display.overlay.image_id)
                 if ov_vs and ov_vs.volume:
                     is_ov_rgb = ov_vs.volume.is_rgb
                     is_ov_dvf = getattr(ov_vs.volume, "is_dvf", False)
@@ -272,14 +272,14 @@ class FusionUI:
             if dpg.does_item_exist("combo_fusion_mode"):
                 is_ov_dvf = False
                 if has_overlay:
-                    ov_vs = self.controller.view_states.get(viewer.view_state.display.overlay_id)
+                    ov_vs = self.controller.view_states.get(viewer.view_state.display.overlay.image_id)
                     if ov_vs and getattr(ov_vs.volume, "is_dvf", False):
                         is_ov_dvf = True
-                        
+
                 if is_ov_dvf:
                     dpg.configure_item("combo_fusion_mode", items=["DVF"], enabled=False)
-                    if viewer.view_state.display.overlay_mode != "DVF":
-                        viewer.view_state.display.overlay_mode = "DVF"
+                    if viewer.view_state.display.overlay.mode != "DVF":
+                        viewer.view_state.display.overlay.mode = "DVF"
                         viewer.view_state.is_data_dirty = True
                     if dpg.does_item_exist("tooltip_fusion_mode"):
                         dpg.configure_item("tooltip_fusion_mode", show=False)
@@ -291,8 +291,8 @@ class FusionUI:
                         dpg.configure_item("tooltip_fusion_mode", show=True)
                     if dpg.does_item_exist("text_fusion_mode_restricted"):
                         dpg.configure_item("text_fusion_mode_restricted", show=True)
-                    if viewer.view_state.display.overlay_mode != "Alpha":
-                        viewer.view_state.display.overlay_mode = "Alpha"
+                    if viewer.view_state.display.overlay.mode != "Alpha":
+                        viewer.view_state.display.overlay.mode = "Alpha"
                         viewer.view_state.is_data_dirty = True
                 else:
                     dpg.configure_item("combo_fusion_mode", items=["Alpha", "Registration", "Checkerboard"], enabled=True)
@@ -300,9 +300,9 @@ class FusionUI:
                         dpg.configure_item("tooltip_fusion_mode", show=False)
                     if dpg.does_item_exist("text_fusion_mode_restricted"):
                         dpg.configure_item("text_fusion_mode_restricted", show=False)
-                
+
                 # Force the UI to reflect the actual mode in state!
-                dpg.set_value("combo_fusion_mode", viewer.view_state.display.overlay_mode)
+                dpg.set_value("combo_fusion_mode", viewer.view_state.display.overlay.mode)
 
             if dpg.does_item_exist("group_fusion_checkerboard"):
                 dpg.configure_item(
@@ -320,7 +320,7 @@ class FusionUI:
         if (
             not viewer
             or not viewer.view_state
-            or not viewer.view_state.display.overlay_id
+            or not viewer.view_state.display.overlay.image_id
         ):
             for t in [
                 "drag_fusion_ww",
@@ -331,7 +331,7 @@ class FusionUI:
                         dpg.set_value(t, 0.0)
             return
 
-        ov_vs = self.controller.view_states.get(viewer.view_state.display.overlay_id)
+        ov_vs = self.controller.view_states.get(viewer.view_state.display.overlay.image_id)
         if not ov_vs:
             return
 
@@ -359,39 +359,39 @@ class FusionUI:
     # Callbacks
     def on_fusion_ww_changed(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer
-        if not viewer or not viewer.view_state or not viewer.view_state.display.overlay_id:
+        if not viewer or not viewer.view_state or not viewer.view_state.display.overlay.image_id:
             return
 
-        ovs = self.controller.view_states.get(viewer.view_state.display.overlay_id)
+        ovs = self.controller.view_states.get(viewer.view_state.display.overlay.image_id)
         if not ovs or getattr(ovs.volume, "is_rgb", False):
             return
 
         ovs.display.ww = max(1e-20, app_data)
         viewer.view_state.is_data_dirty = True
         ovs.is_data_dirty = True
-        self.controller.sync.propagate_window_level(viewer.view_state.display.overlay_id)
+        self.controller.sync.propagate_window_level(viewer.view_state.display.overlay.image_id)
         self.controller.update_all_viewers_of_image(viewer.image_id)
 
     def on_fusion_wl_changed(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer
-        if not viewer or not viewer.view_state or not viewer.view_state.display.overlay_id:
+        if not viewer or not viewer.view_state or not viewer.view_state.display.overlay.image_id:
             return
 
-        ovs = self.controller.view_states.get(viewer.view_state.display.overlay_id)
+        ovs = self.controller.view_states.get(viewer.view_state.display.overlay.image_id)
         if not ovs or getattr(ovs.volume, "is_rgb", False):
             return
 
         ovs.display.wl = app_data
         viewer.view_state.is_data_dirty = True
         ovs.is_data_dirty = True
-        self.controller.sync.propagate_window_level(viewer.view_state.display.overlay_id)
+        self.controller.sync.propagate_window_level(viewer.view_state.display.overlay.image_id)
         self.controller.update_all_viewers_of_image(viewer.image_id)
 
     def on_fusion_threshold_toggle(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer
-        if not viewer or not viewer.view_state or not viewer.view_state.display.overlay_id:
+        if not viewer or not viewer.view_state or not viewer.view_state.display.overlay.image_id:
             return
-        ovs = self.controller.view_states.get(viewer.view_state.display.overlay_id)
+        ovs = self.controller.view_states.get(viewer.view_state.display.overlay.image_id)
         if not ovs:
             return
 
@@ -404,35 +404,35 @@ class FusionUI:
 
         viewer.view_state.is_data_dirty = True
         ovs.is_data_dirty = True
-        self.controller.sync.propagate_window_level(viewer.view_state.display.overlay_id)
+        self.controller.sync.propagate_window_level(viewer.view_state.display.overlay.image_id)
         self.controller.update_all_viewers_of_image(viewer.image_id)
         self.controller.ui_needs_refresh = True
 
     def on_fusion_threshold_changed(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer
-        if not viewer or not viewer.view_state or not viewer.view_state.display.overlay_id:
+        if not viewer or not viewer.view_state or not viewer.view_state.display.overlay.image_id:
             return
-        ovs = self.controller.view_states.get(viewer.view_state.display.overlay_id)
+        ovs = self.controller.view_states.get(viewer.view_state.display.overlay.image_id)
         if not ovs:
             return
 
         ovs.display.base_threshold = app_data
         if dpg.does_item_exist("check_fusion_threshold"):
             dpg.set_value("check_fusion_threshold", True)
-            
+
         viewer.view_state.is_data_dirty = True
         ovs.is_data_dirty = True
-        self.controller.sync.propagate_window_level(viewer.view_state.display.overlay_id)
+        self.controller.sync.propagate_window_level(viewer.view_state.display.overlay.image_id)
         self.controller.update_all_viewers_of_image(viewer.image_id)
 
     def on_step_button_clicked(self, sender, app_data, user_data):
         target_tag = user_data["tag"]
         direction = user_data["dir"]
-        
+
         viewer = self.gui.context_viewer
         step_size = 1.0
-        if viewer and viewer.view_state and viewer.view_state.display.overlay_id:
-            ovs = self.controller.view_states.get(viewer.view_state.display.overlay_id)
+        if viewer and viewer.view_state and viewer.view_state.display.overlay.image_id:
+            ovs = self.controller.view_states.get(viewer.view_state.display.overlay.image_id)
             if ovs:
                 step_size = max(0.1, ovs.display.ww * 0.02)
                 
@@ -488,7 +488,7 @@ class FusionUI:
         viewer = self.gui.context_viewer
         if not viewer or not viewer.view_state:
             return
-        viewer.view_state.display.overlay_mode = app_data
+        viewer.view_state.display.overlay.mode = app_data
         viewer.view_state.is_data_dirty = True
 
         if app_data == "Registration":
@@ -503,14 +503,14 @@ class FusionUI:
             return
 
         if sender == "slider_fusion_chk_size":
-            viewer.view_state.display.overlay_checkerboard_size = app_data
+            viewer.view_state.display.overlay.checkerboard_size = app_data
         elif sender == "check_fusion_chk_swap":
-            viewer.view_state.display.overlay_checkerboard_swap = app_data
+            viewer.view_state.display.overlay.swap = app_data
 
         viewer.view_state.is_data_dirty = True
         self.controller.sync.propagate_overlay_mode(viewer.image_id)
 
     def on_fusion_opacity_changed(self, sender, app_data, user_data):
         if self.gui.context_viewer and self.gui.context_viewer.view_state:
-            self.gui.context_viewer.view_state.display.overlay_opacity = app_data
+            self.gui.context_viewer.view_state.display.overlay.opacity = app_data
             self.gui.context_viewer.view_state.is_data_dirty = True

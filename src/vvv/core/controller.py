@@ -263,9 +263,9 @@ class Controller:
 
             # 2. Fused Target Overlay Value
             overlay_val = None
-            if vs.display.overlay_id and vs.display.overlay_id in self.volumes:
-                ov_vol = self.volumes[vs.display.overlay_id]
-                ov_vs = self.view_states[vs.display.overlay_id]
+            if vs.display.overlay.image_id and vs.display.overlay.image_id in self.volumes:
+                ov_vol = self.volumes[vs.display.overlay.image_id]
+                ov_vs = self.view_states[vs.display.overlay.image_id]
                 overlay_val, _, _, _ = self._get_voxel_value(ov_vol, ov_vs, phys_coord, time_idx)
 
             # 3. Intersecting ROIs (ROIs share the Base Image's spatial grid)
@@ -372,7 +372,7 @@ class Controller:
     def _flag_viewers_for_image(self, vs_id, data_dirty=False, geometry_dirty=False):
         """Set dirty flags on all viewers that display vs_id as base image or overlay."""
         for v in self.viewers.values():
-            if v.image_id == vs_id or (v.view_state and v.view_state.display.overlay_id == vs_id):
+            if v.image_id == vs_id or (v.view_state and v.view_state.display.overlay.image_id == vs_id):
                 if data_dirty:
                     v.is_viewer_data_dirty = True
                 if geometry_dirty:
@@ -452,11 +452,11 @@ class Controller:
                 self._discard_resample(my_job_id)
                 return
 
-            if vs.display.overlay_id:
+            if vs.display.overlay.image_id:
                 vs.update_overlay_display_data(self, image_id, my_job_id)
 
             for other_vs in self.view_states.values():
-                if other_vs.display.overlay_id == image_id:
+                if other_vs.display.overlay.image_id == image_id:
                     other_vs.update_overlay_display_data(self, image_id, my_job_id)
 
             # --- Late exit: check after overlay resampling ---
@@ -491,12 +491,12 @@ class Controller:
         the wrong rotation. The next valid resample will restore correct overlay data.
         """
         vs = self.view_states.get(image_id)
-        if vs and vs.display.overlay_id:
+        if vs and vs.display.overlay.image_id:
             with vs.display._lock:
                 vs.display.overlay_data = None
                 vs.display._sitk_overlay_cache = None
         for other_vs in self.view_states.values():
-            if other_vs.display.overlay_id == image_id:
+            if other_vs.display.overlay.image_id == image_id:
                 with other_vs.display._lock:
                     other_vs.display.overlay_data = None
                     other_vs.display._sitk_overlay_cache = None
@@ -663,9 +663,9 @@ class Controller:
             "ww": vs.display.ww,
             "wl": vs.display.wl,
             "cmap": vs.display.colormap,
-            "overlay_id": vs.display.overlay_id,
-            "overlay_mode": getattr(vs.display, "overlay_mode", "Alpha"),
-            "overlay_opacity": getattr(vs.display, "overlay_opacity", 0.5),
+            "overlay_id": vs.display.overlay.image_id,
+            "overlay_mode": vs.display.overlay.mode,
+            "overlay_opacity": vs.display.overlay.opacity,
         }
 
     def _tombstone_image_memory(self, vs_id, vs, vol):
@@ -678,7 +678,7 @@ class Controller:
         vol.data = None
 
         for other_vs in self.view_states.values():
-            if getattr(other_vs.display, "overlay_id", None) == vs_id:
+            if other_vs.display.overlay.image_id == vs_id:
                 with other_vs.display._lock:
                     other_vs.display.overlay_data = (
                         None  # Sever the other viewstate's overlay if it points to us
@@ -748,12 +748,12 @@ class Controller:
         """Restores fusions that were attached to this image, or that this image was attached to."""
         # 1. Fix images that rely on us
         for other_id, other_vs in list(self.view_states.items()):
-            if getattr(other_vs.display, "overlay_id", None) == vs_id:
-                old_m = getattr(other_vs.display, "overlay_mode", "Alpha")
-                old_o = getattr(other_vs.display, "overlay_opacity", 0.5)
+            if other_vs.display.overlay.image_id == vs_id:
+                old_m = other_vs.display.overlay.mode
+                old_o = other_vs.display.overlay.opacity
                 other_vs.set_overlay(vs_id, vol, self)
-                other_vs.display.overlay_mode = old_m
-                other_vs.display.overlay_opacity = old_o
+                other_vs.display.overlay.mode = old_m
+                other_vs.display.overlay.opacity = old_o
                 if hasattr(other_vs, "update_overlay_display_data"):
                     other_vs.update_overlay_display_data(self)
                 self.update_all_viewers_of_image(other_id)
@@ -762,8 +762,8 @@ class Controller:
         if old_state["overlay_id"] and old_state["overlay_id"] in self.volumes:
             ov_vol = self.volumes[old_state["overlay_id"]]
             vs.set_overlay(old_state["overlay_id"], ov_vol, self)
-            vs.display.overlay_mode = old_state["overlay_mode"]
-            vs.display.overlay_opacity = old_state["overlay_opacity"]
+            vs.display.overlay.mode = old_state["overlay_mode"]
+            vs.display.overlay.opacity = old_state["overlay_opacity"]
             if hasattr(vs, "update_overlay_display_data"):
                 vs.update_overlay_display_data(self)
             self.update_all_viewers_of_image(vs_id)

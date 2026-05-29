@@ -406,14 +406,14 @@ def compute_native_voxel_overlay(
     Registration transforms are applied analytically via numpy matrix math.
     """
     vs = viewer.view_state
-    if not vs or not vs.display.overlay_id:
+    if not vs or not vs.display.overlay.image_id:
         return None
-    if vs.display.overlay_id not in viewer.controller.view_states:
+    if vs.display.overlay.image_id not in viewer.controller.view_states:
         return None
 
-    ovs = viewer.controller.view_states[vs.display.overlay_id]
+    ovs = viewer.controller.view_states[vs.display.overlay.image_id]
     base_vol = viewer.volume
-    ov_vol = viewer.controller.volumes.get(vs.display.overlay_id)
+    ov_vol = viewer.controller.volumes.get(vs.display.overlay.image_id)
     if not base_vol or not ov_vol or ov_vol.data is None:
         return None
 

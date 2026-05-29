@@ -56,7 +56,7 @@ class TestDicomPlugin(unittest.TestCase):
         # scan_dicom_folder yields tuples: (progress, status) or (progress, status, series_list)
         mock_scan_generator = [
             (0.5, "folder1"),
-            (1.0, "done", [self.series_data])
+            (1.0, "done", [self.series_data], [])
         ]
         self.mock_api.scan_dicom_folder.return_value = mock_scan_generator
 

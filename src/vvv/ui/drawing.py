@@ -778,10 +778,10 @@ class OverlayDrawer:
         is_base_dvf = getattr(vol, "is_dvf", False)
         draw_base = is_base_dvf and vs.dvf.display_mode == "Vector Field"
 
-        ov_id = vs.display.overlay_id
+        ov_id = vs.display.overlay.image_id
         ov_vs = viewer.controller.view_states.get(ov_id) if ov_id else None
         is_ov_dvf = getattr(ov_vs.volume, "is_dvf", False) if ov_vs else False
-        draw_ov = is_ov_dvf and vs.display.overlay_mode == "DVF"
+        draw_ov = is_ov_dvf and vs.display.overlay.mode == "DVF"
 
         if not draw_base and not draw_ov:
             dpg.configure_item(node_tag, show=False)

@@ -177,18 +177,18 @@ def test_gui_fusion_controls(headless_gui_app, synthetic_volume_factory, monkeyp
     gui.fusion_ui.on_fusion_target_selected(
         sender=None, app_data=opt_name, user_data=None
     )
-    assert vs.display.overlay_id == ov_id
+    assert vs.display.overlay.image_id == ov_id
     assert vs.display.overlay_data is not None
 
     # 4. Simulate UI: Change Opacity
     gui.fusion_ui.on_fusion_opacity_changed(sender=None, app_data=0.75, user_data=None)
-    assert vs.display.overlay_opacity == 0.75
+    assert vs.display.overlay.opacity == 0.75
 
     # 5. Simulate UI: Change Mode to Checkerboard
     gui.fusion_ui.on_fusion_mode_changed(
         sender=None, app_data="Checkerboard", user_data=None
     )
-    assert vs.display.overlay_mode == "Checkerboard"
+    assert vs.display.overlay.mode == "Checkerboard"
 
 
 def test_cli_boot_sequence_logic(headless_gui_app, synthetic_volume_factory):

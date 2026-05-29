@@ -292,17 +292,17 @@ class FileManager:
             # Extract Overlay Info
             overlay_info = None
             if (
-                vs.display.overlay_id
-                and vs.display.overlay_id in self.controller.volumes
+                vs.display.overlay.image_id
+                and vs.display.overlay.image_id in self.controller.volumes
             ):
-                ov_vol = self.controller.volumes[vs.display.overlay_id]
+                ov_vol = self.controller.volumes[vs.display.overlay.image_id]
                 overlay_info = {
-                    "id": vs.display.overlay_id,
+                    "id": vs.display.overlay.image_id,
                     "path": portable_path(ov_vol.file_paths[0]),
-                    "mode": vs.display.overlay_mode,
-                    "opacity": vs.display.overlay_opacity,
+                    "mode": vs.display.overlay.mode,
+                    "opacity": vs.display.overlay.opacity,
                     "colormap": self.controller.view_states[
-                        vs.display.overlay_id
+                        vs.display.overlay.image_id
                     ].display.colormap,
                 }
 
@@ -377,7 +377,7 @@ class FileManager:
                     self.controller.layout[tag] = None
 
             for other_id, other_vs in self.controller.view_states.items():
-                if other_vs.display.overlay_id == vs_id:
+                if other_vs.display.overlay.image_id == vs_id:
                     other_vs.set_overlay(None, None)
                     self.controller.update_all_viewers_of_image(other_id)
 

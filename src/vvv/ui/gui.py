@@ -88,10 +88,10 @@ class MainGUI:
             "drag_ww": "display.ww",
             "drag_wl": "display.wl",
             "combo_colormap": "display.colormap",
-            "slider_fusion_opacity": "display.overlay_opacity",
-            "combo_fusion_mode": "display.overlay_mode",
-            "slider_fusion_chk_size": "display.overlay_checkerboard_size",
-            "check_fusion_chk_swap": "display.overlay_checkerboard_swap",
+            "slider_fusion_opacity": "display.overlay.opacity",
+            "combo_fusion_mode": "display.overlay.mode",
+            "slider_fusion_chk_size": "display.overlay.checkerboard_size",
+            "check_fusion_chk_swap": "display.overlay.swap",
             "check_show_contour": "camera.show_contour",
         }
 
@@ -1019,7 +1019,7 @@ class MainGUI:
                 val_str = format_pixel_value(info["base_val"], vol, time_idx)
 
                 if info["overlay_val"] is not None:
-                    ov_vol = self.controller.volumes.get(vs.display.overlay_id)
+                    ov_vol = self.controller.volumes.get(vs.display.overlay.image_id)
                     val_str += f" ({format_pixel_value(info['overlay_val'], ov_vol, time_idx)})"
 
                 if info["rois"]:
@@ -1563,7 +1563,7 @@ class MainGUI:
         if viewer:
             vs = viewer.view_state
             has_fusion = bool(
-                vs and vs.display.overlay_id and vs.display.overlay_mode == "Alpha"
+                vs and vs.display.overlay.image_id and vs.display.overlay.mode == "Alpha"
             )
             use_gl = cfg.get("gl_nearest", True)
             is_hw = GL_NEAREST_SUPPORTED and use_gl

@@ -23,7 +23,7 @@ class DvfController(PluginTagMixin):
         is_base = getattr(viewer.volume, "is_dvf", False)
         if is_base:
             return viewer.view_state, True
-        ov_id = viewer.view_state.display.overlay_id
+        ov_id = viewer.view_state.display.overlay.image_id
         if ov_id:
             ov_vs = self._api.get_view_states().get(ov_id)
             if ov_vs and getattr(ov_vs.volume, "is_dvf", False):

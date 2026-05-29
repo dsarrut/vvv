@@ -182,7 +182,7 @@ def test_4d_base_3d_overlay_time_scrub_no_crash(headless_4d_overlay_app):
         controller.tick()  # must not raise
 
     # Overlay must remain mounted throughout — rendering the clamped frame must not clear it
-    assert vs4d.display.overlay_id == vs_id_3d, \
+    assert vs4d.display.overlay.image_id == vs_id_3d, \
         "Overlay was unexpectedly cleared during time scrub"
 
 

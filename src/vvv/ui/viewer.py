@@ -274,7 +274,7 @@ class SliceViewer:
     @property
     def has_fusion(self) -> bool:
         vs = self.view_state
-        return bool(vs and vs.display.overlay_id and vs.display.overlay_mode == "Alpha")
+        return bool(vs and vs.display.overlay.image_id and vs.display.overlay.mode == "Alpha")
 
     @property
     def nn_mode(self) -> NNMode:
@@ -973,11 +973,11 @@ class SliceViewer:
         if pixelated_changed:
             self.is_geometry_dirty = True
 
-        ov_id = vs.display.overlay_id if vs else None
+        ov_id = vs.display.overlay.image_id if vs else None
         has_nn_overlay = (
             ov_id is not None
             and ov_id in self.controller.view_states
-            and vs.display.overlay_mode == "Alpha"
+            and vs.display.overlay.mode == "Alpha"
         )
         is_hw_gl = self._is_hw_gl
         is_canvas_sized = pixelated and not is_hw_gl
@@ -1144,9 +1144,9 @@ class SliceViewer:
             return
 
         if target == "overlay":
-            if not vs.display.overlay_id or vs.display.overlay_data is None:
+            if not vs.display.overlay.image_id or vs.display.overlay_data is None:
                 return
-            ov_vol = self.controller.volumes[vs.display.overlay_id]
+            ov_vol = self.controller.volumes[vs.display.overlay.image_id]
             is_ov_rgb = getattr(ov_vol, "is_rgb", False)
             ov_time_idx = min(vs.camera.time_idx, ov_vol.num_timepoints - 1)
             slice_data = SliceRenderer.extract_slice(
@@ -1194,7 +1194,7 @@ class SliceViewer:
         patch = slice_data[y0:y1, x0:x1]
 
         if target == "overlay":
-            ovs = self.controller.view_states.get(vs.display.overlay_id)
+            ovs = self.controller.view_states.get(vs.display.overlay.image_id)
             if ovs:
                 thr = ovs.display.base_threshold
                 if thr is not None:
@@ -1208,11 +1208,11 @@ class SliceViewer:
             self._mark_lazy_interaction()
 
             if target == "overlay":
-                ovs = self.controller.view_states.get(vs.display.overlay_id)
+                ovs = self.controller.view_states.get(vs.display.overlay.image_id)
                 if ovs:
                     ovs.display.ww = ww
                     ovs.display.wl = wl
-                    self.controller.sync.propagate_window_level(vs.display.overlay_id)
+                    self.controller.sync.propagate_window_level(vs.display.overlay.image_id)
             else:
                 self.update_window_level(ww, wl)
 
@@ -1288,7 +1288,7 @@ class SliceViewer:
                     pass
             f_name = f"({img_idx_str}) {vol.get_human_readable_file_path()}"
 
-        ov_id = self.view_state.display.overlay_id
+        ov_id = self.view_state.display.overlay.image_id
         if ov_id and ov_id in self.controller.volumes:
             ov_vol = self.controller.volumes[ov_id]
             if show_state == 1:
@@ -1374,10 +1374,10 @@ class SliceViewer:
         with vs.display._lock:
             if vs.display.overlay_data is None:
                 return None
-            if vs.display.overlay_id not in self.controller.view_states:
+            if vs.display.overlay.image_id not in self.controller.view_states:
                 return None
 
-            ovs = self.controller.view_states[vs.display.overlay_id]
+            ovs = self.controller.view_states[vs.display.overlay.image_id]
 
             # ---------------------------------------------------------
             # 2D OVERLAY PHYSICAL CLAMPING
@@ -1405,7 +1405,7 @@ class SliceViewer:
             self.active_overlay_shift_y = dy
 
             # Delegate to GPU if Alpha or DVF, fallback to CPU Array Slicing if Registration/Checkerboard
-            if vs.display.overlay_mode in ("Alpha", "DVF"):
+            if vs.display.overlay.mode in ("Alpha", "DVF"):
                 off_x, off_y = 0, 0
             else:
                 off_x = int(round(dx))
@@ -1562,7 +1562,7 @@ class SliceViewer:
             return
 
         # Render Base & Overlay Separately
-        if vs.display.overlay_mode == "Alpha" and overlay_layer is not None:
+        if vs.display.overlay.mode == "Alpha" and overlay_layer is not None:
             self.last_rgba_flat, self.last_rgba_shape = SliceRenderer.get_slice_rgba(
                 base=base_layer,
                 overlay=None,
@@ -1588,12 +1588,12 @@ class SliceViewer:
             self.last_rgba_flat, self.last_rgba_shape = SliceRenderer.get_slice_rgba(
                 base=base_layer,
                 overlay=overlay_layer,
-                overlay_opacity=vs.display.overlay_opacity,
-                overlay_mode=vs.display.overlay_mode,
+                overlay_opacity=vs.display.overlay.opacity,
+                overlay_mode=vs.display.overlay.mode,
                 slice_idx=self.slice_idx,
                 orientation=self.orientation,
-                checkerboard_size=vs.display.overlay_checkerboard_size,
-                checkerboard_swap=vs.display.overlay_checkerboard_swap,
+                checkerboard_size=vs.display.overlay.checkerboard_size,
+                checkerboard_swap=vs.display.overlay.swap,
                 rois=active_rois,
             )
             self.last_overlay_rgba_flat = None
@@ -1630,8 +1630,8 @@ class SliceViewer:
         )
 
         has_alpha_overlay = (
-            vs.display.overlay_id
-            and vs.display.overlay_mode == "Alpha"
+            vs.display.overlay.image_id
+            and vs.display.overlay.mode == "Alpha"
             and self.last_overlay_rgba_flat is not None
         )
 
@@ -1652,7 +1652,7 @@ class SliceViewer:
             rgba_2d = blend_slices_cpu(
                 rgba_2d,
                 ov_rgba_2d,
-                vs.display.overlay_opacity,
+                vs.display.overlay.opacity,
                 self.active_overlay_shift_x,
                 self.active_overlay_shift_y,
             )
@@ -1701,7 +1701,7 @@ class SliceViewer:
                 canvas_w,
                 canvas_h,
                 target_buffer=nn_base,
-                opacity=vs.display.overlay_opacity,
+                opacity=vs.display.overlay.opacity,
             )
 
         self._safe_set_texture(
@@ -1718,7 +1718,7 @@ class SliceViewer:
             return
 
         vs = self.view_state
-        if not vs or not vs.display.overlay_id or vs.display.overlay_mode != "Alpha":
+        if not vs or not vs.display.overlay.image_id or vs.display.overlay.mode != "Alpha":
             return
 
         if self.last_overlay_rgba_flat is None:
@@ -1899,7 +1899,7 @@ class SliceViewer:
 
         dpg.configure_item(self.image_tag, show=True)
 
-        op = int(vs.display.overlay_opacity * 255)
+        op = int(vs.display.overlay.opacity * 255)
         has_overlay = (
             self.last_overlay_rgba_flat is not None
             and hasattr(self, "overlay_image_tag")
@@ -2089,7 +2089,7 @@ class SliceViewer:
             is_dragging,
             target_phys_tuple,
             is_hovered,
-            vs.display.overlay_id,
+            vs.display.overlay.image_id,
             vs.dvf.vector_precision,
         )
         if self._last_tracker_state == tracker_state:
@@ -2172,8 +2172,8 @@ class SliceViewer:
 
             if info["overlay_val"] is not None:
                 ov_val = info["overlay_val"]
-                ov_vol = self.controller.volumes.get(vs.display.overlay_id)
-                ov_vs = self.controller.view_states.get(vs.display.overlay_id)
+                ov_vol = self.controller.volumes.get(vs.display.overlay.image_id)
+                ov_vs = self.controller.view_states.get(vs.display.overlay.image_id)
                 ov_dvf_prec = (
                     ov_vs.dvf.vector_precision
                     if (ov_vs and getattr(ov_vol, "is_dvf", False))

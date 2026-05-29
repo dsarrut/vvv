@@ -174,6 +174,59 @@ class CameraState:
             self.crosshair_phys_coord = np.array(d["crosshair_phys_coord"])
 
 
+class OverlayConfig:
+    """Groups all overlay/fusion configuration fields."""
+
+    _parent_vs: "ViewState | None"
+
+    image_id: str | None
+    opacity: float
+    mode: str
+    checkerboard_size: float
+    swap: bool
+
+    _FIELDS = {"image_id", "opacity", "mode", "checkerboard_size", "swap"}
+
+    def __init__(self, parent_vs: "ViewState | None" = None):
+        self._parent_vs = parent_vs
+        object.__setattr__(self, "image_id", None)
+        object.__setattr__(self, "opacity", 0.5)
+        object.__setattr__(self, "mode", "Alpha")
+        object.__setattr__(self, "checkerboard_size", 20.0)
+        object.__setattr__(self, "swap", False)
+
+    def __setattr__(self, name, value):
+        if name in self._FIELDS and getattr(self, name, _SENTINEL) != value:
+            object.__setattr__(self, name, value)
+            parent = getattr(self, "_parent_vs", None)
+            if parent is not None:
+                parent.is_data_dirty = True
+            return
+        object.__setattr__(self, name, value)
+
+    def to_dict(self):
+        # Keep old key names for workspace file backward compatibility
+        return {
+            "overlay_opacity": float(self.opacity),
+            "overlay_mode": str(self.mode),
+            "overlay_checkerboard_size": float(self.checkerboard_size),
+            "overlay_checkerboard_swap": self.swap,
+        }
+
+    def from_dict(self, d):
+        self.opacity = d.get("overlay_opacity", self.opacity)
+        self.mode = d.get("overlay_mode", self.mode)
+        self.checkerboard_size = d.get("overlay_checkerboard_size", self.checkerboard_size)
+        self.swap = d.get("overlay_checkerboard_swap", self.swap)
+
+    def reset(self):
+        self.image_id = None
+        self.opacity = 0.5
+        self.mode = "Alpha"
+        self.checkerboard_size = 20.0
+        self.swap = False
+
+
 class DisplayState:
     """Stores all radiometric and rendering properties."""
 
@@ -184,11 +237,6 @@ class DisplayState:
     wl: float
     colormap: str
     base_threshold: float | None
-    overlay_id: str | None
-    overlay_opacity: float
-    overlay_mode: str
-    overlay_checkerboard_size: float
-    overlay_checkerboard_swap: bool
     pixelated_zoom: bool
     use_voxel_strips: bool
 
@@ -198,11 +246,6 @@ class DisplayState:
         "wl",
         "colormap",
         "base_threshold",
-        "overlay_id",
-        "overlay_opacity",
-        "overlay_mode",
-        "overlay_checkerboard_size",
-        "overlay_checkerboard_swap",
         "pixelated_zoom",
         "use_voxel_strips",
     }
@@ -213,16 +256,12 @@ class DisplayState:
         self.overlay_data: np.ndarray | None = None
         self._sitk_overlay_cache = None
         self.baked_overlay_translation = (0.0, 0.0, 0.0)
+        self.overlay = OverlayConfig(parent_vs=parent_vs)
 
         self.ww = 1.0
         self.wl = 0.5
         self.colormap = "Grayscale"
         self.base_threshold = None
-        self.overlay_id = None
-        self.overlay_opacity = 0.5
-        self.overlay_mode = "Alpha"
-        self.overlay_checkerboard_size = 20.0
-        self.overlay_checkerboard_swap = False
         self.pixelated_zoom = False
         self.use_voxel_strips = False
 
@@ -251,13 +290,7 @@ class DisplayState:
             ),
             "pixelated_zoom": self.pixelated_zoom,
             "use_voxel_strips": self.use_voxel_strips,
-            # pyrefly: ignore [unnecessary-type-conversion]
-            "overlay_opacity": float(self.overlay_opacity),
-            # pyrefly: ignore [unnecessary-type-conversion]
-            "overlay_mode": str(self.overlay_mode),
-            # pyrefly: ignore [unnecessary-type-conversion]
-            "overlay_checkerboard_size": float(self.overlay_checkerboard_size),
-            "overlay_checkerboard_swap": self.overlay_checkerboard_swap,
+            **self.overlay.to_dict(),
         }
 
     def from_dict(self, d):
@@ -267,14 +300,7 @@ class DisplayState:
         self.base_threshold = d.get("base_threshold", self.base_threshold)
         self.pixelated_zoom = d.get("pixelated_zoom", self.pixelated_zoom)
         self.use_voxel_strips = d.get("use_voxel_strips", self.use_voxel_strips)
-        self.overlay_opacity = d.get("overlay_opacity", self.overlay_opacity)
-        self.overlay_mode = d.get("overlay_mode", self.overlay_mode)
-        self.overlay_checkerboard_size = d.get(
-            "overlay_checkerboard_size", self.overlay_checkerboard_size
-        )
-        self.overlay_checkerboard_swap = d.get(
-            "overlay_checkerboard_swap", self.overlay_checkerboard_swap
-        )
+        self.overlay.from_dict(d)
 
 
 class ExtractionState:
@@ -949,14 +975,14 @@ class ViewState:
         preventing the 60fps tick from reading dead memory.
         """
         if (
-            not self.display.overlay_id
-            or self.display.overlay_id not in controller.view_states
+            not self.display.overlay.image_id
+            or self.display.overlay.image_id not in controller.view_states
         ):
             return
 
         import SimpleITK as sitk
 
-        ovs = controller.view_states[self.display.overlay_id]
+        ovs = controller.view_states[self.display.overlay.image_id]
         other_vol = ovs.volume
 
         # Late-tombstone pattern: keep the old overlay_data numpy view valid throughout
@@ -1067,7 +1093,7 @@ class ViewState:
     def set_overlay(self, overlay_id, other_vol, controller=None):
         if overlay_id is None or other_vol is None:
             with self.display._lock:
-                self.display.overlay_id = None
+                self.display.overlay.image_id = None
                 self.display.overlay_data = None
                 self.display._sitk_overlay_cache = None
                 self.display.baked_overlay_translation = (0.0, 0.0, 0.0)
@@ -1078,9 +1104,9 @@ class ViewState:
         if getattr(other_vol, "is_rgb", False):
             return False
 
-        self.display.overlay_id = overlay_id
-        self.display.overlay_opacity = 0.5
-        self.display.overlay_mode = "Alpha"
+        self.display.overlay.image_id = overlay_id
+        self.display.overlay.opacity = 0.5
+        self.display.overlay.mode = "Alpha"
 
         if controller:
             self.update_overlay_display_data(controller)

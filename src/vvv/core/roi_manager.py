@@ -594,10 +594,10 @@ class ROIManager:
             }
 
         if is_overlay:
-            if not vs.display.overlay_id or vs.display.overlay_data is None:
+            if not vs.display.overlay.image_id or vs.display.overlay_data is None:
                 return None
             target_data = vs.display.overlay_data
-            ov_vol = self.controller.volumes[vs.display.overlay_id]
+            ov_vol = self.controller.volumes[vs.display.overlay.image_id]
             if ov_vol.num_timepoints > 1:
                 t = min(vs.camera.time_idx, ov_vol.num_timepoints - 1)
                 target_data = target_data[t]

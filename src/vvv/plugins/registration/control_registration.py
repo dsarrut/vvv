@@ -197,7 +197,7 @@ class RegistrationPluginController(PluginTagMixin):
         for viewer in self._api.get_viewers().values():
             if viewer.image_id == image_id:
                 viewer._preview_slices = new_previews
-            elif viewer.view_state and viewer.view_state.display.overlay_id == image_id:
+            elif viewer.view_state and viewer.view_state.display.overlay.image_id == image_id:
                 viewer._overlay_preview_slices = new_overlay_previews
 
         if vs:
@@ -237,7 +237,7 @@ class RegistrationPluginController(PluginTagMixin):
         for v in self._api.get_viewers().values():
             if v.image_id == vs_id:
                 viewer_slices[id(v)] = ("base", v.orientation, v.slice_idx)
-            elif v.view_state and v.view_state.display.overlay_id == vs_id:
+            elif v.view_state and v.view_state.display.overlay.image_id == vs_id:
                 viewer_slices[id(v)] = ("overlay", v.orientation, v.slice_idx)
         if not viewer_slices:
             return
@@ -649,7 +649,7 @@ class RegistrationPluginController(PluginTagMixin):
             for v in self._api.get_viewers().values():
                 if v.image_id == vs_id:
                     viewer_slices[id(v)] = ("base", v.orientation, v.slice_idx)
-                elif v.view_state and v.view_state.display.overlay_id == vs_id:
+                elif v.view_state and v.view_state.display.overlay.image_id == vs_id:
                     viewer_slices[id(v)] = ("overlay", v.orientation, v.slice_idx)
             self._preview_queue.put((vs_id, version, R, center, viewer_slices))
             preview_thread_spawned = True

@@ -54,7 +54,7 @@ class PluginAPI:
             return False
         if viewer.view_state.is_data_dirty:
             return True
-        ov_id = viewer.view_state.display.overlay_id
+        ov_id = viewer.view_state.display.overlay.image_id
         if ov_id:
             ov_vs = self._controller.view_states.get(ov_id)
             if ov_vs and ov_vs.is_data_dirty:

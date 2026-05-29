@@ -43,7 +43,7 @@ class TestPluginAPI(unittest.TestCase):
         self.mock_controller.ui_needs_refresh = False
         mock_viewer = MagicMock()
         mock_viewer.view_state.is_data_dirty = False
-        mock_viewer.view_state.display.overlay_id = "overlay_img"
+        mock_viewer.view_state.display.overlay.image_id = "overlay_img"
         
         mock_overlay_vs = MagicMock()
         mock_overlay_vs.is_data_dirty = True
