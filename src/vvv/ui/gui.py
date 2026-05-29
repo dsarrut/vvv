@@ -754,7 +754,7 @@ class MainGUI:
                     if getattr(viewer.volume, "is_rgb", False) and prop_name in [
                         "display.ww",
                         "display.wl",
-                        "display.base_threshold",
+                        "display.min_threshold",
                     ]:
                         continue
 

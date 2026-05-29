@@ -117,8 +117,8 @@ def test_overlay_threshold_applied(headless_gui_app):
     vs_base.display.overlay_mode = "Alpha"
 
     # Set distinct threshold values
-    vs_base.display.base_threshold = 10.0
-    vs_overlay.display.base_threshold = 20.0
+    vs_base.display.min_threshold = 10.0
+    vs_overlay.display.min_threshold = 20.0
 
     # Package layers
     base_layer = viewer._package_base_layer()

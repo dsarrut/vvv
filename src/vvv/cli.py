@@ -206,7 +206,7 @@ def parse_cli_arguments(datasets):
                 # User left the overlay blank (e.g. "image.nii,,Jet") to apply cmap to base!
                 task["base_cmap"] = cmap
                 if len(parts) > 4:
-                    task["base_threshold"] = float(parts[4])
+                    task["min_threshold"] = float(parts[4])
 
         image_tasks.append(task)
 

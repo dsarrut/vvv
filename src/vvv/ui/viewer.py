@@ -1196,7 +1196,7 @@ class SliceViewer:
         if target == "overlay":
             ovs = self.controller.view_states.get(vs.display.overlay.image_id)
             if ovs:
-                thr = ovs.display.base_threshold
+                thr = ovs.display.min_threshold
                 if thr is not None:
                     patch = patch[patch >= thr]
 
@@ -1359,7 +1359,7 @@ class SliceViewer:
             ww=vs.display.ww,
             wl=vs.display.wl,
             cmap_name=vs.display.colormap,
-            threshold=vs.display.base_threshold,
+            threshold=vs.display.min_threshold,
             time_idx=vs.camera.time_idx,
             spacing_2d=vol.get_physical_aspect_ratio(self.orientation),
             dvf_mode=dvf_mode,
@@ -1438,7 +1438,7 @@ class SliceViewer:
                 ww=ovs.display.ww,
                 wl=ovs.display.wl,
                 cmap_name=ovs.display.colormap,
-                threshold=ovs.display.base_threshold,
+                threshold=ovs.display.min_threshold,
                 time_idx=min(vs.camera.time_idx, ovs.volume.num_timepoints - 1),
                 spacing_2d=vol.get_physical_aspect_ratio(self.orientation),
                 offset_x=off_x,

@@ -236,7 +236,7 @@ class DisplayState:
     ww: float
     wl: float
     colormap: str
-    base_threshold: float | None
+    min_threshold: float | None
     pixelated_zoom: bool
     use_voxel_strips: bool
 
@@ -245,7 +245,7 @@ class DisplayState:
         "ww",
         "wl",
         "colormap",
-        "base_threshold",
+        "min_threshold",
         "pixelated_zoom",
         "use_voxel_strips",
     }
@@ -261,7 +261,7 @@ class DisplayState:
         self.ww = 1.0
         self.wl = 0.5
         self.colormap = "Grayscale"
-        self.base_threshold = None
+        self.min_threshold = None
         self.pixelated_zoom = False
         self.use_voxel_strips = False
 
@@ -284,8 +284,8 @@ class DisplayState:
             "colormap": str(self.colormap),
             "base_threshold": (
                 # pyrefly: ignore [unnecessary-type-conversion]
-                float(self.base_threshold)
-                if self.base_threshold is not None
+                float(self.min_threshold)
+                if self.min_threshold is not None
                 else None
             ),
             "pixelated_zoom": self.pixelated_zoom,
@@ -297,7 +297,7 @@ class DisplayState:
         self.ww = d.get("ww", self.ww)
         self.wl = d.get("wl", self.wl)
         self.colormap = d.get("colormap", self.colormap)
-        self.base_threshold = d.get("base_threshold", self.base_threshold)
+        self.min_threshold = d.get("min_threshold", d.get("base_threshold", self.min_threshold))
         self.pixelated_zoom = d.get("pixelated_zoom", self.pixelated_zoom)
         self.use_voxel_strips = d.get("use_voxel_strips", self.use_voxel_strips)
         self.overlay.from_dict(d)

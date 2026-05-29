@@ -146,7 +146,7 @@ class IntensityController(PluginTagMixin):
             )
 
         is_rgb = viewer.volume.is_rgb if has_image else False
-        thr = viewer.view_state.display.base_threshold if has_image else None
+        thr = viewer.view_state.display.min_threshold if has_image else None
         has_thr = thr is not None
 
         tags = [
@@ -681,7 +681,7 @@ class IntensityController(PluginTagMixin):
         viewer = self._api.get_active_viewer()
         if not viewer or not viewer.view_state:
             return
-        viewer.view_state.display.base_threshold = app_data
+        viewer.view_state.display.min_threshold = app_data
         check_tag = self._t("check_min_threshold")
         if dpg.does_item_exist(check_tag):
             dpg.set_value(check_tag, True)
@@ -692,11 +692,11 @@ class IntensityController(PluginTagMixin):
         if not viewer or not viewer.view_state:
             return
         if app_data:
-            viewer.view_state.display.base_threshold = dpg.get_value(
+            viewer.view_state.display.min_threshold = dpg.get_value(
                 self._t("drag_min_threshold")
             )
         else:
-            viewer.view_state.display.base_threshold = None
+            viewer.view_state.display.min_threshold = None
         self._api.propagate_window_level(viewer.image_id)
         self._api.request_refresh()
 

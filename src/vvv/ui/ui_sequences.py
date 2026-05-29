@@ -706,7 +706,7 @@ def load_workspace_sequence(gui, controller, filepath):
                     ov_vs = controller.view_states[ov_id]
                     ov_vs.display.colormap = ov_info.get("colormap", "Grayscale")
                     if "threshold" in ov_info and ov_info["threshold"] is not None:
-                        ov_vs.display.base_threshold = ov_info["threshold"]
+                        ov_vs.display.min_threshold = ov_info["threshold"]
 
                     vs.set_overlay(ov_id, controller.volumes[ov_id], controller)
                     vs.display.overlay.mode = ov_info.get("mode", "Registration")
@@ -1091,9 +1091,9 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
 
         if task.get("base_cmap"):
             controller.view_states[base_id].display.colormap = task["base_cmap"]
-            if task.get("base_threshold") is not None:
-                controller.view_states[base_id].display.base_threshold = task[
-                    "base_threshold"
+            if task.get("min_threshold") is not None:
+                controller.view_states[base_id].display.min_threshold = task[
+                    "min_threshold"
                 ]
             controller.view_states[base_id].is_data_dirty = True
 
@@ -1109,7 +1109,7 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
                 fuse_vs.is_data_dirty = True
 
                 if task["fusion"].get("threshold") is not None:
-                    fuse_vs.display.base_threshold = task["fusion"]["threshold"]
+                    fuse_vs.display.min_threshold = task["fusion"]["threshold"]
 
                 base_vs = controller.view_states[base_id]
                 base_vs.set_overlay(fuse_id, fuse_vs.volume, controller)

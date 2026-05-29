@@ -25,7 +25,7 @@ class TestIntensityPlugin(unittest.TestCase):
         self.mock_viewer.view_state.display.ww = 100.0
         self.mock_viewer.view_state.display.wl = 50.0
         self.mock_viewer.view_state.display.colormap = "Grayscale"
-        self.mock_viewer.view_state.display.base_threshold = None
+        self.mock_viewer.view_state.display.min_threshold = None
         self.mock_viewer.view_state.camera.time_idx = 0
 
         self.mock_api.get_active_viewer.return_value = self.mock_viewer
@@ -113,10 +113,10 @@ class TestIntensityPlugin(unittest.TestCase):
         c = self.plugin._controller
 
         c.on_threshold_changed(None, 15.0, None)
-        self.assertEqual(self.mock_viewer.view_state.display.base_threshold, 15.0)
+        self.assertEqual(self.mock_viewer.view_state.display.min_threshold, 15.0)
 
         c.on_threshold_toggle(None, False, None)
-        self.assertIsNone(self.mock_viewer.view_state.display.base_threshold)
+        self.assertIsNone(self.mock_viewer.view_state.display.min_threshold)
 
     def test_hist_log_bar_center_toggles(self):
         c = self.plugin._controller

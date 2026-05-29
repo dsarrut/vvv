@@ -547,7 +547,7 @@ def compute_native_voxel_overlay(
         vec_w, vec_h = C0[:, None] * itk_x, C2[:, None] * itk_z
 
     lut = COLORMAPS.get(ovs.display.colormap, COLORMAPS["Grayscale"])
-    thr_val = ovs.display.base_threshold
+    thr_val = ovs.display.min_threshold
 
     _init_numba()
     use_numba = _NUMBA_AVAILABLE and viewer.controller.settings.data.get(

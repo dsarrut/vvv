@@ -227,7 +227,7 @@ class FusionUI:
                         dpg.configure_item("drag_fusion_ww", speed=dynamic_speed)
                         dpg.configure_item("drag_fusion_wl", speed=dynamic_speed)
 
-                    thr = ov_vs.display.base_threshold
+                    thr = ov_vs.display.min_threshold
                     has_thr = thr is not None
             else:
                 # Explicitly wipe the text inputs clean if there is no fusion overlay
@@ -355,7 +355,7 @@ class FusionUI:
         # 2. Overlay Threshold (Now synced perfectly with Image B's Base Settings)
         if dpg.does_item_exist("drag_fusion_threshold") and not dpg.is_item_active("drag_fusion_threshold"):
             current_thr = dpg.get_value("drag_fusion_threshold")
-            new_thr = ov_vs.display.base_threshold
+            new_thr = ov_vs.display.min_threshold
             if new_thr is not None and current_thr != new_thr:
                 dpg.set_value("drag_fusion_threshold", new_thr)
 
@@ -401,9 +401,9 @@ class FusionUI:
         is_enabled = app_data
         if is_enabled:
             val = dpg.get_value("drag_fusion_threshold")
-            ovs.display.base_threshold = val
+            ovs.display.min_threshold = val
         else:
-            ovs.display.base_threshold = None
+            ovs.display.min_threshold = None
 
         viewer.view_state.is_data_dirty = True
         ovs.is_data_dirty = True
@@ -419,7 +419,7 @@ class FusionUI:
         if not ovs:
             return
 
-        ovs.display.base_threshold = app_data
+        ovs.display.min_threshold = app_data
         if dpg.does_item_exist("check_fusion_threshold"):
             dpg.set_value("check_fusion_threshold", True)
 
