@@ -20,6 +20,12 @@ class ProfilePluginUI(PluginTagMixin):
     def create_ui(self, parent, api) -> None:
         cfg_c = api.get_ui_config()["colors"]
 
+        # Global mouse-move handler for profile plot hover detection.
+        # dpg.add_mouse_move_handler only works inside a global handler_registry,
+        # not inside an item_handler_registry.
+        with dpg.handler_registry(tag=self._t("global_hover_reg")):
+            dpg.add_mouse_move_handler(callback=self._on_plot_hover)
+
         with dpg.group(parent=parent or 0, tag=self._plugin_id):
             build_section_title("Profiles Plugin", cfg_c["text_header"])
 
@@ -442,7 +448,7 @@ class ProfilePluginUI(PluginTagMixin):
 
         dpg.add_spacer(height=5)
 
-        with dpg.plot(label="", height=300, width=-1):
+        with dpg.plot(label="", height=300, width=-1, tag=self._t(f"plot_{profile.id}")):
             dpg.add_plot_axis(
                 dpg.mvXAxis, label="Distance (mm)", tag=self._t(f"xaxis_{profile.id}")
             )
@@ -551,6 +557,50 @@ class ProfilePluginUI(PluginTagMixin):
         if dpg.does_item_exist(series_tag) and distances is not None:
             dpg.set_value(series_tag, [distances, intensities])
 
+    def _on_plot_hover(self, _sender, _app_data, _user_data) -> None:
+        """Global mouse-move callback: updates hovered_distance for any open profile plot."""
+        import numpy as np
+        api = self._c._api
+        if not api:
+            return
+        viewer = api.get_active_viewer()
+        if not viewer or not viewer.view_state:
+            return
+        changed = False
+        for p_id, profile in viewer.view_state.profiles.items():
+            if not getattr(profile, "plot_open", False):
+                continue
+            plot_tag = self._t(f"plot_{p_id}")
+            if dpg.does_item_exist(plot_tag) and dpg.is_item_hovered(plot_tag):
+                x, _ = dpg.get_plot_mouse_pos()
+                if profile.pt1_phys is not None and profile.pt2_phys is not None:
+                    total_dist = float(np.linalg.norm(profile.pt2_phys - profile.pt1_phys))
+                    if total_dist > 1e-5 and 0.0 <= x <= total_dist:
+                        if profile.hovered_distance != x:
+                            profile.hovered_distance = x
+                            changed = True
+        if changed:
+            api.update_all_viewers_of_image(viewer.image_id, data_dirty=False)
+            api.request_refresh()
+
+    def update_hover(self, api) -> None:
+        """Clear hovered_distance when the mouse leaves the plot area."""
+        viewer = api.get_active_viewer()
+        if not viewer or not viewer.view_state:
+            return
+        changed = False
+        for p_id, profile in viewer.view_state.profiles.items():
+            if profile.hovered_distance is None:
+                continue
+            plot_tag = self._t(f"plot_{p_id}")
+            if dpg.does_item_exist(plot_tag) and dpg.is_item_hovered(plot_tag):
+                continue  # still hovering — keep marker
+            profile.hovered_distance = None
+            changed = True
+        if changed:
+            api.update_all_viewers_of_image(viewer.image_id, data_dirty=False)
+            api.request_refresh()
+
     def on_fit_plot_clicked(self, sender, app_data, user_data):
         p_id = user_data
         if dpg.does_item_exist(self._t(f"xaxis_{p_id}")):
@@ -564,6 +614,7 @@ class ProfilePluginUI(PluginTagMixin):
             profile = viewer.view_state.profiles.get(user_data)
             if profile:
                 profile.plot_open = False
+                profile.hovered_distance = None
                 if dpg.does_item_exist(sender):
                     profile.plot_position = dpg.get_item_pos(sender)
         dpg.delete_item(sender)

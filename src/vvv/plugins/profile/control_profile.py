@@ -26,6 +26,10 @@ class ProfilePluginController(PluginTagMixin):
         if self._ui:
             self._ui.update_ui(api)
 
+    def tick(self) -> None:
+        if self._ui and self._api:
+            self._ui.update_hover(self._api)
+
     def on_image_loaded(self, image_id: str) -> None:
         pass
 
@@ -66,6 +70,10 @@ class ProfilePluginController(PluginTagMixin):
                     win_tag = self._t(f"plot_win_{p_id}")
                     if dpg.does_item_exist(win_tag):
                         dpg.delete_item(win_tag)
+        if self._ui:
+            reg_tag = self._ui._t("global_hover_reg")
+            if dpg.does_item_exist(reg_tag):
+                dpg.delete_item(reg_tag)
 
     # --- UI Interactions and Callbacks ---
 

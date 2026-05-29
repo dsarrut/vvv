@@ -39,5 +39,8 @@ class ProfilePlugin(PluginProtocol):
     def load_settings(self, api: PluginAPI) -> None:
         self._controller.load_settings(api)
 
+    def tick(self) -> None:
+        self._controller.tick()
+
     def destroy(self) -> None:
         self._controller.destroy()

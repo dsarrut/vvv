@@ -718,6 +718,27 @@ class OverlayDrawer:
                                 s2, 4, color=[255, 255, 255], fill=col, parent=node
                             )
 
+                        # Draw hover marker from profile plot
+                        hovered_dist = getattr(profile, "hovered_distance", None)
+                        if hovered_dist is not None:
+                            total_dist = float(np.linalg.norm(
+                                profile.pt2_phys - profile.pt1_phys
+                            ))
+                            if total_dist > 1e-5:
+                                t = float(np.clip(hovered_dist / total_dist, 0.0, 1.0))
+                                pt_phys = profile.pt1_phys + t * (profile.pt2_phys - profile.pt1_phys)
+                                v_m = viewer.view_state.world_to_display(
+                                    pt_phys, is_buffered=viewer._is_buffered()
+                                )
+                                sm = get_screen_pos(v_m)
+                                if sm:
+                                    dpg.draw_circle(
+                                        sm, 7, color=[255, 255, 255, 180], thickness=1.5, parent=node
+                                    )
+                                    dpg.draw_circle(
+                                        sm, 4, color=[255, 255, 255], fill=col, parent=node
+                                    )
+
             # Case 2: The segment is cross-plane (Show clue ring)
             else:
                 # Only show clue if within 5 slices of the segment's depth range

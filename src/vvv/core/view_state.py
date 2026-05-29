@@ -506,6 +506,7 @@ class ProfileLineState:
         self.plot_open = False
         self.use_log = False
         self.plot_position = None
+        self.hovered_distance: float | None = None  # transient, not serialized
 
     def to_dict(self):
         return {
