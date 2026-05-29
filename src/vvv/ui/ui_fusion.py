@@ -32,7 +32,7 @@ class FusionUI:
                     )
                 build_beginner_tooltip("combo_fusion_select", "Select the image to fuse as an overlay on top of the base image.", gui)
                 with dpg.group(horizontal=True):
-                    dpg.add_text("Opacity")
+                    dpg.add_text("Opacity", tag="text_fusion_opacity_label")
                     dpg.add_slider_float(
                         tag="slider_fusion_opacity",
                         min_value=0.0,
@@ -192,13 +192,17 @@ class FusionUI:
 
             dpg.set_value("combo_fusion_select", current_sel)
 
-            is_chk = viewer.view_state.display.overlay_mode == "Checkerboard"
+            mode = viewer.view_state.display.overlay_mode
+            is_chk = mode == "Checkerboard"
+            is_reg = mode == "Registration"
             if dpg.does_item_exist("slider_fusion_opacity"):
                 dpg.configure_item(
                     "slider_fusion_opacity", enabled=has_overlay and not is_chk
                 )
                 if not has_overlay:
                     dpg.set_value("slider_fusion_opacity", 0.0)
+            if dpg.does_item_exist("text_fusion_opacity_label"):
+                dpg.set_value("text_fusion_opacity_label", "Balance" if is_reg else "Opacity")
 
             # Enable/Disable New W/L Text Boxes
             tags_to_enable = ["combo_fusion_mode"]
