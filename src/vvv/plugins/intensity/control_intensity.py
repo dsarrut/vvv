@@ -251,14 +251,21 @@ class IntensityController(PluginTagMixin):
         active_img_id = viewer.image_id if (has_image and not is_rgb) else None
 
         for img_id, hs in list(self._hist.items()):
-            popup_win = self._t(f"wl_hist_popup_win_{img_id}")
-            popup_visible = dpg.does_item_exist(popup_win) and dpg.is_item_shown(
-                popup_win
-            )
             is_active = img_id == active_img_id
+            was_popup_visible = self._last_popup_visible.get(img_id, False)
+
+            # Popups can only be opened for the active image (via on_hist_popup).
+            # A non-active image with no previously visible popup can never become
+            # visible this frame — skip all DPG calls.
+            if not is_active and not was_popup_visible:
+                continue
+
+            popup_win = self._t(f"wl_hist_popup_win_{img_id}")
+            popup_visible = dpg.does_item_exist(popup_win) and dpg.is_item_shown(popup_win)
             sidebar_visible = is_active and dpg.is_item_shown(self._plugin_id)
 
             if not sidebar_visible and not popup_visible:
+                self._last_popup_visible[img_id] = False
                 continue
 
             vol = self._api.get_volumes().get(img_id)
@@ -334,7 +341,6 @@ class IntensityController(PluginTagMixin):
                 self._api.set_async_status("Accurate histogram ready")
 
             sidebar_image_changed = is_active and img_id != self._last_sidebar_image_id
-            was_popup_visible = self._last_popup_visible.get(img_id, False)
             popup_newly_visible = popup_visible and not was_popup_visible
             self._last_popup_visible[img_id] = popup_visible
 
