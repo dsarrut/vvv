@@ -48,7 +48,9 @@ def test_registration_fusion_isolation(headless_gui_app, synthetic_volume_factor
     vsB_id = controller.file.load_image(pathB)
     vsB = controller.view_states[vsB_id]
     
-    vsA.set_overlay(vsB_id, controller.volumes[vsB_id], controller)
+    vsA.set_overlay(vsB_id, controller.volumes[vsB_id])
+    ovs = controller.view_states[vsB_id]
+    controller._apply_overlay_resample(vsA, ovs)
     
     # 1. Baseline: no transforms
     layer_B = viewer._package_overlay_layer()

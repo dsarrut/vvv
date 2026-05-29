@@ -21,7 +21,9 @@ def test_all_nn_modes_execute_without_crashing(headless_gui_app):
     # 1. Mount an overlay to properly test Dual and Single-Tex fusion modes
     # The headless_gui_app fixture already loads two synthetic volumes
     vs2_id = list(controller.view_states.keys())[1]
-    viewer.view_state.set_overlay(vs2_id, controller.volumes[vs2_id], controller)
+    viewer.view_state.set_overlay(vs2_id, controller.volumes[vs2_id])
+    ovs = controller.view_states[vs2_id]
+    controller._apply_overlay_resample(viewer.view_state, ovs)
     viewer.view_state.display.overlay_mode = "Alpha"
 
     # 2. Turn on pixelated zoom so the NN paths actually trigger
@@ -113,7 +115,9 @@ def test_overlay_threshold_applied(headless_gui_app):
     vs_base = viewer.view_state
     vs_overlay = controller.view_states[vs2_id]
     
-    vs_base.set_overlay(vs2_id, controller.volumes[vs2_id], controller)
+    vs_base.set_overlay(vs2_id, controller.volumes[vs2_id])
+    ovs = controller.view_states[vs2_id]
+    controller._apply_overlay_resample(vs_base, ovs)
     vs_base.display.overlay_mode = "Alpha"
 
     # Set distinct threshold values

@@ -480,7 +480,10 @@ class FusionUI:
                 # Guard against user rapidly closing the image while the thread boots
                 if not viewer.view_state or viewer.image_id is None:
                     return
-                viewer.view_state.set_overlay(target_id, target_vol, self.controller)
+                viewer.view_state.set_overlay(target_id, target_vol)
+                ovs = self.controller.view_states.get(target_id)
+                if ovs:
+                    self.controller._apply_overlay_resample(viewer.view_state, ovs)
                 self.controller.update_all_viewers_of_image(viewer.image_id)
                 self.controller.status_message = "Overlay applied"
                 self.controller.ui_needs_refresh = True

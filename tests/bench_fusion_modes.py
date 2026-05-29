@@ -190,7 +190,8 @@ def main():
 
         vs_base = c.view_states[base_id]
         ov_vol  = c.volumes[ov_id]
-        vs_base.set_overlay(ov_id, ov_vol, c)
+        vs_base.set_overlay(ov_id, ov_vol)
+        c._apply_overlay_resample(vs_base, c.view_states[ov_id])
         vs_base.display.overlay_mode    = "Alpha"
         vs_base.display.overlay_opacity = 0.5
 

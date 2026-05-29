@@ -13,6 +13,7 @@ from vvv.core.contour_manager import ContourManager
 from vvv.core.history_manager import HistoryManager
 from vvv.core.settings_manager import SettingsManager
 from vvv.core.profile_manager import ProfileManager
+from vvv.core.overlay_resampler import resample_overlay
 
 
 class Controller:
@@ -453,11 +454,15 @@ class Controller:
                 return
 
             if vs.display.overlay.image_id:
-                vs.update_overlay_display_data(self, image_id, my_job_id)
+                ovs = self.view_states.get(vs.display.overlay.image_id)
+                if ovs:
+                    self._apply_overlay_resample(vs, ovs, my_job_id, image_id)
 
             for other_vs in self.view_states.values():
                 if other_vs.display.overlay.image_id == image_id:
-                    other_vs.update_overlay_display_data(self, image_id, my_job_id)
+                    ovs = self.view_states.get(image_id)
+                    if ovs:
+                        self._apply_overlay_resample(other_vs, ovs, my_job_id, image_id)
 
             # --- Late exit: check after overlay resampling ---
             # If the transform changed during overlay resampling, the overlays now hold
@@ -482,6 +487,37 @@ class Controller:
     def _discard_resample(self, job_id):
         self.status_message = f"Resample #{job_id} discarded (transform changed)"
         self.ui_needs_refresh = True
+
+    def _apply_overlay_resample(self, base_vs, ovs, job_id=None, check_image_id=None):
+        """Tombstone-safe overlay resample. Wraps the pure resample_overlay() function.
+
+        Keeps the old ITK cache alive as a local during Execute() (tombstone pattern)
+        so the 60fps render thread never reads a freed numpy view.
+        If job_id and check_image_id are given, aborts if the resample is stale.
+        """
+        _old_cache = base_vs.display._sitk_overlay_cache
+        base_vs.display._sitk_overlay_cache = None
+
+        new_cache, new_data, baked = resample_overlay(
+            base_vs.volume,
+            ovs.volume,
+            base_vs.space.transform if base_vs.space.is_active else None,
+            ovs.space.transform if ovs.space.is_active else None,
+        )
+
+        if job_id is not None and check_image_id is not None:
+            check_vs = self.view_states.get(check_image_id)
+            if check_vs and check_vs._active_resample_job != job_id:
+                with base_vs.display._lock:
+                    base_vs.display._sitk_overlay_cache = _old_cache
+                return
+
+        _old_cache = None  # noqa: F841  — release old ITK object after new data is ready
+        with base_vs.display._lock:
+            base_vs.display._sitk_overlay_cache = new_cache
+            base_vs.display.overlay_data = new_data
+            base_vs.display.baked_overlay_translation = baked
+        base_vs.is_data_dirty = True
 
     def _clear_overlay_data(self, image_id):
         """Clear overlay data that was written with a wrong transform during a discarded resample.
@@ -751,21 +787,23 @@ class Controller:
             if other_vs.display.overlay.image_id == vs_id:
                 old_m = other_vs.display.overlay.mode
                 old_o = other_vs.display.overlay.opacity
-                other_vs.set_overlay(vs_id, vol, self)
+                other_vs.set_overlay(vs_id, vol)
                 other_vs.display.overlay.mode = old_m
                 other_vs.display.overlay.opacity = old_o
-                if hasattr(other_vs, "update_overlay_display_data"):
-                    other_vs.update_overlay_display_data(self)
+                ovs = self.view_states.get(vs_id)
+                if ovs:
+                    self._apply_overlay_resample(other_vs, ovs)
                 self.update_all_viewers_of_image(other_id)
 
         # 2. Fix our own overlays
         if old_state["overlay_id"] and old_state["overlay_id"] in self.volumes:
             ov_vol = self.volumes[old_state["overlay_id"]]
-            vs.set_overlay(old_state["overlay_id"], ov_vol, self)
+            vs.set_overlay(old_state["overlay_id"], ov_vol)
             vs.display.overlay.mode = old_state["overlay_mode"]
             vs.display.overlay.opacity = old_state["overlay_opacity"]
-            if hasattr(vs, "update_overlay_display_data"):
-                vs.update_overlay_display_data(self)
+            ovs = self.view_states.get(old_state["overlay_id"])
+            if ovs:
+                self._apply_overlay_resample(vs, ovs)
             self.update_all_viewers_of_image(vs_id)
 
     def save_settings(self):

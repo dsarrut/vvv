@@ -99,9 +99,11 @@ def test_chaos_monkey_survives_the_storm(headless_gui_app):
             getattr(vs.display, "overlay_id", None) == vid_overlay
             and random.random() > 0.5
         ):
-            vs.set_overlay(None, None, controller)
+            vs.set_overlay(None, None)
         else:
-            vs.set_overlay(vid_overlay, controller.volumes[vid_overlay], controller)
+            vs.set_overlay(vid_overlay, controller.volumes[vid_overlay])
+            ovs = controller.view_states[vid_overlay]
+            controller._apply_overlay_resample(vs, ovs)
             vs.display.overlay_mode = random.choice(
                 ["Alpha", "Registration", "Checkerboard"]
             )

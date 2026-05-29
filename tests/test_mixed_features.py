@@ -119,7 +119,9 @@ def test_threshold_contours_survive_overlay_mount_unmount(headless_4d_overlay_ap
     roi_id_before = id(roi)
 
     # Mount 4D volume as overlay
-    vs.set_overlay(vs_id_4d, vol4d, controller)
+    vs.set_overlay(vs_id_4d, vol4d)
+    ovs = controller.view_states[vs_id_4d]
+    controller._apply_overlay_resample(vs, ovs)
     controller.tick()
 
     roi_after_mount = _roi_min(vs)
@@ -148,7 +150,9 @@ def test_profile_stable_across_overlay_mount_unmount(headless_4d_overlay_app):
     _, vals_before = controller.profiles.get_profile_data(vs_id_3d, profile)
     assert vals_before is not None
 
-    vs.set_overlay(vs_id_4d, vol4d, controller)
+    vs.set_overlay(vs_id_4d, vol4d)
+    ovs = controller.view_states[vs_id_4d]
+    controller._apply_overlay_resample(vs, ovs)
     controller.tick()
     _, vals_with_overlay = controller.profiles.get_profile_data(vs_id_3d, profile)
 
@@ -175,7 +179,9 @@ def test_4d_base_3d_overlay_time_scrub_no_crash(headless_4d_overlay_app):
     vol3d = controller.volumes[vs_id_3d]
 
     # Mount 3D (1 timepoint) as overlay on 4D base (4 timepoints)
-    vs4d.set_overlay(vs_id_3d, vol3d, controller)
+    vs4d.set_overlay(vs_id_3d, vol3d)
+    ovs = controller.view_states[vs_id_3d]
+    controller._apply_overlay_resample(vs4d, ovs)
 
     for t in [0, 1, 2, 3, 5]:  # t=5 exceeds num_timepoints=4
         vs4d.camera.time_idx = t
