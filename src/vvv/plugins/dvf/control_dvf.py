@@ -198,6 +198,9 @@ class DvfController(PluginTagMixin):
     def on_image_removed(self, image_id: str) -> None:
         pass
 
+    def destroy(self) -> None:
+        pass
+
     def save_settings(self, api) -> None:
         pass
 

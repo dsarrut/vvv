@@ -39,4 +39,4 @@ class DvfPlugin(PluginProtocol):
         self._controller.load_settings(api)
 
     def destroy(self) -> None:
-        pass
+        self._controller.destroy()
