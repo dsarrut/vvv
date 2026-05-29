@@ -70,17 +70,8 @@ class RegistrationPluginController(PluginTagMixin):
                 self._auto_timer = None
                 self._auto_timer_vs_id = None
 
-    def serialize_image_state(self, image_id: str) -> dict:
-        import inspect
-        frame = inspect.currentframe()
-        is_workspace = False
-        while frame:
-            if frame.f_code.co_name == "save_workspace":
-                is_workspace = True
-                break
-            frame = frame.f_back
-
-        if not is_workspace or not self._api:
+    def serialize_image_state(self, image_id: str, context: str = "history") -> dict:
+        if context != "workspace" or not self._api:
             return {}
 
         vs = self._api.get_view_states().get(image_id)
@@ -99,17 +90,8 @@ class RegistrationPluginController(PluginTagMixin):
 
         return state_dict
 
-    def restore_image_state(self, image_id: str, data: dict) -> None:
-        import inspect
-        frame = inspect.currentframe()
-        is_workspace = False
-        while frame:
-            if frame.f_code.co_name == "load_workspace_sequence":
-                is_workspace = True
-                break
-            frame = frame.f_back
-
-        if not is_workspace or not data or not self._api:
+    def restore_image_state(self, image_id: str, data: dict, context: str = "history") -> None:
+        if context != "workspace" or not data or not self._api:
             return
 
         vs = self._api.get_view_states().get(image_id)

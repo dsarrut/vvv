@@ -28,7 +28,7 @@ class TestRegistrationPlugin(unittest.TestCase):
 
     def test_state_lifecycle(self):
         # 1. Standard call (should be ignored, return {})
-        self.assertEqual(self.plugin.serialize_image_state("image1"), {})
+        self.assertEqual(self.plugin.serialize_image_state("image1", context="history"), {})
 
         # Setup mock ViewState and space
         self.plugin._controller.bind(self.mock_api)
@@ -42,25 +42,19 @@ class TestRegistrationPlugin(unittest.TestCase):
         vs.space.transform = mock_transform
         self.mock_api.get_view_states.return_value = {"image1": vs}
 
-        # 2. Call wrapped in a function named 'save_workspace'
-        def save_workspace():
-            return self.plugin.serialize_image_state("image1")
-
-        state = save_workspace()
+        # 2. Call with workspace context
+        state = self.plugin.serialize_image_state("image1", context="workspace")
         self.assertTrue(state.get("is_active"))
         self.assertEqual(state.get("transform_file"), "test.tfm")
         self.assertEqual(state.get("full_transform_path"), "/path/to/test.tfm")
         self.assertEqual(state.get("transform_params"), [1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
         self.assertEqual(state.get("transform_center"), [10.0, 20.0, 30.0])
 
-        # 3. Call restore_image_state wrapped in a function named 'load_workspace_sequence'
+        # 3. Call restore_image_state with workspace context
         # Reset vs.space
         vs.space.transform = None
         
-        def load_workspace_sequence():
-            self.plugin.restore_image_state("image1", state)
-
-        load_workspace_sequence()
+        self.plugin.restore_image_state("image1", state, context="workspace")
         
         self.assertTrue(vs.space.is_active)
         self.assertEqual(vs.space.transform_file, "test.tfm")

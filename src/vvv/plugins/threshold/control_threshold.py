@@ -116,13 +116,13 @@ class ThresholdController(PluginTagMixin):
         if self._last_sidebar_image_id == image_id:
             self._last_sidebar_image_id = None
 
-    def serialize_image_state(self, image_id: str) -> dict:
+    def serialize_image_state(self, image_id: str, context: str = "history") -> dict:
         state = self._states.get(image_id)
         if state is None:
             return {}
         return state.to_dict()
 
-    def restore_image_state(self, image_id: str, data: dict) -> None:
+    def restore_image_state(self, image_id: str, data: dict, context: str = "history") -> None:
         state = self.get_image_state(image_id)
         state.from_dict(data)
         if self._api:

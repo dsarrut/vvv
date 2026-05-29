@@ -57,7 +57,7 @@ class FileManager:
                 for plugin in self.controller.gui.plugins:
                     plugin_data = history_entry["plugins"].get(plugin.plugin_id, {})
                     if plugin_data:
-                        plugin.restore_image_state(img_id, plugin_data)
+                        plugin.restore_image_state(img_id, plugin_data, context="history")
 
         # Auto-load overlay
         # Prevent infinite recursion with is_auto_overlay flag
@@ -348,7 +348,7 @@ class FileManager:
             if self.controller.gui:
                 plugins_data = {}
                 for plugin in self.controller.gui.plugins:
-                    data = plugin.serialize_image_state(vs_id)
+                    data = plugin.serialize_image_state(vs_id, context="workspace")
                     if data:
                         plugins_data[plugin.plugin_id] = data
                 if plugins_data:

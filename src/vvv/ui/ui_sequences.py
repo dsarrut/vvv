@@ -660,7 +660,7 @@ def load_workspace_sequence(gui, controller, filepath):
                 for plugin in gui.plugins:
                     plugin_data = img_data["plugins"].get(plugin.plugin_id, {})
                     if plugin_data:
-                        plugin.restore_image_state(new_id, plugin_data)
+                        plugin.restore_image_state(new_id, plugin_data, context="workspace")
             vs.sync_group = img_data.get("sync_group", 0)
             vs.sync_wl_group = img_data.get("sync_wl_group", 0)
 

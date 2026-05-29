@@ -23,10 +23,10 @@ class DicomPluginController(PluginTagMixin):
     def on_image_removed(self, image_id: str) -> None:
         pass
 
-    def serialize_image_state(self, image_id: str) -> dict:
+    def serialize_image_state(self, image_id: str, context: str = "history") -> dict:
         return {}
 
-    def restore_image_state(self, image_id: str, data: dict) -> None:
+    def restore_image_state(self, image_id: str, data: dict, context: str = "history") -> None:
         pass
 
     def save_settings(self, api) -> None:

@@ -40,7 +40,7 @@ class ProfilePluginController(PluginTagMixin):
         if self._ui:
             self._ui._last_profile_key = None
 
-    def serialize_image_state(self, image_id: str) -> dict:
+    def serialize_image_state(self, image_id: str, context: str = "history") -> dict:
         if self._api:
             vs = self._api.get_view_states().get(image_id)
             if vs:
@@ -50,7 +50,7 @@ class ProfilePluginController(PluginTagMixin):
                         profile.plot_position = dpg.get_item_pos(win_tag)
         return {}
 
-    def restore_image_state(self, image_id: str, data: dict) -> None:
+    def restore_image_state(self, image_id: str, data: dict, context: str = "history") -> None:
         pass
 
     def save_settings(self, api: PluginAPI) -> None:

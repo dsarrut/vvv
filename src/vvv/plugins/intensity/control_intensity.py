@@ -992,7 +992,7 @@ class IntensityController(PluginTagMixin):
         if self._last_sidebar_image_id == image_id:
             self._last_sidebar_image_id = None
 
-    def serialize_image_state(self, image_id: str) -> dict:
+    def serialize_image_state(self, image_id: str, context: str = "history") -> dict:
         hs = self._hist.get(image_id)
         if hs is None:
             return {}
@@ -1005,7 +1005,7 @@ class IntensityController(PluginTagMixin):
             "y_max": hs.y_max,
         }
 
-    def restore_image_state(self, image_id: str, data: dict) -> None:
+    def restore_image_state(self, image_id: str, data: dict, context: str = "history") -> None:
         hs = self._hist.get(image_id)
         if hs is None:
             return

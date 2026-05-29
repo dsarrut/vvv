@@ -47,13 +47,13 @@ class RoiPluginController(PluginTagMixin):
             self.ui.close_rtstruct_modal()
             self.ui.refresh_rois_ui()
 
-    def serialize_image_state(self, image_id: str) -> dict:
+    def serialize_image_state(self, image_id: str, context: str = "history") -> dict:
         return {
             "roi_filter": self.roi_filters.get(image_id, ""),
             "roi_sort_order": self.roi_sort_orders.get(image_id, 0),
         }
 
-    def restore_image_state(self, image_id: str, data: dict) -> None:
+    def restore_image_state(self, image_id: str, data: dict, context: str = "history") -> None:
         if "roi_filter" in data:
             self.roi_filters[image_id] = data["roi_filter"]
         if "roi_sort_order" in data:

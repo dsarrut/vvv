@@ -13,8 +13,8 @@ class _MockPlugin:
     def update(self, api): pass
     def on_image_loaded(self, _image_id): pass
     def on_image_removed(self, _image_id): pass
-    def serialize_image_state(self, _image_id): return {}
-    def restore_image_state(self, _image_id, _data): pass
+    def serialize_image_state(self, _image_id, context="history"): return {}
+    def restore_image_state(self, _image_id, _data, context="history"): pass
     def save_settings(self, api): pass
     def load_settings(self, api): pass
     def destroy(self): pass

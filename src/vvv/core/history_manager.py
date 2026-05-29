@@ -65,7 +65,7 @@ class HistoryManager:
         if controller.gui:
             plugins_data = {}
             for plugin in controller.gui.plugins:
-                data = plugin.serialize_image_state(vs_id)
+                data = plugin.serialize_image_state(vs_id, context="history")
                 if data:
                     plugins_data[plugin.plugin_id] = data
             if plugins_data:
