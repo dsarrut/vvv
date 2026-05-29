@@ -40,13 +40,21 @@ class RegistrationPluginController(PluginTagMixin):
     def bind_ui(self, ui) -> None:
         self._ui = ui
 
+    def _ensure_tracked(self, image_id: str) -> None:
+        """Register image for data-reload detection. Call when its transform becomes active."""
+        if image_id not in self._last_data_ids and self._api:
+            vol = self._api.get_volumes().get(image_id)
+            if vol is not None:
+                self._last_data_ids[image_id] = id(vol.data)
+
     def update(self, api: PluginAPI) -> None:
-        # Detect reload of any loaded volume
-        for img_id, vol in api.get_volumes().items():
+        # Detect reload of registered (transformed) volumes only — O(k) not O(N)
+        for img_id in list(self._last_data_ids):
+            vol = api.get_volumes().get(img_id)
+            if vol is None:
+                continue
             curr_id = id(vol.data)
-            if img_id not in self._last_data_ids:
-                self._last_data_ids[img_id] = curr_id
-            elif self._last_data_ids[img_id] != curr_id:
+            if self._last_data_ids[img_id] != curr_id:
                 self._last_data_ids[img_id] = curr_id
                 vs = api.get_view_states().get(img_id)
                 if vs and vs.space.is_active:
@@ -114,6 +122,7 @@ class RegistrationPluginController(PluginTagMixin):
             vs.space.transform = None
 
         if vs.space.is_active:
+            self._ensure_tracked(image_id)
             vs.needs_resample = True
             self._api.resample_image(image_id)
         else:
@@ -295,6 +304,7 @@ class RegistrationPluginController(PluginTagMixin):
                 vs.space.full_transform_path = file_path
                 self._api.notify(f"Loaded {os.path.basename(file_path)}")
                 vs.space.is_active = True
+                self._ensure_tracked(viewer.image_id)
 
                 if world_pos is not None:
                     vs.update_crosshair_from_phys(world_pos)
@@ -441,6 +451,7 @@ class RegistrationPluginController(PluginTagMixin):
         vs.space.transform.SetCenter(new_center_tuple)
         vs.space.transform.SetTranslation(new_translation)
         vs.space.is_active = True
+        self._ensure_tracked(viewer.image_id)
 
         if self._ui:
             self._ui.pull_reg_sliders_from_transform()
@@ -584,6 +595,7 @@ class RegistrationPluginController(PluginTagMixin):
 
         if vs:
             vs.space.is_active = True
+            self._ensure_tracked(vs_id)
 
         slider_tags = [
             self._t("drag_reg_rx"),

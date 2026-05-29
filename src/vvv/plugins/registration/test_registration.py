@@ -300,12 +300,14 @@ class TestRegistrationPlugin(unittest.TestCase):
         vol = MagicMock()
         vol.data = np.zeros((10, 10, 10))
         self.mock_api.get_volumes.return_value = {"image_abc": vol}
-        
+
         vs = MagicMock()
         vs.space.is_active = True
         self.mock_api.get_view_states.return_value = {"image_abc": vs}
-        
-        # First update initializes tracking cache
+
+        # Registration now happens explicitly when a transform is activated
+        # (via callbacks or restore_image_state), not lazily in update().
+        controller._ensure_tracked("image_abc")
         self.plugin.update(self.mock_api)
         self.mock_api.resample_image.assert_not_called()
         
