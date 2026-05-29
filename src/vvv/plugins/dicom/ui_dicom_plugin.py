@@ -4,6 +4,7 @@ from typing import Optional
 import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.ui.file_dialog import open_file_dialog
+from vvv.ui.ui_notifications import show_message
 
 
 class DicomPluginUI(PluginTagMixin):
@@ -23,6 +24,7 @@ class DicomPluginUI(PluginTagMixin):
         self.scan_progress = 0.0
         self.scan_status_text = ""
         self.scan_finished = False
+        self.scan_errors: list[str] = []
         self._stop_event = threading.Event()
 
     def create_ui(self, parent, api) -> None:
@@ -35,9 +37,17 @@ class DicomPluginUI(PluginTagMixin):
         if self.scan_finished:
             if dpg.does_item_exist(self.window_tag):
                 dpg.configure_item(self._t("scan_progress"), show=False)
-                dpg.set_value(self._t("scan_status"), f"  ({len(self.scanned_series)} found)")
+                status = f"  ({len(self.scanned_series)} found)"
+                if self.scan_errors:
+                    status += f", {len(self.scan_errors)} dir(s) failed"
+                dpg.set_value(self._t("scan_status"), status)
                 dpg.configure_item(self._t("btn_scan"), enabled=True)
                 self._populate_series_list()
+                if self.scan_errors:
+                    show_message(
+                        "DICOM Scan Warnings",
+                        "Some directories could not be scanned:\n\n" + "\n".join(self.scan_errors),
+                    )
             self.scan_finished = False
             return
 
@@ -240,6 +250,7 @@ class DicomPluginUI(PluginTagMixin):
 
     def _run_scan(self, folder, recurse):
         assert self.api is not None
+        self.scan_errors = []
         # Consume the generator yielded from PluginAPI (which delegates to controller/file.py)
         for result in self.api.scan_dicom_folder(folder, recursive=recurse):
             if self._stop_event.is_set():
@@ -249,8 +260,8 @@ class DicomPluginUI(PluginTagMixin):
                 self.scan_progress = pct
                 label = dirname if len(dirname) <= 30 else dirname[:27] + "..."
                 self.scan_status_text = f"  {label}"
-            elif len(result) == 3:
-                _, _, self.scanned_series = result
+            elif len(result) == 4:
+                _, _, self.scanned_series, self.scan_errors = result
 
         # Signal completion
         self.scan_finished = True

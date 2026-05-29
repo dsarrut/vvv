@@ -87,6 +87,7 @@ class FileManager:
 
         # Use a dictionary to group slices by Series UID across multiple folders!
         series_dict = {}
+        scan_errors = []
         search_dirs = (
             [x[0] for x in os.walk(folder_path, followlinks=True)]
             if recursive
@@ -229,7 +230,7 @@ class FileManager:
 
                             series_dict[sid] = series_info
                 except Exception as e:
-                    pass
+                    scan_errors.append(f"{d}: {e}")
         finally:
             sitk.ProcessObject.SetGlobalWarningDisplay(True)
 
@@ -246,7 +247,7 @@ class FileManager:
             s["size"] = f"{x} x {y} x {z_dim}"
             found_series.append(s)
 
-        yield (1.0, "Done", found_series)
+        yield (1.0, "Done", found_series, scan_errors)
 
     def save_workspace(self, filepath):
         workspace = {"version": 1.0, "viewers": {}, "images": {}}
