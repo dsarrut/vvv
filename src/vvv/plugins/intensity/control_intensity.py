@@ -182,12 +182,10 @@ class IntensityController(PluginTagMixin):
                 vol = viewer.volume
                 current_data_id = id(vol.data)
                 if current_data_id not in self._minmax_cache:
-                    self._minmax_cache = {
-                        current_data_id: (
-                            float(np.min(vol.data)),
-                            float(np.max(vol.data)),
-                        )
-                    }
+                    self._minmax_cache[current_data_id] = (
+                        float(np.min(vol.data)),
+                        float(np.max(vol.data)),
+                    )
                 min_v, max_v = self._minmax_cache[current_data_id]
                 dpg.set_value(minmax_tag, f"{min_v:g} to {max_v:g}")
 
@@ -995,6 +993,9 @@ class IntensityController(PluginTagMixin):
         self._last_popup_visible.pop(image_id, None)
         if self._last_sidebar_image_id == image_id:
             self._last_sidebar_image_id = None
+        vol = self._api.get_volumes().get(image_id)
+        if vol is not None:
+            self._minmax_cache.pop(id(vol.data), None)
 
     def serialize_image_state(self, image_id: str, context: str = "history") -> dict:
         hs = self._hist.get(image_id)

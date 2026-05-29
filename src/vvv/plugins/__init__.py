@@ -55,6 +55,15 @@ def discover_plugins():
             # Prevent import errors in a single plugin from crashing the whole app
             print(f"Error importing plugin module {full_module_name}: {imp_err}")
             
+    seen = {}
+    for p in plugins:
+        if p.plugin_id in seen:
+            raise RuntimeError(
+                f"Duplicate plugin_id '{p.plugin_id}': "
+                f"{type(seen[p.plugin_id]).__name__} and {type(p).__name__}"
+            )
+        seen[p.plugin_id] = p
+
     plugins.sort(key=lambda p: (getattr(p, "order", 999), p.plugin_id))
     return plugins
 
