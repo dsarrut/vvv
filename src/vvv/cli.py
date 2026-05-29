@@ -76,7 +76,7 @@ def parse_cli_arguments(datasets):
             reader.SetFileName(path)
             reader.ReadImageInformation()
             return reader.GetSize(), reader.GetSpacing()
-        except:
+        except Exception:
             return None, None
 
     grouped_datasets = []
