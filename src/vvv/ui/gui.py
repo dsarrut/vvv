@@ -107,6 +107,7 @@ class MainGUI:
 
         # Initialize plugin list before building layout to avoid AttributeErrors
         self.plugins = []
+        self._plugin_errors: set[tuple[str, str]] = set()
         self._init_plugins()
         self.plugin_api = PluginAPI(self)
 
@@ -132,11 +133,21 @@ class MainGUI:
 
     def notify_plugins_image_loaded(self, image_id: str) -> None:
         for plugin in self.plugins:
-            plugin.on_image_loaded(image_id)
+            self._call_plugin(plugin, "on_image_loaded", image_id)
 
     def notify_plugins_image_removed(self, image_id: str) -> None:
         for plugin in self.plugins:
-            plugin.on_image_removed(image_id)
+            self._call_plugin(plugin, "on_image_removed", image_id)
+
+    def _call_plugin(self, plugin, method_name: str, *args) -> None:
+        """Call a plugin method, printing once per (plugin, method) on error."""
+        try:
+            getattr(plugin, method_name)(*args)
+        except Exception as e:
+            key = (plugin.plugin_id, method_name)
+            if key not in self._plugin_errors:
+                self._plugin_errors.add(key)
+                print(f"[Plugin error] {plugin.plugin_id}.{method_name}: {e}", file=sys.stderr)
 
     # ==========================================
     # 2. LAYOUT BUILDERS
@@ -1097,7 +1108,7 @@ class MainGUI:
 
         self.controller.ui_needs_refresh = True
         for plugin in self.plugins:
-            plugin.update(self.plugin_api)
+            self._call_plugin(plugin, "update", self.plugin_api)
 
         self.show_status_message(
             f"Beginner Mode {'ON' if self.is_beginner_mode else 'OFF'}"
@@ -1955,7 +1966,7 @@ class MainGUI:
             # Update Plugins (only when state has changed)
             if self.plugin_api.is_dirty:
                 for plugin in self.plugins:
-                    plugin.update(self.plugin_api)
+                    self._call_plugin(plugin, "update", self.plugin_api)
 
             # Clear the flag only after all logic and plugins have seen it
             if ui_dirty:
@@ -1964,7 +1975,7 @@ class MainGUI:
             # Call tick on plugins (e.g. for high-frequency progress indicators)
             for plugin in self.plugins:
                 if hasattr(plugin, "tick"):
-                    plugin.tick()
+                    self._call_plugin(plugin, "tick")
 
             self.controller.tick()
 
@@ -1972,8 +1983,8 @@ class MainGUI:
 
         # Shutdown sequence
         for plugin in self.plugins:
-            plugin.save_settings(self.plugin_api)
-            plugin.destroy()
+            self._call_plugin(plugin, "save_settings", self.plugin_api)
+            self._call_plugin(plugin, "destroy")
 
         cleanup_os_drop()  # null GLFW drop callback before DPG destroys the window
 
