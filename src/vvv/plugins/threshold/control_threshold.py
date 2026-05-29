@@ -497,23 +497,9 @@ class ThresholdController(PluginTagMixin):
 
                         # 4. Build ViewState and Mount it!
                         new_vs = ViewState(new_vol)
-                        new_vs.camera.from_dict(
-                            vs.camera.to_dict()
-                        )  # Inherit zoom, pan, and slices!
+                        new_vs.camera.from_dict(vs.camera.to_dict())
 
-                        controller = api._controller
-                        new_id = str(controller.next_image_id)
-                        controller.next_image_id += 1
-
-                        controller.volumes[new_id] = new_vol
-                        controller.view_states[new_id] = new_vs
-
-                        # Swap the active viewer over to the new image
-                        if controller.gui and controller.gui.context_viewer:
-                            target_tag = controller.gui.context_viewer.tag
-                            controller.layout[target_tag] = new_id
-
-                        controller.gui.notify_plugins_image_loaded(new_id)
+                        api.mount_generated_image(new_vol, new_vs)
                         api.set_async_status("Threshold image generated successfully")
                         api.request_refresh()
                     except Exception as inner_e:

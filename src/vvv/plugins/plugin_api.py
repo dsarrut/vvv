@@ -226,6 +226,20 @@ class PluginAPI:
             load_batch_rois_sequence(self._gui, self._controller, image_id, file_paths, source_type, mode, val)
         )
 
+    # --- Image mounting ---
+
+    def mount_generated_image(self, new_vol, new_vs) -> str:
+        """Register a newly created volume+view_state and assign it to the active viewer."""
+        new_id = str(self._controller.next_image_id)
+        self._controller.next_image_id += 1
+        self._controller.volumes[new_id] = new_vol
+        self._controller.view_states[new_id] = new_vs
+        viewer = self._gui.context_viewer
+        if viewer:
+            self._controller.layout[viewer.tag] = new_id
+        self._gui.notify_plugins_image_loaded(new_id)
+        return new_id
+
     # --- Contour operations ---
 
     def add_contour(self, image_id: str, contour_roi) -> None:
