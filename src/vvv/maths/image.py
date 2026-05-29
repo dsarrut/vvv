@@ -633,6 +633,8 @@ class VolumeData:
         # --- 2. Standard Load Logic ---
         if len(paths) == 1:
             # A. SINGLE FILE
+            if not os.path.exists(paths[0]):
+                raise FileNotFoundError(f"File not found: {paths[0]}")
             try:
                 # 99% of images (NIfTI, DICOM, MHD) load perfectly here
                 img = sitk.ReadImage(paths[0])
@@ -654,6 +656,11 @@ class VolumeData:
                     )
         else:
             # B. MULTIPLE FILES (DICOM Folder or 4D Sequence)
+            missing = [p for p in paths if not os.path.exists(p)]
+            if missing:
+                names = ", ".join(os.path.basename(p) for p in missing[:3])
+                suffix = f" (+{len(missing) - 3} more)" if len(missing) > 3 else ""
+                raise FileNotFoundError(f"{len(missing)} file(s) not found: {names}{suffix}")
             # SimpleITK has a dedicated reader for cleanly stacking multiple files
             try:
                 reader = sitk.ImageSeriesReader()
