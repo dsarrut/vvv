@@ -440,6 +440,19 @@ class RoiPluginUI(PluginTagMixin):
 
         with dpg.group(parent=container):
             if roi_vol:
+                # 0. Source file and type
+                source_type = getattr(roi_state, "source_type", "Binary")
+                if roi_vol.file_paths:
+                    fname = os.path.basename(roi_vol.file_paths[0])
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("File:", color=dim_col)
+                        file_tag = dpg.add_text(fname)
+                        with dpg.tooltip(file_tag):
+                            dpg.add_text(roi_vol.file_paths[0])
+                        dpg.add_text(f"[{source_type}]", color=dim_col)
+
+                dpg.add_spacer(height=3)
+
                 # 1. Loading Rule
                 mode_str = getattr(roi_state, 'source_mode', 'Binary')
                 val_str = f"{getattr(roi_state, 'source_val', 1.0):g}"
