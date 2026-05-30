@@ -127,7 +127,7 @@ def refresh_sync_ui(gui):
                         "None" if not vs.sync_group else f"Grp {vs.sync_group}"
                     ),
                     width=70,
-                    user_data=vs_id,
+                    user_data=(vs_id, sp_items),
                     callback=lambda s, a, u: handle_sync_group_change(gui, s, a, u),
                 )
 
@@ -139,7 +139,7 @@ def refresh_sync_ui(gui):
                     items=wl_items,
                     default_value=("None" if not wl_val else f"Grp {chr(64 + wl_val)}"),
                     width=70,
-                    user_data=vs_id,
+                    user_data=(vs_id, wl_items),
                     callback=lambda s, a, u: handle_wl_group_change(gui, s, a, u),
                     enabled=not is_rgb,
                 )
@@ -151,16 +151,14 @@ def refresh_sync_ui(gui):
 
 def handle_sync_group_change(gui, sender, value, user_data):
     """UI callback for changing a spatial sync group."""
-    vs_id = user_data
-    # Convert "Grp 1" to 1, or "None" to 0
-    new_group_id = 0 if value == "None" else int(value.split(" ")[1])
-
+    vs_id, items = user_data
+    new_group_id = items.index(value)
     gui.controller.set_sync_group(vs_id, new_group_id)
     gui.controller.ui_needs_refresh = True
 
 
 def handle_wl_group_change(gui, sender, value, user_data):
     """UI callback for changing a radiometric (W/L) sync group."""
-    vs_id = user_data
-    new_group_id = 0 if value == "None" else ord(value.split(" ")[1]) - 64
+    vs_id, items = user_data
+    new_group_id = items.index(value)
     gui.controller.set_sync_wl_group(vs_id, new_group_id)

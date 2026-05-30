@@ -87,23 +87,17 @@ class SyncManager:
             # If the source has no crosshair yet, we can't sync others to it.
             return
 
-        target_ids = self.get_sync_group_vs_ids(source_vs_id, active_only=True)
+        self.propagate_time_idx(source_vs_id)
 
+        target_ids = self.get_sync_group_vs_ids(source_vs_id, active_only=True)
         world_phys = source_vs.camera.crosshair_phys_coord
 
         for target_id in target_ids:
             if target_id == source_vs_id:
                 continue
-
             target_vs = self.controller.view_states.get(target_id)
-            if not target_vs:
-                continue
-
-            if source_vs.volume.num_timepoints > 1:
-                nt = target_vs.volume.num_timepoints
-                target_vs.camera.time_idx = min(source_vs.camera.time_idx, nt - 1)
-
-            target_vs.update_crosshair_from_phys(world_phys)
+            if target_vs:
+                target_vs.update_crosshair_from_phys(world_phys)
 
         self.trigger_redraw(target_ids)
 
