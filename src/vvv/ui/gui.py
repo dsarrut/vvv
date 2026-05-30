@@ -428,6 +428,7 @@ class MainGUI:
                         build_beginner_tooltip(btn, tooltip_texts[tag], self)
 
                 build_workspace_nav_icons(self)
+                self.refresh_workspace_bar()
 
             with dpg.group(tag="nav_bot_group"):
                 btn_settings = dpg.add_button(
