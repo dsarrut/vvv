@@ -142,44 +142,7 @@ def handle_sync_group_change(gui, sender, value, user_data):
 
 
 def handle_wl_group_change(gui, sender, value, user_data):
-    """Business logic for changing a radiometric (W/L) sync group."""
+    """UI callback for changing a radiometric (W/L) sync group."""
     vs_id = user_data
-    vs = gui.controller.view_states[vs_id]
-
-    if value == "None":
-        if getattr(vs, "sync_wl_group", 0) == 0:
-            return
-        vs.sync_wl_group = 0
-        gui.controller.ui_needs_refresh = True
-        return
-
-    # Parse "Grp A" -> 1, "Grp B" -> 2
-    letter = value.split(" ")[1]
-    new_group_id = ord(letter) - 64
-
-    if getattr(vs, "sync_wl_group", 0) == new_group_id:
-        return
-
-    vs.sync_wl_group = new_group_id
-
-    # Auto-pull W/L from an existing master in this group
-    master_vs_id = None
-    active_viewer = gui.context_viewer
-    if active_viewer and active_viewer.image_id in gui.controller.view_states:
-        active_vs = gui.controller.view_states[active_viewer.image_id]
-        if active_vs.sync_wl_group == new_group_id:
-            master_vs_id = active_viewer.image_id
-
-    if not master_vs_id:
-        for other_id, other_vs in list(gui.controller.view_states.items()):
-            if other_id != vs_id and other_vs.sync_wl_group == new_group_id:
-                master_vs_id = other_id
-                break
-
-    if master_vs_id:
-        # State-Only Fix: Let the SyncManager handle the robust broadcast!
-        # This ensures it hits not just the base image, but any active overlays as well.
-        gui.controller.sync.propagate_window_level(master_vs_id)
-        gui.controller.sync.propagate_colormap(master_vs_id)
-
-    gui.controller.ui_needs_refresh = True
+    new_group_id = 0 if value == "None" else ord(value.split(" ")[1]) - 64
+    gui.controller.set_sync_wl_group(vs_id, new_group_id)

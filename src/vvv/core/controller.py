@@ -361,6 +361,44 @@ class Controller:
         self.update_all_viewers_of_image(vs_id)
         self.ui_needs_refresh = True
 
+    def set_sync_wl_group(self, vs_id, group_id):
+        """
+        Programmatically sets the W/L sync group for an image and broadcasts
+        the W/L and colormap from an existing group master to it.
+        """
+        vs = self.view_states.get(vs_id)
+        if not vs:
+            return
+
+        if vs.sync_wl_group == group_id:
+            return
+
+        vs.sync_wl_group = group_id
+
+        if group_id == 0:
+            self.update_all_viewers_of_image(vs_id)
+            self.ui_needs_refresh = True
+            return
+
+        # Find the source of truth for this group
+        master_vs_id = None
+        active_viewer = self.gui.context_viewer if self.gui else None
+        if active_viewer and active_viewer.image_id in self.view_states:
+            if self.view_states[active_viewer.image_id].sync_wl_group == group_id:
+                master_vs_id = active_viewer.image_id
+
+        if not master_vs_id:
+            for other_id, other_vs in list(self.view_states.items()):
+                if other_id != vs_id and other_vs.sync_wl_group == group_id:
+                    master_vs_id = other_id
+                    break
+
+        if master_vs_id:
+            self.sync.propagate_window_level(master_vs_id)
+            self.sync.propagate_colormap(master_vs_id)
+
+        self.ui_needs_refresh = True
+
     def update_all_viewers_of_image(self, vs_id, data_dirty=True):
         if vs_id in self.view_states and data_dirty:
             self.view_states[vs_id].is_data_dirty = True
