@@ -18,6 +18,22 @@ ARCHITECTURE MANDATES (UI Components):
 """
 
 
+def _toggle_sync_all(gui):
+    all_linked = all(vs.sync_group > 0 for vs in gui.controller.view_states.values())
+    if all_linked:
+        gui.controller.sync.unlink_all()
+    else:
+        gui.controller.sync.link_all()
+
+
+def _toggle_sync_all_wl(gui):
+    all_linked = all(vs.sync_wl_group > 0 for vs in gui.controller.view_states.values())
+    if all_linked:
+        gui.controller.sync.unlink_all_wl()
+    else:
+        gui.controller.sync.link_all_wl()
+
+
 def build_tab_sync(gui):
     """Builds the static layout for the Synchronization matrix tab."""
     cfg_c = gui.ui_cfg["colors"]
@@ -26,27 +42,19 @@ def build_tab_sync(gui):
 
         with dpg.group(horizontal=True):
             dpg.add_button(
+                tag="sync_toggle_spatial_btn",
                 label="Link All",
-                callback=lambda: gui.controller.sync.link_all(),
-                width=95,
-            )
-            dpg.add_button(
-                label="Unlink All",
-                callback=lambda: gui.controller.sync.unlink_all(),
-                width=95,
+                callback=lambda: _toggle_sync_all(gui),
+                width=150,
             )
             build_help_button("Spatial Sync groups images together. When you pan, zoom, or scroll through slices in one image, all other images in the same group will automatically follow.", gui)
 
         with dpg.group(horizontal=True):
             dpg.add_button(
+                tag="sync_toggle_wl_btn",
                 label="Link All W/L",
-                callback=lambda: gui.controller.sync.link_all_wl(),
-                width=95,
-            )
-            dpg.add_button(
-                label="Unlink All W/L",
-                callback=lambda: gui.controller.sync.unlink_all_wl(),
-                width=95,
+                callback=lambda: _toggle_sync_all_wl(gui),
+                width=150,
             )
             build_help_button("Window/Level Sync groups images together radiometrically. Changing contrast or colormap on one instantly applies to all others in the group.", gui)
 
@@ -64,6 +72,16 @@ def refresh_sync_ui(gui):
 
     dpg.delete_item(container, children_only=True)
     gui.sync_label_tags.clear()
+
+    # Update toggle button labels to reflect current state
+    vs_list = list(gui.controller.view_states.values())
+    if vs_list:
+        all_spatial = all(vs.sync_group > 0 for vs in vs_list)
+        all_wl = all(vs.sync_wl_group > 0 for vs in vs_list)
+        if dpg.does_item_exist("sync_toggle_spatial_btn"):
+            dpg.set_item_label("sync_toggle_spatial_btn", "Unlink All" if all_spatial else "Link All")
+        if dpg.does_item_exist("sync_toggle_wl_btn"):
+            dpg.set_item_label("sync_toggle_wl_btn", "Unlink All W/L" if all_wl else "Link All W/L")
 
     # Get the total number of loaded images
     num_images = len(gui.controller.view_states)
