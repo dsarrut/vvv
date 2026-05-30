@@ -1950,15 +1950,15 @@ class MainGUI:
                 except StopIteration:
                     self.tasks.pop(0)
 
+            # Status messages are polled every frame so they appear immediately
+            if getattr(self.controller, "status_message", None):
+                self.show_status_message(self.controller.status_message)
+                self.controller.status_message = None
+
             # Capture if the frame was flagged for refresh at the start
             ui_dirty = getattr(self.controller, "ui_needs_refresh", False)
             if ui_dirty:
                 self._refresh_all_ui_panels()
-
-                # Check for asynchronous status updates
-                if getattr(self.controller, "status_message", None):
-                    self.show_status_message(self.controller.status_message)
-                    self.controller.status_message = None
 
             self.interaction.update_trackers()
             self.sync_bound_ui()

@@ -187,6 +187,7 @@ class InteractionManager:
         }
         self.active_tool_id = "navigation"
         self.modifiers = {"shift": False, "ctrl": False, "cmd": False}
+        self._prev_modifiers = {"shift": False, "ctrl": False, "cmd": False}
 
     @property
     def active_tool(self):
@@ -440,13 +441,22 @@ class InteractionManager:
         # 0. Update Modifiers (Safe on Main Thread)
         self.modifiers["shift"] = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(dpg.mvKey_RShift)
         self.modifiers["ctrl"] = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl)
-        
+
         is_cmd = False
         if hasattr(dpg, "mvKey_LWin"):
             is_cmd = is_cmd or dpg.is_key_down(dpg.mvKey_LWin)
         if hasattr(dpg, "mvKey_RWin"):
             is_cmd = is_cmd or dpg.is_key_down(dpg.mvKey_RWin)
         self.modifiers["cmd"] = is_cmd
+
+        # Rising-edge hints: show once when a modifier key is first pressed
+        if self.modifiers["shift"] and not self._prev_modifiers["shift"]:
+            self.gui.show_status_message("W/L: drag to adjust", duration=2.0)
+        pan_now = self.modifiers["cmd"] or self.modifiers["ctrl"]
+        pan_prev = self._prev_modifiers["cmd"] or self._prev_modifiers["ctrl"]
+        if pan_now and not pan_prev:
+            self.gui.show_status_message("Pan: drag to pan", duration=2.0)
+        self._prev_modifiers = dict(self.modifiers)
 
         # Safely check if the active tool is currently dragging something
         is_dragging = getattr(self.active_tool, "drag_viewer", None) is not None

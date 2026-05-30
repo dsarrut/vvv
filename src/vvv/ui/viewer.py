@@ -928,6 +928,7 @@ class SliceViewer:
         vs.camera.show_profiles = new_state
         vs.camera.show_contour = new_state
         vs.is_data_dirty = True
+        self.controller.status_message = "Display: restored" if new_state else "Display: hidden"
 
     def tick(self):
         # Safely clean up textures from the previous frame
@@ -1213,8 +1214,10 @@ class SliceViewer:
                     ovs.display.ww = ww
                     ovs.display.wl = wl
                     self.controller.sync.propagate_window_level(vs.display.overlay.image_id)
+                self.controller.status_message = "Auto W/L: overlay"
             else:
                 self.update_window_level(ww, wl)
+                self.controller.status_message = "Auto W/L"
 
     def update_window_level(self, ww, wl):
         vs = self.view_state
@@ -2262,16 +2265,16 @@ class SliceViewer:
             "zoom_out": lambda: self.on_zoom("out"),
             "reset_view": self.action_reset_view,
             "center_view": self.action_center_view,
-            "view_axial": lambda: self.set_orientation(ViewMode.AXIAL),
-            "view_sagittal": lambda: self.set_orientation(ViewMode.SAGITTAL),
-            "view_coronal": lambda: self.set_orientation(ViewMode.CORONAL),
+            "view_axial": lambda: self._set_orientation_with_hint(ViewMode.AXIAL),
+            "view_sagittal": lambda: self._set_orientation_with_hint(ViewMode.SAGITTAL),
+            "view_coronal": lambda: self._set_orientation_with_hint(ViewMode.CORONAL),
             "toggle_interp": self.action_toggle_pixelated_zoom,
             "toggle_strips": self.action_toggle_strips,
-            "toggle_legend": lambda: self._toggle_camera_bool("show_legend"),
+            "toggle_legend": lambda: self._toggle_camera_bool("show_legend", "Legend"),
             "toggle_filename": self.action_toggle_filename,
-            "toggle_grid": lambda: self._toggle_camera_bool("show_grid"),
-            "toggle_axis": lambda: self._toggle_camera_bool("show_axis"),
-            "toggle_scalebar": lambda: self._toggle_camera_bool("show_scalebar"),
+            "toggle_grid": lambda: self._toggle_camera_bool("show_grid", "Grid"),
+            "toggle_axis": lambda: self._toggle_camera_bool("show_axis", "Axis"),
+            "toggle_scalebar": lambda: self._toggle_camera_bool("show_scalebar", "Scale bar"),
             "hide_all": self.hide_everything,
             "sync_all": self.action_sync_all,
         }
@@ -2279,9 +2282,11 @@ class SliceViewer:
     def action_next_image(self):
         next_id = self.controller.get_next_image_id(self.image_id)
         if next_id and next_id != self.image_id:
-            # State-Only: Just tell the layout dictionary we want a new image!
             self.controller.layout[self.tag] = next_id
             self.controller.ui_needs_refresh = True
+            vs = self.controller.view_states.get(next_id)
+            name = vs.volume.name if vs else ""
+            self.controller.status_message = f"Next: {name}"
 
     def action_reset_view(self):
         # Check if either Left Shift or Right Shift is currently held down
@@ -2303,6 +2308,7 @@ class SliceViewer:
         self.is_geometry_dirty = True
         self.controller.sync.propagate_sync(self.image_id)
         self.controller.update_all_viewers_of_image(self.image_id)
+        self.controller.status_message = "View hard-reset" if is_shift else "View reset"
 
         # If the active viewer was reset, flag the UI for a reactive refresh
         if self.controller.gui and self.controller.gui.context_viewer == self:
@@ -2323,6 +2329,7 @@ class SliceViewer:
         else:
             vs.display.pixelated_zoom = not vs.display.pixelated_zoom
         vs.is_data_dirty = True
+        self.controller.status_message = "Interpolation: off" if vs.display.pixelated_zoom else "Interpolation: on"
 
     def action_toggle_strips(self):
         vs = self.view_state
@@ -2330,11 +2337,20 @@ class SliceViewer:
             return
         vs.display.use_voxel_strips = not vs.display.use_voxel_strips
         vs.is_data_dirty = True
+        self.controller.status_message = f"Voxel strips: {'on' if vs.display.use_voxel_strips else 'off'}"
 
-    def _toggle_camera_bool(self, field):
+    def _toggle_camera_bool(self, field, hint=None):
         vs = self.view_state
         if vs:
-            setattr(vs.camera, field, not getattr(vs.camera, field))
+            new_val = not getattr(vs.camera, field)
+            setattr(vs.camera, field, new_val)
+            if hint and self.controller:
+                self.controller.status_message = f"{hint}: {'on' if new_val else 'off'}"
+
+    def _set_orientation_with_hint(self, mode):
+        self.set_orientation(mode)
+        if self.controller:
+            self.controller.status_message = mode.name.capitalize()
 
     def action_sync_all(self):
         mods = self.controller.gui.interaction.modifiers if self.controller.gui else {}
@@ -2347,6 +2363,7 @@ class SliceViewer:
                 self.controller.sync.unlink_all_wl()
             else:
                 self.controller.sync.link_all_wl()
+            self.controller.status_message = "W/L sync: all unlinked" if all_linked else "W/L sync: all linked"
         else:
             all_linked = all(
                 vs.sync_group > 0
@@ -2356,6 +2373,7 @@ class SliceViewer:
                 self.controller.sync.unlink_all()
             else:
                 self.controller.sync.link_all()
+            self.controller.status_message = "Sync: all unlinked" if all_linked else "Sync: all linked"
 
     def action_toggle_filename(self):
         vs = self.view_state
