@@ -215,8 +215,9 @@ def parse_cli_arguments(datasets):
 
 @click.command()
 @click.argument("datasets", nargs=-1)
-@click.option("--linkall", "-l", is_flag=True, help="Enable sync all images")
-@click.option("--sync", "-s", is_flag=True, help="Enable sync all images")
+# --linkall is kept as a legacy alias from the old `vv` application; --sync is the preferred form.
+@click.option("--linkall", "-l", is_flag=True, help="Enable spatial sync for all images (legacy alias for --sync)")
+@click.option("--sync", "-s", is_flag=True, help="Enable spatial sync for all images")
 @click.option(
     "--no-history",
     "-nh",

@@ -113,7 +113,6 @@ class SyncManager:
             return
         dirty_ids = set([source_vs_id])
 
-        # --- NEW DECOUPLED W/L LOGIC ---
         for tid in self.get_sync_wl_group_vs_ids(source_vs_id):
             if tid != source_vs_id:
                 vs = self.controller.view_states[tid]
@@ -134,7 +133,7 @@ class SyncManager:
 
         dirty_ids = set([source_vs_id])
 
-        # 1. GROUP SYNC (Horizontal) - NEW DECOUPLED W/L LOGIC
+        # 1. GROUP SYNC (Horizontal)
         for vs_id in self.get_sync_wl_group_vs_ids(source_vs_id):
             if vs_id != source_vs_id:
                 vs = self.controller.view_states[vs_id]
@@ -345,7 +344,7 @@ class SyncManager:
     def unlink_all_wl(self):
         """Removes all images from Window/Level sync groups."""
         for vs in list(self.controller.view_states.values()):
-            vs.sync_wl_group = 0  # Changed from sync_wl to sync_wl_group
+            vs.sync_wl_group = 0
 
         for vs_id in list(self.controller.view_states.keys()):
             self.controller.update_all_viewers_of_image(vs_id)
