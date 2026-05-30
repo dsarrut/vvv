@@ -1776,9 +1776,9 @@ class MainGUI:
         self.refresh_workspace_bar()
         return load_workspace_sequence(self, self.controller, file_path)
 
-    def create_boot_sequence(self, image_tasks, sync=False, link_all=False):
+    def create_boot_sequence(self, image_tasks, sync=False, link_all=False, link_all_wl=False):
         """Wrapper to pass the CLI boot request into the external Sequence Manager."""
-        return create_boot_sequence(self, self.controller, image_tasks, sync, link_all)
+        return create_boot_sequence(self, self.controller, image_tasks, sync, link_all, link_all_wl)
 
     def _refresh_all_ui_panels(self):
         """Consolidated handler to rebuild all dynamic side panels."""

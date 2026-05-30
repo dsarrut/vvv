@@ -213,11 +213,12 @@ def parse_cli_arguments(datasets):
     return image_tasks
 
 
-@click.command()
+@click.command(context_settings=dict(help_option_names=["-h", "--help"]))
 @click.argument("datasets", nargs=-1)
 # --linkall is kept as a legacy alias from the old `vv` application; --sync is the preferred form.
 @click.option("--linkall", "-l", is_flag=True, help="Enable spatial sync for all images (legacy alias for --sync)")
-@click.option("--sync", "-s", is_flag=True, help="Enable spatial sync for all images")
+@click.option("--sync", "-s", is_flag=True, help="Enable spatial sync for all images at startup")
+@click.option("--linkall-wl", "-lw", is_flag=True, help="Enable Window/Level sync for all images at startup")
 @click.option(
     "--no-history",
     "-nh",
@@ -226,8 +227,40 @@ def parse_cli_arguments(datasets):
 )
 @click.option("--debug", is_flag=True, help="Show FPS debug overlay with graph.")
 @click.option("--fast-gl/--no-fast-gl", default=True, help="Enable/disable fast GL nearest-neighbor (Linux/Windows).")
-def main(no_history, datasets, linkall, sync, debug, fast_gl):
-    """Entry point for the VVV command line interface."""
+def main(no_history, datasets, linkall, sync, linkall_wl, debug, fast_gl):
+    """VVV — multi-image medical viewer.
+
+    \b
+    BASIC USAGE
+      vvv image.mhd
+      vvv ct.mhd spect.nii dose.nii        load multiple images side by side
+
+    \b
+    OVERLAY SYNTAX  (comma-separated fields, attached to the base image)
+      vvv base.nii,overlay.nii             alpha overlay, Jet colormap, opacity 0.5
+      vvv base.nii,overlay.nii,hot         colormaps: grayscale hot cold jet dosimetry segmentation
+      vvv base.nii,overlay.nii,jet,0.7     custom opacity (0.0–1.0)
+      vvv base.nii,overlay.nii,jet,0.5,100 minimum display threshold on the overlay
+      vvv base.nii,overlay.nii,reg         registration mode: linked W/L, grayscale colormaps
+      vvv base.nii,,hot                    apply colormap to base image only (empty overlay slot)
+
+    \b
+    SYNC GROUPS
+      vvv 1:ct.mhd 1:spect.nii            assign images to spatial sync group 1 (pan/zoom/slice)
+      vvv 1:ct.mhd 2:mri.nii              two separate sync groups
+      vvv ct.mhd spect.nii --sync          link all images spatially at startup
+      vvv ct.mhd spect.nii --linkall-wl    link all images by Window/Level at startup
+      vvv ct.mhd spect.nii -s -lw          link both spatial and W/L at startup
+
+    \b
+    4D SEQUENCES
+      vvv 4D frame1.nii frame2.nii ...    explicit 4D stack (use // to end the sequence)
+      vvv frame*.nii                       shell glob: auto-grouped if same size and spacing
+
+    \b
+    WORKSPACE
+      vvv session.vvw                      restore a previously saved workspace
+    """
 
     # Parse the tasks cleanly
     datasets = [ds for ds in datasets if ds.strip()]
@@ -277,7 +310,7 @@ def main(no_history, datasets, linkall, sync, debug, fast_gl):
         boot_gen = gui.load_workspace_sequence(workspace_file)
     else:
         # Standard image loading sequence
-        boot_gen = gui.create_boot_sequence(image_tasks, sync, linkall)
+        boot_gen = gui.create_boot_sequence(image_tasks, sync, linkall, linkall_wl)
 
     # 3. Run the application
     gui.run(boot_generator=boot_gen, debug=debug)

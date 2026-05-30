@@ -993,7 +993,7 @@ def load_workspace_sequence(gui, controller, filepath):
     )
 
 
-def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=False):
+def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=False, link_all_wl=False):
     import time
     import concurrent.futures
 
@@ -1150,6 +1150,9 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
             controller.set_sync_group(img_id, 1)
         elif id_to_group.get(img_id, 0) > 0:
             controller.set_sync_group(img_id, id_to_group[img_id])
+
+    if link_all_wl:
+        controller.sync.link_all_wl()
 
     gui.on_window_resize()
 
