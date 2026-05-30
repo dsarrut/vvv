@@ -2273,6 +2273,7 @@ class SliceViewer:
             "toggle_axis": lambda: self._toggle_camera_bool("show_axis"),
             "toggle_scalebar": lambda: self._toggle_camera_bool("show_scalebar"),
             "hide_all": self.hide_everything,
+            "sync_all": self.action_sync_all,
         }
 
     def action_next_image(self):
@@ -2334,6 +2335,27 @@ class SliceViewer:
         vs = self.view_state
         if vs:
             setattr(vs.camera, field, not getattr(vs.camera, field))
+
+    def action_sync_all(self):
+        mods = self.controller.gui.interaction.modifiers if self.controller.gui else {}
+        if mods.get("shift"):
+            all_linked = all(
+                vs.sync_wl_group > 0
+                for vs in self.controller.view_states.values()
+            )
+            if all_linked:
+                self.controller.sync.unlink_all_wl()
+            else:
+                self.controller.sync.link_all_wl()
+        else:
+            all_linked = all(
+                vs.sync_group > 0
+                for vs in self.controller.view_states.values()
+            )
+            if all_linked:
+                self.controller.sync.unlink_all()
+            else:
+                self.controller.sync.link_all()
 
     def action_toggle_filename(self):
         vs = self.view_state

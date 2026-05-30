@@ -49,6 +49,7 @@ DEFAULT_SETTINGS = {
         "time_forward": "Right",
         "time_backward": "Left",
         "add_profile": "P",
+        "sync_all": "S",
     },
     "interaction": {
         "zoom_speed": 1.1,
