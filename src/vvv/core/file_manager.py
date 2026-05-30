@@ -48,8 +48,9 @@ class FileManager:
 
             vs.is_data_dirty = True
 
-        self.controller.volumes[img_id] = vol
-        self.controller.view_states[img_id] = vs
+        with self.controller._state_lock:
+            self.controller.volumes[img_id] = vol
+            self.controller.view_states[img_id] = vs
 
         if self.controller.gui and not is_auto_overlay:
             self.controller.gui.notify_plugins_image_loaded(img_id)
@@ -366,42 +367,43 @@ class FileManager:
             )
 
     def close_image(self, vs_id):
-        if vs_id in self.controller.view_states:
+        with self.controller._state_lock:
+            if vs_id in self.controller.view_states:
 
-            # History
-            self.controller.history.save_image_state(self.controller, vs_id)
+                # History
+                self.controller.history.save_image_state(self.controller, vs_id)
 
-            # State-Only: Wipe from layout dict
-            for tag, current_id in self.controller.layout.items():
-                if current_id == vs_id:
-                    self.controller.layout[tag] = None
-
-            for other_id, other_vs in self.controller.view_states.items():
-                if other_vs.display.overlay.image_id == vs_id:
-                    other_vs.set_overlay(None, None)
-                    self.controller.update_all_viewers_of_image(other_id)
-
-            name = self.controller.view_states[vs_id].volume.name
-
-            # Delete ROIs from memory before deleting the view state ---
-            for roi_id in list(self.controller.view_states[vs_id].rois.keys()):
-                if roi_id in self.controller.volumes:
-                    del self.controller.volumes[roi_id]
-
-            del self.controller.view_states[vs_id]
-            del self.controller.volumes[vs_id]
-
-            if self.controller.gui:
-                self.controller.gui.notify_plugins_image_removed(vs_id)
-
-            # State-Only Fallback: Give empty viewers the next available image
-            if self.controller.view_states:
-                first_vs_id = next(iter(self.controller.view_states))
+                # State-Only: Wipe from layout dict
                 for tag, current_id in self.controller.layout.items():
-                    if current_id is None:
-                        self.controller.layout[tag] = first_vs_id
+                    if current_id == vs_id:
+                        self.controller.layout[tag] = None
 
-            self.controller.ui_needs_refresh = True
+                for other_id, other_vs in self.controller.view_states.items():
+                    if other_vs.display.overlay.image_id == vs_id:
+                        other_vs.set_overlay(None, None)
+                        self.controller.update_all_viewers_of_image(other_id)
 
-            if self.controller.gui:
-                self.controller.gui.show_status_message(f"Closed: {name}")
+                name = self.controller.view_states[vs_id].volume.name
+
+                # Delete ROIs from memory before deleting the view state ---
+                for roi_id in list(self.controller.view_states[vs_id].rois.keys()):
+                    if roi_id in self.controller.volumes:
+                        del self.controller.volumes[roi_id]
+
+                del self.controller.view_states[vs_id]
+                del self.controller.volumes[vs_id]
+
+                if self.controller.gui:
+                    self.controller.gui.notify_plugins_image_removed(vs_id)
+
+                # State-Only Fallback: Give empty viewers the next available image
+                if self.controller.view_states:
+                    first_vs_id = next(iter(self.controller.view_states))
+                    for tag, current_id in self.controller.layout.items():
+                        if current_id is None:
+                            self.controller.layout[tag] = first_vs_id
+
+                self.controller.ui_needs_refresh = True
+
+                if self.controller.gui:
+                    self.controller.gui.show_status_message(f"Closed: {name}")

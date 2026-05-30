@@ -48,6 +48,7 @@ class Controller:
         self.volumes = {}
         self.view_states = {}
         self.viewers = {}
+        self._state_lock = threading.RLock()
 
         self.layout: dict[str, str | None] = {"V1": None, "V2": None, "V3": None, "V4": None}
 
@@ -68,9 +69,10 @@ class Controller:
         self.status_message: str | None = None
 
     def get_next_image_id(self, current_id):
-        if not self.view_states:
-            return None
-        keys = list(self.view_states.keys())
+        with self._state_lock:
+            if not self.view_states:
+                return None
+            keys = list(self.view_states.keys())
         if current_id not in keys:
             return keys[0]
         next_idx = (keys.index(current_id) + 1) % len(keys)
@@ -879,13 +881,9 @@ class Controller:
         for viewer in self.viewers.values():
             viewer.tick()
 
-        # --- THE REACTIVE BRIDGE ---
-        try:
-            # Copy to list to avoid RuntimeError if background threads mutate dictionaries
+        with self._state_lock:
             vs_items = list(self.view_states.items())
             vol_items = list(self.volumes.values())
-        except RuntimeError:
-            return  # Skip this frame's bridge updates if a background thread is mutating data
 
         # Optimized: Consolidate geometry and data checks into a single loop
         for vs_id, vs in vs_items:

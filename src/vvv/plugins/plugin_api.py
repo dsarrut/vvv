@@ -230,10 +230,11 @@ class PluginAPI:
 
     def mount_generated_image(self, new_vol, new_vs) -> str:
         """Register a newly created volume+view_state and assign it to the active viewer."""
-        new_id = str(self._controller.next_image_id)
-        self._controller.next_image_id += 1
-        self._controller.volumes[new_id] = new_vol
-        self._controller.view_states[new_id] = new_vs
+        with self._controller._state_lock:
+            new_id = str(self._controller.next_image_id)
+            self._controller.next_image_id += 1
+            self._controller.volumes[new_id] = new_vol
+            self._controller.view_states[new_id] = new_vs
         viewer = self._gui.context_viewer
         if viewer:
             self._controller.layout[viewer.tag] = new_id

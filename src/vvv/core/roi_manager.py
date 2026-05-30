@@ -288,7 +288,7 @@ class ROIManager:
         if mask_vol.data.size == 0:
             return None
 
-        with self._lock:
+        with self.controller._state_lock:
             roi_id = str(self.controller.next_image_id)
             self.controller.next_image_id += 1
             self.controller.volumes[roi_id] = mask_vol
@@ -408,7 +408,7 @@ class ROIManager:
                 raise ValueError("ROI is completely outside the base image FOV.")
 
         # 4. Register the Volume and State
-        with self._lock:
+        with self.controller._state_lock:
             mask_id = str(self.controller.next_image_id)
             self.controller.next_image_id += 1
             self.controller.volumes[mask_id] = mask_vol
@@ -749,16 +749,17 @@ class ROIManager:
             self.controller.ui_needs_refresh = True
 
     def close_roi(self, base_id, roi_id):
-        if base_id in self.controller.view_states:
-            vs = self.controller.view_states[base_id]
-            if roi_id in vs.rois:
-                del vs.rois[roi_id]
-                vs.is_data_dirty = True
+        with self.controller._state_lock:
+            if base_id in self.controller.view_states:
+                vs = self.controller.view_states[base_id]
+                if roi_id in vs.rois:
+                    del vs.rois[roi_id]
+                    vs.is_data_dirty = True
 
-        if roi_id in self.controller.volumes:
-            del self.controller.volumes[roi_id]
+            if roi_id in self.controller.volumes:
+                del self.controller.volumes[roi_id]
 
-        self.controller.update_all_viewers_of_image(base_id)
+            self.controller.update_all_viewers_of_image(base_id)
 
     def update_roi_contours(self, viewer):
         """Extracts 2D marching squares for all contour ROIs on the current slice."""
