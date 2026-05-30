@@ -328,11 +328,12 @@ class SyncManager:
         for vs in list(self.controller.view_states.values()):
             vs.sync_wl_group = 1
 
-        # State-Only: Instantly broadcast the W/L and Colormap to the whole group.
         self.propagate_window_level(master_vs_id)
         self.propagate_colormap(master_vs_id)
 
-        # Flag the GUI to refresh the sync tab
+        for vs_id in list(self.controller.view_states.keys()):
+            self.controller.update_all_viewers_of_image(vs_id)
+
         self.controller.ui_needs_refresh = True
 
     def unlink_all_wl(self):
