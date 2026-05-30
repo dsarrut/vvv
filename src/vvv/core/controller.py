@@ -433,6 +433,12 @@ class Controller:
 
         d: Any = self.settings.data
         for key in keys[:-1]:
+            if not isinstance(d, dict):
+                return
+            if key in d and not isinstance(d[key], dict):
+                return
+            if key not in d:
+                d[key] = {}
             d = d[key]
 
         if keys[0] == "colors" and isinstance(value, (list, tuple)):
