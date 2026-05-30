@@ -106,7 +106,6 @@ class ProfilePluginUI(PluginTagMixin):
                     tag=self._t("list_table"),
                     header_row=False,
                     resizable=False,
-                    borders_innerH=True,
                     scrollY=True,
                 ):
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
@@ -199,6 +198,7 @@ class ProfilePluginUI(PluginTagMixin):
                     user_data=p_id,
                     callback=self._c.on_profile_name_changed,
                     on_enter=True,
+                    width=-1,
                 )
 
                 # Plot button
