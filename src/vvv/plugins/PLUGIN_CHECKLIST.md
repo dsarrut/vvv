@@ -85,6 +85,7 @@ Plugins must only interact with the app through `PluginAPI`. Bypassing it create
 - [ ] **Image reload** — data changes are detected via `id(vol.data)` comparison, not image_id; dirty flags are reset correctly on reload
 - [ ] **4D / time series** — if the plugin reads voxel data, does it use the correct time index (`vs.camera.time_idx`)? Does a time change invalidate any cache?
 - [ ] **DPG tag namespacing** — every DPG tag is prefixed with `self._plugin_id` via `_t(name)`; no hardcoded strings that could collide with other plugins
+- [ ] **Editable input fields** — every `add_input_text` / `add_input_int` / `add_input_float` that accepts user typing must have a string tag whose name contains `"input_"` (e.g. `self._t("input_my_field")`). The global key-press guard in `ui_interaction.py` scans aliases for this substring to suppress viewer shortcuts while the user is typing. Fields without a tag (auto-ID) or with a tag that doesn't contain `"input_"` will leak keystrokes to the viewer. `readonly=True` fields are exempt.
 - [ ] **Popup window** — if a popup exists, its tags are also namespaced; it is closed in `on_image_removed` and `destroy()`. Name of the popup window should contain the image name.
 - [ ] **`update()` is called only when dirty** — avoid expensive recomputation; use caches (`_last_image_id`, `id(vol.data)`) to skip redundant work
 - [ ] **Overlay images** — does the plugin need to react to the overlay as well as the base image? (see DVF `_get_target_vs` pattern)

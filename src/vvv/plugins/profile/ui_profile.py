@@ -1,5 +1,9 @@
 import dearpygui.dearpygui as dpg
-from vvv.ui.ui_components import build_section_title, build_help_button, build_beginner_tooltip
+from vvv.ui.ui_components import (
+    build_section_title,
+    build_help_button,
+    build_beginner_tooltip,
+)
 from vvv.utils import ViewMode, fmt
 from .control_profile import ProfilePluginController
 from vvv.plugins.plugin_api import PluginTagMixin
@@ -97,7 +101,7 @@ class ProfilePluginUI(PluginTagMixin):
 
             dpg.add_spacer(height=5)
 
-            with dpg.child_window(tag=self._t("list_window"), height=200, border=True):
+            with dpg.child_window(tag=self._t("list_window"), height=200, border=False):
                 with dpg.table(
                     tag=self._t("list_table"),
                     header_row=False,
@@ -107,12 +111,12 @@ class ProfilePluginUI(PluginTagMixin):
                 ):
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
                     dpg.add_table_column(width_stretch=True)
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
 
     def update_ui(self, api) -> None:
         viewer = api.get_active_viewer()
@@ -160,7 +164,9 @@ class ProfilePluginUI(PluginTagMixin):
             return
 
         profile_key = (
-            (viewer.image_id, tuple(viewer.view_state.profiles.keys())) if has_image else None
+            (viewer.image_id, tuple(viewer.view_state.profiles.keys()))
+            if has_image
+            else None
         )
         if profile_key == self._last_profile_key:
             return
@@ -189,6 +195,7 @@ class ProfilePluginUI(PluginTagMixin):
                 # Name
                 dpg.add_input_text(
                     default_value=profile.name,
+                    tag=self._t(f"input_name_{p_id}"),
                     user_data=p_id,
                     callback=self._c.on_profile_name_changed,
                     on_enter=True,
@@ -448,7 +455,9 @@ class ProfilePluginUI(PluginTagMixin):
 
         dpg.add_spacer(height=5)
 
-        with dpg.plot(label="", height=300, width=-1, tag=self._t(f"plot_{profile.id}")):
+        with dpg.plot(
+            label="", height=300, width=-1, tag=self._t(f"plot_{profile.id}")
+        ):
             dpg.add_plot_axis(
                 dpg.mvXAxis, label="Distance (mm)", tag=self._t(f"xaxis_{profile.id}")
             )
@@ -543,7 +552,9 @@ class ProfilePluginUI(PluginTagMixin):
         header_tag = self._t(f"plot_header_text_{profile.id}")
         if dpg.does_item_exist(header_tag):
             ori_str = ORI_MAP.get(profile.orientation, "??")
-            dpg.set_value(header_tag, f"Orientation: {ori_str} | Slice: {profile.slice_idx}")
+            dpg.set_value(
+                header_tag, f"Orientation: {ori_str} | Slice: {profile.slice_idx}"
+            )
 
     def refresh_plot_series(self, profile):
         api = self._c._api
@@ -560,6 +571,7 @@ class ProfilePluginUI(PluginTagMixin):
     def _on_plot_hover(self, _sender, _app_data, _user_data) -> None:
         """Global mouse-move callback: updates hovered_distance for any open profile plot."""
         import numpy as np
+
         api = self._c._api
         if not api:
             return
@@ -574,7 +586,9 @@ class ProfilePluginUI(PluginTagMixin):
             if dpg.does_item_exist(plot_tag) and dpg.is_item_hovered(plot_tag):
                 x, _ = dpg.get_plot_mouse_pos()
                 if profile.pt1_phys is not None and profile.pt2_phys is not None:
-                    total_dist = float(np.linalg.norm(profile.pt2_phys - profile.pt1_phys))
+                    total_dist = float(
+                        np.linalg.norm(profile.pt2_phys - profile.pt1_phys)
+                    )
                     if total_dist > 1e-5 and 0.0 <= x <= total_dist:
                         if profile.hovered_distance != x:
                             profile.hovered_distance = x
