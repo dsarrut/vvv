@@ -630,6 +630,7 @@ class Controller:
             assert vs is not None
             assert vol is not None
             with vs.loading_shield():
+                data_snapshot = self._capture_volume_data_snapshot(vs_id, vs, vol)
                 try:
                     # Build reference grid (same size/spacing/origin/direction as original)
                     ref = sitk.Image(
@@ -685,6 +686,7 @@ class Controller:
                     self.ui_needs_refresh = True
 
                 except Exception as e:
+                    self._restore_volume_data_snapshot(vs_id, vs, vol, data_snapshot)
                     self.status_message = f"Bake failed: {e}"
                     self.ui_needs_refresh = True
 
@@ -733,14 +735,24 @@ class Controller:
         self.ui_needs_refresh = True
 
         with vs.loading_shield():
-            # 1. Snapshot the world before the reload
+            # 1. Snapshot the world and memory before the reload
             old_state = self._capture_pre_reload_state(vs, vol)
+            data_snapshot = self._capture_volume_data_snapshot(vs_id, vs, vol)
 
-            # 2. Safely destroy C++ bindings to prevent Segfaults
-            self._tombstone_image_memory(vs_id, vs, vol)
+            try:
+                # 2. Safely destroy C++ bindings to prevent Segfaults
+                self._tombstone_image_memory(vs_id, vs, vol)
 
-            # 3. Read the disk
-            was_reset = vol.reload()
+                # 3. Read the disk
+                was_reset = vol.reload()
+                if not was_reset and vol.data is None:
+                    raise RuntimeError("Reload failed or was aborted.")
+            except Exception as e:
+                # Restore previous state on failure
+                self._restore_volume_data_snapshot(vs_id, vs, vol, data_snapshot)
+                self.status_message = f"Reload failed: {e}"
+                self.ui_needs_refresh = True
+                return
 
             # 4. Resolve the new spatial reality
             shape_changed = self._resolve_reloaded_geometry(
@@ -847,6 +859,42 @@ class Controller:
         self.update_all_viewers_of_image(vs_id)
 
         return shape_changed
+
+    def _capture_volume_data_snapshot(self, vs_id, vs, vol):
+        snapshot = {
+            "vol_sitk_image": vol.sitk_image,
+            "vol_data": vol.data,
+            "vs_base_display_data": vs.base_display_data,
+            "vs_sitk_base_cache": vs._sitk_base_cache,
+            "vs_overlay_data": vs.display.overlay_data,
+            "vs_sitk_overlay_cache": vs.display._sitk_overlay_cache,
+            "dependent_overlays": {}
+        }
+        for other_id, other_vs in self.view_states.items():
+            if other_vs.display.overlay.image_id == vs_id:
+                snapshot["dependent_overlays"][other_id] = {
+                    "overlay_data": other_vs.display.overlay_data,
+                    "sitk_overlay_cache": other_vs.display._sitk_overlay_cache
+                }
+        return snapshot
+
+    def _restore_volume_data_snapshot(self, vs_id, vs, vol, snapshot):
+        vol.sitk_image = snapshot["vol_sitk_image"]
+        vol.data = snapshot["vol_data"]
+        vs.base_display_data = snapshot["vs_base_display_data"]
+        vs._sitk_base_cache = snapshot["vs_sitk_base_cache"]
+        with vs.display._lock:
+            vs.display.overlay_data = snapshot["vs_overlay_data"]
+            vs.display._sitk_overlay_cache = snapshot["vs_sitk_overlay_cache"]
+        
+        for other_id, other_snapshot in snapshot["dependent_overlays"].items():
+            other_vs = self.view_states.get(other_id)
+            if other_vs:
+                with other_vs.display._lock:
+                    other_vs.display.overlay_data = other_snapshot["overlay_data"]
+                    other_vs.display._sitk_overlay_cache = other_snapshot["sitk_overlay_cache"]
+        
+        self.update_all_viewers_of_image(vs_id)
 
     def _rebuild_dependent_overlays(self, vs_id, vs, vol, old_state):
         """Restores fusions that were attached to this image, or that this image was attached to."""

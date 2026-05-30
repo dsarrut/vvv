@@ -725,8 +725,25 @@ class ROIManager:
                 color=self.controller.gui.ui_cfg["colors"]["working"],
             )
 
+        old_sitk = mask_vol.sitk_image
+        old_data = mask_vol.data
+        old_polygons = {ori: dict(poly) for ori, poly in roi_state.polygons.items()}
+        old_bbox = getattr(mask_vol, "roi_bbox", None)
+
         with vs.loading_shield():
-            mask_vol.reload()
+            try:
+                was_reset = mask_vol.reload()
+                if not was_reset and mask_vol.data is None:
+                    raise RuntimeError("Reload failed or was aborted.")
+            except Exception as e:
+                mask_vol.sitk_image = old_sitk
+                mask_vol.data = old_data
+                if old_bbox is not None:
+                    mask_vol.roi_bbox = old_bbox
+                roi_state.polygons = old_polygons
+                if self.controller.gui:
+                    self.controller.gui.show_status_message(f"Reload failed: {e}", color=self.controller.gui.ui_cfg["colors"]["warning"])
+                return
 
             for ori in roi_state.polygons:
                 roi_state.polygons[ori].clear()

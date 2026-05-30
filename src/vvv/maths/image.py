@@ -1065,7 +1065,7 @@ class VolumeData:
             new_sitk = straighten_image(new_sitk, os.path.basename(self.file_paths[0]))
         except Exception as e:
             print(f"Warning: Failed to reload {self.name}. Error: {e}")
-            return False
+            raise e
 
         new_shape = new_sitk.GetSize()
         current_shape = self.sitk_image.GetSize() if self.sitk_image else None
