@@ -925,57 +925,6 @@ class ViewState:
                 self.display.ww = preset["ww"]
                 self.display.wl = preset["wl"]
 
-    def update_base_display_data(self):
-        if not self.space.is_active or not self.space.has_rotation():
-            self.base_display_data = None
-            return
-
-        import SimpleITK as sitk
-
-        # The Tombstone Pattern
-        self.base_display_data = None
-        _ = self._sitk_base_cache  # keep sitk object alive until Execute() returns
-        self._sitk_base_cache = None
-
-        ref_img = sitk.Image(
-            int(self.volume.shape3d[2]),
-            int(self.volume.shape3d[1]),
-            int(self.volume.shape3d[0]),
-            sitk.sitkUInt8,
-        )
-        ref_img.SetSpacing(self.volume.spacing.tolist())
-        ref_img.SetOrigin(self.volume.origin.tolist())
-        ref_img.SetDirection(self.volume.matrix.flatten().tolist())
-
-        resampler = sitk.ResampleImageFilter()
-        resampler.SetReferenceImage(ref_img)
-        resampler.SetInterpolator(sitk.sitkLinear)
-        resampler.SetDefaultPixelValue(float(np.min(self.volume.data)))
-        rot_transform = self.space.get_rotation_only_transform()
-        resampler.SetTransform(rot_transform.GetInverse())
-
-        target_dim = self.volume.sitk_image.GetDimension()
-        if target_dim == 3:
-            resampled_img = resampler.Execute(self.volume.sitk_image)
-            self._sitk_base_cache = resampled_img
-            self.base_display_data = sitk.GetArrayViewFromImage(resampled_img)
-            if (
-                getattr(self.volume, "is_dvf", False)
-                and self.base_display_data.ndim == 4
-            ):
-                self.base_display_data = np.moveaxis(self.base_display_data, -1, 0)
-        elif target_dim == 4:
-            resampled_volumes = []
-            for t in range(self.volume.num_timepoints):
-                size = list(self.volume.sitk_image.GetSize())
-                size[3] = 0
-                index = [0, 0, 0, t]
-                vol_3d = sitk.Extract(self.volume.sitk_image, size, index)
-                resampled_volumes.append(resampler.Execute(vol_3d))
-            joined_img = sitk.JoinSeries(resampled_volumes)
-            self._sitk_base_cache = joined_img
-            self.base_display_data = sitk.GetArrayViewFromImage(joined_img)
-
     def set_overlay(self, overlay_id, other_vol):
         if overlay_id is None or other_vol is None:
             with self.display._lock:

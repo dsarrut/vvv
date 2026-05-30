@@ -13,7 +13,7 @@ from vvv.core.contour_manager import ContourManager
 from vvv.core.history_manager import HistoryManager
 from vvv.core.settings_manager import SettingsManager
 from vvv.core.profile_manager import ProfileManager
-from vvv.core.overlay_resampler import resample_overlay
+from vvv.core.overlay_resampler import resample_base, resample_overlay
 
 
 class Controller:
@@ -444,7 +444,7 @@ class Controller:
                 return
 
             vs.reset_preview_rotation()
-            vs.update_base_display_data()
+            self._apply_base_resample(vs)
 
             # --- Early exit: check before touching any overlay data ---
             # If the transform changed during base resampling, overlay_data was never
@@ -487,6 +487,28 @@ class Controller:
     def _discard_resample(self, job_id):
         self.status_message = f"Resample #{job_id} discarded (transform changed)"
         self.ui_needs_refresh = True
+
+    def _apply_base_resample(self, vs):
+        """Tombstone-safe base resample. Wraps the pure resample_base() function.
+
+        Clears base_display_data to None before Execute() so the render thread
+        sees no data rather than a stale view during the GIL-releasing call.
+        """
+        if not vs.space.is_active or not vs.space.has_rotation():
+            vs.base_display_data = None
+            vs._sitk_base_cache = None
+            return
+
+        vs.base_display_data = None
+        _old_cache = vs._sitk_base_cache  # noqa: F841 — keep alive during Execute()
+        vs._sitk_base_cache = None
+
+        rot_transform = vs.space.get_rotation_only_transform()
+        new_cache, new_data = resample_base(vs.volume, rot_transform)
+
+        del _old_cache  # release old ITK object now that new data is ready
+        vs._sitk_base_cache = new_cache
+        vs.base_display_data = new_data
 
     def _apply_overlay_resample(self, base_vs, ovs, job_id=None, check_image_id=None):
         """Tombstone-safe overlay resample. Wraps the pure resample_overlay() function.

@@ -1,10 +1,11 @@
 """
-Pure ITK resampling for overlay fusion.
+Pure ITK resampling for base and overlay images.
 
-resample_overlay() has no side effects: it takes volumes and transforms,
-runs ResampleImageFilter (which releases the GIL), and returns the result.
+Both functions have no side effects: they take volumes and transforms,
+run ResampleImageFilter (which releases the GIL), and return the result.
 Thread-safety (tombstone pattern) and job-id staleness checks are the
-caller's responsibility — see Controller._apply_overlay_resample().
+caller's responsibility — see Controller._apply_base_resample() and
+Controller._apply_overlay_resample().
 """
 
 from __future__ import annotations
@@ -112,3 +113,59 @@ def resample_overlay(
     )
 
     return sitk_cache, overlay_data, baked_translation
+
+
+def resample_base(vol: "VolumeData", rotation_transform) -> tuple:
+    """
+    Resample vol onto its own grid after applying a rotation-only transform.
+    Used when the base image has an active rotation (registration preview).
+
+    [ASYNC_BOUNDARY] ResampleImageFilter.Execute() releases the GIL.
+    The caller must clear base_display_data to None before calling so the
+    render thread sees no data rather than a stale view during Execute().
+
+    Returns:
+        (sitk_cache, base_display_data)
+        - sitk_cache: ITK image object kept alive so base_display_data
+          (a numpy view into it) stays valid. None for unsupported dims.
+        - base_display_data: numpy array, or None for unsupported dims.
+    """
+    import SimpleITK as sitk
+
+    ref_img = sitk.Image(
+        vol.shape3d[2],
+        vol.shape3d[1],
+        vol.shape3d[0],
+        sitk.sitkUInt8,
+    )
+    ref_img.SetSpacing(vol.spacing.tolist())
+    ref_img.SetOrigin(vol.origin.tolist())
+    ref_img.SetDirection(vol.matrix.flatten().tolist())
+
+    resampler = sitk.ResampleImageFilter()
+    resampler.SetReferenceImage(ref_img)
+    resampler.SetInterpolator(sitk.sitkLinear)
+    resampler.SetDefaultPixelValue(float(np.min(vol.data)))
+    resampler.SetTransform(rotation_transform.GetInverse())
+
+    target_dim = vol.sitk_image.GetDimension()
+
+    if target_dim == 3:
+        resampled_img = resampler.Execute(vol.sitk_image)  # GIL released
+        base_data = sitk.GetArrayViewFromImage(resampled_img)
+        if getattr(vol, "is_dvf", False) and base_data.ndim == 4:
+            base_data = np.moveaxis(base_data, -1, 0)
+        return resampled_img, base_data
+
+    elif target_dim == 4:
+        resampled_volumes = []
+        for t in range(vol.num_timepoints):
+            size = list(vol.sitk_image.GetSize())
+            size[3] = 0
+            vol_3d = sitk.Extract(vol.sitk_image, size, [0, 0, 0, t])
+            resampled_volumes.append(resampler.Execute(vol_3d))  # GIL released
+        joined_img = sitk.JoinSeries(resampled_volumes)
+        return joined_img, sitk.GetArrayViewFromImage(joined_img)
+
+    else:
+        return None, None
