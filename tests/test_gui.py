@@ -79,16 +79,18 @@ def test_gui_sync_between_images(headless_gui_app, synthetic_volume_factory):
     vs3_id = controller.file.load_image(path3)
 
     # 1. Simulate UI: Put Img1 and Img2 into "G 1", leave Img3 in "None"
-    handle_sync_group_change(controller.gui, None, "G 1", vs1_id)
-    handle_sync_group_change(controller.gui, None, "G 1", vs2_id)
+    sp_items = ["None", "G 1", "G 2"]
+    handle_sync_group_change(controller.gui, None, "G 1", (vs1_id, sp_items))
+    handle_sync_group_change(controller.gui, None, "G 1", (vs2_id, sp_items))
 
     assert controller.view_states[vs1_id].sync_group == 1
     assert controller.view_states[vs2_id].sync_group == 1
     assert controller.view_states[vs3_id].sync_group == 0
 
     # 2. Simulate UI: Put Img1 and Img2 into W/L "G A"
-    handle_wl_group_change(gui, None, "G A", vs1_id)
-    handle_wl_group_change(gui, None, "G A", vs2_id)
+    wl_items = ["None", "G A", "G B"]
+    handle_wl_group_change(gui, None, "G A", (vs1_id, wl_items))
+    handle_wl_group_change(gui, None, "G A", (vs2_id, wl_items))
 
     # 3. Simulate UI: Change W/L on Img1
     intensity_plugin = next(p for p in gui.plugins if p.plugin_id == "intensity_plugin")
