@@ -604,3 +604,52 @@ def test_gui_roi_plugin_resizes_list_window(headless_gui_app):
         dpg.delete_item(window_tag)
 
 
+def test_gui_profiles_checkbox_sync(headless_gui_app):
+    """Verifies that the main Profiles checkbox and the Profile plugin checkbox toggle each other."""
+    controller, gui, viewer, vs_id = headless_gui_app
+    vs = viewer.view_state
+
+    # 1. Retrieve the profile plugin
+    profile_plugin = next(p for p in gui.plugins if p.plugin_id == "profile_plugin")
+    plugin_chk_tag = profile_plugin._ui._t("check_show_profiles")
+
+    # Ensure items exist
+    assert dpg.does_item_exist("check_profiles")
+    assert dpg.does_item_exist(plugin_chk_tag)
+
+    # Initially they should both be True (the default)
+    assert vs.camera.show_profiles is True
+    assert dpg.get_value("check_profiles") is True
+    assert dpg.get_value(plugin_chk_tag) is True
+
+    # 2. Simulate User untoggling the main check_profiles checkbox
+    gui.on_visibility_toggle(sender="check_profiles", value=False, user_data="profiles")
+
+    # Assert model updated
+    assert vs.camera.show_profiles is False
+
+    # Simulate the GUI update loop (plugin updates run if ui_needs_refresh is True)
+    assert controller.ui_needs_refresh is True
+    if gui.plugin_api.is_dirty:
+        for plugin in gui.plugins:
+            if plugin.plugin_id == "profile_plugin":
+                plugin.update(gui.plugin_api)
+
+    # Now verify the plugin checkbox has updated to False
+    assert dpg.get_value(plugin_chk_tag) is False
+
+    # Clear ui_needs_refresh
+    controller.ui_needs_refresh = False
+
+    # 3. Simulate User toggling the plugin checkbox back to True
+    profile_plugin._ui.on_show_profiles_changed(sender=plugin_chk_tag, app_data=True, user_data=None)
+
+    # Assert model updated
+    assert vs.camera.show_profiles is True
+
+    # Check that main check_profiles checkbox has updated to True
+    assert dpg.get_value("check_profiles") is True
+    assert controller.ui_needs_refresh is True
+
+
+

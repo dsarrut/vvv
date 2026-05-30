@@ -1002,14 +1002,6 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
 
     total_files = len(image_tasks) + sum(1 for t in image_tasks if t["fusion"])
     warnings = []
-
-    display_name = "Initializing..."
-    show_loading_modal("Loading image...", display_name)
-
-    # Yield multiple times to guarantee the OS paints the boot modal!
-    for _ in range(3):
-        yield
-
     loaded_ids = []
     id_to_group = {}
 
@@ -1024,20 +1016,16 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
 
     # --- THE PARALLEL LOADER & REAL PROGRESS BAR ---
     if total_files == 1:
-        # Synchronous fast-path for single images to bypass threading delays and modal flashes!
+        # Bypasses threads, modals and frame yields entirely for maximum boot speed
         path = jobs[0]
-        show_loading_modal(
-            "Initializing...",
-            f"Loading {os.path.basename(path)}...",
-            progress=0.5,
-        )
-        for _ in range(2):
-            yield
         try:
             job_results[path] = controller.file.load_image(path)
         except Exception as e:
             warnings.append(f"- {os.path.basename(path)}: {e}")
     else:
+        # Show loading modal immediately without extra delays
+        show_loading_modal("Loading images...", "Initializing...", progress=0.0)
+
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=min(total_files, 8)
         ) as executor:
@@ -1071,16 +1059,10 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
                 if completed >= total_files:
                     break
 
-                # Let DearPyGui render a frame
+                # Let DearPyGui render a frame, but avoid excessive sleep
                 yield
-                time.sleep(0.01)
+                time.sleep(0.005)
     # -----------------------------------------------
-
-    show_loading_modal(
-        "Loading image...", "Applying synchronization and layouts...", progress=1.0
-    )
-    for _ in range(2):
-        yield
 
     # 3. Now wire up the loaded data into the ViewStates synchronously
     for task in image_tasks:

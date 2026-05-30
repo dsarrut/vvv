@@ -268,6 +268,7 @@ class ProfilePluginUI(PluginTagMixin):
             viewer.is_geometry_dirty = True
             if dpg.does_item_exist("check_profiles"):
                 dpg.set_value("check_profiles", app_data)
+            api.request_refresh()
 
     def on_open_all_clicked(self, sender, app_data, user_data):
         api = self._c._api

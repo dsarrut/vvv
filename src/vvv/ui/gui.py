@@ -1411,6 +1411,8 @@ class MainGUI:
                 vs.display.use_voxel_strips = False
             dpg.set_value(sender, False)
 
+        self.controller.ui_needs_refresh = True
+
     def on_toggle_auto_save(self, sender, app_data, user_data):
         self.controller.settings.data.setdefault("behavior", {})[
             "auto_save_history"
