@@ -107,16 +107,19 @@ class PluginAPI:
         return self._gui.context_viewer
 
     def get_viewers(self):
-        return self._controller.viewers
+        with self._controller._state_lock:
+            return self._controller.viewers.copy()
 
     def get_volumes(self):
-        return self._controller.volumes
+        with self._controller._state_lock:
+            return self._controller.volumes.copy()
 
     def get_image_display_name(self, image_id):
         return self._controller.get_image_display_name(image_id)
 
     def get_view_states(self) -> dict[str, ViewState]:
-        return self._controller.view_states
+        with self._controller._state_lock:
+            return self._controller.view_states.copy()
 
 
     def request_refresh(self):
@@ -252,7 +255,9 @@ class PluginAPI:
     # --- Plugin settings (persisted in the app settings file under "plugins.<namespace>") ---
 
     def get_settings(self, namespace: str) -> dict:
-        return self._controller.settings.data.get("plugins", {}).get(namespace, {})
+        import copy
+        return copy.deepcopy(self._controller.settings.data.get("plugins", {}).get(namespace, {}))
 
     def set_settings(self, namespace: str, data: dict) -> None:
-        self._controller.settings.data.setdefault("plugins", {})[namespace] = data
+        import copy
+        self._controller.settings.data.setdefault("plugins", {})[namespace] = copy.deepcopy(data)

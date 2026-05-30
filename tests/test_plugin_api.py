@@ -68,6 +68,52 @@ class TestPluginAPI(unittest.TestCase):
         self.mock_gui.context_viewer = mock_viewer
         self.assertEqual(self.api.get_crosshair_world(), coords)
 
+    def test_settings_immutability(self):
+        # Set up mock settings structure
+        self.mock_controller.settings.data = {"plugins": {"my_plugin": {"key": "val"}}}
+        
+        # Test get_settings returns a copy
+        settings = self.api.get_settings("my_plugin")
+        self.assertEqual(settings, {"key": "val"})
+        settings["key"] = "changed"
+        # The stored settings should remain unchanged
+        self.assertEqual(self.api.get_settings("my_plugin")["key"], "val")
+        
+        # Test set_settings stores a copy
+        input_data = {"param": "original"}
+        self.api.set_settings("my_plugin", input_data)
+        input_data["param"] = "modified"
+        # The stored settings should remain as the original copy
+        self.assertEqual(self.api.get_settings("my_plugin")["param"], "original")
+
+    def test_collections_shallow_copy(self):
+        import threading
+        self.mock_controller._state_lock = MagicMock(spec=threading.RLock())
+        
+        mock_volumes = {"vol1": MagicMock()}
+        mock_viewers = {"v1": MagicMock()}
+        mock_view_states = {"vs1": MagicMock()}
+        
+        self.mock_controller.volumes = mock_volumes
+        self.mock_controller.viewers = mock_viewers
+        self.mock_controller.view_states = mock_view_states
+        
+        # Verify get_volumes returns a copy and respects the lock
+        volumes_copy = self.api.get_volumes()
+        self.assertEqual(volumes_copy, mock_volumes)
+        self.assertIsNot(volumes_copy, mock_volumes)
+        self.mock_controller._state_lock.__enter__.assert_called()
+        
+        # Verify get_viewers returns a copy and respects the lock
+        viewers_copy = self.api.get_viewers()
+        self.assertEqual(viewers_copy, mock_viewers)
+        self.assertIsNot(viewers_copy, mock_viewers)
+        
+        # Verify get_view_states returns a copy and respects the lock
+        view_states_copy = self.api.get_view_states()
+        self.assertEqual(view_states_copy, mock_view_states)
+        self.assertIsNot(view_states_copy, mock_view_states)
+
     def test_discover_plugins_success(self):
         from vvv.plugins import discover_plugins
         plugins = discover_plugins()
