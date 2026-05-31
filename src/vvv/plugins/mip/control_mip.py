@@ -135,6 +135,22 @@ class MIPPluginController(PluginTagMixin):
             viewer.is_viewer_data_dirty = True
             viewer.is_geometry_dirty = True
 
+    def propagate_rotation(self, source_image_id, rotation_angles: dict) -> None:
+        """Sync rotation angles to all MIP-enabled viewers in the same sync group."""
+        if not self._api:
+            return
+        sync_ids = self._api.get_sync_group_vs_ids(source_image_id, active_only=True)
+        viewers = self._api.get_viewers()
+        for img_id in sync_ids:
+            if img_id == source_image_id:
+                continue
+            for viewer in viewers.values():
+                if viewer.image_id == img_id:
+                    target_state = self.get_viewer_state(img_id, viewer.tag)
+                    if target_state.mip_enabled:
+                        target_state.rotation_angles.update(rotation_angles)
+                        self._mark_viewer_dirty(viewer)
+
     def on_mip_toggle(self, sender, app_data, user_data):
         if not self._api:
             return
@@ -191,6 +207,7 @@ class MIPPluginController(PluginTagMixin):
             active_axis = orientation_map.get(viewer.orientation, "Y")
             state.rotation_angles[active_axis] = float(app_data)
             self._mark_viewer_dirty(viewer)
+            self.propagate_rotation(viewer.image_id, state.rotation_angles)
             self._api.request_refresh()
 
     def on_step_changed(self, sender, app_data, user_data):
@@ -222,6 +239,7 @@ class MIPPluginController(PluginTagMixin):
         state.rotation_angles[active_axis] = round(new_val, 1)
         dpg.set_value(user_data["tag"], new_val)
         self._mark_viewer_dirty(viewer)
+        self.propagate_rotation(viewer.image_id, state.rotation_angles)
         self._api.request_refresh()
 
     def on_step_size_button(self, _sender, _app_data, user_data):

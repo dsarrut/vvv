@@ -2503,27 +2503,16 @@ class SliceViewer:
             proj_axis = axis_map.get(self.orientation, "Y")
             current_angle = mip_state.rotation_angles.get(proj_axis, 0.0)
 
-            if key == dpg.mvKey_Left:
-                angle = current_angle - mip_state.rotation_step
+            if key in (dpg.mvKey_Left, dpg.mvKey_Right):
+                delta = mip_state.rotation_step if key == dpg.mvKey_Right else -mip_state.rotation_step
+                angle = current_angle + delta
                 if angle <= -180.0:
                     angle += 360.0
                 elif angle > 180.0:
                     angle -= 360.0
                 mip_state.rotation_angles[proj_axis] = round(angle, 2)
-                
-                self.view_state.is_data_dirty = True
-                self.is_viewer_data_dirty = True
-                self.is_geometry_dirty = True
-                self.controller.ui_needs_refresh = True
-                return
-            elif key == dpg.mvKey_Right:
-                angle = current_angle + mip_state.rotation_step
-                if angle <= -180.0:
-                    angle += 360.0
-                elif angle > 180.0:
-                    angle -= 360.0
-                mip_state.rotation_angles[proj_axis] = round(angle, 2)
-                
+                if mip_plugin:
+                    mip_plugin._controller.propagate_rotation(self.image_id, mip_state.rotation_angles)
                 self.view_state.is_data_dirty = True
                 self.is_viewer_data_dirty = True
                 self.is_geometry_dirty = True
