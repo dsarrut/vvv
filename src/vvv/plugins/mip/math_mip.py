@@ -87,20 +87,32 @@ if _NUMBA_AVAILABLE:
         cos_t = np.cos(theta)
         sin_t = np.sin(theta)
         
+        # Precompute coordinates and bounds
+        x_indices = np.zeros((W, diag), dtype=np.int32)
+        z_indices = np.zeros((W, diag), dtype=np.int32)
+        mask = np.zeros((W, diag), dtype=np.bool_)
+        
+        for x_out in range(W):
+            v = x_out - cx
+            for r in range(diag):
+                u = r - (diag - 1) / 2.0
+                x_rot = cx + v * cos_t - u * sin_t
+                z_rot = cz + v * sin_t + u * cos_t
+                xi = int(np.round(x_rot))
+                zi = int(np.round(z_rot))
+                if 0 <= xi < W and 0 <= zi < D:
+                    x_indices[x_out, r] = xi
+                    z_indices[x_out, r] = zi
+                    mask[x_out, r] = True
+        
         for y in numba.prange(H):  # type: ignore
             for x_out in range(W):
-                v = x_out - cx
                 max_val = data[0, y, 0]
                 first = True
                 for r in range(diag):
-                    u = r - (diag - 1) / 2.0
-                    x_rot = cx + v * cos_t - u * sin_t
-                    z_rot = cz + v * sin_t + u * cos_t
-                    
-                    xi = int(np.round(x_rot))
-                    zi = int(np.round(z_rot))
-                    
-                    if 0 <= xi < W and 0 <= zi < D:
+                    if mask[x_out, r]:
+                        xi = x_indices[x_out, r]
+                        zi = z_indices[x_out, r]
                         val = data[zi, y, xi]
                         if depth_cueing_strength > 0.0:
                             factor = 1.0 - depth_cueing_strength * (r / max(1.0, diag - 1))
@@ -126,20 +138,32 @@ if _NUMBA_AVAILABLE:
         cos_t = np.cos(theta)
         sin_t = np.sin(theta)
         
+        # Precompute coordinates and bounds
+        x_indices = np.zeros((W, diag), dtype=np.int32)
+        y_indices = np.zeros((W, diag), dtype=np.int32)
+        mask = np.zeros((W, diag), dtype=np.bool_)
+        
+        for x_out in range(W):
+            v = x_out - cx
+            for r in range(diag):
+                u = r - (diag - 1) / 2.0
+                x_rot = cx + v * cos_t - u * sin_t
+                y_rot = cy + v * sin_t + u * cos_t
+                xi = int(np.round(x_rot))
+                yi = int(np.round(y_rot))
+                if 0 <= xi < W and 0 <= yi < H:
+                    x_indices[x_out, r] = xi
+                    y_indices[x_out, r] = yi
+                    mask[x_out, r] = True
+                    
         for z in numba.prange(D):  # type: ignore
             for x_out in range(W):
-                v = x_out - cx
                 max_val = data[z, 0, 0]
                 first = True
                 for r in range(diag):
-                    u = r - (diag - 1) / 2.0
-                    x_rot = cx + v * cos_t - u * sin_t
-                    y_rot = cy + v * sin_t + u * cos_t
-                    
-                    xi = int(np.round(x_rot))
-                    yi = int(np.round(y_rot))
-                    
-                    if 0 <= xi < W and 0 <= yi < H:
+                    if mask[x_out, r]:
+                        xi = x_indices[x_out, r]
+                        yi = y_indices[x_out, r]
                         val = data[z, yi, xi]
                         if depth_cueing_strength > 0.0:
                             factor = 1.0 - depth_cueing_strength * (r / max(1.0, diag - 1))
@@ -165,20 +189,32 @@ if _NUMBA_AVAILABLE:
         cos_t = np.cos(theta)
         sin_t = np.sin(theta)
         
+        # Precompute coordinates and bounds
+        y_indices = np.zeros((H, diag), dtype=np.int32)
+        x_indices = np.zeros((H, diag), dtype=np.int32)
+        mask = np.zeros((H, diag), dtype=np.bool_)
+        
+        for y_out in range(H):
+            v = y_out - cy
+            for r in range(diag):
+                u = r - (diag - 1) / 2.0
+                y_rot = cy + v * cos_t - u * sin_t
+                x_rot = cx + v * sin_t + u * cos_t
+                yi = int(np.round(y_rot))
+                xi = int(np.round(x_rot))
+                if 0 <= xi < W and 0 <= yi < H:
+                    y_indices[y_out, r] = yi
+                    x_indices[y_out, r] = xi
+                    mask[y_out, r] = True
+                    
         for z in numba.prange(D):  # type: ignore
             for y_out in range(H):
-                v = y_out - cy
                 max_val = data[z, 0, 0]
                 first = True
                 for r in range(diag):
-                    u = r - (diag - 1) / 2.0
-                    y_rot = cy + v * cos_t - u * sin_t
-                    x_rot = cx + v * sin_t + u * cos_t
-                    
-                    xi = int(np.round(x_rot))
-                    yi = int(np.round(y_rot))
-                    
-                    if 0 <= xi < W and 0 <= yi < H:
+                    if mask[y_out, r]:
+                        yi = y_indices[y_out, r]
+                        xi = x_indices[y_out, r]
                         val = data[z, yi, xi]
                         if depth_cueing_strength > 0.0:
                             factor = 1.0 - depth_cueing_strength * (r / max(1.0, diag - 1))
@@ -241,17 +277,28 @@ else:
         u = np.arange(diag, dtype=np.float32) - (diag - 1) / 2.0
         factors = 1.0 - depth_cueing_strength * (np.arange(diag, dtype=np.float32) / max(1.0, diag - 1))
         
+        # Precompute coordinates for all x_out
+        x_rot_all = []
+        z_rot_all = []
+        masks_all = []
+        
+        for x_out in range(W):
+            v = x_out - cx
+            xr = np.round(cx + v * cos_t - u * sin_t).astype(np.int32)
+            zr = np.round(cz + v * sin_t + u * cos_t).astype(np.int32)
+            m = (xr >= 0) & (xr < W) & (zr >= 0) & (zr < D)
+            x_rot_all.append(xr[m])
+            z_rot_all.append(zr[m])
+            masks_all.append(np.where(m)[0])
+        
         for y in range(H):
             for x_out in range(W):
-                v = x_out - cx
-                x_rot = np.round(cx + v * cos_t - u * sin_t).astype(np.int32)
-                z_rot = np.round(cz + v * sin_t + u * cos_t).astype(np.int32)
-                
-                mask = (x_rot >= 0) & (x_rot < W) & (z_rot >= 0) & (z_rot < D)
-                if np.any(mask):
-                    vals = data[z_rot[mask], y, x_rot[mask]]
+                xr = x_rot_all[x_out]
+                zr = z_rot_all[x_out]
+                if len(xr) > 0:
+                    vals = data[zr, y, xr]
                     if depth_cueing_strength > 0.0:
-                        vals = vals * factors[mask]
+                        vals = vals * factors[masks_all[x_out]]
                     out[y, x_out] = np.max(vals)
         return out
 
@@ -270,17 +317,28 @@ else:
         u = np.arange(diag, dtype=np.float32) - (diag - 1) / 2.0
         factors = 1.0 - depth_cueing_strength * (np.arange(diag, dtype=np.float32) / max(1.0, diag - 1))
         
+        # Precompute coordinates for all x_out
+        x_rot_all = []
+        y_rot_all = []
+        masks_all = []
+        
+        for x_out in range(W):
+            v = x_out - cx
+            xr = np.round(cx + v * cos_t - u * sin_t).astype(np.int32)
+            yr = np.round(cy + v * sin_t + u * cos_t).astype(np.int32)
+            m = (xr >= 0) & (xr < W) & (yr >= 0) & (yr < H)
+            x_rot_all.append(xr[m])
+            y_rot_all.append(yr[m])
+            masks_all.append(np.where(m)[0])
+            
         for z in range(D):
             for x_out in range(W):
-                v = x_out - cx
-                x_rot = np.round(cx + v * cos_t - u * sin_t).astype(np.int32)
-                y_rot = np.round(cy + v * sin_t + u * cos_t).astype(np.int32)
-                
-                mask = (x_rot >= 0) & (x_rot < W) & (y_rot >= 0) & (y_rot < H)
-                if np.any(mask):
-                    vals = data[z, y_rot[mask], x_rot[mask]]
+                xr = x_rot_all[x_out]
+                yr = y_rot_all[x_out]
+                if len(xr) > 0:
+                    vals = data[z, yr, xr]
                     if depth_cueing_strength > 0.0:
-                        vals = vals * factors[mask]
+                        vals = vals * factors[masks_all[x_out]]
                     out[z, x_out] = np.max(vals)
         return out
 
@@ -299,17 +357,28 @@ else:
         u = np.arange(diag, dtype=np.float32) - (diag - 1) / 2.0
         factors = 1.0 - depth_cueing_strength * (np.arange(diag, dtype=np.float32) / max(1.0, diag - 1))
         
+        # Precompute coordinates for all y_out
+        y_rot_all = []
+        x_rot_all = []
+        masks_all = []
+        
+        for y_out in range(H):
+            v = y_out - cy
+            yr = np.round(cy + v * cos_t - u * sin_t).astype(np.int32)
+            xr = np.round(cx + v * sin_t + u * cos_t).astype(np.int32)
+            m = (xr >= 0) & (xr < W) & (yr >= 0) & (yr < H)
+            y_rot_all.append(yr[m])
+            x_rot_all.append(xr[m])
+            masks_all.append(np.where(m)[0])
+            
         for z in range(D):
             for y_out in range(H):
-                v = y_out - cy
-                y_rot = np.round(cy + v * cos_t - u * sin_t).astype(np.int32)
-                x_rot = np.round(cx + v * sin_t + u * cos_t).astype(np.int32)
-                
-                mask = (x_rot >= 0) & (x_rot < W) & (y_rot >= 0) & (y_rot < H)
-                if np.any(mask):
-                    vals = data[z, y_rot[mask], x_rot[mask]]
+                yr = y_rot_all[y_out]
+                xr = x_rot_all[y_out]
+                if len(xr) > 0:
+                    vals = data[z, yr, xr]
                     if depth_cueing_strength > 0.0:
-                        vals = vals * factors[mask]
+                        vals = vals * factors[masks_all[y_out]]
                     out[z, y_out] = np.max(vals)
         return out
 

@@ -173,7 +173,8 @@ class MIPPluginUI(PluginTagMixin):
             ):
                 dpg.set_value(slider_depth, state.depth_cueing)
             if dpg.does_item_exist(slider_rot) and not dpg.is_item_active(slider_rot):
-                dpg.set_value(slider_rot, state.rotation_angle)
+                current_angle = state.rotation_angles.get(current_axis, 0.0) if current_axis else 0.0
+                dpg.set_value(slider_rot, current_angle)
             if dpg.does_item_exist(slider_step) and not dpg.is_item_active(slider_step):
                 dpg.set_value(slider_step, state.rotation_step)
             if dpg.does_item_exist(chk_invert) and not dpg.is_item_active(chk_invert):

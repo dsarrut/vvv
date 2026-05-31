@@ -1347,6 +1347,10 @@ class SliceViewer:
                 else vol.data
             )
             if display_data_raw is not None:
+                axis_map = {ViewMode.AXIAL: "Z", ViewMode.CORONAL: "Y", ViewMode.SAGITTAL: "X"}
+                proj_axis = axis_map.get(self.orientation, "Y")
+                current_angle = mip_state.rotation_angles.get(proj_axis, 0.0)
+
                 # Check cache validity (slice_idx is ignored since MIP is same along orientation axis)
                 cache = getattr(self, "_mip_cache", None)
                 cache_valid = (
@@ -1355,7 +1359,7 @@ class SliceViewer:
                     and cache["time_idx"] == vs.camera.time_idx
                     and cache["orientation"] == self.orientation
                     and cache["depth_cueing_strength"] == mip_state.depth_cueing
-                    and cache.get("rotation_angle", 0.0) == mip_state.rotation_angle
+                    and cache.get("rotation_angle", 0.0) == current_angle
                     and cache["display_data_id"] == id(display_data_raw)
                 )
                 if cache_valid:
@@ -1369,14 +1373,12 @@ class SliceViewer:
                         
                     if data_3d.ndim == 3:
                         from vvv.plugins.mip.math_mip import compute_mip_projection
-                        axis_map = {ViewMode.AXIAL: "Z", ViewMode.CORONAL: "Y", ViewMode.SAGITTAL: "X"}
-                        proj_axis = axis_map.get(self.orientation, "Y")
                         mip_raw = compute_mip_projection(
                             data_3d,
                             axis=proj_axis,
                             depth_cueing=mip_state.depth_cueing > 0.0,
                             depth_cueing_strength=mip_state.depth_cueing,
-                            rotation_angle=mip_state.rotation_angle,
+                            rotation_angle=current_angle,
                         )
                         if self.orientation == ViewMode.AXIAL:
                             preview = np.ascontiguousarray(mip_raw)
@@ -1390,7 +1392,7 @@ class SliceViewer:
                             "time_idx": vs.camera.time_idx,
                             "orientation": self.orientation,
                             "depth_cueing_strength": mip_state.depth_cueing,
-                            "rotation_angle": mip_state.rotation_angle,
+                            "rotation_angle": current_angle,
                             "display_data_id": id(display_data_raw),
                             "preview": preview
                         }
@@ -2463,13 +2465,17 @@ class SliceViewer:
             mip_state = mip_plugin._controller.get_image_state(self.image_id)
 
         if mip_state and mip_state.mip_enabled:
+            axis_map = {ViewMode.AXIAL: "Z", ViewMode.CORONAL: "Y", ViewMode.SAGITTAL: "X"}
+            proj_axis = axis_map.get(self.orientation, "Y")
+            current_angle = mip_state.rotation_angles.get(proj_axis, 0.0)
+
             if key == dpg.mvKey_Left:
-                angle = mip_state.rotation_angle - mip_state.rotation_step
+                angle = current_angle - mip_state.rotation_step
                 if angle <= -180.0:
                     angle += 360.0
                 elif angle > 180.0:
                     angle -= 360.0
-                mip_state.rotation_angle = round(angle, 2)
+                mip_state.rotation_angles[proj_axis] = round(angle, 2)
                 
                 self.view_state.is_data_dirty = True
                 self.is_viewer_data_dirty = True
@@ -2477,12 +2483,12 @@ class SliceViewer:
                 self.controller.ui_needs_refresh = True
                 return
             elif key == dpg.mvKey_Right:
-                angle = mip_state.rotation_angle + mip_state.rotation_step
+                angle = current_angle + mip_state.rotation_step
                 if angle <= -180.0:
                     angle += 360.0
                 elif angle > 180.0:
                     angle -= 360.0
-                mip_state.rotation_angle = round(angle, 2)
+                mip_state.rotation_angles[proj_axis] = round(angle, 2)
                 
                 self.view_state.is_data_dirty = True
                 self.is_viewer_data_dirty = True

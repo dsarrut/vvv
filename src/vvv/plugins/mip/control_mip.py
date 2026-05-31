@@ -10,7 +10,7 @@ class MIPImageState:
         self.projection_axis = "Y"
         self.depth_cueing = 0.0
         self.invert_contrast = False
-        self.rotation_angle = 0.0
+        self.rotation_angles = {"X": 0.0, "Y": 0.0, "Z": 0.0}
         self.rotation_step = 5.0
 
 
@@ -50,7 +50,7 @@ class MIPPluginController(PluginTagMixin):
                 "projection_axis": state.projection_axis,
                 "depth_cueing": state.depth_cueing,
                 "invert_contrast": state.invert_contrast,
-                "rotation_angle": state.rotation_angle,
+                "rotation_angles": state.rotation_angles.copy(),
                 "rotation_step": state.rotation_step,
             }
         return {}
@@ -67,7 +67,15 @@ class MIPPluginController(PluginTagMixin):
             state.depth_cueing = float(raw_depth)
             
         state.invert_contrast = data.get("invert_contrast", state.invert_contrast)
-        state.rotation_angle = float(data.get("rotation_angle", state.rotation_angle))
+        if "rotation_angles" in data:
+            restored = data["rotation_angles"]
+            if isinstance(restored, dict):
+                for axis in ["X", "Y", "Z"]:
+                    state.rotation_angles[axis] = float(restored.get(axis, state.rotation_angles[axis]))
+        elif "rotation_angle" in data:
+            val = float(data["rotation_angle"])
+            for axis in ["X", "Y", "Z"]:
+                state.rotation_angles[axis] = val
         state.rotation_step = float(data.get("rotation_step", state.rotation_step))
 
     def save_settings(self, api: PluginAPI) -> None:
@@ -129,7 +137,14 @@ class MIPPluginController(PluginTagMixin):
         viewer = self._api.get_active_viewer()
         if viewer and viewer.image_id:
             state = self.get_image_state(viewer.image_id)
-            state.rotation_angle = float(app_data)
+            from vvv.utils import ViewMode
+            orientation_map = {
+                ViewMode.AXIAL: "Z",
+                ViewMode.CORONAL: "Y",
+                ViewMode.SAGITTAL: "X",
+            }
+            active_axis = orientation_map.get(viewer.orientation, "Y")
+            state.rotation_angles[active_axis] = float(app_data)
             self._mark_viewer_dirty(viewer)
             self._api.request_refresh()
 

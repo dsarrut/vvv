@@ -56,12 +56,17 @@ def test_mip_integration(headless_gui_app):
 
     # Test rotation defaults
     import dearpygui.dearpygui as dpg
-    assert state.rotation_angle == 0.0
+    assert state.rotation_angles == {"X": 0.0, "Y": 0.0, "Z": 0.0}
     assert state.rotation_step == 5.0
 
-    # Modify rotation angle via controller callback
+    # Current orientation is ViewMode.AXIAL (projection axis "Z")
+    assert viewer.orientation == ViewMode.AXIAL
+
+    # Modify rotation angle via controller callback (should affect axis Z)
     mip_plugin._controller.on_rotation_changed(None, 15.0, None)
-    assert state.rotation_angle == 15.0
+    assert state.rotation_angles["Z"] == 15.0
+    assert state.rotation_angles["Y"] == 0.0
+    assert state.rotation_angles["X"] == 0.0
 
     # Retrieve base layer at 15 degrees (should invalidate cache and calculate new preview)
     base_layer_rot15 = viewer._package_base_layer()
@@ -73,19 +78,28 @@ def test_mip_integration(headless_gui_app):
     base_layer_rot15_scrolled = viewer._package_base_layer()
     assert base_layer_rot15_scrolled.preview_override is base_layer_rot15.preview_override
 
-    # Test keyboard shortcut Left (should decrease angle by rotation_step: 15.0 -> 10.0)
-    viewer.on_key_press(dpg.mvKey_Left)
-    assert state.rotation_angle == 10.0
+    # Change orientation to ViewMode.CORONAL (projection axis "Y")
+    viewer.set_orientation(ViewMode.CORONAL)
+    mip_plugin.update(mip_plugin._controller._api)  # reverse-syncs orientation to axis Y
+    assert state.projection_axis == "Y"
+    # Rotation angle for axis Y should still be 0.0 (independent!)
+    assert state.rotation_angles["Y"] == 0.0
+    assert state.rotation_angles["Z"] == 15.0
 
-    # Test keyboard shortcut Right (should increase angle by rotation_step: 10.0 -> 15.0)
+    # Test keyboard shortcut Left on CORONAL (should decrease axis Y angle by rotation_step: 0.0 -> -5.0)
+    viewer.on_key_press(dpg.mvKey_Left)
+    assert state.rotation_angles["Y"] == -5.0
+    assert state.rotation_angles["Z"] == 15.0
+
+    # Test keyboard shortcut Right on CORONAL (should increase axis Y angle by rotation_step: -5.0 -> 0.0)
     viewer.on_key_press(dpg.mvKey_Right)
-    assert state.rotation_angle == 15.0
+    assert state.rotation_angles["Y"] == 0.0
 
     # Test changing rotation step
     mip_plugin._controller.on_step_changed(None, 10.0, None)
     assert state.rotation_step == 10.0
 
-    # Test keyboard shortcut Left again with new step (15.0 -> 5.0)
+    # Test keyboard shortcut Left again with new step (0.0 -> -10.0)
     viewer.on_key_press(dpg.mvKey_Left)
-    assert state.rotation_angle == 5.0
-
+    assert state.rotation_angles["Y"] == -10.0
+    assert state.rotation_angles["Z"] == 15.0
