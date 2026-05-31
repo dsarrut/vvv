@@ -1574,6 +1574,47 @@ class SliceViewer:
                         None  # no overlay this frame; worker will deliver the correct one
                     )
 
+            # MIP projection for the overlay — applied when the base has MIP active,
+            # using the same axis/angle so both projections are aligned for fusion.
+            mip_plugin = None
+            if self.controller.gui and hasattr(self.controller.gui, "plugins"):
+                mip_plugin = next((p for p in self.controller.gui.plugins if p.plugin_id == "mip_plugin"), None)
+            mip_state = mip_plugin._controller.get_viewer_state(self.image_id, self.tag) if (mip_plugin and self.image_id) else None
+
+            if mip_state and mip_state.mip_enabled and not getattr(ovs.volume, "is_dvf", False):
+                ov_data_raw = vs.display.overlay_data
+                if ov_data_raw is not None:
+                    ov_time_idx = min(vs.camera.time_idx, ovs.volume.num_timepoints - 1)
+                    ov_data_3d = ov_data_raw[ov_time_idx] if ov_data_raw.ndim == 4 else ov_data_raw
+                    if ov_data_3d.ndim == 3:
+                        from vvv.plugins.mip.math_mip import compute_mip_projection
+                        axis_map = {ViewMode.AXIAL: "Z", ViewMode.CORONAL: "Y", ViewMode.SAGITTAL: "Y"}
+                        proj_axis = axis_map.get(self.orientation, "Y")
+                        current_angle = mip_state.rotation_angles.get(proj_axis, 0.0)
+                        ov_id = vs.display.overlay.image_id
+                        ov_cache_key = (ov_id, ov_time_idx, self.orientation, mip_state.depth_cueing, current_angle, id(ov_data_raw))
+
+                        with self._mip_cache_lock:
+                            overlay_preview = self._mip_cache_dict.get(ov_cache_key)
+
+                        if overlay_preview is None:
+                            ov_raw = compute_mip_projection(
+                                ov_data_3d, axis=proj_axis,
+                                depth_cueing=mip_state.depth_cueing > 0.0,
+                                depth_cueing_strength=mip_state.depth_cueing,
+                                rotation_angle=current_angle,
+                            )
+                            overlay_preview = (
+                                np.ascontiguousarray(ov_raw)
+                                if self.orientation == ViewMode.AXIAL
+                                else np.ascontiguousarray(np.flipud(ov_raw))
+                            )
+                            with self._mip_cache_lock:
+                                if ov_cache_key not in self._mip_cache_dict:
+                                    if len(self._mip_cache_dict) >= self._MIP_CACHE_MAX:
+                                        self._mip_cache_dict.pop(next(iter(self._mip_cache_dict)), None)
+                                    self._mip_cache_dict[ov_cache_key] = overlay_preview
+
             return RenderLayer(
                 data=vs.display.overlay_data,
                 is_rgb=getattr(ovs.volume, "is_rgb", False),
