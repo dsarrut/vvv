@@ -135,8 +135,8 @@ class MIPPluginController(PluginTagMixin):
             viewer.is_viewer_data_dirty = True
             viewer.is_geometry_dirty = True
 
-    def propagate_rotation(self, source_image_id, rotation_angles: dict) -> None:
-        """Sync rotation angles to all MIP-enabled viewers in the same sync group."""
+    def _sync_to_group(self, source_image_id, apply_fn) -> None:
+        """Call apply_fn(state, viewer) for every MIP-enabled viewer in the sync group."""
         if not self._api:
             return
         sync_ids = self._api.get_sync_group_vs_ids(source_image_id, active_only=True)
@@ -148,8 +148,22 @@ class MIPPluginController(PluginTagMixin):
                 if viewer.image_id == img_id:
                     target_state = self.get_viewer_state(img_id, viewer.tag)
                     if target_state.mip_enabled:
-                        target_state.rotation_angles.update(rotation_angles)
+                        apply_fn(target_state, viewer)
                         self._mark_viewer_dirty(viewer)
+
+    def propagate_rotation(self, source_image_id, rotation_angles: dict) -> None:
+        self._sync_to_group(
+            source_image_id,
+            lambda s, _v: s.rotation_angles.update(rotation_angles),
+        )
+
+    def _propagate_display_state(self, source_image_id, depth_cueing, invert_contrast) -> None:
+        def apply(s, _v):
+            if depth_cueing is not None:
+                s.depth_cueing = depth_cueing
+            if invert_contrast is not None:
+                s.invert_contrast = invert_contrast
+        self._sync_to_group(source_image_id, apply)
 
     def on_mip_toggle(self, sender, app_data, user_data):
         if not self._api:
@@ -180,6 +194,7 @@ class MIPPluginController(PluginTagMixin):
             state = self.get_viewer_state(viewer.image_id, viewer.tag)
             state.depth_cueing = float(app_data)
             self._mark_viewer_dirty(viewer)
+            self._propagate_display_state(viewer.image_id, depth_cueing=float(app_data), invert_contrast=None)
             self._api.request_refresh()
 
     def on_invert_toggle(self, sender, app_data, user_data):
@@ -189,6 +204,8 @@ class MIPPluginController(PluginTagMixin):
         if viewer and viewer.image_id:
             state = self.get_viewer_state(viewer.image_id, viewer.tag)
             state.invert_contrast = app_data
+            self._mark_viewer_dirty(viewer)
+            self._propagate_display_state(viewer.image_id, depth_cueing=None, invert_contrast=app_data)
             self._api.request_refresh()
 
     def on_rotation_changed(self, sender, app_data, user_data):
@@ -197,8 +214,6 @@ class MIPPluginController(PluginTagMixin):
         viewer = self._api.get_active_viewer()
         if viewer and viewer.image_id:
             state = self.get_viewer_state(viewer.image_id, viewer.tag)
-            from vvv.utils import ViewMode
-
             orientation_map = {
                 ViewMode.AXIAL: "Z",
                 ViewMode.CORONAL: "Y",

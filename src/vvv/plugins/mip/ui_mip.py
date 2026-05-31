@@ -75,6 +75,8 @@ class MIPPluginUI(PluginTagMixin):
                 max_val=180.0,
                 default_val=0.0,
                 format="%.1f deg",
+                help_text="Rotate the projection direction around the view's perpendicular axis.",
+                gui=api,
             )
 
             # Stepped slider: Angle Step
@@ -87,6 +89,8 @@ class MIPPluginUI(PluginTagMixin):
                 max_val=45.0,
                 default_val=5.0,
                 format="%.1f deg",
+                help_text="The angle step used when rotating with Left/Right arrow keys.",
+                gui=api,
             )
 
             # Checkbox / Toggle: Invert Contrast
@@ -105,6 +109,8 @@ class MIPPluginUI(PluginTagMixin):
     def update_ui(self, api) -> None:
         viewer = api.get_active_viewer()
         has_image = bool(viewer and viewer.view_state and viewer.volume)
+        is_rgb = has_image and getattr(viewer.volume, "is_rgb", False)
+        has_image = has_image and not is_rgb
 
         # Update active image title
         active_title = self._t("active_title")
