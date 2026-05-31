@@ -176,7 +176,7 @@ class MIPPluginController(PluginTagMixin):
             orientation_map = {
                 ViewMode.AXIAL: "Z",
                 ViewMode.CORONAL: "Y",
-                ViewMode.SAGITTAL: "X",
+                ViewMode.SAGITTAL: "Y",
             }
             active_axis = orientation_map.get(viewer.orientation, "Y")
             state.rotation_angles[active_axis] = float(app_data)

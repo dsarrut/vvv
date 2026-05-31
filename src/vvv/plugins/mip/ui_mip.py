@@ -152,12 +152,12 @@ class MIPPluginUI(PluginTagMixin):
             orientation_map = {
                 ViewMode.AXIAL: "Z",
                 ViewMode.CORONAL: "Y",
-                ViewMode.SAGITTAL: "X",
+                ViewMode.SAGITTAL: "Y",
             }
             orientation_name = {
                 ViewMode.AXIAL: "Z (Axial)",
                 ViewMode.CORONAL: "Y (Coronal)",
-                ViewMode.SAGITTAL: "X (Sagittal)",
+                ViewMode.SAGITTAL: "Y (Sagittal)",
             }.get(viewer.orientation, "Unknown")
 
             current_axis = orientation_map.get(viewer.orientation)
