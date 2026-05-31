@@ -52,15 +52,26 @@ class DvfController(PluginTagMixin):
                     active_title, color=api.get_ui_config()["colors"]["text_active"]
                 )
 
+        radio_mode = self._t("radio_mode")
         warning_tag = self._t("warning")
+        vector_slider_tags = ["thickness", "min_arrow", "min_draw", "color_max_mag", "sampling", "scale", "precision"]
+        if dpg.does_item_exist(radio_mode):
+            dpg.configure_item(radio_mode, enabled=is_dvf)
         if dpg.does_item_exist(warning_tag):
             dpg.configure_item(warning_tag, show=not is_dvf)
 
-        controls_tag = self._t("controls")
-        if dpg.does_item_exist(controls_tag):
-            dpg.configure_item(controls_tag, show=is_dvf)
-
         if not is_dvf:
+            vector_settings = self._t("vector_settings")
+            if dpg.does_item_exist(vector_settings):
+                dpg.configure_item(vector_settings, show=True)
+            for name in vector_slider_tags:
+                for tag in [self._t(name), f"btn_{self._t(name)}_minus", f"btn_{self._t(name)}_plus"]:
+                    if dpg.does_item_exist(tag):
+                        dpg.configure_item(tag, enabled=False)
+            for name in ["color_min", "color_max"]:
+                tag = self._t(name)
+                if dpg.does_item_exist(tag):
+                    dpg.configure_item(tag, enabled=False)
             return
 
         dvf_state = target_vs.dvf
@@ -69,9 +80,8 @@ class DvfController(PluginTagMixin):
         if dpg.does_item_exist(display_mode_group):
             dpg.configure_item(display_mode_group, show=is_base)
 
-        radio_mode = self._t("radio_mode")
         if dpg.does_item_exist(radio_mode):
-            dpg.configure_item(radio_mode, show=is_base)
+            dpg.configure_item(radio_mode, show=is_base, enabled=True)
             if not dpg.is_item_active(radio_mode) and is_base:
                 dpg.set_value(radio_mode, dvf_state.display_mode)
 
@@ -79,6 +89,14 @@ class DvfController(PluginTagMixin):
         vector_settings = self._t("vector_settings")
         if dpg.does_item_exist(vector_settings):
             dpg.configure_item(vector_settings, show=show_vectors)
+        for name in vector_slider_tags:
+            for tag in [self._t(name), f"btn_{self._t(name)}_minus", f"btn_{self._t(name)}_plus"]:
+                if dpg.does_item_exist(tag):
+                    dpg.configure_item(tag, enabled=True)
+        for name in ["color_min", "color_max"]:
+            tag = self._t(name)
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, enabled=True)
 
         for tag_name, attr in [
             ("sampling", "vector_sampling"),
