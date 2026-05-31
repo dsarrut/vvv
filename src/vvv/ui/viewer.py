@@ -2475,7 +2475,7 @@ class SliceViewer:
             mip_state = mip_plugin._controller.get_viewer_state(self.image_id, self.tag)
 
         if mip_state and mip_state.mip_enabled:
-            axis_map = {ViewMode.AXIAL: "Z", ViewMode.CORONAL: "Y", ViewMode.SAGITTAL: "X"}
+            axis_map = {ViewMode.AXIAL: "Z", ViewMode.CORONAL: "Y", ViewMode.SAGITTAL: "Y"}
             proj_axis = axis_map.get(self.orientation, "Y")
             current_angle = mip_state.rotation_angles.get(proj_axis, 0.0)
 
