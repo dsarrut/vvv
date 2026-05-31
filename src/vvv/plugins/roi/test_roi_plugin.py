@@ -30,6 +30,7 @@ class MockViewState:
 class MockViewer:
     def __init__(self, image_id, rois):
         self.image_id = image_id
+        self.tag = "V1"
         self.view_state = MockViewState(rois)
 
 
@@ -57,6 +58,7 @@ class TestRoiPlugin(unittest.TestCase):
         self.mock_api.get_image_display_name.return_value = ("Test Image", False)
         self.mock_api.get_volumes.return_value = {}
         self.mock_api.get_roi_stats.return_value = None
+        self.mock_api.is_mip_active.return_value = False
 
     def test_metadata(self):
         self.assertEqual(self.plugin.plugin_id, "roi_plugin")

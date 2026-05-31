@@ -1,4 +1,3 @@
-import numpy as np
 from vvv.utils import ViewMode
 
 
@@ -32,8 +31,8 @@ def test_mip_integration(headless_gui_app):
     else:
         T, D, H, W = vol_shape
     
-    # Enabling MIP mode defaults to projection axis Y, which triggers coronal view
-    assert viewer.orientation == ViewMode.CORONAL
+    # Enabling MIP mode defaults to projection axis Y, which triggers sagittal view (F2)
+    assert viewer.orientation == ViewMode.SAGITTAL
     assert base_layer_mip.preview_override.shape == (D, W)
     
     # Set depth cueing value
@@ -57,7 +56,7 @@ def test_mip_integration(headless_gui_app):
     # Test rotation defaults
     import dearpygui.dearpygui as dpg
     assert state.rotation_angles == {"X": 0.0, "Y": 0.0, "Z": 0.0}
-    assert state.rotation_step == 5.0
+    assert state.rotation_step == 10.0
 
     # Current orientation is ViewMode.AXIAL (projection axis "Z")
     assert viewer.orientation == ViewMode.AXIAL
@@ -86,12 +85,12 @@ def test_mip_integration(headless_gui_app):
     assert state.rotation_angles["Y"] == 0.0
     assert state.rotation_angles["Z"] == 15.0
 
-    # Test keyboard shortcut Left on CORONAL (should decrease axis Y angle by rotation_step: 0.0 -> -5.0)
+    # Test keyboard shortcut Left on CORONAL (should decrease axis Y angle by rotation_step: 0.0 -> -10.0)
     viewer.on_key_press(dpg.mvKey_Left)
-    assert state.rotation_angles["Y"] == -5.0
+    assert state.rotation_angles["Y"] == -10.0
     assert state.rotation_angles["Z"] == 15.0
 
-    # Test keyboard shortcut Right on CORONAL (should increase axis Y angle by rotation_step: -5.0 -> 0.0)
+    # Test keyboard shortcut Right on CORONAL (should increase axis Y angle by rotation_step: -10.0 -> 0.0)
     viewer.on_key_press(dpg.mvKey_Right)
     assert state.rotation_angles["Y"] == 0.0
 
@@ -151,11 +150,11 @@ def test_mip_viewer_isolation(headless_gui_app):
     assert state_v3.depth_cueing == 0.8
     assert state_v1.depth_cueing == 0.0  # V1 should be unaffected
     
-    # Modify rotation on V3 active axis (set orientation first to SAGITTAL -> axis X)
+    # Modify rotation on V3 active axis (set orientation first to SAGITTAL -> axis Y)
     viewer_v3.set_orientation(ViewMode.SAGITTAL)
     mip_plugin._controller.on_rotation_changed(None, 45.0, None)
-    assert state_v3.rotation_angles["X"] == 45.0
-    assert state_v1.rotation_angles["X"] == 0.0
+    assert state_v3.rotation_angles["Y"] == 45.0
+    assert state_v1.rotation_angles["Y"] == 0.0
     
     # 4. Test serialization
     serialized = mip_plugin._controller.serialize_image_state(base_id)
@@ -180,7 +179,7 @@ def test_mip_viewer_isolation(headless_gui_app):
     assert restored_v1.mip_enabled is True
     assert restored_v3.mip_enabled is False
     assert restored_v3.depth_cueing == 0.8
-    assert restored_v3.rotation_angles["X"] == 45.0
+    assert restored_v3.rotation_angles["Y"] == 45.0
     
     # 6. Test restore of old flat format (all viewers get the flat state)
     old_serialized = {

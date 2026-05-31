@@ -20,6 +20,7 @@ class TestProfilePlugin(unittest.TestCase):
             }
         }
         self.mock_api.get_active_viewer.return_value = None
+        self.mock_api.is_mip_active.return_value = False
 
     def test_metadata(self):
         self.assertEqual(self.plugin.plugin_id, "profile_plugin")
