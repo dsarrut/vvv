@@ -1,5 +1,5 @@
 import dearpygui.dearpygui as dpg
-from vvv.ui.ui_components import build_section_title, build_beginner_tooltip
+from vvv.ui.ui_components import build_section_title, build_beginner_tooltip, build_stepped_slider
 from vvv.plugins.plugin_api import PluginTagMixin
 from vvv.utils import ViewMode
 
@@ -45,7 +45,7 @@ class MIPPluginUI(PluginTagMixin):
             )
             build_beginner_tooltip(
                 axis_text,
-                "The current projection axis, determined by the active viewer orientation (changed with F1, F2, F3).",
+                "The current projection axis, determined by the active viewer orientation (changed with F1, F2).",
                 api,
             )
 
@@ -65,36 +65,28 @@ class MIPPluginUI(PluginTagMixin):
                 api,
             )
 
-            # Slider: Rotation Angle
-            sld_rot = dpg.add_slider_float(
-                label="Rotation Angle",
-                tag=self._t("slider_rotation_angle"),
-                min_value=-180.0,
-                max_value=180.0,
-                default_value=0.0,
+            # Stepped slider: Rotation Angle
+            build_stepped_slider(
+                "Rotation Angle",
+                self._t("slider_rotation_angle"),
                 callback=self._c.on_rotation_changed,
+                step_callback=self._c.on_rotation_step_button,
+                min_val=-180.0,
+                max_val=180.0,
+                default_val=0.0,
                 format="%.1f deg",
-            )
-            build_beginner_tooltip(
-                sld_rot,
-                "Rotate the projection direction around the view's perpendicular axis.",
-                api,
             )
 
-            # Slider: Angle Step
-            sld_step = dpg.add_slider_float(
-                label="Angle Step",
-                tag=self._t("slider_rotation_step"),
-                min_value=1.0,
-                max_value=45.0,
-                default_value=5.0,
+            # Stepped slider: Angle Step
+            build_stepped_slider(
+                "Angle Step",
+                self._t("slider_rotation_step"),
                 callback=self._c.on_step_changed,
+                step_callback=self._c.on_step_size_button,
+                min_val=1.0,
+                max_val=45.0,
+                default_val=5.0,
                 format="%.1f deg",
-            )
-            build_beginner_tooltip(
-                sld_step,
-                "The angle step used when rotating with Left/Right arrow keys.",
-                api,
             )
 
             # Checkbox / Toggle: Invert Contrast
@@ -141,7 +133,12 @@ class MIPPluginUI(PluginTagMixin):
         slider_step = self._t("slider_rotation_step")
         chk_invert = self._t("check_invert_contrast")
 
-        for item in [chk_mip, slider_depth, slider_rot, slider_step, chk_invert]:
+        all_items = [
+            chk_mip, slider_depth, slider_rot, slider_step, chk_invert,
+            f"btn_{slider_rot}_minus", f"btn_{slider_rot}_plus",
+            f"btn_{slider_step}_minus", f"btn_{slider_step}_plus",
+        ]
+        for item in all_items:
             if dpg.does_item_exist(item):
                 dpg.configure_item(item, enabled=has_image)
 
@@ -168,9 +165,7 @@ class MIPPluginUI(PluginTagMixin):
                 dpg.set_value(axis_text, f"Projection Axis: {orientation_name}")
             if dpg.does_item_exist(chk_mip) and not dpg.is_item_active(chk_mip):
                 dpg.set_value(chk_mip, state.mip_enabled)
-            if dpg.does_item_exist(slider_depth) and not dpg.is_item_active(
-                slider_depth
-            ):
+            if dpg.does_item_exist(slider_depth) and not dpg.is_item_active(slider_depth):
                 dpg.set_value(slider_depth, state.depth_cueing)
             if dpg.does_item_exist(slider_rot) and not dpg.is_item_active(slider_rot):
                 current_angle = state.rotation_angles.get(current_axis, 0.0) if current_axis else 0.0

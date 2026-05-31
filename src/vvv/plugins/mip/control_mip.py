@@ -11,7 +11,7 @@ class MIPViewerState:
         self.depth_cueing = 0.0
         self.invert_contrast = False
         self.rotation_angles = {"X": 0.0, "Y": 0.0, "Z": 0.0}
-        self.rotation_step = 5.0
+        self.rotation_step = 10.0
 
 
 class MIPPluginController(PluginTagMixin):
@@ -68,17 +68,21 @@ class MIPPluginController(PluginTagMixin):
         # For backward compatibility, include V1 values at the root level
         if "V1" in states_dict:
             v1_state = states_dict["V1"]
-            serialized.update({
-                "mip_enabled": v1_state.mip_enabled,
-                "projection_axis": v1_state.projection_axis,
-                "depth_cueing": v1_state.depth_cueing,
-                "invert_contrast": v1_state.invert_contrast,
-                "rotation_angles": v1_state.rotation_angles.copy(),
-                "rotation_step": v1_state.rotation_step,
-            })
+            serialized.update(
+                {
+                    "mip_enabled": v1_state.mip_enabled,
+                    "projection_axis": v1_state.projection_axis,
+                    "depth_cueing": v1_state.depth_cueing,
+                    "invert_contrast": v1_state.invert_contrast,
+                    "rotation_angles": v1_state.rotation_angles.copy(),
+                    "rotation_step": v1_state.rotation_step,
+                }
+            )
         return serialized
 
-    def restore_image_state(self, image_id: str, data: dict, context: str = "history") -> None:
+    def restore_image_state(
+        self, image_id: str, data: dict, context: str = "history"
+    ) -> None:
         has_viewer_keys = any(tag in data for tag in ["V1", "V2", "V3", "V4"])
         if has_viewer_keys:
             for tag in ["V1", "V2", "V3", "V4"]:
@@ -94,19 +98,21 @@ class MIPPluginController(PluginTagMixin):
     def _restore_single_state(self, state: MIPViewerState, data: dict) -> None:
         state.mip_enabled = data.get("mip_enabled", state.mip_enabled)
         state.projection_axis = data.get("projection_axis", state.projection_axis)
-        
+
         raw_depth = data.get("depth_cueing", state.depth_cueing)
         if isinstance(raw_depth, bool):
             state.depth_cueing = 0.5 if raw_depth else 0.0
         else:
             state.depth_cueing = float(raw_depth)
-            
+
         state.invert_contrast = data.get("invert_contrast", state.invert_contrast)
         if "rotation_angles" in data:
             restored = data["rotation_angles"]
             if isinstance(restored, dict):
                 for axis in ["X", "Y", "Z"]:
-                    state.rotation_angles[axis] = float(restored.get(axis, state.rotation_angles[axis]))
+                    state.rotation_angles[axis] = float(
+                        restored.get(axis, state.rotation_angles[axis])
+                    )
         elif "rotation_angle" in data:
             val = float(data["rotation_angle"])
             for axis in ["X", "Y", "Z"]:
@@ -136,10 +142,14 @@ class MIPPluginController(PluginTagMixin):
         if viewer and viewer.image_id:
             state = self.get_viewer_state(viewer.image_id, viewer.tag)
             state.mip_enabled = app_data
-            
+
             # Sync orientation to match projection axis when turning MIP on
             if app_data:
-                axis_map = {"Z": ViewMode.AXIAL, "Y": ViewMode.CORONAL, "X": ViewMode.SAGITTAL}
+                axis_map = {
+                    "Z": ViewMode.AXIAL,
+                    "Y": ViewMode.CORONAL,
+                    "X": ViewMode.SAGITTAL,
+                }
                 target_orientation = axis_map.get(state.projection_axis.upper())
                 if target_orientation and viewer.orientation != target_orientation:
                     viewer.set_orientation(target_orientation)
@@ -173,6 +183,7 @@ class MIPPluginController(PluginTagMixin):
         if viewer and viewer.image_id:
             state = self.get_viewer_state(viewer.image_id, viewer.tag)
             from vvv.utils import ViewMode
+
             orientation_map = {
                 ViewMode.AXIAL: "Z",
                 ViewMode.CORONAL: "Y",
@@ -192,3 +203,36 @@ class MIPPluginController(PluginTagMixin):
             state.rotation_step = float(app_data)
             self._api.request_refresh()
 
+    def on_rotation_step_button(self, _sender, _app_data, user_data):
+        if not self._api:
+            return
+        viewer = self._api.get_active_viewer()
+        if not viewer or not viewer.image_id:
+            return
+        state = self.get_viewer_state(viewer.image_id, viewer.tag)
+        orientation_map = {
+            ViewMode.AXIAL: "Z",
+            ViewMode.CORONAL: "Y",
+            ViewMode.SAGITTAL: "Y",
+        }
+        active_axis = orientation_map.get(viewer.orientation, "Y")
+        current = state.rotation_angles.get(active_axis, 0.0)
+        new_val = max(
+            -180.0, min(180.0, current + state.rotation_step * user_data["dir"])
+        )
+        state.rotation_angles[active_axis] = round(new_val, 1)
+        dpg.set_value(user_data["tag"], new_val)
+        self._mark_viewer_dirty(viewer)
+        self._api.request_refresh()
+
+    def on_step_size_button(self, _sender, _app_data, user_data):
+        if not self._api:
+            return
+        viewer = self._api.get_active_viewer()
+        if not viewer or not viewer.image_id:
+            return
+        state = self.get_viewer_state(viewer.image_id, viewer.tag)
+        new_val = max(1.0, min(45.0, state.rotation_step + user_data["dir"]))
+        state.rotation_step = round(new_val, 1)
+        dpg.set_value(user_data["tag"], new_val)
+        self._api.request_refresh()
