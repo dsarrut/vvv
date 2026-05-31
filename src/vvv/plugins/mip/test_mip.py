@@ -45,3 +45,5 @@ def test_mip_depth_cueing():
     mip_z_cue = compute_mip_projection(data, axis="Z", depth_cueing=True, depth_cueing_strength=0.9)
     assert np.all(mip_z_cue > 10.0)
     assert np.allclose(mip_z_cue, 30.0)  # Max should be 30.0 at z=5
+
+

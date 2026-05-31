@@ -1329,16 +1329,57 @@ class SliceViewer:
         dvf_mode = vs.dvf.display_mode if getattr(vol, "is_dvf", False) else "Component"
 
         preview = None
-        if vs._preview_R is not None and not getattr(vol, "is_dvf", False):
-            key = (self.orientation, self.slice_idx)
-            preview = self._preview_slices.get(key)
-            if preview is None:
-                # Cache miss (e.g. user scrolled to a new slice).
-                # Signal the worker — and use raw vol.data as fallback so a cache miss
-                # never exposes base_display_data (a stale full-resample at a DIFFERENT
-                # rotation angle). A briefly unrotated image is far less jarring than
-                # a flash to a completely different rotation (ghost).
-                vs._preview_slice_needed = True
+        
+        # Check if MIP plugin is active
+        mip_plugin = None
+        if self.controller.gui and hasattr(self.controller.gui, "plugins"):
+            mip_plugin = next((p for p in self.controller.gui.plugins if p.plugin_id == "mip_plugin"), None)
+            
+        mip_state = None
+        if mip_plugin and self.image_id:
+            mip_state = mip_plugin._controller.get_image_state(self.image_id)
+
+        if mip_state and mip_state.mip_enabled and not getattr(vol, "is_dvf", False):
+            # Compute MIP projection
+            display_data_raw = (
+                vs.base_display_data
+                if getattr(vs, "base_display_data", None) is not None
+                else vol.data
+            )
+            if display_data_raw is not None:
+                if display_data_raw.ndim == 4:
+                    t = min(vs.camera.time_idx, display_data_raw.shape[0] - 1)
+                    data_3d = display_data_raw[t]
+                else:
+                    data_3d = display_data_raw
+                    
+                if data_3d.ndim == 3:
+                    from vvv.plugins.mip.math_mip import compute_mip_projection
+                    axis_map = {ViewMode.AXIAL: "Z", ViewMode.CORONAL: "Y", ViewMode.SAGITTAL: "X"}
+                    proj_axis = axis_map.get(self.orientation, "Y")
+                    mip_raw = compute_mip_projection(
+                        data_3d,
+                        axis=proj_axis,
+                        depth_cueing=mip_state.depth_cueing,
+                        depth_cueing_strength=0.5
+                    )
+                    if self.orientation == ViewMode.AXIAL:
+                        preview = np.ascontiguousarray(mip_raw)
+                    elif self.orientation == ViewMode.CORONAL:
+                        preview = np.ascontiguousarray(np.flipud(mip_raw))
+                    elif self.orientation == ViewMode.SAGITTAL:
+                        preview = np.ascontiguousarray(np.flipud(np.fliplr(mip_raw)))
+        else:
+            if vs._preview_R is not None and not getattr(vol, "is_dvf", False):
+                key = (self.orientation, self.slice_idx)
+                preview = self._preview_slices.get(key)
+                if preview is None:
+                    # Cache miss (e.g. user scrolled to a new slice).
+                    # Signal the worker — and use raw vol.data as fallback so a cache miss
+                    # never exposes base_display_data (a stale full-resample at a DIFFERENT
+                    # rotation angle). A briefly unrotated image is far less jarring than
+                    # a flash to a completely different rotation (ghost).
+                    vs._preview_slice_needed = True
 
         # In preview mode, bypass base_display_data to prevent ghost flashes.
         # Outside preview mode, use the resampled buffer if available.

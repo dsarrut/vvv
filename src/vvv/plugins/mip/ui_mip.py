@@ -1,6 +1,7 @@
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import build_section_title, build_beginner_tooltip
 from vvv.plugins.plugin_api import PluginTagMixin
+from vvv.utils import ViewMode
 
 
 class MIPPluginUI(PluginTagMixin):
@@ -110,6 +111,17 @@ class MIPPluginUI(PluginTagMixin):
 
         if has_image:
             state = self._c.get_image_state(viewer.image_id)
+            
+            # Map active orientation back to MIP axis if we are in MIP mode or just to sync
+            orientation_map = {
+                ViewMode.AXIAL: "Z",
+                ViewMode.CORONAL: "Y",
+                ViewMode.SAGITTAL: "X"
+            }
+            current_axis = orientation_map.get(viewer.orientation)
+            if current_axis and state.projection_axis != current_axis:
+                state.projection_axis = current_axis
+
             if dpg.does_item_exist(chk_mip) and not dpg.is_item_active(chk_mip):
                 dpg.set_value(chk_mip, state.mip_enabled)
             if dpg.does_item_exist(combo_axis) and not dpg.is_item_active(combo_axis):

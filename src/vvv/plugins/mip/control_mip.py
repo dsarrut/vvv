@@ -1,6 +1,7 @@
 from typing import Optional, Dict
 import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
+from vvv.utils import ViewMode
 
 
 class MIPImageState:
@@ -66,6 +67,13 @@ class MIPPluginController(PluginTagMixin):
     def destroy(self) -> None:
         pass
 
+    def _mark_viewer_dirty(self, viewer):
+        if viewer:
+            if viewer.view_state:
+                viewer.view_state.is_data_dirty = True
+            viewer.is_viewer_data_dirty = True
+            viewer.is_geometry_dirty = True
+
     def on_mip_toggle(self, sender, app_data, user_data):
         if not self._api:
             return
@@ -73,6 +81,15 @@ class MIPPluginController(PluginTagMixin):
         if viewer and viewer.image_id:
             state = self.get_image_state(viewer.image_id)
             state.mip_enabled = app_data
+            
+            # Sync orientation to match projection axis when turning MIP on
+            if app_data:
+                axis_map = {"Z": ViewMode.AXIAL, "Y": ViewMode.CORONAL, "X": ViewMode.SAGITTAL}
+                target_orientation = axis_map.get(state.projection_axis.upper())
+                if target_orientation and viewer.orientation != target_orientation:
+                    viewer.set_orientation(target_orientation)
+
+            self._mark_viewer_dirty(viewer)
             self._api.request_refresh()
 
     def on_axis_changed(self, sender, app_data, user_data):
@@ -82,6 +99,14 @@ class MIPPluginController(PluginTagMixin):
         if viewer and viewer.image_id:
             state = self.get_image_state(viewer.image_id)
             state.projection_axis = app_data
+            
+            # Keep orientation in sync with axis
+            axis_map = {"Z": ViewMode.AXIAL, "Y": ViewMode.CORONAL, "X": ViewMode.SAGITTAL}
+            target_orientation = axis_map.get(app_data.upper())
+            if target_orientation and viewer.orientation != target_orientation:
+                viewer.set_orientation(target_orientation)
+
+            self._mark_viewer_dirty(viewer)
             self._api.request_refresh()
 
     def on_depth_cueing_toggle(self, sender, app_data, user_data):
@@ -91,6 +116,7 @@ class MIPPluginController(PluginTagMixin):
         if viewer and viewer.image_id:
             state = self.get_image_state(viewer.image_id)
             state.depth_cueing = app_data
+            self._mark_viewer_dirty(viewer)
             self._api.request_refresh()
 
     def on_invert_toggle(self, sender, app_data, user_data):
@@ -101,3 +127,4 @@ class MIPPluginController(PluginTagMixin):
             state = self.get_image_state(viewer.image_id)
             state.invert_contrast = app_data
             self._api.request_refresh()
+
