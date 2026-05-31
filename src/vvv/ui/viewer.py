@@ -1530,6 +1530,8 @@ class SliceViewer:
         vol = self.volume
         if not vs or not vol:
             return []
+        if self.drawer._is_mip_active():
+            return []
 
         active_rois = []
         for roi_id, roi_state in vs.rois.items():
@@ -2127,7 +2129,8 @@ class SliceViewer:
                 slice_data,
             )
 
-        self.controller.roi.update_roi_contours(self)
+        if not self.drawer._is_mip_active():
+            self.controller.roi.update_roi_contours(self)
 
         self.drawer.draw_contours()
         self.drawer.draw_profiles()

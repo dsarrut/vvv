@@ -250,6 +250,20 @@ class RoiPluginUI(PluginTagMixin):
 
         assert self.api is not None
         viewer = self.api.get_active_viewer()
+        is_mip = bool(
+            viewer and viewer.image_id
+            and self.api.is_mip_active(viewer.image_id, viewer.tag)
+        )
+
+        toolbar_btns = [
+            "btn_roi_load", "btn_roi_show_all", "btn_roi_contour_all",
+            "btn_roi_hide_all", "btn_roi_close_all", "btn_roi_sort",
+            "btn_clear_filter", "btn_roi_export_stats",
+        ]
+        for name in toolbar_btns:
+            tag = self._t(name)
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, enabled=not is_mip)
 
         if dpg.does_item_exist(self._t("text_roi_active_title")):
             if viewer and viewer.image_id and self.api.get_volumes().get(viewer.image_id):
@@ -392,6 +406,10 @@ class RoiPluginUI(PluginTagMixin):
 
                 if dpg.does_item_exist("delete_button_theme"):
                     dpg.bind_item_theme(btn_close, "delete_button_theme")
+
+                if is_mip:
+                    for btn in [btn_eye, btn_action, btn_center, btn_close]:
+                        dpg.configure_item(btn, enabled=False)
 
         dpg.set_y_scroll(table_id, current_scroll)
         self.refresh_roi_detail_ui()
