@@ -59,7 +59,7 @@ class MIPPluginUI(PluginTagMixin):
                 tag=self._t("slider_depth_cueing"),
                 min_value=0.0,
                 max_value=1.0,
-                default_value=0.0,
+                default_value=1.0,
                 callback=self._c.on_depth_cueing_changed,
                 format="%.2f",
             )
@@ -152,9 +152,14 @@ class MIPPluginUI(PluginTagMixin):
             mip_on = _s.mip_enabled
 
         mip_controls = [
-            slider_depth, slider_rot, slider_step, chk_invert,
-            f"btn_{slider_rot}_minus", f"btn_{slider_rot}_plus",
-            f"btn_{slider_step}_minus", f"btn_{slider_step}_plus",
+            slider_depth,
+            slider_rot,
+            slider_step,
+            chk_invert,
+            f"btn_{slider_rot}_minus",
+            f"btn_{slider_rot}_plus",
+            f"btn_{slider_step}_minus",
+            f"btn_{slider_step}_plus",
         ]
         for item in mip_controls:
             if dpg.does_item_exist(item):

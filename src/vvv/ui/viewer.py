@@ -849,8 +849,15 @@ class SliceViewer:
     _MIP_CACHE_MAX = 400
 
     def _start_mip_precompute(self, data_3d, proj_axis, depth_cueing,
-                               center_angle, rotation_step, time_idx, orientation):
-        """Precompute the full rotation in a daemon thread, nearest angles first."""
+                               center_angle, rotation_step, time_idx, orientation,
+                               extra_layers=None):
+        """Precompute the full rotation in a daemon thread, nearest angles first.
+
+        extra_layers: optional list of (data_3d, cache_id, layer_time_idx) tuples
+          for additional datasets (e.g. fusion overlay) to precompute in the same pass.
+          The cache key uses id(data_3d) so entries are shared automatically when two
+          viewers reference the same numpy array.
+        """
         self._mip_precompute_stop.set()
         stop = threading.Event()
         self._mip_precompute_stop = stop
@@ -858,6 +865,7 @@ class SliceViewer:
         image_id = self.image_id
         cache_lock = self._mip_cache_lock
         step = max(0.1, rotation_step)
+        extra_layers = extra_layers or []
 
         # Build all angles in the full rotation ordered by distance from current
         n = max(1, round(360.0 / step))
@@ -871,37 +879,53 @@ class SliceViewer:
                     a += 360.0
                 all_angles.append(round(a, 2))
 
-        def _run():
+        def _compute_and_cache(d3d, key):
             from vvv.plugins.mip.math_mip import compute_mip_projection
+            try:
+                mip_raw = compute_mip_projection(
+                    d3d, axis=proj_axis,
+                    depth_cueing=depth_cueing > 0.0,
+                    depth_cueing_strength=depth_cueing,
+                    rotation_angle=key[4],  # angle is index 4 in the key tuple
+                )
+                preview = (
+                    np.ascontiguousarray(mip_raw)
+                    if orientation == ViewMode.AXIAL
+                    else np.ascontiguousarray(np.flipud(mip_raw))
+                )
+                with cache_lock:
+                    if key not in self._mip_cache_dict:
+                        if len(self._mip_cache_dict) >= self._MIP_CACHE_MAX:
+                            self._mip_cache_dict.pop(next(iter(self._mip_cache_dict)), None)
+                        self._mip_cache_dict[key] = preview
+            except Exception:
+                pass
+
+        def _run():
             for angle in all_angles:
                 if stop.is_set():
                     return
-                key = (image_id, time_idx, orientation, depth_cueing, angle, id(data_3d))
+
+                # Base layer
+                base_key = (image_id, time_idx, orientation, depth_cueing, angle, id(data_3d))
                 with cache_lock:
-                    if key in self._mip_cache_dict:
-                        continue
-                if stop.is_set():
-                    return
-                try:
-                    mip_raw = compute_mip_projection(
-                        data_3d,
-                        axis=proj_axis,
-                        depth_cueing=depth_cueing > 0.0,
-                        depth_cueing_strength=depth_cueing,
-                        rotation_angle=angle,
-                    )
-                    preview = (
-                        np.ascontiguousarray(mip_raw)
-                        if orientation == ViewMode.AXIAL
-                        else np.ascontiguousarray(np.flipud(mip_raw))
-                    )
+                    base_cached = base_key in self._mip_cache_dict
+                if not base_cached:
+                    if stop.is_set():
+                        return
+                    _compute_and_cache(data_3d, base_key)
+
+                # Extra layers (overlay, etc.)
+                for layer_data, layer_id, layer_time_idx in extra_layers:
+                    if stop.is_set():
+                        return
+                    layer_key = (layer_id, layer_time_idx, orientation, depth_cueing, angle, id(layer_data))
                     with cache_lock:
-                        if key not in self._mip_cache_dict:
-                            if len(self._mip_cache_dict) >= self._MIP_CACHE_MAX:
-                                self._mip_cache_dict.pop(next(iter(self._mip_cache_dict)), None)
-                            self._mip_cache_dict[key] = preview
-                except Exception:
-                    pass
+                        layer_cached = layer_key in self._mip_cache_dict
+                    if not layer_cached:
+                        if stop.is_set():
+                            return
+                        _compute_and_cache(layer_data, layer_key)
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -1457,10 +1481,23 @@ class SliceViewer:
                                 self._mip_cache_dict.pop(next(iter(self._mip_cache_dict)), None)
                             self._mip_cache_dict[cache_key] = preview
 
+                        # Collect overlay layer for joint precompute
+                        extra_layers = []
+                        ov_id = vs.display.overlay.image_id if vs.display.overlay else None
+                        ov_data_raw = vs.display.overlay_data if ov_id else None
+                        if ov_data_raw is not None and ov_id:
+                            ov_time_idx = min(vs.camera.time_idx,
+                                              self.controller.view_states[ov_id].volume.num_timepoints - 1
+                                              if ov_id in self.controller.view_states else 0)
+                            ov_3d = ov_data_raw[ov_time_idx] if ov_data_raw.ndim == 4 else ov_data_raw
+                            if ov_3d.ndim == 3:
+                                extra_layers.append((ov_3d, ov_id, ov_time_idx))
+
                         self._start_mip_precompute(
                             data_3d, proj_axis, mip_state.depth_cueing,
                             current_angle, mip_state.rotation_step,
                             vs.camera.time_idx, self.orientation,
+                            extra_layers=extra_layers,
                         )
 
                 if preview is not None and mip_state.invert_contrast:
