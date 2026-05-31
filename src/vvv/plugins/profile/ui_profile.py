@@ -120,18 +120,20 @@ class ProfilePluginUI(PluginTagMixin):
     def update_ui(self, api) -> None:
         viewer = api.get_active_viewer()
         has_image = bool(viewer and viewer.view_state and viewer.volume)
+        is_mip = has_image and api.is_mip_active(viewer.image_id, viewer.tag)
+        active = has_image and not is_mip
 
         # Update our show_profiles checkbox
         chk_show = self._t("check_show_profiles")
         if dpg.does_item_exist(chk_show):
-            dpg.configure_item(chk_show, enabled=has_image)
-            if has_image and not dpg.is_item_active(chk_show):
+            dpg.configure_item(chk_show, enabled=active)
+            if active and not dpg.is_item_active(chk_show):
                 val = viewer.view_state.camera.show_profiles
                 val_bool = bool(val) if isinstance(val, (bool, int)) else True
                 dpg.set_value(chk_show, val_bool)
 
         # Refresh open plots
-        if has_image:
+        if active:
             for p_id, profile in viewer.view_state.profiles.items():
                 if getattr(profile, "plot_open", False):
                     win_tag = self._t(f"plot_win_{p_id}")
@@ -164,7 +166,7 @@ class ProfilePluginUI(PluginTagMixin):
 
         profile_key = (
             (viewer.image_id, tuple(viewer.view_state.profiles.keys()))
-            if has_image
+            if active
             else None
         )
         if profile_key == self._last_profile_key:
@@ -174,7 +176,7 @@ class ProfilePluginUI(PluginTagMixin):
         current_scroll = dpg.get_y_scroll(table_id)
         dpg.delete_item(table_id, children_only=True, slot=1)
 
-        if not has_image:
+        if not active:
             return
 
         for p_id, profile in viewer.view_state.profiles.items():

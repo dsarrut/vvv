@@ -106,6 +106,18 @@ class PluginAPI:
     def get_active_viewer(self):
         return self._gui.context_viewer
 
+    def is_mip_active(self, image_id: str, viewer_tag: str) -> bool:
+        """Returns True if MIP mode is enabled for the given image/viewer."""
+        try:
+            mip_plugin = next(
+                (p for p in self._gui.plugins if p.plugin_id == "mip_plugin"), None
+            )
+            if not mip_plugin:
+                return False
+            return mip_plugin._controller.get_viewer_state(image_id, viewer_tag).mip_enabled
+        except Exception:
+            return False
+
     def get_viewers(self):
         with self._controller._state_lock:
             return self._controller.viewers.copy()

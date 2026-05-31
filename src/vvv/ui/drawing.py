@@ -13,6 +13,21 @@ class OverlayDrawer:
     def __init__(self, viewer):
         self.viewer = viewer
 
+    def _is_mip_active(self) -> bool:
+        viewer = self.viewer
+        if not viewer.image_id:
+            return False
+        try:
+            gui = viewer.controller.gui
+            if not gui or not hasattr(gui, "plugins"):
+                return False
+            mip_plugin = next((p for p in gui.plugins if p.plugin_id == "mip_plugin"), None)
+            if not mip_plugin:
+                return False
+            return mip_plugin._controller.get_viewer_state(viewer.image_id, viewer.tag).mip_enabled
+        except Exception:
+            return False
+
     def draw_voxel_grid(self, h, w):
         viewer = self.viewer
         node_a, node_b = viewer.grid_a_tag, viewer.grid_b_tag
@@ -479,6 +494,7 @@ class OverlayDrawer:
             not viewer.is_image_orientation()
             or not viewer.view_state
             or not viewer.volume
+            or self._is_mip_active()
         ):
             if dpg.does_item_exist(viewer.contour_node_tag):
                 dpg.configure_item(viewer.contour_node_tag, show=False)
@@ -595,6 +611,7 @@ class OverlayDrawer:
             or not viewer.view_state
             or not viewer.volume
             or not getattr(viewer.view_state.camera, "show_profiles", True)
+            or self._is_mip_active()
         ):
             if dpg.does_item_exist(viewer.profile_node_tag):
                 dpg.configure_item(viewer.profile_node_tag, show=False)

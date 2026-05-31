@@ -175,9 +175,9 @@ class ThresholdUI(PluginTagMixin):
                 )
 
         is_rgb = getattr(viewer.volume, "is_rgb", False) if has_image else False
+        is_mip = has_image and api.is_mip_active(viewer.image_id, viewer.tag)
 
-        # If no image or it's an RGB image, disable thresholding controls
-        if not has_image or is_rgb:
+        if not has_image or is_rgb or is_mip:
             tags_to_disable = [
                 self._t("check_ext_enable"),
                 self._t("drag_ext_threshold_min"),
