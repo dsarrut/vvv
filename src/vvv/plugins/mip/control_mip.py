@@ -205,7 +205,6 @@ class MIPPluginController(PluginTagMixin):
             state = self.get_viewer_state(viewer.image_id, viewer.tag)
             state.invert_contrast = app_data
             self._mark_viewer_dirty(viewer)
-            self._propagate_display_state(viewer.image_id, depth_cueing=None, invert_contrast=app_data)
             self._api.request_refresh()
 
     def on_rotation_changed(self, sender, app_data, user_data):

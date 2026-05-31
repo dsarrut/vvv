@@ -143,20 +143,22 @@ class MIPPluginUI(PluginTagMixin):
         slider_step = self._t("slider_rotation_step")
         chk_invert = self._t("check_invert_contrast")
 
-        all_items = [
-            chk_mip,
-            slider_depth,
-            slider_rot,
-            slider_step,
-            chk_invert,
-            f"btn_{slider_rot}_minus",
-            f"btn_{slider_rot}_plus",
-            f"btn_{slider_step}_minus",
-            f"btn_{slider_step}_plus",
+        if dpg.does_item_exist(chk_mip):
+            dpg.configure_item(chk_mip, enabled=has_image)
+
+        mip_on = False
+        if has_image:
+            _s = self._c.get_viewer_state(viewer.image_id, viewer.tag)
+            mip_on = _s.mip_enabled
+
+        mip_controls = [
+            slider_depth, slider_rot, slider_step, chk_invert,
+            f"btn_{slider_rot}_minus", f"btn_{slider_rot}_plus",
+            f"btn_{slider_step}_minus", f"btn_{slider_step}_plus",
         ]
-        for item in all_items:
+        for item in mip_controls:
             if dpg.does_item_exist(item):
-                dpg.configure_item(item, enabled=has_image)
+                dpg.configure_item(item, enabled=mip_on)
 
         if has_image:
             state = self._c.get_viewer_state(viewer.image_id, viewer.tag)
