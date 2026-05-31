@@ -8,7 +8,7 @@ class MIPViewerState:
     def __init__(self):
         self.mip_enabled = False
         self.projection_axis = "Y"
-        self.depth_cueing = 0.0
+        self.depth_cueing = 1.0
         self.invert_contrast = False
         self.rotation_angles = {"X": 0.0, "Y": 0.0, "Z": 0.0}
         self.rotation_step = 10.0
@@ -157,12 +157,15 @@ class MIPPluginController(PluginTagMixin):
             lambda s, _v: s.rotation_angles.update(rotation_angles),
         )
 
-    def _propagate_display_state(self, source_image_id, depth_cueing, invert_contrast) -> None:
+    def _propagate_display_state(
+        self, source_image_id, depth_cueing, invert_contrast
+    ) -> None:
         def apply(s, _v):
             if depth_cueing is not None:
                 s.depth_cueing = depth_cueing
             if invert_contrast is not None:
                 s.invert_contrast = invert_contrast
+
         self._sync_to_group(source_image_id, apply)
 
     def on_mip_toggle(self, sender, app_data, user_data):
@@ -194,7 +197,9 @@ class MIPPluginController(PluginTagMixin):
             state = self.get_viewer_state(viewer.image_id, viewer.tag)
             state.depth_cueing = float(app_data)
             self._mark_viewer_dirty(viewer)
-            self._propagate_display_state(viewer.image_id, depth_cueing=float(app_data), invert_contrast=None)
+            self._propagate_display_state(
+                viewer.image_id, depth_cueing=float(app_data), invert_contrast=None
+            )
             self._api.request_refresh()
 
     def on_invert_toggle(self, sender, app_data, user_data):
