@@ -39,27 +39,29 @@ class MIPPluginUI(PluginTagMixin):
                 api,
             )
 
-            # Projection Axis Choice
-            with dpg.group(horizontal=True):
-                dpg.add_text("Axis: ")
-                dpg.add_combo(
-                    ["X", "Y", "Z"],
-                    default_value="Y",
-                    tag=self._t("combo_projection_axis"),
-                    width=-1,
-                    callback=self._c.on_axis_changed,
-                )
-
-            # Checkbox: Depth Cueing
-            chk_depth = dpg.add_checkbox(
-                label="Depth Cueing",
-                tag=self._t("check_depth_cueing"),
-                callback=self._c.on_depth_cueing_toggle,
-                default_value=False,
+            # Current orientation display
+            axis_text = dpg.add_text(
+                "Projection Axis: Y", tag=self._t("text_projection_axis")
             )
             build_beginner_tooltip(
-                chk_depth,
-                "Dim intensities of voxels further away from the projection plane.",
+                axis_text,
+                "The current projection axis, determined by the active viewer orientation (changed with F1, F2, F3).",
+                api,
+            )
+
+            # Slider: Depth Cueing
+            sld_depth = dpg.add_slider_float(
+                label="Depth Cueing",
+                tag=self._t("slider_depth_cueing"),
+                min_value=0.0,
+                max_value=1.0,
+                default_value=0.0,
+                callback=self._c.on_depth_cueing_changed,
+                format="%.2f",
+            )
+            build_beginner_tooltip(
+                sld_depth,
+                "Dim intensities of voxels further away from the projection plane (0.0=none, 1.0=full).",
                 api,
             )
 
@@ -101,32 +103,43 @@ class MIPPluginUI(PluginTagMixin):
 
         # Sync checkboxes/combos with state
         chk_mip = self._t("check_mip_mode")
-        combo_axis = self._t("combo_projection_axis")
-        chk_depth = self._t("check_depth_cueing")
+        axis_text = self._t("text_projection_axis")
+        slider_depth = self._t("slider_depth_cueing")
         chk_invert = self._t("check_invert_contrast")
 
-        for item in [chk_mip, combo_axis, chk_depth, chk_invert]:
+        for item in [chk_mip, slider_depth, chk_invert]:
             if dpg.does_item_exist(item):
                 dpg.configure_item(item, enabled=has_image)
 
         if has_image:
             state = self._c.get_image_state(viewer.image_id)
-            
+
             # Map active orientation back to MIP axis if we are in MIP mode or just to sync
             orientation_map = {
                 ViewMode.AXIAL: "Z",
                 ViewMode.CORONAL: "Y",
-                ViewMode.SAGITTAL: "X"
+                ViewMode.SAGITTAL: "X",
             }
+            orientation_name = {
+                ViewMode.AXIAL: "Z (Axial)",
+                ViewMode.CORONAL: "Y (Coronal)",
+                ViewMode.SAGITTAL: "X (Sagittal)",
+            }.get(viewer.orientation, "Unknown")
+
             current_axis = orientation_map.get(viewer.orientation)
             if current_axis and state.projection_axis != current_axis:
                 state.projection_axis = current_axis
 
+            if dpg.does_item_exist(axis_text):
+                dpg.set_value(axis_text, f"Projection Axis: {orientation_name}")
             if dpg.does_item_exist(chk_mip) and not dpg.is_item_active(chk_mip):
                 dpg.set_value(chk_mip, state.mip_enabled)
-            if dpg.does_item_exist(combo_axis) and not dpg.is_item_active(combo_axis):
-                dpg.set_value(combo_axis, state.projection_axis)
-            if dpg.does_item_exist(chk_depth) and not dpg.is_item_active(chk_depth):
-                dpg.set_value(chk_depth, state.depth_cueing)
+            if dpg.does_item_exist(slider_depth) and not dpg.is_item_active(
+                slider_depth
+            ):
+                dpg.set_value(slider_depth, state.depth_cueing)
             if dpg.does_item_exist(chk_invert) and not dpg.is_item_active(chk_invert):
                 dpg.set_value(chk_invert, state.invert_contrast)
+        else:
+            if dpg.does_item_exist(axis_text):
+                dpg.set_value(axis_text, "Projection Axis: None")

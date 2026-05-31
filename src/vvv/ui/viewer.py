@@ -1347,28 +1347,50 @@ class SliceViewer:
                 else vol.data
             )
             if display_data_raw is not None:
-                if display_data_raw.ndim == 4:
-                    t = min(vs.camera.time_idx, display_data_raw.shape[0] - 1)
-                    data_3d = display_data_raw[t]
+                # Check cache validity (slice_idx is ignored since MIP is same along orientation axis)
+                cache = getattr(self, "_mip_cache", None)
+                cache_valid = (
+                    cache is not None
+                    and cache["image_id"] == self.image_id
+                    and cache["time_idx"] == vs.camera.time_idx
+                    and cache["orientation"] == self.orientation
+                    and cache["depth_cueing_strength"] == mip_state.depth_cueing
+                    and cache["display_data_id"] == id(display_data_raw)
+                )
+                if cache_valid:
+                    preview = cache["preview"]
                 else:
-                    data_3d = display_data_raw
-                    
-                if data_3d.ndim == 3:
-                    from vvv.plugins.mip.math_mip import compute_mip_projection
-                    axis_map = {ViewMode.AXIAL: "Z", ViewMode.CORONAL: "Y", ViewMode.SAGITTAL: "X"}
-                    proj_axis = axis_map.get(self.orientation, "Y")
-                    mip_raw = compute_mip_projection(
-                        data_3d,
-                        axis=proj_axis,
-                        depth_cueing=mip_state.depth_cueing,
-                        depth_cueing_strength=0.5
-                    )
-                    if self.orientation == ViewMode.AXIAL:
-                        preview = np.ascontiguousarray(mip_raw)
-                    elif self.orientation == ViewMode.CORONAL:
-                        preview = np.ascontiguousarray(np.flipud(mip_raw))
-                    elif self.orientation == ViewMode.SAGITTAL:
-                        preview = np.ascontiguousarray(np.flipud(np.fliplr(mip_raw)))
+                    if display_data_raw.ndim == 4:
+                        t = min(vs.camera.time_idx, display_data_raw.shape[0] - 1)
+                        data_3d = display_data_raw[t]
+                    else:
+                        data_3d = display_data_raw
+                        
+                    if data_3d.ndim == 3:
+                        from vvv.plugins.mip.math_mip import compute_mip_projection
+                        axis_map = {ViewMode.AXIAL: "Z", ViewMode.CORONAL: "Y", ViewMode.SAGITTAL: "X"}
+                        proj_axis = axis_map.get(self.orientation, "Y")
+                        mip_raw = compute_mip_projection(
+                            data_3d,
+                            axis=proj_axis,
+                            depth_cueing=mip_state.depth_cueing > 0.0,
+                            depth_cueing_strength=mip_state.depth_cueing
+                        )
+                        if self.orientation == ViewMode.AXIAL:
+                            preview = np.ascontiguousarray(mip_raw)
+                        elif self.orientation == ViewMode.CORONAL:
+                            preview = np.ascontiguousarray(np.flipud(mip_raw))
+                        elif self.orientation == ViewMode.SAGITTAL:
+                            preview = np.ascontiguousarray(np.flipud(np.fliplr(mip_raw)))
+                            
+                        self._mip_cache = {
+                            "image_id": self.image_id,
+                            "time_idx": vs.camera.time_idx,
+                            "orientation": self.orientation,
+                            "depth_cueing_strength": mip_state.depth_cueing,
+                            "display_data_id": id(display_data_raw),
+                            "preview": preview
+                        }
         else:
             if vs._preview_R is not None and not getattr(vol, "is_dvf", False):
                 key = (self.orientation, self.slice_idx)

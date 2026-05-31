@@ -36,14 +36,20 @@ def test_mip_integration(headless_gui_app):
     assert viewer.orientation == ViewMode.CORONAL
     assert base_layer_mip.preview_override.shape == (D, W)
     
-    # Toggle depth cueing on
-    mip_plugin._controller.on_depth_cueing_toggle(None, True, None)
-    assert state.depth_cueing
+    # Set depth cueing value
+    mip_plugin._controller.on_depth_cueing_changed(None, 0.7, None)
+    assert state.depth_cueing == 0.7
     
-    # Change axis to Z
-    mip_plugin._controller.on_axis_changed(None, "Z", None)
+    # Change orientation on the viewer directly (as F1 / F2 / F3 would do)
+    viewer.set_orientation(ViewMode.AXIAL)
+    mip_plugin.update(mip_plugin._controller._api)  # Triggers update_ui which does the reverse-sync
     assert state.projection_axis == "Z"
-    assert viewer.orientation == ViewMode.AXIAL
     
     base_layer_z = viewer._package_base_layer()
     assert base_layer_z.preview_override.shape == (H, W)
+    
+    # Test caching: dragging slice index should keep preview cached
+    initial_preview = base_layer_z.preview_override
+    viewer.slice_idx = 10
+    base_layer_scrolled = viewer._package_base_layer()
+    assert base_layer_scrolled.preview_override is initial_preview  # same object!

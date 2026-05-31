@@ -8,7 +8,7 @@ class MIPImageState:
     def __init__(self):
         self.mip_enabled = False
         self.projection_axis = "Y"
-        self.depth_cueing = False
+        self.depth_cueing = 0.0
         self.invert_contrast = False
 
 
@@ -55,7 +55,13 @@ class MIPPluginController(PluginTagMixin):
         state = self.get_image_state(image_id)
         state.mip_enabled = data.get("mip_enabled", state.mip_enabled)
         state.projection_axis = data.get("projection_axis", state.projection_axis)
-        state.depth_cueing = data.get("depth_cueing", state.depth_cueing)
+        
+        raw_depth = data.get("depth_cueing", state.depth_cueing)
+        if isinstance(raw_depth, bool):
+            state.depth_cueing = 0.5 if raw_depth else 0.0
+        else:
+            state.depth_cueing = float(raw_depth)
+            
         state.invert_contrast = data.get("invert_contrast", state.invert_contrast)
 
     def save_settings(self, api: PluginAPI) -> None:
@@ -92,30 +98,13 @@ class MIPPluginController(PluginTagMixin):
             self._mark_viewer_dirty(viewer)
             self._api.request_refresh()
 
-    def on_axis_changed(self, sender, app_data, user_data):
+    def on_depth_cueing_changed(self, sender, app_data, user_data):
         if not self._api:
             return
         viewer = self._api.get_active_viewer()
         if viewer and viewer.image_id:
             state = self.get_image_state(viewer.image_id)
-            state.projection_axis = app_data
-            
-            # Keep orientation in sync with axis
-            axis_map = {"Z": ViewMode.AXIAL, "Y": ViewMode.CORONAL, "X": ViewMode.SAGITTAL}
-            target_orientation = axis_map.get(app_data.upper())
-            if target_orientation and viewer.orientation != target_orientation:
-                viewer.set_orientation(target_orientation)
-
-            self._mark_viewer_dirty(viewer)
-            self._api.request_refresh()
-
-    def on_depth_cueing_toggle(self, sender, app_data, user_data):
-        if not self._api:
-            return
-        viewer = self._api.get_active_viewer()
-        if viewer and viewer.image_id:
-            state = self.get_image_state(viewer.image_id)
-            state.depth_cueing = app_data
+            state.depth_cueing = float(app_data)
             self._mark_viewer_dirty(viewer)
             self._api.request_refresh()
 
