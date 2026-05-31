@@ -1398,7 +1398,10 @@ class SliceViewer:
                         cache_dict[cache_key] = preview
 
                 if preview is not None and mip_state.invert_contrast:
-                    preview = np.ascontiguousarray(preview.max() - preview)
+                    wl_upper = vs.display.wl + vs.display.ww / 2.0
+                    preview = np.ascontiguousarray(
+                        (wl_upper - preview.astype(np.float32)).astype(preview.dtype)
+                    )
         else:
             if vs._preview_R is not None and not getattr(vol, "is_dvf", False):
                 key = (self.orientation, self.slice_idx)
