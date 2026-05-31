@@ -1337,7 +1337,7 @@ class SliceViewer:
             
         mip_state = None
         if mip_plugin and self.image_id:
-            mip_state = mip_plugin._controller.get_image_state(self.image_id)
+            mip_state = mip_plugin._controller.get_viewer_state(self.image_id, self.tag)
 
         if mip_state and mip_state.mip_enabled and not getattr(vol, "is_dvf", False):
             # Compute MIP projection
@@ -2463,7 +2463,7 @@ class SliceViewer:
             
         mip_state = None
         if mip_plugin and self.image_id:
-            mip_state = mip_plugin._controller.get_image_state(self.image_id)
+            mip_state = mip_plugin._controller.get_viewer_state(self.image_id, self.tag)
 
         if mip_state and mip_state.mip_enabled:
             axis_map = {ViewMode.AXIAL: "Z", ViewMode.CORONAL: "Y", ViewMode.SAGITTAL: "X"}

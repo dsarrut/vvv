@@ -146,7 +146,7 @@ class MIPPluginUI(PluginTagMixin):
                 dpg.configure_item(item, enabled=has_image)
 
         if has_image:
-            state = self._c.get_image_state(viewer.image_id)
+            state = self._c.get_viewer_state(viewer.image_id, viewer.tag)
 
             # Map active orientation back to MIP axis if we are in MIP mode or just to sync
             orientation_map = {

@@ -113,3 +113,92 @@ def test_mip_integration(headless_gui_app):
     # Retrieve base layer (should hit the cache and return the exact same base_layer_rot15 preview object)
     base_layer_refetched = viewer._package_base_layer()
     assert base_layer_refetched.preview_override is base_layer_rot15.preview_override  # O(1) Cache Hit!
+
+
+def test_mip_viewer_isolation(headless_gui_app):
+    controller, gui, viewer_v1, base_id = headless_gui_app
+    
+    mip_plugin = next((p for p in gui.plugins if p.plugin_id == "mip_plugin"), None)
+    assert mip_plugin is not None
+    
+    # Get standard viewer V3 from controller (both V1 and V3 display base_id)
+    viewer_v3 = controller.viewers["V3"]
+    
+    # State references
+    state_v1 = mip_plugin._controller.get_viewer_state(base_id, "V1")
+    state_v3 = mip_plugin._controller.get_viewer_state(base_id, "V3")
+    
+    # Initially both are independent and disabled
+    assert not state_v1.mip_enabled
+    assert not state_v3.mip_enabled
+    
+    # 1. Enable MIP on viewer_v1
+    gui.set_context_viewer(viewer_v1)
+    mip_plugin._controller.on_mip_toggle(None, True, None)
+    assert state_v1.mip_enabled
+    assert not state_v3.mip_enabled  # v3 should still be disabled!
+    
+    # 2. Check base layers
+    base_v1 = viewer_v1._package_base_layer()
+    base_v3 = viewer_v3._package_base_layer()
+    assert base_v1.preview_override is not None
+    assert base_v3.preview_override is None
+    
+    # 3. Change settings for V3 specifically
+    gui.set_context_viewer(viewer_v3)
+    # Modify depth cueing on V3
+    mip_plugin._controller.on_depth_cueing_changed(None, 0.8, None)
+    assert state_v3.depth_cueing == 0.8
+    assert state_v1.depth_cueing == 0.0  # V1 should be unaffected
+    
+    # Modify rotation on V3 active axis (set orientation first to SAGITTAL -> axis X)
+    viewer_v3.set_orientation(ViewMode.SAGITTAL)
+    mip_plugin._controller.on_rotation_changed(None, 45.0, None)
+    assert state_v3.rotation_angles["X"] == 45.0
+    assert state_v1.rotation_angles["X"] == 0.0
+    
+    # 4. Test serialization
+    serialized = mip_plugin._controller.serialize_image_state(base_id)
+    # New format contains keys "V1", "V3" etc.
+    assert "V1" in serialized
+    assert "V3" in serialized
+    assert serialized["V1"]["mip_enabled"] is True
+    assert serialized["V3"]["mip_enabled"] is False
+    assert serialized["V3"]["depth_cueing"] == 0.8
+    # Backward compatibility key check (flat fields represent V1)
+    assert serialized["mip_enabled"] is True
+    assert serialized["depth_cueing"] == 0.0
+    
+    # 5. Test restore of new format
+    new_image_id = "test_image_new"
+    # Call on_image_loaded to initialize new states
+    mip_plugin._controller.on_image_loaded(new_image_id)
+    mip_plugin._controller.restore_image_state(new_image_id, serialized)
+    
+    restored_v1 = mip_plugin._controller.get_viewer_state(new_image_id, "V1")
+    restored_v3 = mip_plugin._controller.get_viewer_state(new_image_id, "V3")
+    assert restored_v1.mip_enabled is True
+    assert restored_v3.mip_enabled is False
+    assert restored_v3.depth_cueing == 0.8
+    assert restored_v3.rotation_angles["X"] == 45.0
+    
+    # 6. Test restore of old flat format (all viewers get the flat state)
+    old_serialized = {
+        "mip_enabled": True,
+        "projection_axis": "Z",
+        "depth_cueing": 0.4,
+        "invert_contrast": False,
+        "rotation_angles": {"X": 10.0, "Y": 20.0, "Z": 30.0},
+        "rotation_step": 3.0,
+    }
+    old_image_id = "test_image_old"
+    mip_plugin._controller.on_image_loaded(old_image_id)
+    mip_plugin._controller.restore_image_state(old_image_id, old_serialized)
+    
+    for tag in ["V1", "V2", "V3", "V4"]:
+        restored = mip_plugin._controller.get_viewer_state(old_image_id, tag)
+        assert restored.mip_enabled is True
+        assert restored.depth_cueing == 0.4
+        assert restored.rotation_angles["Z"] == 30.0
+        assert restored.rotation_step == 3.0
+
