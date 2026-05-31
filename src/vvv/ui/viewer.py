@@ -2336,6 +2336,7 @@ class SliceViewer:
             "view_sagittal": lambda: self._set_orientation_with_hint(ViewMode.SAGITTAL),
             "view_coronal": lambda: self._set_orientation_with_hint(ViewMode.CORONAL),
             "toggle_interp": self.action_toggle_pixelated_zoom,
+            "toggle_mip": self.action_toggle_mip,
             "toggle_strips": self.action_toggle_strips,
             "toggle_legend": lambda: self._toggle_camera_bool("show_legend", "Legend"),
             "toggle_filename": self.action_toggle_filename,
@@ -2397,6 +2398,29 @@ class SliceViewer:
             vs.display.pixelated_zoom = not vs.display.pixelated_zoom
         vs.is_data_dirty = True
         self.controller.status_message = "Interpolation: off" if vs.display.pixelated_zoom else "Interpolation: on"
+
+    def action_toggle_mip(self):
+        if not self.image_id:
+            return
+        try:
+            gui = self.controller.gui
+            if not gui or not hasattr(gui, "plugins"):
+                return
+            mip_plugin = next((p for p in gui.plugins if p.plugin_id == "mip_plugin"), None)
+            if not mip_plugin:
+                return
+            state = mip_plugin._controller.get_viewer_state(self.image_id, self.tag)
+            state.mip_enabled = not state.mip_enabled
+            if state.mip_enabled:
+                axis_map = {"Z": ViewMode.AXIAL, "Y": ViewMode.SAGITTAL}
+                target = axis_map.get(state.projection_axis.upper())
+                if target and self.orientation != target:
+                    self.set_orientation(target)
+            mip_plugin._controller._mark_viewer_dirty(self)
+            self.controller.ui_needs_refresh = True
+            self.controller.status_message = f"MIP: {'on' if state.mip_enabled else 'off'}"
+        except Exception:
+            pass
 
     def action_toggle_strips(self):
         vs = self.view_state

@@ -147,8 +147,7 @@ class MIPPluginController(PluginTagMixin):
             if app_data:
                 axis_map = {
                     "Z": ViewMode.AXIAL,
-                    "Y": ViewMode.CORONAL,
-                    "X": ViewMode.SAGITTAL,
+                    "Y": ViewMode.SAGITTAL,
                 }
                 target_orientation = axis_map.get(state.projection_axis.upper())
                 if target_orientation and viewer.orientation != target_orientation:
