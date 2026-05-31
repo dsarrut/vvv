@@ -103,3 +103,13 @@ def test_mip_integration(headless_gui_app):
     viewer.on_key_press(dpg.mvKey_Left)
     assert state.rotation_angles["Y"] == -10.0
     assert state.rotation_angles["Z"] == 15.0
+
+    # Test dictionary-based angle cache hit:
+    # Switch back to AXIAL (axis Z), which had rotation angle 15.0
+    viewer.set_orientation(ViewMode.AXIAL)
+    mip_plugin.update(mip_plugin._controller._api)
+    assert state.projection_axis == "Z"
+    
+    # Retrieve base layer (should hit the cache and return the exact same base_layer_rot15 preview object)
+    base_layer_refetched = viewer._package_base_layer()
+    assert base_layer_refetched.preview_override is base_layer_rot15.preview_override  # O(1) Cache Hit!

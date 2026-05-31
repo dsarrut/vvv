@@ -1351,19 +1351,23 @@ class SliceViewer:
                 proj_axis = axis_map.get(self.orientation, "Y")
                 current_angle = mip_state.rotation_angles.get(proj_axis, 0.0)
 
-                # Check cache validity (slice_idx is ignored since MIP is same along orientation axis)
-                cache = getattr(self, "_mip_cache", None)
-                cache_valid = (
-                    cache is not None
-                    and cache["image_id"] == self.image_id
-                    and cache["time_idx"] == vs.camera.time_idx
-                    and cache["orientation"] == self.orientation
-                    and cache["depth_cueing_strength"] == mip_state.depth_cueing
-                    and cache.get("rotation_angle", 0.0) == current_angle
-                    and cache["display_data_id"] == id(display_data_raw)
+                # Dictionary cache mapping cache keys to computed projections
+                cache_dict = getattr(self, "_mip_cache_dict", None)
+                if cache_dict is None:
+                    cache_dict = {}
+                    self._mip_cache_dict = cache_dict
+
+                cache_key = (
+                    self.image_id,
+                    vs.camera.time_idx,
+                    self.orientation,
+                    mip_state.depth_cueing,
+                    current_angle,
+                    id(display_data_raw)
                 )
-                if cache_valid:
-                    preview = cache["preview"]
+
+                if cache_key in cache_dict:
+                    preview = cache_dict[cache_key]
                 else:
                     if display_data_raw.ndim == 4:
                         t = min(vs.camera.time_idx, display_data_raw.shape[0] - 1)
@@ -1387,15 +1391,12 @@ class SliceViewer:
                         elif self.orientation == ViewMode.SAGITTAL:
                             preview = np.ascontiguousarray(np.flipud(np.fliplr(mip_raw)))
                             
-                        self._mip_cache = {
-                            "image_id": self.image_id,
-                            "time_idx": vs.camera.time_idx,
-                            "orientation": self.orientation,
-                            "depth_cueing_strength": mip_state.depth_cueing,
-                            "rotation_angle": current_angle,
-                            "display_data_id": id(display_data_raw),
-                            "preview": preview
-                        }
+                        # Bounded dictionary cache to prevent memory leak
+                        if len(cache_dict) > 180:
+                            first_key = next(iter(cache_dict))
+                            cache_dict.pop(first_key, None)
+                            
+                        cache_dict[cache_key] = preview
         else:
             if vs._preview_R is not None and not getattr(vol, "is_dvf", False):
                 key = (self.orientation, self.slice_idx)

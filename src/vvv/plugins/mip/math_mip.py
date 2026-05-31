@@ -88,12 +88,15 @@ if _NUMBA_AVAILABLE:
         sin_t = np.sin(theta)
         
         # Precompute coordinates and bounds
+        r_start = np.zeros(W, dtype=np.int32)
+        r_end = np.zeros(W, dtype=np.int32)
         x_indices = np.zeros((W, diag), dtype=np.int32)
         z_indices = np.zeros((W, diag), dtype=np.int32)
-        mask = np.zeros((W, diag), dtype=np.bool_)
         
         for x_out in range(W):
             v = x_out - cx
+            first_valid = -1
+            last_valid = -1
             for r in range(diag):
                 u = r - (diag - 1) / 2.0
                 x_rot = cx + v * cos_t - u * sin_t
@@ -101,28 +104,35 @@ if _NUMBA_AVAILABLE:
                 xi = int(np.round(x_rot))
                 zi = int(np.round(z_rot))
                 if 0 <= xi < W and 0 <= zi < D:
+                    if first_valid == -1:
+                        first_valid = r
+                    last_valid = r
                     x_indices[x_out, r] = xi
                     z_indices[x_out, r] = zi
-                    mask[x_out, r] = True
+            r_start[x_out] = first_valid
+            r_end[x_out] = last_valid + 1 if last_valid != -1 else -1
         
         for y in numba.prange(H):  # type: ignore
             for x_out in range(W):
-                max_val = data[0, y, 0]
-                first = True
-                for r in range(diag):
-                    if mask[x_out, r]:
+                rs = r_start[x_out]
+                re = r_end[x_out]
+                if rs != -1:
+                    val0 = data[z_indices[x_out, rs], y, x_indices[x_out, rs]]
+                    if depth_cueing_strength > 0.0:
+                        factor = 1.0 - depth_cueing_strength * (rs / max(1.0, diag - 1))
+                        val0 = val0 * factor
+                    max_val = val0
+                    
+                    for r in range(rs + 1, re):
                         xi = x_indices[x_out, r]
                         zi = z_indices[x_out, r]
                         val = data[zi, y, xi]
                         if depth_cueing_strength > 0.0:
                             factor = 1.0 - depth_cueing_strength * (r / max(1.0, diag - 1))
                             val = val * factor
-                        if first:
+                        if val > max_val:
                             max_val = val
-                            first = False
-                        elif val > max_val:
-                            max_val = val
-                out[y, x_out] = max_val
+                    out[y, x_out] = max_val
         return out
 
 
@@ -139,12 +149,15 @@ if _NUMBA_AVAILABLE:
         sin_t = np.sin(theta)
         
         # Precompute coordinates and bounds
+        r_start = np.zeros(W, dtype=np.int32)
+        r_end = np.zeros(W, dtype=np.int32)
         x_indices = np.zeros((W, diag), dtype=np.int32)
         y_indices = np.zeros((W, diag), dtype=np.int32)
-        mask = np.zeros((W, diag), dtype=np.bool_)
         
         for x_out in range(W):
             v = x_out - cx
+            first_valid = -1
+            last_valid = -1
             for r in range(diag):
                 u = r - (diag - 1) / 2.0
                 x_rot = cx + v * cos_t - u * sin_t
@@ -152,28 +165,35 @@ if _NUMBA_AVAILABLE:
                 xi = int(np.round(x_rot))
                 yi = int(np.round(y_rot))
                 if 0 <= xi < W and 0 <= yi < H:
+                    if first_valid == -1:
+                        first_valid = r
+                    last_valid = r
                     x_indices[x_out, r] = xi
                     y_indices[x_out, r] = yi
-                    mask[x_out, r] = True
+            r_start[x_out] = first_valid
+            r_end[x_out] = last_valid + 1 if last_valid != -1 else -1
                     
         for z in numba.prange(D):  # type: ignore
             for x_out in range(W):
-                max_val = data[z, 0, 0]
-                first = True
-                for r in range(diag):
-                    if mask[x_out, r]:
+                rs = r_start[x_out]
+                re = r_end[x_out]
+                if rs != -1:
+                    val0 = data[z, y_indices[x_out, rs], x_indices[x_out, rs]]
+                    if depth_cueing_strength > 0.0:
+                        factor = 1.0 - depth_cueing_strength * (rs / max(1.0, diag - 1))
+                        val0 = val0 * factor
+                    max_val = val0
+                    
+                    for r in range(rs + 1, re):
                         xi = x_indices[x_out, r]
                         yi = y_indices[x_out, r]
                         val = data[z, yi, xi]
                         if depth_cueing_strength > 0.0:
                             factor = 1.0 - depth_cueing_strength * (r / max(1.0, diag - 1))
                             val = val * factor
-                        if first:
+                        if val > max_val:
                             max_val = val
-                            first = False
-                        elif val > max_val:
-                            max_val = val
-                out[z, x_out] = max_val
+                    out[z, x_out] = max_val
         return out
 
 
@@ -190,12 +210,15 @@ if _NUMBA_AVAILABLE:
         sin_t = np.sin(theta)
         
         # Precompute coordinates and bounds
+        r_start = np.zeros(H, dtype=np.int32)
+        r_end = np.zeros(H, dtype=np.int32)
         y_indices = np.zeros((H, diag), dtype=np.int32)
         x_indices = np.zeros((H, diag), dtype=np.int32)
-        mask = np.zeros((H, diag), dtype=np.bool_)
         
         for y_out in range(H):
             v = y_out - cy
+            first_valid = -1
+            last_valid = -1
             for r in range(diag):
                 u = r - (diag - 1) / 2.0
                 y_rot = cy + v * cos_t - u * sin_t
@@ -203,28 +226,35 @@ if _NUMBA_AVAILABLE:
                 yi = int(np.round(y_rot))
                 xi = int(np.round(x_rot))
                 if 0 <= xi < W and 0 <= yi < H:
+                    if first_valid == -1:
+                        first_valid = r
+                    last_valid = r
                     y_indices[y_out, r] = yi
                     x_indices[y_out, r] = xi
-                    mask[y_out, r] = True
+            r_start[y_out] = first_valid
+            r_end[y_out] = last_valid + 1 if last_valid != -1 else -1
                     
         for z in numba.prange(D):  # type: ignore
             for y_out in range(H):
-                max_val = data[z, 0, 0]
-                first = True
-                for r in range(diag):
-                    if mask[y_out, r]:
+                rs = r_start[y_out]
+                re = r_end[y_out]
+                if rs != -1:
+                    val0 = data[z, y_indices[y_out, rs], x_indices[y_out, rs]]
+                    if depth_cueing_strength > 0.0:
+                        factor = 1.0 - depth_cueing_strength * (rs / max(1.0, diag - 1))
+                        val0 = val0 * factor
+                    max_val = val0
+                    
+                    for r in range(rs + 1, re):
                         yi = y_indices[y_out, r]
                         xi = x_indices[y_out, r]
                         val = data[z, yi, xi]
                         if depth_cueing_strength > 0.0:
                             factor = 1.0 - depth_cueing_strength * (r / max(1.0, diag - 1))
                             val = val * factor
-                        if first:
+                        if val > max_val:
                             max_val = val
-                            first = False
-                        elif val > max_val:
-                            max_val = val
-                out[z, y_out] = max_val
+                    out[z, y_out] = max_val
         return out
 else:
     def project_mip_z(data: np.ndarray, depth_cueing_strength: float) -> np.ndarray:
