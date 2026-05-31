@@ -47,3 +47,20 @@ def test_mip_depth_cueing():
     assert np.allclose(mip_z_cue, 30.0)  # Max should be 30.0 at z=5
 
 
+def test_mip_rotation():
+    # Simple volume (D=5, H=5, W=5)
+    data = np.zeros((5, 5, 5), dtype=np.float32)
+    data[2, 2, 2] = 100.0  # Center voxel is hot-spot
+    
+    # 0 degree rotation should match non-rotated projection
+    mip_y_0 = compute_mip_projection(data, axis="Y", depth_cueing=False, rotation_angle=0.0)
+    mip_y_normal = compute_mip_projection(data, axis="Y", depth_cueing=False)
+    assert np.allclose(mip_y_0, mip_y_normal)
+    
+    # 45 degree rotation
+    mip_y_45 = compute_mip_projection(data, axis="Y", depth_cueing=False, rotation_angle=45.0)
+    assert mip_y_45.shape == mip_y_normal.shape
+    # Center voxel (2,2) should still project to the center area
+    assert mip_y_45[2, 2] == 100.0
+
+

@@ -10,6 +10,8 @@ class MIPImageState:
         self.projection_axis = "Y"
         self.depth_cueing = 0.0
         self.invert_contrast = False
+        self.rotation_angle = 0.0
+        self.rotation_step = 5.0
 
 
 class MIPPluginController(PluginTagMixin):
@@ -48,6 +50,8 @@ class MIPPluginController(PluginTagMixin):
                 "projection_axis": state.projection_axis,
                 "depth_cueing": state.depth_cueing,
                 "invert_contrast": state.invert_contrast,
+                "rotation_angle": state.rotation_angle,
+                "rotation_step": state.rotation_step,
             }
         return {}
 
@@ -63,6 +67,8 @@ class MIPPluginController(PluginTagMixin):
             state.depth_cueing = float(raw_depth)
             
         state.invert_contrast = data.get("invert_contrast", state.invert_contrast)
+        state.rotation_angle = float(data.get("rotation_angle", state.rotation_angle))
+        state.rotation_step = float(data.get("rotation_step", state.rotation_step))
 
     def save_settings(self, api: PluginAPI) -> None:
         pass
@@ -115,5 +121,24 @@ class MIPPluginController(PluginTagMixin):
         if viewer and viewer.image_id:
             state = self.get_image_state(viewer.image_id)
             state.invert_contrast = app_data
+            self._api.request_refresh()
+
+    def on_rotation_changed(self, sender, app_data, user_data):
+        if not self._api:
+            return
+        viewer = self._api.get_active_viewer()
+        if viewer and viewer.image_id:
+            state = self.get_image_state(viewer.image_id)
+            state.rotation_angle = float(app_data)
+            self._mark_viewer_dirty(viewer)
+            self._api.request_refresh()
+
+    def on_step_changed(self, sender, app_data, user_data):
+        if not self._api:
+            return
+        viewer = self._api.get_active_viewer()
+        if viewer and viewer.image_id:
+            state = self.get_image_state(viewer.image_id)
+            state.rotation_step = float(app_data)
             self._api.request_refresh()
 

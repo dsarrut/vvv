@@ -65,6 +65,38 @@ class MIPPluginUI(PluginTagMixin):
                 api,
             )
 
+            # Slider: Rotation Angle
+            sld_rot = dpg.add_slider_float(
+                label="Rotation Angle",
+                tag=self._t("slider_rotation_angle"),
+                min_value=-180.0,
+                max_value=180.0,
+                default_value=0.0,
+                callback=self._c.on_rotation_changed,
+                format="%.1f deg",
+            )
+            build_beginner_tooltip(
+                sld_rot,
+                "Rotate the projection direction around the view's perpendicular axis.",
+                api,
+            )
+
+            # Slider: Angle Step
+            sld_step = dpg.add_slider_float(
+                label="Angle Step",
+                tag=self._t("slider_rotation_step"),
+                min_value=1.0,
+                max_value=45.0,
+                default_value=5.0,
+                callback=self._c.on_step_changed,
+                format="%.1f deg",
+            )
+            build_beginner_tooltip(
+                sld_step,
+                "The angle step used when rotating with Left/Right arrow keys.",
+                api,
+            )
+
             # Checkbox / Toggle: Invert Contrast
             chk_invert = dpg.add_checkbox(
                 label="Black on White",
@@ -105,9 +137,11 @@ class MIPPluginUI(PluginTagMixin):
         chk_mip = self._t("check_mip_mode")
         axis_text = self._t("text_projection_axis")
         slider_depth = self._t("slider_depth_cueing")
+        slider_rot = self._t("slider_rotation_angle")
+        slider_step = self._t("slider_rotation_step")
         chk_invert = self._t("check_invert_contrast")
 
-        for item in [chk_mip, slider_depth, chk_invert]:
+        for item in [chk_mip, slider_depth, slider_rot, slider_step, chk_invert]:
             if dpg.does_item_exist(item):
                 dpg.configure_item(item, enabled=has_image)
 
@@ -138,6 +172,10 @@ class MIPPluginUI(PluginTagMixin):
                 slider_depth
             ):
                 dpg.set_value(slider_depth, state.depth_cueing)
+            if dpg.does_item_exist(slider_rot) and not dpg.is_item_active(slider_rot):
+                dpg.set_value(slider_rot, state.rotation_angle)
+            if dpg.does_item_exist(slider_step) and not dpg.is_item_active(slider_step):
+                dpg.set_value(slider_step, state.rotation_step)
             if dpg.does_item_exist(chk_invert) and not dpg.is_item_active(chk_invert):
                 dpg.set_value(chk_invert, state.invert_contrast)
         else:

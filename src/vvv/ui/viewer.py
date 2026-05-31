@@ -1355,6 +1355,7 @@ class SliceViewer:
                     and cache["time_idx"] == vs.camera.time_idx
                     and cache["orientation"] == self.orientation
                     and cache["depth_cueing_strength"] == mip_state.depth_cueing
+                    and cache.get("rotation_angle", 0.0) == mip_state.rotation_angle
                     and cache["display_data_id"] == id(display_data_raw)
                 )
                 if cache_valid:
@@ -1374,7 +1375,8 @@ class SliceViewer:
                             data_3d,
                             axis=proj_axis,
                             depth_cueing=mip_state.depth_cueing > 0.0,
-                            depth_cueing_strength=mip_state.depth_cueing
+                            depth_cueing_strength=mip_state.depth_cueing,
+                            rotation_angle=mip_state.rotation_angle,
                         )
                         if self.orientation == ViewMode.AXIAL:
                             preview = np.ascontiguousarray(mip_raw)
@@ -1388,6 +1390,7 @@ class SliceViewer:
                             "time_idx": vs.camera.time_idx,
                             "orientation": self.orientation,
                             "depth_cueing_strength": mip_state.depth_cueing,
+                            "rotation_angle": mip_state.rotation_angle,
                             "display_data_id": id(display_data_raw),
                             "preview": preview
                         }
@@ -2447,7 +2450,47 @@ class SliceViewer:
             vs.camera.show_filename = (current + 1) % 3
 
     def on_key_press(self, key):
-        if not self.view_state or self._shortcut_map is None:
+        if not self.view_state:
+            return
+
+        # Check if MIP plugin is active and enabled
+        mip_plugin = None
+        if self.controller.gui and hasattr(self.controller.gui, "plugins"):
+            mip_plugin = next((p for p in self.controller.gui.plugins if p.plugin_id == "mip_plugin"), None)
+            
+        mip_state = None
+        if mip_plugin and self.image_id:
+            mip_state = mip_plugin._controller.get_image_state(self.image_id)
+
+        if mip_state and mip_state.mip_enabled:
+            if key == dpg.mvKey_Left:
+                angle = mip_state.rotation_angle - mip_state.rotation_step
+                if angle <= -180.0:
+                    angle += 360.0
+                elif angle > 180.0:
+                    angle -= 360.0
+                mip_state.rotation_angle = round(angle, 2)
+                
+                self.view_state.is_data_dirty = True
+                self.is_viewer_data_dirty = True
+                self.is_geometry_dirty = True
+                self.controller.ui_needs_refresh = True
+                return
+            elif key == dpg.mvKey_Right:
+                angle = mip_state.rotation_angle + mip_state.rotation_step
+                if angle <= -180.0:
+                    angle += 360.0
+                elif angle > 180.0:
+                    angle -= 360.0
+                mip_state.rotation_angle = round(angle, 2)
+                
+                self.view_state.is_data_dirty = True
+                self.is_viewer_data_dirty = True
+                self.is_geometry_dirty = True
+                self.controller.ui_needs_refresh = True
+                return
+
+        if self._shortcut_map is None:
             return
 
         shortcuts = self.controller.settings.data["shortcuts"]

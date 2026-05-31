@@ -73,6 +73,123 @@ if _NUMBA_AVAILABLE:
                         max_val = val
                 out[z, y] = max_val
         return out
+
+
+    @numba.njit(parallel=True, cache=True, fastmath=True)
+    def project_mip_z_rotated(data: np.ndarray, theta: float, depth_cueing_strength: float) -> np.ndarray:
+        """Compute rotated MIP along Z (rotation around Y). Output shape is (H, W)."""
+        D, H, W = data.shape
+        diag = int(np.ceil(np.sqrt(D**2 + W**2)))
+        out = np.zeros((H, W), dtype=data.dtype)
+        
+        cz = (D - 1) / 2.0
+        cx = (W - 1) / 2.0
+        cos_t = np.cos(theta)
+        sin_t = np.sin(theta)
+        
+        for y in numba.prange(H):  # type: ignore
+            for x_out in range(W):
+                v = x_out - cx
+                max_val = data[0, y, 0]
+                first = True
+                for r in range(diag):
+                    u = r - (diag - 1) / 2.0
+                    x_rot = cx + v * cos_t - u * sin_t
+                    z_rot = cz + v * sin_t + u * cos_t
+                    
+                    xi = int(np.round(x_rot))
+                    zi = int(np.round(z_rot))
+                    
+                    if 0 <= xi < W and 0 <= zi < D:
+                        val = data[zi, y, xi]
+                        if depth_cueing_strength > 0.0:
+                            factor = 1.0 - depth_cueing_strength * (r / max(1.0, diag - 1))
+                            val = val * factor
+                        if first:
+                            max_val = val
+                            first = False
+                        elif val > max_val:
+                            max_val = val
+                out[y, x_out] = max_val
+        return out
+
+
+    @numba.njit(parallel=True, cache=True, fastmath=True)
+    def project_mip_y_rotated(data: np.ndarray, theta: float, depth_cueing_strength: float) -> np.ndarray:
+        """Compute rotated MIP along Y (rotation around Z). Output shape is (D, W)."""
+        D, H, W = data.shape
+        diag = int(np.ceil(np.sqrt(H**2 + W**2)))
+        out = np.zeros((D, W), dtype=data.dtype)
+        
+        cy = (H - 1) / 2.0
+        cx = (W - 1) / 2.0
+        cos_t = np.cos(theta)
+        sin_t = np.sin(theta)
+        
+        for z in numba.prange(D):  # type: ignore
+            for x_out in range(W):
+                v = x_out - cx
+                max_val = data[z, 0, 0]
+                first = True
+                for r in range(diag):
+                    u = r - (diag - 1) / 2.0
+                    x_rot = cx + v * cos_t - u * sin_t
+                    y_rot = cy + v * sin_t + u * cos_t
+                    
+                    xi = int(np.round(x_rot))
+                    yi = int(np.round(y_rot))
+                    
+                    if 0 <= xi < W and 0 <= yi < H:
+                        val = data[z, yi, xi]
+                        if depth_cueing_strength > 0.0:
+                            factor = 1.0 - depth_cueing_strength * (r / max(1.0, diag - 1))
+                            val = val * factor
+                        if first:
+                            max_val = val
+                            first = False
+                        elif val > max_val:
+                            max_val = val
+                out[z, x_out] = max_val
+        return out
+
+
+    @numba.njit(parallel=True, cache=True, fastmath=True)
+    def project_mip_x_rotated(data: np.ndarray, theta: float, depth_cueing_strength: float) -> np.ndarray:
+        """Compute rotated MIP along X (rotation around Z). Output shape is (D, H)."""
+        D, H, W = data.shape
+        diag = int(np.ceil(np.sqrt(W**2 + H**2)))
+        out = np.zeros((D, H), dtype=data.dtype)
+        
+        cx = (W - 1) / 2.0
+        cy = (H - 1) / 2.0
+        cos_t = np.cos(theta)
+        sin_t = np.sin(theta)
+        
+        for z in numba.prange(D):  # type: ignore
+            for y_out in range(H):
+                v = y_out - cy
+                max_val = data[z, 0, 0]
+                first = True
+                for r in range(diag):
+                    u = r - (diag - 1) / 2.0
+                    y_rot = cy + v * cos_t - u * sin_t
+                    x_rot = cx + v * sin_t + u * cos_t
+                    
+                    xi = int(np.round(x_rot))
+                    yi = int(np.round(y_rot))
+                    
+                    if 0 <= xi < W and 0 <= yi < H:
+                        val = data[z, yi, xi]
+                        if depth_cueing_strength > 0.0:
+                            factor = 1.0 - depth_cueing_strength * (r / max(1.0, diag - 1))
+                            val = val * factor
+                        if first:
+                            max_val = val
+                            first = False
+                        elif val > max_val:
+                            max_val = val
+                out[z, y_out] = max_val
+        return out
 else:
     def project_mip_z(data: np.ndarray, depth_cueing_strength: float) -> np.ndarray:
         """Compute MIP along the Z (depth) axis using NumPy. Output shape is (H, W)."""
@@ -110,17 +227,112 @@ else:
         return np.max(attenuated, axis=2)
 
 
+    def project_mip_z_rotated(data: np.ndarray, theta: float, depth_cueing_strength: float) -> np.ndarray:
+        """Compute rotated MIP along Z using NumPy. Output shape is (H, W)."""
+        D, H, W = data.shape
+        diag = int(np.ceil(np.sqrt(D**2 + W**2)))
+        out = np.zeros((H, W), dtype=data.dtype)
+        
+        cz = (D - 1) / 2.0
+        cx = (W - 1) / 2.0
+        cos_t = np.cos(theta)
+        sin_t = np.sin(theta)
+        
+        u = np.arange(diag, dtype=np.float32) - (diag - 1) / 2.0
+        factors = 1.0 - depth_cueing_strength * (np.arange(diag, dtype=np.float32) / max(1.0, diag - 1))
+        
+        for y in range(H):
+            for x_out in range(W):
+                v = x_out - cx
+                x_rot = np.round(cx + v * cos_t - u * sin_t).astype(np.int32)
+                z_rot = np.round(cz + v * sin_t + u * cos_t).astype(np.int32)
+                
+                mask = (x_rot >= 0) & (x_rot < W) & (z_rot >= 0) & (z_rot < D)
+                if np.any(mask):
+                    vals = data[z_rot[mask], y, x_rot[mask]]
+                    if depth_cueing_strength > 0.0:
+                        vals = vals * factors[mask]
+                    out[y, x_out] = np.max(vals)
+        return out
+
+
+    def project_mip_y_rotated(data: np.ndarray, theta: float, depth_cueing_strength: float) -> np.ndarray:
+        """Compute rotated MIP along Y using NumPy. Output shape is (D, W)."""
+        D, H, W = data.shape
+        diag = int(np.ceil(np.sqrt(H**2 + W**2)))
+        out = np.zeros((D, W), dtype=data.dtype)
+        
+        cy = (H - 1) / 2.0
+        cx = (W - 1) / 2.0
+        cos_t = np.cos(theta)
+        sin_t = np.sin(theta)
+        
+        u = np.arange(diag, dtype=np.float32) - (diag - 1) / 2.0
+        factors = 1.0 - depth_cueing_strength * (np.arange(diag, dtype=np.float32) / max(1.0, diag - 1))
+        
+        for z in range(D):
+            for x_out in range(W):
+                v = x_out - cx
+                x_rot = np.round(cx + v * cos_t - u * sin_t).astype(np.int32)
+                y_rot = np.round(cy + v * sin_t + u * cos_t).astype(np.int32)
+                
+                mask = (x_rot >= 0) & (x_rot < W) & (y_rot >= 0) & (y_rot < H)
+                if np.any(mask):
+                    vals = data[z, y_rot[mask], x_rot[mask]]
+                    if depth_cueing_strength > 0.0:
+                        vals = vals * factors[mask]
+                    out[z, x_out] = np.max(vals)
+        return out
+
+
+    def project_mip_x_rotated(data: np.ndarray, theta: float, depth_cueing_strength: float) -> np.ndarray:
+        """Compute rotated MIP along X using NumPy. Output shape is (D, H)."""
+        D, H, W = data.shape
+        diag = int(np.ceil(np.sqrt(W**2 + H**2)))
+        out = np.zeros((D, H), dtype=data.dtype)
+        
+        cx = (W - 1) / 2.0
+        cy = (H - 1) / 2.0
+        cos_t = np.cos(theta)
+        sin_t = np.sin(theta)
+        
+        u = np.arange(diag, dtype=np.float32) - (diag - 1) / 2.0
+        factors = 1.0 - depth_cueing_strength * (np.arange(diag, dtype=np.float32) / max(1.0, diag - 1))
+        
+        for z in range(D):
+            for y_out in range(H):
+                v = y_out - cy
+                y_rot = np.round(cy + v * cos_t - u * sin_t).astype(np.int32)
+                x_rot = np.round(cx + v * sin_t + u * cos_t).astype(np.int32)
+                
+                mask = (x_rot >= 0) & (x_rot < W) & (y_rot >= 0) & (y_rot < H)
+                if np.any(mask):
+                    vals = data[z, y_rot[mask], x_rot[mask]]
+                    if depth_cueing_strength > 0.0:
+                        vals = vals * factors[mask]
+                    out[z, y_out] = np.max(vals)
+        return out
+
+
 def compute_mip_projection(
-    data: np.ndarray, axis: str, depth_cueing: bool, depth_cueing_strength: float = 0.5
+    data: np.ndarray,
+    axis: str,
+    depth_cueing: bool,
+    depth_cueing_strength: float = 0.5,
+    rotation_angle: float = 0.0,
 ) -> np.ndarray:
-    """Helper to dispatch to the correct function based on selected axis."""
+    """Helper to dispatch to the correct function based on selected axis and rotation angle (in degrees)."""
     strength = depth_cueing_strength if depth_cueing else 0.0
     axis_upper = axis.upper()
+    theta = np.deg2rad(rotation_angle)
+    
+    use_rotation = abs(theta) > 1e-5
+    
     if axis_upper == "Z":
-        return project_mip_z(data, strength)
+        return project_mip_z_rotated(data, theta, strength) if use_rotation else project_mip_z(data, strength)
     elif axis_upper == "Y":
-        return project_mip_y(data, strength)
+        return project_mip_y_rotated(data, theta, strength) if use_rotation else project_mip_y(data, strength)
     elif axis_upper == "X":
-        return project_mip_x(data, strength)
+        return project_mip_x_rotated(data, theta, strength) if use_rotation else project_mip_x(data, strength)
     else:
         raise ValueError(f"Invalid projection axis: {axis}")
