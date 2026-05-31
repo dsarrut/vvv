@@ -516,27 +516,9 @@ class SliceViewer:
         if self.orientation == orientation:
             return
 
-        old_orientation = self.orientation
         is_old_image = self.is_image_orientation()
         old_ppm = self.get_pixels_per_mm() if is_old_image else None
         old_center = self.get_center_physical_coord() if is_old_image else None
-
-        # In MIP mode, CORONAL and SAGITTAL share the same Y projection — copy pan/zoom directly
-        _mip_shared = {ViewMode.CORONAL, ViewMode.SAGITTAL}
-        mip_same_proj = False
-        saved_zoom = None
-        saved_pan = None
-        vs_before = self.view_state
-        if old_orientation in _mip_shared and orientation in _mip_shared and vs_before and self.image_id:
-            mip_plugin = None
-            if self.controller.gui and hasattr(self.controller.gui, "plugins"):
-                mip_plugin = next((p for p in self.controller.gui.plugins if p.plugin_id == "mip_plugin"), None)
-            if mip_plugin:
-                mip_st = mip_plugin._controller.get_viewer_state(self.image_id, self.tag)
-                if mip_st and mip_st.mip_enabled:
-                    mip_same_proj = True
-                    saved_zoom = self.zoom
-                    saved_pan = list(self.pan_offset)
 
         self.orientation = orientation
 
@@ -551,14 +533,10 @@ class SliceViewer:
             self.set_image(self.image_id)
 
         if self.is_image_orientation():
-            if mip_same_proj and saved_zoom is not None and saved_pan is not None:
-                self.zoom = saved_zoom
-                self.pan_offset = list(saved_pan)
-            else:
-                if old_ppm and old_ppm > 0:
-                    self.set_pixels_per_mm(old_ppm)
-                if old_center is not None:
-                    self.center_on_physical_coord(old_center)
+            if old_ppm and old_ppm > 0:
+                self.set_pixels_per_mm(old_ppm)
+            if old_center is not None:
+                self.center_on_physical_coord(old_center)
             self.set_current_slice_to_crosshair()
             self.controller.sync.propagate_camera(self)
 
@@ -2437,6 +2415,17 @@ class SliceViewer:
                 self.controller.status_message = f"{hint}: {'on' if new_val else 'off'}"
 
     def _set_orientation_with_hint(self, mode):
+        if mode == ViewMode.CORONAL and self.image_id:
+            try:
+                gui = self.controller.gui
+                if gui and hasattr(gui, "plugins"):
+                    mip_plugin = next((p for p in gui.plugins if p.plugin_id == "mip_plugin"), None)
+                    if mip_plugin:
+                        mip_st = mip_plugin._controller.get_viewer_state(self.image_id, self.tag)
+                        if mip_st and mip_st.mip_enabled:
+                            return
+            except Exception:
+                pass
         self.set_orientation(mode)
         if self.controller:
             self.controller.status_message = mode.name.capitalize()
