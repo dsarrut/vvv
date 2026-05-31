@@ -1,17 +1,18 @@
 from vvv.plugins.plugin_api import PluginAPI, PluginProtocol
-from .ui_dvf import DvfUI
-from .control_dvf import DvfController
+from .ui_mip import MIPPluginUI
+from .control_mip import MIPPluginController
 
 
-class DvfPlugin(PluginProtocol):
-    plugin_id = "dvf"
-    label = "DVF"
-    description = "Displacement Vector Fields visualization."
-    order = 1000
+class MIPPlugin(PluginProtocol):
+    plugin_id = "mip_plugin"
+    label = "MIP"
+    description = "Maximum Intensity Projection visualization and rotation."
+    order = 90
 
     def __init__(self):
-        self._controller = DvfController(self.plugin_id)
-        self._ui = DvfUI(self.plugin_id, self._controller)
+        self._controller = MIPPluginController(self.plugin_id)
+        self._ui = MIPPluginUI(self.plugin_id, self._controller)
+        self._controller.bind_ui(self._ui)
 
     def create_ui(self, parent, api: PluginAPI) -> None:
         self._controller.bind(api)
@@ -21,18 +22,18 @@ class DvfPlugin(PluginProtocol):
         self._controller.update(api)
 
     def on_image_loaded(self, image_id: str) -> None:
-        pass
+        self._controller.on_image_loaded(image_id)
+
+    def on_image_removed(self, image_id: str) -> None:
+        self._controller.on_image_removed(image_id)
 
     def serialize_image_state(self, image_id: str, context: str = "history") -> dict:
-        return {}
+        return self._controller.serialize_image_state(image_id, context=context)
 
     def restore_image_state(
         self, image_id: str, data: dict, context: str = "history"
     ) -> None:
-        pass
-
-    def on_image_removed(self, image_id: str) -> None:
-        self._controller.on_image_removed(image_id)
+        self._controller.restore_image_state(image_id, data, context=context)
 
     def save_settings(self, api: PluginAPI) -> None:
         self._controller.save_settings(api)

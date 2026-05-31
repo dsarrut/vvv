@@ -119,7 +119,7 @@ class TestPluginAPI(unittest.TestCase):
         plugins = discover_plugins()
         plugin_ids = [p.plugin_id for p in plugins]
         # Assert specific plugins exist and verify their sorted order
-        self.assertEqual(plugin_ids, ["intensity_plugin", "profile_plugin", "threshold_plugin", "dicom_plugin", "registration_plugin", "roi_plugin", "dvf"])
+        self.assertEqual(plugin_ids, ["intensity_plugin", "profile_plugin", "threshold_plugin", "dicom_plugin", "mip_plugin", "registration_plugin", "roi_plugin", "dvf"])
         
         for p in plugins:
             self.assertTrue(hasattr(p, "label"))
