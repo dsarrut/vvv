@@ -128,6 +128,8 @@ def build_stepped_slider(
             enabled=not has_checkbox,
             callback=_internal_step_wrapper,
         )
+        if dpg.does_item_exist("icon_button_theme"):
+            dpg.bind_item_theme(btn_minus, "icon_button_theme")
 
         # Hidden Right-Click Menu for Minus
         with dpg.popup(btn_minus, mousebutton=dpg.mvMouseButton_Right):
@@ -153,6 +155,8 @@ def build_stepped_slider(
             enabled=not has_checkbox,
             callback=_internal_step_wrapper,
         )
+        if dpg.does_item_exist("icon_button_theme"):
+            dpg.bind_item_theme(btn_plus, "icon_button_theme")
 
         # Hidden Right-Click Menu for Plus
         with dpg.popup(btn_plus, mousebutton=dpg.mvMouseButton_Right):
