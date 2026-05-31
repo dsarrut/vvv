@@ -658,6 +658,7 @@ class SliceViewer:
 
     def drop_image(self):
         self.image_id = None
+        self._mip_cache_dict = {}
 
         # Hide ALL overlay nodes and text, not just the image! ---
         nodes_to_hide = [
