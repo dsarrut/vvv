@@ -1,4 +1,5 @@
 import time
+import threading
 import numpy as np
 from vvv.utils import (
     ViewMode,
@@ -244,6 +245,11 @@ class SliceViewer:
         self.profile_mode = ProfileInteractionMode.IDLE
         self.active_profile_id = None
         self.active_handle = None  # "start" or "end"
+
+        # MIP background precompute
+        self._mip_cache_dict: dict = {}
+        self._mip_cache_lock = threading.Lock()
+        self._mip_precompute_stop = threading.Event()
 
         # Sub-modules
         self.drawer = OverlayDrawer(self)
@@ -657,8 +663,10 @@ class SliceViewer:
         )
 
     def drop_image(self):
+        self._mip_precompute_stop.set()
         self.image_id = None
-        self._mip_cache_dict = {}
+        with self._mip_cache_lock:
+            self._mip_cache_dict = {}
 
         # Hide ALL overlay nodes and text, not just the image! ---
         nodes_to_hide = [
@@ -837,6 +845,65 @@ class SliceViewer:
             tx, ty, canvas_w, canvas_h, real_w, real_h, sw, sh, self.zoom
         )
         self.is_geometry_dirty = True
+
+    _MIP_CACHE_MAX = 400
+
+    def _start_mip_precompute(self, data_3d, proj_axis, depth_cueing,
+                               center_angle, rotation_step, time_idx, orientation):
+        """Precompute the full rotation in a daemon thread, nearest angles first."""
+        self._mip_precompute_stop.set()
+        stop = threading.Event()
+        self._mip_precompute_stop = stop
+
+        image_id = self.image_id
+        cache_lock = self._mip_cache_lock
+        step = max(0.1, rotation_step)
+
+        # Build all angles in the full rotation ordered by distance from current
+        n = max(1, round(360.0 / step))
+        all_angles = []
+        for i in range(1, n + 1):
+            for sign in (1, -1):
+                a = center_angle + sign * i * step
+                while a > 180.0:
+                    a -= 360.0
+                while a <= -180.0:
+                    a += 360.0
+                all_angles.append(round(a, 2))
+
+        def _run():
+            from vvv.plugins.mip.math_mip import compute_mip_projection
+            for angle in all_angles:
+                if stop.is_set():
+                    return
+                key = (image_id, time_idx, orientation, depth_cueing, angle, id(data_3d))
+                with cache_lock:
+                    if key in self._mip_cache_dict:
+                        continue
+                if stop.is_set():
+                    return
+                try:
+                    mip_raw = compute_mip_projection(
+                        data_3d,
+                        axis=proj_axis,
+                        depth_cueing=depth_cueing > 0.0,
+                        depth_cueing_strength=depth_cueing,
+                        rotation_angle=angle,
+                    )
+                    preview = (
+                        np.ascontiguousarray(mip_raw)
+                        if orientation == ViewMode.AXIAL
+                        else np.ascontiguousarray(np.flipud(mip_raw))
+                    )
+                    with cache_lock:
+                        if key not in self._mip_cache_dict:
+                            if len(self._mip_cache_dict) >= self._MIP_CACHE_MAX:
+                                self._mip_cache_dict.pop(next(iter(self._mip_cache_dict)), None)
+                            self._mip_cache_dict[key] = preview
+                except Exception:
+                    pass
+
+        threading.Thread(target=_run, daemon=True).start()
 
     def resize(self, quad_w, quad_h):
         if quad_w <= 0 or quad_h <= 0:
@@ -1352,12 +1419,6 @@ class SliceViewer:
                 proj_axis = axis_map.get(self.orientation, "Y")
                 current_angle = mip_state.rotation_angles.get(proj_axis, 0.0)
 
-                # Dictionary cache mapping cache keys to computed projections
-                cache_dict = getattr(self, "_mip_cache_dict", None)
-                if cache_dict is None:
-                    cache_dict = {}
-                    self._mip_cache_dict = cache_dict
-
                 cache_key = (
                     self.image_id,
                     vs.camera.time_idx,
@@ -1367,15 +1428,16 @@ class SliceViewer:
                     id(display_data_raw)
                 )
 
-                if cache_key in cache_dict:
-                    preview = cache_dict[cache_key]
-                else:
+                with self._mip_cache_lock:
+                    preview = self._mip_cache_dict.get(cache_key)
+
+                if preview is None:
                     if display_data_raw.ndim == 4:
                         t = min(vs.camera.time_idx, display_data_raw.shape[0] - 1)
                         data_3d = display_data_raw[t]
                     else:
                         data_3d = display_data_raw
-                        
+
                     if data_3d.ndim == 3:
                         from vvv.plugins.mip.math_mip import compute_mip_projection
                         mip_raw = compute_mip_projection(
@@ -1389,13 +1451,17 @@ class SliceViewer:
                             preview = np.ascontiguousarray(mip_raw)
                         else:  # CORONAL and SAGITTAL share the same Y projection
                             preview = np.ascontiguousarray(np.flipud(mip_raw))
-                            
-                        # Bounded dictionary cache to prevent memory leak
-                        if len(cache_dict) > 180:
-                            first_key = next(iter(cache_dict))
-                            cache_dict.pop(first_key, None)
-                            
-                        cache_dict[cache_key] = preview
+
+                        with self._mip_cache_lock:
+                            if len(self._mip_cache_dict) >= self._MIP_CACHE_MAX:
+                                self._mip_cache_dict.pop(next(iter(self._mip_cache_dict)), None)
+                            self._mip_cache_dict[cache_key] = preview
+
+                        self._start_mip_precompute(
+                            data_3d, proj_axis, mip_state.depth_cueing,
+                            current_angle, mip_state.rotation_step,
+                            vs.camera.time_idx, self.orientation,
+                        )
 
                 if preview is not None and mip_state.invert_contrast:
                     wl_upper = vs.display.wl + vs.display.ww / 2.0
