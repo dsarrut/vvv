@@ -2838,7 +2838,7 @@ class SliceViewer:
             mip_state.rotation_angles[proj_axis] = round(angle, 2)
             if mip_plugin:
                 mip_plugin._controller.propagate_rotation(self.image_id, mip_state.rotation_angles)
-            self.view_state.is_data_dirty = True
+            vs.is_data_dirty = True
             self.is_viewer_data_dirty = True
             self.is_geometry_dirty = True
             self.controller.ui_needs_refresh = True

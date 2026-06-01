@@ -24,6 +24,8 @@ class CameraState:
     show_legend: bool
     show_profiles: bool
     show_filename: int
+    zoom: dict
+    pan: dict
 
     # Fields that trigger a GEOMETRY redraw
     _GEOM_FIELDS = {

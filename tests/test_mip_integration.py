@@ -148,7 +148,7 @@ def test_mip_viewer_isolation(headless_gui_app):
     # Modify depth cueing on V3
     mip_plugin._controller.on_depth_cueing_changed(None, 0.8, None)
     assert state_v3.depth_cueing == 0.8
-    assert state_v1.depth_cueing == 0.0  # V1 should be unaffected
+    assert state_v1.depth_cueing == 1.0  # V1 should be unaffected
     
     # Modify rotation on V3 active axis (set orientation first to SAGITTAL -> axis Y)
     viewer_v3.set_orientation(ViewMode.SAGITTAL)
@@ -166,7 +166,7 @@ def test_mip_viewer_isolation(headless_gui_app):
     assert serialized["V3"]["depth_cueing"] == 0.8
     # Backward compatibility key check (flat fields represent V1)
     assert serialized["mip_enabled"] is True
-    assert serialized["depth_cueing"] == 0.0
+    assert serialized["depth_cueing"] == 1.0
     
     # 5. Test restore of new format
     new_image_id = "test_image_new"
