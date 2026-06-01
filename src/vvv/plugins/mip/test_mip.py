@@ -64,3 +64,62 @@ def test_mip_rotation():
     assert mip_y_45[2, 2] == 100.0
 
 
+def test_mip_scroll_rotation():
+    from unittest.mock import MagicMock
+    from vvv.ui.viewer import SliceViewer
+    from vvv.utils import ViewMode
+
+    # Setup mock controller and GUI
+    controller = MagicMock()
+    
+    # Mock view_states dict to satisfy the real viewer.view_state and viewer.volume properties
+    mock_view_state = MagicMock()
+    mock_view_state.volume = MagicMock()
+    controller.view_states = {"test_image": mock_view_state}
+    
+    # Mock MIP Plugin and controller
+    mip_plugin = MagicMock()
+    mip_plugin.plugin_id = "mip_plugin"
+    
+    # Mock gui and plugins
+    gui = MagicMock()
+    gui.plugins = [mip_plugin]
+    controller.gui = gui
+    
+    # Create the viewer
+    viewer = SliceViewer("V1", controller)
+    
+    # Setup viewer attributes to satisfy checks
+    viewer.image_id = "test_image"
+    viewer.is_image_orientation = MagicMock(return_value=True)
+    viewer.orientation = ViewMode.AXIAL
+    
+    # Setup MIP viewer state
+    class MockMIPState:
+        mip_enabled = True
+        rotation_angles = {"X": 0.0, "Y": 0.0, "Z": 0.0}
+        rotation_step = 5.0
+        
+    mip_state = MockMIPState()
+    mip_plugin._controller.get_viewer_state.return_value = mip_state
+    
+    # Perform scroll up (delta=1)
+    viewer.on_scroll(1)
+    
+    # Verify rotation angle Z has increased by rotation_step (5.0)
+    assert mip_state.rotation_angles["Z"] == 5.0
+    mip_plugin._controller.propagate_rotation.assert_called_once_with("test_image", mip_state.rotation_angles)
+    
+    # Perform scroll down (delta=-2)
+    mip_plugin._controller.propagate_rotation.reset_mock()
+    viewer.on_scroll(-2)
+    assert mip_state.rotation_angles["Z"] == -5.0
+    mip_plugin._controller.propagate_rotation.assert_called_once_with("test_image", mip_state.rotation_angles)
+
+    # Test angle wrapping (rotate past 180 deg)
+    mip_state.rotation_angles["Z"] = 179.0
+    viewer.on_scroll(1)  # 179.0 + 5.0 = 184.0 -> wraps to -176.0
+    assert mip_state.rotation_angles["Z"] == -176.0
+
+
+

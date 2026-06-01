@@ -2816,6 +2816,34 @@ class SliceViewer:
         ):
             return
 
+        # Check if MIP plugin is active and enabled on this viewer
+        mip_plugin = None
+        if self.controller.gui and hasattr(self.controller.gui, "plugins"):
+            mip_plugin = next((p for p in self.controller.gui.plugins if p.plugin_id == "mip_plugin"), None)
+            
+        mip_state = None
+        if mip_plugin and self.image_id:
+            mip_state = mip_plugin._controller.get_viewer_state(self.image_id, self.tag)
+
+        if mip_state and mip_state.mip_enabled:
+            axis_map = {ViewMode.AXIAL: "Z", ViewMode.CORONAL: "Y", ViewMode.SAGITTAL: "Y"}
+            proj_axis = axis_map.get(self.orientation, "Y")
+            current_angle = mip_state.rotation_angles.get(proj_axis, 0.0)
+            
+            angle = current_angle + (delta * mip_state.rotation_step)
+            while angle <= -180.0:
+                angle += 360.0
+            while angle > 180.0:
+                angle -= 360.0
+            mip_state.rotation_angles[proj_axis] = round(angle, 2)
+            if mip_plugin:
+                mip_plugin._controller.propagate_rotation(self.image_id, mip_state.rotation_angles)
+            self.view_state.is_data_dirty = True
+            self.is_viewer_data_dirty = True
+            self.is_geometry_dirty = True
+            self.controller.ui_needs_refresh = True
+            return
+
         current_display_slice_idx = self.slice_idx
         max_display_slice_idx = self.get_display_num_slices() - 1
 
