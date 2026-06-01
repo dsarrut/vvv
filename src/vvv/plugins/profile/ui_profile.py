@@ -79,7 +79,7 @@ class ProfilePluginUI(PluginTagMixin):
 
             with dpg.group(horizontal=True):
                 btn_open_all = dpg.add_button(
-                    label="Open All Plots",
+                    label="Open All",
                     tag=self._t("btn_open_all"),
                     callback=self.on_open_all_clicked,
                 )
@@ -89,13 +89,23 @@ class ProfilePluginUI(PluginTagMixin):
                     api,
                 )
                 btn_close_all = dpg.add_button(
-                    label="Close All Plots",
+                    label="Close All",
                     tag=self._t("btn_close_all"),
                     callback=self.on_close_all_clicked,
                 )
                 build_beginner_tooltip(
                     btn_close_all,
                     "Closes intensity plot windows for all profiles of the active image.",
+                    api,
+                )
+                btn_gather = dpg.add_button(
+                    label="Gather Plots",
+                    tag=self._t("btn_gather_plots"),
+                    callback=self.on_gather_plots_clicked,
+                )
+                build_beginner_tooltip(
+                    btn_gather,
+                    "Gathers all open profile plot windows around the bottom right quarter of the current window.",
                     api,
                 )
 
@@ -131,6 +141,12 @@ class ProfilePluginUI(PluginTagMixin):
                 val = viewer.view_state.camera.show_profiles
                 val_bool = bool(val) if isinstance(val, (bool, int)) else True
                 dpg.set_value(chk_show, val_bool)
+
+        # Update action buttons
+        for btn_name in ["btn_open_all", "btn_close_all", "btn_gather_plots"]:
+            btn = self._t(btn_name)
+            if dpg.does_item_exist(btn):
+                dpg.configure_item(btn, enabled=active)
 
         # Refresh open plots
         if active:
@@ -295,6 +311,39 @@ class ProfilePluginUI(PluginTagMixin):
             win_tag = self._t(f"plot_win_{p_id}")
             if dpg.does_item_exist(win_tag):
                 self.on_plot_closed(win_tag, None, p_id)
+
+    def on_gather_plots_clicked(self, sender, app_data, user_data):
+        api = self._c._api
+        if not api:
+            return
+        viewer = api.get_active_viewer()
+        if not viewer or not viewer.view_state:
+            return
+
+        vp_w = dpg.get_viewport_client_width()
+        vp_h = dpg.get_viewport_client_height()
+        win_w, win_h = 450, 550
+
+        # Find all open profile windows
+        open_wins = []
+        for p_id in list(viewer.view_state.profiles.keys()):
+            win_tag = self._t(f"plot_win_{p_id}")
+            if dpg.does_item_exist(win_tag):
+                open_wins.append((p_id, win_tag))
+
+        offset_x = 25
+        offset_y = 25
+
+        for idx, (p_id, win_tag) in enumerate(open_wins):
+            x = vp_w - win_w - 20 - (idx * offset_x)
+            y = vp_h - win_h - 40 - (idx * offset_y)
+            x = max(10, x)
+            y = max(10, y)
+            dpg.set_item_pos(win_tag, [x, y])
+
+            profile = viewer.view_state.profiles.get(p_id)
+            if profile:
+                profile.plot_position = [x, y]
 
     def on_plot_clicked(self, sender, app_data, user_data):
         api = self._c._api
