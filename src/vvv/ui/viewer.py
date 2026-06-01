@@ -1595,12 +1595,19 @@ class SliceViewer:
 
             off_slice = int(round(dz))
 
-            # Live rotation preview for the overlay.
+            # Check MIP state first — it takes priority over the rotation-preview path.
+            mip_plugin = None
+            if self.controller.gui and hasattr(self.controller.gui, "plugins"):
+                mip_plugin = next((p for p in self.controller.gui.plugins if p.plugin_id == "mip_plugin"), None)
+            mip_state = mip_plugin._controller.get_viewer_state(self.image_id, self.tag) if (mip_plugin and self.image_id) else None
+            mip_active = bool(mip_state and mip_state.mip_enabled)
+
+            # Live rotation preview for the overlay (skipped when MIP is active).
             # _preview_R lives on ovs (ViewState) as shared rotation state.
             # The slice cache lives on self (Viewer) — render artifact, not model state.
             # Gate on _preview_R FIRST so stale cache entries are never used after resample.
             overlay_preview = None
-            if ovs._preview_R is not None and vs.display.overlay_data is not None:
+            if not mip_active and ovs._preview_R is not None and vs.display.overlay_data is not None:
                 ov_key = (self.orientation, self.slice_idx)
                 overlay_preview = self._overlay_preview_slices.get(ov_key)
                 if overlay_preview is None:
@@ -1611,14 +1618,7 @@ class SliceViewer:
                         None  # no overlay this frame; worker will deliver the correct one
                     )
 
-            # MIP projection for the overlay — applied when the base has MIP active,
-            # using the same axis/angle so both projections are aligned for fusion.
-            mip_plugin = None
-            if self.controller.gui and hasattr(self.controller.gui, "plugins"):
-                mip_plugin = next((p for p in self.controller.gui.plugins if p.plugin_id == "mip_plugin"), None)
-            mip_state = mip_plugin._controller.get_viewer_state(self.image_id, self.tag) if (mip_plugin and self.image_id) else None
-
-            if mip_state and mip_state.mip_enabled and not getattr(ovs.volume, "is_dvf", False):
+            if mip_state and mip_active and not getattr(ovs.volume, "is_dvf", False):
                 ov_data_raw = vs.display.overlay_data
                 if ov_data_raw is not None:
                     ov_time_idx = min(vs.camera.time_idx, ovs.volume.num_timepoints - 1)
@@ -1629,7 +1629,8 @@ class SliceViewer:
                         proj_axis = axis_map.get(self.orientation, "Y")
                         current_angle = mip_state.rotation_angles.get(proj_axis, 0.0)
                         ov_id = vs.display.overlay.image_id
-                        ov_cache_key = (ov_id, ov_time_idx, self.orientation, mip_state.depth_cueing, current_angle, id(ov_data_raw))
+                        # Overlay always uses depth_cueing=0 so it stays fully visible in fusion.
+                        ov_cache_key = (ov_id, ov_time_idx, self.orientation, 0.0, current_angle, id(ov_data_raw))
 
                         with self._mip_cache_lock:
                             overlay_preview = self._mip_cache_dict.get(ov_cache_key)
@@ -1637,8 +1638,8 @@ class SliceViewer:
                         if overlay_preview is None:
                             ov_raw = compute_mip_projection(
                                 ov_data_3d, axis=proj_axis,
-                                depth_cueing=mip_state.depth_cueing > 0.0,
-                                depth_cueing_strength=mip_state.depth_cueing,
+                                depth_cueing=False,
+                                depth_cueing_strength=0.0,
                                 rotation_angle=current_angle,
                             )
                             overlay_preview = (
@@ -1871,13 +1872,16 @@ class SliceViewer:
         )
 
         is_lazy_live = False
+        is_mip = self.drawer._is_mip_active()
 
-        # SW_SINGLE_MERGED: CPU alpha-blend overlay into base before NN scaling
-        if (
-            not is_lazy_live
-            and self.nn_mode == NNMode.SW_SINGLE_MERGED
-            and has_alpha_overlay
-        ):
+        # SW_SINGLE_MERGED: CPU alpha-blend overlay into base before NN scaling.
+        # Also used for SW_SINGLE_NATIVE when MIP is active: the native-voxel path
+        # re-extracts slices from raw data and ignores preview_override, so we must
+        # blend via last_overlay_rgba_flat which already holds B's MIP RGBA.
+        use_merged_blend = self.nn_mode == NNMode.SW_SINGLE_MERGED or (
+            self.nn_mode == NNMode.SW_SINGLE_NATIVE and is_mip
+        )
+        if not is_lazy_live and use_merged_blend and has_alpha_overlay:
             ov_actual_shape = getattr(
                 self, "last_overlay_rgba_shape", self.get_slice_shape()
             )
@@ -1919,10 +1923,12 @@ class SliceViewer:
         self._nn_base_crop = crop
 
         # SW_SINGLE_NATIVE: paint overlay at native voxel resolution into the NN base
+        # Skipped when MIP is active (overlay was already blended via use_merged_blend above).
         if (
             not is_lazy_live
             and self.nn_mode == NNMode.SW_SINGLE_NATIVE
             and has_alpha_overlay
+            and not is_mip
         ):
             if (
                 nn_base is rgba_2d
