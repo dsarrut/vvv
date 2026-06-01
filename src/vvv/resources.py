@@ -35,6 +35,8 @@ def load_fonts():
             "__version__",
             dpg.get_app_configuration().get("version", "2.3.0"),
         )
+        if not v_str:
+            v_str = "2.3.0"
         parts = v_str.split(".")
         if int(parts[0]) < 2 or (int(parts[0]) == 2 and int(parts[1]) < 3):
             is_legacy_dpg = True
