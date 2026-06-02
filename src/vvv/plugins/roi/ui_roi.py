@@ -2,7 +2,11 @@ import os
 import dearpygui.dearpygui as dpg
 from typing import Optional
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
-from vvv.ui.ui_components import build_section_title, build_help_button, build_beginner_tooltip
+from vvv.ui.ui_components import (
+    build_section_title,
+    build_help_button,
+    build_beginner_tooltip,
+)
 
 
 class RoiPluginUI(PluginTagMixin):
@@ -52,7 +56,7 @@ class RoiPluginUI(PluginTagMixin):
 
         # Main panel group
         with dpg.group(parent=parent, tag=self._plugin_id):
-            build_section_title("ROIs (Plugin)", cfg_c["text_header"])
+            build_section_title("ROIs", cfg_c["text_header"])
 
             dpg.add_text(
                 "No Image Selected",
@@ -68,7 +72,11 @@ class RoiPluginUI(PluginTagMixin):
                     callback=self.on_load_roi_clicked,
                     tag=self._t("btn_roi_load"),
                 )
-                build_beginner_tooltip(btn_load, "Click to load NIfTI masks, DICOM RT-Struct files, or Label Maps.", self.api)
+                build_beginner_tooltip(
+                    btn_load,
+                    "Click to load NIfTI masks, DICOM RT-Struct files, or Label Maps.",
+                    self.api,
+                )
 
             with dpg.group(horizontal=True, tag=self._t("group_roi_mode")):
                 dpg.add_text("Rule:")
@@ -79,10 +87,14 @@ class RoiPluginUI(PluginTagMixin):
                     width=130,
                     callback=self.on_roi_mode_changed,
                 )
-                build_beginner_tooltip(self._t("combo_roi_mode"), "Choose how voxels are selected from the loaded image to form the ROI.", self.api)
+                build_beginner_tooltip(
+                    self._t("combo_roi_mode"),
+                    "Choose how voxels are selected from the loaded image to form the ROI.",
+                    self.api,
+                )
                 build_help_button(
                     "Ignore BG: Makes '0' transparent and keeps everything else.\nTarget FG: Keeps only the exact 'Val' specified.\nLabel Map: Extracts all unique integer values as separate ROIs.",
-                    self.api._gui
+                    self.api._gui,
                 )
 
             with dpg.group(horizontal=True, tag=self._t("group_roi_mode2")):
@@ -148,7 +160,11 @@ class RoiPluginUI(PluginTagMixin):
                     default_value=0.5,
                     callback=self.on_roi_global_opacity_changed,
                 )
-                build_beginner_tooltip(self._t("slider_roi_global_opacity"), "Adjust raster transparency for all loaded ROIs simultaneously.", self.api)
+                build_beginner_tooltip(
+                    self._t("slider_roi_global_opacity"),
+                    "Adjust raster transparency for all loaded ROIs simultaneously.",
+                    self.api,
+                )
                 dpg.add_text("Thk:")
                 dpg.add_slider_float(
                     tag=self._t("slider_roi_global_thickness"),
@@ -158,12 +174,18 @@ class RoiPluginUI(PluginTagMixin):
                     default_value=1.0,
                     callback=self.on_roi_global_thickness_changed,
                 )
-                build_beginner_tooltip(self._t("slider_roi_global_thickness"), "Adjust contour line thickness for all loaded ROIs simultaneously.", self.api)
+                build_beginner_tooltip(
+                    self._t("slider_roi_global_thickness"),
+                    "Adjust contour line thickness for all loaded ROIs simultaneously.",
+                    self.api,
+                )
 
             dpg.add_separator()
 
             # Filter Group
-            with dpg.group(tag=self._t("group_roi_filter"), show=False, horizontal=True):
+            with dpg.group(
+                tag=self._t("group_roi_filter"), show=False, horizontal=True
+            ):
                 btn_sort = dpg.add_button(
                     label="\uf0dc",
                     width=20,
@@ -179,7 +201,11 @@ class RoiPluginUI(PluginTagMixin):
                     width=-30,
                     callback=self.on_roi_filter_changed,
                 )
-                build_beginner_tooltip(self._t("input_roi_filter"), "Type to search and filter the list of ROIs by name.", self.api)
+                build_beginner_tooltip(
+                    self._t("input_roi_filter"),
+                    "Type to search and filter the list of ROIs by name.",
+                    self.api,
+                )
                 btn_clear_filter = dpg.add_button(
                     label="\uf00d",
                     width=20,
@@ -191,7 +217,10 @@ class RoiPluginUI(PluginTagMixin):
 
             # Table child window
             with dpg.child_window(
-                tag=self._t("roi_list_window"), height=150, border=False, no_scrollbar=True
+                tag=self._t("roi_list_window"),
+                height=150,
+                border=False,
+                no_scrollbar=True,
             ):
                 with dpg.table(
                     tag=self._t("roi_list_table"),
@@ -211,7 +240,7 @@ class RoiPluginUI(PluginTagMixin):
 
             # Export button
             dpg.add_button(
-                label="Export All Stats to JSON (Plugin)",
+                label="Export All Stats to JSON",
                 width=-1,
                 callback=self.on_export_roi_stats_clicked,
                 tag=self._t("btn_roi_export_stats"),
@@ -221,9 +250,12 @@ class RoiPluginUI(PluginTagMixin):
             # --- BOTTOM: The Detail Panel ---
             with dpg.group(tag=self._t("roi_detail_header_group"), show=False):
                 with dpg.group(horizontal=True):
-                    dpg.add_text("Selected ROI Properties (Plugin)", color=cfg_c["text_header"])
+                    dpg.add_text("Selected ROI Properties", color=cfg_c["text_header"])
                     btn_close_detail = dpg.add_button(
-                        label="\uf00d", width=20, callback=self.on_close_roi_properties, tag=self._t("btn_close_detail")
+                        label="\uf00d",
+                        width=20,
+                        callback=self.on_close_roi_properties,
+                        tag=self._t("btn_close_detail"),
                     )
                     if dpg.does_item_exist("icon_font_tag"):
                         dpg.bind_item_font(btn_close_detail, "icon_font_tag")
@@ -231,7 +263,12 @@ class RoiPluginUI(PluginTagMixin):
                         dpg.bind_item_theme(btn_close_detail, "delete_button_theme")
                 dpg.add_separator()
 
-            with dpg.child_window(tag=self._t("roi_detail_window"), border=False, no_scrollbar=True, show=False):
+            with dpg.child_window(
+                tag=self._t("roi_detail_window"),
+                border=False,
+                no_scrollbar=True,
+                show=False,
+            ):
                 with dpg.group(tag=self._t("roi_detail_container")):
                     pass
 
@@ -251,14 +288,20 @@ class RoiPluginUI(PluginTagMixin):
         assert self.api is not None
         viewer = self.api.get_active_viewer()
         is_mip = bool(
-            viewer and viewer.image_id
+            viewer
+            and viewer.image_id
             and self.api.is_mip_active(viewer.image_id, viewer.tag)
         )
 
         toolbar_btns = [
-            "btn_roi_load", "btn_roi_show_all", "btn_roi_contour_all",
-            "btn_roi_hide_all", "btn_roi_close_all", "btn_roi_sort",
-            "btn_clear_filter", "btn_roi_export_stats",
+            "btn_roi_load",
+            "btn_roi_show_all",
+            "btn_roi_contour_all",
+            "btn_roi_hide_all",
+            "btn_roi_close_all",
+            "btn_roi_sort",
+            "btn_clear_filter",
+            "btn_roi_export_stats",
         ]
         for name in toolbar_btns:
             tag = self._t(name)
@@ -266,7 +309,11 @@ class RoiPluginUI(PluginTagMixin):
                 dpg.configure_item(tag, enabled=not is_mip)
 
         if dpg.does_item_exist(self._t("text_roi_active_title")):
-            if viewer and viewer.image_id and self.api.get_volumes().get(viewer.image_id):
+            if (
+                viewer
+                and viewer.image_id
+                and self.api.get_volumes().get(viewer.image_id)
+            ):
                 name_str, is_outdated = self.api.get_image_display_name(viewer.image_id)
                 dpg.set_value(self._t("text_roi_active_title"), name_str)
                 col = (
@@ -292,7 +339,9 @@ class RoiPluginUI(PluginTagMixin):
         filter_text = self._c.roi_filters.get(vs_id, "")
         sort_order = self._c.roi_sort_orders.get(vs_id, 0)
 
-        if dpg.does_item_exist(self._t("input_roi_filter")) and not dpg.is_item_focused(self._t("input_roi_filter")):
+        if dpg.does_item_exist(self._t("input_roi_filter")) and not dpg.is_item_focused(
+            self._t("input_roi_filter")
+        ):
             dpg.set_value(self._t("input_roi_filter"), filter_text)
 
         if dpg.does_item_exist(self._t("btn_roi_sort")):
@@ -349,12 +398,28 @@ class RoiPluginUI(PluginTagMixin):
                         dpg.add_text("*", color=self.api.ui_cfg["colors"]["outdated"])
 
                 self.roi_selectables[roi_id] = input_id
-                dpg.bind_item_handler_registry(input_id, self._t("item_clicked_handler"))
+                dpg.bind_item_handler_registry(
+                    input_id, self._t("item_clicked_handler")
+                )
 
                 if is_active:
-                    dpg.bind_item_theme(input_id, self._t("outdated_active_roi_input_theme") if is_outdated else self._t("active_input_theme"))
+                    dpg.bind_item_theme(
+                        input_id,
+                        (
+                            self._t("outdated_active_roi_input_theme")
+                            if is_outdated
+                            else self._t("active_input_theme")
+                        ),
+                    )
                 else:
-                    dpg.bind_item_theme(input_id, self._t("outdated_inactive_roi_input_theme") if is_outdated else self._t("inactive_input_theme"))
+                    dpg.bind_item_theme(
+                        input_id,
+                        (
+                            self._t("outdated_inactive_roi_input_theme")
+                            if is_outdated
+                            else self._t("inactive_input_theme")
+                        ),
+                    )
 
                 btn_eye = dpg.add_button(
                     label=lbl_eye,
@@ -451,7 +516,7 @@ class RoiPluginUI(PluginTagMixin):
             dpg.configure_item(window, show=True)
 
         dpg.delete_item(container, children_only=True)
-        
+
         roi_state = viewer.view_state.rois[self._c.active_roi_id]
         roi_vol = self.api.get_volumes().get(self._c.active_roi_id)
         dim_col = self.api.ui_cfg["colors"]["text_dim"]
@@ -472,7 +537,7 @@ class RoiPluginUI(PluginTagMixin):
                 dpg.add_spacer(height=3)
 
                 # 1. Loading Rule
-                mode_str = getattr(roi_state, 'source_mode', 'Binary')
+                mode_str = getattr(roi_state, "source_mode", "Binary")
                 val_str = f"{getattr(roi_state, 'source_val', 1.0):g}"
                 with dpg.group(horizontal=True):
                     dpg.add_text("Rule:", color=dim_col)
@@ -576,7 +641,7 @@ class RoiPluginUI(PluginTagMixin):
                     with dpg.group(horizontal=True):
                         dpg.add_text("Mass:", color=dim_col)
                         dpg.add_text("---", tag=self._t("roi_stat_mass"))
-                        
+
         self.update_roi_stats_ui()
         self.api._gui.on_window_resize()
 
@@ -592,7 +657,9 @@ class RoiPluginUI(PluginTagMixin):
         name_str = ""
         if image_id:
             name_str, _ = self.api.get_image_display_name(image_id)
-        label_title = f"Select ROIs to Load - {name_str}" if name_str else "Select ROIs to Load"
+        label_title = (
+            f"Select ROIs to Load - {name_str}" if name_str else "Select ROIs to Load"
+        )
 
         with dpg.window(
             tag=modal_tag,
@@ -612,11 +679,15 @@ class RoiPluginUI(PluginTagMixin):
             with dpg.group(horizontal=True):
                 dpg.add_button(
                     label="Select All",
-                    callback=lambda: [dpg.set_value(cb_id, True) for cb_id in self._rtstruct_cb_ids],
+                    callback=lambda: [
+                        dpg.set_value(cb_id, True) for cb_id in self._rtstruct_cb_ids
+                    ],
                 )
                 dpg.add_button(
                     label="Select None",
-                    callback=lambda: [dpg.set_value(cb_id, False) for cb_id in self._rtstruct_cb_ids],
+                    callback=lambda: [
+                        dpg.set_value(cb_id, False) for cb_id in self._rtstruct_cb_ids
+                    ],
                 )
 
             dpg.add_separator()
@@ -696,7 +767,10 @@ class RoiPluginUI(PluginTagMixin):
         is_label_map = mode == "Label Map"
 
         from vvv.ui.file_dialog import open_file_dialog
-        file_paths = open_file_dialog("Load ROI(s) / RT-Struct", multiple=not is_label_map)
+
+        file_paths = open_file_dialog(
+            "Load ROI(s) / RT-Struct", multiple=not is_label_map
+        )
         if not file_paths:
             return
 
@@ -707,14 +781,28 @@ class RoiPluginUI(PluginTagMixin):
         if isinstance(file_paths, str):
             file_paths = [file_paths]
 
-        val = dpg.get_value(self._t("input_roi_val")) if dpg.does_item_exist(self._t("input_roi_val")) else 0.0
+        val = (
+            dpg.get_value(self._t("input_roi_val"))
+            if dpg.does_item_exist(self._t("input_roi_val"))
+            else 0.0
+        )
         first_file = file_paths[0]
         is_rtstruct = False
 
-        image_exts = [".nii", ".nii.gz", ".mhd", ".mha", ".nrrd", ".png", ".jpg", ".tif"]
+        image_exts = [
+            ".nii",
+            ".nii.gz",
+            ".mhd",
+            ".mha",
+            ".nrrd",
+            ".png",
+            ".jpg",
+            ".tif",
+        ]
         if not any(first_file.lower().endswith(ext) for ext in image_exts):
             try:
                 import pydicom
+
                 ds = pydicom.dcmread(first_file, stop_before_pixels=True, force=True)
                 if getattr(ds, "Modality", None) == "RTSTRUCT":
                     is_rtstruct = True
@@ -729,12 +817,16 @@ class RoiPluginUI(PluginTagMixin):
                 return
 
             if not rois_info:
-                self.api._gui.show_message("No ROIs", "No valid ROIs found in this RT-Struct file.")
+                self.api._gui.show_message(
+                    "No ROIs", "No valid ROIs found in this RT-Struct file."
+                )
                 return
 
             self.show_rtstruct_selection_modal(first_file, rois_info)
         else:
-            self.api.load_batch_rois(viewer.image_id, file_paths, "Binary Mask", mode, val)
+            self.api.load_batch_rois(
+                viewer.image_id, file_paths, "Binary Mask", mode, val
+            )
 
     def on_roi_mode_changed(self, sender, app_data, user_data):
         is_label_map = app_data == "Label Map"
@@ -812,6 +904,7 @@ class RoiPluginUI(PluginTagMixin):
             default_name += ".nii.gz"
 
         from vvv.ui.file_dialog import save_file_dialog
+
         file_path = save_file_dialog("Save ROI As", default_name=default_name)
         if file_path:
             self.api.notify(f"Saving {roi_vol.name}...")
@@ -860,7 +953,10 @@ class RoiPluginUI(PluginTagMixin):
                 continue
             self.api.close_roi(viewer.image_id, roi_id)
 
-        if self._c.active_roi_id and self._c.active_roi_id not in viewer.view_state.rois:
+        if (
+            self._c.active_roi_id
+            and self._c.active_roi_id not in viewer.view_state.rois
+        ):
             self._c.active_roi_id = None
 
         self.api.request_refresh()
@@ -951,11 +1047,11 @@ class RoiPluginUI(PluginTagMixin):
     def on_export_roi_stats_clicked(self, sender, app_data, user_data):
         # Excluded from wiring in Step 2: remains mock popup
         if self.api:
-            self.api.notify("ROI Plugin [Mock]: Export stats clicked")
+            self.api.notify("ROI: Export stats clicked")
 
     def on_mock_action(self, sender, app_data, user_data):
         if self.api:
-            self.api.notify(f"ROI Plugin [Mock]: Slider or combo callback (sender: {sender})")
+            self.api.notify(f"ROI: Slider or combo callback (sender: {sender})")
 
     def on_roi_opacity_changed(self, sender, app_data, user_data):
         viewer = self.api.get_active_viewer()
@@ -1010,9 +1106,11 @@ class RoiPluginUI(PluginTagMixin):
             if dpg.does_item_exist(combo_tag)
             else False
         )
-        
+
         stats = self.api.get_roi_stats(
-            base_vs_id=viewer.image_id, roi_id=self._c.active_roi_id, is_overlay=is_overlay
+            base_vs_id=viewer.image_id,
+            roi_id=self._c.active_roi_id,
+            is_overlay=is_overlay,
         )
 
         if not stats:
@@ -1034,14 +1132,24 @@ class RoiPluginUI(PluginTagMixin):
 
     def save_settings(self, api: PluginAPI) -> None:
         if dpg.does_item_exist(self._t("combo_roi_mode")):
-            api._controller.update_setting(["behavior", f"{self._plugin_id}_default_mode"], dpg.get_value(self._t("combo_roi_mode")))
+            api._controller.update_setting(
+                ["behavior", f"{self._plugin_id}_default_mode"],
+                dpg.get_value(self._t("combo_roi_mode")),
+            )
         if dpg.does_item_exist(self._t("input_roi_val")):
-            api._controller.update_setting(["behavior", f"{self._plugin_id}_default_val"], dpg.get_value(self._t("input_roi_val")))
+            api._controller.update_setting(
+                ["behavior", f"{self._plugin_id}_default_val"],
+                dpg.get_value(self._t("input_roi_val")),
+            )
 
     def load_settings(self, api: PluginAPI) -> None:
         ctrl = api._controller
-        mode = ctrl.settings.data.get("behavior", {}).get(f"{self._plugin_id}_default_mode", "Ignore BG (val)")
-        val = ctrl.settings.data.get("behavior", {}).get(f"{self._plugin_id}_default_val", 0.0)
+        mode = ctrl.settings.data.get("behavior", {}).get(
+            f"{self._plugin_id}_default_mode", "Ignore BG (val)"
+        )
+        val = ctrl.settings.data.get("behavior", {}).get(
+            f"{self._plugin_id}_default_val", 0.0
+        )
         if dpg.does_item_exist(self._t("combo_roi_mode")):
             dpg.set_value(self._t("combo_roi_mode"), mode)
         if dpg.does_item_exist(self._t("input_roi_val")):

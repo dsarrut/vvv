@@ -1,5 +1,5 @@
 from vvv.plugins.plugin_api import PluginAPI, PluginProtocol
-from .ui_roi_plugin import RoiPluginUI
+from .ui_roi import RoiPluginUI
 from .control_roi import RoiPluginController
 
 
@@ -30,7 +30,9 @@ class RoiPlugin(PluginProtocol):
     def serialize_image_state(self, image_id: str, context: str = "history") -> dict:
         return self._controller.serialize_image_state(image_id, context=context)
 
-    def restore_image_state(self, image_id: str, data: dict, context: str = "history") -> None:
+    def restore_image_state(
+        self, image_id: str, data: dict, context: str = "history"
+    ) -> None:
         self._controller.restore_image_state(image_id, data, context=context)
 
     def save_settings(self, api: PluginAPI) -> None:
