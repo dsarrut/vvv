@@ -154,9 +154,15 @@ class RoiPluginUI(PluginTagMixin):
                     callback=self.on_roi_close_all,
                     tag=self._t("btn_roi_close_all"),
                 )
+                btn_toggle_all_stats = dpg.add_button(
+                    label="\uf08e",
+                    width=20,
+                    callback=self.on_roi_toggle_all_stats,
+                    tag=self._t("btn_roi_toggle_all_stats"),
+                )
 
                 if dpg.does_item_exist("icon_font_tag"):
-                    for btn in [btn_show, btn_contour, btn_hide, btn_close_all]:
+                    for btn in [btn_show, btn_contour, btn_hide, btn_toggle_all_stats, btn_close_all]:
                         dpg.bind_item_font(btn, "icon_font_tag")
 
                 if dpg.does_item_exist("delete_button_theme"):
@@ -174,10 +180,16 @@ class RoiPluginUI(PluginTagMixin):
                 with dpg.tooltip(btn_close_all):
                     dpg.add_text("Close All")
 
+                with dpg.tooltip(btn_toggle_all_stats):
+                    dpg.add_text("Toggle all statistics windows")
+
+            dpg.add_spacer(height=2)
+
+            with dpg.group(horizontal=True):
                 dpg.add_text("Op:")
                 dpg.add_slider_float(
                     tag=self._t("slider_roi_global_opacity"),
-                    width=50,
+                    width=110,
                     min_value=0.0,
                     max_value=1.0,
                     default_value=0.5,
@@ -188,10 +200,13 @@ class RoiPluginUI(PluginTagMixin):
                     "Adjust raster transparency for all loaded ROIs simultaneously.",
                     self.api,
                 )
+
+                dpg.add_spacer(width=10)
+
                 dpg.add_text("Thk:")
                 dpg.add_slider_float(
                     tag=self._t("slider_roi_global_thickness"),
-                    width=50,
+                    width=110,
                     min_value=0.5,
                     max_value=10.0,
                     default_value=1.0,
@@ -338,6 +353,7 @@ class RoiPluginUI(PluginTagMixin):
             "btn_roi_contour_all",
             "btn_roi_hide_all",
             "btn_roi_close_all",
+            "btn_roi_toggle_all_stats",
             "btn_roi_sort",
             "btn_clear_filter",
             "btn_roi_export_stats",
@@ -476,7 +492,7 @@ class RoiPluginUI(PluginTagMixin):
                     callback=self.on_roi_center,
                 )
                 btn_stats = dpg.add_button(
-                    label="\uf080",
+                    label="\uf08e",
                     width=20,
                     user_data=roi_id,
                     callback=self.on_roi_stats_toggle,
@@ -1080,15 +1096,58 @@ class RoiPluginUI(PluginTagMixin):
                 dpg.add_text("Std Dev:", color=dim_col)
                 dpg.add_text("45.2 (Mock)")
 
-        self.open_stats_wins.add(win_tag)
-
-        # Position it nicely
+        # Position it nicely with offset for multiple open windows
         vp_w = dpg.get_viewport_client_width()
         vp_h = dpg.get_viewport_client_height()
         win_w, win_h = 300, 200
-        dpg.set_item_pos(
-            win_tag, [max(10, vp_w - win_w - 50), max(10, (vp_h - win_h) // 2)]
-        )
+
+        base_x = max(10, vp_w - win_w - 50)
+        base_y = max(10, (vp_h - win_h) // 2)
+
+        num_open = len(self.open_stats_wins)
+        offset = 25 * num_open
+        pos_x = base_x - offset
+        pos_y = base_y + offset
+
+        if pos_x < 10:
+            pos_x = base_x
+        if pos_y + win_h > vp_h - 10:
+            pos_y = base_y
+
+        dpg.set_item_pos(win_tag, [pos_x, pos_y])
+        self.open_stats_wins.add(win_tag)
+
+    def on_roi_toggle_all_stats(self, sender, app_data, user_data):
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.image_id or not viewer.view_state:
+            return
+
+        filter_text = self._c.roi_filters.get(viewer.image_id, "")
+        rois_to_toggle = []
+        for roi_id, roi in viewer.view_state.rois.items():
+            if filter_text and filter_text not in roi.name.lower():
+                continue
+            rois_to_toggle.append(roi_id)
+
+        if not rois_to_toggle:
+            return
+
+        # If any of the windows for these ROIs is open, close them all.
+        # Otherwise, open them all.
+        any_open = any(self._t(f"stats_win_{roi_id}") in self.open_stats_wins for roi_id in rois_to_toggle)
+
+        if any_open:
+            for roi_id in rois_to_toggle:
+                win_tag = self._t(f"stats_win_{roi_id}")
+                if win_tag in self.open_stats_wins:
+                    self.open_stats_wins.remove(win_tag)
+                if dpg.does_item_exist(win_tag):
+                    dpg.delete_item(win_tag)
+        else:
+            for roi_id in rois_to_toggle:
+                win_tag = self._t(f"stats_win_{roi_id}")
+                if not dpg.does_item_exist(win_tag):
+                    self.on_roi_stats_toggle(None, None, roi_id)
 
     def on_roi_stats_window_closed(self, sender, app_data, user_data):
         roi_id = user_data

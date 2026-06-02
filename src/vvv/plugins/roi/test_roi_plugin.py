@@ -615,6 +615,64 @@ class TestRoiPlugin(unittest.TestCase):
 
         dpg.delete_item("test_parent")
 
+    def test_roi_stats_offset_and_toggle_all(self):
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+
+        ui = self.plugin._ui
+        ctrl = self.plugin._controller
+
+        rois = {
+            "roi_1": MockROI("roi_1", "Tumor", [255, 0, 0]),
+            "roi_2": MockROI("roi_2", "Kidney", [0, 255, 0]),
+            "roi_3": MockROI("roi_3", "Liver", [0, 0, 255]),
+        }
+        mock_viewer = MockViewer("img_1", rois)
+        self.mock_api.get_active_viewer.return_value = mock_viewer
+
+        with patch('dearpygui.dearpygui.get_viewport_client_width') as mock_vp_w, \
+             patch('dearpygui.dearpygui.get_viewport_client_height') as mock_vp_h, \
+             patch('dearpygui.dearpygui.set_item_pos') as mock_set_pos:
+
+            mock_vp_w.return_value = 1000
+            mock_vp_h.return_value = 800
+
+            # 1. Open first window, offset should be 0
+            ui.on_roi_stats_toggle(None, None, "roi_1")
+            # base_x = 1000 - 300 - 50 = 650
+            # base_y = (800 - 200) // 2 = 300
+            mock_set_pos.assert_any_call(ui._t("stats_win_roi_1"), [650, 300])
+
+            # 2. Open second window, offset should be 25px
+            ui.on_roi_stats_toggle(None, None, "roi_2")
+            mock_set_pos.assert_any_call(ui._t("stats_win_roi_2"), [625, 325])
+
+            # 3. Open third window, offset should be 50px
+            ui.on_roi_stats_toggle(None, None, "roi_3")
+            mock_set_pos.assert_any_call(ui._t("stats_win_roi_3"), [600, 350])
+
+            # Clean them up
+            ui.close_all_stats_windows()
+            mock_set_pos.reset_mock()
+
+            # 4. Toggle all ON (none are currently open)
+            ui.on_roi_toggle_all_stats(None, None, None)
+            self.assertTrue(dpg.does_item_exist(ui._t("stats_win_roi_1")))
+            self.assertTrue(dpg.does_item_exist(ui._t("stats_win_roi_2")))
+            self.assertTrue(dpg.does_item_exist(ui._t("stats_win_roi_3")))
+            self.assertEqual(len(ui.open_stats_wins), 3)
+
+            # 5. Toggle all OFF (some/all are open)
+            ui.on_roi_toggle_all_stats(None, None, None)
+            self.assertFalse(dpg.does_item_exist(ui._t("stats_win_roi_1")))
+            self.assertFalse(dpg.does_item_exist(ui._t("stats_win_roi_2")))
+            self.assertFalse(dpg.does_item_exist(ui._t("stats_win_roi_3")))
+            self.assertEqual(len(ui.open_stats_wins), 0)
+
+        dpg.delete_item("test_parent")
+
 
 if __name__ == "__main__":
     unittest.main()
