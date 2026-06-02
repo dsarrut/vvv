@@ -299,7 +299,6 @@ class MIPPluginController(PluginTagMixin):
         state.rotation_step = round(new_val, 1)
         dpg.set_value(user_data["tag"], new_val)
         self._api.request_refresh()
-
     def get_mip_projection(
         self,
         viewer,
@@ -312,7 +311,7 @@ class MIPPluginController(PluginTagMixin):
         mip_state,
         extra_layers=None,
         image_id=None
-    ) -> np.ndarray:
+    ) -> Optional[np.ndarray]:
         tag = viewer.tag.upper()
         if tag not in self._caches:
             self._caches[tag] = {}

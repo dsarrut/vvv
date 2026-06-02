@@ -1345,7 +1345,7 @@ class SliceViewer:
         if mip_plugin and self.image_id:
             mip_state = mip_plugin._controller.get_viewer_state(self.image_id, self.tag)
 
-        if mip_state and mip_state.mip_enabled and not getattr(vol, "is_dvf", False):
+        if mip_plugin and mip_state and mip_state.mip_enabled and not getattr(vol, "is_dvf", False):
             # Compute MIP projection
             display_data_raw = (
                 vs.base_display_data
@@ -1498,7 +1498,7 @@ class SliceViewer:
                         None  # no overlay this frame; worker will deliver the correct one
                     )
 
-            if mip_state and mip_active and not getattr(ovs.volume, "is_dvf", False):
+            if mip_plugin and mip_state and mip_active and not getattr(ovs.volume, "is_dvf", False):
                 ov_data_raw = vs.display.overlay_data
                 if ov_data_raw is not None:
                     ov_time_idx = min(vs.camera.time_idx, ovs.volume.num_timepoints - 1)
