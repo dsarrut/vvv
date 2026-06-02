@@ -77,7 +77,9 @@ class TestRoiPlugin(unittest.TestCase):
         # Verify that namespaced elements are created
         self.assertTrue(dpg.does_item_exist(self.plugin.plugin_id))
         self.assertTrue(dpg.does_item_exist(self.plugin._ui._t("text_roi_active_title")))
-        self.assertTrue(dpg.does_item_exist(self.plugin._ui._t("btn_roi_load")))
+        self.assertTrue(dpg.does_item_exist(self.plugin._ui._t("btn_roi_load_rtstruct")))
+        self.assertTrue(dpg.does_item_exist(self.plugin._ui._t("btn_roi_load_labels")))
+        self.assertTrue(dpg.does_item_exist(self.plugin._ui._t("btn_roi_load_binary")))
         self.assertTrue(dpg.does_item_exist(self.plugin._ui._t("roi_list_table")))
         
         dpg.delete_item("test_parent")
@@ -108,19 +110,15 @@ class TestRoiPlugin(unittest.TestCase):
 
         ui = self.plugin._ui
         
-        # Test mode change combo callback
-        ui.on_roi_mode_changed(None, "Label Map", None)
-        self.assertFalse(dpg.get_item_configuration(ui._t("group_roi_mode2"))["show"])
-
+        # Test mode change combo callback (no-op now)
         ui.on_roi_mode_changed(None, "Target FG (val)", None)
-        self.assertTrue(dpg.get_item_configuration(ui._t("group_roi_mode2"))["show"])
 
         # Test mock actions
         ui.on_mock_action("btn_test", None, None)
-        self.mock_api.notify.assert_called_with("ROI Plugin [Mock]: Slider or combo callback (sender: btn_test)")
+        self.mock_api.notify.assert_called_with("ROI: Slider or combo callback (sender: btn_test)")
 
         ui.on_export_roi_stats_clicked(None, None, None)
-        self.mock_api.notify.assert_called_with("ROI Plugin [Mock]: Export stats clicked")
+        self.mock_api.notify.assert_called_with("ROI: Export stats clicked")
 
         dpg.delete_item("test_parent")
 
@@ -277,7 +275,7 @@ class TestRoiPlugin(unittest.TestCase):
         dpg.delete_item("test_parent")
 
     @patch('vvv.ui.file_dialog.open_file_dialog')
-    def test_on_load_roi_clicked_nifti(self, mock_open):
+    def test_on_load_binary_roi_clicked(self, mock_open):
         if not dpg.is_dearpygui_running():
             dpg.create_context()
         with dpg.window(tag="test_parent"):
@@ -289,7 +287,7 @@ class TestRoiPlugin(unittest.TestCase):
         
         mock_open.return_value = ["/path/to/mask.nii.gz"]
         
-        ui.on_load_roi_clicked(None, None, None)
+        ui.on_load_binary_roi_clicked(None, None, None)
         self.mock_api.load_batch_rois.assert_called_with(
             "img_1", ["/path/to/mask.nii.gz"], "Binary Mask", "Ignore BG (val)", 0.0
         )
@@ -297,7 +295,7 @@ class TestRoiPlugin(unittest.TestCase):
         dpg.delete_item("test_parent")
 
     @patch('vvv.ui.file_dialog.open_file_dialog')
-    def test_on_load_roi_clicked_label_map(self, mock_open):
+    def test_on_load_labels_clicked(self, mock_open):
         if not dpg.is_dearpygui_running():
             dpg.create_context()
         with dpg.window(tag="test_parent"):
@@ -307,20 +305,17 @@ class TestRoiPlugin(unittest.TestCase):
         mock_viewer = MockViewer("img_1", {})
         self.mock_api.get_active_viewer.return_value = mock_viewer
         
-        # Set combo mode value to Label Map
-        dpg.set_value(ui._t("combo_roi_mode"), "Label Map")
         mock_open.return_value = "/path/to/label_map.nii.gz"
         
-        ui.on_load_roi_clicked(None, None, None)
+        ui.on_load_labels_clicked(None, None, None)
         self.mock_api.load_label_map.assert_called_with(
             "img_1", "/path/to/label_map.nii.gz"
         )
 
         dpg.delete_item("test_parent")
 
-    @patch('pydicom.dcmread')
     @patch('vvv.ui.file_dialog.open_file_dialog')
-    def test_on_load_roi_clicked_rtstruct(self, mock_open, mock_dcmread):
+    def test_on_load_rtstruct_clicked(self, mock_open):
         if not dpg.is_dearpygui_running():
             dpg.create_context()
         with dpg.window(tag="test_parent"):
@@ -331,9 +326,6 @@ class TestRoiPlugin(unittest.TestCase):
         self.mock_api.get_active_viewer.return_value = mock_viewer
         
         mock_open.return_value = ["/path/to/rtstruct.dcm"]
-        mock_ds = MagicMock()
-        mock_ds.Modality = "RTSTRUCT"
-        mock_dcmread.return_value = mock_ds
         
         self.mock_api.parse_rtstruct.return_value = [
             {"name": "ROI 1", "color": [255, 0, 0]},
@@ -341,7 +333,7 @@ class TestRoiPlugin(unittest.TestCase):
         ]
         
         with patch.object(ui, 'show_rtstruct_selection_modal') as mock_show_modal:
-            ui.on_load_roi_clicked(None, None, None)
+            ui.on_load_rtstruct_clicked(None, None, None)
             mock_show_modal.assert_called_once_with(
                 "/path/to/rtstruct.dcm",
                 [{"name": "ROI 1", "color": [255, 0, 0]}, {"name": "ROI 2", "color": [0, 255, 0]}]

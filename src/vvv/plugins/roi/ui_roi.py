@@ -66,25 +66,49 @@ class RoiPluginUI(PluginTagMixin):
 
             # --- TOP: Load & Import ---
             with dpg.group(horizontal=True):
-                btn_load = dpg.add_button(
-                    label="Load ROI / RT-Struct / Label Map...",
-                    width=-1,
-                    callback=self.on_load_roi_clicked,
-                    tag=self._t("btn_roi_load"),
+
+                btn_rt = dpg.add_button(
+                    label="RT-Struct...",
+                    width=150,
+                    callback=self.on_load_rtstruct_clicked,
+                    tag=self._t("btn_roi_load_rtstruct"),
                 )
                 build_beginner_tooltip(
-                    btn_load,
-                    "Click to load NIfTI masks, DICOM RT-Struct files, or Label Maps.",
+                    btn_rt,
+                    "Click to load DICOM RT-Struct files.",
                     self.api,
                 )
 
-            with dpg.group(horizontal=True, tag=self._t("group_roi_mode")):
-                dpg.add_text("Rule:")
+                btn_labels = dpg.add_button(
+                    label="Labels...",
+                    width=150,
+                    callback=self.on_load_labels_clicked,
+                    tag=self._t("btn_roi_load_labels"),
+                )
+                build_beginner_tooltip(
+                    btn_labels,
+                    "Click to load a label map image (each unique integer value becomes a separate ROI).",
+                    self.api,
+                )
+
+            with dpg.group(horizontal=True, tag=self._t("group_roi_binary_row")):
+                btn_binary = dpg.add_button(
+                    label="Binary...",
+                    width=90,
+                    callback=self.on_load_binary_roi_clicked,
+                    tag=self._t("btn_roi_load_binary"),
+                )
+                build_beginner_tooltip(
+                    btn_binary,
+                    "Click to binarize and load image mask files (e.g. NIfTI, TIFF, JPEG).",
+                    self.api,
+                )
+
                 dpg.add_combo(
-                    ["Ignore BG (val)", "Target FG (val)", "Label Map"],
+                    ["Ignore BG (val)", "Target FG (val)"],
                     default_value="Ignore BG (val)",
                     tag=self._t("combo_roi_mode"),
-                    width=130,
+                    width=90,
                     callback=self.on_roi_mode_changed,
                 )
                 build_beginner_tooltip(
@@ -93,14 +117,12 @@ class RoiPluginUI(PluginTagMixin):
                     self.api,
                 )
                 build_help_button(
-                    "Ignore BG: Makes '0' transparent and keeps everything else.\nTarget FG: Keeps only the exact 'Val' specified.\nLabel Map: Extracts all unique integer values as separate ROIs.",
+                    "Ignore BG: Makes the specified value transparent and keeps everything else.\nTarget FG: Keeps only the exact value specified.",
                     self.api._gui,
                 )
 
-            with dpg.group(horizontal=True, tag=self._t("group_roi_mode2")):
-                dpg.add_text("Val:")
                 dpg.add_input_float(
-                    default_value=0.0, step=1.0, width=140, tag=self._t("input_roi_val")
+                    default_value=0.0, step=1.0, width=90, tag=self._t("input_roi_val")
                 )
 
             dpg.add_spacer(height=10)
@@ -294,7 +316,9 @@ class RoiPluginUI(PluginTagMixin):
         )
 
         toolbar_btns = [
-            "btn_roi_load",
+            "btn_roi_load_rtstruct",
+            "btn_roi_load_labels",
+            "btn_roi_load_binary",
             "btn_roi_show_all",
             "btn_roi_contour_all",
             "btn_roi_hide_all",
@@ -757,81 +781,80 @@ class RoiPluginUI(PluginTagMixin):
         if roi_id and self._c.active_roi_id != roi_id:
             self._c.on_roi_selected(roi_id)
 
-    def on_load_roi_clicked(self, sender, app_data, user_data):
+    def on_load_rtstruct_clicked(self, sender, app_data, user_data):
         viewer = self.api.get_active_viewer()
         if not viewer or not viewer.image_id:
             self.api.notify("Select a base image first!", color=[255, 100, 100])
             return
 
-        mode = dpg.get_value(self._t("combo_roi_mode"))
-        is_label_map = mode == "Label Map"
-
         from vvv.ui.file_dialog import open_file_dialog
 
         file_paths = open_file_dialog(
-            "Load ROI(s) / RT-Struct", multiple=not is_label_map
+            "Load RT-Struct", multiple=False, extensions=["dcm"]
         )
         if not file_paths:
             return
 
-        if is_label_map:
-            self.api.load_label_map(viewer.image_id, file_paths)
+        first_file = file_paths[0] if isinstance(file_paths, list) else file_paths
+
+        try:
+            rois_info = self.api.parse_rtstruct(first_file)
+        except Exception as e:
+            self.api._gui.show_message("Error", f"Failed to parse RT-Struct:\n{e}")
             return
 
-        if isinstance(file_paths, str):
-            file_paths = [file_paths]
+        if not rois_info:
+            self.api._gui.show_message(
+                "No ROIs", "No valid ROIs found in this RT-Struct file."
+            )
+            return
 
+        self.show_rtstruct_selection_modal(first_file, rois_info)
+
+    def on_load_labels_clicked(self, sender, app_data, user_data):
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.image_id:
+            self.api.notify("Select a base image first!", color=[255, 100, 100])
+            return
+
+        from vvv.ui.file_dialog import open_file_dialog
+
+        file_paths = open_file_dialog("Load Labels Image", multiple=False)
+        if not file_paths:
+            return
+
+        self.api.load_label_map(viewer.image_id, file_paths)
+
+    def on_load_binary_roi_clicked(self, sender, app_data, user_data):
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.image_id:
+            self.api.notify("Select a base image first!", color=[255, 100, 100])
+            return
+
+        mode = (
+            dpg.get_value(self._t("combo_roi_mode"))
+            if dpg.does_item_exist(self._t("combo_roi_mode"))
+            else "Ignore BG (val)"
+        )
         val = (
             dpg.get_value(self._t("input_roi_val"))
             if dpg.does_item_exist(self._t("input_roi_val"))
             else 0.0
         )
-        first_file = file_paths[0]
-        is_rtstruct = False
 
-        image_exts = [
-            ".nii",
-            ".nii.gz",
-            ".mhd",
-            ".mha",
-            ".nrrd",
-            ".png",
-            ".jpg",
-            ".tif",
-        ]
-        if not any(first_file.lower().endswith(ext) for ext in image_exts):
-            try:
-                import pydicom
+        from vvv.ui.file_dialog import open_file_dialog
 
-                ds = pydicom.dcmread(first_file, stop_before_pixels=True, force=True)
-                if getattr(ds, "Modality", None) == "RTSTRUCT":
-                    is_rtstruct = True
-            except Exception:
-                pass
+        file_paths = open_file_dialog("Load Binary Image(s)", multiple=True)
+        if not file_paths:
+            return
 
-        if is_rtstruct:
-            try:
-                rois_info = self.api.parse_rtstruct(first_file)
-            except Exception as e:
-                self.api._gui.show_message("Error", f"Failed to parse RT-Struct:\n{e}")
-                return
+        if isinstance(file_paths, str):
+            file_paths = [file_paths]
 
-            if not rois_info:
-                self.api._gui.show_message(
-                    "No ROIs", "No valid ROIs found in this RT-Struct file."
-                )
-                return
-
-            self.show_rtstruct_selection_modal(first_file, rois_info)
-        else:
-            self.api.load_batch_rois(
-                viewer.image_id, file_paths, "Binary Mask", mode, val
-            )
+        self.api.load_batch_rois(viewer.image_id, file_paths, "Binary Mask", mode, val)
 
     def on_roi_mode_changed(self, sender, app_data, user_data):
-        is_label_map = app_data == "Label Map"
-        if dpg.does_item_exist(self._t("group_roi_mode2")):
-            dpg.configure_item(self._t("group_roi_mode2"), show=not is_label_map)
+        pass
 
     def on_roi_toggle_visible(self, sender, app_data, user_data):
         roi_id = user_data
