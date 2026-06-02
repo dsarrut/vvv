@@ -110,6 +110,18 @@ class MIPPluginUI(PluginTagMixin):
                 api,
             )
 
+            # Text: Cache count indicator
+            cache_text = dpg.add_text(
+                "Cached projections: 0",
+                tag=self._t("text_cache_count"),
+                color=cfg_c["text_dim"],
+            )
+            build_beginner_tooltip(
+                cache_text,
+                "The number of precomputed projection views cached in memory for the active viewport.",
+                api,
+            )
+
     def update_ui(self, api) -> None:
         viewer = api.get_active_viewer()
         has_image = bool(viewer and viewer.view_state and viewer.volume)
@@ -142,6 +154,7 @@ class MIPPluginUI(PluginTagMixin):
         slider_rot = self._t("slider_rotation_angle")
         slider_step = self._t("slider_rotation_step")
         chk_invert = self._t("check_invert_contrast")
+        cache_text = self._t("text_cache_count")
 
         if dpg.does_item_exist(chk_mip):
             dpg.configure_item(chk_mip, enabled=has_image)
@@ -164,6 +177,9 @@ class MIPPluginUI(PluginTagMixin):
         for item in mip_controls:
             if dpg.does_item_exist(item):
                 dpg.configure_item(item, enabled=mip_on)
+
+        if dpg.does_item_exist(cache_text):
+            dpg.configure_item(cache_text, show=mip_on)
 
         if has_image:
             state = self._c.get_viewer_state(viewer.image_id, viewer.tag)
@@ -203,6 +219,15 @@ class MIPPluginUI(PluginTagMixin):
                 dpg.set_value(slider_step, state.rotation_step)
             if dpg.does_item_exist(chk_invert) and not dpg.is_item_active(chk_invert):
                 dpg.set_value(chk_invert, state.invert_contrast)
+            if dpg.does_item_exist(cache_text):
+                if hasattr(viewer, "_mip_cache_dict") and hasattr(viewer, "_mip_cache_lock"):
+                    with viewer._mip_cache_lock:
+                        count = len(viewer._mip_cache_dict)
+                else:
+                    count = 0
+                dpg.set_value(cache_text, f"Cached projections: {count}")
         else:
             if dpg.does_item_exist(axis_text):
                 dpg.set_value(axis_text, "Projection Axis: None")
+            if dpg.does_item_exist(cache_text):
+                dpg.set_value(cache_text, "Cached projections: 0")

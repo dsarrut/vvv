@@ -898,6 +898,7 @@ class SliceViewer:
                         if len(self._mip_cache_dict) >= self._MIP_CACHE_MAX:
                             self._mip_cache_dict.pop(next(iter(self._mip_cache_dict)), None)
                         self._mip_cache_dict[key] = preview
+                        self.controller.ui_needs_refresh = True
             except Exception:
                 pass
 
