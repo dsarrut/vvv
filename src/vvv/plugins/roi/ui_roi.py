@@ -16,6 +16,7 @@ class RoiPluginUI(PluginTagMixin):
         self.api: PluginAPI = None  # type: ignore
         self.roi_selectables = {}
         self.open_stats_wins = set()
+        self.stats_win_positions = {}
 
     def create_ui(self, parent, api: PluginAPI) -> None:
         self.api = api
@@ -1097,7 +1098,7 @@ class RoiPluginUI(PluginTagMixin):
             tag=win_tag,
             label=f"{roi.name} - {image_name}",
             width=320,
-            height=330,
+            height=340,
             on_close=self.on_roi_stats_window_closed,
             user_data=roi_id,
         ):
@@ -1108,24 +1109,28 @@ class RoiPluginUI(PluginTagMixin):
         dpg.bind_item_theme(win_tag, theme_tag)
         dpg.bind_item_theme(content_tag, content_theme_tag)
 
-        vp_w = dpg.get_viewport_client_width()
-        vp_h = dpg.get_viewport_client_height()
-        win_w, win_h = 320, 330
+        if roi_id in self.stats_win_positions:
+            dpg.set_item_pos(win_tag, self.stats_win_positions[roi_id])
+        else:
+            vp_w = dpg.get_viewport_client_width()
+            vp_h = dpg.get_viewport_client_height()
+            win_w, win_h = 320, 340
 
-        base_x = max(10, vp_w - win_w - 50)
-        base_y = max(10, (vp_h - win_h) // 2)
+            base_x = max(10, vp_w - win_w - 50)
+            base_y = max(10, (vp_h - win_h) // 2)
 
-        num_open = len(self.open_stats_wins)
-        offset = 25 * num_open
-        pos_x = base_x - offset
-        pos_y = base_y + offset
+            num_open = len(self.open_stats_wins)
+            offset = 25 * num_open
+            pos_x = base_x - offset
+            pos_y = base_y + offset
 
-        if pos_x < 10:
-            pos_x = base_x
-        if pos_y + win_h > vp_h - 10:
-            pos_y = base_y
+            if pos_x < 10:
+                pos_x = base_x
+            if pos_y + win_h > vp_h - 10:
+                pos_y = base_y
 
-        dpg.set_item_pos(win_tag, [pos_x, pos_y])
+            dpg.set_item_pos(win_tag, [pos_x, pos_y])
+
         self.open_stats_wins.add(win_tag)
 
     def build_stats_window_contents(self, parent_tag, base_vs_id, roi_id):
@@ -1137,15 +1142,27 @@ class RoiPluginUI(PluginTagMixin):
         dim_col = self.api.ui_cfg["colors"]["text_dim"]
         header_col = self.api.ui_cfg["colors"]["text_header"]
 
+        # Copy to Clipboard Button
+        dpg.add_button(
+            label="Copy to Clipboard",
+            callback=self.on_copy_stats_to_clipboard,
+            user_data={"base_vs_id": base_vs_id, "roi_id": roi_id},
+            width=-1,
+            parent=parent_tag,
+        )
+        dpg.add_spacer(height=5, parent=parent_tag)
+
         dpg.add_text("Geometry", color=header_col, parent=parent_tag)
         dpg.add_separator(parent=parent_tag)
         
+        # Volumes and Voxels on the same row!
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("Volume (cc):", color=dim_col)
             dpg.add_text(f"{stats['vol_cc']:.3f}")
-        with dpg.group(horizontal=True, parent=parent_tag):
+            dpg.add_spacer(width=20)
             dpg.add_text("Voxels:", color=dim_col)
             dpg.add_text(f"{stats['voxel_count']}")
+            
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("Size:", color=dim_col)
             dpg.add_text(stats['size'])
@@ -1183,6 +1200,41 @@ class RoiPluginUI(PluginTagMixin):
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("Min / Max:", color=dim_col)
             dpg.add_text(f"{stats['min']:.2f} / {stats['max']:.2f}")
+
+    def on_copy_stats_to_clipboard(self, sender, app_data, user_data):
+        base_vs_id = user_data["base_vs_id"]
+        roi_id = user_data["roi_id"]
+        stats = self._c.compute_detailed_roi_stats(base_vs_id, roi_id)
+        if not stats:
+            return
+
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.view_state or roi_id not in viewer.view_state.rois:
+            return
+        roi = viewer.view_state.rois[roi_id]
+        image_name, _ = self.api.get_image_display_name(viewer.image_id)
+
+        text_lines = [
+            f"ROI: {roi.name}",
+            f"Image: {image_name}",
+            "Geometry:",
+            f"  Volume (cc): {stats['vol_cc']:.3f}",
+            f"  Voxels: {stats['voxel_count']}",
+            f"  Size: {stats['size']}",
+            f"  Spacing (mm): {stats['spacing']}",
+            f"  Center of Mass (pixel): ({stats['com_pixel'][0]:.1f}, {stats['com_pixel'][1]:.1f}, {stats['com_pixel'][2]:.1f})",
+            f"  Center of Mass (mm): ({stats['com_mm'][0]:.1f}, {stats['com_mm'][1]:.1f}, {stats['com_mm'][2]:.1f})",
+            "Intensity:",
+            f"  Mean: {stats['mean']:.2f}",
+            f"  Std Dev: {stats['std']:.2f}",
+            f"  Median: {stats['median']:.2f}",
+            f"  Peak (95%): {stats['peak']:.2f}",
+            f"  Min: {stats['min']:.2f}",
+            f"  Max: {stats['max']:.2f}",
+        ]
+        clipboard_text = "\n".join(text_lines)
+        dpg.set_clipboard_text(clipboard_text)
+        self.api.set_async_status("Stats copied to clipboard!")
 
     def refresh_all_open_stats_windows(self):
         viewer = self.api.get_active_viewer()
@@ -1237,6 +1289,8 @@ class RoiPluginUI(PluginTagMixin):
                 if win_tag in self.open_stats_wins:
                     self.open_stats_wins.remove(win_tag)
                 if dpg.does_item_exist(win_tag):
+                    # Save position before deleting the window!
+                    self.stats_win_positions[roi_id] = dpg.get_item_pos(win_tag)
                     dpg.delete_item(win_tag)
         else:
             for roi_id in rois_to_toggle:
@@ -1250,6 +1304,7 @@ class RoiPluginUI(PluginTagMixin):
         if win_tag in self.open_stats_wins:
             self.open_stats_wins.remove(win_tag)
         if dpg.does_item_exist(win_tag):
+            self.stats_win_positions[roi_id] = dpg.get_item_pos(win_tag)
             dpg.delete_item(win_tag)
 
         theme_tag = self._t(f"stats_theme_{roi_id}")
