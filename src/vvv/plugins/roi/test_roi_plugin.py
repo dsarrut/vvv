@@ -464,6 +464,105 @@ class TestRoiPlugin(unittest.TestCase):
 
         dpg.delete_item("test_parent")
 
+    def test_move_roi_selection(self):
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+
+        ctrl = self.plugin._controller
+
+        rois = {
+            "roi_1": MockROI("roi_1", "Tumor", [255, 0, 0]),
+            "roi_2": MockROI("roi_2", "Kidney", [0, 255, 0]),
+            "roi_3": MockROI("roi_3", "Liver", [0, 0, 255]),
+        }
+        mock_viewer = MockViewer("img_1", rois)
+        self.mock_api.get_active_viewer.return_value = mock_viewer
+
+        # Start with no active ROI, press Down -> should select first (index 0)
+        ctrl.active_roi_id = None
+        ctrl.move_roi_selection(1)
+        self.assertEqual(ctrl.active_roi_id, "roi_1")
+
+        # Press Down -> should select second (index 1)
+        ctrl.move_roi_selection(1)
+        self.assertEqual(ctrl.active_roi_id, "roi_2")
+
+        # Press Up -> should select first (index 0)
+        ctrl.move_roi_selection(-1)
+        self.assertEqual(ctrl.active_roi_id, "roi_1")
+
+        # Press Up at start -> should stay at first (index 0)
+        ctrl.move_roi_selection(-1)
+        self.assertEqual(ctrl.active_roi_id, "roi_1")
+
+        # Press Down twice -> should select third (index 2)
+        ctrl.move_roi_selection(1)
+        ctrl.move_roi_selection(1)
+        self.assertEqual(ctrl.active_roi_id, "roi_3")
+
+        # Press Down at end -> should stay at third (index 2)
+        ctrl.move_roi_selection(1)
+        self.assertEqual(ctrl.active_roi_id, "roi_3")
+
+        dpg.delete_item("test_parent")
+
+    def test_roi_list_scrolling(self):
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+
+        ui = self.plugin._ui
+        ctrl = self.plugin._controller
+
+        rois = {f"roi_{i}": MockROI(f"roi_{i}", f"ROI {i}", [255, 0, 0]) for i in range(10)}
+        mock_viewer = MockViewer("img_1", rois)
+        self.mock_api.get_active_viewer.return_value = mock_viewer
+
+        with patch('dearpygui.dearpygui.get_y_scroll') as mock_get_scroll, \
+             patch('dearpygui.dearpygui.set_y_scroll') as mock_set_scroll, \
+             patch('dearpygui.dearpygui.get_item_height') as mock_get_height, \
+             patch('dearpygui.dearpygui.get_y_scroll_max') as mock_get_scroll_max:
+
+            # Mock scroll values
+            mock_get_scroll.return_value = 0.0
+            mock_get_height.return_value = 150.0
+            mock_get_scroll_max.return_value = 200.0
+
+            # 1. Trigger move_roi_selection (selects first item)
+            ctrl.active_roi_id = "roi_0"
+            ctrl.move_roi_selection(1)  # should select roi_1 and set _scroll_to_active = True
+            
+            # Since first few items fit in 150px (roi_1 index 1 is at item_bottom = 2 * 28 = 56px), 
+            # scroll should still be 0.0.
+            # set_y_scroll is called at the end of refresh_rois_ui
+            mock_set_scroll.assert_called_with(ui._t("roi_list_table"), 0.0)
+            mock_set_scroll.reset_mock()
+
+            # 2. Select an item at the bottom (e.g. roi_9)
+            ctrl.active_roi_id = "roi_8"
+            ctrl._scroll_to_active = True
+            ctrl.on_roi_selected("roi_9")  # triggers refresh_rois_ui internally
+
+            # roi_9 index is 9. item_top = 9 * 28 = 252, item_bottom = 280.
+            # view_height = 150. item_bottom > current_scroll + view_height (280 > 150).
+            # scroll should be min(200.0, 280 - 150 + 4) = min(200.0, 134.0) = 134.0.
+            mock_set_scroll.assert_called_with(ui._t("roi_list_table"), 134.0)
+            mock_set_scroll.reset_mock()
+
+            # 3. Navigate back up to index 0
+            ctrl.active_roi_id = "roi_9"
+            mock_get_scroll.return_value = 134.0  # simulate we scrolled down
+            ctrl.move_roi_selection(-9)  # goes to index 0 (roi_0)
+
+            # index 0, item_top = 0. item_top < current_scroll (0 < 134.0).
+            # scroll should be max(0.0, 0.0) = 0.0.
+            mock_set_scroll.assert_called_with(ui._t("roi_list_table"), 0.0)
+
+        dpg.delete_item("test_parent")
+
 
 if __name__ == "__main__":
     unittest.main()

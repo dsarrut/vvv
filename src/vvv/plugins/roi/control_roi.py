@@ -15,6 +15,7 @@ class RoiPluginController(PluginTagMixin):
 
         self._last_image_id = None
         self._last_roi_ids = set()
+        self._scroll_to_active = False
 
     def bind(self, api: PluginAPI) -> None:
         self.api = api
@@ -109,3 +110,47 @@ class RoiPluginController(PluginTagMixin):
         self.active_roi_id = roi_id
         if self.ui:
             self.ui.refresh_rois_ui()
+
+    def move_roi_selection(self, delta: int) -> None:
+        if not self.api:
+            return
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.view_state or not viewer.view_state.rois:
+            return
+
+        vs_id = viewer.image_id
+        filter_text = self.roi_filters.get(vs_id, "")
+        sort_order = self.roi_sort_orders.get(vs_id, 0)
+
+        roi_items = list(viewer.view_state.rois.items())
+        if sort_order == 1:
+            roi_items.sort(key=lambda x: x[1].name.lower())
+        elif sort_order == -1:
+            roi_items.sort(key=lambda x: x[1].name.lower(), reverse=True)
+
+        # Filter the items
+        filtered_roi_ids = []
+        for roi_id, roi in roi_items:
+            if filter_text and filter_text not in roi.name.lower():
+                continue
+            filtered_roi_ids.append(roi_id)
+
+        if not filtered_roi_ids:
+            return
+
+        try:
+            current_idx = filtered_roi_ids.index(self.active_roi_id)
+        except ValueError:
+            current_idx = -1
+
+        if current_idx == -1:
+            if delta > 0:
+                new_idx = 0
+            else:
+                new_idx = len(filtered_roi_ids) - 1
+        else:
+            new_idx = current_idx + delta
+            new_idx = max(0, min(new_idx, len(filtered_roi_ids) - 1))
+
+        self._scroll_to_active = True
+        self.on_roi_selected(filtered_roi_ids[new_idx])

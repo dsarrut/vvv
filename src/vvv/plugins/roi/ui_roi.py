@@ -516,6 +516,24 @@ class RoiPluginUI(PluginTagMixin):
                     for btn in [btn_eye, btn_action, btn_center, btn_close]:
                         dpg.configure_item(btn, enabled=False)
 
+        if getattr(self._c, "_scroll_to_active", False):
+            self._c._scroll_to_active = False
+            if self._c.active_roi_id and self._c.active_roi_id in self.roi_selectables:
+                try:
+                    active_idx = list(self.roi_selectables.keys()).index(self._c.active_roi_id)
+                    row_height = 28.0  # Estimated height with padding
+                    item_top = active_idx * row_height
+                    item_bottom = item_top + row_height
+                    view_height = dpg.get_item_height(self._t("roi_list_window")) or 150.0
+                    scroll_max = dpg.get_y_scroll_max(table_id)
+
+                    if item_top < current_scroll:
+                        current_scroll = max(0.0, item_top)
+                    elif item_bottom > current_scroll + view_height:
+                        current_scroll = min(scroll_max, item_bottom - view_height + 4.0)
+                except Exception:
+                    pass
+
         dpg.set_y_scroll(table_id, current_scroll)
         self.refresh_roi_detail_ui()
 

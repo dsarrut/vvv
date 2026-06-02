@@ -359,21 +359,51 @@ class InteractionManager:
         self.active_tool.on_scroll(app_data)
 
     def on_key_press(self, sender, app_data, user_data):
+        print(f"[DEBUG] on_key_press: key={app_data}")
         # Prevent keyboard shortcuts from triggering while typing in text/number fields
         roi_plugin = next((p for p in self.gui.plugins if p.plugin_id == "roi_plugin"), None) if self.gui else None
+        print(f"[DEBUG] roi_plugin found={roi_plugin is not None}")
         if roi_plugin and hasattr(roi_plugin, "_ui"):
             ui = roi_plugin._ui
             for input_id in ui.roi_selectables.values():
                 if dpg.does_item_exist(input_id) and dpg.is_item_focused(input_id):
+                    print(f"[DEBUG] text field focused: {input_id}")
                     return
 
             filter_tag = ui._t("input_roi_filter")
             if dpg.does_item_exist(filter_tag) and dpg.is_item_focused(filter_tag):
+                print(f"[DEBUG] filter field focused")
                 return
 
             val_tag = ui._t("input_roi_val")
             if dpg.does_item_exist(val_tag) and dpg.is_item_focused(val_tag):
+                print(f"[DEBUG] val field focused")
                 return
+
+            # Check if mouse is hovering the ROI list window
+            list_win = ui._t("roi_list_window")
+            is_hovering_list = False
+            print(f"[DEBUG] checking list_win={list_win} exists={dpg.does_item_exist(list_win)}")
+            if dpg.does_item_exist(list_win):
+                try:
+                    state = dpg.get_item_state(list_win)
+                    pos = state.get("pos")
+                    size = state.get("rect_size")
+                    m_pos = dpg.get_mouse_pos(local=False)
+                    print(f"[DEBUG] pos={pos} size={size} m_pos={m_pos}")
+                    if pos and size and m_pos:
+                        is_hovering_list = (
+                            pos[0] <= m_pos[0] <= pos[0] + size[0] and
+                            pos[1] <= m_pos[1] <= pos[1] + size[1]
+                        )
+                        print(f"[DEBUG] is_hovering_list={is_hovering_list}")
+                except Exception as e:
+                    print(f"[DEBUG] Exception in hover check: {e}")
+            if is_hovering_list:
+                if app_data in (dpg.mvKey_Up, dpg.mvKey_Down):
+                    print(f"[DEBUG] Hovering list and key is Arrow. Moving ROI selection!")
+                    roi_plugin._controller.move_roi_selection(-1 if app_data == dpg.mvKey_Up else 1)
+                    return
 
         try:
             for alias in dpg.get_aliases():
