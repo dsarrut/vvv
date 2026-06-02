@@ -254,3 +254,55 @@ def test_mip_sync_propagation(headless_gui_app):
     # Clean up sync link
     controller.sync.unlink_all()
 
+
+def test_mip_fusion_precompute(headless_gui_app):
+    import time
+    controller, gui, viewer, base_id = headless_gui_app
+    
+    mip_plugin = next((p for p in gui.plugins if p.plugin_id == "mip_plugin"), None)
+    assert mip_plugin is not None
+    
+    # Get overlay image
+    overlay_id = controller.viewers["V2"].image_id
+    assert overlay_id is not None
+    
+    # Enable fusion overlay on viewer V1 (set B as overlay of A)
+    gui.set_context_viewer(viewer)
+    viewer.view_state.set_overlay(overlay_id, controller.volumes[overlay_id])
+    controller._apply_overlay_resample(viewer.view_state, controller.view_states[overlay_id])
+    assert viewer.view_state.display.overlay is not None
+    
+    # Enable MIP Mode
+    mip_plugin._controller.on_mip_toggle(None, True, None)
+    
+    # Retrieve base layer (triggers precomputation of both base and overlay)
+    base_layer = viewer._package_base_layer()
+    assert base_layer.preview_override is not None
+    
+    # Wait for background precompute thread to finish populating cache.
+    # Total unique angles: 36 (since 360 / 10 = 36).
+    # Total entries should be: 36 for base + 36 for overlay = 72.
+    start_time = time.time()
+    while time.time() - start_time < 5.0:
+        size = mip_plugin._controller.get_cache_size(viewer.tag)
+        if size >= 72:
+            break
+        time.sleep(0.1)
+        
+    final_precompute_size = mip_plugin._controller.get_cache_size(viewer.tag)
+    assert final_precompute_size >= 72
+    
+    # Now modify the rotation angle to 10.0 degrees (one of the precomputed angles)
+    mip_plugin._controller.on_rotation_changed(None, 10.0, None)
+    
+    # Package base and overlay layers
+    base_layer_rot = viewer._package_base_layer()
+    overlay_layer_rot = viewer._package_overlay_layer()
+    
+    assert base_layer_rot.preview_override is not None
+    assert overlay_layer_rot.preview_override is not None
+    
+    # The cache size must NOT have increased, because both were hits!
+    assert mip_plugin._controller.get_cache_size(viewer.tag) == final_precompute_size
+
+

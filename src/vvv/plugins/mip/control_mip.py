@@ -310,7 +310,8 @@ class MIPPluginController(PluginTagMixin):
         current_angle,
         proj_axis,
         mip_state,
-        extra_layers=None
+        extra_layers=None,
+        image_id=None
     ) -> np.ndarray:
         tag = viewer.tag.upper()
         if tag not in self._caches:
@@ -322,7 +323,8 @@ class MIPPluginController(PluginTagMixin):
         cache_lock = self._cache_locks[tag]
         
         # Build cache key
-        cache_key = (viewer.image_id, time_idx, orientation, depth_cueing, current_angle, id(data_3d))
+        img_id = image_id or viewer.image_id
+        cache_key = (img_id, time_idx, orientation, depth_cueing, current_angle, id(data_3d))
         
         with cache_lock:
             preview = cache_dict.get(cache_key)
@@ -355,10 +357,10 @@ class MIPPluginController(PluginTagMixin):
                     cache_dict[cache_key] = preview
             
             # Start background precomputation for other angles if extra_layers is provided
-            if extra_layers is not None and d3d.ndim == 3:
+            if extra_layers is not None:
                 self._start_mip_precompute(
                     viewer=viewer,
-                    data_3d=d3d,
+                    data_3d=data_3d,
                     proj_axis=proj_axis,
                     depth_cueing=depth_cueing,
                     center_angle=current_angle,
@@ -405,8 +407,8 @@ class MIPPluginController(PluginTagMixin):
             try:
                 mip_raw = compute_mip_projection(
                     d3d, axis=proj_axis,
-                    depth_cueing=depth_cueing > 0.0,
-                    depth_cueing_strength=depth_cueing,
+                    depth_cueing=key[3] > 0.0,
+                    depth_cueing_strength=key[3],
                     rotation_angle=key[4],
                 )
                 preview = (
@@ -420,8 +422,9 @@ class MIPPluginController(PluginTagMixin):
                             cache_dict.pop(next(iter(cache_dict)), None)
                         cache_dict[key] = preview
                         viewer.controller.ui_needs_refresh = True
-            except Exception:
-                pass
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
                 
         def _run():
             for angle in all_angles:
@@ -435,18 +438,29 @@ class MIPPluginController(PluginTagMixin):
                 if not base_cached:
                     if new_stop.is_set():
                         return
-                    _compute_and_cache(data_3d, base_key)
+                    if data_3d.ndim == 4:
+                        t = min(time_idx, data_3d.shape[0] - 1)
+                        d3d_base = data_3d[t]
+                    else:
+                        d3d_base = data_3d
+                    _compute_and_cache(d3d_base, base_key)
                     
-                # Extra layers
+                # Extra/overlay layers
                 for layer_data, layer_id, layer_time_idx in extra_layers:
                     if new_stop.is_set():
                         return
-                    layer_key = (layer_id, layer_time_idx, orientation, depth_cueing, angle, id(layer_data))
+                    # Overlays always use 0.0 depth cueing
+                    layer_key = (layer_id, layer_time_idx, orientation, 0.0, angle, id(layer_data))
                     with cache_lock:
                         layer_cached = layer_key in cache_dict
                     if not layer_cached:
                         if new_stop.is_set():
                             return
-                        _compute_and_cache(layer_data, layer_key)
+                        if layer_data.ndim == 4:
+                            t = min(layer_time_idx, layer_data.shape[0] - 1)
+                            l_3d = layer_data[t]
+                        else:
+                            l_3d = layer_data
+                        _compute_and_cache(l_3d, layer_key)
                         
         threading.Thread(target=_run, daemon=True).start()

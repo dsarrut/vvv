@@ -1365,9 +1365,7 @@ class SliceViewer:
                     ov_time_idx = min(vs.camera.time_idx,
                                       self.controller.view_states[ov_id].volume.num_timepoints - 1
                                       if ov_id in self.controller.view_states else 0)
-                    ov_3d = ov_data_raw[ov_time_idx] if ov_data_raw.ndim == 4 else ov_data_raw
-                    if ov_3d.ndim == 3:
-                        extra_layers.append((ov_3d, ov_id, ov_time_idx))
+                    extra_layers.append((ov_data_raw, ov_id, ov_time_idx))
 
                 # Delegate caching and precomputation to the plugin controller
                 preview = mip_plugin._controller.get_mip_projection(
@@ -1518,7 +1516,8 @@ class SliceViewer:
                             depth_cueing=0.0,
                             current_angle=current_angle,
                             proj_axis=proj_axis,
-                            mip_state=mip_state
+                            mip_state=mip_state,
+                            image_id=vs.display.overlay.image_id
                         )
 
             return RenderLayer(
