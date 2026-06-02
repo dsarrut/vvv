@@ -46,6 +46,7 @@ class RoiPluginController(PluginTagMixin):
         self.roi_sort_orders.pop(image_id, None)
         if self.ui:
             self.ui.close_rtstruct_modal()
+            self.ui.close_all_stats_windows()
             self.ui.refresh_rois_ui()
 
     def serialize_image_state(self, image_id: str, context: str = "history") -> dict:
@@ -71,6 +72,7 @@ class RoiPluginController(PluginTagMixin):
     def destroy(self) -> None:
         if self.ui:
             self.ui.close_rtstruct_modal()
+            self.ui.close_all_stats_windows()
 
     # --- Actions called from UI ---
 

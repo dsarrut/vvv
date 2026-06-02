@@ -15,6 +15,7 @@ class RoiPluginUI(PluginTagMixin):
         self._c = controller
         self.api: PluginAPI = None  # type: ignore
         self.roi_selectables = {}
+        self.open_stats_wins = set()
 
     def create_ui(self, parent, api: PluginAPI) -> None:
         self.api = api
@@ -257,6 +258,7 @@ class RoiPluginUI(PluginTagMixin):
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
 
             dpg.add_spacer(height=5)
 
@@ -473,6 +475,14 @@ class RoiPluginUI(PluginTagMixin):
                     user_data=roi_id,
                     callback=self.on_roi_center,
                 )
+                btn_stats = dpg.add_button(
+                    label="\uf080",
+                    width=20,
+                    user_data=roi_id,
+                    callback=self.on_roi_stats_toggle,
+                )
+                with dpg.tooltip(btn_stats):
+                    dpg.add_text("Toggle ROI statistics window")
 
                 source_type = getattr(roi, "source_type", "Binary")
 
@@ -506,14 +516,14 @@ class RoiPluginUI(PluginTagMixin):
                 )
 
                 if dpg.does_item_exist("icon_font_tag"):
-                    for btn in [btn_eye, btn_action, btn_center, btn_close]:
+                    for btn in [btn_eye, btn_action, btn_center, btn_stats, btn_close]:
                         dpg.bind_item_font(btn, "icon_font_tag")
 
                 if dpg.does_item_exist("delete_button_theme"):
                     dpg.bind_item_theme(btn_close, "delete_button_theme")
 
                 if is_mip:
-                    for btn in [btn_eye, btn_action, btn_center, btn_close]:
+                    for btn in [btn_eye, btn_action, btn_center, btn_stats, btn_close]:
                         dpg.configure_item(btn, enabled=False)
 
         if getattr(self._c, "_scroll_to_active", False):
@@ -992,6 +1002,12 @@ class RoiPluginUI(PluginTagMixin):
         if self._c.active_roi_id == user_data:
             self._c.active_roi_id = None
 
+        win_tag = self._t(f"stats_win_{user_data}")
+        if win_tag in self.open_stats_wins:
+            self.open_stats_wins.remove(win_tag)
+        if dpg.does_item_exist(win_tag):
+            dpg.delete_item(win_tag)
+
         self.api.request_refresh()
 
     def on_close_roi_properties(self, sender, app_data, user_data):
@@ -1009,6 +1025,11 @@ class RoiPluginUI(PluginTagMixin):
             if filter_text and filter_text not in roi.name.lower():
                 continue
             self.api.close_roi(viewer.image_id, roi_id)
+            win_tag = self._t(f"stats_win_{roi_id}")
+            if win_tag in self.open_stats_wins:
+                self.open_stats_wins.remove(win_tag)
+            if dpg.does_item_exist(win_tag):
+                dpg.delete_item(win_tag)
 
         if (
             self._c.active_roi_id
@@ -1017,6 +1038,71 @@ class RoiPluginUI(PluginTagMixin):
             self._c.active_roi_id = None
 
         self.api.request_refresh()
+
+    def on_roi_stats_toggle(self, sender, app_data, user_data):
+        roi_id = user_data
+        win_tag = self._t(f"stats_win_{roi_id}")
+        if dpg.does_item_exist(win_tag):
+            self.on_roi_stats_window_closed(win_tag, None, roi_id)
+            return
+
+        assert self.api is not None
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.view_state or roi_id not in viewer.view_state.rois:
+            return
+
+        roi = viewer.view_state.rois[roi_id]
+        image_name, _ = self.api.get_image_display_name(viewer.image_id)
+
+        with dpg.window(
+            tag=win_tag,
+            label=f"ROI Stats: {roi.name} [{image_name}]",
+            width=300,
+            height=200,
+            on_close=self.on_roi_stats_window_closed,
+            user_data=roi_id,
+        ):
+            # Write mock statistics
+            dpg.add_text(f"Statistics for ROI: {roi.name}", color=self.api.ui_cfg["colors"]["text_header"])
+            dpg.add_separator()
+            
+            dim_col = self.api.ui_cfg["colors"]["text_dim"]
+            with dpg.group(horizontal=True):
+                dpg.add_text("Volume (cm³):", color=dim_col)
+                dpg.add_text("12.34 (Mock)")
+            with dpg.group(horizontal=True):
+                dpg.add_text("Mean Intensity:", color=dim_col)
+                dpg.add_text("456.7 (Mock)")
+            with dpg.group(horizontal=True):
+                dpg.add_text("Min / Max:", color=dim_col)
+                dpg.add_text("-120 / 980 (Mock)")
+            with dpg.group(horizontal=True):
+                dpg.add_text("Std Dev:", color=dim_col)
+                dpg.add_text("45.2 (Mock)")
+
+        self.open_stats_wins.add(win_tag)
+
+        # Position it nicely
+        vp_w = dpg.get_viewport_client_width()
+        vp_h = dpg.get_viewport_client_height()
+        win_w, win_h = 300, 200
+        dpg.set_item_pos(
+            win_tag, [max(10, vp_w - win_w - 50), max(10, (vp_h - win_h) // 2)]
+        )
+
+    def on_roi_stats_window_closed(self, sender, app_data, user_data):
+        roi_id = user_data
+        win_tag = self._t(f"stats_win_{roi_id}")
+        if win_tag in self.open_stats_wins:
+            self.open_stats_wins.remove(win_tag)
+        if dpg.does_item_exist(win_tag):
+            dpg.delete_item(win_tag)
+
+    def close_all_stats_windows(self):
+        for win_tag in list(self.open_stats_wins):
+            if dpg.does_item_exist(win_tag):
+                dpg.delete_item(win_tag)
+        self.open_stats_wins.clear()
 
     def on_roi_show_all(self, sender, app_data, user_data):
         viewer = self.api.get_active_viewer()

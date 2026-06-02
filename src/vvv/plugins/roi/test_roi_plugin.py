@@ -563,6 +563,58 @@ class TestRoiPlugin(unittest.TestCase):
 
         dpg.delete_item("test_parent")
 
+    def test_roi_stats_toggle(self):
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+
+        ui = self.plugin._ui
+        ctrl = self.plugin._controller
+
+        rois = {
+            "roi_1": MockROI("roi_1", "Tumor", [255, 0, 0]),
+            "roi_2": MockROI("roi_2", "Kidney", [0, 255, 0]),
+        }
+        mock_viewer = MockViewer("img_1", rois)
+        self.mock_api.get_active_viewer.return_value = mock_viewer
+
+        # 1. Toggle it ON
+        ui.on_roi_stats_toggle(None, None, "roi_1")
+        win_tag = ui._t("stats_win_roi_1")
+        self.assertTrue(dpg.does_item_exist(win_tag))
+        self.assertIn(win_tag, ui.open_stats_wins)
+
+        # 2. Toggle it OFF
+        ui.on_roi_stats_toggle(None, None, "roi_1")
+        self.assertFalse(dpg.does_item_exist(win_tag))
+        self.assertNotIn(win_tag, ui.open_stats_wins)
+
+        # 3. Toggle ON and close single ROI
+        ui.on_roi_stats_toggle(None, None, "roi_1")
+        self.assertTrue(dpg.does_item_exist(win_tag))
+        ui.on_roi_close(None, None, "roi_1")
+        self.assertFalse(dpg.does_item_exist(win_tag))
+        self.assertNotIn(win_tag, ui.open_stats_wins)
+
+        # 4. Toggle ON and close all ROIs
+        ui.on_roi_stats_toggle(None, None, "roi_2")
+        win_tag_2 = ui._t("stats_win_roi_2")
+        self.assertTrue(dpg.does_item_exist(win_tag_2))
+        ui.on_roi_close_all(None, None, None)
+        self.assertFalse(dpg.does_item_exist(win_tag_2))
+        self.assertNotIn(win_tag_2, ui.open_stats_wins)
+
+        # 5. Toggle ON and remove image
+        ui.on_roi_stats_toggle(None, None, "roi_1")
+        win_tag = ui._t("stats_win_roi_1")
+        self.assertTrue(dpg.does_item_exist(win_tag))
+        ctrl.on_image_removed("img_1")
+        self.assertFalse(dpg.does_item_exist(win_tag))
+        self.assertNotIn(win_tag, ui.open_stats_wins)
+
+        dpg.delete_item("test_parent")
+
 
 if __name__ == "__main__":
     unittest.main()
