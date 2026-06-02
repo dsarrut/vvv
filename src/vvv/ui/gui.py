@@ -894,18 +894,6 @@ class MainGUI:
             "check_filename",
             "check_interpolation",
             "check_show_contour",
-            "btn_roi_load",
-            "combo_roi_mode",
-            "input_roi_val",
-        )
-        self._set_enabled(
-            has_rois,
-            "btn_roi_show_all",
-            "btn_roi_contour_all",
-            "btn_roi_hide_all",
-            "btn_roi_export_stats",
-            "slider_roi_global_opacity",
-            "slider_roi_global_thickness",
         )
 
         # Profile Visibility Toggle

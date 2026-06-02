@@ -314,11 +314,30 @@ class RoiPluginUI(PluginTagMixin):
             and viewer.image_id
             and self.api.is_mip_active(viewer.image_id, viewer.tag)
         )
+        has_image = bool(
+            viewer
+            and viewer.image_id
+            and self.api.get_volumes().get(viewer.image_id)
+        )
+        has_rois = bool(
+            has_image
+            and viewer.view_state
+            and viewer.view_state.rois
+        )
 
-        toolbar_btns = [
+        load_controls = [
             "btn_roi_load_rtstruct",
             "btn_roi_load_labels",
             "btn_roi_load_binary",
+            "combo_roi_mode",
+            "input_roi_val",
+        ]
+        for name in load_controls:
+            tag = self._t(name)
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, enabled=has_image and not is_mip)
+
+        roi_controls = [
             "btn_roi_show_all",
             "btn_roi_contour_all",
             "btn_roi_hide_all",
@@ -326,11 +345,14 @@ class RoiPluginUI(PluginTagMixin):
             "btn_roi_sort",
             "btn_clear_filter",
             "btn_roi_export_stats",
+            "slider_roi_global_opacity",
+            "slider_roi_global_thickness",
+            "input_roi_filter",
         ]
-        for name in toolbar_btns:
+        for name in roi_controls:
             tag = self._t(name)
             if dpg.does_item_exist(tag):
-                dpg.configure_item(tag, enabled=not is_mip)
+                dpg.configure_item(tag, enabled=has_rois and not is_mip)
 
         if dpg.does_item_exist(self._t("text_roi_active_title")):
             if (
@@ -1170,6 +1192,8 @@ class RoiPluginUI(PluginTagMixin):
         mode = ctrl.settings.data.get("behavior", {}).get(
             f"{self._plugin_id}_default_mode", "Ignore BG (val)"
         )
+        if mode == "Label Map":
+            mode = "Ignore BG (val)"
         val = ctrl.settings.data.get("behavior", {}).get(
             f"{self._plugin_id}_default_val", 0.0
         )
