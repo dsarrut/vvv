@@ -156,3 +156,84 @@ class RoiPluginController(PluginTagMixin):
 
         self._scroll_to_active = True
         self.on_roi_selected(filtered_roi_ids[new_idx])
+
+    def compute_detailed_roi_stats(self, base_vs_id: str, roi_id: str) -> dict | None:
+        if not self.api:
+            return None
+        volumes = self.api.get_volumes()
+        if base_vs_id not in volumes or roi_id not in volumes:
+            return None
+
+        base_vol = volumes[base_vs_id]
+        roi_vol = volumes[roi_id]
+
+        import numpy as np
+
+        # 1. Voxel geometry calculations
+        mask = roi_vol.data > 0
+        voxel_count = int(np.count_nonzero(mask))
+        voxel_vol_mm3 = abs(np.prod(roi_vol.spacing))
+        vol_cc = (voxel_count * voxel_vol_mm3) / 1000.0
+
+        # Center of mass in pixel and physical coordinates
+        indices = np.argwhere(mask)  # shape (N, 3), rows are (z, y, x)
+        if len(indices) > 0:
+            com_z, com_y, com_x = np.mean(indices, axis=0)
+            com_pixel_cropped = [float(com_x), float(com_y), float(com_z)]
+            com_mm = list(roi_vol.sitk_image.TransformContinuousIndexToPhysicalPoint(com_pixel_cropped))
+            com_pixel = list(base_vol.sitk_image.TransformPhysicalPointToContinuousIndex(com_mm))
+        else:
+            com_pixel = [0.0, 0.0, 0.0]
+            com_mm = [0.0, 0.0, 0.0]
+
+        # Size and spacing
+        nz, ny, nx = base_vol.shape3d
+        size_str = f"{nx} x {ny} x {nz}"
+        sx, sy, sz = base_vol.spacing
+        spacing_str = f"{sx:.3f} x {sy:.3f} x {sz:.3f}"
+
+        # 2. Intensity statistics
+        target_data = base_vol.data
+        if base_vol.num_timepoints > 1:
+            viewer = self.api.get_active_viewer()
+            t = 0
+            if viewer and viewer.view_state:
+                t = min(viewer.view_state.camera.time_idx, base_vol.num_timepoints - 1)
+            target_data = target_data[t]
+
+        roi_bbox = getattr(roi_vol, "roi_bbox", None)
+        if roi_bbox is not None and isinstance(roi_bbox, (list, tuple, np.ndarray)) and len(roi_bbox) == 6:
+            z0, z1, y0, y1, x0, x1 = roi_bbox
+            if z0 != z1:
+                target_data = target_data[z0:z1, y0:y1, x0:x1]
+
+        if voxel_count > 0:
+            pixels = target_data[mask]
+            mean_val = float(np.mean(pixels))
+            std_val = float(np.std(pixels))
+            median_val = float(np.median(pixels))
+            min_val = float(np.min(pixels))
+            max_val = float(np.max(pixels))
+            peak_val = float(np.percentile(pixels, 95))
+        else:
+            mean_val = 0.0
+            std_val = 0.0
+            median_val = 0.0
+            min_val = 0.0
+            max_val = 0.0
+            peak_val = 0.0
+
+        return {
+            "vol_cc": vol_cc,
+            "voxel_count": voxel_count,
+            "com_pixel": com_pixel,
+            "com_mm": com_mm,
+            "size": size_str,
+            "spacing": spacing_str,
+            "mean": mean_val,
+            "std": std_val,
+            "median": median_val,
+            "min": min_val,
+            "max": max_val,
+            "peak": peak_val,
+        }

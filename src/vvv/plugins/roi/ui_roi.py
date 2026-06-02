@@ -561,6 +561,7 @@ class RoiPluginUI(PluginTagMixin):
                     pass
 
         dpg.set_y_scroll(table_id, current_scroll)
+        self.refresh_all_open_stats_windows()
         self.refresh_roi_detail_ui()
 
     def refresh_roi_detail_ui(self):
@@ -1070,36 +1071,46 @@ class RoiPluginUI(PluginTagMixin):
         roi = viewer.view_state.rois[roi_id]
         image_name, _ = self.api.get_image_display_name(viewer.image_id)
 
+        theme_tag = self._t(f"stats_theme_{roi_id}")
+        if dpg.does_item_exist(theme_tag):
+            dpg.delete_item(theme_tag)
+
+        r, g, b = roi.color[:3]
+        luminance = 0.299 * r + 0.587 * g + 0.114 * b
+        text_color = [0, 0, 0, 255] if luminance > 128 else [255, 255, 255, 255]
+
+        with dpg.theme(tag=theme_tag):
+            with dpg.theme_component(dpg.mvWindowAppItem):
+                dpg.add_theme_color(dpg.mvThemeCol_TitleBg, roi.color + [255])
+                dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, roi.color + [255])
+                dpg.add_theme_color(dpg.mvThemeCol_Text, text_color)
+
+        content_theme_tag = self._t(f"stats_content_theme_{roi_id}")
+        if dpg.does_item_exist(content_theme_tag):
+            dpg.delete_item(content_theme_tag)
+
+        with dpg.theme(tag=content_theme_tag):
+            with dpg.theme_component(dpg.mvGroup):
+                dpg.add_theme_color(dpg.mvThemeCol_Text, [255, 255, 255, 255])
+
         with dpg.window(
             tag=win_tag,
-            label=f"ROI Stats: {roi.name} [{image_name}]",
-            width=300,
-            height=200,
+            label=f"{roi.name} - {image_name}",
+            width=320,
+            height=330,
             on_close=self.on_roi_stats_window_closed,
             user_data=roi_id,
         ):
-            # Write mock statistics
-            dpg.add_text(f"Statistics for ROI: {roi.name}", color=self.api.ui_cfg["colors"]["text_header"])
-            dpg.add_separator()
-            
-            dim_col = self.api.ui_cfg["colors"]["text_dim"]
-            with dpg.group(horizontal=True):
-                dpg.add_text("Volume (cm³):", color=dim_col)
-                dpg.add_text("12.34 (Mock)")
-            with dpg.group(horizontal=True):
-                dpg.add_text("Mean Intensity:", color=dim_col)
-                dpg.add_text("456.7 (Mock)")
-            with dpg.group(horizontal=True):
-                dpg.add_text("Min / Max:", color=dim_col)
-                dpg.add_text("-120 / 980 (Mock)")
-            with dpg.group(horizontal=True):
-                dpg.add_text("Std Dev:", color=dim_col)
-                dpg.add_text("45.2 (Mock)")
+            content_tag = self._t(f"stats_content_{roi_id}")
+            with dpg.group(tag=content_tag):
+                self.build_stats_window_contents(content_tag, viewer.image_id, roi_id)
 
-        # Position it nicely with offset for multiple open windows
+        dpg.bind_item_theme(win_tag, theme_tag)
+        dpg.bind_item_theme(content_tag, content_theme_tag)
+
         vp_w = dpg.get_viewport_client_width()
         vp_h = dpg.get_viewport_client_height()
-        win_w, win_h = 300, 200
+        win_w, win_h = 320, 330
 
         base_x = max(10, vp_w - win_w - 50)
         base_y = max(10, (vp_h - win_h) // 2)
@@ -1117,6 +1128,92 @@ class RoiPluginUI(PluginTagMixin):
         dpg.set_item_pos(win_tag, [pos_x, pos_y])
         self.open_stats_wins.add(win_tag)
 
+    def build_stats_window_contents(self, parent_tag, base_vs_id, roi_id):
+        stats = self._c.compute_detailed_roi_stats(base_vs_id, roi_id)
+        if not stats:
+            dpg.add_text("Failed to calculate statistics.", parent=parent_tag)
+            return
+
+        dim_col = self.api.ui_cfg["colors"]["text_dim"]
+        header_col = self.api.ui_cfg["colors"]["text_header"]
+
+        dpg.add_text("Geometry", color=header_col, parent=parent_tag)
+        dpg.add_separator(parent=parent_tag)
+        
+        with dpg.group(horizontal=True, parent=parent_tag):
+            dpg.add_text("Volume (cc):", color=dim_col)
+            dpg.add_text(f"{stats['vol_cc']:.3f}")
+        with dpg.group(horizontal=True, parent=parent_tag):
+            dpg.add_text("Voxels:", color=dim_col)
+            dpg.add_text(f"{stats['voxel_count']}")
+        with dpg.group(horizontal=True, parent=parent_tag):
+            dpg.add_text("Size:", color=dim_col)
+            dpg.add_text(stats['size'])
+        with dpg.group(horizontal=True, parent=parent_tag):
+            dpg.add_text("Spacing (mm):", color=dim_col)
+            dpg.add_text(stats['spacing'])
+            
+        dpg.add_text("Center of Mass:", parent=parent_tag)
+        with dpg.group(horizontal=True, parent=parent_tag):
+            dpg.add_text("  Pixel:", color=dim_col)
+            px, py, pz = stats['com_pixel']
+            dpg.add_text(f"({px:.1f}, {py:.1f}, {pz:.1f})")
+        with dpg.group(horizontal=True, parent=parent_tag):
+            dpg.add_text("  Physical (mm):", color=dim_col)
+            mx, my, mz = stats['com_mm']
+            dpg.add_text(f"({mx:.1f}, {my:.1f}, {mz:.1f})")
+
+        dpg.add_spacer(height=5, parent=parent_tag)
+
+        dpg.add_text("Intensity", color=header_col, parent=parent_tag)
+        dpg.add_separator(parent=parent_tag)
+        
+        with dpg.group(horizontal=True, parent=parent_tag):
+            dpg.add_text("Mean:", color=dim_col)
+            dpg.add_text(f"{stats['mean']:.2f}")
+            dpg.add_spacer(width=10)
+            dpg.add_text("Std Dev:", color=dim_col)
+            dpg.add_text(f"{stats['std']:.2f}")
+        with dpg.group(horizontal=True, parent=parent_tag):
+            dpg.add_text("Median:", color=dim_col)
+            dpg.add_text(f"{stats['median']:.2f}")
+            dpg.add_spacer(width=10)
+            dpg.add_text("Peak (95%):", color=dim_col)
+            dpg.add_text(f"{stats['peak']:.2f}")
+        with dpg.group(horizontal=True, parent=parent_tag):
+            dpg.add_text("Min / Max:", color=dim_col)
+            dpg.add_text(f"{stats['min']:.2f} / {stats['max']:.2f}")
+
+    def refresh_all_open_stats_windows(self):
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.image_id or not viewer.view_state:
+            self.close_all_stats_windows()
+            return
+
+        image_name, _ = self.api.get_image_display_name(viewer.image_id)
+
+        for win_tag in list(self.open_stats_wins):
+            roi_id = None
+            for r_id in viewer.view_state.rois:
+                if self._t(f"stats_win_{r_id}") == win_tag:
+                    roi_id = r_id
+                    break
+
+            if not roi_id:
+                if dpg.does_item_exist(win_tag):
+                    dpg.delete_item(win_tag)
+                self.open_stats_wins.discard(win_tag)
+                continue
+
+            roi = viewer.view_state.rois[roi_id]
+            if dpg.does_item_exist(win_tag):
+                dpg.configure_item(win_tag, label=f"{roi.name} - {image_name}")
+
+            content_tag = self._t(f"stats_content_{roi_id}")
+            if dpg.does_item_exist(content_tag):
+                dpg.delete_item(content_tag, children_only=True)
+                self.build_stats_window_contents(content_tag, viewer.image_id, roi_id)
+
     def on_roi_toggle_all_stats(self, sender, app_data, user_data):
         viewer = self.api.get_active_viewer()
         if not viewer or not viewer.image_id or not viewer.view_state:
@@ -1132,8 +1229,6 @@ class RoiPluginUI(PluginTagMixin):
         if not rois_to_toggle:
             return
 
-        # If any of the windows for these ROIs is open, close them all.
-        # Otherwise, open them all.
         any_open = any(self._t(f"stats_win_{roi_id}") in self.open_stats_wins for roi_id in rois_to_toggle)
 
         if any_open:
@@ -1157,10 +1252,19 @@ class RoiPluginUI(PluginTagMixin):
         if dpg.does_item_exist(win_tag):
             dpg.delete_item(win_tag)
 
+        theme_tag = self._t(f"stats_theme_{roi_id}")
+        if dpg.does_item_exist(theme_tag):
+            dpg.delete_item(theme_tag)
+        content_theme_tag = self._t(f"stats_content_theme_{roi_id}")
+        if dpg.does_item_exist(content_theme_tag):
+            dpg.delete_item(content_theme_tag)
+
     def close_all_stats_windows(self):
         for win_tag in list(self.open_stats_wins):
-            if dpg.does_item_exist(win_tag):
-                dpg.delete_item(win_tag)
+            prefix = self._t("stats_win_")
+            if win_tag.startswith(prefix):
+                roi_id = win_tag[len(prefix):]
+                self.on_roi_stats_window_closed(None, None, roi_id)
         self.open_stats_wins.clear()
 
     def on_roi_show_all(self, sender, app_data, user_data):

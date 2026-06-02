@@ -641,17 +641,17 @@ class TestRoiPlugin(unittest.TestCase):
 
             # 1. Open first window, offset should be 0
             ui.on_roi_stats_toggle(None, None, "roi_1")
-            # base_x = 1000 - 300 - 50 = 650
-            # base_y = (800 - 200) // 2 = 300
-            mock_set_pos.assert_any_call(ui._t("stats_win_roi_1"), [650, 300])
+            # base_x = 1000 - 320 - 50 = 630
+            # base_y = (800 - 330) // 2 = 235
+            mock_set_pos.assert_any_call(ui._t("stats_win_roi_1"), [630, 235])
 
             # 2. Open second window, offset should be 25px
             ui.on_roi_stats_toggle(None, None, "roi_2")
-            mock_set_pos.assert_any_call(ui._t("stats_win_roi_2"), [625, 325])
+            mock_set_pos.assert_any_call(ui._t("stats_win_roi_2"), [605, 260])
 
             # 3. Open third window, offset should be 50px
             ui.on_roi_stats_toggle(None, None, "roi_3")
-            mock_set_pos.assert_any_call(ui._t("stats_win_roi_3"), [600, 350])
+            mock_set_pos.assert_any_call(ui._t("stats_win_roi_3"), [580, 285])
 
             # Clean them up
             ui.close_all_stats_windows()
@@ -672,6 +672,52 @@ class TestRoiPlugin(unittest.TestCase):
             self.assertEqual(len(ui.open_stats_wins), 0)
 
         dpg.delete_item("test_parent")
+
+    def test_compute_detailed_roi_stats_calculation(self):
+        import numpy as np
+        ctrl = self.plugin._controller
+        
+        base_vol = MagicMock()
+        base_vol.shape3d = (5, 6, 7)  # z, y, x
+        base_vol.spacing = (2.0, 2.0, 2.0)
+        base_vol.num_timepoints = 1
+        base_vol.data = np.zeros((5, 6, 7), dtype=np.float32)
+        base_vol.data[2, 3, 4] = 10.0
+        base_vol.data[3, 4, 5] = 20.0
+        base_vol.sitk_image = MagicMock()
+        base_vol.sitk_image.TransformPhysicalPointToContinuousIndex.side_effect = lambda pt: [pt[0]/2.0, pt[1]/2.0, pt[2]/2.0]
+
+        roi_vol = MagicMock()
+        roi_vol.shape3d = (5, 6, 7)
+        roi_vol.spacing = (2.0, 2.0, 2.0)
+        roi_vol.data = np.zeros((5, 6, 7), dtype=np.uint8)
+        roi_vol.data[2, 3, 4] = 1
+        roi_vol.data[3, 4, 5] = 1
+        roi_vol.sitk_image = MagicMock()
+        roi_vol.sitk_image.TransformContinuousIndexToPhysicalPoint.side_effect = lambda idx: [idx[0]*2.0, idx[1]*2.0, idx[2]*2.0]
+
+        self.mock_api.get_volumes.return_value = {
+            "img_1": base_vol,
+            "roi_1": roi_vol,
+        }
+
+        # Bind controller API
+        ctrl.bind(self.mock_api)
+
+        stats = ctrl.compute_detailed_roi_stats("img_1", "roi_1")
+        self.assertIsNotNone(stats)
+        self.assertAlmostEqual(stats["vol_cc"], 0.016)
+        self.assertEqual(stats["voxel_count"], 2)
+        self.assertEqual(stats["size"], "7 x 6 x 5")
+        self.assertEqual(stats["spacing"], "2.000 x 2.000 x 2.000")
+        self.assertEqual(stats["com_pixel"], [4.5, 3.5, 2.5])
+        self.assertEqual(stats["com_mm"], [9.0, 7.0, 5.0])
+        self.assertEqual(stats["mean"], 15.0)
+        self.assertEqual(stats["std"], 5.0)
+        self.assertEqual(stats["median"], 15.0)
+        self.assertEqual(stats["min"], 10.0)
+        self.assertEqual(stats["max"], 20.0)
+        self.assertAlmostEqual(stats["peak"], 19.5)
 
 
 if __name__ == "__main__":
