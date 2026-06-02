@@ -126,7 +126,16 @@ class MIPPluginController(PluginTagMixin):
         pass
 
     def destroy(self) -> None:
-        pass
+        if self._api:
+            try:
+                for viewer in self._api.get_viewers().values():
+                    if hasattr(viewer, "_mip_precompute_stop"):
+                        viewer._mip_precompute_stop.set()
+                    if hasattr(viewer, "_mip_cache_lock"):
+                        with viewer._mip_cache_lock:
+                            viewer._mip_cache_dict.clear()
+            except Exception:
+                pass
 
     def _mark_viewer_dirty(self, viewer):
         if viewer:

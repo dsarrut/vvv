@@ -201,3 +201,47 @@ def test_mip_viewer_isolation(headless_gui_app):
         assert restored.rotation_angles["Z"] == 30.0
         assert restored.rotation_step == 3.0
 
+
+def test_mip_sync_propagation(headless_gui_app):
+    controller, gui, viewer_v1, base_id = headless_gui_app
+    
+    mip_plugin = next((p for p in gui.plugins if p.plugin_id == "mip_plugin"), None)
+    assert mip_plugin is not None
+    
+    # V1 displays vs_id1 (base_id), V2 displays vs_id2
+    viewer_v2 = controller.viewers["V2"]
+    overlay_id = viewer_v2.image_id
+    assert overlay_id is not None
+    assert overlay_id != base_id
+    
+    # Enable MIP on both viewers
+    gui.set_context_viewer(viewer_v1)
+    mip_plugin._controller.on_mip_toggle(None, True, None)
+    
+    gui.set_context_viewer(viewer_v2)
+    mip_plugin._controller.on_mip_toggle(None, True, None)
+    
+    # Link all images (same sync group)
+    controller.sync.link_all()
+    
+    # Check states
+    state_v1 = mip_plugin._controller.get_viewer_state(base_id, "V1")
+    state_v2 = mip_plugin._controller.get_viewer_state(overlay_id, "V2")
+    
+    # 1. Modify rotation on V1 and check propagation to V2
+    gui.set_context_viewer(viewer_v1)
+    viewer_v1.set_orientation(ViewMode.AXIAL)
+    viewer_v2.set_orientation(ViewMode.AXIAL)
+    
+    mip_plugin._controller.on_rotation_changed(None, 30.0, None)
+    assert state_v1.rotation_angles["Z"] == 30.0
+    assert state_v2.rotation_angles["Z"] == 30.0  # Propagated!
+    
+    # 2. Modify depth cueing on V1 and check propagation to V2
+    mip_plugin._controller.on_depth_cueing_changed(None, 0.65, None)
+    assert state_v1.depth_cueing == 0.65
+    assert state_v2.depth_cueing == 0.65  # Propagated!
+    
+    # Clean up sync link
+    controller.sync.unlink_all()
+
