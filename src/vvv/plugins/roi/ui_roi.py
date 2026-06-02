@@ -66,7 +66,6 @@ class RoiPluginUI(PluginTagMixin):
 
             # --- TOP: Load & Import ---
             with dpg.group(horizontal=True):
-
                 btn_rt = dpg.add_button(
                     label="RT-Struct...",
                     width=150,
@@ -125,6 +124,7 @@ class RoiPluginUI(PluginTagMixin):
                     default_value=0.0, step=1.0, width=90, tag=self._t("input_roi_val")
                 )
 
+            dpg.add_separator()
             dpg.add_spacer(height=10)
 
             # --- MIDDLE: Master List Controls ---
@@ -315,15 +315,9 @@ class RoiPluginUI(PluginTagMixin):
             and self.api.is_mip_active(viewer.image_id, viewer.tag)
         )
         has_image = bool(
-            viewer
-            and viewer.image_id
-            and self.api.get_volumes().get(viewer.image_id)
+            viewer and viewer.image_id and self.api.get_volumes().get(viewer.image_id)
         )
-        has_rois = bool(
-            has_image
-            and viewer.view_state
-            and viewer.view_state.rois
-        )
+        has_rois = bool(has_image and viewer.view_state and viewer.view_state.rois)
 
         load_controls = [
             "btn_roi_load_rtstruct",
