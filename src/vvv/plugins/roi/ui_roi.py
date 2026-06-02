@@ -163,7 +163,13 @@ class RoiPluginUI(PluginTagMixin):
                 )
 
                 if dpg.does_item_exist("icon_font_tag"):
-                    for btn in [btn_show, btn_contour, btn_hide, btn_toggle_all_stats, btn_close_all]:
+                    for btn in [
+                        btn_show,
+                        btn_contour,
+                        btn_hide,
+                        btn_toggle_all_stats,
+                        btn_close_all,
+                    ]:
                         dpg.bind_item_font(btn, "icon_font_tag")
 
                 if dpg.does_item_exist("delete_button_theme"):
@@ -547,17 +553,23 @@ class RoiPluginUI(PluginTagMixin):
             self._c._scroll_to_active = False
             if self._c.active_roi_id and self._c.active_roi_id in self.roi_selectables:
                 try:
-                    active_idx = list(self.roi_selectables.keys()).index(self._c.active_roi_id)
+                    active_idx = list(self.roi_selectables.keys()).index(
+                        self._c.active_roi_id
+                    )
                     row_height = 28.0  # Estimated height with padding
                     item_top = active_idx * row_height
                     item_bottom = item_top + row_height
-                    view_height = dpg.get_item_height(self._t("roi_list_window")) or 150.0
+                    view_height = (
+                        dpg.get_item_height(self._t("roi_list_window")) or 150.0
+                    )
                     scroll_max = dpg.get_y_scroll_max(table_id)
 
                     if item_top < current_scroll:
                         current_scroll = max(0.0, item_top)
                     elif item_bottom > current_scroll + view_height:
-                        current_scroll = min(scroll_max, item_bottom - view_height + 4.0)
+                        current_scroll = min(
+                            scroll_max, item_bottom - view_height + 4.0
+                        )
                 except Exception:
                     pass
 
@@ -1074,31 +1086,33 @@ class RoiPluginUI(PluginTagMixin):
 
         theme_tag = self._t(f"stats_theme_{roi_id}")
         if dpg.does_item_exist(theme_tag):
-            dpg.delete_item(theme_tag)
+            dpg.delete_item(theme_tag, children_only=True)
+        else:
+            dpg.add_theme(tag=theme_tag)
 
         r, g, b = roi.color[:3]
         luminance = 0.299 * r + 0.587 * g + 0.114 * b
         text_color = [0, 0, 0, 255] if luminance > 128 else [255, 255, 255, 255]
 
-        with dpg.theme(tag=theme_tag):
-            with dpg.theme_component(dpg.mvWindowAppItem):
-                dpg.add_theme_color(dpg.mvThemeCol_TitleBg, roi.color + [255])
-                dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, roi.color + [255])
-                dpg.add_theme_color(dpg.mvThemeCol_Text, text_color)
+        with dpg.theme_component(dpg.mvWindowAppItem, parent=theme_tag):
+            dpg.add_theme_color(dpg.mvThemeCol_TitleBg, roi.color + [255])
+            dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, roi.color + [255])
+            dpg.add_theme_color(dpg.mvThemeCol_Text, text_color)
 
         content_theme_tag = self._t(f"stats_content_theme_{roi_id}")
         if dpg.does_item_exist(content_theme_tag):
-            dpg.delete_item(content_theme_tag)
+            dpg.delete_item(content_theme_tag, children_only=True)
+        else:
+            dpg.add_theme(tag=content_theme_tag)
 
-        with dpg.theme(tag=content_theme_tag):
-            with dpg.theme_component(dpg.mvGroup):
-                dpg.add_theme_color(dpg.mvThemeCol_Text, [255, 255, 255, 255])
+        with dpg.theme_component(dpg.mvGroup, parent=content_theme_tag):
+            dpg.add_theme_color(dpg.mvThemeCol_Text, [255, 255, 255, 255])
 
         with dpg.window(
             tag=win_tag,
             label=f"{roi.name} - {image_name}",
             width=320,
-            height=340,
+            height=310,
             on_close=self.on_roi_stats_window_closed,
             user_data=roi_id,
         ):
@@ -1114,7 +1128,7 @@ class RoiPluginUI(PluginTagMixin):
         else:
             vp_w = dpg.get_viewport_client_width()
             vp_h = dpg.get_viewport_client_height()
-            win_w, win_h = 320, 340
+            win_w, win_h = 320, 310
 
             base_x = max(10, vp_w - win_w - 50)
             base_y = max(10, (vp_h - win_h) // 2)
@@ -1139,22 +1153,168 @@ class RoiPluginUI(PluginTagMixin):
             dpg.add_text("Failed to calculate statistics.", parent=parent_tag)
             return
 
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.view_state or roi_id not in viewer.view_state.rois:
+            dpg.add_text("Failed to calculate statistics.", parent=parent_tag)
+            return
+        roi = viewer.view_state.rois[roi_id]
+
         dim_col = self.api.ui_cfg["colors"]["text_dim"]
         header_col = self.api.ui_cfg["colors"]["text_header"]
 
-        # Copy to Clipboard Button
-        dpg.add_button(
-            label="Copy to Clipboard",
-            callback=self.on_copy_stats_to_clipboard,
-            user_data={"base_vs_id": base_vs_id, "roi_id": roi_id},
-            width=-1,
-            parent=parent_tag,
-        )
+        # Create slider theme matching active ROI color
+        slider_theme_tag = self._t(f"stats_slider_theme_{roi_id}")
+        if dpg.does_item_exist(slider_theme_tag):
+            dpg.delete_item(slider_theme_tag, children_only=True)
+        else:
+            dpg.add_theme(tag=slider_theme_tag)
+
+        with dpg.theme_component(dpg.mvSliderFloat, parent=slider_theme_tag):
+            r, g, b = roi.color[:3]
+            dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, [r, g, b, 255])
+            dpg.add_theme_color(
+                dpg.mvThemeCol_SliderGrabActive,
+                [min(255, r + 40), min(255, g + 40), min(255, b + 40), 255],
+            )
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, [r, g, b, 100])
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, [r, g, b, 50])
+
+        # Control Toolbar Row
+        with dpg.group(horizontal=True, parent=parent_tag) as row_group:
+            # Color Picker
+            color_picker = dpg.add_color_edit(
+                default_value=roi.color + [255],
+                no_inputs=True,
+                no_label=True,
+                no_alpha=True,
+                width=20,
+                height=20,
+                user_data=roi_id,
+                callback=self.on_roi_color_changed,
+            )
+            with dpg.tooltip(color_picker):
+                dpg.add_text("Change ROI color")
+
+            # Copy to Clipboard Button (Icon)
+            btn_copy = dpg.add_button(
+                label="\uf0c5",
+                width=20,
+                callback=self.on_copy_stats_to_clipboard,
+                user_data={"base_vs_id": base_vs_id, "roi_id": roi_id},
+            )
+            with dpg.tooltip(btn_copy):
+                dpg.add_text("Copy statistics to clipboard")
+
+            # Contour/Visibility Toggle
+            if roi.visible:
+                lbl_eye = "\uf040" if roi.is_contour else "\uf06e"
+            else:
+                lbl_eye = "\uf070"
+            btn_eye = dpg.add_button(
+                label=lbl_eye,
+                width=20,
+                user_data=roi_id,
+                callback=self.on_roi_toggle_visible,
+            )
+            with dpg.tooltip(btn_eye):
+                dpg.add_text("Toggle visibility (show / contour / hide)")
+
+            # Center Camera
+            btn_center = dpg.add_button(
+                label="\uf05b",
+                width=20,
+                user_data=roi_id,
+                callback=self.on_roi_center,
+            )
+            with dpg.tooltip(btn_center):
+                dpg.add_text("Center camera on ROI")
+
+            # Save / Reload
+            roi_vol = self.api.get_volumes().get(roi_id)
+            is_outdated = roi_vol._is_outdated if roi_vol else False
+            source_type = getattr(roi, "source_type", "Binary")
+            if is_outdated:
+                btn_action = dpg.add_button(
+                    label="\uf01e",
+                    width=20,
+                    user_data=roi_id,
+                    callback=self.on_roi_reload,
+                )
+                with dpg.tooltip(btn_action):
+                    dpg.add_text("Reload modified file")
+            else:
+                btn_action = dpg.add_button(
+                    label="\uf0c7",
+                    width=20,
+                    user_data=roi_id,
+                    callback=self.on_roi_save,
+                )
+                with dpg.tooltip(btn_action):
+                    if source_type == "Binary":
+                        dpg.add_text("Save ROI As...")
+                    else:
+                        dpg.add_text("Extract & Save ROI")
+
+            # Close / Delete
+            btn_close = dpg.add_button(
+                label="\uf00d",
+                width=20,
+                user_data=roi_id,
+                callback=self.on_roi_close,
+            )
+            with dpg.tooltip(btn_close):
+                dpg.add_text("Close/Delete ROI")
+
+            # Slider Opacity/Thickness
+            dpg.add_spacer(width=5)
+            if roi.is_contour:
+                slider = dpg.add_slider_float(
+                    default_value=getattr(roi, "thickness", 1.0),
+                    min_value=0.5,
+                    max_value=10.0,
+                    width=90,
+                    format="Thick: %.1f",
+                    user_data=roi_id,
+                    callback=self.on_roi_thickness_changed,
+                )
+                with dpg.tooltip(slider):
+                    dpg.add_text("Adjust contour thickness")
+            else:
+                slider = dpg.add_slider_float(
+                    default_value=getattr(roi, "opacity", 0.5),
+                    min_value=0.0,
+                    max_value=1.0,
+                    width=90,
+                    format="Opac: %.2f",
+                    user_data=roi_id,
+                    callback=self.on_roi_opacity_changed,
+                )
+                with dpg.tooltip(slider):
+                    dpg.add_text("Adjust ROI opacity")
+
+            dpg.bind_item_theme(slider, slider_theme_tag)
+
+            if dpg.does_item_exist("icon_font_tag"):
+                for btn in [btn_copy, btn_eye, btn_center, btn_action, btn_close]:
+                    dpg.bind_item_font(btn, "icon_font_tag")
+
+            if dpg.does_item_exist("delete_button_theme"):
+                dpg.bind_item_theme(btn_close, "delete_button_theme")
+
+            is_mip = bool(
+                viewer
+                and viewer.image_id
+                and self.api.is_mip_active(viewer.image_id, viewer.tag)
+            )
+            if is_mip:
+                for btn in [color_picker, btn_eye, btn_center, btn_action, btn_close, slider]:
+                    dpg.configure_item(btn, enabled=False)
+
         dpg.add_spacer(height=5, parent=parent_tag)
 
         dpg.add_text("Geometry", color=header_col, parent=parent_tag)
         dpg.add_separator(parent=parent_tag)
-        
+
         # Volumes and Voxels on the same row!
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("Volume (cc):", color=dim_col)
@@ -1162,29 +1322,29 @@ class RoiPluginUI(PluginTagMixin):
             dpg.add_spacer(width=20)
             dpg.add_text("Voxels:", color=dim_col)
             dpg.add_text(f"{stats['voxel_count']}")
-            
+
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("Size:", color=dim_col)
-            dpg.add_text(stats['size'])
+            dpg.add_text(stats["size"])
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("Spacing (mm):", color=dim_col)
-            dpg.add_text(stats['spacing'])
-            
+            dpg.add_text(stats["spacing"])
+
         dpg.add_text("Center of Mass:", parent=parent_tag)
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("  Pixel:", color=dim_col)
-            px, py, pz = stats['com_pixel']
+            px, py, pz = stats["com_pixel"]
             dpg.add_text(f"({px:.1f}, {py:.1f}, {pz:.1f})")
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("  Physical (mm):", color=dim_col)
-            mx, my, mz = stats['com_mm']
+            mx, my, mz = stats["com_mm"]
             dpg.add_text(f"({mx:.1f}, {my:.1f}, {mz:.1f})")
 
         dpg.add_spacer(height=5, parent=parent_tag)
 
         dpg.add_text("Intensity", color=header_col, parent=parent_tag)
         dpg.add_separator(parent=parent_tag)
-        
+
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("Mean:", color=dim_col)
             dpg.add_text(f"{stats['mean']:.2f}")
@@ -1261,6 +1421,24 @@ class RoiPluginUI(PluginTagMixin):
             if dpg.does_item_exist(win_tag):
                 dpg.configure_item(win_tag, label=f"{roi.name} - {image_name}")
 
+                # Recreate and update the theme in case the ROI color was modified
+                theme_tag = self._t(f"stats_theme_{roi_id}")
+                if dpg.does_item_exist(theme_tag):
+                    dpg.delete_item(theme_tag, children_only=True)
+                else:
+                    dpg.add_theme(tag=theme_tag)
+
+                r, g, b = roi.color[:3]
+                luminance = 0.299 * r + 0.587 * g + 0.114 * b
+                text_color = [0, 0, 0, 255] if luminance > 128 else [255, 255, 255, 255]
+
+                with dpg.theme_component(dpg.mvWindowAppItem, parent=theme_tag):
+                    dpg.add_theme_color(dpg.mvThemeCol_TitleBg, roi.color + [255])
+                    dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, roi.color + [255])
+                    dpg.add_theme_color(dpg.mvThemeCol_Text, text_color)
+
+                dpg.bind_item_theme(win_tag, theme_tag)
+
             content_tag = self._t(f"stats_content_{roi_id}")
             if dpg.does_item_exist(content_tag):
                 dpg.delete_item(content_tag, children_only=True)
@@ -1281,7 +1459,10 @@ class RoiPluginUI(PluginTagMixin):
         if not rois_to_toggle:
             return
 
-        any_open = any(self._t(f"stats_win_{roi_id}") in self.open_stats_wins for roi_id in rois_to_toggle)
+        any_open = any(
+            self._t(f"stats_win_{roi_id}") in self.open_stats_wins
+            for roi_id in rois_to_toggle
+        )
 
         if any_open:
             for roi_id in rois_to_toggle:
@@ -1318,7 +1499,7 @@ class RoiPluginUI(PluginTagMixin):
         for win_tag in list(self.open_stats_wins):
             prefix = self._t("stats_win_")
             if win_tag.startswith(prefix):
-                roi_id = win_tag[len(prefix):]
+                roi_id = win_tag[len(prefix) :]
                 self.on_roi_stats_window_closed(None, None, roi_id)
         self.open_stats_wins.clear()
 
