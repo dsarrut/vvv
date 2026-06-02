@@ -220,11 +220,7 @@ class MIPPluginUI(PluginTagMixin):
             if dpg.does_item_exist(chk_invert) and not dpg.is_item_active(chk_invert):
                 dpg.set_value(chk_invert, state.invert_contrast)
             if dpg.does_item_exist(cache_text):
-                if hasattr(viewer, "_mip_cache_dict") and hasattr(viewer, "_mip_cache_lock"):
-                    with viewer._mip_cache_lock:
-                        count = len(viewer._mip_cache_dict)
-                else:
-                    count = 0
+                count = self._c.get_cache_size(viewer.tag)
                 dpg.set_value(cache_text, f"Cached projections: {count}")
         else:
             if dpg.does_item_exist(axis_text):

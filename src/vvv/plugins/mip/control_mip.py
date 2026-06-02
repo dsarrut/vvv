@@ -1,4 +1,6 @@
 from typing import Optional, Dict
+import threading
+import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.utils import ViewMode
@@ -20,6 +22,9 @@ class MIPPluginController(PluginTagMixin):
         self._api: Optional[PluginAPI] = None
         self._ui = None
         self._states: Dict[str, Dict[str, MIPViewerState]] = {}
+        self._caches: Dict[str, dict] = {}
+        self._cache_locks: Dict[str, threading.Lock] = {}
+        self._precompute_stops: Dict[str, threading.Event] = {}
 
     def bind(self, api: PluginAPI) -> None:
         self._api = api
@@ -125,17 +130,30 @@ class MIPPluginController(PluginTagMixin):
     def load_settings(self, api: PluginAPI) -> None:
         pass
 
+    def clear_viewer_cache(self, viewer_tag: str) -> None:
+        tag = viewer_tag.upper()
+        if tag in self._precompute_stops:
+            self._precompute_stops[tag].set()
+        if tag in self._caches:
+            with self._cache_locks[tag]:
+                self._caches[tag].clear()
+
+    def get_cache_size(self, viewer_tag: str) -> int:
+        tag = viewer_tag.upper()
+        if tag in self._caches and tag in self._cache_locks:
+            with self._cache_locks[tag]:
+                return len(self._caches[tag])
+        return 0
+
     def destroy(self) -> None:
-        if self._api:
-            try:
-                for viewer in self._api.get_viewers().values():
-                    if hasattr(viewer, "_mip_precompute_stop"):
-                        viewer._mip_precompute_stop.set()
-                    if hasattr(viewer, "_mip_cache_lock"):
-                        with viewer._mip_cache_lock:
-                            viewer._mip_cache_dict.clear()
-            except Exception:
-                pass
+        for stop_event in self._precompute_stops.values():
+            stop_event.set()
+        self._precompute_stops.clear()
+        for lock, cache in zip(self._cache_locks.values(), self._caches.values()):
+            with lock:
+                cache.clear()
+        self._caches.clear()
+        self._cache_locks.clear()
 
     def _mark_viewer_dirty(self, viewer):
         if viewer:
@@ -281,3 +299,154 @@ class MIPPluginController(PluginTagMixin):
         state.rotation_step = round(new_val, 1)
         dpg.set_value(user_data["tag"], new_val)
         self._api.request_refresh()
+
+    def get_mip_projection(
+        self,
+        viewer,
+        data_3d,
+        time_idx,
+        orientation,
+        depth_cueing,
+        current_angle,
+        proj_axis,
+        mip_state,
+        extra_layers=None
+    ) -> np.ndarray:
+        tag = viewer.tag.upper()
+        if tag not in self._caches:
+            self._caches[tag] = {}
+            self._cache_locks[tag] = threading.Lock()
+            self._precompute_stops[tag] = threading.Event()
+            
+        cache_dict = self._caches[tag]
+        cache_lock = self._cache_locks[tag]
+        
+        # Build cache key
+        cache_key = (viewer.image_id, time_idx, orientation, depth_cueing, current_angle, id(data_3d))
+        
+        with cache_lock:
+            preview = cache_dict.get(cache_key)
+            
+        if preview is None:
+            # Miss: compute projection synchronously
+            from vvv.plugins.mip.math_mip import compute_mip_projection
+            if data_3d.ndim == 4:
+                t = min(time_idx, data_3d.shape[0] - 1)
+                d3d = data_3d[t]
+            else:
+                d3d = data_3d
+                
+            if d3d.ndim == 3:
+                mip_raw = compute_mip_projection(
+                    d3d, axis=proj_axis,
+                    depth_cueing=depth_cueing > 0.0,
+                    depth_cueing_strength=depth_cueing,
+                    rotation_angle=current_angle,
+                )
+                preview = (
+                    np.ascontiguousarray(mip_raw)
+                    if orientation == ViewMode.AXIAL
+                    else np.ascontiguousarray(np.flipud(mip_raw))
+                )
+                
+                with cache_lock:
+                    if len(cache_dict) >= 400:  # _MIP_CACHE_MAX
+                        cache_dict.pop(next(iter(cache_dict)), None)
+                    cache_dict[cache_key] = preview
+            
+            # Start background precomputation for other angles if extra_layers is provided
+            if extra_layers is not None and d3d.ndim == 3:
+                self._start_mip_precompute(
+                    viewer=viewer,
+                    data_3d=d3d,
+                    proj_axis=proj_axis,
+                    depth_cueing=depth_cueing,
+                    center_angle=current_angle,
+                    rotation_step=mip_state.rotation_step,
+                    time_idx=time_idx,
+                    orientation=orientation,
+                    extra_layers=extra_layers
+                )
+                
+        return preview
+
+    def _start_mip_precompute(
+        self, viewer, data_3d, proj_axis, depth_cueing,
+        center_angle, rotation_step, time_idx, orientation,
+        extra_layers=None
+    ):
+        tag = viewer.tag.upper()
+        stop_event = self._precompute_stops[tag]
+        stop_event.set()
+        
+        new_stop = threading.Event()
+        self._precompute_stops[tag] = new_stop
+        
+        image_id = viewer.image_id
+        cache_lock = self._cache_locks[tag]
+        cache_dict = self._caches[tag]
+        step = max(0.1, rotation_step)
+        extra_layers = extra_layers or []
+        
+        # Build all angles in the full rotation ordered by distance from current
+        n = max(1, round(360.0 / step))
+        all_angles = []
+        for i in range(1, n + 1):
+            for sign in (1, -1):
+                a = center_angle + sign * i * step
+                while a > 180.0:
+                    a -= 360.0
+                while a <= -180.0:
+                    a += 360.0
+                all_angles.append(round(a, 2))
+                
+        def _compute_and_cache(d3d, key):
+            from vvv.plugins.mip.math_mip import compute_mip_projection
+            try:
+                mip_raw = compute_mip_projection(
+                    d3d, axis=proj_axis,
+                    depth_cueing=depth_cueing > 0.0,
+                    depth_cueing_strength=depth_cueing,
+                    rotation_angle=key[4],
+                )
+                preview = (
+                    np.ascontiguousarray(mip_raw)
+                    if orientation == ViewMode.AXIAL
+                    else np.ascontiguousarray(np.flipud(mip_raw))
+                )
+                with cache_lock:
+                    if key not in cache_dict:
+                        if len(cache_dict) >= 400:
+                            cache_dict.pop(next(iter(cache_dict)), None)
+                        cache_dict[key] = preview
+                        viewer.controller.ui_needs_refresh = True
+            except Exception:
+                pass
+                
+        def _run():
+            for angle in all_angles:
+                if new_stop.is_set():
+                    return
+                    
+                # Base layer
+                base_key = (image_id, time_idx, orientation, depth_cueing, angle, id(data_3d))
+                with cache_lock:
+                    base_cached = base_key in cache_dict
+                if not base_cached:
+                    if new_stop.is_set():
+                        return
+                    _compute_and_cache(data_3d, base_key)
+                    
+                # Extra layers
+                for layer_data, layer_id, layer_time_idx in extra_layers:
+                    if new_stop.is_set():
+                        return
+                    layer_key = (layer_id, layer_time_idx, orientation, depth_cueing, angle, id(layer_data))
+                    with cache_lock:
+                        layer_cached = layer_key in cache_dict
+                    if not layer_cached:
+                        if new_stop.is_set():
+                            return
+                        _compute_and_cache(layer_data, layer_key)
+                        
+        threading.Thread(target=_run, daemon=True).start()

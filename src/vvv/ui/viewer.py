@@ -246,11 +246,6 @@ class SliceViewer:
         self.active_profile_id = None
         self.active_handle = None  # "start" or "end"
 
-        # MIP background precompute
-        self._mip_cache_dict: dict = {}
-        self._mip_cache_lock = threading.Lock()
-        self._mip_precompute_stop = threading.Event()
-
         # Sub-modules
         self.drawer = OverlayDrawer(self)
         self.init_shortcut_dispatcher()
@@ -663,10 +658,10 @@ class SliceViewer:
         )
 
     def drop_image(self):
-        self._mip_precompute_stop.set()
         self.image_id = None
-        with self._mip_cache_lock:
-            self._mip_cache_dict = {}
+        mip_plugin = next((p for p in self.controller.gui.plugins if p.plugin_id == "mip_plugin"), None)
+        if mip_plugin:
+            mip_plugin._controller.clear_viewer_cache(self.tag)
 
         # Hide ALL overlay nodes and text, not just the image! ---
         nodes_to_hide = [
@@ -846,89 +841,7 @@ class SliceViewer:
         )
         self.is_geometry_dirty = True
 
-    _MIP_CACHE_MAX = 400
 
-    def _start_mip_precompute(self, data_3d, proj_axis, depth_cueing,
-                               center_angle, rotation_step, time_idx, orientation,
-                               extra_layers=None):
-        """Precompute the full rotation in a daemon thread, nearest angles first.
-
-        extra_layers: optional list of (data_3d, cache_id, layer_time_idx) tuples
-          for additional datasets (e.g. fusion overlay) to precompute in the same pass.
-          The cache key uses id(data_3d) so entries are shared automatically when two
-          viewers reference the same numpy array.
-        """
-        self._mip_precompute_stop.set()
-        stop = threading.Event()
-        self._mip_precompute_stop = stop
-
-        image_id = self.image_id
-        cache_lock = self._mip_cache_lock
-        step = max(0.1, rotation_step)
-        extra_layers = extra_layers or []
-
-        # Build all angles in the full rotation ordered by distance from current
-        n = max(1, round(360.0 / step))
-        all_angles = []
-        for i in range(1, n + 1):
-            for sign in (1, -1):
-                a = center_angle + sign * i * step
-                while a > 180.0:
-                    a -= 360.0
-                while a <= -180.0:
-                    a += 360.0
-                all_angles.append(round(a, 2))
-
-        def _compute_and_cache(d3d, key):
-            from vvv.plugins.mip.math_mip import compute_mip_projection
-            try:
-                mip_raw = compute_mip_projection(
-                    d3d, axis=proj_axis,
-                    depth_cueing=depth_cueing > 0.0,
-                    depth_cueing_strength=depth_cueing,
-                    rotation_angle=key[4],  # angle is index 4 in the key tuple
-                )
-                preview = (
-                    np.ascontiguousarray(mip_raw)
-                    if orientation == ViewMode.AXIAL
-                    else np.ascontiguousarray(np.flipud(mip_raw))
-                )
-                with cache_lock:
-                    if key not in self._mip_cache_dict:
-                        if len(self._mip_cache_dict) >= self._MIP_CACHE_MAX:
-                            self._mip_cache_dict.pop(next(iter(self._mip_cache_dict)), None)
-                        self._mip_cache_dict[key] = preview
-                        self.controller.ui_needs_refresh = True
-            except Exception:
-                pass
-
-        def _run():
-            for angle in all_angles:
-                if stop.is_set():
-                    return
-
-                # Base layer
-                base_key = (image_id, time_idx, orientation, depth_cueing, angle, id(data_3d))
-                with cache_lock:
-                    base_cached = base_key in self._mip_cache_dict
-                if not base_cached:
-                    if stop.is_set():
-                        return
-                    _compute_and_cache(data_3d, base_key)
-
-                # Extra layers (overlay, etc.)
-                for layer_data, layer_id, layer_time_idx in extra_layers:
-                    if stop.is_set():
-                        return
-                    layer_key = (layer_id, layer_time_idx, orientation, depth_cueing, angle, id(layer_data))
-                    with cache_lock:
-                        layer_cached = layer_key in self._mip_cache_dict
-                    if not layer_cached:
-                        if stop.is_set():
-                            return
-                        _compute_and_cache(layer_data, layer_key)
-
-        threading.Thread(target=_run, daemon=True).start()
 
     def resize(self, quad_w, quad_h):
         if quad_w <= 0 or quad_h <= 0:
@@ -1444,62 +1357,30 @@ class SliceViewer:
                 proj_axis = axis_map.get(self.orientation, "Y")
                 current_angle = mip_state.rotation_angles.get(proj_axis, 0.0)
 
-                cache_key = (
-                    self.image_id,
-                    vs.camera.time_idx,
-                    self.orientation,
-                    mip_state.depth_cueing,
-                    current_angle,
-                    id(display_data_raw)
+                # Collect overlay layer for joint precompute if needed
+                extra_layers = []
+                ov_id = vs.display.overlay.image_id if vs.display.overlay else None
+                ov_data_raw = vs.display.overlay_data if ov_id else None
+                if ov_data_raw is not None and ov_id:
+                    ov_time_idx = min(vs.camera.time_idx,
+                                      self.controller.view_states[ov_id].volume.num_timepoints - 1
+                                      if ov_id in self.controller.view_states else 0)
+                    ov_3d = ov_data_raw[ov_time_idx] if ov_data_raw.ndim == 4 else ov_data_raw
+                    if ov_3d.ndim == 3:
+                        extra_layers.append((ov_3d, ov_id, ov_time_idx))
+
+                # Delegate caching and precomputation to the plugin controller
+                preview = mip_plugin._controller.get_mip_projection(
+                    viewer=self,
+                    data_3d=display_data_raw,
+                    time_idx=vs.camera.time_idx,
+                    orientation=self.orientation,
+                    depth_cueing=mip_state.depth_cueing,
+                    current_angle=current_angle,
+                    proj_axis=proj_axis,
+                    mip_state=mip_state,
+                    extra_layers=extra_layers
                 )
-
-                with self._mip_cache_lock:
-                    preview = self._mip_cache_dict.get(cache_key)
-
-                if preview is None:
-                    if display_data_raw.ndim == 4:
-                        t = min(vs.camera.time_idx, display_data_raw.shape[0] - 1)
-                        data_3d = display_data_raw[t]
-                    else:
-                        data_3d = display_data_raw
-
-                    if data_3d.ndim == 3:
-                        from vvv.plugins.mip.math_mip import compute_mip_projection
-                        mip_raw = compute_mip_projection(
-                            data_3d,
-                            axis=proj_axis,
-                            depth_cueing=mip_state.depth_cueing > 0.0,
-                            depth_cueing_strength=mip_state.depth_cueing,
-                            rotation_angle=current_angle,
-                        )
-                        if self.orientation == ViewMode.AXIAL:
-                            preview = np.ascontiguousarray(mip_raw)
-                        else:  # CORONAL and SAGITTAL share the same Y projection
-                            preview = np.ascontiguousarray(np.flipud(mip_raw))
-
-                        with self._mip_cache_lock:
-                            if len(self._mip_cache_dict) >= self._MIP_CACHE_MAX:
-                                self._mip_cache_dict.pop(next(iter(self._mip_cache_dict)), None)
-                            self._mip_cache_dict[cache_key] = preview
-
-                        # Collect overlay layer for joint precompute
-                        extra_layers = []
-                        ov_id = vs.display.overlay.image_id if vs.display.overlay else None
-                        ov_data_raw = vs.display.overlay_data if ov_id else None
-                        if ov_data_raw is not None and ov_id:
-                            ov_time_idx = min(vs.camera.time_idx,
-                                              self.controller.view_states[ov_id].volume.num_timepoints - 1
-                                              if ov_id in self.controller.view_states else 0)
-                            ov_3d = ov_data_raw[ov_time_idx] if ov_data_raw.ndim == 4 else ov_data_raw
-                            if ov_3d.ndim == 3:
-                                extra_layers.append((ov_3d, ov_id, ov_time_idx))
-
-                        self._start_mip_precompute(
-                            data_3d, proj_axis, mip_state.depth_cueing,
-                            current_angle, mip_state.rotation_step,
-                            vs.camera.time_idx, self.orientation,
-                            extra_layers=extra_layers,
-                        )
 
                 if preview is not None and mip_state.invert_contrast:
                     wl_upper = vs.display.wl + vs.display.ww / 2.0
@@ -1625,34 +1506,20 @@ class SliceViewer:
                     ov_time_idx = min(vs.camera.time_idx, ovs.volume.num_timepoints - 1)
                     ov_data_3d = ov_data_raw[ov_time_idx] if ov_data_raw.ndim == 4 else ov_data_raw
                     if ov_data_3d.ndim == 3:
-                        from vvv.plugins.mip.math_mip import compute_mip_projection
                         axis_map = {ViewMode.AXIAL: "Z", ViewMode.CORONAL: "Y", ViewMode.SAGITTAL: "Y"}
                         proj_axis = axis_map.get(self.orientation, "Y")
                         current_angle = mip_state.rotation_angles.get(proj_axis, 0.0)
-                        ov_id = vs.display.overlay.image_id
-                        # Overlay always uses depth_cueing=0 so it stays fully visible in fusion.
-                        ov_cache_key = (ov_id, ov_time_idx, self.orientation, 0.0, current_angle, id(ov_data_raw))
 
-                        with self._mip_cache_lock:
-                            overlay_preview = self._mip_cache_dict.get(ov_cache_key)
-
-                        if overlay_preview is None:
-                            ov_raw = compute_mip_projection(
-                                ov_data_3d, axis=proj_axis,
-                                depth_cueing=False,
-                                depth_cueing_strength=0.0,
-                                rotation_angle=current_angle,
-                            )
-                            overlay_preview = (
-                                np.ascontiguousarray(ov_raw)
-                                if self.orientation == ViewMode.AXIAL
-                                else np.ascontiguousarray(np.flipud(ov_raw))
-                            )
-                            with self._mip_cache_lock:
-                                if ov_cache_key not in self._mip_cache_dict:
-                                    if len(self._mip_cache_dict) >= self._MIP_CACHE_MAX:
-                                        self._mip_cache_dict.pop(next(iter(self._mip_cache_dict)), None)
-                                    self._mip_cache_dict[ov_cache_key] = overlay_preview
+                        overlay_preview = mip_plugin._controller.get_mip_projection(
+                            viewer=self,
+                            data_3d=ov_data_raw,
+                            time_idx=ov_time_idx,
+                            orientation=self.orientation,
+                            depth_cueing=0.0,
+                            current_angle=current_angle,
+                            proj_axis=proj_axis,
+                            mip_state=mip_state
+                        )
 
             return RenderLayer(
                 data=vs.display.overlay_data,

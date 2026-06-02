@@ -46,12 +46,21 @@ def test_mip_integration(headless_gui_app):
     
     base_layer_z = viewer._package_base_layer()
     assert base_layer_z.preview_override.shape == (H, W)
+    assert mip_plugin._controller.get_cache_size(viewer.tag) >= 1
     
     # Test caching: dragging slice index should keep preview cached
     initial_preview = base_layer_z.preview_override
     viewer.slice_idx = 10
     base_layer_scrolled = viewer._package_base_layer()
     assert base_layer_scrolled.preview_override is initial_preview  # same object!
+    
+    # Test cache clearing
+    mip_plugin._controller.clear_viewer_cache(viewer.tag)
+    assert mip_plugin._controller.get_cache_size(viewer.tag) == 0
+
+    # Retrieve base layer again to rebuild cache
+    base_layer_z = viewer._package_base_layer()
+    initial_preview = base_layer_z.preview_override
 
     # Test rotation defaults
     import dearpygui.dearpygui as dpg
