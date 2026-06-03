@@ -407,13 +407,6 @@ class TestRoiPlugin(unittest.TestCase):
         self.assertEqual(dpg.get_value(ui._t("roi_stat_vol")), "5.40 cc")
         self.assertEqual(dpg.get_value(ui._t("roi_stat_mean")), "12.30")
 
-        # 2. Test analyze dropdown change
-        dpg.set_value(ui._t("combo_roi_image"), "Active Overlay")
-        ui.on_roi_stat_dropdown_changed(None, "Active Overlay", None)
-        self.mock_api.get_roi_stats.assert_called_with(
-            base_vs_id="img_1", roi_id="roi_1", is_overlay=True
-        )
-
         # 3. Test opacity changed
         ui.on_roi_opacity_changed(None, 0.45, "roi_1")
         self.assertEqual(rois["roi_1"].opacity, 0.45)

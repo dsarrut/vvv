@@ -298,15 +298,13 @@ class RoiPluginUI(PluginTagMixin):
                 with dpg.group(horizontal=True):
                     dpg.add_text("Selected ROI Properties", color=cfg_c["text_header"])
                     btn_close_detail = dpg.add_button(
-                        label="\uf00d",
+                        label="\uf057",
                         width=20,
                         callback=self.on_close_roi_properties,
                         tag=self._t("btn_close_detail"),
                     )
                     if dpg.does_item_exist("icon_font_tag"):
                         dpg.bind_item_font(btn_close_detail, "icon_font_tag")
-                    if dpg.does_item_exist("delete_button_theme"):
-                        dpg.bind_item_theme(btn_close_detail, "delete_button_theme")
                 dpg.add_separator()
 
             with dpg.child_window(
@@ -620,42 +618,7 @@ class RoiPluginUI(PluginTagMixin):
         dim_col = self.api.ui_cfg["colors"]["text_dim"]
 
         with dpg.group(parent=container):
-            if roi_vol:
-                # 0. Source file and type
-                source_type = getattr(roi_state, "source_type", "Binary")
-                if roi_vol.file_paths:
-                    fname = os.path.basename(roi_vol.file_paths[0])
-                    with dpg.group(horizontal=True):
-                        dpg.add_text("File:", color=dim_col)
-                        file_tag = dpg.add_text(fname)
-                        with dpg.tooltip(file_tag):
-                            dpg.add_text(roi_vol.file_paths[0])
-                        dpg.add_text(f"[{source_type}]", color=dim_col)
-
-                dpg.add_spacer(height=3)
-
-                # 1. Loading Rule
-                mode_str = getattr(roi_state, "source_mode", "Binary")
-                val_str = f"{getattr(roi_state, 'source_val', 1.0):g}"
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Rule:", color=dim_col)
-                    dpg.add_text(f"{mode_str} ({val_str})")
-
-                # 2. Dimensions
-                z, y, x = roi_vol.shape3d
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Size:", color=dim_col)
-                    dpg.add_text(f"{x} x {y} x {z}")
-
-                # 3. Spacing
-                sx, sy, sz = roi_vol.spacing
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Spacing:", color=dim_col)
-                    dpg.add_text(f"{sx:.3f} x {sy:.3f} x {sz:.3f}")
-
-                dpg.add_spacer(height=5)
-
-            # 4. Opacity/Thickness
+            # Opacity/Thickness
             with dpg.group(horizontal=True):
                 if getattr(roi_state, "is_contour", False):
                     dpg.add_text("Thickness:")
@@ -699,17 +662,6 @@ class RoiPluginUI(PluginTagMixin):
             dpg.bind_item_theme(active_slider_tag, theme_tag)
 
             dpg.add_spacer(height=5)
-
-            # 5. Analysis
-            with dpg.group(horizontal=True):
-                dpg.add_text("Analyze:")
-                dpg.add_combo(
-                    ["Base Image", "Active Overlay"],
-                    default_value="Base Image",
-                    tag=self._t("combo_roi_image"),
-                    width=-1,
-                    callback=self.on_roi_stat_dropdown_changed,
-                )
 
             # 6. Stats Summary
             with dpg.table(header_row=False, borders_innerH=False):
@@ -1333,8 +1285,9 @@ class RoiPluginUI(PluginTagMixin):
             dpg.add_spacer(width=10)
             dpg.add_text("Mass (g):", color=dim_col)
             dpg.add_text(f"{stats.get('mass', 0.0):.2f}")
-            dpg.add_spacer(width=10)
-            dpg.add_text("Voxels:", color=dim_col)
+
+        with dpg.group(horizontal=True, parent=parent_tag):
+            dpg.add_text("Number of voxels:", color=dim_col)
             dpg.add_text(f"{stats['voxel_count']}")
 
         with dpg.group(horizontal=True, parent=parent_tag):
@@ -1383,7 +1336,11 @@ class RoiPluginUI(PluginTagMixin):
         ov_stats = stats.get("overlay_stats")
         if ov_stats:
             dpg.add_spacer(height=5, parent=parent_tag)
-            dpg.add_text(f"Fusion Intensity ({ov_stats['name']})", color=header_col, parent=parent_tag)
+            dpg.add_text(
+                f"Fusion Intensity ({ov_stats['name']})",
+                color=header_col,
+                parent=parent_tag,
+            )
             dpg.add_separator(parent=parent_tag)
 
             with dpg.group(horizontal=True, parent=parent_tag):
@@ -1461,15 +1418,17 @@ class RoiPluginUI(PluginTagMixin):
         ]
         ov_stats = stats.get("overlay_stats")
         if ov_stats:
-            text_lines.extend([
-                f"Fusion Intensity ({ov_stats['name']}):",
-                f"  Mean: {ov_stats['mean']:.2f}",
-                f"  Std Dev: {ov_stats['std']:.2f}",
-                f"  Median: {ov_stats['median']:.2f}",
-                f"  Peak (95%): {ov_stats['peak']:.2f}",
-                f"  Min: {ov_stats['min']:.2f}",
-                f"  Max: {ov_stats['max']:.2f}",
-            ])
+            text_lines.extend(
+                [
+                    f"Fusion Intensity ({ov_stats['name']}):",
+                    f"  Mean: {ov_stats['mean']:.2f}",
+                    f"  Std Dev: {ov_stats['std']:.2f}",
+                    f"  Median: {ov_stats['median']:.2f}",
+                    f"  Peak (95%): {ov_stats['peak']:.2f}",
+                    f"  Min: {ov_stats['min']:.2f}",
+                    f"  Max: {ov_stats['max']:.2f}",
+                ]
+            )
         clipboard_text = "\n".join(text_lines)
         dpg.set_clipboard_text(clipboard_text)
         self.api.set_async_status("Stats copied to clipboard!")
@@ -1490,22 +1449,22 @@ class RoiPluginUI(PluginTagMixin):
         default_name = f"{roi.name}_stats.json"
 
         from vvv.ui.file_dialog import save_file_dialog
+
         file_path = save_file_dialog("Export Stats to JSON", default_name=default_name)
         if not file_path:
             return
 
-        export_data = {
-            "roi_name": roi.name,
-            "base_image": image_name,
-            "stats": stats
-        }
+        export_data = {"roi_name": roi.name, "base_image": image_name, "stats": stats}
 
         try:
             import json
             import os
+
             with open(file_path, "w") as f:
                 json.dump(export_data, f, indent=4)
-            self.api.set_async_status(f"Stats exported to {os.path.basename(file_path)}!")
+            self.api.set_async_status(
+                f"Stats exported to {os.path.basename(file_path)}!"
+            )
         except Exception as e:
             self.api.notify(f"Error exporting stats: {e}")
 
@@ -1725,9 +1684,6 @@ class RoiPluginUI(PluginTagMixin):
         vs.rois[user_data].thickness = app_data
         vs.is_geometry_dirty = True
         self.api.update_all_viewers_of_image(viewer.image_id, data_dirty=False)
-
-    def on_roi_stat_dropdown_changed(self, sender, app_data, user_data):
-        self.update_roi_stats_ui()
 
     def clear_roi_stats(self):
         tags = [
