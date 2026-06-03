@@ -1,6 +1,5 @@
 import os
 import dearpygui.dearpygui as dpg
-from typing import Optional
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.ui.ui_components import (
     build_section_title,
@@ -1069,7 +1068,7 @@ class RoiPluginUI(PluginTagMixin):
 
         stats = self._c.compute_detailed_roi_stats(viewer.image_id, roi_id)
         has_overlay = bool(stats and stats.get("overlay_stats"))
-        win_h = 640 if has_overlay else 490
+        win_h = 650 if has_overlay else 530
 
         with dpg.window(
             tag=win_tag,
@@ -1749,28 +1748,7 @@ class RoiPluginUI(PluginTagMixin):
             dpg.delete_item(modal_tag)
 
     def save_settings(self, api: PluginAPI) -> None:
-        if dpg.does_item_exist(self._t("combo_roi_mode")):
-            api._controller.update_setting(
-                ["behavior", f"{self._plugin_id}_default_mode"],
-                dpg.get_value(self._t("combo_roi_mode")),
-            )
-        if dpg.does_item_exist(self._t("input_roi_val")):
-            api._controller.update_setting(
-                ["behavior", f"{self._plugin_id}_default_val"],
-                dpg.get_value(self._t("input_roi_val")),
-            )
+        pass
 
     def load_settings(self, api: PluginAPI) -> None:
-        ctrl = api._controller
-        mode = ctrl.settings.data.get("behavior", {}).get(
-            f"{self._plugin_id}_default_mode", "Ignore BG (val)"
-        )
-        if mode == "Label Map":
-            mode = "Ignore BG (val)"
-        val = ctrl.settings.data.get("behavior", {}).get(
-            f"{self._plugin_id}_default_val", 0.0
-        )
-        if dpg.does_item_exist(self._t("combo_roi_mode")):
-            dpg.set_value(self._t("combo_roi_mode"), mode)
-        if dpg.does_item_exist(self._t("input_roi_val")):
-            dpg.set_value(self._t("input_roi_val"), float(val))
+        pass
