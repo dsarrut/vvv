@@ -1112,7 +1112,7 @@ class RoiPluginUI(PluginTagMixin):
             tag=win_tag,
             label=f"{roi.name} - {image_name}",
             width=320,
-            height=310,
+            height=350,
             on_close=self.on_roi_stats_window_closed,
             user_data=roi_id,
         ):
@@ -1128,7 +1128,7 @@ class RoiPluginUI(PluginTagMixin):
         else:
             vp_w = dpg.get_viewport_client_width()
             vp_h = dpg.get_viewport_client_height()
-            win_w, win_h = 320, 310
+            win_w, win_h = 320, 350
 
             base_x = max(10, vp_w - win_w - 50)
             base_y = max(10, (vp_h - win_h) // 2)
@@ -1255,16 +1255,6 @@ class RoiPluginUI(PluginTagMixin):
                     else:
                         dpg.add_text("Extract & Save ROI")
 
-            # Close / Delete
-            btn_close = dpg.add_button(
-                label="\uf00d",
-                width=20,
-                user_data=roi_id,
-                callback=self.on_roi_close,
-            )
-            with dpg.tooltip(btn_close):
-                dpg.add_text("Close/Delete ROI")
-
             # Slider Opacity/Thickness
             dpg.add_spacer(width=5)
             if roi.is_contour:
@@ -1295,11 +1285,8 @@ class RoiPluginUI(PluginTagMixin):
             dpg.bind_item_theme(slider, slider_theme_tag)
 
             if dpg.does_item_exist("icon_font_tag"):
-                for btn in [btn_copy, btn_eye, btn_center, btn_action, btn_close]:
+                for btn in [btn_copy, btn_eye, btn_center, btn_action]:
                     dpg.bind_item_font(btn, "icon_font_tag")
-
-            if dpg.does_item_exist("delete_button_theme"):
-                dpg.bind_item_theme(btn_close, "delete_button_theme")
 
             is_mip = bool(
                 viewer
@@ -1307,7 +1294,13 @@ class RoiPluginUI(PluginTagMixin):
                 and self.api.is_mip_active(viewer.image_id, viewer.tag)
             )
             if is_mip:
-                for btn in [color_picker, btn_eye, btn_center, btn_action, btn_close, slider]:
+                for btn in [
+                    color_picker,
+                    btn_eye,
+                    btn_center,
+                    btn_action,
+                    slider,
+                ]:
                     dpg.configure_item(btn, enabled=False)
 
         dpg.add_spacer(height=5, parent=parent_tag)
@@ -1325,12 +1318,15 @@ class RoiPluginUI(PluginTagMixin):
 
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("Size:", color=dim_col)
-            dpg.add_text(stats["size"])
+            if stats.get("cropped_size"):
+                dpg.add_text(f"{stats['size']} ({stats['cropped_size']})")
+            else:
+                dpg.add_text(stats["size"])
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("Spacing (mm):", color=dim_col)
             dpg.add_text(stats["spacing"])
 
-        dpg.add_text("Center of Mass:", parent=parent_tag)
+        dpg.add_text("Center of Mass:", parent=parent_tag, color=dim_col)
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("  Pixel:", color=dim_col)
             px, py, pz = stats["com_pixel"]
@@ -1374,13 +1370,17 @@ class RoiPluginUI(PluginTagMixin):
         roi = viewer.view_state.rois[roi_id]
         image_name, _ = self.api.get_image_display_name(viewer.image_id)
 
+        size_val = stats["size"]
+        if stats.get("cropped_size"):
+            size_val += f" (cropped: {stats['cropped_size']})"
+
         text_lines = [
             f"ROI: {roi.name}",
             f"Image: {image_name}",
             "Geometry:",
             f"  Volume (cc): {stats['vol_cc']:.3f}",
             f"  Voxels: {stats['voxel_count']}",
-            f"  Size: {stats['size']}",
+            f"  Size: {size_val}",
             f"  Spacing (mm): {stats['spacing']}",
             f"  Center of Mass (pixel): ({stats['com_pixel'][0]:.1f}, {stats['com_pixel'][1]:.1f}, {stats['com_pixel'][2]:.1f})",
             f"  Center of Mass (mm): ({stats['com_mm'][0]:.1f}, {stats['com_mm'][1]:.1f}, {stats['com_mm'][2]:.1f})",

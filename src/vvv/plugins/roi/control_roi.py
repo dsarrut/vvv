@@ -192,6 +192,12 @@ class RoiPluginController(PluginTagMixin):
         sx, sy, sz = base_vol.spacing
         spacing_str = f"{sx:.3f} x {sy:.3f} x {sz:.3f}"
 
+        # Cropped size if applicable
+        cropped_size_str = None
+        if roi_vol.shape3d != base_vol.shape3d:
+            rnz, rny, rnx = roi_vol.shape3d
+            cropped_size_str = f"{rnx} x {rny} x {rnz}"
+
         # 2. Intensity statistics
         target_data = base_vol.data
         if base_vol.num_timepoints > 1:
@@ -230,6 +236,7 @@ class RoiPluginController(PluginTagMixin):
             "com_mm": com_mm,
             "size": size_str,
             "spacing": spacing_str,
+            "cropped_size": cropped_size_str,
             "mean": mean_val,
             "std": std_val,
             "median": median_val,
