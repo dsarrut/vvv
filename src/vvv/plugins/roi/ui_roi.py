@@ -263,9 +263,10 @@ class RoiPluginUI(PluginTagMixin):
             # Table child window
             with dpg.child_window(
                 tag=self._t("roi_list_window"),
-                height=150,
+                height=300,
                 border=False,
                 no_scrollbar=True,
+                no_scroll_with_mouse=True,
             ):
                 with dpg.table(
                     tag=self._t("roi_list_table"),
@@ -311,6 +312,7 @@ class RoiPluginUI(PluginTagMixin):
                 tag=self._t("roi_detail_window"),
                 border=False,
                 no_scrollbar=True,
+                no_scroll_with_mouse=True,
                 show=False,
             ):
                 with dpg.group(tag=self._t("roi_detail_container")):
@@ -558,7 +560,7 @@ class RoiPluginUI(PluginTagMixin):
                     item_top = active_idx * row_height
                     item_bottom = item_top + row_height
                     view_height = (
-                        dpg.get_item_height(self._t("roi_list_window")) or 150.0
+                        dpg.get_item_height(self._t("roi_list_window")) or 300.0
                     )
                     scroll_max = dpg.get_y_scroll_max(table_id)
 
@@ -686,8 +688,13 @@ class RoiPluginUI(PluginTagMixin):
                         dpg.add_text("Std:", color=dim_col)
                         dpg.add_text("---", tag=self._t("roi_stat_std"))
                     with dpg.group(horizontal=True):
-                        dpg.add_text("Peak:", color=dim_col)
+                        peak_lbl = dpg.add_text("Peak:", color=dim_col)
+                        with dpg.tooltip(peak_lbl):
+                            dpg.add_text(
+                                "95th percentile of intensity values inside the ROI"
+                            )
                         dpg.add_text("---", tag=self._t("roi_stat_peak"))
+                with dpg.table_row():
                     with dpg.group(horizontal=True):
                         dpg.add_text("Mass:", color=dim_col)
                         dpg.add_text("---", tag=self._t("roi_stat_mass"))

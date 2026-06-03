@@ -465,7 +465,9 @@ class MainGUI:
     def build_sidebar_top(self):
         """Builds the content containers without the native tab_bar."""
         cfg_l = self.ui_cfg["layout"]
-        with dpg.child_window(tag="top_panel", border=True, no_scrollbar=True):
+        with dpg.child_window(
+            tag="top_panel", border=True, no_scrollbar=True, no_scroll_with_mouse=True
+        ):
             with dpg.group(indent=cfg_l["left_inner_m"]):
                 dpg.add_spacer(height=5)
                 build_tab_images(self)
@@ -488,7 +490,9 @@ class MainGUI:
         cfg_l = self.ui_cfg["layout"]
 
         # --- Panel 1: Active Viewer ---
-        with dpg.child_window(tag="av_panel", border=True, no_scrollbar=True):
+        with dpg.child_window(
+            tag="av_panel", border=True, no_scrollbar=True, no_scroll_with_mouse=True
+        ):
             with dpg.group(indent=cfg_l["left_inner_m"]):
                 dpg.add_spacer(height=5)
                 build_section_title("Active Viewer", cfg_c["text_header"])
@@ -509,7 +513,9 @@ class MainGUI:
         cfg_c = self.ui_cfg["colors"]
         cfg_l = self.ui_cfg["layout"]
 
-        with dpg.child_window(tag="ch_panel", border=True, no_scrollbar=True):
+        with dpg.child_window(
+            tag="ch_panel", border=True, no_scrollbar=True, no_scroll_with_mouse=True
+        ):
             with dpg.group(indent=cfg_l["left_inner_m"]):
                 dpg.add_spacer(height=5)
                 build_section_title("Crosshair", cfg_c["text_header"])
