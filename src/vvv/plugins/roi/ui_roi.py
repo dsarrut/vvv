@@ -1110,7 +1110,7 @@ class RoiPluginUI(PluginTagMixin):
 
         stats = self._c.compute_detailed_roi_stats(viewer.image_id, roi_id)
         has_overlay = bool(stats and stats.get("overlay_stats"))
-        win_h = 500 if has_overlay else 350
+        win_h = 600 if has_overlay else 450
 
         with dpg.window(
             tag=win_tag,
@@ -1309,6 +1309,20 @@ class RoiPluginUI(PluginTagMixin):
 
         dpg.add_spacer(height=5, parent=parent_tag)
 
+        dpg.add_text("Source", color=header_col, parent=parent_tag)
+        dpg.add_separator(parent=parent_tag)
+        with dpg.group(horizontal=True, parent=parent_tag):
+            dpg.add_text("File:", color=dim_col)
+            file_txt = dpg.add_text(stats.get("source_filename", "Unknown"))
+            if stats.get("source_filepath"):
+                with dpg.tooltip(file_txt):
+                    dpg.add_text(stats["source_filepath"])
+        with dpg.group(horizontal=True, parent=parent_tag):
+            dpg.add_text("Type:", color=dim_col)
+            dpg.add_text(stats.get("source_type", "Unknown"))
+
+        dpg.add_spacer(height=5, parent=parent_tag)
+
         dpg.add_text("Geometry", color=header_col, parent=parent_tag)
         dpg.add_separator(parent=parent_tag)
 
@@ -1386,6 +1400,15 @@ class RoiPluginUI(PluginTagMixin):
                 dpg.add_text("Min / Max:", color=dim_col)
                 dpg.add_text(f"{ov_stats['min']:.2f} / {ov_stats['max']:.2f}")
 
+        dpg.add_spacer(height=10, parent=parent_tag)
+        dpg.add_button(
+            label="Export Stats to JSON",
+            parent=parent_tag,
+            width=-1,
+            user_data={"base_vs_id": base_vs_id, "roi_id": roi_id},
+            callback=self.on_export_stats_to_json,
+        )
+
     def on_copy_stats_to_clipboard(self, sender, app_data, user_data):
         base_vs_id = user_data["base_vs_id"]
         roi_id = user_data["roi_id"]
@@ -1436,6 +1459,41 @@ class RoiPluginUI(PluginTagMixin):
         clipboard_text = "\n".join(text_lines)
         dpg.set_clipboard_text(clipboard_text)
         self.api.set_async_status("Stats copied to clipboard!")
+
+    def on_export_stats_to_json(self, sender, app_data, user_data):
+        base_vs_id = user_data["base_vs_id"]
+        roi_id = user_data["roi_id"]
+        stats = self._c.compute_detailed_roi_stats(base_vs_id, roi_id)
+        if not stats:
+            return
+
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.view_state or roi_id not in viewer.view_state.rois:
+            return
+        roi = viewer.view_state.rois[roi_id]
+        image_name, _ = self.api.get_image_display_name(viewer.image_id)
+
+        default_name = f"{roi.name}_stats.json"
+
+        from vvv.ui.file_dialog import save_file_dialog
+        file_path = save_file_dialog("Export Stats to JSON", default_name=default_name)
+        if not file_path:
+            return
+
+        export_data = {
+            "roi_name": roi.name,
+            "base_image": image_name,
+            "stats": stats
+        }
+
+        try:
+            import json
+            import os
+            with open(file_path, "w") as f:
+                json.dump(export_data, f, indent=4)
+            self.api.set_async_status(f"Stats exported to {os.path.basename(file_path)}!")
+        except Exception as e:
+            self.api.notify(f"Error exporting stats: {e}")
 
     def refresh_all_open_stats_windows(self):
         viewer = self.api.get_active_viewer()

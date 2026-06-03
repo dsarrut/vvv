@@ -642,16 +642,16 @@ class TestRoiPlugin(unittest.TestCase):
             # 1. Open first window, offset should be 0
             ui.on_roi_stats_toggle(None, None, "roi_1")
             # base_x = 1000 - 320 - 50 = 630
-            # base_y = (800 - 350) // 2 = 225
-            mock_set_pos.assert_any_call(ui._t("stats_win_roi_1"), [630, 225])
+            # base_y = (800 - 450) // 2 = 175
+            mock_set_pos.assert_any_call(ui._t("stats_win_roi_1"), [630, 175])
 
             # 2. Open second window, offset should be 25px
             ui.on_roi_stats_toggle(None, None, "roi_2")
-            mock_set_pos.assert_any_call(ui._t("stats_win_roi_2"), [605, 250])
+            mock_set_pos.assert_any_call(ui._t("stats_win_roi_2"), [605, 200])
 
             # 3. Open third window, offset should be 50px
             ui.on_roi_stats_toggle(None, None, "roi_3")
-            mock_set_pos.assert_any_call(ui._t("stats_win_roi_3"), [580, 275])
+            mock_set_pos.assert_any_call(ui._t("stats_win_roi_3"), [580, 225])
 
             # Clean them up
             ui.close_all_stats_windows()
@@ -718,6 +718,75 @@ class TestRoiPlugin(unittest.TestCase):
         self.assertEqual(stats["min"], 10.0)
         self.assertEqual(stats["max"], 20.0)
         self.assertAlmostEqual(stats["peak"], 19.5)
+
+    @patch('vvv.ui.file_dialog.save_file_dialog')
+    def test_export_stats_to_json(self, mock_save):
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+
+        ui = self.plugin._ui
+        ctrl = self.plugin._controller
+
+        rois = {
+            "roi_1": MockROI("roi_1", "Tumor", [255, 0, 0]),
+        }
+        mock_viewer = MockViewer("img_1", rois)
+        self.mock_api.get_active_viewer.return_value = mock_viewer
+
+        # Mock base and ROI volumes
+        import numpy as np
+        base_vol = MagicMock()
+        base_vol.shape3d = (5, 6, 7)
+        base_vol.spacing = (2.0, 2.0, 2.0)
+        base_vol.num_timepoints = 1
+        base_vol.data = np.zeros((5, 6, 7), dtype=np.float32)
+        base_vol.sitk_image = MagicMock()
+        base_vol.sitk_image.TransformPhysicalPointToContinuousIndex.side_effect = lambda pt: [pt[0]/2.0, pt[1]/2.0, pt[2]/2.0]
+
+        roi_vol = MagicMock()
+        roi_vol.shape3d = (5, 6, 7)
+        roi_vol.spacing = (2.0, 2.0, 2.0)
+        roi_vol.data = np.zeros((5, 6, 7), dtype=np.uint8)
+        roi_vol.data[2, 3, 4] = 1
+        roi_vol.sitk_image = MagicMock()
+        roi_vol.sitk_image.TransformContinuousIndexToPhysicalPoint.side_effect = lambda idx: [idx[0]*2.0, idx[1]*2.0, idx[2]*2.0]
+
+        self.mock_api.get_volumes.return_value = {
+            "img_1": base_vol,
+            "roi_1": roi_vol,
+        }
+
+        # Mock stats calculation
+        self.mock_api.get_roi_stats.return_value = {
+            "vol": 5.4,
+            "mean": 12.3,
+            "max": 100.0,
+            "min": 10.0,
+            "std": 1.5,
+            "peak": 95.0,
+            "mass": 6.2,
+        }
+
+        # Set mock path
+        import tempfile
+        import json
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dest_json = os.path.join(tmpdir, "tumor_stats.json")
+            mock_save.return_value = dest_json
+
+            ui.on_export_stats_to_json(None, None, {"base_vs_id": "img_1", "roi_id": "roi_1"})
+            
+            mock_save.assert_called_with("Export Stats to JSON", default_name="Tumor_stats.json")
+            self.assertTrue(os.path.exists(dest_json))
+            with open(dest_json, "r") as f:
+                data = json.load(f)
+                self.assertEqual(data["roi_name"], "Tumor")
+                self.assertEqual(data["base_image"], "Test Image")
+                self.assertIn("stats", data)
+
+        dpg.delete_item("test_parent")
 
 
 if __name__ == "__main__":

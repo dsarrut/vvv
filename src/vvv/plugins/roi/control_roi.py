@@ -167,6 +167,45 @@ class RoiPluginController(PluginTagMixin):
         base_vol = volumes[base_vs_id]
         roi_vol = volumes[roi_id]
 
+        view_states = self.api.get_view_states()
+        base_vs = view_states.get(base_vs_id) if view_states else None
+        roi_state = base_vs.rois.get(roi_id) if (base_vs and hasattr(base_vs, "rois")) else None
+
+        filepath = getattr(roi_vol, "path", None)
+        if not isinstance(filepath, str):
+            filepath = None
+        file_paths = getattr(roi_vol, "file_paths", None)
+        if not filepath and isinstance(file_paths, list) and len(file_paths) > 0:
+            candidate = file_paths[0]
+            if isinstance(candidate, str):
+                filepath = candidate
+        import os
+        filename = os.path.basename(filepath) if filepath else "Memory/Unknown"
+
+        source_type = "Unknown"
+        if roi_state and type(roi_state).__name__ != "MagicMock":
+            stype = getattr(roi_state, "source_type", "Binary")
+            smode = getattr(roi_state, "source_mode", "Ignore BG (val)")
+            sval = getattr(roi_state, "source_val", 0.0)
+            
+            if isinstance(sval, (int, float)):
+                val_str = str(int(sval)) if sval.is_integer() else f"{sval:.1f}"
+            else:
+                val_str = str(sval)
+                
+            if stype == "Label Map":
+                source_type = f"label={val_str}"
+            elif stype == "RT-Struct":
+                source_type = "rt_struct"
+            elif stype == "Binary":
+                if smode == "Target FG (val)":
+                    source_type = f"binary mask with FG={val_str}"
+                else:
+                    source_type = f"binary mask with FG!={val_str}"
+            else:
+                source_type = stype
+
+
         import numpy as np
 
         # 1. Voxel geometry calculations
@@ -295,4 +334,7 @@ class RoiPluginController(PluginTagMixin):
             "peak": peak_val,
             "mass": mass_g,
             "overlay_stats": overlay_stats,
+            "source_filename": filename,
+            "source_filepath": filepath,
+            "source_type": source_type,
         }
