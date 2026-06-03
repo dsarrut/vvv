@@ -306,3 +306,31 @@ def test_mip_fusion_precompute(headless_gui_app):
     assert mip_plugin._controller.get_cache_size(viewer.tag) == final_precompute_size
 
 
+def test_mip_4d_arrow_keys(headless_4d_overlay_app):
+    import dearpygui.dearpygui as dpg
+    controller, gui, viewer_v1, vs_id_3d, viewer_v2, vs_id_4d = headless_4d_overlay_app
+    
+    mip_plugin = next((p for p in gui.plugins if p.plugin_id == "mip_plugin"), None)
+    assert mip_plugin is not None
+    
+    # Enable MIP Mode on viewer_v2 (which has the 4D image)
+    gui.set_context_viewer(viewer_v2)
+    mip_plugin._controller.on_mip_toggle(None, True, None)
+    
+    state_v2 = mip_plugin._controller.get_viewer_state(vs_id_4d, "V2")
+    assert state_v2.mip_enabled
+    
+    # Initial time index should be 0
+    assert viewer_v2.view_state.camera.time_idx == 0
+    
+    # Press Up arrow key — should increment time index to 1
+    viewer_v2.on_key_press(dpg.mvKey_Up)
+    assert viewer_v2.view_state.camera.time_idx == 1
+    
+    # Press Down arrow key — should decrement time index back to 0
+    viewer_v2.on_key_press(dpg.mvKey_Down)
+    assert viewer_v2.view_state.camera.time_idx == 0
+    
+    # Press Down arrow key again — should wrap to 3 (since num_timepoints is 4)
+    viewer_v2.on_key_press(dpg.mvKey_Down)
+    assert viewer_v2.view_state.camera.time_idx == 3

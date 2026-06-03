@@ -2546,6 +2546,11 @@ class SliceViewer:
                 self.controller.ui_needs_refresh = True
                 return
 
+            if key in (dpg.mvKey_Up, dpg.mvKey_Down):
+                delta = 1 if key == dpg.mvKey_Up else -1
+                self.on_time_scroll(delta)
+                return
+
         if self._shortcut_map is None:
             return
 
