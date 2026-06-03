@@ -642,16 +642,16 @@ class TestRoiPlugin(unittest.TestCase):
             # 1. Open first window, offset should be 0
             ui.on_roi_stats_toggle(None, None, "roi_1")
             # base_x = 1000 - 320 - 50 = 630
-            # base_y = (800 - 450) // 2 = 175
-            mock_set_pos.assert_any_call(ui._t("stats_win_roi_1"), [630, 175])
+            # base_y = (800 - 490) // 2 = 155
+            mock_set_pos.assert_any_call(ui._t("stats_win_roi_1"), [630, 155])
 
             # 2. Open second window, offset should be 25px
             ui.on_roi_stats_toggle(None, None, "roi_2")
-            mock_set_pos.assert_any_call(ui._t("stats_win_roi_2"), [605, 200])
+            mock_set_pos.assert_any_call(ui._t("stats_win_roi_2"), [605, 180])
 
             # 3. Open third window, offset should be 50px
             ui.on_roi_stats_toggle(None, None, "roi_3")
-            mock_set_pos.assert_any_call(ui._t("stats_win_roi_3"), [580, 225])
+            mock_set_pos.assert_any_call(ui._t("stats_win_roi_3"), [580, 205])
 
             # Clean them up
             ui.close_all_stats_windows()

@@ -1110,7 +1110,7 @@ class RoiPluginUI(PluginTagMixin):
 
         stats = self._c.compute_detailed_roi_stats(viewer.image_id, roi_id)
         has_overlay = bool(stats and stats.get("overlay_stats"))
-        win_h = 600 if has_overlay else 450
+        win_h = 640 if has_overlay else 490
 
         with dpg.window(
             tag=win_tag,
@@ -1372,7 +1372,9 @@ class RoiPluginUI(PluginTagMixin):
             dpg.add_text("Median:", color=dim_col)
             dpg.add_text(f"{stats['median']:.2f}")
             dpg.add_spacer(width=10)
-            dpg.add_text("Peak (95%):", color=dim_col)
+            peak_label = dpg.add_text("Peak (95%):", color=dim_col)
+            with dpg.tooltip(peak_label):
+                dpg.add_text("95th percentile of intensity values inside the ROI")
             dpg.add_text(f"{stats['peak']:.2f}")
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("Min / Max:", color=dim_col)
@@ -1394,7 +1396,9 @@ class RoiPluginUI(PluginTagMixin):
                 dpg.add_text("Median:", color=dim_col)
                 dpg.add_text(f"{ov_stats['median']:.2f}")
                 dpg.add_spacer(width=10)
-                dpg.add_text("Peak (95%):", color=dim_col)
+                ov_peak_label = dpg.add_text("Peak (95%):", color=dim_col)
+                with dpg.tooltip(ov_peak_label):
+                    dpg.add_text("95th percentile of intensity values inside the ROI")
                 dpg.add_text(f"{ov_stats['peak']:.2f}")
             with dpg.group(horizontal=True, parent=parent_tag):
                 dpg.add_text("Min / Max:", color=dim_col)
@@ -1408,6 +1412,16 @@ class RoiPluginUI(PluginTagMixin):
             user_data={"base_vs_id": base_vs_id, "roi_id": roi_id},
             callback=self.on_export_stats_to_json,
         )
+        dpg.add_spacer(height=5, parent=parent_tag)
+        btn_delete = dpg.add_button(
+            label="Delete ROI",
+            parent=parent_tag,
+            width=-1,
+            user_data=roi_id,
+            callback=self.on_roi_close,
+        )
+        if dpg.does_item_exist("delete_button_theme"):
+            dpg.bind_item_theme(btn_delete, "delete_button_theme")
 
     def on_copy_stats_to_clipboard(self, sender, app_data, user_data):
         base_vs_id = user_data["base_vs_id"]
