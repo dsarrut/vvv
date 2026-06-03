@@ -1108,11 +1108,15 @@ class RoiPluginUI(PluginTagMixin):
         with dpg.theme_component(dpg.mvGroup, parent=content_theme_tag):
             dpg.add_theme_color(dpg.mvThemeCol_Text, [255, 255, 255, 255])
 
+        stats = self._c.compute_detailed_roi_stats(viewer.image_id, roi_id)
+        has_overlay = bool(stats and stats.get("overlay_stats"))
+        win_h = 500 if has_overlay else 350
+
         with dpg.window(
             tag=win_tag,
             label=f"{roi.name} - {image_name}",
             width=320,
-            height=350,
+            height=win_h,
             on_close=self.on_roi_stats_window_closed,
             user_data=roi_id,
         ):
@@ -1128,7 +1132,7 @@ class RoiPluginUI(PluginTagMixin):
         else:
             vp_w = dpg.get_viewport_client_width()
             vp_h = dpg.get_viewport_client_height()
-            win_w, win_h = 320, 350
+            win_w, win_h = 320, win_h
 
             base_x = max(10, vp_w - win_w - 50)
             base_y = max(10, (vp_h - win_h) // 2)
@@ -1308,11 +1312,14 @@ class RoiPluginUI(PluginTagMixin):
         dpg.add_text("Geometry", color=header_col, parent=parent_tag)
         dpg.add_separator(parent=parent_tag)
 
-        # Volumes and Voxels on the same row!
+        # Volumes, Voxels and Mass on the same row!
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("Volume (cc):", color=dim_col)
             dpg.add_text(f"{stats['vol_cc']:.3f}")
-            dpg.add_spacer(width=20)
+            dpg.add_spacer(width=10)
+            dpg.add_text("Mass (g):", color=dim_col)
+            dpg.add_text(f"{stats.get('mass', 0.0):.2f}")
+            dpg.add_spacer(width=10)
             dpg.add_text("Voxels:", color=dim_col)
             dpg.add_text(f"{stats['voxel_count']}")
 
@@ -1357,6 +1364,28 @@ class RoiPluginUI(PluginTagMixin):
             dpg.add_text("Min / Max:", color=dim_col)
             dpg.add_text(f"{stats['min']:.2f} / {stats['max']:.2f}")
 
+        ov_stats = stats.get("overlay_stats")
+        if ov_stats:
+            dpg.add_spacer(height=5, parent=parent_tag)
+            dpg.add_text(f"Fusion Intensity ({ov_stats['name']})", color=header_col, parent=parent_tag)
+            dpg.add_separator(parent=parent_tag)
+
+            with dpg.group(horizontal=True, parent=parent_tag):
+                dpg.add_text("Mean:", color=dim_col)
+                dpg.add_text(f"{ov_stats['mean']:.2f}")
+                dpg.add_spacer(width=10)
+                dpg.add_text("Std Dev:", color=dim_col)
+                dpg.add_text(f"{ov_stats['std']:.2f}")
+            with dpg.group(horizontal=True, parent=parent_tag):
+                dpg.add_text("Median:", color=dim_col)
+                dpg.add_text(f"{ov_stats['median']:.2f}")
+                dpg.add_spacer(width=10)
+                dpg.add_text("Peak (95%):", color=dim_col)
+                dpg.add_text(f"{ov_stats['peak']:.2f}")
+            with dpg.group(horizontal=True, parent=parent_tag):
+                dpg.add_text("Min / Max:", color=dim_col)
+                dpg.add_text(f"{ov_stats['min']:.2f} / {ov_stats['max']:.2f}")
+
     def on_copy_stats_to_clipboard(self, sender, app_data, user_data):
         base_vs_id = user_data["base_vs_id"]
         roi_id = user_data["roi_id"]
@@ -1379,6 +1408,7 @@ class RoiPluginUI(PluginTagMixin):
             f"Image: {image_name}",
             "Geometry:",
             f"  Volume (cc): {stats['vol_cc']:.3f}",
+            f"  Mass (g): {stats.get('mass', 0.0):.2f}",
             f"  Voxels: {stats['voxel_count']}",
             f"  Size: {size_val}",
             f"  Spacing (mm): {stats['spacing']}",
@@ -1392,6 +1422,17 @@ class RoiPluginUI(PluginTagMixin):
             f"  Min: {stats['min']:.2f}",
             f"  Max: {stats['max']:.2f}",
         ]
+        ov_stats = stats.get("overlay_stats")
+        if ov_stats:
+            text_lines.extend([
+                f"Fusion Intensity ({ov_stats['name']}):",
+                f"  Mean: {ov_stats['mean']:.2f}",
+                f"  Std Dev: {ov_stats['std']:.2f}",
+                f"  Median: {ov_stats['median']:.2f}",
+                f"  Peak (95%): {ov_stats['peak']:.2f}",
+                f"  Min: {ov_stats['min']:.2f}",
+                f"  Max: {ov_stats['max']:.2f}",
+            ])
         clipboard_text = "\n".join(text_lines)
         dpg.set_clipboard_text(clipboard_text)
         self.api.set_async_status("Stats copied to clipboard!")

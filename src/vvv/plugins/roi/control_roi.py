@@ -229,6 +229,56 @@ class RoiPluginController(PluginTagMixin):
             max_val = 0.0
             peak_val = 0.0
 
+        density_g_cc = (mean_val / 1000.0) + 1.0
+        mass_g = vol_cc * density_g_cc
+
+        # Fusion/Overlay Intensity statistics
+        overlay_stats = None
+        view_states = self.api.get_view_states()
+        base_vs = view_states.get(base_vs_id)
+        overlay_id = base_vs.display.overlay.image_id if (base_vs and base_vs.display.overlay) else None
+        if overlay_id and overlay_id in volumes:
+            overlay_vol = volumes[overlay_id]
+            overlay_data = base_vs.display.overlay_data if base_vs else None
+            if overlay_data is not None:
+                if overlay_vol and overlay_vol.num_timepoints > 1:
+                    viewer = self.api.get_active_viewer()
+                    t = 0
+                    if viewer and viewer.view_state:
+                        t = min(viewer.view_state.camera.time_idx, overlay_vol.num_timepoints - 1)
+                    overlay_data = overlay_data[t]
+                
+                if roi_bbox is not None and isinstance(roi_bbox, (list, tuple, np.ndarray)) and len(roi_bbox) == 6:
+                    z0, z1, y0, y1, x0, x1 = roi_bbox
+                    if z0 != z1:
+                        overlay_data = overlay_data[z0:z1, y0:y1, x0:x1]
+                
+                if voxel_count > 0:
+                    ov_pixels = overlay_data[mask]
+                    ov_mean = float(np.mean(ov_pixels))
+                    ov_std = float(np.std(ov_pixels))
+                    ov_median = float(np.median(ov_pixels))
+                    ov_min = float(np.min(ov_pixels))
+                    ov_max = float(np.max(ov_pixels))
+                    ov_peak = float(np.percentile(ov_pixels, 95))
+                else:
+                    ov_mean = 0.0
+                    ov_std = 0.0
+                    ov_median = 0.0
+                    ov_min = 0.0
+                    ov_max = 0.0
+                    ov_peak = 0.0
+                
+                overlay_stats = {
+                    "name": overlay_vol.name if overlay_vol else overlay_id,
+                    "mean": ov_mean,
+                    "std": ov_std,
+                    "median": ov_median,
+                    "min": ov_min,
+                    "max": ov_max,
+                    "peak": ov_peak,
+                }
+
         return {
             "vol_cc": vol_cc,
             "voxel_count": voxel_count,
@@ -243,4 +293,6 @@ class RoiPluginController(PluginTagMixin):
             "min": min_val,
             "max": max_val,
             "peak": peak_val,
+            "mass": mass_g,
+            "overlay_stats": overlay_stats,
         }
