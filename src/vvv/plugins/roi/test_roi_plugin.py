@@ -864,11 +864,12 @@ class TestRoiPlugin(unittest.TestCase):
         with dpg.window(tag="test_parent"):
             self.plugin.create_ui(parent="test_parent", api=self.mock_api)
 
-        # 1. Create a real ROIState
+        # 1. Create a real ROIState in contour mode
         roi_state = ROIState(volume_id="img_1", name="Sphere_1", color=[255, 0, 0])
         roi_state.is_spheroid = True
         roi_state.spheroid_center = [10.0, 20.0, 30.0]
         roi_state.spheroid_radius = 5.0
+        roi_state.is_contour = True
 
         # 2. Mock viewer and volumes
         mock_viewer = MagicMock()
@@ -935,6 +936,10 @@ class TestRoiPlugin(unittest.TestCase):
             tool.on_click(0) # left click
             self.assertEqual(mock_viewer.roi_mode, RoiInteractionMode.MANIPULATING)
             self.assertEqual(tool.roi_drag_id, "Sphere_1")
+            
+            # Check contour mode was temporarily disabled
+            self.assertFalse(roi_state.is_contour)
+            self.assertTrue(tool.roi_drag_was_contour)
 
             # Drag by 2 voxels physically (which is 2 voxels because spacing is 1.0)
             mock_viewer.get_mouse_slice_coords.return_value = (12.0, 22.0)
@@ -945,10 +950,16 @@ class TestRoiPlugin(unittest.TestCase):
             self.assertTrue(np.allclose(roi_vol.origin, [7.0, 17.0, 25.0]))
             self.assertEqual(roi_vol.roi_bbox, (25, 35, 17, 27, 7, 17))
             
+            # Still disabled during drag
+            self.assertFalse(roi_state.is_contour)
+
             # Release
             tool.on_release(0)
             self.assertEqual(mock_viewer.roi_mode, RoiInteractionMode.IDLE)
             self.assertIsNone(tool.roi_drag_id)
+            
+            # Check contour mode was restored
+            self.assertTrue(roi_state.is_contour)
 
         dpg.delete_item("test_parent")
 

@@ -16,6 +16,7 @@ def custom_is_key_down(key):
         return _overridden_keys[key]
     return _original_is_key_down(key)
 
+# pyrefly: ignore [bad-assignment]
 dpg.is_key_down = custom_is_key_down
 
 def clear_modifier_overrides():
@@ -45,6 +46,7 @@ class NavigationTool:
         self.roi_drag_start_bbox = None
         self.roi_drag_start_mouse_phys = None
         self.roi_drag_id = None
+        self.roi_drag_was_contour = False
 
     def on_click(self, button):
         # Allow Left, Middle, and Right clicks to lock the viewer for dragging
@@ -109,6 +111,13 @@ class NavigationTool:
                 roi_vol = self.manager.controller.volumes.get(roi_id)
                 self.roi_drag_start_origin = np.array(roi_vol.origin)
                 self.roi_drag_start_bbox = tuple(roi_vol.roi_bbox)
+                
+                # Check if it was contour mode
+                vs = viewer.view_state
+                roi_state = vs.rois[roi_id]
+                self.roi_drag_was_contour = getattr(roi_state, "is_contour", False)
+                if self.roi_drag_was_contour:
+                    roi_state.is_contour = False
                 
                 px, py = viewer.get_mouse_slice_coords(ignore_hover=True)
                 if px is not None:
@@ -208,6 +217,7 @@ class NavigationTool:
                             delta_vox = np.round(target_center_vox - initial_center_vox).astype(int)
                             
                             base_sz, base_sy, base_sx = base_vol.shape3d
+                            # pyrefly: ignore [not-iterable]
                             z0, z1, y0, y1, x0, x1 = self.roi_drag_start_bbox
                             
                             max_delta_z = base_sz - z1
@@ -265,11 +275,26 @@ class NavigationTool:
 
             if hasattr(self.drag_viewer, "roi_mode") and self.drag_viewer.roi_mode == RoiInteractionMode.MANIPULATING:
                 self.drag_viewer.roi_mode = RoiInteractionMode.IDLE
+                
+                # Restore contour mode if it was active
+                roi_id = self.roi_drag_id
+                vs = self.drag_viewer.view_state
+                if roi_id in vs.rois:
+                    roi_state = vs.rois[roi_id]
+                    if getattr(self, "roi_drag_was_contour", False):
+                        roi_state.is_contour = True
+                        for ori in roi_state.polygons:
+                            roi_state.polygons[ori].clear()
+                
                 self.roi_drag_start_center = None
                 self.roi_drag_start_origin = None
                 self.roi_drag_start_bbox = None
                 self.roi_drag_start_mouse_phys = None
                 self.roi_drag_id = None
+                self.roi_drag_was_contour = False
+                
+                # Force updates
+                self.manager.controller.update_all_viewers_of_image(self.drag_viewer.image_id, data_dirty=True)
                 
                 roi_plugin = next((p for p in self.manager.gui.plugins if p.plugin_id == "roi_plugin"), None)
                 if roi_plugin and hasattr(roi_plugin, "_ui"):
