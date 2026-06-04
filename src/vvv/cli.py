@@ -268,7 +268,6 @@ def main(no_history, datasets, linkall, sync, linkall_wl, debug, fast_gl):
         dpg_ver = dearpygui.__version__
         parts = [int(p) for p in dpg_ver.split(".") if p.isdigit()]
         if parts and (parts[0] < 2 or (parts[0] == 2 and len(parts) > 1 and parts[1] < 3)):
-            import sys
             print(
                 f"WARNING: dearpygui version {dpg_ver} is detected. Version >= 2.3.1 is highly recommended "
                 f"to prevent segmentation faults/crashes, particularly under Python 3.14+ or in headless environments.",
