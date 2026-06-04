@@ -201,6 +201,13 @@ class RoiPluginUI(PluginTagMixin):
                     callback=self.on_roi_toggle_all_stats,
                     tag=self._t("btn_roi_toggle_all_stats"),
                 )
+                btn_reload_all = dpg.add_button(
+                    label="\uf01e",
+                    width=20,
+                    callback=self.on_roi_reload_all,
+                    tag=self._t("btn_roi_reload_all"),
+                    show=False,
+                )
 
                 if dpg.does_item_exist("icon_font_tag"):
                     for btn in [
@@ -208,6 +215,7 @@ class RoiPluginUI(PluginTagMixin):
                         btn_contour,
                         btn_hide,
                         btn_toggle_all_stats,
+                        btn_reload_all,
                         btn_close_all,
                     ]:
                         dpg.bind_item_font(btn, "icon_font_tag")
@@ -229,6 +237,9 @@ class RoiPluginUI(PluginTagMixin):
 
                 with dpg.tooltip(btn_toggle_all_stats):
                     dpg.add_text("Toggle all statistics windows")
+
+                with dpg.tooltip(btn_reload_all):
+                    dpg.add_text("Reload all modified ROIs")
 
             dpg.add_spacer(height=2)
 
@@ -401,6 +412,7 @@ class RoiPluginUI(PluginTagMixin):
             "btn_roi_hide_all",
             "btn_roi_close_all",
             "btn_roi_toggle_all_stats",
+            "btn_roi_reload_all",
             "btn_roi_sort",
             "btn_clear_filter",
             "btn_roi_export_stats",
@@ -437,6 +449,8 @@ class RoiPluginUI(PluginTagMixin):
         if not viewer or not viewer.view_state or not viewer.view_state.rois:
             if dpg.does_item_exist(self._t("group_roi_filter")):
                 dpg.configure_item(self._t("group_roi_filter"), show=False)
+            if dpg.does_item_exist(self._t("btn_roi_reload_all")):
+                dpg.configure_item(self._t("btn_roi_reload_all"), show=False)
             self.refresh_roi_detail_ui()
             return
 
@@ -460,6 +474,15 @@ class RoiPluginUI(PluginTagMixin):
         total_rois = len(viewer.view_state.rois)
         if dpg.does_item_exist(self._t("group_roi_filter")):
             dpg.configure_item(self._t("group_roi_filter"), show=total_rois > 10)
+
+        any_outdated = False
+        for roi_id in viewer.view_state.rois:
+            rvol = self.api.get_volumes().get(roi_id)
+            if rvol and getattr(rvol, "_is_outdated", False):
+                any_outdated = True
+                break
+        if dpg.does_item_exist(self._t("btn_roi_reload_all")):
+            dpg.configure_item(self._t("btn_roi_reload_all"), show=any_outdated)
 
         roi_items = list(viewer.view_state.rois.items())
         if sort_order == 1:
@@ -988,6 +1011,19 @@ class RoiPluginUI(PluginTagMixin):
         viewer = self.api.get_active_viewer()
         if viewer and viewer.image_id:
             self.api.reload_roi(viewer.image_id, user_data)
+
+    def on_roi_reload_all(self, sender, app_data, user_data):
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.image_id or not viewer.view_state:
+            return
+        outdated_ids = []
+        for roi_id in list(viewer.view_state.rois.keys()):
+            roi_vol = self.api.get_volumes().get(roi_id)
+            if roi_vol and getattr(roi_vol, "_is_outdated", False):
+                outdated_ids.append(roi_id)
+        for roi_id in outdated_ids:
+            if roi_id in viewer.view_state.rois:
+                self.api.reload_roi(viewer.image_id, roi_id)
 
     def on_roi_save(self, sender, app_data, user_data):
         roi_id = user_data

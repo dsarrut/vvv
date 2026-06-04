@@ -311,7 +311,18 @@ class ROIManager:
 
         mask_vol = VolumeData.__new__(VolumeData)
         mask_vol.path = filepath
-        mask_vol.file_paths = [filepath]
+        
+        file_paths = [filepath] if filepath else []
+        source_type = state_kwargs.get("source_type", "Binary")
+        if source_type == "Label Map" and filepath:
+            import os
+            if filepath.lower().endswith(".nii.gz"):
+                json_path = filepath[:-7] + ".json"
+            else:
+                json_path = os.path.splitext(filepath)[0] + ".json"
+            if os.path.exists(json_path):
+                file_paths.append(json_path)
+        mask_vol.file_paths = file_paths
         mask_vol.name = name
         mask_vol.sitk_image = mask_img
         mask_vol.data = mask_data

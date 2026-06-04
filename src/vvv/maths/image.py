@@ -1025,12 +1025,18 @@ class VolumeData:
         )
 
     def _get_latest_mtime(self):
-        try:
-            if self.file_paths and os.path.exists(self.file_paths[0]):
-                return os.path.getmtime(self.file_paths[0])
-        except:
-            pass
-        return 0
+        max_mtime = 0.0
+        if not self.file_paths:
+            return 0.0
+        for p in self.file_paths:
+            try:
+                if os.path.exists(p):
+                    mtime = os.path.getmtime(p)
+                    if mtime > max_mtime:
+                        max_mtime = mtime
+            except:
+                pass
+        return max_mtime
 
     def is_outdated(self):
         now = time.time()
