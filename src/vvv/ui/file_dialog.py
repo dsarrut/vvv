@@ -173,7 +173,7 @@ def open_file_dialog(
     elif sys.platform == "win32":  # Windows
         start_dir_esc = start_dir.replace("'", "''")
         title_esc = title.replace("'", "''")
-        
+
         if is_directory:
             script = (
                 f"Add-Type -AssemblyName System.Windows.Forms;"
@@ -316,7 +316,7 @@ def save_file_dialog(title="Save File", default_name="workspace.vvw", start_dir=
         start_dir_esc = start_dir.replace("'", "''")
         title_esc = title.replace("'", "''")
         default_name_esc = default_name.replace("'", "''")
-        
+
         script = (
             f"Add-Type -AssemblyName System.Windows.Forms;"
             f"$f = New-Object System.Windows.Forms.SaveFileDialog;"

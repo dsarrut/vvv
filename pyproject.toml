@@ -10,7 +10,7 @@ requires-python = ">=3.9"
 dependencies = [
     "click",
     "SimpleITK",
-    "dearpygui",
+    "dearpygui>=2.3.1",
     "numpy",
     "scikit-image",
     "pytest",

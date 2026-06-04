@@ -6,6 +6,7 @@ InteractionManager uses after routing — and asserts on view_state properties.
 
 Key bindings come from DEFAULT_SETTINGS["shortcuts"] in config.py.
 """
+
 import pytest
 import numpy as np
 import SimpleITK as sitk
@@ -22,6 +23,7 @@ def press(viewer, key):
 # Slice navigation (Up/Down arrows, Page Up/Down)
 # Slice navigation clamps at boundaries (does NOT wrap).
 # ---------------------------------------------------------------------------
+
 
 class TestSliceNavigation:
     def test_up_arrow_advances_slice(self, headless_gui_app):
@@ -69,6 +71,7 @@ class TestSliceNavigation:
 # The synthetic volume is (20, 30, 30) so axial and sagittal slice counts differ.
 # ---------------------------------------------------------------------------
 
+
 class TestOrientationKeys:
     def test_f1_sets_axial(self, headless_gui_app):
         _, _, viewer, _ = headless_gui_app
@@ -100,6 +103,7 @@ class TestOrientationKeys:
 # Zoom (I = in, O = out, R = reset)
 # ---------------------------------------------------------------------------
 
+
 class TestZoomKeys:
     def test_i_increases_zoom(self, headless_gui_app):
         _, _, viewer, _ = headless_gui_app
@@ -120,12 +124,15 @@ class TestZoomKeys:
         press(viewer, dpg.mvKey_I)
         assert viewer.view_state.camera.zoom[viewer.orientation] > initial
         press(viewer, dpg.mvKey_R)
-        assert viewer.view_state.camera.zoom[viewer.orientation] == pytest.approx(initial, rel=0.01)
+        assert viewer.view_state.camera.zoom[viewer.orientation] == pytest.approx(
+            initial, rel=0.01
+        )
 
 
 # ---------------------------------------------------------------------------
 # Display toggles (H, K, L, G)
 # ---------------------------------------------------------------------------
+
 
 class TestDisplayToggleKeys:
     def test_h_hides_all_overlays(self, headless_gui_app):
@@ -165,6 +172,7 @@ class TestDisplayToggleKeys:
 # Time navigation (Right / Left arrows) — requires a 4D volume.
 # Time navigation wraps around (uses % num_timepoints), does NOT clamp.
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def headless_4d_app(tmp_path):

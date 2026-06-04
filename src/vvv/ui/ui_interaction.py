@@ -74,7 +74,9 @@ class NavigationTool:
 
         mods = self.manager.modifiers
         is_pan_mod = mods["cmd"] or mods["ctrl"]
-        self.is_pan_drag = (is_pan_mod and button == dpg.mvMouseButton_Left) or (button == dpg.mvMouseButton_Middle)
+        self.is_pan_drag = (is_pan_mod and button == dpg.mvMouseButton_Left) or (
+            button == dpg.mvMouseButton_Middle
+        )
 
         # Crosshair snap ONLY on un-modified Left Click
         if button == dpg.mvMouseButton_Left and not mods["shift"] and not is_pan_mod:
@@ -131,6 +133,7 @@ class NavigationTool:
 
             if self.is_pan_drag:
                 import time
+
                 self.last_pan_time = time.time()
                 self.is_pan_drag = False
 
@@ -147,7 +150,14 @@ class NavigationTool:
             return
         plugin_win_tag = f"profile_plugin_plot_win_{profile.id}"
         if dpg.does_item_exist(plugin_win_tag):
-            profile_plugin = next((p for p in self.manager.gui.plugins if p.plugin_id == "profile_plugin"), None)
+            profile_plugin = next(
+                (
+                    p
+                    for p in self.manager.gui.plugins
+                    if p.plugin_id == "profile_plugin"
+                ),
+                None,
+            )
             if profile_plugin:
                 profile_plugin._ui.refresh_plot_series(profile)
                 profile_plugin._ui.update_plot_info(profile)
@@ -156,6 +166,7 @@ class NavigationTool:
         if self.drag_viewer is not None:
             return
         import time
+
         if time.time() - getattr(self, "last_pan_time", 0.0) < 0.25:
             return
         target = self.manager.get_hovered_viewer()
@@ -319,7 +330,9 @@ class InteractionManager:
                 viewer.is_geometry_dirty = True
 
         # W/L Drag: Shift + Move or Right-Click Drag
-        is_wl_drag = self.modifiers["shift"] or dpg.is_mouse_button_down(dpg.mvMouseButton_Right)
+        is_wl_drag = self.modifiers["shift"] or dpg.is_mouse_button_down(
+            dpg.mvMouseButton_Right
+        )
 
         if is_wl_drag:
             # Use the locked drag target if available so it doesn't break if the mouse leaves the viewer
@@ -360,7 +373,11 @@ class InteractionManager:
 
     def on_key_press(self, sender, app_data, user_data):
         # Prevent keyboard shortcuts from triggering while typing in text/number fields
-        roi_plugin = next((p for p in self.gui.plugins if p.plugin_id == "roi_plugin"), None) if self.gui else None
+        roi_plugin = (
+            next((p for p in self.gui.plugins if p.plugin_id == "roi_plugin"), None)
+            if self.gui
+            else None
+        )
         if roi_plugin and hasattr(roi_plugin, "_ui"):
             ui = roi_plugin._ui
             for input_id in ui.roi_selectables.values():
@@ -386,14 +403,16 @@ class InteractionManager:
                     m_pos = dpg.get_mouse_pos(local=False)
                     if pos and size and m_pos:
                         is_hovering_list = (
-                            pos[0] <= m_pos[0] <= pos[0] + size[0] and
-                            pos[1] <= m_pos[1] <= pos[1] + size[1]
+                            pos[0] <= m_pos[0] <= pos[0] + size[0]
+                            and pos[1] <= m_pos[1] <= pos[1] + size[1]
                         )
                 except Exception:
                     pass
             if is_hovering_list:
                 if app_data in (dpg.mvKey_Up, dpg.mvKey_Down):
-                    roi_plugin._controller.move_roi_selection(-1 if app_data == dpg.mvKey_Up else 1)
+                    roi_plugin._controller.move_roi_selection(
+                        -1 if app_data == dpg.mvKey_Up else 1
+                    )
                     return
 
         try:
@@ -416,7 +435,9 @@ class InteractionManager:
             pass
 
         # Global Application shortcuts using centralized modifiers
-        if app_data == dpg.mvKey_O and (self.modifiers["ctrl"] or self.modifiers["cmd"]):
+        if app_data == dpg.mvKey_O and (
+            self.modifiers["ctrl"] or self.modifiers["cmd"]
+        ):
             self.gui.on_open_file_clicked()
             return
 
@@ -435,7 +456,9 @@ class InteractionManager:
                 return
 
         # Plugin DICOM Browser Arrow Keys
-        dicom_plugin = next((p for p in self.gui.plugins if p.plugin_id == "dicom_plugin"), None)
+        dicom_plugin = next(
+            (p for p in self.gui.plugins if p.plugin_id == "dicom_plugin"), None
+        )
         if (
             dicom_plugin
             and hasattr(dicom_plugin, "_ui")
@@ -460,8 +483,12 @@ class InteractionManager:
         hover_viewer = self.get_hovered_viewer()
 
         # 0. Update Modifiers (Safe on Main Thread)
-        self.modifiers["shift"] = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(dpg.mvKey_RShift)
-        self.modifiers["ctrl"] = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl)
+        self.modifiers["shift"] = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(
+            dpg.mvKey_RShift
+        )
+        self.modifiers["ctrl"] = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(
+            dpg.mvKey_RControl
+        )
 
         is_cmd = False
         if hasattr(dpg, "mvKey_LWin"):

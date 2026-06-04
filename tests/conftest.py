@@ -5,6 +5,22 @@ from vvv.core.controller import Controller
 from vvv.ui.gui import MainGUI
 from vvv.ui.viewer import SliceViewer
 
+def pytest_configure(config):
+    try:
+        import dearpygui
+        dpg_ver = dearpygui.__version__
+        parts = [int(p) for p in dpg_ver.split(".") if p.isdigit()]
+        if parts and (parts[0] < 2 or (parts[0] == 2 and len(parts) > 1 and parts[1] < 3)):
+            import sys
+            import warnings
+            warnings.warn(
+                f"dearpygui version {dpg_ver} is detected. Version >= 2.3.1 is highly recommended "
+                f"to prevent segmentation faults/crashes, particularly under Python 3.14+ or in headless environments."
+            )
+    except Exception:
+        pass
+
+
 @pytest.fixture(scope="session")
 def synthetic_volume_factory(tmp_path_factory):
     """A factory to quickly generate 3D NIfTI files on disk for testing."""
