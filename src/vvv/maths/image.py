@@ -597,7 +597,8 @@ class VolumeData:
         self.read_image_metadata()
 
         # Modification tracking
-        self.last_mtime = self._get_latest_mtime()
+        self.last_mtimes = {}
+        self.update_mtime_tracker()
         self._last_check_time: float = 0.0
         self._is_outdated = False
 
@@ -1024,6 +1025,17 @@ class VolumeData:
             self.sitk_image.GetNumberOfPixels() * bytes_per_pixel / (1024 * 1024)
         )
 
+    def update_mtime_tracker(self):
+        self.last_mtimes = {}
+        if self.file_paths:
+            for p in self.file_paths:
+                try:
+                    if os.path.exists(p):
+                        self.last_mtimes[p] = os.path.getmtime(p)
+                except:
+                    pass
+        self.last_mtime = self._get_latest_mtime()
+
     def _get_latest_mtime(self):
         max_mtime = 0.0
         if not self.file_paths:
@@ -1043,8 +1055,19 @@ class VolumeData:
         # Throttled test (every 5 seconds) to guarantee 0 GUI lag.
         if now - self._last_check_time > 5.0:
             self._last_check_time = now
-            current_mtime = self._get_latest_mtime()
-            self._is_outdated = current_mtime > self.last_mtime
+            if not hasattr(self, 'last_mtimes') or not self.last_mtimes:
+                self.update_mtime_tracker()
+            any_updated = False
+            for p in self.file_paths:
+                try:
+                    if os.path.exists(p):
+                        curr_mtime = os.path.getmtime(p)
+                        prev_mtime = self.last_mtimes.get(p, 0.0)
+                        if self.last_mtime == 0.0 or curr_mtime > prev_mtime:
+                            any_updated = True
+                except:
+                    pass
+            self._is_outdated = any_updated
         return self._is_outdated
 
     def get_physical_aspect_ratio(self, orientation):
@@ -1087,7 +1110,7 @@ class VolumeData:
             self.data = new_data
             self.read_image_metadata()
 
-            self.last_mtime = self._get_latest_mtime()
+            self.update_mtime_tracker()
             self._is_outdated = False
 
             # old_sitk safely drops out of scope here

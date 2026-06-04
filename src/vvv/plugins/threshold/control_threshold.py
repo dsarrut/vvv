@@ -43,18 +43,22 @@ class ThresholdState:
     def from_dict(self, d: dict) -> None:
         if not d:
             return
-        self.is_enabled = d.get("is_enabled", self.is_enabled)
-        self.threshold_min = d.get("threshold_min", self.threshold_min)
-        self.threshold_max = d.get("threshold_max", self.threshold_max)
-        self.show_preview = d.get("show_preview", self.show_preview)
-        self.subpixel_accurate = d.get("subpixel_accurate", self.subpixel_accurate)
-        self.preview_color_min = d.get("preview_color_min", self.preview_color_min)
-        self.preview_color_max = d.get("preview_color_max", self.preview_color_max)
-        self.preview_thickness = d.get("preview_thickness", self.preview_thickness)
-        self.gen_bg_mode = d.get("gen_bg_mode", self.gen_bg_mode)
-        self.gen_bg_val = d.get("gen_bg_val", self.gen_bg_val)
-        self.gen_fg_mode = d.get("gen_fg_mode", self.gen_fg_mode)
-        self.gen_fg_val = d.get("gen_fg_val", self.gen_fg_val)
+        def get_val(key, default):
+            v = d.get(key, default)
+            return default if v is None else v
+
+        self.is_enabled = get_val("is_enabled", self.is_enabled)
+        self.threshold_min = get_val("threshold_min", self.threshold_min)
+        self.threshold_max = get_val("threshold_max", self.threshold_max)
+        self.show_preview = get_val("show_preview", self.show_preview)
+        self.subpixel_accurate = get_val("subpixel_accurate", self.subpixel_accurate)
+        self.preview_color_min = get_val("preview_color_min", self.preview_color_min)
+        self.preview_color_max = get_val("preview_color_max", self.preview_color_max)
+        self.preview_thickness = get_val("preview_thickness", self.preview_thickness)
+        self.gen_bg_mode = get_val("gen_bg_mode", self.gen_bg_mode)
+        self.gen_bg_val = get_val("gen_bg_val", self.gen_bg_val)
+        self.gen_fg_mode = get_val("gen_fg_mode", self.gen_fg_mode)
+        self.gen_fg_val = get_val("gen_fg_val", self.gen_fg_val)
         self.is_initialized = True
 
 
@@ -89,8 +93,14 @@ class ThresholdController(PluginTagMixin):
         if vol is not None:
             current_data_id = id(vol.data)
             if not hasattr(vol, "_cached_min_val") or getattr(vol, "_cached_data_id", None) != current_data_id:
-                vol._cached_min_val = float(np.min(vol.data))
-                vol._cached_max_val = float(np.max(vol.data))
+                if vol.data is not None and vol.data.size > 0:
+                    min_val = np.min(vol.data)
+                    max_val = np.max(vol.data)
+                    vol._cached_min_val = float(min_val) if min_val is not None else 0.0
+                    vol._cached_max_val = float(max_val) if max_val is not None else 1.0
+                else:
+                    vol._cached_min_val = 0.0
+                    vol._cached_max_val = 1.0
                 vol._cached_data_id = current_data_id
 
             if not state.is_initialized:

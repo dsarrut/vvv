@@ -8,6 +8,24 @@ from vvv.utils import (
 )
 import dearpygui.dearpygui as dpg
 
+_overridden_keys = {}
+_original_is_key_down = dpg.is_key_down
+
+def custom_is_key_down(key):
+    if key in _overridden_keys:
+        return _overridden_keys[key]
+    return _original_is_key_down(key)
+
+dpg.is_key_down = custom_is_key_down
+
+def clear_modifier_overrides():
+    for k in range(1000):
+        try:
+            if _original_is_key_down(k):
+                _overridden_keys[k] = False
+        except Exception:
+            pass
+
 
 class NavigationTool:
     """The default tool for panning, zooming, Window/Level, and crosshair navigation."""
@@ -550,7 +568,12 @@ class InteractionManager:
     def on_mouse_scroll(self, sender, app_data, user_data):
         self.active_tool.on_scroll(app_data)
 
+    def on_key_release(self, sender, app_data, user_data):
+        _overridden_keys[app_data] = False
+
     def on_key_press(self, sender, app_data, user_data):
+        if app_data in _overridden_keys:
+            del _overridden_keys[app_data]
         # Prevent keyboard shortcuts from triggering while typing in text/number fields
         roi_plugin = next((p for p in self.gui.plugins if p.plugin_id == "roi_plugin"), None) if self.gui else None
         if roi_plugin and hasattr(roi_plugin, "_ui"):
@@ -646,6 +669,10 @@ class InteractionManager:
 
     def update_trackers(self):
         """Continuously called by the render loop to update hover states and UI text."""
+        if not hasattr(self, "startup_cleared"):
+            clear_modifier_overrides()
+            self.startup_cleared = True
+
         mode = self.controller.settings.data["interaction"].get(
             "active_viewer_mode", "hybrid"
         )

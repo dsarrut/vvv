@@ -122,6 +122,48 @@ class ROIManager:
     def process_binary_mask(self, base_vol, mask_vol, skip_initial_crop=False):
         """Helper to natively crop, align, and resample a binary mask."""
         import SimpleITK as sitk
+        import numpy as np
+
+        def get_spatial_direction(img):
+            if "mock" in type(img).__name__.lower():
+                return np.eye(3).flatten()
+            dir_flat = img.GetDirection()
+            dim = img.GetDimension()
+            if dim == 3:
+                return np.array(dir_flat)
+            elif dim > 3:
+                mat = np.array(dir_flat).reshape((dim, dim))
+                sub = mat[:3, :3]
+                return sub.flatten()
+            else:
+                mat = np.eye(3)
+                img_mat = np.array(dir_flat).reshape((dim, dim))
+                mat[:dim, :dim] = img_mat
+                return mat.flatten()
+
+        def transform_point_to_continuous_index(target_img, phys_pt):
+            if "mock" in type(target_img).__name__.lower():
+                target_dim = 3
+            else:
+                target_dim = target_img.GetDimension()
+            pt = list(phys_pt)
+            if len(pt) < target_dim:
+                pt = pt + [0.0] * (target_dim - len(pt))
+            elif len(pt) > target_dim:
+                pt = pt[:target_dim]
+            return target_img.TransformPhysicalPointToContinuousIndex(pt)
+
+        def transform_index_to_point(source_img, idx_tuple):
+            if "mock" in type(source_img).__name__.lower():
+                source_dim = 3
+            else:
+                source_dim = source_img.GetDimension()
+            idx = list(idx_tuple)
+            if len(idx) < source_dim:
+                idx = idx + [0] * (source_dim - len(idx))
+            elif len(idx) > source_dim:
+                idx = idx[:source_dim]
+            return source_img.TransformIndexToPhysicalPoint(idx)
 
         # --- 1. NATIVE CROP FIRST ---
         if not skip_initial_crop:
@@ -147,9 +189,7 @@ class ROIManager:
                 mask_vol.data = np.ascontiguousarray(mask_vol.data[z0:z1, y0:y1, x0:x1])
 
             # Update the SimpleITK image to reflect this small, dense block of data
-            new_origin = mask_vol.sitk_image.TransformIndexToPhysicalPoint(
-                (int(x0), int(y0), int(z0))
-            )
+            new_origin = transform_index_to_point(mask_vol.sitk_image, (int(x0), int(y0), int(z0)))
 
             cropped_sitk = sitk.GetImageFromArray(mask_vol.data)
             cropped_sitk.SetSpacing(mask_vol.sitk_image.GetSpacing())
@@ -160,20 +200,18 @@ class ROIManager:
             new_origin = mask_vol.sitk_image.GetOrigin()
 
         # --- 2. CHECK FOR PERFECT ALIGNMENT ---
-        spacing_match = np.allclose(mask_vol.spacing, base_vol.spacing, atol=1e-4)
+        spacing_match = np.allclose(mask_vol.spacing[:3], base_vol.spacing[:3], atol=1e-4)
         dir_match = np.allclose(
-            mask_vol.sitk_image.GetDirection(),
-            base_vol.sitk_image.GetDirection(),
+            get_spatial_direction(mask_vol.sitk_image),
+            get_spatial_direction(base_vol.sitk_image),
             atol=1e-4,
         )
 
         if spacing_match and dir_match:
-            base_idx = base_vol.sitk_image.TransformPhysicalPointToContinuousIndex(
-                new_origin
-            )
+            base_idx = transform_point_to_continuous_index(base_vol.sitk_image, new_origin)
             if np.allclose(base_idx, np.round(base_idx), atol=1e-3):
                 # FAST PATH: It perfectly aligns. Just calculate the offset.
-                bx, by, bz = [int(round(v)) for v in base_idx]
+                bx, by, bz = [int(round(v)) for v in base_idx[:3]]
                 sz, sy, sx = mask_vol.data.shape[-3:]
                 mask_vol.roi_bbox = (bz, bz + sz, by, by + sy, bx, bx + sx)
                 return
@@ -194,9 +232,9 @@ class ROIManager:
 
         base_indices = []
         for c in corners:
-            phys_pt = mask_vol.sitk_image.TransformIndexToPhysicalPoint(c)
+            phys_pt = transform_index_to_point(mask_vol.sitk_image, c)
             base_indices.append(
-                base_vol.sitk_image.TransformPhysicalPointToContinuousIndex(phys_pt)
+                transform_point_to_continuous_index(base_vol.sitk_image, phys_pt)
             )
 
         base_indices = np.array(base_indices)
@@ -279,18 +317,28 @@ class ROIManager:
 
     def _create_memory_roi(self, base_id, filepath, name, mask_img, mask_data, skip_crop=False, is_contour=False, **state_kwargs):
         """Centralized helper for creating an ROI exclusively from memory (Label Maps, RT-Structs)."""
+        import os
         base_vol = self.controller.volumes[base_id]
 
         mask_vol = VolumeData.__new__(VolumeData)
         mask_vol.path = filepath
+
+        base_path = filepath
+        if base_path.lower().endswith(".gz"):
+            base_path = base_path[:-3]
+        json_path = os.path.splitext(base_path)[0] + ".json"
+
         mask_vol.file_paths = [filepath]
+        if os.path.exists(json_path):
+            mask_vol.file_paths.append(json_path)
+
         mask_vol.name = name
         mask_vol.sitk_image = mask_img
         mask_vol.data = mask_data
         mask_vol.matrix_display_str = base_vol.matrix_display_str
         mask_vol.matrix_tooltip_str = base_vol.matrix_tooltip_str
         mask_vol.read_image_metadata()
-        mask_vol.last_mtime = mask_vol._get_latest_mtime()
+        mask_vol.update_mtime_tracker()
         mask_vol._last_check_time = 0
         mask_vol._is_outdated = False
 

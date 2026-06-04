@@ -224,8 +224,14 @@ class ThresholdUI(PluginTagMixin):
             not hasattr(vol, "_cached_min_val")
             or getattr(vol, "_cached_data_id", None) != current_data_id
         ):
-            vol._cached_min_val = float(np.min(vol.data))
-            vol._cached_max_val = float(np.max(vol.data))
+            if vol.data is not None and vol.data.size > 0:
+                min_val = np.min(vol.data)
+                max_val = np.max(vol.data)
+                vol._cached_min_val = float(min_val) if min_val is not None else 0.0
+                vol._cached_max_val = float(max_val) if max_val is not None else 1.0
+            else:
+                vol._cached_min_val = 0.0
+                vol._cached_max_val = 1.0
             vol._cached_data_id = current_data_id
 
         # Auto-clamp state to physical bounds

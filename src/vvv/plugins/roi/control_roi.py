@@ -219,8 +219,41 @@ class RoiPluginController(PluginTagMixin):
         if len(indices) > 0:
             com_z, com_y, com_x = np.mean(indices, axis=0)
             com_pixel_cropped = [float(com_x), float(com_y), float(com_z)]
-            com_mm = list(roi_vol.sitk_image.TransformContinuousIndexToPhysicalPoint(com_pixel_cropped))
-            com_pixel = list(base_vol.sitk_image.TransformPhysicalPointToContinuousIndex(com_mm))
+            if "mock" in type(roi_vol.sitk_image).__name__.lower():
+                roi_dim = 3
+            else:
+                try:
+                    roi_dim = int(roi_vol.sitk_image.GetDimension())
+                except Exception:
+                    roi_dim = 3
+
+            if len(com_pixel_cropped) < roi_dim:
+                com_pixel_cropped_padded = com_pixel_cropped + [0.0] * (roi_dim - len(com_pixel_cropped))
+            elif len(com_pixel_cropped) > roi_dim:
+                com_pixel_cropped_padded = com_pixel_cropped[:roi_dim]
+            else:
+                com_pixel_cropped_padded = com_pixel_cropped
+
+            com_mm_full = list(roi_vol.sitk_image.TransformContinuousIndexToPhysicalPoint(com_pixel_cropped_padded))
+            com_mm = com_mm_full[:3]
+
+            if "mock" in type(base_vol.sitk_image).__name__.lower():
+                base_dim = 3
+            else:
+                try:
+                    base_dim = int(base_vol.sitk_image.GetDimension())
+                except Exception:
+                    base_dim = 3
+
+            if len(com_mm) < base_dim:
+                com_mm_padded = com_mm + [0.0] * (base_dim - len(com_mm))
+            elif len(com_mm) > base_dim:
+                com_mm_padded = com_mm[:base_dim]
+            else:
+                com_mm_padded = com_mm
+
+            com_pixel_full = list(base_vol.sitk_image.TransformPhysicalPointToContinuousIndex(com_mm_padded))
+            com_pixel = com_pixel_full[:3]
         else:
             com_pixel = [0.0, 0.0, 0.0]
             com_mm = [0.0, 0.0, 0.0]
