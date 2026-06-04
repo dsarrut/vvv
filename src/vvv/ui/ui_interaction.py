@@ -231,19 +231,22 @@ class NavigationTool:
                                     )
                                 )
                                 new_r_mm = max(new_r_mm, 1.0)
+                                roi_state.spheroid_radius = new_r_mm
 
-                                roi_plugin = next(
-                                    (
-                                        p
-                                        for p in self.manager.gui.plugins
-                                        if p.plugin_id == "roi_plugin"
-                                    ),
-                                    None,
-                                )
-                                if roi_plugin:
-                                    roi_plugin._controller.update_spheroid_mask(
-                                        base_vol, roi_vol, roi_state, new_r_mm
+                                # Hybrid update: update mask in real-time ONLY if radius is small enough
+                                if new_r_mm < 100.0:
+                                    roi_plugin = next(
+                                        (
+                                            p
+                                            for p in self.manager.gui.plugins
+                                            if p.plugin_id == "roi_plugin"
+                                        ),
+                                        None,
                                     )
+                                    if roi_plugin:
+                                        roi_plugin._controller.update_spheroid_mask(
+                                            base_vol, roi_vol, roi_state, new_r_mm
+                                        )
 
                                 for ori in roi_state.polygons:
                                     roi_state.polygons[ori].clear()
@@ -355,6 +358,30 @@ class NavigationTool:
                 vs = self.drag_viewer.view_state
                 if roi_id in vs.rois:
                     roi_state = vs.rois[roi_id]
+
+                    # If we were resizing, regenerate the 3D mask now on release
+                    if getattr(self, "roi_drag_action", "center") == "border":
+                        roi_vol = self.manager.controller.volumes.get(roi_id)
+                        base_vol = self.manager.controller.volumes.get(
+                            self.drag_viewer.image_id
+                        )
+                        if roi_vol and base_vol:
+                            roi_plugin = next(
+                                (
+                                    p
+                                    for p in self.manager.gui.plugins
+                                    if p.plugin_id == "roi_plugin"
+                                ),
+                                None,
+                            )
+                            if roi_plugin:
+                                roi_plugin._controller.update_spheroid_mask(
+                                    base_vol,
+                                    roi_vol,
+                                    roi_state,
+                                    roi_state.spheroid_radius,
+                                )
+
                     if getattr(self, "roi_drag_was_contour", False):
                         roi_state.is_contour = True
                         for ori in roi_state.polygons:

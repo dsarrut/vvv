@@ -981,7 +981,7 @@ class TestRoiPlugin(unittest.TestCase):
         roi_state = ROIState(volume_id="img_1", name="Sphere_1", color=[255, 0, 0])
         roi_state.is_spheroid = True
         roi_state.spheroid_center = [10.0, 20.0, 30.0]
-        roi_state.spheroid_radius = 15.0  # Set radius to 15.0
+        roi_state.spheroid_radius = 110.0  # Set radius to 110.0
         roi_state.is_contour = True
 
         # 2. Mock viewer and volumes
@@ -992,7 +992,7 @@ class TestRoiPlugin(unittest.TestCase):
         mock_viewer.view_state.rois = {"Sphere_1": roi_state}
         mock_viewer.view_state.camera = MagicMock()
         mock_viewer.view_state.camera.target_ppm = 1.0  # Set ppm to 1.0 so pixels match voxel/mm distance
-        mock_viewer.get_mouse_slice_coords.return_value = (25.5, 20.5)  # On the border (exact 15.0 px)
+        mock_viewer.get_mouse_slice_coords.return_value = (120.5, 20.5)  # On the border (exact 110.0 px)
         mock_viewer.get_slice_shape.return_value = (100, 100)
         mock_viewer.current_pmin = [0.0, 0.0]
         mock_viewer.current_pmax = [100.0, 100.0]
@@ -1040,7 +1040,7 @@ class TestRoiPlugin(unittest.TestCase):
         
         # Patch DPG functions
         with patch("dearpygui.dearpygui.does_item_exist", return_value=True), \
-             patch("dearpygui.dearpygui.get_drawing_mouse_pos", return_value=(25.5, 20.5)), \
+             patch("dearpygui.dearpygui.get_drawing_mouse_pos", return_value=(120.5, 20.5)), \
              patch("dearpygui.dearpygui.set_value"):
             
             # Hover check - should be near the border
@@ -1054,19 +1054,22 @@ class TestRoiPlugin(unittest.TestCase):
             self.assertEqual(tool.roi_drag_id, "Sphere_1")
             self.assertEqual(tool.roi_drag_action, "border")
             
-            # Drag to increase radius to 18.0
-            mock_viewer.get_mouse_slice_coords.return_value = (28.5, 20.5)
+            # Drag to increase radius to 113.0
+            mock_viewer.get_mouse_slice_coords.return_value = (123.5, 20.5)
             tool.on_drag(None)
             
-            # Verify radius and bbox updates
-            self.assertEqual(roi_state.spheroid_radius, 18.0)
-            self.assertEqual(roi_vol.roi_bbox, (12, 48, 2, 38, 0, 28))
+            # Verify radius updates, but bbox is NOT updated yet during drag (since radius >= 100.0)
+            self.assertEqual(roi_state.spheroid_radius, 113.0)
+            self.assertEqual(roi_vol.roi_bbox, (25, 35, 15, 25, 5, 15))
             
             # Release
             tool.on_release(0)
             self.assertEqual(mock_viewer.roi_mode, RoiInteractionMode.IDLE)
             self.assertIsNone(tool.roi_drag_id)
             self.assertTrue(roi_state.is_contour)
+            
+            # Verify bbox is now updated on release
+            self.assertEqual(roi_vol.roi_bbox, (0, 50, 0, 50, 0, 50))
 
         dpg.delete_item("test_parent")
 

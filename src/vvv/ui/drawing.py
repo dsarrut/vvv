@@ -1002,10 +1002,10 @@ class OverlayDrawer:
         active_roi_drag_action = None
         if (
             viewer.controller.gui
-            and hasattr(viewer.controller.gui, "interaction_manager")
-            and viewer.controller.gui.interaction_manager
+            and hasattr(viewer.controller.gui, "interaction")
+            and viewer.controller.gui.interaction
         ):
-            tool = viewer.controller.gui.interaction_manager.active_tool
+            tool = viewer.controller.gui.interaction.active_tool
             active_roi_drag_id = getattr(tool, "roi_drag_id", None)
             active_roi_drag_action = getattr(tool, "roi_drag_action", None)
 
@@ -1035,10 +1035,6 @@ class OverlayDrawer:
         if proj_phys is None:
             dpg.configure_item(node, show=False)
             return
-        dist_slice = np.linalg.norm(proj_phys - np.array(roi_state.spheroid_center))
-        if dist_slice > roi_state.spheroid_radius:
-            dpg.configure_item(node, show=False)
-            return
 
         tx, ty = voxel_to_slice(v_center[0], v_center[1], v_center[2], viewer.orientation, shape)
         px = (tx / real_w) * disp_w + pmin[0]
@@ -1051,14 +1047,26 @@ class OverlayDrawer:
 
         # Determine which part to render
         part = active_roi_drag_action or hovered_roi_part
+        is_active_drag = (active_roi_drag_id == target_roi_id)
+        is_resizing = is_active_drag and (active_roi_drag_action == "border")
+
+        # Draw center reticle ALWAYS if actively dragging, or if hovered at center
+        draw_center = is_active_drag or (part == "center")
+
+        # Draw outline circle and border handle dot if we are resizing and the slice intersects
+        dist_slice = np.linalg.norm(proj_phys - np.array(roi_state.spheroid_center))
+        intersects = (dist_slice <= roi_state.spheroid_radius)
+        draw_border = (is_resizing or part == "border") and intersects
 
         import math
-        # We always calculate the intersection circle's screen radius
-        r_slice = math.sqrt(max(0.0, roi_state.spheroid_radius**2 - dist_slice**2))
-        ppm = viewer.get_pixels_per_mm()
-        r_slice_px = r_slice * ppm
+        drew_anything = False
 
-        if part == "border":
+        if draw_border:
+            # We calculate the intersection circle's screen radius
+            r_slice = math.sqrt(max(0.0, roi_state.spheroid_radius**2 - dist_slice**2))
+            ppm = viewer.get_pixels_per_mm()
+            r_slice_px = r_slice * ppm
+
             # Draw semi-transparent circle outline
             outline_color = color[:3] + [120]
             dpg.draw_circle([px, py], radius=r_slice_px, color=outline_color, thickness=1.5, parent=node)
@@ -1082,7 +1090,9 @@ class OverlayDrawer:
             # Draw border handle dot (solid circle with glowing halo)
             dpg.draw_circle([hx, hy], radius=7.0, color=[255, 255, 255, 200], thickness=1.5, parent=node)
             dpg.draw_circle([hx, hy], radius=4.0, color=color, fill=color, parent=node)
-        else:
+            drew_anything = True
+
+        if draw_center:
             # Draw center reticle
             dpg.draw_circle([px, py], radius=8.0, color=color, thickness=2, parent=node)
             dpg.draw_circle([px, py], radius=2.5, color=color, fill=color, parent=node)
@@ -1091,6 +1101,21 @@ class OverlayDrawer:
             dpg.draw_line([px + 8, py], [px + 14, py], color=color, thickness=2, parent=node)
             dpg.draw_line([px, py - 14], [px, py - 8], color=color, thickness=2, parent=node)
             dpg.draw_line([px, py + 8], [px, py + 14], color=color, thickness=2, parent=node)
+            drew_anything = True
 
-        dpg.configure_item(node, show=True)
+        # Default drawing when not dragging but hovered/intersects
+        if not drew_anything and intersects and not is_active_drag:
+            dpg.draw_circle([px, py], radius=8.0, color=color, thickness=2, parent=node)
+            dpg.draw_circle([px, py], radius=2.5, color=color, fill=color, parent=node)
+            
+            dpg.draw_line([px - 14, py], [px - 8, py], color=color, thickness=2, parent=node)
+            dpg.draw_line([px + 8, py], [px + 14, py], color=color, thickness=2, parent=node)
+            dpg.draw_line([px, py - 14], [px, py - 8], color=color, thickness=2, parent=node)
+            dpg.draw_line([px, py + 8], [px, py + 14], color=color, thickness=2, parent=node)
+            drew_anything = True
+
+        if drew_anything:
+            dpg.configure_item(node, show=True)
+        else:
+            dpg.configure_item(node, show=False)
 

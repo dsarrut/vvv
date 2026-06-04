@@ -1560,10 +1560,25 @@ class SliceViewer:
                 or getattr(roi_state, "is_contour", False)
             ):
                 continue
-
             roi_vol = self.controller.volumes.get(roi_id)
             if not roi_vol or not hasattr(roi_vol, "roi_bbox"):
                 continue
+
+            # If this ROI is currently being resized, do not draw its raster overlay during the drag
+            active_drag_id = None
+            active_drag_action = None
+            if (
+                self.controller.gui
+                and hasattr(self.controller.gui, "interaction")
+                and self.controller.gui.interaction
+            ):
+                tool = self.controller.gui.interaction.active_tool
+                active_drag_id = getattr(tool, "roi_drag_id", None)
+                active_drag_action = getattr(tool, "roi_drag_action", None)
+
+            if roi_id == active_drag_id and active_drag_action == "border":
+                if getattr(roi_state, "spheroid_radius", 0.0) >= 35.0:
+                    continue
 
             z0, z1, y0, y1, x0, x1 = roi_vol.roi_bbox
             if z0 == z1:
