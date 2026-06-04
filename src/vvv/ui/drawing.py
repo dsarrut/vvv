@@ -1,7 +1,7 @@
 import numpy as np
 from vvv.config import COLORMAPS
 import dearpygui.dearpygui as dpg
-from vvv.utils import voxel_to_slice, ViewMode, ProfileInteractionMode
+from vvv.utils import voxel_to_slice, ViewMode, ProfileInteractionMode, RoiInteractionMode
 
 
 class OverlayDrawer:
@@ -962,3 +962,99 @@ class OverlayDrawer:
                         )
 
         dpg.configure_item(node_tag, show=True)
+
+    def draw_roi_handles(self):
+        viewer = self.viewer
+        node = viewer.roi_handle_node_tag
+        if not dpg.does_item_exist(node):
+            return
+
+        dpg.delete_item(node, children_only=True)
+
+        if (
+            not viewer.is_image_orientation()
+            or not viewer.view_state
+            or not viewer.volume
+            or self._is_mip_active()
+        ):
+            dpg.configure_item(node, show=False)
+            return
+
+        vs = viewer.view_state
+        shape = viewer.get_slice_shape()
+        real_h, real_w = max(1, shape[0]), max(1, shape[1])
+        pmin, pmax = viewer.current_pmin, viewer.current_pmax
+        disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
+
+        v_idx, _, _, _ = viewer._ORIENTATION_MAP.get(
+            viewer.orientation, (None, 0, None, None)
+        )
+        if v_idx is None:
+            dpg.configure_item(node, show=False)
+            return
+
+        # Check if we should draw the hovered or active handle
+        hovered_roi_id = getattr(viewer, "hovered_roi_id", None)
+        
+        # Safe lookup of active tool and roi_drag_id
+        active_roi_drag_id = None
+        if (
+            viewer.controller.gui
+            and hasattr(viewer.controller.gui, "interaction_manager")
+            and viewer.controller.gui.interaction_manager
+        ):
+            tool = viewer.controller.gui.interaction_manager.active_tool
+            active_roi_drag_id = getattr(tool, "roi_drag_id", None)
+
+        target_roi_id = active_roi_drag_id or hovered_roi_id
+        if not target_roi_id or target_roi_id not in vs.rois:
+            dpg.configure_item(node, show=False)
+            return
+
+        roi_state = vs.rois[target_roi_id]
+        if not roi_state.visible or not getattr(roi_state, "is_spheroid", False):
+            dpg.configure_item(node, show=False)
+            return
+        if roi_state.spheroid_center is None or roi_state.spheroid_radius is None:
+            dpg.configure_item(node, show=False)
+            return
+
+        # Project 3D physical center to slice pixels
+        v_center = vs.world_to_display(roi_state.spheroid_center, is_buffered=viewer._is_buffered())
+        if v_center is None:
+            dpg.configure_item(node, show=False)
+            return
+
+        # Verify intersection
+        v_proj = v_center.copy()
+        v_proj[v_idx] = viewer.slice_idx
+        proj_phys = vs.display_to_world(v_proj, is_buffered=viewer._is_buffered())
+        if proj_phys is None:
+            dpg.configure_item(node, show=False)
+            return
+        dist_slice = np.linalg.norm(proj_phys - np.array(roi_state.spheroid_center))
+        if dist_slice > roi_state.spheroid_radius:
+            dpg.configure_item(node, show=False)
+            return
+
+        tx, ty = voxel_to_slice(v_center[0], v_center[1], v_center[2], viewer.orientation, shape)
+        px = (tx / real_w) * disp_w + pmin[0]
+        py = (ty / real_h) * disp_h + pmin[1]
+
+        # Draw a target reticle marker in the ROI's color
+        color = list(roi_state.color)
+        if len(color) == 3:
+            color = color + [255]
+            
+        # Draw circle outer
+        dpg.draw_circle([px, py], radius=8.0, color=color, thickness=2, parent=node)
+        # Draw filled inner dot
+        dpg.draw_circle([px, py], radius=2.5, color=color, fill=color, parent=node)
+        
+        # Draw crosshair tick lines extending outwards
+        dpg.draw_line([px - 14, py], [px - 8, py], color=color, thickness=2, parent=node)
+        dpg.draw_line([px + 8, py], [px + 14, py], color=color, thickness=2, parent=node)
+        dpg.draw_line([px, py - 14], [px, py - 8], color=color, thickness=2, parent=node)
+        dpg.draw_line([px, py + 8], [px, py + 14], color=color, thickness=2, parent=node)
+
+        dpg.configure_item(node, show=True)

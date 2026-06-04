@@ -680,6 +680,7 @@ class MainGUI:
                 dpg.add_draw_node(tag=viewer.legend_tag)
                 dpg.add_draw_node(tag=viewer.contour_node_tag)
                 dpg.add_draw_node(tag=viewer.profile_node_tag)
+                dpg.add_draw_node(tag=viewer.roi_handle_node_tag)
                 dpg.add_draw_node(tag=viewer.vector_field_node_tag)
 
             col = self.controller.settings.data["colors"]["tracker_text"]
@@ -709,7 +710,6 @@ class MainGUI:
             dpg.add_mouse_drag_handler(callback=self.interaction.on_mouse_drag)
             dpg.add_mouse_release_handler(callback=self.interaction.on_mouse_release)
             dpg.add_key_press_handler(callback=self.interaction.on_key_press)
-            dpg.add_key_release_handler(callback=self.interaction.on_key_release)
             dpg.add_mouse_click_handler(callback=self.interaction.on_mouse_click)
             dpg.add_mouse_move_handler(callback=self.interaction.on_mouse_move)
 

@@ -34,9 +34,12 @@ class ROIState:
             ViewMode.SAGITTAL: {},
             ViewMode.CORONAL: {},
         }
+        self.is_spheroid = False
+        self.spheroid_center = None
+        self.spheroid_radius = None
 
     def to_dict(self):
-        return {
+        d = {
             "volume_id": self.volume_id,
             "name": self.name,
             "color": self.color,
@@ -49,6 +52,11 @@ class ROIState:
             "thickness": self.thickness,
             "rtstruct_info": getattr(self, "rtstruct_info", None),
         }
+        if getattr(self, "is_spheroid", False):
+            d["is_spheroid"] = True
+            d["spheroid_center"] = self.spheroid_center
+            d["spheroid_radius"] = self.spheroid_radius
+        return d
 
     def from_dict(self, d):
         self.name = d.get("name", self.name)
@@ -63,6 +71,9 @@ class ROIState:
             self.source_type = "RT-Struct"
         self.thickness = d.get("thickness", self.thickness)
         self.rtstruct_info = d.get("rtstruct_info", None)
+        self.is_spheroid = d.get("is_spheroid", False)
+        self.spheroid_center = d.get("spheroid_center", None)
+        self.spheroid_radius = d.get("spheroid_radius", None)
 
 
 class ROIManager:
@@ -136,13 +147,9 @@ class ROIManager:
                 mask_vol.data = np.ascontiguousarray(mask_vol.data[z0:z1, y0:y1, x0:x1])
 
             # Update the SimpleITK image to reflect this small, dense block of data
-            mask_dim = mask_vol.sitk_image.GetDimension()
-            crop_idx = [int(x0), int(y0), int(z0)]
-            if mask_dim == 4:
-                crop_idx.append(0.0)
-            elif mask_dim == 2:
-                crop_idx = crop_idx[:2]
-            new_origin = mask_vol.sitk_image.TransformIndexToPhysicalPoint(crop_idx)
+            new_origin = mask_vol.sitk_image.TransformIndexToPhysicalPoint(
+                (int(x0), int(y0), int(z0))
+            )
 
             cropped_sitk = sitk.GetImageFromArray(mask_vol.data)
             cropped_sitk.SetSpacing(mask_vol.sitk_image.GetSpacing())
@@ -154,38 +161,19 @@ class ROIManager:
 
         # --- 2. CHECK FOR PERFECT ALIGNMENT ---
         spacing_match = np.allclose(mask_vol.spacing, base_vol.spacing, atol=1e-4)
-
-        def get_spatial_direction(img):
-            raw_dir = img.GetDirection()
-            dim = img.GetDimension()
-            if dim == 3:
-                return np.array(raw_dir)
-            elif dim > 3:
-                return np.array(raw_dir).reshape(dim, dim)[:3, :3].flatten()
-            else:
-                m = np.eye(3)
-                m[:dim, :dim] = np.array(raw_dir).reshape(dim, dim)
-                return m.flatten()
-
         dir_match = np.allclose(
-            get_spatial_direction(mask_vol.sitk_image),
-            get_spatial_direction(base_vol.sitk_image),
+            mask_vol.sitk_image.GetDirection(),
+            base_vol.sitk_image.GetDirection(),
             atol=1e-4,
         )
 
         if spacing_match and dir_match:
-            new_origin_3d = new_origin[:3]
-            base_dim = base_vol.sitk_image.GetDimension()
-            base_pt = list(new_origin_3d)
-            if base_dim == 4:
-                base_pt.append(0.0)
-            elif base_dim == 2:
-                base_pt = base_pt[:2]
-
-            base_idx = base_vol.sitk_image.TransformPhysicalPointToContinuousIndex(base_pt)
-            if np.allclose(base_idx[:3], np.round(base_idx[:3]), atol=1e-3):
+            base_idx = base_vol.sitk_image.TransformPhysicalPointToContinuousIndex(
+                new_origin
+            )
+            if np.allclose(base_idx, np.round(base_idx), atol=1e-3):
                 # FAST PATH: It perfectly aligns. Just calculate the offset.
-                bx, by, bz = [int(round(v)) for v in base_idx[:3]]
+                bx, by, bz = [int(round(v)) for v in base_idx]
                 sz, sy, sx = mask_vol.data.shape[-3:]
                 mask_vol.roi_bbox = (bz, bz + sz, by, by + sy, bx, bx + sx)
                 return
@@ -204,28 +192,12 @@ class ROIManager:
             (sx, sy, sz),
         ]
 
-        mask_dim = mask_vol.sitk_image.GetDimension()
-        base_dim = base_vol.sitk_image.GetDimension()
-
         base_indices = []
         for c in corners:
-            idx = list(c)
-            if mask_dim == 4:
-                idx.append(0.0)
-            elif mask_dim == 2:
-                idx = idx[:2]
-
-            phys_pt = mask_vol.sitk_image.TransformIndexToPhysicalPoint(idx)
-            phys_pt_3d = phys_pt[:3]
-
-            pt = list(phys_pt_3d)
-            if base_dim == 4:
-                pt.append(0.0)
-            elif base_dim == 2:
-                pt = pt[:2]
-
-            base_idx = base_vol.sitk_image.TransformPhysicalPointToContinuousIndex(pt)
-            base_indices.append(base_idx[:3])
+            phys_pt = mask_vol.sitk_image.TransformIndexToPhysicalPoint(c)
+            base_indices.append(
+                base_vol.sitk_image.TransformPhysicalPointToContinuousIndex(phys_pt)
+            )
 
         base_indices = np.array(base_indices)
 
@@ -311,18 +283,7 @@ class ROIManager:
 
         mask_vol = VolumeData.__new__(VolumeData)
         mask_vol.path = filepath
-        
-        file_paths = [filepath] if filepath else []
-        source_type = state_kwargs.get("source_type", "Binary")
-        if source_type == "Label Map" and filepath:
-            import os
-            if filepath.lower().endswith(".nii.gz"):
-                json_path = filepath[:-7] + ".json"
-            else:
-                json_path = os.path.splitext(filepath)[0] + ".json"
-            if os.path.exists(json_path):
-                file_paths.append(json_path)
-        mask_vol.file_paths = file_paths
+        mask_vol.file_paths = [filepath]
         mask_vol.name = name
         mask_vol.sitk_image = mask_img
         mask_vol.data = mask_data

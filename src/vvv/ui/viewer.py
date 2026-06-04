@@ -8,6 +8,7 @@ from vvv.utils import (
     fmt,
     format_pixel_value,
     ProfileInteractionMode,
+    RoiInteractionMode,
 )
 import dearpygui.dearpygui as dpg
 from vvv.ui.drawing import OverlayDrawer
@@ -209,6 +210,7 @@ class SliceViewer:
         self.contour_node_tag = f"contour_node_{tag_id}"
         self.vector_field_node_tag = f"vector_field_node_{tag_id}"
         self.profile_node_tag = f"profile_node_{tag_id}"
+        self.roi_handle_node_tag = f"roi_handle_node_{tag_id}"
         self.crosshair_tag = f"crosshair_node_{tag_id}"
         self.legend_tag = f"legend_node_{tag_id}"
         self.xh_line_h = f"xh_h_{tag_id}"
@@ -245,6 +247,10 @@ class SliceViewer:
         self.profile_mode = ProfileInteractionMode.IDLE
         self.active_profile_id = None
         self.active_handle = None  # "start" or "end"
+
+        # ROI Tool Transient Interaction State
+        self.roi_mode = RoiInteractionMode.IDLE
+        self.hovered_roi_id = None
 
         # Sub-modules
         self.drawer = OverlayDrawer(self)
@@ -676,6 +682,7 @@ class SliceViewer:
             self.scale_bar_tag,
             self.crosshair_tag,
             self.profile_node_tag,
+            self.roi_handle_node_tag,
             self.legend_tag,
             self.filename_text_tag,
             self.vector_field_node_tag,
@@ -2152,6 +2159,7 @@ class SliceViewer:
         self.drawer.draw_contours()
         self.drawer.draw_profiles()
         self.drawer.draw_vector_field()
+        self.drawer.draw_roi_handles()
         self.update_tracker()
         self.update_filename_overlay()
 
