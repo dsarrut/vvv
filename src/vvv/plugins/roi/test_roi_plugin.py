@@ -33,6 +33,9 @@ class MockViewer:
         self.tag = "V1"
         self.view_state = MockViewState(rois)
 
+    def get_pixels_per_mm(self):
+        return 2.0
+
 
 class TestRoiPlugin(unittest.TestCase):
     def setUp(self):
@@ -635,16 +638,16 @@ class TestRoiPlugin(unittest.TestCase):
             # 1. Open first window, offset should be 0
             ui.on_roi_stats_toggle(None, None, "roi_1")
             # base_x = 1000 - 320 - 50 = 630
-            # base_y = (800 - 490) // 2 = 155
-            mock_set_pos.assert_any_call(ui._t("stats_win_roi_1"), [630, 155])
+            # base_y = (800 - 530) // 2 = 135
+            mock_set_pos.assert_any_call(ui._t("stats_win_roi_1"), [630, 135])
 
             # 2. Open second window, offset should be 25px
             ui.on_roi_stats_toggle(None, None, "roi_2")
-            mock_set_pos.assert_any_call(ui._t("stats_win_roi_2"), [605, 180])
+            mock_set_pos.assert_any_call(ui._t("stats_win_roi_2"), [605, 160])
 
             # 3. Open third window, offset should be 50px
             ui.on_roi_stats_toggle(None, None, "roi_3")
-            mock_set_pos.assert_any_call(ui._t("stats_win_roi_3"), [580, 205])
+            mock_set_pos.assert_any_call(ui._t("stats_win_roi_3"), [580, 185])
 
             # Clean them up
             ui.close_all_stats_windows()
@@ -778,6 +781,57 @@ class TestRoiPlugin(unittest.TestCase):
                 self.assertEqual(data["roi_name"], "Tumor")
                 self.assertEqual(data["base_image"], "Test Image")
                 self.assertIn("stats", data)
+
+        dpg.delete_item("test_parent")
+
+    def test_add_spheroid_roi(self):
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+
+        ui = self.plugin._ui
+        ctrl = self.plugin._controller
+
+        # Set up mock active viewer and crosshair
+        rois = {}
+        mock_viewer = MockViewer("img_1", rois)
+        mock_viewer.view_state = MagicMock()
+        mock_viewer.view_state.camera = MagicMock()
+        mock_viewer.view_state.camera.target_ppm = 2.0
+        mock_viewer.view_state.rois = rois
+        
+        self.mock_api.get_active_viewer.return_value = mock_viewer
+        self.mock_api.get_crosshair_world.return_value = [10.0, 20.0, 30.0]
+        self.mock_api.get_view_states.return_value = {"img_1": mock_viewer.view_state}
+
+        # Set up mock volume
+        import numpy as np
+        base_vol = MagicMock()
+        base_vol.shape3d = (50, 50, 50)
+        base_vol.spacing = np.array([1.0, 1.0, 1.0])
+        base_vol.origin = np.array([0.0, 0.0, 0.0])
+        base_vol.matrix = np.eye(3)
+        base_vol.physic_coord_to_voxel_coord.side_effect = lambda pt: pt
+        base_vol.voxel_coord_to_physic_coord.side_effect = lambda pt: pt
+        base_vol.sitk_image = MagicMock()
+        base_vol.sitk_image.GetDirection.return_value = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+
+        self.mock_api._controller.volumes = {"img_1": base_vol}
+        
+        # Mock _create_memory_roi to return "new_roi"
+        self.mock_api._controller.roi = MagicMock()
+        self.mock_api._controller.roi._create_memory_roi.return_value = "new_roi"
+
+        # Trigger spheroid creation
+        ui.on_add_spheroid_clicked(None, None, None)
+
+        # Verify that it fetched crosshair coordinate, computed bounding box, and called _create_memory_roi
+        self.mock_api.get_crosshair_world.assert_called_once()
+        self.mock_api._controller.roi._create_memory_roi.assert_called_once()
+        
+        # Verify notification
+        self.mock_api.notify.assert_called_with("Created spheroid ROI: Sphere_1")
 
         dpg.delete_item("test_parent")
 

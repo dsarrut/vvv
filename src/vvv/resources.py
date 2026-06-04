@@ -93,6 +93,8 @@ def load_fonts():
                                 0xF05B,  #
                                 0xF076,  # Magnet icon for snap
                                 0xF77C,  # Baby icon
+                                0xF111,  # Circle/Sphere
+                                0xF0C8,  # Square/Rect
                             ]
                         )
                         dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)

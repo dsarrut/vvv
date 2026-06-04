@@ -68,7 +68,7 @@ class RoiPluginUI(PluginTagMixin):
             # --- TOP: Load & Import ---
             with dpg.group(horizontal=True):
                 btn_rt = dpg.add_button(
-                    label="RT-Struct...",
+                    label="Open RT-Struct...",
                     width=150,
                     callback=self.on_load_rtstruct_clicked,
                     tag=self._t("btn_roi_load_rtstruct"),
@@ -80,7 +80,7 @@ class RoiPluginUI(PluginTagMixin):
                 )
 
                 btn_labels = dpg.add_button(
-                    label="Labels...",
+                    label="Open labels...",
                     width=150,
                     callback=self.on_load_labels_clicked,
                     tag=self._t("btn_roi_load_labels"),
@@ -123,6 +123,47 @@ class RoiPluginUI(PluginTagMixin):
 
                 dpg.add_input_float(
                     default_value=0.0, step=1.0, width=90, tag=self._t("input_roi_val")
+                )
+
+            with dpg.group(horizontal=True):
+                btn_sph_icon = dpg.add_button(
+                    label="\uf111",
+                    width=20,
+                    callback=self.on_add_spheroid_clicked,
+                    tag=self._t("btn_roi_add_spheroid_icon"),
+                )
+                btn_sph = dpg.add_button(
+                    label="Spheroid",
+                    width=120,
+                    callback=self.on_add_spheroid_clicked,
+                    tag=self._t("btn_roi_add_spheroid"),
+                )
+                btn_rec_icon = dpg.add_button(
+                    label="\uf0c8",
+                    width=20,
+                    callback=self.on_add_rect_clicked,
+                    tag=self._t("btn_roi_add_rect_icon"),
+                )
+                btn_rec = dpg.add_button(
+                    label="Rect",
+                    width=120,
+                    callback=self.on_add_rect_clicked,
+                    tag=self._t("btn_roi_add_rect"),
+                )
+
+                if dpg.does_item_exist("icon_font_tag"):
+                    dpg.bind_item_font(btn_sph_icon, "icon_font_tag")
+                    dpg.bind_item_font(btn_rec_icon, "icon_font_tag")
+
+                build_beginner_tooltip(
+                    btn_sph,
+                    "Create a new spheroid ROI centered at the crosshair.",
+                    self.api,
+                )
+                build_beginner_tooltip(
+                    btn_rec,
+                    "Create a new rectangular ROI centered at the crosshair (not implemented yet).",
+                    self.api,
                 )
 
             dpg.add_separator()
@@ -1752,3 +1793,13 @@ class RoiPluginUI(PluginTagMixin):
 
     def load_settings(self, api: PluginAPI) -> None:
         pass
+
+    def on_add_spheroid_clicked(self, sender, app_data, user_data):
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.image_id:
+            self.api.notify("Please select an active image first.")
+            return
+        self._c.on_add_spheroid(viewer.image_id)
+
+    def on_add_rect_clicked(self, sender, app_data, user_data):
+        self.api.notify("Rectangular ROI creation is not implemented yet.")

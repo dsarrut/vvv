@@ -338,3 +338,113 @@ class RoiPluginController(PluginTagMixin):
             "source_filepath": filepath,
             "source_type": source_type,
         }
+
+    def on_add_spheroid(self, base_id: str) -> None:
+        import numpy as np
+        import dearpygui.dearpygui as dpg
+        import SimpleITK as sitk
+
+        assert self.api is not None
+        viewer = self.api.get_active_viewer()
+        if not viewer or viewer.image_id != base_id:
+            return
+
+        # 1. Get physical center from crosshair
+        phys_center = self.api.get_crosshair_world()
+        if phys_center is None:
+            phys_center = [0.0, 0.0, 0.0]
+        phys_center = np.array(phys_center)
+
+        # 2. Get FOV and calculate radius (1/10 of FOV)
+        ppm = getattr(viewer.view_state.camera, "target_ppm", None) or viewer.get_pixels_per_mm()
+        win_w = dpg.get_item_width(f"win_{viewer.tag}") if dpg.does_item_exist(f"win_{viewer.tag}") else 300
+        win_h = dpg.get_item_height(f"win_{viewer.tag}") if dpg.does_item_exist(f"win_{viewer.tag}") else 300
+        if not ppm or ppm <= 0:
+            ppm = 1.0
+        fov = min(win_w / ppm, win_h / ppm)
+        r_mm = 0.1 * fov
+
+        # 3. Get base image volume
+        base_vol = self.api._controller.volumes.get(base_id)
+        if not base_vol:
+            return
+
+        # 4. Find bounding box corners in voxel space
+        corners = []
+        for dx in [-r_mm, r_mm]:
+            for dy in [-r_mm, r_mm]:
+                for dz in [-r_mm, r_mm]:
+                    pt = phys_center + np.array([dx, dy, dz])
+                    corners.append(base_vol.physic_coord_to_voxel_coord(pt))
+        corners = np.array(corners)
+        min_vox = np.floor(corners.min(axis=0)).astype(int)
+        max_vox = np.ceil(corners.max(axis=0)).astype(int)
+
+        base_sz, base_sy, base_sx = base_vol.shape3d
+        min_x = max(0, min_vox[0])
+        max_x = min(base_sx, max_vox[0])
+        min_y = max(0, min_vox[1])
+        max_y = min(base_sy, max_vox[1])
+        min_z = max(0, min_vox[2])
+        max_z = min(base_sz, max_vox[2])
+
+        if min_x >= max_x or min_y >= max_y or min_z >= max_z:
+            self.api.notify("Error: Spheroid is completely outside the image.")
+            return
+
+        # 5. Create binary mask in the sub-grid
+        zs = np.arange(min_z, max_z)
+        ys = np.arange(min_y, max_y)
+        xs = np.arange(min_x, max_x)
+        grid_z, grid_y, grid_x = np.meshgrid(zs, ys, xs, indexing='ij')
+
+        voxels = np.column_stack([grid_x.ravel(), grid_y.ravel(), grid_z.ravel()])
+        phys_pts = base_vol.origin + (base_vol.matrix @ (voxels * base_vol.spacing).T).T
+
+        diff = phys_pts - phys_center
+        dist_sq = np.sum(diff ** 2, axis=1)
+
+        mask_flat = dist_sq <= r_mm ** 2
+        mask_data = mask_flat.reshape((max_z - min_z, max_y - min_y, max_x - min_x)).astype(np.uint8)
+
+        if not np.any(mask_data):
+            center_voxel = base_vol.physic_coord_to_voxel_coord(phys_center)
+            cx_idx = int(round(center_voxel[0]))
+            cy_idx = int(round(center_voxel[1]))
+            cz_idx = int(round(center_voxel[2]))
+            sub_z = cz_idx - min_z
+            sub_y = cy_idx - min_y
+            sub_x = cx_idx - min_x
+            if 0 <= sub_z < (max_z - min_z) and 0 <= sub_y < (max_y - min_y) and 0 <= sub_x < (max_x - min_x):
+                mask_data[sub_z, sub_y, sub_x] = 1
+
+        # 6. Create SimpleITK image
+        ref_origin = base_vol.voxel_coord_to_physic_coord(np.array([min_x, min_y, min_z]))
+        mask_img = sitk.GetImageFromArray(mask_data)
+        mask_img.SetSpacing(base_vol.spacing.tolist())
+        mask_img.SetDirection(base_vol.sitk_image.GetDirection())
+        mask_img.SetOrigin(ref_origin.tolist())
+
+        # 7. Register new ROI
+        rois_count = len(self.api.get_view_states()[base_id].rois)
+        roi_name = f"Sphere_{rois_count + 1}"
+        from vvv.config import ROI_COLORS
+        color = ROI_COLORS[rois_count % len(ROI_COLORS)]
+
+        roi_id = self.api._controller.roi._create_memory_roi(
+            base_id=base_id,
+            filepath="spheroid_roi",
+            name=roi_name,
+            mask_img=mask_img,
+            mask_data=mask_data,
+            skip_crop=False,
+            is_contour=False,
+            color=color,
+            source_type="Created"
+        )
+
+        if roi_id:
+            self.api.update_all_viewers_of_image(base_id, data_dirty=True)
+            if self.ui:
+                self.ui.refresh_rois_ui()
+            self.api.notify(f"Created spheroid ROI: {roi_name}")
