@@ -5,6 +5,7 @@ from vvv.ui.ui_components import (
     build_section_title,
     build_help_button,
     build_beginner_tooltip,
+    build_stepped_slider,
 )
 
 
@@ -126,29 +127,26 @@ class RoiPluginUI(PluginTagMixin):
                 )
 
             with dpg.group(horizontal=True):
+
+                dpg.add_text(
+                    "Add a ROI : ",
+                    color=cfg_c["text_header"],
+                )
+
                 btn_sph_icon = dpg.add_button(
                     label="\uf111",
                     width=20,
                     callback=self.on_add_spheroid_clicked,
                     tag=self._t("btn_roi_add_spheroid_icon"),
                 )
-                btn_sph = dpg.add_button(
-                    label="Spheroid",
-                    width=120,
-                    callback=self.on_add_spheroid_clicked,
-                    tag=self._t("btn_roi_add_spheroid"),
-                )
+
+                dpg.add_spacer(width=5)
+
                 btn_rec_icon = dpg.add_button(
                     label="\uf0c8",
                     width=20,
                     callback=self.on_add_rect_clicked,
                     tag=self._t("btn_roi_add_rect_icon"),
-                )
-                btn_rec = dpg.add_button(
-                    label="Rect",
-                    width=120,
-                    callback=self.on_add_rect_clicked,
-                    tag=self._t("btn_roi_add_rect"),
                 )
 
                 if dpg.does_item_exist("icon_font_tag"):
@@ -156,12 +154,12 @@ class RoiPluginUI(PluginTagMixin):
                     dpg.bind_item_font(btn_rec_icon, "icon_font_tag")
 
                 build_beginner_tooltip(
-                    btn_sph,
+                    btn_sph_icon,
                     "Create a new spheroid ROI centered at the crosshair.",
                     self.api,
                 )
                 build_beginner_tooltip(
-                    btn_rec,
+                    btn_rec_icon,
                     "Create a new rectangular ROI centered at the crosshair (not implemented yet).",
                     self.api,
                 )
@@ -1058,6 +1056,86 @@ class RoiPluginUI(PluginTagMixin):
 
             threading.Thread(target=_save, daemon=True).start()
 
+    def on_roi_stats_radius_slider_changed(self, sender, app_data, user_data):
+        roi_id = user_data
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.image_id or not viewer.view_state:
+            return
+        base_vol = self.api.get_volumes().get(viewer.image_id)
+        roi_vol = self.api.get_volumes().get(roi_id)
+        roi_state = viewer.view_state.rois.get(roi_id)
+        if not base_vol or not roi_vol or not roi_state:
+            return
+
+        new_r_mm = float(app_data)
+        new_r_mm = max(new_r_mm, 0.5)
+
+        roi_state.spheroid_radius = new_r_mm
+        self._c.update_spheroid_mask(base_vol, roi_vol, roi_state, new_r_mm)
+
+        for ori in roi_state.polygons:
+            roi_state.polygons[ori].clear()
+
+        viewer.view_state.is_geometry_dirty = True
+        viewer.view_state.is_data_dirty = True
+        self.api.request_refresh()
+        self.api.update_all_viewers_of_image(viewer.image_id, data_dirty=True)
+        self.refresh_all_open_stats_windows()
+
+    def on_roi_stats_radius_step_callback(self, sender, app_data, user_data):
+        tag = user_data["tag"]
+        prefix = self._t("slider_roi_radius_")
+        if not tag.startswith(prefix):
+            return
+        roi_id = tag[len(prefix):]
+
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.image_id or not viewer.view_state:
+            return
+        roi_state = viewer.view_state.rois.get(roi_id)
+        if not roi_state:
+            return
+
+        direction = user_data["dir"]
+        current_r = getattr(roi_state, "spheroid_radius", 10.0)
+
+        # Step size is 1.0 mm by default
+        step_size = 1.0
+        new_r = max(0.5, current_r + (step_size * direction))
+
+        if dpg.does_item_exist(tag):
+            dpg.set_value(tag, new_r)
+
+        self.on_roi_stats_radius_slider_changed(None, new_r, roi_id)
+
+    def on_roi_stats_center_changed(self, sender, app_data, user_data):
+        roi_id = user_data["roi_id"]
+        coord_idx = user_data["coord_idx"]
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.image_id or not viewer.view_state:
+            return
+        base_vol = self.api.get_volumes().get(viewer.image_id)
+        roi_vol = self.api.get_volumes().get(roi_id)
+        roi_state = viewer.view_state.rois.get(roi_id)
+        if not base_vol or not roi_vol or not roi_state:
+            return
+
+        new_val = float(app_data)
+        if roi_state.spheroid_center is None:
+            roi_state.spheroid_center = [0.0, 0.0, 0.0]
+        roi_state.spheroid_center[coord_idx] = new_val
+
+        self._c.update_spheroid_mask(base_vol, roi_vol, roi_state, roi_state.spheroid_radius)
+
+        for ori in roi_state.polygons:
+            roi_state.polygons[ori].clear()
+
+        viewer.view_state.is_geometry_dirty = True
+        viewer.view_state.is_data_dirty = True
+        self.api.request_refresh()
+        self.api.update_all_viewers_of_image(viewer.image_id, data_dirty=True)
+        self.refresh_all_open_stats_windows()
+
     def on_roi_close(self, sender, app_data, user_data):
         viewer = self.api.get_active_viewer()
         if not viewer or not viewer.image_id:
@@ -1341,20 +1419,105 @@ class RoiPluginUI(PluginTagMixin):
                     slider,
                 ]:
                     dpg.configure_item(btn, enabled=False)
+                if getattr(roi, "is_spheroid", False):
+                    slider_tag = self._t(f"slider_roi_radius_{roi_id}")
+                    for item_tag in [
+                        slider_tag,
+                        f"btn_{slider_tag}_minus",
+                        f"btn_{slider_tag}_plus",
+                        self._t(f"input_roi_center_x_{roi_id}"),
+                        self._t(f"input_roi_center_y_{roi_id}"),
+                        self._t(f"input_roi_center_z_{roi_id}"),
+                    ]:
+                        if dpg.does_item_exist(item_tag):
+                            dpg.configure_item(item_tag, enabled=False)
+
+        # Spheroid Parameters (Radius and Center)
+        if getattr(roi, "is_spheroid", False):
+            # Clean up existing tags if they exist to avoid "Alias already exists"
+            slider_tag = self._t(f"slider_roi_radius_{roi_id}")
+            for item_tag in [
+                slider_tag,
+                f"btn_{slider_tag}_minus",
+                f"btn_{slider_tag}_plus",
+                self._t(f"input_roi_center_x_{roi_id}"),
+                self._t(f"input_roi_center_y_{roi_id}"),
+                self._t(f"input_roi_center_z_{roi_id}"),
+            ]:
+                if dpg.does_item_exist(item_tag):
+                    dpg.delete_item(item_tag)
+
+            dpg.add_spacer(height=5, parent=parent_tag)
+            dpg.add_text("Spheroid Parameters", color=header_col, parent=parent_tag)
+            dpg.add_separator(parent=parent_tag)
+
+            # Radius Slider
+            with dpg.group(parent=parent_tag):
+                build_stepped_slider(
+                    label="Radius (mm):",
+                    tag=slider_tag,
+                    callback=self.on_roi_stats_radius_slider_changed,
+                    step_callback=self.on_roi_stats_radius_step_callback,
+                    min_val=0.5,
+                    max_val=150.0,
+                    default_val=getattr(roi, "spheroid_radius", 10.0),
+                    format="%.1f",
+                    gui=self.api,
+                )
+
+            # Center Inputs
+            center = getattr(roi, "spheroid_center", [0.0, 0.0, 0.0])
+            with dpg.group(horizontal=True, parent=parent_tag):
+                dpg.add_text("Center X:", color=dim_col)
+                dpg.add_input_float(
+                    tag=self._t(f"input_roi_center_x_{roi_id}"),
+                    default_value=center[0],
+                    step=0,
+                    width=55,
+                    format="%.1f",
+                    user_data={"roi_id": roi_id, "coord_idx": 0},
+                    callback=self.on_roi_stats_center_changed,
+                )
+                dpg.add_text("Y:", color=dim_col)
+                dpg.add_input_float(
+                    tag=self._t(f"input_roi_center_y_{roi_id}"),
+                    default_value=center[1],
+                    step=0,
+                    width=55,
+                    format="%.1f",
+                    user_data={"roi_id": roi_id, "coord_idx": 1},
+                    callback=self.on_roi_stats_center_changed,
+                )
+                dpg.add_text("Z:", color=dim_col)
+                dpg.add_input_float(
+                    tag=self._t(f"input_roi_center_z_{roi_id}"),
+                    default_value=center[2],
+                    step=0,
+                    width=55,
+                    format="%.1f",
+                    user_data={"roi_id": roi_id, "coord_idx": 2},
+                    callback=self.on_roi_stats_center_changed,
+                )
 
         dpg.add_spacer(height=5, parent=parent_tag)
 
         dpg.add_text("Source", color=header_col, parent=parent_tag)
         dpg.add_separator(parent=parent_tag)
-        with dpg.group(horizontal=True, parent=parent_tag):
-            dpg.add_text("File:", color=dim_col)
-            file_txt = dpg.add_text(stats.get("source_filename", "Unknown"))
-            if stats.get("source_filepath"):
-                with dpg.tooltip(file_txt):
-                    dpg.add_text(stats["source_filepath"])
+        is_created = getattr(roi, "source_type", None) == "Created"
+        if not is_created:
+            with dpg.group(horizontal=True, parent=parent_tag):
+                dpg.add_text("File:", color=dim_col)
+                file_txt = dpg.add_text(stats.get("source_filename", "Unknown"))
+                if stats.get("source_filepath"):
+                    with dpg.tooltip(file_txt):
+                        dpg.add_text(stats["source_filepath"])
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("Type:", color=dim_col)
-            dpg.add_text(stats.get("source_type", "Unknown"))
+            if is_created:
+                t_str = "Sphere" if getattr(roi, "is_spheroid", False) else "Created"
+            else:
+                t_str = stats.get("source_type", "Unknown")
+            dpg.add_text(t_str)
 
         dpg.add_spacer(height=5, parent=parent_tag)
 

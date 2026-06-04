@@ -25,6 +25,7 @@ class MockViewState:
         self.rois = rois
         self.is_data_dirty = False
         self.is_geometry_dirty = False
+        self.display = MagicMock()
 
 
 class MockViewer:
@@ -1072,6 +1073,93 @@ class TestRoiPlugin(unittest.TestCase):
             self.assertEqual(roi_vol.roi_bbox, (0, 50, 0, 50, 0, 50))
 
         dpg.delete_item("test_parent")
+
+    def test_spheroid_stats_window(self):
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+
+        ui = self.plugin._ui
+        ctrl = self.plugin._controller
+
+        # Setup volume data & roi state
+        import SimpleITK as sitk
+        import numpy as np
+        from vvv.core.roi_manager import ROIState
+
+        base_vol = MagicMock()
+        base_vol.name = "base"
+        base_vol.data = np.zeros((10, 10, 10), dtype=np.uint8)
+        base_vol.spacing = np.array([1.0, 1.0, 1.0])
+        base_vol.origin = np.array([0.0, 0.0, 0.0])
+        base_vol.matrix = np.eye(3)
+        base_vol.inverse_matrix = np.eye(3)
+        base_vol.shape3d = (10, 10, 10)
+        base_vol.physic_coord_to_voxel_coord.side_effect = lambda pt: pt
+        base_vol.voxel_coord_to_physic_coord.side_effect = lambda pt: pt
+        base_vol.num_timepoints = 1
+        base_vol.is_rgb = False
+        base_vol.is_dvf = False
+        base_vol.sitk_image = MagicMock()
+
+        roi_vol = MagicMock()
+        roi_vol.name = "Sphere_1"
+        roi_vol.data = np.zeros((5, 5, 5), dtype=np.uint8)
+        roi_vol.spacing = np.array([1.0, 1.0, 1.0])
+        roi_vol.origin = np.array([2.0, 2.0, 2.0])
+        roi_vol.matrix = np.eye(3)
+        roi_vol.inverse_matrix = np.eye(3)
+        roi_vol.shape3d = (5, 5, 5)
+        roi_vol.roi_bbox = (2, 7, 2, 7, 2, 7)
+        roi_vol.num_timepoints = 1
+        roi_vol.is_rgb = False
+        roi_vol.is_dvf = False
+        roi_vol.sitk_image = MagicMock()
+
+        roi_state = ROIState("roi_1", "Sphere_1", color=[255, 0, 0])
+        roi_state.is_spheroid = True
+        roi_state.spheroid_center = [5.0, 5.0, 5.0]
+        roi_state.spheroid_radius = 3.0
+        roi_state.source_type = "Created"
+
+        self.mock_api.get_volumes.return_value = {
+            "img_1": base_vol,
+            "roi_1": roi_vol,
+        }
+        self.mock_api.get_view_states.return_value = {
+            "img_1": MockViewState(rois={"roi_1": roi_state}),
+        }
+
+        mock_viewer = MockViewer("img_1", {"roi_1": roi_state})
+        self.mock_api.get_active_viewer.return_value = mock_viewer
+
+        with dpg.window(tag="stats_parent_win"):
+            with dpg.group(tag="stats_parent"):
+                ui.build_stats_window_contents("stats_parent", "img_1", "roi_1")
+
+        # Verify slider and input tags exist
+        self.assertTrue(dpg.does_item_exist(ui._t("slider_roi_radius_roi_1")))
+        self.assertTrue(dpg.does_item_exist(ui._t("input_roi_center_x_roi_1")))
+        self.assertTrue(dpg.does_item_exist(ui._t("input_roi_center_y_roi_1")))
+        self.assertTrue(dpg.does_item_exist(ui._t("input_roi_center_z_roi_1")))
+
+        # Test radius callback
+        ui.on_roi_stats_radius_slider_changed(None, 5.5, "roi_1")
+        self.assertEqual(roi_state.spheroid_radius, 5.5)
+
+        # Test radius step callback
+        slider_tag = ui._t("slider_roi_radius_roi_1")
+        ui.on_roi_stats_radius_step_callback(None, None, {"tag": slider_tag, "dir": 1.5})
+        self.assertEqual(roi_state.spheroid_radius, 7.0)
+
+        # Test center callback
+        ui.on_roi_stats_center_changed(None, 4.2, {"roi_id": "roi_1", "coord_idx": 0})
+        self.assertEqual(roi_state.spheroid_center[0], 4.2)
+
+        dpg.delete_item("test_parent")
+        if dpg.does_item_exist("stats_parent_win"):
+            dpg.delete_item("stats_parent_win")
 
 
 if __name__ == "__main__":
