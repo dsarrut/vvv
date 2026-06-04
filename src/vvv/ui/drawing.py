@@ -995,9 +995,11 @@ class OverlayDrawer:
 
         # Check if we should draw the hovered or active handle
         hovered_roi_id = getattr(viewer, "hovered_roi_id", None)
+        hovered_roi_part = getattr(viewer, "hovered_roi_part", None)
         
-        # Safe lookup of active tool and roi_drag_id
+        # Safe lookup of active tool and roi_drag_id/action
         active_roi_drag_id = None
+        active_roi_drag_action = None
         if (
             viewer.controller.gui
             and hasattr(viewer.controller.gui, "interaction_manager")
@@ -1005,6 +1007,7 @@ class OverlayDrawer:
         ):
             tool = viewer.controller.gui.interaction_manager.active_tool
             active_roi_drag_id = getattr(tool, "roi_drag_id", None)
+            active_roi_drag_action = getattr(tool, "roi_drag_action", None)
 
         target_roi_id = active_roi_drag_id or hovered_roi_id
         if not target_roi_id or target_roi_id not in vs.rois:
@@ -1045,16 +1048,49 @@ class OverlayDrawer:
         color = list(roi_state.color)
         if len(color) == 3:
             color = color + [255]
+
+        # Determine which part to render
+        part = active_roi_drag_action or hovered_roi_part
+
+        import math
+        # We always calculate the intersection circle's screen radius
+        r_slice = math.sqrt(max(0.0, roi_state.spheroid_radius**2 - dist_slice**2))
+        ppm = viewer.get_pixels_per_mm()
+        r_slice_px = r_slice * ppm
+
+        if part == "border":
+            # Draw semi-transparent circle outline
+            outline_color = color[:3] + [120]
+            dpg.draw_circle([px, py], radius=r_slice_px, color=outline_color, thickness=1.5, parent=node)
+
+            # Get mouse position to place the dot handle closest to it
+            try:
+                m_pos = dpg.get_drawing_mouse_pos()
+            except Exception:
+                m_pos = [px + r_slice_px, py]
+
+            dx = m_pos[0] - px
+            dy = m_pos[1] - py
+            dist = math.hypot(dx, dy)
+            if dist > 1e-5:
+                hx = px + (dx / dist) * r_slice_px
+                hy = py + (dy / dist) * r_slice_px
+            else:
+                hx = px + r_slice_px
+                hy = py
+
+            # Draw border handle dot (solid circle with glowing halo)
+            dpg.draw_circle([hx, hy], radius=7.0, color=[255, 255, 255, 200], thickness=1.5, parent=node)
+            dpg.draw_circle([hx, hy], radius=4.0, color=color, fill=color, parent=node)
+        else:
+            # Draw center reticle
+            dpg.draw_circle([px, py], radius=8.0, color=color, thickness=2, parent=node)
+            dpg.draw_circle([px, py], radius=2.5, color=color, fill=color, parent=node)
             
-        # Draw circle outer
-        dpg.draw_circle([px, py], radius=8.0, color=color, thickness=2, parent=node)
-        # Draw filled inner dot
-        dpg.draw_circle([px, py], radius=2.5, color=color, fill=color, parent=node)
-        
-        # Draw crosshair tick lines extending outwards
-        dpg.draw_line([px - 14, py], [px - 8, py], color=color, thickness=2, parent=node)
-        dpg.draw_line([px + 8, py], [px + 14, py], color=color, thickness=2, parent=node)
-        dpg.draw_line([px, py - 14], [px, py - 8], color=color, thickness=2, parent=node)
-        dpg.draw_line([px, py + 8], [px, py + 14], color=color, thickness=2, parent=node)
+            dpg.draw_line([px - 14, py], [px - 8, py], color=color, thickness=2, parent=node)
+            dpg.draw_line([px + 8, py], [px + 14, py], color=color, thickness=2, parent=node)
+            dpg.draw_line([px, py - 14], [px, py - 8], color=color, thickness=2, parent=node)
+            dpg.draw_line([px, py + 8], [px, py + 14], color=color, thickness=2, parent=node)
 
         dpg.configure_item(node, show=True)
+

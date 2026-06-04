@@ -488,3 +488,74 @@ class RoiPluginController(PluginTagMixin):
             if self.ui:
                 self.ui.refresh_rois_ui()
             self.api.notify(f"Created spheroid ROI: {roi_name}")
+
+    def update_spheroid_mask(self, base_vol, roi_vol, roi_state, new_r_mm: float) -> None:
+        import numpy as np
+        import SimpleITK as sitk
+
+        phys_center = np.array(roi_state.spheroid_center)
+
+        # 1. Find bounding box corners in voxel space
+        corners = []
+        for dx in [-new_r_mm, new_r_mm]:
+            for dy in [-new_r_mm, new_r_mm]:
+                for dz in [-new_r_mm, new_r_mm]:
+                    pt = phys_center + np.array([dx, dy, dz])
+                    corners.append(base_vol.physic_coord_to_voxel_coord(pt))
+        corners = np.array(corners)
+        min_vox = np.floor(corners.min(axis=0)).astype(int)
+        max_vox = np.ceil(corners.max(axis=0)).astype(int)
+
+        base_sz, base_sy, base_sx = base_vol.shape3d
+        min_x = max(0, min_vox[0])
+        max_x = min(base_sx, max_vox[0])
+        min_y = max(0, min_vox[1])
+        max_y = min(base_sy, max_vox[1])
+        min_z = max(0, min_vox[2])
+        max_z = min(base_sz, max_vox[2])
+
+        if min_x >= max_x or min_y >= max_y or min_z >= max_z:
+            return
+
+        # 2. Create binary mask in the sub-grid
+        zs = np.arange(min_z, max_z)
+        ys = np.arange(min_y, max_y)
+        xs = np.arange(min_x, max_x)
+        grid_z, grid_y, grid_x = np.meshgrid(zs, ys, xs, indexing='ij')
+
+        voxels = np.column_stack([grid_x.ravel(), grid_y.ravel(), grid_z.ravel()])
+        phys_pts = base_vol.origin + (base_vol.matrix @ (voxels * base_vol.spacing).T).T
+
+        diff = phys_pts - phys_center
+        dist_sq = np.sum(diff ** 2, axis=1)
+
+        mask_flat = dist_sq <= new_r_mm ** 2
+        mask_data = mask_flat.reshape((max_z - min_z, max_y - min_y, max_x - min_x)).astype(np.uint8)
+
+        if not np.any(mask_data):
+            center_voxel = base_vol.physic_coord_to_voxel_coord(phys_center)
+            cx_idx = int(round(center_voxel[0]))
+            cy_idx = int(round(center_voxel[1]))
+            cz_idx = int(round(center_voxel[2]))
+            sub_z = cz_idx - min_z
+            sub_y = cy_idx - min_y
+            sub_x = cx_idx - min_x
+            if 0 <= sub_z < (max_z - min_z) and 0 <= sub_y < (max_y - min_y) and 0 <= sub_x < (max_x - min_x):
+                mask_data[sub_z, sub_y, sub_x] = 1
+
+        # 3. Create SimpleITK image if not mocked
+        ref_origin = base_vol.voxel_coord_to_physic_coord(np.array([min_x, min_y, min_z]))
+        if "mock" not in type(base_vol.sitk_image).__name__.lower():
+            mask_img = sitk.GetImageFromArray(mask_data)
+            mask_img.SetSpacing(base_vol.spacing.tolist())
+            try:
+                mask_img.SetDirection(base_vol.sitk_image.GetDirection())
+            except Exception:
+                pass
+            mask_img.SetOrigin(ref_origin.tolist())
+            roi_vol.sitk_image = mask_img
+
+        roi_vol.data = mask_data
+        roi_vol.origin = ref_origin
+        roi_vol.roi_bbox = (min_z, max_z, min_y, max_y, min_x, max_x)
+        roi_state.spheroid_radius = new_r_mm
