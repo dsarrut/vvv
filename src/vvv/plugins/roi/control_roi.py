@@ -219,8 +219,27 @@ class RoiPluginController(PluginTagMixin):
         if len(indices) > 0:
             com_z, com_y, com_x = np.mean(indices, axis=0)
             com_pixel_cropped = [float(com_x), float(com_y), float(com_z)]
-            com_mm = list(roi_vol.sitk_image.TransformContinuousIndexToPhysicalPoint(com_pixel_cropped))
-            com_pixel = list(base_vol.sitk_image.TransformPhysicalPointToContinuousIndex(com_mm))
+            # Convert to physical point in roi_vol
+            roi_dim = roi_vol.sitk_image.GetDimension()
+            roi_pt = list(com_pixel_cropped)
+            if roi_dim == 4:
+                roi_pt.append(0.0)
+            elif roi_dim == 2:
+                roi_pt = roi_pt[:2]
+
+            com_mm_raw = roi_vol.sitk_image.TransformContinuousIndexToPhysicalPoint(roi_pt)
+            com_mm = list(com_mm_raw[:3])  # Standardize to 3D spatial physical point
+
+            # Convert to base_vol continuous pixel index
+            base_dim = base_vol.sitk_image.GetDimension()
+            base_pt = list(com_mm)
+            if base_dim == 4:
+                base_pt.append(0.0)
+            elif base_dim == 2:
+                base_pt = base_pt[:2]
+
+            com_pixel_raw = base_vol.sitk_image.TransformPhysicalPointToContinuousIndex(base_pt)
+            com_pixel = list(com_pixel_raw[:3])  # Standardize to 3D spatial continuous index
         else:
             com_pixel = [0.0, 0.0, 0.0]
             com_mm = [0.0, 0.0, 0.0]
