@@ -7,6 +7,38 @@ from vvv.utils import (
 )
 import dearpygui.dearpygui as dpg
 
+_overridden_keys = {}
+_original_is_key_down = dpg.is_key_down
+
+def custom_is_key_down(key):
+    if key in _overridden_keys:
+        return _overridden_keys[key]
+    return _original_is_key_down(key)
+
+dpg.is_key_down = custom_is_key_down
+
+def clear_modifier_overrides():
+    """
+    Clears all modifier key states currently reported as pressed.
+    This heals modifier keys stuck in a "down" state (e.g. after focus changes).
+    """
+    modifiers = [
+        dpg.mvKey_LShift, dpg.mvKey_RShift,
+        dpg.mvKey_LControl, dpg.mvKey_RControl,
+        dpg.mvKey_LAlt, dpg.mvKey_RAlt,
+    ]
+    if hasattr(dpg, "mvKey_LWin"):
+        modifiers.append(dpg.mvKey_LWin)
+    if hasattr(dpg, "mvKey_RWin"):
+        modifiers.append(dpg.mvKey_RWin)
+
+    for key in modifiers:
+        try:
+            if _original_is_key_down(key):
+                _overridden_keys[key] = False
+        except Exception:
+            pass
+
 
 class NavigationTool:
     """The default tool for panning, zooming, Window/Level, and crosshair navigation."""
@@ -371,7 +403,12 @@ class InteractionManager:
     def on_mouse_scroll(self, sender, app_data, user_data):
         self.active_tool.on_scroll(app_data)
 
+    def on_key_release(self, sender, app_data, user_data=None):
+        _overridden_keys[app_data] = False
+
     def on_key_press(self, sender, app_data, user_data):
+        if app_data in _overridden_keys:
+            del _overridden_keys[app_data]
         # Prevent keyboard shortcuts from triggering while typing in text/number fields
         roi_plugin = (
             next((p for p in self.gui.plugins if p.plugin_id == "roi_plugin"), None)
@@ -477,6 +514,9 @@ class InteractionManager:
 
     def update_trackers(self):
         """Continuously called by the render loop to update hover states and UI text."""
+        if not getattr(self, "startup_cleared", False):
+            clear_modifier_overrides()
+            self.startup_cleared = True
         mode = self.controller.settings.data["interaction"].get(
             "active_viewer_mode", "hybrid"
         )

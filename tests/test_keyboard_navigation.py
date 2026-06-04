@@ -238,3 +238,35 @@ class TestTimeNavigation:
         press(viewer, dpg.mvKey_Right)
         press(viewer, dpg.mvKey_Left)
         assert viewer.slice_idx == before
+
+
+class TestStuckKeysOverride:
+    def test_stuck_keys_override_lifecycle(self, headless_gui_app):
+        controller, gui, viewer, vs_id = headless_gui_app
+        from unittest.mock import patch
+        from vvv.ui.ui_interaction import _overridden_keys, clear_modifier_overrides
+
+        _overridden_keys.clear()
+
+        # Mock the underlying dpg.is_key_down to return True (simulating a stuck key)
+        with patch("vvv.ui.ui_interaction._original_is_key_down", return_value=True):
+            # Initially, without override, it should return True
+            assert dpg.is_key_down(dpg.mvKey_LControl) is True
+
+            # Clear modifier overrides
+            clear_modifier_overrides()
+
+            # Now, it should return False
+            assert dpg.is_key_down(dpg.mvKey_LControl) is False
+
+            # Simulate physical key press
+            gui.interaction.on_key_press(None, dpg.mvKey_LControl, None)
+
+            # It should return True again
+            assert dpg.is_key_down(dpg.mvKey_LControl) is True
+
+            # Simulate physical key release
+            gui.interaction.on_key_release(None, dpg.mvKey_LControl, None)
+
+            # It should return False again
+            assert dpg.is_key_down(dpg.mvKey_LControl) is False

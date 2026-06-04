@@ -709,6 +709,7 @@ class MainGUI:
             dpg.add_mouse_drag_handler(callback=self.interaction.on_mouse_drag)
             dpg.add_mouse_release_handler(callback=self.interaction.on_mouse_release)
             dpg.add_key_press_handler(callback=self.interaction.on_key_press)
+            dpg.add_key_release_handler(callback=self.interaction.on_key_release)
             dpg.add_mouse_click_handler(callback=self.interaction.on_mouse_click)
             dpg.add_mouse_move_handler(callback=self.interaction.on_mouse_move)
 
