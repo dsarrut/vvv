@@ -495,6 +495,8 @@ class RoiPluginController(PluginTagMixin):
             self.api.request_refresh()
             self.api.update_all_viewers_of_image(base_id)
             self.api.notify(f"Created spheroid ROI: {roi_name}")
+            if self.ui:
+                self.ui.on_roi_stats_toggle(None, None, roi_id)
 
     def update_spheroid_mask(self, base_vol, roi_vol, roi_state, new_r_x_mm: float = None, new_r_y_mm: float = None, new_r_z_mm: float = None) -> None:
         import numpy as np

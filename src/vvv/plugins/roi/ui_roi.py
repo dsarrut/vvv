@@ -94,7 +94,7 @@ class RoiPluginUI(PluginTagMixin):
 
             with dpg.group(horizontal=True, tag=self._t("group_roi_binary_row")):
                 btn_binary = dpg.add_button(
-                    label="Binary...",
+                    label="Open mask...",
                     width=90,
                     callback=self.on_load_binary_roi_clicked,
                     tag=self._t("btn_roi_load_binary"),
@@ -1107,7 +1107,11 @@ class RoiPluginUI(PluginTagMixin):
             return
 
         direction = user_data["dir"]
-        current_r = getattr(roi_state, "spheroid_radius_x", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", 10.0)
+        current_r = (
+            getattr(roi_state, "spheroid_radius_x", None)
+            or getattr(roi_state, "spheroid_radius_xy", None)
+            or getattr(roi_state, "spheroid_radius", 10.0)
+        )
 
         step_size = 1.0
         new_r = max(0.5, current_r + (step_size * direction))
@@ -1166,7 +1170,11 @@ class RoiPluginUI(PluginTagMixin):
             return
 
         direction = user_data["dir"]
-        current_r = getattr(roi_state, "spheroid_radius_y", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", 10.0)
+        current_r = (
+            getattr(roi_state, "spheroid_radius_y", None)
+            or getattr(roi_state, "spheroid_radius_xy", None)
+            or getattr(roi_state, "spheroid_radius", 10.0)
+        )
 
         step_size = 1.0
         new_r = max(0.5, current_r + (step_size * direction))
@@ -1195,8 +1203,12 @@ class RoiPluginUI(PluginTagMixin):
             base_vol,
             roi_vol,
             roi_state,
-            new_r_x_mm=getattr(roi_state, "spheroid_radius_x", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", 10.0),
-            new_r_y_mm=getattr(roi_state, "spheroid_radius_y", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", 10.0),
+            new_r_x_mm=getattr(roi_state, "spheroid_radius_x", None)
+            or getattr(roi_state, "spheroid_radius_xy", None)
+            or getattr(roi_state, "spheroid_radius", 10.0),
+            new_r_y_mm=getattr(roi_state, "spheroid_radius_y", None)
+            or getattr(roi_state, "spheroid_radius_xy", None)
+            or getattr(roi_state, "spheroid_radius", 10.0),
             new_r_z_mm=new_r_z_mm,
         )
 
@@ -1225,7 +1237,9 @@ class RoiPluginUI(PluginTagMixin):
             return
 
         direction = user_data["dir"]
-        current_r = getattr(roi_state, "spheroid_radius_z", None) or getattr(roi_state, "spheroid_radius", 10.0)
+        current_r = getattr(roi_state, "spheroid_radius_z", None) or getattr(
+            roi_state, "spheroid_radius", 10.0
+        )
 
         # Step size is 1.0 mm by default
         step_size = 1.0
@@ -1261,9 +1275,14 @@ class RoiPluginUI(PluginTagMixin):
             base_vol,
             roi_vol,
             roi_state,
-            new_r_x_mm=getattr(roi_state, "spheroid_radius_x", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", 10.0),
-            new_r_y_mm=getattr(roi_state, "spheroid_radius_y", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", 10.0),
-            new_r_z_mm=getattr(roi_state, "spheroid_radius_z", None) or getattr(roi_state, "spheroid_radius", 10.0),
+            new_r_x_mm=getattr(roi_state, "spheroid_radius_x", None)
+            or getattr(roi_state, "spheroid_radius_xy", None)
+            or getattr(roi_state, "spheroid_radius", 10.0),
+            new_r_y_mm=getattr(roi_state, "spheroid_radius_y", None)
+            or getattr(roi_state, "spheroid_radius_xy", None)
+            or getattr(roi_state, "spheroid_radius", 10.0),
+            new_r_z_mm=getattr(roi_state, "spheroid_radius_z", None)
+            or getattr(roi_state, "spheroid_radius", 10.0),
         )
 
         for ori in roi_state.polygons:
@@ -1443,7 +1462,7 @@ class RoiPluginUI(PluginTagMixin):
             dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, [r, g, b, 50])
 
         # Control Toolbar Row
-        with dpg.group(horizontal=True, parent=parent_tag) as row_group:
+        with dpg.group(horizontal=True, parent=parent_tag):
             # Color Picker
             color_picker = dpg.add_color_edit(
                 default_value=roi.color + [255],
@@ -1452,6 +1471,7 @@ class RoiPluginUI(PluginTagMixin):
                 no_alpha=True,
                 width=20,
                 height=20,
+                tag=self._t(f"stats_color_picker_{roi_id}"),
                 user_data=roi_id,
                 callback=self.on_roi_color_changed,
             )
@@ -1496,36 +1516,48 @@ class RoiPluginUI(PluginTagMixin):
             roi_vol = self.api.get_volumes().get(roi_id)
             is_outdated = roi_vol._is_outdated if roi_vol else False
             source_type = getattr(roi, "source_type", "Binary")
+            btn_action_tag = self._t(f"stats_btn_action_{roi_id}")
             if is_outdated:
                 btn_action = dpg.add_button(
                     label="\uf01e",
                     width=20,
+                    tag=btn_action_tag,
                     user_data=roi_id,
                     callback=self.on_roi_reload,
                 )
                 with dpg.tooltip(btn_action):
-                    dpg.add_text("Reload modified file")
+                    dpg.add_text(
+                        "Reload modified file",
+                        tag=self._t(f"stats_tooltip_action_{roi_id}"),
+                    )
             else:
                 btn_action = dpg.add_button(
                     label="\uf0c7",
                     width=20,
+                    tag=btn_action_tag,
                     user_data=roi_id,
                     callback=self.on_roi_save,
                 )
                 with dpg.tooltip(btn_action):
-                    if source_type == "Binary":
-                        dpg.add_text("Save ROI As...")
-                    else:
-                        dpg.add_text("Extract & Save ROI")
+                    dpg.add_text(
+                        (
+                            "Save ROI As..."
+                            if source_type == "Binary"
+                            else "Extract & Save ROI"
+                        ),
+                        tag=self._t(f"stats_tooltip_action_{roi_id}"),
+                    )
 
             # Slider Opacity/Thickness
             dpg.add_spacer(width=5)
+            slider_tag = self._t(f"stats_slider_opacity_thickness_{roi_id}")
             if roi.is_contour:
                 slider = dpg.add_slider_float(
                     default_value=getattr(roi, "thickness", 1.0),
                     min_value=0.5,
                     max_value=10.0,
                     width=90,
+                    tag=slider_tag,
                     format="Thick: %.1f",
                     user_data=roi_id,
                     callback=self.on_roi_thickness_changed,
@@ -1538,6 +1570,7 @@ class RoiPluginUI(PluginTagMixin):
                     min_value=0.0,
                     max_value=1.0,
                     width=90,
+                    tag=slider_tag,
                     format="Opac: %.2f",
                     user_data=roi_id,
                     callback=self.on_roi_opacity_changed,
@@ -1551,70 +1584,20 @@ class RoiPluginUI(PluginTagMixin):
                 for btn in [btn_copy, btn_eye, btn_center, btn_action]:
                     dpg.bind_item_font(btn, "icon_font_tag")
 
-            is_mip = bool(
-                viewer
-                and viewer.image_id
-                and self.api.is_mip_active(viewer.image_id, viewer.tag)
-            )
-            if is_mip:
-                for btn in [
-                    color_picker,
-                    btn_eye,
-                    btn_center,
-                    btn_action,
-                    slider,
-                ]:
-                    dpg.configure_item(btn, enabled=False)
-                if getattr(roi, "is_spheroid", False):
-                    slider_x_tag = self._t(f"slider_roi_radius_x_{roi_id}")
-                    slider_y_tag = self._t(f"slider_roi_radius_y_{roi_id}")
-                    slider_z_tag = self._t(f"slider_roi_radius_z_{roi_id}")
-                    for item_tag in [
-                        slider_x_tag,
-                        f"btn_{slider_x_tag}_minus",
-                        f"btn_{slider_x_tag}_plus",
-                        slider_y_tag,
-                        f"btn_{slider_y_tag}_minus",
-                        f"btn_{slider_y_tag}_plus",
-                        slider_z_tag,
-                        f"btn_{slider_z_tag}_minus",
-                        f"btn_{slider_z_tag}_plus",
-                        self._t(f"input_roi_center_x_{roi_id}"),
-                        self._t(f"input_roi_center_y_{roi_id}"),
-                        self._t(f"input_roi_center_z_{roi_id}"),
-                    ]:
-                        if dpg.does_item_exist(item_tag):
-                            dpg.configure_item(item_tag, enabled=False)
-
-        # Spheroid Parameters (Radius and Center)
-        if getattr(roi, "is_spheroid", False):
-            # Clean up existing tags if they exist to avoid "Alias already exists"
-            slider_x_tag = self._t(f"slider_roi_radius_x_{roi_id}")
-            slider_y_tag = self._t(f"slider_roi_radius_y_{roi_id}")
-            slider_z_tag = self._t(f"slider_roi_radius_z_{roi_id}")
-            for item_tag in [
-                slider_x_tag,
-                f"btn_{slider_x_tag}_minus",
-                f"btn_{slider_x_tag}_plus",
-                slider_y_tag,
-                f"btn_{slider_y_tag}_minus",
-                f"btn_{slider_y_tag}_plus",
-                slider_z_tag,
-                f"btn_{slider_z_tag}_minus",
-                f"btn_{slider_z_tag}_plus",
-                self._t(f"input_roi_center_x_{roi_id}"),
-                self._t(f"input_roi_center_y_{roi_id}"),
-                self._t(f"input_roi_center_z_{roi_id}"),
-            ]:
-                if dpg.does_item_exist(item_tag):
-                    dpg.delete_item(item_tag)
-
-            dpg.add_spacer(height=5, parent=parent_tag)
-            dpg.add_text("Spheroid Parameters", color=header_col, parent=parent_tag)
-            dpg.add_separator(parent=parent_tag)
+        # Spheroid Parameters group
+        spheroid_group_tag = self._t(f"stats_group_spheroid_{roi_id}")
+        with dpg.group(
+            tag=spheroid_group_tag,
+            parent=parent_tag,
+            show=getattr(roi, "is_spheroid", False),
+        ):
+            dpg.add_spacer(height=5)
+            dpg.add_text("Spheroid Parameters", color=header_col)
+            dpg.add_separator()
 
             # Radius X Slider
-            with dpg.group(parent=parent_tag):
+            slider_x_tag = self._t(f"slider_roi_radius_x_{roi_id}")
+            with dpg.group():
                 build_stepped_slider(
                     label="Radius X (mm):",
                     tag=slider_x_tag,
@@ -1622,7 +1605,9 @@ class RoiPluginUI(PluginTagMixin):
                     step_callback=self.on_roi_stats_radius_x_step_callback,
                     min_val=0.5,
                     max_val=150.0,
-                    default_val=getattr(roi, "spheroid_radius_x", None) or getattr(roi, "spheroid_radius_xy", None) or getattr(roi, "spheroid_radius", 10.0),
+                    default_val=getattr(roi, "spheroid_radius_x", None)
+                    or getattr(roi, "spheroid_radius_xy", None)
+                    or getattr(roi, "spheroid_radius", 10.0),
                     format="%.1f",
                     gui=self.api,
                     user_data=roi_id,
@@ -1630,7 +1615,8 @@ class RoiPluginUI(PluginTagMixin):
                 )
 
             # Radius Y Slider
-            with dpg.group(parent=parent_tag):
+            slider_y_tag = self._t(f"slider_roi_radius_y_{roi_id}")
+            with dpg.group():
                 build_stepped_slider(
                     label="Radius Y (mm):",
                     tag=slider_y_tag,
@@ -1638,7 +1624,9 @@ class RoiPluginUI(PluginTagMixin):
                     step_callback=self.on_roi_stats_radius_y_step_callback,
                     min_val=0.5,
                     max_val=150.0,
-                    default_val=getattr(roi, "spheroid_radius_y", None) or getattr(roi, "spheroid_radius_xy", None) or getattr(roi, "spheroid_radius", 10.0),
+                    default_val=getattr(roi, "spheroid_radius_y", None)
+                    or getattr(roi, "spheroid_radius_xy", None)
+                    or getattr(roi, "spheroid_radius", 10.0),
                     format="%.1f",
                     gui=self.api,
                     user_data=roi_id,
@@ -1646,7 +1634,8 @@ class RoiPluginUI(PluginTagMixin):
                 )
 
             # Radius Z Slider
-            with dpg.group(parent=parent_tag):
+            slider_z_tag = self._t(f"slider_roi_radius_z_{roi_id}")
+            with dpg.group():
                 build_stepped_slider(
                     label="Radius Z (mm):",
                     tag=slider_z_tag,
@@ -1654,7 +1643,8 @@ class RoiPluginUI(PluginTagMixin):
                     step_callback=self.on_roi_stats_radius_z_step_callback,
                     min_val=0.5,
                     max_val=150.0,
-                    default_val=getattr(roi, "spheroid_radius_z", None) or getattr(roi, "spheroid_radius", 10.0),
+                    default_val=getattr(roi, "spheroid_radius_z", None)
+                    or getattr(roi, "spheroid_radius", 10.0),
                     format="%.1f",
                     gui=self.api,
                     user_data=roi_id,
@@ -1675,7 +1665,7 @@ class RoiPluginUI(PluginTagMixin):
 
             # Center Inputs
             center = getattr(roi, "spheroid_center", [0.0, 0.0, 0.0])
-            with dpg.group(horizontal=True, parent=parent_tag):
+            with dpg.group(horizontal=True):
                 dpg.add_text("Center X:", color=dim_col)
                 dpg.add_input_float(
                     tag=self._t(f"input_roi_center_x_{roi_id}"),
@@ -1711,21 +1701,28 @@ class RoiPluginUI(PluginTagMixin):
 
         dpg.add_text("Source", color=header_col, parent=parent_tag)
         dpg.add_separator(parent=parent_tag)
+
+        file_row_tag = self._t(f"stats_row_file_{roi_id}")
         is_created = getattr(roi, "source_type", None) == "Created"
-        if not is_created:
-            with dpg.group(horizontal=True, parent=parent_tag):
-                dpg.add_text("File:", color=dim_col)
-                file_txt = dpg.add_text(stats.get("source_filename", "Unknown"))
-                if stats.get("source_filepath"):
-                    with dpg.tooltip(file_txt):
-                        dpg.add_text(stats["source_filepath"])
+        with dpg.group(
+            horizontal=True, parent=parent_tag, tag=file_row_tag, show=not is_created
+        ):
+            dpg.add_text("File:", color=dim_col)
+            file_txt = dpg.add_text(
+                stats.get("source_filename", "Unknown"),
+                tag=self._t(f"stats_txt_file_{roi_id}"),
+            )
+            if stats.get("source_filepath"):
+                with dpg.tooltip(file_txt):
+                    dpg.add_text(stats["source_filepath"])
+
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("Type:", color=dim_col)
             if is_created:
                 t_str = "Sphere" if getattr(roi, "is_spheroid", False) else "Created"
             else:
                 t_str = stats.get("source_type", "Unknown")
-            dpg.add_text(t_str)
+            dpg.add_text(t_str, tag=self._t(f"stats_txt_type_{roi_id}"))
 
         dpg.add_spacer(height=5, parent=parent_tag)
 
@@ -1735,34 +1732,48 @@ class RoiPluginUI(PluginTagMixin):
         # Volumes, Voxels and Mass on the same row!
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("Volume (cc):", color=dim_col)
-            dpg.add_text(f"{stats['vol_cc']:.3f}")
+            dpg.add_text(
+                f"{stats['vol_cc']:.3f}", tag=self._t(f"stats_txt_vol_cc_{roi_id}")
+            )
             dpg.add_spacer(width=10)
             dpg.add_text("Mass (g):", color=dim_col)
-            dpg.add_text(f"{stats.get('mass', 0.0):.2f}")
+            dpg.add_text(
+                f"{stats.get('mass', 0.0):.2f}", tag=self._t(f"stats_txt_mass_{roi_id}")
+            )
 
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("Number of voxels:", color=dim_col)
-            dpg.add_text(f"{stats['voxel_count']}")
+            dpg.add_text(
+                f"{stats['voxel_count']}", tag=self._t(f"stats_txt_voxels_{roi_id}")
+            )
 
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("Size:", color=dim_col)
-            if stats.get("cropped_size"):
-                dpg.add_text(f"{stats['size']} ({stats['cropped_size']})")
-            else:
-                dpg.add_text(stats["size"])
+            size_str = (
+                f"{stats['size']} ({stats['cropped_size']})"
+                if stats.get("cropped_size")
+                else stats["size"]
+            )
+            dpg.add_text(size_str, tag=self._t(f"stats_txt_size_{roi_id}"))
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("Spacing (mm):", color=dim_col)
-            dpg.add_text(stats["spacing"])
+            dpg.add_text(stats["spacing"], tag=self._t(f"stats_txt_spacing_{roi_id}"))
 
         dpg.add_text("Center of Mass:", parent=parent_tag, color=dim_col)
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("  Pixel:", color=dim_col)
             px, py, pz = stats["com_pixel"]
-            dpg.add_text(f"({px:.1f}, {py:.1f}, {pz:.1f})")
+            dpg.add_text(
+                f"({px:.1f}, {py:.1f}, {pz:.1f})",
+                tag=self._t(f"stats_txt_com_pixel_{roi_id}"),
+            )
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("  Physical (mm):", color=dim_col)
             mx, my, mz = stats["com_mm"]
-            dpg.add_text(f"({mx:.1f}, {my:.1f}, {mz:.1f})")
+            dpg.add_text(
+                f"({mx:.1f}, {my:.1f}, {mz:.1f})",
+                tag=self._t(f"stats_txt_com_mm_{roi_id}"),
+            )
 
         dpg.add_spacer(height=5, parent=parent_tag)
 
@@ -1771,49 +1782,80 @@ class RoiPluginUI(PluginTagMixin):
 
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("Mean:", color=dim_col)
-            dpg.add_text(f"{stats['mean']:.2f}")
+            dpg.add_text(
+                f"{stats['mean']:.2f}", tag=self._t(f"stats_txt_mean_{roi_id}")
+            )
             dpg.add_spacer(width=10)
             dpg.add_text("Std Dev:", color=dim_col)
-            dpg.add_text(f"{stats['std']:.2f}")
+            dpg.add_text(f"{stats['std']:.2f}", tag=self._t(f"stats_txt_std_{roi_id}"))
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("Median:", color=dim_col)
-            dpg.add_text(f"{stats['median']:.2f}")
+            dpg.add_text(
+                f"{stats['median']:.2f}", tag=self._t(f"stats_txt_median_{roi_id}")
+            )
             dpg.add_spacer(width=10)
             peak_label = dpg.add_text("Peak (95%):", color=dim_col)
             with dpg.tooltip(peak_label):
                 dpg.add_text("95th percentile of intensity values inside the ROI")
-            dpg.add_text(f"{stats['peak']:.2f}")
+            dpg.add_text(
+                f"{stats['peak']:.2f}", tag=self._t(f"stats_txt_peak_{roi_id}")
+            )
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("Min / Max:", color=dim_col)
-            dpg.add_text(f"{stats['min']:.2f} / {stats['max']:.2f}")
-
-        ov_stats = stats.get("overlay_stats")
-        if ov_stats:
-            dpg.add_spacer(height=5, parent=parent_tag)
             dpg.add_text(
-                f"Fusion Intensity ({ov_stats['name']})",
-                color=header_col,
-                parent=parent_tag,
+                f"{stats['min']:.2f} / {stats['max']:.2f}",
+                tag=self._t(f"stats_txt_min_max_{roi_id}"),
             )
-            dpg.add_separator(parent=parent_tag)
 
-            with dpg.group(horizontal=True, parent=parent_tag):
+        # Overlay stats group
+        overlay_group_tag = self._t(f"stats_group_overlay_{roi_id}")
+        ov_stats = stats.get("overlay_stats")
+        with dpg.group(tag=overlay_group_tag, parent=parent_tag, show=bool(ov_stats)):
+            name_str = ov_stats["name"] if ov_stats else "Overlay"
+            dpg.add_spacer(height=5)
+            dpg.add_text(
+                f"Fusion Intensity ({name_str})",
+                color=header_col,
+                tag=self._t(f"stats_txt_overlay_header_{roi_id}"),
+            )
+            dpg.add_separator()
+
+            with dpg.group(horizontal=True):
                 dpg.add_text("Mean:", color=dim_col)
-                dpg.add_text(f"{ov_stats['mean']:.2f}")
+                dpg.add_text(
+                    f"{ov_stats['mean']:.2f}" if ov_stats else "0.00",
+                    tag=self._t(f"stats_txt_overlay_mean_{roi_id}"),
+                )
                 dpg.add_spacer(width=10)
                 dpg.add_text("Std Dev:", color=dim_col)
-                dpg.add_text(f"{ov_stats['std']:.2f}")
-            with dpg.group(horizontal=True, parent=parent_tag):
+                dpg.add_text(
+                    f"{ov_stats['std']:.2f}" if ov_stats else "0.00",
+                    tag=self._t(f"stats_txt_overlay_std_{roi_id}"),
+                )
+            with dpg.group(horizontal=True):
                 dpg.add_text("Median:", color=dim_col)
-                dpg.add_text(f"{ov_stats['median']:.2f}")
+                dpg.add_text(
+                    f"{ov_stats['median']:.2f}" if ov_stats else "0.00",
+                    tag=self._t(f"stats_txt_overlay_median_{roi_id}"),
+                )
                 dpg.add_spacer(width=10)
                 ov_peak_label = dpg.add_text("Peak (95%):", color=dim_col)
                 with dpg.tooltip(ov_peak_label):
                     dpg.add_text("95th percentile of intensity values inside the ROI")
-                dpg.add_text(f"{ov_stats['peak']:.2f}")
-            with dpg.group(horizontal=True, parent=parent_tag):
+                dpg.add_text(
+                    f"{ov_stats['peak']:.2f}" if ov_stats else "0.00",
+                    tag=self._t(f"stats_txt_overlay_peak_{roi_id}"),
+                )
+            with dpg.group(horizontal=True):
                 dpg.add_text("Min / Max:", color=dim_col)
-                dpg.add_text(f"{ov_stats['min']:.2f} / {ov_stats['max']:.2f}")
+                min_max_str = (
+                    f"{ov_stats['min']:.2f} / {ov_stats['max']:.2f}"
+                    if ov_stats
+                    else "0.00 / 0.00"
+                )
+                dpg.add_text(
+                    min_max_str, tag=self._t(f"stats_txt_overlay_min_max_{roi_id}")
+                )
 
         dpg.add_spacer(height=10, parent=parent_tag)
         dpg.add_button(
@@ -1833,6 +1875,235 @@ class RoiPluginUI(PluginTagMixin):
         )
         if dpg.does_item_exist("delete_button_theme"):
             dpg.bind_item_theme(btn_delete, "delete_button_theme")
+
+    def update_stats_window_contents(self, base_vs_id, roi_id):
+        stats = self._c.compute_detailed_roi_stats(base_vs_id, roi_id)
+        if not stats:
+            return
+
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.view_state or roi_id not in viewer.view_state.rois:
+            return
+        roi = viewer.view_state.rois[roi_id]
+        roi_vol = self.api.get_volumes().get(roi_id)
+
+        # Update text labels
+        dpg.set_value(self._t(f"stats_txt_vol_cc_{roi_id}"), f"{stats['vol_cc']:.3f}")
+        dpg.set_value(
+            self._t(f"stats_txt_mass_{roi_id}"), f"{stats.get('mass', 0.0):.2f}"
+        )
+        dpg.set_value(self._t(f"stats_txt_voxels_{roi_id}"), f"{stats['voxel_count']}")
+
+        size_str = (
+            f"{stats['size']} ({stats['cropped_size']})"
+            if stats.get("cropped_size")
+            else stats["size"]
+        )
+        dpg.set_value(self._t(f"stats_txt_size_{roi_id}"), size_str)
+        dpg.set_value(self._t(f"stats_txt_spacing_{roi_id}"), stats["spacing"])
+
+        px, py, pz = stats["com_pixel"]
+        dpg.set_value(
+            self._t(f"stats_txt_com_pixel_{roi_id}"), f"({px:.1f}, {py:.1f}, {pz:.1f})"
+        )
+        mx, my, mz = stats["com_mm"]
+        dpg.set_value(
+            self._t(f"stats_txt_com_mm_{roi_id}"), f"({mx:.1f}, {my:.1f}, {mz:.1f})"
+        )
+
+        dpg.set_value(self._t(f"stats_txt_mean_{roi_id}"), f"{stats['mean']:.2f}")
+        dpg.set_value(self._t(f"stats_txt_std_{roi_id}"), f"{stats['std']:.2f}")
+        dpg.set_value(self._t(f"stats_txt_median_{roi_id}"), f"{stats['median']:.2f}")
+        dpg.set_value(self._t(f"stats_txt_peak_{roi_id}"), f"{stats['peak']:.2f}")
+        dpg.set_value(
+            self._t(f"stats_txt_min_max_{roi_id}"),
+            f"{stats['min']:.2f} / {stats['max']:.2f}",
+        )
+
+        # Update overlay stats
+        ov_stats = stats.get("overlay_stats")
+        overlay_group = self._t(f"stats_group_overlay_{roi_id}")
+        if dpg.does_item_exist(overlay_group):
+            dpg.configure_item(overlay_group, show=bool(ov_stats))
+            if ov_stats:
+                dpg.set_value(
+                    self._t(f"stats_txt_overlay_header_{roi_id}"),
+                    f"Fusion Intensity ({ov_stats['name']})",
+                )
+                dpg.set_value(
+                    self._t(f"stats_txt_overlay_mean_{roi_id}"),
+                    f"{ov_stats['mean']:.2f}",
+                )
+                dpg.set_value(
+                    self._t(f"stats_txt_overlay_std_{roi_id}"), f"{ov_stats['std']:.2f}"
+                )
+                dpg.set_value(
+                    self._t(f"stats_txt_overlay_median_{roi_id}"),
+                    f"{ov_stats['median']:.2f}",
+                )
+                dpg.set_value(
+                    self._t(f"stats_txt_overlay_peak_{roi_id}"),
+                    f"{ov_stats['peak']:.2f}",
+                )
+                dpg.set_value(
+                    self._t(f"stats_txt_overlay_min_max_{roi_id}"),
+                    f"{ov_stats['min']:.2f} / {ov_stats['max']:.2f}",
+                )
+
+        # Update file / type row
+        is_created = getattr(roi, "source_type", None) == "Created"
+        file_row = self._t(f"stats_row_file_{roi_id}")
+        if dpg.does_item_exist(file_row):
+            dpg.configure_item(file_row, show=not is_created)
+            if not is_created:
+                dpg.set_value(
+                    self._t(f"stats_txt_file_{roi_id}"),
+                    stats.get("source_filename", "Unknown"),
+                )
+
+        if dpg.does_item_exist(self._t(f"stats_txt_type_{roi_id}")):
+            if is_created:
+                t_str = "Sphere" if getattr(roi, "is_spheroid", False) else "Created"
+            else:
+                t_str = stats.get("source_type", "Unknown")
+            dpg.set_value(self._t(f"stats_txt_type_{roi_id}"), t_str)
+
+        # Update spheroid inputs
+        spheroid_group = self._t(f"stats_group_spheroid_{roi_id}")
+        if dpg.does_item_exist(spheroid_group):
+            dpg.configure_item(spheroid_group, show=getattr(roi, "is_spheroid", False))
+            if getattr(roi, "is_spheroid", False):
+                r_x = (
+                    getattr(roi, "spheroid_radius_x", None)
+                    or getattr(roi, "spheroid_radius_xy", None)
+                    or getattr(roi, "spheroid_radius", 10.0)
+                )
+                r_y = (
+                    getattr(roi, "spheroid_radius_y", None)
+                    or getattr(roi, "spheroid_radius_xy", None)
+                    or getattr(roi, "spheroid_radius", 10.0)
+                )
+                r_z = getattr(roi, "spheroid_radius_z", None) or getattr(
+                    roi, "spheroid_radius", 10.0
+                )
+                dpg.set_value(self._t(f"slider_roi_radius_x_{roi_id}"), r_x)
+                dpg.set_value(self._t(f"slider_roi_radius_y_{roi_id}"), r_y)
+                dpg.set_value(self._t(f"slider_roi_radius_z_{roi_id}"), r_z)
+
+                center = getattr(roi, "spheroid_center", [0.0, 0.0, 0.0])
+                dpg.set_value(self._t(f"input_roi_center_x_{roi_id}"), center[0])
+                dpg.set_value(self._t(f"input_roi_center_y_{roi_id}"), center[1])
+                dpg.set_value(self._t(f"input_roi_center_z_{roi_id}"), center[2])
+
+        # Opacity / thickness slider
+        slider_tag = self._t(f"stats_slider_opacity_thickness_{roi_id}")
+        if dpg.does_item_exist(slider_tag):
+            if roi.is_contour:
+                dpg.configure_item(
+                    slider_tag,
+                    default_value=getattr(roi, "thickness", 1.0),
+                    min_value=0.5,
+                    max_value=10.0,
+                    format="Thick: %.1f",
+                    callback=self.on_roi_thickness_changed,
+                )
+                dpg.set_value(slider_tag, getattr(roi, "thickness", 1.0))
+            else:
+                dpg.configure_item(
+                    slider_tag,
+                    default_value=getattr(roi, "opacity", 0.5),
+                    min_value=0.0,
+                    max_value=1.0,
+                    format="Opac: %.2f",
+                    callback=self.on_roi_opacity_changed,
+                )
+                dpg.set_value(slider_tag, getattr(roi, "opacity", 0.5))
+
+        # Save/Reload action button
+        btn_action_tag = self._t(f"stats_btn_action_{roi_id}")
+        if dpg.does_item_exist(btn_action_tag):
+            is_outdated = roi_vol._is_outdated if roi_vol else False
+            source_type = getattr(roi, "source_type", "Binary")
+            tooltip_tag = self._t(f"stats_tooltip_action_{roi_id}")
+            if is_outdated:
+                dpg.configure_item(
+                    btn_action_tag, label="\uf01e", callback=self.on_roi_reload
+                )
+                if dpg.does_item_exist(tooltip_tag):
+                    dpg.set_value(tooltip_tag, "Reload modified file")
+            else:
+                dpg.configure_item(
+                    btn_action_tag, label="\uf0c7", callback=self.on_roi_save
+                )
+                if dpg.does_item_exist(tooltip_tag):
+                    dpg.set_value(
+                        tooltip_tag,
+                        (
+                            "Save ROI As..."
+                            if source_type == "Binary"
+                            else "Extract & Save ROI"
+                        ),
+                    )
+
+        # Color picker
+        color_picker_tag = self._t(f"stats_color_picker_{roi_id}")
+        if dpg.does_item_exist(color_picker_tag):
+            dpg.set_value(color_picker_tag, roi.color + [255])
+
+        # Update slider theme matching active ROI color
+        slider_theme_tag = self._t(f"stats_slider_theme_{roi_id}")
+        if dpg.does_item_exist(slider_theme_tag):
+            dpg.delete_item(slider_theme_tag, children_only=True)
+            with dpg.theme_component(dpg.mvSliderFloat, parent=slider_theme_tag):
+                r, g, b = roi.color[:3]
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, [r, g, b, 255])
+                dpg.add_theme_color(
+                    dpg.mvThemeCol_SliderGrabActive,
+                    [min(255, r + 40), min(255, g + 40), min(255, b + 40), 255],
+                )
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, [r, g, b, 100])
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, [r, g, b, 50])
+
+        # Enable / disable based on MIP mode
+        is_mip = bool(
+            viewer
+            and viewer.image_id
+            and self.api.is_mip_active(viewer.image_id, viewer.tag)
+        )
+        slider_x_tag = self._t(f"slider_roi_radius_x_{roi_id}")
+        slider_y_tag = self._t(f"slider_roi_radius_y_{roi_id}")
+        slider_z_tag = self._t(f"slider_roi_radius_z_{roi_id}")
+        for item in [
+            color_picker_tag,
+            slider_tag,
+            btn_action_tag,
+            slider_x_tag,
+            f"btn_{slider_x_tag}_minus",
+            f"btn_{slider_x_tag}_plus",
+            slider_y_tag,
+            f"btn_{slider_y_tag}_minus",
+            f"btn_{slider_y_tag}_plus",
+            slider_z_tag,
+            f"btn_{slider_z_tag}_minus",
+            f"btn_{slider_z_tag}_plus",
+            self._t(f"input_roi_center_x_{roi_id}"),
+            self._t(f"input_roi_center_y_{roi_id}"),
+            self._t(f"input_roi_center_z_{roi_id}"),
+        ]:
+            if dpg.does_item_exist(item):
+                dpg.configure_item(item, enabled=not is_mip)
+
+        # Dynamic window height adjustment
+        win_tag = self._t(f"stats_win_{roi_id}")
+        if dpg.does_item_exist(win_tag):
+            is_spheroid = getattr(roi, "is_spheroid", False)
+            if is_spheroid:
+                win_h = 820 if ov_stats else 710
+            elif is_created:
+                win_h = 750 if ov_stats else 640
+            else:
+                win_h = 650 if ov_stats else 530
+            dpg.configure_item(win_tag, height=win_h)
 
     def on_copy_stats_to_clipboard(self, sender, app_data, user_data):
         base_vs_id = user_data["base_vs_id"]
@@ -1967,8 +2238,14 @@ class RoiPluginUI(PluginTagMixin):
 
             content_tag = self._t(f"stats_content_{roi_id}")
             if dpg.does_item_exist(content_tag):
-                dpg.delete_item(content_tag, children_only=True)
-                self.build_stats_window_contents(content_tag, viewer.image_id, roi_id)
+                vol_tag = self._t(f"stats_txt_vol_cc_{roi_id}")
+                if dpg.does_item_exist(vol_tag):
+                    self.update_stats_window_contents(viewer.image_id, roi_id)
+                else:
+                    dpg.delete_item(content_tag, children_only=True)
+                    self.build_stats_window_contents(
+                        content_tag, viewer.image_id, roi_id
+                    )
 
     def on_roi_toggle_all_stats(self, sender, app_data, user_data):
         viewer = self.api.get_active_viewer()
