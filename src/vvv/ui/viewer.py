@@ -238,6 +238,7 @@ class SliceViewer:
 
         self.drag_start_mouse: Any | None = None
         self.drag_start_pan: list[float] | None = None
+        self.is_pan_drag = False
 
         # State-Only Sync Trackers
         self.last_consumed_ppm: float | None = None
@@ -1577,7 +1578,14 @@ class SliceViewer:
                 active_drag_action = getattr(tool, "roi_drag_action", None)
 
             if roi_id == active_drag_id and active_drag_action == "border":
-                if getattr(roi_state, "spheroid_radius", 0.0) >= 35.0:
+                r = getattr(roi_state, "spheroid_radius", None)
+                if r is None:
+                    b_x = getattr(roi_state, "box_size_x", None)
+                    b_y = getattr(roi_state, "box_size_y", None)
+                    b_z = getattr(roi_state, "box_size_z", None)
+                    if b_x is not None or b_y is not None or b_z is not None:
+                        r = max(b_x or 0.0, b_y or 0.0, b_z or 0.0) / 2.0
+                if r is not None and r >= 35.0:
                     continue
 
             z0, z1, y0, y1, x0, x1 = roi_vol.roi_bbox
@@ -2787,6 +2795,13 @@ class SliceViewer:
         # 2. Snapshot the current pan so the drag delta can be added to it
         self.drag_start_pan = list(self.pan_offset)
 
+        # 3. Lock the drag mode (pan vs slice) at the start of the drag
+        mods = self.controller.gui.interaction.modifiers
+        is_pan_mod = mods["cmd"] or mods["ctrl"]
+        is_button_left = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
+        is_button_middle = dpg.is_mouse_button_down(dpg.mvMouseButton_Middle)
+        self.is_pan_drag = (is_pan_mod and is_button_left) or is_button_middle
+
     def on_drag(self, data):
         vs = self.view_state
         if self.image_id is None or not self.is_image_orientation() or not vs:
@@ -2800,11 +2815,10 @@ class SliceViewer:
         total_dx = current_pos[0] - self.drag_start_mouse[0]
         total_dy = current_pos[1] - self.drag_start_mouse[1]
 
-        # Use centralized modifiers (Safe on DPG callback threads)
-        mods = self.controller.gui.interaction.modifiers
-        is_pan_mod = mods["cmd"] or mods["ctrl"]
+        # Use the locked drag mode snapshot
+        is_pan_drag = getattr(self, "is_pan_drag", False)
         is_button_left = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
-        is_pan_drag = (is_pan_mod and is_button_left) or dpg.is_mouse_button_down(dpg.mvMouseButton_Middle)
+        mods = self.controller.gui.interaction.modifiers
 
         if not is_pan_drag and not mods["shift"] and is_button_left:
             px, py = self.get_mouse_slice_coords(ignore_hover=True, allow_outside=True)

@@ -32,6 +32,15 @@ def clear_modifier_overrides():
             pass
 
 
+def clear_pan_modifier_overrides():
+    for k in [dpg.mvKey_LWin, dpg.mvKey_RWin, dpg.mvKey_LControl, dpg.mvKey_RControl]:
+        try:
+            if _original_is_key_down(k):
+                _overridden_keys[k] = False
+        except Exception:
+            pass
+
+
 class NavigationTool:
     """The default tool for panning, zooming, Window/Level, and crosshair navigation."""
 
@@ -117,10 +126,18 @@ class NavigationTool:
 
                 vs = viewer.view_state
                 roi_state = vs.rois[roi_id]
-                self.roi_drag_start_radius_x = getattr(roi_state, "spheroid_radius_x", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
-                self.roi_drag_start_radius_y = getattr(roi_state, "spheroid_radius_y", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
-                self.roi_drag_start_radius_z = getattr(roi_state, "spheroid_radius_z", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
-                self.roi_drag_start_center = np.array(roi_state.spheroid_center)
+                is_spheroid = getattr(roi_state, "is_spheroid", False)
+                is_box = getattr(roi_state, "is_box", False)
+                if is_spheroid:
+                    self.roi_drag_start_radius_x = getattr(roi_state, "spheroid_radius_x", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+                    self.roi_drag_start_radius_y = getattr(roi_state, "spheroid_radius_y", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+                    self.roi_drag_start_radius_z = getattr(roi_state, "spheroid_radius_z", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+                    self.roi_drag_start_center = np.array(roi_state.spheroid_center)
+                else: # is_box
+                    self.roi_drag_start_radius_x = getattr(roi_state, "box_size_x", 20.0) / 2.0
+                    self.roi_drag_start_radius_y = getattr(roi_state, "box_size_y", 20.0) / 2.0
+                    self.roi_drag_start_radius_z = getattr(roi_state, "box_size_z", 20.0) / 2.0
+                    self.roi_drag_start_center = np.array(roi_state.box_center)
 
                 roi_vol = self.manager.controller.volumes.get(roi_id)
                 self.roi_drag_start_origin = np.array(roi_vol.origin)
@@ -227,6 +244,7 @@ class NavigationTool:
                                 np.array(v), is_buffered=self.drag_viewer._is_buffered()
                             )
 
+                            is_spheroid = getattr(roi_state, "is_spheroid", False)
                             if getattr(self, "roi_drag_action", "center") == "border":
                                 diff_phys_start = self.roi_drag_start_mouse_phys - self.roi_drag_start_center
                                 d_start = max(1.0, float(np.linalg.norm(diff_phys_start)))
@@ -236,11 +254,16 @@ class NavigationTool:
                                 new_r_x = max(0.5, getattr(self, "roi_drag_start_radius_x", 10.0) * scale)
                                 new_r_y = max(0.5, getattr(self, "roi_drag_start_radius_y", 10.0) * scale)
                                 new_r_z = max(0.5, getattr(self, "roi_drag_start_radius_z", 10.0) * scale)
-                                roi_state.spheroid_radius_x = new_r_x
-                                roi_state.spheroid_radius_y = new_r_y
-                                roi_state.spheroid_radius_z = new_r_z
-                                roi_state.spheroid_radius_xy = new_r_x
-                                roi_state.spheroid_radius = new_r_x
+                                if is_spheroid:
+                                    roi_state.spheroid_radius_x = new_r_x
+                                    roi_state.spheroid_radius_y = new_r_y
+                                    roi_state.spheroid_radius_z = new_r_z
+                                    roi_state.spheroid_radius_xy = new_r_x
+                                    roi_state.spheroid_radius = new_r_x
+                                else: # is_box
+                                    roi_state.box_size_x = new_r_x * 2.0
+                                    roi_state.box_size_y = new_r_y * 2.0
+                                    roi_state.box_size_z = new_r_z * 2.0
 
                                 # Find roi_plugin to update sliders and mask
                                 roi_plugin = next(
@@ -252,22 +275,38 @@ class NavigationTool:
                                     None,
                                 )
                                 if roi_plugin and hasattr(roi_plugin, "_ui"):
-                                    slider_x_tag = roi_plugin._ui._t(f"slider_roi_radius_x_{roi_id}")
-                                    slider_y_tag = roi_plugin._ui._t(f"slider_roi_radius_y_{roi_id}")
-                                    slider_z_tag = roi_plugin._ui._t(f"slider_roi_radius_z_{roi_id}")
-                                    if dpg.does_item_exist(slider_x_tag):
-                                        dpg.set_value(slider_x_tag, new_r_x)
-                                    if dpg.does_item_exist(slider_y_tag):
-                                        dpg.set_value(slider_y_tag, new_r_y)
-                                    if dpg.does_item_exist(slider_z_tag):
-                                        dpg.set_value(slider_z_tag, new_r_z)
+                                    if is_spheroid:
+                                        slider_x_tag = roi_plugin._ui._t(f"slider_roi_radius_x_{roi_id}")
+                                        slider_y_tag = roi_plugin._ui._t(f"slider_roi_radius_y_{roi_id}")
+                                        slider_z_tag = roi_plugin._ui._t(f"slider_roi_radius_z_{roi_id}")
+                                        if dpg.does_item_exist(slider_x_tag):
+                                            dpg.set_value(slider_x_tag, new_r_x)
+                                        if dpg.does_item_exist(slider_y_tag):
+                                            dpg.set_value(slider_y_tag, new_r_y)
+                                        if dpg.does_item_exist(slider_z_tag):
+                                            dpg.set_value(slider_z_tag, new_r_z)
+                                    else: # is_box
+                                        slider_x_tag = roi_plugin._ui._t(f"slider_roi_box_size_x_{roi_id}")
+                                        slider_y_tag = roi_plugin._ui._t(f"slider_roi_box_size_y_{roi_id}")
+                                        slider_z_tag = roi_plugin._ui._t(f"slider_roi_box_size_z_{roi_id}")
+                                        if dpg.does_item_exist(slider_x_tag):
+                                            dpg.set_value(slider_x_tag, new_r_x * 2.0)
+                                        if dpg.does_item_exist(slider_y_tag):
+                                            dpg.set_value(slider_y_tag, new_r_y * 2.0)
+                                        if dpg.does_item_exist(slider_z_tag):
+                                            dpg.set_value(slider_z_tag, new_r_z * 2.0)
 
-                                # Hybrid update: update mask in real-time ONLY if radius is small enough
+                                # Hybrid update: update mask in real-time ONLY if size is small enough
                                 if max(new_r_x, new_r_y, new_r_z) < 100.0:
                                     if roi_plugin:
-                                        roi_plugin._controller.update_spheroid_mask(
-                                            base_vol, roi_vol, roi_state, new_r_x, new_r_y, new_r_z
-                                        )
+                                        if is_spheroid:
+                                            roi_plugin._controller.update_spheroid_mask(
+                                                base_vol, roi_vol, roi_state, new_r_x, new_r_y, new_r_z
+                                            )
+                                        else: # is_box
+                                            roi_plugin._controller.update_box_mask(
+                                                base_vol, roi_vol, roi_state, new_r_x * 2.0, new_r_y * 2.0, new_r_z * 2.0
+                                            )
 
                                 for ori in roi_state.polygons:
                                     roi_state.polygons[ori].clear()
@@ -337,7 +376,10 @@ class NavigationTool:
                                 roi_vol.origin = new_mask_origin
                                 roi_vol.roi_bbox = new_bbox
 
-                                roi_state.spheroid_center = new_center.tolist()
+                                if is_spheroid:
+                                    roi_state.spheroid_center = new_center.tolist()
+                                else: # is_box
+                                    roi_state.box_center = new_center.tolist()
 
                                 for ori in roi_state.polygons:
                                     roi_state.polygons[ori].clear()
@@ -355,6 +397,7 @@ class NavigationTool:
             self.drag_viewer.drag_start_mouse = None
             self.drag_viewer.drag_start_pan = None
             self.drag_viewer.last_dx, self.drag_viewer.last_dy = 0, 0
+            self.drag_viewer.is_pan_drag = False
 
             if self.is_pan_drag:
                 import time
@@ -396,14 +439,25 @@ class NavigationTool:
                                 None,
                             )
                             if roi_plugin:
-                                roi_plugin._controller.update_spheroid_mask(
-                                    base_vol,
-                                    roi_vol,
-                                    roi_state,
-                                    getattr(roi_state, "spheroid_radius_x", None),
-                                    getattr(roi_state, "spheroid_radius_y", None),
-                                    getattr(roi_state, "spheroid_radius_z", None),
-                                )
+                                is_spheroid = getattr(roi_state, "is_spheroid", False)
+                                if is_spheroid:
+                                    roi_plugin._controller.update_spheroid_mask(
+                                        base_vol,
+                                        roi_vol,
+                                        roi_state,
+                                        getattr(roi_state, "spheroid_radius_x", None),
+                                        getattr(roi_state, "spheroid_radius_y", None),
+                                        getattr(roi_state, "spheroid_radius_z", None),
+                                    )
+                                else: # is_box
+                                    roi_plugin._controller.update_box_mask(
+                                        base_vol,
+                                        roi_vol,
+                                        roi_state,
+                                        getattr(roi_state, "box_size_x", None),
+                                        getattr(roi_state, "box_size_y", None),
+                                        getattr(roi_state, "box_size_z", None),
+                                    )
                                 if hasattr(roi_plugin, "_ui"):
                                     roi_plugin._ui.refresh_all_open_stats_windows()
 
@@ -622,20 +676,31 @@ class InteractionManager:
         if v_idx is None:
             return None
 
-        # Check all visible spheroid ROIs
+        # Check all visible spheroid or box ROIs
         for roi_id, roi_state in vs.rois.items():
-            if not roi_state.visible or not getattr(roi_state, "is_spheroid", False):
-                continue
-            if roi_state.spheroid_center is None:
+            is_spheroid = getattr(roi_state, "is_spheroid", False)
+            is_box = getattr(roi_state, "is_box", False)
+            if not roi_state.visible or (not is_spheroid and not is_box):
                 continue
 
-            r_x = getattr(roi_state, "spheroid_radius_x", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
-            r_y = getattr(roi_state, "spheroid_radius_y", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
-            r_z = getattr(roi_state, "spheroid_radius_z", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+            if is_spheroid:
+                if roi_state.spheroid_center is None:
+                    continue
+                r_x = getattr(roi_state, "spheroid_radius_x", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+                r_y = getattr(roi_state, "spheroid_radius_y", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+                r_z = getattr(roi_state, "spheroid_radius_z", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+                center = roi_state.spheroid_center
+            else: # is_box
+                if roi_state.box_center is None:
+                    continue
+                r_x = (getattr(roi_state, "box_size_x", 20.0) / 2.0)
+                r_y = (getattr(roi_state, "box_size_y", 20.0) / 2.0)
+                r_z = (getattr(roi_state, "box_size_z", 20.0) / 2.0)
+                center = roi_state.box_center
 
             # Calculate physical center and projected slice position
             v_center = vs.world_to_display(
-                roi_state.spheroid_center, is_buffered=viewer._is_buffered()
+                center, is_buffered=viewer._is_buffered()
             )
             if v_center is None:
                 continue
@@ -648,7 +713,7 @@ class InteractionManager:
             if proj_phys is None:
                 continue
 
-            d_mm = abs(proj_phys[v_idx] - roi_state.spheroid_center[v_idx])
+            d_mm = abs(proj_phys[v_idx] - center[v_idx])
             if v_idx == 2:
                 R_depth = r_z
                 r_h_base = r_x
@@ -662,9 +727,17 @@ class InteractionManager:
                 r_h_base = r_y
                 r_v_base = r_z
 
-            F = 1.0 - (d_mm ** 2) / (R_depth ** 2)
-            if F < 0.0:
-                continue
+            if is_spheroid:
+                F = 1.0 - (d_mm ** 2) / (R_depth ** 2)
+                if F < 0.0:
+                    continue
+                r_h = r_h_base * math.sqrt(F)
+                r_v = r_v_base * math.sqrt(F)
+            else: # is_box
+                if d_mm > R_depth:
+                    continue
+                r_h = r_h_base
+                r_v = r_v_base
 
             # Project center to screen pixels
             tx, ty = voxel_to_slice(
@@ -679,21 +752,34 @@ class InteractionManager:
                 return roi_id, "center"
 
             # Hover check: mouse within 12 pixels of projected slice border
-            r_h = r_h_base * math.sqrt(F)
-            r_v = r_v_base * math.sqrt(F)
             ppm = viewer.get_pixels_per_mm()
             r_h_px = r_h * ppm
             r_v_px = r_v * ppm
 
-            dx = m_pos[0] - px
-            dy = m_pos[1] - py
-            angle = math.atan2(dy, dx)
-            ex = r_h_px * math.cos(angle)
-            ey = r_v_px * math.sin(angle)
-            r_slice_px = math.hypot(ex, ey)
+            if is_box:
+                mx, my = m_pos[0], m_pos[1]
+                x_left = px - r_h_px
+                x_right = px + r_h_px
+                y_top = py - r_v_px
+                y_bottom = py + r_v_px
 
-            if abs(dist_to_center_px - r_slice_px) < 12.0:
-                return roi_id, "border"
+                d1 = abs(mx - x_left) if (y_top - 12 <= my <= y_bottom + 12) else 1e9
+                d2 = abs(mx - x_right) if (y_top - 12 <= my <= y_bottom + 12) else 1e9
+                d3 = abs(my - y_top) if (x_left - 12 <= mx <= x_right + 12) else 1e9
+                d4 = abs(my - y_bottom) if (x_left - 12 <= mx <= x_right + 12) else 1e9
+
+                if min(d1, d2, d3, d4) < 12.0:
+                    return roi_id, "border"
+            else:
+                dx = m_pos[0] - px
+                dy = m_pos[1] - py
+                angle = math.atan2(dy, dx)
+                ex = r_h_px * math.cos(angle)
+                ey = r_v_px * math.sin(angle)
+                r_slice_px = math.hypot(ex, ey)
+
+                if abs(dist_to_center_px - r_slice_px) < 12.0:
+                    return roi_id, "border"
 
         return None
 
@@ -785,6 +871,7 @@ class InteractionManager:
 
     def on_mouse_release(self, sender, app_data, user_data):
         self.active_tool.on_release(app_data)
+        clear_pan_modifier_overrides()
 
     def on_mouse_scroll(self, sender, app_data, user_data):
         self.active_tool.on_scroll(app_data)

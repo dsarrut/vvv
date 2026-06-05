@@ -129,7 +129,7 @@ class RoiPluginUI(PluginTagMixin):
             with dpg.group(horizontal=True):
 
                 dpg.add_text(
-                    "Add a ROI : ",
+                    "Add a simple ROI : ",
                     color=cfg_c["text_header"],
                 )
 
@@ -1290,6 +1290,13 @@ class RoiPluginUI(PluginTagMixin):
 
         viewer.view_state.is_geometry_dirty = True
         viewer.view_state.is_data_dirty = True
+
+        # Sync crosshair and slice
+        if hasattr(viewer.view_state, "update_crosshair_from_phys"):
+            import numpy as np
+            viewer.view_state.update_crosshair_from_phys(np.array(roi_state.spheroid_center))
+            self.api.propagate_sync(viewer.image_id)
+
         self.api.request_refresh()
         self.api.update_all_viewers_of_image(viewer.image_id, data_dirty=True)
         self.refresh_all_open_stats_windows()
@@ -1383,7 +1390,8 @@ class RoiPluginUI(PluginTagMixin):
         has_overlay = bool(stats and stats.get("overlay_stats"))
         is_created = getattr(roi, "source_type", None) == "Created"
         is_spheroid = getattr(roi, "is_spheroid", False)
-        if is_spheroid:
+        is_box = getattr(roi, "is_box", False)
+        if is_spheroid or is_box:
             win_h = 820 if has_overlay else 710
         elif is_created:
             win_h = 750 if has_overlay else 640
@@ -1609,7 +1617,8 @@ class RoiPluginUI(PluginTagMixin):
                     max_val=150.0,
                     default_val=getattr(roi, "spheroid_radius_x", None)
                     or getattr(roi, "spheroid_radius_xy", None)
-                    or getattr(roi, "spheroid_radius", 10.0),
+                    or getattr(roi, "spheroid_radius", None)
+                    or 10.0,
                     format="%.1f",
                     gui=self.api,
                     user_data=roi_id,
@@ -1628,7 +1637,8 @@ class RoiPluginUI(PluginTagMixin):
                     max_val=150.0,
                     default_val=getattr(roi, "spheroid_radius_y", None)
                     or getattr(roi, "spheroid_radius_xy", None)
-                    or getattr(roi, "spheroid_radius", 10.0),
+                    or getattr(roi, "spheroid_radius", None)
+                    or 10.0,
                     format="%.1f",
                     gui=self.api,
                     user_data=roi_id,
@@ -1646,7 +1656,8 @@ class RoiPluginUI(PluginTagMixin):
                     min_val=0.5,
                     max_val=150.0,
                     default_val=getattr(roi, "spheroid_radius_z", None)
-                    or getattr(roi, "spheroid_radius", 10.0),
+                    or getattr(roi, "spheroid_radius", None)
+                    or 10.0,
                     format="%.1f",
                     gui=self.api,
                     user_data=roi_id,
@@ -1666,7 +1677,7 @@ class RoiPluginUI(PluginTagMixin):
             dpg.bind_item_handler_registry(slider_z_tag, handler_reg)
 
             # Center Inputs
-            center = getattr(roi, "spheroid_center", [0.0, 0.0, 0.0])
+            center = getattr(roi, "spheroid_center", None) or [0.0, 0.0, 0.0]
             with dpg.group(horizontal=True):
                 dpg.add_text("Center X:", color=dim_col)
                 dpg.add_input_float(
@@ -1677,6 +1688,7 @@ class RoiPluginUI(PluginTagMixin):
                     format="%.1f",
                     user_data={"roi_id": roi_id, "coord_idx": 0},
                     callback=self.on_roi_stats_center_changed,
+                    on_enter=True,
                 )
                 dpg.add_text("Y:", color=dim_col)
                 dpg.add_input_float(
@@ -1687,6 +1699,7 @@ class RoiPluginUI(PluginTagMixin):
                     format="%.1f",
                     user_data={"roi_id": roi_id, "coord_idx": 1},
                     callback=self.on_roi_stats_center_changed,
+                    on_enter=True,
                 )
                 dpg.add_text("Z:", color=dim_col)
                 dpg.add_input_float(
@@ -1697,6 +1710,111 @@ class RoiPluginUI(PluginTagMixin):
                     format="%.1f",
                     user_data={"roi_id": roi_id, "coord_idx": 2},
                     callback=self.on_roi_stats_center_changed,
+                    on_enter=True,
+                )
+
+        # Box Parameters group
+        box_group_tag = self._t(f"stats_group_box_{roi_id}")
+        with dpg.group(
+            tag=box_group_tag, parent=parent_tag, show=getattr(roi, "is_box", False)
+        ):
+            dpg.add_spacer(height=5)
+            dpg.add_text("Box Parameters", color=header_col)
+            dpg.add_separator()
+
+            # Size X Slider
+            slider_box_x_tag = self._t(f"slider_roi_box_size_x_{roi_id}")
+            with dpg.group():
+                build_stepped_slider(
+                    label="Length X (mm):",
+                    tag=slider_box_x_tag,
+                    callback=self.on_roi_stats_box_size_x_slider_changed,
+                    step_callback=self.on_roi_stats_box_size_x_step_callback,
+                    min_val=1.0,
+                    max_val=300.0,
+                    default_val=getattr(roi, "box_size_x", None) or 20.0,
+                    format="%.1f",
+                    gui=self.api,
+                    user_data=roi_id,
+                    use_slider=True,
+                )
+
+            # Size Y Slider
+            slider_box_y_tag = self._t(f"slider_roi_box_size_y_{roi_id}")
+            with dpg.group():
+                build_stepped_slider(
+                    label="Length Y (mm):",
+                    tag=slider_box_y_tag,
+                    callback=self.on_roi_stats_box_size_y_slider_changed,
+                    step_callback=self.on_roi_stats_box_size_y_step_callback,
+                    min_val=1.0,
+                    max_val=300.0,
+                    default_val=getattr(roi, "box_size_y", None) or 20.0,
+                    format="%.1f",
+                    gui=self.api,
+                    user_data=roi_id,
+                    use_slider=True,
+                )
+
+            # Size Z Slider
+            slider_box_z_tag = self._t(f"slider_roi_box_size_z_{roi_id}")
+            with dpg.group():
+                build_stepped_slider(
+                    label="Length Z (mm):",
+                    tag=slider_box_z_tag,
+                    callback=self.on_roi_stats_box_size_z_slider_changed,
+                    step_callback=self.on_roi_stats_box_size_z_step_callback,
+                    min_val=1.0,
+                    max_val=300.0,
+                    default_val=getattr(roi, "box_size_z", None) or 20.0,
+                    format="%.1f",
+                    gui=self.api,
+                    user_data=roi_id,
+                    use_slider=True,
+                )
+
+            # Bind to deactivated handler registry
+            handler_reg = self._t("slider_deactivated_handler_reg")
+            if dpg.does_item_exist(handler_reg):
+                dpg.bind_item_handler_registry(slider_box_x_tag, handler_reg)
+                dpg.bind_item_handler_registry(slider_box_y_tag, handler_reg)
+                dpg.bind_item_handler_registry(slider_box_z_tag, handler_reg)
+
+            # Center Inputs
+            center = getattr(roi, "box_center", None) or [0.0, 0.0, 0.0]
+            with dpg.group(horizontal=True):
+                dpg.add_text("Center X:", color=dim_col)
+                dpg.add_input_float(
+                    tag=self._t(f"input_roi_box_center_x_{roi_id}"),
+                    default_value=center[0],
+                    step=0,
+                    width=55,
+                    format="%.1f",
+                    user_data={"roi_id": roi_id, "coord_idx": 0},
+                    callback=self.on_roi_stats_box_center_changed,
+                    on_enter=True,
+                )
+                dpg.add_text("Y:", color=dim_col)
+                dpg.add_input_float(
+                    tag=self._t(f"input_roi_box_center_y_{roi_id}"),
+                    default_value=center[1],
+                    step=0,
+                    width=55,
+                    format="%.1f",
+                    user_data={"roi_id": roi_id, "coord_idx": 1},
+                    callback=self.on_roi_stats_box_center_changed,
+                    on_enter=True,
+                )
+                dpg.add_text("Z:", color=dim_col)
+                dpg.add_input_float(
+                    tag=self._t(f"input_roi_box_center_z_{roi_id}"),
+                    default_value=center[2],
+                    step=0,
+                    width=55,
+                    format="%.1f",
+                    user_data={"roi_id": roi_id, "coord_idx": 2},
+                    callback=self.on_roi_stats_box_center_changed,
+                    on_enter=True,
                 )
 
         dpg.add_spacer(height=5, parent=parent_tag)
@@ -1721,7 +1839,12 @@ class RoiPluginUI(PluginTagMixin):
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("Type:", color=dim_col)
             if is_created:
-                t_str = "Sphere" if getattr(roi, "is_spheroid", False) else "Created"
+                if getattr(roi, "is_spheroid", False):
+                    t_str = "Sphere"
+                elif getattr(roi, "is_box", False):
+                    t_str = "Box"
+                else:
+                    t_str = "Created"
             else:
                 t_str = stats.get("source_type", "Unknown")
             dpg.add_text(t_str, tag=self._t(f"stats_txt_type_{roi_id}"))
@@ -1963,9 +2086,13 @@ class RoiPluginUI(PluginTagMixin):
                     stats.get("source_filename", "Unknown"),
                 )
 
-        if dpg.does_item_exist(self._t(f"stats_txt_type_{roi_id}")):
             if is_created:
-                t_str = "Sphere" if getattr(roi, "is_spheroid", False) else "Created"
+                if getattr(roi, "is_spheroid", False):
+                    t_str = "Sphere"
+                elif getattr(roi, "is_box", False):
+                    t_str = "Box"
+                else:
+                    t_str = "Created"
             else:
                 t_str = stats.get("source_type", "Unknown")
             dpg.set_value(self._t(f"stats_txt_type_{roi_id}"), t_str)
@@ -1996,6 +2123,23 @@ class RoiPluginUI(PluginTagMixin):
                 dpg.set_value(self._t(f"input_roi_center_x_{roi_id}"), center[0])
                 dpg.set_value(self._t(f"input_roi_center_y_{roi_id}"), center[1])
                 dpg.set_value(self._t(f"input_roi_center_z_{roi_id}"), center[2])
+
+        # Update box inputs
+        box_group = self._t(f"stats_group_box_{roi_id}")
+        if dpg.does_item_exist(box_group):
+            dpg.configure_item(box_group, show=getattr(roi, "is_box", False))
+            if getattr(roi, "is_box", False):
+                b_x = getattr(roi, "box_size_x", 20.0)
+                b_y = getattr(roi, "box_size_y", 20.0)
+                b_z = getattr(roi, "box_size_z", 20.0)
+                dpg.set_value(self._t(f"slider_roi_box_size_x_{roi_id}"), b_x)
+                dpg.set_value(self._t(f"slider_roi_box_size_y_{roi_id}"), b_y)
+                dpg.set_value(self._t(f"slider_roi_box_size_z_{roi_id}"), b_z)
+
+                center = getattr(roi, "box_center", [0.0, 0.0, 0.0])
+                dpg.set_value(self._t(f"input_roi_box_center_x_{roi_id}"), center[0])
+                dpg.set_value(self._t(f"input_roi_box_center_y_{roi_id}"), center[1])
+                dpg.set_value(self._t(f"input_roi_box_center_z_{roi_id}"), center[2])
 
         # Opacity / thickness slider
         slider_tag = self._t(f"stats_slider_opacity_thickness_{roi_id}")
@@ -2075,6 +2219,9 @@ class RoiPluginUI(PluginTagMixin):
         slider_x_tag = self._t(f"slider_roi_radius_x_{roi_id}")
         slider_y_tag = self._t(f"slider_roi_radius_y_{roi_id}")
         slider_z_tag = self._t(f"slider_roi_radius_z_{roi_id}")
+        slider_box_x_tag = self._t(f"slider_roi_box_size_x_{roi_id}")
+        slider_box_y_tag = self._t(f"slider_roi_box_size_y_{roi_id}")
+        slider_box_z_tag = self._t(f"slider_roi_box_size_z_{roi_id}")
         for item in [
             color_picker_tag,
             slider_tag,
@@ -2088,9 +2235,21 @@ class RoiPluginUI(PluginTagMixin):
             slider_z_tag,
             f"btn_{slider_z_tag}_minus",
             f"btn_{slider_z_tag}_plus",
+            slider_box_x_tag,
+            f"btn_{slider_box_x_tag}_minus",
+            f"btn_{slider_box_x_tag}_plus",
+            slider_box_y_tag,
+            f"btn_{slider_box_y_tag}_minus",
+            f"btn_{slider_box_y_tag}_plus",
+            slider_box_z_tag,
+            f"btn_{slider_box_z_tag}_minus",
+            f"btn_{slider_box_z_tag}_plus",
             self._t(f"input_roi_center_x_{roi_id}"),
             self._t(f"input_roi_center_y_{roi_id}"),
             self._t(f"input_roi_center_z_{roi_id}"),
+            self._t(f"input_roi_box_center_x_{roi_id}"),
+            self._t(f"input_roi_box_center_y_{roi_id}"),
+            self._t(f"input_roi_box_center_z_{roi_id}"),
         ]:
             if dpg.does_item_exist(item):
                 dpg.configure_item(item, enabled=not is_mip)
@@ -2099,7 +2258,8 @@ class RoiPluginUI(PluginTagMixin):
         win_tag = self._t(f"stats_win_{roi_id}")
         if dpg.does_item_exist(win_tag):
             is_spheroid = getattr(roi, "is_spheroid", False)
-            if is_spheroid:
+            is_box = getattr(roi, "is_box", False)
+            if is_spheroid or is_box:
                 win_h = 820 if ov_stats else 710
             elif is_created:
                 win_h = 750 if ov_stats else 640
@@ -2488,4 +2648,215 @@ class RoiPluginUI(PluginTagMixin):
         self._c.on_add_spheroid(viewer.image_id)
 
     def on_add_rect_clicked(self, sender, app_data, user_data):
-        self.api.notify("Rectangular ROI creation is not implemented yet.")
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.image_id:
+            self.api.notify("Please select an active image first.")
+            return
+        self._c.on_add_box(viewer.image_id)
+
+    def on_roi_stats_box_size_x_slider_changed(self, sender, app_data, user_data):
+        roi_id = user_data
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.image_id or not viewer.view_state:
+            return
+        base_vol = self.api.get_volumes().get(viewer.image_id)
+        roi_vol = self.api.get_volumes().get(roi_id)
+        roi_state = viewer.view_state.rois.get(roi_id)
+        if not base_vol or not roi_vol or not roi_state:
+            return
+        new_size = float(app_data)
+        new_size = max(new_size, 1.0)
+
+        roi_state.box_size_x = new_size
+        self._c.update_box_mask(
+            base_vol,
+            roi_vol,
+            roi_state,
+            new_size_x=new_size,
+        )
+
+        for ori in roi_state.polygons:
+            roi_state.polygons[ori].clear()
+
+        viewer.view_state.is_geometry_dirty = True
+        viewer.view_state.is_data_dirty = True
+        self.api.update_all_viewers_of_image(viewer.image_id, data_dirty=True)
+        if sender is None:
+            self.api.request_refresh()
+            self.refresh_all_open_stats_windows()
+
+    def on_roi_stats_box_size_x_step_callback(self, sender, app_data, user_data):
+        tag = user_data["tag"]
+        prefix = self._t("slider_roi_box_size_x_")
+        if not tag.startswith(prefix):
+            return
+        roi_id = tag[len(prefix) :]
+
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.image_id or not viewer.view_state:
+            return
+        roi_state = viewer.view_state.rois.get(roi_id)
+        if not roi_state:
+            return
+
+        direction = user_data["dir"]
+        current_size = getattr(roi_state, "box_size_x", 20.0)
+
+        step_size = 1.0
+        new_size = max(1.0, current_size + (step_size * direction))
+
+        if dpg.does_item_exist(tag):
+            dpg.set_value(tag, new_size)
+
+        self.on_roi_stats_box_size_x_slider_changed(None, new_size, roi_id)
+
+    def on_roi_stats_box_size_y_slider_changed(self, sender, app_data, user_data):
+        roi_id = user_data
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.image_id or not viewer.view_state:
+            return
+        base_vol = self.api.get_volumes().get(viewer.image_id)
+        roi_vol = self.api.get_volumes().get(roi_id)
+        roi_state = viewer.view_state.rois.get(roi_id)
+        if not base_vol or not roi_vol or not roi_state:
+            return
+        new_size = float(app_data)
+        new_size = max(new_size, 1.0)
+
+        roi_state.box_size_y = new_size
+        self._c.update_box_mask(
+            base_vol,
+            roi_vol,
+            roi_state,
+            new_size_y=new_size,
+        )
+
+        for ori in roi_state.polygons:
+            roi_state.polygons[ori].clear()
+
+        viewer.view_state.is_geometry_dirty = True
+        viewer.view_state.is_data_dirty = True
+        self.api.update_all_viewers_of_image(viewer.image_id, data_dirty=True)
+        if sender is None:
+            self.api.request_refresh()
+            self.refresh_all_open_stats_windows()
+
+    def on_roi_stats_box_size_y_step_callback(self, sender, app_data, user_data):
+        tag = user_data["tag"]
+        prefix = self._t("slider_roi_box_size_y_")
+        if not tag.startswith(prefix):
+            return
+        roi_id = tag[len(prefix) :]
+
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.image_id or not viewer.view_state:
+            return
+        roi_state = viewer.view_state.rois.get(roi_id)
+        if not roi_state:
+            return
+
+        direction = user_data["dir"]
+        current_size = getattr(roi_state, "box_size_y", 20.0)
+
+        step_size = 1.0
+        new_size = max(1.0, current_size + (step_size * direction))
+
+        if dpg.does_item_exist(tag):
+            dpg.set_value(tag, new_size)
+
+        self.on_roi_stats_box_size_y_slider_changed(None, new_size, roi_id)
+
+    def on_roi_stats_box_size_z_slider_changed(self, sender, app_data, user_data):
+        roi_id = user_data
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.image_id or not viewer.view_state:
+            return
+        base_vol = self.api.get_volumes().get(viewer.image_id)
+        roi_vol = self.api.get_volumes().get(roi_id)
+        roi_state = viewer.view_state.rois.get(roi_id)
+        if not base_vol or not roi_vol or not roi_state:
+            return
+        new_size = float(app_data)
+        new_size = max(new_size, 1.0)
+
+        roi_state.box_size_z = new_size
+        self._c.update_box_mask(
+            base_vol,
+            roi_vol,
+            roi_state,
+            new_size_z=new_size,
+        )
+
+        for ori in roi_state.polygons:
+            roi_state.polygons[ori].clear()
+
+        viewer.view_state.is_geometry_dirty = True
+        viewer.view_state.is_data_dirty = True
+        self.api.update_all_viewers_of_image(viewer.image_id, data_dirty=True)
+        if sender is None:
+            self.api.request_refresh()
+            self.refresh_all_open_stats_windows()
+
+    def on_roi_stats_box_size_z_step_callback(self, sender, app_data, user_data):
+        tag = user_data["tag"]
+        prefix = self._t("slider_roi_box_size_z_")
+        if not tag.startswith(prefix):
+            return
+        roi_id = tag[len(prefix) :]
+
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.image_id or not viewer.view_state:
+            return
+        roi_state = viewer.view_state.rois.get(roi_id)
+        if not roi_state:
+            return
+
+        direction = user_data["dir"]
+        current_size = getattr(roi_state, "box_size_z", 20.0)
+
+        step_size = 1.0
+        new_size = max(1.0, current_size + (step_size * direction))
+
+        if dpg.does_item_exist(tag):
+            dpg.set_value(tag, new_size)
+
+        self.on_roi_stats_box_size_z_slider_changed(None, new_size, roi_id)
+
+    def on_roi_stats_box_center_changed(self, sender, app_data, user_data):
+        roi_id = user_data["roi_id"]
+        coord_idx = user_data["coord_idx"]
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.image_id or not viewer.view_state:
+            return
+        base_vol = self.api.get_volumes().get(viewer.image_id)
+        roi_vol = self.api.get_volumes().get(roi_id)
+        roi_state = viewer.view_state.rois.get(roi_id)
+        if not base_vol or not roi_vol or not roi_state:
+            return
+
+        val = float(app_data)
+        if roi_state.box_center is None:
+            roi_state.box_center = [0.0, 0.0, 0.0]
+        roi_state.box_center[coord_idx] = val
+
+        self._c.update_box_mask(
+            base_vol,
+            roi_vol,
+            roi_state,
+        )
+
+        for ori in roi_state.polygons:
+            roi_state.polygons[ori].clear()
+
+        viewer.view_state.is_geometry_dirty = True
+        viewer.view_state.is_data_dirty = True
+
+        # Sync crosshair and slice
+        if hasattr(viewer.view_state, "update_crosshair_from_phys"):
+            import numpy as np
+            viewer.view_state.update_crosshair_from_phys(np.array(roi_state.box_center))
+            self.api.propagate_sync(viewer.image_id)
+
+        self.api.update_all_viewers_of_image(viewer.image_id, data_dirty=True)
+        self.api.request_refresh()
+        self.refresh_all_open_stats_windows()

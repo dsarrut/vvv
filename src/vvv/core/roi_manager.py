@@ -40,6 +40,11 @@ class ROIState:
         self.spheroid_radius_x = None
         self.spheroid_radius_y = None
         self.spheroid_radius_z = None
+        self.is_box = False
+        self.box_center = None
+        self.box_size_x = None
+        self.box_size_y = None
+        self.box_size_z = None
 
     def to_dict(self):
         d = {
@@ -62,6 +67,12 @@ class ROIState:
             d["spheroid_radius_x"] = getattr(self, "spheroid_radius_x", self.spheroid_radius)
             d["spheroid_radius_y"] = getattr(self, "spheroid_radius_y", self.spheroid_radius)
             d["spheroid_radius_z"] = getattr(self, "spheroid_radius_z", self.spheroid_radius)
+        if getattr(self, "is_box", False):
+            d["is_box"] = True
+            d["box_center"] = self.box_center
+            d["box_size_x"] = self.box_size_x
+            d["box_size_y"] = self.box_size_y
+            d["box_size_z"] = self.box_size_z
         return d
 
     def from_dict(self, d):
@@ -83,6 +94,11 @@ class ROIState:
         self.spheroid_radius_x = d.get("spheroid_radius_x", d.get("spheroid_radius_xy", self.spheroid_radius))
         self.spheroid_radius_y = d.get("spheroid_radius_y", d.get("spheroid_radius_xy", self.spheroid_radius))
         self.spheroid_radius_z = d.get("spheroid_radius_z", self.spheroid_radius)
+        self.is_box = d.get("is_box", False)
+        self.box_center = d.get("box_center", None)
+        self.box_size_x = d.get("box_size_x", None)
+        self.box_size_y = d.get("box_size_y", None)
+        self.box_size_z = d.get("box_size_z", None)
 
 
 class ROIManager:

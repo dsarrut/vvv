@@ -1015,19 +1015,29 @@ class OverlayDrawer:
             return
 
         roi_state = vs.rois[target_roi_id]
-        if not roi_state.visible or not getattr(roi_state, "is_spheroid", False):
+        is_spheroid = getattr(roi_state, "is_spheroid", False)
+        is_box = getattr(roi_state, "is_box", False)
+        if not roi_state.visible or (not is_spheroid and not is_box):
             dpg.configure_item(node, show=False)
             return
-        r_x = getattr(roi_state, "spheroid_radius_x", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
-        r_y = getattr(roi_state, "spheroid_radius_y", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
-        r_z = getattr(roi_state, "spheroid_radius_z", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
 
-        if roi_state.spheroid_center is None or r_x is None:
+        if is_spheroid:
+            r_x = getattr(roi_state, "spheroid_radius_x", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+            r_y = getattr(roi_state, "spheroid_radius_y", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+            r_z = getattr(roi_state, "spheroid_radius_z", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+            center = roi_state.spheroid_center
+        else: # is_box
+            r_x = (getattr(roi_state, "box_size_x", 20.0) / 2.0)
+            r_y = (getattr(roi_state, "box_size_y", 20.0) / 2.0)
+            r_z = (getattr(roi_state, "box_size_z", 20.0) / 2.0)
+            center = roi_state.box_center
+
+        if center is None or r_x is None:
             dpg.configure_item(node, show=False)
             return
 
         # Project 3D physical center to slice pixels
-        v_center = vs.world_to_display(roi_state.spheroid_center, is_buffered=viewer._is_buffered())
+        v_center = vs.world_to_display(center, is_buffered=viewer._is_buffered())
         if v_center is None:
             dpg.configure_item(node, show=False)
             return
@@ -1054,7 +1064,7 @@ class OverlayDrawer:
         is_active_drag = (active_roi_drag_id == target_roi_id)
         is_resizing = is_active_drag and (active_roi_drag_action == "border")
 
-        d_mm = abs(proj_phys[v_idx] - roi_state.spheroid_center[v_idx])
+        d_mm = abs(proj_phys[v_idx] - center[v_idx])
         if v_idx == 2:
             R_depth = r_z
             r_h_base = r_x
@@ -1068,8 +1078,11 @@ class OverlayDrawer:
             r_h_base = r_y
             r_v_base = r_z
 
-        F = 1.0 - (d_mm ** 2) / (R_depth ** 2)
-        intersects = (F >= 0.0)
+        if is_spheroid:
+            F = 1.0 - (d_mm ** 2) / (R_depth ** 2)
+            intersects = (F >= 0.0)
+        else: # is_box
+            intersects = (d_mm <= R_depth)
 
         # Draw center reticle ALWAYS if actively dragging, or if hovered at center
         draw_center = is_active_drag or (part == "center")
@@ -1081,20 +1094,30 @@ class OverlayDrawer:
         drew_anything = False
 
         if draw_border:
-            r_h = r_h_base * math.sqrt(F)
-            r_v = r_v_base * math.sqrt(F)
+            if is_spheroid:
+                r_h = r_h_base * math.sqrt(F)
+                r_v = r_v_base * math.sqrt(F)
+            else: # is_box
+                r_h = r_h_base
+                r_v = r_v_base
+
             ppm = viewer.get_pixels_per_mm()
             r_h_px = r_h * ppm
             r_v_px = r_v * ppm
 
-            # Draw semi-transparent ellipse outline
+            # Draw semi-transparent outline
             outline_color = color[:3] + [120]
-            points = []
-            for theta in np.linspace(0, 2*np.pi, 36):
-                ex = px + r_h_px * math.cos(theta)
-                ey = py + r_v_px * math.sin(theta)
-                points.append([ex, ey])
-            dpg.draw_polyline(points, color=outline_color, thickness=1.5, closed=True, parent=node)
+            if is_box:
+                p_min_rect = [px - r_h_px, py - r_v_px]
+                p_max_rect = [px + r_h_px, py + r_v_px]
+                dpg.draw_rectangle(p_min_rect, p_max_rect, color=outline_color, thickness=1.5, parent=node)
+            else:
+                points = []
+                for theta in np.linspace(0, 2*np.pi, 36):
+                    ex = px + r_h_px * math.cos(theta)
+                    ey = py + r_v_px * math.sin(theta)
+                    points.append([ex, ey])
+                dpg.draw_polyline(points, color=outline_color, thickness=1.5, closed=True, parent=node)
 
             # Get mouse position to place the dot handle closest to it
             try:
@@ -1102,11 +1125,28 @@ class OverlayDrawer:
             except Exception:
                 m_pos = [px + r_h_px, py]
 
-            dx = m_pos[0] - px
-            dy = m_pos[1] - py
-            angle = math.atan2(dy, dx)
-            hx = px + r_h_px * math.cos(angle)
-            hy = py + r_v_px * math.sin(angle)
+            if is_box:
+                mx, my = m_pos[0], m_pos[1]
+                x_left = px - r_h_px
+                x_right = px + r_h_px
+                y_top = py - r_v_px
+                y_bottom = py + r_v_px
+
+                p1 = [x_left, max(y_top, min(y_bottom, my))]
+                p2 = [x_right, max(y_top, min(y_bottom, my))]
+                p3 = [max(x_left, min(x_right, mx)), y_top]
+                p4 = [max(x_left, min(x_right, mx)), y_bottom]
+
+                candidates = [p1, p2, p3, p4]
+                dists = [math.dist(m_pos, p) for p in candidates]
+                closest_idx = np.argmin(dists)
+                hx, hy = candidates[closest_idx]
+            else:
+                dx = m_pos[0] - px
+                dy = m_pos[1] - py
+                angle = math.atan2(dy, dx)
+                hx = px + r_h_px * math.cos(angle)
+                hy = py + r_v_px * math.sin(angle)
 
             # Draw border handle dot (solid circle with glowing halo)
             dpg.draw_circle([hx, hy], radius=7.0, color=[255, 255, 255, 200], thickness=1.5, parent=node)

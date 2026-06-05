@@ -652,4 +652,36 @@ def test_gui_profiles_checkbox_sync(headless_gui_app):
     assert controller.ui_needs_refresh is True
 
 
+def test_gui_pan_drag_lock_and_modifier_release(headless_gui_app, monkeypatch):
+    """Verifies that starting a drag with Cmd/Ctrl locks pan mode even if modifiers are released."""
+    controller, gui, viewer, vs_id = headless_gui_app
+
+    # Mock hovered viewer and mouse button state
+    monkeypatch.setattr(gui.interaction, "get_hovered_viewer", lambda: viewer)
+    monkeypatch.setattr(
+        dpg, "is_mouse_button_down", lambda button: button == dpg.mvMouseButton_Left
+    )
+
+    # 1. Start drag (mouse down) on viewer while Ctrl is active
+    gui.interaction.modifiers["ctrl"] = True
+    gui.interaction.on_mouse_click(None, dpg.mvMouseButton_Left, None)
+    assert viewer.is_pan_drag is True
+
+    # 2. Release the Ctrl key mid-drag
+    gui.interaction.modifiers["ctrl"] = False
+
+    # 3. Simulate dragging the mouse
+    mouse_pos = [100.0, 100.0]
+    monkeypatch.setattr(dpg, "get_mouse_pos", lambda local=False: mouse_pos)
+
+    # Trigger drag: it should still perform panning (is_pan_drag remains True)
+    viewer.on_drag(None)
+    assert viewer.is_pan_drag is True
+
+    # 4. Trigger release: clears is_pan_drag
+    gui.interaction.on_mouse_release(None, 0, None)
+    assert viewer.is_pan_drag is False
+
+
+
 

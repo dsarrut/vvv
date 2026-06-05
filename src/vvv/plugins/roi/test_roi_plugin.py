@@ -26,6 +26,7 @@ class MockViewState:
         self.is_data_dirty = False
         self.is_geometry_dirty = False
         self.display = MagicMock()
+        self.update_crosshair_from_phys = MagicMock()
 
 
 class MockViewer:
@@ -1222,6 +1223,8 @@ class TestRoiPlugin(unittest.TestCase):
         # Test center callback
         ui.on_roi_stats_center_changed(None, 4.2, {"roi_id": "roi_1", "coord_idx": 0})
         self.assertEqual(roi_state.spheroid_center[0], 4.2)
+        mock_viewer.view_state.update_crosshair_from_phys.assert_called()
+        self.mock_api.propagate_sync.assert_called_with("img_1")
 
         # Test slider deactivated callback
         ui.on_roi_stats_slider_deactivated(None, None, None)
@@ -1230,8 +1233,529 @@ class TestRoiPlugin(unittest.TestCase):
         if dpg.does_item_exist("stats_parent_win"):
             dpg.delete_item("stats_parent_win")
 
+    def test_add_box_roi(self):
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+
+        ui = self.plugin._ui
+        ctrl = self.plugin._controller
+
+        # Set up mock active viewer and crosshair
+        rois = {}
+        mock_viewer = MockViewer("img_1", rois)
+        mock_viewer.view_state = MagicMock()
+        mock_viewer.view_state.camera = MagicMock()
+        mock_viewer.view_state.camera.target_ppm = 2.0
+        mock_viewer.view_state.rois = rois
+        
+        self.mock_api.get_active_viewer.return_value = mock_viewer
+        self.mock_api.get_crosshair_world.return_value = [10.0, 20.0, 30.0]
+        self.mock_api.get_view_states.return_value = {"img_1": mock_viewer.view_state}
+
+        # Set up mock volume
+        import numpy as np
+        base_vol = MagicMock()
+        base_vol.shape3d = (50, 50, 50)
+        base_vol.spacing = np.array([1.0, 1.0, 1.0])
+        base_vol.origin = np.array([0.0, 0.0, 0.0])
+        base_vol.matrix = np.eye(3)
+        base_vol.physic_coord_to_voxel_coord.side_effect = lambda pt: pt
+        base_vol.voxel_coord_to_physic_coord.side_effect = lambda pt: pt
+        base_vol.sitk_image = MagicMock()
+        base_vol.sitk_image.GetDirection.return_value = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+
+        self.mock_api._controller.volumes = {"img_1": base_vol}
+        
+        # Set up a real ROIState in rois to let our code store properties on it
+        from vvv.core.roi_manager import ROIState
+        color = [255, 0, 0]
+        roi_state = ROIState(volume_id="img_1", name="Box_1", color=color)
+        rois["Box_1"] = roi_state
+
+        # Mock _create_memory_roi to return "Box_1"
+        self.mock_api._controller.roi = MagicMock()
+        self.mock_api._controller.roi._create_memory_roi.return_value = "Box_1"
+
+        # Trigger box creation
+        ui.on_add_rect_clicked(None, None, None)
+
+        # Verify that it fetched crosshair coordinate, computed bounding box, and called _create_memory_roi
+        self.mock_api.get_crosshair_world.assert_called_once()
+        self.mock_api._controller.roi._create_memory_roi.assert_called_once()
+        
+        # Verify box metadata properties were stored
+        self.assertTrue(roi_state.is_box)
+        self.assertEqual(roi_state.box_center, [10.0, 20.0, 30.0])
+        self.assertGreater(roi_state.box_size_x, 0.0)
+
+        # Verify notification
+        self.mock_api.notify.assert_called_with("Created box ROI: Box_2")
+
+        dpg.delete_item("test_parent")
+
+    def test_drag_box_roi(self):
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+
+        import numpy as np
+        from unittest.mock import patch
+        from vvv.utils import RoiInteractionMode, ViewMode
+        from vvv.ui.ui_interaction import InteractionManager
+        from vvv.core.roi_manager import ROIState
+
+        # Create DPG widgets
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+
+        # 1. Create a real ROIState in contour mode
+        roi_state = ROIState(volume_id="img_1", name="Box_1", color=[255, 0, 0])
+        roi_state.is_box = True
+        roi_state.box_center = [10.0, 20.0, 30.0]
+        roi_state.box_size_x = 10.0
+        roi_state.box_size_y = 10.0
+        roi_state.box_size_z = 10.0
+        roi_state.is_contour = True
+
+        # 2. Mock viewer and volumes
+        mock_viewer = MagicMock()
+        mock_viewer.image_id = "img_1"
+        mock_viewer.tag = "V1"
+        mock_viewer.view_state = MagicMock()
+        mock_viewer.view_state.rois = {"Box_1": roi_state}
+        mock_viewer.view_state.camera = MagicMock()
+        mock_viewer.view_state.camera.target_ppm = 2.0
+        mock_viewer.view_state.world_to_display.side_effect = lambda pt, **kw: np.array(pt)
+        mock_viewer.view_state.display_to_world.side_effect = lambda pt, **kw: np.array(pt)
+        mock_viewer.get_mouse_slice_coords.return_value = (10.0, 20.0)
+        mock_viewer.get_slice_shape.return_value = (100, 100)
+        mock_viewer.current_pmin = [0.0, 0.0]
+        mock_viewer.current_pmax = [100.0, 100.0]
+        mock_viewer.orientation = ViewMode.AXIAL
+        mock_viewer.slice_idx = 30
+        mock_viewer._ORIENTATION_MAP = {
+            ViewMode.AXIAL: (2, 0, ("x", "y"), (1, 1))
+        }
+        mock_viewer.roi_mode = RoiInteractionMode.IDLE
+        mock_viewer._is_buffered.return_value = False
+        mock_viewer.is_image_orientation.return_value = True
+        mock_viewer.on_mouse_down = MagicMock()
+
+        # Mock base volume
+        base_vol = MagicMock()
+        base_vol.shape3d = (50, 50, 50)
+        base_vol.spacing = np.array([1.0, 1.0, 1.0])
+        base_vol.origin = np.array([0.0, 0.0, 0.0])
+        base_vol.matrix = np.eye(3)
+        base_vol.physic_coord_to_voxel_coord.side_effect = lambda pt: pt
+        base_vol.voxel_coord_to_physic_coord.side_effect = lambda pt: pt
+        base_vol.sitk_image = MagicMock()
+
+        # Mock roi volume
+        roi_vol = MagicMock()
+        roi_vol.origin = np.array([5.0, 15.0, 25.0])
+        roi_vol.roi_bbox = (25, 35, 15, 25, 5, 15)
+        roi_vol.sitk_image = MagicMock()
+
+        self.mock_api._controller.volumes = {"img_1": base_vol, "Box_1": roi_vol}
+        self.mock_api.get_active_viewer.return_value = mock_viewer
+
+        gui = MagicMock()
+        gui.plugins = [self.plugin]
+        self.plugin._ui.roi_selectables = {}
+        self.plugin._ui.api = self.mock_api
+
+        manager = InteractionManager(gui, self.mock_api._controller)
+        manager.get_hovered_viewer = MagicMock(return_value=mock_viewer)
+        
+        with patch("dearpygui.dearpygui.does_item_exist", return_value=True), \
+             patch("dearpygui.dearpygui.get_drawing_mouse_pos", return_value=(10.5, 20.5)), \
+             patch("dearpygui.dearpygui.set_value"):
+            
+             # Hover check
+            roi_res = manager._check_roi_hover(mock_viewer)
+            self.assertEqual(roi_res, ("Box_1", "center"))
+            
+            # Click
+            tool = manager.active_tool
+            tool.on_click(0) # left click
+            self.assertEqual(mock_viewer.roi_mode, RoiInteractionMode.MANIPULATING)
+            self.assertEqual(tool.roi_drag_id, "Box_1")
+            
+            # Check contour mode was temporarily disabled
+            self.assertFalse(roi_state.is_contour)
+            self.assertTrue(tool.roi_drag_was_contour)
+
+            # Drag by 2 voxels physically
+            mock_viewer.get_mouse_slice_coords.return_value = (12.0, 22.0)
+            tool.on_drag(None)
+            
+            # Verify origin and bbox shift
+            self.assertEqual(roi_state.box_center, [12.0, 22.0, 30.0])
+            self.assertTrue(np.allclose(roi_vol.origin, [7.0, 17.0, 25.0]))
+            self.assertEqual(roi_vol.roi_bbox, (25, 35, 17, 27, 7, 17))
+            
+            # Release
+            tool.on_release(0)
+            self.assertEqual(mock_viewer.roi_mode, RoiInteractionMode.IDLE)
+            self.assertIsNone(tool.roi_drag_id)
+            self.assertTrue(roi_state.is_contour)
+
+        dpg.delete_item("test_parent")
+
+    def test_resize_box_roi(self):
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+
+        import numpy as np
+        from unittest.mock import patch
+        from vvv.utils import RoiInteractionMode, ViewMode
+        from vvv.ui.ui_interaction import InteractionManager
+        from vvv.core.roi_manager import ROIState
+
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+
+        roi_state = ROIState(volume_id="img_1", name="Box_1", color=[255, 0, 0])
+        roi_state.is_box = True
+        roi_state.box_center = [10.0, 20.0, 30.0]
+        roi_state.box_size_x = 220.0
+        roi_state.box_size_y = 220.0
+        roi_state.box_size_z = 220.0
+        roi_state.is_contour = True
+
+        mock_viewer = MagicMock()
+        mock_viewer.image_id = "img_1"
+        mock_viewer.tag = "V1"
+        mock_viewer.view_state = MagicMock()
+        mock_viewer.view_state.rois = {"Box_1": roi_state}
+        mock_viewer.view_state.camera = MagicMock()
+        mock_viewer.view_state.camera.target_ppm = 1.0
+        mock_viewer.get_mouse_slice_coords.return_value = (120.5, 20.5)
+        mock_viewer.get_slice_shape.return_value = (100, 100)
+        mock_viewer.current_pmin = [0.0, 0.0]
+        mock_viewer.current_pmax = [100.0, 100.0]
+        mock_viewer.orientation = ViewMode.AXIAL
+        mock_viewer.slice_idx = 30
+        mock_viewer._ORIENTATION_MAP = {
+            ViewMode.AXIAL: (2, 0, ("x", "y"), (1, 1))
+        }
+        mock_viewer.roi_mode = RoiInteractionMode.IDLE
+        mock_viewer._is_buffered.return_value = False
+        mock_viewer.is_image_orientation.return_value = True
+        mock_viewer.on_mouse_down = MagicMock()
+        mock_viewer.get_pixels_per_mm.return_value = 1.0
+        mock_viewer.view_state.world_to_display.side_effect = lambda pt, **kw: np.array(pt)
+        mock_viewer.view_state.display_to_world.side_effect = lambda pt, **kw: np.array(pt)
+
+        base_vol = MagicMock()
+        base_vol.shape3d = (50, 50, 50)
+        base_vol.spacing = np.array([1.0, 1.0, 1.0])
+        base_vol.origin = np.array([0.0, 0.0, 0.0])
+        base_vol.matrix = np.eye(3)
+        base_vol.physic_coord_to_voxel_coord.side_effect = lambda pt: pt
+        base_vol.voxel_coord_to_physic_coord.side_effect = lambda pt: pt
+        base_vol.sitk_image = MagicMock()
+        type(base_vol.sitk_image).__name__ = "MagicMock"
+
+        roi_vol = MagicMock()
+        roi_vol.origin = np.array([5.0, 15.0, 25.0])
+        roi_vol.roi_bbox = (25, 35, 15, 25, 5, 15)
+        roi_vol.sitk_image = MagicMock()
+
+        self.mock_api._controller.volumes = {"img_1": base_vol, "Box_1": roi_vol}
+        self.mock_api.get_active_viewer.return_value = mock_viewer
+
+        gui = MagicMock()
+        gui.plugins = [self.plugin]
+        self.plugin._ui.roi_selectables = {}
+        self.plugin._ui.api = self.mock_api
+
+        manager = InteractionManager(gui, self.mock_api._controller)
+        manager.get_hovered_viewer = MagicMock(return_value=mock_viewer)
+        
+        with patch("dearpygui.dearpygui.does_item_exist", return_value=True), \
+             patch("dearpygui.dearpygui.get_drawing_mouse_pos", return_value=(120.5, 20.5)), \
+             patch("dearpygui.dearpygui.set_value"):
+            
+            roi_res = manager._check_roi_hover(mock_viewer)
+            self.assertEqual(roi_res, ("Box_1", "border"))
+            
+            tool = manager.active_tool
+            tool.on_click(0)
+            self.assertEqual(mock_viewer.roi_mode, RoiInteractionMode.MANIPULATING)
+            self.assertEqual(tool.roi_drag_id, "Box_1")
+            self.assertEqual(tool.roi_drag_action, "border")
+            
+            mock_viewer.get_mouse_slice_coords.return_value = (123.5, 20.5)
+            tool.on_drag(None)
+            
+            # Verify sizes scaled proportionally: original is 220, scaled is 226
+            self.assertEqual(roi_state.box_size_x, 226.0)
+            self.assertEqual(roi_state.box_size_y, 226.0)
+            self.assertEqual(roi_state.box_size_z, 226.0)
+            self.assertEqual(roi_vol.roi_bbox, (25, 35, 15, 25, 5, 15))
+
+            tool.on_release(0)
+            self.assertEqual(mock_viewer.roi_mode, RoiInteractionMode.IDLE)
+            self.assertIsNone(tool.roi_drag_id)
+            self.assertTrue(roi_state.is_contour)
+
+        dpg.delete_item("test_parent")
+
+    def test_box_stats_window(self):
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+
+        ui = self.plugin._ui
+        ctrl = self.plugin._controller
+
+        import numpy as np
+        from vvv.core.roi_manager import ROIState
+
+        base_vol = MagicMock()
+        base_vol.name = "base"
+        base_vol.data = np.zeros((10, 10, 10), dtype=np.uint8)
+        base_vol.spacing = np.array([1.0, 1.0, 1.0])
+        base_vol.origin = np.array([0.0, 0.0, 0.0])
+        base_vol.matrix = np.eye(3)
+        base_vol.inverse_matrix = np.eye(3)
+        base_vol.shape3d = (10, 10, 10)
+        base_vol.physic_coord_to_voxel_coord.side_effect = lambda pt: pt
+        base_vol.voxel_coord_to_physic_coord.side_effect = lambda pt: pt
+        base_vol.num_timepoints = 1
+        base_vol.is_rgb = False
+        base_vol.is_dvf = False
+        base_vol.sitk_image = MagicMock()
+
+        roi_vol = MagicMock()
+        roi_vol.name = "Box_1"
+        roi_vol.data = np.zeros((5, 5, 5), dtype=np.uint8)
+        roi_vol.spacing = np.array([1.0, 1.0, 1.0])
+        roi_vol.origin = np.array([2.0, 2.0, 2.0])
+        roi_vol.matrix = np.eye(3)
+        roi_vol.inverse_matrix = np.eye(3)
+        roi_vol.shape3d = (5, 5, 5)
+        roi_vol.roi_bbox = (2, 7, 2, 7, 2, 7)
+        roi_vol.num_timepoints = 1
+        roi_vol.is_rgb = False
+        roi_vol.is_dvf = False
+        roi_vol.sitk_image = MagicMock()
+
+        roi_state = ROIState("roi_1", "Box_1", color=[255, 0, 0])
+        roi_state.is_box = True
+        roi_state.box_center = [5.0, 5.0, 5.0]
+        roi_state.box_size_x = 6.0
+        roi_state.box_size_y = 6.0
+        roi_state.box_size_z = 6.0
+        roi_state.source_type = "Created"
+
+        self.mock_api.get_volumes.return_value = {
+            "img_1": base_vol,
+            "roi_1": roi_vol,
+        }
+        self.mock_api.get_view_states.return_value = {
+            "img_1": MockViewState(rois={"roi_1": roi_state}),
+        }
+
+        mock_viewer = MockViewer("img_1", {"roi_1": roi_state})
+        self.mock_api.get_active_viewer.return_value = mock_viewer
+
+        with dpg.window(tag="stats_parent_win"):
+            with dpg.group(tag="stats_parent"):
+                ui.build_stats_window_contents("stats_parent", "img_1", "roi_1")
+
+        # Verify slider and input tags exist
+        self.assertTrue(dpg.does_item_exist(ui._t("slider_roi_box_size_x_roi_1")))
+        self.assertTrue(dpg.does_item_exist(ui._t("slider_roi_box_size_y_roi_1")))
+        self.assertTrue(dpg.does_item_exist(ui._t("slider_roi_box_size_z_roi_1")))
+        self.assertTrue(dpg.does_item_exist(ui._t("input_roi_box_center_x_roi_1")))
+        self.assertTrue(dpg.does_item_exist(ui._t("input_roi_box_center_y_roi_1")))
+        self.assertTrue(dpg.does_item_exist(ui._t("input_roi_box_center_z_roi_1")))
+
+        # Test size X callback
+        ui.on_roi_stats_box_size_x_slider_changed(None, 8.0, "roi_1")
+        self.assertEqual(roi_state.box_size_x, 8.0)
+
+        # Test size X step callback
+        slider_x_tag = ui._t("slider_roi_box_size_x_roi_1")
+        ui.on_roi_stats_box_size_x_step_callback(None, None, {"tag": slider_x_tag, "dir": 1.0})
+        self.assertEqual(roi_state.box_size_x, 9.0)
+
+        # Test size Y callback
+        ui.on_roi_stats_box_size_y_slider_changed(None, 7.0, "roi_1")
+        self.assertEqual(roi_state.box_size_y, 7.0)
+
+        # Test size Y step callback
+        slider_y_tag = ui._t("slider_roi_box_size_y_roi_1")
+        ui.on_roi_stats_box_size_y_step_callback(None, None, {"tag": slider_y_tag, "dir": 1.0})
+        self.assertEqual(roi_state.box_size_y, 8.0)
+
+        # Test size Z callback
+        ui.on_roi_stats_box_size_z_slider_changed(None, 6.5, "roi_1")
+        self.assertEqual(roi_state.box_size_z, 6.5)
+
+        # Test size Z step callback
+        slider_z_tag = ui._t("slider_roi_box_size_z_roi_1")
+        ui.on_roi_stats_box_size_z_step_callback(None, None, {"tag": slider_z_tag, "dir": 1.0})
+        self.assertEqual(roi_state.box_size_z, 7.5)
+
+        # Test center callback
+        ui.on_roi_stats_box_center_changed(None, 4.2, {"roi_id": "roi_1", "coord_idx": 0})
+        self.assertEqual(roi_state.box_center[0], 4.2)
+        mock_viewer.view_state.update_crosshair_from_phys.assert_called()
+        self.mock_api.propagate_sync.assert_called_with("img_1")
+
+        dpg.delete_item("test_parent")
+        if dpg.does_item_exist("stats_parent_win"):
+            dpg.delete_item("stats_parent_win")
+
+    def test_edit_center_then_drag_box_roi(self):
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+
+        import numpy as np
+        from unittest.mock import patch
+        from vvv.utils import RoiInteractionMode, ViewMode
+        from vvv.ui.ui_interaction import InteractionManager
+        from vvv.core.roi_manager import ROIState
+
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+
+        ui = self.plugin._ui
+
+        roi_state = ROIState(volume_id="img_1", name="Box_1", color=[255, 0, 0])
+        roi_state.is_box = True
+        roi_state.box_center = [10.0, 20.0, 30.0]
+        roi_state.box_size_x = 10.0
+        roi_state.box_size_y = 10.0
+        roi_state.box_size_z = 10.0
+        roi_state.is_contour = True
+
+        mock_viewer = MagicMock()
+        mock_viewer.image_id = "img_1"
+        mock_viewer.tag = "V1"
+        mock_viewer.view_state = MagicMock()
+        mock_viewer.view_state.rois = {"Box_1": roi_state}
+        mock_viewer.view_state.camera = MagicMock()
+        mock_viewer.view_state.camera.target_ppm = 2.0
+        mock_viewer.view_state.world_to_display.side_effect = lambda pt, **kw: np.array(pt)
+        mock_viewer.view_state.display_to_world.side_effect = lambda pt, **kw: np.array(pt)
+        mock_viewer.get_mouse_slice_coords.return_value = (12.0, 22.0)
+        mock_viewer.get_slice_shape.return_value = (100, 100)
+        mock_viewer.current_pmin = [0.0, 0.0]
+        mock_viewer.current_pmax = [100.0, 100.0]
+        mock_viewer.orientation = ViewMode.AXIAL
+        mock_viewer.slice_idx = 30
+        mock_viewer._ORIENTATION_MAP = {
+            ViewMode.AXIAL: (2, 0, ("x", "y"), (1, 1))
+        }
+        mock_viewer.roi_mode = RoiInteractionMode.IDLE
+        mock_viewer._is_buffered.return_value = False
+        mock_viewer.is_image_orientation.return_value = True
+        mock_viewer.on_mouse_down = MagicMock()
+
+        base_vol = MagicMock()
+        base_vol.shape3d = (50, 50, 50)
+        base_vol.spacing = np.array([1.0, 1.0, 1.0])
+        base_vol.origin = np.array([0.0, 0.0, 0.0])
+        base_vol.matrix = np.eye(3)
+        base_vol.physic_coord_to_voxel_coord.side_effect = lambda pt: pt
+        base_vol.voxel_coord_to_physic_coord.side_effect = lambda pt: pt
+        base_vol.sitk_image = MagicMock()
+
+        roi_vol = MagicMock()
+        roi_vol.origin = np.array([5.0, 15.0, 25.0])
+        roi_vol.roi_bbox = (25, 35, 15, 25, 5, 15)
+        roi_vol.sitk_image = MagicMock()
+
+        self.mock_api._controller.volumes = {"img_1": base_vol, "Box_1": roi_vol}
+        self.mock_api.get_volumes.return_value = {"img_1": base_vol, "Box_1": roi_vol}
+        self.mock_api.get_active_viewer.return_value = mock_viewer
+
+        gui = MagicMock()
+        gui.plugins = [self.plugin]
+        self.plugin._ui.roi_selectables = {}
+        self.plugin._ui.api = self.mock_api
+
+        manager = InteractionManager(gui, self.mock_api._controller)
+        manager.get_hovered_viewer = MagicMock(return_value=mock_viewer)
+        
+        with patch("dearpygui.dearpygui.does_item_exist", return_value=True), \
+             patch("dearpygui.dearpygui.get_drawing_mouse_pos", return_value=(12.5, 22.5)), \
+             patch("dearpygui.dearpygui.set_value"):
+
+            # Edit center via callback
+            ui.on_roi_stats_box_center_changed(None, 12.0, {"roi_id": "Box_1", "coord_idx": 0})
+            ui.on_roi_stats_box_center_changed(None, 22.0, {"roi_id": "Box_1", "coord_idx": 1})
+
+            # Check new center is updated
+            self.assertEqual(roi_state.box_center, [12.0, 22.0, 30.0])
+            mock_viewer.view_state.update_crosshair_from_phys.assert_called()
+            self.mock_api.propagate_sync.assert_called_with("img_1")
+
+            # Now try to hover at the new center
+            roi_res = manager._check_roi_hover(mock_viewer)
+            self.assertEqual(roi_res, ("Box_1", "center"))
+            
+            # Click
+            tool = manager.active_tool
+            tool.on_click(0)
+            self.assertEqual(mock_viewer.roi_mode, RoiInteractionMode.MANIPULATING)
+            
+            # Drag
+            mock_viewer.get_mouse_slice_coords.return_value = (14.0, 24.0)
+            tool.on_drag(None)
+            
+            self.assertEqual(roi_state.box_center, [14.0, 24.0, 30.0])
+
+            tool.on_release(0)
+
+        dpg.delete_item("test_parent")
+
+    def test_out_of_bounds_center_clipping(self):
+        from vvv.core.roi_manager import ROIState
+        import numpy as np
+
+        base_vol = MagicMock()
+        base_vol.shape3d = (50, 50, 50)
+        base_vol.spacing = np.array([1.0, 1.0, 1.0])
+        base_vol.origin = np.array([0.0, 0.0, 0.0])
+        base_vol.matrix = np.eye(3)
+        base_vol.physic_coord_to_voxel_coord.side_effect = lambda pt: pt
+        base_vol.voxel_coord_to_physic_coord.side_effect = lambda pt: pt
+
+        roi_vol = MagicMock()
+        roi_vol.sitk_image = MagicMock()
+
+        roi_state = ROIState(volume_id="img_1", name="Box_1", color=[255, 0, 0])
+        roi_state.is_box = True
+        roi_state.box_center = [10.0, 20.0, 30.0]
+        roi_state.box_size_x = 10.0
+        roi_state.box_size_y = 10.0
+        roi_state.box_size_z = 10.0
+
+        # Spheroid out of bounds test
+        roi_state.is_box = False
+        roi_state.is_spheroid = True
+        roi_state.spheroid_center = [999.0, 20.0, -50.0]
+        self.plugin._controller.update_spheroid_mask(base_vol, roi_vol, roi_state)
+        self.assertEqual(roi_state.spheroid_center, [49.0, 20.0, 0.0])
+
+        # Box out of bounds test
+        roi_state.is_spheroid = False
+        roi_state.is_box = True
+        roi_state.box_center = [999.0, 20.0, -50.0]
+        self.plugin._controller.update_box_mask(base_vol, roi_vol, roi_state)
+        self.assertEqual(roi_state.box_center, [49.0, 20.0, 0.0])
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
