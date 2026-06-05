@@ -51,6 +51,8 @@ def build_stepped_slider(
     help_text=None,
     gui=None,
     label_width=None,
+    user_data=None,
+    use_slider=False,
 ):
     """A reusable UI component for a slider with + and - step buttons."""
 
@@ -106,17 +108,31 @@ def build_stepped_slider(
         is_beg = getattr(gui, "is_beginner_mode", False) if gui else False
 
         # 1. The Slider
-        dpg.add_drag_float(
-            tag=tag,
-            width=-100 if (help_text and is_beg) else -60,
-            format=format,
-            speed=1.0,
-            min_value=min_val,
-            max_value=max_val,
-            default_value=default_val,
-            enabled=not has_checkbox,
-            callback=callback,
-        )
+        if use_slider:
+            dpg.add_slider_float(
+                tag=tag,
+                width=-100 if (help_text and is_beg) else -60,
+                format=format,
+                min_value=min_val,
+                max_value=max_val,
+                default_value=default_val,
+                enabled=not has_checkbox,
+                callback=callback,
+                user_data=user_data,
+            )
+        else:
+            dpg.add_drag_float(
+                tag=tag,
+                width=-100 if (help_text and is_beg) else -60,
+                format=format,
+                speed=1.0,
+                min_value=min_val,
+                max_value=max_val,
+                default_value=default_val,
+                enabled=not has_checkbox,
+                callback=callback,
+                user_data=user_data,
+            )
 
         # 2. The Minus Button
         btn_minus = f"btn_{tag}_minus"

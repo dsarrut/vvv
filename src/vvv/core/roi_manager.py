@@ -37,6 +37,9 @@ class ROIState:
         self.is_spheroid = False
         self.spheroid_center = None
         self.spheroid_radius = None
+        self.spheroid_radius_x = None
+        self.spheroid_radius_y = None
+        self.spheroid_radius_z = None
 
     def to_dict(self):
         d = {
@@ -56,6 +59,9 @@ class ROIState:
             d["is_spheroid"] = True
             d["spheroid_center"] = self.spheroid_center
             d["spheroid_radius"] = self.spheroid_radius
+            d["spheroid_radius_x"] = getattr(self, "spheroid_radius_x", self.spheroid_radius)
+            d["spheroid_radius_y"] = getattr(self, "spheroid_radius_y", self.spheroid_radius)
+            d["spheroid_radius_z"] = getattr(self, "spheroid_radius_z", self.spheroid_radius)
         return d
 
     def from_dict(self, d):
@@ -74,6 +80,9 @@ class ROIState:
         self.is_spheroid = d.get("is_spheroid", False)
         self.spheroid_center = d.get("spheroid_center", None)
         self.spheroid_radius = d.get("spheroid_radius", None)
+        self.spheroid_radius_x = d.get("spheroid_radius_x", d.get("spheroid_radius_xy", self.spheroid_radius))
+        self.spheroid_radius_y = d.get("spheroid_radius_y", d.get("spheroid_radius_xy", self.spheroid_radius))
+        self.spheroid_radius_z = d.get("spheroid_radius_z", self.spheroid_radius)
 
 
 class ROIManager:
@@ -660,17 +669,32 @@ class ROIManager:
             if ov_vol.num_timepoints > 1:
                 t = min(vs.camera.time_idx, ov_vol.num_timepoints - 1)
                 target_data = target_data[t]
+            elif target_data.ndim == 4 and not ov_vol.is_rgb:
+                target_data = target_data[0]
         else:
             base_vol = self.controller.volumes[base_vs_id]
             target_data = base_vol.data
             if base_vol.num_timepoints > 1:
                 t = min(vs.camera.time_idx, base_vol.num_timepoints - 1)
                 target_data = target_data[t]
+            elif target_data.ndim == 4 and not base_vol.is_rgb:
+                target_data = target_data[0]
 
         if hasattr(roi_vol, "roi_bbox"):
             z0, z1, y0, y1, x0, x1 = roi_vol.roi_bbox
             if z0 != z1:
                 target_data = target_data[z0:z1, y0:y1, x0:x1]
+
+        if target_data.shape != mask.shape:
+            return {
+                "vol": vol_cc,
+                "mean": 0.0,
+                "max": 0.0,
+                "min": 0.0,
+                "std": 0.0,
+                "peak": 0.0,
+                "mass": 0.0,
+            }
 
         pixels = target_data[mask]
         mean_val = float(np.mean(pixels))

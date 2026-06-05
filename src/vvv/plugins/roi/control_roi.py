@@ -278,6 +278,8 @@ class RoiPluginController(PluginTagMixin):
             if viewer and viewer.view_state:
                 t = min(viewer.view_state.camera.time_idx, base_vol.num_timepoints - 1)
             target_data = target_data[t]
+        elif target_data.ndim == 4 and not base_vol.is_rgb:
+            target_data = target_data[0]
 
         roi_bbox = getattr(roi_vol, "roi_bbox", None)
         if roi_bbox is not None and isinstance(roi_bbox, (list, tuple, np.ndarray)) and len(roi_bbox) == 6:
@@ -285,7 +287,7 @@ class RoiPluginController(PluginTagMixin):
             if z0 != z1:
                 target_data = target_data[z0:z1, y0:y1, x0:x1]
 
-        if voxel_count > 0:
+        if voxel_count > 0 and target_data.shape == mask.shape:
             pixels = target_data[mask]
             mean_val = float(np.mean(pixels))
             std_val = float(np.std(pixels))
@@ -319,13 +321,15 @@ class RoiPluginController(PluginTagMixin):
                     if viewer and viewer.view_state:
                         t = min(viewer.view_state.camera.time_idx, overlay_vol.num_timepoints - 1)
                     overlay_data = overlay_data[t]
+                elif overlay_data.ndim == 4 and overlay_vol and not overlay_vol.is_rgb:
+                    overlay_data = overlay_data[0]
                 
                 if roi_bbox is not None and isinstance(roi_bbox, (list, tuple, np.ndarray)) and len(roi_bbox) == 6:
                     z0, z1, y0, y1, x0, x1 = roi_bbox
                     if z0 != z1:
                         overlay_data = overlay_data[z0:z1, y0:y1, x0:x1]
                 
-                if voxel_count > 0:
+                if voxel_count > 0 and overlay_data.shape == mask.shape:
                     ov_pixels = overlay_data[mask]
                     ov_mean = float(np.mean(ov_pixels))
                     ov_std = float(np.std(ov_pixels))
@@ -478,28 +482,56 @@ class RoiPluginController(PluginTagMixin):
 
         if roi_id:
             vs = self.api.get_view_states()[base_id]
-            if roi_id in vs.rois:
-                roi_state = vs.rois[roi_id]
-                roi_state.is_spheroid = True
-                roi_state.spheroid_center = phys_center.tolist()
-                roi_state.spheroid_radius = r_mm
-
-            self.api.update_all_viewers_of_image(base_id, data_dirty=True)
-            if self.ui:
-                self.ui.refresh_rois_ui()
+            roi_state = vs.rois[roi_id]
+            roi_state.is_spheroid = True
+            roi_state.spheroid_center = phys_center.tolist()
+            roi_state.spheroid_radius_x = r_mm
+            roi_state.spheroid_radius_y = r_mm
+            roi_state.spheroid_radius_z = r_mm
+            roi_state.spheroid_radius_xy = r_mm
+            roi_state.spheroid_radius = r_mm
+            vs.is_geometry_dirty = True
+            vs.is_data_dirty = True
+            self.api.request_refresh()
+            self.api.update_all_viewers_of_image(base_id)
             self.api.notify(f"Created spheroid ROI: {roi_name}")
 
-    def update_spheroid_mask(self, base_vol, roi_vol, roi_state, new_r_mm: float) -> None:
+    def update_spheroid_mask(self, base_vol, roi_vol, roi_state, new_r_x_mm: float = None, new_r_y_mm: float = None, new_r_z_mm: float = None) -> None:
         import numpy as np
         import SimpleITK as sitk
+
+        if new_r_x_mm is None:
+            new_r_x_mm = getattr(roi_state, "spheroid_radius_x", None)
+        if new_r_x_mm is None:
+            new_r_x_mm = getattr(roi_state, "spheroid_radius_xy", None)
+        if new_r_x_mm is None:
+            new_r_x_mm = getattr(roi_state, "spheroid_radius", 10.0)
+
+        if new_r_y_mm is None:
+            new_r_y_mm = getattr(roi_state, "spheroid_radius_y", None)
+        if new_r_y_mm is None:
+            new_r_y_mm = getattr(roi_state, "spheroid_radius_xy", None)
+        if new_r_y_mm is None:
+            new_r_y_mm = getattr(roi_state, "spheroid_radius", 10.0)
+
+        if new_r_z_mm is None:
+            new_r_z_mm = getattr(roi_state, "spheroid_radius_z", None)
+        if new_r_z_mm is None:
+            new_r_z_mm = getattr(roi_state, "spheroid_radius", 10.0)
+
+        roi_state.spheroid_radius_x = new_r_x_mm
+        roi_state.spheroid_radius_y = new_r_y_mm
+        roi_state.spheroid_radius_z = new_r_z_mm
+        roi_state.spheroid_radius_xy = new_r_x_mm
+        roi_state.spheroid_radius = new_r_x_mm
 
         phys_center = np.array(roi_state.spheroid_center)
 
         # 1. Find bounding box corners in voxel space
         corners = []
-        for dx in [-new_r_mm, new_r_mm]:
-            for dy in [-new_r_mm, new_r_mm]:
-                for dz in [-new_r_mm, new_r_mm]:
+        for dx in [-new_r_x_mm, new_r_x_mm]:
+            for dy in [-new_r_y_mm, new_r_y_mm]:
+                for dz in [-new_r_z_mm, new_r_z_mm]:
                     pt = phys_center + np.array([dx, dy, dz])
                     corners.append(base_vol.physic_coord_to_voxel_coord(pt))
         corners = np.array(corners)
@@ -527,9 +559,9 @@ class RoiPluginController(PluginTagMixin):
         phys_pts = base_vol.origin + (base_vol.matrix @ (voxels * base_vol.spacing).T).T
 
         diff = phys_pts - phys_center
-        dist_sq = np.sum(diff ** 2, axis=1)
+        dist_sq = (diff[:, 0] ** 2) / (new_r_x_mm ** 2) + (diff[:, 1] ** 2) / (new_r_y_mm ** 2) + (diff[:, 2] ** 2) / (new_r_z_mm ** 2)
 
-        mask_flat = dist_sq <= new_r_mm ** 2
+        mask_flat = dist_sq <= 1.0
         mask_data = mask_flat.reshape((max_z - min_z, max_y - min_y, max_x - min_x)).astype(np.uint8)
 
         if not np.any(mask_data):
@@ -558,4 +590,3 @@ class RoiPluginController(PluginTagMixin):
         roi_vol.data = mask_data
         roi_vol.origin = ref_origin
         roi_vol.roi_bbox = (min_z, max_z, min_y, max_y, min_x, max_x)
-        roi_state.spheroid_radius = new_r_mm

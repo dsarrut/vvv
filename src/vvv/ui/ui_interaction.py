@@ -3,6 +3,7 @@ import numpy as np
 from vvv.utils import (
     ProfileInteractionMode,
     RoiInteractionMode,
+    ViewMode,
     voxel_to_slice,
     slice_to_voxel,
 )
@@ -116,7 +117,9 @@ class NavigationTool:
 
                 vs = viewer.view_state
                 roi_state = vs.rois[roi_id]
-                self.roi_drag_start_radius = roi_state.spheroid_radius
+                self.roi_drag_start_radius_x = getattr(roi_state, "spheroid_radius_x", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+                self.roi_drag_start_radius_y = getattr(roi_state, "spheroid_radius_y", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+                self.roi_drag_start_radius_z = getattr(roi_state, "spheroid_radius_z", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
                 self.roi_drag_start_center = np.array(roi_state.spheroid_center)
 
                 roi_vol = self.manager.controller.volumes.get(roi_id)
@@ -225,27 +228,45 @@ class NavigationTool:
                             )
 
                             if getattr(self, "roi_drag_action", "center") == "border":
-                                new_r_mm = float(
-                                    np.linalg.norm(
-                                        curr_mouse_phys - self.roi_drag_start_center
-                                    )
+                                diff_phys_start = self.roi_drag_start_mouse_phys - self.roi_drag_start_center
+                                d_start = max(1.0, float(np.linalg.norm(diff_phys_start)))
+                                diff_phys_curr = curr_mouse_phys - self.roi_drag_start_center
+                                d_curr = float(np.linalg.norm(diff_phys_curr))
+                                scale = d_curr / d_start
+                                new_r_x = max(0.5, getattr(self, "roi_drag_start_radius_x", 10.0) * scale)
+                                new_r_y = max(0.5, getattr(self, "roi_drag_start_radius_y", 10.0) * scale)
+                                new_r_z = max(0.5, getattr(self, "roi_drag_start_radius_z", 10.0) * scale)
+                                roi_state.spheroid_radius_x = new_r_x
+                                roi_state.spheroid_radius_y = new_r_y
+                                roi_state.spheroid_radius_z = new_r_z
+                                roi_state.spheroid_radius_xy = new_r_x
+                                roi_state.spheroid_radius = new_r_x
+
+                                # Find roi_plugin to update sliders and mask
+                                roi_plugin = next(
+                                    (
+                                        p
+                                        for p in self.manager.gui.plugins
+                                        if p.plugin_id == "roi_plugin"
+                                    ),
+                                    None,
                                 )
-                                new_r_mm = max(new_r_mm, 1.0)
-                                roi_state.spheroid_radius = new_r_mm
+                                if roi_plugin and hasattr(roi_plugin, "_ui"):
+                                    slider_x_tag = roi_plugin._ui._t(f"slider_roi_radius_x_{roi_id}")
+                                    slider_y_tag = roi_plugin._ui._t(f"slider_roi_radius_y_{roi_id}")
+                                    slider_z_tag = roi_plugin._ui._t(f"slider_roi_radius_z_{roi_id}")
+                                    if dpg.does_item_exist(slider_x_tag):
+                                        dpg.set_value(slider_x_tag, new_r_x)
+                                    if dpg.does_item_exist(slider_y_tag):
+                                        dpg.set_value(slider_y_tag, new_r_y)
+                                    if dpg.does_item_exist(slider_z_tag):
+                                        dpg.set_value(slider_z_tag, new_r_z)
 
                                 # Hybrid update: update mask in real-time ONLY if radius is small enough
-                                if new_r_mm < 100.0:
-                                    roi_plugin = next(
-                                        (
-                                            p
-                                            for p in self.manager.gui.plugins
-                                            if p.plugin_id == "roi_plugin"
-                                        ),
-                                        None,
-                                    )
+                                if max(new_r_x, new_r_y, new_r_z) < 100.0:
                                     if roi_plugin:
                                         roi_plugin._controller.update_spheroid_mask(
-                                            base_vol, roi_vol, roi_state, new_r_mm
+                                            base_vol, roi_vol, roi_state, new_r_x, new_r_y, new_r_z
                                         )
 
                                 for ori in roi_state.polygons:
@@ -379,8 +400,12 @@ class NavigationTool:
                                     base_vol,
                                     roi_vol,
                                     roi_state,
-                                    roi_state.spheroid_radius,
+                                    getattr(roi_state, "spheroid_radius_x", None),
+                                    getattr(roi_state, "spheroid_radius_y", None),
+                                    getattr(roi_state, "spheroid_radius_z", None),
                                 )
+                                if hasattr(roi_plugin, "_ui"):
+                                    roi_plugin._ui.refresh_all_open_stats_windows()
 
                     if getattr(self, "roi_drag_was_contour", False):
                         roi_state.is_contour = True
@@ -601,8 +626,12 @@ class InteractionManager:
         for roi_id, roi_state in vs.rois.items():
             if not roi_state.visible or not getattr(roi_state, "is_spheroid", False):
                 continue
-            if roi_state.spheroid_center is None or roi_state.spheroid_radius is None:
+            if roi_state.spheroid_center is None:
                 continue
+
+            r_x = getattr(roi_state, "spheroid_radius_x", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+            r_y = getattr(roi_state, "spheroid_radius_y", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+            r_z = getattr(roi_state, "spheroid_radius_z", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
 
             # Calculate physical center and projected slice position
             v_center = vs.world_to_display(
@@ -618,11 +647,23 @@ class InteractionManager:
             proj_phys = vs.display_to_world(v_proj, is_buffered=viewer._is_buffered())
             if proj_phys is None:
                 continue
-            center_phys = np.array(roi_state.spheroid_center)
 
-            dist_slice = np.linalg.norm(proj_phys - center_phys)
-            if dist_slice > roi_state.spheroid_radius:
-                # Spheroid doesn't intersect current slice
+            d_mm = abs(proj_phys[v_idx] - roi_state.spheroid_center[v_idx])
+            if v_idx == 2:
+                R_depth = r_z
+                r_h_base = r_x
+                r_v_base = r_y
+            elif v_idx == 1:
+                R_depth = r_y
+                r_h_base = r_x
+                r_v_base = r_z
+            else:
+                R_depth = r_x
+                r_h_base = r_y
+                r_v_base = r_z
+
+            F = 1.0 - (d_mm ** 2) / (R_depth ** 2)
+            if F < 0.0:
                 continue
 
             # Project center to screen pixels
@@ -638,9 +679,19 @@ class InteractionManager:
                 return roi_id, "center"
 
             # Hover check: mouse within 12 pixels of projected slice border
-            r_slice = math.sqrt(max(0.0, roi_state.spheroid_radius**2 - dist_slice**2))
+            r_h = r_h_base * math.sqrt(F)
+            r_v = r_v_base * math.sqrt(F)
             ppm = viewer.get_pixels_per_mm()
-            r_slice_px = r_slice * ppm
+            r_h_px = r_h * ppm
+            r_v_px = r_v * ppm
+
+            dx = m_pos[0] - px
+            dy = m_pos[1] - py
+            angle = math.atan2(dy, dx)
+            ex = r_h_px * math.cos(angle)
+            ey = r_v_px * math.sin(angle)
+            r_slice_px = math.hypot(ex, ey)
+
             if abs(dist_to_center_px - r_slice_px) < 12.0:
                 return roi_id, "border"
 

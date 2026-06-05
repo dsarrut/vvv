@@ -1056,7 +1056,127 @@ class RoiPluginUI(PluginTagMixin):
 
             threading.Thread(target=_save, daemon=True).start()
 
+    def on_roi_stats_radius_x_slider_changed(self, sender, app_data, user_data):
+        roi_id = user_data
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.image_id or not viewer.view_state:
+            return
+        base_vol = self.api.get_volumes().get(viewer.image_id)
+        roi_vol = self.api.get_volumes().get(roi_id)
+        roi_state = viewer.view_state.rois.get(roi_id)
+        if not base_vol or not roi_vol or not roi_state:
+            return
+        new_r_mm = float(app_data)
+        new_r_mm = max(new_r_mm, 0.5)
+
+        roi_state.spheroid_radius_x = new_r_mm
+        roi_state.spheroid_radius_xy = new_r_mm
+        roi_state.spheroid_radius = new_r_mm
+        self._c.update_spheroid_mask(
+            base_vol,
+            roi_vol,
+            roi_state,
+            new_r_x_mm=new_r_mm,
+        )
+
+        for ori in roi_state.polygons:
+            roi_state.polygons[ori].clear()
+
+        viewer.view_state.is_geometry_dirty = True
+        viewer.view_state.is_data_dirty = True
+        self.api.update_all_viewers_of_image(viewer.image_id, data_dirty=True)
+        if sender is None:
+            self.api.request_refresh()
+            self.refresh_all_open_stats_windows()
+
     def on_roi_stats_radius_slider_changed(self, sender, app_data, user_data):
+        self.on_roi_stats_radius_x_slider_changed(sender, app_data, user_data)
+
+    def on_roi_stats_radius_x_step_callback(self, sender, app_data, user_data):
+        tag = user_data["tag"]
+        prefix = self._t("slider_roi_radius_x_")
+        if not tag.startswith(prefix):
+            return
+        roi_id = tag[len(prefix) :]
+
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.image_id or not viewer.view_state:
+            return
+        roi_state = viewer.view_state.rois.get(roi_id)
+        if not roi_state:
+            return
+
+        direction = user_data["dir"]
+        current_r = getattr(roi_state, "spheroid_radius_x", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", 10.0)
+
+        step_size = 1.0
+        new_r = max(0.5, current_r + (step_size * direction))
+
+        if dpg.does_item_exist(tag):
+            dpg.set_value(tag, new_r)
+
+        self.on_roi_stats_radius_x_slider_changed(None, new_r, roi_id)
+
+    def on_roi_stats_radius_step_callback(self, sender, app_data, user_data):
+        self.on_roi_stats_radius_x_step_callback(sender, app_data, user_data)
+
+    def on_roi_stats_radius_y_slider_changed(self, sender, app_data, user_data):
+        roi_id = user_data
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.image_id or not viewer.view_state:
+            return
+        base_vol = self.api.get_volumes().get(viewer.image_id)
+        roi_vol = self.api.get_volumes().get(roi_id)
+        roi_state = viewer.view_state.rois.get(roi_id)
+        if not base_vol or not roi_vol or not roi_state:
+            return
+        new_r_mm = float(app_data)
+        new_r_mm = max(new_r_mm, 0.5)
+
+        roi_state.spheroid_radius_y = new_r_mm
+        self._c.update_spheroid_mask(
+            base_vol,
+            roi_vol,
+            roi_state,
+            new_r_y_mm=new_r_mm,
+        )
+
+        for ori in roi_state.polygons:
+            roi_state.polygons[ori].clear()
+
+        viewer.view_state.is_geometry_dirty = True
+        viewer.view_state.is_data_dirty = True
+        self.api.update_all_viewers_of_image(viewer.image_id, data_dirty=True)
+        if sender is None:
+            self.api.request_refresh()
+            self.refresh_all_open_stats_windows()
+
+    def on_roi_stats_radius_y_step_callback(self, sender, app_data, user_data):
+        tag = user_data["tag"]
+        prefix = self._t("slider_roi_radius_y_")
+        if not tag.startswith(prefix):
+            return
+        roi_id = tag[len(prefix) :]
+
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.image_id or not viewer.view_state:
+            return
+        roi_state = viewer.view_state.rois.get(roi_id)
+        if not roi_state:
+            return
+
+        direction = user_data["dir"]
+        current_r = getattr(roi_state, "spheroid_radius_y", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", 10.0)
+
+        step_size = 1.0
+        new_r = max(0.5, current_r + (step_size * direction))
+
+        if dpg.does_item_exist(tag):
+            dpg.set_value(tag, new_r)
+
+        self.on_roi_stats_radius_y_slider_changed(None, new_r, roi_id)
+
+    def on_roi_stats_radius_z_slider_changed(self, sender, app_data, user_data):
         roi_id = user_data
         viewer = self.api.get_active_viewer()
         if not viewer or not viewer.image_id or not viewer.view_state:
@@ -1067,27 +1187,35 @@ class RoiPluginUI(PluginTagMixin):
         if not base_vol or not roi_vol or not roi_state:
             return
 
-        new_r_mm = float(app_data)
-        new_r_mm = max(new_r_mm, 0.5)
+        new_r_z_mm = float(app_data)
+        new_r_z_mm = max(new_r_z_mm, 0.5)
 
-        roi_state.spheroid_radius = new_r_mm
-        self._c.update_spheroid_mask(base_vol, roi_vol, roi_state, new_r_mm)
+        roi_state.spheroid_radius_z = new_r_z_mm
+        self._c.update_spheroid_mask(
+            base_vol,
+            roi_vol,
+            roi_state,
+            new_r_x_mm=getattr(roi_state, "spheroid_radius_x", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", 10.0),
+            new_r_y_mm=getattr(roi_state, "spheroid_radius_y", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", 10.0),
+            new_r_z_mm=new_r_z_mm,
+        )
 
         for ori in roi_state.polygons:
             roi_state.polygons[ori].clear()
 
         viewer.view_state.is_geometry_dirty = True
         viewer.view_state.is_data_dirty = True
-        self.api.request_refresh()
         self.api.update_all_viewers_of_image(viewer.image_id, data_dirty=True)
-        self.refresh_all_open_stats_windows()
+        if sender is None:
+            self.api.request_refresh()
+            self.refresh_all_open_stats_windows()
 
-    def on_roi_stats_radius_step_callback(self, sender, app_data, user_data):
+    def on_roi_stats_radius_z_step_callback(self, sender, app_data, user_data):
         tag = user_data["tag"]
-        prefix = self._t("slider_roi_radius_")
+        prefix = self._t("slider_roi_radius_z_")
         if not tag.startswith(prefix):
             return
-        roi_id = tag[len(prefix):]
+        roi_id = tag[len(prefix) :]
 
         viewer = self.api.get_active_viewer()
         if not viewer or not viewer.image_id or not viewer.view_state:
@@ -1097,7 +1225,7 @@ class RoiPluginUI(PluginTagMixin):
             return
 
         direction = user_data["dir"]
-        current_r = getattr(roi_state, "spheroid_radius", 10.0)
+        current_r = getattr(roi_state, "spheroid_radius_z", None) or getattr(roi_state, "spheroid_radius", 10.0)
 
         # Step size is 1.0 mm by default
         step_size = 1.0
@@ -1106,7 +1234,11 @@ class RoiPluginUI(PluginTagMixin):
         if dpg.does_item_exist(tag):
             dpg.set_value(tag, new_r)
 
-        self.on_roi_stats_radius_slider_changed(None, new_r, roi_id)
+        self.on_roi_stats_radius_z_slider_changed(None, new_r, roi_id)
+
+    def on_roi_stats_slider_deactivated(self, sender, app_data, user_data):
+        self.api.request_refresh()
+        self.refresh_all_open_stats_windows()
 
     def on_roi_stats_center_changed(self, sender, app_data, user_data):
         roi_id = user_data["roi_id"]
@@ -1125,7 +1257,14 @@ class RoiPluginUI(PluginTagMixin):
             roi_state.spheroid_center = [0.0, 0.0, 0.0]
         roi_state.spheroid_center[coord_idx] = new_val
 
-        self._c.update_spheroid_mask(base_vol, roi_vol, roi_state, roi_state.spheroid_radius)
+        self._c.update_spheroid_mask(
+            base_vol,
+            roi_vol,
+            roi_state,
+            new_r_x_mm=getattr(roi_state, "spheroid_radius_x", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", 10.0),
+            new_r_y_mm=getattr(roi_state, "spheroid_radius_y", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", 10.0),
+            new_r_z_mm=getattr(roi_state, "spheroid_radius_z", None) or getattr(roi_state, "spheroid_radius", 10.0),
+        )
 
         for ori in roi_state.polygons:
             roi_state.polygons[ori].clear()
@@ -1223,7 +1362,14 @@ class RoiPluginUI(PluginTagMixin):
 
         stats = self._c.compute_detailed_roi_stats(viewer.image_id, roi_id)
         has_overlay = bool(stats and stats.get("overlay_stats"))
-        win_h = 650 if has_overlay else 530
+        is_created = getattr(roi, "source_type", None) == "Created"
+        is_spheroid = getattr(roi, "is_spheroid", False)
+        if is_spheroid:
+            win_h = 820 if has_overlay else 710
+        elif is_created:
+            win_h = 750 if has_overlay else 640
+        else:
+            win_h = 650 if has_overlay else 530
 
         with dpg.window(
             tag=win_tag,
@@ -1420,11 +1566,19 @@ class RoiPluginUI(PluginTagMixin):
                 ]:
                     dpg.configure_item(btn, enabled=False)
                 if getattr(roi, "is_spheroid", False):
-                    slider_tag = self._t(f"slider_roi_radius_{roi_id}")
+                    slider_x_tag = self._t(f"slider_roi_radius_x_{roi_id}")
+                    slider_y_tag = self._t(f"slider_roi_radius_y_{roi_id}")
+                    slider_z_tag = self._t(f"slider_roi_radius_z_{roi_id}")
                     for item_tag in [
-                        slider_tag,
-                        f"btn_{slider_tag}_minus",
-                        f"btn_{slider_tag}_plus",
+                        slider_x_tag,
+                        f"btn_{slider_x_tag}_minus",
+                        f"btn_{slider_x_tag}_plus",
+                        slider_y_tag,
+                        f"btn_{slider_y_tag}_minus",
+                        f"btn_{slider_y_tag}_plus",
+                        slider_z_tag,
+                        f"btn_{slider_z_tag}_minus",
+                        f"btn_{slider_z_tag}_plus",
                         self._t(f"input_roi_center_x_{roi_id}"),
                         self._t(f"input_roi_center_y_{roi_id}"),
                         self._t(f"input_roi_center_z_{roi_id}"),
@@ -1435,11 +1589,19 @@ class RoiPluginUI(PluginTagMixin):
         # Spheroid Parameters (Radius and Center)
         if getattr(roi, "is_spheroid", False):
             # Clean up existing tags if they exist to avoid "Alias already exists"
-            slider_tag = self._t(f"slider_roi_radius_{roi_id}")
+            slider_x_tag = self._t(f"slider_roi_radius_x_{roi_id}")
+            slider_y_tag = self._t(f"slider_roi_radius_y_{roi_id}")
+            slider_z_tag = self._t(f"slider_roi_radius_z_{roi_id}")
             for item_tag in [
-                slider_tag,
-                f"btn_{slider_tag}_minus",
-                f"btn_{slider_tag}_plus",
+                slider_x_tag,
+                f"btn_{slider_x_tag}_minus",
+                f"btn_{slider_x_tag}_plus",
+                slider_y_tag,
+                f"btn_{slider_y_tag}_minus",
+                f"btn_{slider_y_tag}_plus",
+                slider_z_tag,
+                f"btn_{slider_z_tag}_minus",
+                f"btn_{slider_z_tag}_plus",
                 self._t(f"input_roi_center_x_{roi_id}"),
                 self._t(f"input_roi_center_y_{roi_id}"),
                 self._t(f"input_roi_center_z_{roi_id}"),
@@ -1451,19 +1613,65 @@ class RoiPluginUI(PluginTagMixin):
             dpg.add_text("Spheroid Parameters", color=header_col, parent=parent_tag)
             dpg.add_separator(parent=parent_tag)
 
-            # Radius Slider
+            # Radius X Slider
             with dpg.group(parent=parent_tag):
                 build_stepped_slider(
-                    label="Radius (mm):",
-                    tag=slider_tag,
-                    callback=self.on_roi_stats_radius_slider_changed,
-                    step_callback=self.on_roi_stats_radius_step_callback,
+                    label="Radius X (mm):",
+                    tag=slider_x_tag,
+                    callback=self.on_roi_stats_radius_x_slider_changed,
+                    step_callback=self.on_roi_stats_radius_x_step_callback,
                     min_val=0.5,
                     max_val=150.0,
-                    default_val=getattr(roi, "spheroid_radius", 10.0),
+                    default_val=getattr(roi, "spheroid_radius_x", None) or getattr(roi, "spheroid_radius_xy", None) or getattr(roi, "spheroid_radius", 10.0),
                     format="%.1f",
                     gui=self.api,
+                    user_data=roi_id,
+                    use_slider=True,
                 )
+
+            # Radius Y Slider
+            with dpg.group(parent=parent_tag):
+                build_stepped_slider(
+                    label="Radius Y (mm):",
+                    tag=slider_y_tag,
+                    callback=self.on_roi_stats_radius_y_slider_changed,
+                    step_callback=self.on_roi_stats_radius_y_step_callback,
+                    min_val=0.5,
+                    max_val=150.0,
+                    default_val=getattr(roi, "spheroid_radius_y", None) or getattr(roi, "spheroid_radius_xy", None) or getattr(roi, "spheroid_radius", 10.0),
+                    format="%.1f",
+                    gui=self.api,
+                    user_data=roi_id,
+                    use_slider=True,
+                )
+
+            # Radius Z Slider
+            with dpg.group(parent=parent_tag):
+                build_stepped_slider(
+                    label="Radius Z (mm):",
+                    tag=slider_z_tag,
+                    callback=self.on_roi_stats_radius_z_slider_changed,
+                    step_callback=self.on_roi_stats_radius_z_step_callback,
+                    min_val=0.5,
+                    max_val=150.0,
+                    default_val=getattr(roi, "spheroid_radius_z", None) or getattr(roi, "spheroid_radius", 10.0),
+                    format="%.1f",
+                    gui=self.api,
+                    user_data=roi_id,
+                    use_slider=True,
+                )
+
+            # Create deactivated handler registry if it doesn't exist
+            handler_reg = self._t("slider_deactivated_handler_reg")
+            if not dpg.does_item_exist(handler_reg):
+                with dpg.item_handler_registry(tag=handler_reg):
+                    dpg.add_item_deactivated_after_edit_handler(
+                        callback=self.on_roi_stats_slider_deactivated
+                    )
+            # Bind to all three sliders
+            dpg.bind_item_handler_registry(slider_x_tag, handler_reg)
+            dpg.bind_item_handler_registry(slider_y_tag, handler_reg)
+            dpg.bind_item_handler_registry(slider_z_tag, handler_reg)
 
             # Center Inputs
             center = getattr(roi, "spheroid_center", [0.0, 0.0, 0.0])

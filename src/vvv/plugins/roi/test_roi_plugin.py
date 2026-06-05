@@ -716,6 +716,50 @@ class TestRoiPlugin(unittest.TestCase):
         self.assertEqual(stats["max"], 20.0)
         self.assertAlmostEqual(stats["peak"], 19.5)
 
+    def test_compute_detailed_roi_stats_dimension_mismatch(self):
+        import numpy as np
+        ctrl = self.plugin._controller
+        ctrl.bind(self.mock_api)
+
+        # Base volume is 4D with a single timepoint: shape (1, 5, 6, 7)
+        base_vol = MagicMock()
+        base_vol.shape3d = (5, 6, 7)
+        base_vol.spacing = (2.0, 2.0, 2.0)
+        base_vol.num_timepoints = 1
+        base_vol.is_rgb = False
+        base_vol.data = np.zeros((1, 5, 6, 7), dtype=np.float32)
+        base_vol.data[0, 2, 3, 4] = 10.0
+        base_vol.data[0, 3, 4, 5] = 20.0
+        base_vol.sitk_image = MagicMock()
+        base_vol.sitk_image.TransformPhysicalPointToContinuousIndex.side_effect = lambda pt: [pt[0]/2.0, pt[1]/2.0, pt[2]/2.0]
+
+        roi_vol = MagicMock()
+        roi_vol.shape3d = (5, 6, 7)
+        roi_vol.spacing = (2.0, 2.0, 2.0)
+        roi_vol.data = np.zeros((5, 6, 7), dtype=np.uint8)
+        roi_vol.data[2, 3, 4] = 1
+        roi_vol.data[3, 4, 5] = 1
+        roi_vol.sitk_image = MagicMock()
+        roi_vol.sitk_image.TransformContinuousIndexToPhysicalPoint.side_effect = lambda idx: [idx[0]*2.0, idx[1]*2.0, idx[2]*2.0]
+
+        self.mock_api.get_volumes.return_value = {
+            "img_1": base_vol,
+            "roi_1": roi_vol,
+        }
+
+        # Calculation should succeed by reducing the 4D array to 3D
+        stats = ctrl.compute_detailed_roi_stats("img_1", "roi_1")
+        self.assertIsNotNone(stats)
+        self.assertEqual(stats["voxel_count"], 2)
+        self.assertEqual(stats["mean"], 15.0)
+
+        # Now test shape mismatch fallback (e.g. roi_vol has different shape and target_data and mask shapes mismatch)
+        roi_vol.data = np.zeros((5, 5, 5), dtype=np.uint8) # Mismatched shape
+        stats2 = ctrl.compute_detailed_roi_stats("img_1", "roi_1")
+        self.assertIsNotNone(stats2)
+        # Should fall back to 0.0 without crashing
+        self.assertEqual(stats2["mean"], 0.0)
+
     @patch('vvv.ui.file_dialog.save_file_dialog')
     def test_export_stats_to_json(self, mock_save):
         if not dpg.is_dearpygui_running():
@@ -983,6 +1027,8 @@ class TestRoiPlugin(unittest.TestCase):
         roi_state.is_spheroid = True
         roi_state.spheroid_center = [10.0, 20.0, 30.0]
         roi_state.spheroid_radius = 110.0  # Set radius to 110.0
+        roi_state.spheroid_radius_xy = 110.0
+        roi_state.spheroid_radius_z = 110.0
         roi_state.is_contour = True
 
         # 2. Mock viewer and volumes
@@ -1059,10 +1105,12 @@ class TestRoiPlugin(unittest.TestCase):
             mock_viewer.get_mouse_slice_coords.return_value = (123.5, 20.5)
             tool.on_drag(None)
             
-            # Verify radius updates, but bbox is NOT updated yet during drag (since radius >= 100.0)
-            self.assertEqual(roi_state.spheroid_radius, 113.0)
+            # Verify both radii updated to 113.0 (sphere behavior)
+            self.assertEqual(roi_state.spheroid_radius_x, 113.0)
+            self.assertEqual(roi_state.spheroid_radius_y, 113.0)
+            self.assertEqual(roi_state.spheroid_radius_z, 113.0)
             self.assertEqual(roi_vol.roi_bbox, (25, 35, 15, 25, 5, 15))
-            
+
             # Release
             tool.on_release(0)
             self.assertEqual(mock_viewer.roi_mode, RoiInteractionMode.IDLE)
@@ -1139,23 +1187,46 @@ class TestRoiPlugin(unittest.TestCase):
                 ui.build_stats_window_contents("stats_parent", "img_1", "roi_1")
 
         # Verify slider and input tags exist
-        self.assertTrue(dpg.does_item_exist(ui._t("slider_roi_radius_roi_1")))
+        self.assertTrue(dpg.does_item_exist(ui._t("slider_roi_radius_x_roi_1")))
+        self.assertTrue(dpg.does_item_exist(ui._t("slider_roi_radius_y_roi_1")))
+        self.assertTrue(dpg.does_item_exist(ui._t("slider_roi_radius_z_roi_1")))
         self.assertTrue(dpg.does_item_exist(ui._t("input_roi_center_x_roi_1")))
         self.assertTrue(dpg.does_item_exist(ui._t("input_roi_center_y_roi_1")))
         self.assertTrue(dpg.does_item_exist(ui._t("input_roi_center_z_roi_1")))
 
-        # Test radius callback
-        ui.on_roi_stats_radius_slider_changed(None, 5.5, "roi_1")
-        self.assertEqual(roi_state.spheroid_radius, 5.5)
+        # Test radius X callback
+        ui.on_roi_stats_radius_x_slider_changed(None, 5.5, "roi_1")
+        self.assertEqual(roi_state.spheroid_radius_x, 5.5)
 
-        # Test radius step callback
-        slider_tag = ui._t("slider_roi_radius_roi_1")
-        ui.on_roi_stats_radius_step_callback(None, None, {"tag": slider_tag, "dir": 1.5})
-        self.assertEqual(roi_state.spheroid_radius, 7.0)
+        # Test radius X step callback
+        slider_x_tag = ui._t("slider_roi_radius_x_roi_1")
+        ui.on_roi_stats_radius_x_step_callback(None, None, {"tag": slider_x_tag, "dir": 1.5})
+        self.assertEqual(roi_state.spheroid_radius_x, 7.0)
+
+        # Test radius Y callback
+        ui.on_roi_stats_radius_y_slider_changed(None, 6.0, "roi_1")
+        self.assertEqual(roi_state.spheroid_radius_y, 6.0)
+
+        # Test radius Y step callback
+        slider_y_tag = ui._t("slider_roi_radius_y_roi_1")
+        ui.on_roi_stats_radius_y_step_callback(None, None, {"tag": slider_y_tag, "dir": 1.0})
+        self.assertEqual(roi_state.spheroid_radius_y, 7.0)
+
+        # Test radius Z callback
+        ui.on_roi_stats_radius_z_slider_changed(None, 6.5, "roi_1")
+        self.assertEqual(roi_state.spheroid_radius_z, 6.5)
+
+        # Test radius Z step callback
+        slider_z_tag = ui._t("slider_roi_radius_z_roi_1")
+        ui.on_roi_stats_radius_z_step_callback(None, None, {"tag": slider_z_tag, "dir": 1.0})
+        self.assertEqual(roi_state.spheroid_radius_z, 7.5)
 
         # Test center callback
         ui.on_roi_stats_center_changed(None, 4.2, {"roi_id": "roi_1", "coord_idx": 0})
         self.assertEqual(roi_state.spheroid_center[0], 4.2)
+
+        # Test slider deactivated callback
+        ui.on_roi_stats_slider_deactivated(None, None, None)
 
         dpg.delete_item("test_parent")
         if dpg.does_item_exist("stats_parent_win"):

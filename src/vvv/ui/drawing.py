@@ -1018,7 +1018,11 @@ class OverlayDrawer:
         if not roi_state.visible or not getattr(roi_state, "is_spheroid", False):
             dpg.configure_item(node, show=False)
             return
-        if roi_state.spheroid_center is None or roi_state.spheroid_radius is None:
+        r_x = getattr(roi_state, "spheroid_radius_x", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+        r_y = getattr(roi_state, "spheroid_radius_y", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+        r_z = getattr(roi_state, "spheroid_radius_z", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+
+        if roi_state.spheroid_center is None or r_x is None:
             dpg.configure_item(node, show=False)
             return
 
@@ -1050,42 +1054,59 @@ class OverlayDrawer:
         is_active_drag = (active_roi_drag_id == target_roi_id)
         is_resizing = is_active_drag and (active_roi_drag_action == "border")
 
+        d_mm = abs(proj_phys[v_idx] - roi_state.spheroid_center[v_idx])
+        if v_idx == 2:
+            R_depth = r_z
+            r_h_base = r_x
+            r_v_base = r_y
+        elif v_idx == 1:
+            R_depth = r_y
+            r_h_base = r_x
+            r_v_base = r_z
+        else:
+            R_depth = r_x
+            r_h_base = r_y
+            r_v_base = r_z
+
+        F = 1.0 - (d_mm ** 2) / (R_depth ** 2)
+        intersects = (F >= 0.0)
+
         # Draw center reticle ALWAYS if actively dragging, or if hovered at center
         draw_center = is_active_drag or (part == "center")
 
         # Draw outline circle and border handle dot if we are resizing and the slice intersects
-        dist_slice = np.linalg.norm(proj_phys - np.array(roi_state.spheroid_center))
-        intersects = (dist_slice <= roi_state.spheroid_radius)
         draw_border = (is_resizing or part == "border") and intersects
 
         import math
         drew_anything = False
 
         if draw_border:
-            # We calculate the intersection circle's screen radius
-            r_slice = math.sqrt(max(0.0, roi_state.spheroid_radius**2 - dist_slice**2))
+            r_h = r_h_base * math.sqrt(F)
+            r_v = r_v_base * math.sqrt(F)
             ppm = viewer.get_pixels_per_mm()
-            r_slice_px = r_slice * ppm
+            r_h_px = r_h * ppm
+            r_v_px = r_v * ppm
 
-            # Draw semi-transparent circle outline
+            # Draw semi-transparent ellipse outline
             outline_color = color[:3] + [120]
-            dpg.draw_circle([px, py], radius=r_slice_px, color=outline_color, thickness=1.5, parent=node)
+            points = []
+            for theta in np.linspace(0, 2*np.pi, 36):
+                ex = px + r_h_px * math.cos(theta)
+                ey = py + r_v_px * math.sin(theta)
+                points.append([ex, ey])
+            dpg.draw_polyline(points, color=outline_color, thickness=1.5, closed=True, parent=node)
 
             # Get mouse position to place the dot handle closest to it
             try:
                 m_pos = dpg.get_drawing_mouse_pos()
             except Exception:
-                m_pos = [px + r_slice_px, py]
+                m_pos = [px + r_h_px, py]
 
             dx = m_pos[0] - px
             dy = m_pos[1] - py
-            dist = math.hypot(dx, dy)
-            if dist > 1e-5:
-                hx = px + (dx / dist) * r_slice_px
-                hy = py + (dy / dist) * r_slice_px
-            else:
-                hx = px + r_slice_px
-                hy = py
+            angle = math.atan2(dy, dx)
+            hx = px + r_h_px * math.cos(angle)
+            hy = py + r_v_px * math.sin(angle)
 
             # Draw border handle dot (solid circle with glowing halo)
             dpg.draw_circle([hx, hy], radius=7.0, color=[255, 255, 255, 200], thickness=1.5, parent=node)
