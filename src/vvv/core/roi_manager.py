@@ -150,9 +150,11 @@ class ROIManager:
         import numpy as np
 
         # Precompute the physical center of mass of the loaded mask
-        coords_com = np.argwhere(mask_vol.data > 0)
-        if coords_com.size > 0:
-            cz_orig, cy_orig, cx_orig = np.mean(coords_com, axis=0)
+        indices_com = np.nonzero(mask_vol.data > 0)
+        if indices_com[0].size > 0:
+            cz_orig = np.mean(indices_com[0])
+            cy_orig = np.mean(indices_com[1])
+            cx_orig = np.mean(indices_com[2])
             pt_idx = [float(cx_orig), float(cy_orig), float(cz_orig)]
             if "mock" in type(mask_vol.sitk_image).__name__.lower():
                 mask_vol.physical_center = pt_idx
@@ -224,8 +226,7 @@ class ROIManager:
         # --- 1. NATIVE CROP FIRST ---
         if not skip_initial_crop:
             # Strip away millions of empty background voxels before doing any heavy math
-            coords = np.argwhere(mask_vol.data > 0)
-            if coords.size == 0:
+            if not np.any(mask_vol.data):
                 mask_vol.roi_bbox = (0, 0, 0, 0, 0, 0)
                 mask_vol.is_outside = False
                 return
@@ -233,16 +234,32 @@ class ROIManager:
             z_max, y_max, x_max = mask_vol.data.shape[-3:]
 
             if mask_vol.data.ndim == 4:
-                z0, y0, x0 = np.maximum(coords[:, 1:].min(axis=0) - 1, 0)
-                z1, y1, x1 = np.minimum(
-                    coords[:, 1:].max(axis=0) + 2, [z_max, y_max, x_max]
-                )
+                z_any = np.any(mask_vol.data, axis=(0, 2, 3))
+                z0, z1 = np.where(z_any)[0][[0, -1]]
+                y_any = np.any(mask_vol.data, axis=(0, 1, 3))
+                y0, y1 = np.where(y_any)[0][[0, -1]]
+                x_any = np.any(mask_vol.data, axis=(0, 1, 2))
+                x0, x1 = np.where(x_any)[0][[0, -1]]
+            else:
+                z_any = np.any(mask_vol.data, axis=(1, 2))
+                z0, z1 = np.where(z_any)[0][[0, -1]]
+                y_any = np.any(mask_vol.data, axis=(0, 2))
+                y0, y1 = np.where(y_any)[0][[0, -1]]
+                x_any = np.any(mask_vol.data, axis=(0, 1))
+                x0, x1 = np.where(x_any)[0][[0, -1]]
+
+            z0 = max(0, int(z0) - 1)
+            z1 = min(z_max, int(z1) + 2)
+            y0 = max(0, int(y0) - 1)
+            y1 = min(y_max, int(y1) + 2)
+            x0 = max(0, int(x0) - 1)
+            x1 = min(x_max, int(x1) + 2)
+
+            if mask_vol.data.ndim == 4:
                 mask_vol.data = np.ascontiguousarray(
                     mask_vol.data[:, z0:z1, y0:y1, x0:x1]
                 )
             else:
-                z0, y0, x0 = np.maximum(coords.min(axis=0) - 1, 0)
-                z1, y1, x1 = np.minimum(coords.max(axis=0) + 2, [z_max, y_max, x_max])
                 mask_vol.data = np.ascontiguousarray(mask_vol.data[z0:z1, y0:y1, x0:x1])
 
             # Update the SimpleITK image to reflect this small, dense block of data
@@ -343,22 +360,35 @@ class ROIManager:
 
         # --- 4. FINAL TIGHT CROP ---
         # Resampling might have introduced a border of 0s. Clean it up.
-        coords2 = np.argwhere(mask_vol.data > 0)
-        if coords2.size > 0:
+        if np.any(mask_vol.data):
             z_max2, y_max2, x_max2 = mask_vol.data.shape[-3:]
             if mask_vol.data.ndim == 4:
-                z0, y0, x0 = np.maximum(coords2[:, 1:].min(axis=0) - 1, 0)
-                z1, y1, x1 = np.minimum(
-                    coords2[:, 1:].max(axis=0) + 2, [z_max2, y_max2, x_max2]
-                )
+                z_any = np.any(mask_vol.data, axis=(0, 2, 3))
+                z0, z1 = np.where(z_any)[0][[0, -1]]
+                y_any = np.any(mask_vol.data, axis=(0, 1, 3))
+                y0, y1 = np.where(y_any)[0][[0, -1]]
+                x_any = np.any(mask_vol.data, axis=(0, 1, 2))
+                x0, x1 = np.where(x_any)[0][[0, -1]]
+            else:
+                z_any = np.any(mask_vol.data, axis=(1, 2))
+                z0, z1 = np.where(z_any)[0][[0, -1]]
+                y_any = np.any(mask_vol.data, axis=(0, 2))
+                y0, y1 = np.where(y_any)[0][[0, -1]]
+                x_any = np.any(mask_vol.data, axis=(0, 1))
+                x0, x1 = np.where(x_any)[0][[0, -1]]
+
+            z0 = max(0, int(z0) - 1)
+            z1 = min(z_max2, int(z1) + 2)
+            y0 = max(0, int(y0) - 1)
+            y1 = min(y_max2, int(y1) + 2)
+            x0 = max(0, int(x0) - 1)
+            x1 = min(x_max2, int(x1) + 2)
+
+            if mask_vol.data.ndim == 4:
                 mask_vol.data = np.ascontiguousarray(
                     mask_vol.data[:, z0:z1, y0:y1, x0:x1]
                 )
             else:
-                z0, y0, x0 = np.maximum(coords2.min(axis=0) - 1, 0)
-                z1, y1, x1 = np.minimum(
-                    coords2.max(axis=0) + 2, [z_max2, y_max2, x_max2]
-                )
                 mask_vol.data = np.ascontiguousarray(mask_vol.data[z0:z1, y0:y1, x0:x1])
 
             # The final bounding box is the base slice offset + the final crop offset

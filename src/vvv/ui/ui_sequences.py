@@ -132,7 +132,7 @@ def load_batch_images_sequence(gui, controller, file_paths):
 
     # --- THE PARALLEL LOADER & REAL PROGRESS BAR ---
     with concurrent.futures.ThreadPoolExecutor(
-        max_workers=min(total_files, 8)
+        max_workers=min(total_files, 4)
     ) as executor:
         # Submit all tasks simultaneously
         futures: list[concurrent.futures.Future | None] = [
@@ -303,7 +303,7 @@ def _rasterize_and_load_labels(
     # --- PARALLEL PROCESSING ---
     with vs.loading_shield():
         with concurrent.futures.ThreadPoolExecutor(
-            max_workers=min(total_lbls, 8)
+            max_workers=min(total_lbls, 4)
         ) as executor:
             futures: list[concurrent.futures.Future | None] = []
             for i, val in enumerate(unique_labels, 1):
@@ -645,7 +645,7 @@ def load_workspace_sequence(gui, controller, filepath):
     # --- PHASE 2: PARALLEL LOAD ALL IMAGES & OVERLAYS ---
     if total_files > 0:
         with concurrent.futures.ThreadPoolExecutor(
-            max_workers=min(total_files, 8)
+            max_workers=min(total_files, 4)
         ) as executor:
             future_to_path = {}
             for old_id, p in tasks_to_load:
@@ -943,7 +943,7 @@ def load_workspace_sequence(gui, controller, filepath):
             return results
 
         with concurrent.futures.ThreadPoolExecutor(
-            max_workers=min(len(tasks_by_path), 8)
+            max_workers=min(len(tasks_by_path), 4)
         ) as executor:
             futures: list[concurrent.futures.Future | None] = [
                 executor.submit(process_file_group, path, tasks)
@@ -1102,7 +1102,7 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
         show_loading_modal("Loading images...", "Initializing...", progress=0.0)
 
         with concurrent.futures.ThreadPoolExecutor(
-            max_workers=min(total_files, 8)
+            max_workers=min(total_files, 4)
         ) as executor:
             future_to_path = {
                 executor.submit(controller.file.load_image, path): path for path in jobs
