@@ -1390,23 +1390,9 @@ class RoiPluginUI(PluginTagMixin):
         else:
             win_h = 650 if has_overlay else 530
 
-        with dpg.window(
-            tag=win_tag,
-            label=f"{roi.name} - {image_name}",
-            width=320,
-            height=win_h,
-            on_close=self.on_roi_stats_window_closed,
-            user_data=roi_id,
-        ):
-            content_tag = self._t(f"stats_content_{roi_id}")
-            with dpg.group(tag=content_tag):
-                self.build_stats_window_contents(content_tag, viewer.image_id, roi_id)
-
-        dpg.bind_item_theme(win_tag, theme_tag)
-        dpg.bind_item_theme(content_tag, content_theme_tag)
-
+        # Determine initial position
         if roi_id in self.stats_win_positions:
-            dpg.set_item_pos(win_tag, self.stats_win_positions[roi_id])
+            win_pos = self.stats_win_positions[roi_id]
         else:
             vp_w = dpg.get_viewport_client_width()
             vp_h = dpg.get_viewport_client_height()
@@ -1425,7 +1411,23 @@ class RoiPluginUI(PluginTagMixin):
             if pos_y + win_h > vp_h - 10:
                 pos_y = base_y
 
-            dpg.set_item_pos(win_tag, [pos_x, pos_y])
+            win_pos = [pos_x, pos_y]
+
+        with dpg.window(
+            tag=win_tag,
+            label=f"{roi.name} - {image_name}",
+            width=320,
+            height=win_h,
+            pos=win_pos,
+            on_close=self.on_roi_stats_window_closed,
+            user_data=roi_id,
+        ):
+            content_tag = self._t(f"stats_content_{roi_id}")
+            with dpg.group(tag=content_tag):
+                self.build_stats_window_contents(content_tag, viewer.image_id, roi_id)
+
+        dpg.bind_item_theme(win_tag, theme_tag)
+        dpg.bind_item_theme(content_tag, content_theme_tag)
 
         self.open_stats_wins.add(win_tag)
 

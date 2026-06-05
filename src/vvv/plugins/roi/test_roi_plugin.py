@@ -630,8 +630,7 @@ class TestRoiPlugin(unittest.TestCase):
         self.mock_api.get_active_viewer.return_value = mock_viewer
 
         with patch('dearpygui.dearpygui.get_viewport_client_width') as mock_vp_w, \
-             patch('dearpygui.dearpygui.get_viewport_client_height') as mock_vp_h, \
-             patch('dearpygui.dearpygui.set_item_pos') as mock_set_pos:
+             patch('dearpygui.dearpygui.get_viewport_client_height') as mock_vp_h:
 
             mock_vp_w.return_value = 1000
             mock_vp_h.return_value = 800
@@ -640,19 +639,18 @@ class TestRoiPlugin(unittest.TestCase):
             ui.on_roi_stats_toggle(None, None, "roi_1")
             # base_x = 1000 - 320 - 50 = 630
             # base_y = (800 - 530) // 2 = 135
-            mock_set_pos.assert_any_call(ui._t("stats_win_roi_1"), [630, 135])
+            self.assertEqual(dpg.get_item_pos(ui._t("stats_win_roi_1")), [630, 135])
 
             # 2. Open second window, offset should be 25px
             ui.on_roi_stats_toggle(None, None, "roi_2")
-            mock_set_pos.assert_any_call(ui._t("stats_win_roi_2"), [605, 160])
+            self.assertEqual(dpg.get_item_pos(ui._t("stats_win_roi_2")), [605, 160])
 
             # 3. Open third window, offset should be 50px
             ui.on_roi_stats_toggle(None, None, "roi_3")
-            mock_set_pos.assert_any_call(ui._t("stats_win_roi_3"), [580, 185])
+            self.assertEqual(dpg.get_item_pos(ui._t("stats_win_roi_3")), [580, 185])
 
             # Clean them up
             ui.close_all_stats_windows()
-            mock_set_pos.reset_mock()
 
             # 4. Toggle all ON (none are currently open)
             ui.on_roi_toggle_all_stats(None, None, None)
