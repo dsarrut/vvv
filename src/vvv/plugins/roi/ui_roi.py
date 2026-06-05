@@ -515,6 +515,7 @@ class RoiPluginUI(PluginTagMixin):
 
                 with dpg.group(horizontal=True):
                     input_id = dpg.add_input_text(
+                        tag=self._t(f"input_roi_name_{roi_id}"),
                         default_value=roi.name,
                         width=-15 if is_outdated else -1,
                         user_data=roi_id,

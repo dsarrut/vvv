@@ -61,9 +61,32 @@ class TestRoiPlugin(unittest.TestCase):
         self.mock_api.beginner_tags = []
         self.mock_api.get_active_viewer.return_value = None
         self.mock_api.get_image_display_name.return_value = ("Test Image", False)
-        self.mock_api.get_volumes.return_value = {}
         self.mock_api.get_roi_stats.return_value = None
         self.mock_api.is_mip_active.return_value = False
+        
+        # Delegate to self.mock_api._controller for backward compatibility
+        type(self.mock_api).ui_needs_refresh = property(lambda self_mock: self_mock._controller.ui_needs_refresh)
+        
+        import unittest.mock
+        def _get_volumes_fallback():
+            ctrl = getattr(self.mock_api, "_controller", None)
+            if ctrl is not None:
+                vols = getattr(ctrl, "volumes", None)
+                if isinstance(vols, dict):
+                    return vols
+            return unittest.mock.DEFAULT
+        self.mock_api.get_volumes.side_effect = _get_volumes_fallback
+
+        def _create_memory_roi_fallback(*args, **kwargs):
+            ctrl = getattr(self.mock_api, "_controller", None)
+            if ctrl is not None:
+                roi_mgr = getattr(ctrl, "roi", None)
+                if roi_mgr is not None:
+                    func = getattr(roi_mgr, "_create_memory_roi", None)
+                    if func is not None:
+                        return func(*args, **kwargs)
+            return unittest.mock.DEFAULT
+        self.mock_api.create_memory_roi.side_effect = _create_memory_roi_fallback
 
     def test_metadata(self):
         self.assertEqual(self.plugin.plugin_id, "roi_plugin")

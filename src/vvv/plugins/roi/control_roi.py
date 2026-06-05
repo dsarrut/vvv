@@ -30,7 +30,7 @@ class RoiPluginController(PluginTagMixin):
         image_id = viewer.image_id if (viewer and viewer.image_id) else None
         roi_ids = set(viewer.view_state.rois.keys()) if (viewer and viewer.view_state and viewer.view_state.rois) else set()
 
-        if api._controller.ui_needs_refresh or image_id != self._last_image_id or roi_ids != self._last_roi_ids:
+        if api.ui_needs_refresh or image_id != self._last_image_id or roi_ids != self._last_roi_ids:
             self._last_image_id = image_id
             self._last_roi_ids = roi_ids
             self.ui.refresh_rois_ui()
@@ -402,7 +402,7 @@ class RoiPluginController(PluginTagMixin):
         r_mm = 0.1 * fov
 
         # 3. Get base image volume
-        base_vol = self.api._controller.volumes.get(base_id)
+        base_vol = self.api.get_volumes().get(base_id)
         if not base_vol:
             return
 
@@ -477,7 +477,7 @@ class RoiPluginController(PluginTagMixin):
         from vvv.config import ROI_COLORS
         color = ROI_COLORS[rois_count % len(ROI_COLORS)]
 
-        roi_id = self.api._controller.roi._create_memory_roi(
+        roi_id = self.api.create_memory_roi(
             base_id=base_id,
             filepath="spheroid_roi",
             name=roi_name,
@@ -638,7 +638,7 @@ class RoiPluginController(PluginTagMixin):
         size_z = 2.0 * half_z
 
         # 3. Get base image volume
-        base_vol = self.api._controller.volumes.get(base_id)
+        base_vol = self.api.get_volumes().get(base_id)
         if not base_vol:
             return
 
@@ -715,7 +715,7 @@ class RoiPluginController(PluginTagMixin):
         from vvv.config import ROI_COLORS
         color = ROI_COLORS[rois_count % len(ROI_COLORS)]
 
-        roi_id = self.api._controller.roi._create_memory_roi(
+        roi_id = self.api.create_memory_roi(
             base_id=base_id,
             filepath="box_roi",
             name=roi_name,

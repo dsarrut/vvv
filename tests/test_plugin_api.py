@@ -114,6 +114,38 @@ class TestPluginAPI(unittest.TestCase):
         self.assertEqual(view_states_copy, mock_view_states)
         self.assertIsNot(view_states_copy, mock_view_states)
 
+    def test_ui_needs_refresh(self):
+        self.mock_controller.ui_needs_refresh = True
+        self.assertTrue(self.api.ui_needs_refresh)
+        self.mock_controller.ui_needs_refresh = False
+        self.assertFalse(self.api.ui_needs_refresh)
+
+    def test_create_memory_roi(self):
+        self.mock_controller.roi = MagicMock()
+        self.mock_controller.roi._create_memory_roi.return_value = "new_roi_id"
+        
+        res = self.api.create_memory_roi(
+            base_id="base_img",
+            filepath="path/to/mask.nii",
+            name="Tumor",
+            mask_img="mock_img",
+            mask_data="mock_data",
+            skip_crop=True,
+            is_contour=False,
+            some_kwarg="some_val"
+        )
+        self.assertEqual(res, "new_roi_id")
+        self.mock_controller.roi._create_memory_roi.assert_called_once_with(
+            base_id="base_img",
+            filepath="path/to/mask.nii",
+            name="Tumor",
+            mask_img="mock_img",
+            mask_data="mock_data",
+            skip_crop=True,
+            is_contour=False,
+            some_kwarg="some_val"
+        )
+
     def test_discover_plugins_success(self):
         from vvv.plugins import discover_plugins
         plugins = discover_plugins()
