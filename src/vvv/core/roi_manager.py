@@ -149,6 +149,37 @@ class ROIManager:
         import SimpleITK as sitk
         import numpy as np
 
+        # Precompute the physical center of mass of the loaded mask
+        coords_com = np.argwhere(mask_vol.data > 0)
+        if coords_com.size > 0:
+            cz_orig, cy_orig, cx_orig = np.mean(coords_com, axis=0)
+            pt_idx = [float(cx_orig), float(cy_orig), float(cz_orig)]
+            if "mock" in type(mask_vol.sitk_image).__name__.lower():
+                mask_vol.physical_center = pt_idx
+            else:
+                try:
+                    dim = mask_vol.sitk_image.GetDimension()
+                    if len(pt_idx) < dim:
+                        pt_idx = pt_idx + [0.0] * (dim - len(pt_idx))
+                    elif len(pt_idx) > dim:
+                        pt_idx = pt_idx[:dim]
+                    phys_pt = mask_vol.sitk_image.TransformContinuousIndexToPhysicalPoint(pt_idx)
+                    mask_vol.physical_center = list(phys_pt)[:3]
+                except Exception:
+                    mask_vol.physical_center = pt_idx
+        else:
+            if not getattr(mask_vol, "physical_center", None):
+                if not "mock" in type(mask_vol.sitk_image).__name__.lower():
+                    try:
+                        mask_vol.physical_center = list(mask_vol.sitk_image.GetOrigin())[:3]
+                    except Exception:
+                        mask_vol.physical_center = [0.0, 0.0, 0.0]
+                else:
+                    mask_vol.physical_center = [0.0, 0.0, 0.0]
+
+        base_sz, base_sy, base_sx = base_vol.shape3d
+        is_outside = getattr(mask_vol, "is_outside", False)
+
         def get_spatial_direction(img):
             if "mock" in type(img).__name__.lower():
                 return np.eye(3).flatten()
@@ -196,6 +227,7 @@ class ROIManager:
             coords = np.argwhere(mask_vol.data > 0)
             if coords.size == 0:
                 mask_vol.roi_bbox = (0, 0, 0, 0, 0, 0)
+                mask_vol.is_outside = False
                 return
 
             z_max, y_max, x_max = mask_vol.data.shape[-3:]
@@ -239,6 +271,11 @@ class ROIManager:
                 bx, by, bz = [int(round(v)) for v in base_idx[:3]]
                 sz, sy, sx = mask_vol.data.shape[-3:]
                 mask_vol.roi_bbox = (bz, bz + sz, by, by + sy, bx, bx + sx)
+                
+                if bx < 0 or by < 0 or bz < 0 or bx + sx > base_sx or by + sy > base_sy or bz + sz > base_sz:
+                    is_outside = True
+                
+                mask_vol.is_outside = is_outside
                 return
 
         # --- 3. TARGETED SUB-GRID RESAMPLING ---
@@ -269,13 +306,16 @@ class ROIManager:
         min_idx = np.floor(base_indices.min(axis=0)).astype(int) - 1
         max_idx = np.ceil(base_indices.max(axis=0)).astype(int) + 2
 
-        base_sz, base_sy, base_sx = base_vol.shape3d
+        if min_idx[0] < 0 or min_idx[1] < 0 or min_idx[2] < 0 or max_idx[0] > base_sx or max_idx[1] > base_sy or max_idx[2] > base_sz:
+            is_outside = True
+
         min_x, max_x = max(0, min_idx[0]), min(base_sx, max_idx[0])
         min_y, max_y = max(0, min_idx[1]), min(base_sy, max_idx[1])
         min_z, max_z = max(0, min_idx[2]), min(base_sz, max_idx[2])
 
         if min_x >= max_x or min_y >= max_y or min_z >= max_z:
             mask_vol.roi_bbox = (0, 0, 0, 0, 0, 0)
+            mask_vol.is_outside = is_outside
             return
 
         # Build a pure 3D reference grid to prevent SimpleITK dimension mismatches
@@ -340,7 +380,9 @@ class ROIManager:
         mask_vol.matrix = base_vol.matrix
         mask_vol.inverse_matrix = base_vol.inverse_matrix
 
-    def _create_memory_roi(self, base_id, filepath, name, mask_img, mask_data, skip_crop=False, is_contour=False, **state_kwargs):
+        mask_vol.is_outside = is_outside
+
+    def _create_memory_roi(self, base_id, filepath, name, mask_img, mask_data, skip_crop=False, is_contour=False, is_outside=False, **state_kwargs):
         """Centralized helper for creating an ROI exclusively from memory (Label Maps, RT-Structs)."""
         import os
         base_vol = self.controller.volumes[base_id]
@@ -360,6 +402,7 @@ class ROIManager:
         mask_vol.name = name
         mask_vol.sitk_image = mask_img
         mask_vol.data = mask_data
+        mask_vol.is_outside = is_outside
         mask_vol.matrix_display_str = base_vol.matrix_display_str
         mask_vol.matrix_tooltip_str = base_vol.matrix_tooltip_str
         mask_vol.read_image_metadata()
@@ -592,6 +635,7 @@ class ROIManager:
         # 1. Create a full-size blank mask
         mz, my, mx = base_vol.shape3d
         mask_data = np.zeros((mz, my, mx), dtype=np.uint8)
+        is_outside = False
 
         seq_contours = getattr(ds, "ROIContourSequence", None) or []
         for roi_contour in seq_contours:
@@ -616,6 +660,12 @@ class ROIManager:
                             )
                             mapped_pts.append(vox)
 
+                            # Check if the mapped point is outside the image FOV boundaries
+                            if (vox[0] < -0.5 or vox[0] > mx - 0.5 or
+                                vox[1] < -0.5 or vox[1] > my - 0.5 or
+                                vox[2] < -0.5 or vox[2] > mz - 0.5):
+                                is_outside = True
+
                         if not mapped_pts:
                             continue
 
@@ -632,6 +682,8 @@ class ROIManager:
 
                             # XOR assignment handles internal holes natively!
                             mask_data[z_idx, rr, cc] ^= 1
+                        else:
+                            is_outside = True
                 break
 
         if not np.any(mask_data):
@@ -646,7 +698,7 @@ class ROIManager:
         
         return self._create_memory_roi(
             base_id, filepath, roi_info.get("name", "RT ROI"), mask_img, mask_data,
-            skip_crop=False, is_contour=True, color=roi_info.get("color", [255, 0, 0]),
+            skip_crop=False, is_contour=True, is_outside=is_outside, color=roi_info.get("color", [255, 0, 0]),
             source_mode="Ignore BG (val)", source_val=0.0, rtstruct_info=roi_info,
             source_type="RT-Struct"
         )
@@ -737,20 +789,24 @@ class ROIManager:
             return
 
         mask_vol = self.controller.volumes[roi_id]
-        if not hasattr(mask_vol, "roi_bbox"):
-            return
+        
+        phys_center = getattr(mask_vol, "physical_center", None)
+        if phys_center is None:
+            if not hasattr(mask_vol, "roi_bbox"):
+                return
 
-        z0, z1, y0, y1, x0, x1 = mask_vol.roi_bbox
-        if z0 == z1:
-            return
+            z0, z1, y0, y1, x0, x1 = mask_vol.roi_bbox
+            if z0 == z1:
+                return
 
-        cx = (x0 + x1 - 1) / 2.0
-        cy = (y0 + y1 - 1) / 2.0
-        cz = (z0 + z1 - 1) / 2.0
+            cx = (x0 + x1 - 1) / 2.0
+            cy = (y0 + y1 - 1) / 2.0
+            cz = (z0 + z1 - 1) / 2.0
 
-        base_vol = self.controller.volumes[base_id]
+            base_vol = self.controller.volumes[base_id]
+            phys_center = base_vol.voxel_coord_to_physic_coord(np.array([cx, cy, cz]))
+
         vs = self.controller.view_states[base_id]
-        phys_center = base_vol.voxel_coord_to_physic_coord(np.array([cx, cy, cz]))
         vs.update_crosshair_from_phys(phys_center)
 
         self.controller.sync.propagate_sync(base_id)

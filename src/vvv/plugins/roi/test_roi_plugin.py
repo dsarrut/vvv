@@ -1776,6 +1776,215 @@ class TestRoiPlugin(unittest.TestCase):
         self.plugin._controller.update_box_mask(base_vol, roi_vol, roi_state)
         self.assertEqual(roi_state.box_center, [49.0, 20.0, 0.0])
 
+    def test_out_of_bounds_roi_warning(self):
+        from vvv.core.roi_manager import ROIManager
+        import numpy as np
+
+        mock_gui = MagicMock()
+        mock_controller = MagicMock()
+        mock_controller.gui = mock_gui
+        
+        # Instantiate ROIManager with mock controller
+        roi_mgr = ROIManager(mock_controller)
+
+        # Mock base_vol
+        base_vol = MagicMock()
+        base_vol.shape3d = (10, 10, 10)
+        base_vol.spacing = np.array([1.0, 1.0, 1.0])
+        base_vol.origin = np.array([0.0, 0.0, 0.0])
+        base_vol.matrix = np.eye(3)
+        base_vol.sitk_image = MagicMock()
+        base_vol.sitk_image.GetDirection.return_value = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+
+        # Mock mask_vol
+        mask_vol = MagicMock()
+        mask_vol.name = "Test_ROI"
+        mask_vol.spacing = np.array([1.0, 1.0, 1.0])
+        mask_vol.data = np.zeros((5, 5, 5), dtype=np.uint8)
+        mask_vol.data[2, 2, 2] = 1 # non-empty
+        
+        # Set up origin to be outside the base image FOV (e.g. at [15.0, 0.0, 0.0])
+        mask_vol.sitk_image = MagicMock()
+        mask_vol.sitk_image.GetOrigin.return_value = [15.0, 0.0, 0.0]
+        mask_vol.sitk_image.GetDirection.return_value = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+        
+        # Mock continuous index transform
+        base_vol.sitk_image.TransformPhysicalPointToContinuousIndex.side_effect = lambda pt: pt
+
+        # Call process_binary_mask
+        roi_mgr.process_binary_mask(base_vol, mask_vol, skip_initial_crop=True)
+
+        # Verify that mask_vol is marked as outside
+        self.assertTrue(mask_vol.is_outside)
+
+    def test_out_of_bounds_rtstruct_warning(self):
+        from vvv.core.roi_manager import ROIManager
+        import numpy as np
+
+        mock_gui = MagicMock()
+        mock_controller = MagicMock()
+        mock_controller.gui = mock_gui
+        
+        # Instantiate ROIManager with mock controller
+        roi_mgr = ROIManager(mock_controller)
+        
+        # Mock volumes and view_states dicts on controller
+        base_vol = MagicMock()
+        base_vol.shape3d = (10, 10, 10)
+        base_vol.spacing = np.array([1.0, 1.0, 1.0])
+        base_vol.origin = np.array([0.0, 0.0, 0.0])
+        base_vol.matrix = np.eye(3)
+        base_vol.physic_coord_to_voxel_coord.side_effect = lambda pt: pt
+
+        mock_controller.volumes = {"base_id": base_vol}
+        mock_controller.view_states = {"base_id": MagicMock()}
+
+        # Mock _create_memory_roi to avoid actual Sitk/ROI registry logic
+        roi_mgr._create_memory_roi = MagicMock(return_value="mock_roi_id")
+
+        # Mock DICOM dataset for RT-Struct
+        mock_ds = MagicMock()
+        contour = MagicMock()
+        # Points overlap partially with base_vol [10, 10, 10] FOV:
+        # One point is inside [5.0, 5.0, 5.0], other points are outside
+        contour.ContourData = [5.0, 5.0, 5.0, 15.0, 5.0, 5.0, 5.0, 15.0, 5.0]
+        roi_contour = MagicMock()
+        roi_contour.ReferencedROINumber = 1
+        roi_contour.ContourSequence = [contour]
+        mock_ds.ROIContourSequence = [roi_contour]
+
+        # Call load_rtstruct_roi
+        roi_mgr.load_rtstruct_roi(
+            base_id="base_id",
+            filepath="/path/to/rtstruct.dcm",
+            roi_info={"id": 1, "name": "RT ROI"},
+            ds=mock_ds
+        )
+
+        # Verify that _create_memory_roi was called with is_outside=True
+        roi_mgr._create_memory_roi.assert_called_once()
+        args, kwargs = roi_mgr._create_memory_roi.call_args
+        self.assertTrue(kwargs.get("is_outside"))
+
+    def test_center_on_roi_out_of_bounds(self):
+        from vvv.core.roi_manager import ROIManager
+        import numpy as np
+
+        mock_gui = MagicMock()
+        mock_controller = MagicMock()
+        mock_controller.gui = mock_gui
+
+        # Instantiate ROIManager
+        roi_mgr = ROIManager(mock_controller)
+
+        # Mock Volumes and view states
+        base_vol = MagicMock()
+        base_vol.shape3d = (10, 10, 10)
+        base_vol.spacing = np.array([1.0, 1.0, 1.0])
+        base_vol.origin = np.array([0.0, 0.0, 0.0])
+        base_vol.matrix = np.eye(3)
+
+        mask_vol = MagicMock()
+        mask_vol.physical_center = [20.0, 20.0, 20.0]  # Outside FOV
+
+        mock_controller.volumes = {"base_id": base_vol, "roi_id": mask_vol}
+        
+        mock_vs = MagicMock()
+        mock_controller.view_states = {"base_id": mock_vs}
+        mock_controller.sync.get_sync_group_vs_ids.return_value = ["base_id"]
+
+        # Call center_on_roi
+        roi_mgr.center_on_roi("base_id", "roi_id")
+
+        # Verify that crosshair coordinates were updated to physical_center
+        mock_vs.update_crosshair_from_phys.assert_called_once_with([20.0, 20.0, 20.0])
+
+    def test_completely_out_of_bounds_roi_warning(self):
+        from vvv.core.roi_manager import ROIManager
+        import numpy as np
+
+        mock_gui = MagicMock()
+        mock_controller = MagicMock()
+        mock_controller.gui = mock_gui
+        
+        roi_mgr = ROIManager(mock_controller)
+
+        # Mock base_vol
+        base_vol = MagicMock()
+        base_vol.shape3d = (10, 10, 10)
+        base_vol.spacing = np.array([1.0, 1.0, 1.0])
+        base_vol.origin = np.array([0.0, 0.0, 0.0])
+        base_vol.matrix = np.eye(3)
+        base_vol.sitk_image = MagicMock()
+        base_vol.sitk_image.GetDirection.return_value = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+
+        # Mock mask_vol (completely out of bounds)
+        mask_vol = MagicMock()
+        mask_vol.name = "Out_ROI"
+        mask_vol.spacing = np.array([1.0, 1.0, 1.0])
+        mask_vol.data = np.zeros((5, 5, 5), dtype=np.uint8)
+        mask_vol.data[2, 2, 2] = 1
+        
+        mask_vol.sitk_image = MagicMock()
+        mask_vol.sitk_image.GetOrigin.return_value = [50.0, 50.0, 50.0]  # Far outside base_vol [10, 10, 10]
+        mask_vol.sitk_image.GetDirection.return_value = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+        
+        base_vol.sitk_image.TransformPhysicalPointToContinuousIndex.side_effect = lambda pt: pt
+
+        # Call process_binary_mask
+        roi_mgr.process_binary_mask(base_vol, mask_vol, skip_initial_crop=True)
+
+        # Verify that mask_vol is marked as outside
+        self.assertTrue(mask_vol.is_outside)
+
+    def test_load_batch_rois_sequence_warning(self):
+        from vvv.ui.ui_sequences import load_batch_rois_sequence
+        from unittest.mock import patch
+        import numpy as np
+
+        mock_gui = MagicMock()
+        mock_controller = MagicMock()
+        mock_controller.gui = mock_gui
+
+        # Mock view state and rois
+        mock_vs = MagicMock()
+        mock_vs.rois = {}
+        mock_controller.view_states = {"base_id": mock_vs}
+
+        # Mock volumes
+        mock_vol = MagicMock()
+        mock_vol.is_outside = True
+        mock_controller.volumes = {"roi_id": mock_vol}
+
+        # Simulate loading by adding the ROI to view state during iteration
+        def mock_load_binary_mask(*args, **kwargs):
+            mock_vs.rois["roi_id"] = MagicMock(name="Out_ROI")
+            mock_vs.rois["roi_id"].name = "Out_ROI"
+
+        mock_controller.roi.load_binary_mask.side_effect = mock_load_binary_mask
+
+        # Call the sequence generator
+        generator = load_batch_rois_sequence(
+            mock_gui,
+            mock_controller,
+            "base_id",
+            ["/dummy/path/roi.nii.gz"],
+            roi_type="Binary Mask"
+        )
+
+        # Consume the generator
+        with patch('os.path.exists', return_value=True), \
+             patch('vvv.ui.ui_sequences.show_loading_modal'), \
+             patch('dearpygui.dearpygui.does_item_exist', return_value=False):
+            for _ in generator:
+                pass
+
+        # Verify show_message was called on mock_gui with ROI Warning
+        mock_gui.show_message.assert_called_once_with(
+            "ROI Warning",
+            "Warning: The loaded ROI 'Out_ROI' lies partially or fully outside the image field of view (FOV)."
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -201,6 +201,7 @@ def load_batch_rois_sequence(
 
     vs = controller.view_states[base_image_id]
     color_idx = len(vs.rois)
+    initial_roi_ids = set(vs.rois.keys())
 
     # 2. Unified Loading Loop
     for i, path in enumerate(valid_paths, 1):
@@ -246,6 +247,24 @@ def load_batch_rois_sequence(
     yield from _handle_warnings_and_cleanup(
         gui, warnings, "ROI Import Warning", "Some ROIs were skipped:"
     )
+
+    # Check for out-of-bounds ROIs
+    new_roi_ids = set(vs.rois.keys()) - initial_roi_ids
+    outside_rois = []
+    for r_id in new_roi_ids:
+        r_vol = controller.volumes.get(r_id)
+        if r_vol and getattr(r_vol, "is_outside", False):
+            outside_rois.append(vs.rois[r_id].name)
+    if outside_rois:
+        yield
+        if len(outside_rois) == 1:
+            msg = f"Warning: The loaded ROI '{outside_rois[0]}' lies partially or fully outside the image field of view (FOV)."
+        else:
+            names_str = ", ".join(f"'{n}'" for n in outside_rois)
+            msg = f"Warning: The loaded ROIs {names_str} lie partially or fully outside the image field of view (FOV)."
+        gui.show_message("ROI Warning", msg)
+        while dpg.does_item_exist("generic_message_modal"):
+            yield
 
 
 def _rasterize_and_load_labels(
@@ -413,6 +432,7 @@ def load_label_map_sequence(gui, controller, base_image_id, filepath):
     # 3. Load each label as a separate ROI
     vs = controller.view_states[base_image_id]
     total_lbls = len(unique_labels)
+    initial_roi_ids = set(vs.rois.keys())
 
     # Re-initialize the loading modal safely
     show_loading_modal("Loading Label Map...", f"Processing {total_lbls} labels...")
@@ -465,6 +485,24 @@ def load_label_map_sequence(gui, controller, base_image_id, filepath):
     controller.ui_needs_refresh = True
     controller.update_all_viewers_of_image(base_image_id)
 
+    # Check for out-of-bounds ROIs
+    new_roi_ids = set(vs.rois.keys()) - initial_roi_ids
+    outside_rois = []
+    for r_id in new_roi_ids:
+        r_vol = controller.volumes.get(r_id)
+        if r_vol and getattr(r_vol, "is_outside", False):
+            outside_rois.append(vs.rois[r_id].name)
+    if outside_rois:
+        yield
+        if len(outside_rois) == 1:
+            msg = f"Warning: The loaded ROI '{outside_rois[0]}' lies partially or fully outside the image field of view (FOV)."
+        else:
+            names_str = ", ".join(f"'{n}'" for n in outside_rois)
+            msg = f"Warning: The loaded ROIs {names_str} lie partially or fully outside the image field of view (FOV)."
+        gui.show_message("ROI Warning", msg)
+        while dpg.does_item_exist("generic_message_modal"):
+            yield
+
 
 def load_rtstruct_sequence(gui, controller, base_image_id, filepath, selected_rois):
     import os
@@ -481,6 +519,7 @@ def load_rtstruct_sequence(gui, controller, base_image_id, filepath, selected_ro
 
     warnings = []
     vs = controller.view_states[base_image_id]
+    initial_roi_ids = set(vs.rois.keys())
 
     try:
         import pydicom
@@ -518,6 +557,24 @@ def load_rtstruct_sequence(gui, controller, base_image_id, filepath, selected_ro
     yield from _handle_warnings_and_cleanup(
         gui, warnings, "RT-Struct Import Warning", "Some ROIs failed to load:"
     )
+
+    # Check for out-of-bounds ROIs
+    new_roi_ids = set(vs.rois.keys()) - initial_roi_ids
+    outside_rois = []
+    for r_id in new_roi_ids:
+        r_vol = controller.volumes.get(r_id)
+        if r_vol and getattr(r_vol, "is_outside", False):
+            outside_rois.append(vs.rois[r_id].name)
+    if outside_rois:
+        yield
+        if len(outside_rois) == 1:
+            msg = f"Warning: The loaded ROI '{outside_rois[0]}' lies partially or fully outside the image field of view (FOV)."
+        else:
+            names_str = ", ".join(f"'{n}'" for n in outside_rois)
+            msg = f"Warning: The loaded ROIs {names_str} lie partially or fully outside the image field of view (FOV)."
+        gui.show_message("ROI Warning", msg)
+        while dpg.does_item_exist("generic_message_modal"):
+            yield
 
 
 def load_workspace_sequence(gui, controller, filepath):
@@ -991,6 +1048,24 @@ def load_workspace_sequence(gui, controller, filepath):
     yield from _handle_warnings_and_cleanup(
         gui, warnings, "Workspace Warnings", "Some files could not be found or loaded:"
     )
+
+    # Check for out-of-bounds ROIs
+    outside_rois = []
+    for vs in controller.view_states.values():
+        for r_id in vs.rois.keys():
+            r_vol = controller.volumes.get(r_id)
+            if r_vol and getattr(r_vol, "is_outside", False):
+                outside_rois.append(vs.rois[r_id].name)
+    if outside_rois:
+        yield
+        if len(outside_rois) == 1:
+            msg = f"Warning: The loaded ROI '{outside_rois[0]}' lies partially or fully outside the image field of view (FOV)."
+        else:
+            names_str = ", ".join(f"'{n}'" for n in outside_rois)
+            msg = f"Warning: The loaded ROIs {names_str} lie partially or fully outside the image field of view (FOV)."
+        gui.show_message("ROI Warning", msg)
+        while dpg.does_item_exist("generic_message_modal"):
+            yield
 
 
 def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=False, link_all_wl=False):
