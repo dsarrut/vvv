@@ -163,6 +163,13 @@ class RoiPluginUI(PluginTagMixin):
                     "Create a new rectangular ROI centered at the crosshair (not implemented yet).",
                     self.api,
                 )
+                build_help_button(
+                    "Spheroid/Box ROI creation:\n"
+                    "- Click Sphere (circle) to create a spheroid ROI centered at the crosshair.\n"
+                    "- Click Box (square) to create a rectangular box ROI centered at the crosshair.\n"
+                    "- You can translate/resize these ROIs directly in the slice viewers or edit them in their statistics windows.",
+                    self.api,
+                )
 
             dpg.add_separator()
             dpg.add_spacer(height=10)
@@ -205,6 +212,15 @@ class RoiPluginUI(PluginTagMixin):
                     callback=self.on_roi_reload_all,
                     tag=self._t("btn_roi_reload_all"),
                     show=False,
+                )
+                build_help_button(
+                    "Global ROI Actions:\n"
+                    "- Show All (Raster) [Eye Icon]: Display all ROIs as solid filled regions.\n"
+                    "- Show All (Contour) [Pencil Icon]: Display all ROIs as thin outlines.\n"
+                    "- Hide All [Slashed Eye Icon]: Hide all ROIs from the slice views.\n"
+                    "- Toggle All Stats [External Link Icon]: Open or close all statistics windows simultaneously.\n"
+                    "- Close All [X Icon]: Permanently remove all ROIs from the current view state.",
+                    self.api,
                 )
 
                 if dpg.does_item_exist("icon_font_tag"):
@@ -1590,6 +1606,16 @@ class RoiPluginUI(PluginTagMixin):
                     dpg.add_text("Adjust ROI opacity")
 
             dpg.bind_item_theme(slider, slider_theme_tag)
+            build_help_button(
+                "ROI Actions Toolbar:\n"
+                "- Color Block: Click to change the display color of the ROI.\n"
+                "- Copy [Clipboard Icon]: Copy detailed statistics to your clipboard.\n"
+                "- Eye/Pencil Icon: Toggle display mode (solid raster fill, contour lines, or hidden).\n"
+                "- Target Icon: Recenter and focus all slice view cameras on the ROI's center of mass.\n"
+                "- Floppy/Sync Icon: Save ROI to disk, or reload if outdated.\n"
+                "- Opac/Thick Slider: Drag to change opacity (for solid fill) or line width (for contour outlines).",
+                self.api,
+            )
 
             if dpg.does_item_exist("icon_font_tag"):
                 for btn in [btn_copy, btn_eye, btn_center, btn_action]:
@@ -1852,7 +1878,18 @@ class RoiPluginUI(PluginTagMixin):
 
         dpg.add_spacer(height=5, parent=parent_tag)
 
-        dpg.add_text("Geometry", color=header_col, parent=parent_tag)
+        with dpg.group(horizontal=True, parent=parent_tag):
+            dpg.add_text("Geometry", color=header_col)
+            build_help_button(
+                "Geometry parameters:\n"
+                "- Volume (cc): Physical volume in cubic centimeters.\n"
+                "- Mass (g): Estimated mass calculated using mean voxel intensity as density.\n"
+                "- Number of voxels: Count of non-zero pixels.\n"
+                "- Size: Voxel dimensions of the base image (and cropped mask bounding box size).\n"
+                "- Spacing: Spacing between voxel centers in mm (X x Y x Z).\n"
+                "- Center of Mass: Average voxel location (Pixel coordinates and physical coordinates).",
+                self.api,
+            )
         dpg.add_separator(parent=parent_tag)
 
         # Volumes, Voxels and Mass on the same row!
@@ -1903,7 +1940,16 @@ class RoiPluginUI(PluginTagMixin):
 
         dpg.add_spacer(height=5, parent=parent_tag)
 
-        dpg.add_text("Intensity", color=header_col, parent=parent_tag)
+        with dpg.group(horizontal=True, parent=parent_tag):
+            dpg.add_text("Intensity", color=header_col)
+            build_help_button(
+                "Base image intensity statistics inside the ROI:\n"
+                "- Mean / Std Dev: Average voxel value and standard deviation.\n"
+                "- Median: Voxel value at the 50th percentile.\n"
+                "- Peak (95%): Voxel value at the 95th percentile, representing peak intake.\n"
+                "- Min / Max: Lowest and highest voxel values.",
+                self.api,
+            )
         dpg.add_separator(parent=parent_tag)
 
         with dpg.group(horizontal=True, parent=parent_tag):
@@ -1939,11 +1985,20 @@ class RoiPluginUI(PluginTagMixin):
         with dpg.group(tag=overlay_group_tag, parent=parent_tag, show=bool(ov_stats)):
             name_str = ov_stats["name"] if ov_stats else "Overlay"
             dpg.add_spacer(height=5)
-            dpg.add_text(
-                f"Fusion Intensity ({name_str})",
-                color=header_col,
-                tag=self._t(f"stats_txt_overlay_header_{roi_id}"),
-            )
+            with dpg.group(horizontal=True):
+                dpg.add_text(
+                    f"Fusion Intensity ({name_str})",
+                    color=header_col,
+                    tag=self._t(f"stats_txt_overlay_header_{roi_id}"),
+                )
+                build_help_button(
+                    "Fused overlay image intensity statistics inside the ROI:\n"
+                    "- Mean / Std Dev: Average overlay value and standard deviation.\n"
+                    "- Median: Voxel value at the 50th percentile of the overlay.\n"
+                    "- Peak (95%): 95th percentile value of the overlay.\n"
+                    "- Min / Max: Lowest and highest overlay values inside the ROI.",
+                    self.api,
+                )
             dpg.add_separator()
 
             with dpg.group(horizontal=True):
