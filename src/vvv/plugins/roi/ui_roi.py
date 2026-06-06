@@ -521,6 +521,7 @@ class RoiPluginUI(PluginTagMixin):
                     no_alpha=True,
                     width=20,
                     height=20,
+                    tag=self._t(f"list_color_picker_{roi_id}"),
                     user_data=roi_id,
                     callback=self.on_roi_color_changed,
                 )
@@ -1002,7 +1003,75 @@ class RoiPluginUI(PluginTagMixin):
         scale = 255.0 if all(c <= 1.0 for c in app_data) else 1.0
         vs.rois[roi_id].color = [int(c * scale) for c in app_data[:3]]
         vs.is_data_dirty = True
+        self._sync_roi_color_ui(roi_id, sender)
         self.api.update_all_viewers_of_image(viewer.image_id)
+
+    def _sync_roi_color_ui(self, roi_id, sender=None):
+        """Sync all color-related UI elements for a given ROI after its color changed.
+
+        Updates: the stats window color picker, the stats window title theme,
+        and the detail panel slider grab theme.  *sender* is the widget that
+        triggered the change — it is skipped to avoid feedback loops.
+        """
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.view_state or roi_id not in viewer.view_state.rois:
+            return
+        roi = viewer.view_state.rois[roi_id]
+        rgb = roi.color[:3]
+
+        # 1. Sync both color pickers (skip the one that triggered the change)
+        for picker_tag in (
+            self._t(f"list_color_picker_{roi_id}"),
+            self._t(f"stats_color_picker_{roi_id}"),
+        ):
+            if dpg.does_item_exist(picker_tag) and picker_tag != sender:
+                dpg.set_value(picker_tag, rgb + [255])
+
+        # 2. Update stats window title theme
+        win_tag = self._t(f"stats_win_{roi_id}")
+        if dpg.does_item_exist(win_tag):
+            theme_tag = self._t(f"stats_theme_{roi_id}")
+            if dpg.does_item_exist(theme_tag):
+                dpg.delete_item(theme_tag, children_only=True)
+            else:
+                dpg.add_theme(tag=theme_tag)
+
+            r, g, b = rgb
+            luminance = 0.299 * r + 0.587 * g + 0.114 * b
+            text_color = [0, 0, 0, 255] if luminance > 128 else [255, 255, 255, 255]
+            with dpg.theme_component(dpg.mvWindowAppItem, parent=theme_tag):
+                dpg.add_theme_color(dpg.mvThemeCol_TitleBg, rgb + [255])
+                dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, rgb + [255])
+                dpg.add_theme_color(dpg.mvThemeCol_Text, text_color)
+            dpg.bind_item_theme(win_tag, theme_tag)
+
+            # Also sync the slider theme inside the stats window
+            slider_theme_tag = self._t(f"stats_slider_theme_{roi_id}")
+            if dpg.does_item_exist(slider_theme_tag):
+                dpg.delete_item(slider_theme_tag, children_only=True)
+                with dpg.theme_component(dpg.mvSliderFloat, parent=slider_theme_tag):
+                    dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, [r, g, b, 255])
+                    dpg.add_theme_color(
+                        dpg.mvThemeCol_SliderGrabActive,
+                        [min(255, r + 40), min(255, g + 40), min(255, b + 40), 255],
+                    )
+                    dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, [r, g, b, 100])
+                    dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, [r, g, b, 50])
+
+        # 3. Update detail panel slider theme if this ROI is selected
+        if self._c.active_roi_id == roi_id:
+            detail_theme = self._t("dynamic_roi_slider_theme")
+            if dpg.does_item_exist(detail_theme):
+                dpg.delete_item(detail_theme, children_only=True)
+                r, g, b = rgb
+                with dpg.theme_component(dpg.mvSliderFloat, parent=detail_theme):
+                    dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, [r, g, b, 255])
+                    dpg.add_theme_color(
+                        dpg.mvThemeCol_SliderGrabActive,
+                        [min(255, r + 40), min(255, g + 40), min(255, b + 40), 255],
+                    )
+                    dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, [r, g, b, 100])
+                    dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, [r, g, b, 50])
 
     def on_roi_name_changed(self, sender, app_data, user_data):
         roi_id = user_data
