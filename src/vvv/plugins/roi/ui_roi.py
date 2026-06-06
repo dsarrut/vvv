@@ -777,6 +777,7 @@ class RoiPluginUI(PluginTagMixin):
                         dpg.add_text("Mass:", color=dim_col)
                         dpg.add_text("---", tag=self._t("roi_stat_mass"))
 
+
         self.update_roi_stats_ui()
         self.api._gui.on_window_resize()
 
@@ -1883,7 +1884,7 @@ class RoiPluginUI(PluginTagMixin):
             build_help_button(
                 "Geometry parameters:\n"
                 "- Volume (cc): Physical volume in cubic centimeters.\n"
-                "- Mass (g): Estimated mass calculated using mean voxel intensity as density.\n"
+                "- Mass (g): Estimated mass calculated using mean voxel intensity as density (only for CT images).\n"
                 "- Number of voxels: Count of non-zero pixels.\n"
                 "- Size: Voxel dimensions of the base image (and cropped mask bounding box size).\n"
                 "- Spacing: Spacing between voxel centers in mm (X x Y x Z).\n"
@@ -1899,7 +1900,10 @@ class RoiPluginUI(PluginTagMixin):
                 f"{stats['vol_cc']:.3f}", tag=self._t(f"stats_txt_vol_cc_{roi_id}")
             )
             dpg.add_spacer(width=10)
-            dpg.add_text("Mass (g):", color=dim_col)
+            mass_label = dpg.add_text("Mass (g):", color=dim_col)
+            with dpg.tooltip(mass_label):
+                dpg.add_text("Estimated mass, only if the image is a CT (HU)")
+
             dpg.add_text(
                 f"{stats.get('mass', 0.0):.2f}", tag=self._t(f"stats_txt_mass_{roi_id}")
             )

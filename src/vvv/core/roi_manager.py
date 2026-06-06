@@ -144,6 +144,10 @@ class ROIManager:
         new_img.SetDirection(mask_vol.sitk_image.GetDirection())
         mask_vol.sitk_image = new_img
 
+    def _apply_outside_flag(self, vol, flag):
+        """Set the is_outside attribute on a VolumeData instance."""
+        vol.is_outside = flag
+
     def process_binary_mask(self, base_vol, mask_vol, skip_initial_crop=False):
         """Helper to natively crop, align, and resample a binary mask."""
         import SimpleITK as sitk
@@ -228,7 +232,7 @@ class ROIManager:
             # Strip away millions of empty background voxels before doing any heavy math
             if not np.any(mask_vol.data):
                 mask_vol.roi_bbox = (0, 0, 0, 0, 0, 0)
-                mask_vol.is_outside = False
+                self._apply_outside_flag(mask_vol, False)
                 return
 
             z_max, y_max, x_max = mask_vol.data.shape[-3:]
@@ -292,7 +296,7 @@ class ROIManager:
                 if bx < 0 or by < 0 or bz < 0 or bx + sx > base_sx or by + sy > base_sy or bz + sz > base_sz:
                     is_outside = True
                 
-                mask_vol.is_outside = is_outside
+                self._apply_outside_flag(mask_vol, is_outside)
                 return
 
         # --- 3. TARGETED SUB-GRID RESAMPLING ---
@@ -332,7 +336,7 @@ class ROIManager:
 
         if min_x >= max_x or min_y >= max_y or min_z >= max_z:
             mask_vol.roi_bbox = (0, 0, 0, 0, 0, 0)
-            mask_vol.is_outside = is_outside
+            self._apply_outside_flag(mask_vol, is_outside)
             return
 
         # Build a pure 3D reference grid to prevent SimpleITK dimension mismatches
@@ -410,9 +414,12 @@ class ROIManager:
         mask_vol.matrix = base_vol.matrix
         mask_vol.inverse_matrix = base_vol.inverse_matrix
 
-        mask_vol.is_outside = is_outside
+        self._apply_outside_flag(mask_vol, is_outside)
 
     def _create_memory_roi(self, base_id, filepath, name, mask_img, mask_data, skip_crop=False, is_contour=False, is_outside=False, **state_kwargs):
+        """Centralized helper for creating an ROI exclusively from memory (Label Maps, RT-Structs)."""
+        # keep original signature unchanged
+
         """Centralized helper for creating an ROI exclusively from memory (Label Maps, RT-Structs)."""
         import os
         base_vol = self.controller.volumes[base_id]
@@ -432,7 +439,7 @@ class ROIManager:
         mask_vol.name = name
         mask_vol.sitk_image = mask_img
         mask_vol.data = mask_data
-        mask_vol.is_outside = is_outside
+        self._apply_outside_flag(mask_vol, is_outside)
         mask_vol.matrix_display_str = base_vol.matrix_display_str
         mask_vol.matrix_tooltip_str = base_vol.matrix_tooltip_str
         mask_vol.read_image_metadata()

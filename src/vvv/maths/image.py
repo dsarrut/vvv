@@ -593,7 +593,7 @@ class VolumeData:
         self.is_dvf = False
         self.num_timepoints = 1
         self.shape3d = (1, 1, 1)
-
+        self.is_outside = False
         self.read_image_metadata()
 
         # Modification tracking

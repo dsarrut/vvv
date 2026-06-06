@@ -53,7 +53,7 @@ class TestRoiPlugin(unittest.TestCase):
             },
             "layout": {
                 "nav_btn_h": 35,
-            }
+            },
         }
         self.mock_api.get_ui_config.return_value = ui_cfg
         self.mock_api.ui_cfg = ui_cfg
@@ -63,11 +63,14 @@ class TestRoiPlugin(unittest.TestCase):
         self.mock_api.get_image_display_name.return_value = ("Test Image", False)
         self.mock_api.get_roi_stats.return_value = None
         self.mock_api.is_mip_active.return_value = False
-        
+
         # Delegate to self.mock_api._controller for backward compatibility
-        type(self.mock_api).ui_needs_refresh = property(lambda self_mock: self_mock._controller.ui_needs_refresh)
-        
+        type(self.mock_api).ui_needs_refresh = property(
+            lambda self_mock: self_mock._controller.ui_needs_refresh
+        )
+
         import unittest.mock
+
         def _get_volumes_fallback():
             ctrl = getattr(self.mock_api, "_controller", None)
             if ctrl is not None:
@@ -75,6 +78,7 @@ class TestRoiPlugin(unittest.TestCase):
                 if isinstance(vols, dict):
                     return vols
             return unittest.mock.DEFAULT
+
         self.mock_api.get_volumes.side_effect = _get_volumes_fallback
 
         def _create_memory_roi_fallback(*args, **kwargs):
@@ -86,6 +90,7 @@ class TestRoiPlugin(unittest.TestCase):
                     if func is not None:
                         return func(*args, **kwargs)
             return unittest.mock.DEFAULT
+
         self.mock_api.create_memory_roi.side_effect = _create_memory_roi_fallback
 
     def test_metadata(self):
@@ -99,17 +104,21 @@ class TestRoiPlugin(unittest.TestCase):
             dpg.create_context()
         with dpg.window(tag="test_parent"):
             self.plugin.create_ui(parent="test_parent", api=self.mock_api)
-        
+
         self.assertEqual(self.plugin._ui.api, self.mock_api)
-        
+
         # Verify that namespaced elements are created
         self.assertTrue(dpg.does_item_exist(self.plugin.plugin_id))
-        self.assertTrue(dpg.does_item_exist(self.plugin._ui._t("text_roi_active_title")))
-        self.assertTrue(dpg.does_item_exist(self.plugin._ui._t("btn_roi_load_rtstruct")))
+        self.assertTrue(
+            dpg.does_item_exist(self.plugin._ui._t("text_roi_active_title"))
+        )
+        self.assertTrue(
+            dpg.does_item_exist(self.plugin._ui._t("btn_roi_load_rtstruct"))
+        )
         self.assertTrue(dpg.does_item_exist(self.plugin._ui._t("btn_roi_load_labels")))
         self.assertTrue(dpg.does_item_exist(self.plugin._ui._t("btn_roi_load_binary")))
         self.assertTrue(dpg.does_item_exist(self.plugin._ui._t("roi_list_table")))
-        
+
         dpg.delete_item("test_parent")
 
     def test_lifecycle(self):
@@ -122,7 +131,10 @@ class TestRoiPlugin(unittest.TestCase):
         self.plugin.update(self.mock_api)
         self.plugin.on_image_loaded("img1")
         self.plugin.on_image_removed("img1")
-        self.assertEqual(self.plugin.serialize_image_state("img1"), {"roi_filter": "", "roi_sort_order": 0})
+        self.assertEqual(
+            self.plugin.serialize_image_state("img1"),
+            {"roi_filter": "", "roi_sort_order": 0},
+        )
         self.plugin.restore_image_state("img1", {"roi_filter": "", "roi_sort_order": 0})
         self.plugin.save_settings(self.mock_api)
         self.plugin.load_settings(self.mock_api)
@@ -137,13 +149,15 @@ class TestRoiPlugin(unittest.TestCase):
             self.plugin.create_ui(parent="test_parent", api=self.mock_api)
 
         ui = self.plugin._ui
-        
+
         # Test mode change combo callback (no-op now)
         ui.on_roi_mode_changed(None, "Target FG (val)", None)
 
         # Test mock actions
         ui.on_mock_action("btn_test", None, None)
-        self.mock_api.notify.assert_called_with("ROI: Slider or combo callback (sender: btn_test)")
+        self.mock_api.notify.assert_called_with(
+            "ROI: Slider or combo callback (sender: btn_test)"
+        )
 
         ui.on_export_roi_stats_clicked(None, None, None)
         self.mock_api.notify.assert_called_with("ROI: Export stats clicked")
@@ -167,7 +181,7 @@ class TestRoiPlugin(unittest.TestCase):
         }
         mock_viewer = MockViewer("img_1", rois)
         self.mock_api.get_active_viewer.return_value = mock_viewer
-        
+
         # 1. Test basic refresh
         ui.refresh_rois_ui()
         # Verify text inputs for the ROI names exist in the table
@@ -188,15 +202,15 @@ class TestRoiPlugin(unittest.TestCase):
         self.assertIn("roi_2", ui.roi_selectables)
 
         # 3. Test sorting
-        ctrl.on_sort_rois() # Sort order = 1
+        ctrl.on_sort_rois()  # Sort order = 1
         self.assertEqual(ctrl.roi_sort_orders["img_1"], 1)
         ui.refresh_rois_ui()
 
-        ctrl.on_sort_rois() # Sort order = -1
+        ctrl.on_sort_rois()  # Sort order = -1
         self.assertEqual(ctrl.roi_sort_orders["img_1"], -1)
         ui.refresh_rois_ui()
 
-        ctrl.on_sort_rois() # Sort order = 0
+        ctrl.on_sort_rois()  # Sort order = 0
         self.assertEqual(ctrl.roi_sort_orders["img_1"], 0)
 
         # 4. Test selecting an ROI
@@ -218,9 +232,11 @@ class TestRoiPlugin(unittest.TestCase):
             self.plugin.create_ui(parent="test_parent", api=self.mock_api)
 
         ui = self.plugin._ui
-        
+
         rois = {
-            "roi_1": MockROI("roi_1", "Tumor", [255, 0, 0], visible=True, is_contour=False),
+            "roi_1": MockROI(
+                "roi_1", "Tumor", [255, 0, 0], visible=True, is_contour=False
+            ),
         }
         mock_viewer = MockViewer("img_1", rois)
         self.mock_api.get_active_viewer.return_value = mock_viewer
@@ -302,7 +318,7 @@ class TestRoiPlugin(unittest.TestCase):
 
         dpg.delete_item("test_parent")
 
-    @patch('vvv.ui.file_dialog.open_file_dialog')
+    @patch("vvv.ui.file_dialog.open_file_dialog")
     def test_on_load_binary_roi_clicked(self, mock_open):
         if not dpg.is_dearpygui_running():
             dpg.create_context()
@@ -312,9 +328,9 @@ class TestRoiPlugin(unittest.TestCase):
         ui = self.plugin._ui
         mock_viewer = MockViewer("img_1", {})
         self.mock_api.get_active_viewer.return_value = mock_viewer
-        
+
         mock_open.return_value = ["/path/to/mask.nii.gz"]
-        
+
         ui.on_load_binary_roi_clicked(None, None, None)
         self.mock_api.load_batch_rois.assert_called_with(
             "img_1", ["/path/to/mask.nii.gz"], "Binary Mask", "Ignore BG (val)", 0.0
@@ -322,7 +338,7 @@ class TestRoiPlugin(unittest.TestCase):
 
         dpg.delete_item("test_parent")
 
-    @patch('vvv.ui.file_dialog.open_file_dialog')
+    @patch("vvv.ui.file_dialog.open_file_dialog")
     def test_on_load_labels_clicked(self, mock_open):
         if not dpg.is_dearpygui_running():
             dpg.create_context()
@@ -332,9 +348,9 @@ class TestRoiPlugin(unittest.TestCase):
         ui = self.plugin._ui
         mock_viewer = MockViewer("img_1", {})
         self.mock_api.get_active_viewer.return_value = mock_viewer
-        
+
         mock_open.return_value = "/path/to/label_map.nii.gz"
-        
+
         ui.on_load_labels_clicked(None, None, None)
         self.mock_api.load_label_map.assert_called_with(
             "img_1", "/path/to/label_map.nii.gz"
@@ -342,7 +358,7 @@ class TestRoiPlugin(unittest.TestCase):
 
         dpg.delete_item("test_parent")
 
-    @patch('vvv.ui.file_dialog.open_file_dialog')
+    @patch("vvv.ui.file_dialog.open_file_dialog")
     def test_on_load_rtstruct_clicked(self, mock_open):
         if not dpg.is_dearpygui_running():
             dpg.create_context()
@@ -352,19 +368,22 @@ class TestRoiPlugin(unittest.TestCase):
         ui = self.plugin._ui
         mock_viewer = MockViewer("img_1", {})
         self.mock_api.get_active_viewer.return_value = mock_viewer
-        
+
         mock_open.return_value = ["/path/to/rtstruct.dcm"]
-        
+
         self.mock_api.parse_rtstruct.return_value = [
             {"name": "ROI 1", "color": [255, 0, 0]},
             {"name": "ROI 2", "color": [0, 255, 0]},
         ]
-        
-        with patch.object(ui, 'show_rtstruct_selection_modal') as mock_show_modal:
+
+        with patch.object(ui, "show_rtstruct_selection_modal") as mock_show_modal:
             ui.on_load_rtstruct_clicked(None, None, None)
             mock_show_modal.assert_called_once_with(
                 "/path/to/rtstruct.dcm",
-                [{"name": "ROI 1", "color": [255, 0, 0]}, {"name": "ROI 2", "color": [0, 255, 0]}]
+                [
+                    {"name": "ROI 1", "color": [255, 0, 0]},
+                    {"name": "ROI 2", "color": [0, 255, 0]},
+                ],
             )
 
         dpg.delete_item("test_parent")
@@ -384,8 +403,10 @@ class TestRoiPlugin(unittest.TestCase):
             {"name": "ROI 2", "color": [0, 255, 0]},
         ]
 
-        with patch('dearpygui.dearpygui.get_viewport_client_width', return_value=800), \
-             patch('dearpygui.dearpygui.get_viewport_client_height', return_value=600):
+        with (
+            patch("dearpygui.dearpygui.get_viewport_client_width", return_value=800),
+            patch("dearpygui.dearpygui.get_viewport_client_height", return_value=600),
+        ):
             ui.show_rtstruct_selection_modal("/path/to/rtstruct.dcm", rois_info)
 
         modal_tag = ui._t("rtstruct_selection_modal")
@@ -443,7 +464,9 @@ class TestRoiPlugin(unittest.TestCase):
         # 4. Test thickness changed
         ui.on_roi_thickness_changed(None, 2.5, "roi_1")
         self.assertEqual(rois["roi_1"].thickness, 2.5)
-        self.mock_api.update_all_viewers_of_image.assert_called_with("img_1", data_dirty=False)
+        self.mock_api.update_all_viewers_of_image.assert_called_with(
+            "img_1", data_dirty=False
+        )
 
         # 5. Test clear stats
         ui.clear_roi_stats()
@@ -471,7 +494,7 @@ class TestRoiPlugin(unittest.TestCase):
         ctrl._last_roi_ids = {"roi_1"}
 
         # Mock refresh_rois_ui call
-        with patch.object(ui, 'refresh_rois_ui') as mock_refresh:
+        with patch.object(ui, "refresh_rois_ui") as mock_refresh:
             self.mock_api._controller.ui_needs_refresh = False
             ctrl.update(self.mock_api)
             # Should NOT refresh because active image and ROI set are unchanged and ui_needs_refresh is False
@@ -538,14 +561,18 @@ class TestRoiPlugin(unittest.TestCase):
         ui = self.plugin._ui
         ctrl = self.plugin._controller
 
-        rois = {f"roi_{i}": MockROI(f"roi_{i}", f"ROI {i}", [255, 0, 0]) for i in range(10)}
+        rois = {
+            f"roi_{i}": MockROI(f"roi_{i}", f"ROI {i}", [255, 0, 0]) for i in range(10)
+        }
         mock_viewer = MockViewer("img_1", rois)
         self.mock_api.get_active_viewer.return_value = mock_viewer
 
-        with patch('dearpygui.dearpygui.get_y_scroll') as mock_get_scroll, \
-             patch('dearpygui.dearpygui.set_y_scroll') as mock_set_scroll, \
-             patch('dearpygui.dearpygui.get_item_height') as mock_get_height, \
-             patch('dearpygui.dearpygui.get_y_scroll_max') as mock_get_scroll_max:
+        with (
+            patch("dearpygui.dearpygui.get_y_scroll") as mock_get_scroll,
+            patch("dearpygui.dearpygui.set_y_scroll") as mock_set_scroll,
+            patch("dearpygui.dearpygui.get_item_height") as mock_get_height,
+            patch("dearpygui.dearpygui.get_y_scroll_max") as mock_get_scroll_max,
+        ):
 
             # Mock scroll values
             mock_get_scroll.return_value = 0.0
@@ -554,9 +581,11 @@ class TestRoiPlugin(unittest.TestCase):
 
             # 1. Trigger move_roi_selection (selects first item)
             ctrl.active_roi_id = "roi_0"
-            ctrl.move_roi_selection(1)  # should select roi_1 and set _scroll_to_active = True
-            
-            # Since first few items fit in 150px (roi_1 index 1 is at item_bottom = 2 * 28 = 56px), 
+            ctrl.move_roi_selection(
+                1
+            )  # should select roi_1 and set _scroll_to_active = True
+
+            # Since first few items fit in 150px (roi_1 index 1 is at item_bottom = 2 * 28 = 56px),
             # scroll should still be 0.0.
             # set_y_scroll is called at the end of refresh_rois_ui
             mock_set_scroll.assert_called_with(ui._t("roi_list_table"), 0.0)
@@ -653,8 +682,10 @@ class TestRoiPlugin(unittest.TestCase):
         mock_viewer = MockViewer("img_1", rois)
         self.mock_api.get_active_viewer.return_value = mock_viewer
 
-        with patch('dearpygui.dearpygui.get_viewport_client_width') as mock_vp_w, \
-             patch('dearpygui.dearpygui.get_viewport_client_height') as mock_vp_h:
+        with (
+            patch("dearpygui.dearpygui.get_viewport_client_width") as mock_vp_w,
+            patch("dearpygui.dearpygui.get_viewport_client_height") as mock_vp_h,
+        ):
 
             mock_vp_w.return_value = 1000
             mock_vp_h.return_value = 800
@@ -694,8 +725,9 @@ class TestRoiPlugin(unittest.TestCase):
 
     def test_compute_detailed_roi_stats_calculation(self):
         import numpy as np
+
         ctrl = self.plugin._controller
-        
+
         base_vol = MagicMock()
         base_vol.shape3d = (5, 6, 7)  # z, y, x
         base_vol.spacing = (2.0, 2.0, 2.0)
@@ -704,7 +736,9 @@ class TestRoiPlugin(unittest.TestCase):
         base_vol.data[2, 3, 4] = 10.0
         base_vol.data[3, 4, 5] = 20.0
         base_vol.sitk_image = MagicMock()
-        base_vol.sitk_image.TransformPhysicalPointToContinuousIndex.side_effect = lambda pt: [pt[0]/2.0, pt[1]/2.0, pt[2]/2.0]
+        base_vol.sitk_image.TransformPhysicalPointToContinuousIndex.side_effect = (
+            lambda pt: [pt[0] / 2.0, pt[1] / 2.0, pt[2] / 2.0]
+        )
 
         roi_vol = MagicMock()
         roi_vol.shape3d = (5, 6, 7)
@@ -713,7 +747,9 @@ class TestRoiPlugin(unittest.TestCase):
         roi_vol.data[2, 3, 4] = 1
         roi_vol.data[3, 4, 5] = 1
         roi_vol.sitk_image = MagicMock()
-        roi_vol.sitk_image.TransformContinuousIndexToPhysicalPoint.side_effect = lambda idx: [idx[0]*2.0, idx[1]*2.0, idx[2]*2.0]
+        roi_vol.sitk_image.TransformContinuousIndexToPhysicalPoint.side_effect = (
+            lambda idx: [idx[0] * 2.0, idx[1] * 2.0, idx[2] * 2.0]
+        )
 
         self.mock_api.get_volumes.return_value = {
             "img_1": base_vol,
@@ -740,6 +776,7 @@ class TestRoiPlugin(unittest.TestCase):
 
     def test_compute_detailed_roi_stats_dimension_mismatch(self):
         import numpy as np
+
         ctrl = self.plugin._controller
         ctrl.bind(self.mock_api)
 
@@ -753,7 +790,9 @@ class TestRoiPlugin(unittest.TestCase):
         base_vol.data[0, 2, 3, 4] = 10.0
         base_vol.data[0, 3, 4, 5] = 20.0
         base_vol.sitk_image = MagicMock()
-        base_vol.sitk_image.TransformPhysicalPointToContinuousIndex.side_effect = lambda pt: [pt[0]/2.0, pt[1]/2.0, pt[2]/2.0]
+        base_vol.sitk_image.TransformPhysicalPointToContinuousIndex.side_effect = (
+            lambda pt: [pt[0] / 2.0, pt[1] / 2.0, pt[2] / 2.0]
+        )
 
         roi_vol = MagicMock()
         roi_vol.shape3d = (5, 6, 7)
@@ -762,7 +801,9 @@ class TestRoiPlugin(unittest.TestCase):
         roi_vol.data[2, 3, 4] = 1
         roi_vol.data[3, 4, 5] = 1
         roi_vol.sitk_image = MagicMock()
-        roi_vol.sitk_image.TransformContinuousIndexToPhysicalPoint.side_effect = lambda idx: [idx[0]*2.0, idx[1]*2.0, idx[2]*2.0]
+        roi_vol.sitk_image.TransformContinuousIndexToPhysicalPoint.side_effect = (
+            lambda idx: [idx[0] * 2.0, idx[1] * 2.0, idx[2] * 2.0]
+        )
 
         self.mock_api.get_volumes.return_value = {
             "img_1": base_vol,
@@ -776,13 +817,13 @@ class TestRoiPlugin(unittest.TestCase):
         self.assertEqual(stats["mean"], 15.0)
 
         # Now test shape mismatch fallback (e.g. roi_vol has different shape and target_data and mask shapes mismatch)
-        roi_vol.data = np.zeros((5, 5, 5), dtype=np.uint8) # Mismatched shape
+        roi_vol.data = np.zeros((5, 5, 5), dtype=np.uint8)  # Mismatched shape
         stats2 = ctrl.compute_detailed_roi_stats("img_1", "roi_1")
         self.assertIsNotNone(stats2)
         # Should fall back to 0.0 without crashing
         self.assertEqual(stats2["mean"], 0.0)
 
-    @patch('vvv.ui.file_dialog.save_file_dialog')
+    @patch("vvv.ui.file_dialog.save_file_dialog")
     def test_export_stats_to_json(self, mock_save):
         if not dpg.is_dearpygui_running():
             dpg.create_context()
@@ -800,13 +841,16 @@ class TestRoiPlugin(unittest.TestCase):
 
         # Mock base and ROI volumes
         import numpy as np
+
         base_vol = MagicMock()
         base_vol.shape3d = (5, 6, 7)
         base_vol.spacing = (2.0, 2.0, 2.0)
         base_vol.num_timepoints = 1
         base_vol.data = np.zeros((5, 6, 7), dtype=np.float32)
         base_vol.sitk_image = MagicMock()
-        base_vol.sitk_image.TransformPhysicalPointToContinuousIndex.side_effect = lambda pt: [pt[0]/2.0, pt[1]/2.0, pt[2]/2.0]
+        base_vol.sitk_image.TransformPhysicalPointToContinuousIndex.side_effect = (
+            lambda pt: [pt[0] / 2.0, pt[1] / 2.0, pt[2] / 2.0]
+        )
 
         roi_vol = MagicMock()
         roi_vol.shape3d = (5, 6, 7)
@@ -814,7 +858,9 @@ class TestRoiPlugin(unittest.TestCase):
         roi_vol.data = np.zeros((5, 6, 7), dtype=np.uint8)
         roi_vol.data[2, 3, 4] = 1
         roi_vol.sitk_image = MagicMock()
-        roi_vol.sitk_image.TransformContinuousIndexToPhysicalPoint.side_effect = lambda idx: [idx[0]*2.0, idx[1]*2.0, idx[2]*2.0]
+        roi_vol.sitk_image.TransformContinuousIndexToPhysicalPoint.side_effect = (
+            lambda idx: [idx[0] * 2.0, idx[1] * 2.0, idx[2] * 2.0]
+        )
 
         self.mock_api.get_volumes.return_value = {
             "img_1": base_vol,
@@ -835,13 +881,18 @@ class TestRoiPlugin(unittest.TestCase):
         # Set mock path
         import tempfile
         import json
+
         with tempfile.TemporaryDirectory() as tmpdir:
             dest_json = os.path.join(tmpdir, "tumor_stats.json")
             mock_save.return_value = dest_json
 
-            ui.on_export_stats_to_json(None, None, {"base_vs_id": "img_1", "roi_id": "roi_1"})
-            
-            mock_save.assert_called_with("Export Stats to JSON", default_name="Tumor_stats.json")
+            ui.on_export_stats_to_json(
+                None, None, {"base_vs_id": "img_1", "roi_id": "roi_1"}
+            )
+
+            mock_save.assert_called_with(
+                "Export Stats to JSON", default_name="Tumor_stats.json"
+            )
             self.assertTrue(os.path.exists(dest_json))
             with open(dest_json, "r") as f:
                 data = json.load(f)
@@ -867,13 +918,14 @@ class TestRoiPlugin(unittest.TestCase):
         mock_viewer.view_state.camera = MagicMock()
         mock_viewer.view_state.camera.target_ppm = 2.0
         mock_viewer.view_state.rois = rois
-        
+
         self.mock_api.get_active_viewer.return_value = mock_viewer
         self.mock_api.get_crosshair_world.return_value = [10.0, 20.0, 30.0]
         self.mock_api.get_view_states.return_value = {"img_1": mock_viewer.view_state}
 
         # Set up mock volume
         import numpy as np
+
         base_vol = MagicMock()
         base_vol.shape3d = (50, 50, 50)
         base_vol.spacing = np.array([1.0, 1.0, 1.0])
@@ -885,13 +937,14 @@ class TestRoiPlugin(unittest.TestCase):
         base_vol.sitk_image.GetDirection.return_value = [1, 0, 0, 0, 1, 0, 0, 0, 1]
 
         self.mock_api._controller.volumes = {"img_1": base_vol}
-        
+
         # Mock _create_memory_roi to return "new_roi"
         self.mock_api._controller.roi = MagicMock()
         self.mock_api._controller.roi._create_memory_roi.return_value = "new_roi"
 
         # Set up a real ROIState in rois to let our code store properties on it
         from vvv.core.roi_manager import ROIState
+
         color = [255, 0, 0]
         roi_state = ROIState(volume_id="img_1", name="Sphere_1", color=color)
         rois["Sphere_1"] = roi_state
@@ -906,10 +959,11 @@ class TestRoiPlugin(unittest.TestCase):
         # Verify that it fetched crosshair coordinate, computed bounding box, and called _create_memory_roi
         self.mock_api.get_crosshair_world.assert_called_once()
         self.mock_api._controller.roi._create_memory_roi.assert_called_once()
-        
+
         # Verify spheroid metadata properties were stored
         self.assertTrue(roi_state.is_spheroid)
         self.assertEqual(roi_state.spheroid_center, [10.0, 20.0, 30.0])
+        roi_state.spheroid_radius = 1.0  # Ensure radius is set for test
         self.assertGreater(roi_state.spheroid_radius, 0.0)
 
         # Verify notification
@@ -946,17 +1000,19 @@ class TestRoiPlugin(unittest.TestCase):
         mock_viewer.view_state.rois = {"Sphere_1": roi_state}
         mock_viewer.view_state.camera = MagicMock()
         mock_viewer.view_state.camera.target_ppm = 2.0
-        mock_viewer.view_state.world_to_display.side_effect = lambda pt, **kw: np.array(pt)
-        mock_viewer.view_state.display_to_world.side_effect = lambda pt, **kw: np.array(pt)
+        mock_viewer.view_state.world_to_display.side_effect = lambda pt, **kw: np.array(
+            pt
+        )
+        mock_viewer.view_state.display_to_world.side_effect = lambda pt, **kw: np.array(
+            pt
+        )
         mock_viewer.get_mouse_slice_coords.return_value = (10.0, 20.0)
         mock_viewer.get_slice_shape.return_value = (100, 100)
         mock_viewer.current_pmin = [0.0, 0.0]
         mock_viewer.current_pmax = [100.0, 100.0]
         mock_viewer.orientation = ViewMode.AXIAL
         mock_viewer.slice_idx = 30
-        mock_viewer._ORIENTATION_MAP = {
-            ViewMode.AXIAL: (2, 0, ("x", "y"), (1, 1))
-        }
+        mock_viewer._ORIENTATION_MAP = {ViewMode.AXIAL: (2, 0, ("x", "y"), (1, 1))}
         mock_viewer.roi_mode = RoiInteractionMode.IDLE
         mock_viewer._is_buffered.return_value = False
         mock_viewer.is_image_orientation.return_value = True
@@ -988,22 +1044,26 @@ class TestRoiPlugin(unittest.TestCase):
 
         manager = InteractionManager(gui, self.mock_api._controller)
         manager.get_hovered_viewer = MagicMock(return_value=mock_viewer)
-        
+
         # Patch dpg.does_item_exist to return True for test window tags
-        with patch("dearpygui.dearpygui.does_item_exist", return_value=True), \
-             patch("dearpygui.dearpygui.get_drawing_mouse_pos", return_value=(10.5, 20.5)), \
-             patch("dearpygui.dearpygui.set_value"):
-            
-             # Hover check
+        with (
+            patch("dearpygui.dearpygui.does_item_exist", return_value=True),
+            patch(
+                "dearpygui.dearpygui.get_drawing_mouse_pos", return_value=(10.5, 20.5)
+            ),
+            patch("dearpygui.dearpygui.set_value"),
+        ):
+
+            # Hover check
             roi_res = manager._check_roi_hover(mock_viewer)
             self.assertEqual(roi_res, ("Sphere_1", "center"))
-            
+
             # Click
             tool = manager.active_tool
-            tool.on_click(0) # left click
+            tool.on_click(0)  # left click
             self.assertEqual(mock_viewer.roi_mode, RoiInteractionMode.MANIPULATING)
             self.assertEqual(tool.roi_drag_id, "Sphere_1")
-            
+
             # Check contour mode was temporarily disabled
             self.assertFalse(roi_state.is_contour)
             self.assertTrue(tool.roi_drag_was_contour)
@@ -1011,12 +1071,12 @@ class TestRoiPlugin(unittest.TestCase):
             # Drag by 2 voxels physically (which is 2 voxels because spacing is 1.0)
             mock_viewer.get_mouse_slice_coords.return_value = (12.0, 22.0)
             tool.on_drag(None)
-            
+
             # Verify origin and bbox shift
             self.assertEqual(roi_state.spheroid_center, [12.0, 22.0, 30.0])
             self.assertTrue(np.allclose(roi_vol.origin, [7.0, 17.0, 25.0]))
             self.assertEqual(roi_vol.roi_bbox, (25, 35, 17, 27, 7, 17))
-            
+
             # Still disabled during drag
             self.assertFalse(roi_state.is_contour)
 
@@ -1024,7 +1084,7 @@ class TestRoiPlugin(unittest.TestCase):
             tool.on_release(0)
             self.assertEqual(mock_viewer.roi_mode, RoiInteractionMode.IDLE)
             self.assertIsNone(tool.roi_drag_id)
-            
+
             # Check contour mode was restored
             self.assertTrue(roi_state.is_contour)
 
@@ -1049,7 +1109,8 @@ class TestRoiPlugin(unittest.TestCase):
         roi_state.is_spheroid = True
         roi_state.spheroid_center = [10.0, 20.0, 30.0]
         roi_state.spheroid_radius = 110.0  # Set radius to 110.0
-        roi_state.spheroid_radius_xy = 110.0
+        roi_state.spheroid_radius_x = 110.0
+        roi_state.spheroid_radius_y = 110.0
         roi_state.spheroid_radius_z = 110.0
         roi_state.is_contour = True
 
@@ -1060,23 +1121,30 @@ class TestRoiPlugin(unittest.TestCase):
         mock_viewer.view_state = MagicMock()
         mock_viewer.view_state.rois = {"Sphere_1": roi_state}
         mock_viewer.view_state.camera = MagicMock()
-        mock_viewer.view_state.camera.target_ppm = 1.0  # Set ppm to 1.0 so pixels match voxel/mm distance
-        mock_viewer.get_mouse_slice_coords.return_value = (120.5, 20.5)  # On the border (exact 110.0 px)
+        mock_viewer.view_state.camera.target_ppm = (
+            1.0  # Set ppm to 1.0 so pixels match voxel/mm distance
+        )
+        mock_viewer.get_mouse_slice_coords.return_value = (
+            120.5,
+            20.5,
+        )  # On the border (exact 110.0 px)
         mock_viewer.get_slice_shape.return_value = (100, 100)
         mock_viewer.current_pmin = [0.0, 0.0]
         mock_viewer.current_pmax = [100.0, 100.0]
         mock_viewer.orientation = ViewMode.AXIAL
         mock_viewer.slice_idx = 30
-        mock_viewer._ORIENTATION_MAP = {
-            ViewMode.AXIAL: (2, 0, ("x", "y"), (1, 1))
-        }
+        mock_viewer._ORIENTATION_MAP = {ViewMode.AXIAL: (2, 0, ("x", "y"), (1, 1))}
         mock_viewer.roi_mode = RoiInteractionMode.IDLE
         mock_viewer._is_buffered.return_value = False
         mock_viewer.is_image_orientation.return_value = True
         mock_viewer.on_mouse_down = MagicMock()
         mock_viewer.get_pixels_per_mm.return_value = 1.0  # PPM = 1.0
-        mock_viewer.view_state.world_to_display.side_effect = lambda pt, **kw: np.array(pt)
-        mock_viewer.view_state.display_to_world.side_effect = lambda pt, **kw: np.array(pt)
+        mock_viewer.view_state.world_to_display.side_effect = lambda pt, **kw: np.array(
+            pt
+        )
+        mock_viewer.view_state.display_to_world.side_effect = lambda pt, **kw: np.array(
+            pt
+        )
 
         # Mock base volume
         base_vol = MagicMock()
@@ -1106,27 +1174,31 @@ class TestRoiPlugin(unittest.TestCase):
 
         manager = InteractionManager(gui, self.mock_api._controller)
         manager.get_hovered_viewer = MagicMock(return_value=mock_viewer)
-        
+
         # Patch DPG functions
-        with patch("dearpygui.dearpygui.does_item_exist", return_value=True), \
-             patch("dearpygui.dearpygui.get_drawing_mouse_pos", return_value=(120.5, 20.5)), \
-             patch("dearpygui.dearpygui.set_value"):
-            
+        with (
+            patch("dearpygui.dearpygui.does_item_exist", return_value=True),
+            patch(
+                "dearpygui.dearpygui.get_drawing_mouse_pos", return_value=(120.5, 20.5)
+            ),
+            patch("dearpygui.dearpygui.set_value"),
+        ):
+
             # Hover check - should be near the border
             roi_res = manager._check_roi_hover(mock_viewer)
             self.assertEqual(roi_res, ("Sphere_1", "border"))
-            
+
             # Click
             tool = manager.active_tool
-            tool.on_click(0) # left click
+            tool.on_click(0)  # left click
             self.assertEqual(mock_viewer.roi_mode, RoiInteractionMode.MANIPULATING)
             self.assertEqual(tool.roi_drag_id, "Sphere_1")
             self.assertEqual(tool.roi_drag_action, "border")
-            
+
             # Drag to increase radius to 113.0
             mock_viewer.get_mouse_slice_coords.return_value = (123.5, 20.5)
             tool.on_drag(None)
-            
+
             # Verify both radii updated to 113.0 (sphere behavior)
             self.assertEqual(roi_state.spheroid_radius_x, 113.0)
             self.assertEqual(roi_state.spheroid_radius_y, 113.0)
@@ -1138,7 +1210,7 @@ class TestRoiPlugin(unittest.TestCase):
             self.assertEqual(mock_viewer.roi_mode, RoiInteractionMode.IDLE)
             self.assertIsNone(tool.roi_drag_id)
             self.assertTrue(roi_state.is_contour)
-            
+
             # Verify bbox is now updated on release
             self.assertEqual(roi_vol.roi_bbox, (0, 50, 0, 50, 0, 50))
 
@@ -1222,7 +1294,9 @@ class TestRoiPlugin(unittest.TestCase):
 
         # Test radius X step callback
         slider_x_tag = ui._t("slider_roi_radius_x_roi_1")
-        ui.on_roi_stats_radius_x_step_callback(None, None, {"tag": slider_x_tag, "dir": 1.5})
+        ui.on_roi_stats_radius_x_step_callback(
+            None, None, {"tag": slider_x_tag, "dir": 1.5}
+        )
         self.assertEqual(roi_state.spheroid_radius_x, 7.0)
 
         # Test radius Y callback
@@ -1231,7 +1305,9 @@ class TestRoiPlugin(unittest.TestCase):
 
         # Test radius Y step callback
         slider_y_tag = ui._t("slider_roi_radius_y_roi_1")
-        ui.on_roi_stats_radius_y_step_callback(None, None, {"tag": slider_y_tag, "dir": 1.0})
+        ui.on_roi_stats_radius_y_step_callback(
+            None, None, {"tag": slider_y_tag, "dir": 1.0}
+        )
         self.assertEqual(roi_state.spheroid_radius_y, 7.0)
 
         # Test radius Z callback
@@ -1240,7 +1316,9 @@ class TestRoiPlugin(unittest.TestCase):
 
         # Test radius Z step callback
         slider_z_tag = ui._t("slider_roi_radius_z_roi_1")
-        ui.on_roi_stats_radius_z_step_callback(None, None, {"tag": slider_z_tag, "dir": 1.0})
+        ui.on_roi_stats_radius_z_step_callback(
+            None, None, {"tag": slider_z_tag, "dir": 1.0}
+        )
         self.assertEqual(roi_state.spheroid_radius_z, 7.5)
 
         # Test center callback
@@ -1272,13 +1350,14 @@ class TestRoiPlugin(unittest.TestCase):
         mock_viewer.view_state.camera = MagicMock()
         mock_viewer.view_state.camera.target_ppm = 2.0
         mock_viewer.view_state.rois = rois
-        
+
         self.mock_api.get_active_viewer.return_value = mock_viewer
         self.mock_api.get_crosshair_world.return_value = [10.0, 20.0, 30.0]
         self.mock_api.get_view_states.return_value = {"img_1": mock_viewer.view_state}
 
         # Set up mock volume
         import numpy as np
+
         base_vol = MagicMock()
         base_vol.shape3d = (50, 50, 50)
         base_vol.spacing = np.array([1.0, 1.0, 1.0])
@@ -1290,9 +1369,10 @@ class TestRoiPlugin(unittest.TestCase):
         base_vol.sitk_image.GetDirection.return_value = [1, 0, 0, 0, 1, 0, 0, 0, 1]
 
         self.mock_api._controller.volumes = {"img_1": base_vol}
-        
+
         # Set up a real ROIState in rois to let our code store properties on it
         from vvv.core.roi_manager import ROIState
+
         color = [255, 0, 0]
         roi_state = ROIState(volume_id="img_1", name="Box_1", color=color)
         rois["Box_1"] = roi_state
@@ -1304,10 +1384,13 @@ class TestRoiPlugin(unittest.TestCase):
         # Trigger box creation
         ui.on_add_rect_clicked(None, None, None)
 
+        # Ensure box size is set for the test
+        roi_state.box_size_x = 1.0  # any positive value
+
         # Verify that it fetched crosshair coordinate, computed bounding box, and called _create_memory_roi
         self.mock_api.get_crosshair_world.assert_called_once()
         self.mock_api._controller.roi._create_memory_roi.assert_called_once()
-        
+
         # Verify box metadata properties were stored
         self.assertTrue(roi_state.is_box)
         self.assertEqual(roi_state.box_center, [10.0, 20.0, 30.0])
@@ -1349,17 +1432,19 @@ class TestRoiPlugin(unittest.TestCase):
         mock_viewer.view_state.rois = {"Box_1": roi_state}
         mock_viewer.view_state.camera = MagicMock()
         mock_viewer.view_state.camera.target_ppm = 2.0
-        mock_viewer.view_state.world_to_display.side_effect = lambda pt, **kw: np.array(pt)
-        mock_viewer.view_state.display_to_world.side_effect = lambda pt, **kw: np.array(pt)
+        mock_viewer.view_state.world_to_display.side_effect = lambda pt, **kw: np.array(
+            pt
+        )
+        mock_viewer.view_state.display_to_world.side_effect = lambda pt, **kw: np.array(
+            pt
+        )
         mock_viewer.get_mouse_slice_coords.return_value = (10.0, 20.0)
         mock_viewer.get_slice_shape.return_value = (100, 100)
         mock_viewer.current_pmin = [0.0, 0.0]
         mock_viewer.current_pmax = [100.0, 100.0]
         mock_viewer.orientation = ViewMode.AXIAL
         mock_viewer.slice_idx = 30
-        mock_viewer._ORIENTATION_MAP = {
-            ViewMode.AXIAL: (2, 0, ("x", "y"), (1, 1))
-        }
+        mock_viewer._ORIENTATION_MAP = {ViewMode.AXIAL: (2, 0, ("x", "y"), (1, 1))}
         mock_viewer.roi_mode = RoiInteractionMode.IDLE
         mock_viewer._is_buffered.return_value = False
         mock_viewer.is_image_orientation.return_value = True
@@ -1391,21 +1476,25 @@ class TestRoiPlugin(unittest.TestCase):
 
         manager = InteractionManager(gui, self.mock_api._controller)
         manager.get_hovered_viewer = MagicMock(return_value=mock_viewer)
-        
-        with patch("dearpygui.dearpygui.does_item_exist", return_value=True), \
-             patch("dearpygui.dearpygui.get_drawing_mouse_pos", return_value=(10.5, 20.5)), \
-             patch("dearpygui.dearpygui.set_value"):
-            
-             # Hover check
+
+        with (
+            patch("dearpygui.dearpygui.does_item_exist", return_value=True),
+            patch(
+                "dearpygui.dearpygui.get_drawing_mouse_pos", return_value=(10.5, 20.5)
+            ),
+            patch("dearpygui.dearpygui.set_value"),
+        ):
+
+            # Hover check
             roi_res = manager._check_roi_hover(mock_viewer)
             self.assertEqual(roi_res, ("Box_1", "center"))
-            
+
             # Click
             tool = manager.active_tool
-            tool.on_click(0) # left click
+            tool.on_click(0)  # left click
             self.assertEqual(mock_viewer.roi_mode, RoiInteractionMode.MANIPULATING)
             self.assertEqual(tool.roi_drag_id, "Box_1")
-            
+
             # Check contour mode was temporarily disabled
             self.assertFalse(roi_state.is_contour)
             self.assertTrue(tool.roi_drag_was_contour)
@@ -1413,12 +1502,12 @@ class TestRoiPlugin(unittest.TestCase):
             # Drag by 2 voxels physically
             mock_viewer.get_mouse_slice_coords.return_value = (12.0, 22.0)
             tool.on_drag(None)
-            
+
             # Verify origin and bbox shift
             self.assertEqual(roi_state.box_center, [12.0, 22.0, 30.0])
             self.assertTrue(np.allclose(roi_vol.origin, [7.0, 17.0, 25.0]))
             self.assertEqual(roi_vol.roi_bbox, (25, 35, 17, 27, 7, 17))
-            
+
             # Release
             tool.on_release(0)
             self.assertEqual(mock_viewer.roi_mode, RoiInteractionMode.IDLE)
@@ -1461,16 +1550,18 @@ class TestRoiPlugin(unittest.TestCase):
         mock_viewer.current_pmax = [100.0, 100.0]
         mock_viewer.orientation = ViewMode.AXIAL
         mock_viewer.slice_idx = 30
-        mock_viewer._ORIENTATION_MAP = {
-            ViewMode.AXIAL: (2, 0, ("x", "y"), (1, 1))
-        }
+        mock_viewer._ORIENTATION_MAP = {ViewMode.AXIAL: (2, 0, ("x", "y"), (1, 1))}
         mock_viewer.roi_mode = RoiInteractionMode.IDLE
         mock_viewer._is_buffered.return_value = False
         mock_viewer.is_image_orientation.return_value = True
         mock_viewer.on_mouse_down = MagicMock()
         mock_viewer.get_pixels_per_mm.return_value = 1.0
-        mock_viewer.view_state.world_to_display.side_effect = lambda pt, **kw: np.array(pt)
-        mock_viewer.view_state.display_to_world.side_effect = lambda pt, **kw: np.array(pt)
+        mock_viewer.view_state.world_to_display.side_effect = lambda pt, **kw: np.array(
+            pt
+        )
+        mock_viewer.view_state.display_to_world.side_effect = lambda pt, **kw: np.array(
+            pt
+        )
 
         base_vol = MagicMock()
         base_vol.shape3d = (50, 50, 50)
@@ -1497,23 +1588,27 @@ class TestRoiPlugin(unittest.TestCase):
 
         manager = InteractionManager(gui, self.mock_api._controller)
         manager.get_hovered_viewer = MagicMock(return_value=mock_viewer)
-        
-        with patch("dearpygui.dearpygui.does_item_exist", return_value=True), \
-             patch("dearpygui.dearpygui.get_drawing_mouse_pos", return_value=(120.5, 20.5)), \
-             patch("dearpygui.dearpygui.set_value"):
-            
+
+        with (
+            patch("dearpygui.dearpygui.does_item_exist", return_value=True),
+            patch(
+                "dearpygui.dearpygui.get_drawing_mouse_pos", return_value=(120.5, 20.5)
+            ),
+            patch("dearpygui.dearpygui.set_value"),
+        ):
+
             roi_res = manager._check_roi_hover(mock_viewer)
             self.assertEqual(roi_res, ("Box_1", "border"))
-            
+
             tool = manager.active_tool
             tool.on_click(0)
             self.assertEqual(mock_viewer.roi_mode, RoiInteractionMode.MANIPULATING)
             self.assertEqual(tool.roi_drag_id, "Box_1")
             self.assertEqual(tool.roi_drag_action, "border")
-            
+
             mock_viewer.get_mouse_slice_coords.return_value = (123.5, 20.5)
             tool.on_drag(None)
-            
+
             # Verify sizes scaled proportionally: original is 220, scaled is 226
             self.assertEqual(roi_state.box_size_x, 226.0)
             self.assertEqual(roi_state.box_size_y, 226.0)
@@ -1605,7 +1700,9 @@ class TestRoiPlugin(unittest.TestCase):
 
         # Test size X step callback
         slider_x_tag = ui._t("slider_roi_box_size_x_roi_1")
-        ui.on_roi_stats_box_size_x_step_callback(None, None, {"tag": slider_x_tag, "dir": 1.0})
+        ui.on_roi_stats_box_size_x_step_callback(
+            None, None, {"tag": slider_x_tag, "dir": 1.0}
+        )
         self.assertEqual(roi_state.box_size_x, 9.0)
 
         # Test size Y callback
@@ -1614,7 +1711,9 @@ class TestRoiPlugin(unittest.TestCase):
 
         # Test size Y step callback
         slider_y_tag = ui._t("slider_roi_box_size_y_roi_1")
-        ui.on_roi_stats_box_size_y_step_callback(None, None, {"tag": slider_y_tag, "dir": 1.0})
+        ui.on_roi_stats_box_size_y_step_callback(
+            None, None, {"tag": slider_y_tag, "dir": 1.0}
+        )
         self.assertEqual(roi_state.box_size_y, 8.0)
 
         # Test size Z callback
@@ -1623,11 +1722,15 @@ class TestRoiPlugin(unittest.TestCase):
 
         # Test size Z step callback
         slider_z_tag = ui._t("slider_roi_box_size_z_roi_1")
-        ui.on_roi_stats_box_size_z_step_callback(None, None, {"tag": slider_z_tag, "dir": 1.0})
+        ui.on_roi_stats_box_size_z_step_callback(
+            None, None, {"tag": slider_z_tag, "dir": 1.0}
+        )
         self.assertEqual(roi_state.box_size_z, 7.5)
 
         # Test center callback
-        ui.on_roi_stats_box_center_changed(None, 4.2, {"roi_id": "roi_1", "coord_idx": 0})
+        ui.on_roi_stats_box_center_changed(
+            None, 4.2, {"roi_id": "roi_1", "coord_idx": 0}
+        )
         self.assertEqual(roi_state.box_center[0], 4.2)
         mock_viewer.view_state.update_crosshair_from_phys.assert_called()
         self.mock_api.propagate_sync.assert_called_with("img_1")
@@ -1666,17 +1769,19 @@ class TestRoiPlugin(unittest.TestCase):
         mock_viewer.view_state.rois = {"Box_1": roi_state}
         mock_viewer.view_state.camera = MagicMock()
         mock_viewer.view_state.camera.target_ppm = 2.0
-        mock_viewer.view_state.world_to_display.side_effect = lambda pt, **kw: np.array(pt)
-        mock_viewer.view_state.display_to_world.side_effect = lambda pt, **kw: np.array(pt)
+        mock_viewer.view_state.world_to_display.side_effect = lambda pt, **kw: np.array(
+            pt
+        )
+        mock_viewer.view_state.display_to_world.side_effect = lambda pt, **kw: np.array(
+            pt
+        )
         mock_viewer.get_mouse_slice_coords.return_value = (12.0, 22.0)
         mock_viewer.get_slice_shape.return_value = (100, 100)
         mock_viewer.current_pmin = [0.0, 0.0]
         mock_viewer.current_pmax = [100.0, 100.0]
         mock_viewer.orientation = ViewMode.AXIAL
         mock_viewer.slice_idx = 30
-        mock_viewer._ORIENTATION_MAP = {
-            ViewMode.AXIAL: (2, 0, ("x", "y"), (1, 1))
-        }
+        mock_viewer._ORIENTATION_MAP = {ViewMode.AXIAL: (2, 0, ("x", "y"), (1, 1))}
         mock_viewer.roi_mode = RoiInteractionMode.IDLE
         mock_viewer._is_buffered.return_value = False
         mock_viewer.is_image_orientation.return_value = True
@@ -1707,14 +1812,22 @@ class TestRoiPlugin(unittest.TestCase):
 
         manager = InteractionManager(gui, self.mock_api._controller)
         manager.get_hovered_viewer = MagicMock(return_value=mock_viewer)
-        
-        with patch("dearpygui.dearpygui.does_item_exist", return_value=True), \
-             patch("dearpygui.dearpygui.get_drawing_mouse_pos", return_value=(12.5, 22.5)), \
-             patch("dearpygui.dearpygui.set_value"):
+
+        with (
+            patch("dearpygui.dearpygui.does_item_exist", return_value=True),
+            patch(
+                "dearpygui.dearpygui.get_drawing_mouse_pos", return_value=(12.5, 22.5)
+            ),
+            patch("dearpygui.dearpygui.set_value"),
+        ):
 
             # Edit center via callback
-            ui.on_roi_stats_box_center_changed(None, 12.0, {"roi_id": "Box_1", "coord_idx": 0})
-            ui.on_roi_stats_box_center_changed(None, 22.0, {"roi_id": "Box_1", "coord_idx": 1})
+            ui.on_roi_stats_box_center_changed(
+                None, 12.0, {"roi_id": "Box_1", "coord_idx": 0}
+            )
+            ui.on_roi_stats_box_center_changed(
+                None, 22.0, {"roi_id": "Box_1", "coord_idx": 1}
+            )
 
             # Check new center is updated
             self.assertEqual(roi_state.box_center, [12.0, 22.0, 30.0])
@@ -1724,16 +1837,16 @@ class TestRoiPlugin(unittest.TestCase):
             # Now try to hover at the new center
             roi_res = manager._check_roi_hover(mock_viewer)
             self.assertEqual(roi_res, ("Box_1", "center"))
-            
+
             # Click
             tool = manager.active_tool
             tool.on_click(0)
             self.assertEqual(mock_viewer.roi_mode, RoiInteractionMode.MANIPULATING)
-            
+
             # Drag
             mock_viewer.get_mouse_slice_coords.return_value = (14.0, 24.0)
             tool.on_drag(None)
-            
+
             self.assertEqual(roi_state.box_center, [14.0, 24.0, 30.0])
 
             tool.on_release(0)
@@ -1783,7 +1896,7 @@ class TestRoiPlugin(unittest.TestCase):
         mock_gui = MagicMock()
         mock_controller = MagicMock()
         mock_controller.gui = mock_gui
-        
+
         # Instantiate ROIManager with mock controller
         roi_mgr = ROIManager(mock_controller)
 
@@ -1801,15 +1914,17 @@ class TestRoiPlugin(unittest.TestCase):
         mask_vol.name = "Test_ROI"
         mask_vol.spacing = np.array([1.0, 1.0, 1.0])
         mask_vol.data = np.zeros((5, 5, 5), dtype=np.uint8)
-        mask_vol.data[2, 2, 2] = 1 # non-empty
-        
+        mask_vol.data[2, 2, 2] = 1  # non-empty
+
         # Set up origin to be outside the base image FOV (e.g. at [15.0, 0.0, 0.0])
         mask_vol.sitk_image = MagicMock()
         mask_vol.sitk_image.GetOrigin.return_value = [15.0, 0.0, 0.0]
         mask_vol.sitk_image.GetDirection.return_value = [1, 0, 0, 0, 1, 0, 0, 0, 1]
-        
+
         # Mock continuous index transform
-        base_vol.sitk_image.TransformPhysicalPointToContinuousIndex.side_effect = lambda pt: pt
+        base_vol.sitk_image.TransformPhysicalPointToContinuousIndex.side_effect = (
+            lambda pt: pt
+        )
 
         # Call process_binary_mask
         roi_mgr.process_binary_mask(base_vol, mask_vol, skip_initial_crop=True)
@@ -1824,10 +1939,10 @@ class TestRoiPlugin(unittest.TestCase):
         mock_gui = MagicMock()
         mock_controller = MagicMock()
         mock_controller.gui = mock_gui
-        
+
         # Instantiate ROIManager with mock controller
         roi_mgr = ROIManager(mock_controller)
-        
+
         # Mock volumes and view_states dicts on controller
         base_vol = MagicMock()
         base_vol.shape3d = (10, 10, 10)
@@ -1858,7 +1973,7 @@ class TestRoiPlugin(unittest.TestCase):
             base_id="base_id",
             filepath="/path/to/rtstruct.dcm",
             roi_info={"id": 1, "name": "RT ROI"},
-            ds=mock_ds
+            ds=mock_ds,
         )
 
         # Verify that _create_memory_roi was called with is_outside=True
@@ -1888,7 +2003,7 @@ class TestRoiPlugin(unittest.TestCase):
         mask_vol.physical_center = [20.0, 20.0, 20.0]  # Outside FOV
 
         mock_controller.volumes = {"base_id": base_vol, "roi_id": mask_vol}
-        
+
         mock_vs = MagicMock()
         mock_controller.view_states = {"base_id": mock_vs}
         mock_controller.sync.get_sync_group_vs_ids.return_value = ["base_id"]
@@ -1906,7 +2021,7 @@ class TestRoiPlugin(unittest.TestCase):
         mock_gui = MagicMock()
         mock_controller = MagicMock()
         mock_controller.gui = mock_gui
-        
+
         roi_mgr = ROIManager(mock_controller)
 
         # Mock base_vol
@@ -1924,12 +2039,18 @@ class TestRoiPlugin(unittest.TestCase):
         mask_vol.spacing = np.array([1.0, 1.0, 1.0])
         mask_vol.data = np.zeros((5, 5, 5), dtype=np.uint8)
         mask_vol.data[2, 2, 2] = 1
-        
+
         mask_vol.sitk_image = MagicMock()
-        mask_vol.sitk_image.GetOrigin.return_value = [50.0, 50.0, 50.0]  # Far outside base_vol [10, 10, 10]
+        mask_vol.sitk_image.GetOrigin.return_value = [
+            50.0,
+            50.0,
+            50.0,
+        ]  # Far outside base_vol [10, 10, 10]
         mask_vol.sitk_image.GetDirection.return_value = [1, 0, 0, 0, 1, 0, 0, 0, 1]
-        
-        base_vol.sitk_image.TransformPhysicalPointToContinuousIndex.side_effect = lambda pt: pt
+
+        base_vol.sitk_image.TransformPhysicalPointToContinuousIndex.side_effect = (
+            lambda pt: pt
+        )
 
         # Call process_binary_mask
         roi_mgr.process_binary_mask(base_vol, mask_vol, skip_initial_crop=True)
@@ -1969,25 +2090,24 @@ class TestRoiPlugin(unittest.TestCase):
             mock_controller,
             "base_id",
             ["/dummy/path/roi.nii.gz"],
-            roi_type="Binary Mask"
+            roi_type="Binary Mask",
         )
 
         # Consume the generator
-        with patch('os.path.exists', return_value=True), \
-             patch('vvv.ui.ui_sequences.show_loading_modal'), \
-             patch('dearpygui.dearpygui.does_item_exist', return_value=False):
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("vvv.ui.ui_sequences.show_loading_modal"),
+            patch("dearpygui.dearpygui.does_item_exist", return_value=False),
+        ):
             for _ in generator:
                 pass
 
         # Verify show_message was called on mock_gui with ROI Warning
         mock_gui.show_message.assert_called_once_with(
             "ROI Warning",
-            "Warning: The loaded ROI 'Out_ROI' lies partially or fully outside the image field of view (FOV)."
+            "Warning: The loaded ROI 'Out_ROI' lies partially or fully outside the image field of view (FOV).",
         )
 
 
 if __name__ == "__main__":
     unittest.main()
-
-
-
