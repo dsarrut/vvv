@@ -40,8 +40,9 @@ class RoiPluginController(PluginTagMixin):
             self.ui.refresh_rois_ui()
 
     def on_image_removed(self, image_id: str) -> None:
-        if self.active_roi_id == image_id:
-            self.active_roi_id = None
+        # active_roi_id is a roi_id, not an image_id — always clear it;
+        # the UI list is fully rebuilt right after.
+        self.active_roi_id = None
         self.roi_filters.pop(image_id, None)
         self.roi_sort_orders.pop(image_id, None)
         if self.ui:
