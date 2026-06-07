@@ -144,6 +144,14 @@ class PluginAPI:
     def notify(self, msg, color=None):
         self._gui.show_status_message(msg, color=color)
 
+    def show_message(self, title, msg):
+        """Show a modal message dialog to the user."""
+        self._gui.show_message(title, msg)
+
+    def on_window_resize(self):
+        """Notify the GUI that plugin content has changed height and the layout needs updating."""
+        self._gui.on_window_resize()
+
     # --- Sync actions (wraps controller internals; keeps plugins off the controller directly) ---
 
     def propagate_window_level(self, image_id):

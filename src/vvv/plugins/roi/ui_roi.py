@@ -119,7 +119,7 @@ class RoiPluginUI(PluginTagMixin):
                 )
                 build_help_button(
                     "Ignore BG: Makes the specified value transparent and keeps everything else.\nTarget FG: Keeps only the exact value specified.",
-                    self.api._gui,
+                    self.api,
                 )
 
                 dpg.add_input_float(
@@ -684,7 +684,7 @@ class RoiPluginUI(PluginTagMixin):
                 color=self.api.ui_cfg["colors"]["text_dim"],
                 parent=container,
             )
-            self.api._gui.on_window_resize()
+            self.api.on_window_resize()
             return
 
         if dpg.does_item_exist(header):
@@ -780,7 +780,7 @@ class RoiPluginUI(PluginTagMixin):
 
 
         self.update_roi_stats_ui()
-        self.api._gui.on_window_resize()
+        self.api.on_window_resize()
 
     def show_rtstruct_selection_modal(self, filepath, rois_info):
         modal_tag = self._t("rtstruct_selection_modal")
@@ -913,11 +913,11 @@ class RoiPluginUI(PluginTagMixin):
         try:
             rois_info = self.api.parse_rtstruct(first_file)
         except Exception as e:
-            self.api._gui.show_message("Error", f"Failed to parse RT-Struct:\n{e}")
+            self.api.show_message("Error", f"Failed to parse RT-Struct:\n{e}")
             return
 
         if not rois_info:
-            self.api._gui.show_message(
+            self.api.show_message(
                 "No ROIs", "No valid ROIs found in this RT-Struct file."
             )
             return
