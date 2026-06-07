@@ -35,7 +35,6 @@ Plugins must only interact with the app through `PluginAPI`. Bypassing it create
 
 ## Beginner mode
 
-- [ ] Advanced controls added to `api.beginner_tags` or `api.beginner_sliders` so they are hidden in beginner mode
 - [ ] Help buttons (`build_help_button`) added next to non-obvious controls
 - [ ] Tooltips (`build_beginner_tooltip`) on labels that need explanation
 

@@ -191,10 +191,6 @@ def build_stepped_slider(
         if help_text and gui:
             sp_tag = dpg.add_spacer(width=2, show=is_beg)
             build_help_button(help_text, gui)
-            if not hasattr(gui, "beginner_sliders"):
-                gui.beginner_sliders = []
-            if tag not in gui.beginner_sliders:
-                gui.beginner_sliders.append(tag)
             if not hasattr(gui, "beginner_tags"):
                 gui.beginner_tags = []
             gui.beginner_tags.append(sp_tag)

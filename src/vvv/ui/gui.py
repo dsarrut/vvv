@@ -67,7 +67,6 @@ class MainGUI:
         self.current_workspace_path: str | None = None
         self.is_beginner_mode = False
         self.beginner_tags = []
-        self.beginner_sliders: list = []
         self.active_tab = "tab_images"
 
         # internal states
@@ -1108,8 +1107,6 @@ class MainGUI:
             self._safe_configure(tag, show=self.is_beginner_mode)
 
         w = -100 if self.is_beginner_mode else -60
-        for tag in self.beginner_sliders:
-            self._safe_configure(tag, width=w)
 
         if self.is_beginner_mode:
             dpg.bind_item_theme(sender, "active_nav_button_theme")
