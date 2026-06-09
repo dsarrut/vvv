@@ -713,9 +713,21 @@ def load_workspace_sequence(gui, controller, filepath):
                 vs.extraction.from_dict(img_data["extraction"])
             if "dvf" in img_data:
                 vs.dvf.from_dict(img_data["dvf"])
-            if "plugins" in img_data and gui:
+            # Restore plugin state (including ROI filter/sort via roi_plugin)
+            plugins_data = img_data.get("plugins", {})
+            # Backward compat: old workspaces stored roi_filter/roi_sort_order
+            # as top-level keys instead of under plugins.roi_plugin.
+            if "roi_plugin" not in plugins_data:
+                legacy_filter = img_data.get("roi_filter", "")
+                legacy_sort = img_data.get("roi_sort_order", 0)
+                if legacy_filter or legacy_sort:
+                    plugins_data["roi_plugin"] = {
+                        "roi_filter": legacy_filter,
+                        "roi_sort_order": legacy_sort,
+                    }
+            if plugins_data and gui:
                 for plugin in gui.plugins:
-                    plugin_data = img_data["plugins"].get(plugin.plugin_id, {})
+                    plugin_data = plugins_data.get(plugin.plugin_id, {})
                     if plugin_data:
                         plugin.restore_image_state(new_id, plugin_data, context="workspace")
             vs.sync_group = img_data.get("sync_group", 0)
@@ -726,12 +738,6 @@ def load_workspace_sequence(gui, controller, filepath):
                 p = ProfileLineState()
                 p.from_dict(p_dict)
                 vs.profiles[p.id] = p
-
-            # Restore ROI plugin filters and sort orders
-            roi_plugin = next((p for p in gui.plugins if p.plugin_id == "roi_plugin"), None) if gui else None
-            if roi_plugin and hasattr(roi_plugin, "_controller"):
-                roi_plugin._controller.roi_filters[new_id] = img_data.get("roi_filter", "")
-                roi_plugin._controller.roi_sort_orders[new_id] = img_data.get("roi_sort_order", 0)
 
             # Apply Overlays immediately since they are already loaded in RAM
             ov_info = img_data.get("overlay")

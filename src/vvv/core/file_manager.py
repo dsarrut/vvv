@@ -323,14 +323,6 @@ class FileManager:
             # Extract Profiles Info
             profiles_list = [p.to_dict() for p in vs.profiles.values()]
 
-            roi_filter = ""
-            roi_sort = 0
-            if self.controller.gui:
-                roi_plugin = next((p for p in self.controller.gui.plugins if p.plugin_id == "roi_plugin"), None)
-                if roi_plugin and hasattr(roi_plugin, "_controller"):
-                    roi_filter = roi_plugin._controller.roi_filters.get(vs_id, "")
-                    roi_sort = roi_plugin._controller.roi_sort_orders.get(vs_id, 0)
-
             image_entry = {
                 "path": portable_path(vol.file_paths) if len(vol.file_paths) > 1 else portable_path(vol.file_paths[0]),
                 "is_overlay_only": is_overlay,
@@ -343,8 +335,6 @@ class FileManager:
                 "overlay": overlay_info,
                 "rois": rois_list,
                 "profiles": profiles_list,
-                "roi_filter": roi_filter,
-                "roi_sort_order": roi_sort,
             }
 
             if self.controller.gui:
