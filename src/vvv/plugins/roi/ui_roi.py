@@ -1125,22 +1125,28 @@ class RoiPluginUI(PluginTagMixin):
         file_path = save_file_dialog("Save ROI As", default_name=default_name)
         if file_path:
             self.api.notify(f"Saving {roi_vol.name}...")
-            import threading
+            stop = self._c._stop_event
 
             def _save():
                 self.api.save_image(roi_id, file_path)
 
-                for vs in self.api.get_view_states().values():
-                    if roi_id in vs.rois:
-                        r = vs.rois[roi_id]
-                        r.source_type = "Binary"
-                        r.source_mode = "Target FG (val)"
-                        r.source_val = 1.0
-                        r.rtstruct_info = None
+                if stop.is_set():
+                    return
 
-                self.api.set_async_status(f"Saved: {os.path.basename(file_path)}")
-                self.api.request_refresh()
+                def _on_done():
+                    for vs in self.api.get_view_states().values():
+                        if roi_id in vs.rois:
+                            r = vs.rois[roi_id]
+                            r.source_type = "Binary"
+                            r.source_mode = "Target FG (val)"
+                            r.source_val = 1.0
+                            r.rtstruct_info = None
+                    self.api.notify(f"Saved: {os.path.basename(file_path)}")
+                    self.api.request_refresh()
 
+                self.api.run_on_main_thread(_on_done)
+
+            import threading
             threading.Thread(target=_save, daemon=True).start()
 
     def on_roi_stats_radius_x_slider_changed(self, sender, app_data, user_data):

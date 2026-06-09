@@ -82,10 +82,6 @@ class PluginAPI:
     def beginner_tags(self) -> list:
         return self._gui.beginner_tags
 
-    @property
-    def beginner_sliders(self) -> list:
-        return self._gui.beginner_sliders
-
     def create_labeled_field(self, label, tag, help_text=None):
         self._gui.create_labeled_field(label, tag, help_text=help_text)
 

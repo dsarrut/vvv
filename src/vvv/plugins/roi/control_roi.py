@@ -1,3 +1,4 @@
+import threading
 from typing import Optional
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 
@@ -16,6 +17,7 @@ class RoiPluginController(PluginTagMixin):
         self._last_image_id = None
         self._last_roi_ids = set()
         self._scroll_to_active = False
+        self._stop_event = threading.Event()
 
     def bind(self, api: PluginAPI) -> None:
         self.api = api
@@ -71,6 +73,7 @@ class RoiPluginController(PluginTagMixin):
             self.ui.load_settings(api)
 
     def destroy(self) -> None:
+        self._stop_event.set()
         if self.ui:
             self.ui.close_rtstruct_modal()
             self.ui.close_all_stats_windows()
