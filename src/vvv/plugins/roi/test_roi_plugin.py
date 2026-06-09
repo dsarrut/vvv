@@ -2108,6 +2108,151 @@ class TestRoiPlugin(unittest.TestCase):
             "Warning: The loaded ROI 'Out_ROI' lies partially or fully outside the image field of view (FOV).",
         )
 
+    def test_serialize_restore_round_trip(self):
+        """Verify that roi_filter and roi_sort_order survive a serialize → restore cycle."""
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+
+        ctrl = self.plugin._controller
+
+        rois = {
+            "roi_1": MockROI("roi_1", "Tumor", [255, 0, 0]),
+            "roi_2": MockROI("roi_2", "Kidney", [0, 255, 0]),
+        }
+        mock_viewer = MockViewer("img_1", rois)
+        self.mock_api.get_active_viewer.return_value = mock_viewer
+
+        # Set non-default filter and sort order
+        ctrl.roi_filters["img_1"] = "tum"
+        ctrl.roi_sort_orders["img_1"] = -1
+
+        # Serialize for both contexts
+        for context in ("history", "workspace"):
+            state = ctrl.serialize_image_state("img_1", context=context)
+            self.assertEqual(state["roi_filter"], "tum")
+            self.assertEqual(state["roi_sort_order"], -1)
+
+            # Clear and restore
+            ctrl.roi_filters.pop("img_1", None)
+            ctrl.roi_sort_orders.pop("img_1", None)
+            self.assertEqual(ctrl.roi_filters.get("img_1"), None)
+
+            ctrl.restore_image_state("img_1", state, context=context)
+            self.assertEqual(ctrl.roi_filters["img_1"], "tum")
+            self.assertEqual(ctrl.roi_sort_orders["img_1"], -1)
+
+        # Edge case: restore with empty/partial data should not crash
+        ctrl.restore_image_state("img_2", {})
+        self.assertEqual(ctrl.roi_filters.get("img_2"), None)
+        self.assertEqual(ctrl.roi_sort_orders.get("img_2"), None)
+
+        # Edge case: serialize for unknown image returns defaults
+        state = ctrl.serialize_image_state("unknown_image")
+        self.assertEqual(state["roi_filter"], "")
+        self.assertEqual(state["roi_sort_order"], 0)
+
+        dpg.delete_item("test_parent")
+
+    def test_on_image_removed_resets_active_roi(self):
+        """Regression: on_image_removed must always reset active_roi_id
+        regardless of whether the removed image_id matches the active ROI id.
+        The old bug compared active_roi_id (a roi_id) against image_id."""
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+
+        ctrl = self.plugin._controller
+
+        rois = {
+            "roi_A": MockROI("roi_A", "Tumor", [255, 0, 0]),
+        }
+        mock_viewer = MockViewer("img_1", rois)
+        self.mock_api.get_active_viewer.return_value = mock_viewer
+
+        # Select a ROI
+        ctrl.on_roi_selected("roi_A")
+        self.assertEqual(ctrl.active_roi_id, "roi_A")
+
+        # Set filter/sort for img_1
+        ctrl.roi_filters["img_1"] = "test"
+        ctrl.roi_sort_orders["img_1"] = 1
+
+        # Remove image — active_roi_id should be reset even though
+        # image_id ("img_1") != active_roi_id ("roi_A")
+        ctrl.on_image_removed("img_1")
+        self.assertIsNone(ctrl.active_roi_id)
+
+        # Filter and sort order for that image should be cleaned up
+        self.assertNotIn("img_1", ctrl.roi_filters)
+        self.assertNotIn("img_1", ctrl.roi_sort_orders)
+
+        # Removing an unrelated image should also reset active_roi_id
+        ctrl.on_roi_selected("roi_A")
+        ctrl.on_image_removed("img_99")  # not even a real image
+        self.assertIsNone(ctrl.active_roi_id)
+
+        dpg.delete_item("test_parent")
+
+    @patch("vvv.ui.file_dialog.save_file_dialog")
+    def test_save_roi_to_disk(self, mock_save_dialog):
+        """Test on_roi_save triggers save and updates source metadata."""
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+
+        ui = self.plugin._ui
+
+        rois = {
+            "roi_1": MockROI("roi_1", "Tumor", [255, 0, 0]),
+        }
+        rois["roi_1"].source_type = "RT-Struct"
+        rois["roi_1"].source_mode = "Ignore BG (val)"
+        rois["roi_1"].source_val = 0.0
+        rois["roi_1"].rtstruct_info = {"name": "Tumor", "id": 1}
+
+        mock_viewer = MockViewer("img_1", rois)
+        self.mock_api.get_active_viewer.return_value = mock_viewer
+        self.mock_api.get_view_states.return_value = {"img_1": mock_viewer.view_state}
+
+        mock_vol = MagicMock()
+        mock_vol.name = "Tumor"
+        self.mock_api.get_volumes.return_value = {"roi_1": mock_vol}
+
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dest = os.path.join(tmpdir, "Tumor.nii.gz")
+            mock_save_dialog.return_value = dest
+
+            # Call save
+            ui.on_roi_save(None, None, "roi_1")
+
+            # Verify dialog was opened with correct default name
+            mock_save_dialog.assert_called_with(
+                "Save ROI As", default_name="Tumor.nii.gz"
+            )
+
+            # The save runs in a background thread — simulate the _on_done callback
+            # by calling it directly (since we can't wait for threads in tests)
+            self.mock_api.save_image.assert_called_with("roi_1", dest)
+
+            # Simulate the main-thread callback
+            call_args = self.mock_api.run_on_main_thread.call_args
+            on_done_callback = call_args[0][0]
+            on_done_callback()
+
+            # Verify source metadata was updated
+            self.assertEqual(rois["roi_1"].source_type, "Binary")
+            self.assertEqual(rois["roi_1"].source_mode, "Target FG (val)")
+            self.assertEqual(rois["roi_1"].source_val, 1.0)
+            self.assertIsNone(rois["roi_1"].rtstruct_info)
+
+        dpg.delete_item("test_parent")
+
 
 if __name__ == "__main__":
     unittest.main()
