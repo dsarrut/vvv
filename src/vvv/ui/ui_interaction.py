@@ -2,10 +2,43 @@ import math
 import numpy as np
 from vvv.utils import (
     ProfileInteractionMode,
+    RoiInteractionMode,
+    ViewMode,
     voxel_to_slice,
     slice_to_voxel,
 )
 import dearpygui.dearpygui as dpg
+
+_overridden_keys = {}
+_original_is_key_down = dpg.is_key_down
+
+
+def custom_is_key_down(key):
+    if key in _overridden_keys:
+        return _overridden_keys[key]
+    return _original_is_key_down(key)
+
+
+# pyrefly: ignore [bad-assignment]
+dpg.is_key_down = custom_is_key_down
+
+
+def clear_modifier_overrides():
+    for k in range(1000):
+        try:
+            if _original_is_key_down(k):
+                _overridden_keys[k] = False
+        except Exception:
+            pass
+
+
+def clear_pan_modifier_overrides():
+    for k in [dpg.mvKey_LWin, dpg.mvKey_RWin, dpg.mvKey_LControl, dpg.mvKey_RControl]:
+        try:
+            if _original_is_key_down(k):
+                _overridden_keys[k] = False
+        except Exception:
+            pass
 
 
 class NavigationTool:
@@ -20,6 +53,15 @@ class NavigationTool:
         self.profile_drag_start_mouse_phys = None
         self.is_pan_drag = False
         self.last_pan_time = 0.0
+        # ROI drag state
+        self.roi_drag_start_center = None
+        self.roi_drag_start_origin = None
+        self.roi_drag_start_bbox = None
+        self.roi_drag_start_mouse_phys = None
+        self.roi_drag_id = None
+        self.roi_drag_was_contour = False
+        self.roi_drag_action = None
+        self.roi_drag_start_radius = None
 
     def on_click(self, button):
         # Allow Left, Middle, and Right clicks to lock the viewer for dragging
@@ -69,12 +111,64 @@ class NavigationTool:
                 self.drag_viewer.on_mouse_down()
                 return
 
+        # Handle ROI Spheroid Grab
+        if (
+            button == dpg.mvMouseButton_Left
+            and hasattr(viewer, "roi_mode")
+            and viewer.roi_mode == RoiInteractionMode.IDLE
+        ):
+            roi_res = self.manager._check_roi_hover(viewer)
+            if roi_res:
+                roi_id, part = roi_res
+                viewer.roi_mode = RoiInteractionMode.MANIPULATING
+                self.roi_drag_id = roi_id
+                self.roi_drag_action = part
+
+                vs = viewer.view_state
+                roi_state = vs.rois[roi_id]
+                is_spheroid = getattr(roi_state, "is_spheroid", False)
+                is_box = getattr(roi_state, "is_box", False)
+                if is_spheroid:
+                    self.roi_drag_start_radius_x = getattr(roi_state, "spheroid_radius_x", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+                    self.roi_drag_start_radius_y = getattr(roi_state, "spheroid_radius_y", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+                    self.roi_drag_start_radius_z = getattr(roi_state, "spheroid_radius_z", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+                    self.roi_drag_start_center = np.array(roi_state.spheroid_center)
+                else: # is_box
+                    self.roi_drag_start_radius_x = getattr(roi_state, "box_size_x", 20.0) / 2.0
+                    self.roi_drag_start_radius_y = getattr(roi_state, "box_size_y", 20.0) / 2.0
+                    self.roi_drag_start_radius_z = getattr(roi_state, "box_size_z", 20.0) / 2.0
+                    self.roi_drag_start_center = np.array(roi_state.box_center)
+
+                roi_vol = self.manager.controller.volumes.get(roi_id)
+                self.roi_drag_start_origin = np.array(roi_vol.origin)
+                self.roi_drag_start_bbox = tuple(roi_vol.roi_bbox)
+
+                # Check if it was contour mode
+                self.roi_drag_was_contour = getattr(roi_state, "is_contour", False)
+                if self.roi_drag_was_contour:
+                    roi_state.is_contour = False
+
+                px, py = viewer.get_mouse_slice_coords(ignore_hover=True)
+                if px is not None:
+                    shape = viewer.get_slice_shape()
+                    v = slice_to_voxel(
+                        px, py, viewer.slice_idx, viewer.orientation, shape
+                    )
+                    self.roi_drag_start_mouse_phys = viewer.view_state.display_to_world(
+                        np.array(v), is_buffered=viewer._is_buffered()
+                    )
+                self.drag_viewer = viewer
+                self.drag_viewer.on_mouse_down()
+                return
+
         # Trigger the viewer's anchor
         self.drag_viewer.on_mouse_down()
 
         mods = self.manager.modifiers
         is_pan_mod = mods["cmd"] or mods["ctrl"]
-        self.is_pan_drag = (is_pan_mod and button == dpg.mvMouseButton_Left) or (button == dpg.mvMouseButton_Middle)
+        self.is_pan_drag = (is_pan_mod and button == dpg.mvMouseButton_Left) or (
+            button == dpg.mvMouseButton_Middle
+        )
 
         # Crosshair snap ONLY on un-modified Left Click
         if button == dpg.mvMouseButton_Left and not mods["shift"] and not is_pan_mod:
@@ -120,6 +214,181 @@ class NavigationTool:
                     vs.is_geometry_dirty = True
                 return
 
+            if (
+                hasattr(self.drag_viewer, "roi_mode")
+                and self.drag_viewer.roi_mode == RoiInteractionMode.MANIPULATING
+            ):
+                px, py = self.drag_viewer.get_mouse_slice_coords(
+                    ignore_hover=True, allow_outside=True
+                )
+                if px is not None:
+                    vs = self.drag_viewer.view_state
+                    roi_id = self.roi_drag_id
+                    if roi_id in vs.rois:
+                        roi_state = vs.rois[roi_id]
+                        roi_vol = self.manager.controller.volumes.get(roi_id)
+                        base_vol = self.manager.controller.volumes.get(
+                            self.drag_viewer.image_id
+                        )
+
+                        if roi_vol and base_vol:
+                            shape = self.drag_viewer.get_slice_shape()
+                            v = slice_to_voxel(
+                                px,
+                                py,
+                                self.drag_viewer.slice_idx,
+                                self.drag_viewer.orientation,
+                                shape,
+                            )
+                            curr_mouse_phys = vs.display_to_world(
+                                np.array(v), is_buffered=self.drag_viewer._is_buffered()
+                            )
+
+                            is_spheroid = getattr(roi_state, "is_spheroid", False)
+                            if getattr(self, "roi_drag_action", "center") == "border":
+                                diff_phys_start = self.roi_drag_start_mouse_phys - self.roi_drag_start_center
+                                d_start = max(1.0, float(np.linalg.norm(diff_phys_start)))
+                                diff_phys_curr = curr_mouse_phys - self.roi_drag_start_center
+                                d_curr = float(np.linalg.norm(diff_phys_curr))
+                                scale = d_curr / d_start
+                                new_r_x = max(0.5, getattr(self, "roi_drag_start_radius_x", 10.0) * scale)
+                                new_r_y = max(0.5, getattr(self, "roi_drag_start_radius_y", 10.0) * scale)
+                                new_r_z = max(0.5, getattr(self, "roi_drag_start_radius_z", 10.0) * scale)
+                                if is_spheroid:
+                                    roi_state.spheroid_radius_x = new_r_x
+                                    roi_state.spheroid_radius_y = new_r_y
+                                    roi_state.spheroid_radius_z = new_r_z
+                                    roi_state.spheroid_radius_xy = new_r_x
+                                    roi_state.spheroid_radius = new_r_x
+                                else: # is_box
+                                    roi_state.box_size_x = new_r_x * 2.0
+                                    roi_state.box_size_y = new_r_y * 2.0
+                                    roi_state.box_size_z = new_r_z * 2.0
+
+                                # Find roi_plugin to update sliders and mask
+                                roi_plugin = next(
+                                    (
+                                        p
+                                        for p in self.manager.gui.plugins
+                                        if p.plugin_id == "roi_plugin"
+                                    ),
+                                    None,
+                                )
+                                if roi_plugin and hasattr(roi_plugin, "_ui"):
+                                    if is_spheroid:
+                                        slider_x_tag = roi_plugin._ui._t(f"slider_roi_radius_x_{roi_id}")
+                                        slider_y_tag = roi_plugin._ui._t(f"slider_roi_radius_y_{roi_id}")
+                                        slider_z_tag = roi_plugin._ui._t(f"slider_roi_radius_z_{roi_id}")
+                                        if dpg.does_item_exist(slider_x_tag):
+                                            dpg.set_value(slider_x_tag, new_r_x)
+                                        if dpg.does_item_exist(slider_y_tag):
+                                            dpg.set_value(slider_y_tag, new_r_y)
+                                        if dpg.does_item_exist(slider_z_tag):
+                                            dpg.set_value(slider_z_tag, new_r_z)
+                                    else: # is_box
+                                        slider_x_tag = roi_plugin._ui._t(f"slider_roi_box_size_x_{roi_id}")
+                                        slider_y_tag = roi_plugin._ui._t(f"slider_roi_box_size_y_{roi_id}")
+                                        slider_z_tag = roi_plugin._ui._t(f"slider_roi_box_size_z_{roi_id}")
+                                        if dpg.does_item_exist(slider_x_tag):
+                                            dpg.set_value(slider_x_tag, new_r_x * 2.0)
+                                        if dpg.does_item_exist(slider_y_tag):
+                                            dpg.set_value(slider_y_tag, new_r_y * 2.0)
+                                        if dpg.does_item_exist(slider_z_tag):
+                                            dpg.set_value(slider_z_tag, new_r_z * 2.0)
+
+                                # Hybrid update: update mask in real-time ONLY if size is small enough
+                                if max(new_r_x, new_r_y, new_r_z) < 100.0:
+                                    if roi_plugin:
+                                        if is_spheroid:
+                                            roi_plugin._controller.update_spheroid_mask(
+                                                base_vol, roi_vol, roi_state, new_r_x, new_r_y, new_r_z
+                                            )
+                                        else: # is_box
+                                            roi_plugin._controller.update_box_mask(
+                                                base_vol, roi_vol, roi_state, new_r_x * 2.0, new_r_y * 2.0, new_r_z * 2.0
+                                            )
+
+                                for ori in roi_state.polygons:
+                                    roi_state.polygons[ori].clear()
+
+                                self.manager.controller.update_all_viewers_of_image(
+                                    self.drag_viewer.image_id, data_dirty=True
+                                )
+                            else:
+                                delta_phys = (
+                                    curr_mouse_phys - self.roi_drag_start_mouse_phys
+                                )
+
+                                target_center_vox = (
+                                    base_vol.physic_coord_to_voxel_coord(
+                                        self.roi_drag_start_center + delta_phys
+                                    )
+                                )
+                                initial_center_vox = (
+                                    base_vol.physic_coord_to_voxel_coord(
+                                        self.roi_drag_start_center
+                                    )
+                                )
+                                delta_vox = np.round(
+                                    target_center_vox - initial_center_vox
+                                ).astype(int)
+
+                                base_sz, base_sy, base_sx = base_vol.shape3d
+                                # pyrefly: ignore [not-iterable]
+                                z0, z1, y0, y1, x0, x1 = self.roi_drag_start_bbox
+
+                                max_delta_z = base_sz - z1
+                                min_delta_z = -z0
+                                max_delta_y = base_sy - y1
+                                min_delta_y = -y0
+                                max_delta_x = base_sx - x1
+                                min_delta_x = -x0
+
+                                delta_vox[2] = np.clip(
+                                    delta_vox[2], min_delta_z, max_delta_z
+                                )
+                                delta_vox[1] = np.clip(
+                                    delta_vox[1], min_delta_y, max_delta_y
+                                )
+                                delta_vox[0] = np.clip(
+                                    delta_vox[0], min_delta_x, max_delta_x
+                                )
+
+                                new_center = base_vol.voxel_coord_to_physic_coord(
+                                    initial_center_vox + delta_vox
+                                )
+                                new_mask_origin = base_vol.voxel_coord_to_physic_coord(
+                                    base_vol.physic_coord_to_voxel_coord(
+                                        self.roi_drag_start_origin
+                                    )
+                                    + delta_vox
+                                )
+                                new_bbox = (
+                                    z0 + delta_vox[2],
+                                    z1 + delta_vox[2],
+                                    y0 + delta_vox[1],
+                                    y1 + delta_vox[1],
+                                    x0 + delta_vox[0],
+                                    x1 + delta_vox[0],
+                                )
+
+                                roi_vol.sitk_image.SetOrigin(new_mask_origin.tolist())
+                                roi_vol.origin = new_mask_origin
+                                roi_vol.roi_bbox = new_bbox
+
+                                if is_spheroid:
+                                    roi_state.spheroid_center = new_center.tolist()
+                                else: # is_box
+                                    roi_state.box_center = new_center.tolist()
+
+                                for ori in roi_state.polygons:
+                                    roi_state.polygons[ori].clear()
+
+                                self.manager.controller.update_all_viewers_of_image(
+                                    self.drag_viewer.image_id, data_dirty=True
+                                )
+                return
+
             self.drag_viewer.on_drag(drag_data)
 
     def on_release(self, button):
@@ -128,9 +397,11 @@ class NavigationTool:
             self.drag_viewer.drag_start_mouse = None
             self.drag_viewer.drag_start_pan = None
             self.drag_viewer.last_dx, self.drag_viewer.last_dy = 0, 0
+            self.drag_viewer.is_pan_drag = False
 
             if self.is_pan_drag:
                 import time
+
                 self.last_pan_time = time.time()
                 self.is_pan_drag = False
 
@@ -140,6 +411,87 @@ class NavigationTool:
                 self.profile_drag_start_p2 = None
                 self.profile_drag_start_mouse_phys = None
 
+            if (
+                hasattr(self.drag_viewer, "roi_mode")
+                and self.drag_viewer.roi_mode == RoiInteractionMode.MANIPULATING
+            ):
+                self.drag_viewer.roi_mode = RoiInteractionMode.IDLE
+
+                # Restore contour mode if it was active
+                roi_id = self.roi_drag_id
+                vs = self.drag_viewer.view_state
+                if roi_id in vs.rois:
+                    roi_state = vs.rois[roi_id]
+
+                    # If we were resizing, regenerate the 3D mask now on release
+                    if getattr(self, "roi_drag_action", "center") == "border":
+                        roi_vol = self.manager.controller.volumes.get(roi_id)
+                        base_vol = self.manager.controller.volumes.get(
+                            self.drag_viewer.image_id
+                        )
+                        if roi_vol and base_vol:
+                            roi_plugin = next(
+                                (
+                                    p
+                                    for p in self.manager.gui.plugins
+                                    if p.plugin_id == "roi_plugin"
+                                ),
+                                None,
+                            )
+                            if roi_plugin:
+                                is_spheroid = getattr(roi_state, "is_spheroid", False)
+                                if is_spheroid:
+                                    roi_plugin._controller.update_spheroid_mask(
+                                        base_vol,
+                                        roi_vol,
+                                        roi_state,
+                                        getattr(roi_state, "spheroid_radius_x", None),
+                                        getattr(roi_state, "spheroid_radius_y", None),
+                                        getattr(roi_state, "spheroid_radius_z", None),
+                                    )
+                                else: # is_box
+                                    roi_plugin._controller.update_box_mask(
+                                        base_vol,
+                                        roi_vol,
+                                        roi_state,
+                                        getattr(roi_state, "box_size_x", None),
+                                        getattr(roi_state, "box_size_y", None),
+                                        getattr(roi_state, "box_size_z", None),
+                                    )
+                                if hasattr(roi_plugin, "_ui"):
+                                    roi_plugin._ui.refresh_all_open_stats_windows()
+
+                    if getattr(self, "roi_drag_was_contour", False):
+                        roi_state.is_contour = True
+                        for ori in roi_state.polygons:
+                            roi_state.polygons[ori].clear()
+
+                self.roi_drag_start_center = None
+                self.roi_drag_start_origin = None
+                self.roi_drag_start_bbox = None
+                self.roi_drag_start_mouse_phys = None
+                self.roi_drag_id = None
+                self.roi_drag_was_contour = False
+                self.roi_drag_action = None
+                self.roi_drag_start_radius = None
+
+                # Force updates
+                self.manager.controller.update_all_viewers_of_image(
+                    self.drag_viewer.image_id, data_dirty=True
+                )
+
+                roi_plugin = next(
+                    (
+                        p
+                        for p in self.manager.gui.plugins
+                        if p.plugin_id == "roi_plugin"
+                    ),
+                    None,
+                )
+                if roi_plugin and hasattr(roi_plugin, "_ui"):
+                    roi_plugin._ui.update_roi_stats_ui()
+                    roi_plugin._ui.refresh_rois_ui()
+
             self.drag_viewer = None
 
     def _update_profile_plot(self, profile):
@@ -147,7 +499,14 @@ class NavigationTool:
             return
         plugin_win_tag = f"profile_plugin_plot_win_{profile.id}"
         if dpg.does_item_exist(plugin_win_tag):
-            profile_plugin = next((p for p in self.manager.gui.plugins if p.plugin_id == "profile_plugin"), None)
+            profile_plugin = next(
+                (
+                    p
+                    for p in self.manager.gui.plugins
+                    if p.plugin_id == "profile_plugin"
+                ),
+                None,
+            )
             if profile_plugin:
                 profile_plugin._ui.refresh_plot_series(profile)
                 profile_plugin._ui.update_plot_info(profile)
@@ -156,6 +515,7 @@ class NavigationTool:
         if self.drag_viewer is not None:
             return
         import time
+
         if time.time() - getattr(self, "last_pan_time", 0.0) < 0.25:
             return
         target = self.manager.get_hovered_viewer()
@@ -290,6 +650,139 @@ class InteractionManager:
 
         return None, None
 
+    def _check_roi_hover(self, viewer):
+        """Returns (roi_id, part) if mouse is near a spheroid ROI center/border on the current slice, else None."""
+        if not viewer or not viewer.view_state or not viewer.is_image_orientation():
+            return None
+
+        win_tag = f"win_{viewer.tag}"
+        if not dpg.does_item_exist(win_tag):
+            return None
+
+        try:
+            m_pos = dpg.get_drawing_mouse_pos()
+        except Exception:
+            return None
+
+        vs = viewer.view_state
+        shape = viewer.get_slice_shape()
+        real_h, real_w = max(1, shape[0]), max(1, shape[1])
+        pmin, pmax = viewer.current_pmin, viewer.current_pmax
+        disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
+
+        v_idx, _, _, _ = viewer._ORIENTATION_MAP.get(
+            viewer.orientation, (None, 0, None, None)
+        )
+        if v_idx is None:
+            return None
+
+        # Check all visible spheroid or box ROIs
+        for roi_id, roi_state in vs.rois.items():
+            is_spheroid = getattr(roi_state, "is_spheroid", False)
+            is_box = getattr(roi_state, "is_box", False)
+            if not roi_state.visible or (not is_spheroid and not is_box):
+                continue
+
+            if is_spheroid:
+                if roi_state.spheroid_center is None:
+                    continue
+                r_x = getattr(roi_state, "spheroid_radius_x", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+                r_y = getattr(roi_state, "spheroid_radius_y", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+                r_z = getattr(roi_state, "spheroid_radius_z", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+                center = roi_state.spheroid_center
+            else: # is_box
+                if roi_state.box_center is None:
+                    continue
+                r_x = (getattr(roi_state, "box_size_x", 20.0) / 2.0)
+                r_y = (getattr(roi_state, "box_size_y", 20.0) / 2.0)
+                r_z = (getattr(roi_state, "box_size_z", 20.0) / 2.0)
+                center = roi_state.box_center
+
+            # Calculate physical center and projected slice position
+            v_center = vs.world_to_display(
+                center, is_buffered=viewer._is_buffered()
+            )
+            if v_center is None:
+                continue
+
+            # Project to current slice plane
+            v_proj = v_center.copy()
+            v_proj[v_idx] = viewer.slice_idx
+
+            proj_phys = vs.display_to_world(v_proj, is_buffered=viewer._is_buffered())
+            if proj_phys is None:
+                continue
+
+            d_mm = abs(proj_phys[v_idx] - center[v_idx])
+            if v_idx == 2:
+                R_depth = r_z
+                r_h_base = r_x
+                r_v_base = r_y
+            elif v_idx == 1:
+                R_depth = r_y
+                r_h_base = r_x
+                r_v_base = r_z
+            else:
+                R_depth = r_x
+                r_h_base = r_y
+                r_v_base = r_z
+
+            if is_spheroid:
+                F = 1.0 - (d_mm ** 2) / (R_depth ** 2)
+                if F < 0.0:
+                    continue
+                r_h = r_h_base * math.sqrt(F)
+                r_v = r_v_base * math.sqrt(F)
+            else: # is_box
+                if d_mm > R_depth:
+                    continue
+                r_h = r_h_base
+                r_v = r_v_base
+
+            # Project center to screen pixels
+            tx, ty = voxel_to_slice(
+                v_center[0], v_center[1], v_center[2], viewer.orientation, shape
+            )
+            px = (tx / real_w) * disp_w + pmin[0]
+            py = (ty / real_h) * disp_h + pmin[1]
+
+            # Hover check: mouse within 12 pixels of center
+            dist_to_center_px = math.hypot(m_pos[0] - px, m_pos[1] - py)
+            if dist_to_center_px < 12.0:
+                return roi_id, "center"
+
+            # Hover check: mouse within 12 pixels of projected slice border
+            ppm = viewer.get_pixels_per_mm()
+            r_h_px = r_h * ppm
+            r_v_px = r_v * ppm
+
+            if is_box:
+                mx, my = m_pos[0], m_pos[1]
+                x_left = px - r_h_px
+                x_right = px + r_h_px
+                y_top = py - r_v_px
+                y_bottom = py + r_v_px
+
+                d1 = abs(mx - x_left) if (y_top - 12 <= my <= y_bottom + 12) else 1e9
+                d2 = abs(mx - x_right) if (y_top - 12 <= my <= y_bottom + 12) else 1e9
+                d3 = abs(my - y_top) if (x_left - 12 <= mx <= x_right + 12) else 1e9
+                d4 = abs(my - y_bottom) if (x_left - 12 <= mx <= x_right + 12) else 1e9
+
+                if min(d1, d2, d3, d4) < 12.0:
+                    return roi_id, "border"
+            else:
+                dx = m_pos[0] - px
+                dy = m_pos[1] - py
+                angle = math.atan2(dy, dx)
+                ex = r_h_px * math.cos(angle)
+                ey = r_v_px * math.sin(angle)
+                r_slice_px = math.hypot(ex, ey)
+
+                if abs(dist_to_center_px - r_slice_px) < 12.0:
+                    return roi_id, "border"
+
+        return None
+
     def on_mouse_click(self, sender, app_data, user_data):
         self.active_tool.on_click(app_data)
 
@@ -318,8 +811,32 @@ class InteractionManager:
                 viewer.hovered_handle_key = handle_key
                 viewer.is_geometry_dirty = True
 
+            # Check spheroid ROI hover state
+            old_hovered_roi_id = getattr(viewer, "hovered_roi_id", None)
+            old_hovered_roi_part = getattr(viewer, "hovered_roi_part", None)
+
+            roi_id_hover = None
+            roi_part_hover = None
+            if viewer == hover_viewer and (
+                not hasattr(viewer, "roi_mode")
+                or viewer.roi_mode == RoiInteractionMode.IDLE
+            ):
+                roi_res = self._check_roi_hover(viewer)
+                if roi_res:
+                    roi_id_hover, roi_part_hover = roi_res
+
+            if (
+                roi_id_hover != old_hovered_roi_id
+                or roi_part_hover != old_hovered_roi_part
+            ):
+                viewer.hovered_roi_id = roi_id_hover
+                viewer.hovered_roi_part = roi_part_hover
+                viewer.is_geometry_dirty = True
+
         # W/L Drag: Shift + Move or Right-Click Drag
-        is_wl_drag = self.modifiers["shift"] or dpg.is_mouse_button_down(dpg.mvMouseButton_Right)
+        is_wl_drag = self.modifiers["shift"] or dpg.is_mouse_button_down(
+            dpg.mvMouseButton_Right
+        )
 
         if is_wl_drag:
             # Use the locked drag target if available so it doesn't break if the mouse leaves the viewer
@@ -354,13 +871,23 @@ class InteractionManager:
 
     def on_mouse_release(self, sender, app_data, user_data):
         self.active_tool.on_release(app_data)
+        clear_pan_modifier_overrides()
 
     def on_mouse_scroll(self, sender, app_data, user_data):
         self.active_tool.on_scroll(app_data)
 
+    def on_key_release(self, sender, app_data, user_data):
+        _overridden_keys[app_data] = False
+
     def on_key_press(self, sender, app_data, user_data):
+        if app_data in _overridden_keys:
+            del _overridden_keys[app_data]
         # Prevent keyboard shortcuts from triggering while typing in text/number fields
-        roi_plugin = next((p for p in self.gui.plugins if p.plugin_id == "roi_plugin"), None) if self.gui else None
+        roi_plugin = (
+            next((p for p in self.gui.plugins if p.plugin_id == "roi_plugin"), None)
+            if self.gui
+            else None
+        )
         if roi_plugin and hasattr(roi_plugin, "_ui"):
             ui = roi_plugin._ui
             for input_id in ui.roi_selectables.values():
@@ -374,6 +901,29 @@ class InteractionManager:
             val_tag = ui._t("input_roi_val")
             if dpg.does_item_exist(val_tag) and dpg.is_item_focused(val_tag):
                 return
+
+            # Check if mouse is hovering the ROI list window
+            list_win = ui._t("roi_list_window")
+            is_hovering_list = False
+            if dpg.does_item_exist(list_win):
+                try:
+                    state = dpg.get_item_state(list_win)
+                    pos = state.get("pos")
+                    size = state.get("rect_size")
+                    m_pos = dpg.get_mouse_pos(local=False)
+                    if pos and size and m_pos:
+                        is_hovering_list = (
+                            pos[0] <= m_pos[0] <= pos[0] + size[0]
+                            and pos[1] <= m_pos[1] <= pos[1] + size[1]
+                        )
+                except Exception:
+                    pass
+            if is_hovering_list:
+                if app_data in (dpg.mvKey_Up, dpg.mvKey_Down):
+                    roi_plugin._controller.move_roi_selection(
+                        -1 if app_data == dpg.mvKey_Up else 1
+                    )
+                    return
 
         try:
             for alias in dpg.get_aliases():
@@ -395,7 +945,9 @@ class InteractionManager:
             pass
 
         # Global Application shortcuts using centralized modifiers
-        if app_data == dpg.mvKey_O and (self.modifiers["ctrl"] or self.modifiers["cmd"]):
+        if app_data == dpg.mvKey_O and (
+            self.modifiers["ctrl"] or self.modifiers["cmd"]
+        ):
             self.gui.on_open_file_clicked()
             return
 
@@ -414,7 +966,9 @@ class InteractionManager:
                 return
 
         # Plugin DICOM Browser Arrow Keys
-        dicom_plugin = next((p for p in self.gui.plugins if p.plugin_id == "dicom_plugin"), None)
+        dicom_plugin = next(
+            (p for p in self.gui.plugins if p.plugin_id == "dicom_plugin"), None
+        )
         if (
             dicom_plugin
             and hasattr(dicom_plugin, "_ui")
@@ -433,14 +987,22 @@ class InteractionManager:
 
     def update_trackers(self):
         """Continuously called by the render loop to update hover states and UI text."""
+        if not hasattr(self, "startup_cleared"):
+            clear_modifier_overrides()
+            self.startup_cleared = True
+
         mode = self.controller.settings.data["interaction"].get(
             "active_viewer_mode", "hybrid"
         )
         hover_viewer = self.get_hovered_viewer()
 
         # 0. Update Modifiers (Safe on Main Thread)
-        self.modifiers["shift"] = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(dpg.mvKey_RShift)
-        self.modifiers["ctrl"] = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl)
+        self.modifiers["shift"] = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(
+            dpg.mvKey_RShift
+        )
+        self.modifiers["ctrl"] = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(
+            dpg.mvKey_RControl
+        )
 
         is_cmd = False
         if hasattr(dpg, "mvKey_LWin"):

@@ -10,13 +10,14 @@ requires-python = ">=3.9"
 dependencies = [
     "click",
     "SimpleITK",
-    "dearpygui",
+    "dearpygui>=2.3.1",
     "numpy",
     "scikit-image",
     "pytest",
     "setproctitle",
     "pydicom",
-    "pyobjc-framework-Cocoa; sys_platform == 'darwin'"
+    "pyobjc-framework-Cocoa; sys_platform == 'darwin'",
+    "fabio"
 ]
 
 [project.optional-dependencies]

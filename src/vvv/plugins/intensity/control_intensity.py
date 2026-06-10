@@ -222,7 +222,9 @@ class IntensityController(PluginTagMixin):
                 for p_name, p_val in WL_PRESETS.items():
                     if p_val is not None:
                         if (
-                            abs(vs.display.ww - p_val["ww"]) < 1e-3
+                            vs.display.ww is not None
+                            and vs.display.wl is not None
+                            and abs(vs.display.ww - p_val["ww"]) < 1e-3
                             and abs(vs.display.wl - p_val["wl"]) < 1e-3
                         ):
                             dpg.set_value(preset_tag, p_name)
@@ -355,9 +357,10 @@ class IntensityController(PluginTagMixin):
 
                     if hs.x_center is None:
                         # pyrefly: ignore [unnecessary-type-conversion]
-                        hs.x_center = float(vs.display.wl)
+                        hs.x_center = float(vs.display.wl) if vs.display.wl is not None else 0.0
                     if hs.x_range is None:
-                        hs.x_range = max(1e-5, vs.display.ww / 0.3)
+                        ww = vs.display.ww if vs.display.ww is not None else 1.0
+                        hs.x_range = max(1e-5, ww / 0.3)
                     if hs.y_max is None:
                         hs.y_max = max_y
 
@@ -717,7 +720,8 @@ class IntensityController(PluginTagMixin):
         if not vs:
             return
 
-        ww = max(1e-5, 2.0 * abs(vs.display.wl - pos))
+        wl = vs.display.wl if vs.display.wl is not None else 0.0
+        ww = max(1e-5, 2.0 * abs(wl - pos))
         self._mark_interaction_for_image(image_id)
         vs.display.ww = ww
 
@@ -860,7 +864,8 @@ class IntensityController(PluginTagMixin):
                     if hs.x_center is not None and hs.x_range is not None:
                         self._apply_hist_x_limits(hs, image_id)
                     else:
-                        wl, ww = vs.display.wl, vs.display.ww
+                        wl = vs.display.wl if vs.display.wl is not None else 0.0
+                        ww = vs.display.ww if vs.display.ww is not None else 1.0
                         popup_x_axis = self._t(f"wl_hist_popup_x_axis_{image_id}")
                         if dpg.does_item_exist(popup_x_axis):
                             dpg.set_axis_limits(
@@ -1020,14 +1025,17 @@ class IntensityController(PluginTagMixin):
         self, image_id: str, data: dict, context: str = "history"
     ) -> None:
         hs = self._hist.get(image_id)
-        if hs is None:
+        if hs is None or not data:
             return
-        hs.use_bars = data.get("use_bars", hs.use_bars)
-        hs.use_log = data.get("use_log", hs.use_log)
-        hs.bins = data.get("bins", hs.bins)
-        hs.x_center = data.get("x_center", hs.x_center)
-        hs.x_range = data.get("x_range", hs.x_range)
-        hs.y_max = data.get("y_max", hs.y_max)
+        def get_val(key, default):
+            v = data.get(key, default)
+            return default if v is None else v
+        hs.use_bars = get_val("use_bars", hs.use_bars)
+        hs.use_log = get_val("use_log", hs.use_log)
+        hs.bins = get_val("bins", hs.bins)
+        hs.x_center = get_val("x_center", hs.x_center)
+        hs.x_range = get_val("x_range", hs.x_range)
+        hs.y_max = get_val("y_max", hs.y_max)
 
     def save_settings(self, api) -> None:
         pass

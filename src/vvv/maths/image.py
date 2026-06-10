@@ -593,11 +593,12 @@ class VolumeData:
         self.is_dvf = False
         self.num_timepoints = 1
         self.shape3d = (1, 1, 1)
-
+        self.is_outside = False
         self.read_image_metadata()
 
         # Modification tracking
-        self.last_mtime = self._get_latest_mtime()
+        self.last_mtimes = {}
+        self.update_mtime_tracker()
         self._last_check_time: float = 0.0
         self._is_outdated = False
 
@@ -1024,21 +1025,49 @@ class VolumeData:
             self.sitk_image.GetNumberOfPixels() * bytes_per_pixel / (1024 * 1024)
         )
 
+    def update_mtime_tracker(self):
+        self.last_mtimes = {}
+        if self.file_paths:
+            for p in self.file_paths:
+                try:
+                    if os.path.exists(p):
+                        self.last_mtimes[p] = os.path.getmtime(p)
+                except:
+                    pass
+        self.last_mtime = self._get_latest_mtime()
+
     def _get_latest_mtime(self):
-        try:
-            if self.file_paths and os.path.exists(self.file_paths[0]):
-                return os.path.getmtime(self.file_paths[0])
-        except:
-            pass
-        return 0
+        max_mtime = 0.0
+        if not self.file_paths:
+            return 0.0
+        for p in self.file_paths:
+            try:
+                if os.path.exists(p):
+                    mtime = os.path.getmtime(p)
+                    if mtime > max_mtime:
+                        max_mtime = mtime
+            except:
+                pass
+        return max_mtime
 
     def is_outdated(self):
         now = time.time()
         # Throttled test (every 5 seconds) to guarantee 0 GUI lag.
         if now - self._last_check_time > 5.0:
             self._last_check_time = now
-            current_mtime = self._get_latest_mtime()
-            self._is_outdated = current_mtime > self.last_mtime
+            if not hasattr(self, 'last_mtimes') or not self.last_mtimes:
+                self.update_mtime_tracker()
+            any_updated = False
+            for p in self.file_paths:
+                try:
+                    if os.path.exists(p):
+                        curr_mtime = os.path.getmtime(p)
+                        prev_mtime = self.last_mtimes.get(p, 0.0)
+                        if self.last_mtime == 0.0 or curr_mtime > prev_mtime:
+                            any_updated = True
+                except:
+                    pass
+            self._is_outdated = any_updated
         return self._is_outdated
 
     def get_physical_aspect_ratio(self, orientation):
@@ -1081,7 +1110,7 @@ class VolumeData:
             self.data = new_data
             self.read_image_metadata()
 
-            self.last_mtime = self._get_latest_mtime()
+            self.update_mtime_tracker()
             self._is_outdated = False
 
             # old_sitk safely drops out of scope here

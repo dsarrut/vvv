@@ -17,8 +17,7 @@ def build_ui_config(controller):
             "panel_av_h": av_h,
             "panel_ch_h": ch_h,
             "sidebar_gap": controller.settings.data["layout"].get("sidebar_gap", 5),
-            "roi_detail_h": 300,
-            "roi_detail_bottom_margin": 10,
+            "roi_detail_h": 170,
             "sidebar_margin_bot": 10,
             "sidebar_top_spacer": 5,
             "sidebar_item_gap": item_gap,
@@ -271,21 +270,31 @@ def register_dynamic_themes(ui_cfg, controller):
             with dpg.theme_component(dpg.mvButton):
                 dpg.add_theme_color(dpg.mvThemeCol_Button, [0, 0, 0, 0])
                 dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, [60, 60, 60])
-                dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c.get("help", [100, 180, 255]))
+                dpg.add_theme_color(
+                    dpg.mvThemeCol_Text, cfg_c.get("help", [100, 180, 255])
+                )
                 dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 3)
 
     if not dpg.does_item_exist("theme_help_nav"):
         with dpg.theme(tag="theme_help_nav"):
             with dpg.theme_component(dpg.mvButton):
                 dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 6)
-                dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c.get("help", [100, 180, 255]))
+                dpg.add_theme_color(
+                    dpg.mvThemeCol_Text, cfg_c.get("help", [100, 180, 255])
+                )
 
     if not dpg.does_item_exist("orange_button_theme"):
         with dpg.theme(tag="orange_button_theme"):
             with dpg.theme_component(dpg.mvButton):
                 dpg.add_theme_color(dpg.mvThemeCol_Button, cfg_c["outdated"])
-                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, [min(255, c + 30) for c in cfg_c["outdated"]])
-                dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, [min(255, c + 50) for c in cfg_c["outdated"]])
+                dpg.add_theme_color(
+                    dpg.mvThemeCol_ButtonHovered,
+                    [min(255, c + 30) for c in cfg_c["outdated"]],
+                )
+                dpg.add_theme_color(
+                    dpg.mvThemeCol_ButtonActive,
+                    [min(255, c + 50) for c in cfg_c["outdated"]],
+                )
                 dpg.add_theme_color(dpg.mvThemeCol_Text, [0, 0, 0, 255])
 
     if not dpg.does_item_exist("theme_rounded_nav"):

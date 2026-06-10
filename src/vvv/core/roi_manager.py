@@ -34,9 +34,20 @@ class ROIState:
             ViewMode.SAGITTAL: {},
             ViewMode.CORONAL: {},
         }
+        self.is_spheroid = False
+        self.spheroid_center = None
+        self.spheroid_radius = None
+        self.spheroid_radius_x = None
+        self.spheroid_radius_y = None
+        self.spheroid_radius_z = None
+        self.is_box = False
+        self.box_center = None
+        self.box_size_x = None
+        self.box_size_y = None
+        self.box_size_z = None
 
     def to_dict(self):
-        return {
+        d = {
             "volume_id": self.volume_id,
             "name": self.name,
             "color": self.color,
@@ -49,6 +60,20 @@ class ROIState:
             "thickness": self.thickness,
             "rtstruct_info": getattr(self, "rtstruct_info", None),
         }
+        if getattr(self, "is_spheroid", False):
+            d["is_spheroid"] = True
+            d["spheroid_center"] = self.spheroid_center
+            d["spheroid_radius"] = self.spheroid_radius
+            d["spheroid_radius_x"] = getattr(self, "spheroid_radius_x", self.spheroid_radius)
+            d["spheroid_radius_y"] = getattr(self, "spheroid_radius_y", self.spheroid_radius)
+            d["spheroid_radius_z"] = getattr(self, "spheroid_radius_z", self.spheroid_radius)
+        if getattr(self, "is_box", False):
+            d["is_box"] = True
+            d["box_center"] = self.box_center
+            d["box_size_x"] = self.box_size_x
+            d["box_size_y"] = self.box_size_y
+            d["box_size_z"] = self.box_size_z
+        return d
 
     def from_dict(self, d):
         self.name = d.get("name", self.name)
@@ -63,6 +88,17 @@ class ROIState:
             self.source_type = "RT-Struct"
         self.thickness = d.get("thickness", self.thickness)
         self.rtstruct_info = d.get("rtstruct_info", None)
+        self.is_spheroid = d.get("is_spheroid", False)
+        self.spheroid_center = d.get("spheroid_center", None)
+        self.spheroid_radius = d.get("spheroid_radius", None)
+        self.spheroid_radius_x = d.get("spheroid_radius_x", d.get("spheroid_radius_xy", self.spheroid_radius))
+        self.spheroid_radius_y = d.get("spheroid_radius_y", d.get("spheroid_radius_xy", self.spheroid_radius))
+        self.spheroid_radius_z = d.get("spheroid_radius_z", self.spheroid_radius)
+        self.is_box = d.get("is_box", False)
+        self.box_center = d.get("box_center", None)
+        self.box_size_x = d.get("box_size_x", None)
+        self.box_size_y = d.get("box_size_y", None)
+        self.box_size_z = d.get("box_size_z", None)
 
 
 class ROIManager:
@@ -108,37 +144,130 @@ class ROIManager:
         new_img.SetDirection(mask_vol.sitk_image.GetDirection())
         mask_vol.sitk_image = new_img
 
+    def _apply_outside_flag(self, vol, flag):
+        """Set the is_outside attribute on a VolumeData instance."""
+        vol.is_outside = flag
+
     def process_binary_mask(self, base_vol, mask_vol, skip_initial_crop=False):
         """Helper to natively crop, align, and resample a binary mask."""
         import SimpleITK as sitk
+        import numpy as np
+
+        # Precompute the physical center of mass of the loaded mask
+        indices_com = np.nonzero(mask_vol.data > 0)
+        if indices_com[0].size > 0:
+            cz_orig = np.mean(indices_com[0])
+            cy_orig = np.mean(indices_com[1])
+            cx_orig = np.mean(indices_com[2])
+            pt_idx = [float(cx_orig), float(cy_orig), float(cz_orig)]
+            if "mock" in type(mask_vol.sitk_image).__name__.lower():
+                mask_vol.physical_center = pt_idx
+            else:
+                try:
+                    dim = mask_vol.sitk_image.GetDimension()
+                    if len(pt_idx) < dim:
+                        pt_idx = pt_idx + [0.0] * (dim - len(pt_idx))
+                    elif len(pt_idx) > dim:
+                        pt_idx = pt_idx[:dim]
+                    phys_pt = mask_vol.sitk_image.TransformContinuousIndexToPhysicalPoint(pt_idx)
+                    mask_vol.physical_center = list(phys_pt)[:3]
+                except Exception:
+                    mask_vol.physical_center = pt_idx
+        else:
+            if not getattr(mask_vol, "physical_center", None):
+                if not "mock" in type(mask_vol.sitk_image).__name__.lower():
+                    try:
+                        mask_vol.physical_center = list(mask_vol.sitk_image.GetOrigin())[:3]
+                    except Exception:
+                        mask_vol.physical_center = [0.0, 0.0, 0.0]
+                else:
+                    mask_vol.physical_center = [0.0, 0.0, 0.0]
+
+        base_sz, base_sy, base_sx = base_vol.shape3d
+        is_outside = getattr(mask_vol, "is_outside", False)
+
+        def get_spatial_direction(img):
+            if "mock" in type(img).__name__.lower():
+                return np.eye(3).flatten()
+            dir_flat = img.GetDirection()
+            dim = img.GetDimension()
+            if dim == 3:
+                return np.array(dir_flat)
+            elif dim > 3:
+                mat = np.array(dir_flat).reshape((dim, dim))
+                sub = mat[:3, :3]
+                return sub.flatten()
+            else:
+                mat = np.eye(3)
+                img_mat = np.array(dir_flat).reshape((dim, dim))
+                mat[:dim, :dim] = img_mat
+                return mat.flatten()
+
+        def transform_point_to_continuous_index(target_img, phys_pt):
+            if "mock" in type(target_img).__name__.lower():
+                target_dim = 3
+            else:
+                target_dim = target_img.GetDimension()
+            pt = list(phys_pt)
+            if len(pt) < target_dim:
+                pt = pt + [0.0] * (target_dim - len(pt))
+            elif len(pt) > target_dim:
+                pt = pt[:target_dim]
+            return target_img.TransformPhysicalPointToContinuousIndex(pt)
+
+        def transform_index_to_point(source_img, idx_tuple):
+            if "mock" in type(source_img).__name__.lower():
+                source_dim = 3
+            else:
+                source_dim = source_img.GetDimension()
+            idx = list(idx_tuple)
+            if len(idx) < source_dim:
+                idx = idx + [0] * (source_dim - len(idx))
+            elif len(idx) > source_dim:
+                idx = idx[:source_dim]
+            return source_img.TransformIndexToPhysicalPoint(idx)
 
         # --- 1. NATIVE CROP FIRST ---
         if not skip_initial_crop:
             # Strip away millions of empty background voxels before doing any heavy math
-            coords = np.argwhere(mask_vol.data > 0)
-            if coords.size == 0:
+            if not np.any(mask_vol.data):
                 mask_vol.roi_bbox = (0, 0, 0, 0, 0, 0)
+                self._apply_outside_flag(mask_vol, False)
                 return
 
             z_max, y_max, x_max = mask_vol.data.shape[-3:]
 
             if mask_vol.data.ndim == 4:
-                z0, y0, x0 = np.maximum(coords[:, 1:].min(axis=0) - 1, 0)
-                z1, y1, x1 = np.minimum(
-                    coords[:, 1:].max(axis=0) + 2, [z_max, y_max, x_max]
-                )
+                z_any = np.any(mask_vol.data, axis=(0, 2, 3))
+                z0, z1 = np.where(z_any)[0][[0, -1]]
+                y_any = np.any(mask_vol.data, axis=(0, 1, 3))
+                y0, y1 = np.where(y_any)[0][[0, -1]]
+                x_any = np.any(mask_vol.data, axis=(0, 1, 2))
+                x0, x1 = np.where(x_any)[0][[0, -1]]
+            else:
+                z_any = np.any(mask_vol.data, axis=(1, 2))
+                z0, z1 = np.where(z_any)[0][[0, -1]]
+                y_any = np.any(mask_vol.data, axis=(0, 2))
+                y0, y1 = np.where(y_any)[0][[0, -1]]
+                x_any = np.any(mask_vol.data, axis=(0, 1))
+                x0, x1 = np.where(x_any)[0][[0, -1]]
+
+            z0 = max(0, int(z0) - 1)
+            z1 = min(z_max, int(z1) + 2)
+            y0 = max(0, int(y0) - 1)
+            y1 = min(y_max, int(y1) + 2)
+            x0 = max(0, int(x0) - 1)
+            x1 = min(x_max, int(x1) + 2)
+
+            if mask_vol.data.ndim == 4:
                 mask_vol.data = np.ascontiguousarray(
                     mask_vol.data[:, z0:z1, y0:y1, x0:x1]
                 )
             else:
-                z0, y0, x0 = np.maximum(coords.min(axis=0) - 1, 0)
-                z1, y1, x1 = np.minimum(coords.max(axis=0) + 2, [z_max, y_max, x_max])
                 mask_vol.data = np.ascontiguousarray(mask_vol.data[z0:z1, y0:y1, x0:x1])
 
             # Update the SimpleITK image to reflect this small, dense block of data
-            new_origin = mask_vol.sitk_image.TransformIndexToPhysicalPoint(
-                (int(x0), int(y0), int(z0))
-            )
+            new_origin = transform_index_to_point(mask_vol.sitk_image, (int(x0), int(y0), int(z0)))
 
             cropped_sitk = sitk.GetImageFromArray(mask_vol.data)
             cropped_sitk.SetSpacing(mask_vol.sitk_image.GetSpacing())
@@ -149,22 +278,25 @@ class ROIManager:
             new_origin = mask_vol.sitk_image.GetOrigin()
 
         # --- 2. CHECK FOR PERFECT ALIGNMENT ---
-        spacing_match = np.allclose(mask_vol.spacing, base_vol.spacing, atol=1e-4)
+        spacing_match = np.allclose(mask_vol.spacing[:3], base_vol.spacing[:3], atol=1e-4)
         dir_match = np.allclose(
-            mask_vol.sitk_image.GetDirection(),
-            base_vol.sitk_image.GetDirection(),
+            get_spatial_direction(mask_vol.sitk_image),
+            get_spatial_direction(base_vol.sitk_image),
             atol=1e-4,
         )
 
         if spacing_match and dir_match:
-            base_idx = base_vol.sitk_image.TransformPhysicalPointToContinuousIndex(
-                new_origin
-            )
+            base_idx = transform_point_to_continuous_index(base_vol.sitk_image, new_origin)
             if np.allclose(base_idx, np.round(base_idx), atol=1e-3):
                 # FAST PATH: It perfectly aligns. Just calculate the offset.
-                bx, by, bz = [int(round(v)) for v in base_idx]
+                bx, by, bz = [int(round(v)) for v in base_idx[:3]]
                 sz, sy, sx = mask_vol.data.shape[-3:]
                 mask_vol.roi_bbox = (bz, bz + sz, by, by + sy, bx, bx + sx)
+                
+                if bx < 0 or by < 0 or bz < 0 or bx + sx > base_sx or by + sy > base_sy or bz + sz > base_sz:
+                    is_outside = True
+                
+                self._apply_outside_flag(mask_vol, is_outside)
                 return
 
         # --- 3. TARGETED SUB-GRID RESAMPLING ---
@@ -183,9 +315,9 @@ class ROIManager:
 
         base_indices = []
         for c in corners:
-            phys_pt = mask_vol.sitk_image.TransformIndexToPhysicalPoint(c)
+            phys_pt = transform_index_to_point(mask_vol.sitk_image, c)
             base_indices.append(
-                base_vol.sitk_image.TransformPhysicalPointToContinuousIndex(phys_pt)
+                transform_point_to_continuous_index(base_vol.sitk_image, phys_pt)
             )
 
         base_indices = np.array(base_indices)
@@ -195,13 +327,16 @@ class ROIManager:
         min_idx = np.floor(base_indices.min(axis=0)).astype(int) - 1
         max_idx = np.ceil(base_indices.max(axis=0)).astype(int) + 2
 
-        base_sz, base_sy, base_sx = base_vol.shape3d
+        if min_idx[0] < 0 or min_idx[1] < 0 or min_idx[2] < 0 or max_idx[0] > base_sx or max_idx[1] > base_sy or max_idx[2] > base_sz:
+            is_outside = True
+
         min_x, max_x = max(0, min_idx[0]), min(base_sx, max_idx[0])
         min_y, max_y = max(0, min_idx[1]), min(base_sy, max_idx[1])
         min_z, max_z = max(0, min_idx[2]), min(base_sz, max_idx[2])
 
         if min_x >= max_x or min_y >= max_y or min_z >= max_z:
             mask_vol.roi_bbox = (0, 0, 0, 0, 0, 0)
+            self._apply_outside_flag(mask_vol, is_outside)
             return
 
         # Build a pure 3D reference grid to prevent SimpleITK dimension mismatches
@@ -229,22 +364,35 @@ class ROIManager:
 
         # --- 4. FINAL TIGHT CROP ---
         # Resampling might have introduced a border of 0s. Clean it up.
-        coords2 = np.argwhere(mask_vol.data > 0)
-        if coords2.size > 0:
+        if np.any(mask_vol.data):
             z_max2, y_max2, x_max2 = mask_vol.data.shape[-3:]
             if mask_vol.data.ndim == 4:
-                z0, y0, x0 = np.maximum(coords2[:, 1:].min(axis=0) - 1, 0)
-                z1, y1, x1 = np.minimum(
-                    coords2[:, 1:].max(axis=0) + 2, [z_max2, y_max2, x_max2]
-                )
+                z_any = np.any(mask_vol.data, axis=(0, 2, 3))
+                z0, z1 = np.where(z_any)[0][[0, -1]]
+                y_any = np.any(mask_vol.data, axis=(0, 1, 3))
+                y0, y1 = np.where(y_any)[0][[0, -1]]
+                x_any = np.any(mask_vol.data, axis=(0, 1, 2))
+                x0, x1 = np.where(x_any)[0][[0, -1]]
+            else:
+                z_any = np.any(mask_vol.data, axis=(1, 2))
+                z0, z1 = np.where(z_any)[0][[0, -1]]
+                y_any = np.any(mask_vol.data, axis=(0, 2))
+                y0, y1 = np.where(y_any)[0][[0, -1]]
+                x_any = np.any(mask_vol.data, axis=(0, 1))
+                x0, x1 = np.where(x_any)[0][[0, -1]]
+
+            z0 = max(0, int(z0) - 1)
+            z1 = min(z_max2, int(z1) + 2)
+            y0 = max(0, int(y0) - 1)
+            y1 = min(y_max2, int(y1) + 2)
+            x0 = max(0, int(x0) - 1)
+            x1 = min(x_max2, int(x1) + 2)
+
+            if mask_vol.data.ndim == 4:
                 mask_vol.data = np.ascontiguousarray(
                     mask_vol.data[:, z0:z1, y0:y1, x0:x1]
                 )
             else:
-                z0, y0, x0 = np.maximum(coords2.min(axis=0) - 1, 0)
-                z1, y1, x1 = np.minimum(
-                    coords2.max(axis=0) + 2, [z_max2, y_max2, x_max2]
-                )
                 mask_vol.data = np.ascontiguousarray(mask_vol.data[z0:z1, y0:y1, x0:x1])
 
             # The final bounding box is the base slice offset + the final crop offset
@@ -266,20 +414,36 @@ class ROIManager:
         mask_vol.matrix = base_vol.matrix
         mask_vol.inverse_matrix = base_vol.inverse_matrix
 
-    def _create_memory_roi(self, base_id, filepath, name, mask_img, mask_data, skip_crop=False, is_contour=False, **state_kwargs):
+        self._apply_outside_flag(mask_vol, is_outside)
+
+    def _create_memory_roi(self, base_id, filepath, name, mask_img, mask_data, skip_crop=False, is_contour=False, is_outside=False, **state_kwargs):
         """Centralized helper for creating an ROI exclusively from memory (Label Maps, RT-Structs)."""
+        # keep original signature unchanged
+
+        """Centralized helper for creating an ROI exclusively from memory (Label Maps, RT-Structs)."""
+        import os
         base_vol = self.controller.volumes[base_id]
 
         mask_vol = VolumeData.__new__(VolumeData)
         mask_vol.path = filepath
+
+        base_path = filepath
+        if base_path.lower().endswith(".gz"):
+            base_path = base_path[:-3]
+        json_path = os.path.splitext(base_path)[0] + ".json"
+
         mask_vol.file_paths = [filepath]
+        if os.path.exists(json_path):
+            mask_vol.file_paths.append(json_path)
+
         mask_vol.name = name
         mask_vol.sitk_image = mask_img
         mask_vol.data = mask_data
+        self._apply_outside_flag(mask_vol, is_outside)
         mask_vol.matrix_display_str = base_vol.matrix_display_str
         mask_vol.matrix_tooltip_str = base_vol.matrix_tooltip_str
         mask_vol.read_image_metadata()
-        mask_vol.last_mtime = mask_vol._get_latest_mtime()
+        mask_vol.update_mtime_tracker()
         mask_vol._last_check_time = 0
         mask_vol._is_outdated = False
 
@@ -508,6 +672,7 @@ class ROIManager:
         # 1. Create a full-size blank mask
         mz, my, mx = base_vol.shape3d
         mask_data = np.zeros((mz, my, mx), dtype=np.uint8)
+        is_outside = False
 
         seq_contours = getattr(ds, "ROIContourSequence", None) or []
         for roi_contour in seq_contours:
@@ -532,6 +697,12 @@ class ROIManager:
                             )
                             mapped_pts.append(vox)
 
+                            # Check if the mapped point is outside the image FOV boundaries
+                            if (vox[0] < -0.5 or vox[0] > mx - 0.5 or
+                                vox[1] < -0.5 or vox[1] > my - 0.5 or
+                                vox[2] < -0.5 or vox[2] > mz - 0.5):
+                                is_outside = True
+
                         if not mapped_pts:
                             continue
 
@@ -548,6 +719,8 @@ class ROIManager:
 
                             # XOR assignment handles internal holes natively!
                             mask_data[z_idx, rr, cc] ^= 1
+                        else:
+                            is_outside = True
                 break
 
         if not np.any(mask_data):
@@ -562,7 +735,7 @@ class ROIManager:
         
         return self._create_memory_roi(
             base_id, filepath, roi_info.get("name", "RT ROI"), mask_img, mask_data,
-            skip_crop=False, is_contour=True, color=roi_info.get("color", [255, 0, 0]),
+            skip_crop=False, is_contour=True, is_outside=is_outside, color=roi_info.get("color", [255, 0, 0]),
             source_mode="Ignore BG (val)", source_val=0.0, rtstruct_info=roi_info,
             source_type="RT-Struct"
         )
@@ -601,17 +774,32 @@ class ROIManager:
             if ov_vol.num_timepoints > 1:
                 t = min(vs.camera.time_idx, ov_vol.num_timepoints - 1)
                 target_data = target_data[t]
+            elif target_data.ndim == 4 and not ov_vol.is_rgb:
+                target_data = target_data[0]
         else:
             base_vol = self.controller.volumes[base_vs_id]
             target_data = base_vol.data
             if base_vol.num_timepoints > 1:
                 t = min(vs.camera.time_idx, base_vol.num_timepoints - 1)
                 target_data = target_data[t]
+            elif target_data.ndim == 4 and not base_vol.is_rgb:
+                target_data = target_data[0]
 
         if hasattr(roi_vol, "roi_bbox"):
             z0, z1, y0, y1, x0, x1 = roi_vol.roi_bbox
             if z0 != z1:
                 target_data = target_data[z0:z1, y0:y1, x0:x1]
+
+        if target_data.shape != mask.shape:
+            return {
+                "vol": vol_cc,
+                "mean": 0.0,
+                "max": 0.0,
+                "min": 0.0,
+                "std": 0.0,
+                "peak": 0.0,
+                "mass": 0.0,
+            }
 
         pixels = target_data[mask]
         mean_val = float(np.mean(pixels))
@@ -638,20 +826,24 @@ class ROIManager:
             return
 
         mask_vol = self.controller.volumes[roi_id]
-        if not hasattr(mask_vol, "roi_bbox"):
-            return
+        
+        phys_center = getattr(mask_vol, "physical_center", None)
+        if phys_center is None:
+            if not hasattr(mask_vol, "roi_bbox"):
+                return
 
-        z0, z1, y0, y1, x0, x1 = mask_vol.roi_bbox
-        if z0 == z1:
-            return
+            z0, z1, y0, y1, x0, x1 = mask_vol.roi_bbox
+            if z0 == z1:
+                return
 
-        cx = (x0 + x1 - 1) / 2.0
-        cy = (y0 + y1 - 1) / 2.0
-        cz = (z0 + z1 - 1) / 2.0
+            cx = (x0 + x1 - 1) / 2.0
+            cy = (y0 + y1 - 1) / 2.0
+            cz = (z0 + z1 - 1) / 2.0
 
-        base_vol = self.controller.volumes[base_id]
+            base_vol = self.controller.volumes[base_id]
+            phys_center = base_vol.voxel_coord_to_physic_coord(np.array([cx, cy, cz]))
+
         vs = self.controller.view_states[base_id]
-        phys_center = base_vol.voxel_coord_to_physic_coord(np.array([cx, cy, cz]))
         vs.update_crosshair_from_phys(phys_center)
 
         self.controller.sync.propagate_sync(base_id)

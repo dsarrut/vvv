@@ -61,6 +61,10 @@ class PluginAPI:
                 return True
         return False
 
+    @property
+    def ui_needs_refresh(self) -> bool:
+        return self._controller.ui_needs_refresh
+
     def get_ui_config(self):
         return self._gui.ui_cfg
 
@@ -77,10 +81,6 @@ class PluginAPI:
     @property
     def beginner_tags(self) -> list:
         return self._gui.beginner_tags
-
-    @property
-    def beginner_sliders(self) -> list:
-        return self._gui.beginner_sliders
 
     def create_labeled_field(self, label, tag, help_text=None):
         self._gui.create_labeled_field(label, tag, help_text=help_text)
@@ -139,6 +139,14 @@ class PluginAPI:
 
     def notify(self, msg, color=None):
         self._gui.show_status_message(msg, color=color)
+
+    def show_message(self, title, msg):
+        """Show a modal message dialog to the user."""
+        self._gui.show_message(title, msg)
+
+    def on_window_resize(self):
+        """Notify the GUI that plugin content has changed height and the layout needs updating."""
+        self._gui.on_window_resize()
 
     # --- Sync actions (wraps controller internals; keeps plugins off the controller directly) ---
 
@@ -219,6 +227,28 @@ class PluginAPI:
 
     def get_roi_stats(self, base_vs_id, roi_id, is_overlay) -> dict | None:
         return self._controller.roi.get_roi_stats(base_vs_id=base_vs_id, roi_id=roi_id, is_overlay=is_overlay)
+
+    def create_memory_roi(
+        self,
+        base_id,
+        filepath,
+        name,
+        mask_img,
+        mask_data,
+        skip_crop=False,
+        is_contour=False,
+        **state_kwargs,
+    ) -> str | None:
+        return self._controller.roi._create_memory_roi(
+            base_id=base_id,
+            filepath=filepath,
+            name=name,
+            mask_img=mask_img,
+            mask_data=mask_data,
+            skip_crop=skip_crop,
+            is_contour=is_contour,
+            **state_kwargs,
+        )
 
     def save_image(self, image_id, file_path) -> None:
         self._controller.save_image(image_id, file_path)

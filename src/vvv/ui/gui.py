@@ -44,8 +44,8 @@ class MainGUI:
     """
     Manages the DearPyGui user interface for VVV.
     """
-    ui_cfg: Any
 
+    ui_cfg: Any
 
     # ==========================================
     # 1. INITIALIZATION & CONFIGURATION
@@ -67,7 +67,6 @@ class MainGUI:
         self.current_workspace_path: str | None = None
         self.is_beginner_mode = False
         self.beginner_tags = []
-        self.beginner_sliders: list = []
         self.active_tab = "tab_images"
 
         # internal states
@@ -147,7 +146,10 @@ class MainGUI:
             key = (plugin.plugin_id, method_name)
             if key not in self._plugin_errors:
                 self._plugin_errors.add(key)
-                print(f"[Plugin error] {plugin.plugin_id}.{method_name}: {e}", file=sys.stderr)
+                print(
+                    f"[Plugin error] {plugin.plugin_id}.{method_name}: {e}",
+                    file=sys.stderr,
+                )
 
     # ==========================================
     # 2. LAYOUT BUILDERS
@@ -216,7 +218,11 @@ class MainGUI:
                         label="Open DICOM Browser...",
                         callback=self.open_dicom_plugin_window,
                     )
-                    build_beginner_tooltip(menu_item_dicom, "Scan local directories for DICOM series and load them.", self)
+                    build_beginner_tooltip(
+                        menu_item_dicom,
+                        "Scan local directories for DICOM series and load them.",
+                        self,
+                    )
                     dpg.add_menu_item(
                         label="Open a 4D Sequence...",
                         callback=self.on_open_4d_sequence_clicked,
@@ -402,7 +408,10 @@ class MainGUI:
                         tooltip_texts[plugin.plugin_id] = plugin.description
 
                 # Verify that active_tab still exists in the nav items
-                active_exists = any(tag == getattr(self, "active_tab", None) for _, tag in self.nav_items)
+                active_exists = any(
+                    tag == getattr(self, "active_tab", None)
+                    for _, tag in self.nav_items
+                )
                 if not active_exists:
                     old_tab = getattr(self, "active_tab", None)
                     self.active_tab = "tab_images"
@@ -421,7 +430,7 @@ class MainGUI:
                         callback=self.on_nav_clicked,
                     )
                     dpg.bind_item_theme(btn, "theme_rounded_nav")
-                    is_active = (tag == self.active_tab)
+                    is_active = tag == self.active_tab
                     if is_active and dpg.does_item_exist("active_nav_button_theme"):
                         dpg.bind_item_theme(btn, "active_nav_button_theme")
                     if tag in tooltip_texts:
@@ -465,7 +474,9 @@ class MainGUI:
     def build_sidebar_top(self):
         """Builds the content containers without the native tab_bar."""
         cfg_l = self.ui_cfg["layout"]
-        with dpg.child_window(tag="top_panel", border=True, no_scrollbar=True):
+        with dpg.child_window(
+            tag="top_panel", border=True, no_scrollbar=True, no_scroll_with_mouse=True
+        ):
             with dpg.group(indent=cfg_l["left_inner_m"]):
                 dpg.add_spacer(height=5)
                 build_tab_images(self)
@@ -488,7 +499,9 @@ class MainGUI:
         cfg_l = self.ui_cfg["layout"]
 
         # --- Panel 1: Active Viewer ---
-        with dpg.child_window(tag="av_panel", border=True, no_scrollbar=True):
+        with dpg.child_window(
+            tag="av_panel", border=True, no_scrollbar=True, no_scroll_with_mouse=True
+        ):
             with dpg.group(indent=cfg_l["left_inner_m"]):
                 dpg.add_spacer(height=5)
                 build_section_title("Active Viewer", cfg_c["text_header"])
@@ -509,7 +522,9 @@ class MainGUI:
         cfg_c = self.ui_cfg["colors"]
         cfg_l = self.ui_cfg["layout"]
 
-        with dpg.child_window(tag="ch_panel", border=True, no_scrollbar=True):
+        with dpg.child_window(
+            tag="ch_panel", border=True, no_scrollbar=True, no_scroll_with_mouse=True
+        ):
             with dpg.group(indent=cfg_l["left_inner_m"]):
                 dpg.add_spacer(height=5)
                 build_section_title("Crosshair", cfg_c["text_header"])
@@ -674,6 +689,7 @@ class MainGUI:
                 dpg.add_draw_node(tag=viewer.legend_tag)
                 dpg.add_draw_node(tag=viewer.contour_node_tag)
                 dpg.add_draw_node(tag=viewer.profile_node_tag)
+                dpg.add_draw_node(tag=viewer.roi_handle_node_tag)
                 dpg.add_draw_node(tag=viewer.vector_field_node_tag)
 
             col = self.controller.settings.data["colors"]["tracker_text"]
@@ -684,7 +700,7 @@ class MainGUI:
             mod = "Cmd" if sys.platform == "darwin" else "Ctrl"
             help_text = (
                 "Scroll: Slice"
-                f"\n{mod}+Scroll: Zoom"
+                f"\n{mod}+Scroll or key I & O: Zoom"
                 f"\n{mod}+Drag: Pan"
                 "\nShift + Drag: win/level"
             )
@@ -703,6 +719,7 @@ class MainGUI:
             dpg.add_mouse_drag_handler(callback=self.interaction.on_mouse_drag)
             dpg.add_mouse_release_handler(callback=self.interaction.on_mouse_release)
             dpg.add_key_press_handler(callback=self.interaction.on_key_press)
+            dpg.add_key_release_handler(callback=self.interaction.on_key_release)
             dpg.add_mouse_click_handler(callback=self.interaction.on_mouse_click)
             dpg.add_mouse_move_handler(callback=self.interaction.on_mouse_move)
 
@@ -795,7 +812,9 @@ class MainGUI:
 
     def refresh_rois_ui(self):
         """Pass-through bridge to the delegated ROI UI."""
-        roi_plugin = next((p for p in self.plugins if p.plugin_id == "roi_plugin"), None)
+        roi_plugin = next(
+            (p for p in self.plugins if p.plugin_id == "roi_plugin"), None
+        )
         if roi_plugin and hasattr(roi_plugin, "_ui"):
             roi_plugin._ui.refresh_rois_ui()
 
@@ -894,18 +913,6 @@ class MainGUI:
             "check_filename",
             "check_interpolation",
             "check_show_contour",
-            "btn_roi_load",
-            "combo_roi_mode",
-            "input_roi_val",
-        )
-        self._set_enabled(
-            has_rois,
-            "btn_roi_show_all",
-            "btn_roi_contour_all",
-            "btn_roi_hide_all",
-            "btn_roi_export_stats",
-            "slider_roi_global_opacity",
-            "slider_roi_global_thickness",
         )
 
         # Profile Visibility Toggle
@@ -1058,7 +1065,9 @@ class MainGUI:
             dpg.bind_item_theme(f"win_{self.context_viewer.tag}", "black_viewer_theme")
 
         # Safely deselect ROI if it doesn't belong to the new image
-        roi_plugin = next((p for p in self.plugins if p.plugin_id == "roi_plugin"), None)
+        roi_plugin = next(
+            (p for p in self.plugins if p.plugin_id == "roi_plugin"), None
+        )
         if roi_plugin and hasattr(roi_plugin, "_controller"):
             ctrl = roi_plugin._controller
             if ctrl.active_roi_id:
@@ -1098,8 +1107,6 @@ class MainGUI:
             self._safe_configure(tag, show=self.is_beginner_mode)
 
         w = -100 if self.is_beginner_mode else -60
-        for tag in self.beginner_sliders:
-            self._safe_configure(tag, width=w)
 
         if self.is_beginner_mode:
             dpg.bind_item_theme(sender, "active_nav_button_theme")
@@ -1124,7 +1131,9 @@ class MainGUI:
         for name, tag in self.nav_items:
             btn_tag = f"nav_btn_{tag}"
             if dpg.does_item_exist(btn_tag):
-                if tag == target_tab_tag and dpg.does_item_exist("active_nav_button_theme"):
+                if tag == target_tab_tag and dpg.does_item_exist(
+                    "active_nav_button_theme"
+                ):
                     dpg.bind_item_theme(btn_tag, "active_nav_button_theme")
                 else:
                     dpg.bind_item_theme(btn_tag, "theme_rounded_nav")
@@ -1175,7 +1184,9 @@ class MainGUI:
                     dpg.set_item_width("nav_panel", nav_w)
 
                     if dpg.does_item_exist("nav_top_group"):
-                        dpg.set_item_pos("nav_top_group", [4, 1])  # 1px perfect nudge down
+                        dpg.set_item_pos(
+                            "nav_top_group", [4, 1]
+                        )  # 1px perfect nudge down
 
                     bot_h = (
                         2 * cfg["nav_btn_h"]
@@ -1250,10 +1261,14 @@ class MainGUI:
                     list_h = top_h - detail_h - 250
 
                     dpg.set_item_width("roi_plugin_roi_list_window", inner_w)
-                    dpg.set_item_height("roi_plugin_roi_list_window", max(50, int(list_h)))
+                    dpg.set_item_height(
+                        "roi_plugin_roi_list_window", max(50, int(list_h))
+                    )
 
                     if dpg.does_item_exist("roi_plugin_roi_detail_window"):
-                        dpg.set_item_height("roi_plugin_roi_detail_window", max(10, detail_h - 30))
+                        dpg.set_item_height(
+                            "roi_plugin_roi_detail_window", max(10, detail_h - 30)
+                        )
 
             r_x = l_x + l_w + cfg["gap_center"]
             avail_w = window_w - r_x - cfg["right_m_right"]
@@ -1357,7 +1372,9 @@ class MainGUI:
             )
 
     def open_dicom_plugin_window(self):
-        dicom_plugin = next((p for p in self.plugins if p.plugin_id == "dicom_plugin"), None)
+        dicom_plugin = next(
+            (p for p in self.plugins if p.plugin_id == "dicom_plugin"), None
+        )
         if dicom_plugin:
             dicom_plugin.show_window()
 
@@ -1566,7 +1583,9 @@ class MainGUI:
         if viewer:
             vs = viewer.view_state
             has_fusion = bool(
-                vs and vs.display.overlay.image_id and vs.display.overlay.mode == "Alpha"
+                vs
+                and vs.display.overlay.image_id
+                and vs.display.overlay.mode == "Alpha"
             )
             use_gl = cfg.get("gl_nearest", True)
             is_hw = GL_NEAREST_SUPPORTED and use_gl
@@ -1779,9 +1798,13 @@ class MainGUI:
         self.refresh_workspace_bar()
         return load_workspace_sequence(self, self.controller, file_path)
 
-    def create_boot_sequence(self, image_tasks, sync=False, link_all=False, link_all_wl=False):
+    def create_boot_sequence(
+        self, image_tasks, sync=False, link_all=False, link_all_wl=False
+    ):
         """Wrapper to pass the CLI boot request into the external Sequence Manager."""
-        return create_boot_sequence(self, self.controller, image_tasks, sync, link_all, link_all_wl)
+        return create_boot_sequence(
+            self, self.controller, image_tasks, sync, link_all, link_all_wl
+        )
 
     def _refresh_all_ui_panels(self):
         """Consolidated handler to rebuild all dynamic side panels."""

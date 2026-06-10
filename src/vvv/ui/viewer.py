@@ -8,6 +8,7 @@ from vvv.utils import (
     fmt,
     format_pixel_value,
     ProfileInteractionMode,
+    RoiInteractionMode,
 )
 import dearpygui.dearpygui as dpg
 from vvv.ui.drawing import OverlayDrawer
@@ -209,6 +210,7 @@ class SliceViewer:
         self.contour_node_tag = f"contour_node_{tag_id}"
         self.vector_field_node_tag = f"vector_field_node_{tag_id}"
         self.profile_node_tag = f"profile_node_{tag_id}"
+        self.roi_handle_node_tag = f"roi_handle_node_{tag_id}"
         self.crosshair_tag = f"crosshair_node_{tag_id}"
         self.legend_tag = f"legend_node_{tag_id}"
         self.xh_line_h = f"xh_h_{tag_id}"
@@ -236,6 +238,7 @@ class SliceViewer:
 
         self.drag_start_mouse: Any | None = None
         self.drag_start_pan: list[float] | None = None
+        self.is_pan_drag = False
 
         # State-Only Sync Trackers
         self.last_consumed_ppm: float | None = None
@@ -245,6 +248,10 @@ class SliceViewer:
         self.profile_mode = ProfileInteractionMode.IDLE
         self.active_profile_id = None
         self.active_handle = None  # "start" or "end"
+
+        # ROI Tool Transient Interaction State
+        self.roi_mode = RoiInteractionMode.IDLE
+        self.hovered_roi_id = None
 
         # Sub-modules
         self.drawer = OverlayDrawer(self)
@@ -676,6 +683,7 @@ class SliceViewer:
             self.scale_bar_tag,
             self.crosshair_tag,
             self.profile_node_tag,
+            self.roi_handle_node_tag,
             self.legend_tag,
             self.filename_text_tag,
             self.vector_field_node_tag,
@@ -1553,10 +1561,32 @@ class SliceViewer:
                 or getattr(roi_state, "is_contour", False)
             ):
                 continue
-
             roi_vol = self.controller.volumes.get(roi_id)
             if not roi_vol or not hasattr(roi_vol, "roi_bbox"):
                 continue
+
+            # If this ROI is currently being resized, do not draw its raster overlay during the drag
+            active_drag_id = None
+            active_drag_action = None
+            if (
+                self.controller.gui
+                and hasattr(self.controller.gui, "interaction")
+                and self.controller.gui.interaction
+            ):
+                tool = self.controller.gui.interaction.active_tool
+                active_drag_id = getattr(tool, "roi_drag_id", None)
+                active_drag_action = getattr(tool, "roi_drag_action", None)
+
+            if roi_id == active_drag_id and active_drag_action == "border":
+                r = getattr(roi_state, "spheroid_radius", None)
+                if r is None:
+                    b_x = getattr(roi_state, "box_size_x", None)
+                    b_y = getattr(roi_state, "box_size_y", None)
+                    b_z = getattr(roi_state, "box_size_z", None)
+                    if b_x is not None or b_y is not None or b_z is not None:
+                        r = max(b_x or 0.0, b_y or 0.0, b_z or 0.0) / 2.0
+                if r is not None and r >= 35.0:
+                    continue
 
             z0, z1, y0, y1, x0, x1 = roi_vol.roi_bbox
             if z0 == z1:
@@ -2152,6 +2182,7 @@ class SliceViewer:
         self.drawer.draw_contours()
         self.drawer.draw_profiles()
         self.drawer.draw_vector_field()
+        self.drawer.draw_roi_handles()
         self.update_tracker()
         self.update_filename_overlay()
 
@@ -2546,6 +2577,11 @@ class SliceViewer:
                 self.controller.ui_needs_refresh = True
                 return
 
+            if key in (dpg.mvKey_Up, dpg.mvKey_Down):
+                delta = 1 if key == dpg.mvKey_Up else -1
+                self.on_time_scroll(delta)
+                return
+
         if self._shortcut_map is None:
             return
 
@@ -2759,6 +2795,13 @@ class SliceViewer:
         # 2. Snapshot the current pan so the drag delta can be added to it
         self.drag_start_pan = list(self.pan_offset)
 
+        # 3. Lock the drag mode (pan vs slice) at the start of the drag
+        mods = self.controller.gui.interaction.modifiers
+        is_pan_mod = mods["cmd"] or mods["ctrl"]
+        is_button_left = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
+        is_button_middle = dpg.is_mouse_button_down(dpg.mvMouseButton_Middle)
+        self.is_pan_drag = (is_pan_mod and is_button_left) or is_button_middle
+
     def on_drag(self, data):
         vs = self.view_state
         if self.image_id is None or not self.is_image_orientation() or not vs:
@@ -2772,11 +2815,10 @@ class SliceViewer:
         total_dx = current_pos[0] - self.drag_start_mouse[0]
         total_dy = current_pos[1] - self.drag_start_mouse[1]
 
-        # Use centralized modifiers (Safe on DPG callback threads)
-        mods = self.controller.gui.interaction.modifiers
-        is_pan_mod = mods["cmd"] or mods["ctrl"]
+        # Use the locked drag mode snapshot
+        is_pan_drag = getattr(self, "is_pan_drag", False)
         is_button_left = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
-        is_pan_drag = (is_pan_mod and is_button_left) or dpg.is_mouse_button_down(dpg.mvMouseButton_Middle)
+        mods = self.controller.gui.interaction.modifiers
 
         if not is_pan_drag and not mods["shift"] and is_button_left:
             px, py = self.get_mouse_slice_coords(ignore_hover=True, allow_outside=True)

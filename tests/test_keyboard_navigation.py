@@ -6,6 +6,7 @@ InteractionManager uses after routing — and asserts on view_state properties.
 
 Key bindings come from DEFAULT_SETTINGS["shortcuts"] in config.py.
 """
+
 import pytest
 import numpy as np
 import SimpleITK as sitk
@@ -22,6 +23,7 @@ def press(viewer, key):
 # Slice navigation (Up/Down arrows, Page Up/Down)
 # Slice navigation clamps at boundaries (does NOT wrap).
 # ---------------------------------------------------------------------------
+
 
 class TestSliceNavigation:
     def test_up_arrow_advances_slice(self, headless_gui_app):
@@ -69,6 +71,7 @@ class TestSliceNavigation:
 # The synthetic volume is (20, 30, 30) so axial and sagittal slice counts differ.
 # ---------------------------------------------------------------------------
 
+
 class TestOrientationKeys:
     def test_f1_sets_axial(self, headless_gui_app):
         _, _, viewer, _ = headless_gui_app
@@ -100,6 +103,7 @@ class TestOrientationKeys:
 # Zoom (I = in, O = out, R = reset)
 # ---------------------------------------------------------------------------
 
+
 class TestZoomKeys:
     def test_i_increases_zoom(self, headless_gui_app):
         _, _, viewer, _ = headless_gui_app
@@ -120,12 +124,15 @@ class TestZoomKeys:
         press(viewer, dpg.mvKey_I)
         assert viewer.view_state.camera.zoom[viewer.orientation] > initial
         press(viewer, dpg.mvKey_R)
-        assert viewer.view_state.camera.zoom[viewer.orientation] == pytest.approx(initial, rel=0.01)
+        assert viewer.view_state.camera.zoom[viewer.orientation] == pytest.approx(
+            initial, rel=0.01
+        )
 
 
 # ---------------------------------------------------------------------------
 # Display toggles (H, K, L, G)
 # ---------------------------------------------------------------------------
+
 
 class TestDisplayToggleKeys:
     def test_h_hides_all_overlays(self, headless_gui_app):
@@ -165,6 +172,7 @@ class TestDisplayToggleKeys:
 # Time navigation (Right / Left arrows) — requires a 4D volume.
 # Time navigation wraps around (uses % num_timepoints), does NOT clamp.
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def headless_4d_app(tmp_path):
@@ -230,3 +238,35 @@ class TestTimeNavigation:
         press(viewer, dpg.mvKey_Right)
         press(viewer, dpg.mvKey_Left)
         assert viewer.slice_idx == before
+
+
+class TestStuckKeysOverride:
+    def test_stuck_keys_override_lifecycle(self, headless_gui_app):
+        controller, gui, viewer, vs_id = headless_gui_app
+        from unittest.mock import patch
+        from vvv.ui.ui_interaction import _overridden_keys, clear_modifier_overrides
+
+        _overridden_keys.clear()
+
+        # Mock the underlying dpg.is_key_down to return True (simulating a stuck key)
+        with patch("vvv.ui.ui_interaction._original_is_key_down", return_value=True):
+            # Initially, without override, it should return True
+            assert dpg.is_key_down(dpg.mvKey_LControl) is True
+
+            # Clear modifier overrides
+            clear_modifier_overrides()
+
+            # Now, it should return False
+            assert dpg.is_key_down(dpg.mvKey_LControl) is False
+
+            # Simulate physical key press
+            gui.interaction.on_key_press(None, dpg.mvKey_LControl, None)
+
+            # It should return True again
+            assert dpg.is_key_down(dpg.mvKey_LControl) is True
+
+            # Simulate physical key release
+            gui.interaction.on_key_release(None, dpg.mvKey_LControl, None)
+
+            # It should return False again
+            assert dpg.is_key_down(dpg.mvKey_LControl) is False

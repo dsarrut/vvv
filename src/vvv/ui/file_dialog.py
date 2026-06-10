@@ -19,7 +19,35 @@ def _update_last_visited_dir(paths, is_directory=False):
         _last_visited_dir = os.path.dirname(first_path)
 
 
+def _clear_keys():
+    try:
+        from vvv.ui.ui_interaction import clear_modifier_overrides
+        clear_modifier_overrides()
+    except Exception:
+        pass
+
+
 def open_file_dialog(
+    title="Open",
+    multiple=False,
+    is_workspace=False,
+    is_directory=False,
+    extensions=None,
+):
+    _clear_keys()
+    try:
+        return _open_file_dialog_impl(
+            title=title,
+            multiple=multiple,
+            is_workspace=is_workspace,
+            is_directory=is_directory,
+            extensions=extensions,
+        )
+    finally:
+        _clear_keys()
+
+
+def _open_file_dialog_impl(
     title="Open",
     multiple=False,
     is_workspace=False,
@@ -173,7 +201,7 @@ def open_file_dialog(
     elif sys.platform == "win32":  # Windows
         start_dir_esc = start_dir.replace("'", "''")
         title_esc = title.replace("'", "''")
-        
+
         if is_directory:
             script = (
                 f"Add-Type -AssemblyName System.Windows.Forms;"
@@ -226,6 +254,18 @@ def open_file_dialog(
 
 
 def save_file_dialog(title="Save File", default_name="workspace.vvw", start_dir=None):
+    _clear_keys()
+    try:
+        return _save_file_dialog_impl(
+            title=title,
+            default_name=default_name,
+            start_dir=start_dir,
+        )
+    finally:
+        _clear_keys()
+
+
+def _save_file_dialog_impl(title="Save File", default_name="workspace.vvw", start_dir=None):
     """
     Native 'Save As' File Dialog wrapper.
     """
@@ -316,7 +356,7 @@ def save_file_dialog(title="Save File", default_name="workspace.vvw", start_dir=
         start_dir_esc = start_dir.replace("'", "''")
         title_esc = title.replace("'", "''")
         default_name_esc = default_name.replace("'", "''")
-        
+
         script = (
             f"Add-Type -AssemblyName System.Windows.Forms;"
             f"$f = New-Object System.Windows.Forms.SaveFileDialog;"

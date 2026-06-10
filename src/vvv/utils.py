@@ -15,6 +15,12 @@ class ProfileInteractionMode(Enum):
     MANIPULATING = auto()
 
 
+class RoiInteractionMode(Enum):
+    IDLE = auto()
+    MANIPULATING = auto()
+
+
+
 def fmt(values, precision=3):
     if isinstance(values, (int, float, np.number)):
         return f"{round(float(values), precision):g}"

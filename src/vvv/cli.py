@@ -262,6 +262,20 @@ def main(no_history, datasets, linkall, sync, linkall_wl, debug, fast_gl):
       vvv session.vvw                      restore a previously saved workspace
     """
 
+    # Check dearpygui version compatibility
+    try:
+        import dearpygui
+        dpg_ver = dearpygui.__version__
+        parts = [int(p) for p in dpg_ver.split(".") if p.isdigit()]
+        if parts and (parts[0] < 2 or (parts[0] == 2 and len(parts) > 1 and parts[1] < 3)):
+            print(
+                f"WARNING: dearpygui version {dpg_ver} is detected. Version >= 2.3.1 is highly recommended "
+                f"to prevent segmentation faults/crashes, particularly under Python 3.14+ or in headless environments.",
+                file=sys.stderr
+            )
+    except Exception:
+        pass
+
     # Parse the tasks cleanly
     datasets = [ds for ds in datasets if ds.strip()]
     image_tasks = parse_cli_arguments(datasets)

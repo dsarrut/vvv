@@ -35,7 +35,6 @@ Plugins must only interact with the app through `PluginAPI`. Bypassing it create
 
 ## Beginner mode
 
-- [ ] Advanced controls added to `api.beginner_tags` or `api.beginner_sliders` so they are hidden in beginner mode
 - [ ] Help buttons (`build_help_button`) added next to non-obvious controls
 - [ ] Tooltips (`build_beginner_tooltip`) on labels that need explanation
 
@@ -65,6 +64,7 @@ Plugins must only interact with the app through `PluginAPI`. Bypassing it create
 - [ ] Restored values are applied **before** the first `update()` call so the first frame is correct
 - [ ] Old history entries with missing keys are handled gracefully (`data.get("key", default)`)
 - [ ] State that belongs to the **core** (WW/WL, colormap, camera) is not duplicated in the plugin's serialization
+- [ ] check that history never interfere when workspace is used
 
 ---
 

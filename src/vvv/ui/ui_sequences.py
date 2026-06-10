@@ -132,7 +132,7 @@ def load_batch_images_sequence(gui, controller, file_paths):
 
     # --- THE PARALLEL LOADER & REAL PROGRESS BAR ---
     with concurrent.futures.ThreadPoolExecutor(
-        max_workers=min(total_files, 8)
+        max_workers=min(total_files, 4)
     ) as executor:
         # Submit all tasks simultaneously
         futures: list[concurrent.futures.Future | None] = [
@@ -201,6 +201,7 @@ def load_batch_rois_sequence(
 
     vs = controller.view_states[base_image_id]
     color_idx = len(vs.rois)
+    initial_roi_ids = set(vs.rois.keys())
 
     # 2. Unified Loading Loop
     for i, path in enumerate(valid_paths, 1):
@@ -247,6 +248,24 @@ def load_batch_rois_sequence(
         gui, warnings, "ROI Import Warning", "Some ROIs were skipped:"
     )
 
+    # Check for out-of-bounds ROIs
+    new_roi_ids = set(vs.rois.keys()) - initial_roi_ids
+    outside_rois = []
+    for r_id in new_roi_ids:
+        r_vol = controller.volumes.get(r_id)
+        if r_vol and getattr(r_vol, "is_outside", False):
+            outside_rois.append(vs.rois[r_id].name)
+    if outside_rois:
+        yield
+        if len(outside_rois) == 1:
+            msg = f"Warning: The loaded ROI '{outside_rois[0]}' lies partially or fully outside the image field of view (FOV)."
+        else:
+            names_str = ", ".join(f"'{n}'" for n in outside_rois)
+            msg = f"Warning: The loaded ROIs {names_str} lie partially or fully outside the image field of view (FOV)."
+        gui.show_message("ROI Warning", msg)
+        while dpg.does_item_exist("generic_message_modal"):
+            yield
+
 
 def _rasterize_and_load_labels(
     gui, controller, base_image_id, filepath, unique_labels, label_dict
@@ -284,7 +303,7 @@ def _rasterize_and_load_labels(
     # --- PARALLEL PROCESSING ---
     with vs.loading_shield():
         with concurrent.futures.ThreadPoolExecutor(
-            max_workers=min(total_lbls, 8)
+            max_workers=min(total_lbls, 4)
         ) as executor:
             futures: list[concurrent.futures.Future | None] = []
             for i, val in enumerate(unique_labels, 1):
@@ -413,6 +432,7 @@ def load_label_map_sequence(gui, controller, base_image_id, filepath):
     # 3. Load each label as a separate ROI
     vs = controller.view_states[base_image_id]
     total_lbls = len(unique_labels)
+    initial_roi_ids = set(vs.rois.keys())
 
     # Re-initialize the loading modal safely
     show_loading_modal("Loading Label Map...", f"Processing {total_lbls} labels...")
@@ -465,6 +485,24 @@ def load_label_map_sequence(gui, controller, base_image_id, filepath):
     controller.ui_needs_refresh = True
     controller.update_all_viewers_of_image(base_image_id)
 
+    # Check for out-of-bounds ROIs
+    new_roi_ids = set(vs.rois.keys()) - initial_roi_ids
+    outside_rois = []
+    for r_id in new_roi_ids:
+        r_vol = controller.volumes.get(r_id)
+        if r_vol and getattr(r_vol, "is_outside", False):
+            outside_rois.append(vs.rois[r_id].name)
+    if outside_rois:
+        yield
+        if len(outside_rois) == 1:
+            msg = f"Warning: The loaded ROI '{outside_rois[0]}' lies partially or fully outside the image field of view (FOV)."
+        else:
+            names_str = ", ".join(f"'{n}'" for n in outside_rois)
+            msg = f"Warning: The loaded ROIs {names_str} lie partially or fully outside the image field of view (FOV)."
+        gui.show_message("ROI Warning", msg)
+        while dpg.does_item_exist("generic_message_modal"):
+            yield
+
 
 def load_rtstruct_sequence(gui, controller, base_image_id, filepath, selected_rois):
     import os
@@ -481,6 +519,7 @@ def load_rtstruct_sequence(gui, controller, base_image_id, filepath, selected_ro
 
     warnings = []
     vs = controller.view_states[base_image_id]
+    initial_roi_ids = set(vs.rois.keys())
 
     try:
         import pydicom
@@ -518,6 +557,24 @@ def load_rtstruct_sequence(gui, controller, base_image_id, filepath, selected_ro
     yield from _handle_warnings_and_cleanup(
         gui, warnings, "RT-Struct Import Warning", "Some ROIs failed to load:"
     )
+
+    # Check for out-of-bounds ROIs
+    new_roi_ids = set(vs.rois.keys()) - initial_roi_ids
+    outside_rois = []
+    for r_id in new_roi_ids:
+        r_vol = controller.volumes.get(r_id)
+        if r_vol and getattr(r_vol, "is_outside", False):
+            outside_rois.append(vs.rois[r_id].name)
+    if outside_rois:
+        yield
+        if len(outside_rois) == 1:
+            msg = f"Warning: The loaded ROI '{outside_rois[0]}' lies partially or fully outside the image field of view (FOV)."
+        else:
+            names_str = ", ".join(f"'{n}'" for n in outside_rois)
+            msg = f"Warning: The loaded ROIs {names_str} lie partially or fully outside the image field of view (FOV)."
+        gui.show_message("ROI Warning", msg)
+        while dpg.does_item_exist("generic_message_modal"):
+            yield
 
 
 def load_workspace_sequence(gui, controller, filepath):
@@ -588,7 +645,7 @@ def load_workspace_sequence(gui, controller, filepath):
     # --- PHASE 2: PARALLEL LOAD ALL IMAGES & OVERLAYS ---
     if total_files > 0:
         with concurrent.futures.ThreadPoolExecutor(
-            max_workers=min(total_files, 8)
+            max_workers=min(total_files, 4)
         ) as executor:
             future_to_path = {}
             for old_id, p in tasks_to_load:
@@ -656,9 +713,21 @@ def load_workspace_sequence(gui, controller, filepath):
                 vs.extraction.from_dict(img_data["extraction"])
             if "dvf" in img_data:
                 vs.dvf.from_dict(img_data["dvf"])
-            if "plugins" in img_data and gui:
+            # Restore plugin state (including ROI filter/sort via roi_plugin)
+            plugins_data = img_data.get("plugins", {})
+            # Backward compat: old workspaces stored roi_filter/roi_sort_order
+            # as top-level keys instead of under plugins.roi_plugin.
+            if "roi_plugin" not in plugins_data:
+                legacy_filter = img_data.get("roi_filter", "")
+                legacy_sort = img_data.get("roi_sort_order", 0)
+                if legacy_filter or legacy_sort:
+                    plugins_data["roi_plugin"] = {
+                        "roi_filter": legacy_filter,
+                        "roi_sort_order": legacy_sort,
+                    }
+            if plugins_data and gui:
                 for plugin in gui.plugins:
-                    plugin_data = img_data["plugins"].get(plugin.plugin_id, {})
+                    plugin_data = plugins_data.get(plugin.plugin_id, {})
                     if plugin_data:
                         plugin.restore_image_state(new_id, plugin_data, context="workspace")
             vs.sync_group = img_data.get("sync_group", 0)
@@ -669,12 +738,6 @@ def load_workspace_sequence(gui, controller, filepath):
                 p = ProfileLineState()
                 p.from_dict(p_dict)
                 vs.profiles[p.id] = p
-
-            # Restore ROI plugin filters and sort orders
-            roi_plugin = next((p for p in gui.plugins if p.plugin_id == "roi_plugin"), None) if gui else None
-            if roi_plugin and hasattr(roi_plugin, "_controller"):
-                roi_plugin._controller.roi_filters[new_id] = img_data.get("roi_filter", "")
-                roi_plugin._controller.roi_sort_orders[new_id] = img_data.get("roi_sort_order", 0)
 
             # Apply Overlays immediately since they are already loaded in RAM
             ov_info = img_data.get("overlay")
@@ -886,7 +949,7 @@ def load_workspace_sequence(gui, controller, filepath):
             return results
 
         with concurrent.futures.ThreadPoolExecutor(
-            max_workers=min(len(tasks_by_path), 8)
+            max_workers=min(len(tasks_by_path), 4)
         ) as executor:
             futures: list[concurrent.futures.Future | None] = [
                 executor.submit(process_file_group, path, tasks)
@@ -992,6 +1055,24 @@ def load_workspace_sequence(gui, controller, filepath):
         gui, warnings, "Workspace Warnings", "Some files could not be found or loaded:"
     )
 
+    # Check for out-of-bounds ROIs
+    outside_rois = []
+    for vs in controller.view_states.values():
+        for r_id in vs.rois.keys():
+            r_vol = controller.volumes.get(r_id)
+            if r_vol and getattr(r_vol, "is_outside", False):
+                outside_rois.append(vs.rois[r_id].name)
+    if outside_rois:
+        yield
+        if len(outside_rois) == 1:
+            msg = f"Warning: The loaded ROI '{outside_rois[0]}' lies partially or fully outside the image field of view (FOV)."
+        else:
+            names_str = ", ".join(f"'{n}'" for n in outside_rois)
+            msg = f"Warning: The loaded ROIs {names_str} lie partially or fully outside the image field of view (FOV)."
+        gui.show_message("ROI Warning", msg)
+        while dpg.does_item_exist("generic_message_modal"):
+            yield
+
 
 def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=False, link_all_wl=False):
     import time
@@ -1027,7 +1108,7 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
         show_loading_modal("Loading images...", "Initializing...", progress=0.0)
 
         with concurrent.futures.ThreadPoolExecutor(
-            max_workers=min(total_files, 8)
+            max_workers=min(total_files, 4)
         ) as executor:
             future_to_path = {
                 executor.submit(controller.file.load_image, path): path for path in jobs
