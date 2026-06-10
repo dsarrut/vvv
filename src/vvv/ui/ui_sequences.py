@@ -603,7 +603,24 @@ def load_workspace_sequence(gui, controller, filepath):
         if not stored_path:
             return stored_path
         if isinstance(stored_path, (list, tuple)):
-            return [resolve_workspace_path(item) for item in stored_path]
+            if len(stored_path) == 0:
+                return stored_path
+            resolved_first = resolve_workspace_path(stored_path[0])
+            resolved_list = [resolved_first]
+            for item in stored_path[1:]:
+                if isinstance(item, str) and item.lower().endswith(".json"):
+                    try:
+                        orig_dir = os.path.dirname(os.path.expanduser(stored_path[0]))
+                        item_abs = os.path.expanduser(item)
+                        rel_to_orig = os.path.relpath(item_abs, orig_dir)
+                        resolved_dir = os.path.dirname(resolved_first)
+                        candidate = os.path.abspath(os.path.join(resolved_dir, rel_to_orig))
+                        resolved_list.append(candidate)
+                    except Exception:
+                        resolved_list.append(resolve_workspace_path(item))
+                else:
+                    resolved_list.append(resolve_workspace_path(item))
+            return resolved_list if isinstance(stored_path, list) else tuple(resolved_list)
         if isinstance(stored_path, str) and stored_path.startswith("4D:"):
             return stored_path
         
@@ -981,6 +998,13 @@ def load_workspace_sequence(gui, controller, filepath):
                                     target_val=target_val,
                                     preloaded_sitk=img,
                                 )
+
+                            if roi_id and roi_id in controller.volumes:
+                                vol = controller.volumes[roi_id]
+                                if isinstance(actual_path, list):
+                                    vol.file_paths = actual_path
+                                else:
+                                    vol.file_paths = [actual_path]
                         except Exception as e:
                             err = f"- Failed to load {task['state'].get('name')}: {e}"
 

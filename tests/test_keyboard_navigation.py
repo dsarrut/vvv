@@ -270,3 +270,48 @@ class TestStuckKeysOverride:
 
             # It should return False again
             assert dpg.is_key_down(dpg.mvKey_LControl) is False
+
+
+def test_on_key_press_dictionary_changed_size_safety(headless_gui_app):
+    """Test that on_key_press handles concurrent modification of ui.roi_selectables safely."""
+    controller, gui, viewer, vs_id = headless_gui_app
+    from unittest.mock import MagicMock
+    import dearpygui.dearpygui as dpg
+
+    # Mock the roi_plugin in plugins list
+    roi_plugin = MagicMock()
+    roi_plugin.plugin_id = "roi_plugin"
+    
+    # Set up ui with roi_selectables that change size during iteration
+    ui = MagicMock()
+    roi_selectables = {"roi_1": "input_1", "roi_2": "input_2"}
+    ui.roi_selectables = roi_selectables
+    roi_plugin._ui = ui
+    
+    # Inject roi_plugin into gui.plugins
+    gui.plugins.append(roi_plugin)
+    
+    # Mock dpg methods to avoid actual dearpygui crashes
+    # and to trigger modification of the dictionary during lookup/iteration
+    original_does_item_exist = dpg.does_item_exist
+    original_is_item_focused = dpg.is_item_focused
+    
+    def side_effect_does_item_exist(item):
+        # Concurrently modify the dictionary size when checked
+        roi_selectables["roi_new"] = "input_new"
+        return False
+
+    try:
+        dpg.does_item_exist = MagicMock(side_effect=side_effect_does_item_exist)
+        dpg.is_item_focused = MagicMock(return_value=False)
+        
+        # Call on_key_press which iterates over roi_selectables.values()
+        # It should run successfully without raising RuntimeError: dictionary changed size during iteration
+        gui.interaction.on_key_press(None, dpg.mvKey_A, None)
+    finally:
+        dpg.does_item_exist = original_does_item_exist
+        dpg.is_item_focused = original_is_item_focused
+        
+        # Cleanup injected plugin
+        if roi_plugin in gui.plugins:
+            gui.plugins.remove(roi_plugin)

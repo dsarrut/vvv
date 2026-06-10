@@ -271,3 +271,116 @@ def test_load_workspace_roi_json_filtering(tmp_path):
     controller.roi.extract_label_from_image.assert_called_once()
 
 
+def test_load_workspace_paths_with_json_and_tildes(tmp_path, monkeypatch):
+    """
+    Test loading workspace with relative, absolute and ~ paths.
+    Verifies that:
+      - Tilde `~` paths are correctly expanded and resolved.
+      - A sidecar JSON file that does not exist on disk is resolved relative to the resolved image.
+      - The resolved paths (including the non-existent JSON) are correctly saved back into the loaded volume's file_paths.
+    """
+    import os
+    import json
+    from unittest.mock import MagicMock
+    from vvv.ui.ui_sequences import load_workspace_sequence
+
+    # 1. Create a dummy image at local_dir
+    local_dir = tmp_path / "local_workspace"
+    local_dir.mkdir(parents=True, exist_ok=True)
+    img_path = local_dir / "base.mha"
+    
+    # Create simple dummy image file
+    img = sitk.GetImageFromArray(np.zeros((3, 3, 3), dtype=np.uint8))
+    sitk.WriteImage(img, str(img_path))
+
+    # Create dummy label map file
+    labels_nii = local_dir / "labels.nii.gz"
+    sitk.WriteImage(img, str(labels_nii))
+    # Note: we do NOT create the labels.json file on disk!
+
+    # 2. Mock os.path.expanduser to redirect a dummy home directory `~/my_home` to our temp path
+    original_expanduser = os.path.expanduser
+    def mock_expanduser(path):
+        if path.startswith("~/my_home"):
+            return path.replace("~/my_home", str(tmp_path / "mocked_home"))
+        return original_expanduser(path)
+    monkeypatch.setattr(os.path, "expanduser", mock_expanduser)
+
+    # Set up the mocked home directory path where the workspace originally expected them
+    mocked_home_dir = tmp_path / "mocked_home" / "project"
+    mocked_home_dir.mkdir(parents=True, exist_ok=True)
+
+    ws_data = {
+        "version": 1.0,
+        "workspace_path": "~/my_home/project/workspace.vvw",
+        "viewers": {},
+        "images": {
+            "img_1": {
+                "path": "~/my_home/project/base.mha",
+                "display": {},
+                "camera": {},
+                "extraction": {},
+                "dvf": {},
+                "rois": [
+                    {
+                        "path": [
+                            "~/my_home/project/labels.nii.gz",
+                            "~/my_home/project/labels.json"
+                        ],
+                        "state": {
+                            "volume_id": "roi_1",
+                            "name": "Tumor",
+                            "color": [255, 0, 0],
+                            "opacity": 0.5,
+                            "visible": True,
+                            "is_contour": False,
+                            "source_mode": "Target FG (val)",
+                            "source_val": 1.0,
+                            "source_type": "Label Map"
+                        }
+                    }
+                ],
+                "profiles": []
+            }
+        }
+    }
+    
+    # Write workspace JSON to the local directory (simulating that the workspace was moved to a new environment)
+    ws_path = local_dir / "workspace.vvw"
+    with open(ws_path, "w") as f:
+        json.dump(ws_data, f)
+
+    # 3. Setup GUI and Controller Mocks
+    gui = MagicMock()
+    controller = MagicMock()
+    controller.file.load_image.return_value = "img_1_loaded"
+    
+    loaded_roi_vol = MagicMock()
+    # Simulate the initial file_paths set by the loader (which will lack the JSON because it doesn't exist on disk)
+    loaded_roi_vol.file_paths = [str(labels_nii)]
+    controller.volumes = {
+        "img_1_loaded": MagicMock(),
+        "roi_1_loaded": loaded_roi_vol
+    }
+
+    controller.view_states = MagicMock()
+    
+    # Mock ROI creation to return our loaded_roi_vol ID
+    controller.roi.extract_label_from_image.return_value = "roi_1_loaded"
+
+    # Consume the generator
+    generator = load_workspace_sequence(gui, controller, str(ws_path))
+    list(generator)
+
+    # Verify that extract_label_from_image was called
+    controller.roi.extract_label_from_image.assert_called_once()
+    
+    # Verify that the loaded ROI's file_paths was updated to the resolved paths, 
+    # including the resolved path of the non-existent JSON file!
+    expected_image_resolved = str(labels_nii)
+    expected_json_resolved = str(local_dir / "labels.json")
+    
+    assert loaded_roi_vol.file_paths == [expected_image_resolved, expected_json_resolved]
+
+
+
