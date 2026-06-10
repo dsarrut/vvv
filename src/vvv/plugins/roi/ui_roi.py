@@ -392,6 +392,17 @@ class RoiPluginUI(PluginTagMixin):
 
         current_scroll = dpg.get_y_scroll(table_id)
 
+        # Explicitly delete children with custom tags to release their aliases in DPG registry
+        for viewer in self.api.get_viewers().values():
+            if viewer.view_state:
+                for roi_id in list(viewer.view_state.rois.keys()):
+                    for tag in (
+                        self._t(f"list_color_picker_{roi_id}"),
+                        self._t(f"input_roi_name_{roi_id}"),
+                    ):
+                        if dpg.does_item_exist(tag):
+                            dpg.delete_item(tag)
+
         # Delete row children inside table slot 1
         dpg.delete_item(table_id, children_only=True, slot=1)
         self.roi_selectables.clear()
