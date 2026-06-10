@@ -72,6 +72,8 @@ class MainGUI:
         # internal states
         self._is_roi_tab_active = None
         self._hide_av_panel = None
+        self._last_interaction_time = 0.0
+        self._last_mouse_pos = (0.0, 0.0)
 
         # --- DATA BINDING DICTIONARY ---
         # Maps DPG tag -> ViewState property name
@@ -1889,7 +1891,62 @@ class MainGUI:
                     dpg.set_axis_limits(y_axis, 0, 125)
                     fps_series = dpg.add_line_series([], [], label="FPS", parent=y_axis)
 
+        target_fps = 60.0
+        frame_budget = 1.0 / target_fps
+        last_frame_time = time.perf_counter()
+
         while dpg.is_dearpygui_running():
+            t_now = time.perf_counter()
+            
+            # Detect activity/necessity to run at full speed
+            has_active_tasks = (
+                len(self.tasks) > 0 
+                or len(self._main_thread_callbacks) > 0 
+                or getattr(self.controller, "ui_needs_refresh", False)
+            )
+            
+            # Get mouse position and viewport boundaries
+            mx, my = dpg.get_mouse_pos(local=False)
+            vw = dpg.get_viewport_width()
+            vh = dpg.get_viewport_height()
+            
+            # Check if mouse is inside the window
+            mouse_in_viewport = (0 <= mx <= vw) and (0 <= my <= vh)
+            
+            # Did mouse position change?
+            mouse_moved = (mx, my) != self._last_mouse_pos
+            if mouse_moved:
+                self._last_mouse_pos = (mx, my)
+                
+            # Check if any mouse button is down
+            mouse_clicked = False
+            for btn in range(3):
+                if dpg.is_mouse_button_down(btn):
+                    mouse_clicked = True
+                    break
+                    
+            if mouse_moved or mouse_clicked or has_active_tasks:
+                self._last_interaction_time = t_now
+
+            # Set dynamic FPS target
+            if has_active_tasks:
+                target_fps = 60.0
+            elif not mouse_in_viewport:
+                # Hovering outside or window minimized/backgrounded: extremely low rate to save CPU
+                target_fps = 5.0
+            elif t_now - self._last_interaction_time > 2.0:
+                # Inside viewport but completely inactive/idle: low rate
+                target_fps = 10.0
+            else:
+                target_fps = 60.0
+
+            frame_budget = 1.0 / target_fps
+            t_elapsed = t_now - last_frame_time
+            t_sleep = frame_budget - t_elapsed
+            if t_sleep > 0.001:
+                time.sleep(t_sleep)
+            last_frame_time = time.perf_counter()
+
             # Process thread-safe callbacks scheduled from background threads
             callbacks_to_run = []
             with self._main_thread_lock:
