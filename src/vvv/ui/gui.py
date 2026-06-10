@@ -1700,7 +1700,7 @@ class MainGUI:
             show=True,
             label="Shortcuts & Controls",
             width=520,  # Slightly wider to accommodate longer shortcut names
-            height=600,  # Slightly taller for the new entry
+            height=750,  # Slightly taller for the new entry
             no_collapse=False,
             on_close=lambda: dpg.delete_item(window_tag),
         ):
@@ -1780,6 +1780,28 @@ class MainGUI:
 
                     with dpg.table_row():
                         dpg.add_text(format_key(key_id, val), color=ok_col)
+                        dpg.add_text(desc)
+
+
+            dpg.add_spacer(height=15)
+            dpg.add_text("Command Line Usage", color=active_col)
+            dpg.add_separator()
+
+            with dpg.table(header_row=False, borders_innerH=True):
+                dpg.add_table_column(width_fixed=True, init_width_or_weight=220)
+                dpg.add_table_column(width_stretch=True)
+
+                cli_examples = [
+                    ("vvv image.nii", "Load a base image"),
+                    ("vvv ct.nii,pet.nii", "Load CT with transparent PET overlay"),
+                    ("vvv ct.nii,pet.nii,hot,0.7", "Overlay with custom colormap and opacity"),
+                    ("vvv ct.nii + labels.nii", "Load label map ROIs on CT base image"),
+                    ("vvv 1:ct.nii 1:pet.nii", "Load and group images in spatial sync group 1"),
+                    ("vvv 4D f1.nii f2.nii ...", "Load frames as a 4D sequence"),
+                ]
+                for cmd, desc in cli_examples:
+                    with dpg.table_row():
+                        dpg.add_text(cmd, color=ok_col)
                         dpg.add_text(desc)
 
             dpg.add_spacer(height=15)
