@@ -135,3 +135,139 @@ def test_load_2d_rgb_rgba_images(tmp_path):
 
     vox = engine.phys_to_raw_voxel(phys)
     assert len(vox) == 3
+
+
+def test_load_workspace_relative_path_resolution(tmp_path):
+    """Test that workspaces successfully resolve relative paths when absolute paths do not exist."""
+    import os
+    import json
+    from unittest.mock import MagicMock
+    from vvv.ui.ui_sequences import load_workspace_sequence
+
+    # 1. Create a dummy image at a relative subpath
+    img_dir = tmp_path / "a" / "b" / "c"
+    img_dir.mkdir(parents=True, exist_ok=True)
+    img_path = img_dir / "titi.mha"
+    
+    # Create simple dummy image file
+    img = sitk.GetImageFromArray(np.zeros((3, 3, 3), dtype=np.uint8))
+    sitk.WriteImage(img, str(img_path))
+
+    # 2. Write a workspace JSON file pointing to a non-existent absolute path
+    # originally saved at /home/dsarrut/a/b/toto.vvw
+    # with image path /home/dsarrut/a/b/c/titi.mha
+    ws_data = {
+        "version": 1.0,
+        "workspace_path": "/home/dsarrut/a/b/toto.vvw",
+        "viewers": {},
+        "images": {
+            "img_1": {
+                "path": "/home/dsarrut/a/b/c/titi.mha",
+                "display": {},
+                "camera": {},
+                "extraction": {},
+                "dvf": {},
+                "rois": [],
+                "profiles": []
+            }
+        }
+    }
+    
+    ws_path = tmp_path / "a" / "b" / "toto.vvw"
+    with open(ws_path, "w") as f:
+        json.dump(ws_data, f)
+
+    # 3. Call load_workspace_sequence and verify it loads the resolved path
+    gui = MagicMock()
+    controller = MagicMock()
+    # Mock file load to return a dummy volume ID
+    controller.file.load_image.return_value = "img_1_loaded"
+    controller.volumes = {"img_1_loaded": MagicMock()}
+    controller.view_states = MagicMock()
+
+    # Load generator
+    generator = load_workspace_sequence(gui, controller, str(ws_path))
+    list(generator)  # Consume the generator
+
+    # Check that it called load_image with the resolved local path!
+    expected_local_path = str(img_path)
+    controller.file.load_image.assert_called_once_with(expected_local_path, ignore_history=True)
+
+
+def test_load_workspace_roi_json_filtering(tmp_path):
+    """Test that ROI paths containing a .json file are filtered when loaded by SimpleITK."""
+    import os
+    import json
+    from unittest.mock import MagicMock
+    from vvv.ui.ui_sequences import load_workspace_sequence
+
+    # 1. Create a dummy image at a relative subpath
+    img_dir = tmp_path / "a" / "b" / "c"
+    img_dir.mkdir(parents=True, exist_ok=True)
+    img_path = img_dir / "titi.mha"
+    
+    # Create simple dummy image file
+    img = sitk.GetImageFromArray(np.zeros((3, 3, 3), dtype=np.uint8))
+    sitk.WriteImage(img, str(img_path))
+
+    # Create dummy label map files
+    labels_nii = img_dir / "labels.nii.gz"
+    sitk.WriteImage(img, str(labels_nii))
+    labels_json = img_dir / "labels.json"
+    with open(labels_json, "w") as f:
+        json.dump({"test": 123}, f)
+
+    ws_data = {
+        "version": 1.0,
+        "workspace_path": "/home/dsarrut/a/b/toto.vvw",
+        "viewers": {},
+        "images": {
+            "img_1": {
+                "path": "/home/dsarrut/a/b/c/titi.mha",
+                "display": {},
+                "camera": {},
+                "extraction": {},
+                "dvf": {},
+                "rois": [
+                    {
+                        "path": [
+                            "/home/dsarrut/a/b/c/labels.nii.gz",
+                            "/home/dsarrut/a/b/c/labels.json"
+                        ],
+                        "state": {
+                            "volume_id": "1",
+                            "name": "Tumor",
+                            "color": [255, 0, 0],
+                            "opacity": 0.5,
+                            "visible": True,
+                            "is_contour": False,
+                            "source_mode": "Target FG (val)",
+                            "source_val": 1.0,
+                            "source_type": "Label Map"
+                        }
+                    }
+                ],
+                "profiles": []
+            }
+        }
+    }
+    
+    ws_path = tmp_path / "a" / "b" / "toto.vvw"
+    with open(ws_path, "w") as f:
+        json.dump(ws_data, f)
+
+    # 3. Call load_workspace_sequence and verify it loads the resolved path
+    gui = MagicMock()
+    controller = MagicMock()
+    controller.file.load_image.return_value = "img_1_loaded"
+    controller.volumes = {"img_1_loaded": MagicMock()}
+    controller.view_states = MagicMock()
+
+    # Consume the generator
+    generator = load_workspace_sequence(gui, controller, str(ws_path))
+    list(generator)
+
+    # Check that the ROI load did not trigger a DICOM or file load failure warning
+    controller.roi.extract_label_from_image.assert_called_once()
+
+

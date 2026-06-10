@@ -251,7 +251,12 @@ class FileManager:
         yield (1.0, "Done", found_series, scan_errors)
 
     def save_workspace(self, filepath):
-        workspace = {"version": 1.0, "viewers": {}, "images": {}}
+        workspace = {
+            "version": 1.0,
+            "workspace_path": os.path.abspath(filepath),
+            "viewers": {},
+            "images": {},
+        }
 
         # for home as ~
         def portable_path(p):

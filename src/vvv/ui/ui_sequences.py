@@ -596,6 +596,47 @@ def load_workspace_sequence(gui, controller, filepath):
 
     warnings = []
 
+    workspace_path_stored = ws.get("workspace_path") or ws.get("workspace_file_path")
+    local_workspace_filepath = filepath
+
+    def resolve_workspace_path(stored_path):
+        if not stored_path:
+            return stored_path
+        if isinstance(stored_path, (list, tuple)):
+            return [resolve_workspace_path(item) for item in stored_path]
+        if isinstance(stored_path, str) and stored_path.startswith("4D:"):
+            return stored_path
+        
+        p = os.path.expanduser(stored_path)
+        if os.path.exists(p):
+            return p
+
+        # Resolve relative to the local workspace location
+        if workspace_path_stored and local_workspace_filepath:
+            stored_ws_dir = os.path.dirname(os.path.expanduser(workspace_path_stored))
+            local_ws_dir = os.path.dirname(os.path.abspath(local_workspace_filepath))
+            try:
+                rel_p = os.path.relpath(p, stored_ws_dir)
+                local_resolved = os.path.abspath(os.path.join(local_ws_dir, rel_p))
+                if os.path.exists(local_resolved):
+                    return local_resolved
+            except Exception:
+                pass
+
+        # Try suffix matching/guesswork relative to local_ws_dir
+        if local_workspace_filepath:
+            local_ws_dir = os.path.dirname(os.path.abspath(local_workspace_filepath))
+            parts = p.split(os.sep)
+            for i in range(len(parts) - 1, 0, -1):
+                subpath = os.sep.join(parts[i:])
+                candidate = os.path.abspath(os.path.join(local_ws_dir, subpath))
+                if os.path.exists(candidate):
+                    return candidate
+                candidate_parent = os.path.abspath(os.path.join(os.path.dirname(local_ws_dir), subpath))
+                if os.path.exists(candidate_parent):
+                    return candidate_parent
+        return p
+
     # --- PHASE 1: GATHER ALL UNIQUE FILES TO LOAD ---
     tasks_to_load = []
     legacy_overlays = []
@@ -604,15 +645,16 @@ def load_workspace_sequence(gui, controller, filepath):
         raw_path = img_data.get("path")
         if raw_path:
             if isinstance(raw_path, list):
-                p0 = os.path.expanduser(raw_path[0])
+                resolved_list = resolve_workspace_path(raw_path)
+                p0 = resolved_list[0]
                 if os.path.exists(p0):
-                    tasks_to_load.append((old_id, tuple(os.path.expanduser(p) for p in raw_path)))
+                    tasks_to_load.append((old_id, tuple(resolved_list)))
                 else:
                     warnings.append(f"Missing DICOM File: {os.path.basename(raw_path[0])}")
             elif isinstance(raw_path, str) and raw_path.startswith("4D:"):
                 tasks_to_load.append((old_id, raw_path))
             else:
-                p = os.path.expanduser(raw_path)
+                p = resolve_workspace_path(raw_path)
                 if os.path.exists(p):
                     tasks_to_load.append((old_id, p))
                 else:
@@ -624,15 +666,16 @@ def load_workspace_sequence(gui, controller, filepath):
             ov_raw_path = ov_info.get("path")
             if ov_raw_path:
                 if isinstance(ov_raw_path, list):
-                    p0 = os.path.expanduser(ov_raw_path[0])
+                    resolved_list = resolve_workspace_path(ov_raw_path)
+                    p0 = resolved_list[0]
                     if os.path.exists(p0):
-                        legacy_overlays.append((old_id, tuple(os.path.expanduser(p) for p in ov_raw_path)))
+                        legacy_overlays.append((old_id, tuple(resolved_list)))
                     else:
                         warnings.append(f"Missing Overlay DICOM: {os.path.basename(ov_raw_path[0])}")
                 elif isinstance(ov_raw_path, str) and ov_raw_path.startswith("4D:"):
                     legacy_overlays.append((old_id, ov_raw_path))
                 else:
-                    ov_path = os.path.expanduser(ov_raw_path)
+                    ov_path = resolve_workspace_path(ov_raw_path)
                     if os.path.exists(ov_path):
                         legacy_overlays.append((old_id, ov_path))
                     else:
@@ -752,11 +795,11 @@ def load_workspace_sequence(gui, controller, filepath):
                         ov_raw_path = ov_info.get("path")
                         if ov_raw_path:
                             if isinstance(ov_raw_path, list):
-                                ov_p = tuple(os.path.expanduser(x) for x in ov_raw_path)
+                                ov_p = tuple(resolve_workspace_path(ov_raw_path))
                             elif isinstance(ov_raw_path, str) and ov_raw_path.startswith("4D:"):
                                 ov_p = ov_raw_path
                             else:
-                                ov_p = os.path.expanduser(ov_raw_path)
+                                ov_p = resolve_workspace_path(ov_raw_path)
                                 
                                 for t_old_id, t_p in tasks_to_load:
                                     if t_p == ov_p and t_old_id in id_map:
@@ -812,19 +855,20 @@ def load_workspace_sequence(gui, controller, filepath):
                 raw_r_path = roi_data.get("path", "")
                 if raw_r_path:
                     if isinstance(raw_r_path, list):
-                        r_path = tuple(os.path.expanduser(x) for x in raw_r_path)
-                        if os.path.exists(r_path[0]):
+                        resolved_list = resolve_workspace_path(raw_r_path)
+                        p0 = resolved_list[0]
+                        if os.path.exists(p0):
                             valid_rois_to_load.append({
                                 "new_id": new_id,
-                                "path": r_path,
+                                "path": tuple(resolved_list),
                                 "state": roi_data.get("state", {}),
                             })
                         else:
-                            warnings.append(f"Missing ROI DICOM: {os.path.basename(r_path[0])}")
+                            warnings.append(f"Missing ROI DICOM: {os.path.basename(raw_r_path[0])}")
                     elif isinstance(raw_r_path, str) and raw_r_path.startswith("4D:"):
                         warnings.append("4D ROIs are not supported.")
                     else:
-                        r_path = os.path.expanduser(raw_r_path)
+                        r_path = resolve_workspace_path(raw_r_path)
                         if os.path.exists(r_path):
                             valid_rois_to_load.append({
                                 "new_id": new_id,
@@ -888,7 +932,12 @@ def load_workspace_sequence(gui, controller, filepath):
                         )
             else:
                 try:
-                    img = sitk.ReadImage(actual_path)
+                    read_path = actual_path
+                    if isinstance(read_path, (list, tuple)):
+                        read_path = [p for p in read_path if not p.lower().endswith(".json")]
+                        if len(read_path) == 1:
+                            read_path = read_path[0]
+                    img = sitk.ReadImage(read_path)
                     data = sitk.GetArrayViewFromImage(img)
                     bboxes = None
 
@@ -912,7 +961,7 @@ def load_workspace_sequence(gui, controller, filepath):
                                 if float(val_int) == target_val:
                                     roi_id = controller.roi.extract_label_from_image(
                                         task["new_id"],
-                                        actual_path,
+                                        read_path,
                                         img,
                                         data,
                                         val_int,
@@ -925,7 +974,7 @@ def load_workspace_sequence(gui, controller, filepath):
                             if roi_id is None:
                                 roi_id = controller.roi.load_binary_mask(
                                     task["new_id"],
-                                    actual_path,
+                                    read_path,
                                     name=task["state"].get("name"),
                                     color=task["state"].get("color", [255, 0, 0]),
                                     mode=mode,

@@ -890,7 +890,7 @@ class InteractionManager:
         )
         if roi_plugin and hasattr(roi_plugin, "_ui"):
             ui = roi_plugin._ui
-            for input_id in ui.roi_selectables.values():
+            for input_id in list(ui.roi_selectables.values()):
                 if dpg.does_item_exist(input_id) and dpg.is_item_focused(input_id):
                     return
 
