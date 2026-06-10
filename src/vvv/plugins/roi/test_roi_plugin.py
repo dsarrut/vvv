@@ -629,11 +629,54 @@ class TestRoiPlugin(unittest.TestCase):
         mock_viewer = MockViewer("img_1", rois)
         self.mock_api.get_active_viewer.return_value = mock_viewer
 
+        ctrl.compute_detailed_roi_stats = MagicMock(return_value={
+            "vol_cc": 1.5,
+            "voxel_count": 100,
+            "size": "10 x 10 x 10",
+            "spacing": "1.0 x 1.0 x 1.0",
+            "com_pixel": [5.0, 5.0, 5.0],
+            "com_mm": [5.0, 5.0, 5.0],
+            "mean": 10.0,
+            "std": 1.0,
+            "median": 10.0,
+            "peak": 12.0,
+            "min": 8.0,
+            "max": 12.0,
+            "source_filename": "test.nii",
+            "source_type": "Binary",
+        })
+
         # 1. Toggle it ON
         ui.on_roi_stats_toggle(None, None, "roi_1")
         win_tag = ui._t("stats_win_roi_1")
         self.assertTrue(dpg.does_item_exist(win_tag))
         self.assertIn(win_tag, ui.open_stats_wins)
+
+        # Check initial visibility button label in stats window
+        btn_eye_tag = ui._t("stats_btn_eye_roi_1")
+        self.assertTrue(dpg.does_item_exist(btn_eye_tag))
+        self.assertEqual(dpg.get_item_label(btn_eye_tag), "\uf06e")  # Visible and not contour
+
+        # Toggle to contour
+        ui.on_roi_toggle_visible(None, None, "roi_1")
+        self.assertTrue(rois["roi_1"].is_contour)
+        self.assertTrue(rois["roi_1"].visible)
+        ui.refresh_all_open_stats_windows()
+        self.assertEqual(dpg.get_item_label(btn_eye_tag), "\uf040")  # Contour icon
+
+        # Toggle to hidden
+        ui.on_roi_toggle_visible(None, None, "roi_1")
+        self.assertFalse(rois["roi_1"].is_contour)
+        self.assertFalse(rois["roi_1"].visible)
+        ui.refresh_all_open_stats_windows()
+        self.assertEqual(dpg.get_item_label(btn_eye_tag), "\uf070")  # Hidden icon
+
+        # Restore to normal visible state for remaining tests
+        ui.on_roi_toggle_visible(None, None, "roi_1")
+        self.assertFalse(rois["roi_1"].is_contour)
+        self.assertTrue(rois["roi_1"].visible)
+        ui.refresh_all_open_stats_windows()
+        self.assertEqual(dpg.get_item_label(btn_eye_tag), "\uf06e")
 
         # 2. Toggle it OFF
         ui.on_roi_stats_toggle(None, None, "roi_1")

@@ -1599,6 +1599,7 @@ class RoiPluginUI(PluginTagMixin):
             btn_eye = dpg.add_button(
                 label=lbl_eye,
                 width=20,
+                tag=self._t(f"stats_btn_eye_{roi_id}"),
                 user_data=roi_id,
                 callback=self.on_roi_toggle_visible,
             )
@@ -2137,51 +2138,49 @@ class RoiPluginUI(PluginTagMixin):
             dpg.bind_item_theme(btn_delete, "delete_button_theme")
 
     def update_stats_window_contents(self, base_vs_id, roi_id):
-        stats = self._c.compute_detailed_roi_stats(base_vs_id, roi_id)
-        if not stats:
-            return
-
         viewer = self.api.get_active_viewer()
         if not viewer or not viewer.view_state or roi_id not in viewer.view_state.rois:
             return
         roi = viewer.view_state.rois[roi_id]
         roi_vol = self.api.get_volumes().get(roi_id)
 
-        # Update text labels
-        dpg.set_value(self._t(f"stats_txt_vol_cc_{roi_id}"), f"{stats['vol_cc']:.3f}")
-        dpg.set_value(
-            self._t(f"stats_txt_mass_{roi_id}"), f"{stats.get('mass', 0.0):.2f}"
-        )
-        dpg.set_value(self._t(f"stats_txt_voxels_{roi_id}"), f"{stats['voxel_count']}")
+        stats = self._c.compute_detailed_roi_stats(base_vs_id, roi_id)
+        if stats:
+            # Update text labels
+            dpg.set_value(self._t(f"stats_txt_vol_cc_{roi_id}"), f"{stats['vol_cc']:.3f}")
+            dpg.set_value(
+                self._t(f"stats_txt_mass_{roi_id}"), f"{stats.get('mass', 0.0):.2f}"
+            )
+            dpg.set_value(self._t(f"stats_txt_voxels_{roi_id}"), f"{stats['voxel_count']}")
 
-        size_str = (
-            f"{stats['size']} ({stats['cropped_size']})"
-            if stats.get("cropped_size")
-            else stats["size"]
-        )
-        dpg.set_value(self._t(f"stats_txt_size_{roi_id}"), size_str)
-        dpg.set_value(self._t(f"stats_txt_spacing_{roi_id}"), stats["spacing"])
+            size_str = (
+                f"{stats['size']} ({stats['cropped_size']})"
+                if stats.get("cropped_size")
+                else stats["size"]
+            )
+            dpg.set_value(self._t(f"stats_txt_size_{roi_id}"), size_str)
+            dpg.set_value(self._t(f"stats_txt_spacing_{roi_id}"), stats["spacing"])
 
-        px, py, pz = stats["com_pixel"]
-        dpg.set_value(
-            self._t(f"stats_txt_com_pixel_{roi_id}"), f"({px:.1f}, {py:.1f}, {pz:.1f})"
-        )
-        mx, my, mz = stats["com_mm"]
-        dpg.set_value(
-            self._t(f"stats_txt_com_mm_{roi_id}"), f"({mx:.1f}, {my:.1f}, {mz:.1f})"
-        )
+            px, py, pz = stats["com_pixel"]
+            dpg.set_value(
+                self._t(f"stats_txt_com_pixel_{roi_id}"), f"({px:.1f}, {py:.1f}, {pz:.1f})"
+            )
+            mx, my, mz = stats["com_mm"]
+            dpg.set_value(
+                self._t(f"stats_txt_com_mm_{roi_id}"), f"({mx:.1f}, {my:.1f}, {mz:.1f})"
+            )
 
-        dpg.set_value(self._t(f"stats_txt_mean_{roi_id}"), f"{stats['mean']:.2f}")
-        dpg.set_value(self._t(f"stats_txt_std_{roi_id}"), f"{stats['std']:.2f}")
-        dpg.set_value(self._t(f"stats_txt_median_{roi_id}"), f"{stats['median']:.2f}")
-        dpg.set_value(self._t(f"stats_txt_peak_{roi_id}"), f"{stats['peak']:.2f}")
-        dpg.set_value(
-            self._t(f"stats_txt_min_max_{roi_id}"),
-            f"{stats['min']:.2f} / {stats['max']:.2f}",
-        )
+            dpg.set_value(self._t(f"stats_txt_mean_{roi_id}"), f"{stats['mean']:.2f}")
+            dpg.set_value(self._t(f"stats_txt_std_{roi_id}"), f"{stats['std']:.2f}")
+            dpg.set_value(self._t(f"stats_txt_median_{roi_id}"), f"{stats['median']:.2f}")
+            dpg.set_value(self._t(f"stats_txt_peak_{roi_id}"), f"{stats['peak']:.2f}")
+            dpg.set_value(
+                self._t(f"stats_txt_min_max_{roi_id}"),
+                f"{stats['min']:.2f} / {stats['max']:.2f}",
+            )
 
         # Update overlay stats
-        ov_stats = stats.get("overlay_stats")
+        ov_stats = stats.get("overlay_stats") if stats else None
         overlay_group = self._t(f"stats_group_overlay_{roi_id}")
         if dpg.does_item_exist(overlay_group):
             dpg.configure_item(overlay_group, show=bool(ov_stats))
@@ -2218,7 +2217,7 @@ class RoiPluginUI(PluginTagMixin):
             if not is_created:
                 dpg.set_value(
                     self._t(f"stats_txt_file_{roi_id}"),
-                    stats.get("source_filename", "Unknown"),
+                    stats.get("source_filename", "Unknown") if stats else "Unknown",
                 )
 
             if is_created:
@@ -2229,7 +2228,7 @@ class RoiPluginUI(PluginTagMixin):
                 else:
                     t_str = "Created"
             else:
-                t_str = stats.get("source_type", "Unknown")
+                t_str = stats.get("source_type", "Unknown") if stats else getattr(roi, "source_type", "Unknown")
             dpg.set_value(self._t(f"stats_txt_type_{roi_id}"), t_str)
 
         # Update spheroid inputs
@@ -2388,6 +2387,15 @@ class RoiPluginUI(PluginTagMixin):
         ]:
             if dpg.does_item_exist(item):
                 dpg.configure_item(item, enabled=not is_mip)
+
+        # Update visibility eye button icon
+        btn_eye_tag = self._t(f"stats_btn_eye_{roi_id}")
+        if dpg.does_item_exist(btn_eye_tag):
+            if roi.visible:
+                lbl_eye = "\uf040" if roi.is_contour else "\uf06e"
+            else:
+                lbl_eye = "\uf070"
+            dpg.configure_item(btn_eye_tag, label=lbl_eye, enabled=not is_mip)
 
         # Dynamic window height adjustment
         win_tag = self._t(f"stats_win_{roi_id}")
