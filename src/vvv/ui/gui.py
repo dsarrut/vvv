@@ -1346,6 +1346,11 @@ class MainGUI:
             self.controller.layout[v_tag] = img_id
             self.controller.ui_needs_refresh = True
 
+    def on_set_all_viewers_image(self, img_id):
+        for v_tag in ["V1", "V2", "V3", "V4"]:
+            self.controller.layout[v_tag] = img_id
+        self.controller.ui_needs_refresh = True
+
     def on_open_file_clicked(self, sender=None, app_data=None, user_data=None):
         file_paths = open_file_dialog("Open Medical Image(s)", multiple=True)
         if not file_paths:

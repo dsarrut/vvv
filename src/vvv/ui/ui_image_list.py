@@ -144,6 +144,15 @@ def refresh_image_list_ui(gui):
 
                 # Line 2: Action Buttons
                 with dpg.group(horizontal=True, horizontal_spacing=3):
+                    btn_all = dpg.add_button(
+                        label="\uf009",
+                        width=20,
+                        callback=lambda s, a, u: gui.on_set_all_viewers_image(u),
+                        user_data=vs_id,
+                    )
+                    with dpg.tooltip(btn_all):
+                        dpg.add_text("Show this image in all 4 viewers")
+
                     btn_save = dpg.add_button(
                         label="\uf0c7",
                         width=20,
@@ -169,7 +178,7 @@ def refresh_image_list_ui(gui):
                         
                         is_dvf = getattr(vs.volume, "is_dvf", False)
                         is_enabled = not is_dvf or vs.dvf.display_mode == "Component"
-
+ 
                         reserve_w = 20 + len(str(vs.volume.num_timepoints)) * 8
                         dpg.add_slider_int(
                             tag=f"slider_time_{vs_id}",
@@ -182,14 +191,16 @@ def refresh_image_list_ui(gui):
                             user_data=vs_id,
                         )
                         dpg.add_text(f"/ {vs.volume.num_timepoints}")
-
+ 
                     if dpg.does_item_exist("icon_font_tag"):
+                        dpg.bind_item_font(btn_all, "icon_font_tag")
                         dpg.bind_item_font(btn_save, "icon_font_tag")
                         dpg.bind_item_font(btn_reload, "icon_font_tag")
                         dpg.bind_item_font(btn_close, "icon_font_tag")
                     if dpg.does_item_exist("delete_button_theme"):
                         dpg.bind_item_theme(btn_close, "delete_button_theme")
                     if dpg.does_item_exist("icon_button_theme"):
+                        dpg.bind_item_theme(btn_all, "icon_button_theme")
                         dpg.bind_item_theme(btn_reload, "icon_button_theme")
                         
                     build_help_button("The 4 checkboxes assign this image to the 4 viewers (V1: Top Left, V2: Top Right, V3: Bottom Left, V4: Bottom Right).", gui)
