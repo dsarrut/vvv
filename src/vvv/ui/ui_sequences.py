@@ -1258,6 +1258,12 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
                 if "mode" in task["fusion"]:
                     base_vs.display.overlay.mode = task["fusion"]["mode"]
 
+        # Load associated labels (ROIs) for the base image
+        if task.get("labels"):
+            for label_path in task["labels"]:
+                for val in load_label_map_sequence(gui, controller, base_id, label_path):
+                    yield val
+
     controller.default_viewers_orientation()
 
     for i, img_id in enumerate(loaded_ids):

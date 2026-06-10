@@ -116,4 +116,38 @@ def test_cli_explicit_sequence_breaker(dummy_images):
 
     assert len(tasks) == 2
     assert tasks[0]["base"] == f"4D: {f1} {f2}"
-    assert tasks[1]["base"] == f3
+    assert tasks[2 - 1]["base"] == f3
+
+
+def test_cli_label_rois(dummy_images):
+    """Test that '+' syntax correctly parses label map ROIs for base images."""
+    f1 = dummy_images("ct.nii.gz", size=(5, 5, 5))
+    lbl1 = dummy_images("labels1.nii.gz", size=(5, 5, 5))
+    lbl2 = dummy_images("labels2.nii.gz", size=(5, 5, 5))
+    f2 = dummy_images("mri.nii.gz", size=(5, 5, 5))
+
+    # Scenario A: Space-separated '+'
+    args_a = [f1, "+", lbl1]
+    tasks_a = parse_cli_arguments(args_a)
+    assert len(tasks_a) == 1
+    assert tasks_a[0]["base"] == f1
+    assert tasks_a[0]["labels"] == [lbl1]
+
+    # Scenario B: Attached '+' (no spaces)
+    args_b = [f"{f1}+{lbl1}"]
+    tasks_b = parse_cli_arguments(args_b)
+    assert len(tasks_b) == 1
+    assert tasks_b[0]["base"] == f1
+    assert tasks_b[0]["labels"] == [lbl1]
+
+    # Scenario C: Multiple labels attached to base
+    args_c = [f1, "+", lbl1, "+", lbl2, f2]
+    tasks_c = parse_cli_arguments(args_c)
+    assert len(tasks_c) == 2
+    
+    assert tasks_c[0]["base"] == f1
+    assert tasks_c[0]["labels"] == [lbl1, lbl2]
+    
+    assert tasks_c[1]["base"] == f2
+    assert tasks_c[1]["labels"] == []
+

@@ -65,9 +65,44 @@ def parse_cli_arguments(datasets):
     Parses raw command line arguments into structured image tasks.
     Handles shell-expanded 4D sequences, sync groups, and comma-separated fusion parameters.
     Automatically breaks 4D sequences if image size/spacing changes.
+    Supports '+' prefix or separator to attach label map ROIs to base images.
     """
     import numpy as np
     import SimpleITK as sitk
+
+    # 1. Normalize datasets by splitting any tokens containing '+'
+    normalized_datasets = []
+    for item in datasets:
+        if item == "+":
+            normalized_datasets.append("+")
+        elif "+" in item:
+            parts = item.split("+")
+            for i, part in enumerate(parts):
+                if i > 0:
+                    normalized_datasets.append("+")
+                if part:
+                    normalized_datasets.append(part)
+        else:
+            normalized_datasets.append(item)
+
+    # 2. Extract label maps associated with base images
+    clean_datasets = []
+    labels_for_path = {}  # maps base_path -> list of label paths
+    current_base = None
+    expect_label = False
+
+    for item in normalized_datasets:
+        if item == "+":
+            expect_label = True
+            continue
+        
+        if expect_label:
+            if current_base:
+                labels_for_path.setdefault(current_base, []).append(item)
+            expect_label = False
+        else:
+            clean_datasets.append(item)
+            current_base = item
 
     def get_info(path):
         """Ultra-fast header peek without loading pixel data."""
@@ -94,25 +129,22 @@ def parse_cli_arguments(datasets):
         ref_size = None
         ref_spacing = None
 
-    # 1. Re-group shell-split arguments dynamically
+    # 3. Re-group shell-split arguments dynamically
     seq_prefixes = VolumeData.SEQUENCE_PREFIXES
-    for item in datasets:
+    for item in clean_datasets:
         is_4d_tag = item.upper() in seq_prefixes
         clean_item = item.rstrip(",:")
 
-        # If the previous item ended with a comma, or a colon (like '1:'), it's an overlay or group modifier!
         expecting_more = len(buf) > 0 and (
             buf[-1].endswith(",")
             or (buf[-1].endswith(":") and not buf[-1].upper().startswith(seq_prefixes))
         )
 
-        # Explicit sequence breakers (useful if the next image matches dimensions but should be standalone)
         if item.lower() in ("//", "::", "stop:", "end:"):
             flush()
             continue
 
         if is_4d_tag:
-            # If we hit a second 4D tag, close out the first one immediately!
             if in_4d and not expecting_more:
                 flush()
             in_4d = True
@@ -124,37 +156,31 @@ def parse_cli_arguments(datasets):
                 size, spacing = get_info(clean_item)
                 if size is not None:
                     if ref_size is None:
-                        # First valid file sets the shape rules for the 4D sequence!
                         ref_size = size
                         ref_spacing = spacing
                         buf.append(item)
                     else:
-                        # Check if the new file belongs to the same 4D sequence
                         if size == ref_size and spacing is not None and ref_spacing is not None and np.allclose(
                             spacing, ref_spacing, atol=1e-3
                         ):
                             buf.append(item)
                         else:
-                            # SHAPE MISMATCH! The 4D sequence ended. Start a new standard image task.
                             flush()
                             buf.append(item)
                 else:
                     buf.append(item)
             else:
-                # Not a file? Just append (e.g., wildcards that didn't expand)
                 buf.append(item)
         else:
-            # Not in 4D, OR we are expecting more (like an overlay parameter)
             if not expecting_more and len(buf) > 0:
                 flush()
             buf.append(item)
 
     flush()
 
-    # 2. Parse the composite strings into tasks
+    # 4. Parse the composite strings into tasks
     image_tasks = []
 
-    # Normalize known colormaps case-insensitively
     known_cmaps = {
         "grayscale": "Grayscale",
         "hot": "Hot",
@@ -169,7 +195,6 @@ def parse_cli_arguments(datasets):
         base_part = parts[0]
         sync_group = 0
 
-        # Extract Sync Group (e.g. "1: file.mhd")
         match = re.match(r"^(\d+):\s*(.*)$", base_part)
         if match:
             sync_group = int(match.group(1))
@@ -180,6 +205,7 @@ def parse_cli_arguments(datasets):
             "fusion": None,
             "sync_group": sync_group,
             "base_cmap": None,
+            "labels": [],
         }
 
         if len(parts) > 1:
@@ -203,10 +229,14 @@ def parse_cli_arguments(datasets):
                     "threshold": float(parts[4]) if len(parts) > 4 else 0.0,
                 }
             else:
-                # User left the overlay blank (e.g. "image.nii,,Jet") to apply cmap to base!
                 task["base_cmap"] = cmap
                 if len(parts) > 4:
                     task["min_threshold"] = float(parts[4])
+
+        # Associate labels with this task
+        for path, lbls in labels_for_path.items():
+            if path in ds:
+                task["labels"].extend(lbls)
 
         image_tasks.append(task)
 
@@ -256,6 +286,10 @@ def main(no_history, datasets, linkall, sync, linkall_wl, debug, fast_gl):
     4D SEQUENCES
       vvv 4D frame1.nii frame2.nii ...    explicit 4D stack (use // to end the sequence)
       vvv frame*.nii                       shell glob: auto-grouped if same size and spacing
+
+    \b
+    LABEL MAPS / ROIs
+      vvv ct.nii.gz + labels.nii.gz        load labels.nii.gz as ROIs on ct.nii.gz
 
     \b
     WORKSPACE
