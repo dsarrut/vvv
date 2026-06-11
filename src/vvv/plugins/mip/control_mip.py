@@ -63,7 +63,7 @@ class MIPPluginController(PluginTagMixin):
         serialized = {}
         for tag, state in states_dict.items():
             serialized[tag] = {
-                "mip_enabled": state.mip_enabled,
+                "mip_enabled": state.mip_enabled if context != "history" else False,
                 "projection_axis": state.projection_axis,
                 "depth_cueing": state.depth_cueing,
                 "invert_contrast": state.invert_contrast,
@@ -75,7 +75,7 @@ class MIPPluginController(PluginTagMixin):
             v1_state = states_dict["V1"]
             serialized.update(
                 {
-                    "mip_enabled": v1_state.mip_enabled,
+                    "mip_enabled": v1_state.mip_enabled if context != "history" else False,
                     "projection_axis": v1_state.projection_axis,
                     "depth_cueing": v1_state.depth_cueing,
                     "invert_contrast": v1_state.invert_contrast,
@@ -93,15 +93,18 @@ class MIPPluginController(PluginTagMixin):
             for tag in ["V1", "V2", "V3", "V4"]:
                 if tag in data:
                     state = self.get_viewer_state(image_id, tag)
-                    self._restore_single_state(state, data[tag])
+                    self._restore_single_state(state, data[tag], context=context)
         else:
             # Old format flat dictionary. Restore across all standard viewers.
             for tag in ["V1", "V2", "V3", "V4"]:
                 state = self.get_viewer_state(image_id, tag)
-                self._restore_single_state(state, data)
+                self._restore_single_state(state, data, context=context)
 
-    def _restore_single_state(self, state: MIPViewerState, data: dict) -> None:
-        state.mip_enabled = data.get("mip_enabled", state.mip_enabled)
+    def _restore_single_state(self, state: MIPViewerState, data: dict, context: str = "history") -> None:
+        if context != "history":
+            state.mip_enabled = data.get("mip_enabled", state.mip_enabled)
+        else:
+            state.mip_enabled = False
         state.projection_axis = data.get("projection_axis", state.projection_axis)
 
         raw_depth = data.get("depth_cueing", state.depth_cueing)

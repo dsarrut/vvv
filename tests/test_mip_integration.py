@@ -166,7 +166,7 @@ def test_mip_viewer_isolation(headless_gui_app):
     assert state_v1.rotation_angles["Y"] == 0.0
     
     # 4. Test serialization
-    serialized = mip_plugin._controller.serialize_image_state(base_id)
+    serialized = mip_plugin._controller.serialize_image_state(base_id, context="workspace")
     # New format contains keys "V1", "V3" etc.
     assert "V1" in serialized
     assert "V3" in serialized
@@ -176,20 +176,33 @@ def test_mip_viewer_isolation(headless_gui_app):
     # Backward compatibility key check (flat fields represent V1)
     assert serialized["mip_enabled"] is True
     assert serialized["depth_cueing"] == 1.0
-    
+
+    # Also check that history context doesn't save mip_enabled
+    serialized_history = mip_plugin._controller.serialize_image_state(base_id, context="history")
+    assert serialized_history["V1"]["mip_enabled"] is False
+    assert serialized_history["mip_enabled"] is False
+    assert serialized_history["V1"]["depth_cueing"] == 1.0
+
     # 5. Test restore of new format
     new_image_id = "test_image_new"
     # Call on_image_loaded to initialize new states
     mip_plugin._controller.on_image_loaded(new_image_id)
-    mip_plugin._controller.restore_image_state(new_image_id, serialized)
-    
+    mip_plugin._controller.restore_image_state(new_image_id, serialized, context="workspace")
+
     restored_v1 = mip_plugin._controller.get_viewer_state(new_image_id, "V1")
     restored_v3 = mip_plugin._controller.get_viewer_state(new_image_id, "V3")
     assert restored_v1.mip_enabled is True
     assert restored_v3.mip_enabled is False
     assert restored_v3.depth_cueing == 0.8
     assert restored_v3.rotation_angles["Y"] == 45.0
-    
+
+    # Test restore of new format with history context (mip_enabled should remain False)
+    new_image_id_hist = "test_image_new_hist"
+    mip_plugin._controller.on_image_loaded(new_image_id_hist)
+    mip_plugin._controller.restore_image_state(new_image_id_hist, serialized, context="history")
+    restored_v1_hist = mip_plugin._controller.get_viewer_state(new_image_id_hist, "V1")
+    assert restored_v1_hist.mip_enabled is False
+
     # 6. Test restore of old flat format (all viewers get the flat state)
     old_serialized = {
         "mip_enabled": True,
@@ -201,8 +214,8 @@ def test_mip_viewer_isolation(headless_gui_app):
     }
     old_image_id = "test_image_old"
     mip_plugin._controller.on_image_loaded(old_image_id)
-    mip_plugin._controller.restore_image_state(old_image_id, old_serialized)
-    
+    mip_plugin._controller.restore_image_state(old_image_id, old_serialized, context="workspace")
+
     for tag in ["V1", "V2", "V3", "V4"]:
         restored = mip_plugin._controller.get_viewer_state(old_image_id, tag)
         assert restored.mip_enabled is True
