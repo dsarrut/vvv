@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "vvv"
 version = "1.0"
 description = "A Python-based 3D/4D image viewer inspired by VV."
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "click",
     "SimpleITK",
