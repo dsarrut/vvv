@@ -6,6 +6,7 @@ from vvv.ui.ui_components import (
 )
 from vvv.plugins.plugin_api import PluginTagMixin
 from vvv.utils import ViewMode
+from vvv.plugins.mip.math_mip import _NUMBA_AVAILABLE
 
 
 class MIPPluginUI(PluginTagMixin):
@@ -122,6 +123,15 @@ class MIPPluginUI(PluginTagMixin):
                 api,
             )
 
+            if not _NUMBA_AVAILABLE:
+                numba_warning = dpg.add_text(
+                    "Warning: Numba not installed. MIP rendering will be slow.\n"
+                    "Please install numba to improve performance.",
+                    tag=self._t("text_numba_warning"),
+                    color=cfg_c["text_dim"],
+                )
+
+
     def update_ui(self, api) -> None:
         viewer = api.get_active_viewer()
         has_image = bool(viewer and viewer.view_state and viewer.volume)
@@ -180,6 +190,10 @@ class MIPPluginUI(PluginTagMixin):
 
         if dpg.does_item_exist(cache_text):
             dpg.configure_item(cache_text, show=mip_on)
+
+        numba_warning = self._t("text_numba_warning")
+        if dpg.does_item_exist(numba_warning):
+            dpg.configure_item(numba_warning, show=mip_on)
 
         if has_image:
             state = self._c.get_viewer_state(viewer.image_id, viewer.tag)

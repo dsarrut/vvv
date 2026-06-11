@@ -297,7 +297,6 @@ else:
         """Compute rotated MIP along Z using NumPy. Output shape is (H, W)."""
         D, H, W = data.shape
         diag = int(np.ceil(np.sqrt(D**2 + W**2)))
-        out = np.zeros((H, W), dtype=data.dtype)
         
         cz = (D - 1) / 2.0
         cx = (W - 1) / 2.0
@@ -305,39 +304,34 @@ else:
         sin_t = np.sin(theta)
         
         u = np.arange(diag, dtype=np.float32) - (diag - 1) / 2.0
-        factors = 1.0 - depth_cueing_strength * (np.arange(diag, dtype=np.float32) / max(1.0, diag - 1))
         
-        # Precompute coordinates for all x_out
-        x_rot_all = []
-        z_rot_all = []
-        masks_all = []
+        x_out = np.arange(W)[:, np.newaxis]
+        v = x_out - cx
         
-        for x_out in range(W):
-            v = x_out - cx
-            xr = np.round(cx + v * cos_t - u * sin_t).astype(np.int32)
-            zr = np.round(cz + v * sin_t + u * cos_t).astype(np.int32)
-            m = (xr >= 0) & (xr < W) & (zr >= 0) & (zr < D)
-            x_rot_all.append(xr[m])
-            z_rot_all.append(zr[m])
-            masks_all.append(np.where(m)[0])
+        xr = np.round(cx + v * cos_t - u * sin_t).astype(np.int32)
+        zr = np.round(cz + v * sin_t + u * cos_t).astype(np.int32)
         
-        for y in range(H):
-            for x_out in range(W):
-                xr = x_rot_all[x_out]
-                zr = z_rot_all[x_out]
-                if len(xr) > 0:
-                    vals = data[zr, y, xr]
-                    if depth_cueing_strength > 0.0:
-                        vals = vals * factors[masks_all[x_out]]
-                    out[y, x_out] = np.max(vals)
-        return out
+        mask = (xr >= 0) & (xr < W) & (zr >= 0) & (zr < D)
+        
+        xr_clipped = np.clip(xr, 0, W - 1)
+        zr_clipped = np.clip(zr, 0, D - 1)
+        
+        vals = data[zr_clipped[:, np.newaxis, :], np.arange(H)[np.newaxis, :, np.newaxis], xr_clipped[:, np.newaxis, :]]
+        
+        if depth_cueing_strength > 0.0:
+            factors = 1.0 - depth_cueing_strength * (np.arange(diag, dtype=np.float32) / max(1.0, diag - 1))[np.newaxis, np.newaxis, :]
+            vals = vals * factors
+            
+        fill_value = np.iinfo(data.dtype).min if np.issubdtype(data.dtype, np.integer) else -np.inf
+        vals = np.where(mask[:, np.newaxis, :], vals, fill_value)
+        
+        return np.max(vals, axis=2).T.astype(data.dtype)
 
 
     def project_mip_y_rotated(data: np.ndarray, theta: float, depth_cueing_strength: float) -> np.ndarray:
         """Compute rotated MIP along Y using NumPy. Output shape is (D, W)."""
         D, H, W = data.shape
         diag = int(np.ceil(np.sqrt(H**2 + W**2)))
-        out = np.zeros((D, W), dtype=data.dtype)
         
         cy = (H - 1) / 2.0
         cx = (W - 1) / 2.0
@@ -345,39 +339,34 @@ else:
         sin_t = np.sin(theta)
         
         u = np.arange(diag, dtype=np.float32) - (diag - 1) / 2.0
-        factors = 1.0 - depth_cueing_strength * (np.arange(diag, dtype=np.float32) / max(1.0, diag - 1))
         
-        # Precompute coordinates for all x_out
-        x_rot_all = []
-        y_rot_all = []
-        masks_all = []
+        x_out = np.arange(W)[:, np.newaxis]
+        v = x_out - cx
         
-        for x_out in range(W):
-            v = x_out - cx
-            xr = np.round(cx + v * cos_t - u * sin_t).astype(np.int32)
-            yr = np.round(cy + v * sin_t + u * cos_t).astype(np.int32)
-            m = (xr >= 0) & (xr < W) & (yr >= 0) & (yr < H)
-            x_rot_all.append(xr[m])
-            y_rot_all.append(yr[m])
-            masks_all.append(np.where(m)[0])
+        xr = np.round(cx + v * cos_t - u * sin_t).astype(np.int32)
+        yr = np.round(cy + v * sin_t + u * cos_t).astype(np.int32)
+        
+        mask = (xr >= 0) & (xr < W) & (yr >= 0) & (yr < H)
+        
+        xr_clipped = np.clip(xr, 0, W - 1)
+        yr_clipped = np.clip(yr, 0, H - 1)
+        
+        vals = data[np.arange(D)[np.newaxis, :, np.newaxis], yr_clipped[:, np.newaxis, :], xr_clipped[:, np.newaxis, :]]
+        
+        if depth_cueing_strength > 0.0:
+            factors = 1.0 - depth_cueing_strength * (np.arange(diag, dtype=np.float32) / max(1.0, diag - 1))[np.newaxis, np.newaxis, :]
+            vals = vals * factors
             
-        for z in range(D):
-            for x_out in range(W):
-                xr = x_rot_all[x_out]
-                yr = y_rot_all[x_out]
-                if len(xr) > 0:
-                    vals = data[z, yr, xr]
-                    if depth_cueing_strength > 0.0:
-                        vals = vals * factors[masks_all[x_out]]
-                    out[z, x_out] = np.max(vals)
-        return out
+        fill_value = np.iinfo(data.dtype).min if np.issubdtype(data.dtype, np.integer) else -np.inf
+        vals = np.where(mask[:, np.newaxis, :], vals, fill_value)
+        
+        return np.max(vals, axis=2).T.astype(data.dtype)
 
 
     def project_mip_x_rotated(data: np.ndarray, theta: float, depth_cueing_strength: float) -> np.ndarray:
         """Compute rotated MIP along X using NumPy. Output shape is (D, H)."""
         D, H, W = data.shape
         diag = int(np.ceil(np.sqrt(W**2 + H**2)))
-        out = np.zeros((D, H), dtype=data.dtype)
         
         cx = (W - 1) / 2.0
         cy = (H - 1) / 2.0
@@ -385,32 +374,28 @@ else:
         sin_t = np.sin(theta)
         
         u = np.arange(diag, dtype=np.float32) - (diag - 1) / 2.0
-        factors = 1.0 - depth_cueing_strength * (np.arange(diag, dtype=np.float32) / max(1.0, diag - 1))
         
-        # Precompute coordinates for all y_out
-        y_rot_all = []
-        x_rot_all = []
-        masks_all = []
+        y_out = np.arange(H)[:, np.newaxis]
+        v = y_out - cy
         
-        for y_out in range(H):
-            v = y_out - cy
-            yr = np.round(cy + v * cos_t - u * sin_t).astype(np.int32)
-            xr = np.round(cx + v * sin_t + u * cos_t).astype(np.int32)
-            m = (xr >= 0) & (xr < W) & (yr >= 0) & (yr < H)
-            y_rot_all.append(yr[m])
-            x_rot_all.append(xr[m])
-            masks_all.append(np.where(m)[0])
+        yr = np.round(cy + v * cos_t - u * sin_t).astype(np.int32)
+        xr = np.round(cx + v * sin_t + u * cos_t).astype(np.int32)
+        
+        mask = (xr >= 0) & (xr < W) & (yr >= 0) & (yr < H)
+        
+        xr_clipped = np.clip(xr, 0, W - 1)
+        yr_clipped = np.clip(yr, 0, H - 1)
+        
+        vals = data[np.arange(D)[np.newaxis, :, np.newaxis], yr_clipped[:, np.newaxis, :], xr_clipped[:, np.newaxis, :]]
+        
+        if depth_cueing_strength > 0.0:
+            factors = 1.0 - depth_cueing_strength * (np.arange(diag, dtype=np.float32) / max(1.0, diag - 1))[np.newaxis, np.newaxis, :]
+            vals = vals * factors
             
-        for z in range(D):
-            for y_out in range(H):
-                yr = y_rot_all[y_out]
-                xr = x_rot_all[y_out]
-                if len(xr) > 0:
-                    vals = data[z, yr, xr]
-                    if depth_cueing_strength > 0.0:
-                        vals = vals * factors[masks_all[y_out]]
-                    out[z, y_out] = np.max(vals)
-        return out
+        fill_value = np.iinfo(data.dtype).min if np.issubdtype(data.dtype, np.integer) else -np.inf
+        vals = np.where(mask[:, np.newaxis, :], vals, fill_value)
+        
+        return np.max(vals, axis=2).T.astype(data.dtype)
 
 
 def compute_mip_projection(

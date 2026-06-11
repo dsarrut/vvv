@@ -24,6 +24,9 @@ dependencies = [
 dev = [
     "pytest"
 ]
+numba = [
+    "numba"
+]
 
 [project.scripts]
 # This line creates the 'vvv' command in your shell
