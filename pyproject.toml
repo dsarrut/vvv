@@ -27,6 +27,10 @@ dev = [
 numba = [
     "numba"
 ]
+memory = [
+    "psutil"
+]
+
 
 [project.scripts]
 # This line creates the 'vvv' command in your shell
