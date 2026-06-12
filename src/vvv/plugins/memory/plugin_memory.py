@@ -1,4 +1,5 @@
 import os
+import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI, PluginProtocol, PluginTagMixin
 
@@ -49,7 +50,7 @@ class MemoryPlugin(PluginProtocol, PluginTagMixin):
                 dpg.add_text("Process Memory RSS:")
                 dpg.add_text("Computing...", tag=self._t("process_val"), color=[200, 200, 255])
                 dpg.add_spacer(width=20)
-                dpg.add_text("Total Volume Memory:")
+                dpg.add_text("Total Memory Usage:")
                 dpg.add_text("Computing...", tag=self._t("total_val"), color=[200, 200, 255])
 
             dpg.add_spacer(height=5)
@@ -59,7 +60,7 @@ class MemoryPlugin(PluginProtocol, PluginTagMixin):
             # Refresh button
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Refresh", width=100, callback=self.refresh)
-                dpg.add_text("Displays memory usage of all loaded volumes and process.", color=[150, 150, 150])
+                dpg.add_text("Displays memory usage of all loaded volumes, caches and process.", color=[150, 150, 150])
 
             dpg.add_spacer(height=5)
 
@@ -108,10 +109,8 @@ class MemoryPlugin(PluginProtocol, PluginTagMixin):
         if dpg.does_item_exist(process_val_tag):
             dpg.set_value(process_val_tag, process_str)
 
-        # 2. Get all volumes, categorizing them
-        loaded_images = []
+        # 2. Collect all loaded volumes
         all_roi_ids = set()
-        
         view_states = self._api.get_view_states()
         for vs in view_states.values():
             all_roi_ids.update(vs.rois.keys())
@@ -119,11 +118,10 @@ class MemoryPlugin(PluginProtocol, PluginTagMixin):
         volumes_items = list(self._api.get_volumes().items())
         view_state_keys = set(view_states.keys())
 
-        total_vol_mem = 0.0
+        vol_mem_info = {}
 
         for vol_id, vol in volumes_items:
             vol_mem = getattr(vol, "memory_mb", 0.0)
-            total_vol_mem += vol_mem
 
             if vol_id in view_state_keys:
                 v_type = "Image"
@@ -137,35 +135,215 @@ class MemoryPlugin(PluginProtocol, PluginTagMixin):
             if getattr(vol, "num_timepoints", 1) > 1:
                 shape_str += f" x {vol.num_timepoints}t"
 
-            loaded_images.append({
+            vol_mem_info[vol_id] = {
                 "id": vol_id,
                 "type": v_type,
                 "name": vol.name,
                 "shape": shape_str,
                 "dtype": getattr(vol, "pixel_type", ""),
-                "mem": f"{vol_mem:.2f} MB",
-                "mem_val": vol_mem
+                "raw_mem": vol_mem,
+                "resampled_base": 0.0,
+                "resampled_overlay": 0.0,
+                "mip_cache": 0.0,
+                "slice_cache": 0.0,
+            }
+
+        # 3. Calculate Resampled Base and Overlay memory from view states
+        for vs_id, vs in view_states.items():
+            # Base display buffer (rotation preview resampling)
+            if vs.base_display_data is not None and isinstance(vs.base_display_data, np.ndarray):
+                mem_mb = vs.base_display_data.nbytes / (1024 * 1024)
+                if vs_id in vol_mem_info:
+                    vol_mem_info[vs_id]["resampled_base"] += mem_mb
+
+            # Overlay display buffer (registration resampling onto base grid)
+            if vs.display.overlay.image_id:
+                ov_id = vs.display.overlay.image_id
+                if vs.display.overlay_data is not None and isinstance(vs.display.overlay_data, np.ndarray):
+                    mem_mb = vs.display.overlay_data.nbytes / (1024 * 1024)
+                    if ov_id in vol_mem_info:
+                        vol_mem_info[ov_id]["resampled_overlay"] += mem_mb
+
+        # 4. Calculate MIP cache from MIP plugin
+        mip_plugin = next(
+            (p for p in self._api._gui.plugins if p.plugin_id == "mip_plugin"), None
+        )
+        if mip_plugin and hasattr(mip_plugin, "_controller") and hasattr(mip_plugin._controller, "_caches"):
+            for tag, cache_dict in mip_plugin._controller._caches.items():
+                for k, v in list(cache_dict.items()):
+                    # Key format: (img_id, time_idx, orientation, depth_cueing, current_angle, id(data_3d))
+                    if isinstance(k, tuple) and len(k) > 0:
+                        img_id = k[0]
+                        if isinstance(v, np.ndarray):
+                            mem_mb = v.nbytes / (1024 * 1024)
+                            if img_id in vol_mem_info:
+                                vol_mem_info[img_id]["mip_cache"] += mem_mb
+
+        # 5. Calculate Viewer 2D slice caches
+        for viewer in self._api.get_viewers().values():
+            # Base image slice cache
+            if viewer.image_id and hasattr(viewer, "_preview_slices") and viewer._preview_slices:
+                for k, v in list(viewer._preview_slices.items()):
+                    if isinstance(v, np.ndarray):
+                        mem_mb = v.nbytes / (1024 * 1024)
+                        if viewer.image_id in vol_mem_info:
+                            vol_mem_info[viewer.image_id]["slice_cache"] += mem_mb
+                    elif isinstance(v, tuple):
+                        for item in v:
+                            if isinstance(item, np.ndarray):
+                                mem_mb = item.nbytes / (1024 * 1024)
+                                if viewer.image_id in vol_mem_info:
+                                    vol_mem_info[viewer.image_id]["slice_cache"] += mem_mb
+
+            # Overlay slice cache
+            vs = viewer.view_state
+            if vs and vs.display.overlay.image_id and hasattr(viewer, "_overlay_preview_slices") and viewer._overlay_preview_slices:
+                ov_id = vs.display.overlay.image_id
+                for k, v in list(viewer._overlay_preview_slices.items()):
+                    if isinstance(v, np.ndarray):
+                        mem_mb = v.nbytes / (1024 * 1024)
+                        if ov_id in vol_mem_info:
+                            vol_mem_info[ov_id]["slice_cache"] += mem_mb
+                    elif isinstance(v, tuple):
+                        for item in v:
+                            if isinstance(item, np.ndarray):
+                                mem_mb = item.nbytes / (1024 * 1024)
+                                if ov_id in vol_mem_info:
+                                    vol_mem_info[ov_id]["slice_cache"] += mem_mb
+
+        # 6. Build final table rows
+        total_vol_mem = 0.0
+        table_rows = []
+        dim_color = self._api.get_ui_config()["colors"].get("text_dim", [150, 150, 150])
+
+        # Group and order
+        for vol_id, info in vol_mem_info.items():
+            total_item_mem = (
+                info["raw_mem"]
+                + info["resampled_base"]
+                + info["resampled_overlay"]
+                + info["mip_cache"]
+                + info["slice_cache"]
+            )
+            total_vol_mem += total_item_mem
+
+            # Add main row
+            table_rows.append({
+                "id": vol_id,
+                "type": info["type"],
+                "name": info["name"],
+                "shape": info["shape"],
+                "dtype": info["dtype"],
+                "mem": f"{total_item_mem:.2f} MB",
+                "mem_val": total_item_mem,
+                "is_subrow": False,
             })
+
+            # Add sub-rows if any cache/buffer is > 0.01 MB to avoid cluttering with zero entries
+            if info["raw_mem"] > 0.01 and total_item_mem > info["raw_mem"] + 0.01:
+                table_rows.append({
+                    "id": "",
+                    "type": "  └─ Raw Volume Data",
+                    "name": "",
+                    "shape": "",
+                    "dtype": "",
+                    "mem": f"{info['raw_mem']:.2f} MB",
+                    "mem_val": info["raw_mem"],
+                    "is_subrow": True,
+                })
+            if info["resampled_base"] > 0.01:
+                table_rows.append({
+                    "id": "",
+                    "type": "  └─ Resampled Base Buffer",
+                    "name": "",
+                    "shape": "",
+                    "dtype": "",
+                    "mem": f"{info['resampled_base']:.2f} MB",
+                    "mem_val": info["resampled_base"],
+                    "is_subrow": True,
+                })
+            if info["resampled_overlay"] > 0.01:
+                table_rows.append({
+                    "id": "",
+                    "type": "  └─ Resampled Overlay Buffer",
+                    "name": "",
+                    "shape": "",
+                    "dtype": "",
+                    "mem": f"{info['resampled_overlay']:.2f} MB",
+                    "mem_val": info["resampled_overlay"],
+                    "is_subrow": True,
+                })
+            if info["mip_cache"] > 0.01:
+                table_rows.append({
+                    "id": "",
+                    "type": "  └─ MIP Projection Cache",
+                    "name": "",
+                    "shape": "",
+                    "dtype": "",
+                    "mem": f"{info['mip_cache']:.2f} MB",
+                    "mem_val": info["mip_cache"],
+                    "is_subrow": True,
+                })
+            if info["slice_cache"] > 0.01:
+                table_rows.append({
+                    "id": "",
+                    "type": "  └─ Viewer 2D Slice Cache",
+                    "name": "",
+                    "shape": "",
+                    "dtype": "",
+                    "mem": f"{info['slice_cache']:.2f} MB",
+                    "mem_val": info["slice_cache"],
+                    "is_subrow": True,
+                })
 
         total_val_tag = self._t("total_val")
         if dpg.does_item_exist(total_val_tag):
             dpg.set_value(total_val_tag, f"{total_vol_mem:.2f} MB")
 
-        # Clear and refill table rows
+        # Refill table rows
         if dpg.does_item_exist(self.table_id):
             dpg.delete_item(self.table_id, children_only=True, slot=1)
             
-            # Sort by type, then memory desc
-            loaded_images.sort(key=lambda x: (x["type"], -x["mem_val"]))
+            # Sort main rows but keep sub-rows directly underneath their parents
+            # To do that, we sort the grouped entries before flattening them into table_rows.
+            # We already generated table_rows, but we can do a structured sort.
+            # Let's sort the vol_mem_info dict keys by type, then by total memory DESC.
+            sorted_vol_ids = sorted(
+                vol_mem_info.keys(),
+                key=lambda x: (
+                    vol_mem_info[x]["type"],
+                    -(vol_mem_info[x]["raw_mem"] +
+                      vol_mem_info[x]["resampled_base"] +
+                      vol_mem_info[x]["resampled_overlay"] +
+                      vol_mem_info[x]["mip_cache"] +
+                      vol_mem_info[x]["slice_cache"])
+                )
+            )
 
-            for row_data in loaded_images:
+            # Re-generate table_rows in sorted order
+            final_sorted_rows = []
+            for vol_id in sorted_vol_ids:
+                for row in table_rows:
+                    # Match row by parent or if it's the main row matching the vol_id
+                    if row["id"] == vol_id:
+                        final_sorted_rows.append(row)
+                        # Find all subsequent subrows for this parent
+                        parent_idx = table_rows.index(row)
+                        sub_idx = parent_idx + 1
+                        while sub_idx < len(table_rows) and table_rows[sub_idx]["id"] == "" and table_rows[sub_idx]["is_subrow"]:
+                            final_sorted_rows.append(table_rows[sub_idx])
+                            sub_idx += 1
+                        break
+
+            for row_data in final_sorted_rows:
                 with dpg.table_row(parent=self.table_id):
-                    dpg.add_text(row_data["id"])
-                    dpg.add_text(row_data["type"])
-                    dpg.add_text(row_data["name"])
-                    dpg.add_text(row_data["shape"])
-                    dpg.add_text(row_data["dtype"])
-                    dpg.add_text(row_data["mem"])
+                    col = dim_color if row_data["is_subrow"] else None
+                    dpg.add_text(row_data["id"], color=col if col else [255, 255, 255])
+                    dpg.add_text(row_data["type"], color=col if col else [255, 255, 255])
+                    dpg.add_text(row_data["name"], color=col if col else [255, 255, 255])
+                    dpg.add_text(row_data["shape"], color=col if col else [255, 255, 255])
+                    dpg.add_text(row_data["dtype"], color=col if col else [255, 255, 255])
+                    dpg.add_text(row_data["mem"], color=col if col else [255, 255, 255])
 
     def update(self, api: PluginAPI) -> None:
         pass
