@@ -836,6 +836,117 @@ class MainGUI:
             )
             return
 
+        # Define an orange color for missing files (RGB: 255, 140, 0)
+        orange_color = [255, 140, 0, 255]
+
+        for path_str in recent:
+            # Safely attempt to decode DICOM lists
+            try:
+                path_obj = (
+                    json.loads(path_str) if path_str.startswith("[") else path_str
+                )
+            except:
+                path_obj = path_str
+
+            # Resolve the path to handle robust user profile path fallback
+            path_obj = self.controller.resolve_recent_path(path_obj)
+
+            # Check if the file/directory actually exists on disk
+            exists = False
+            if isinstance(path_obj, list):
+                # For DICOM series, verify if at least the first file exists
+                exists = len(path_obj) > 0 and os.path.exists(path_obj[0])
+            elif isinstance(path_obj, str):
+                if path_obj.startswith("4D:"):
+                    import shlex
+
+                    try:
+                        path_for_shlex = (
+                            path_obj[3:].replace("\\", "\\\\")
+                            if os.name == "nt"
+                            else path_obj[3:]
+                        )
+                        tokens = shlex.split(path_for_shlex)
+                        # For 4D sequences, verify the first frame exists
+                        exists = len(tokens) > 0 and os.path.exists(tokens[0])
+                    except:
+                        exists = False
+                else:
+                    exists = os.path.exists(path_obj)
+
+            # Create a clean display name
+            if isinstance(path_obj, list) and len(path_obj) > 0:
+                display_name = (
+                    os.path.basename(os.path.dirname(path_obj[0])) + " (DICOM Series)"
+                )
+                tooltip_path = "\n".join(path_obj)
+            elif isinstance(path_obj, str) and path_obj.startswith("4D:"):
+                import shlex
+
+                path_for_shlex = (
+                    path_obj[3:].replace("\\", "\\\\")
+                    if os.name == "nt"
+                    else path_obj[3:]
+                )
+                tokens = shlex.split(path_for_shlex)
+                display_name = (
+                    "4D: " + os.path.basename(tokens[0]) + "..."
+                    if tokens
+                    else "4D Sequence"
+                )
+                tooltip_path = path_obj
+            elif isinstance(path_obj, str):
+                display_name = os.path.basename(path_obj)
+                tooltip_path = path_obj
+            else:
+                display_name = str(path_obj)
+                tooltip_path = str(path_obj)
+
+            # Add a visual indicator suffix to the label if missing
+            if not exists:
+                display_name += " (Missing)"
+
+            # 1. Create the unique menu item
+            item = dpg.add_menu_item(
+                label=display_name,
+                parent="menu_recent_files",
+                user_data=path_obj,
+                callback=self.on_recent_file_clicked,
+            )
+
+            # 2. If the file doesn't exist, bind a custom orange color theme to this specific item
+            if not exists:
+                with dpg.theme() as missing_item_theme:
+                    with dpg.theme_component(dpg.mvMenuItem):
+                        dpg.add_theme_color(dpg.mvThemeCol_Text, orange_color)
+                dpg.bind_item_theme(item, missing_item_theme)
+
+            # 3. Attach the tooltip showing the absolute path
+            with dpg.tooltip(item):
+                dpg.add_text(tooltip_path)
+
+        dpg.add_separator(parent="menu_recent_files")
+        dpg.add_menu_item(
+            label="Clear Recent Files",
+            parent="menu_recent_files",
+            callback=self.on_clear_recent_clicked,
+        )
+
+    def refresh_recent_menu_OLD2(self):
+        if not dpg.does_item_exist("menu_recent_files"):
+            return
+
+        dpg.delete_item("menu_recent_files", children_only=True)
+        recent = self.controller.settings.data.get("behavior", {}).get(
+            "recent_files", []
+        )
+
+        if not recent:
+            dpg.add_menu_item(
+                label="No recent files", parent="menu_recent_files", enabled=False
+            )
+            return
+
         for path_str in recent:
             # Safely attempt to decode DICOM lists
             try:
@@ -853,8 +964,11 @@ class MainGUI:
                 display_name = (
                     os.path.basename(os.path.dirname(path_obj[0])) + " (DICOM Series)"
                 )
+                # Create a clean multiline string for the DICOM absolute paths tooltip
+                tooltip_path = "\n".join(path_obj)
             elif isinstance(path_obj, str) and path_obj.startswith("4D:"):
                 import shlex
+
                 path_for_shlex = (
                     path_obj[3:].replace("\\", "\\\\")
                     if os.name == "nt"
@@ -866,17 +980,25 @@ class MainGUI:
                     if tokens
                     else "4D Sequence"
                 )
+                tooltip_path = path_obj
             elif isinstance(path_obj, str):
                 display_name = os.path.basename(path_obj)
+                tooltip_path = path_obj
             else:
                 display_name = str(path_obj)
+                tooltip_path = str(path_obj)
 
-            dpg.add_menu_item(
+            # 1. Create the unique menu item
+            item = dpg.add_menu_item(
                 label=display_name,
                 parent="menu_recent_files",
                 user_data=path_obj,
                 callback=self.on_recent_file_clicked,
             )
+
+            # 2. Attach the tooltip showing the absolute path
+            with dpg.tooltip(item):
+                dpg.add_text(tooltip_path)
 
         dpg.add_separator(parent="menu_recent_files")
         dpg.add_menu_item(
@@ -1794,7 +1916,6 @@ class MainGUI:
                         dpg.add_text(format_key(key_id, val), color=ok_col)
                         dpg.add_text(desc)
 
-
             dpg.add_spacer(height=15)
             dpg.add_text("Command Line Usage", color=active_col)
             dpg.add_separator()
@@ -1806,9 +1927,15 @@ class MainGUI:
                 cli_examples = [
                     ("vvv image.nii", "Load a base image"),
                     ("vvv ct.nii,pet.nii", "Load CT with transparent PET overlay"),
-                    ("vvv ct.nii,pet.nii,hot,0.7", "Overlay with custom colormap and opacity"),
+                    (
+                        "vvv ct.nii,pet.nii,hot,0.7",
+                        "Overlay with custom colormap and opacity",
+                    ),
                     ("vvv ct.nii + labels.nii", "Load label map ROIs on CT base image"),
-                    ("vvv 1:ct.nii 1:pet.nii", "Load and group images in spatial sync group 1"),
+                    (
+                        "vvv 1:ct.nii 1:pet.nii",
+                        "Load and group images in spatial sync group 1",
+                    ),
                     ("vvv 4D f1.nii f2.nii ...", "Load frames as a 4D sequence"),
                 ]
                 for cmd, desc in cli_examples:
@@ -1931,34 +2058,34 @@ class MainGUI:
 
         while dpg.is_dearpygui_running():
             t_now = time.perf_counter()
-            
+
             # Detect activity/necessity to run at full speed
             has_active_tasks = (
-                len(self.tasks) > 0 
-                or len(self._main_thread_callbacks) > 0 
+                len(self.tasks) > 0
+                or len(self._main_thread_callbacks) > 0
                 or getattr(self.controller, "ui_needs_refresh", False)
             )
-            
+
             # Get mouse position and viewport boundaries
             mx, my = dpg.get_mouse_pos(local=False)
             vw = dpg.get_viewport_width()
             vh = dpg.get_viewport_height()
-            
+
             # Check if mouse is inside the window
             mouse_in_viewport = (0 <= mx <= vw) and (0 <= my <= vh)
-            
+
             # Did mouse position change?
             mouse_moved = (mx, my) != self._last_mouse_pos
             if mouse_moved:
                 self._last_mouse_pos = (mx, my)
-                
+
             # Check if any mouse button is down
             mouse_clicked = False
             for btn in range(3):
                 if dpg.is_mouse_button_down(btn):
                     mouse_clicked = True
                     break
-                    
+
             if mouse_moved or mouse_clicked or has_active_tasks:
                 self._last_interaction_time = t_now
 
