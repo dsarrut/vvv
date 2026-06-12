@@ -166,6 +166,21 @@ class Controller:
 
     def add_recent_file(self, path):
         """Adds a path to the recent files list in settings and caps it at 10."""
+        if isinstance(path, list):
+            path = [os.path.abspath(p) for p in path]
+        elif isinstance(path, str):
+            if path.startswith("4D:"):
+                import shlex
+                try:
+                    path_for_shlex = path[3:].replace("\\", "\\\\") if os.name == "nt" else path[3:]
+                    tokens = shlex.split(path_for_shlex)
+                    abs_tokens = [os.path.abspath(t) for t in tokens]
+                    path = "4D:" + " ".join(f'"{t}"' for t in abs_tokens)
+                except:
+                    pass
+            else:
+                path = os.path.abspath(path)
+
         behavior: Any = self.settings.data.setdefault("behavior", {})
         if not isinstance(behavior, dict):
             behavior = {}
@@ -185,6 +200,43 @@ class Controller:
 
         # Cap at 20
         behavior["recent_files"] = recent[:20]
+
+    def resolve_recent_path(self, path):
+        """Resolves a path from the recent files. If not found, searches for a ~ equivalent path."""
+        if isinstance(path, list):
+            return [self.resolve_recent_path(p) for p in path]
+        elif isinstance(path, str):
+            if path.startswith("4D:"):
+                import shlex
+                try:
+                    path_for_shlex = path[3:].replace("\\", "\\\\") if os.name == "nt" else path[3:]
+                    tokens = shlex.split(path_for_shlex)
+                    resolved_tokens = [self._resolve_single_path(t) for t in tokens]
+                    return "4D:" + " ".join(f'"{t}"' for t in resolved_tokens)
+                except:
+                    return path
+            else:
+                return self._resolve_single_path(path)
+        return path
+
+    def _resolve_single_path(self, p):
+        if os.path.exists(p):
+            return p
+
+        expanded = os.path.expanduser(p)
+        if os.path.exists(expanded):
+            return expanded
+
+        normalized = p.replace("\\", "/")
+        if normalized.startswith("/home/") or normalized.startswith("/Users/"):
+            parts = normalized.split("/")
+            if len(parts) >= 4:
+                rest_parts = parts[3:]
+                home = os.path.expanduser("~")
+                alt_path = os.path.join(home, *rest_parts)
+                if os.path.exists(alt_path):
+                    return alt_path
+        return p
 
     def get_volume_physical_center(self, vol):
         """Calculates the exact physical center of an image volume for the CoR."""

@@ -845,16 +845,20 @@ class MainGUI:
             except:
                 path_obj = path_str
 
+            # Resolve the path to handle robust user profile path fallback
+            path_obj = self.controller.resolve_recent_path(path_obj)
+
             # Create a clean display name
             if isinstance(path_obj, list) and len(path_obj) > 0:
                 display_name = (
                     os.path.basename(os.path.dirname(path_obj[0])) + " (DICOM Series)"
                 )
-            elif isinstance(path_str, str) and path_str.startswith("4D:"):
+            elif isinstance(path_obj, str) and path_obj.startswith("4D:"):
+                import shlex
                 path_for_shlex = (
-                    path_str[3:].replace("\\", "\\\\")
+                    path_obj[3:].replace("\\", "\\\\")
                     if os.name == "nt"
-                    else path_str[3:]
+                    else path_obj[3:]
                 )
                 tokens = shlex.split(path_for_shlex)
                 display_name = (
@@ -862,8 +866,10 @@ class MainGUI:
                     if tokens
                     else "4D Sequence"
                 )
+            elif isinstance(path_obj, str):
+                display_name = os.path.basename(path_obj)
             else:
-                display_name = os.path.basename(path_str)
+                display_name = str(path_obj)
 
             dpg.add_menu_item(
                 label=display_name,
