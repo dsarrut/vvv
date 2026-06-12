@@ -268,70 +268,71 @@ class MainGUI:
                         callback=self.on_save_workspace_current_clicked,
                     )
 
-                with dpg.menu(label="Rendering"):
-                    dpg.add_menu_item(
-                        label="NN Interpolation  [K]",
-                        tag="menu_item_pixelated",
-                        check=True,
-                        callback=self.on_menu_pixelated_zoom_toggled,
-                    )
-                    dpg.add_separator()
-                    with dpg.menu(label="NN Options"):
-                        lazy_combo = dpg.add_combo(
-                            ["Auto", "On", "Off"],
-                            label="Lazy-Lin",
-                            tag="menu_combo_lazy_lin",
-                            width=100,
-                            callback=self.on_adv_rendering_changed,
+                with dpg.menu(label="System", tag="menu_system"):
+                    with dpg.menu(label="Rendering Options"):
+                        dpg.add_menu_item(
+                            label="NN Interpolation  [K]",
+                            tag="menu_item_pixelated",
+                            check=True,
+                            callback=self.on_menu_pixelated_zoom_toggled,
                         )
-                        with dpg.tooltip(lazy_combo):
-                            dpg.add_text(
-                                "Auto: use bilinear during drag when fusion is active,\nrestore NN after interaction stops.\nOn/Off: force always on or always off."
-                            )
-                        tex_combo = dpg.add_combo(
-                            ["Auto", "Single", "Dual"],
-                            label="Texture Mode",
-                            tag="menu_combo_single_tex",
-                            width=100,
-                            callback=self.on_adv_rendering_changed,
-                        )
-                        with dpg.tooltip(tex_combo):
-                            dpg.add_text(
-                                "Auto: Single texture when fusion is active, Dual otherwise.\nSingle: CPU-blend base+overlay into one canvas texture.\nDual: separate textures for base and overlay."
-                            )
-                        vox_combo = dpg.add_combo(
-                            ["Auto", "Native", "Resampled"],
-                            label="Voxel Mode",
-                            tag="menu_combo_native_vox",
-                            width=100,
-                            callback=self.on_adv_rendering_changed,
-                        )
-                        with dpg.tooltip(vox_combo):
-                            dpg.add_text(
-                                "Auto/Native: overlay rendered at its true voxel resolution.\nResampled: overlay NN-scaled from the base image grid."
-                            )
-                        if GL_NEAREST_SUPPORTED:
-                            gl_check = dpg.add_checkbox(
-                                label="Hardware NN Filter",
-                                tag="menu_check_gl_nearest",
+                        dpg.add_separator()
+                        with dpg.menu(label="NN Options"):
+                            lazy_combo = dpg.add_combo(
+                                ["Auto", "On", "Off"],
+                                label="Lazy-Lin",
+                                tag="menu_combo_lazy_lin",
+                                width=100,
                                 callback=self.on_adv_rendering_changed,
                             )
-                            with dpg.tooltip(gl_check):
+                            with dpg.tooltip(lazy_combo):
                                 dpg.add_text(
-                                    "Use GPU GL_NEAREST for fast hardware NN upscaling.\nNot available on macOS."
+                                    "Auto: use bilinear during drag when fusion is active,\nrestore NN after interaction stops.\nOn/Off: force always on or always off."
                                 )
-                        from vvv.ui.render_strategy import _NUMBA_AVAILABLE
+                            tex_combo = dpg.add_combo(
+                                ["Auto", "Single", "Dual"],
+                                label="Texture Mode",
+                                tag="menu_combo_single_tex",
+                                width=100,
+                                callback=self.on_adv_rendering_changed,
+                            )
+                            with dpg.tooltip(tex_combo):
+                                dpg.add_text(
+                                    "Auto: Single texture when fusion is active, Dual otherwise.\nSingle: CPU-blend base+overlay into one canvas texture.\nDual: separate textures for base and overlay."
+                                )
+                            vox_combo = dpg.add_combo(
+                                ["Auto", "Native", "Resampled"],
+                                label="Voxel Mode",
+                                tag="menu_combo_native_vox",
+                                width=100,
+                                callback=self.on_adv_rendering_changed,
+                            )
+                            with dpg.tooltip(vox_combo):
+                                dpg.add_text(
+                                    "Auto/Native: overlay rendered at its true voxel resolution.\nResampled: overlay NN-scaled from the base image grid."
+                                )
+                            if GL_NEAREST_SUPPORTED:
+                                gl_check = dpg.add_checkbox(
+                                    label="Hardware NN Filter",
+                                    tag="menu_check_gl_nearest",
+                                    callback=self.on_adv_rendering_changed,
+                                )
+                                with dpg.tooltip(gl_check):
+                                    dpg.add_text(
+                                        "Use GPU GL_NEAREST for fast hardware NN upscaling.\nNot available on macOS."
+                                    )
+                            from vvv.ui.render_strategy import _NUMBA_AVAILABLE
 
-                        if _NUMBA_AVAILABLE:
-                            nb_check = dpg.add_checkbox(
-                                label="Numba Acceleration",
-                                tag="menu_check_numba",
-                                callback=self.on_adv_rendering_changed,
-                            )
-                            with dpg.tooltip(nb_check):
-                                dpg.add_text(
-                                    "Use Numba JIT for native voxel overlay rendering.\n~40x faster than NumPy for SW NN modes on macOS.\nDisable to fall back to NumPy (useful for debugging)."
+                            if _NUMBA_AVAILABLE:
+                                nb_check = dpg.add_checkbox(
+                                    label="Numba Acceleration",
+                                    tag="menu_check_numba",
+                                    callback=self.on_adv_rendering_changed,
                                 )
+                                with dpg.tooltip(nb_check):
+                                    dpg.add_text(
+                                        "Use Numba JIT for native voxel overlay rendering.\n~40x faster than NumPy for SW NN modes on macOS.\nDisable to fall back to NumPy (useful for debugging)."
+                                    )
 
                 dpg.add_spacer(width=20)
                 dpg.add_text(

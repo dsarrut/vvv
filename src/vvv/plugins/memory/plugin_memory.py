@@ -19,17 +19,18 @@ class MemoryPlugin(PluginProtocol, PluginTagMixin):
     def create_ui(self, parent, api: PluginAPI) -> None:
         self._api = api
         
-        # Add the menu directly to the main menu bar
-        if dpg.does_item_exist("main_menu_bar"):
-            # If the menu already exists, delete it first to avoid duplicates on rebuilds
-            if dpg.does_item_exist(self._t("menu")):
-                dpg.delete_item(self._t("menu"))
+        # Add the menu item directly under the System menu
+        if dpg.does_item_exist("menu_system"):
+            # If the menu item already exists, delete it first to avoid duplicates on rebuilds
+            if dpg.does_item_exist(self._t("menu_item")):
+                dpg.delete_item(self._t("menu_item"))
                 
-            with dpg.menu(label="Memory", parent="main_menu_bar", tag=self._t("menu")):
-                dpg.add_menu_item(
-                    label="Memory Synthesis...",
-                    callback=self.toggle_memory_window,
-                )
+            dpg.add_menu_item(
+                label="Memory Synthesis...",
+                parent="menu_system",
+                tag=self._t("menu_item"),
+                callback=self.toggle_memory_window,
+            )
 
     def toggle_memory_window(self, sender=None, app_data=None, user_data=None):
         if dpg.does_item_exist(self.window_tag):
@@ -370,5 +371,5 @@ class MemoryPlugin(PluginProtocol, PluginTagMixin):
     def destroy(self) -> None:
         if dpg.does_item_exist(self.window_tag):
             dpg.delete_item(self.window_tag)
-        if dpg.does_item_exist(self._t("menu")):
-            dpg.delete_item(self._t("menu"))
+        if dpg.does_item_exist(self._t("menu_item")):
+            dpg.delete_item(self._t("menu_item"))
