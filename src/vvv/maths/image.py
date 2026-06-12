@@ -863,6 +863,7 @@ class VolumeData:
         sitk_img = sitk.GetImageFromArray(vol_array)
 
         # Cast numpy.float32 to native Python float.
+        # pyrefly: ignore [unnecessary-type-conversion]
         sitk_img.SetSpacing([float(s) for s in spacing])
         sitk_img.SetOrigin([float(o) for o in origin])
 

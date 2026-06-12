@@ -200,14 +200,22 @@ class NavigationTool:
                         np.array(v), is_buffered=self.drag_viewer._is_buffered()
                     )
 
+                    if phys is None:
+                        return
+
                     if self.drag_viewer.active_handle == "start":
                         p.pt1_phys = phys
                     elif self.drag_viewer.active_handle == "end":
                         p.pt2_phys = phys
                     elif self.drag_viewer.active_handle == "middle":
-                        delta = phys - self.profile_drag_start_mouse_phys
-                        p.pt1_phys = self.profile_drag_start_p1 + delta
-                        p.pt2_phys = self.profile_drag_start_p2 + delta
+                        if (
+                            self.profile_drag_start_mouse_phys is not None
+                            and self.profile_drag_start_p1 is not None
+                            and self.profile_drag_start_p2 is not None
+                        ):
+                            delta = phys - self.profile_drag_start_mouse_phys
+                            p.pt1_phys = self.profile_drag_start_p1 + delta
+                            p.pt2_phys = self.profile_drag_start_p2 + delta
 
                     # Trigger real-time plot update
                     self._update_profile_plot(p)
@@ -243,6 +251,12 @@ class NavigationTool:
                             curr_mouse_phys = vs.display_to_world(
                                 np.array(v), is_buffered=self.drag_viewer._is_buffered()
                             )
+                            if (
+                                curr_mouse_phys is None
+                                or self.roi_drag_start_mouse_phys is None
+                                or self.roi_drag_start_center is None
+                            ):
+                                return
 
                             is_spheroid = getattr(roi_state, "is_spheroid", False)
                             if getattr(self, "roi_drag_action", "center") == "border":

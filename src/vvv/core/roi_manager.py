@@ -64,9 +64,15 @@ class ROIState:
             d["is_spheroid"] = True
             d["spheroid_center"] = self.spheroid_center
             d["spheroid_radius"] = self.spheroid_radius
-            d["spheroid_radius_x"] = getattr(self, "spheroid_radius_x", self.spheroid_radius)
-            d["spheroid_radius_y"] = getattr(self, "spheroid_radius_y", self.spheroid_radius)
-            d["spheroid_radius_z"] = getattr(self, "spheroid_radius_z", self.spheroid_radius)
+            d["spheroid_radius_x"] = getattr(
+                self, "spheroid_radius_x", self.spheroid_radius
+            )
+            d["spheroid_radius_y"] = getattr(
+                self, "spheroid_radius_y", self.spheroid_radius
+            )
+            d["spheroid_radius_z"] = getattr(
+                self, "spheroid_radius_z", self.spheroid_radius
+            )
         if getattr(self, "is_box", False):
             d["is_box"] = True
             d["box_center"] = self.box_center
@@ -91,8 +97,12 @@ class ROIState:
         self.is_spheroid = d.get("is_spheroid", False)
         self.spheroid_center = d.get("spheroid_center", None)
         self.spheroid_radius = d.get("spheroid_radius", None)
-        self.spheroid_radius_x = d.get("spheroid_radius_x", d.get("spheroid_radius_xy", self.spheroid_radius))
-        self.spheroid_radius_y = d.get("spheroid_radius_y", d.get("spheroid_radius_xy", self.spheroid_radius))
+        self.spheroid_radius_x = d.get(
+            "spheroid_radius_x", d.get("spheroid_radius_xy", self.spheroid_radius)
+        )
+        self.spheroid_radius_y = d.get(
+            "spheroid_radius_y", d.get("spheroid_radius_xy", self.spheroid_radius)
+        )
         self.spheroid_radius_z = d.get("spheroid_radius_z", self.spheroid_radius)
         self.is_box = d.get("is_box", False)
         self.box_center = d.get("box_center", None)
@@ -133,6 +143,7 @@ class ROIManager:
     def _apply_binarization_rule(self, mask_vol, mode, target_val):
         """Applies the target value rules and safely updates the SimpleITK header."""
         import SimpleITK as sitk
+
         if mode == "Target FG (val)":
             mask_vol.data = (mask_vol.data == target_val).astype(np.uint8)
         else:
@@ -169,7 +180,11 @@ class ROIManager:
                         pt_idx = pt_idx + [0.0] * (dim - len(pt_idx))
                     elif len(pt_idx) > dim:
                         pt_idx = pt_idx[:dim]
-                    phys_pt = mask_vol.sitk_image.TransformContinuousIndexToPhysicalPoint(pt_idx)
+                    phys_pt = (
+                        mask_vol.sitk_image.TransformContinuousIndexToPhysicalPoint(
+                            pt_idx
+                        )
+                    )
                     mask_vol.physical_center = list(phys_pt)[:3]
                 except Exception:
                     mask_vol.physical_center = pt_idx
@@ -177,7 +192,9 @@ class ROIManager:
             if not getattr(mask_vol, "physical_center", None):
                 if not "mock" in type(mask_vol.sitk_image).__name__.lower():
                     try:
-                        mask_vol.physical_center = list(mask_vol.sitk_image.GetOrigin())[:3]
+                        mask_vol.physical_center = list(
+                            mask_vol.sitk_image.GetOrigin()
+                        )[:3]
                     except Exception:
                         mask_vol.physical_center = [0.0, 0.0, 0.0]
                 else:
@@ -267,7 +284,12 @@ class ROIManager:
                 mask_vol.data = np.ascontiguousarray(mask_vol.data[z0:z1, y0:y1, x0:x1])
 
             # Update the SimpleITK image to reflect this small, dense block of data
-            new_origin = transform_index_to_point(mask_vol.sitk_image, (int(x0), int(y0), int(z0)))
+            new_origin = transform_index_to_point(
+                # pyrefly: ignore [unnecessary-type-conversion]
+                mask_vol.sitk_image,
+                # pyrefly: ignore [unnecessary-type-conversion]
+                (int(x0), int(y0), int(z0)),
+            )
 
             cropped_sitk = sitk.GetImageFromArray(mask_vol.data)
             cropped_sitk.SetSpacing(mask_vol.sitk_image.GetSpacing())
@@ -278,7 +300,9 @@ class ROIManager:
             new_origin = mask_vol.sitk_image.GetOrigin()
 
         # --- 2. CHECK FOR PERFECT ALIGNMENT ---
-        spacing_match = np.allclose(mask_vol.spacing[:3], base_vol.spacing[:3], atol=1e-4)
+        spacing_match = np.allclose(
+            mask_vol.spacing[:3], base_vol.spacing[:3], atol=1e-4
+        )
         dir_match = np.allclose(
             get_spatial_direction(mask_vol.sitk_image),
             get_spatial_direction(base_vol.sitk_image),
@@ -286,16 +310,25 @@ class ROIManager:
         )
 
         if spacing_match and dir_match:
-            base_idx = transform_point_to_continuous_index(base_vol.sitk_image, new_origin)
+            base_idx = transform_point_to_continuous_index(
+                base_vol.sitk_image, new_origin
+            )
             if np.allclose(base_idx, np.round(base_idx), atol=1e-3):
                 # FAST PATH: It perfectly aligns. Just calculate the offset.
                 bx, by, bz = [int(round(v)) for v in base_idx[:3]]
                 sz, sy, sx = mask_vol.data.shape[-3:]
                 mask_vol.roi_bbox = (bz, bz + sz, by, by + sy, bx, bx + sx)
-                
-                if bx < 0 or by < 0 or bz < 0 or bx + sx > base_sx or by + sy > base_sy or bz + sz > base_sz:
+
+                if (
+                    bx < 0
+                    or by < 0
+                    or bz < 0
+                    or bx + sx > base_sx
+                    or by + sy > base_sy
+                    or bz + sz > base_sz
+                ):
                     is_outside = True
-                
+
                 self._apply_outside_flag(mask_vol, is_outside)
                 return
 
@@ -327,7 +360,14 @@ class ROIManager:
         min_idx = np.floor(base_indices.min(axis=0)).astype(int) - 1
         max_idx = np.ceil(base_indices.max(axis=0)).astype(int) + 2
 
-        if min_idx[0] < 0 or min_idx[1] < 0 or min_idx[2] < 0 or max_idx[0] > base_sx or max_idx[1] > base_sy or max_idx[2] > base_sz:
+        if (
+            min_idx[0] < 0
+            or min_idx[1] < 0
+            or min_idx[2] < 0
+            or max_idx[0] > base_sx
+            or max_idx[1] > base_sy
+            or max_idx[2] > base_sz
+        ):
             is_outside = True
 
         min_x, max_x = max(0, min_idx[0]), min(base_sx, max_idx[0])
@@ -416,12 +456,24 @@ class ROIManager:
 
         self._apply_outside_flag(mask_vol, is_outside)
 
-    def _create_memory_roi(self, base_id, filepath, name, mask_img, mask_data, skip_crop=False, is_contour=False, is_outside=False, **state_kwargs):
+    def _create_memory_roi(
+        self,
+        base_id,
+        filepath,
+        name,
+        mask_img,
+        mask_data,
+        skip_crop=False,
+        is_contour=False,
+        is_outside=False,
+        **state_kwargs,
+    ):
         """Centralized helper for creating an ROI exclusively from memory (Label Maps, RT-Structs)."""
         # keep original signature unchanged
 
         """Centralized helper for creating an ROI exclusively from memory (Label Maps, RT-Structs)."""
         import os
+
         base_vol = self.controller.volumes[base_id]
 
         mask_vol = VolumeData.__new__(VolumeData)
@@ -467,9 +519,12 @@ class ROIManager:
 
         return roi_id
 
-    def extract_label_from_image(self, base_id, filepath, img, data, val_int, name, color, bbox):
+    def extract_label_from_image(
+        self, base_id, filepath, img, data, val_int, name, color, bbox
+    ):
         """Fast-path NumPy slicing to extract a specific label from a pre-loaded label map."""
         import SimpleITK as sitk
+
         dim = img.GetDimension()
         is_pre_cropped = False
 
@@ -500,6 +555,7 @@ class ROIManager:
             binary_data = (cropped_data == val_int).astype(np.uint8)
             binary_data = np.ascontiguousarray(binary_data)
 
+            # pyrefly: ignore [unnecessary-type-conversion]
             idx = [int(px0), int(py0)] if dim == 2 else [int(px0), int(py0), int(pz0)]
             if dim == 4:
                 idx.append(0)
@@ -519,10 +575,17 @@ class ROIManager:
         mask_img.SetOrigin(new_origin)
 
         return self._create_memory_roi(
-            base_id, filepath, name, mask_img, binary_data,
-            skip_crop=is_pre_cropped, is_contour=False,
-            color=color, source_mode="Target FG (val)", source_val=float(val_int),
-            source_type="Label Map"
+            base_id,
+            filepath,
+            name,
+            mask_img,
+            binary_data,
+            skip_crop=is_pre_cropped,
+            is_contour=False,
+            color=color,
+            source_mode="Target FG (val)",
+            source_val=float(val_int),
+            source_type="Label Map",
         )
 
     # ==========================================
@@ -581,8 +644,12 @@ class ROIManager:
                 name = self._clean_roi_name(filepath)
 
             roi_state = ROIState(
-                mask_id, name, color, source_mode=mode, source_val=target_val,
-                source_type="Binary"
+                mask_id,
+                name,
+                color,
+                source_mode=mode,
+                source_val=target_val,
+                source_type="Binary",
             )
             vs.rois[mask_id] = roi_state
             vs.is_data_dirty = True
@@ -652,6 +719,7 @@ class ROIManager:
     def load_rtstruct_roi(self, base_id, filepath, roi_info, ds=None):
         """Registers the RT-Struct ROI and maps its DICOM polygons to 2D slices."""
         import SimpleITK as sitk
+
         vs = self.controller.view_states[base_id]
         base_vol = self.controller.volumes[base_id]
 
@@ -698,9 +766,14 @@ class ROIManager:
                             mapped_pts.append(vox)
 
                             # Check if the mapped point is outside the image FOV boundaries
-                            if (vox[0] < -0.5 or vox[0] > mx - 0.5 or
-                                vox[1] < -0.5 or vox[1] > my - 0.5 or
-                                vox[2] < -0.5 or vox[2] > mz - 0.5):
+                            if (
+                                vox[0] < -0.5
+                                or vox[0] > mx - 0.5
+                                or vox[1] < -0.5
+                                or vox[1] > my - 0.5
+                                or vox[2] < -0.5
+                                or vox[2] > mz - 0.5
+                            ):
                                 is_outside = True
 
                         if not mapped_pts:
@@ -732,12 +805,21 @@ class ROIManager:
         mask_img.SetSpacing(base_vol.spacing.tolist())
         mask_img.SetOrigin(base_vol.origin.tolist())
         mask_img.SetDirection(base_vol.matrix.flatten().tolist())
-        
+
         return self._create_memory_roi(
-            base_id, filepath, roi_info.get("name", "RT ROI"), mask_img, mask_data,
-            skip_crop=False, is_contour=True, is_outside=is_outside, color=roi_info.get("color", [255, 0, 0]),
-            source_mode="Ignore BG (val)", source_val=0.0, rtstruct_info=roi_info,
-            source_type="RT-Struct"
+            base_id,
+            filepath,
+            roi_info.get("name", "RT ROI"),
+            mask_img,
+            mask_data,
+            skip_crop=False,
+            is_contour=True,
+            is_outside=is_outside,
+            color=roi_info.get("color", [255, 0, 0]),
+            source_mode="Ignore BG (val)",
+            source_val=0.0,
+            rtstruct_info=roi_info,
+            source_type="RT-Struct",
         )
 
     def get_roi_stats(self, base_vs_id, roi_id, is_overlay=False):
@@ -826,7 +908,7 @@ class ROIManager:
             return
 
         mask_vol = self.controller.volumes[roi_id]
-        
+
         phys_center = getattr(mask_vol, "physical_center", None)
         if phys_center is None:
             if not hasattr(mask_vol, "roi_bbox"):
@@ -866,7 +948,7 @@ class ROIManager:
         mask_vol = self.controller.volumes[roi_id]
         vs = self.controller.view_states[base_id]
         roi_state = vs.rois[roi_id]
-        
+
         source_type = getattr(roi_state, "source_type", "Binary")
         filepath = mask_vol.file_paths[0] if mask_vol.file_paths else None
 
@@ -879,10 +961,13 @@ class ROIManager:
                     rois_to_delete.append(rid)
             for rid in rois_to_delete:
                 self.close_roi(base_id, rid)
-                
+
             from vvv.ui.ui_sequences import load_label_map_sequence
+
             self.controller.gui.tasks.append(
-                load_label_map_sequence(self.controller.gui, self.controller, base_id, filepath)
+                load_label_map_sequence(
+                    self.controller.gui, self.controller, base_id, filepath
+                )
             )
             return
 
@@ -899,14 +984,21 @@ class ROIManager:
                         rinfo["name"] = rstate.name
                         selected_rois.append(rinfo)
                     rois_to_delete.append(rid)
-                    
+
             for rid in rois_to_delete:
                 self.close_roi(base_id, rid)
 
             if selected_rois:
                 from vvv.ui.ui_sequences import load_rtstruct_sequence
+
                 self.controller.gui.tasks.append(
-                    load_rtstruct_sequence(self.controller.gui, self.controller, base_id, filepath, selected_rois)
+                    load_rtstruct_sequence(
+                        self.controller.gui,
+                        self.controller,
+                        base_id,
+                        filepath,
+                        selected_rois,
+                    )
                 )
             return
 
@@ -934,7 +1026,10 @@ class ROIManager:
                     mask_vol.roi_bbox = old_bbox
                 roi_state.polygons = old_polygons
                 if self.controller.gui:
-                    self.controller.gui.show_status_message(f"Reload failed: {e}", color=self.controller.gui.ui_cfg["colors"]["warning"])
+                    self.controller.gui.show_status_message(
+                        f"Reload failed: {e}",
+                        color=self.controller.gui.ui_cfg["colors"]["warning"],
+                    )
                 return
 
             for ori in roi_state.polygons:

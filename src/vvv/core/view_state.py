@@ -209,8 +209,11 @@ class OverlayConfig:
     def to_dict(self):
         # Keep old key names for workspace file backward compatibility
         return {
+            # pyrefly: ignore [unnecessary-type-conversion]
             "overlay_opacity": float(self.opacity),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "overlay_mode": str(self.mode),
+            # pyrefly: ignore [unnecessary-type-conversion]
             "overlay_checkerboard_size": float(self.checkerboard_size),
             "overlay_checkerboard_swap": self.swap,
         }
@@ -218,7 +221,9 @@ class OverlayConfig:
     def from_dict(self, d):
         self.opacity = d.get("overlay_opacity", self.opacity)
         self.mode = d.get("overlay_mode", self.mode)
-        self.checkerboard_size = d.get("overlay_checkerboard_size", self.checkerboard_size)
+        self.checkerboard_size = d.get(
+            "overlay_checkerboard_size", self.checkerboard_size
+        )
         self.swap = d.get("overlay_checkerboard_swap", self.swap)
 
     def reset(self):
@@ -299,7 +304,9 @@ class DisplayState:
         self.ww = d.get("ww", self.ww)
         self.wl = d.get("wl", self.wl)
         self.colormap = d.get("colormap", self.colormap)
-        self.min_threshold = d.get("min_threshold", d.get("base_threshold", self.min_threshold))
+        self.min_threshold = d.get(
+            "min_threshold", d.get("base_threshold", self.min_threshold)
+        )
         self.pixelated_zoom = d.get("pixelated_zoom", self.pixelated_zoom)
         self.use_voxel_strips = d.get("use_voxel_strips", self.use_voxel_strips)
         self.overlay.from_dict(d)
@@ -936,7 +943,6 @@ class ViewState:
                 self.display.baked_overlay_translation = (0.0, 0.0, 0.0)
             self.is_data_dirty = True
             return True
-
 
         if getattr(other_vol, "is_rgb", False):
             return False

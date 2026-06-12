@@ -51,6 +51,7 @@ def load_fonts():
             with dpg.font(main_font_path, 14) as font:
                 if is_legacy_dpg:
                     try:
+                        # pyrefly: ignore [deprecated]
                         dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
                     except Exception:
                         pass
@@ -59,6 +60,7 @@ def load_fonts():
             with dpg.font(main_font_path, 11, tag="small_font_tag"):
                 if is_legacy_dpg:
                     try:
+                        # pyrefly: ignore [deprecated]
                         dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
                     except Exception:
                         pass
@@ -68,7 +70,9 @@ def load_fonts():
             with dpg.font(icon_font_path, 14, tag="icon_font_tag"):
                 if is_legacy_dpg:
                     try:
+                        # pyrefly: ignore [deprecated]
                         dpg.add_font_range(0xF000, 0xF35F)
+                        # pyrefly: ignore [deprecated]
                         dpg.add_font_chars(
                             [
                                 0xF0C5,
@@ -88,8 +92,8 @@ def load_fonts():
                                 0xF00D,
                                 0xF15D,
                                 0xF15E,
-                                0xF061, # right arrow
-                                0xF35D, # external window icon
+                                0xF061,  # right arrow
+                                0xF35D,  # external window icon
                                 0xF05B,  #
                                 0xF076,  # Magnet icon for snap
                                 0xF77C,  # Baby icon
@@ -97,6 +101,7 @@ def load_fonts():
                                 0xF0C8,  # Square/Rect
                             ]
                         )
+                        # pyrefly: ignore [deprecated]
                         dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
                     except Exception:
                         pass

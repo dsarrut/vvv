@@ -282,7 +282,9 @@ class SliceViewer:
     @property
     def has_fusion(self) -> bool:
         vs = self.view_state
-        return bool(vs and vs.display.overlay.image_id and vs.display.overlay.mode == "Alpha")
+        return bool(
+            vs and vs.display.overlay.image_id and vs.display.overlay.mode == "Alpha"
+        )
 
     @property
     def nn_mode(self) -> NNMode:
@@ -666,7 +668,10 @@ class SliceViewer:
 
     def drop_image(self):
         self.image_id = None
-        mip_plugin = next((p for p in self.controller.gui.plugins if p.plugin_id == "mip_plugin"), None)
+        mip_plugin = next(
+            (p for p in self.controller.gui.plugins if p.plugin_id == "mip_plugin"),
+            None,
+        )
         if mip_plugin:
             mip_plugin._controller.clear_viewer_cache(self.tag)
 
@@ -849,8 +854,6 @@ class SliceViewer:
         )
         self.is_geometry_dirty = True
 
-
-
     def resize(self, quad_w, quad_h):
         if quad_w <= 0 or quad_h <= 0:
             return
@@ -942,7 +945,9 @@ class SliceViewer:
         vs.camera.show_profiles = new_state
         vs.camera.show_contour = new_state
         vs.is_data_dirty = True
-        self.controller.status_message = "Display: restored" if new_state else "Display: hidden"
+        self.controller.status_message = (
+            "Display: restored" if new_state else "Display: hidden"
+        )
 
     def tick(self):
         # Safely clean up textures from the previous frame
@@ -1009,7 +1014,9 @@ class SliceViewer:
         if size_changed:
             self.last_w = win_w
             self.last_h = win_h
+            # pyrefly: ignore [unnecessary-type-conversion]
             self.quad_w = int(win_w)
+            # pyrefly: ignore [unnecessary-type-conversion]
             self.quad_h = int(win_h)
             self.is_geometry_dirty = True
 
@@ -1227,7 +1234,9 @@ class SliceViewer:
                 if ovs:
                     ovs.display.ww = ww
                     ovs.display.wl = wl
-                    self.controller.sync.propagate_window_level(vs.display.overlay.image_id)
+                    self.controller.sync.propagate_window_level(
+                        vs.display.overlay.image_id
+                    )
                 self.controller.status_message = "Auto W/L: overlay"
             else:
                 self.update_window_level(ww, wl)
@@ -1343,17 +1352,25 @@ class SliceViewer:
         dvf_mode = vs.dvf.display_mode if getattr(vol, "is_dvf", False) else "Component"
 
         preview = None
-        
+
         # Check if MIP plugin is active
         mip_plugin = None
         if self.controller.gui and hasattr(self.controller.gui, "plugins"):
-            mip_plugin = next((p for p in self.controller.gui.plugins if p.plugin_id == "mip_plugin"), None)
-            
+            mip_plugin = next(
+                (p for p in self.controller.gui.plugins if p.plugin_id == "mip_plugin"),
+                None,
+            )
+
         mip_state = None
         if mip_plugin and self.image_id:
             mip_state = mip_plugin._controller.get_viewer_state(self.image_id, self.tag)
 
-        if mip_plugin and mip_state and mip_state.mip_enabled and not getattr(vol, "is_dvf", False):
+        if (
+            mip_plugin
+            and mip_state
+            and mip_state.mip_enabled
+            and not getattr(vol, "is_dvf", False)
+        ):
             # Compute MIP projection
             display_data_raw = (
                 vs.base_display_data
@@ -1361,7 +1378,11 @@ class SliceViewer:
                 else vol.data
             )
             if display_data_raw is not None:
-                axis_map = {ViewMode.AXIAL: "Z", ViewMode.CORONAL: "Y", ViewMode.SAGITTAL: "Y"}
+                axis_map = {
+                    ViewMode.AXIAL: "Z",
+                    ViewMode.CORONAL: "Y",
+                    ViewMode.SAGITTAL: "Y",
+                }
                 proj_axis = axis_map.get(self.orientation, "Y")
                 current_angle = mip_state.rotation_angles.get(proj_axis, 0.0)
 
@@ -1370,9 +1391,14 @@ class SliceViewer:
                 ov_id = vs.display.overlay.image_id if vs.display.overlay else None
                 ov_data_raw = vs.display.overlay_data if ov_id else None
                 if ov_data_raw is not None and ov_id:
-                    ov_time_idx = min(vs.camera.time_idx,
-                                      self.controller.view_states[ov_id].volume.num_timepoints - 1
-                                      if ov_id in self.controller.view_states else 0)
+                    ov_time_idx = min(
+                        vs.camera.time_idx,
+                        (
+                            self.controller.view_states[ov_id].volume.num_timepoints - 1
+                            if ov_id in self.controller.view_states
+                            else 0
+                        ),
+                    )
                     extra_layers.append((ov_data_raw, ov_id, ov_time_idx))
 
                 # Delegate caching and precomputation to the plugin controller
@@ -1385,7 +1411,7 @@ class SliceViewer:
                     current_angle=current_angle,
                     proj_axis=proj_axis,
                     mip_state=mip_state,
-                    extra_layers=extra_layers
+                    extra_layers=extra_layers,
                 )
 
                 if preview is not None and mip_state.invert_contrast:
@@ -1466,7 +1492,9 @@ class SliceViewer:
                             return None
 
             # --- Calculate Relative Pixel Shift ---
-            dx, dy, dz = vs.compute_overlay_pixel_shift(ovs, vol.spacing, self.orientation)
+            dx, dy, dz = vs.compute_overlay_pixel_shift(
+                ovs, vol.spacing, self.orientation
+            )
             off_x, off_y, off_slice = 0, 0, 0
 
             self.active_overlay_shift_x = dx
@@ -1476,18 +1504,32 @@ class SliceViewer:
             if vs.display.overlay.mode in ("Alpha", "DVF"):
                 off_x, off_y = 0, 0
             else:
+                # pyrefly: ignore [unnecessary-type-conversion]
                 off_x = int(round(dx))
+                # pyrefly: ignore [unnecessary-type-conversion]
                 off_y = int(round(dy))
                 self.active_overlay_shift_x = 0.0
                 self.active_overlay_shift_y = 0.0
 
+            # pyrefly: ignore [unnecessary-type-conversion]
             off_slice = int(round(dz))
 
             # Check MIP state first — it takes priority over the rotation-preview path.
             mip_plugin = None
             if self.controller.gui and hasattr(self.controller.gui, "plugins"):
-                mip_plugin = next((p for p in self.controller.gui.plugins if p.plugin_id == "mip_plugin"), None)
-            mip_state = mip_plugin._controller.get_viewer_state(self.image_id, self.tag) if (mip_plugin and self.image_id) else None
+                mip_plugin = next(
+                    (
+                        p
+                        for p in self.controller.gui.plugins
+                        if p.plugin_id == "mip_plugin"
+                    ),
+                    None,
+                )
+            mip_state = (
+                mip_plugin._controller.get_viewer_state(self.image_id, self.tag)
+                if (mip_plugin and self.image_id)
+                else None
+            )
             mip_active = bool(mip_state and mip_state.mip_enabled)
 
             # Live rotation preview for the overlay (skipped when MIP is active).
@@ -1495,24 +1537,39 @@ class SliceViewer:
             # The slice cache lives on self (Viewer) — render artifact, not model state.
             # Gate on _preview_R FIRST so stale cache entries are never used after resample.
             overlay_preview = None
-            if not mip_active and ovs._preview_R is not None and vs.display.overlay_data is not None:
+            if (
+                not mip_active
+                and ovs._preview_R is not None
+                and vs.display.overlay_data is not None
+            ):
                 ov_key = (self.orientation, self.slice_idx)
                 overlay_preview = self._overlay_preview_slices.get(ov_key)
                 if overlay_preview is None:
                     # Cache miss — signal worker; suppress overlay_data (stale resample at
                     # a different rotation would look like a ghost in the fusion view).
                     ovs._preview_slice_needed = True
-                    return (
-                        None  # no overlay this frame; worker will deliver the correct one
-                    )
+                    return None  # no overlay this frame; worker will deliver the correct one
 
-            if mip_plugin and mip_state and mip_active and not getattr(ovs.volume, "is_dvf", False):
+            if (
+                mip_plugin
+                and mip_state
+                and mip_active
+                and not getattr(ovs.volume, "is_dvf", False)
+            ):
                 ov_data_raw = vs.display.overlay_data
                 if ov_data_raw is not None:
                     ov_time_idx = min(vs.camera.time_idx, ovs.volume.num_timepoints - 1)
-                    ov_data_3d = ov_data_raw[ov_time_idx] if ov_data_raw.ndim == 4 else ov_data_raw
+                    ov_data_3d = (
+                        ov_data_raw[ov_time_idx]
+                        if ov_data_raw.ndim == 4
+                        else ov_data_raw
+                    )
                     if ov_data_3d.ndim == 3:
-                        axis_map = {ViewMode.AXIAL: "Z", ViewMode.CORONAL: "Y", ViewMode.SAGITTAL: "Y"}
+                        axis_map = {
+                            ViewMode.AXIAL: "Z",
+                            ViewMode.CORONAL: "Y",
+                            ViewMode.SAGITTAL: "Y",
+                        }
                         proj_axis = axis_map.get(self.orientation, "Y")
                         current_angle = mip_state.rotation_angles.get(proj_axis, 0.0)
 
@@ -1525,7 +1582,7 @@ class SliceViewer:
                             current_angle=current_angle,
                             proj_axis=proj_axis,
                             mip_state=mip_state,
-                            image_id=vs.display.overlay.image_id
+                            image_id=vs.display.overlay.image_id,
                         )
 
             return RenderLayer(
@@ -1543,7 +1600,6 @@ class SliceViewer:
                 offset_slice=off_slice,
                 preview_override=overlay_preview,
             )
-
 
     def _package_roi_layers(self):
         vs = self.view_state
@@ -1856,7 +1912,11 @@ class SliceViewer:
             return
 
         vs = self.view_state
-        if not vs or not vs.display.overlay.image_id or vs.display.overlay.mode != "Alpha":
+        if (
+            not vs
+            or not vs.display.overlay.image_id
+            or vs.display.overlay.mode != "Alpha"
+        ):
             return
 
         if self.last_overlay_rgba_flat is None:
@@ -1938,7 +1998,9 @@ class SliceViewer:
             return False
         dpg.set_value(tag, data)  # type: ignore
         if GL_NEAREST_SUPPORTED:
-            try_set_gl_nearest(self._effective_pixelated_zoom() and self._is_hw_gl, tex_w, tex_h)
+            try_set_gl_nearest(
+                self._effective_pixelated_zoom() and self._is_hw_gl, tex_w, tex_h
+            )
         return True
 
     @property
@@ -1957,11 +2019,13 @@ class SliceViewer:
         """Returns (win_w, win_h) for this viewer's window, or (0, 0) if not yet sized."""
         w = dpg.get_item_width(f"win_{self.tag}")
         h = dpg.get_item_height(f"win_{self.tag}")
+        # pyrefly: ignore [unnecessary-type-conversion]
         return (int(w), int(h)) if w and h and w > 0 and h > 0 else (0, 0)
 
     def _get_canvas_size(self) -> tuple[int, int]:
         """Returns (canvas_w, canvas_h) in pixels, accounting for viewport padding."""
         pad = self.controller.gui.ui_cfg["layout"].get("viewport_padding", 4) * 2
+        # pyrefly: ignore [unnecessary-type-conversion]
         return int(max(1, self.quad_w - pad)), int(max(1, self.quad_h - pad))
 
     @property
@@ -2136,14 +2200,21 @@ class SliceViewer:
 
         thr_plugin = None
         if self.controller.gui and hasattr(self.controller.gui, "plugins"):
-            thr_plugin = next((p for p in self.controller.gui.plugins if p.plugin_id == "threshold_plugin"), None)
-            
+            thr_plugin = next(
+                (
+                    p
+                    for p in self.controller.gui.plugins
+                    if p.plugin_id == "threshold_plugin"
+                ),
+                None,
+            )
+
         thr_state = None
         if thr_plugin and self.image_id:
             thr_state = thr_plugin._controller.get_image_state(self.image_id)
-            
+
         plugin_active = thr_state and thr_state.is_enabled and thr_state.show_preview
-        
+
         if plugin_active and thr_plugin is not None:
             preview_2d = None
             if vs._preview_R is not None and not getattr(vol, "is_dvf", False):
@@ -2400,7 +2471,9 @@ class SliceViewer:
             "toggle_filename": self.action_toggle_filename,
             "toggle_grid": lambda: self._toggle_camera_bool("show_grid", "Grid"),
             "toggle_axis": lambda: self._toggle_camera_bool("show_axis", "Axis"),
-            "toggle_scalebar": lambda: self._toggle_camera_bool("show_scalebar", "Scale bar"),
+            "toggle_scalebar": lambda: self._toggle_camera_bool(
+                "show_scalebar", "Scale bar"
+            ),
             "hide_all": self.hide_everything,
             "sync_all": self.action_sync_all,
         }
@@ -2455,7 +2528,9 @@ class SliceViewer:
         else:
             vs.display.pixelated_zoom = not vs.display.pixelated_zoom
         vs.is_data_dirty = True
-        self.controller.status_message = "Interpolation: off" if vs.display.pixelated_zoom else "Interpolation: on"
+        self.controller.status_message = (
+            "Interpolation: off" if vs.display.pixelated_zoom else "Interpolation: on"
+        )
 
     def action_toggle_mip(self):
         if not self.image_id:
@@ -2464,7 +2539,9 @@ class SliceViewer:
             gui = self.controller.gui
             if not gui or not hasattr(gui, "plugins"):
                 return
-            mip_plugin = next((p for p in gui.plugins if p.plugin_id == "mip_plugin"), None)
+            mip_plugin = next(
+                (p for p in gui.plugins if p.plugin_id == "mip_plugin"), None
+            )
             if not mip_plugin:
                 return
             state = mip_plugin._controller.get_viewer_state(self.image_id, self.tag)
@@ -2476,7 +2553,9 @@ class SliceViewer:
                     self.set_orientation(target)
             mip_plugin._controller._mark_viewer_dirty(self)
             self.controller.ui_needs_refresh = True
-            self.controller.status_message = f"MIP: {'on' if state.mip_enabled else 'off'}"
+            self.controller.status_message = (
+                f"MIP: {'on' if state.mip_enabled else 'off'}"
+            )
         except Exception:
             pass
 
@@ -2486,7 +2565,9 @@ class SliceViewer:
             return
         vs.display.use_voxel_strips = not vs.display.use_voxel_strips
         vs.is_data_dirty = True
-        self.controller.status_message = f"Voxel strips: {'on' if vs.display.use_voxel_strips else 'off'}"
+        self.controller.status_message = (
+            f"Voxel strips: {'on' if vs.display.use_voxel_strips else 'off'}"
+        )
 
     def _toggle_camera_bool(self, field, hint=None):
         vs = self.view_state
@@ -2501,9 +2582,13 @@ class SliceViewer:
             try:
                 gui = self.controller.gui
                 if gui and hasattr(gui, "plugins"):
-                    mip_plugin = next((p for p in gui.plugins if p.plugin_id == "mip_plugin"), None)
+                    mip_plugin = next(
+                        (p for p in gui.plugins if p.plugin_id == "mip_plugin"), None
+                    )
                     if mip_plugin:
-                        mip_st = mip_plugin._controller.get_viewer_state(self.image_id, self.tag)
+                        mip_st = mip_plugin._controller.get_viewer_state(
+                            self.image_id, self.tag
+                        )
                         if mip_st and mip_st.mip_enabled:
                             return
             except Exception:
@@ -2516,24 +2601,26 @@ class SliceViewer:
         mods = self.controller.gui.interaction.modifiers if self.controller.gui else {}
         if mods.get("shift"):
             all_linked = all(
-                vs.sync_wl_group > 0
-                for vs in self.controller.view_states.values()
+                vs.sync_wl_group > 0 for vs in self.controller.view_states.values()
             )
             if all_linked:
                 self.controller.sync.unlink_all_wl()
             else:
                 self.controller.sync.link_all_wl()
-            self.controller.status_message = "W/L sync: all unlinked" if all_linked else "W/L sync: all linked"
+            self.controller.status_message = (
+                "W/L sync: all unlinked" if all_linked else "W/L sync: all linked"
+            )
         else:
             all_linked = all(
-                vs.sync_group > 0
-                for vs in self.controller.view_states.values()
+                vs.sync_group > 0 for vs in self.controller.view_states.values()
             )
             if all_linked:
                 self.controller.sync.unlink_all()
             else:
                 self.controller.sync.link_all()
-            self.controller.status_message = "Sync: all unlinked" if all_linked else "Sync: all linked"
+            self.controller.status_message = (
+                "Sync: all unlinked" if all_linked else "Sync: all linked"
+            )
 
     def action_toggle_filename(self):
         vs = self.view_state
@@ -2550,19 +2637,30 @@ class SliceViewer:
         # Check if MIP plugin is active and enabled
         mip_plugin = None
         if self.controller.gui and hasattr(self.controller.gui, "plugins"):
-            mip_plugin = next((p for p in self.controller.gui.plugins if p.plugin_id == "mip_plugin"), None)
-            
+            mip_plugin = next(
+                (p for p in self.controller.gui.plugins if p.plugin_id == "mip_plugin"),
+                None,
+            )
+
         mip_state = None
         if mip_plugin and self.image_id:
             mip_state = mip_plugin._controller.get_viewer_state(self.image_id, self.tag)
 
         if mip_state and mip_state.mip_enabled:
-            axis_map = {ViewMode.AXIAL: "Z", ViewMode.CORONAL: "Y", ViewMode.SAGITTAL: "Y"}
+            axis_map = {
+                ViewMode.AXIAL: "Z",
+                ViewMode.CORONAL: "Y",
+                ViewMode.SAGITTAL: "Y",
+            }
             proj_axis = axis_map.get(self.orientation, "Y")
             current_angle = mip_state.rotation_angles.get(proj_axis, 0.0)
 
             if key in (dpg.mvKey_Left, dpg.mvKey_Right):
-                delta = mip_state.rotation_step if key == dpg.mvKey_Right else -mip_state.rotation_step
+                delta = (
+                    mip_state.rotation_step
+                    if key == dpg.mvKey_Right
+                    else -mip_state.rotation_step
+                )
                 angle = current_angle + delta
                 if angle <= -180.0:
                     angle += 360.0
@@ -2570,7 +2668,9 @@ class SliceViewer:
                     angle -= 360.0
                 mip_state.rotation_angles[proj_axis] = round(angle, 2)
                 if mip_plugin:
-                    mip_plugin._controller.propagate_rotation(self.image_id, mip_state.rotation_angles)
+                    mip_plugin._controller.propagate_rotation(
+                        self.image_id, mip_state.rotation_angles
+                    )
                 self.view_state.is_data_dirty = True
                 self.is_viewer_data_dirty = True
                 self.is_geometry_dirty = True
@@ -2601,7 +2701,11 @@ class SliceViewer:
 
         # Profile Tool Keyboard State Machine
         _profile_val = shortcuts.get("add_profile", "P")
-        _profile_key = getattr(dpg, f"mvKey_{_profile_val}", _profile_val) if isinstance(_profile_val, str) else _profile_val
+        _profile_key = (
+            getattr(dpg, f"mvKey_{_profile_val}", _profile_val)
+            if isinstance(_profile_val, str)
+            else _profile_val
+        )
         if key == _profile_key:
             if mip_state and mip_state.mip_enabled:
                 return
@@ -2658,7 +2762,14 @@ class SliceViewer:
                     p.slice_idx = self.slice_idx
                     self.view_state.profiles[p.id] = p
                     if self.controller.gui:
-                        profile_plugin = next((pl for pl in self.controller.gui.plugins if pl.plugin_id == "profile_plugin"), None)
+                        profile_plugin = next(
+                            (
+                                pl
+                                for pl in self.controller.gui.plugins
+                                if pl.plugin_id == "profile_plugin"
+                            ),
+                            None,
+                        )
                         if profile_plugin:
                             profile_plugin._ui.on_plot_clicked(None, None, p.id)
                     self.controller.status_message = "Profile created"
@@ -2722,17 +2833,24 @@ class SliceViewer:
         # Check if MIP plugin is active and enabled on this viewer
         mip_plugin = None
         if self.controller.gui and hasattr(self.controller.gui, "plugins"):
-            mip_plugin = next((p for p in self.controller.gui.plugins if p.plugin_id == "mip_plugin"), None)
-            
+            mip_plugin = next(
+                (p for p in self.controller.gui.plugins if p.plugin_id == "mip_plugin"),
+                None,
+            )
+
         mip_state = None
         if mip_plugin and self.image_id:
             mip_state = mip_plugin._controller.get_viewer_state(self.image_id, self.tag)
 
         if mip_state and mip_state.mip_enabled:
-            axis_map = {ViewMode.AXIAL: "Z", ViewMode.CORONAL: "Y", ViewMode.SAGITTAL: "Y"}
+            axis_map = {
+                ViewMode.AXIAL: "Z",
+                ViewMode.CORONAL: "Y",
+                ViewMode.SAGITTAL: "Y",
+            }
             proj_axis = axis_map.get(self.orientation, "Y")
             current_angle = mip_state.rotation_angles.get(proj_axis, 0.0)
-            
+
             angle = current_angle + (delta * mip_state.rotation_step)
             while angle <= -180.0:
                 angle += 360.0
@@ -2740,7 +2858,9 @@ class SliceViewer:
                 angle -= 360.0
             mip_state.rotation_angles[proj_axis] = round(angle, 2)
             if mip_plugin:
-                mip_plugin._controller.propagate_rotation(self.image_id, mip_state.rotation_angles)
+                mip_plugin._controller.propagate_rotation(
+                    self.image_id, mip_state.rotation_angles
+                )
             vs.is_data_dirty = True
             self.is_viewer_data_dirty = True
             self.is_geometry_dirty = True
@@ -2889,7 +3009,9 @@ class SliceViewer:
         if win_w:
             shape = self.get_slice_shape()
             sw, sh = vol.get_physical_aspect_ratio(self.orientation)
-            self.mapper.update(win_w, win_h, shape[1], shape[0], sw, sh, self.zoom, self.pan_offset)
+            self.mapper.update(
+                win_w, win_h, shape[1], shape[0], sw, sh, self.zoom, self.pan_offset
+            )
 
         self.is_geometry_dirty = True
         self._mark_lazy_interaction()  # no-op if no viewer has lazy_lin; covers synced viewers that do
@@ -2908,4 +3030,13 @@ class SliceViewer:
         if canvas_w > 1:
             shape = self.get_slice_shape()
             sw, sh = vol.get_physical_aspect_ratio(self.orientation)
-            self.mapper.update(canvas_w, canvas_h, shape[1], shape[0], sw, sh, self.zoom, self.pan_offset)
+            self.mapper.update(
+                canvas_w,
+                canvas_h,
+                shape[1],
+                shape[0],
+                sw,
+                sh,
+                self.zoom,
+                self.pan_offset,
+            )

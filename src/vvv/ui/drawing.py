@@ -1078,6 +1078,7 @@ class OverlayDrawer:
             r_h_base = r_y
             r_v_base = r_z
 
+        F = 1.0
         if is_spheroid:
             F = 1.0 - (d_mm ** 2) / (R_depth ** 2)
             intersects = (F >= 0.0)
