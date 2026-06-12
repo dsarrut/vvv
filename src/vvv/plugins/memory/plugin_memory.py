@@ -53,6 +53,12 @@ class MemoryPlugin(PluginProtocol, PluginTagMixin):
                 dpg.add_spacer(width=20)
                 dpg.add_text("Total Memory Usage:")
                 dpg.add_text("Computing...", tag=self._t("total_val"), color=[200, 200, 255])
+                dpg.add_spacer(width=20)
+                dpg.add_text("Active Threads:")
+                dpg.add_text("Computing...", tag=self._t("threads_val"), color=[200, 200, 255])
+                with dpg.tooltip(self._t("threads_val")):
+                    dpg.add_text("Thread Names:", color=[255, 200, 150])
+                    dpg.add_text("", tag=self._t("threads_tooltip_val"))
 
             dpg.add_spacer(height=5)
             dpg.add_separator()
@@ -109,6 +115,16 @@ class MemoryPlugin(PluginProtocol, PluginTagMixin):
         process_val_tag = self._t("process_val")
         if dpg.does_item_exist(process_val_tag):
             dpg.set_value(process_val_tag, process_str)
+
+        # 1b. Update active threads
+        import threading
+        threads = threading.enumerate()
+        thread_str = str(len(threads))
+        if dpg.does_item_exist(self._t("threads_val")):
+            dpg.set_value(self._t("threads_val"), thread_str)
+        if dpg.does_item_exist(self._t("threads_tooltip_val")):
+            names_list = "\n".join([f"- {t.name} (daemon={t.daemon})" for t in threads])
+            dpg.set_value(self._t("threads_tooltip_val"), names_list)
 
         # 2. Collect all loaded volumes
         all_roi_ids = set()
