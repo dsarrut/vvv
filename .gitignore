@@ -204,3 +204,6 @@ uv.lock
 .git_linux
 .git_*
 
+# Pytest config temp settings
+.pytest_config/
+
