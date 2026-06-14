@@ -545,7 +545,23 @@ class VolumeData:
                     else:
                         self.file_paths = [path]
             else:
-                self.file_paths = [path]
+                if isinstance(path, str) and os.path.isdir(path):
+                    import SimpleITK as sitk
+                    reader = sitk.ImageSeriesReader()
+                    try:
+                        series_ids = reader.GetGDCMSeriesIDs(path)
+                        if series_ids:
+                            file_names = reader.GetGDCMSeriesFileNames(path, series_ids[0])
+                            if file_names:
+                                self.file_paths = list(file_names)
+                            else:
+                                self.file_paths = [path]
+                        else:
+                            self.file_paths = [path]
+                    except Exception:
+                        self.file_paths = [path]
+                else:
+                    self.file_paths = [path]
 
             if not self.file_paths:
                 raise FileNotFoundError(f"No files found for path: {self.path}")
@@ -576,7 +592,7 @@ class VolumeData:
         self.data = sitk.GetArrayViewFromImage(self.sitk_image)
 
         is_4d = self.sitk_image.GetDimension() == 4 and self.data.shape[0] > 1
-        self.name = os.path.basename(self.file_paths[0])
+        self.name = os.path.basename(path) if isinstance(path, str) and os.path.isdir(path) else os.path.basename(self.file_paths[0])
         if is_4d and len(self.file_paths) > 1:
             self.name += f" ({len(self.file_paths)})"
 

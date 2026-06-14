@@ -383,4 +383,35 @@ def test_load_workspace_paths_with_json_and_tildes(tmp_path, monkeypatch):
     assert loaded_roi_vol.file_paths == [expected_image_resolved, expected_json_resolved]
 
 
+def test_load_dicom_directory(tmp_path):
+    """Test that a directory containing a DICOM series is correctly scanned and loaded as a series."""
+    dicom_dir = tmp_path / "my_dicom_series"
+    dicom_dir.mkdir()
+    
+    # Write a dummy DICOM image inside the folder
+    data = np.zeros((3, 5, 5), dtype=np.int16)
+    img = sitk.GetImageFromArray(data)
+    img.SetSpacing((1.0, 1.0, 1.0))
+    
+    # To make it a valid series, write a few slices
+    writer = sitk.ImageFileWriter()
+    writer.KeepOriginalImageUIDOn()
+    
+    for i in range(3):
+        slice_img = img[:, :, i]
+        slice_img.SetMetaData("0020|000D", "1.2.3.4.5.6.7.8.9") # Study Instance UID
+        slice_img.SetMetaData("0020|000E", "1.2.3.4.5.6.7.8.9.1") # Series Instance UID
+        slice_img.SetMetaData("0020|0013", str(i)) # Instance Number
+        writer.SetFileName(str(dicom_dir / f"slice_{i}.dcm"))
+        writer.Execute(slice_img)
+        
+    # Load the directory directly
+    vol = VolumeData(str(dicom_dir))
+    
+    assert vol.shape3d == (3, 5, 5)
+    assert vol.name == "my_dicom_series"
+    assert len(vol.file_paths) == 3
+
+
+
 

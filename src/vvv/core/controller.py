@@ -200,6 +200,7 @@ class Controller:
 
         # Cap at 20
         behavior["recent_files"] = recent[:20]
+        self.save_settings()
 
     def resolve_recent_path(self, path):
         """Resolves a path from the recent files. If not found, searches for a ~ equivalent path."""
@@ -971,7 +972,12 @@ class Controller:
             self.update_all_viewers_of_image(vs_id)
 
     def save_settings(self):
-        return self.settings.save()
+        try:
+            return self.settings.save()
+        except Exception as e:
+            import logging
+            logging.warning(f"Could not save settings: {e}")
+            return None
 
     def tick(self):
         for viewer in self.viewers.values():
