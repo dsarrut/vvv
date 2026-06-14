@@ -834,7 +834,12 @@ def load_workspace_sequence(gui, controller, filepath):
                     vs.set_overlay(ov_id, controller.volumes[ov_id])
                     ovs = controller.view_states.get(ov_id)
                     if ovs:
-                        controller._apply_overlay_resample(vs, ovs)
+                        import threading
+                        threading.Thread(
+                            target=controller._apply_overlay_resample,
+                            args=(vs, ovs),
+                            daemon=True
+                        ).start()
                     vs.display.overlay.mode = ov_info.get("mode", "Registration")
                     vs.display.overlay.opacity = ov_info.get("opacity", 0.5)
 
@@ -1252,7 +1257,12 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
 
                 base_vs = controller.view_states[base_id]
                 base_vs.set_overlay(fuse_id, fuse_vs.volume)
-                controller._apply_overlay_resample(base_vs, fuse_vs)
+                import threading
+                threading.Thread(
+                    target=controller._apply_overlay_resample,
+                    args=(base_vs, fuse_vs),
+                    daemon=True
+                ).start()
                 base_vs.display.overlay.opacity = task["fusion"]["opacity"]
 
                 if "mode" in task["fusion"]:

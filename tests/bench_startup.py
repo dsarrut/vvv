@@ -87,6 +87,11 @@ def worker_main(scenario_id, tmpdir):
     dpg.create_context()
     controller = Controller()
     controller.use_history = False  # Prevent polluting the developer's actual history file
+    from pathlib import Path
+    controller.settings.config_dir = Path(tmpdir)
+    controller.settings.config_path = Path(tmpdir) / ".vv_settings"
+    controller.history.config_dir = Path(tmpdir)
+    controller.history.history_path = Path(tmpdir) / "history.json"
 
     for tag in ["V1", "V2", "V3", "V4"]:
         controller.viewers[tag] = SliceViewer(tag, controller)
