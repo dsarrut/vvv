@@ -73,5 +73,70 @@ class TestSettingsUpdate(unittest.TestCase):
         resolved = self.controller.resolve_recent_path(fake_home_path)
         self.assertEqual(resolved, repo_file)
 
+class TestHistoryManager(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        import shutil
+        from pathlib import Path
+        from vvv.core.history_manager import HistoryManager
+        
+        self.temp_dir = tempfile.mkdtemp()
+        self.history = HistoryManager()
+        self.history.config_dir = Path(self.temp_dir)
+        self.history.history_path = Path(self.temp_dir) / "history.json"
+        self.history.data = {}
+        self.shutil = shutil
+
+    def tearDown(self):
+        self.shutil.rmtree(self.temp_dir)
+
+    def test_portable_key_resolution(self):
+        import os
+        from pathlib import Path
+        from vvv.utils import get_history_path_key
+        
+        home = Path.home().resolve()
+        path_inside = home / "my_image.nii"
+        path_outside = Path("/some/other/path/image.nii")
+        
+        key_inside = get_history_path_key(str(path_inside))
+        key_outside = get_history_path_key(str(path_outside))
+        
+        self.assertTrue(key_inside.startswith("~/"))
+        if os.name != "nt":
+            self.assertEqual(key_outside, "/some/other/path/image.nii")
+
+    def test_history_limit(self):
+        from unittest.mock import MagicMock
+        self.history.max_history_files = 5
+        for i in range(10):
+            self.history.data[f"item_{i}"] = {"shape3d": [10, 10, 10]}
+        
+        self.history.save()
+        
+        controller = MagicMock()
+        controller.view_states = {}
+        controller.volumes = {}
+        
+        volume = MagicMock()
+        volume.file_paths = ["/tmp/new_image.nii"]
+        volume.shape3d = (10, 10, 10)
+        volume.spacing = (1.0, 1.0, 1.0)
+        volume.origin = (0.0, 0.0, 0.0)
+        volume.is_dvf = False
+        
+        vs = MagicMock()
+        vs.camera.to_dict.return_value = {}
+        vs.display.to_dict.return_value = {}
+        vs.sync_group = 0
+        vs.sync_wl_group = 0
+        
+        controller.volumes["img1"] = volume
+        controller.view_states["img1"] = vs
+        controller.gui = None
+        
+        self.history.save_image_state(controller, "img1")
+        self.assertEqual(len(self.history.data), 5)
+
 if __name__ == "__main__":
     unittest.main()
