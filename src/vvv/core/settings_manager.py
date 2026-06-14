@@ -3,16 +3,12 @@ import copy
 import json
 from pathlib import Path
 from vvv.config import DEFAULT_SETTINGS
+from vvv.utils import get_config_dir
 
 
 class SettingsManager:
     def __init__(self):
-        appdata = os.getenv("APPDATA")
-        if os.name == "nt" and appdata:
-            self.config_dir = Path(appdata) / "VVV"
-        else:
-            self.config_dir = Path.home() / ".config" / "vvv"
-
+        self.config_dir = get_config_dir()
         self.config_path = self.config_dir / ".vv_settings"
         self.data = copy.deepcopy(DEFAULT_SETTINGS)
         self.load()

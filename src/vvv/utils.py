@@ -112,3 +112,12 @@ def resolve_relative_path(rel_path, base_dir):
     if os.path.isabs(rel_path):
         return rel_path
     return os.path.normpath(os.path.join(os.path.abspath(base_dir), rel_path))
+
+
+def get_config_dir() -> Path:
+    """Gets the user configuration directory in a cross-platform way."""
+    appdata = os.getenv("APPDATA")
+    if os.name == "nt" and appdata:
+        return Path(appdata) / "VVV"
+    return Path.home() / ".config" / "vvv"
+

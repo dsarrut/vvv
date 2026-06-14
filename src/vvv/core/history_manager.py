@@ -2,16 +2,12 @@ import os
 import json
 import numpy as np
 from pathlib import Path
+from vvv.utils import get_config_dir
 
 
 class HistoryManager:
     def __init__(self):
-        appdata = os.getenv("APPDATA")
-        if os.name == "nt" and appdata:
-            self.config_dir = Path(appdata) / "VVV"
-        else:
-            self.config_dir = Path.home() / ".config" / "vvv"
-
+        self.config_dir = get_config_dir()
         self.history_path = self.config_dir / "history.json"
         self.data = {}
         self.max_history_files = 100  # Enforce limit
