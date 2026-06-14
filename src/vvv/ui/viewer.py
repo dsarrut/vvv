@@ -1851,7 +1851,7 @@ class SliceViewer:
         use_merged_blend = self.nn_mode == NNMode.SW_SINGLE_MERGED or (
             self.nn_mode == NNMode.SW_SINGLE_NATIVE and is_mip
         )
-        if not is_lazy_live and use_merged_blend and has_alpha_overlay:
+        if not is_lazy_live and use_merged_blend and has_alpha_overlay and self.last_overlay_rgba_flat is not None:
             ov_actual_shape = getattr(
                 self, "last_overlay_rgba_shape", None
             )
