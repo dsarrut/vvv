@@ -1813,7 +1813,24 @@ class SliceViewer:
             return
 
         canvas_w, canvas_h = self._get_canvas_size()
-        actual_shape = getattr(self, "last_rgba_shape", self.get_slice_shape())
+        actual_shape = getattr(self, "last_rgba_shape", None)
+        if actual_shape is None:
+            actual_shape = self.get_slice_shape()
+
+        flat_len = len(self.last_rgba_flat)
+        expected_len = actual_shape[0] * actual_shape[1] * 4
+        if flat_len != expected_len:
+            slice_shape = self.get_slice_shape()
+            if flat_len == slice_shape[0] * slice_shape[1] * 4:
+                actual_shape = slice_shape
+            else:
+                import logging
+                logging.warning(
+                    f"Shape mismatch in base texture: last_rgba_flat size is {flat_len}, "
+                    f"but expected {expected_len} (shape {actual_shape}). Skipping base texture upload."
+                )
+                return
+
         rgba_2d = np.asarray(self.last_rgba_flat).reshape(
             actual_shape[0], actual_shape[1], 4
         )
@@ -1836,18 +1853,36 @@ class SliceViewer:
         )
         if not is_lazy_live and use_merged_blend and has_alpha_overlay:
             ov_actual_shape = getattr(
-                self, "last_overlay_rgba_shape", self.get_slice_shape()
+                self, "last_overlay_rgba_shape", None
             )
-            ov_rgba_2d = np.asarray(self.last_overlay_rgba_flat).reshape(
-                ov_actual_shape[0], ov_actual_shape[1], 4
-            )
-            rgba_2d = blend_slices_cpu(
-                rgba_2d,
-                ov_rgba_2d,
-                vs.display.overlay.opacity,
-                self.active_overlay_shift_x,
-                self.active_overlay_shift_y,
-            )
+            if ov_actual_shape is None:
+                ov_actual_shape = self.get_slice_shape()
+
+            ov_flat_len = len(self.last_overlay_rgba_flat)
+            ov_expected_len = ov_actual_shape[0] * ov_actual_shape[1] * 4
+            if ov_flat_len != ov_expected_len:
+                slice_shape = self.get_slice_shape()
+                if ov_flat_len == slice_shape[0] * slice_shape[1] * 4:
+                    ov_actual_shape = slice_shape
+                else:
+                    import logging
+                    logging.warning(
+                        f"Shape mismatch in overlay merged blend: last_overlay_rgba_flat size is {ov_flat_len}, "
+                        f"but expected {ov_expected_len} (shape {ov_actual_shape}). Skipping merged overlay blend."
+                    )
+                    use_merged_blend = False
+
+            if use_merged_blend:
+                ov_rgba_2d = np.asarray(self.last_overlay_rgba_flat).reshape(
+                    ov_actual_shape[0], ov_actual_shape[1], 4
+                )
+                rgba_2d = blend_slices_cpu(
+                    rgba_2d,
+                    ov_rgba_2d,
+                    vs.display.overlay.opacity,
+                    self.active_overlay_shift_x,
+                    self.active_overlay_shift_y,
+                )
 
         # Clear the previous overlay crop bounds in the base buffer if they exist
         _prev_crop = getattr(self, "_last_single_native_ov_crop", None)
@@ -1956,10 +1991,26 @@ class SliceViewer:
                     getattr(self, "_ov_tex_h", 1),
                 )
         else:
-            # SW_DUAL_RESAMPLED: NN-scale the ITK-resampled overlay
             ov_actual_shape = getattr(
-                self, "last_overlay_rgba_shape", self.get_slice_shape()
+                self, "last_overlay_rgba_shape", None
             )
+            if ov_actual_shape is None:
+                ov_actual_shape = self.get_slice_shape()
+
+            ov_flat_len = len(self.last_overlay_rgba_flat)
+            ov_expected_len = ov_actual_shape[0] * ov_actual_shape[1] * 4
+            if ov_flat_len != ov_expected_len:
+                slice_shape = self.get_slice_shape()
+                if ov_flat_len == slice_shape[0] * slice_shape[1] * 4:
+                    ov_actual_shape = slice_shape
+                else:
+                    import logging
+                    logging.warning(
+                        f"Shape mismatch in SW_DUAL_RESAMPLED: last_overlay_rgba_flat size is {ov_flat_len}, "
+                        f"but expected {ov_expected_len} (shape {ov_actual_shape}). Skipping dual resampled overlay scaling."
+                    )
+                    return
+
             ov_rgba_2d = np.asarray(self.last_overlay_rgba_flat).reshape(
                 ov_actual_shape[0], ov_actual_shape[1], 4
             )
