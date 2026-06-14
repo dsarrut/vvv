@@ -1,3 +1,4 @@
+import itertools
 import numpy as np
 
 
@@ -58,8 +59,6 @@ def straighten_image(img, filename="image", is_label_map=False):
     # If the image is already perfectly aligned, do nothing.
     if np.allclose(current_dir, identity_dir, atol=1e-4):
         return img
-
-    import itertools
 
     print(
         f"Oblique orientation detected in {filename}. Straightening to physical grid..."
