@@ -1,4 +1,5 @@
 import unittest
+from typing import cast
 from vvv.core.controller import Controller
 
 class TestSettingsUpdate(unittest.TestCase):
@@ -15,11 +16,10 @@ class TestSettingsUpdate(unittest.TestCase):
     def test_update_missing_nested_setting(self):
         self.controller.update_setting(["plugins", "my_new_plugin", "enable_mode"], True)
         self.assertIn("plugins", self.controller.settings.data)
-        self.assertIn("my_new_plugin", self.controller.settings.data["plugins"])
-        self.assertEqual(
-            self.controller.settings.data["plugins"]["my_new_plugin"]["enable_mode"],
-            True
-        )
+        plugins = cast(dict, self.controller.settings.data["plugins"])
+        self.assertIn("my_new_plugin", plugins)
+        my_new_plugin = cast(dict, plugins["my_new_plugin"])
+        self.assertEqual(my_new_plugin["enable_mode"], True)
 
     def test_update_non_dict_guard(self):
         self.controller.update_setting(["behavior", "flat_val"], "hello")
@@ -32,19 +32,19 @@ class TestSettingsUpdate(unittest.TestCase):
     def test_add_recent_file_absolute(self):
         # Storing a relative path should make it absolute
         self.controller.add_recent_file("test_file.nii")
-        recent = self.controller.settings.data["behavior"]["recent_files"]
+        recent = cast(list, self.controller.settings.data["behavior"]["recent_files"])
         import os
         self.assertEqual(recent[0], os.path.abspath("test_file.nii"))
 
         # Storing a 4D path with relative paths
         self.controller.add_recent_file('4D: "test_a.nii" "test_b.nii"')
-        recent = self.controller.settings.data["behavior"]["recent_files"]
+        recent = cast(list, self.controller.settings.data["behavior"]["recent_files"])
         expected_4d = '4D:"{}" "{}"'.format(os.path.abspath("test_a.nii"), os.path.abspath("test_b.nii"))
         self.assertEqual(recent[0], expected_4d)
 
         # Storing a list of relative paths (DICOM series)
         self.controller.add_recent_file(["d1.dcm", "d2.dcm"])
-        recent = self.controller.settings.data["behavior"]["recent_files"]
+        recent = cast(list, self.controller.settings.data["behavior"]["recent_files"])
         import json
         expected_list = json.dumps([os.path.abspath("d1.dcm"), os.path.abspath("d2.dcm")])
         self.assertEqual(recent[0], expected_list)
