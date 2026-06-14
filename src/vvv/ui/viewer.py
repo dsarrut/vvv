@@ -1381,7 +1381,7 @@ class SliceViewer:
                 axis_map = {
                     ViewMode.AXIAL: "Z",
                     ViewMode.CORONAL: "Y",
-                    ViewMode.SAGITTAL: "Y",
+                    ViewMode.SAGITTAL: "X",
                 }
                 proj_axis = axis_map.get(self.orientation, "Y")
                 current_angle = mip_state.rotation_angles.get(proj_axis, 0.0)
@@ -1568,7 +1568,7 @@ class SliceViewer:
                         axis_map = {
                             ViewMode.AXIAL: "Z",
                             ViewMode.CORONAL: "Y",
-                            ViewMode.SAGITTAL: "Y",
+                            ViewMode.SAGITTAL: "X",
                         }
                         proj_axis = axis_map.get(self.orientation, "Y")
                         current_angle = mip_state.rotation_angles.get(proj_axis, 0.0)
@@ -2701,7 +2701,7 @@ class SliceViewer:
             axis_map = {
                 ViewMode.AXIAL: "Z",
                 ViewMode.CORONAL: "Y",
-                ViewMode.SAGITTAL: "Y",
+                ViewMode.SAGITTAL: "X",
             }
             proj_axis = axis_map.get(self.orientation, "Y")
             current_angle = mip_state.rotation_angles.get(proj_axis, 0.0)
@@ -2897,7 +2897,7 @@ class SliceViewer:
             axis_map = {
                 ViewMode.AXIAL: "Z",
                 ViewMode.CORONAL: "Y",
-                ViewMode.SAGITTAL: "Y",
+                ViewMode.SAGITTAL: "X",
             }
             proj_axis = axis_map.get(self.orientation, "Y")
             current_angle = mip_state.rotation_angles.get(proj_axis, 0.0)

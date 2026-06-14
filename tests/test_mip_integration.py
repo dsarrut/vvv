@@ -31,8 +31,8 @@ def test_mip_integration(headless_gui_app):
     else:
         T, D, H, W = vol_shape
     
-    # Enabling MIP mode defaults to projection axis Y, which triggers sagittal view (F2)
-    assert viewer.orientation == ViewMode.SAGITTAL
+    # Enabling MIP mode defaults to projection axis Y, which triggers coronal view
+    assert viewer.orientation == ViewMode.CORONAL
     assert base_layer_mip.preview_override.shape == (D, W)
     
     # Set depth cueing value
@@ -159,11 +159,11 @@ def test_mip_viewer_isolation(headless_gui_app):
     assert state_v3.depth_cueing == 0.8
     assert state_v1.depth_cueing == 1.0  # V1 should be unaffected
     
-    # Modify rotation on V3 active axis (set orientation first to SAGITTAL -> axis Y)
+    # Modify rotation on V3 active axis (set orientation first to SAGITTAL -> axis X)
     viewer_v3.set_orientation(ViewMode.SAGITTAL)
     mip_plugin._controller.on_rotation_changed(None, 45.0, None)
-    assert state_v3.rotation_angles["Y"] == 45.0
-    assert state_v1.rotation_angles["Y"] == 0.0
+    assert state_v3.rotation_angles["X"] == 45.0
+    assert state_v1.rotation_angles["X"] == 0.0
     
     # 4. Test serialization
     serialized = mip_plugin._controller.serialize_image_state(base_id, context="workspace")
@@ -194,7 +194,7 @@ def test_mip_viewer_isolation(headless_gui_app):
     assert restored_v1.mip_enabled is True
     assert restored_v3.mip_enabled is False
     assert restored_v3.depth_cueing == 0.8
-    assert restored_v3.rotation_angles["Y"] == 45.0
+    assert restored_v3.rotation_angles["X"] == 45.0
 
     # Test restore of new format with history context (mip_enabled should remain False)
     new_image_id_hist = "test_image_new_hist"

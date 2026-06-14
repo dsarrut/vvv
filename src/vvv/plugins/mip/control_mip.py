@@ -210,7 +210,8 @@ class MIPPluginController(PluginTagMixin):
             if app_data:
                 axis_map = {
                     "Z": ViewMode.AXIAL,
-                    "Y": ViewMode.SAGITTAL,
+                    "Y": ViewMode.CORONAL,
+                    "X": ViewMode.SAGITTAL,
                 }
                 target_orientation = axis_map.get(state.projection_axis.upper())
                 if target_orientation and viewer.orientation != target_orientation:
@@ -251,7 +252,7 @@ class MIPPluginController(PluginTagMixin):
             orientation_map = {
                 ViewMode.AXIAL: "Z",
                 ViewMode.CORONAL: "Y",
-                ViewMode.SAGITTAL: "Y",
+                ViewMode.SAGITTAL: "X",
             }
             active_axis = orientation_map.get(viewer.orientation, "Y")
             state.rotation_angles[active_axis] = float(app_data)
@@ -278,7 +279,7 @@ class MIPPluginController(PluginTagMixin):
         orientation_map = {
             ViewMode.AXIAL: "Z",
             ViewMode.CORONAL: "Y",
-            ViewMode.SAGITTAL: "Y",
+            ViewMode.SAGITTAL: "X",
         }
         active_axis = orientation_map.get(viewer.orientation, "Y")
         current = state.rotation_angles.get(active_axis, 0.0)

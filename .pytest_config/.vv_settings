@@ -1,0 +1,134 @@
+{
+    "colors": {
+        "crosshair": [
+            0,
+            246,
+            7,
+            120
+        ],
+        "tracker_text": [
+            0,
+            246,
+            7,
+            255
+        ],
+        "x": [
+            255,
+            80,
+            80,
+            230
+        ],
+        "y": [
+            80,
+            255,
+            80,
+            230
+        ],
+        "z": [
+            80,
+            80,
+            255,
+            230
+        ],
+        "grid": [
+            255,
+            255,
+            255,
+            40
+        ],
+        "viewer": [
+            10,
+            246,
+            7,
+            120
+        ],
+        "legend_bg": [
+            0,
+            0,
+            0,
+            150
+        ]
+    },
+    "rendering": {
+        "lazy_lin": "Auto",
+        "gl_nearest": true,
+        "single_texture": "Auto",
+        "native_voxel": "Auto",
+        "numba": true
+    },
+    "profiles": {
+        "dim_opacity": 0.6,
+        "dim_thickness": 1.5
+    },
+    "physics": {
+        "auto_window_fov": 0.2,
+        "voxel_strip_threshold": 5000
+    },
+    "shortcuts": {
+        "open_file": "O",
+        "next_image": "N",
+        "auto_window": "W",
+        "auto_window_overlay": "X",
+        "scroll_up": "Up",
+        "scroll_down": "Down",
+        "fast_scroll_up": 517,
+        "fast_scroll_down": 518,
+        "zoom_in": "I",
+        "zoom_out": "O",
+        "reset_view": "R",
+        "center_view": "C",
+        "view_axial": "F1",
+        "view_sagittal": "F2",
+        "view_coronal": "F3",
+        "toggle_interp": "K",
+        "toggle_strips": "",
+        "toggle_mip": "M",
+        "toggle_legend": "L",
+        "toggle_grid": "G",
+        "toggle_axis": "A",
+        "toggle_scalebar": "B",
+        "hide_all": "H",
+        "time_forward": "Right",
+        "time_backward": "Left",
+        "add_profile": "P",
+        "sync_all": "S"
+    },
+    "interaction": {
+        "zoom_speed": 1.1,
+        "fast_scroll_steps": 10,
+        "wl_drag_sensitivity": 2.0,
+        "active_viewer_mode": "hybrid"
+    },
+    "layout": {
+        "window_width": 1400,
+        "window_height": 1000,
+        "side_panel_width": 380,
+        "nav_panel_width": 80,
+        "sidebar_gap": 0
+    },
+    "behavior": {
+        "auto_save_history": true,
+        "recent_files": [
+            "/private/var/folders/f4/0c234twj471dzkgrskgr7jv80000gn/T/pytest-of-dsarrut/pytest-66/data0/synthetic_dvf.nrrd",
+            "/private/var/folders/f4/0c234twj471dzkgrskgr7jv80000gn/T/pytest-of-dsarrut/pytest-66/test_dvf_can_join_sync_group_a0/seq.nrrd",
+            "[\"/Users/dsarrut/src/py/vvv/d1.dcm\", \"/Users/dsarrut/src/py/vvv/d2.dcm\"]",
+            "4D:\"/Users/dsarrut/src/py/vvv/test_a.nii\" \"/Users/dsarrut/src/py/vvv/test_b.nii\"",
+            "/Users/dsarrut/src/py/vvv/test_file.nii",
+            "/private/var/folders/f4/0c234twj471dzkgrskgr7jv80000gn/T/pytest-of-dsarrut/pytest-66/test_reload_label_map_with_jso0/synthetic_2.nii.gz",
+            "/private/var/folders/f4/0c234twj471dzkgrskgr7jv80000gn/T/pytest-of-dsarrut/pytest-66/test_reload_label_map_with_jso0/synthetic_1.nii.gz",
+            "/private/var/folders/f4/0c234twj471dzkgrskgr7jv80000gn/T/pytest-of-dsarrut/pytest-66/test_reload_all_modified_rois0/synthetic_2.nii.gz",
+            "/private/var/folders/f4/0c234twj471dzkgrskgr7jv80000gn/T/pytest-of-dsarrut/pytest-66/test_reload_all_modified_rois0/synthetic_1.nii.gz",
+            "/private/var/folders/f4/0c234twj471dzkgrskgr7jv80000gn/T/pytest-of-dsarrut/pytest-66/test_load_3d_mask_on_4d_base0/vol_4d.nii.gz",
+            "/private/var/folders/f4/0c234twj471dzkgrskgr7jv80000gn/T/pytest-of-dsarrut/pytest-66/test_load_3d_mask_on_4d_base0/vol_3d.nii.gz",
+            "/private/var/folders/f4/0c234twj471dzkgrskgr7jv80000gn/T/pytest-of-dsarrut/pytest-66/test_overlay_threshold_applied0/synthetic_2.nii.gz",
+            "/private/var/folders/f4/0c234twj471dzkgrskgr7jv80000gn/T/pytest-of-dsarrut/pytest-66/test_overlay_threshold_applied0/synthetic_1.nii.gz",
+            "/private/var/folders/f4/0c234twj471dzkgrskgr7jv80000gn/T/pytest-of-dsarrut/pytest-66/test_all_nn_modes_execute_with0/synthetic_2.nii.gz",
+            "/private/var/folders/f4/0c234twj471dzkgrskgr7jv80000gn/T/pytest-of-dsarrut/pytest-66/test_all_nn_modes_execute_with0/synthetic_1.nii.gz",
+            "/var/folders/f4/0c234twj471dzkgrskgr7jv80000gn/T/tmpnjmtalu4/ov.nii",
+            "/var/folders/f4/0c234twj471dzkgrskgr7jv80000gn/T/tmpnjmtalu4/base.nii",
+            "/private/var/folders/f4/0c234twj471dzkgrskgr7jv80000gn/T/pytest-of-dsarrut/pytest-66/gui_data25/imgB.nii.gz",
+            "/private/var/folders/f4/0c234twj471dzkgrskgr7jv80000gn/T/pytest-of-dsarrut/pytest-66/test_registration_sync_behavio0/synthetic_2.nii.gz",
+            "/private/var/folders/f4/0c234twj471dzkgrskgr7jv80000gn/T/pytest-of-dsarrut/pytest-66/test_registration_sync_behavio0/synthetic_1.nii.gz"
+        ]
+    }
+}
