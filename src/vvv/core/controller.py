@@ -4,12 +4,10 @@ import math
 import shlex
 import threading
 import numpy as np
-import SimpleITK as sitk
 import concurrent.futures
 from typing import Any
 from vvv.utils import ViewMode
 from vvv.maths.image import VolumeData
-from vvv.maths.transform_io import TransformIO
 from vvv.maths.geometry import SpatialEngine
 from vvv.core.roi_manager import ROIManager
 from vvv.core.file_manager import FileManager
@@ -147,6 +145,7 @@ class Controller:
         fallback_center = self.get_volume_physical_center(vol).tolist()
 
         try:
+            from vvv.maths.transform_io import TransformIO
             new_transform = TransformIO.read_transform(filepath, fallback_center)
 
             vs.space.transform = new_transform
@@ -160,6 +159,7 @@ class Controller:
         vs = self.view_states.get(vs_id)
         if vs and vs.space.transform:
             try:
+                from vvv.maths.transform_io import TransformIO
                 TransformIO.write_transform(vs.space.transform, filepath)
                 vs.space.transform_file = os.path.basename(filepath)
             except Exception as e:
@@ -265,6 +265,7 @@ class Controller:
         if vs_id not in self.volumes:  # Guard against invalid vs_id
             print(f"Error: Volume {vs_id} not found for saving.")
             return
+        import SimpleITK as sitk
 
         vol = self.volumes[vs_id]
         if vol.data is None:  # Guard against tombstoned or unloaded data
@@ -661,6 +662,8 @@ class Controller:
         After baking, the transform is reset to identity and the image is indistinguishable
         from one loaded without any transform.
         """
+        import SimpleITK as sitk
+
         vs: Any = self.view_states.get(vs_id)
         vol: Any = self.volumes.get(vs_id)
         if not vs or not vol or not vs.space.transform or not vs.space.is_active:
