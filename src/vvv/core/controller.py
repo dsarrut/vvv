@@ -1,11 +1,16 @@
 import os
 import json
+import math
+import shlex
 import threading
 import numpy as np
+import SimpleITK as sitk
 import concurrent.futures
 from typing import Any
 from vvv.utils import ViewMode
 from vvv.maths.image import VolumeData
+from vvv.maths.transform_io import TransformIO
+from vvv.maths.geometry import SpatialEngine
 from vvv.core.roi_manager import ROIManager
 from vvv.core.file_manager import FileManager
 from vvv.core.sync_manager import SyncManager
@@ -142,8 +147,6 @@ class Controller:
         fallback_center = self.get_volume_physical_center(vol).tolist()
 
         try:
-            from vvv.maths.transform_io import TransformIO
-
             new_transform = TransformIO.read_transform(filepath, fallback_center)
 
             vs.space.transform = new_transform
@@ -157,8 +160,6 @@ class Controller:
         vs = self.view_states.get(vs_id)
         if vs and vs.space.transform:
             try:
-                from vvv.maths.transform_io import TransformIO
-
                 TransformIO.write_transform(vs.space.transform, filepath)
                 vs.space.transform_file = os.path.basename(filepath)
             except Exception as e:
@@ -170,7 +171,6 @@ class Controller:
             path = [os.path.abspath(p) for p in path]
         elif isinstance(path, str):
             if path.startswith("4D:"):
-                import shlex
                 try:
                     path_for_shlex = path[3:].replace("\\", "\\\\") if os.name == "nt" else path[3:]
                     tokens = shlex.split(path_for_shlex)
@@ -207,7 +207,6 @@ class Controller:
             return [self.resolve_recent_path(p) for p in path]
         elif isinstance(path, str):
             if path.startswith("4D:"):
-                import shlex
                 try:
                     path_for_shlex = path[3:].replace("\\", "\\\\") if os.name == "nt" else path[3:]
                     tokens = shlex.split(path_for_shlex)
@@ -266,7 +265,6 @@ class Controller:
         if vs_id not in self.volumes:  # Guard against invalid vs_id
             print(f"Error: Volume {vs_id} not found for saving.")
             return
-        import SimpleITK as sitk
 
         vol = self.volumes[vs_id]
         if vol.data is None:  # Guard against tombstoned or unloaded data
@@ -513,8 +511,6 @@ class Controller:
         vs = self.view_states.get(vs_id)
         if not vs:
             return
-        import math
-
         vs.space.set_manual_transform(
             tx, ty, tz, math.radians(rx_deg), math.radians(ry_deg), math.radians(rz_deg)
         )
@@ -665,8 +661,6 @@ class Controller:
         After baking, the transform is reset to identity and the image is indistinguishable
         from one loaded without any transform.
         """
-        import SimpleITK as sitk
-
         vs: Any = self.view_states.get(vs_id)
         vol: Any = self.volumes.get(vs_id)
         if not vs or not vol or not vs.space.transform or not vs.space.is_active:
@@ -722,7 +716,6 @@ class Controller:
                     vs._sitk_base_cache = None
 
                     # Rebuild spatial engine (origin/spacing/matrix unchanged, no transform)
-                    from vvv.maths.geometry import SpatialEngine
                     vs.space = SpatialEngine(vol, view_state=vs)
 
                     # Remap crosshair to new native voxel (transform is now identity)

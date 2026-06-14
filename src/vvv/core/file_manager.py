@@ -1,5 +1,6 @@
 import os
 import json
+import SimpleITK as sitk
 from vvv.maths.image import VolumeData
 from vvv.core.view_state import ViewState
 from vvv.utils import resolve_history_path_key
@@ -79,9 +80,6 @@ class FileManager:
 
     def scan_dicom_folder(self, folder_path, recursive=True):
         """Scans a folder for DICOM series and YIELDS progress updates."""
-        import SimpleITK as sitk
-        import os
-
         if not os.path.exists(folder_path):
             yield (1.0, "Done", [])
             return
