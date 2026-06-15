@@ -206,4 +206,7 @@ uv.lock
 
 # Pytest config temp settings
 .pytest_config/
+.pytest_config/.vv_settings
+
+
 

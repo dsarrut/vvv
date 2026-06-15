@@ -117,7 +117,7 @@ def resolve_relative_path(rel_path, base_dir):
 def get_config_dir() -> Path:
     """Gets the user configuration directory in a cross-platform way."""
     if "PYTEST_CURRENT_TEST" in os.environ:
-        workspace_test_config = Path("/Users/dsarrut/src/py/vvv/.pytest_config")
+        workspace_test_config = Path(__file__).resolve().parent.parent.parent / ".pytest_config"
         workspace_test_config.mkdir(exist_ok=True)
         return workspace_test_config
 
