@@ -25,6 +25,7 @@ class MIPPluginController(PluginTagMixin):
         self._caches: Dict[str, dict] = {}
         self._cache_locks: Dict[str, threading.Lock] = {}
         self._precompute_stops: Dict[str, threading.Event] = {}
+        self._precompute_params: Dict[str, tuple] = {}
 
     def bind(self, api: PluginAPI) -> None:
         self._api = api
@@ -137,6 +138,8 @@ class MIPPluginController(PluginTagMixin):
         tag = viewer_tag.upper()
         if tag in self._precompute_stops:
             self._precompute_stops[tag].set()
+        if tag in self._precompute_params:
+            self._precompute_params.pop(tag, None)
         if tag in self._caches:
             with self._cache_locks[tag]:
                 self._caches[tag].clear()
@@ -152,6 +155,7 @@ class MIPPluginController(PluginTagMixin):
         for stop_event in self._precompute_stops.values():
             stop_event.set()
         self._precompute_stops.clear()
+        self._precompute_params.clear()
         for lock, cache in zip(self._cache_locks.values(), self._caches.values()):
             with lock:
                 cache.clear()
@@ -359,8 +363,12 @@ class MIPPluginController(PluginTagMixin):
                         cache_dict.pop(next(iter(cache_dict)), None)
                     cache_dict[cache_key] = preview
             
-            # Start background precomputation for other angles if extra_layers is provided
-            if extra_layers is not None:
+        # Start background precomputation for other angles if parameters changed (e.g. extra_layers added)
+        if extra_layers is not None:
+            extra_layers_tuple = tuple((l_id, l_t) for _, l_id, l_t in extra_layers)
+            params_key = (img_id, time_idx, orientation, depth_cueing, current_angle, mip_state.rotation_step, extra_layers_tuple)
+            if self._precompute_params.get(tag) != params_key:
+                self._precompute_params[tag] = params_key
                 self._start_mip_precompute(
                     viewer=viewer,
                     data_3d=data_3d,
