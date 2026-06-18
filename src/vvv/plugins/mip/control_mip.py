@@ -475,3 +475,128 @@ class MIPPluginController(PluginTagMixin):
                         _compute_and_cache(l_3d, layer_key)
                         
         threading.Thread(target=_run, daemon=True).start()
+
+    def on_save_movie_clicked(self, sender, app_data, user_data):
+        if not self._api:
+            return
+        viewer = self._api.get_active_viewer()
+        if not viewer or not viewer.image_id:
+            return
+
+        from vvv.ui.file_dialog import save_file_dialog
+
+        default_name = f"mip_rotation_{viewer.image_id}.gif"
+        file_path = save_file_dialog(
+            title="Save MIP Rotation Movie",
+            default_name=default_name
+        )
+        if not file_path:
+            return
+
+        # Ensure it has a .gif extension
+        if not file_path.lower().endswith(".gif"):
+            file_path += ".gif"
+
+        # Add the generator sequence to the GUI tasks list
+        self._api._gui.tasks.append(
+            self._save_movie_sequence(viewer, file_path)
+        )
+
+    def _save_movie_sequence(self, viewer, filepath):
+        from vvv.ui.ui_notifications import show_loading_modal, hide_loading_modal
+
+        # Save original state parameters
+        state = self.get_viewer_state(viewer.image_id, viewer.tag)
+        orientation_map = {
+            ViewMode.AXIAL: "Z",
+            ViewMode.CORONAL: "Y",
+            ViewMode.SAGITTAL: "X",
+        }
+        proj_axis = orientation_map.get(viewer.orientation, "Y")
+        original_angle = state.rotation_angles.get(proj_axis, 0.0)
+
+        # Use the configured rotation step. If step is too small or large, bound it.
+        step = max(1.0, min(45.0, state.rotation_step))
+        angles = np.arange(-180.0, 180.0, step)
+        total_frames = len(angles)
+
+        frames = []
+
+        try:
+            for idx, angle in enumerate(angles):
+                # Update progress modal
+                show_loading_modal(
+                    "Generating Movie",
+                    f"Rendering frame {idx+1} of {total_frames}...",
+                    progress=(idx / total_frames)
+                )
+                yield
+
+                # Update state rotation temporarily to generate projection
+                state.rotation_angles[proj_axis] = float(angle)
+
+                # Retrieve layers
+                base_layer = viewer._package_base_layer()
+                overlay_layer = viewer._package_overlay_layer()
+
+                # Generate RGBA slice
+                from vvv.maths.image import SliceRenderer
+                flat, shape = SliceRenderer.get_slice_rgba(
+                    base=base_layer,
+                    overlay=overlay_layer,
+                    overlay_opacity=viewer.view_state.display.overlay.opacity if (viewer.view_state and viewer.view_state.display.overlay) else 0.0,
+                    overlay_mode=viewer.view_state.display.overlay.mode if (viewer.view_state and viewer.view_state.display.overlay) else "Alpha",
+                    slice_idx=viewer.slice_idx,
+                    orientation=viewer.orientation,
+                )
+
+                h, w = shape
+                rgba_2d = np.asarray(flat).reshape(h, w, 4)
+
+                # Convert to uint8 RGBA [0, 255]
+                rgba_uint8 = (np.clip(rgba_2d, 0.0, 1.0) * 255.0).astype(np.uint8)
+
+                # Blend transparency with the background color (invert_contrast check)
+                bg_color = np.array([255, 255, 255] if state.invert_contrast else [0, 0, 0], dtype=np.uint8)
+                alpha = rgba_uint8[..., 3:4] / 255.0
+                rgb = (rgba_uint8[..., :3] * alpha + bg_color * (1.0 - alpha)).astype(np.uint8)
+
+                # Convert to PIL Image
+                from PIL import Image
+                img = Image.fromarray(rgb)
+
+                # Resize to respect physical voxel spacing (aspect ratio)
+                if viewer.volume:
+                    spacing_w, spacing_h = viewer.volume.get_physical_aspect_ratio(viewer.orientation)
+                    if spacing_w != spacing_h:
+                        if spacing_w > spacing_h:
+                            new_w = int(round(w * (spacing_w / spacing_h)))
+                            new_h = h
+                        else:
+                            new_w = w
+                            new_h = int(round(h * (spacing_h / spacing_w)))
+                        img = img.resize((new_w, new_h), Image.Resampling.BILINEAR)
+
+                frames.append(img)
+
+            if frames:
+                show_loading_modal("Generating Movie", "Saving animated GIF...", progress=0.99)
+                yield
+                frames[0].save(
+                    filepath,
+                    save_all=True,
+                    append_images=frames[1:],
+                    duration=100,  # 100ms per frame
+                    loop=0
+                )
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self._api.show_message("Error Saving Movie", f"An error occurred while exporting: {str(e)}")
+        finally:
+            # Restore original rotation angle
+            state.rotation_angles[proj_axis] = original_angle
+            self._mark_viewer_dirty(viewer)
+            self._api.request_refresh()
+            hide_loading_modal()

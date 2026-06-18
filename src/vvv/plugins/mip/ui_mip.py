@@ -131,6 +131,19 @@ class MIPPluginUI(PluginTagMixin):
                     color=cfg_c["text_dim"],
                 )
 
+            dpg.add_spacer(height=10)
+            btn_movie = dpg.add_button(
+                label="Save Rotation Movie",
+                tag=self._t("btn_save_movie"),
+                callback=self._c.on_save_movie_clicked,
+                width=-1,
+            )
+            build_beginner_tooltip(
+                btn_movie,
+                "Save an animated GIF showing a complete 360-degree rotation of the current projection.",
+                api,
+            )
+
 
     def update_ui(self, api) -> None:
         viewer = api.get_active_viewer()
@@ -165,6 +178,7 @@ class MIPPluginUI(PluginTagMixin):
         slider_step = self._t("slider_rotation_step")
         chk_invert = self._t("check_invert_contrast")
         cache_text = self._t("text_cache_count")
+        btn_movie = self._t("btn_save_movie")
 
         if dpg.does_item_exist(chk_mip):
             dpg.configure_item(chk_mip, enabled=has_image)
@@ -183,6 +197,7 @@ class MIPPluginUI(PluginTagMixin):
             f"btn_{slider_rot}_plus",
             f"btn_{slider_step}_minus",
             f"btn_{slider_step}_plus",
+            btn_movie,
         ]
         for item in mip_controls:
             if dpg.does_item_exist(item):

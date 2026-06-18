@@ -122,4 +122,63 @@ def test_mip_scroll_rotation():
     assert mip_state.rotation_angles["Z"] == -176.0
 
 
+def test_mip_save_movie():
+    from unittest.mock import MagicMock, patch
+    from vvv.plugins.mip.control_mip import MIPPluginController
+    from vvv.utils import ViewMode
+    import numpy as np
+
+    controller = MIPPluginController("mip_plugin")
+    api = MagicMock()
+    controller.bind(api)
+
+    viewer = MagicMock()
+    viewer.tag = "V1"
+    viewer.image_id = "test_image"
+    viewer.orientation = ViewMode.CORONAL
+    viewer.slice_idx = 10
+    viewer.view_state = MagicMock()
+    viewer.view_state.display.overlay = None
+
+    viewer.volume = MagicMock()
+    viewer.volume.get_physical_aspect_ratio.return_value = (1.0, 2.0)
+
+    # mock get_viewer_state
+    mock_state = MagicMock()
+    mock_state.rotation_angles = {"X": 0.0, "Y": 0.0, "Z": 0.0}
+    mock_state.rotation_step = 90.0  # Large step to minimize frames (4 frames)
+    mock_state.invert_contrast = False
+    controller._states = {"test_image": {"V1": mock_state}}
+
+    # mock package methods on viewer
+    base_layer = MagicMock()
+    overlay_layer = None
+    viewer._package_base_layer.return_value = base_layer
+    viewer._package_overlay_layer.return_value = overlay_layer
+
+    # mock SliceRenderer.get_slice_rgba
+    dummy_rgba = np.zeros(20 * 20 * 4, dtype=np.float32)
+    # mock show_loading_modal, hide_loading_modal, and Image
+    with patch("vvv.ui.ui_notifications.show_loading_modal") as mock_show, \
+         patch("vvv.ui.ui_notifications.hide_loading_modal") as mock_hide, \
+         patch("vvv.maths.image.SliceRenderer.get_slice_rgba", return_value=(dummy_rgba, (20, 20))), \
+         patch("PIL.Image.fromarray") as mock_fromarray:
+        
+        mock_img = MagicMock()
+        mock_fromarray.return_value = mock_img
+
+        # Execute generator
+        gen = controller._save_movie_sequence(viewer, "dummy.gif")
+        list(gen)  # consume generator fully
+
+        # Assertions
+        # Original rotation angle should be restored to 0.0
+        assert mock_state.rotation_angles["Y"] == 0.0
+        # save was called on the first image (which was the resized image)
+        mock_img.resize.return_value.save.assert_called_once()
+        # resize was called to scale to physical aspect ratio
+        mock_img.resize.assert_called()
+        mock_hide.assert_called_once()
+
+
 
