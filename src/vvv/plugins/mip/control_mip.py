@@ -593,10 +593,12 @@ class MIPPluginController(PluginTagMixin):
         except Exception as e:
             import traceback
             traceback.print_exc()
-            self._api.show_message("Error Saving Movie", f"An error occurred while exporting: {str(e)}")
+            if self._api:
+                self._api.show_message("Error Saving Movie", f"An error occurred while exporting: {str(e)}")
         finally:
             # Restore original rotation angle
             state.rotation_angles[proj_axis] = original_angle
             self._mark_viewer_dirty(viewer)
-            self._api.request_refresh()
+            if self._api:
+                self._api.request_refresh()
             hide_loading_modal()

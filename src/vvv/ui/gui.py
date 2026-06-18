@@ -341,6 +341,34 @@ class MainGUI:
                     color=self.ui_cfg["colors"]["text_status_ok"],
                 )
 
+                # Spacing to separate layout buttons
+                dpg.add_spacer(width=200, tag="menu_layout_spacer")
+                btn_layout_4 = dpg.add_button(
+                    label="\uf009",
+                    callback=lambda: print("Layout: 4 viewers"),
+                    tag="btn_layout_4",
+                )
+                btn_layout_2 = dpg.add_button(
+                    label="\uf0db",
+                    callback=lambda: print("Layout: 2 viewers left/right"),
+                    tag="btn_layout_2",
+                )
+                btn_layout_1 = dpg.add_button(
+                    label="\uf0c8",
+                    callback=lambda: print("Layout: 1 viewer"),
+                    tag="btn_layout_1",
+                )
+
+                for btn in [btn_layout_4, btn_layout_2, btn_layout_1]:
+                    if dpg.does_item_exist("icon_font_tag"):
+                        dpg.bind_item_font(btn, "icon_font_tag")
+                    if dpg.does_item_exist("icon_button_theme"):
+                        dpg.bind_item_theme(btn, "icon_button_theme")
+
+                build_beginner_tooltip(btn_layout_4, "4 Viewers Layout", self)
+                build_beginner_tooltip(btn_layout_2, "2 Viewers (Left/Right) Layout", self)
+                build_beginner_tooltip(btn_layout_1, "1 Viewer (Full) Layout", self)
+
         dpg.bind_item_theme("menu_container", "floating_menu_theme")
 
     def build_sidebar(self):
@@ -1220,7 +1248,13 @@ class MainGUI:
 
             if dpg.does_item_exist("menu_container"):
                 dpg.set_item_pos("menu_container", [m_l, m_t])
-                dpg.set_item_width("menu_container", window_w - m_l - m_r)
+                menu_w = window_w - m_l - m_r
+                dpg.set_item_width("menu_container", menu_w)
+                if dpg.does_item_exist("menu_layout_spacer"):
+                    # File, Workspace, System, and status text take about 340px.
+                    # The 3 buttons and tooltips take about 120px.
+                    spacer_w = max(10, menu_w - 460)
+                    dpg.configure_item("menu_layout_spacer", width=spacer_w)
 
             panels_y = m_t + cfg["menu_h"] + cfg["menu_m_bottom"]
             nav_w = cfg["nav_panel_w"]  # MUST match the width defined in build_sidebar

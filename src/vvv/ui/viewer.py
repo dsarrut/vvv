@@ -993,7 +993,7 @@ class SliceViewer:
         if pixelated_changed:
             self.is_geometry_dirty = True
 
-        ov_id = vs.display.overlay.image_id if vs else None
+        ov_id = vs.display.overlay.image_id if vs is not None else None
         has_nn_overlay = (
             ov_id is not None
             and ov_id in self.controller.view_states
@@ -1388,7 +1388,7 @@ class SliceViewer:
 
                 # Collect overlay layer for joint precompute if needed
                 extra_layers = []
-                ov_id = vs.display.overlay.image_id if vs.display.overlay else None
+                ov_id = vs.display.overlay.image_id if vs.display.overlay is not None else None
                 ov_data_raw = vs.display.overlay_data if ov_id else None
                 if ov_data_raw is not None and ov_id:
                     ov_time_idx = min(
@@ -2761,7 +2761,7 @@ class SliceViewer:
             if mip_state and mip_state.mip_enabled:
                 return
             if self.profile_mode == ProfileInteractionMode.IDLE:
-                if self.view_state:
+                if self.view_state is not None:
                     # Create instant horizontal profile in FOV center
                     shape = self.get_slice_shape()
                     real_h, real_w = shape[0], shape[1]
