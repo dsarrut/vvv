@@ -678,19 +678,17 @@ class MainGUI:
                         )
 
     def build_viewer_grid(self):
-        """Creates the 2x2 grid of slice viewers."""
+        """Creates the grid of slice viewers."""
         with dpg.child_window(
             tag="viewers_container",
             border=False,
             no_scrollbar=True,
             no_scroll_with_mouse=True,
         ):
-            with dpg.group(horizontal=True):
-                self.build_viewer_widget("V1")
-                self.build_viewer_widget("V2")
-            with dpg.group(horizontal=True):
-                self.build_viewer_widget("V3")
-                self.build_viewer_widget("V4")
+            self.build_viewer_widget("V1")
+            self.build_viewer_widget("V2")
+            self.build_viewer_widget("V3")
+            self.build_viewer_widget("V4")
 
     def build_viewer_widget(self, tag):
         viewer = self.controller.viewers[tag]
@@ -1372,18 +1370,48 @@ class MainGUI:
                 dpg.set_item_height("viewers_container", avail_h)
 
             layout = getattr(self, "active_layout", "4")
-            for i, tag in enumerate(["V1", "V2", "V3", "V4"]):
+            visible_viewers = getattr(self, "visible_viewers", ["V1", "V2", "V3", "V4"])
+
+            for tag in ["V1", "V2", "V3", "V4"]:
                 if dpg.does_item_exist(f"win_{tag}"):
                     if layout == "4":
-                        w = quad_w if i in [0, 2] else avail_w - quad_w
-                        h = quad_h if i in [0, 1] else avail_h - quad_h
+                        if tag == "V1":
+                            x, y = 0, 0
+                            w, h = quad_w, quad_h
+                        elif tag == "V2":
+                            x, y = quad_w, 0
+                            w, h = avail_w - quad_w, quad_h
+                        elif tag == "V3":
+                            x, y = 0, quad_h
+                            w, h = quad_w, avail_h - quad_h
+                        else: # tag == "V4"
+                            x, y = quad_w, quad_h
+                            w, h = avail_w - quad_w, avail_h - quad_h
                     elif layout == "2":
-                        w = avail_w // 2 if i == 0 else avail_w - (avail_w // 2)
-                        h = avail_h
-                    else:  # layout == "1"
-                        w = avail_w
-                        h = avail_h
+                        if len(visible_viewers) >= 2:
+                            first_tag, second_tag = visible_viewers[0], visible_viewers[1]
+                        else:
+                            first_tag, second_tag = "V1", "V2"
 
+                        if tag == first_tag:
+                            x, y = 0, 0
+                            w, h = avail_w // 2, avail_h
+                        elif tag == second_tag:
+                            x, y = avail_w // 2, 0
+                            w, h = avail_w - (avail_w // 2), avail_h
+                        else:
+                            x, y = 0, 0
+                            w, h = 10, 10
+                    else:  # layout == "1"
+                        active_tag = visible_viewers[0] if visible_viewers else "V1"
+                        if tag == active_tag:
+                            x, y = 0, 0
+                            w, h = avail_w, avail_h
+                        else:
+                            x, y = 0, 0
+                            w, h = 10, 10
+
+                    dpg.set_item_pos(f"win_{tag}", [x, y])
                     dpg.set_item_width(f"win_{tag}", w)
                     dpg.set_item_height(f"win_{tag}", h)
 
@@ -1428,29 +1456,31 @@ class MainGUI:
     def set_viewport_layout(self, layout):
         self.active_layout = layout
 
-        # Update visibility of viewports
-        show_map = {
-            "4": {"win_V1": True, "win_V2": True, "win_V3": True, "win_V4": True},
-            "2": {"win_V1": True, "win_V2": True, "win_V3": False, "win_V4": False},
-            "1": {"win_V1": True, "win_V2": False, "win_V3": False, "win_V4": False},
-        }
+        active_tag = self.context_viewer.tag if self.context_viewer else "V1"
+        next_map = {"V1": "V2", "V2": "V3", "V3": "V4", "V4": "V1"}
+        next_tag = next_map[active_tag]
 
-        mapping = show_map.get(layout, show_map["4"])
-        for tag, show in mapping.items():
+        if layout == "4":
+            self.visible_viewers = ["V1", "V2", "V3", "V4"]
+        elif layout == "2":
+            self.visible_viewers = [active_tag, next_tag]
+        else: # layout == "1"
+            self.visible_viewers = [active_tag]
+
+        show_map = {}
+        for tag in ["V1", "V2", "V3", "V4"]:
+            show = tag in self.visible_viewers
+            show_map[f"win_{tag}"] = show
+
+        for tag, show in show_map.items():
             if dpg.does_item_exist(tag):
                 dpg.configure_item(tag, show=show)
-
-        # Redirect active focus if current active viewer is hidden
-        if layout == "1" and (not self.context_viewer or self.context_viewer.tag != "V1"):
-            self.context_viewer = self.controller.viewers.get("V1")
-        elif layout == "2" and (not self.context_viewer or self.context_viewer.tag not in ["V1", "V2"]):
-            self.context_viewer = self.controller.viewers.get("V1")
 
         # Trigger layout size recalculation
         self.on_window_resize()
 
         # Set viewers dirty to redraw them
-        for v_tag, show in mapping.items():
+        for v_tag, show in show_map.items():
             viewer_tag = v_tag.replace("win_", "")
             if show:
                 viewer = self.controller.viewers.get(viewer_tag)

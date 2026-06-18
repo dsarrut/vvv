@@ -763,5 +763,64 @@ def test_gui_viewport_layouts(headless_gui_app):
             dpg.delete_item("image_list_container")
 
 
+def test_gui_viewport_layouts_dynamic_active(headless_gui_app):
+    """Verifies that changing viewport layouts dynamically targets the active viewer (e.g. V3)."""
+    controller, gui, viewer, vs_id = headless_gui_app
+
+    # Ensure windows exist in the headless DPG context
+    created_windows = []
+    for tag in ["V1", "V2", "V3", "V4"]:
+        win_tag = f"win_{tag}"
+        if not dpg.does_item_exist(win_tag):
+            dpg.add_child_window(tag=win_tag)
+            created_windows.append(win_tag)
+
+    try:
+        # Ensure image_list_container exists
+        if not dpg.does_item_exist("image_list_container"):
+            dpg.add_group(tag="image_list_container")
+
+        from vvv.ui.ui_image_list import refresh_image_list_ui
+
+        # Make V3 the active context viewer
+        gui.context_viewer = controller.viewers["V3"]
+
+        # 1. Switch to 2-viewer layout: should show V3 (active) and V4 (next)
+        gui.set_viewport_layout("2")
+        assert gui.active_layout == "2"
+        assert dpg.is_item_shown("win_V1") is False
+        assert dpg.is_item_shown("win_V2") is False
+        assert dpg.is_item_shown("win_V3") is True
+        assert dpg.is_item_shown("win_V4") is True
+
+        refresh_image_list_ui(gui)
+        assert dpg.get_item_configuration(f"cb_{vs_id}_V1")["enabled"] is False
+        assert dpg.get_item_configuration(f"cb_{vs_id}_V2")["enabled"] is False
+        assert dpg.get_item_configuration(f"cb_{vs_id}_V3")["enabled"] is True
+        assert dpg.get_item_configuration(f"cb_{vs_id}_V4")["enabled"] is True
+
+        # 2. Switch to 1-viewer layout: should show only V3
+        gui.set_viewport_layout("1")
+        assert gui.active_layout == "1"
+        assert dpg.is_item_shown("win_V1") is False
+        assert dpg.is_item_shown("win_V2") is False
+        assert dpg.is_item_shown("win_V3") is True
+        assert dpg.is_item_shown("win_V4") is False
+
+        refresh_image_list_ui(gui)
+        assert dpg.get_item_configuration(f"cb_{vs_id}_V1")["enabled"] is False
+        assert dpg.get_item_configuration(f"cb_{vs_id}_V2")["enabled"] is False
+        assert dpg.get_item_configuration(f"cb_{vs_id}_V3")["enabled"] is True
+        assert dpg.get_item_configuration(f"cb_{vs_id}_V4")["enabled"] is False
+
+    finally:
+        # Clean up created child windows and container
+        for win_tag in created_windows:
+            if dpg.does_item_exist(win_tag):
+                dpg.delete_item(win_tag)
+        if dpg.does_item_exist("image_list_container"):
+            dpg.delete_item("image_list_container")
+
+
 
 

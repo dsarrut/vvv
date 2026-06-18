@@ -950,13 +950,10 @@ class SliceViewer:
         )
 
     def tick(self):
-        # Skip computations if the viewer is not displayed in the current layout mode
-        gui = self.controller.gui
-        if gui and hasattr(gui, "active_layout"):
-            layout = gui.active_layout
-            if layout == "1" and self.tag != "V1":
-                return False
-            elif layout == "2" and self.tag not in ["V1", "V2"]:
+        # Skip computations if the viewer window is hidden
+        win_tag = f"win_{self.tag}"
+        if dpg.does_item_exist(win_tag):
+            if not dpg.is_item_shown(win_tag):
                 return False
 
         # Safely clean up textures from the previous frame

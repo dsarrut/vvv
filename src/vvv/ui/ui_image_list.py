@@ -118,8 +118,9 @@ def refresh_image_list_ui(gui):
                 with dpg.group(horizontal=True, horizontal_spacing=3):
                     for v_tag in ["V1", "V2"]:
                         is_layout_enabled = True
-                        if layout == "1" and v_tag != "V1":
-                            is_layout_enabled = False
+                        win_tag = f"win_{v_tag}"
+                        if dpg.does_item_exist(win_tag):
+                            is_layout_enabled = dpg.is_item_shown(win_tag)
                         
                         is_active = gui.controller.layout[v_tag] == vs_id
                         cb = dpg.add_checkbox(
@@ -139,7 +140,11 @@ def refresh_image_list_ui(gui):
                 # Row 2: V3 and V4
                 with dpg.group(horizontal=True, horizontal_spacing=3):
                     for v_tag in ["V3", "V4"]:
-                        is_layout_enabled = (layout == "4")
+                        is_layout_enabled = True
+                        win_tag = f"win_{v_tag}"
+                        if dpg.does_item_exist(win_tag):
+                            is_layout_enabled = dpg.is_item_shown(win_tag)
+                        
                         is_active = gui.controller.layout[v_tag] == vs_id
                         cb = dpg.add_checkbox(
                             label=f"##{vs_id}_{v_tag}",
