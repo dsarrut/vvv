@@ -950,6 +950,15 @@ class SliceViewer:
         )
 
     def tick(self):
+        # Skip computations if the viewer is not displayed in the current layout mode
+        gui = self.controller.gui
+        if gui and hasattr(gui, "active_layout"):
+            layout = gui.active_layout
+            if layout == "1" and self.tag != "V1":
+                return False
+            elif layout == "2" and self.tag not in ["V1", "V2"]:
+                return False
+
         # Safely clean up textures from the previous frame
         if self._textures_to_delete:
             for tex in self._textures_to_delete:
