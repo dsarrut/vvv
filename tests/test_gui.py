@@ -720,9 +720,13 @@ def test_gui_viewport_layouts(headless_gui_app):
         
         refresh_image_list_ui(gui)
         assert dpg.does_item_exist(f"cb_{vs_id}_V1") is True
+        assert dpg.get_item_configuration(f"cb_{vs_id}_V1")["enabled"] is True
         assert dpg.does_item_exist(f"cb_{vs_id}_V2") is True
-        assert dpg.does_item_exist(f"cb_{vs_id}_V3") is False
-        assert dpg.does_item_exist(f"cb_{vs_id}_V4") is False
+        assert dpg.get_item_configuration(f"cb_{vs_id}_V2")["enabled"] is True
+        assert dpg.does_item_exist(f"cb_{vs_id}_V3") is True
+        assert dpg.get_item_configuration(f"cb_{vs_id}_V3")["enabled"] is False
+        assert dpg.does_item_exist(f"cb_{vs_id}_V4") is True
+        assert dpg.get_item_configuration(f"cb_{vs_id}_V4")["enabled"] is False
 
         # 3. Switch to 1-viewer layout
         gui.set_viewport_layout("1")
@@ -734,9 +738,13 @@ def test_gui_viewport_layouts(headless_gui_app):
 
         refresh_image_list_ui(gui)
         assert dpg.does_item_exist(f"cb_{vs_id}_V1") is True
-        assert dpg.does_item_exist(f"cb_{vs_id}_V2") is False
-        assert dpg.does_item_exist(f"cb_{vs_id}_V3") is False
-        assert dpg.does_item_exist(f"cb_{vs_id}_V4") is False
+        assert dpg.get_item_configuration(f"cb_{vs_id}_V1")["enabled"] is True
+        assert dpg.does_item_exist(f"cb_{vs_id}_V2") is True
+        assert dpg.get_item_configuration(f"cb_{vs_id}_V2")["enabled"] is False
+        assert dpg.does_item_exist(f"cb_{vs_id}_V3") is True
+        assert dpg.get_item_configuration(f"cb_{vs_id}_V3")["enabled"] is False
+        assert dpg.does_item_exist(f"cb_{vs_id}_V4") is True
+        assert dpg.get_item_configuration(f"cb_{vs_id}_V4")["enabled"] is False
 
         # 4. Switch back to 4-viewer layout
         gui.set_viewport_layout("4")

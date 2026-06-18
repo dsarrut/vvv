@@ -99,60 +99,61 @@ def refresh_image_list_ui(gui):
         "V4": "Bottom Right viewer"
     }
 
+    if not dpg.does_item_exist("faded_checkbox_theme"):
+        with dpg.theme(tag="faded_checkbox_theme"):
+            with dpg.theme_component(dpg.mvCheckbox):
+                dpg.add_theme_color(dpg.mvThemeCol_Text, [70, 70, 70, 255])
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, [30, 30, 30, 255])
+                dpg.add_theme_color(dpg.mvThemeCol_CheckMark, [50, 50, 50, 255])
+            with dpg.theme_component(dpg.mvCheckbox, enabled_state=False):
+                dpg.add_theme_color(dpg.mvThemeCol_Text, [70, 70, 70, 255])
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, [30, 30, 30, 255])
+                dpg.add_theme_color(dpg.mvThemeCol_CheckMark, [50, 50, 50, 255])
+
     for idx, (vs_id, vs) in enumerate(list(gui.controller.view_states.items()), start=1):
         with dpg.group(parent=container, horizontal=True):
             layout = getattr(gui, "active_layout", "4")
             with dpg.group():
-                if layout == "1":
-                    v_tag = "V1"
-                    is_active = gui.controller.layout[v_tag] == vs_id
-                    cb = dpg.add_checkbox(
-                        label=f"##{vs_id}_{v_tag}",
-                        tag=f"cb_{vs_id}_{v_tag}",
-                        default_value=is_active,
-                        user_data={"img_id": vs_id, "v_tag": v_tag},
-                        callback=gui.on_image_viewer_toggle,
-                    )
-                    build_beginner_tooltip(cb, viewer_tooltips[v_tag], gui)
-                    dpg.bind_item_theme(cb, "muted_checkbox_theme")
-                elif layout == "2":
-                    with dpg.group(horizontal=True, horizontal_spacing=3):
-                        for v_tag in ["V1", "V2"]:
-                            is_active = gui.controller.layout[v_tag] == vs_id
-                            cb = dpg.add_checkbox(
-                                label=f"##{vs_id}_{v_tag}",
-                                tag=f"cb_{vs_id}_{v_tag}",
-                                default_value=is_active,
-                                user_data={"img_id": vs_id, "v_tag": v_tag},
-                                callback=gui.on_image_viewer_toggle,
-                            )
-                            build_beginner_tooltip(cb, viewer_tooltips[v_tag], gui)
+                # Row 1: V1 and V2
+                with dpg.group(horizontal=True, horizontal_spacing=3):
+                    for v_tag in ["V1", "V2"]:
+                        is_layout_enabled = True
+                        if layout == "1" and v_tag != "V1":
+                            is_layout_enabled = False
+                        
+                        is_active = gui.controller.layout[v_tag] == vs_id
+                        cb = dpg.add_checkbox(
+                            label=f"##{vs_id}_{v_tag}",
+                            tag=f"cb_{vs_id}_{v_tag}",
+                            default_value=is_active,
+                            enabled=is_layout_enabled,
+                            user_data={"img_id": vs_id, "v_tag": v_tag},
+                            callback=gui.on_image_viewer_toggle,
+                        )
+                        build_beginner_tooltip(cb, viewer_tooltips[v_tag], gui)
+                        if is_layout_enabled:
                             dpg.bind_item_theme(cb, "muted_checkbox_theme")
-                else:
-                    with dpg.group(horizontal=True, horizontal_spacing=3):
-                        for v_tag in ["V1", "V2"]:
-                            is_active = gui.controller.layout[v_tag] == vs_id
-                            cb = dpg.add_checkbox(
-                                label=f"##{vs_id}_{v_tag}",
-                                tag=f"cb_{vs_id}_{v_tag}",
-                                default_value=is_active,
-                                user_data={"img_id": vs_id, "v_tag": v_tag},
-                                callback=gui.on_image_viewer_toggle,
-                            )
-                            build_beginner_tooltip(cb, viewer_tooltips[v_tag], gui)
+                        else:
+                            dpg.bind_item_theme(cb, "faded_checkbox_theme")
+
+                # Row 2: V3 and V4
+                with dpg.group(horizontal=True, horizontal_spacing=3):
+                    for v_tag in ["V3", "V4"]:
+                        is_layout_enabled = (layout == "4")
+                        is_active = gui.controller.layout[v_tag] == vs_id
+                        cb = dpg.add_checkbox(
+                            label=f"##{vs_id}_{v_tag}",
+                            tag=f"cb_{vs_id}_{v_tag}",
+                            default_value=is_active,
+                            enabled=is_layout_enabled,
+                            user_data={"img_id": vs_id, "v_tag": v_tag},
+                            callback=gui.on_image_viewer_toggle,
+                        )
+                        build_beginner_tooltip(cb, viewer_tooltips[v_tag], gui)
+                        if is_layout_enabled:
                             dpg.bind_item_theme(cb, "muted_checkbox_theme")
-                    with dpg.group(horizontal=True, horizontal_spacing=3):
-                        for v_tag in ["V3", "V4"]:
-                            is_active = gui.controller.layout[v_tag] == vs_id
-                            cb = dpg.add_checkbox(
-                                label=f"##{vs_id}_{v_tag}",
-                                tag=f"cb_{vs_id}_{v_tag}",
-                                default_value=is_active,
-                                user_data={"img_id": vs_id, "v_tag": v_tag},
-                                callback=gui.on_image_viewer_toggle,
-                            )
-                            build_beginner_tooltip(cb, viewer_tooltips[v_tag], gui)
-                            dpg.bind_item_theme(cb, "muted_checkbox_theme")
+                        else:
+                            dpg.bind_item_theme(cb, "faded_checkbox_theme")
 
             # --- Right Column: Info & Actions ---
             with dpg.group():
