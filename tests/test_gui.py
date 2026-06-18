@@ -683,5 +683,52 @@ def test_gui_pan_drag_lock_and_modifier_release(headless_gui_app, monkeypatch):
     assert viewer.is_pan_drag is False
 
 
+def test_gui_viewport_layouts(headless_gui_app):
+    """Verifies that changing viewport layouts updates visibility and dimensions."""
+    controller, gui, viewer, vs_id = headless_gui_app
+
+    # Ensure windows exist in the headless DPG context
+    created_windows = []
+    for tag in ["V1", "V2", "V3", "V4"]:
+        win_tag = f"win_{tag}"
+        if not dpg.does_item_exist(win_tag):
+            dpg.add_child_window(tag=win_tag)
+            created_windows.append(win_tag)
+
+    try:
+        # 1. Default layout should be "4"
+        assert gui.active_layout == "4"
+
+        # 2. Switch to 2-viewer layout
+        gui.set_viewport_layout("2")
+        assert gui.active_layout == "2"
+        assert dpg.is_item_shown("win_V1") is True
+        assert dpg.is_item_shown("win_V2") is True
+        assert dpg.is_item_shown("win_V3") is False
+        assert dpg.is_item_shown("win_V4") is False
+
+        # 3. Switch to 1-viewer layout
+        gui.set_viewport_layout("1")
+        assert gui.active_layout == "1"
+        assert dpg.is_item_shown("win_V1") is True
+        assert dpg.is_item_shown("win_V2") is False
+        assert dpg.is_item_shown("win_V3") is False
+        assert dpg.is_item_shown("win_V4") is False
+
+        # 4. Switch back to 4-viewer layout
+        gui.set_viewport_layout("4")
+        assert gui.active_layout == "4"
+        assert dpg.is_item_shown("win_V1") is True
+        assert dpg.is_item_shown("win_V2") is True
+        assert dpg.is_item_shown("win_V3") is True
+        assert dpg.is_item_shown("win_V4") is True
+
+    finally:
+        # Clean up created child windows
+        for win_tag in created_windows:
+            if dpg.does_item_exist(win_tag):
+                dpg.delete_item(win_tag)
+
+
 
 

@@ -68,6 +68,7 @@ class MainGUI:
         self.is_beginner_mode = False
         self.beginner_tags = []
         self.active_tab = "tab_images"
+        self.active_layout = "4"
 
         # internal states
         self._is_roi_tab_active = None
@@ -345,17 +346,17 @@ class MainGUI:
                 dpg.add_spacer(width=200, tag="menu_layout_spacer")
                 btn_layout_4 = dpg.add_button(
                     label="\uf009",
-                    callback=lambda: print("Layout: 4 viewers"),
+                    callback=lambda: self.set_viewport_layout("4"),
                     tag="btn_layout_4",
                 )
                 btn_layout_2 = dpg.add_button(
                     label="\uf0db",
-                    callback=lambda: print("Layout: 2 viewers left/right"),
+                    callback=lambda: self.set_viewport_layout("2"),
                     tag="btn_layout_2",
                 )
                 btn_layout_1 = dpg.add_button(
                     label="\uf0c8",
-                    callback=lambda: print("Layout: 1 viewer"),
+                    callback=lambda: self.set_viewport_layout("1"),
                     tag="btn_layout_1",
                 )
 
@@ -1370,12 +1371,19 @@ class MainGUI:
                 dpg.set_item_width("viewers_container", avail_w)
                 dpg.set_item_height("viewers_container", avail_h)
 
+            layout = getattr(self, "active_layout", "4")
             for i, tag in enumerate(["V1", "V2", "V3", "V4"]):
                 if dpg.does_item_exist(f"win_{tag}"):
-                    # Distribute remainder pixels to the bottom/right viewers
-                    # to prevent 1px truncation gaps when the window size is odd!
-                    w = quad_w if i in [0, 2] else avail_w - quad_w
-                    h = quad_h if i in [0, 1] else avail_h - quad_h
+                    if layout == "4":
+                        w = quad_w if i in [0, 2] else avail_w - quad_w
+                        h = quad_h if i in [0, 1] else avail_h - quad_h
+                    elif layout == "2":
+                        w = avail_w // 2 if i == 0 else avail_w - (avail_w // 2)
+                        h = avail_h
+                    else:  # layout == "1"
+                        w = avail_w
+                        h = avail_h
+
                     dpg.set_item_width(f"win_{tag}", w)
                     dpg.set_item_height(f"win_{tag}", h)
 
@@ -1400,7 +1408,11 @@ class MainGUI:
             viewer_h = viewer_obj.quad_h
 
             is_active_viewer = self.context_viewer and self.context_viewer.tag == tag
-            should_show = self.is_beginner_mode and not is_active_viewer
+            
+            win_tag = f"win_{tag}"
+            is_win_shown = dpg.is_item_shown(win_tag) if dpg.does_item_exist(win_tag) else True
+            
+            should_show = self.is_beginner_mode and not is_active_viewer and is_win_shown
 
             dpg.configure_item(viewer_help_tag, show=should_show)
             if should_show:
@@ -1412,6 +1424,41 @@ class MainGUI:
                         max(5, int(viewer_h - help_text_size[1] - 10)),
                     ],
                 )
+
+    def set_viewport_layout(self, layout):
+        self.active_layout = layout
+
+        # Update visibility of viewports
+        show_map = {
+            "4": {"win_V1": True, "win_V2": True, "win_V3": True, "win_V4": True},
+            "2": {"win_V1": True, "win_V2": True, "win_V3": False, "win_V4": False},
+            "1": {"win_V1": True, "win_V2": False, "win_V3": False, "win_V4": False},
+        }
+
+        mapping = show_map.get(layout, show_map["4"])
+        for tag, show in mapping.items():
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, show=show)
+
+        # Redirect active focus if current active viewer is hidden
+        if layout == "1" and (not self.context_viewer or self.context_viewer.tag != "V1"):
+            self.context_viewer = self.controller.viewers.get("V1")
+        elif layout == "2" and (not self.context_viewer or self.context_viewer.tag not in ["V1", "V2"]):
+            self.context_viewer = self.controller.viewers.get("V1")
+
+        # Trigger layout size recalculation
+        self.on_window_resize()
+
+        # Set viewers dirty to redraw them
+        for v_tag, show in mapping.items():
+            viewer_tag = v_tag.replace("win_", "")
+            if show:
+                viewer = self.controller.viewers.get(viewer_tag)
+                if viewer:
+                    viewer.is_geometry_dirty = True
+                    viewer.is_viewer_data_dirty = True
+
+        self.controller.ui_needs_refresh = True
 
     def on_image_viewer_toggle(self, sender, value, user_data):
         img_id, v_tag = user_data["img_id"], user_data["v_tag"]
