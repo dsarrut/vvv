@@ -696,8 +696,19 @@ def test_gui_viewport_layouts(headless_gui_app):
             created_windows.append(win_tag)
 
     try:
+        # Ensure image_list_container exists
+        if not dpg.does_item_exist("image_list_container"):
+            dpg.add_group(tag="image_list_container")
+
+        from vvv.ui.ui_image_list import refresh_image_list_ui
+
         # 1. Default layout should be "4"
         assert gui.active_layout == "4"
+        refresh_image_list_ui(gui)
+        assert dpg.does_item_exist(f"cb_{vs_id}_V1") is True
+        assert dpg.does_item_exist(f"cb_{vs_id}_V2") is True
+        assert dpg.does_item_exist(f"cb_{vs_id}_V3") is True
+        assert dpg.does_item_exist(f"cb_{vs_id}_V4") is True
 
         # 2. Switch to 2-viewer layout
         gui.set_viewport_layout("2")
@@ -706,6 +717,12 @@ def test_gui_viewport_layouts(headless_gui_app):
         assert dpg.is_item_shown("win_V2") is True
         assert dpg.is_item_shown("win_V3") is False
         assert dpg.is_item_shown("win_V4") is False
+        
+        refresh_image_list_ui(gui)
+        assert dpg.does_item_exist(f"cb_{vs_id}_V1") is True
+        assert dpg.does_item_exist(f"cb_{vs_id}_V2") is True
+        assert dpg.does_item_exist(f"cb_{vs_id}_V3") is False
+        assert dpg.does_item_exist(f"cb_{vs_id}_V4") is False
 
         # 3. Switch to 1-viewer layout
         gui.set_viewport_layout("1")
@@ -714,6 +731,12 @@ def test_gui_viewport_layouts(headless_gui_app):
         assert dpg.is_item_shown("win_V2") is False
         assert dpg.is_item_shown("win_V3") is False
         assert dpg.is_item_shown("win_V4") is False
+
+        refresh_image_list_ui(gui)
+        assert dpg.does_item_exist(f"cb_{vs_id}_V1") is True
+        assert dpg.does_item_exist(f"cb_{vs_id}_V2") is False
+        assert dpg.does_item_exist(f"cb_{vs_id}_V3") is False
+        assert dpg.does_item_exist(f"cb_{vs_id}_V4") is False
 
         # 4. Switch back to 4-viewer layout
         gui.set_viewport_layout("4")
@@ -724,10 +747,12 @@ def test_gui_viewport_layouts(headless_gui_app):
         assert dpg.is_item_shown("win_V4") is True
 
     finally:
-        # Clean up created child windows
+        # Clean up created child windows and container
         for win_tag in created_windows:
             if dpg.does_item_exist(win_tag):
                 dpg.delete_item(win_tag)
+        if dpg.does_item_exist("image_list_container"):
+            dpg.delete_item("image_list_container")
 
 
 
