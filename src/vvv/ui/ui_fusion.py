@@ -41,31 +41,6 @@ class FusionUI:
                         callback=gui.fusion_ui.on_fusion_opacity_changed,
                     )
 
-                build_stepped_slider(
-                    "Window:",
-                    "drag_fusion_ww",
-                    callback=gui.fusion_ui.on_fusion_ww_changed,
-                    step_callback=gui.fusion_ui.on_step_button_clicked,
-                    min_val=1e-5,
-                )
-                build_stepped_slider(
-                    "Level: ",
-                    "drag_fusion_wl",
-                    callback=gui.fusion_ui.on_fusion_wl_changed,
-                    step_callback=gui.fusion_ui.on_step_button_clicked,
-                )
-
-                build_stepped_slider(
-                    "Min Thr:",
-                    "drag_fusion_threshold",
-                    callback=gui.fusion_ui.on_fusion_threshold_changed,
-                    step_callback=gui.fusion_ui.on_step_button_clicked,
-                    has_checkbox=True,
-                    check_tag="check_fusion_threshold",
-                    check_cb=gui.fusion_ui.on_fusion_threshold_toggle,
-                )
-                build_beginner_tooltip("drag_fusion_threshold", "Pixels below this value will be completely transparent.", gui)
-
                 with dpg.group(horizontal=True):
                     dpg.add_text("Mode   ")
                     combo = dpg.add_combo(
@@ -101,6 +76,46 @@ class FusionUI:
                         callback=gui.fusion_ui.on_fusion_checkerboard_changed,
                     )
 
+                dpg.add_spacer(height=5)
+                build_section_title("Fusion Image Intensity", cfg_c["text_header"])
+                dpg.add_spacer(height=2)
+
+                build_stepped_slider(
+                    "Window:",
+                    "drag_fusion_ww",
+                    callback=gui.fusion_ui.on_fusion_ww_changed,
+                    step_callback=gui.fusion_ui.on_step_button_clicked,
+                    min_val=1e-5,
+                )
+                build_stepped_slider(
+                    "Level: ",
+                    "drag_fusion_wl",
+                    callback=gui.fusion_ui.on_fusion_wl_changed,
+                    step_callback=gui.fusion_ui.on_step_button_clicked,
+                )
+
+                from vvv.config import COLORMAPS
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Map:    ")
+                    dpg.add_combo(
+                        list(COLORMAPS.keys()),
+                        default_value="Grayscale",
+                        tag="combo_fusion_colormap",
+                        width=-1,
+                        callback=gui.fusion_ui.on_fusion_colormap_changed,
+                    )
+
+                build_stepped_slider(
+                    "Min Thr:",
+                    "drag_fusion_threshold",
+                    callback=gui.fusion_ui.on_fusion_threshold_changed,
+                    step_callback=gui.fusion_ui.on_step_button_clicked,
+                    has_checkbox=True,
+                    check_tag="check_fusion_threshold",
+                    check_cb=gui.fusion_ui.on_fusion_threshold_toggle,
+                )
+                build_beginner_tooltip("drag_fusion_threshold", "Pixels below this value will be completely transparent.", gui)
+
     def refresh_fusion_ui(self):
         viewer = self.gui.context_viewer
         has_image = bool(viewer and viewer.view_state and viewer.volume)
@@ -124,6 +139,9 @@ class FusionUI:
                         dpg.configure_item(f"btn_{t}_minus", enabled=False)
                     if dpg.does_item_exist(f"btn_{t}_plus"):
                         dpg.configure_item(f"btn_{t}_plus", enabled=False)
+
+            if dpg.does_item_exist("combo_fusion_colormap"):
+                dpg.configure_item("combo_fusion_colormap", enabled=False)
 
             if dpg.does_item_exist("check_fusion_threshold"):
                 dpg.set_value("check_fusion_threshold", False)
@@ -251,6 +269,11 @@ class FusionUI:
                     if dpg.does_item_exist(f"btn_{t}_plus"):
                         dpg.configure_item(f"btn_{t}_plus", enabled=is_enabled)
 
+            if dpg.does_item_exist("combo_fusion_colormap"):
+                dpg.configure_item("combo_fusion_colormap", enabled=has_overlay)
+                if has_overlay and ov_vs:
+                    dpg.set_value("combo_fusion_colormap", ov_vs.display.colormap)
+
             if dpg.does_item_exist("check_fusion_threshold"):
                 dpg.set_value("check_fusion_threshold", has_thr)
                 dpg.configure_item("check_fusion_threshold", enabled=has_overlay)
@@ -359,6 +382,13 @@ class FusionUI:
             if new_thr is not None and current_thr != new_thr:
                 dpg.set_value("drag_fusion_threshold", new_thr)
 
+        # 3. Overlay Colormap
+        if dpg.does_item_exist("combo_fusion_colormap") and not dpg.is_item_active("combo_fusion_colormap"):
+            current_map = dpg.get_value("combo_fusion_colormap")
+            new_map = ov_vs.display.colormap
+            if current_map != new_map:
+                dpg.set_value("combo_fusion_colormap", new_map)
+
     # Callbacks
     def on_fusion_ww_changed(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer
@@ -388,6 +418,19 @@ class FusionUI:
         viewer.view_state.is_data_dirty = True
         ovs.is_data_dirty = True
         self.controller.sync.propagate_window_level(viewer.view_state.display.overlay.image_id)
+        self.controller.update_all_viewers_of_image(viewer.image_id)
+
+    def on_fusion_colormap_changed(self, sender, app_data, user_data):
+        viewer = self.gui.context_viewer
+        if not viewer or not viewer.view_state or not viewer.view_state.display.overlay.image_id:
+            return
+        ovs = self.controller.view_states.get(viewer.view_state.display.overlay.image_id)
+        if not ovs:
+            return
+        ovs.display.colormap = app_data
+        viewer.view_state.is_data_dirty = True
+        ovs.is_data_dirty = True
+        self.controller.sync.propagate_colormap(viewer.view_state.display.overlay.image_id)
         self.controller.update_all_viewers_of_image(viewer.image_id)
 
     def on_fusion_threshold_toggle(self, sender, app_data, user_data):
