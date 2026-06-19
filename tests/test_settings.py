@@ -1,3 +1,4 @@
+import platform
 import unittest
 from typing import cast
 from vvv.core.controller import Controller
@@ -49,6 +50,7 @@ class TestSettingsUpdate(unittest.TestCase):
         expected_list = json.dumps([os.path.abspath("d1.dcm"), os.path.abspath("d2.dcm")])
         self.assertEqual(recent[0], expected_list)
 
+    @unittest.skipIf(platform.system() == "Windows", "Unix-specific test")
     def test_resolve_recent_path_home_users(self):
         # Using a file that is known to exist inside the repository
         import os
