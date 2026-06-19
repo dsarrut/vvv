@@ -763,6 +763,59 @@ def test_gui_viewport_layouts(headless_gui_app):
             dpg.delete_item("image_list_container")
 
 
+def test_gui_center_view_synchronization(headless_gui_app, monkeypatch):
+    """Verifies that action_center_view centers immediately and propagates the camera to synced viewers."""
+    controller, gui, viewer, vs_id = headless_gui_app
+
+    # Set up two viewers in the same spatial sync group (group 1)
+    v1 = controller.viewers["V1"]
+    v2 = controller.viewers["V2"]
+    
+    # Initialize some dummy view state
+    v1.set_image(vs_id)
+    v2.set_image(vs_id)
+    
+    # Set the same orientation to ensure identical pixel space pan_offsets
+    v2.orientation = v1.orientation
+    
+    # Configure showing all windows
+    gui.set_viewport_layout("4")
+    
+    # Mock window dimensions to bypass DPG headless limits
+    monkeypatch.setattr(v1, "_get_window_dims", lambda: (400, 400))
+    monkeypatch.setattr(v2, "_get_window_dims", lambda: (400, 400))
+    
+    vs = controller.view_states[vs_id]
+    vs.sync_group = 1
+    
+    # Manually offset the pan to simulate user panning
+    v1.quad_w, v1.quad_h = 400, 400
+    v2.quad_w, v2.quad_h = 400, 400
+    v1.pan_offset = [100.0, 50.0]
+    v2.pan_offset = [200.0, 150.0]
+    v1.zoom = 2.0
+    v2.zoom = 2.0
+
+    # Ensure crosshair coordinate is set
+    import numpy as np
+    vs.camera.crosshair_voxel = [10, 10, 10]
+    vs.camera.crosshair_phys_coord = vs.volume.voxel_coord_to_physic_coord(np.array([10.0, 10.0, 10.0]))
+
+    # Trigger action_center_view on V1
+    v1.action_center_view()
+
+    # V1 should have centered immediately
+    assert v1.needs_recenter is False
+    assert v1.pan_offset != [100.0, 50.0]
+    
+    # Tick V2 so it consumes the propagated camera target
+    v2.tick()
+    
+    # The new centered pan_offset should have propagated to V2
+    np.testing.assert_allclose(v2.pan_offset, v1.pan_offset, rtol=1e-5)
+    assert v2.zoom == v1.zoom
+
+
 def test_gui_viewport_layouts_dynamic_active(headless_gui_app):
     """Verifies that changing viewport layouts dynamically targets the active viewer (e.g. V3)."""
     controller, gui, viewer, vs_id = headless_gui_app

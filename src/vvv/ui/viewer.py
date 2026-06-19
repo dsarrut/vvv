@@ -2571,7 +2571,9 @@ class SliceViewer:
             self.controller.ui_needs_refresh = True
 
     def action_center_view(self):
-        self.needs_recenter = True
+        canvas_w, canvas_h = self._get_canvas_size()
+        self.pan_offset = self.calculate_pan_to_center_crosshair(canvas_w, canvas_h)
+        self.needs_recenter = False
         self.is_geometry_dirty = True
         self.controller.sync.propagate_camera(self)
 
