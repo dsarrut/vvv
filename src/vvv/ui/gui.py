@@ -342,8 +342,7 @@ class MainGUI:
                     color=self.ui_cfg["colors"]["text_status_ok"],
                 )
 
-                # Spacing to separate layout buttons
-                dpg.add_spacer(width=200, tag="menu_layout_spacer")
+                # Define layout buttons inside the menu_bar so they aren't clipped, but position them absolutely
                 btn_layout_4 = dpg.add_button(
                     label="\uf009",
                     callback=lambda: self.set_viewport_layout("4"),
@@ -367,7 +366,9 @@ class MainGUI:
                         dpg.bind_item_theme(btn, "icon_button_theme")
 
                 build_beginner_tooltip(btn_layout_4, "4 Viewers Layout", self)
-                build_beginner_tooltip(btn_layout_2, "2 Viewers (Left/Right) Layout", self)
+                build_beginner_tooltip(
+                    btn_layout_2, "2 Viewers (Left/Right) Layout", self
+                )
                 build_beginner_tooltip(btn_layout_1, "1 Viewer (Full) Layout", self)
 
         dpg.bind_item_theme("menu_container", "floating_menu_theme")
@@ -1249,11 +1250,13 @@ class MainGUI:
                 dpg.set_item_pos("menu_container", [m_l, m_t])
                 menu_w = window_w - m_l - m_r
                 dpg.set_item_width("menu_container", menu_w)
-                if dpg.does_item_exist("menu_layout_spacer"):
-                    # File, Workspace, System, and status text take about 340px.
-                    # The 3 buttons and tooltips take about 120px.
-                    spacer_w = max(10, menu_w - 460)
-                    dpg.configure_item("menu_layout_spacer", width=spacer_w)
+                btn_y = 2
+                if dpg.does_item_exist("btn_layout_1"):
+                    dpg.set_item_pos("btn_layout_1", [menu_w - 30, btn_y])
+                if dpg.does_item_exist("btn_layout_2"):
+                    dpg.set_item_pos("btn_layout_2", [menu_w - 58, btn_y])
+                if dpg.does_item_exist("btn_layout_4"):
+                    dpg.set_item_pos("btn_layout_4", [menu_w - 86, btn_y])
 
             panels_y = m_t + cfg["menu_h"] + cfg["menu_m_bottom"]
             nav_w = cfg["nav_panel_w"]  # MUST match the width defined in build_sidebar
@@ -1384,12 +1387,15 @@ class MainGUI:
                         elif tag == "V3":
                             x, y = 0, quad_h
                             w, h = quad_w, avail_h - quad_h
-                        else: # tag == "V4"
+                        else:  # tag == "V4"
                             x, y = quad_w, quad_h
                             w, h = avail_w - quad_w, avail_h - quad_h
                     elif layout == "2":
                         if len(visible_viewers) >= 2:
-                            first_tag, second_tag = visible_viewers[0], visible_viewers[1]
+                            first_tag, second_tag = (
+                                visible_viewers[0],
+                                visible_viewers[1],
+                            )
                         else:
                             first_tag, second_tag = "V1", "V2"
 
@@ -1436,11 +1442,15 @@ class MainGUI:
             viewer_h = viewer_obj.quad_h
 
             is_active_viewer = self.context_viewer and self.context_viewer.tag == tag
-            
+
             win_tag = f"win_{tag}"
-            is_win_shown = dpg.is_item_shown(win_tag) if dpg.does_item_exist(win_tag) else True
-            
-            should_show = self.is_beginner_mode and not is_active_viewer and is_win_shown
+            is_win_shown = (
+                dpg.is_item_shown(win_tag) if dpg.does_item_exist(win_tag) else True
+            )
+
+            should_show = (
+                self.is_beginner_mode and not is_active_viewer and is_win_shown
+            )
 
             dpg.configure_item(viewer_help_tag, show=should_show)
             if should_show:
@@ -1464,7 +1474,7 @@ class MainGUI:
             self.visible_viewers = ["V1", "V2", "V3", "V4"]
         elif layout == "2":
             self.visible_viewers = [active_tag, next_tag]
-        else: # layout == "1"
+        else:  # layout == "1"
             self.visible_viewers = [active_tag]
 
         show_map = {}

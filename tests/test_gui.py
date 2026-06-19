@@ -593,6 +593,8 @@ def test_gui_roi_plugin_resizes_list_window(headless_gui_app):
 
         h_shown = dpg.get_item_height("roi_plugin_roi_list_window")
 
+        assert h_hidden is not None
+        assert h_shown is not None
         # The list window height when detail is hidden should be larger than when detail is shown
         assert h_hidden > h_shown
 
@@ -761,6 +763,72 @@ def test_gui_viewport_layouts(headless_gui_app):
                 dpg.delete_item(win_tag)
         if dpg.does_item_exist("image_list_container"):
             dpg.delete_item("image_list_container")
+
+
+def test_gui_center_view_synchronization(headless_gui_app, monkeypatch):
+    """Verifies that action_center_view centers immediately and propagates the camera to synced viewers."""
+    controller, gui, viewer, vs_id = headless_gui_app
+
+    # Set up two viewers in the same spatial sync group (group 1)
+    v1 = controller.viewers["V1"]
+    v2 = controller.viewers["V2"]
+    
+    # Initialize some dummy view state
+    v1.set_image(vs_id)
+    v2.set_image(vs_id)
+    
+    # Set the same orientation to ensure identical pixel space pan_offsets
+    v2.orientation = v1.orientation
+    
+    # Configure layout map so target_id matches image_id in tick()
+    controller.layout["V1"] = vs_id
+    # Ensure layout has V2 mapped as well so drop_image is not called
+    controller.layout["V2"] = vs_id
+
+    # Mock window dimensions and visibility to bypass DPG headless limits and make sure tick doesn't early-return False
+    monkeypatch.setattr(v1, "_get_window_dims", lambda: (400, 400))
+    monkeypatch.setattr(v2, "_get_window_dims", lambda: (400, 400))
+    # Explicitly mock _get_canvas_size to bypass any padding calculations
+    monkeypatch.setattr(v1, "_get_canvas_size", lambda: (400, 400))
+    monkeypatch.setattr(v2, "_get_canvas_size", lambda: (400, 400))
+    
+    # Mock dpg.is_item_shown / does_item_exist / configure_item / set_value / draw_image to return safely so tick does not fail on mock items
+    import dearpygui.dearpygui as dpg
+    monkeypatch.setattr(dpg, "does_item_exist", lambda item: True)
+    monkeypatch.setattr(dpg, "is_item_shown", lambda item: True)
+    monkeypatch.setattr(dpg, "configure_item", lambda item, **kwargs: None)
+    monkeypatch.setattr(dpg, "set_value", lambda item, value, **kwargs: None)
+    monkeypatch.setattr(dpg, "draw_image", lambda texture_tag, pmin, pmax, **kwargs: "mock_image_node")
+
+    vs = controller.view_states[vs_id]
+    vs.sync_group = 1
+    
+    # Manually offset the pan to simulate user panning
+    v1.quad_w, v1.quad_h = 400, 400
+    v2.quad_w, v2.quad_h = 400, 400
+    v1.pan_offset = [100.0, 50.0]
+    v2.pan_offset = [200.0, 150.0]
+    v1.zoom = 2.0
+    v2.zoom = 2.0
+
+    # Ensure crosshair coordinate is set
+    import numpy as np
+    vs.camera.crosshair_voxel = [10, 10, 10]
+    vs.camera.crosshair_phys_coord = vs.volume.voxel_coord_to_physic_coord(np.array([10.0, 10.0, 10.0]))
+
+    # Trigger action_center_view on V1
+    v1.action_center_view()
+
+    # V1 should have centered immediately
+    assert v1.needs_recenter is False
+    assert v1.pan_offset != [100.0, 50.0]
+    
+    # Tick V2 so it consumes the propagated camera target
+    v2.tick()
+    
+    # The new centered pan_offset should have propagated to V2 (with small numerical/floating tolerance due to different projection paths)
+    np.testing.assert_allclose(v2.pan_offset, v1.pan_offset, rtol=1e-2, atol=5.0)
+    assert v2.zoom == v1.zoom
 
 
 def test_gui_viewport_layouts_dynamic_active(headless_gui_app):
