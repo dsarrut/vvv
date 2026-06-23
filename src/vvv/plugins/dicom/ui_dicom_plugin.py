@@ -19,6 +19,7 @@ class DicomPluginUI(PluginTagMixin):
         self.scanned_series = []
         self.active_series = None
         self.active_idx = -1
+        self.active_tree_nodes = []
 
         # Asynchronous State
         self.scan_progress = 0.0
@@ -107,103 +108,139 @@ class DicomPluginUI(PluginTagMixin):
             dpg.add_separator()
             dpg.add_spacer(height=5)
 
-            # --- SPLIT LAYOUT ---
-            with dpg.group(horizontal=True):
-                # Left panel: Series list (increased width to 450)
-                with dpg.child_window(width=450, height=-1, border=True, tag=self._t("list_panel")):
-                    with dpg.group(horizontal=True):
-                        dpg.add_text(
-                            "Found Series",
-                            color=cfg_c["text_header"],
-                        )
-                        dpg.add_text("", tag=self._t("scan_status"), color=[255, 255, 0])
+            # --- SPLIT LAYOUT (Using a resizable table for horizontal split control) ---
+            with dpg.table(
+                tag=self._t("split_table"),
+                header_row=False,
+                resizable=True,
+                width=-1,
+                height=-1,
+                borders_innerV=True,
+                borders_outerV=False,
+                borders_outerH=False,
+                borders_innerH=False,
+            ):
+                dpg.add_table_column(
+                    init_width_or_weight=450,
+                    width_fixed=False,
+                )
+                dpg.add_table_column(
+                    init_width_or_weight=550,
+                    width_stretch=True,
+                )
 
-                    # Progress bar hidden by default
-                    dpg.add_progress_bar(
-                        tag=self._t("scan_progress"),
-                        width=-1,
-                        default_value=0.0,
-                        show=False,
-                    )
-                    dpg.add_separator()
-
-                    dpg.add_group(tag=self._t("series_list"))
-
-                # Right panel: Details & Action
-                with dpg.child_window(width=-1, height=-1, border=False, tag=self._t("details_panel")):
-
-                    with dpg.group(horizontal=True):
-                        dpg.add_text(
-                            "Path:    ", color=cfg_c["text_dim"]
-                        )
-                        dpg.add_input_text(
-                            default_value="---", tag=self._t("lbl_dir"), readonly=True
-                        )
-
-                    with dpg.group(horizontal=True):
-                        dpg.add_text(
-                            "File:    ", color=cfg_c["text_dim"]
-                        )
-                        dpg.add_input_text(
-                            default_value="---", tag=self._t("lbl_file"), readonly=True
-                        )
-                    with dpg.group(horizontal=True):
-                        dpg.add_text(
-                            "Patient: ", color=cfg_c["text_dim"]
-                        )
-                        dpg.add_text("---", tag=self._t("lbl_patient"))
-                        dpg.add_spacer(width=20)
-                        dpg.add_text(
-                            "Study: ", color=cfg_c["text_dim"]
-                        )
-                        dpg.add_text("---", tag=self._t("lbl_study"))
-
-                    with dpg.group(horizontal=True):
-                        dpg.add_text(
-                            "Size:    ", color=cfg_c["text_dim"]
-                        )
-                        dpg.add_text("---", tag=self._t("lbl_size"))
-                        dpg.add_spacer(width=20)
-                        dpg.add_text(
-                            "Spacing: ", color=cfg_c["text_dim"]
-                        )
-                        dpg.add_text("---", tag=self._t("lbl_spacing"))
-
-                    dpg.add_spacer(height=10, tag=self._t("metadata_spacer"))
-                    dpg.add_separator(tag=self._t("metadata_sep"))
-                    dpg.add_text(
-                        "DICOM Metadata", color=cfg_c["text_header"], tag=self._t("metadata_header")
-                    )
-
-                    # Middle: Tags Table
-                    with dpg.child_window(height=-45, border=True, tag=self._t("table_panel")):
-                        with dpg.table(
-                            tag=self._t("tags_table"),
-                            header_row=True,
-                            resizable=True,
-                            borders_innerH=True,
-                            borders_innerV=True,
-                        ):
-                            dpg.add_table_column(
-                                label="Tag", width_fixed=True, init_width_or_weight=90
+                with dpg.table_row():
+                    # Left column: Series list
+                    with dpg.group():
+                        with dpg.group(horizontal=True):
+                            dpg.add_text(
+                                "Found Series",
+                                color=cfg_c["text_header"],
                             )
-                            dpg.add_table_column(
-                                label="Name", width_fixed=True, init_width_or_weight=150
-                            )
-                            dpg.add_table_column(label="Value", width_stretch=True)
+                            dpg.add_text("", tag=self._t("scan_status"), color=[255, 255, 0])
 
-                    dpg.add_spacer(height=5)
-                    btn_open = dpg.add_button(
-                        label="Open Series as Image",
-                        width=-1,
-                        height=30,
-                        callback=self.on_open_clicked,
-                        tag=self._t("btn_open")
-                    )
-                    from vvv.ui.ui_components import build_beginner_tooltip
-                    build_beginner_tooltip(btn_open, "Load the selected DICOM series files as a 3D volume.", self.api)
-                    if dpg.does_item_exist("icon_button_theme"):
-                        dpg.bind_item_theme(btn_open, "icon_button_theme")
+                        # Fold/Unfold controls
+                        with dpg.group(horizontal=True):
+                            dpg.add_button(
+                                label="Collapse All",
+                                width=100,
+                                callback=self.on_collapse_all_clicked,
+                                tag=self._t("btn_collapse_all"),
+                            )
+                            dpg.add_button(
+                                label="Expand All",
+                                width=100,
+                                callback=self.on_expand_all_clicked,
+                                tag=self._t("btn_expand_all"),
+                            )
+
+                        # Progress bar hidden by default
+                        dpg.add_progress_bar(
+                            tag=self._t("scan_progress"),
+                            width=-1,
+                            default_value=0.0,
+                            show=False,
+                        )
+                        dpg.add_separator()
+
+                        # Put the scrollable list inside a child window to stretch vertically
+                        with dpg.child_window(width=-1, height=-1, border=False):
+                            dpg.add_group(tag=self._t("series_list"))
+
+                    # Right column: Details & Action
+                    with dpg.child_window(width=-1, height=-1, border=False, tag=self._t("details_panel")):
+                        with dpg.group(horizontal=True):
+                            dpg.add_text(
+                                "Path:    ", color=cfg_c["text_dim"]
+                            )
+                            dpg.add_input_text(
+                                default_value="---", tag=self._t("lbl_dir"), readonly=True
+                            )
+
+                        with dpg.group(horizontal=True):
+                            dpg.add_text(
+                                "File:    ", color=cfg_c["text_dim"]
+                            )
+                            dpg.add_input_text(
+                                default_value="---", tag=self._t("lbl_file"), readonly=True
+                            )
+                        with dpg.group(horizontal=True):
+                            dpg.add_text(
+                                "Patient: ", color=cfg_c["text_dim"]
+                            )
+                            dpg.add_text("---", tag=self._t("lbl_patient"))
+                            dpg.add_spacer(width=20)
+                            dpg.add_text(
+                                "Study: ", color=cfg_c["text_dim"]
+                            )
+                            dpg.add_text("---", tag=self._t("lbl_study"))
+
+                        with dpg.group(horizontal=True):
+                            dpg.add_text(
+                                "Size:    ", color=cfg_c["text_dim"]
+                            )
+                            dpg.add_text("---", tag=self._t("lbl_size"))
+                            dpg.add_spacer(width=20)
+                            dpg.add_text(
+                                "Spacing: ", color=cfg_c["text_dim"]
+                            )
+                            dpg.add_text("---", tag=self._t("lbl_spacing"))
+
+                        dpg.add_spacer(height=10, tag=self._t("metadata_spacer"))
+                        dpg.add_separator(tag=self._t("metadata_sep"))
+                        dpg.add_text(
+                            "DICOM Metadata", color=cfg_c["text_header"], tag=self._t("metadata_header")
+                        )
+
+                        # Middle: Tags Table
+                        with dpg.child_window(height=-45, border=True, tag=self._t("table_panel")):
+                            with dpg.table(
+                                tag=self._t("tags_table"),
+                                header_row=True,
+                                resizable=True,
+                                borders_innerH=True,
+                                borders_innerV=True,
+                            ):
+                                dpg.add_table_column(
+                                    label="Tag", width_fixed=True, init_width_or_weight=90
+                                )
+                                dpg.add_table_column(
+                                    label="Name", width_fixed=True, init_width_or_weight=150
+                                )
+                                dpg.add_table_column(label="Value", width_stretch=True)
+
+                        dpg.add_spacer(height=5)
+                        btn_open = dpg.add_button(
+                            label="Open Series as Image",
+                            width=-1,
+                            height=30,
+                            callback=self.on_open_clicked,
+                            tag=self._t("btn_open")
+                        )
+                        from vvv.ui.ui_components import build_beginner_tooltip
+                        build_beginner_tooltip(btn_open, "Load the selected DICOM series files as a 3D volume.", self.api)
+                        if dpg.does_item_exist("icon_button_theme"):
+                            dpg.bind_item_theme(btn_open, "icon_button_theme")
 
         vp_width, vp_height = (
             dpg.get_viewport_client_width(),
@@ -319,6 +356,9 @@ class DicomPluginUI(PluginTagMixin):
                 groups[group_key] = []
             groups[group_key].append((idx, s))
 
+        # Clear previous tree nodes list
+        self.active_tree_nodes = []
+
         # Render each group under a tree node or collapsible header
         for (p_name, study_date, space_key), series_in_group in groups.items():
             # Find the most common study description in this group to display in the header
@@ -341,11 +381,14 @@ class DicomPluginUI(PluginTagMixin):
             else:
                 group_label += " (Unpaired Space)"
 
-            tree_tag = dpg.add_tree_node(
+            tree_tag = self._t(f"tree_{len(self.active_tree_nodes)}")
+            dpg.add_tree_node(
                 label=group_label,
                 parent=self._t("series_list"),
                 default_open=True,
+                tag=tree_tag,
             )
+            self.active_tree_nodes.append(tree_tag)
 
             for idx, s in series_in_group:
                 label = f"[{s['modality']}] {s['series_desc']}\n  {s['date']} | {len(s['files'])} files"
@@ -357,6 +400,16 @@ class DicomPluginUI(PluginTagMixin):
                     tag=self._t(f"sel_{idx}"),
                     callback=self.on_series_selected,
                 )
+
+    def on_collapse_all_clicked(self, sender, app_data, user_data):
+        for node in self.active_tree_nodes:
+            if dpg.does_item_exist(node):
+                dpg.configure_item(node, default_open=False)
+
+    def on_expand_all_clicked(self, sender, app_data, user_data):
+        for node in self.active_tree_nodes:
+            if dpg.does_item_exist(node):
+                dpg.configure_item(node, default_open=True)
 
     def on_series_selected(self, sender, app_data, user_data):
         # Deselect all selectables inside the entire list (traversing children of group tree nodes)
