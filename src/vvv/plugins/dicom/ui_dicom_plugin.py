@@ -20,6 +20,10 @@ class DicomPluginUI(PluginTagMixin):
         self.active_series = None
         self.active_idx = -1
         self.active_tree_nodes = []
+        self.collapsed_nodes = {}  # Tracks node labels to collapsed state (bool)
+        self.last_pos = None
+        self.last_size = (1000, 700)
+        self.last_split_width = 450
 
         # Asynchronous State
         self.scan_progress = 0.0
@@ -57,6 +61,69 @@ class DicomPluginUI(PluginTagMixin):
             dpg.set_value(self._t("scan_progress"), self.scan_progress)
             dpg.set_value(self._t("scan_status"), self.scan_status_text)
 
+    def _save_ui_state(self):
+        if dpg.does_item_exist(self.window_tag):
+            self.last_pos = dpg.get_item_pos(self.window_tag)
+            self.last_size = dpg.get_item_rect_size(self.window_tag)
+        
+        # Save collapse states of tree nodes by matching label
+        self.collapsed_nodes = {}
+        for node in self.active_tree_nodes:
+            if dpg.does_item_exist(node):
+                lbl = dpg.get_item_configuration(node).get("label", "")
+                is_open = dpg.get_value(node)
+                self.collapsed_nodes[lbl] = is_open
+
+        # Save split width
+        if dpg.does_item_exist(self._t("col_list")):
+            rect = dpg.get_item_rect_size(self._t("col_list"))
+            if rect and rect[0] > 0:
+                self.last_split_width = rect[0]
+
+    def _get_modality_theme(self, modality: str):
+        theme_tag = f"dicom_modality_theme_{modality}"
+        if dpg.does_item_exist(theme_tag):
+            return theme_tag
+
+        # Define text color based on modality
+        mod = modality.upper()
+        if "CT" in mod:
+            text_color = [160, 190, 220, 255]       # Slate Blue
+            hover_color = [50, 70, 95, 255]
+            select_color = [70, 95, 130, 255]
+        elif "PT" in mod or "PET" in mod:
+            text_color = [200, 170, 230, 255]      # Soft Violet
+            hover_color = [70, 50, 95, 255]
+            select_color = [95, 70, 130, 255]
+        elif "NM" in mod or "SPECT" in mod:
+            text_color = [140, 210, 180, 255]      # Muted Teal
+            hover_color = [40, 75, 60, 255]
+            select_color = [55, 105, 85, 255]
+        elif "MR" in mod:
+            text_color = [230, 190, 140, 255]      # Muted Amber
+            hover_color = [75, 60, 40, 255]
+            select_color = [105, 85, 55, 255]
+        else:
+            text_color = [220, 220, 220, 255]      # Light Gray
+            hover_color = [60, 60, 65, 255]
+            select_color = [80, 80, 85, 255]
+
+        with dpg.theme(tag=theme_tag):
+            # Styling for the selectable itself
+            with dpg.theme_component(dpg.mvSelectable):
+                dpg.add_theme_color(dpg.mvThemeCol_Text, text_color)
+                dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered, hover_color)
+                dpg.add_theme_color(dpg.mvThemeCol_Header, select_color)
+                dpg.add_theme_color(dpg.mvThemeCol_HeaderActive, select_color)
+                # Keep selectable padding tight
+                dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 8, 4)
+
+        return theme_tag
+
+    def on_window_close(self):
+        self._save_ui_state()
+        dpg.delete_item(self.window_tag)
+
     def show_window(self) -> None:
         if dpg.does_item_exist(self.window_tag):
             dpg.focus_item(self.window_tag)
@@ -65,14 +132,17 @@ class DicomPluginUI(PluginTagMixin):
         assert self.api is not None
         cfg_c = self.api.get_ui_config()["colors"]
 
-        # Increase window width if needed
+        # Restore window dimensions or default
+        w = self.last_size[0] if self.last_size else 1000
+        h = self.last_size[1] if self.last_size else 700
+
         with dpg.window(
             tag=self.window_tag,
             label="DICOM Series Browser (Plugin)",
-            width=1000,
-            height=700,
+            width=w,
+            height=h,
             no_collapse=False,
-            on_close=lambda: dpg.delete_item(self.window_tag),
+            on_close=self.on_window_close,
         ):
             dpg.add_spacer(height=5)
 
@@ -121,12 +191,14 @@ class DicomPluginUI(PluginTagMixin):
                 borders_innerH=False,
             ):
                 dpg.add_table_column(
-                    init_width_or_weight=450,
+                    init_width_or_weight=self.last_split_width,
                     width_fixed=False,
+                    tag=self._t("col_list"),
                 )
                 dpg.add_table_column(
-                    init_width_or_weight=550,
+                    init_width_or_weight=w - self.last_split_width,
                     width_stretch=True,
+                    tag=self._t("col_details"),
                 )
 
                 with dpg.table_row():
@@ -242,14 +314,17 @@ class DicomPluginUI(PluginTagMixin):
                         if dpg.does_item_exist("icon_button_theme"):
                             dpg.bind_item_theme(btn_open, "icon_button_theme")
 
-        vp_width, vp_height = (
-            dpg.get_viewport_client_width(),
-            dpg.get_viewport_client_height(),
-        )
-        dpg.set_item_pos(
-            self.window_tag,
-            [max(50, vp_width // 2 - 450), max(50, vp_height // 2 - 300)],
-        )
+        if self.last_pos:
+            dpg.set_item_pos(self.window_tag, self.last_pos)
+        else:
+            vp_width, vp_height = (
+                dpg.get_viewport_client_width(),
+                dpg.get_viewport_client_height(),
+            )
+            dpg.set_item_pos(
+                self.window_tag,
+                [max(50, vp_width // 2 - 450), max(50, vp_height // 2 - 300)],
+            )
 
         assert self.api is not None
 
@@ -257,6 +332,12 @@ class DicomPluginUI(PluginTagMixin):
         if self.scanned_series:
             dpg.set_value(self._t("scan_status"), f"  ({len(self.scanned_series)} found)")
             self._populate_series_list()
+            # Restore selection if active
+            if self.active_idx >= 0:
+                sel_tag = self._t(f"sel_{self.active_idx}")
+                if dpg.does_item_exist(sel_tag):
+                    dpg.set_value(sel_tag, True)
+                    self.on_series_selected(sel_tag, None, self.active_idx)
 
     def on_select_folder(self) -> None:
         folder = open_file_dialog("Select DICOM Directory", is_directory=True)
@@ -359,6 +440,15 @@ class DicomPluginUI(PluginTagMixin):
         # Clear previous tree nodes list
         self.active_tree_nodes = []
 
+        # Define table theme for alternating row backgrounds
+        table_theme = "dicom_table_theme"
+        if not dpg.does_item_exist(table_theme):
+            with dpg.theme(tag=table_theme):
+                with dpg.theme_component(dpg.mvTable):
+                    # Set custom alternating row backgrounds
+                    dpg.add_theme_color(dpg.mvThemeCol_TableRowBg, [28, 29, 31, 255])
+                    dpg.add_theme_color(dpg.mvThemeCol_TableRowBgAlt, [36, 37, 40, 255])
+
         # Render each group under a tree node or collapsible header
         for (p_name, study_date, space_key), series_in_group in groups.items():
             # Find the most common study description in this group to display in the header
@@ -381,25 +471,46 @@ class DicomPluginUI(PluginTagMixin):
             else:
                 group_label += " (Unpaired Space)"
 
+            # Restore collapsed/expanded state if previously saved
+            default_open = self.collapsed_nodes.get(group_label, True)
+
             tree_tag = self._t(f"tree_{len(self.active_tree_nodes)}")
             dpg.add_tree_node(
                 label=group_label,
                 parent=self._t("series_list"),
-                default_open=True,
+                default_open=default_open,
                 tag=tree_tag,
             )
             self.active_tree_nodes.append(tree_tag)
 
-            for idx, s in series_in_group:
-                label = f"[{s['modality']}] {s['series_desc']}\n  {s['date']} | {len(s['files'])} files"
-                dpg.add_selectable(
-                    label=clean_string(label),
-                    height=35,
-                    parent=tree_tag,
-                    user_data=idx,
-                    tag=self._t(f"sel_{idx}"),
-                    callback=self.on_series_selected,
-                )
+            # Create a table for the series in this group to get native alternating backgrounds
+            table_tag = self._t(f"table_group_{len(self.active_tree_nodes)}")
+            with dpg.table(
+                parent=tree_tag,
+                header_row=False,
+                row_background=True,
+                width=-1,
+                tag=table_tag,
+            ):
+                dpg.add_table_column(width_stretch=True)
+
+                for idx, s in series_in_group:
+                    label = f"[{s['modality']}] {s['series_desc']}\n  {s['date']} | {len(s['files'])} files"
+                    
+                    # Get or create custom theme based on modality
+                    theme_tag = self._get_modality_theme(s.get("modality", "Unknown"))
+
+                    with dpg.table_row():
+                        sel = dpg.add_selectable(
+                            label=clean_string(label),
+                            height=35,
+                            user_data=idx,
+                            tag=self._t(f"sel_{idx}"),
+                            callback=self.on_series_selected,
+                        )
+                        dpg.bind_item_theme(sel, theme_tag)
+
+            dpg.bind_item_theme(table_tag, table_theme)
 
     def on_collapse_all_clicked(self, sender, app_data, user_data):
         for node in self.active_tree_nodes:
@@ -473,9 +584,6 @@ class DicomPluginUI(PluginTagMixin):
         # Call load_dicom_series via PluginAPI to register task on main thread
         assert self.api is not None
         self.api.load_dicom_series(file_list)
-        
-        # Delete window
-        dpg.delete_item(self.window_tag)
 
     def move_selection(self, delta):
         """Called by the Interaction Manager to shift selection up/down via arrows."""

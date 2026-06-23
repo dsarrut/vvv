@@ -94,7 +94,7 @@ class TestDicomPlugin(unittest.TestCase):
         # Test opening series
         ui.on_open_clicked()
         self.mock_api.load_dicom_series.assert_called_once_with(self.series_data["files"])
-        self.assertFalse(dpg.does_item_exist(ui.window_tag))
+        self.assertTrue(dpg.does_item_exist(ui.window_tag))
 
         dpg.delete_item("test_parent")
 
