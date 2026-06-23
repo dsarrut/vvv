@@ -179,6 +179,8 @@ class FileManager:
                                 "modality": get_tag("0008|0060", "Unknown"),
                                 "date": fmt_date if fmt_date else "Unknown",
                                 "spacing": f"{file_reader.GetSpacing()[0]:.2f} x {file_reader.GetSpacing()[1]:.2f}",
+                                "frame_of_ref_uid": get_tag("0020|0052", ""),
+                                "study_instance_uid": get_tag("0020|000d", ""),
                                 "tags": [],
                                 "_base_z": z,
                                 "_base_x": x,

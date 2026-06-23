@@ -208,5 +208,7 @@ uv.lock
 .pytest_config/
 .pytest_config/.vv_settings
 
+*code-workspace
+
 
 

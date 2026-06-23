@@ -64,10 +64,11 @@ class DicomPluginUI(PluginTagMixin):
         assert self.api is not None
         cfg_c = self.api.get_ui_config()["colors"]
 
+        # Increase window width if needed
         with dpg.window(
             tag=self.window_tag,
             label="DICOM Series Browser (Plugin)",
-            width=900,
+            width=1000,
             height=700,
             no_collapse=False,
             on_close=lambda: dpg.delete_item(self.window_tag),
@@ -85,7 +86,7 @@ class DicomPluginUI(PluginTagMixin):
                 dpg.add_input_text(
                     default_value=self.last_folder,
                     hint="Select a folder to scan...",
-                    width=450,
+                    width=500,
                     tag=self._t("folder_path"),
                 )
                 dpg.add_checkbox(
@@ -108,8 +109,8 @@ class DicomPluginUI(PluginTagMixin):
 
             # --- SPLIT LAYOUT ---
             with dpg.group(horizontal=True):
-                # Left panel: Series list
-                with dpg.child_window(width=350, height=-1, border=True, tag=self._t("list_panel")):
+                # Left panel: Series list (increased width to 450)
+                with dpg.child_window(width=450, height=-1, border=True, tag=self._t("list_panel")):
                     with dpg.group(horizontal=True):
                         dpg.add_text(
                             "Found Series",
@@ -290,24 +291,79 @@ class DicomPluginUI(PluginTagMixin):
             except Exception:
                 return "Unknown"
 
+        # Group series by (patient_name, study_date, frame_of_ref_uid)
+        # Group series by (patient_name, study_date, frame_of_ref_uid)
+        groups = {}
         for idx, s in enumerate(self.scanned_series):
-            label = f"[{s['modality']}] {s['series_desc']}\n  {s['date']} | {len(s['files'])} files"
-            dpg.add_selectable(
-                label=clean_string(label),
-                height=35,
+            # Fallback grouping keys if empty
+            p_name = s.get("patient_name") or "Unknown Patient"
+            
+            # Normalize patient name to ignore trailing carets, spaces, and casing differences
+            normalized_p_name = p_name.upper().replace("^", " ").strip()
+            # Collapse double/multiple spaces to single spaces
+            normalized_p_name = " ".join(normalized_p_name.split())
+
+            f_ref = s.get("frame_of_ref_uid") or ""
+            
+            # Extract date (YYYY-MM-DD) from date string (which might contain time e.g., "YYYY-MM-DD HH:MM")
+            raw_date = s.get("date") or "Unknown Date"
+            study_date = raw_date.split(" ")[0] if " " in raw_date else raw_date
+
+            # If there's no frame of reference (unpaired), we group them by study description
+            # so different unpaired studies on the same day don't get merged,
+            # but if they share a frame of reference (paired), we group them together.
+            space_key = f_ref if f_ref else (s.get("study_desc") or "Unknown Study")
+
+            group_key = (normalized_p_name, study_date, space_key)
+            if group_key not in groups:
+                groups[group_key] = []
+            groups[group_key].append((idx, s))
+
+        # Render each group under a tree node or collapsible header
+        for (p_name, study_date, space_key), series_in_group in groups.items():
+            # Find the most common study description in this group to display in the header
+            study_descs = [s.get("study_desc") for _, s in series_in_group if s.get("study_desc")]
+            display_study_desc = max(set(study_descs), key=study_descs.count) if study_descs else "Unknown Study"
+
+            # Create a label for the group header
+            group_label = f"{clean_string(p_name)} | {clean_string(study_date)} | {clean_string(display_study_desc)}"
+            
+            is_paired = False
+            # Check if this space key is a frame_of_ref_uid (not a study description fallback)
+            for _, s in series_in_group:
+                if s.get("frame_of_ref_uid") == space_key and space_key:
+                    is_paired = True
+                    break
+
+            if is_paired:
+                # Indicate that the series inside this group share coordinate space
+                group_label += " (Spatially Paired)"
+            else:
+                group_label += " (Unpaired Space)"
+
+            tree_tag = dpg.add_tree_node(
+                label=group_label,
                 parent=self._t("series_list"),
-                user_data=idx,
-                tag=self._t(f"sel_{idx}"),
-                callback=self.on_series_selected,
+                default_open=True,
             )
 
+            for idx, s in series_in_group:
+                label = f"[{s['modality']}] {s['series_desc']}\n  {s['date']} | {len(s['files'])} files"
+                dpg.add_selectable(
+                    label=clean_string(label),
+                    height=35,
+                    parent=tree_tag,
+                    user_data=idx,
+                    tag=self._t(f"sel_{idx}"),
+                    callback=self.on_series_selected,
+                )
+
     def on_series_selected(self, sender, app_data, user_data):
-        # Deselect all others safely (Comparing Aliases and Integer IDs)
-        children = dpg.get_item_children(self._t("series_list"), 1)
-        if children:
-            for child in children:
-                if child != sender and dpg.get_item_alias(child) != sender:
-                    dpg.set_value(child, False)
+        # Deselect all selectables inside the entire list (traversing children of group tree nodes)
+        for idx in range(len(self.scanned_series)):
+            tag = self._t(f"sel_{idx}")
+            if dpg.does_item_exist(tag) and tag != sender:
+                dpg.set_value(tag, False)
 
         # Force active highlight (Essential for Keyboard arrows!)
         if dpg.does_item_exist(sender):
