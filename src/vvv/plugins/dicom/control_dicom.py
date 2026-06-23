@@ -18,10 +18,12 @@ class DicomPluginController(PluginTagMixin):
             self._ui.update(api)
 
     def on_image_loaded(self, image_id: str) -> None:
-        pass
+        if self._ui:
+            self._ui.on_image_loaded(image_id)
 
     def on_image_removed(self, image_id: str) -> None:
-        pass
+        if self._ui:
+            self._ui.on_image_removed(image_id)
 
     def serialize_image_state(self, image_id: str, context: str = "history") -> dict:
         return {}
