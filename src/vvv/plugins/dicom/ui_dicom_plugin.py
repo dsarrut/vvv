@@ -36,7 +36,9 @@ class DicomPluginUI(PluginTagMixin):
         self.api = api
 
     def tick(self) -> None:
-        if not dpg.does_item_exist(self.window_tag) or not dpg.is_item_shown(self.window_tag):
+        if not dpg.does_item_exist(self.window_tag) or not dpg.is_item_shown(
+            self.window_tag
+        ):
             return
 
         if self.scan_finished:
@@ -51,7 +53,8 @@ class DicomPluginUI(PluginTagMixin):
                 if self.scan_errors:
                     show_message(
                         "DICOM Scan Warnings",
-                        "Some directories could not be scanned:\n\n" + "\n".join(self.scan_errors),
+                        "Some directories could not be scanned:\n\n"
+                        + "\n".join(self.scan_errors),
                     )
             self.scan_finished = False
             return
@@ -64,8 +67,10 @@ class DicomPluginUI(PluginTagMixin):
     def _save_ui_state(self):
         if dpg.does_item_exist(self.window_tag):
             self.last_pos = dpg.get_item_pos(self.window_tag)
-            self.last_size = dpg.get_item_rect_size(self.window_tag)
-        
+            size = dpg.get_item_rect_size(self.window_tag)
+            if size and len(size) >= 2:
+                self.last_size = (size[0], size[1])
+
         # Save collapse states of tree nodes by matching label
         self.collapsed_nodes = {}
         for node in self.active_tree_nodes:
@@ -88,23 +93,23 @@ class DicomPluginUI(PluginTagMixin):
         # Define text color based on modality
         mod = modality.upper()
         if "CT" in mod:
-            text_color = [160, 190, 220, 255]       # Slate Blue
+            text_color = [160, 190, 220, 255]  # Slate Blue
             hover_color = [50, 70, 95, 255]
             select_color = [70, 95, 130, 255]
         elif "PT" in mod or "PET" in mod:
-            text_color = [200, 170, 230, 255]      # Soft Violet
+            text_color = [200, 170, 230, 255]  # Soft Violet
             hover_color = [70, 50, 95, 255]
             select_color = [95, 70, 130, 255]
         elif "NM" in mod or "SPECT" in mod:
-            text_color = [140, 210, 180, 255]      # Muted Teal
+            text_color = [140, 210, 180, 255]  # Muted Teal
             hover_color = [40, 75, 60, 255]
             select_color = [55, 105, 85, 255]
         elif "MR" in mod:
-            text_color = [230, 190, 140, 255]      # Muted Amber
+            text_color = [230, 190, 140, 255]  # Muted Amber
             hover_color = [75, 60, 40, 255]
             select_color = [105, 85, 55, 255]
         else:
-            text_color = [220, 220, 220, 255]      # Light Gray
+            text_color = [220, 220, 220, 255]  # Light Gray
             hover_color = [60, 60, 65, 255]
             select_color = [80, 80, 85, 255]
 
@@ -149,7 +154,10 @@ class DicomPluginUI(PluginTagMixin):
             # --- TOP BAR ---
             with dpg.group(horizontal=True):
                 btn_dir = dpg.add_button(
-                    label="\uf07c", width=30, callback=self.on_select_folder, tag=self._t("btn_select_dir")
+                    label="\uf07c",
+                    width=30,
+                    callback=self.on_select_folder,
+                    tag=self._t("btn_select_dir"),
                 )
                 if dpg.does_item_exist("icon_font_tag"):
                     dpg.bind_item_font(btn_dir, "icon_font_tag")
@@ -166,7 +174,12 @@ class DicomPluginUI(PluginTagMixin):
                     tag=self._t("check_recurse"),
                 )
                 from vvv.ui.ui_components import build_beginner_tooltip
-                build_beginner_tooltip(self._t("check_recurse"), "Scan all nested directories inside the selected directory.", self.api)
+
+                build_beginner_tooltip(
+                    self._t("check_recurse"),
+                    "Scan all nested directories inside the selected directory.",
+                    self.api,
+                )
                 dpg.add_spacer(width=10)
                 dpg.add_button(
                     label="Scan Folder",
@@ -209,9 +222,11 @@ class DicomPluginUI(PluginTagMixin):
                                 "Found Series",
                                 color=cfg_c["text_header"],
                             )
-                            dpg.add_text("", tag=self._t("scan_status"), color=[255, 255, 0])
+                            dpg.add_text(
+                                "", tag=self._t("scan_status"), color=[255, 255, 0]
+                            )
 
-                        # Fold/Unfold controls
+                        # Fold/Unfold controls & Modality Legend
                         with dpg.group(horizontal=True):
                             dpg.add_button(
                                 label="Collapse All",
@@ -225,6 +240,14 @@ class DicomPluginUI(PluginTagMixin):
                                 callback=self.on_expand_all_clicked,
                                 tag=self._t("btn_expand_all"),
                             )
+                            dpg.add_spacer(width=10)
+                            dpg.add_text("CT", color=[160, 190, 220, 255])
+                            dpg.add_text("|", color=[80, 80, 80, 255])
+                            dpg.add_text("PET", color=[200, 170, 230, 255])
+                            dpg.add_text("|", color=[80, 80, 80, 255])
+                            dpg.add_text("NM", color=[140, 210, 180, 255])
+                            dpg.add_text("|", color=[80, 80, 80, 255])
+                            dpg.add_text("MR", color=[230, 190, 140, 255])
 
                         # Progress bar hidden by default
                         dpg.add_progress_bar(
@@ -240,52 +263,50 @@ class DicomPluginUI(PluginTagMixin):
                             dpg.add_group(tag=self._t("series_list"))
 
                     # Right column: Details & Action
-                    with dpg.child_window(width=-1, height=-1, border=False, tag=self._t("details_panel")):
+                    with dpg.child_window(
+                        width=-1, height=-1, border=False, tag=self._t("details_panel")
+                    ):
                         with dpg.group(horizontal=True):
-                            dpg.add_text(
-                                "Path:    ", color=cfg_c["text_dim"]
-                            )
+                            dpg.add_text("Path:    ", color=cfg_c["text_dim"])
                             dpg.add_input_text(
-                                default_value="---", tag=self._t("lbl_dir"), readonly=True
+                                default_value="---",
+                                tag=self._t("lbl_dir"),
+                                readonly=True,
                             )
 
                         with dpg.group(horizontal=True):
-                            dpg.add_text(
-                                "File:    ", color=cfg_c["text_dim"]
-                            )
+                            dpg.add_text("File:    ", color=cfg_c["text_dim"])
                             dpg.add_input_text(
-                                default_value="---", tag=self._t("lbl_file"), readonly=True
+                                default_value="---",
+                                tag=self._t("lbl_file"),
+                                readonly=True,
                             )
                         with dpg.group(horizontal=True):
-                            dpg.add_text(
-                                "Patient: ", color=cfg_c["text_dim"]
-                            )
+                            dpg.add_text("Patient: ", color=cfg_c["text_dim"])
                             dpg.add_text("---", tag=self._t("lbl_patient"))
                             dpg.add_spacer(width=20)
-                            dpg.add_text(
-                                "Study: ", color=cfg_c["text_dim"]
-                            )
+                            dpg.add_text("Study: ", color=cfg_c["text_dim"])
                             dpg.add_text("---", tag=self._t("lbl_study"))
 
                         with dpg.group(horizontal=True):
-                            dpg.add_text(
-                                "Size:    ", color=cfg_c["text_dim"]
-                            )
+                            dpg.add_text("Size:    ", color=cfg_c["text_dim"])
                             dpg.add_text("---", tag=self._t("lbl_size"))
                             dpg.add_spacer(width=20)
-                            dpg.add_text(
-                                "Spacing: ", color=cfg_c["text_dim"]
-                            )
+                            dpg.add_text("Spacing: ", color=cfg_c["text_dim"])
                             dpg.add_text("---", tag=self._t("lbl_spacing"))
 
                         dpg.add_spacer(height=10, tag=self._t("metadata_spacer"))
                         dpg.add_separator(tag=self._t("metadata_sep"))
                         dpg.add_text(
-                            "DICOM Metadata", color=cfg_c["text_header"], tag=self._t("metadata_header")
+                            "DICOM Metadata",
+                            color=cfg_c["text_header"],
+                            tag=self._t("metadata_header"),
                         )
 
                         # Middle: Tags Table
-                        with dpg.child_window(height=-45, border=True, tag=self._t("table_panel")):
+                        with dpg.child_window(
+                            height=-45, border=True, tag=self._t("table_panel")
+                        ):
                             with dpg.table(
                                 tag=self._t("tags_table"),
                                 header_row=True,
@@ -294,10 +315,14 @@ class DicomPluginUI(PluginTagMixin):
                                 borders_innerV=True,
                             ):
                                 dpg.add_table_column(
-                                    label="Tag", width_fixed=True, init_width_or_weight=90
+                                    label="Tag",
+                                    width_fixed=True,
+                                    init_width_or_weight=90,
                                 )
                                 dpg.add_table_column(
-                                    label="Name", width_fixed=True, init_width_or_weight=150
+                                    label="Name",
+                                    width_fixed=True,
+                                    init_width_or_weight=150,
                                 )
                                 dpg.add_table_column(label="Value", width_stretch=True)
 
@@ -307,10 +332,15 @@ class DicomPluginUI(PluginTagMixin):
                             width=-1,
                             height=30,
                             callback=self.on_open_clicked,
-                            tag=self._t("btn_open")
+                            tag=self._t("btn_open"),
                         )
                         from vvv.ui.ui_components import build_beginner_tooltip
-                        build_beginner_tooltip(btn_open, "Load the selected DICOM series files as a 3D volume.", self.api)
+
+                        build_beginner_tooltip(
+                            btn_open,
+                            "Load the selected DICOM series files as a 3D volume.",
+                            self.api,
+                        )
                         if dpg.does_item_exist("icon_button_theme"):
                             dpg.bind_item_theme(btn_open, "icon_button_theme")
 
@@ -330,7 +360,9 @@ class DicomPluginUI(PluginTagMixin):
 
         # Re-populate state if reopened!
         if self.scanned_series:
-            dpg.set_value(self._t("scan_status"), f"  ({len(self.scanned_series)} found)")
+            dpg.set_value(
+                self._t("scan_status"), f"  ({len(self.scanned_series)} found)"
+            )
             self._populate_series_list()
             # Restore selection if active
             if self.active_idx >= 0:
@@ -393,9 +425,9 @@ class DicomPluginUI(PluginTagMixin):
     def _populate_series_list(self):
         if not dpg.does_item_exist(self._t("series_list")):
             return
-        
+
         # Sort scanned series by date in reverse chronological order (most recent first)
-        self.scanned_series.sort(key=lambda x: x.get('date', ''), reverse=True)
+        self.scanned_series.sort(key=lambda x: x.get("date", ""), reverse=True)
 
         dpg.delete_item(self._t("series_list"), children_only=True)
 
@@ -403,9 +435,11 @@ class DicomPluginUI(PluginTagMixin):
             if val is None:
                 return ""
             try:
-                val_str = str(val).replace('\x00', '')
-                val_str = "".join(c for c in val_str if not (0xD800 <= ord(c) <= 0xDFFF))
-                return val_str.encode('utf-8', 'ignore').decode('utf-8')
+                val_str = str(val).replace("\x00", "")
+                val_str = "".join(
+                    c for c in val_str if not (0xD800 <= ord(c) <= 0xDFFF)
+                )
+                return val_str.encode("utf-8", "ignore").decode("utf-8")
             except Exception:
                 return "Unknown"
 
@@ -415,14 +449,14 @@ class DicomPluginUI(PluginTagMixin):
         for idx, s in enumerate(self.scanned_series):
             # Fallback grouping keys if empty
             p_name = s.get("patient_name") or "Unknown Patient"
-            
+
             # Normalize patient name to ignore trailing carets, spaces, and casing differences
             normalized_p_name = p_name.upper().replace("^", " ").strip()
             # Collapse double/multiple spaces to single spaces
             normalized_p_name = " ".join(normalized_p_name.split())
 
             f_ref = s.get("frame_of_ref_uid") or ""
-            
+
             # Extract date (YYYY-MM-DD) from date string (which might contain time e.g., "YYYY-MM-DD HH:MM")
             raw_date = s.get("date") or "Unknown Date"
             study_date = raw_date.split(" ")[0] if " " in raw_date else raw_date
@@ -452,24 +486,24 @@ class DicomPluginUI(PluginTagMixin):
         # Render each group under a tree node or collapsible header
         for (p_name, study_date, space_key), series_in_group in groups.items():
             # Find the most common study description in this group to display in the header
-            study_descs = [s.get("study_desc") for _, s in series_in_group if s.get("study_desc")]
-            display_study_desc = max(set(study_descs), key=study_descs.count) if study_descs else "Unknown Study"
+            study_descs = [
+                s.get("study_desc") for _, s in series_in_group if s.get("study_desc")
+            ]
+            display_study_desc = (
+                max(set(study_descs), key=study_descs.count)
+                if study_descs
+                else "Unknown Study"
+            )
 
             # Create a label for the group header
             group_label = f"{clean_string(p_name)} | {clean_string(study_date)} | {clean_string(display_study_desc)}"
-            
+
             is_paired = False
             # Check if this space key is a frame_of_ref_uid (not a study description fallback)
             for _, s in series_in_group:
                 if s.get("frame_of_ref_uid") == space_key and space_key:
                     is_paired = True
                     break
-
-            if is_paired:
-                # Indicate that the series inside this group share coordinate space
-                group_label += " (Spatially Paired)"
-            else:
-                group_label += " (Unpaired Space)"
 
             # Restore collapsed/expanded state if previously saved
             default_open = self.collapsed_nodes.get(group_label, True)
@@ -496,7 +530,7 @@ class DicomPluginUI(PluginTagMixin):
 
                 for idx, s in series_in_group:
                     label = f"[{s['modality']}] {s['series_desc']}\n  {s['date']} | {len(s['files'])} files"
-                    
+
                     # Get or create custom theme based on modality
                     theme_tag = self._get_modality_theme(s.get("modality", "Unknown"))
 
@@ -541,9 +575,11 @@ class DicomPluginUI(PluginTagMixin):
             if val is None:
                 return ""
             try:
-                val_str = str(val).replace('\x00', '')
-                val_str = "".join(c for c in val_str if not (0xD800 <= ord(c) <= 0xDFFF))
-                return val_str.encode('utf-8', 'ignore').decode('utf-8')
+                val_str = str(val).replace("\x00", "")
+                val_str = "".join(
+                    c for c in val_str if not (0xD800 <= ord(c) <= 0xDFFF)
+                )
+                return val_str.encode("utf-8", "ignore").decode("utf-8")
             except Exception:
                 return "Unknown"
 
