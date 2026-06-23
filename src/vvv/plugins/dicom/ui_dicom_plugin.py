@@ -274,6 +274,10 @@ class DicomPluginUI(PluginTagMixin):
     def _populate_series_list(self):
         if not dpg.does_item_exist(self._t("series_list")):
             return
+        
+        # Sort scanned series by date in reverse chronological order (most recent first)
+        self.scanned_series.sort(key=lambda x: x.get('date', ''), reverse=True)
+
         dpg.delete_item(self._t("series_list"), children_only=True)
 
         def clean_string(val):
