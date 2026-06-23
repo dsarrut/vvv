@@ -113,8 +113,11 @@ class FileManager:
                             continue
 
                         if sid in series_dict:
-                            # Series is split across multiple folders -> just append the files.
-                            series_dict[sid]["files"].extend(file_names)
+                            # Avoid appending duplicate files (e.g. from duplicate/backup folders) by base name
+                            existing_basenames = {os.path.basename(f) for f in series_dict[sid]["files"]}
+                            for fn in file_names:
+                                if os.path.basename(fn) not in existing_basenames:
+                                    series_dict[sid]["files"].append(fn)
                         else:
                             file_reader.SetFileName(file_names[0])
                             file_reader.ReadImageInformation()
