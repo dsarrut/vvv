@@ -1084,7 +1084,8 @@ class VolumeData:
                             any_updated = True
                 except:
                     pass
-            self._is_outdated = any_updated
+            if any_updated:
+                self._is_outdated = True
         return self._is_outdated
 
     def get_physical_aspect_ratio(self, orientation):

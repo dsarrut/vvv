@@ -278,7 +278,7 @@ class Controller:
         vol.path = filepath
         vol.file_paths = [filepath]
         vol.name = os.path.basename(filepath)
-        vol.last_mtime = vol._get_latest_mtime()
+        vol.update_mtime_tracker()
         vol._is_outdated = False
 
     def _get_voxel_value(self, vol, vs, phys_coord, time_idx):
@@ -712,6 +712,7 @@ class Controller:
                     vol.sitk_image = sitk.Cast(new_sitk, vol.sitk_image.GetPixelID()
                                                 if vol.sitk_image else sitk.sitkFloat32)
                     vol.data = sitk.GetArrayViewFromImage(vol.sitk_image)
+                    vol._is_outdated = True
 
                     # Reset transform to identity
                     vs.space.transform = None
