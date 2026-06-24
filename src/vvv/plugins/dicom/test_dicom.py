@@ -165,6 +165,126 @@ class TestDicomPlugin(unittest.TestCase):
         self.assertTrue(self.plugin._ui._stop_event.is_set())
         dpg.delete_item("test_parent")
 
+    def test_populate_tags_table_sequence(self):
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+        
+            ui = self.plugin._ui
+            table_tag = "test_table"
+            with dpg.table(tag=table_tag):
+                dpg.add_table_column(label="Tag")
+                dpg.add_table_column(label="Name")
+                dpg.add_table_column(label="Value")
+
+            # Test flat format
+            flat_tags = [("0010,0010", "PatientName", "John Doe")]
+            ui._populate_tags_table(table_tag, flat_tags, "")
+            rows = dpg.get_item_children(table_tag, 1) or []
+            self.assertEqual(len(rows), 1)
+
+            # Test nested format
+            nested_tags = [
+                {
+                    "tag": "(0054,0012)",
+                    "name": "Energy Window Information Sequence",
+                    "value": "1 item(s)",
+                    "is_seq": True,
+                    "nested": [
+                        [
+                            {
+                                "tag": "(0054,0013)",
+                                "name": "Energy Window Range Sequence",
+                                "value": "1 item(s)",
+                                "is_seq": False,
+                                "nested": []
+                            }
+                        ]
+                    ]
+                }
+            ]
+            ui._populate_tags_table(table_tag, nested_tags, "")
+            rows = dpg.get_item_children(table_tag, 1) or []
+            self.assertEqual(len(rows), 1)
+        
+        dpg.delete_item("test_parent")
+
+    @patch("pydicom.dcmread")
+    @patch("os.path.exists", return_value=True)
+    @patch("os.path.isfile", return_value=True)
+    def test_on_image_loaded_with_sequence(self, mock_isfile, mock_exists, mock_dcmread):
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        
+        self.mock_api.run_on_main_thread = lambda f: f()
+        
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+            ui = self.plugin._ui
+            ui.show_window()
+            
+            # Setup mock volume and api
+            mock_volume = MagicMock()
+            mock_volume.file_paths = ["/path/to/dicom.dcm"]
+            self.mock_api.get_volumes.return_value = {"img_1": mock_volume}
+            self.mock_api.get_image_display_name.return_value = ("Test Image", "")
+            
+            # Mock pydicom elements
+            import pydicom
+            mock_elem_simple = MagicMock()
+            mock_elem_simple.tag.group = 0x0010
+            mock_elem_simple.tag.element = 0x0010
+            mock_elem_simple.name = "PatientName"
+            mock_elem_simple.value = "John Doe"
+            
+            mock_sub_elem = MagicMock()
+            mock_sub_elem.tag.group = 0x0018
+            mock_sub_elem.tag.element = 0x0050
+            mock_sub_elem.name = "SliceThickness"
+            mock_sub_elem.value = "1.5"
+            
+            mock_dataset = MagicMock(spec=pydicom.dataset.Dataset)
+            mock_dataset.__iter__.return_value = [mock_sub_elem]
+            
+            mock_elem_seq = MagicMock()
+            mock_elem_seq.tag.group = 0x0054
+            mock_elem_seq.tag.element = 0x0012
+            mock_elem_seq.name = "EnergyWindowInformationSequence"
+            # We make it act as a Sequence class instance (which is a list subclass in pydicom)
+            mock_sequence = MagicMock(spec=pydicom.sequence.Sequence)
+            mock_sequence.__iter__.return_value = [mock_dataset]
+            mock_sequence.__len__.return_value = 1
+            mock_elem_seq.value = mock_sequence
+            
+            mock_ds = MagicMock()
+            mock_ds.__iter__.return_value = [mock_elem_simple, mock_elem_seq]
+            mock_dcmread.return_value = mock_ds
+            
+            # Call on_image_loaded
+            ui.on_image_loaded("img_1")
+            
+            # Wait for the async thread
+            timeout = time.time() + 2.0
+            while "img_1" not in ui.open_image_tabs and time.time() < timeout:
+                time.sleep(0.05)
+                
+            self.assertIn("img_1", ui.open_image_tabs)
+            tags = ui.open_image_tabs["img_1"]["tags"]
+            self.assertEqual(len(tags), 2)
+            
+            # First tag is simple
+            self.assertEqual(tags[0]["tag"], "(0010,0010)")
+            self.assertFalse(tags[0]["is_seq"])
+            
+            # Second tag is sequence
+            self.assertEqual(tags[1]["tag"], "(0054,0012)")
+            self.assertTrue(tags[1]["is_seq"])
+            self.assertEqual(len(tags[1]["nested"]), 1)
+            self.assertEqual(tags[1]["nested"][0][0]["tag"], "(0018,0050)")
+        
+        dpg.delete_item("test_parent")
+
 
 if __name__ == "__main__":
     unittest.main()
