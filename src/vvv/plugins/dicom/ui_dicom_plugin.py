@@ -152,8 +152,12 @@ class DicomPluginUI(PluginTagMixin):
         ):
             dpg.add_spacer(height=5)
 
-            with dpg.tab_bar(tag=self._t("main_tab_bar"), callback=self._on_tab_bar_callback):
-                with dpg.tab(label="Browser", tag=self._t("browser_tab"), closable=False):
+            with dpg.tab_bar(
+                tag=self._t("main_tab_bar"), callback=self._on_tab_bar_callback
+            ):
+                with dpg.tab(
+                    label="Browser", tag=self._t("browser_tab"), closable=False
+                ):
                     # --- TOP BAR ---
                     with dpg.group(horizontal=True):
                         btn_dir = dpg.add_button(
@@ -226,7 +230,9 @@ class DicomPluginUI(PluginTagMixin):
                                         color=cfg_c["text_header"],
                                     )
                                     dpg.add_text(
-                                        "", tag=self._t("scan_status"), color=[255, 255, 0]
+                                        "",
+                                        tag=self._t("scan_status"),
+                                        color=[255, 255, 0],
                                     )
 
                                 # Fold/Unfold controls & Modality Legend
@@ -262,12 +268,17 @@ class DicomPluginUI(PluginTagMixin):
                                 dpg.add_separator()
 
                                 # Put the scrollable list inside a child window to stretch vertically
-                                with dpg.child_window(width=-1, height=-1, border=False):
+                                with dpg.child_window(
+                                    width=-1, height=-1, border=False
+                                ):
                                     dpg.add_group(tag=self._t("series_list"))
 
                             # Right column: Details & Action
                             with dpg.child_window(
-                                width=-1, height=-1, border=False, tag=self._t("details_panel")
+                                width=-1,
+                                height=-1,
+                                border=False,
+                                tag=self._t("details_panel"),
                             ):
                                 with dpg.group(horizontal=True):
                                     dpg.add_text("Path:    ", color=cfg_c["text_dim"])
@@ -298,7 +309,9 @@ class DicomPluginUI(PluginTagMixin):
                                     dpg.add_text("Spacing: ", color=cfg_c["text_dim"])
                                     dpg.add_text("---", tag=self._t("lbl_spacing"))
 
-                                dpg.add_spacer(height=10, tag=self._t("metadata_spacer"))
+                                dpg.add_spacer(
+                                    height=10, tag=self._t("metadata_spacer")
+                                )
                                 dpg.add_separator(tag=self._t("metadata_sep"))
                                 dpg.add_text(
                                     "DICOM Metadata",
@@ -327,7 +340,9 @@ class DicomPluginUI(PluginTagMixin):
                                             width_fixed=True,
                                             init_width_or_weight=150,
                                         )
-                                        dpg.add_table_column(label="Value", width_stretch=True)
+                                        dpg.add_table_column(
+                                            label="Value", width_stretch=True
+                                        )
 
                                 dpg.add_spacer(height=5)
                                 btn_open = dpg.add_button(
@@ -658,12 +673,16 @@ class DicomPluginUI(PluginTagMixin):
                     for root, dirs, files in os.walk(p):
                         for f in files:
                             candidate = os.path.join(root, f)
-                            if os.path.isfile(candidate) and not f.startswith('.') and not f.lower().endswith('.json'):
+                            if (
+                                os.path.isfile(candidate)
+                                and not f.startswith(".")
+                                and not f.lower().endswith(".json")
+                            ):
                                 dcm_file = candidate
                                 break
                         if dcm_file:
                             break
-                elif os.path.isfile(p) and not p.lower().endswith('.json'):
+                elif os.path.isfile(p) and not p.lower().endswith(".json"):
                     dcm_file = p
                     break
 
@@ -673,35 +692,55 @@ class DicomPluginUI(PluginTagMixin):
             # Try to read all DICOM tags using pydicom
             try:
                 import pydicom
-                ds = pydicom.dcmread(dcm_file, stop_before_pixels=True)
-                tags_list = []
-                for elem in ds:
+
+                def parse_elem(elem):
                     tag_str = f"({elem.tag.group:04X},{elem.tag.element:04X})"
                     name = elem.name
-                    val_str = str(elem.value)
-                    print(val_str)
-                    
-                    # Sanitize values to prevent empty or corrupted display
-                    val_str = val_str.replace('\x00', '')
-                    val_str = "".join(c for c in val_str if not (0xD800 <= ord(c) <= 0xDFFF))
-                    
-                    tags_list.append((tag_str, name, val_str))
+                    if isinstance(elem.value, pydicom.sequence.Sequence):
+                        nested_items = []
+                        for sub_ds in elem.value:
+                            nested_item = []
+                            for sub_elem in sub_ds:
+                                nested_item.append(parse_elem(sub_elem))
+                            nested_items.append(nested_item)
+                        return {
+                            "tag": tag_str,
+                            "name": name,
+                            "value": f"{len(elem.value)} item(s)",
+                            "is_seq": True,
+                            "nested": nested_items,
+                        }
+                    else:
+                        val_str = str(elem.value)
+                        val_str = val_str.replace("\x00", "")
+                        val_str = "".join(
+                            c for c in val_str if not (0xD800 <= ord(c) <= 0xDFFF)
+                        )
+                        return {
+                            "tag": tag_str,
+                            "name": name,
+                            "value": val_str,
+                            "is_seq": False,
+                            "nested": [],
+                        }
+
+                ds = pydicom.dcmread(dcm_file, stop_before_pixels=True)
+                tags_list = [parse_elem(elem) for elem in ds]
             except Exception:
                 # Not a DICOM file (or pydicom read failed)
                 return
 
             title, _ = self.api.get_image_display_name(image_id)
-            self.open_image_tabs[image_id] = {
-                "title": title,
-                "tags": tags_list
-            }
+            self.open_image_tabs[image_id] = {"title": title, "tags": tags_list}
 
             # If DICOM window is currently open, build the tab and focus it
             def build_ui():
-                if dpg.does_item_exist(self.window_tag) and dpg.does_item_exist(self._t("main_tab_bar")):
+                if dpg.does_item_exist(self.window_tag) and dpg.does_item_exist(
+                    self._t("main_tab_bar")
+                ):
                     dpg.focus_item(self.window_tag)
                     self._create_image_tab(image_id, title, tags_list)
-                    
+
                     tab_tag = self._t(f"tab_img_{image_id}")
                     if dpg.does_item_exist(tab_tag):
                         dpg.set_value(self._t("main_tab_bar"), tab_tag)
@@ -713,10 +752,12 @@ class DicomPluginUI(PluginTagMixin):
     def on_image_removed(self, image_id: str) -> None:
         if image_id in self.open_image_tabs:
             del self.open_image_tabs[image_id]
+
         def remove_ui():
             tab_tag = self._t(f"tab_img_{image_id}")
             if dpg.does_item_exist(tab_tag):
                 dpg.delete_item(tab_tag)
+
         if self.api:
             self.api.run_on_main_thread(remove_ui)
 
@@ -740,7 +781,7 @@ class DicomPluginUI(PluginTagMixin):
         dpg.add_input_text(
             label="Filter Tags",
             tag=filter_tag,
-            width=-1,
+            width=300,
             callback=self._on_filter_tags,
             user_data=image_id,
             parent=tab_tag,
@@ -770,8 +811,12 @@ class DicomPluginUI(PluginTagMixin):
             parent=child_tag,
         )
 
-        dpg.add_table_column(label="Tag", width_fixed=True, init_width_or_weight=90, parent=table_tag)
-        dpg.add_table_column(label="Name", width_fixed=True, init_width_or_weight=200, parent=table_tag)
+        dpg.add_table_column(
+            label="Tag", width_fixed=True, init_width_or_weight=90, parent=table_tag
+        )
+        dpg.add_table_column(
+            label="Name", width_fixed=True, init_width_or_weight=200, parent=table_tag
+        )
         dpg.add_table_column(label="Value", width_stretch=True, parent=table_tag)
 
         self._populate_tags_table(table_tag, tags, "")
@@ -786,14 +831,83 @@ class DicomPluginUI(PluginTagMixin):
 
         filter_text = filter_text.lower()
         cfg_c = self.api.get_ui_config()["colors"]
-        for tag, name, val in tags:
-            if filter_text and filter_text not in tag.lower() and filter_text not in name.lower() and filter_text not in val.lower():
-                continue
 
-            row = dpg.add_table_row(parent=table_tag)
-            dpg.add_text(tag, color=[150, 255, 150], parent=row)
-            dpg.add_text(name, color=cfg_c["text_dim"], parent=row)
-            dpg.add_text(val, parent=row)
+        def matches_filter(it):
+            if isinstance(it, dict):
+                t = it.get("tag", "").lower()
+                n = it.get("name", "").lower()
+                v = it.get("value", "").lower()
+                if filter_text in t or filter_text in n or filter_text in v:
+                    return True
+                for sub_list in it.get("nested", []):
+                    for sub_it in sub_list:
+                        if matches_filter(sub_it):
+                            return True
+                return False
+            else:
+                t, n, v = it
+                return (
+                    filter_text in t.lower()
+                    or filter_text in n.lower()
+                    or filter_text in v.lower()
+                )
+
+        def render_tags_recursive(parent_table, items):
+            for item in items:
+                # Normalize item: support both dict format (with sequences) and old flat tuple format
+                if isinstance(item, dict):
+                    tag = item.get("tag", "")
+                    name = item.get("name", "")
+                    val = item.get("value", "")
+                    is_seq = item.get("is_seq", False)
+                    nested = item.get("nested", [])
+                else:
+                    tag, name, val = item
+                    is_seq = False
+                    nested = []
+
+                if filter_text and not matches_filter(item):
+                    continue
+
+                row = dpg.add_table_row(parent=parent_table)
+                dpg.add_text(tag, color=[150, 255, 150], parent=row)
+                dpg.add_text(name, color=cfg_c["text_dim"], parent=row)
+
+                if is_seq and nested:
+                    # Create tree node in the value cell
+                    with dpg.tree_node(label=val, default_open=False, parent=row):
+                        for idx, dataset in enumerate(nested):
+                            if len(nested) > 1:
+                                dpg.add_text(f"Item #{idx + 1}:", color=[100, 200, 255])
+
+                            sub_table = dpg.add_table(
+                                header_row=True,
+                                resizable=True,
+                                borders_innerH=True,
+                                borders_innerV=True,
+                                width=-1,
+                            )
+                            dpg.add_table_column(
+                                label="Tag",
+                                width_fixed=True,
+                                init_width_or_weight=90,
+                                parent=sub_table,
+                            )
+                            dpg.add_table_column(
+                                label="Name",
+                                width_fixed=True,
+                                init_width_or_weight=150,
+                                parent=sub_table,
+                            )
+                            dpg.add_table_column(
+                                label="Value", width_stretch=True, parent=sub_table
+                            )
+
+                            render_tags_recursive(sub_table, dataset)
+                else:
+                    dpg.add_text(val, parent=row)
+
+        render_tags_recursive(table_tag, tags)
 
     def _on_filter_tags(self, sender, app_data, user_data):
         image_id = user_data
