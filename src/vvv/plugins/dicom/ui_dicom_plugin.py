@@ -830,7 +830,7 @@ class DicomPluginUI(PluginTagMixin):
                     dpg.delete_item(child)
 
         filter_text = filter_text.lower()
-        cfg_c = self.api.get_ui_config()["colors"]
+        cfg_c = self.api.get_ui_config()["colors"] if self.api else {"text_dim": [128, 128, 128]}
 
         def matches_filter(it):
             if isinstance(it, dict):
