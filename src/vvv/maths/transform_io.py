@@ -10,39 +10,49 @@ class TransformIO:
     def read_transform(filepath, fallback_center=None):
         """
         Parses .mat, .txt, Elastix, or standard ITK transforms into an Euler3DTransform.
+        Supports standard 4x4 homogeneous matrices (16 values), old custom 4x3 matrices (12 values),
+        and 3x3 rotation matrices (9 values).
         Uses fallback_center if the matrix lacks a defined Center of Rotation.
         """
         new_transform = sitk.Euler3DTransform()
 
-        # --- 1. Hand-parse simple text arrays (9 matrix numbers + optional 3 translation) ---
+        # --- 1. Hand-parse simple text arrays ---
         if filepath.lower().endswith(".mat") or filepath.lower().endswith(".txt"):
             try:
                 arr = np.loadtxt(filepath).flatten()
-                if len(arr) >= 9:
-                    # Extract the raw 3x3 matrix from the text file
-                    R = np.array(arr[:9]).reshape(3, 3)
+                if len(arr) == 16:
+                    # 4x4 homogeneous matrix: [R | T] with [0 0 0 1] on last row
+                    M = arr.reshape(4, 4)
+                    R = M[0:3, 0:3]
+                    trans_vec = M[0:3, 3].tolist()
+                elif len(arr) == 12:
+                    # Old custom 4x3 matrix format: 9 rotation + 3 translation
+                    R = arr[:9].reshape(3, 3)
+                    trans_vec = arr[9:12].tolist()
+                elif len(arr) == 9:
+                    # 3x3 rotation matrix only
+                    R = arr.reshape(3, 3)
+                    trans_vec = [0.0, 0.0, 0.0]
+                else:
+                    raise ValueError("Unsupported matrix size")
 
-                    # Snap it back to perfect orthogonality using SVD.
-                    U, _, Vt = np.linalg.svd(R)
+                # Snap it back to perfect orthogonality using SVD.
+                U, _, Vt = np.linalg.svd(R)
+                R_ortho = U @ Vt
+
+                # Ensure it's a true rotation (determinant must be +1, not -1 reflection)
+                if np.linalg.det(R_ortho) < 0:
+                    U[:, -1] *= -1
                     R_ortho = U @ Vt
 
-                    # Ensure it's a true rotation (determinant must be +1, not -1 reflection)
-                    if np.linalg.det(R_ortho) < 0:
-                        U[:, -1] *= -1
-                        R_ortho = U @ Vt
+                rot_matrix = R_ortho.flatten().tolist()
+                new_transform.SetMatrix(rot_matrix)
+                new_transform.SetTranslation(trans_vec)
 
-                    rot_matrix = R_ortho.flatten().tolist()
-                    trans_vec = (
-                        arr[9:12].tolist() if len(arr) >= 12 else [0.0, 0.0, 0.0]
-                    )
+                if fallback_center is not None:
+                    new_transform.SetCenter(fallback_center)
 
-                    new_transform.SetMatrix(rot_matrix)
-                    new_transform.SetTranslation(trans_vec)
-
-                    if fallback_center is not None:
-                        new_transform.SetCenter(fallback_center)
-
-                    return new_transform
+                return new_transform
             except Exception as e:
                 pass  # Fall through to standard Elastix/ITK parsers
 
@@ -89,14 +99,14 @@ class TransformIO:
     def write_transform(transform, filepath):
         """Writes an Euler3DTransform to disk (.mat, .txt, or ITK formats)."""
         if filepath.lower().endswith(".mat") or filepath.lower().endswith(".txt"):
-            mat = transform.GetMatrix()  # Tuple of 9
-            trans = transform.GetTranslation()  # Tuple of 3
+            mat = transform.GetMatrix()  # Tuple of 9 (r00, r01, r02, r10, r11, r12, r20, r21, r22)
+            trans = transform.GetTranslation()  # Tuple of 3 (tx, ty, tz)
 
             with open(filepath, "w") as f:
-                f.write(f"{mat[0]:.6f} {mat[1]:.6f} {mat[2]:.6f}\n")
-                f.write(f"{mat[3]:.6f} {mat[4]:.6f} {mat[5]:.6f}\n")
-                f.write(f"{mat[6]:.6f} {mat[7]:.6f} {mat[8]:.6f}\n")
-                f.write(f"{trans[0]:.6f} {trans[1]:.6f} {trans[2]:.6f}\n")
+                f.write(f"{mat[0]:.6f} {mat[1]:.6f} {mat[2]:.6f} {trans[0]:.6f}\n")
+                f.write(f"{mat[3]:.6f} {mat[4]:.6f} {mat[5]:.6f} {trans[1]:.6f}\n")
+                f.write(f"{mat[6]:.6f} {mat[7]:.6f} {mat[8]:.6f} {trans[2]:.6f}\n")
+                f.write("0.000000 0.000000 0.000000 1.000000\n")
         else:
             # Otherwise use standard SimpleITK .tfm format
             sitk.WriteTransform(transform, filepath)
