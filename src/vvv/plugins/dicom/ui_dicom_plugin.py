@@ -173,7 +173,7 @@ class DicomPluginUI(PluginTagMixin):
                             default_value=self.last_folder,
                             hint="Select a folder to scan...",
                             width=500,
-                            tag=self._t("folder_path"),
+                            tag=self._t("input_folder_path"),
                         )
                         dpg.add_checkbox(
                             label="Recurse Subfolders",
@@ -397,10 +397,10 @@ class DicomPluginUI(PluginTagMixin):
         folder = open_file_dialog("Select DICOM Directory", is_directory=True)
         if folder:
             self.last_folder = folder
-            dpg.set_value(self._t("folder_path"), folder)
+            dpg.set_value(self._t("input_folder_path"), folder)
 
     def on_scan_clicked(self) -> None:
-        folder = dpg.get_value(self._t("folder_path"))
+        folder = dpg.get_value(self._t("input_folder_path"))
         if not folder or not os.path.exists(folder):
             dpg.set_value(self._t("scan_status"), "  (Invalid Path)")
             return
@@ -777,7 +777,7 @@ class DicomPluginUI(PluginTagMixin):
         )
 
         # Create filter inside the tab
-        filter_tag = self._t(f"filter_img_{image_id}")
+        filter_tag = self._t(f"input_filter_img_{image_id}")
         dpg.add_input_text(
             label="Filter Tags",
             tag=filter_tag,

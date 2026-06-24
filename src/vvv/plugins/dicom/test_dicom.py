@@ -61,7 +61,7 @@ class TestDicomPlugin(unittest.TestCase):
         self.mock_api.scan_dicom_folder.return_value = mock_scan_generator
 
         # Trigger folder path and scanning
-        dpg.set_value(ui._t("folder_path"), "/mock/folder")
+        dpg.set_value(ui._t("input_folder_path"), "/mock/folder")
         
         with patch("os.path.exists", return_value=True):
             ui.on_scan_clicked()
