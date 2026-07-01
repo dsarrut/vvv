@@ -221,6 +221,60 @@ class TestProfilePlugin(unittest.TestCase):
         self.plugin._ui.on_plot_closed(win_tag, None, "p1")
         dpg.delete_item("test_parent")
 
+    def test_copy_profile(self):
+        from vvv.utils import ViewMode
+        
+        # 1. Setup mock source and target images/view states
+        src_vs = MagicMock()
+        target_vs = MagicMock()
+        target_vs.profiles = {}
+        target_vs.world_to_display.return_value = np.array([5.0, 5.0, 12.0])
+        
+        target_vol = MagicMock()
+        target_vol.shape3d = (20, 20, 20)
+
+        view_states = {"image_src": src_vs, "image_target": target_vs}
+        volumes = {"image_target": target_vol}
+        
+        self.mock_api.get_view_states.return_value = view_states
+        self.mock_api.get_volumes.return_value = volumes
+        self.mock_api.get_image_display_name.side_effect = lambda img_id: (img_id, False)
+
+        profile = ProfileLineState()
+        profile.id = "p1"
+        profile.name = "Copied Profile"
+        profile.color = [255, 0, 0, 255]
+        profile.pt1_phys = np.array([0.0, 0.0, 0.0])
+        profile.pt2_phys = np.array([10.0, 10.0, 0.0])
+        profile.orientation = ViewMode.AXIAL
+        profile.slice_idx = 5
+        profile.visible = True
+        profile.use_log = True
+
+        controller = self.plugin._controller
+        controller.bind(self.mock_api)
+        
+        # 2. Call copy_profile_to_image
+        controller.copy_profile_to_image(profile, "image_target")
+
+        # 3. Assert target_vs.profiles has a cloned profile with expected properties
+        self.assertEqual(len(target_vs.profiles), 1)
+        cloned_id = list(target_vs.profiles.keys())[0]
+        cloned = target_vs.profiles[cloned_id]
+        
+        self.assertEqual(cloned.name, "Copied Profile")
+        self.assertEqual(cloned.color, [255, 0, 0, 255])
+        self.assertTrue(np.array_equal(cloned.pt1_phys, profile.pt1_phys))
+        self.assertTrue(np.array_equal(cloned.pt2_phys, profile.pt2_phys))
+        self.assertEqual(cloned.orientation, ViewMode.AXIAL)
+        self.assertEqual(cloned.slice_idx, 12)  # Projected to slice 12 based on midpoint (Z/v_idx=2)
+        self.assertTrue(cloned.use_log)
+        self.assertTrue(cloned.visible)
+        
+        self.assertTrue(target_vs.is_geometry_dirty)
+        self.mock_api.notify.assert_called_with("Copied profile 'Copied Profile' to 'image_target'")
+        self.mock_api.request_refresh.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

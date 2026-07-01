@@ -296,7 +296,7 @@ class ProfilePluginController(PluginTagMixin):
         p_id, pt_idx = user_data["id"], user_data["pt"]
         p = viewer.view_state.profiles.get(p_id)
         if p:
-            new_val = np.array(app_data)
+            new_val = np.array(app_data[:3])
             if pt_idx == 1:
                 p.pt1_phys = new_val
             else:
@@ -342,3 +342,57 @@ class ProfilePluginController(PluginTagMixin):
                 api.notify(f"Exported: {p.name}")
             except Exception as e:
                 api.notify(f"Export Failed: {e}")
+
+    def copy_profile_to_image(self, profile, target_image_id):
+        api = self._api
+        if not api:
+            return
+        
+        target_vs = api.get_view_states().get(target_image_id)
+        target_vol = api.get_volumes().get(target_image_id)
+        if not target_vs:
+            api.notify("Target image view state not found.")
+            return
+
+        from vvv.core.view_state import ProfileLineState
+
+        # Calculate target slice index from midpoint
+        slice_idx = profile.slice_idx
+        if profile.pt1_phys is not None and profile.pt2_phys is not None:
+            mid_phys = (profile.pt1_phys + profile.pt2_phys) / 2.0
+            display_voxel = target_vs.world_to_display(mid_phys, is_buffered=False)
+            if display_voxel is not None:
+                orientation = profile.orientation
+                if orientation == ViewMode.AXIAL:
+                    v_idx = 2
+                elif orientation == ViewMode.SAGITTAL:
+                    v_idx = 0
+                elif orientation == ViewMode.CORONAL:
+                    v_idx = 1
+                else:
+                    v_idx = 2
+                
+                target_shape = target_vol.shape3d if target_vol else (1, 1, 1)
+                shape_idx_map = {ViewMode.AXIAL: 0, ViewMode.SAGITTAL: 2, ViewMode.CORONAL: 1}
+                max_slices = target_shape[shape_idx_map.get(orientation, 0)]
+                slice_idx = int(np.round(display_voxel[v_idx]))
+                slice_idx = max(0, min(slice_idx, max_slices - 1))
+
+        # Create cloned profile
+        new_profile = ProfileLineState()
+        new_profile.id = str(dpg.generate_uuid())
+        new_profile.name = profile.name
+        new_profile.color = list(profile.color)
+        new_profile.pt1_phys = profile.pt1_phys.copy() if profile.pt1_phys is not None else None
+        new_profile.pt2_phys = profile.pt2_phys.copy() if profile.pt2_phys is not None else None
+        new_profile.orientation = profile.orientation
+        new_profile.slice_idx = slice_idx
+        new_profile.visible = profile.visible
+        new_profile.use_log = getattr(profile, "use_log", False)
+
+        target_vs.profiles[new_profile.id] = new_profile
+        target_vs.is_geometry_dirty = True
+        
+        target_image_name, _ = api.get_image_display_name(target_image_id)
+        api.notify(f"Copied profile '{profile.name}' to '{target_image_name}'")
+        api.request_refresh()

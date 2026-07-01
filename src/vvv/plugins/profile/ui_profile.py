@@ -484,6 +484,14 @@ class ProfilePluginUI(PluginTagMixin):
             with dpg.tooltip(btn_del):
                 dpg.add_text("Delete profile")
 
+            # 6. Copy
+            btn_copy = dpg.add_button(
+                label="\uf0c5", user_data=p_id, callback=self.on_copy_profile_clicked
+            )
+            self._bind_icon_font(btn_copy)
+            with dpg.tooltip(btn_copy):
+                dpg.add_text("Copy profile to another image")
+
             build_help_button(
                 "Toolbar buttons (left to right):\n"
                 "  [color]  : Change the profile line color\n"
@@ -492,7 +500,8 @@ class ProfilePluginUI(PluginTagMixin):
                 "  [snap]   : Snap both endpoints to the nearest voxel center\n"
                 "  [goto]   : Center the camera on this profile and zoom to fit\n"
                 "  [up/dn]  : Move the profile up or down one slice\n"
-                "  [delete] : Remove this profile\n\n"
+                "  [delete] : Remove this profile\n"
+                "  [copy]   : Copy profile to another image\n\n"
                 "You can also drag the endpoints or the midpoint directly on the image.",
                 self._c._api,
             )
@@ -684,3 +693,90 @@ class ProfilePluginUI(PluginTagMixin):
                 if dpg.does_item_exist(sender):
                     profile.plot_position = dpg.get_item_pos(sender)
         dpg.delete_item(sender)
+
+    def on_copy_profile_clicked(self, sender, app_data, user_data):
+        api = self._c._api
+        if not api:
+            return
+        viewer = api.get_active_viewer()
+        if not viewer or not viewer.image_id:
+            return
+        
+        p_id = user_data
+        profile = viewer.view_state.profiles.get(p_id)
+        if not profile:
+            return
+
+        # Get all other loaded image view states
+        all_vs = api.get_view_states()
+        other_images = {}
+        for img_id in all_vs.keys():
+            if img_id != viewer.image_id:
+                name_str, _ = api.get_image_display_name(img_id)
+                other_images[f"{name_str} ({img_id})"] = img_id
+
+        if not other_images:
+            api.notify("No other images loaded to copy to.")
+            return
+
+        modal_tag = self._t(f"copy_profile_modal_{p_id}")
+        if dpg.does_item_exist(modal_tag):
+            dpg.delete_item(modal_tag)
+
+        # Determine position of the copy modal relative to the profile plot window
+        modal_pos = [100, 100]
+        win_tag = self._t(f"plot_win_{p_id}")
+        if dpg.does_item_exist(win_tag):
+            win_pos = dpg.get_item_pos(win_tag)
+            modal_pos = [win_pos[0] + 50, win_pos[1] + 45]
+
+        # Create a modal window positioned near the copy button
+        with dpg.window(
+            tag=modal_tag,
+            modal=True,
+            show=True,
+            label="Copy Profile to Image",
+            no_collapse=True,
+            width=350,
+            height=120,
+            pos=modal_pos,
+        ):
+            dpg.add_text(f"Copy '{profile.name}' to:")
+            combo_tag = self._t(f"copy_combo_{p_id}")
+            dpg.add_combo(
+                items=list(other_images.keys()),
+                default_value=list(other_images.keys())[0],
+                tag=combo_tag,
+                width=-1,
+            )
+            dpg.add_spacer(height=5)
+            with dpg.group(horizontal=True):
+                dpg.add_button(
+                    label="Copy",
+                    width=100,
+                    callback=self.on_copy_confirm_clicked,
+                    user_data={
+                        "profile": profile,
+                        "other_images": other_images,
+                        "combo_tag": combo_tag,
+                        "modal_tag": modal_tag,
+                    },
+                )
+                dpg.add_button(
+                    label="Cancel",
+                    width=100,
+                    callback=lambda: dpg.delete_item(modal_tag),
+                )
+
+    def on_copy_confirm_clicked(self, sender, app_data, user_data):
+        profile = user_data["profile"]
+        other_images = user_data["other_images"]
+        combo_tag = user_data["combo_tag"]
+        modal_tag = user_data["modal_tag"]
+
+        selected_display = dpg.get_value(combo_tag)
+        target_image_id = other_images.get(selected_display)
+        if target_image_id:
+            self._c.copy_profile_to_image(profile, target_image_id)
+        
+        dpg.delete_item(modal_tag)

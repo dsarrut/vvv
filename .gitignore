@@ -209,7 +209,7 @@ uv.lock
 .pytest_config/.vv_settings
 
 *code-workspace
-*onnx
+*.onnx*
 *pth
 
 
