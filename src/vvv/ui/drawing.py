@@ -392,10 +392,40 @@ class OverlayDrawer:
             return
 
         ww, wl = viewer.view_state.display.ww, viewer.view_state.display.wl
-        cmap = viewer.view_state.display.colormap
+        cmap_name = viewer.view_state.display.colormap
         cv = viewer.view_state.crosshair_value
 
-        current_state = (win_h, ww, wl, cmap, cv)
+        overlay_id = viewer.view_state.display.overlay.image_id
+        overlay_vs = viewer.controller.view_states.get(overlay_id) if overlay_id else None
+        has_overlay = overlay_vs is not None
+
+        ov_cv = None
+        ov_ww = None
+        ov_wl = None
+        ov_cmap_name = None
+        if has_overlay:
+            ov_ww = overlay_vs.display.ww
+            ov_wl = overlay_vs.display.wl
+            ov_cmap_name = overlay_vs.display.colormap
+            
+            # Dynamically read overlay voxel value at active viewer's physical crosshair position
+            phys = viewer.view_state.camera.crosshair_phys_coord
+            if phys is not None:
+                ov_v = overlay_vs.world_to_display(phys, is_buffered=False)
+                if ov_v is not None:
+                    limit_x = overlay_vs.volume.shape3d[2]
+                    limit_y = overlay_vs.volume.shape3d[1]
+                    limit_z = overlay_vs.volume.shape3d[0]
+                    ix = int(np.round(ov_v[0]))
+                    iy = int(np.round(ov_v[1]))
+                    iz = int(np.round(ov_v[2]))
+                    if 0 <= ix < limit_x and 0 <= iy < limit_y and 0 <= iz < limit_z:
+                        ov_cv = overlay_vs._read_voxel_value(ix, iy, iz, use_buffer=False)
+            
+            current_state = (win_h, ww, wl, cmap_name, cv, True, ov_ww, ov_wl, ov_cmap_name, ov_cv)
+        else:
+            current_state = (win_h, ww, wl, cmap_name, cv, False)
+
         if getattr(self, "_last_leg_state", None) == current_state:
             return
         self._last_leg_state = current_state
@@ -405,87 +435,252 @@ class OverlayDrawer:
         else:
             return
 
-        x_start = win_w - cb_width - 55
-        y_start = (win_h - cb_height) // 2
-
         bg_col = viewer.controller.settings.data["colors"]["legend_bg"]
-        dpg.draw_rectangle(
-            [x_start - 15, y_start - 20],
-            [win_w - 5, y_start + cb_height + 20],
-            color=bg_col,
-            fill=bg_col,
-            parent=viewer.legend_tag,
-        )
-
-        cmap = COLORMAPS.get(viewer.view_state.display.colormap, COLORMAPS["Grayscale"])
-
-        for i in range(256):
-            y = y_start + cb_height - (i / 255.0) * cb_height
-            color = [int(c * 255) for c in cmap[i]]
-            dpg.draw_line(
-                [x_start, y],
-                [x_start + cb_width, y],
-                color=color,
-                thickness=2,
-                parent=viewer.legend_tag,
-            )
-
-        border_col = [255, 255, 255, 120]
-        dpg.draw_rectangle(
-            [x_start, y_start],
-            [x_start + cb_width, y_start + cb_height],
-            color=border_col,
-            parent=viewer.legend_tag,
-        )
-
-        ww, wl = viewer.view_state.display.ww, viewer.view_state.display.wl
-        val_min = wl - ww / 2.0
-        val_max = wl + ww / 2.0
         text_col = viewer.controller.settings.data["colors"]["tracker_text"]
+        border_col = [255, 255, 255, 120]
 
-        dpg.draw_text(
-            [x_start + cb_width + 8, y_start - 7],
-            f"{val_max:g}",
-            color=text_col,
-            size=14,
-            parent=viewer.legend_tag,
-        )
-        dpg.draw_text(
-            [x_start + cb_width + 8, y_start + cb_height / 2 - 7],
-            f"{wl:g}",
-            color=text_col,
-            size=14,
-            parent=viewer.legend_tag,
-        )
-        dpg.draw_text(
-            [x_start + cb_width + 8, y_start + cb_height - 7],
-            f"{val_min:g}",
-            color=text_col,
-            size=14,
-            parent=viewer.legend_tag,
-        )
+        if not has_overlay:
+            # Single Colorbar Layout (Base Image only)
+            x_start = win_w - cb_width - 55
+            y_start = (win_h - cb_height) // 2
 
-        val_to_mark = viewer.view_state.crosshair_value
-        if val_to_mark is not None and isinstance(val_to_mark, (int, float, np.number)):
-            norm = (val_to_mark - val_min) / max(1e-5, ww)
-            norm = np.clip(norm, 0.0, 1.0)
-            y_pos = y_start + cb_height - (norm * cb_height)
-
-            dpg.draw_line(
-                [x_start - 6, y_pos],
-                [x_start + cb_width + 6, y_pos],
-                color=[255, 255, 255, 255],
-                thickness=1,
+            dpg.draw_rectangle(
+                [x_start - 15, y_start - 20],
+                [win_w - 5, y_start + cb_height + 20],
+                color=bg_col,
+                fill=bg_col,
                 parent=viewer.legend_tag,
             )
-            dpg.draw_triangle(
-                [x_start - 5, y_pos],
-                [x_start - 11, y_pos - 4],
-                [x_start - 11, y_pos + 4],
-                color=[255, 255, 255, 255],
-                fill=[255, 255, 255, 255],
+
+            cmap = COLORMAPS.get(cmap_name, COLORMAPS["Grayscale"])
+            for i in range(256):
+                y = y_start + cb_height - (i / 255.0) * cb_height
+                color = [int(c * 255) for c in cmap[i]]
+                dpg.draw_line(
+                    [x_start, y],
+                    [x_start + cb_width, y],
+                    color=color,
+                    thickness=2,
+                    parent=viewer.legend_tag,
+                )
+
+            dpg.draw_rectangle(
+                [x_start, y_start],
+                [x_start + cb_width, y_start + cb_height],
+                color=border_col,
                 parent=viewer.legend_tag,
             )
+
+            val_min = wl - ww / 2.0
+            val_max = wl + ww / 2.0
+
+            dpg.draw_text(
+                [x_start + cb_width + 8, y_start - 7],
+                f"{val_max:g}",
+                color=text_col,
+                size=14,
+                parent=viewer.legend_tag,
+            )
+            dpg.draw_text(
+                [x_start + cb_width + 8, y_start + cb_height / 2 - 7],
+                f"{wl:g}",
+                color=text_col,
+                size=14,
+                parent=viewer.legend_tag,
+            )
+            dpg.draw_text(
+                [x_start + cb_width + 8, y_start + cb_height - 7],
+                f"{val_min:g}",
+                color=text_col,
+                size=14,
+                parent=viewer.legend_tag,
+            )
+
+            if cv is not None and isinstance(cv, (int, float, np.number)):
+                norm = (cv - val_min) / max(1e-5, ww)
+                norm = np.clip(norm, 0.0, 1.0)
+                y_pos = y_start + cb_height - (norm * cb_height)
+
+                dpg.draw_line(
+                    [x_start - 6, y_pos],
+                    [x_start + cb_width + 6, y_pos],
+                    color=[255, 255, 255, 255],
+                    thickness=1,
+                    parent=viewer.legend_tag,
+                )
+                dpg.draw_triangle(
+                    [x_start - 5, y_pos],
+                    [x_start - 11, y_pos - 4],
+                    [x_start - 11, y_pos + 4],
+                    color=[255, 255, 255, 255],
+                    fill=[255, 255, 255, 255],
+                    parent=viewer.legend_tag,
+                )
+        else:
+            # Dual Colorbar Layout (Base + Overlay/Fusion)
+            panel_w = 175
+            x_start_panel = win_w - panel_w - 5
+            y_start = (win_h - cb_height) // 2 + 10
+
+            dpg.draw_rectangle(
+                [x_start_panel, y_start - 35],
+                [win_w - 5, y_start + cb_height + 20],
+                color=bg_col,
+                fill=bg_col,
+                parent=viewer.legend_tag,
+            )
+
+            # Titles (using image numbers, e.g. (1) and (4))
+            base_title = f"({viewer.image_id})"
+            overlay_title = f"({overlay_id})"
+
+            dpg.draw_text(
+                [x_start_panel + 50, y_start - 30],
+                base_title,
+                color=text_col,
+                size=13,
+                parent=viewer.legend_tag,
+            )
+            dpg.draw_text(
+                [x_start_panel + 107, y_start - 30],
+                overlay_title,
+                color=text_col,
+                size=13,
+                parent=viewer.legend_tag,
+            )
+
+            # --- Left Colorbar: Base ---
+            x_cb_base = x_start_panel + 55
+            cmap_base = COLORMAPS.get(cmap_name, COLORMAPS["Grayscale"])
+            for i in range(256):
+                y = y_start + cb_height - (i / 255.0) * cb_height
+                color = [int(c * 255) for c in cmap_base[i]]
+                dpg.draw_line(
+                    [x_cb_base, y],
+                    [x_cb_base + cb_width, y],
+                    color=color,
+                    thickness=2,
+                    parent=viewer.legend_tag,
+                )
+            dpg.draw_rectangle(
+                [x_cb_base, y_start],
+                [x_cb_base + cb_width, y_start + cb_height],
+                color=border_col,
+                parent=viewer.legend_tag,
+            )
+
+            val_min_base = wl - ww / 2.0
+            val_max_base = wl + ww / 2.0
+
+            dpg.draw_text(
+                [x_cb_base - 48, y_start - 7],
+                f"{val_max_base:g}",
+                color=text_col,
+                size=13,
+                parent=viewer.legend_tag,
+            )
+            dpg.draw_text(
+                [x_cb_base - 48, y_start + cb_height / 2 - 7],
+                f"{wl:g}",
+                color=text_col,
+                size=13,
+                parent=viewer.legend_tag,
+            )
+            dpg.draw_text(
+                [x_cb_base - 48, y_start + cb_height - 7],
+                f"{val_min_base:g}",
+                color=text_col,
+                size=13,
+                parent=viewer.legend_tag,
+            )
+
+            if cv is not None and isinstance(cv, (int, float, np.number)):
+                norm = (cv - val_min_base) / max(1e-5, ww)
+                norm = np.clip(norm, 0.0, 1.0)
+                y_pos = y_start + cb_height - (norm * cb_height)
+
+                dpg.draw_line(
+                    [x_cb_base - 6, y_pos],
+                    [x_cb_base + cb_width, y_pos],
+                    color=[255, 255, 255, 255],
+                    thickness=1,
+                    parent=viewer.legend_tag,
+                )
+                dpg.draw_triangle(
+                    [x_cb_base - 2, y_pos],
+                    [x_cb_base - 8, y_pos - 4],
+                    [x_cb_base - 8, y_pos + 4],
+                    color=[255, 255, 255, 255],
+                    fill=[255, 255, 255, 255],
+                    parent=viewer.legend_tag,
+                )
+
+            # --- Right Colorbar: Overlay ---
+            x_cb_ov = x_start_panel + 110
+            cmap_ov = COLORMAPS.get(ov_cmap_name, COLORMAPS["Grayscale"]) if isinstance(ov_cmap_name, str) else COLORMAPS["Grayscale"]
+            for i in range(256):
+                y = y_start + cb_height - (i / 255.0) * cb_height
+                color = [int(c * 255) for c in cmap_ov[i]]
+                dpg.draw_line(
+                    [x_cb_ov, y],
+                    [x_cb_ov + cb_width, y],
+                    color=color,
+                    thickness=2,
+                    parent=viewer.legend_tag,
+                )
+            dpg.draw_rectangle(
+                [x_cb_ov, y_start],
+                [x_cb_ov + cb_width, y_start + cb_height],
+                color=border_col,
+                parent=viewer.legend_tag,
+            )
+
+            if ov_wl is not None and ov_ww is not None:
+                val_min_ov = ov_wl - ov_ww / 2.0
+                val_max_ov = ov_wl + ov_ww / 2.0
+
+                dpg.draw_text(
+                    [x_cb_ov + cb_width + 8, y_start - 7],
+                    f"{val_max_ov:g}",
+                    color=text_col,
+                    size=13,
+                    parent=viewer.legend_tag,
+                )
+                dpg.draw_text(
+                    [x_cb_ov + cb_width + 8, y_start + cb_height / 2 - 7],
+                    f"{ov_wl:g}",
+                    color=text_col,
+                    size=13,
+                    parent=viewer.legend_tag,
+                )
+                dpg.draw_text(
+                    [x_cb_ov + cb_width + 8, y_start + cb_height - 7],
+                    f"{val_min_ov:g}",
+                    color=text_col,
+                    size=13,
+                    parent=viewer.legend_tag,
+                )
+
+                if ov_cv is not None and isinstance(ov_cv, (int, float, np.number)):
+                    norm = (ov_cv - val_min_ov) / max(1e-5, ov_ww)
+                    norm = np.clip(norm, 0.0, 1.0)
+                    y_pos = y_start + cb_height - (norm * cb_height)
+
+                    dpg.draw_line(
+                        [x_cb_ov, y_pos],
+                        [x_cb_ov + cb_width + 6, y_pos],
+                        color=[255, 255, 255, 255],
+                        thickness=1,
+                        parent=viewer.legend_tag,
+                    )
+                    dpg.draw_triangle(
+                        [x_cb_ov + cb_width + 2, y_pos],
+                        [x_cb_ov + cb_width + 8, y_pos - 4],
+                        [x_cb_ov + cb_width + 8, y_pos + 4],
+                        color=[255, 255, 255, 255],
+                        fill=[255, 255, 255, 255],
+                        parent=viewer.legend_tag,
+                    )
 
     def draw_contours(self):
         viewer = self.viewer
