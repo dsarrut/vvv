@@ -116,6 +116,7 @@ class SyncManager:
 
         self.trigger_redraw(list(dirty_ids))
 
+
     def propagate_window_level(self, source_vs_id):
         source_vs = self.controller.view_states.get(source_vs_id)
         if not source_vs:
@@ -295,7 +296,6 @@ class SyncManager:
         )
         if master_viewer:
             self.propagate_camera(master_viewer)
-            
         self.propagate_sync(master_vs_id)
         
         for vs_id in list(self.controller.view_states.keys()):

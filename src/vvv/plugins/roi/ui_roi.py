@@ -176,6 +176,16 @@ class RoiPluginUI(PluginTagMixin):
 
             # --- MIDDLE: Master List Controls ---
             with dpg.group(horizontal=True):
+                btn_color_picker = dpg.add_color_edit(
+                    default_value=[255, 255, 255, 255],
+                    no_inputs=True,
+                    no_label=True,
+                    no_alpha=True,
+                    width=20,
+                    height=20,
+                    tag=self._t("btn_roi_color_picker"),
+                    callback=self.on_global_roi_color_picker_changed,
+                )
                 btn_show = dpg.add_button(
                     label="\uf06e",
                     width=20,
@@ -236,6 +246,9 @@ class RoiPluginUI(PluginTagMixin):
 
                 if dpg.does_item_exist("delete_button_theme"):
                     dpg.bind_item_theme(btn_close_all, "delete_button_theme")
+
+                with dpg.tooltip(btn_color_picker):
+                    dpg.add_text("Change color of selected ROI")
 
                 with dpg.tooltip(btn_show):
                     dpg.add_text("Show All (Raster)")
@@ -432,6 +445,7 @@ class RoiPluginUI(PluginTagMixin):
                 dpg.configure_item(tag, enabled=has_image and not is_mip)
 
         roi_controls = [
+            "btn_roi_color_picker",
             "btn_roi_show_all",
             "btn_roi_contour_all",
             "btn_roi_hide_all",
@@ -480,6 +494,15 @@ class RoiPluginUI(PluginTagMixin):
             return
 
         vs_id = viewer.image_id
+        color_picker_tag = self._t("btn_roi_color_picker")
+        if dpg.does_item_exist(color_picker_tag):
+            active_id = self._c.active_roi_id
+            if active_id and active_id in viewer.view_state.rois:
+                active_color = viewer.view_state.rois[active_id].color
+                dpg.set_value(color_picker_tag, active_color + [255])
+            else:
+                dpg.set_value(color_picker_tag, [255, 255, 255, 255])
+
         filter_text = self._c.roi_filters.get(vs_id, "")
         sort_order = self._c.roi_sort_orders.get(vs_id, 0)
 
@@ -1017,6 +1040,28 @@ class RoiPluginUI(PluginTagMixin):
         self._sync_roi_color_ui(roi_id, sender)
         self.api.update_all_viewers_of_image(viewer.image_id)
 
+    def on_global_roi_color_picker_changed(self, sender, app_data, user_data):
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.view_state or not viewer.view_state.rois:
+            return
+        vs = viewer.view_state
+        vs_id = viewer.image_id
+        filter_text = self._c.roi_filters.get(vs_id, "").lower()
+        scale = 255.0 if all(c <= 1.0 for c in app_data) else 1.0
+        new_color = [int(c * scale) for c in app_data[:3]]
+
+        changed = False
+        for roi_id, roi in vs.rois.items():
+            if filter_text and filter_text not in roi.name.lower():
+                continue
+            roi.color = list(new_color)
+            self._sync_roi_color_ui(roi_id, sender)
+            changed = True
+
+        if changed:
+            vs.is_data_dirty = True
+            self.api.update_all_viewers_of_image(viewer.image_id)
+
     def _sync_roi_color_ui(self, roi_id, sender=None):
         """Sync all color-related UI elements for a given ROI after its color changed.
 
@@ -1030,10 +1075,11 @@ class RoiPluginUI(PluginTagMixin):
         roi = viewer.view_state.rois[roi_id]
         rgb = roi.color[:3]
 
-        # 1. Sync both color pickers (skip the one that triggered the change)
+        # 1. Sync color pickers (skip the one that triggered the change)
         for picker_tag in (
             self._t(f"list_color_picker_{roi_id}"),
             self._t(f"stats_color_picker_{roi_id}"),
+            self._t("btn_roi_color_picker"),
         ):
             if dpg.does_item_exist(picker_tag) and picker_tag != sender:
                 dpg.set_value(picker_tag, rgb + [255])

@@ -905,16 +905,28 @@ class InteractionManager:
         if roi_plugin and hasattr(roi_plugin, "_ui"):
             ui = roi_plugin._ui
             for input_id in list(ui.roi_selectables.values()):
-                if dpg.does_item_exist(input_id) and dpg.is_item_focused(input_id):
-                    return
+                if input_id and dpg.does_item_exist(input_id):
+                    try:
+                        if dpg.is_item_focused(input_id):
+                            return
+                    except Exception:
+                        pass
 
             filter_tag = ui._t("input_roi_filter")
-            if dpg.does_item_exist(filter_tag) and dpg.is_item_focused(filter_tag):
-                return
+            if filter_tag and dpg.does_item_exist(filter_tag):
+                try:
+                    if dpg.is_item_focused(filter_tag):
+                        return
+                except Exception:
+                    pass
 
             val_tag = ui._t("input_roi_val")
-            if dpg.does_item_exist(val_tag) and dpg.is_item_focused(val_tag):
-                return
+            if val_tag and dpg.does_item_exist(val_tag):
+                try:
+                    if dpg.is_item_focused(val_tag):
+                        return
+                except Exception:
+                    pass
 
             # Check if mouse is hovering the ROI list window
             list_win = ui._t("roi_list_window")

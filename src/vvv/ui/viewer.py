@@ -2055,9 +2055,10 @@ class SliceViewer:
             return False
         dpg.set_value(tag, data)  # type: ignore
         if GL_NEAREST_SUPPORTED:
-            try_set_gl_nearest(
-                self._effective_pixelated_zoom() and self._is_hw_gl, tex_w, tex_h
-            )
+            nearest = self._effective_pixelated_zoom() and self._is_hw_gl
+            if nearest or getattr(self, "_last_nearest_applied", False):
+                try_set_gl_nearest(nearest, tex_w, tex_h)
+                self._last_nearest_applied = nearest
         return True
 
     @property
