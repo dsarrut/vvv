@@ -212,4 +212,4 @@ uv.lock
 *.onnx*
 *pth
 test_dpg.py
-
+scratch*

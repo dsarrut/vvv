@@ -1766,6 +1766,7 @@ class SliceViewer:
                 slice_idx=self.slice_idx,
                 orientation=self.orientation,
                 rois=active_rois,
+                roi_above_overlay=vs.display.roi_above_overlay,
             )
 
             self.last_overlay_rgba_flat, self.last_overlay_rgba_shape = (
@@ -1776,7 +1777,8 @@ class SliceViewer:
                     overlay_mode="Alpha",
                     slice_idx=self.slice_idx - overlay_layer.offset_slice,
                     orientation=self.orientation,
-                    rois=[],
+                    rois=active_rois if vs.display.roi_above_overlay else [],
+                    roi_above_overlay=vs.display.roi_above_overlay,
                 )
             )
         else:
@@ -1790,6 +1792,7 @@ class SliceViewer:
                 checkerboard_size=vs.display.overlay.checkerboard_size,
                 checkerboard_swap=vs.display.overlay.swap,
                 rois=active_rois,
+                roi_above_overlay=vs.display.roi_above_overlay,
             )
             self.last_overlay_rgba_flat = None
             self.last_overlay_rgba_shape = None
@@ -1924,6 +1927,32 @@ class SliceViewer:
             and has_alpha_overlay
             and not is_mip
         ):
+            active_rois = self._package_roi_layers()
+            roi_mask = None
+            roi_color_buf = None
+            if vs.display.roi_above_overlay and len(active_rois) > 0:
+                h, w = self.get_slice_shape()
+                roi_mask = np.zeros((h, w), dtype=np.float32)
+                roi_color_buf = np.zeros((h, w, 3), dtype=np.float32)
+                for roi in active_rois:
+                    rh, rw = roi.data.shape
+                    ox, oy = roi.offset_x, roi.offset_y
+                    src_x0, src_y0 = max(0, -ox), max(0, -oy)
+                    src_x1, src_y1 = min(rw, w - ox), min(rh, h - oy)
+                    dst_x0, dst_y0 = max(0, ox), max(0, oy)
+                    dst_x1, dst_y1 = min(w, ox + rw), min(h, oy + rh)
+                    if src_x1 > src_x0 and src_y1 > src_y0:
+                        mask = roi.data[src_y0:src_y1, src_x0:src_x1] > 0
+                        roi_mask[dst_y0:dst_y1, dst_x0:dst_x1][mask] = np.maximum(
+                            roi_mask[dst_y0:dst_y1, dst_x0:dst_x1][mask],
+                            roi.opacity
+                        )
+                        roi_color_buf[dst_y0:dst_y1, dst_x0:dst_x1][mask] = [
+                            roi.color[0] / 255.0,
+                            roi.color[1] / 255.0,
+                            roi.color[2] / 255.0,
+                        ]
+
             if (
                 nn_base is rgba_2d
             ):  # identity pass returned the slice cache — copy first
@@ -1937,6 +1966,8 @@ class SliceViewer:
                 canvas_h,
                 target_buffer=nn_base,
                 opacity=vs.display.overlay.opacity,
+                roi_mask=roi_mask,
+                roi_color_buf=roi_color_buf,
             )
 
         self._safe_set_texture(
@@ -1986,8 +2017,36 @@ class SliceViewer:
         canvas_w, canvas_h = self._get_canvas_size()
 
         if self.nn_mode == NNMode.SW_DUAL_NATIVE:
+            active_rois = self._package_roi_layers()
+            roi_mask = None
+            roi_color_buf = None
+            if vs.display.roi_above_overlay and len(active_rois) > 0:
+                h, w = self.get_slice_shape()
+                roi_mask = np.zeros((h, w), dtype=np.float32)
+                roi_color_buf = np.zeros((h, w, 3), dtype=np.float32)
+                for roi in active_rois:
+                    rh, rw = roi.data.shape
+                    ox, oy = roi.offset_x, roi.offset_y
+                    src_x0, src_y0 = max(0, -ox), max(0, -oy)
+                    src_x1, src_y1 = min(rw, w - ox), min(rh, h - oy)
+                    dst_x0, dst_y0 = max(0, ox), max(0, oy)
+                    dst_x1, dst_y1 = min(w, ox + rw), min(h, oy + rh)
+                    if src_x1 > src_x0 and src_y1 > src_y0:
+                        mask = roi.data[src_y0:src_y1, src_x0:src_x1] > 0
+                        roi_mask[dst_y0:dst_y1, dst_x0:dst_x1][mask] = np.maximum(
+                            roi_mask[dst_y0:dst_y1, dst_x0:dst_x1][mask],
+                            roi.opacity
+                        )
+                        roi_color_buf[dst_y0:dst_y1, dst_x0:dst_x1][mask] = [
+                            roi.color[0] / 255.0,
+                            roi.color[1] / 255.0,
+                            roi.color[2] / 255.0,
+                        ]
+
             ov_rgba_display = compute_native_voxel_overlay(
-                self, self.current_pmin, self.current_pmax, canvas_w, canvas_h
+                self, self.current_pmin, self.current_pmax, canvas_w, canvas_h,
+                roi_mask=roi_mask,
+                roi_color_buf=roi_color_buf,
             )
             if ov_rgba_display is not None:
                 self._safe_set_texture(

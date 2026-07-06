@@ -223,6 +223,7 @@ class SliceRenderer:
             base_sub[mask, 0] = base_sub[mask, 0] * inv_alpha + r * alpha
             base_sub[mask, 1] = base_sub[mask, 1] * inv_alpha + g * alpha
             base_sub[mask, 2] = base_sub[mask, 2] * inv_alpha + b * alpha
+            base_sub[mask, 3] = base_sub[mask, 3] * inv_alpha + alpha
 
         return base_rgba
 
@@ -344,6 +345,7 @@ class SliceRenderer:
         checkerboard_size: float = 20.0,
         checkerboard_swap: bool = False,
         rois=(),
+        roi_above_overlay: bool = True,
     ):
         if orientation not in SliceRenderer._AXIS_MAP:
             return np.zeros(4, dtype=np.float32), (1, 1)
@@ -402,6 +404,9 @@ class SliceRenderer:
                 base.cmap_name,
                 base.threshold,
             )
+
+        if rois and not roi_above_overlay:
+            base_rgba = SliceRenderer._apply_rois(base_rgba.copy(), rois)
 
         res_rgba = base_rgba
 
@@ -470,7 +475,7 @@ class SliceRenderer:
                 res_rgba = base_rgba # DPG OverlayDrawer handles rendering the vectors
 
         # --- 3. ROIs & FINAL EXPORT ---
-        if rois:
+        if rois and roi_above_overlay:
             res_rgba = SliceRenderer._apply_rois(res_rgba, rois)
 
         return res_rgba.astype(np.float32, copy=False).ravel(), (h, w)

@@ -48,16 +48,22 @@ def _init_numba():
             ov_H,
             ov_W,
             precomposite,
+            roi_mask,
+            roi_color_buf,
+            iy_disp,
+            ix_disp,
         ):
             crop_h = len(iy_adj)
             crop_w = len(ix_adj)
             for cy in numba.prange(crop_h):  # type: ignore[union-attr]
                 iy = iy_adj[cy]
+                iy_disp_val = iy_disp[cy]
                 Bx = B_eff[0] + C_col[0] * iy
                 By = B_eff[1] + C_col[1] * iy
                 Bz = B_eff[2] + C_col[2] * iy
                 for cx in range(crop_w):
                     ix = ix_adj[cx]
+                    ix_disp_val = ix_disp[cx]
                     sx = Bx + C_row[0] * ix
                     sy = By + C_row[1] * ix
                     sz = Bz + C_row[2] * ix
@@ -90,15 +96,57 @@ def _init_numba():
                     rx = cx + c_x0
                     if precomposite:
                         inv_a = 1.0 - a
-                        rgba[ry, rx, 0] = r * a + rgba[ry, rx, 0] * inv_a
-                        rgba[ry, rx, 1] = g * a + rgba[ry, rx, 1] * inv_a
-                        rgba[ry, rx, 2] = b * a + rgba[ry, rx, 2] * inv_a
-                        rgba[ry, rx, 3] = a + rgba[ry, rx, 3] * inv_a
+                        if roi_mask.shape[0] > 0:
+                            iy_idx = int(iy_disp_val)
+                            ix_idx = int(ix_disp_val)
+                            if iy_idx >= 0 and iy_idx < roi_mask.shape[0] and ix_idx >= 0 and ix_idx < roi_mask.shape[1]:
+                                roi_alpha = roi_mask[iy_idx, ix_idx]
+                            else:
+                                roi_alpha = 0.0
+                            if roi_alpha > 0.0:
+                                roi_r = roi_color_buf[iy_idx, ix_idx, 0]
+                                roi_g = roi_color_buf[iy_idx, ix_idx, 1]
+                                roi_b = roi_color_buf[iy_idx, ix_idx, 2]
+                                rgba[ry, rx, 0] = rgba[ry, rx, 0] * inv_a + r * a * (1.0 - roi_alpha) + roi_r * roi_alpha * a
+                                rgba[ry, rx, 1] = rgba[ry, rx, 1] * inv_a + g * a * (1.0 - roi_alpha) + roi_g * roi_alpha * a
+                                rgba[ry, rx, 2] = rgba[ry, rx, 2] * inv_a + b * a * (1.0 - roi_alpha) + roi_b * roi_alpha * a
+                                rgba[ry, rx, 3] = rgba[ry, rx, 3] * inv_a + a
+                            else:
+                                rgba[ry, rx, 0] = r * a + rgba[ry, rx, 0] * inv_a
+                                rgba[ry, rx, 1] = g * a + rgba[ry, rx, 1] * inv_a
+                                rgba[ry, rx, 2] = b * a + rgba[ry, rx, 2] * inv_a
+                                rgba[ry, rx, 3] = a + rgba[ry, rx, 3] * inv_a
+                        else:
+                            rgba[ry, rx, 0] = r * a + rgba[ry, rx, 0] * inv_a
+                            rgba[ry, rx, 1] = g * a + rgba[ry, rx, 1] * inv_a
+                            rgba[ry, rx, 2] = b * a + rgba[ry, rx, 2] * inv_a
+                            rgba[ry, rx, 3] = a + rgba[ry, rx, 3] * inv_a
                     else:
-                        rgba[ry, rx, 0] = r
-                        rgba[ry, rx, 1] = g
-                        rgba[ry, rx, 2] = b
-                        rgba[ry, rx, 3] = a
+                        if roi_mask.shape[0] > 0:
+                            iy_idx = int(iy_disp_val)
+                            ix_idx = int(ix_disp_val)
+                            if iy_idx >= 0 and iy_idx < roi_mask.shape[0] and ix_idx >= 0 and ix_idx < roi_mask.shape[1]:
+                                roi_alpha = roi_mask[iy_idx, ix_idx]
+                            else:
+                                roi_alpha = 0.0
+                            if roi_alpha > 0.0:
+                                roi_r = roi_color_buf[iy_idx, ix_idx, 0]
+                                roi_g = roi_color_buf[iy_idx, ix_idx, 1]
+                                roi_b = roi_color_buf[iy_idx, ix_idx, 2]
+                                rgba[ry, rx, 0] = r * (1.0 - roi_alpha) + roi_r * roi_alpha
+                                rgba[ry, rx, 1] = g * (1.0 - roi_alpha) + roi_g * roi_alpha
+                                rgba[ry, rx, 2] = b * (1.0 - roi_alpha) + roi_b * roi_alpha
+                                rgba[ry, rx, 3] = a * (1.0 - roi_alpha) + roi_alpha
+                            else:
+                                rgba[ry, rx, 0] = r
+                                rgba[ry, rx, 1] = g
+                                rgba[ry, rx, 2] = b
+                                rgba[ry, rx, 3] = a
+                        else:
+                            rgba[ry, rx, 0] = r
+                            rgba[ry, rx, 1] = g
+                            rgba[ry, rx, 2] = b
+                            rgba[ry, rx, 3] = a
 
         _native_ov_kernel_nb = _kernel
         _NUMBA_AVAILABLE = True
@@ -396,8 +444,12 @@ def _affine_np(transform):
 
 
 def compute_native_voxel_overlay(
-    viewer, pmin, pmax, canvas_w, canvas_h, target_buffer=None, opacity=1.0
+    viewer, pmin, pmax, canvas_w, canvas_h, target_buffer=None, opacity=1.0, roi_mask=None, roi_color_buf=None
 ):
+    if roi_mask is None:
+        roi_mask = np.zeros((0, 0), dtype=np.float32)
+    if roi_color_buf is None:
+        roi_color_buf = np.zeros((0, 0, 3), dtype=np.float32)
     """Render the overlay at its native voxel resolution in NN pixelated mode.
 
     Instead of NN-mapping the pre-resampled overlay (at CT resolution), this maps
@@ -580,6 +632,10 @@ def compute_native_voxel_overlay(
             ov_H,
             ov_W,
             target_buffer is not None,
+            roi_mask,
+            roi_color_buf,
+            iy_disp.astype(np.float32),
+            ix_disp.astype(np.float32),
         )
         if target_buffer is not None:
             viewer._last_single_native_ov_crop = (c_y0, c_y1, c_x0, c_x1)

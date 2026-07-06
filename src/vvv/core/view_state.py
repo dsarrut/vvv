@@ -246,6 +246,7 @@ class DisplayState:
     min_threshold: float | None
     pixelated_zoom: bool
     use_voxel_strips: bool
+    roi_above_overlay: bool
 
     # Fields that trigger a DATA redraw
     _DATA_FIELDS = {
@@ -255,6 +256,7 @@ class DisplayState:
         "min_threshold",
         "pixelated_zoom",
         "use_voxel_strips",
+        "roi_above_overlay",
     }
 
     def __init__(self, parent_vs: "ViewState | None" = None):
@@ -271,6 +273,7 @@ class DisplayState:
         self.min_threshold = None
         self.pixelated_zoom = False
         self.use_voxel_strips = False
+        self.roi_above_overlay = True
 
     def __setattr__(self, name, value):
         if name in self._DATA_FIELDS and getattr(self, name, _SENTINEL) != value:
@@ -297,6 +300,7 @@ class DisplayState:
             ),
             "pixelated_zoom": self.pixelated_zoom,
             "use_voxel_strips": self.use_voxel_strips,
+            "roi_above_overlay": self.roi_above_overlay,
             **self.overlay.to_dict(),
         }
 
@@ -309,6 +313,7 @@ class DisplayState:
         )
         self.pixelated_zoom = d.get("pixelated_zoom", self.pixelated_zoom)
         self.use_voxel_strips = d.get("use_voxel_strips", self.use_voxel_strips)
+        self.roi_above_overlay = d.get("roi_above_overlay", self.roi_above_overlay)
         self.overlay.from_dict(d)
 
 

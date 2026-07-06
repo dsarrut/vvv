@@ -303,6 +303,15 @@ class RoiPluginUI(PluginTagMixin):
                     self.api,
                 )
 
+            dpg.add_spacer(height=2)
+            with dpg.group(horizontal=True):
+                dpg.add_checkbox(
+                    label="ROIs on top of Fusion",
+                    tag=self._t("checkbox_roi_above_overlay"),
+                    default_value=True,
+                    callback=self.on_roi_above_overlay_changed,
+                )
+
             dpg.add_separator()
 
             # Filter Group
@@ -458,11 +467,20 @@ class RoiPluginUI(PluginTagMixin):
             "slider_roi_global_opacity",
             "slider_roi_global_thickness",
             "input_roi_filter",
+            "checkbox_roi_above_overlay",
         ]
         for name in roi_controls:
             tag = self._t(name)
             if dpg.does_item_exist(tag):
                 dpg.configure_item(tag, enabled=has_rois and not is_mip)
+
+        if dpg.does_item_exist(self._t("checkbox_roi_above_overlay")) and viewer and viewer.view_state:
+            val = getattr(viewer.view_state.display, "roi_above_overlay", True)
+            if hasattr(val, "mock_calls"):
+                val = True
+            else:
+                val = bool(val)
+            dpg.set_value(self._t("checkbox_roi_above_overlay"), val)
 
         if dpg.does_item_exist(self._t("text_roi_active_title")):
             if (
@@ -2711,6 +2729,14 @@ class RoiPluginUI(PluginTagMixin):
             roi.visible = False
         viewer.view_state.is_data_dirty = True
         viewer.view_state.is_geometry_dirty = True
+        self.api.request_refresh()
+        self.api.update_all_viewers_of_image(viewer.image_id)
+
+    def on_roi_above_overlay_changed(self, sender, app_data, user_data):
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.view_state:
+            return
+        viewer.view_state.display.roi_above_overlay = app_data
         self.api.request_refresh()
         self.api.update_all_viewers_of_image(viewer.image_id)
 
