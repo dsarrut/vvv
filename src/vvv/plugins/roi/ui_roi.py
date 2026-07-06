@@ -204,6 +204,12 @@ class RoiPluginUI(PluginTagMixin):
                     callback=self.on_roi_hide_all,
                     tag=self._t("btn_roi_hide_all"),
                 )
+                btn_roi_above_overlay = dpg.add_button(
+                    label="\uf5fd",
+                    width=20,
+                    callback=self.on_roi_above_overlay_clicked,
+                    tag=self._t("btn_roi_above_overlay"),
+                )
                 btn_close_all = dpg.add_button(
                     label="\uf00d",
                     width=20,
@@ -228,6 +234,7 @@ class RoiPluginUI(PluginTagMixin):
                     "- Show All (Raster) [Eye Icon]: Display all ROIs as solid filled regions.\n"
                     "- Show All (Contour) [Pencil Icon]: Display all ROIs as thin outlines.\n"
                     "- Hide All [Slashed Eye Icon]: Hide all ROIs from the slice views.\n"
+                    "- Toggle ROI on top of Fusion [Layers Icon]: Render ROIs above or below overlay.\n"
                     "- Toggle All Stats [External Link Icon]: Open or close all statistics windows simultaneously.\n"
                     "- Close All [X Icon]: Permanently remove all ROIs from the current view state.",
                     self.api,
@@ -240,6 +247,7 @@ class RoiPluginUI(PluginTagMixin):
                         btn_hide,
                         btn_toggle_all_stats,
                         btn_reload_all,
+                        btn_roi_above_overlay,
                         btn_close_all,
                     ]:
                         dpg.bind_item_font(btn, "icon_font_tag")
@@ -258,6 +266,9 @@ class RoiPluginUI(PluginTagMixin):
 
                 with dpg.tooltip(btn_hide):
                     dpg.add_text("Hide All")
+
+                with dpg.tooltip(btn_roi_above_overlay):
+                    dpg.add_text("Toggle ROI on top of Fusion")
 
                 with dpg.tooltip(btn_close_all):
                     dpg.add_text("Close All")
@@ -301,15 +312,6 @@ class RoiPluginUI(PluginTagMixin):
                     self._t("slider_roi_global_thickness"),
                     "Adjust contour line thickness for all loaded ROIs simultaneously.",
                     self.api,
-                )
-
-            dpg.add_spacer(height=2)
-            with dpg.group(horizontal=True):
-                dpg.add_checkbox(
-                    label="ROIs on top of Fusion",
-                    tag=self._t("checkbox_roi_above_overlay"),
-                    default_value=True,
-                    callback=self.on_roi_above_overlay_changed,
                 )
 
             dpg.add_separator()
@@ -467,20 +469,28 @@ class RoiPluginUI(PluginTagMixin):
             "slider_roi_global_opacity",
             "slider_roi_global_thickness",
             "input_roi_filter",
-            "checkbox_roi_above_overlay",
+            "btn_roi_above_overlay",
         ]
         for name in roi_controls:
             tag = self._t(name)
             if dpg.does_item_exist(tag):
-                dpg.configure_item(tag, enabled=has_rois and not is_mip)
+                enabled = has_rois and not is_mip
+                if name == "btn_roi_above_overlay":
+                    has_overlay = bool(viewer and viewer.view_state and viewer.view_state.display.overlay.image_id)
+                    enabled = enabled and has_overlay
+                dpg.configure_item(tag, enabled=enabled)
 
-        if dpg.does_item_exist(self._t("checkbox_roi_above_overlay")) and viewer and viewer.view_state:
-            val = getattr(viewer.view_state.display, "roi_above_overlay", True)
+        if dpg.does_item_exist(self._t("btn_roi_above_overlay")) and viewer and viewer.view_state:
+            val = getattr(viewer.view_state.display, "roi_above_overlay", False)
             if hasattr(val, "mock_calls"):
-                val = True
+                val = False
             else:
                 val = bool(val)
-            dpg.set_value(self._t("checkbox_roi_above_overlay"), val)
+            if val:
+                if dpg.does_item_exist("active_nav_button_theme"):
+                    dpg.bind_item_theme(self._t("btn_roi_above_overlay"), "active_nav_button_theme")
+            else:
+                dpg.bind_item_theme(self._t("btn_roi_above_overlay"), 0)
 
         if dpg.does_item_exist(self._t("text_roi_active_title")):
             if (
@@ -2732,11 +2742,20 @@ class RoiPluginUI(PluginTagMixin):
         self.api.request_refresh()
         self.api.update_all_viewers_of_image(viewer.image_id)
 
-    def on_roi_above_overlay_changed(self, sender, app_data, user_data):
+    def on_roi_above_overlay_clicked(self, sender, app_data):
         viewer = self.api.get_active_viewer()
         if not viewer or not viewer.view_state:
             return
-        viewer.view_state.display.roi_above_overlay = app_data
+        val = getattr(viewer.view_state.display, "roi_above_overlay", False)
+        if hasattr(val, "mock_calls"):
+            val = False
+        new_val = not bool(val)
+        viewer.view_state.display.roi_above_overlay = new_val
+        if new_val:
+            if dpg.does_item_exist("active_nav_button_theme"):
+                dpg.bind_item_theme(self._t("btn_roi_above_overlay"), "active_nav_button_theme")
+        else:
+            dpg.bind_item_theme(self._t("btn_roi_above_overlay"), 0)
         self.api.request_refresh()
         self.api.update_all_viewers_of_image(viewer.image_id)
 

@@ -345,7 +345,7 @@ class SliceRenderer:
         checkerboard_size: float = 20.0,
         checkerboard_swap: bool = False,
         rois=(),
-        roi_above_overlay: bool = True,
+        roi_above_overlay: bool = False,
     ):
         if orientation not in SliceRenderer._AXIS_MAP:
             return np.zeros(4, dtype=np.float32), (1, 1)

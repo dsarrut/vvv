@@ -273,7 +273,7 @@ class DisplayState:
         self.min_threshold = None
         self.pixelated_zoom = False
         self.use_voxel_strips = False
-        self.roi_above_overlay = True
+        self.roi_above_overlay = False
 
     def __setattr__(self, name, value):
         if name in self._DATA_FIELDS and getattr(self, name, _SENTINEL) != value:
