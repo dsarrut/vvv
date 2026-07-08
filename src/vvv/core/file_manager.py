@@ -317,7 +317,7 @@ class FileManager:
 
             # Extract ROIs Info
             rois_list = []
-            for roi_id, roi_state in vs.rois.items():
+            for roi_id, roi_state in list(vs.rois.items()):
                 if roi_id in self.controller.volumes:
                     r_vol = self.controller.volumes[roi_id]
                     if r_vol.file_paths:

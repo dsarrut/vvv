@@ -325,7 +325,7 @@ class Controller:
 
             # 3. Intersecting ROIs (ROIs share the Base Image's spatial grid)
             roi_names = []
-            for r_id, r_state in vs.rois.items():
+            for r_id, r_state in list(vs.rois.items()):
                 r_vol = self.volumes.get(r_id)
                 if r_vol:
                     if hasattr(r_vol, "roi_bbox"):

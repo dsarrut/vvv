@@ -691,7 +691,7 @@ class InteractionManager:
             return None
 
         # Check all visible spheroid or box ROIs
-        for roi_id, roi_state in vs.rois.items():
+        for roi_id, roi_state in list(vs.rois.items()):
             is_spheroid = getattr(roi_state, "is_spheroid", False)
             is_box = getattr(roi_state, "is_box", False)
             if not roi_state.visible or (not is_spheroid and not is_box):

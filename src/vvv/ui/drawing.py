@@ -708,7 +708,7 @@ class OverlayDrawer:
         contour_rois = list(contour_dict.values())
 
         # Include ROIs in contour mode
-        for r_id, r_state in viewer.view_state.rois.items():
+        for r_id, r_state in list(viewer.view_state.rois.items()):
             if r_state.visible and getattr(r_state, "is_contour", False):
                 contour_rois.append(r_state)
 

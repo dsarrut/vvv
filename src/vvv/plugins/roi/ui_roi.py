@@ -256,7 +256,7 @@ class RoiPluginUI(PluginTagMixin):
                     dpg.bind_item_theme(btn_close_all, "delete_button_theme")
 
                 with dpg.tooltip(btn_color_picker):
-                    dpg.add_text("Change color of selected ROI")
+                    dpg.add_text("Change color of all listed ROIs", tag=self._t("tooltip_roi_color_picker"))
 
                 with dpg.tooltip(btn_show):
                     dpg.add_text("Show All (Raster)")
@@ -524,12 +524,31 @@ class RoiPluginUI(PluginTagMixin):
         vs_id = viewer.image_id
         color_picker_tag = self._t("btn_roi_color_picker")
         if dpg.does_item_exist(color_picker_tag):
-            active_id = self._c.active_roi_id
-            if active_id and active_id in viewer.view_state.rois:
-                active_color = viewer.view_state.rois[active_id].color
-                dpg.set_value(color_picker_tag, active_color + [255])
-            else:
+            filter_text = self._c.roi_filters.get(vs_id, "").lower()
+            matching_colors = []
+            for roi in viewer.view_state.rois.values():
+                if filter_text and filter_text not in roi.name.lower():
+                    continue
+                matching_colors.append(tuple(roi.color[:3]))
+
+            unique_colors = set(matching_colors)
+            tooltip_tag = self._t("tooltip_roi_color_picker")
+
+            if not matching_colors:
                 dpg.set_value(color_picker_tag, [255, 255, 255, 255])
+                if dpg.does_item_exist(tooltip_tag):
+                    dpg.set_value(tooltip_tag, "No ROIs listed")
+            elif len(unique_colors) == 1:
+                # All listed ROIs share the same color
+                single_color = list(matching_colors[0])
+                dpg.set_value(color_picker_tag, single_color + [255])
+                if dpg.does_item_exist(tooltip_tag):
+                    dpg.set_value(tooltip_tag, "Change color of all listed ROIs (currently sharing this color)")
+            else:
+                # Mixed colors: set alpha to 0 for checkerboard, fallback to neutral gray
+                dpg.set_value(color_picker_tag, [127, 127, 127, 0])
+                if dpg.does_item_exist(tooltip_tag):
+                    dpg.set_value(tooltip_tag, "Change color of all listed ROIs (currently mixed colors)")
 
         filter_text = self._c.roi_filters.get(vs_id, "")
         sort_order = self._c.roi_sort_orders.get(vs_id, 0)
@@ -1079,7 +1098,7 @@ class RoiPluginUI(PluginTagMixin):
         new_color = [int(c * scale) for c in app_data[:3]]
 
         changed = False
-        for roi_id, roi in vs.rois.items():
+        for roi_id, roi in list(vs.rois.items()):
             if filter_text and filter_text not in roi.name.lower():
                 continue
             roi.color = list(new_color)
@@ -2644,7 +2663,7 @@ class RoiPluginUI(PluginTagMixin):
 
         filter_text = self._c.roi_filters.get(viewer.image_id, "")
         rois_to_toggle = []
-        for roi_id, roi in viewer.view_state.rois.items():
+        for roi_id, roi in list(viewer.view_state.rois.items()):
             if filter_text and filter_text not in roi.name.lower():
                 continue
             rois_to_toggle.append(roi_id)

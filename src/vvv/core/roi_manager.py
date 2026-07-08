@@ -955,9 +955,17 @@ class ROIManager:
         # --- NATIVE BATCH RELOADING FOR COMPLEX FILES ---
         if source_type == "Label Map" and filepath and self.controller.gui:
             rois_to_delete = []
+            saved_preferences = {}
             for rid, rstate in list(vs.rois.items()):
                 rvol = self.controller.volumes.get(rid)
                 if rvol and rvol.file_paths and rvol.file_paths[0] == filepath:
+                    saved_preferences[int(rstate.source_val)] = {
+                        "color": rstate.color,
+                        "opacity": rstate.opacity,
+                        "visible": rstate.visible,
+                        "is_contour": rstate.is_contour,
+                        "thickness": rstate.thickness,
+                    }
                     rois_to_delete.append(rid)
             for rid in rois_to_delete:
                 self.close_roi(base_id, rid)
@@ -966,7 +974,11 @@ class ROIManager:
 
             self.controller.gui.tasks.append(
                 load_label_map_sequence(
-                    self.controller.gui, self.controller, base_id, filepath
+                    self.controller.gui,
+                    self.controller,
+                    base_id,
+                    filepath,
+                    saved_preferences=saved_preferences,
                 )
             )
             return
@@ -1089,7 +1101,7 @@ class ROIManager:
         from vvv.maths.contours import extract_2d_contours_from_slice
 
         extracted_any = False
-        for roi_id, roi_state in vs.rois.items():
+        for roi_id, roi_state in list(vs.rois.items()):
             if not roi_state.visible or not roi_state.is_contour:
                 continue
 

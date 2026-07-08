@@ -1616,7 +1616,7 @@ class SliceViewer:
             return []
 
         active_rois = []
-        for roi_id, roi_state in vs.rois.items():
+        for roi_id, roi_state in list(vs.rois.items()):
             if (
                 not roi_state.visible
                 or roi_state.opacity <= 0.0

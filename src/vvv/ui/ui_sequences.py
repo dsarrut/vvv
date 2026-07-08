@@ -268,7 +268,7 @@ def load_batch_rois_sequence(
 
 
 def _rasterize_and_load_labels(
-    gui, controller, base_image_id, filepath, unique_labels, label_dict
+    gui, controller, base_image_id, filepath, unique_labels, label_dict, saved_preferences=None
 ):
     """
     [REUSABLE_WORKER]
@@ -322,6 +322,13 @@ def _rasterize_and_load_labels(
                         res = future.result()
                         futures[i] = None
                         completed += 1
+                        if res and saved_preferences and res in vs.rois:
+                            rstate = vs.rois[res]
+                            lbl_val = int(rstate.source_val)
+                            if lbl_val in saved_preferences:
+                                prefs = saved_preferences[lbl_val]
+                                for k, v in prefs.items():
+                                    setattr(rstate, k, v)
                         yield res
 
                 # Yield control to DearPyGui while waiting for threads
@@ -329,7 +336,7 @@ def _rasterize_and_load_labels(
                 time.sleep(0.01)
 
 
-def load_label_map_sequence(gui, controller, base_image_id, filepath):
+def load_label_map_sequence(gui, controller, base_image_id, filepath, saved_preferences=None):
     import os
     import json
     import time
@@ -458,7 +465,7 @@ def load_label_map_sequence(gui, controller, base_image_id, filepath):
 
     completed = 0
     for roi_id in _rasterize_and_load_labels(
-        gui, controller, base_image_id, filepath, unique_labels, label_dict
+        gui, controller, base_image_id, filepath, unique_labels, label_dict, saved_preferences
     ):
         if roi_id == "KEEP_ALIVE":
             yield
@@ -1029,36 +1036,44 @@ def load_workspace_sequence(gui, controller, filepath):
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=min(len(tasks_by_path), 4)
         ) as executor:
-            futures: list[concurrent.futures.Future | None] = [
-                executor.submit(process_file_group, path, tasks)
-                for path, tasks in tasks_by_path.items()
-            ]
+            future_to_tasks = {}
+            for path, tasks in tasks_by_path.items():
+                f = executor.submit(process_file_group, path, tasks)
+                future_to_tasks[f] = tasks
+
+            futures: list[concurrent.futures.Future | None] = list(future_to_tasks.keys())
 
             completed_rois = 0
             while completed_rois < total_rois:
                 for i, future in enumerate(futures):
                     if future is not None and future.done():
-                        group_results = future.result()
-                        for task, roi_id, err in group_results:
-                            if err:
-                                warnings.append(err)
-                            elif roi_id:
-                                vs = controller.view_states[task["new_id"]]
-                                if roi_id in vs.rois:
-                                    r_state = task["state"]
-                                    vs.rois[roi_id].opacity = r_state.get(
-                                        "opacity", 0.5
-                                    )
-                                    vs.rois[roi_id].visible = r_state.get(
-                                        "visible", True
-                                    )
-                                    vs.rois[roi_id].is_contour = r_state.get(
-                                        "is_contour", False
-                                    )
-                                    vs.rois[roi_id].thickness = r_state.get(
-                                        "thickness", 1.0
-                                    )
-                            completed_rois += 1
+                        tasks = future_to_tasks[future]
+                        try:
+                            group_results = future.result()
+                            for task, roi_id, err in group_results:
+                                if err:
+                                    warnings.append(err)
+                                elif roi_id:
+                                    vs = controller.view_states[task["new_id"]]
+                                    if roi_id in vs.rois:
+                                        r_state = task["state"]
+                                        vs.rois[roi_id].opacity = r_state.get(
+                                            "opacity", 0.5
+                                        )
+                                        vs.rois[roi_id].visible = r_state.get(
+                                            "visible", True
+                                        )
+                                        vs.rois[roi_id].is_contour = r_state.get(
+                                            "is_contour", False
+                                        )
+                                        vs.rois[roi_id].thickness = r_state.get(
+                                            "thickness", 1.0
+                                        )
+                                completed_rois += 1
+                        except Exception as e:
+                            for task in tasks:
+                                warnings.append(f"- Failed to load {task['state'].get('name')}: {e}")
+                                completed_rois += 1
 
                         futures[i] = None
 
