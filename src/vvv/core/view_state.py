@@ -888,7 +888,7 @@ class ViewState:
         # 4. Read value from the NATIVE data using native indices
         self.crosshair_value = self._read_voxel_value(ix, iy, iz, use_buffer=False)
 
-        self.mark_both_dirty()
+        self.is_geometry_dirty = True
 
     def reset_view(self):
         self.camera.zoom = {

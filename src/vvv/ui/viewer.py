@@ -170,6 +170,8 @@ class SliceViewer:
         self.last_drawn_image_id: str | None = None
         self.last_orientation: ViewMode | None = None
         self.last_drawn_shape: tuple | None = None
+        self.last_drawn_slice_idx: int | None = None
+        self.last_drawn_time_idx: int | None = None
         self.last_pixelated = False
         self.last_nn_mode: NNMode | None = None
         self.lazy_settle_ms: int = 150  # ms of inactivity before NN re-upload fires
@@ -985,6 +987,19 @@ class SliceViewer:
             return False
 
         # --- 1. STATE TRIGGERS ---
+        current_slice_idx = self.slice_idx
+        current_time_idx = vs.camera.time_idx
+        slice_changed = (
+            self.last_drawn_slice_idx is None
+            or current_slice_idx != self.last_drawn_slice_idx
+        )
+        time_changed = (
+            self.last_drawn_time_idx is None
+            or current_time_idx != self.last_drawn_time_idx
+        )
+        if slice_changed or time_changed:
+            self.is_viewer_data_dirty = True
+
         size_changed = win_w != self.last_w or win_h != self.last_h
         image_changed = self.image_id != self.last_drawn_image_id
         orientation_changed = self.orientation != self.last_orientation
@@ -1033,6 +1048,8 @@ class SliceViewer:
             self.last_pixelated = pixelated
             self.last_nn_mode = current_nn_mode
             self.is_viewer_data_dirty = True
+            self.last_drawn_slice_idx = None
+            self.last_drawn_time_idx = None
 
         # --- 2. CAMERA SYNC MATH ---
         self._apply_camera_sync(vs)
@@ -1078,6 +1095,10 @@ class SliceViewer:
             self.update_render(force_reblend=needs_reblend)
             self.is_geometry_dirty = True
             did_update_data = True
+
+        if did_update_data:
+            self.last_drawn_slice_idx = current_slice_idx
+            self.last_drawn_time_idx = current_time_idx
 
         # --- 4. ATOMIC UI CREATION (Part 2: Binding) ---
         if rebuild_texture and texture_changed:
