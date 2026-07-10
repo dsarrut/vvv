@@ -799,9 +799,10 @@ class InteractionManager:
 
     def _is_mouse_on_slice_slider(self, viewer):
         for tag in ["V1", "V2", "V3", "V4"]:
+            slider_win = f"win_slider_{tag}"
             slider_tag = f"slider_slice_{tag}"
-            if dpg.does_item_exist(slider_tag):
-                if dpg.is_item_hovered(slider_tag) or dpg.is_item_active(slider_tag):
+            if dpg.does_item_exist(slider_win) and dpg.is_item_shown(slider_win):
+                if dpg.is_item_hovered(slider_win) or dpg.is_item_active(slider_tag) or dpg.is_item_hovered(slider_tag):
                     return True
         return False
 

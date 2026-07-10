@@ -696,59 +696,54 @@ class MainGUI:
         with dpg.child_window(
             tag=f"win_{tag}", border=True, no_scrollbar=True, no_scroll_with_mouse=True
         ):
-            # Layout the drawing canvas and vertical slider side-by-side using a clean table
-            with dpg.table(
-                header_row=False,
-                policy=dpg.mvTable_SizingStretchProp,
-                no_host_extendX=True,
+            with dpg.drawlist(tag=f"drawlist_{tag}", width=-1, height=-1):
+                with dpg.draw_node(tag=viewer.img_node_tag):
+                    dpg.draw_image(
+                        viewer.texture_tag, [0, 0], [1, 1], tag=viewer.image_tag
+                    )
+
+                dpg.add_draw_node(tag=viewer.strips_a_tag)
+                dpg.add_draw_node(tag=viewer.strips_b_tag)
+                viewer.active_strips_node = viewer.strips_a_tag
+
+                dpg.add_draw_node(tag=viewer.grid_a_tag)
+                dpg.add_draw_node(tag=viewer.grid_b_tag)
+                viewer.active_grid_node = viewer.grid_a_tag
+
+                dpg.add_draw_node(tag=viewer.axis_a_tag)
+                dpg.add_draw_node(tag=viewer.axis_b_tag)
+                viewer.axes_nodes = [viewer.axis_a_tag, viewer.axis_b_tag]
+                viewer.active_axes_idx = 0
+
+                dpg.add_draw_node(tag=viewer.scale_bar_tag)
+                dpg.add_draw_node(tag=viewer.crosshair_tag)
+                dpg.add_draw_node(tag=viewer.legend_tag)
+                dpg.add_draw_node(tag=viewer.contour_node_tag)
+                dpg.add_draw_node(tag=viewer.profile_node_tag)
+                dpg.add_draw_node(tag=viewer.roi_handle_node_tag)
+                dpg.add_draw_node(tag=viewer.vector_field_node_tag)
+
+            # Separate overlay child window for the slider + text, positioned absolutely
+            with dpg.child_window(
+                tag=f"win_slider_{tag}",
+                width=30,
+                height=-1,
+                border=False,
+                no_scrollbar=True,
+                no_scroll_with_mouse=True,
+                show=False,
             ):
-                dpg.add_table_column(
-                    width_stretch=True, init_width_or_weight=1.0
-                )  # Canvas takes all remaining space
-                dpg.add_table_column(
-                    width_fixed=True, init_width_or_weight=24
-                )  # Fixed slot for slider + padding
-
-                with dpg.table_row():
-                    # Column 1: The Render Canvas
-                    with dpg.drawlist(tag=f"drawlist_{tag}", width=-1, height=-1):
-                        with dpg.draw_node(tag=viewer.img_node_tag):
-                            dpg.draw_image(
-                                viewer.texture_tag, [0, 0], [1, 1], tag=viewer.image_tag
-                            )
-
-                        dpg.add_draw_node(tag=viewer.strips_a_tag)
-                        dpg.add_draw_node(tag=viewer.strips_b_tag)
-                        viewer.active_strips_node = viewer.strips_a_tag
-
-                        dpg.add_draw_node(tag=viewer.grid_a_tag)
-                        dpg.add_draw_node(tag=viewer.grid_b_tag)
-                        viewer.active_grid_node = viewer.grid_a_tag
-
-                        dpg.add_draw_node(tag=viewer.axis_a_tag)
-                        dpg.add_draw_node(tag=viewer.axis_b_tag)
-                        viewer.axes_nodes = [viewer.axis_a_tag, viewer.axis_b_tag]
-                        viewer.active_axes_idx = 0
-
-                        dpg.add_draw_node(tag=viewer.scale_bar_tag)
-                        dpg.add_draw_node(tag=viewer.crosshair_tag)
-                        dpg.add_draw_node(tag=viewer.legend_tag)
-                        dpg.add_draw_node(tag=viewer.contour_node_tag)
-                        dpg.add_draw_node(tag=viewer.profile_node_tag)
-                        dpg.add_draw_node(tag=viewer.roi_handle_node_tag)
-                        dpg.add_draw_node(tag=viewer.vector_field_node_tag)
-
-                    # Column 2: Vertical slider for slice scrolling
+                with dpg.group(horizontal=False, width=20):
                     dpg.add_slider_int(
                         vertical=True,
                         tag=f"slider_slice_{tag}",
                         width=18,
-                        height=-1,
-                        show=False,
+                        height=-35,
                         format="",
                         callback=self.on_viewer_slider_changed,
                         user_data=tag,
                     )
+                    dpg.add_text("", tag=f"slider_txt_{tag}", show=False)
 
             # --- ORIGINAL TRUNCATED CODES PRESERVED BELOW ---
             col = self.controller.settings.data["colors"]["tracker_text"]
