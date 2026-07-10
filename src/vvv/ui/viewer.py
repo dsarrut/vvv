@@ -2466,6 +2466,7 @@ class SliceViewer:
 class LayerPackager:
     def __init__(self, viewer: "SliceViewer"):
         self.viewer = viewer
+        self._roi_slice_cache: dict[str, tuple] = {}  # roi_id -> (key, slice, ox, oy)
 
     def package_base_layer(self):
         v = self.viewer
@@ -2712,6 +2713,7 @@ class LayerPackager:
             return []
 
         active_rois = []
+        seen_roi_ids = set()
         for roi_id, roi_state in list(vs.rois.items()):
             if (
                 not roi_state.visible
@@ -2752,39 +2754,46 @@ class LayerPackager:
 
             t_idx = min(vs.camera.time_idx, roi_vol.num_timepoints - 1)
             base_z, base_y, base_x = vol.shape3d
-            roi_slice = None
-            offset_x, offset_y = 0, 0
+            roi_version = getattr(roi_state, "version", 0)
 
-            if v.orientation == ViewMode.AXIAL:
-                if z0 <= v.slice_idx < z1:
-                    if roi_vol.data.ndim == 4:
-                        roi_slice = roi_vol.data[t_idx, v.slice_idx - z0, :, :]
-                    else:
-                        roi_slice = roi_vol.data[v.slice_idx - z0, :, :]
-                    offset_x, offset_y = x0, y0
-            elif v.orientation == ViewMode.CORONAL:
-                if y0 <= v.slice_idx < y1:
-                    if roi_vol.data.ndim == 4:
-                        roi_slice = np.flipud(
-                            roi_vol.data[t_idx, :, v.slice_idx - y0, :]
-                        )
-                    else:
-                        roi_slice = np.flipud(roi_vol.data[:, v.slice_idx - y0, :])
-                    offset_x = x0
-                    offset_y = base_z - z1
-            elif v.orientation == ViewMode.SAGITTAL:
-                if x0 <= v.slice_idx < x1:
-                    if roi_vol.data.ndim == 4:
-                        roi_slice = np.flipud(
-                            np.fliplr(roi_vol.data[t_idx, :, :, v.slice_idx - x0])
-                        )
-                    else:
-                        roi_slice = np.flipud(
-                            np.fliplr(roi_vol.data[:, :, v.slice_idx - x0])
-                        )
-                    offset_x = base_y - y1
-                    offset_y = base_z - z1
+            # Build cache key: if slice_idx, orientation, time, version, or bbox
+            # haven't changed, reuse the previously extracted 2D slice.
+            cache_key = (v.slice_idx, v.orientation, t_idx, roi_version, z0, z1, y0, y1, x0, x1)
+            cached = self._roi_slice_cache.get(roi_id)
+            if cached is not None and cached[0] == cache_key:
+                roi_slice, offset_x, offset_y = cached[1], cached[2], cached[3]
+            else:
+                roi_slice = None
+                offset_x, offset_y = 0, 0
 
+                if v.orientation == ViewMode.AXIAL:
+                    if z0 <= v.slice_idx < z1:
+                        if roi_vol.data.ndim == 4:
+                            roi_slice = roi_vol.data[t_idx, v.slice_idx - z0, :, :]
+                        else:
+                            roi_slice = roi_vol.data[v.slice_idx - z0, :, :]
+                        offset_x, offset_y = x0, y0
+                elif v.orientation == ViewMode.CORONAL:
+                    if y0 <= v.slice_idx < y1:
+                        if roi_vol.data.ndim == 4:
+                            roi_slice = roi_vol.data[t_idx, ::-1, v.slice_idx - y0, :]
+                        else:
+                            roi_slice = roi_vol.data[::-1, v.slice_idx - y0, :]
+                        offset_x = x0
+                        offset_y = base_z - z1
+                elif v.orientation == ViewMode.SAGITTAL:
+                    if x0 <= v.slice_idx < x1:
+                        if roi_vol.data.ndim == 4:
+                            roi_slice = roi_vol.data[t_idx, ::-1, ::-1, v.slice_idx - x0]
+                        else:
+                            roi_slice = roi_vol.data[::-1, ::-1, v.slice_idx - x0]
+                        offset_x = base_y - y1
+                        offset_y = base_z - z1
+
+                # Store in cache
+                self._roi_slice_cache[roi_id] = (cache_key, roi_slice, offset_x, offset_y)
+
+            seen_roi_ids.add(roi_id)
             if roi_slice is not None and roi_slice.size > 0:
                 active_rois.append(
                     ROILayer(
@@ -2796,6 +2805,12 @@ class LayerPackager:
                         offset_y=offset_y,
                     )
                 )
+
+        # Evict stale entries for ROIs that are no longer active
+        stale = [k for k in self._roi_slice_cache if k not in seen_roi_ids]
+        for k in stale:
+            del self._roi_slice_cache[k]
+
         return active_rois
 
 
