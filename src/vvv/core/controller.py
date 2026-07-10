@@ -71,6 +71,12 @@ class Controller:
         self.debug_mode = False
         self.status_message: str | None = None
 
+    def get_plugin(self, plugin_id: str) -> Any | None:
+        """Safely retrieve a plugin by its ID from the GUI."""
+        if self.gui:
+            return self.gui.get_plugin(plugin_id)
+        return None
+
     def get_next_image_id(self, current_id):
         with self._state_lock:
             if not self.view_states:

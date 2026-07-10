@@ -18,10 +18,7 @@ class OverlayDrawer:
         if not viewer.image_id:
             return False
         try:
-            gui = viewer.controller.gui
-            if not gui or not hasattr(gui, "plugins"):
-                return False
-            mip_plugin = next((p for p in gui.plugins if p.plugin_id == "mip_plugin"), None)
+            mip_plugin = viewer.controller.get_plugin("mip_plugin")
             if not mip_plugin:
                 return False
             return mip_plugin._controller.get_viewer_state(viewer.image_id, viewer.tag).mip_enabled

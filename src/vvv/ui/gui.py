@@ -109,6 +109,7 @@ class MainGUI:
 
         # Initialize plugin list before building layout to avoid AttributeErrors
         self.plugins = []
+        self._plugin_map = {}
         self._plugin_errors: set[tuple[str, str]] = set()
         self._init_plugins()
         self.plugin_api = PluginAPI(self)
@@ -127,6 +128,13 @@ class MainGUI:
     def _init_plugins(self):
         """Discover and load plugins dynamically."""
         self.plugins = discover_plugins()
+        self._plugin_map = {p.plugin_id: p for p in self.plugins}
+
+    def get_plugin(self, plugin_id: str) -> Any | None:
+        """Get plugin by its ID."""
+        if not hasattr(self, "_plugin_map") or len(self._plugin_map) != len(self.plugins):
+            self._plugin_map = {p.plugin_id: p for p in self.plugins}
+        return self._plugin_map.get(plugin_id)
 
     def schedule_main_thread(self, callback):
         """Schedule a callback to be run on the main thread during the next frame tick."""

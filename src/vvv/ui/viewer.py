@@ -603,10 +603,7 @@ class SliceViewer:
 
     def drop_image(self):
         self.image_id = None
-        mip_plugin = next(
-            (p for p in self.controller.gui.plugins if p.plugin_id == "mip_plugin"),
-            None,
-        )
+        mip_plugin = self.controller.get_plugin("mip_plugin")
         if mip_plugin:
             mip_plugin._controller.clear_viewer_cache(self.tag)
 
@@ -1615,16 +1612,7 @@ class SliceViewer:
         self.drawer.draw_legend()
         self.drawer.draw_crosshair()
 
-        thr_plugin = None
-        if self.controller.gui and hasattr(self.controller.gui, "plugins"):
-            thr_plugin = next(
-                (
-                    p
-                    for p in self.controller.gui.plugins
-                    if p.plugin_id == "threshold_plugin"
-                ),
-                None,
-            )
+        thr_plugin = self.controller.get_plugin("threshold_plugin")
 
         thr_state = None
         if thr_plugin and self.image_id:
@@ -1955,12 +1943,7 @@ class SliceViewer:
         if not self.image_id:
             return
         try:
-            gui = self.controller.gui
-            if not gui or not hasattr(gui, "plugins"):
-                return
-            mip_plugin = next(
-                (p for p in gui.plugins if p.plugin_id == "mip_plugin"), None
-            )
+            mip_plugin = self.controller.get_plugin("mip_plugin")
             if not mip_plugin:
                 return
             state = mip_plugin._controller.get_viewer_state(self.image_id, self.tag)
@@ -1999,17 +1982,13 @@ class SliceViewer:
     def _set_orientation_with_hint(self, mode):
         if mode == ViewMode.CORONAL and self.image_id:
             try:
-                gui = self.controller.gui
-                if gui and hasattr(gui, "plugins"):
-                    mip_plugin = next(
-                        (p for p in gui.plugins if p.plugin_id == "mip_plugin"), None
+                mip_plugin = self.controller.get_plugin("mip_plugin")
+                if mip_plugin:
+                    mip_st = mip_plugin._controller.get_viewer_state(
+                        self.image_id, self.tag
                     )
-                    if mip_plugin:
-                        mip_st = mip_plugin._controller.get_viewer_state(
-                            self.image_id, self.tag
-                        )
-                        if mip_st and mip_st.mip_enabled:
-                            return
+                    if mip_st and mip_st.mip_enabled:
+                        return
             except Exception:
                 pass
         self.set_orientation(mode)
@@ -2054,12 +2033,7 @@ class SliceViewer:
             return
 
         # Check if MIP plugin is active and enabled
-        mip_plugin = None
-        if self.controller.gui and hasattr(self.controller.gui, "plugins"):
-            mip_plugin = next(
-                (p for p in self.controller.gui.plugins if p.plugin_id == "mip_plugin"),
-                None,
-            )
+        mip_plugin = self.controller.get_plugin("mip_plugin")
 
         mip_state = None
         if mip_plugin and self.image_id:
@@ -2250,12 +2224,7 @@ class SliceViewer:
             return
 
         # Check if MIP plugin is active and enabled on this viewer
-        mip_plugin = None
-        if self.controller.gui and hasattr(self.controller.gui, "plugins"):
-            mip_plugin = next(
-                (p for p in self.controller.gui.plugins if p.plugin_id == "mip_plugin"),
-                None,
-            )
+        mip_plugin = self.controller.get_plugin("mip_plugin")
 
         mip_state = None
         if mip_plugin and self.image_id:
@@ -2476,13 +2445,7 @@ class LayerPackager:
 
         preview = None
 
-        # Check if MIP plugin is active
-        mip_plugin = None
-        if v.controller.gui and hasattr(v.controller.gui, "plugins"):
-            mip_plugin = next(
-                (p for p in v.controller.gui.plugins if p.plugin_id == "mip_plugin"),
-                None,
-            )
+        mip_plugin = v.controller.get_plugin("mip_plugin")
 
         mip_state = None
         if mip_plugin and v.image_id:
@@ -2633,16 +2596,7 @@ class LayerPackager:
             off_slice = int(round(dz))
 
             # Check MIP state first — it takes priority over the rotation-preview path.
-            mip_plugin = None
-            if v.controller.gui and hasattr(v.controller.gui, "plugins"):
-                mip_plugin = next(
-                    (
-                        p
-                        for p in v.controller.gui.plugins
-                        if p.plugin_id == "mip_plugin"
-                    ),
-                    None,
-                )
+            mip_plugin = v.controller.get_plugin("mip_plugin")
             mip_state = (
                 mip_plugin._controller.get_viewer_state(v.image_id, v.tag)
                 if (mip_plugin and v.image_id)
