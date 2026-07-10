@@ -15,7 +15,8 @@ Python + SimpleITK + DearPyGui (DPG) medical image viewer. Uses an MVC pattern w
 * **`MainGUI`**: DPG context, layout calculation, and render loop (`tick()`).
 * **`SliceViewer`**: Autonomous 2D viewport. Calculates pmin/pmax mapped bounds, generates texture arrays, and pushes to GPU.
 * **`OverlayDrawer`**: DPG vector drawing (crosshairs, scalebar, contour ROIs, vector fields).
-* **`ui_*.py`**: Feature-specific UI builders and event callbacks. Callbacks update `ViewState` or set `controller.ui_needs_refresh = True`.
+* **`ui_*.py`**: Shared layout managers, configurations, and core UI bindings.
+* **Plugins (`plugins/`)**: Most feature-specific tools (Intensities, ROI, DVF, Contours, Registration, etc.) are implemented as modular, auto-discovered plugins under `src/vvv/plugins/`. For guidelines, see [PLUGINS.md](file:///Users/dsarrut/src/py/vvv/dev_doc/PLUGINS.md).
 
 ## Concurrency and Thread Safety
 
