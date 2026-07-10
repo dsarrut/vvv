@@ -14,11 +14,12 @@ class OverlayDrawer:
         self.viewer = viewer
 
     def _is_mip_active(self) -> bool:
+        from vvv.ui.viewer import _safe_get_plugin
         viewer = self.viewer
         if not viewer.image_id:
             return False
         try:
-            mip_plugin = viewer.controller.get_plugin("mip_plugin")
+            mip_plugin = _safe_get_plugin(viewer.controller, "mip_plugin")
             if not mip_plugin:
                 return False
             return mip_plugin._controller.get_viewer_state(viewer.image_id, viewer.tag).mip_enabled
