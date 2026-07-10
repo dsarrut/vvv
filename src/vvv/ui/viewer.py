@@ -1087,7 +1087,7 @@ class SliceViewer:
                         dpg.set_item_height(f"drawlist_{self.tag}", ch)
             else:
                 self.resize(win_w, win_h)
-            self.update_stuff_in_image_only()
+            self.update_overlays_and_decorations()
             self.is_geometry_dirty = False
 
         # Lazy settle: once the interaction window has expired, restore full NN rendering.
@@ -1611,7 +1611,7 @@ class SliceViewer:
         ):
             dpg.configure_item(self.overlay_image_tag, show=False)
 
-    def update_stuff_in_image_only(self):
+    def update_overlays_and_decorations(self):
         vs = self.view_state
         vol = self.volume
         if not self.is_image_orientation() or not vs or not vol:
