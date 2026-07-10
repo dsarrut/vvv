@@ -12,7 +12,7 @@ from vvv.utils import (
 )
 import dearpygui.dearpygui as dpg
 from vvv.ui.drawing import OverlayDrawer
-from vvv.maths.image import SliceRenderer, RenderLayer, ROILayer, VolumeData
+from vvv.maths.image import SliceRenderer, RenderLayer, ROILayer, VolumeData, build_roi_mask_buffer
 from vvv.config import COLORMAPS, ROI_COLORS
 from vvv.core.view_state import ViewState, ProfileLineState
 import vvv.ui.render_strategy as _rs
@@ -189,6 +189,10 @@ class SliceViewer:
         self._ov_tex_h: int = 1
         self._last_nearest_applied: bool = False
         self._last_single_native_ov_crop: tuple[int, int, int, int] | None = None
+        self._nn_base_buf: np.ndarray | None = None
+        self._nn_base_crop: tuple[int, int, int, int] | None = None
+        self._nn_ov_buf: np.ndarray | None = None
+        self._nn_ov_crop: tuple[int, int, int, int] | None = None
 
         self.overlay_texture_tag = f"tex_ov_{tag_id}"
         self.overlay_image_tag: int | str = f"img_ov_{tag_id}"
@@ -3013,17 +3017,19 @@ class TextureManager:
 
         # Clear the previous overlay crop bounds in the base buffer if they exist
         _prev_crop = getattr(v, "_last_single_native_ov_crop", None)
+        _buf = getattr(v, "_nn_base_buf", None)
         if _prev_crop is not None:
-            if hasattr(v, "_nn_base_buf"):
+            if _buf is not None:
                 oy0, oy1, ox0, ox1 = _prev_crop
-                v._nn_base_buf[oy0:oy1, ox0:ox1] = 0.0
+                _buf[oy0:oy1, ox0:ox1] = 0.0
             v._last_single_native_ov_crop = None
 
-        if not hasattr(v, "_nn_base_buf") or v._nn_base_buf.shape[:2] != (
+        if _buf is None or _buf.shape[:2] != (
             canvas_h,
             canvas_w,
         ):
-            v._nn_base_buf = np.zeros((canvas_h, canvas_w, 4), dtype=np.float32)
+            _buf = np.zeros((canvas_h, canvas_w, 4), dtype=np.float32)
+            v._nn_base_buf = _buf
             v._nn_base_crop = None
 
         nn_base, crop = compute_software_nearest_neighbor(
@@ -3032,7 +3038,7 @@ class TextureManager:
             v.current_pmax,
             canvas_w,
             canvas_h,
-            out_buffer=v._nn_base_buf,
+            out_buffer=_buf,
             last_crop=v._nn_base_crop,
         )
         v._nn_base_crop = crop
@@ -3049,32 +3055,13 @@ class TextureManager:
             roi_color_buf = None
             if vs.display.roi_above_overlay and len(active_rois) > 0:
                 h, w = v.get_slice_shape()
-                roi_mask = np.zeros((h, w), dtype=np.float32)
-                roi_color_buf = np.zeros((h, w, 3), dtype=np.float32)
-                for roi in active_rois:
-                    rh, rw = roi.data.shape
-                    ox, oy = roi.offset_x, roi.offset_y
-                    src_x0, src_y0 = max(0, -ox), max(0, -oy)
-                    src_x1, src_y1 = min(rw, w - ox), min(rh, h - oy)
-                    dst_x0, dst_y0 = max(0, ox), max(0, oy)
-                    dst_x1, dst_y1 = min(w, ox + rw), min(h, oy + rh)
-                    if src_x1 > src_x0 and src_y1 > src_y0:
-                        mask = roi.data[src_y0:src_y1, src_x0:src_x1] > 0
-                        roi_mask[dst_y0:dst_y1, dst_x0:dst_x1][mask] = np.maximum(
-                            roi_mask[dst_y0:dst_y1, dst_x0:dst_x1][mask],
-                            roi.opacity
-                        )
-                        roi_color_buf[dst_y0:dst_y1, dst_x0:dst_x1][mask] = [
-                            roi.color[0] / 255.0,
-                            roi.color[1] / 255.0,
-                            roi.color[2] / 255.0,
-                        ]
+                roi_mask, roi_color_buf = build_roi_mask_buffer(active_rois, h, w)
 
             if (
                 nn_base is rgba_2d
             ):  # identity pass returned the slice cache — copy first
-                v._nn_base_buf[: rgba_2d.shape[0], : rgba_2d.shape[1]] = rgba_2d
-                nn_base = v._nn_base_buf
+                _buf[: rgba_2d.shape[0], : rgba_2d.shape[1]] = rgba_2d
+                nn_base = _buf
             compute_native_voxel_overlay(
                 v,
                 v.current_pmin,
@@ -3138,26 +3125,7 @@ class TextureManager:
             roi_color_buf = None
             if vs.display.roi_above_overlay and len(active_rois) > 0:
                 h, w = v.get_slice_shape()
-                roi_mask = np.zeros((h, w), dtype=np.float32)
-                roi_color_buf = np.zeros((h, w, 3), dtype=np.float32)
-                for roi in active_rois:
-                    rh, rw = roi.data.shape
-                    ox, oy = roi.offset_x, roi.offset_y
-                    src_x0, src_y0 = max(0, -ox), max(0, -oy)
-                    src_x1, src_y1 = min(rw, w - ox), min(rh, h - oy)
-                    dst_x0, dst_y0 = max(0, ox), max(0, oy)
-                    dst_x1, dst_y1 = min(w, ox + rw), min(h, oy + rh)
-                    if src_x1 > src_x0 and src_y1 > src_y0:
-                        mask = roi.data[src_y0:src_y1, src_x0:src_x1] > 0
-                        roi_mask[dst_y0:dst_y1, dst_x0:dst_x1][mask] = np.maximum(
-                            roi_mask[dst_y0:dst_y1, dst_x0:dst_x1][mask],
-                            roi.opacity
-                        )
-                        roi_color_buf[dst_y0:dst_y1, dst_x0:dst_x1][mask] = [
-                            roi.color[0] / 255.0,
-                            roi.color[1] / 255.0,
-                            roi.color[2] / 255.0,
-                        ]
+                roi_mask, roi_color_buf = build_roi_mask_buffer(active_rois, h, w)
 
             ov_rgba_display = compute_native_voxel_overlay(
                 v, v.current_pmin, v.current_pmax, canvas_w, canvas_h,
@@ -3196,11 +3164,10 @@ class TextureManager:
                 ov_actual_shape[0], ov_actual_shape[1], 4
             )
 
-            if not hasattr(v, "_nn_ov_buf") or v._nn_ov_buf.shape[:2] != (
-                canvas_h,
-                canvas_w,
-            ):
-                v._nn_ov_buf = np.zeros((canvas_h, canvas_w, 4), dtype=np.float32)
+            _buf = getattr(v, "_nn_ov_buf", None)
+            if _buf is None or _buf.shape[:2] != (canvas_h, canvas_w):
+                _buf = np.zeros((canvas_h, canvas_w, 4), dtype=np.float32)
+                v._nn_ov_buf = _buf
                 v._nn_ov_crop = None
 
             nn_ov, crop = compute_software_nearest_neighbor(

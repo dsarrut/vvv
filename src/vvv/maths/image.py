@@ -58,6 +58,43 @@ class ROILayer:
     offset_y: int = 0
 
 
+def build_roi_mask_buffer(active_rois, h, w):
+    """Computes a composite roi_mask and roi_color_buf from active_rois."""
+    roi_mask = np.zeros((h, w), dtype=np.float32)
+    roi_color_buf = np.zeros((h, w, 3), dtype=np.float32)
+
+    for roi in active_rois:
+        if roi.opacity <= 0.0 or roi.data.size == 0:
+            continue
+
+        rh, rw = roi.data.shape
+        ox, oy = roi.offset_x, roi.offset_y
+
+        # Skip if completely out of bounds (safety check)
+        if ox >= w or oy >= h or ox + rw <= 0 or oy + rh <= 0:
+            continue
+
+        src_x0, src_y0 = max(0, -ox), max(0, -oy)
+        src_x1, src_y1 = min(rw, w - ox), min(rh, h - oy)
+        dst_x0, dst_y0 = max(0, ox), max(0, oy)
+        dst_x1, dst_y1 = min(w, ox + rw), min(h, oy + rh)
+
+        if src_x1 > src_x0 and src_y1 > src_y0:
+            mask = roi.data[src_y0:src_y1, src_x0:src_x1] > 0
+            if np.any(mask):
+                roi_mask[dst_y0:dst_y1, dst_x0:dst_x1][mask] = np.maximum(
+                    roi_mask[dst_y0:dst_y1, dst_x0:dst_x1][mask],
+                    roi.opacity
+                )
+                roi_color_buf[dst_y0:dst_y1, dst_x0:dst_x1][mask] = [
+                    roi.color[0] / 255.0,
+                    roi.color[1] / 255.0,
+                    roi.color[2] / 255.0,
+                ]
+
+    return roi_mask, roi_color_buf
+
+
 class SliceRenderer:
     """Pure utility to generate renderable RGBA arrays using a streamlined pipeline."""
 
@@ -198,46 +235,14 @@ class SliceRenderer:
     def _apply_rois(base_rgba, rois):
         """Rapidly composites binary ROI masks using 2D Bounding Boxes."""
         bh, bw = base_rgba.shape[:2]
+        roi_mask, roi_color_buf = build_roi_mask_buffer(rois, bh, bw)
 
-        for roi in rois:
-            if roi.opacity <= 0.0 or roi.data.size == 0:
-                continue
-
-            h, w = roi.data.shape
-            x0, y0 = roi.offset_x, roi.offset_y
-            x1, y1 = x0 + w, y0 + h
-
-            # Skip if completely out of bounds (safety check)
-            if x0 >= bw or y0 >= bh or x1 <= 0 or y1 <= 0:
-                continue
-
-            # Calculate intersection bounds
-            src_x0, src_y0 = max(0, -x0), max(0, -y0)
-            src_x1, src_y1 = min(w, bw - x0), min(h, bh - y0)
-
-            dst_x0, dst_y0 = max(0, x0), max(0, y0)
-            dst_x1, dst_y1 = min(bw, x1), min(bh, y1)
-
-            # Crop mask and apply to sub-region of the screen
-            roi_data_cropped = roi.data[src_y0:src_y1, src_x0:src_x1]
-            mask = roi_data_cropped > 0
-
-            if not np.any(mask):
-                continue
-
-            alpha = roi.opacity
+        has_roi = roi_mask > 0.0
+        if np.any(has_roi):
+            alpha = roi_mask[has_roi][..., np.newaxis]
             inv_alpha = 1.0 - alpha
-            r = roi.color[0] / 255.0
-            g = roi.color[1] / 255.0
-            b = roi.color[2] / 255.0
-
-            # Only do math on the specific patch where the organ lives.
-            base_sub = base_rgba[dst_y0:dst_y1, dst_x0:dst_x1]
-
-            base_sub[mask, 0] = base_sub[mask, 0] * inv_alpha + r * alpha
-            base_sub[mask, 1] = base_sub[mask, 1] * inv_alpha + g * alpha
-            base_sub[mask, 2] = base_sub[mask, 2] * inv_alpha + b * alpha
-            base_sub[mask, 3] = base_sub[mask, 3] * inv_alpha + alpha
+            base_rgba[has_roi, :3] = base_rgba[has_roi, :3] * inv_alpha + roi_color_buf[has_roi] * alpha
+            base_rgba[has_roi, 3] = base_rgba[has_roi, 3] * (1.0 - roi_mask[has_roi]) + roi_mask[has_roi]
 
         return base_rgba
 
