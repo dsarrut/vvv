@@ -751,6 +751,22 @@ class MainGUI:
                         callback=self.on_viewer_slider_changed,
                         user_data=tag,
                     )
+                    dpg.add_button(
+                        label="+",
+                        tag=f"btn_slice_inc_{tag}",
+                        width=18,
+                        height=18,
+                        callback=self.on_viewer_slider_increment,
+                        user_data=tag,
+                    )
+                    dpg.add_button(
+                        label="-",
+                        tag=f"btn_slice_dec_{tag}",
+                        width=18,
+                        height=18,
+                        callback=self.on_viewer_slider_decrement,
+                        user_data=tag,
+                    )
                     dpg.add_text("", tag=f"slider_txt_{tag}", show=False)
 
             # --- ORIGINAL TRUNCATED CODES PRESERVED BELOW ---
@@ -1604,6 +1620,31 @@ class MainGUI:
             viewer._slider_active = True
             viewer.slice_idx = app_data
             viewer._slider_active = False
+
+    def on_viewer_slider_increment(self, sender, app_data, user_data):
+        tag = user_data
+        viewer = self.controller.viewers.get(tag)
+        if viewer and viewer.view_state:
+            max_slices = viewer.get_display_num_slices()
+            new_val = min(max_slices - 1, viewer.slice_idx + 1)
+            viewer._slider_active = True
+            viewer.slice_idx = new_val
+            viewer._slider_active = False
+            slider_tag = f"slider_slice_{tag}"
+            if dpg.does_item_exist(slider_tag):
+                dpg.set_value(slider_tag, new_val)
+
+    def on_viewer_slider_decrement(self, sender, app_data, user_data):
+        tag = user_data
+        viewer = self.controller.viewers.get(tag)
+        if viewer and viewer.view_state:
+            new_val = max(0, viewer.slice_idx - 1)
+            viewer._slider_active = True
+            viewer.slice_idx = new_val
+            viewer._slider_active = False
+            slider_tag = f"slider_slice_{tag}"
+            if dpg.does_item_exist(slider_tag):
+                dpg.set_value(slider_tag, new_val)
 
     def on_image_viewer_toggle(self, sender, value, user_data):
         img_id, v_tag = user_data["img_id"], user_data["v_tag"]

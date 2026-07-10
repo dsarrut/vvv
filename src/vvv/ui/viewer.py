@@ -3239,7 +3239,14 @@ class SliderOverlay:
                     is_hovered = dpg.is_item_hovered(win_tag) if dpg.does_item_exist(win_tag) else False
                     is_slider_active = dpg.is_item_active(slider_tag)
                     is_slider_win_hovered = dpg.is_item_hovered(slider_win) if dpg.does_item_exist(slider_win) else False
-                    if is_slider_active or is_slider_win_hovered:
+                    btn_inc = f"btn_slice_inc_{v.tag}"
+                    btn_dec = f"btn_slice_dec_{v.tag}"
+                    is_btn_inc_active = dpg.is_item_active(btn_inc) if dpg.does_item_exist(btn_inc) else False
+                    is_btn_dec_active = dpg.is_item_active(btn_dec) if dpg.does_item_exist(btn_dec) else False
+                    is_btn_inc_hovered = dpg.is_item_hovered(btn_inc) if dpg.does_item_exist(btn_inc) else False
+                    is_btn_dec_hovered = dpg.is_item_hovered(btn_dec) if dpg.does_item_exist(btn_dec) else False
+
+                    if is_slider_active or is_slider_win_hovered or is_btn_inc_active or is_btn_dec_active or is_btn_inc_hovered or is_btn_dec_hovered:
                         show_slider = True
                     elif is_hovered:
                         try:
@@ -3264,7 +3271,7 @@ class SliderOverlay:
                     
                     dpg.set_item_pos(slider_win, [x_pos, y_pos])
                     dpg.set_item_height(slider_win, slider_h)
-                    dpg.set_item_height(slider_tag, max(20, slider_h - 35))
+                    dpg.set_item_height(slider_tag, max(20, slider_h - 90))
                 
                 max_slices = v.get_display_num_slices()
                 dpg.configure_item(slider_tag, min_value=0, max_value=max_slices - 1)
