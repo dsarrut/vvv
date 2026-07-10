@@ -98,6 +98,17 @@ def build_roi_mask_buffer(active_rois, h, w):
 class SliceRenderer:
     """Pure utility to generate renderable RGBA arrays using a streamlined pipeline."""
 
+    _index_buffer = None
+
+    @staticmethod
+    def lut_lookup(lut, norm):
+        shape = norm.shape
+        if SliceRenderer._index_buffer is None or SliceRenderer._index_buffer.shape != shape:
+            SliceRenderer._index_buffer = np.empty(shape, dtype=np.uint8)
+        norm *= 255.0
+        np.copyto(SliceRenderer._index_buffer, norm, casting='unsafe')
+        return lut[SliceRenderer._index_buffer]
+
     _AXIS_MAP = {
         ViewMode.AXIAL: (1, 2, 3),
         ViewMode.SAGITTAL: (3, 1, 2),
@@ -344,7 +355,7 @@ class SliceRenderer:
         else:
             norm = SliceRenderer.normalize_wl(slice_data, ww, wl)
             lut = COLORMAPS.get(cmap_name, COLORMAPS["Grayscale"])
-            rgba = lut[(norm * 255).astype(np.uint8)]
+            rgba = SliceRenderer.lut_lookup(lut, norm)
 
             if threshold is not None:
                 rgba[slice_data <= threshold] = [0.0, 0.0, 0.0, 0.0]

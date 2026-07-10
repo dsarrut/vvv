@@ -686,7 +686,7 @@ def compute_native_voxel_overlay(
             norm = SliceRenderer.normalize_wl(
                 valid_vals, ovs.display.ww, ovs.display.wl
             )
-            new_colors = lut[(norm * 255).astype(np.uint8)]
+            new_colors = SliceRenderer.lut_lookup(lut, norm)
             rgba_crop = rgba[c_y0:c_y1, c_x0:c_x1]
 
             if target_buffer is not None:
