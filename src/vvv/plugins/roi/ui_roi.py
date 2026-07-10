@@ -1061,8 +1061,7 @@ class RoiPluginUI(PluginTagMixin):
         if roi.visible and not roi.is_contour:
             roi.visible = True
             roi.is_contour = True
-            for ori in roi.polygons:
-                roi.polygons[ori].clear()
+            roi.invalidate()
         elif roi.visible and roi.is_contour:
             roi.visible = False
             roi.is_contour = False
@@ -1276,8 +1275,7 @@ class RoiPluginUI(PluginTagMixin):
             new_r_x_mm=new_r_mm,
         )
 
-        for ori in roi_state.polygons:
-            roi_state.polygons[ori].clear()
+        roi_state.invalidate()
 
         viewer.view_state.is_geometry_dirty = True
         viewer.view_state.is_data_dirty = True
@@ -1342,8 +1340,7 @@ class RoiPluginUI(PluginTagMixin):
             new_r_y_mm=new_r_mm,
         )
 
-        for ori in roi_state.polygons:
-            roi_state.polygons[ori].clear()
+        roi_state.invalidate()
 
         viewer.view_state.is_geometry_dirty = True
         viewer.view_state.is_data_dirty = True
@@ -1409,8 +1406,7 @@ class RoiPluginUI(PluginTagMixin):
             new_r_z_mm=new_r_z_mm,
         )
 
-        for ori in roi_state.polygons:
-            roi_state.polygons[ori].clear()
+        roi_state.invalidate()
 
         viewer.view_state.is_geometry_dirty = True
         viewer.view_state.is_data_dirty = True
@@ -1482,8 +1478,7 @@ class RoiPluginUI(PluginTagMixin):
             or getattr(roi_state, "spheroid_radius", 10.0),
         )
 
-        for ori in roi_state.polygons:
-            roi_state.polygons[ori].clear()
+        roi_state.invalidate()
 
         viewer.view_state.is_geometry_dirty = True
         viewer.view_state.is_data_dirty = True
@@ -2740,8 +2735,7 @@ class RoiPluginUI(PluginTagMixin):
                 continue
             roi.visible = True
             roi.is_contour = True
-            for ori in roi.polygons:
-                roi.polygons[ori].clear()
+            roi.invalidate()
         viewer.view_state.is_data_dirty = True
         viewer.view_state.is_geometry_dirty = True
         self.api.request_refresh()
@@ -2939,8 +2933,7 @@ class RoiPluginUI(PluginTagMixin):
             new_size_x=new_size,
         )
 
-        for ori in roi_state.polygons:
-            roi_state.polygons[ori].clear()
+        roi_state.invalidate()
 
         viewer.view_state.is_geometry_dirty = True
         viewer.view_state.is_data_dirty = True
@@ -2995,8 +2988,7 @@ class RoiPluginUI(PluginTagMixin):
             new_size_y=new_size,
         )
 
-        for ori in roi_state.polygons:
-            roi_state.polygons[ori].clear()
+        roi_state.invalidate()
 
         viewer.view_state.is_geometry_dirty = True
         viewer.view_state.is_data_dirty = True
@@ -3051,8 +3043,7 @@ class RoiPluginUI(PluginTagMixin):
             new_size_z=new_size,
         )
 
-        for ori in roi_state.polygons:
-            roi_state.polygons[ori].clear()
+        roi_state.invalidate()
 
         viewer.view_state.is_geometry_dirty = True
         viewer.view_state.is_data_dirty = True
@@ -3109,8 +3100,7 @@ class RoiPluginUI(PluginTagMixin):
             roi_state,
         )
 
-        for ori in roi_state.polygons:
-            roi_state.polygons[ori].clear()
+        roi_state.invalidate()
 
         viewer.view_state.is_geometry_dirty = True
         viewer.view_state.is_data_dirty = True

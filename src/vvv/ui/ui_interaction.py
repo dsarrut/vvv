@@ -322,8 +322,7 @@ class NavigationTool:
                                                 base_vol, roi_vol, roi_state, new_r_x * 2.0, new_r_y * 2.0, new_r_z * 2.0
                                             )
 
-                                for ori in roi_state.polygons:
-                                    roi_state.polygons[ori].clear()
+                                roi_state.invalidate()
 
                                 self.manager.controller.update_all_viewers_of_image(
                                     self.drag_viewer.image_id, data_dirty=True
@@ -395,8 +394,7 @@ class NavigationTool:
                                 else: # is_box
                                     roi_state.box_center = new_center.tolist()
 
-                                for ori in roi_state.polygons:
-                                    roi_state.polygons[ori].clear()
+                                roi_state.invalidate()
 
                                 self.manager.controller.update_all_viewers_of_image(
                                     self.drag_viewer.image_id, data_dirty=True
@@ -477,8 +475,7 @@ class NavigationTool:
 
                     if getattr(self, "roi_drag_was_contour", False):
                         roi_state.is_contour = True
-                        for ori in roi_state.polygons:
-                            roi_state.polygons[ori].clear()
+                        roi_state.invalidate()
 
                 self.roi_drag_start_center = None
                 self.roi_drag_start_origin = None

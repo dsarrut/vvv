@@ -45,6 +45,13 @@ class ROIState:
         self.box_size_x = None
         self.box_size_y = None
         self.box_size_z = None
+        self.version = 0
+
+    def invalidate(self):
+        """Invalidates the cached contour polygons and increments the version counter."""
+        self.version += 1
+        for ori in self.polygons:
+            self.polygons[ori].clear()
 
     def to_dict(self):
         d = {
@@ -1044,8 +1051,7 @@ class ROIManager:
                     )
                 return
 
-            for ori in roi_state.polygons:
-                roi_state.polygons[ori].clear()
+            roi_state.invalidate()
 
             mode = getattr(roi_state, "source_mode", "Ignore BG (val)")
             target_val = getattr(roi_state, "source_val", 0.0)

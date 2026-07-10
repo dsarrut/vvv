@@ -237,10 +237,8 @@ class ThresholdController(PluginTagMixin):
 
         # Clear draft if the slider OR the subpixel flag moved OR transform changed
         if cache_mismatch:
-            for o in roi_min.polygons:
-                roi_min.polygons[o].clear()
-            for o in roi_max.polygons:
-                roi_max.polygons[o].clear()
+            roi_min.invalidate()
+            roi_max.invalidate()
 
             roi_min.last_computed_threshold_min = state.threshold_min
             roi_min.last_computed_threshold_max = state.threshold_max

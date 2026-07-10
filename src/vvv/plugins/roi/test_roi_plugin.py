@@ -18,6 +18,13 @@ class MockROI:
         self.source_val = 1.0
         self.source_type = "Binary"
         self.polygons = {0: {}, 1: {}, 2: {}}
+        self.version = 0
+
+    def invalidate(self):
+        """Invalidates the cached contour polygons and increments the version counter."""
+        self.version += 1
+        for ori in self.polygons:
+            self.polygons[ori].clear()
 
 
 class MockViewState:

@@ -7,6 +7,7 @@ class SyncManager:
 
     def __init__(self, controller):
         self.controller = controller
+        self.overlay_base_map = {}
 
     # ==========================================
     # INTERNAL HELPERS
@@ -49,6 +50,14 @@ class SyncManager:
             if getattr(vs, "sync_wl_group", 0) == wl_grp
         ]
 
+    def rebuild_overlay_base_map(self):
+        """Rebuilds the reverse lookup map mapping overlay_id -> list of base_ids."""
+        self.overlay_base_map = {}
+        for base_id, vs in list(self.controller.view_states.items()):
+            ov_id = vs.display.overlay.image_id
+            if ov_id:
+                self.overlay_base_map.setdefault(ov_id, []).append(base_id)
+
     def trigger_redraw(self, modified_ids):
         """Flags images to redraw. Viewers will autonomously react to this."""
         for tid in modified_ids:
@@ -56,10 +65,14 @@ class SyncManager:
             if vs:
                 vs.is_data_dirty = True
 
+        self.rebuild_overlay_base_map()
+
         # If any modified image is acting as an overlay, force its base image to redraw too
-        for vs in list(self.controller.view_states.values()):
-            if vs.display.overlay.image_id in modified_ids:
-                vs.is_data_dirty = True
+        for tid in modified_ids:
+            for base_id in self.overlay_base_map.get(tid, []):
+                base_vs = self.controller.view_states.get(base_id)
+                if base_vs:
+                    base_vs.is_data_dirty = True
 
     # ==========================================
     # PUBLIC SYNC METHODS

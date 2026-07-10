@@ -21,7 +21,6 @@ class ContourROI:
             ViewMode.CORONAL: {},
         }
 
-        # Transients used by the Extraction Manager
         self.is_draft_min = False
         self.is_draft_max = False
         self.is_plugin_draft_min = False
@@ -31,6 +30,13 @@ class ContourROI:
         self.last_computed_subpixel = None
         self.last_computed_time_idx = None
         self.last_computed_transform = None
+        self.version = 0
+
+    def invalidate(self):
+        """Invalidates the cached contour polygons and increments the version counter."""
+        self.version += 1
+        for ori in self.polygons:
+            self.polygons[ori].clear()
 
 def extract_2d_contours_from_slice(slice2d, threshold, sw=1.0, sh=1.0):
     """
