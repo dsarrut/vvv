@@ -990,7 +990,8 @@ class SliceViewer:
                     win_tag = f"win_{self.tag}"
                     is_hovered = dpg.is_item_hovered(win_tag) if dpg.does_item_exist(win_tag) else False
                     is_slider_active = dpg.is_item_active(slider_tag)
-                    if is_slider_active:
+                    is_slider_win_hovered = dpg.is_item_hovered(slider_win) if dpg.does_item_exist(slider_win) else False
+                    if is_slider_active or is_slider_win_hovered:
                         show_slider = True
                     elif is_hovered:
                         try:
