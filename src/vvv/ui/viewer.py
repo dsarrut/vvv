@@ -241,8 +241,7 @@ class SliceViewer:
         self._lazy_live_flag: bool = (
             False  # stable within a tick; avoids time.time() races
         )
-        self._old_texture_to_delete: str | None = None
-        self._textures_to_delete: list[str] = []
+        self._textures_to_delete: set[str] = set()
 
         self._tex_w: int = 1
         self._tex_h: int = 1
@@ -438,6 +437,7 @@ class SliceViewer:
         return (
             vs is not None
             and vs.base_display_data is not None
+            and not getattr(vs, "needs_resample", False)
             and vs.space.has_rotation()
         )
 
@@ -2848,16 +2848,16 @@ class TextureManager:
         if base_exists and ov_exists:
             return False
 
-        # Store old textures for safe deletion in the binding phase
+        # Store old textures for safe deletion in the next frame
         if v.texture_tag and v.texture_tag != new_texture_tag:
-            v._old_texture_to_delete = v.texture_tag
+            v._textures_to_delete.add(v.texture_tag)
 
         if (
             hasattr(v, "overlay_texture_tag")
             and v.overlay_texture_tag
             and v.overlay_texture_tag != new_ov_texture_tag
         ):
-            v._textures_to_delete.append(v.overlay_texture_tag)
+            v._textures_to_delete.add(v.overlay_texture_tag)
 
         if not dpg.does_item_exist(new_texture_tag):
             dpg.add_dynamic_texture(
@@ -2888,10 +2888,6 @@ class TextureManager:
 
     def bind_texture_to_node(self):
         v = self.viewer
-        # Defer deletion of the old texture to the next frame
-        if v._old_texture_to_delete:
-            v._textures_to_delete.append(v._old_texture_to_delete)
-            v._old_texture_to_delete = None
 
         if not dpg.does_item_exist(v.img_node_tag):
             return
