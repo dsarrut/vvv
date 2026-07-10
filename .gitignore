@@ -197,6 +197,7 @@ pyrightconfig.json
 GEMINI.md
 .claude/
 bench*txt
+dev_doc
 
 uv.lock
 .git_osx
