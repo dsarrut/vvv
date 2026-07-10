@@ -797,7 +797,18 @@ class InteractionManager:
 
         return None
 
+    def _is_mouse_on_slice_slider(self, viewer):
+        for tag in ["V1", "V2", "V3", "V4"]:
+            slider_tag = f"slider_slice_{tag}"
+            if dpg.does_item_exist(slider_tag):
+                if dpg.is_item_hovered(slider_tag) or dpg.is_item_active(slider_tag):
+                    return True
+        return False
+
     def on_mouse_click(self, sender, app_data, user_data):
+        hover_viewer = self.get_hovered_viewer()
+        if hover_viewer and self._is_mouse_on_slice_slider(hover_viewer):
+            return
         self.active_tool.on_click(app_data)
 
     def on_mouse_move(self, sender, app_data, user_data):
@@ -880,6 +891,11 @@ class InteractionManager:
 
     def on_mouse_drag(self, sender, app_data, user_data):
         if isinstance(app_data, int):
+            return
+        drag_viewer = getattr(self.active_tool, "drag_viewer", None)
+        hover_viewer = self.get_hovered_viewer()
+        target_viewer = drag_viewer or hover_viewer
+        if target_viewer and self._is_mouse_on_slice_slider(target_viewer):
             return
         self.active_tool.on_drag(app_data)
 

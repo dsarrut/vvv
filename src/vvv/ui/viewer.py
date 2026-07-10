@@ -197,6 +197,7 @@ class SliceViewer:
         self._last_tracker_state: tuple | None = None
         self._was_hovered = False
         self._external_tracker_active = False
+        self._slider_active = False
 
         self.texture_tag = f"tex_{tag_id}"
         self.image_tag: int | str = f"img_{tag_id}"
@@ -973,11 +974,32 @@ class SliceViewer:
                 self.set_image(target_id)
 
         vs = self.view_state
+        vol = self.volume
+
+        # --- Slice Slider Overlay ---
+        slider_tag = f"slider_slice_{self.tag}"
+        if dpg.does_item_exist(slider_tag):
+            if vol and vs:
+                max_slices = self.get_display_num_slices()
+                dpg.configure_item(slider_tag, min_value=0, max_value=max_slices - 1)
+                
+                # Set slider height to match the window height dynamically
+                win_w, win_h = self._get_window_dims()
+                if win_h > 0:
+                    dpg.set_item_height(slider_tag, max(20, win_h - 15))
+                
+                is_slider_active = dpg.is_item_active(slider_tag)
+                if not is_slider_active and not self._slider_active:
+                    dpg.set_value(slider_tag, self.slice_idx)
+                
+                dpg.show_item(slider_tag)
+            else:
+                dpg.hide_item(slider_tag)
+
         if not vs or getattr(vs, "is_loading", False):
             self.last_drawn_image_id = None
             return False
 
-        vol = self.volume
         if not vol:
             return False
 
