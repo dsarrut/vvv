@@ -80,17 +80,15 @@ def build_roi_mask_buffer(active_rois, h, w):
         dst_x1, dst_y1 = min(w, ox + rw), min(h, oy + rh)
 
         if src_x1 > src_x0 and src_y1 > src_y0:
-            mask = roi.data[src_y0:src_y1, src_x0:src_x1] > 0
+            roi_sub = roi.data[src_y0:src_y1, src_x0:src_x1]
+            mask = roi_sub > 0
             if np.any(mask):
-                roi_mask[dst_y0:dst_y1, dst_x0:dst_x1][mask] = np.maximum(
-                    roi_mask[dst_y0:dst_y1, dst_x0:dst_x1][mask],
-                    roi.opacity
-                )
-                roi_color_buf[dst_y0:dst_y1, dst_x0:dst_x1][mask] = [
-                    roi.color[0] / 255.0,
-                    roi.color[1] / 255.0,
-                    roi.color[2] / 255.0,
-                ]
+                dst_mask = roi_mask[dst_y0:dst_y1, dst_x0:dst_x1]
+                dst_color = roi_color_buf[dst_y0:dst_y1, dst_x0:dst_x1]
+                roi_color_f = np.array([roi.color[0] / 255.0, roi.color[1] / 255.0, roi.color[2] / 255.0], dtype=np.float32)
+                np.maximum(dst_mask, np.where(mask, roi.opacity, dst_mask), out=dst_mask)
+                for c in range(3):
+                    dst_color[:, :, c] = np.where(mask, roi_color_f[c], dst_color[:, :, c])
 
     return roi_mask, roi_color_buf
 
@@ -250,10 +248,12 @@ class SliceRenderer:
 
         has_roi = roi_mask > 0.0
         if np.any(has_roi):
-            alpha = roi_mask[has_roi][..., np.newaxis]
-            inv_alpha = 1.0 - alpha
-            base_rgba[has_roi, :3] = base_rgba[has_roi, :3] * inv_alpha + roi_color_buf[has_roi] * alpha
-            base_rgba[has_roi, 3] = base_rgba[has_roi, 3] * (1.0 - roi_mask[has_roi]) + roi_mask[has_roi]
+            alpha = roi_mask[:, :, np.newaxis]   # (h, w, 1)
+            mask3 = has_roi[:, :, np.newaxis]     # (h, w, 1)
+            blended_rgb = base_rgba[:, :, :3] * (1.0 - alpha) + roi_color_buf * alpha
+            base_rgba[:, :, :3] = np.where(mask3, blended_rgb, base_rgba[:, :, :3])
+            blended_a = base_rgba[:, :, 3] * (1.0 - roi_mask) + roi_mask
+            base_rgba[:, :, 3] = np.where(has_roi, blended_a, base_rgba[:, :, 3])
 
         return base_rgba
 
