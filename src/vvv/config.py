@@ -57,6 +57,7 @@ DEFAULT_SETTINGS = {
         "fast_scroll_steps": 10,
         "wl_drag_sensitivity": 2.0,
         "active_viewer_mode": "hybrid",
+        "slice_slider_mode": "auto_hide",
     },
     "layout": {
         "window_width": 1400,

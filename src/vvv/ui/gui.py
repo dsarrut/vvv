@@ -723,6 +723,95 @@ class MainGUI:
                 dpg.add_draw_node(tag=viewer.roi_handle_node_tag)
                 dpg.add_draw_node(tag=viewer.vector_field_node_tag)
 
+            # Separate overlay child window for the slider + text, positioned absolutely
+            with dpg.child_window(
+                tag=f"win_slider_{tag}",
+                width=30,
+                height=-1,
+                border=False,
+                no_scrollbar=True,
+                no_scroll_with_mouse=True,
+                show=False,
+            ):
+                with dpg.group(horizontal=False, width=20):
+                    dpg.add_slider_int(
+                        vertical=True,
+                        tag=f"slider_slice_{tag}",
+                        width=18,
+                        height=-35,
+                        format="",
+                        callback=self.on_viewer_slider_changed,
+                        user_data=tag,
+                    )
+                    dpg.add_text("", tag=f"slider_txt_{tag}", show=False)
+
+            # --- ORIGINAL TRUNCATED CODES PRESERVED BELOW ---
+            col = self.controller.settings.data["colors"]["tracker_text"]
+            dpg.add_text("", tag=viewer.tracker_tag, color=col, pos=[5, 5])
+
+            # Beginner mode help text for non-active viewers
+            viewer_help_tag = f"viewer_help_text_{tag}"
+            mod = "Cmd" if sys.platform == "darwin" else "Ctrl"
+            help_text = (
+                "Scroll: Slice"
+                f"\n{mod}+Scroll or key I & O: Zoom"
+                f"\n{mod}+Drag: Pan"
+                "\nShift + Drag: win/level"
+            )
+            help_col = self.ui_cfg["colors"]["text_dim"]
+            help_item = dpg.add_text(
+                help_text, tag=viewer_help_tag, color=help_col, show=False
+            )
+            self.beginner_tags.append(viewer_help_tag)
+
+            # filename
+            dpg.add_text("", tag=f"filename_text_{tag}", color=col, show=False)
+
+    def build_viewer_widget_OLD(self, tag):
+        viewer = self.controller.viewers[tag]
+        with dpg.child_window(
+            tag=f"win_{tag}", border=True, no_scrollbar=True, no_scroll_with_mouse=True
+        ):
+            with dpg.group(horizontal=True):
+                with dpg.drawlist(tag=f"drawlist_{tag}", width=-40, height=-1):
+                    with dpg.draw_node(tag=viewer.img_node_tag):
+                        dpg.draw_image(
+                            viewer.texture_tag, [0, 0], [1, 1], tag=viewer.image_tag
+                        )
+
+                    dpg.add_draw_node(tag=viewer.strips_a_tag)
+                    dpg.add_draw_node(tag=viewer.strips_b_tag)
+                    viewer.active_strips_node = viewer.strips_a_tag
+
+                    dpg.add_draw_node(tag=viewer.grid_a_tag)
+                    dpg.add_draw_node(tag=viewer.grid_b_tag)
+                    viewer.active_grid_node = viewer.grid_a_tag
+
+                    dpg.add_draw_node(tag=viewer.axis_a_tag)
+                    dpg.add_draw_node(tag=viewer.axis_b_tag)
+                    viewer.axes_nodes = [viewer.axis_a_tag, viewer.axis_b_tag]
+                    viewer.active_axes_idx = 0
+
+                    dpg.add_draw_node(tag=viewer.scale_bar_tag)
+                    dpg.add_draw_node(tag=viewer.crosshair_tag)
+                    dpg.add_draw_node(tag=viewer.legend_tag)
+                    dpg.add_draw_node(tag=viewer.contour_node_tag)
+                    dpg.add_draw_node(tag=viewer.profile_node_tag)
+                    dpg.add_draw_node(tag=viewer.roi_handle_node_tag)
+                    dpg.add_draw_node(tag=viewer.vector_field_node_tag)
+
+                # vertical slider for slice scrolling (positioned as a sibling column)
+                dpg.add_slider_int(
+                    vertical=True,
+                    tag=f"slider_slice_{tag}",
+                    width=20,
+                    height=-1,
+                    show=False,
+                    format="",
+                    callback=self.on_viewer_slider_changed,
+                    user_data=tag,
+                )
+
             col = self.controller.settings.data["colors"]["tracker_text"]
             dpg.add_text("", tag=viewer.tracker_tag, color=col, pos=[5, 5])
 
@@ -1499,6 +1588,14 @@ class MainGUI:
                     viewer.is_viewer_data_dirty = True
 
         self.controller.ui_needs_refresh = True
+
+    def on_viewer_slider_changed(self, sender, app_data, user_data):
+        tag = user_data
+        viewer = self.controller.viewers.get(tag)
+        if viewer and viewer.view_state:
+            viewer._slider_active = True
+            viewer.slice_idx = app_data
+            viewer._slider_active = False
 
     def on_image_viewer_toggle(self, sender, value, user_data):
         img_id, v_tag = user_data["img_id"], user_data["v_tag"]

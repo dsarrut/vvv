@@ -174,6 +174,14 @@ class SettingsWindow:
                                 width=150,
                                 tag=widget_tag,
                             )
+                        elif k == "slice_slider_mode":
+                            dpg.add_combo(
+                                items=["always", "auto_hide", "never"],
+                                default_value=v,
+                                callback=cb,
+                                width=150,
+                                tag=widget_tag,
+                            )
                         else:
                             dpg.add_input_text(
                                 default_value=v, callback=cb, width=150, tag=widget_tag

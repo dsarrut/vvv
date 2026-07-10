@@ -197,6 +197,7 @@ class SliceViewer:
         self._last_tracker_state: tuple | None = None
         self._was_hovered = False
         self._external_tracker_active = False
+        self._slider_active = False
 
         self.texture_tag = f"tex_{tag_id}"
         self.image_tag: int | str = f"img_{tag_id}"
@@ -973,11 +974,74 @@ class SliceViewer:
                 self.set_image(target_id)
 
         vs = self.view_state
+        vol = self.volume
+
+        # --- Slice Slider Overlay ---
+        slider_tag = f"slider_slice_{self.tag}"
+        slider_win = f"win_slider_{self.tag}"
+        if dpg.does_item_exist(slider_win):
+            mode = self.controller.settings.data.get("interaction", {}).get("slice_slider_mode", "auto_hide")
+            
+            show_slider = False
+            if vol and vs and mode != "never":
+                if mode == "always":
+                    show_slider = True
+                elif mode == "auto_hide":
+                    win_tag = f"win_{self.tag}"
+                    is_hovered = dpg.is_item_hovered(win_tag) if dpg.does_item_exist(win_tag) else False
+                    is_slider_active = dpg.is_item_active(slider_tag)
+                    is_slider_win_hovered = dpg.is_item_hovered(slider_win) if dpg.does_item_exist(slider_win) else False
+                    if is_slider_active or is_slider_win_hovered:
+                        show_slider = True
+                    elif is_hovered:
+                        try:
+                            mx, my = dpg.get_drawing_mouse_pos()
+                            win_w, win_h = self._get_window_dims()
+                            if mx >= (win_w - 60):
+                                show_slider = True
+                        except Exception:
+                            pass
+            
+            if show_slider:
+                win_w, win_h = self._get_window_dims()
+                if win_w > 0 and win_h > 0:
+                    # Place the slider child window absolutely overlaying the right edge of the viewer window
+                    slider_w = 30
+                    margin_right = 10
+                    margin_y = 10
+                    
+                    x_pos = win_w - slider_w - margin_right
+                    y_pos = margin_y
+                    slider_h = max(20, win_h - 2 * margin_y)
+                    
+                    dpg.set_item_pos(slider_win, [x_pos, y_pos])
+                    dpg.set_item_height(slider_win, slider_h)
+                    dpg.set_item_height(slider_tag, max(20, slider_h - 35))
+                
+                max_slices = self.get_display_num_slices()
+                dpg.configure_item(slider_tag, min_value=0, max_value=max_slices - 1)
+                
+                is_slider_active = dpg.is_item_active(slider_tag)
+                if not is_slider_active and not self._slider_active:
+                    dpg.set_value(slider_tag, self.slice_idx)
+                
+                # Show and update the slice number text widget below the slider
+                txt_tag = f"slider_txt_{self.tag}"
+                if dpg.does_item_exist(txt_tag):
+                    dpg.set_value(txt_tag, f"{self.slice_idx + 1}")
+                    col = self.controller.settings.data["colors"]["tracker_text"]
+                    dpg.configure_item(txt_tag, color=col)
+                    dpg.show_item(txt_tag)
+                
+                dpg.show_item(slider_win)
+                dpg.show_item(slider_tag)
+            else:
+                dpg.hide_item(slider_win)
+
         if not vs or getattr(vs, "is_loading", False):
             self.last_drawn_image_id = None
             return False
 
-        vol = self.volume
         if not vol:
             return False
 

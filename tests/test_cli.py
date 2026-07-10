@@ -151,3 +151,4 @@ def test_cli_label_rois(dummy_images):
     assert tasks_c[1]["base"] == f2
     assert tasks_c[1]["labels"] == []
 
+

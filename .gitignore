@@ -197,8 +197,8 @@ pyrightconfig.json
 GEMINI.md
 .claude/
 bench*txt
+dev_doc
 
-dev_doc/
 uv.lock
 .git_osx
 .git_linux
@@ -213,3 +213,4 @@ uv.lock
 *pth
 test_dpg.py
 scratch*
+dev_doc/

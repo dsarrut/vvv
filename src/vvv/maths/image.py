@@ -5,7 +5,7 @@ import time
 import numpy as np
 from vvv.utils import ViewMode
 from vvv.config import COLORMAPS
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from vvv.utils import get_history_path_key
 from vvv.maths.image_utils import straighten_image, extract_orientation_strings
 
@@ -29,6 +29,20 @@ class RenderLayer:
     offset_slice: int = 0
     dvf_mode: str = "Component"
     preview_override: "np.ndarray | None" = None  # 2D fast preview slice, bypasses extraction
+    data_4d: np.ndarray = field(init=False)
+
+    def __post_init__(self):
+        if self.is_rgb:
+            if self.data.ndim == 4:
+                self.data_4d = self.data[np.newaxis, ...]
+            else:
+                self.data_4d = self.data
+        else:
+            if self.data.ndim == 3:
+                self.data_4d = self.data[np.newaxis, ...]
+            else:
+                self.data_4d = self.data
+
 
 
 @dataclass
@@ -368,9 +382,9 @@ class SliceRenderer:
             base_rgba[:, :, 3] = 1.0  # Solid black
             base_norm = np.zeros((h, w), dtype=np.float32)
         elif getattr(base, "dvf_mode", "Component") == "RGB":
-            r = SliceRenderer._extract_layer(base.data, False, 0, slice_idx, orientation, max_s)
-            g = SliceRenderer._extract_layer(base.data, False, 1, slice_idx, orientation, max_s)
-            b = SliceRenderer._extract_layer(base.data, False, 2, slice_idx, orientation, max_s)
+            r = SliceRenderer._extract_layer(base.data_4d, False, 0, slice_idx, orientation, max_s)
+            g = SliceRenderer._extract_layer(base.data_4d, False, 1, slice_idx, orientation, max_s)
+            b = SliceRenderer._extract_layer(base.data_4d, False, 2, slice_idx, orientation, max_s)
             
             if r is None or g is None or b is None:
                 base_rgba = np.zeros((h, w, 4), dtype=np.float32)
@@ -387,7 +401,7 @@ class SliceRenderer:
                 base_slice = base.preview_override
             else:
                 base_slice = SliceRenderer._extract_layer(
-                    base.data, base.is_rgb, base.time_idx, slice_idx, orientation, max_s
+                    base.data_4d, base.is_rgb, base.time_idx, slice_idx, orientation, max_s
                 )
 
             if base_slice is None:  # Out of bounds
@@ -420,7 +434,7 @@ class SliceRenderer:
                     over_slice = SliceRenderer._shift_2d_array(over_slice, overlay.offset_x, overlay.offset_y)
             else:
                 over_slice = SliceRenderer._extract_layer(
-                    overlay.data,
+                    overlay.data_4d,
                     overlay.is_rgb,
                     overlay.time_idx,
                     target_slice,
@@ -595,6 +609,17 @@ class VolumeData:
             raw_sitk_image, os.path.basename(self.file_paths[0]), is_label_map=is_roi
         )
         self.data = sitk.GetArrayViewFromImage(self.sitk_image)
+        is_rgb = self.sitk_image.GetNumberOfComponentsPerPixel() > 1
+        if is_rgb:
+            if self.data.ndim == 4:
+                self.data_4d = self.data[np.newaxis, ...]
+            else:
+                self.data_4d = self.data
+        else:
+            if self.data.ndim == 3:
+                self.data_4d = self.data[np.newaxis, ...]
+            else:
+                self.data_4d = self.data
 
         is_4d = self.sitk_image.GetDimension() == 4 and self.data.shape[0] > 1
         self.name = os.path.basename(path) if isinstance(path, str) and os.path.isdir(path) else os.path.basename(self.file_paths[0])
@@ -1131,6 +1156,17 @@ class VolumeData:
 
             self.sitk_image = new_sitk
             self.data = new_data
+            is_rgb = self.sitk_image.GetNumberOfComponentsPerPixel() > 1
+            if is_rgb:
+                if self.data.ndim == 4:
+                    self.data_4d = self.data[np.newaxis, ...]
+                else:
+                    self.data_4d = self.data
+            else:
+                if self.data.ndim == 3:
+                    self.data_4d = self.data[np.newaxis, ...]
+                else:
+                    self.data_4d = self.data
             self.read_image_metadata()
 
             self.update_mtime_tracker()
