@@ -264,13 +264,11 @@ class SliceRenderer:
             if orientation == ViewMode.AXIAL:
                 return np.ascontiguousarray(data[t, slice_idx, ...])
             elif orientation == ViewMode.SAGITTAL:
-                # flipud inverts Z (display-Y), fliplr inverts Y (display-X)
-                return np.ascontiguousarray(
-                    np.flipud(np.fliplr(data[t, :, :, slice_idx, ...]))
-                )
+                # flipud (axis 0 of slice) inverts Z, fliplr (axis 1 of slice) inverts Y
+                return np.ascontiguousarray(data[t, ::-1, ::-1, slice_idx, ...])
             elif orientation == ViewMode.CORONAL:
-                # flipud inverts Z (display-Y)
-                return np.ascontiguousarray(np.flipud(data[t, :, slice_idx, ...]))
+                # flipud (axis 0 of slice) inverts Z
+                return np.ascontiguousarray(data[t, ::-1, slice_idx, ...])
             return None
         except IndexError:
             return None  # Safe fallback if UI requests a slice out of bounds
