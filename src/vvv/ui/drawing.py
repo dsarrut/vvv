@@ -439,12 +439,12 @@ class OverlayDrawer:
 
         if not has_overlay:
             # Single Colorbar Layout (Base Image only)
-            x_start = win_w - cb_width - 55
+            x_start = 20
             y_start = (win_h - cb_height) // 2
 
             dpg.draw_rectangle(
-                [x_start - 15, y_start - 20],
-                [win_w - 5, y_start + cb_height + 20],
+                [5, y_start - 20],
+                [115, y_start + cb_height + 20],
                 color=bg_col,
                 fill=bg_col,
                 parent=viewer.legend_tag,
@@ -517,12 +517,12 @@ class OverlayDrawer:
         else:
             # Dual Colorbar Layout (Base + Overlay/Fusion)
             panel_w = 175
-            x_start_panel = win_w - panel_w - 5
+            x_start_panel = 5
             y_start = (win_h - cb_height) // 2 + 10
 
             dpg.draw_rectangle(
                 [x_start_panel, y_start - 35],
-                [win_w - 5, y_start + cb_height + 20],
+                [x_start_panel + panel_w, y_start + cb_height + 20],
                 color=bg_col,
                 fill=bg_col,
                 parent=viewer.legend_tag,
