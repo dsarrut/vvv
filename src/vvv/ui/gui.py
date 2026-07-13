@@ -1706,6 +1706,7 @@ class MainGUI:
             viewer.pan_offset[0] += dx
             viewer.pan_offset[1] += dy
 
+            win_w, win_h = viewer._get_window_dims()
             if win_w and viewer.volume:
                 shape = viewer.get_slice_shape()
                 sw, sh = viewer.volume.get_physical_aspect_ratio(viewer.orientation)
