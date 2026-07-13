@@ -4,9 +4,9 @@ This plugin provides interactive thresholding: a live preview of contour lines a
 
 ## File Structure
 
-- **[plugin_threshold.py](plugin_threshold.py)**: Entry point. Registers lifecycle events and delegates to controller and UI.
-- **[control_threshold.py](control_threshold.py)**: Controller. Owns per-image `ThresholdState`, manages preview ROI lifecycle, runs the generation background thread, handles all callbacks.
-- **[ui_threshold.py](ui_threshold.py)**: UI. Builds the sidebar: sliders, color pickers, generation options, and handles per-image context switching.
+- **[plugin_threshold.py](../src/vvv/plugins/threshold/plugin_threshold.py)**: Entry point. Registers lifecycle events and delegates to controller and UI.
+- **[control_threshold.py](../src/vvv/plugins/threshold/control_threshold.py)**: Controller. Owns per-image `ThresholdState`, manages preview ROI lifecycle, runs the generation background thread, handles all callbacks.
+- **[ui_threshold.py](../src/vvv/plugins/threshold/ui_threshold.py)**: UI. Builds the sidebar: sliders, color pickers, generation options, and handles per-image context switching.
 
 ---
 

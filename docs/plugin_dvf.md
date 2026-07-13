@@ -4,9 +4,9 @@ This plugin controls the visualization of Displacement Vector Fields (DVFs): dis
 
 ## File Structure
 
-- **[src/vvv/plugins/dvf/plugin_dvf.py](src/vvv/plugins/dvf/plugin_dvf.py)**: Registers the plugin entry point and coordinates lifecycle events.
-- **[src/vvv/plugins/dvf/ui_dvf.py](src/vvv/plugins/dvf/ui_dvf.py)**: Defines the DearPyGui layout for the sidebar panel.
-- **[src/vvv/plugins/dvf/control_dvf.py](src/vvv/plugins/dvf/control_dvf.py)**: Contains the controller that detects DVF images, syncs UI controls with DVFState, and dispatches callbacks.
+- **[plugin_dvf.py](../src/vvv/plugins/dvf/plugin_dvf.py)**: Registers the plugin entry point and coordinates lifecycle events.
+- **[ui_dvf.py](../src/vvv/plugins/dvf/ui_dvf.py)**: Defines the DearPyGui layout for the sidebar panel.
+- **[control_dvf.py](../src/vvv/plugins/dvf/control_dvf.py)**: Contains the controller that detects DVF images, syncs UI controls with DVFState, and dispatches callbacks.
 
 ---
 

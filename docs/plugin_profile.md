@@ -4,9 +4,9 @@ This plugin provides interactive intensity profiles: line segments drawn on a vi
 
 ## File Structure
 
-- **[plugin_profile.py](plugin_profile.py)**: Entry point. Registers lifecycle events and delegates to controller and UI.
-- **[control_profile.py](control_profile.py)**: Controller. Handles all user interaction callbacks (add, delete, rename, color, align, snap, goto, slice navigation, coordinate editing, export).
-- **[ui_profile.py](ui_profile.py)**: UI. Builds the sidebar list and the per-profile floating plot window.
+- **[plugin_profile.py](../src/vvv/plugins/profile/plugin_profile.py)**: Entry point. Registers lifecycle events and delegates to controller and UI.
+- **[control_profile.py](../src/vvv/plugins/profile/control_profile.py)**: Controller. Handles all user interaction callbacks (add, delete, rename, color, align, snap, goto, slice navigation, coordinate editing, export).
+- **[ui_profile.py](../src/vvv/plugins/profile/ui_profile.py)**: UI. Builds the sidebar list and the per-profile floating plot window.
 
 ---
 

@@ -4,9 +4,9 @@ This plugin controls the window/level (W/L) presets, sliders, colormaps, minimum
 
 ## File Structure
 
-- **[src/vvv/plugins/intensity/plugin_intensity.py](src/vvv/plugins/intensity/plugin_intensity.py)**: Registers the plugin entry point and coordinates lifecycle events.
-- **[src/vvv/plugins/intensity/ui_intensity.py](src/vvv/plugins/intensity/ui_intensity.py)**: Defines the Dear PyGui (DPG) layouts for the sidebar panel and the external histogram window.
-- **[src/vvv/plugins/intensity/control_intensity.py](src/vvv/plugins/intensity/control_intensity.py)**: Contains the controller that manages interactions, coordinates histogram rendering, and syncs UI inputs with the active viewer state.
+- **[plugin_intensity.py](../src/vvv/plugins/intensity/plugin_intensity.py)**: Registers the plugin entry point and coordinates lifecycle events.
+- **[ui_intensity.py](../src/vvv/plugins/intensity/ui_intensity.py)**: Defines the Dear PyGui (DPG) layouts for the sidebar panel and the external histogram window.
+- **[control_intensity.py](../src/vvv/plugins/intensity/control_intensity.py)**: Contains the controller that manages interactions, coordinates histogram rendering, and syncs UI inputs with the active viewer state.
 
 ---
 
@@ -44,7 +44,7 @@ The histogram can be expanded into a dedicated external popup window:
 
 ## 7. Histogram Colorscale Preview
 - The external popup window renders a horizontal color bar beneath the histogram plot to visually represent how colors map to intensity values.
-- **Texture Generation**: It calls `compute_colorscale_gradient` (defined in `src/vvv/maths/image_utils.py`) to generate a 1D NumPy array representing the color spectrum between the lower and upper window bounds.
+- **Texture Generation**: It calls `compute_colorscale_gradient` (defined in `src/vvv/maths/image_utils.py` or similar) to generate a 1D NumPy array representing the color spectrum between the lower and upper window bounds.
 - **Rendering**: This gradient is uploaded to DPG as a dynamic texture and mapped onto a rectangle beneath the plot.
 
 ## 8. Histogram View Limits (X and Y Axes)

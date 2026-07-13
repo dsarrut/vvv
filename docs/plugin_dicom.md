@@ -4,10 +4,10 @@ The DICOM Browser plugin provides recursive folder scanning, DICOM series identi
 
 ## File Structure
 
-- **[plugin_dicom.py](plugin_dicom.py)**: Plugin entry point conforming to `PluginProtocol`. Sets `show_in_sidebar = False` to omit the plugin from the left sidebar nav panel. Exposes the launcher via a File menu item in `MainGUI`.
-- **[control_dicom.py](control_dicom.py)**: Controller coordinating scanning events, loaded images lifecycle, and UI stubs.
-- **[ui_dicom_plugin.py](ui_dicom_plugin.py)**: Namespaced popup browser window. Spawns background scanning threads, handles selection list rendering, metadata text mapping, keyboard arrow key navigation routing, and sanitization of string formatting.
-- **[test_dicom.py](test_dicom.py)**: Unit test suite covering scanning progress, series list selection, metadata rendering, and open actions.
+- **[plugin_dicom.py](../src/vvv/plugins/dicom/plugin_dicom.py)**: Plugin entry point conforming to `PluginProtocol`. Sets `show_in_sidebar = False` to omit the plugin from the left sidebar nav panel. Exposes the launcher via a File menu item in `MainGUI`.
+- **[control_dicom.py](../src/vvv/plugins/dicom/control_dicom.py)**: Controller coordinating scanning events, loaded images lifecycle, and UI stubs.
+- **[ui_dicom_plugin.py](../src/vvv/plugins/dicom/ui_dicom_plugin.py)**: Namespaced popup browser window. Spawns background scanning threads, handles selection list rendering, metadata text mapping, keyboard arrow key navigation routing, and sanitization of string formatting.
+- **[test_dicom.py](../src/vvv/plugins/dicom/test_dicom.py)**: Unit test suite covering scanning progress, series list selection, metadata rendering, and open actions.
 
 ---
 

@@ -90,6 +90,11 @@ When implementing a task, refer to the specific markdown documents in the [docs/
 *   [plugin_roi.md](docs/plugin_roi.md): Outline of region-of-interest (ROI) tools and managers.
 *   [plugin_contours.md](docs/plugin_contours.md): Guide on the contour detection and drawing architecture.
 *   [plugin_registration.md](docs/plugin_registration.md): Extrinsic rigid registration preview and resample logic.
+*   [plugin_dicom.md](docs/plugin_dicom.md): Recursive DICOM folder scanning, tag/metadata lists, and thread safety.
+*   [plugin_intensity.md](docs/plugin_intensity.md): Window/Level presets, dynamic slider speeds, and async histogram computing.
+*   [plugin_threshold.md](docs/plugin_threshold.md): Interactive min/max intensity threshold previews and image extraction.
+*   [plugin_profile.md](docs/plugin_profile.md): Intensity line profiles, sampling, coordinate spaces, and XY plots.
+*   [plugin_dvf.md](docs/plugin_dvf.md): Vector field, component-wise, and RGB visualization parameters for displacement vector fields.
 
 ---
 
