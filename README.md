@@ -7,19 +7,28 @@ Goal
 - fast, research-oriented, "minimalist"
 - command line + keyboard driven
 
-Features:
-- 3D/4D image slice viewer (most file formats supported, mhd, nii, nrrd, etc.)
-- Command line based: `vvv ct.nii.gz`
-- Multi-Planar slicing (MPR): instantly switch between Axial, Coronal, and Sagittal orientations (F1, F2, F3)
-- Images synchronization, sub-pixel accuracy
-- Overlays: crosshairs, tracker, scalebar
-- Window/Level control, Colormap, auto-windowing
-- Fusion of two images: alpha blending, registration difference, checkerboard
-- Basic ROI masks management (load binary mask images)
-- Basic DICOM browser
-- Session management: save workspaces to file
-- History: automatically remembers images last views.
+Help
+- click on the bottom left "baby" icon to display additional helps in the ui
 
+
+Features:
+- 3D/4D image slice viewer (most file formats supported, mhd, nii, nrrd, etc.).
+- Command line based: `vvv ct.nii.gz`.
+- Multi-Planar slicing (MPR): instantly switch between Axial, Coronal, and Sagittal orientations (F1, F2, F3).
+- Images synchronization, sub-pixel accuracy.
+- Overlays: crosshairs, tracker, scalebar.
+- Window/Level control, Colormap, auto-windowing.
+- Fusion of two images: alpha blending, registration difference, checkerboard.
+- ROI masks management (load binary mask images).
+- (Basic) DICOM browser.
+- Session management: save workspaces to file.
+- History: automatically remembers last-viewed images.
+- Interactive Profiles: draw lines on slices and plot intensity values (press `P`).
+- Interactive Thresholding: preview contour lines and generate masks.
+- 6-DOF Registration: align images with manual sliders, fast 2D previews, and 3D resampling.
+- DVF Visualization: render displacement vector fields as arrow overlays, component maps, or RGB channels.
+
+VVV has been carefully "vibe-coded" (mostly Gemini, a bit of Claude) following the path of VV. We paid special attention to robustness, clear architecture and performance. 
 
 ## Installation
 
@@ -34,6 +43,7 @@ Features:
 ```bash
     vvv ct.nii.gz spect.nii.gz -s    # load the two images, synchronize
     vvv ct.nii.gz, spect.nii.gz, jet  # load two images, fuse them with jet colormapping
+    vvv ct.nii.gz + labels.nii.gz # load ct with labels overlay
     vvv my_session.vvw # restore the session for the file
     
 ```
