@@ -128,7 +128,7 @@ def refresh_image_list_ui(gui):
                         is_layout_enabled = True
                         win_tag = f"win_{v_tag}"
                         if dpg.does_item_exist(win_tag):
-                            is_layout_enabled = dpg.is_item_shown(win_tag)
+                            is_layout_enabled = bool(dpg.is_item_shown(win_tag))
                         
                         is_active = gui.controller.layout[v_tag] == vs_id
                         cb = dpg.add_checkbox(
@@ -151,7 +151,7 @@ def refresh_image_list_ui(gui):
                         is_layout_enabled = True
                         win_tag = f"win_{v_tag}"
                         if dpg.does_item_exist(win_tag):
-                            is_layout_enabled = dpg.is_item_shown(win_tag)
+                            is_layout_enabled = bool(dpg.is_item_shown(win_tag))
                         
                         is_active = gui.controller.layout[v_tag] == vs_id
                         cb = dpg.add_checkbox(
