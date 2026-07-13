@@ -53,7 +53,7 @@ DEFAULT_SETTINGS = {
         "sync_all": "S",
     },
     "interaction": {
-        "zoom_speed": 1.1,
+        "zoom_speed": 1.15,
         "fast_scroll_steps": 10,
         "wl_drag_sensitivity": 2.0,
         "active_viewer_mode": "hybrid",
