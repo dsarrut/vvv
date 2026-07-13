@@ -76,6 +76,7 @@ When implementing a task, refer to the specific markdown documents in the [docs/
 *   [core_rendering.md](docs/core_rendering.md): Slice blending, window leveling math, Numba acceleration, and texture mapping logic.
 *   [core_sync.md](docs/core_sync.md): How viewports are synchronized spatially and temporally.
 *   [core_viewstate_property.md](docs/core_viewstate_property.md): How to add new reactive properties to `ViewState` (handling synchronization, events, and redraw triggers).
+*   [core_contours.md](docs/core_contours.md): Guide on the contour detection and drawing architecture.
 
 ### How-To Integration Recipes
 *   [howto_sidebar_tab.md](docs/howto_sidebar_tab.md): Step-by-step instructions to add a new tab to the sidebar menu.
@@ -88,7 +89,6 @@ When implementing a task, refer to the specific markdown documents in the [docs/
 *   [plugin_api_method.md](docs/plugin_api_method.md): How to safely add new methods to `PluginAPI` and export them from the core.
 *   [plugin_image_list.md](docs/plugin_image_list.md): Details of the image list sidepanel tool.
 *   [plugin_roi.md](docs/plugin_roi.md): Outline of region-of-interest (ROI) tools and managers.
-*   [plugin_contours.md](docs/plugin_contours.md): Guide on the contour detection and drawing architecture.
 *   [plugin_registration.md](docs/plugin_registration.md): Extrinsic rigid registration preview and resample logic.
 *   [plugin_dicom.md](docs/plugin_dicom.md): Recursive DICOM folder scanning, tag/metadata lists, and thread safety.
 *   [plugin_intensity.md](docs/plugin_intensity.md): Window/Level presets, dynamic slider speeds, and async histogram computing.
