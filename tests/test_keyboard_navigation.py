@@ -128,6 +128,29 @@ class TestZoomKeys:
             initial, rel=0.01
         )
 
+    def test_zoom_slider_preserves_subpixel_center(self, headless_gui_app):
+        controller, gui, viewer, _ = headless_gui_app
+        
+        # Ensure mapper has mock dimensions set
+        viewer.mapper.update(512, 512, 100, 100, 1.0, 1.0, 1.0, [0.0, 0.0])
+        
+        initial_center = viewer.get_center_physical_coord()
+        assert initial_center is not None
+        
+        # Trigger slider change to zoom in
+        gui.on_viewer_zoom_slider_changed(None, 1.5, viewer.tag)
+        
+        new_center = viewer.get_center_physical_coord()
+        assert new_center is not None
+        np.testing.assert_allclose(new_center, initial_center, rtol=1e-5, atol=1e-5)
+        
+        # Trigger slider change to zoom out
+        gui.on_viewer_zoom_slider_changed(None, -0.5, viewer.tag)
+        
+        final_center = viewer.get_center_physical_coord()
+        assert final_center is not None
+        np.testing.assert_allclose(final_center, initial_center, rtol=1e-5, atol=1e-5)
+
 
 # ---------------------------------------------------------------------------
 # Display toggles (H, K, L, G)
