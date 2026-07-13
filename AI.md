@@ -26,6 +26,7 @@ This document serves as the global entry point and instruction manual for AI age
     *   **Voxel**: Integer NumPy array coordinates in `[Z, Y, X]` order.
     *   **Physical**: Real-world millimeter coordinates `[x, y, z]` used for spatial synchronization, overlay registration, and measurement.
     *   **Pixel**: Screen/monitor space pixels used for DPG window rendering and mouse interactions.
+*   **"Less is More" & No Over-engineering**: Keep code simple, direct, and readable. Prioritize minimal, clean solutions (e.g., reusing existing UI components, simple callbacks, and clear MVC separation) over complex design patterns, premature optimizations, or excessive abstractions.
 
 ---
 
@@ -69,9 +70,12 @@ Most new tools and features are modular plugins located in [src/vvv/plugins/](sr
 
 When implementing a task, refer to the specific markdown documents in the [docs/](docs/) folder:
 
-### Core Guides
-*   [readme_dev.md](docs/readme_dev.md): High-level system architecture, threading model, render loop lifecycle, and coordinate definitions.
-*   [readme_dev_plugins.md](docs/readme_dev_plugins.md): Comprehensive guide on the plugin contract, lifetime hooks, settings serialization, and the `PluginAPI` reference.
+### Core Guides & Architecture
+*   [core_overview.md](docs/core_overview.md): High-level system architecture, threading model, render loop lifecycle, and coordinate definitions.
+*   [core_image_types.md](docs/core_image_types.md): Specification document on image types (2D, 3D, 4D, DVF, RGB), loading pipelines, and tool capabilities.
+*   [core_rendering.md](docs/core_rendering.md): Slice blending, window leveling math, Numba acceleration, and texture mapping logic.
+*   [core_sync.md](docs/core_sync.md): How viewports are synchronized spatially and temporally.
+*   [core_viewstate_property.md](docs/core_viewstate_property.md): How to add new reactive properties to `ViewState` (handling synchronization, events, and redraw triggers).
 
 ### How-To Integration Recipes
 *   [howto_sidebar_tab.md](docs/howto_sidebar_tab.md): Step-by-step instructions to add a new tab to the sidebar menu.
@@ -79,18 +83,13 @@ When implementing a task, refer to the specific markdown documents in the [docs/
 *   [howto_shortcuts.md](docs/howto_shortcuts.md): How to bind global keyboard/mouse shortcuts in `MainGUI`.
 *   [howto_overlay_mode.md](docs/howto_overlay_mode.md): Guide for drawing visual overlays on top of the slice viewer (e.g. crosshairs, contours).
 
-### API & Property Extension References
-*   [readme_dev_plugin_api_method.md](docs/readme_dev_plugin_api_method.md): How to safely add new methods to `PluginAPI` and export them from the core.
-*   [readme_dev_viewstate_property.md](docs/readme_dev_viewstate_property.md): How to add new reactive properties to `ViewState` (handling synchronization, events, and redraw triggers).
-
-### Feature-Specific Docs
-*   [readme_tools_image_types.md](docs/readme_tools_image_types.md): Document on image types, loading pipelines, and representation.
-*   [readme_dev_contours.md](docs/readme_dev_contours.md): Guide on the contour detection and drawing architecture.
-*   [readme_dev_roi.md](docs/readme_dev_roi.md): Outline of region-of-interest (ROI) tools and managers.
-*   [readme_dev_sync.md](docs/readme_dev_sync.md): How viewports are synchronized spatially and temporally.
-*   [readme_dev_rendering.md](docs/readme_dev_rendering.md): Slice blending, window leveling math, and texture mapping logic.
-*   [readme_dev_reg.md](docs/readme_dev_reg.md): Registration logic.
-*   [readme_dev_image_list.md](docs/readme_dev_image_list.md): Details of the image list sidepanel tool.
+### Plugins Subsystem & Features
+*   [plugin_architecture.md](docs/plugin_architecture.md): Comprehensive guide on the plugin contract, lifetime hooks, settings serialization, and the `PluginAPI` reference.
+*   [plugin_api_method.md](docs/plugin_api_method.md): How to safely add new methods to `PluginAPI` and export them from the core.
+*   [plugin_image_list.md](docs/plugin_image_list.md): Details of the image list sidepanel tool.
+*   [plugin_roi.md](docs/plugin_roi.md): Outline of region-of-interest (ROI) tools and managers.
+*   [plugin_contours.md](docs/plugin_contours.md): Guide on the contour detection and drawing architecture.
+*   [plugin_registration.md](docs/plugin_registration.md): Extrinsic rigid registration preview and resample logic.
 
 ---
 
