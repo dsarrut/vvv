@@ -1694,8 +1694,9 @@ class MainGUI:
         if viewer and viewer.view_state:
             new_zoom = 2.0 ** app_data
 
-            win_w, win_h = viewer._get_window_dims()
-            cx, cy = (win_w / 2.0) if win_w else 100.0, (win_h / 2.0) if win_h else 100.0
+            canvas_w, canvas_h = viewer._get_canvas_size()
+            cx = (canvas_w - viewer.mapper.margin_left * 2.0) / 2.0
+            cy = (canvas_h - viewer.mapper.margin_top * 2.0) / 2.0
 
             oz = viewer.zoom
             viewer.zoom = new_zoom
