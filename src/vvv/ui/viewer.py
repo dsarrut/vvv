@@ -12,7 +12,13 @@ from vvv.utils import (
 )
 import dearpygui.dearpygui as dpg
 from vvv.ui.drawing import OverlayDrawer
-from vvv.maths.image import SliceRenderer, RenderLayer, ROILayer, VolumeData, build_roi_mask_buffer
+from vvv.maths.image import (
+    SliceRenderer,
+    RenderLayer,
+    ROILayer,
+    VolumeData,
+    build_roi_mask_buffer,
+)
 from vvv.config import COLORMAPS, ROI_COLORS
 from vvv.core.view_state import ViewState, ProfileLineState
 import vvv.ui.render_strategy as _rs
@@ -31,7 +37,9 @@ from typing import Any
 import logging
 
 
-def _validate_and_reshape(flat_data, expected_shape, fallback_slice_shape, context_name):
+def _validate_and_reshape(
+    flat_data, expected_shape, fallback_slice_shape, context_name
+):
     """
     Validates flat 1D data against an expected 2D shape (RGBA/4 channels).
     If shape mismatches, attempts fallback to fallback_slice_shape.
@@ -43,7 +51,10 @@ def _validate_and_reshape(flat_data, expected_shape, fallback_slice_shape, conte
     actual_shape = expected_shape
 
     if flat_len != expected_len:
-        if fallback_slice_shape is not None and flat_len == fallback_slice_shape[0] * fallback_slice_shape[1] * 4:
+        if (
+            fallback_slice_shape is not None
+            and flat_len == fallback_slice_shape[0] * fallback_slice_shape[1] * 4
+        ):
             actual_shape = fallback_slice_shape
         else:
             logging.warning(
@@ -52,9 +63,7 @@ def _validate_and_reshape(flat_data, expected_shape, fallback_slice_shape, conte
             )
             return None, None
 
-    reshaped_2d = np.asarray(flat_data).reshape(
-        actual_shape[0], actual_shape[1], 4
-    )
+    reshaped_2d = np.asarray(flat_data).reshape(actual_shape[0], actual_shape[1], 4)
     return reshaped_2d, actual_shape
 
 
@@ -2508,7 +2517,11 @@ class LayerPackager:
 
                 # Collect overlay layer for joint precompute if needed
                 extra_layers = []
-                ov_id = vs.display.overlay.image_id if vs.display.overlay is not None else None
+                ov_id = (
+                    vs.display.overlay.image_id
+                    if vs.display.overlay is not None
+                    else None
+                )
                 ov_data_raw = vs.display.overlay_data if ov_id else None
                 if ov_data_raw is not None and ov_id:
                     ov_time_idx = min(
@@ -2610,9 +2623,7 @@ class LayerPackager:
                             return None
 
             # --- Calculate Relative Pixel Shift ---
-            dx, dy, dz = vs.compute_overlay_pixel_shift(
-                ovs, vol.spacing, v.orientation
-            )
+            dx, dy, dz = vs.compute_overlay_pixel_shift(ovs, vol.spacing, v.orientation)
             off_x, off_y, off_slice = 0, 0, 0
 
             v.active_overlay_shift_x = dx
@@ -2758,7 +2769,18 @@ class LayerPackager:
 
             # Build cache key: if slice_idx, orientation, time, version, or bbox
             # haven't changed, reuse the previously extracted 2D slice.
-            cache_key = (v.slice_idx, v.orientation, t_idx, roi_version, z0, z1, y0, y1, x0, x1)
+            cache_key = (
+                v.slice_idx,
+                v.orientation,
+                t_idx,
+                roi_version,
+                z0,
+                z1,
+                y0,
+                y1,
+                x0,
+                x1,
+            )
             cached = self._roi_slice_cache.get(roi_id)
             if cached is not None and cached[0] == cache_key:
                 roi_slice, offset_x, offset_y = cached[1], cached[2], cached[3]
@@ -2784,14 +2806,21 @@ class LayerPackager:
                 elif v.orientation == ViewMode.SAGITTAL:
                     if x0 <= v.slice_idx < x1:
                         if roi_vol.data.ndim == 4:
-                            roi_slice = roi_vol.data[t_idx, ::-1, ::-1, v.slice_idx - x0]
+                            roi_slice = roi_vol.data[
+                                t_idx, ::-1, ::-1, v.slice_idx - x0
+                            ]
                         else:
                             roi_slice = roi_vol.data[::-1, ::-1, v.slice_idx - x0]
                         offset_x = base_y - y1
                         offset_y = base_z - z1
 
                 # Store in cache
-                self._roi_slice_cache[roi_id] = (cache_key, roi_slice, offset_x, offset_y)
+                self._roi_slice_cache[roi_id] = (
+                    cache_key,
+                    roi_slice,
+                    offset_x,
+                    offset_y,
+                )
 
             seen_roi_ids.add(roi_id)
             if roi_slice is not None and roi_slice.size > 0:
@@ -2911,9 +2940,7 @@ class TextureManager:
         # We must safely delete the old draw items and recreate them to point to the new VRAM.
         if dpg.does_item_exist(v.image_tag):
             dpg.delete_item(v.image_tag)
-        if hasattr(v, "overlay_image_tag") and dpg.does_item_exist(
-            v.overlay_image_tag
-        ):
+        if hasattr(v, "overlay_image_tag") and dpg.does_item_exist(v.overlay_image_tag):
             dpg.delete_item(v.overlay_image_tag)
 
         v.image_tag = dpg.draw_image(
@@ -3010,7 +3037,14 @@ class TextureManager:
 
         # SW_SINGLE_NATIVE: paint overlay at native voxel resolution into the NN base
         nn_base = self._apply_single_native_overlay(
-            vs, nn_base, rgba_2d, canvas_w, canvas_h, has_alpha_overlay, is_lazy_live, is_mip
+            vs,
+            nn_base,
+            rgba_2d,
+            canvas_w,
+            canvas_h,
+            has_alpha_overlay,
+            is_lazy_live,
+            is_mip,
         )
 
         self._safe_set_texture(
@@ -3020,15 +3054,20 @@ class TextureManager:
             getattr(v, "_tex_h", 1),
         )
 
-    def _apply_merged_overlay_blend(self, vs, rgba_2d, has_alpha_overlay, is_lazy_live, is_mip):
+    def _apply_merged_overlay_blend(
+        self, vs, rgba_2d, has_alpha_overlay, is_lazy_live, is_mip
+    ):
         v = self.viewer
         use_merged_blend = v.nn_mode == NNMode.SW_SINGLE_MERGED or (
             v.nn_mode == NNMode.SW_SINGLE_NATIVE and is_mip
         )
-        if not is_lazy_live and use_merged_blend and has_alpha_overlay and v.last_overlay_rgba_flat is not None:
-            ov_actual_shape = getattr(
-                v, "last_overlay_rgba_shape", None
-            )
+        if (
+            not is_lazy_live
+            and use_merged_blend
+            and has_alpha_overlay
+            and v.last_overlay_rgba_flat is not None
+        ):
+            ov_actual_shape = getattr(v, "last_overlay_rgba_shape", None)
             if ov_actual_shape is None:
                 ov_actual_shape = v.get_slice_shape()
 
@@ -3085,7 +3124,15 @@ class TextureManager:
         return nn_base
 
     def _apply_single_native_overlay(
-        self, vs, nn_base, rgba_2d, canvas_w, canvas_h, has_alpha_overlay, is_lazy_live, is_mip
+        self,
+        vs,
+        nn_base,
+        rgba_2d,
+        canvas_w,
+        canvas_h,
+        has_alpha_overlay,
+        is_lazy_live,
+        is_mip,
     ):
         v = self.viewer
         if (
@@ -3101,7 +3148,9 @@ class TextureManager:
                 h, w = v.get_slice_shape()
                 roi_mask, roi_color_buf = build_roi_mask_buffer(active_rois, h, w)
 
-            if nn_base is rgba_2d:  # identity pass returned the slice cache — copy first
+            if (
+                nn_base is rgba_2d
+            ):  # identity pass returned the slice cache — copy first
                 _buf = getattr(v, "_nn_base_buf", None)
                 if _buf is not None:
                     _buf[: rgba_2d.shape[0], : rgba_2d.shape[1]] = rgba_2d
@@ -3166,7 +3215,11 @@ class TextureManager:
                 roi_mask, roi_color_buf = build_roi_mask_buffer(active_rois, h, w)
 
             ov_rgba_display = compute_native_voxel_overlay(
-                v, v.current_pmin, v.current_pmax, canvas_w, canvas_h,
+                v,
+                v.current_pmin,
+                v.current_pmax,
+                canvas_w,
+                canvas_h,
                 roi_mask=roi_mask,
                 roi_color_buf=roi_color_buf,
             )
@@ -3178,9 +3231,7 @@ class TextureManager:
                     getattr(v, "_ov_tex_h", 1),
                 )
         else:
-            ov_actual_shape = getattr(
-                v, "last_overlay_rgba_shape", None
-            )
+            ov_actual_shape = getattr(v, "last_overlay_rgba_shape", None)
             if ov_actual_shape is None:
                 ov_actual_shape = v.get_slice_shape()
 
@@ -3228,25 +3279,58 @@ class SliderOverlay:
         slider_tag = f"slider_slice_{v.tag}"
         slider_win = f"win_slider_{v.tag}"
         if dpg.does_item_exist(slider_win):
-            mode = v.controller.settings.data.get("interaction", {}).get("slice_slider_mode", "auto_hide")
-            
+            mode = v.controller.settings.data.get("interaction", {}).get(
+                "slice_slider_mode", "auto_hide"
+            )
+
             show_slider = False
             if vol and vs and mode != "never":
                 if mode == "always":
                     show_slider = True
                 elif mode == "auto_hide":
                     win_tag = f"win_{v.tag}"
-                    is_hovered = dpg.is_item_hovered(win_tag) if dpg.does_item_exist(win_tag) else False
+                    is_hovered = (
+                        dpg.is_item_hovered(win_tag)
+                        if dpg.does_item_exist(win_tag)
+                        else False
+                    )
                     is_slider_active = dpg.is_item_active(slider_tag)
-                    is_slider_win_hovered = dpg.is_item_hovered(slider_win) if dpg.does_item_exist(slider_win) else False
+                    is_slider_win_hovered = (
+                        dpg.is_item_hovered(slider_win)
+                        if dpg.does_item_exist(slider_win)
+                        else False
+                    )
                     btn_inc = f"btn_slice_inc_{v.tag}"
                     btn_dec = f"btn_slice_dec_{v.tag}"
-                    is_btn_inc_active = dpg.is_item_active(btn_inc) if dpg.does_item_exist(btn_inc) else False
-                    is_btn_dec_active = dpg.is_item_active(btn_dec) if dpg.does_item_exist(btn_dec) else False
-                    is_btn_inc_hovered = dpg.is_item_hovered(btn_inc) if dpg.does_item_exist(btn_inc) else False
-                    is_btn_dec_hovered = dpg.is_item_hovered(btn_dec) if dpg.does_item_exist(btn_dec) else False
+                    is_btn_inc_active = (
+                        dpg.is_item_active(btn_inc)
+                        if dpg.does_item_exist(btn_inc)
+                        else False
+                    )
+                    is_btn_dec_active = (
+                        dpg.is_item_active(btn_dec)
+                        if dpg.does_item_exist(btn_dec)
+                        else False
+                    )
+                    is_btn_inc_hovered = (
+                        dpg.is_item_hovered(btn_inc)
+                        if dpg.does_item_exist(btn_inc)
+                        else False
+                    )
+                    is_btn_dec_hovered = (
+                        dpg.is_item_hovered(btn_dec)
+                        if dpg.does_item_exist(btn_dec)
+                        else False
+                    )
 
-                    if is_slider_active or is_slider_win_hovered or is_btn_inc_active or is_btn_dec_active or is_btn_inc_hovered or is_btn_dec_hovered:
+                    if (
+                        is_slider_active
+                        or is_slider_win_hovered
+                        or is_btn_inc_active
+                        or is_btn_dec_active
+                        or is_btn_inc_hovered
+                        or is_btn_dec_hovered
+                    ):
                         show_slider = True
                     elif is_hovered:
                         try:
@@ -3256,7 +3340,7 @@ class SliderOverlay:
                                 show_slider = True
                         except Exception:
                             pass
-            
+
             if show_slider:
                 win_w, win_h = v._get_window_dims()
                 if win_w > 0 and win_h > 0:
@@ -3264,22 +3348,22 @@ class SliderOverlay:
                     slider_w = 30
                     margin_right = 10
                     margin_y = 10
-                    
+
                     x_pos = win_w - slider_w - margin_right
                     y_pos = margin_y
                     slider_h = max(20, win_h - 2 * margin_y)
-                    
+
                     dpg.set_item_pos(slider_win, [x_pos, y_pos])
                     dpg.set_item_height(slider_win, slider_h)
-                    dpg.set_item_height(slider_tag, max(20, slider_h - 90))
-                
+                    dpg.set_item_height(slider_tag, max(20, slider_h - 50))
+
                 max_slices = v.get_display_num_slices()
                 dpg.configure_item(slider_tag, min_value=0, max_value=max_slices - 1)
-                
+
                 is_slider_active = dpg.is_item_active(slider_tag)
                 if not is_slider_active and not v._slider_active:
                     dpg.set_value(slider_tag, v.slice_idx)
-                
+
                 # Show and update the slice number text widget below the slider
                 txt_tag = f"slider_txt_{v.tag}"
                 if dpg.does_item_exist(txt_tag):
@@ -3287,9 +3371,8 @@ class SliderOverlay:
                     col = v.controller.settings.data["colors"]["tracker_text"]
                     dpg.configure_item(txt_tag, color=col)
                     dpg.show_item(txt_tag)
-                
+
                 dpg.show_item(slider_win)
                 dpg.show_item(slider_tag)
             else:
                 dpg.hide_item(slider_win)
-
