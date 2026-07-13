@@ -16,6 +16,7 @@ class FileManager:
         img_id = str(self.controller.next_image_id)
         self.controller.next_image_id += 1
         vol = VolumeData(path)
+        vol.name = f"({img_id}) {vol.name}"
         vs = ViewState(vol)
 
         # History

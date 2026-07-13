@@ -64,7 +64,7 @@ class Controller:
         self.profiles = ProfileManager(self)
 
         self.use_history = True
-        self.next_image_id = 0
+        self.next_image_id = 1
 
         self.ui_needs_refresh = False
         self.ui_needs_layout_rebuild = False
@@ -253,17 +253,16 @@ class Controller:
 
     def get_image_display_name(self, vs_id):
         """Returns a formatted display name (e.g., '(1) name.mhd') and an is_outdated boolean."""
-        try:
-            idx = list(self.view_states.keys()).index(vs_id) + 1
-        except ValueError:
-            idx = "?"
-
         vol = self.volumes.get(vs_id)
         if not vol:
+            try:
+                idx = list(self.view_states.keys()).index(vs_id) + 1
+            except ValueError:
+                idx = "?"
             return f"({idx}) Unknown", False
 
         is_outdated = getattr(vol, "_is_outdated", False)
-        base_name = f"({idx}) {vol.name}"
+        base_name = vol.name
         name_str = f"{base_name} *" if is_outdated else base_name
         return name_str, is_outdated
 

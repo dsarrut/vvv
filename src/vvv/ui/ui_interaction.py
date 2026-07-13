@@ -965,22 +965,24 @@ class InteractionManager:
                     )
                     return
 
+        # Suppress keys when renaming images
         try:
+            if dpg.does_item_exist("input_info_name") and (dpg.is_item_focused("input_info_name") or dpg.is_item_active("input_info_name")):
+                return
+            for vs_id in self.controller.view_states.keys():
+                input_name_tag = f"input_name_{vs_id}"
+                if dpg.does_item_exist(input_name_tag) and (dpg.is_item_focused(input_name_tag) or dpg.is_item_active(input_name_tag)):
+                    return
+        except Exception:
+            pass
+
+        try:
+            # Check if any input text field is focused/active by checking all aliases
             for alias in dpg.get_aliases():
-                if any(
-                    k in alias
-                    for k in [
-                        "settings_val_",
-                        "fusion_info_",
-                        "input_",
-                        "dicom_",
-                        "info_",
-                    ]
-                ):
-                    if dpg.does_item_exist(alias) and dpg.is_item_focused(alias):
-                        item_type = dpg.get_item_type(alias)
-                        if item_type and "Input" in item_type:
-                            return
+                if dpg.does_item_exist(alias) and (dpg.is_item_focused(alias) or dpg.is_item_active(alias)):
+                    itype = dpg.get_item_type(alias)
+                    if itype and any(x in itype for x in ["mvInputText", "mvInputInt", "mvInputFloat"]):
+                        return
         except Exception:
             pass
 

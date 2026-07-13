@@ -57,6 +57,14 @@ def sync_image_list_ui(gui):
             if dpg.get_item_configuration(slider_tag)["enabled"] != is_enabled:
                 dpg.configure_item(slider_tag, enabled=is_enabled)
 
+        # Synchronize text field values if they changed in the backend and aren't being edited
+        input_tag = f"input_name_{vs_id}"
+        if dpg.does_item_exist(input_tag):
+            if not dpg.is_item_focused(input_tag) and not dpg.is_item_active(input_tag):
+                name_str, _ = gui.controller.get_image_display_name(vs_id)
+                if dpg.get_value(input_tag) != name_str:
+                    dpg.set_value(input_tag, name_str)
+
 def _on_time_slider_changed(gui, vs_id, time_idx):
     """Updates the time slice of a 4D image when the slider is dragged."""
     vs = gui.controller.view_states.get(vs_id)
@@ -165,14 +173,60 @@ def refresh_image_list_ui(gui):
                 # Line 1: Image Name
                 with dpg.group(horizontal=True):
                     name_str, is_outdated = gui.controller.get_image_display_name(vs_id)
-                    lbl_id = dpg.add_text(name_str)
+                    
+                    # Store input tag with prefix 'input_name_' so shortcuts are automatically suppressed by ui_interaction.py
+                    input_name_tag = f"input_name_{vs_id}"
+                    
+                    def on_rename(sender, app_data, user_data):
+                        img_vs_id = user_data
+                        val = dpg.get_value(sender)
+                        if val is None:
+                            return
+                        new_name = val.strip()
+                        
+                        # Strip trailing modification stars * if user left them in
+                        import re
+                        new_name = re.sub(r"\s*\*$", "", new_name)
+                        
+                        vol = gui.controller.volumes.get(img_vs_id)
+                        if vol and new_name:
+                            vol.name = new_name
+                            # Immediately update the filename overlay text in all viewports using this volume
+                            for viewer in gui.controller.viewers.values():
+                                if viewer.image_id == img_vs_id:
+                                    target_input_tag = f"input_name_{img_vs_id}"
+                                    if dpg.does_item_exist(target_input_tag):
+                                        dpg.set_value(target_input_tag, new_name)
+                                    viewer.update_filename_overlay()
+                            # Immediately update the info panel text field if it represents this image
+                            if gui.context_viewer and gui.context_viewer.image_id == img_vs_id:
+                                if dpg.does_item_exist("input_info_name"):
+                                    dpg.set_value("input_info_name", new_name)
+                            gui.controller.ui_needs_refresh = True
+                    
+                    lbl_id = dpg.add_input_text(
+                        tag=input_name_tag,
+                        default_value=name_str,
+                        width=180,
+                        on_enter=True,
+                        callback=on_rename,
+                        user_data=vs_id,
+                    )
+                    # Create an item handler to capture focus loss/deactivation
+                    handler_tag = f"handler_{input_name_tag}"
+                    if not dpg.does_item_exist(handler_tag):
+                        with dpg.item_handler_registry(tag=handler_tag):
+                            dpg.add_item_deactivated_after_edit_handler(
+                                callback=lambda s, a, u, tag=input_name_tag: on_rename(tag, None, u),
+                                user_data=vs_id
+                            )
+                    dpg.bind_item_handler_registry(lbl_id, handler_tag)
 
                     build_beginner_tooltip(lbl_id, vs.volume.get_human_readable_file_path(), gui)
 
                     if is_outdated:
-                        dpg.configure_item(
-                            lbl_id, color=gui.ui_cfg["colors"]["outdated"]
-                        )
+                        # Apply a custom color or style if outdated
+                        pass
 
                     gui.image_label_tags[vs_id] = lbl_id
 

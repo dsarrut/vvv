@@ -549,7 +549,42 @@ class MainGUI:
                 dpg.add_spacer(height=5)
                 build_section_title("Active Viewer", cfg_c["text_header"])
                 with dpg.group(tag="image_info_group"):
-                    self.create_labeled_field("", tag="info_name")
+                    # Store input tag with prefix 'input_info_name' so shortcuts are automatically suppressed by ui_interaction.py
+                    def on_info_name_rename(sender, app_data, user_data):
+                        if self.context_viewer and self.context_viewer.image_id:
+                            val = dpg.get_value(sender)
+                            if val is None:
+                                return
+                            new_name = val.strip()
+                            vol = self.controller.volumes.get(self.context_viewer.image_id)
+                            if vol and new_name:
+                                vol.name = new_name
+                                # Immediately update the filename overlay text in all viewports using this volume
+                                for viewer in self.controller.viewers.values():
+                                    if viewer.image_id == self.context_viewer.image_id:
+                                        viewer.update_filename_overlay()
+                                # Immediately update the list view text field as well
+                                input_name_tag = f"input_name_{self.context_viewer.image_id}"
+                                if dpg.does_item_exist(input_name_tag):
+                                    dpg.set_value(input_name_tag, new_name)
+                                self.controller.ui_needs_refresh = True
+                    
+                    dim_col = self.ui_cfg["colors"]["text_dim"]
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("", tag="info_name_label", color=dim_col)
+                        dpg.add_input_text(
+                            tag="input_info_name",
+                            width=-1,
+                            on_enter=True,
+                            callback=on_info_name_rename,
+                        )
+                        handler_tag = "handler_input_info_name"
+                        if not dpg.does_item_exist(handler_tag):
+                            with dpg.item_handler_registry(tag=handler_tag):
+                                dpg.add_item_deactivated_after_edit_handler(
+                                    callback=lambda s, a, u: on_info_name_rename("input_info_name", None, None)
+                                )
+                        dpg.bind_item_handler_registry("input_info_name", handler_tag)
                     self.create_labeled_field("Type", tag="info_voxel_type")
                     self.create_labeled_field("Size", tag="info_size")
                     self.create_labeled_field("Spacing", tag="info_spacing")
@@ -1170,7 +1205,7 @@ class MainGUI:
         # Handle early exit UI clearing
         if not has_image:
             for t in (
-                "info_name",
+                "input_info_name",
                 "info_size",
                 "info_spacing",
                 "info_origin",
@@ -1190,7 +1225,13 @@ class MainGUI:
 
         assert viewer is not None
         vol = viewer.volume
-        dpg.set_value("info_name", vol.name)
+        if dpg.does_item_exist("input_info_name"):
+            if not dpg.is_item_focused("input_info_name") and not dpg.is_item_active("input_info_name"):
+                name_str, _ = self.controller.get_image_display_name(viewer.image_id)
+                # Strip trailing outdated stars if they are present in display name
+                import re
+                name_clean = re.sub(r"\s*\*$", "", name_str)
+                dpg.set_value("input_info_name", name_clean)
         dpg.set_value("info_name_label", viewer.tag)
         dpg.set_value("info_voxel_type", f"{vol.pixel_type}")
         if vol.num_timepoints > 1:
