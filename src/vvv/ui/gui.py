@@ -1693,25 +1693,47 @@ class MainGUI:
         viewer = self.controller.viewers.get(tag)
         if viewer and viewer.view_state:
             new_zoom = 2.0 ** app_data
-            
+
             win_w, win_h = viewer._get_window_dims()
             cx, cy = (win_w / 2.0) if win_w else 100.0, (win_h / 2.0) if win_h else 100.0
-            
+
             oz = viewer.zoom
             viewer.zoom = new_zoom
-            
+
+            # Zoom from the center of the viewport window
             dx, dy = viewer.mapper.calculate_zoom_pan_delta(cx, cy, oz, new_zoom)
             viewer.pan_offset[0] += dx
             viewer.pan_offset[1] += dy
-            
+
             if win_w and viewer.volume:
                 shape = viewer.get_slice_shape()
                 sw, sh = viewer.volume.get_physical_aspect_ratio(viewer.orientation)
                 viewer.mapper.update(
                     win_w, win_h, shape[1], shape[0], sw, sh, new_zoom, viewer.pan_offset
                 )
-            
+
             viewer.is_geometry_dirty = True
+            viewer._mark_lazy_interaction()
+            self.controller.sync.propagate_camera(viewer)
+
+            # Prevent self-snapping
+            viewer.last_consumed_ppm = viewer.get_pixels_per_mm()
+            cent = viewer.get_center_physical_coord()
+            if cent is not None:
+                viewer.last_consumed_center = list(cent)
+
+            # propagate_camera and get_center_physical_coord both call
+            # mapper.update() with canvas dims, leaving mapper in wrong state.
+            # Restore it so rapid successive zoom events use correct pmin.
+            canvas_w, canvas_h = viewer._get_canvas_size()
+            if canvas_w > 1 and viewer.volume:
+                shape = viewer.get_slice_shape()
+                sw, sh = viewer.volume.get_physical_aspect_ratio(viewer.orientation)
+                viewer.mapper.update(
+                    canvas_w, canvas_h, shape[1], shape[0],
+                    sw, sh, new_zoom, viewer.pan_offset,
+                )
+
             self.controller.ui_needs_refresh = True
 
     def on_viewer_zoom_increment(self, sender, app_data, user_data):
