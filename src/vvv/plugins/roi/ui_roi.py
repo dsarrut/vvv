@@ -6,6 +6,7 @@ from vvv.ui.ui_components import (
     build_help_button,
     build_beginner_tooltip,
     build_stepped_slider,
+    build_renamable_input,
 )
 
 
@@ -612,12 +613,12 @@ class RoiPluginUI(PluginTagMixin):
                 is_outdated = roi_vol._is_outdated if roi_vol else False
 
                 with dpg.group(horizontal=True):
-                    input_id = dpg.add_input_text(
+                    input_id = build_renamable_input(
                         tag=self._t(f"input_roi_name_{roi_id}"),
                         default_value=roi.name,
-                        width=-15 if is_outdated else -1,
-                        user_data=roi_id,
                         callback=self.on_roi_name_changed,
+                        user_data=roi_id,
+                        width=-15 if is_outdated else -1,
                     )
                     if is_outdated:
                         dpg.add_text("*", color=self.api.ui_cfg["colors"]["outdated"])

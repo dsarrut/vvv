@@ -108,3 +108,4 @@ When implementing a task, refer to the specific markdown documents in the [docs/
     *   Do not add DPG imports inside `core/` or `maths/` folders.
     *   Do not suppress global warnings or hardcode sensitive information.
 7.  **Documentation Links**: When creating or editing developer documentation (`.md` files) in the repository, always use relative repository paths (e.g., `../src/vvv/ui/ui_image_list.py`) instead of absolute `file:///` URLs so that links function correctly across all developer environments and hosting platforms.
+8.  **Shared UI Components**: Avoid recreating common widgets like text rename fields or stepped sliders. Always import and reuse components from [ui_components.py](src/vvv/ui/ui_components.py) (e.g., `build_renamable_input` for input fields with focus-loss renaming, `build_stepped_slider`, `build_help_button`, and `build_beginner_tooltip`) to preserve styling and behavior consistency.

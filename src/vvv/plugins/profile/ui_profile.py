@@ -3,6 +3,7 @@ from vvv.ui.ui_components import (
     build_section_title,
     build_help_button,
     build_beginner_tooltip,
+    build_renamable_input,
 )
 from vvv.utils import ViewMode, fmt
 from .control_profile import ProfilePluginController
@@ -210,12 +211,11 @@ class ProfilePluginUI(PluginTagMixin):
                 )
 
                 # Name
-                dpg.add_input_text(
-                    default_value=profile.name,
+                build_renamable_input(
                     tag=self._t(f"input_name_{p_id}"),
-                    user_data=p_id,
+                    default_value=profile.name,
                     callback=self._c.on_profile_name_changed,
-                    on_enter=True,
+                    user_data=p_id,
                     width=-1,
                 )
 

@@ -194,3 +194,36 @@ def build_stepped_slider(
             if not hasattr(gui, "beginner_tags"):
                 gui.beginner_tags = []
             gui.beginner_tags.append(sp_tag)
+
+
+def build_renamable_input(tag, default_value, callback, user_data=None, width=180, tooltip=None, gui=None, on_enter=True):
+    """
+    Creates a renamable text input widget that triggers `callback` on enter or on focus loss (deactivation).
+    Passes the current text value of the input field to `callback` as its second argument (app_data).
+    """
+    def _wrapped_callback(sender, app_data, u):
+        val = dpg.get_value(sender)
+        callback(sender, val, u)
+
+    input_id = dpg.add_input_text(
+        tag=tag,
+        default_value=default_value,
+        width=width,
+        on_enter=on_enter,
+        callback=_wrapped_callback,
+        user_data=user_data,
+    )
+
+    handler_tag = f"handler_deact_{tag}"
+    if not dpg.does_item_exist(handler_tag):
+        with dpg.item_handler_registry(tag=handler_tag):
+            dpg.add_item_deactivated_after_edit_handler(
+                callback=lambda s, a, u: _wrapped_callback(input_id, None, u),
+                user_data=user_data
+            )
+    dpg.bind_item_handler_registry(input_id, handler_tag)
+
+    if tooltip and gui:
+        build_beginner_tooltip(input_id, tooltip, gui)
+
+    return input_id

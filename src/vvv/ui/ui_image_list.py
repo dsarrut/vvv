@@ -1,5 +1,5 @@
 import dearpygui.dearpygui as dpg
-from vvv.ui.ui_components import build_section_title, build_help_button, build_beginner_tooltip
+from vvv.ui.ui_components import build_section_title, build_help_button, build_beginner_tooltip, build_renamable_input
 
 """
 ARCHITECTURE MANDATES (UI Components):
@@ -204,25 +204,15 @@ def refresh_image_list_ui(gui):
                                     dpg.set_value("input_info_name", new_name)
                             gui.controller.ui_needs_refresh = True
                     
-                    lbl_id = dpg.add_input_text(
+                    lbl_id = build_renamable_input(
                         tag=input_name_tag,
                         default_value=name_str,
-                        width=180,
-                        on_enter=True,
                         callback=on_rename,
                         user_data=vs_id,
+                        width=180,
+                        tooltip=vs.volume.get_human_readable_file_path(),
+                        gui=gui,
                     )
-                    # Create an item handler to capture focus loss/deactivation
-                    handler_tag = f"handler_{input_name_tag}"
-                    if not dpg.does_item_exist(handler_tag):
-                        with dpg.item_handler_registry(tag=handler_tag):
-                            dpg.add_item_deactivated_after_edit_handler(
-                                callback=lambda s, a, u, tag=input_name_tag: on_rename(tag, None, u),
-                                user_data=vs_id
-                            )
-                    dpg.bind_item_handler_registry(lbl_id, handler_tag)
-
-                    build_beginner_tooltip(lbl_id, vs.volume.get_human_readable_file_path(), gui)
 
                     if is_outdated:
                         # Apply a custom color or style if outdated
