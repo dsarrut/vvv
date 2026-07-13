@@ -3283,7 +3283,9 @@ class SliderOverlay:
         vol = v.volume
         vs = v.view_state
         slider_tag = f"slider_slice_{v.tag}"
+        slider_zoom_tag = f"slider_zoom_{v.tag}"
         slider_win = f"win_slider_{v.tag}"
+
         if dpg.does_item_exist(slider_win):
             mode = v.controller.settings.data.get("interaction", {}).get(
                 "slice_slider_mode", "auto_hide"
@@ -3300,10 +3302,15 @@ class SliderOverlay:
                         if dpg.does_item_exist(win_tag)
                         else False
                     )
-                    is_slider_active = dpg.is_item_active(slider_tag)
                     is_slider_win_hovered = (
                         dpg.is_item_hovered(slider_win)
                         if dpg.does_item_exist(slider_win)
+                        else False
+                    )
+                    is_slider_active = dpg.is_item_active(slider_tag)
+                    is_slider_hovered = (
+                        dpg.is_item_hovered(slider_tag)
+                        if dpg.does_item_exist(slider_tag)
                         else False
                     )
                     btn_inc = f"btn_slice_inc_{v.tag}"
@@ -3329,7 +3336,6 @@ class SliderOverlay:
                         else False
                     )
 
-                    slider_zoom_tag = f"slider_zoom_{v.tag}"
                     is_zoom_active = (
                         dpg.is_item_active(slider_zoom_tag)
                         if dpg.does_item_exist(slider_zoom_tag)
@@ -3363,8 +3369,20 @@ class SliderOverlay:
                         else False
                     )
 
+                    # Determine if mouse is in the hover zone on the right edge of the viewer
+                    in_hover_zone = False
+                    if is_hovered:
+                        try:
+                            mx, my = dpg.get_drawing_mouse_pos()
+                            win_w, win_h = v._get_window_dims()
+                            if mx >= (win_w - 90):
+                                in_hover_zone = True
+                        except Exception:
+                            pass
+
                     if (
                         is_slider_active
+                        or is_slider_hovered
                         or is_slider_win_hovered
                         or is_btn_inc_active
                         or is_btn_dec_active
@@ -3376,21 +3394,13 @@ class SliderOverlay:
                         or is_btn_zoom_dec_active
                         or is_btn_zoom_inc_hovered
                         or is_btn_zoom_dec_hovered
+                        or in_hover_zone
                     ):
                         show_slider = True
-                    elif is_hovered:
-                        try:
-                            mx, my = dpg.get_drawing_mouse_pos()
-                            win_w, win_h = v._get_window_dims()
-                            if mx >= (win_w - 90):  # Expanded width threshold for hover detection
-                                show_slider = True
-                        except Exception:
-                            pass
 
             if show_slider:
                 win_w, win_h = v._get_window_dims()
                 if win_w > 0 and win_h > 0:
-                    # Place the slider child window absolutely overlaying the right edge of the viewer window
                     slider_w = 60
                     margin_right = 10
                     margin_y = 10
@@ -3400,10 +3410,10 @@ class SliderOverlay:
                     slider_h = max(20, win_h - 2 * margin_y)
 
                     dpg.set_item_pos(slider_win, [x_pos, y_pos])
-                    dpg.set_item_height(slider_win, slider_h)
-                    dpg.set_item_height(slider_tag, max(20, slider_h - 50))
+                    dpg.configure_item(slider_win, width=slider_w, height=slider_h)
                     
-                    slider_zoom_tag = f"slider_zoom_{v.tag}"
+                    if dpg.does_item_exist(slider_tag):
+                        dpg.set_item_height(slider_tag, max(20, slider_h - 50))
                     if dpg.does_item_exist(slider_zoom_tag):
                         dpg.set_item_height(slider_zoom_tag, max(20, slider_h - 50))
 
@@ -3414,7 +3424,14 @@ class SliderOverlay:
                 if not is_slider_active and not v._slider_active:
                     dpg.set_value(slider_tag, v.slice_idx)
 
-                slider_zoom_tag = f"slider_zoom_{v.tag}"
+                # Show and update the slice number text widget below the slider
+                txt_tag = f"slider_txt_{v.tag}"
+                if dpg.does_item_exist(txt_tag):
+                    dpg.set_value(txt_tag, f"{v.slice_idx + 1}")
+                    col = v.controller.settings.data["colors"]["tracker_text"]
+                    dpg.configure_item(txt_tag, color=col)
+                    dpg.show_item(txt_tag)
+
                 if dpg.does_item_exist(slider_zoom_tag):
                     is_zoom_active = dpg.is_item_active(slider_zoom_tag)
                     current_s = float(np.log2(max(1e-5, v.zoom)))
@@ -3442,14 +3459,6 @@ class SliderOverlay:
                     if not is_zoom_active:
                         dpg.set_value(slider_zoom_tag, max(min_val, min(max_val, current_s)))
 
-                # Show and update the slice number text widget below the slider
-                txt_tag = f"slider_txt_{v.tag}"
-                if dpg.does_item_exist(txt_tag):
-                    dpg.set_value(txt_tag, f"{v.slice_idx + 1}")
-                    col = v.controller.settings.data["colors"]["tracker_text"]
-                    dpg.configure_item(txt_tag, color=col)
-                    dpg.show_item(txt_tag)
-
                 # Update the zoom text widget below the zoom slider
                 txt_zoom_tag = f"slider_zoom_txt_{v.tag}"
                 if dpg.does_item_exist(txt_zoom_tag):
@@ -3459,8 +3468,5 @@ class SliderOverlay:
                     dpg.show_item(txt_zoom_tag)
 
                 dpg.show_item(slider_win)
-                dpg.show_item(slider_tag)
-                if dpg.does_item_exist(slider_zoom_tag):
-                    dpg.show_item(slider_zoom_tag)
             else:
                 dpg.hide_item(slider_win)
