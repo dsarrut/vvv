@@ -3442,18 +3442,18 @@ class SliderOverlay:
 
                     # Expand range if close to bounds
                     if current_s >= max_val - 0.5:
-                        max_val = float(np.ceil(current_s + 2.0))
+                        max_val = float(np.ceil(current_s + 1.0))
                         dpg.configure_item(slider_zoom_tag, max_value=max_val)
                     elif current_s <= min_val + 0.5:
-                        min_val = float(np.floor(current_s - 2.0))
+                        min_val = float(np.floor(current_s - 1.0))
                         dpg.configure_item(slider_zoom_tag, min_value=min_val)
 
                     # Contract range back towards default [-3.0, 5.0] if far inside
-                    if current_s < max_val - 3.0 and max_val > 5.0:
-                        max_val = max(5.0, float(np.ceil(current_s + 2.0)))
+                    if current_s < max_val - 2.0 and max_val > 5.0:
+                        max_val = max(5.0, float(np.ceil(current_s + 1.0)))
                         dpg.configure_item(slider_zoom_tag, max_value=max_val)
-                    if current_s > min_val + 3.0 and min_val < -3.0:
-                        min_val = min(-3.0, float(np.floor(current_s - 2.0)))
+                    if current_s > min_val + 2.0 and min_val < -3.0:
+                        min_val = min(-3.0, float(np.floor(current_s - 1.0)))
                         dpg.configure_item(slider_zoom_tag, min_value=min_val)
 
                     if not is_zoom_active:
