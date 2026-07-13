@@ -3404,10 +3404,13 @@ class SliderOverlay:
                     slider_w = 58
                     margin_right = 10
                     margin_y = 10
+                    margin_bottom = 10
+                    if vs and vs.camera.show_scalebar and v.is_image_orientation():
+                        margin_bottom = 50  # Prevent overlap with scalebar
 
                     x_pos = win_w - slider_w - margin_right
                     y_pos = margin_y
-                    slider_h = max(20, win_h - 2 * margin_y)
+                    slider_h = max(20, win_h - margin_y - margin_bottom)
 
                     dpg.set_item_pos(slider_win, [x_pos, y_pos])
                     dpg.configure_item(slider_win, width=slider_w, height=slider_h)
