@@ -251,6 +251,15 @@ def register_dynamic_themes(ui_cfg, controller):
             with dpg.theme_component(dpg.mvText):
                 dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["text_active"])
 
+    if not dpg.does_item_exist("slider_overlay_theme"):
+        with dpg.theme(tag="slider_overlay_theme"):
+            with dpg.theme_component(dpg.mvChildWindow):
+                dpg.add_theme_color(dpg.mvThemeCol_ChildBg, [0, 0, 0, 204])
+                dpg.add_theme_color(dpg.mvThemeCol_Border, [0, 0, 0, 0])
+                dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 0.0)
+                dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, 4.0)
+                dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 8)
+
     if not dpg.does_item_exist("left_panel_padding_theme"):
         with dpg.theme(tag="left_panel_padding_theme"):
             with dpg.theme_component(dpg.mvAll):

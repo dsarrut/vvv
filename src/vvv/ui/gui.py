@@ -206,6 +206,8 @@ class MainGUI:
         dpg.bind_item_theme("viewers_container", "black_viewer_theme")
         for tag in ["V1", "V2", "V3", "V4"]:
             dpg.bind_item_theme(f"win_{tag}", "black_viewer_theme")
+            if dpg.does_item_exist(f"win_slider_{tag}"):
+                dpg.bind_item_theme(f"win_slider_{tag}", "slider_overlay_theme")
 
     def build_menu_bar(self):
         """Builds the floating top menu bar."""
@@ -734,16 +736,19 @@ class MainGUI:
              # Separate overlay child window for the slider + text, positioned absolutely
             with dpg.child_window(
                 tag=f"win_slider_{tag}",
-                width=60,
+                width=58,
                 height=-1,
                 border=False,
                 no_scrollbar=True,
                 no_scroll_with_mouse=True,
                 show=False,
-            ):
-                with dpg.group(horizontal=True, horizontal_spacing=5):
+            ) as slider_win_item:
+                dpg.bind_item_theme(slider_win_item, "slider_overlay_theme")
+                dpg.add_spacer(height=4)
+                with dpg.group(horizontal=True, horizontal_spacing=4):
+                    dpg.add_spacer(width=4)
                     # Column 1: Slice Slider
-                    with dpg.group(horizontal=False, width=20):
+                    with dpg.group(horizontal=False, width=18):
                         dpg.add_slider_int(
                             vertical=True,
                             tag=f"slider_slice_{tag}",
@@ -769,10 +774,12 @@ class MainGUI:
                             callback=self.on_viewer_slider_decrement,
                             user_data=tag,
                         )
-                        dpg.add_text("", tag=f"slider_txt_{tag}", show=False)
+                        txt_slice = dpg.add_text("", tag=f"slider_txt_{tag}", show=False)
+                        if dpg.does_item_exist("small_font_tag"):
+                            dpg.bind_item_font(txt_slice, "small_font_tag")
                     
                     # Column 2: Zoom Slider
-                    with dpg.group(horizontal=False, width=20):
+                    with dpg.group(horizontal=False, width=18):
                         dpg.add_slider_float(
                             vertical=True,
                             tag=f"slider_zoom_{tag}",
@@ -800,7 +807,9 @@ class MainGUI:
                             callback=self.on_viewer_zoom_decrement,
                             user_data=tag,
                         )
-                        dpg.add_text("", tag=f"slider_zoom_txt_{tag}", show=False)
+                        txt_zoom = dpg.add_text("", tag=f"slider_zoom_txt_{tag}", show=False)
+                        if dpg.does_item_exist("small_font_tag"):
+                            dpg.bind_item_font(txt_zoom, "small_font_tag")
 
             # --- ORIGINAL TRUNCATED CODES PRESERVED BELOW ---
             col = self.controller.settings.data["colors"]["tracker_text"]
