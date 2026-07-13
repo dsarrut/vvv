@@ -731,43 +731,76 @@ class MainGUI:
                 dpg.add_draw_node(tag=viewer.roi_handle_node_tag)
                 dpg.add_draw_node(tag=viewer.vector_field_node_tag)
 
-            # Separate overlay child window for the slider + text, positioned absolutely
+             # Separate overlay child window for the slider + text, positioned absolutely
             with dpg.child_window(
                 tag=f"win_slider_{tag}",
-                width=30,
+                width=60,
                 height=-1,
                 border=False,
                 no_scrollbar=True,
                 no_scroll_with_mouse=True,
                 show=False,
             ):
-                with dpg.group(horizontal=False, width=20):
-                    dpg.add_slider_int(
-                        vertical=True,
-                        tag=f"slider_slice_{tag}",
-                        width=18,
-                        height=-35,
-                        format="",
-                        callback=self.on_viewer_slider_changed,
-                        user_data=tag,
-                    )
-                    dpg.add_button(
-                        label="+",
-                        tag=f"btn_slice_inc_{tag}",
-                        width=18,
-                        height=18,
-                        callback=self.on_viewer_slider_increment,
-                        user_data=tag,
-                    )
-                    dpg.add_button(
-                        label="-",
-                        tag=f"btn_slice_dec_{tag}",
-                        width=18,
-                        height=18,
-                        callback=self.on_viewer_slider_decrement,
-                        user_data=tag,
-                    )
-                    dpg.add_text("", tag=f"slider_txt_{tag}", show=False)
+                with dpg.group(horizontal=True, horizontal_spacing=5):
+                    # Column 1: Slice Slider
+                    with dpg.group(horizontal=False, width=20):
+                        dpg.add_slider_int(
+                            vertical=True,
+                            tag=f"slider_slice_{tag}",
+                            width=18,
+                            height=-35,
+                            format="",
+                            callback=self.on_viewer_slider_changed,
+                            user_data=tag,
+                        )
+                        dpg.add_button(
+                            label="+",
+                            tag=f"btn_slice_inc_{tag}",
+                            width=18,
+                            height=18,
+                            callback=self.on_viewer_slider_increment,
+                            user_data=tag,
+                        )
+                        dpg.add_button(
+                            label="-",
+                            tag=f"btn_slice_dec_{tag}",
+                            width=18,
+                            height=18,
+                            callback=self.on_viewer_slider_decrement,
+                            user_data=tag,
+                        )
+                        dpg.add_text("", tag=f"slider_txt_{tag}", show=False)
+                    
+                    # Column 2: Zoom Slider
+                    with dpg.group(horizontal=False, width=20):
+                        dpg.add_slider_float(
+                            vertical=True,
+                            tag=f"slider_zoom_{tag}",
+                            width=18,
+                            height=-35,
+                            min_value=-3.0,
+                            max_value=5.0,
+                            format="",
+                            callback=self.on_viewer_zoom_slider_changed,
+                            user_data=tag,
+                        )
+                        dpg.add_button(
+                            label="+",
+                            tag=f"btn_zoom_inc_{tag}",
+                            width=18,
+                            height=18,
+                            callback=self.on_viewer_zoom_increment,
+                            user_data=tag,
+                        )
+                        dpg.add_button(
+                            label="-",
+                            tag=f"btn_zoom_dec_{tag}",
+                            width=18,
+                            height=18,
+                            callback=self.on_viewer_zoom_decrement,
+                            user_data=tag,
+                        )
+                        dpg.add_text("", tag=f"slider_zoom_txt_{tag}", show=False)
 
             # --- ORIGINAL TRUNCATED CODES PRESERVED BELOW ---
             col = self.controller.settings.data["colors"]["tracker_text"]
@@ -1645,6 +1678,62 @@ class MainGUI:
             slider_tag = f"slider_slice_{tag}"
             if dpg.does_item_exist(slider_tag):
                 dpg.set_value(slider_tag, new_val)
+
+    def on_viewer_zoom_slider_changed(self, sender, app_data, user_data):
+        tag = user_data
+        viewer = self.controller.viewers.get(tag)
+        if viewer and viewer.view_state:
+            new_zoom = 2.0 ** app_data
+            
+            win_w, win_h = viewer._get_window_dims()
+            cx, cy = (win_w / 2.0) if win_w else 100.0, (win_h / 2.0) if win_h else 100.0
+            
+            oz = viewer.zoom
+            viewer.zoom = new_zoom
+            
+            dx, dy = viewer.mapper.calculate_zoom_pan_delta(cx, cy, oz, new_zoom)
+            viewer.pan_offset[0] += dx
+            viewer.pan_offset[1] += dy
+            
+            if win_w and viewer.volume:
+                shape = viewer.get_slice_shape()
+                sw, sh = viewer.volume.get_physical_aspect_ratio(viewer.orientation)
+                viewer.mapper.update(
+                    win_w, win_h, shape[1], shape[0], sw, sh, new_zoom, viewer.pan_offset
+                )
+            
+            viewer.is_geometry_dirty = True
+            self.controller.ui_needs_refresh = True
+
+    def on_viewer_zoom_increment(self, sender, app_data, user_data):
+        tag = user_data
+        viewer = self.controller.viewers.get(tag)
+        if viewer and viewer.view_state:
+            slider_zoom_tag = f"slider_zoom_{tag}"
+            max_val = 5.0
+            if dpg.does_item_exist(slider_zoom_tag):
+                config = dpg.get_item_configuration(slider_zoom_tag)
+                max_val = config.get("max_value", 5.0)
+            current_s = np.log2(max(1e-5, viewer.zoom))
+            new_s = min(max_val, current_s + 0.25)
+            self.on_viewer_zoom_slider_changed(None, new_s, tag)
+            if dpg.does_item_exist(slider_zoom_tag):
+                dpg.set_value(slider_zoom_tag, new_s)
+
+    def on_viewer_zoom_decrement(self, sender, app_data, user_data):
+        tag = user_data
+        viewer = self.controller.viewers.get(tag)
+        if viewer and viewer.view_state:
+            slider_zoom_tag = f"slider_zoom_{tag}"
+            min_val = -3.0
+            if dpg.does_item_exist(slider_zoom_tag):
+                config = dpg.get_item_configuration(slider_zoom_tag)
+                min_val = config.get("min_value", -3.0)
+            current_s = np.log2(max(1e-5, viewer.zoom))
+            new_s = max(min_val, current_s - 0.25)
+            self.on_viewer_zoom_slider_changed(None, new_s, tag)
+            if dpg.does_item_exist(slider_zoom_tag):
+                dpg.set_value(slider_zoom_tag, new_s)
 
     def on_image_viewer_toggle(self, sender, value, user_data):
         img_id, v_tag = user_data["img_id"], user_data["v_tag"]

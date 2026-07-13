@@ -431,8 +431,14 @@ class SliceViewer:
     def zoom(self, value):
         vs = self.view_state
         if vs:
-            vs.camera.zoom[(self.tag, self.orientation)] = value
-            vs.camera.zoom[self.orientation] = value
+            key = (self.tag, self.orientation)
+            old_val = vs.camera.zoom.get(key)
+            if old_val is None or abs(old_val - value) > 1e-5:
+                vs.camera.zoom[key] = value
+                vs.camera.zoom[self.orientation] = value
+                ppm = self.get_pixels_per_mm()
+                vs.camera.target_ppm = ppm
+                self.last_consumed_ppm = ppm
 
     # Mapping for: (Voxel Index, Shape3D Index, Axis Labels, Axis Flip)
     _ORIENTATION_MAP = {
@@ -3323,6 +3329,40 @@ class SliderOverlay:
                         else False
                     )
 
+                    slider_zoom_tag = f"slider_zoom_{v.tag}"
+                    is_zoom_active = (
+                        dpg.is_item_active(slider_zoom_tag)
+                        if dpg.does_item_exist(slider_zoom_tag)
+                        else False
+                    )
+                    is_zoom_hovered = (
+                        dpg.is_item_hovered(slider_zoom_tag)
+                        if dpg.does_item_exist(slider_zoom_tag)
+                        else False
+                    )
+                    btn_zoom_inc = f"btn_zoom_inc_{v.tag}"
+                    btn_zoom_dec = f"btn_zoom_dec_{v.tag}"
+                    is_btn_zoom_inc_active = (
+                        dpg.is_item_active(btn_zoom_inc)
+                        if dpg.does_item_exist(btn_zoom_inc)
+                        else False
+                    )
+                    is_btn_zoom_dec_active = (
+                        dpg.is_item_active(btn_zoom_dec)
+                        if dpg.does_item_exist(btn_zoom_dec)
+                        else False
+                    )
+                    is_btn_zoom_inc_hovered = (
+                        dpg.is_item_hovered(btn_zoom_inc)
+                        if dpg.does_item_exist(btn_zoom_inc)
+                        else False
+                    )
+                    is_btn_zoom_dec_hovered = (
+                        dpg.is_item_hovered(btn_zoom_dec)
+                        if dpg.does_item_exist(btn_zoom_dec)
+                        else False
+                    )
+
                     if (
                         is_slider_active
                         or is_slider_win_hovered
@@ -3330,13 +3370,19 @@ class SliderOverlay:
                         or is_btn_dec_active
                         or is_btn_inc_hovered
                         or is_btn_dec_hovered
+                        or is_zoom_active
+                        or is_zoom_hovered
+                        or is_btn_zoom_inc_active
+                        or is_btn_zoom_dec_active
+                        or is_btn_zoom_inc_hovered
+                        or is_btn_zoom_dec_hovered
                     ):
                         show_slider = True
                     elif is_hovered:
                         try:
                             mx, my = dpg.get_drawing_mouse_pos()
                             win_w, win_h = v._get_window_dims()
-                            if mx >= (win_w - 60):
+                            if mx >= (win_w - 90):  # Expanded width threshold for hover detection
                                 show_slider = True
                         except Exception:
                             pass
@@ -3345,7 +3391,7 @@ class SliderOverlay:
                 win_w, win_h = v._get_window_dims()
                 if win_w > 0 and win_h > 0:
                     # Place the slider child window absolutely overlaying the right edge of the viewer window
-                    slider_w = 30
+                    slider_w = 60
                     margin_right = 10
                     margin_y = 10
 
@@ -3356,6 +3402,10 @@ class SliderOverlay:
                     dpg.set_item_pos(slider_win, [x_pos, y_pos])
                     dpg.set_item_height(slider_win, slider_h)
                     dpg.set_item_height(slider_tag, max(20, slider_h - 50))
+                    
+                    slider_zoom_tag = f"slider_zoom_{v.tag}"
+                    if dpg.does_item_exist(slider_zoom_tag):
+                        dpg.set_item_height(slider_zoom_tag, max(20, slider_h - 50))
 
                 max_slices = v.get_display_num_slices()
                 dpg.configure_item(slider_tag, min_value=0, max_value=max_slices - 1)
@@ -3363,6 +3413,34 @@ class SliderOverlay:
                 is_slider_active = dpg.is_item_active(slider_tag)
                 if not is_slider_active and not v._slider_active:
                     dpg.set_value(slider_tag, v.slice_idx)
+
+                slider_zoom_tag = f"slider_zoom_{v.tag}"
+                if dpg.does_item_exist(slider_zoom_tag):
+                    is_zoom_active = dpg.is_item_active(slider_zoom_tag)
+                    current_s = float(np.log2(max(1e-5, v.zoom)))
+                    
+                    config = dpg.get_item_configuration(slider_zoom_tag)
+                    min_val = config.get("min_value", -3.0)
+                    max_val = config.get("max_value", 5.0)
+                    
+                    # Expand range if close to bounds
+                    if current_s >= max_val - 0.5:
+                        max_val = float(np.ceil(current_s + 2.0))
+                        dpg.configure_item(slider_zoom_tag, max_value=max_val)
+                    elif current_s <= min_val + 0.5:
+                        min_val = float(np.floor(current_s - 2.0))
+                        dpg.configure_item(slider_zoom_tag, min_value=min_val)
+                        
+                    # Contract range back towards default [-3.0, 5.0] if far inside
+                    if current_s < max_val - 3.0 and max_val > 5.0:
+                        max_val = max(5.0, float(np.ceil(current_s + 2.0)))
+                        dpg.configure_item(slider_zoom_tag, max_value=max_val)
+                    if current_s > min_val + 3.0 and min_val < -3.0:
+                        min_val = min(-3.0, float(np.floor(current_s - 2.0)))
+                        dpg.configure_item(slider_zoom_tag, min_value=min_val)
+                    
+                    if not is_zoom_active:
+                        dpg.set_value(slider_zoom_tag, max(min_val, min(max_val, current_s)))
 
                 # Show and update the slice number text widget below the slider
                 txt_tag = f"slider_txt_{v.tag}"
@@ -3372,7 +3450,17 @@ class SliderOverlay:
                     dpg.configure_item(txt_tag, color=col)
                     dpg.show_item(txt_tag)
 
+                # Update the zoom text widget below the zoom slider
+                txt_zoom_tag = f"slider_zoom_txt_{v.tag}"
+                if dpg.does_item_exist(txt_zoom_tag):
+                    dpg.set_value(txt_zoom_tag, f"{v.zoom:.1f}x")
+                    col = v.controller.settings.data["colors"]["tracker_text"]
+                    dpg.configure_item(txt_zoom_tag, color=col)
+                    dpg.show_item(txt_zoom_tag)
+
                 dpg.show_item(slider_win)
                 dpg.show_item(slider_tag)
+                if dpg.does_item_exist(slider_zoom_tag):
+                    dpg.show_item(slider_zoom_tag)
             else:
                 dpg.hide_item(slider_win)
