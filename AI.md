@@ -107,3 +107,4 @@ When implementing a task, refer to the specific markdown documents in the [docs/
     *   Do not bypass the dirty-flag architecture. Modify state flags (`is_data_dirty`, `is_geometry_dirty`, etc.) and let `tick()` trigger the updates instead of calling render updates directly.
     *   Do not add DPG imports inside `core/` or `maths/` folders.
     *   Do not suppress global warnings or hardcode sensitive information.
+7.  **Documentation Links**: When creating or editing developer documentation (`.md` files) in the repository, always use relative repository paths (e.g., `../src/vvv/ui/ui_image_list.py`) instead of absolute `file:///` URLs so that links function correctly across all developer environments and hosting platforms.
