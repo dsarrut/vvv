@@ -878,12 +878,19 @@ class InteractionManager:
                 "wl_drag_sensitivity", 1.0
             )
 
+            # Get the image dynamic range as a baseline for level sensitivity.
+            dyn_range = 1.0
+            if viewer.volume:
+                min_v, max_v = viewer.volume.get_data_range()
+                dyn_range = max(1e-5, max_v - min_v)
+
             # Exponential scaling for Window Width (Prevents "dead zones" at small widths)
-            ww_multiplier = math.exp(dx * base_sens * 0.005)
+            ww_multiplier = math.exp(dx * base_sens * 0.007)
             new_ww = max(1e-5, vs.display.ww * ww_multiplier)
 
-            # Linear scaling for Level, proportional to the newly calculated width
-            new_wl = vs.display.wl - (dy * new_ww * base_sens * 0.002)
+            # Linear scaling for Level, proportional to the newly calculated width or dynamic range fraction
+            ref_width = max(new_ww, dyn_range * 0.05)
+            new_wl = vs.display.wl - (dy * ref_width * base_sens * 0.005)
 
             viewer.update_window_level(new_ww, new_wl)
 

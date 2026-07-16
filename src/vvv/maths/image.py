@@ -662,6 +662,16 @@ class VolumeData:
         self._last_check_time: float = 0.0
         self._is_outdated = False
 
+    def get_data_range(self):
+        if not hasattr(self, "_data_range_cache"):
+            if self.data is not None and self.data.size > 0:
+                min_v = float(np.min(self.data))
+                max_v = float(np.max(self.data))
+                self._data_range_cache = (min_v, max_v)
+            else:
+                self._data_range_cache = (0.0, 1.0)
+        return self._data_range_cache
+
     def read_image_from_disk(self, paths):
         """
         Master router for loading images. Handles standard ITK formats,
