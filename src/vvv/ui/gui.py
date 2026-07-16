@@ -857,7 +857,7 @@ class MainGUI:
                 "Scroll: Slice"
                 f"\n{mod}+Scroll or key I & O: Zoom"
                 f"\n{mod}+Drag: Pan"
-                "\nShift + Drag: win/level"
+                "\nShift + Move: win/level"
             )
             help_col = self.ui_cfg["colors"]["text_dim"]
             help_item = dpg.add_text(
@@ -923,7 +923,7 @@ class MainGUI:
                 "Scroll: Slice"
                 f"\n{mod}+Scroll or key I & O: Zoom"
                 f"\n{mod}+Drag: Pan"
-                "\nShift + Drag: win/level"
+                "\nShift + Move: win/level"
             )
             help_col = self.ui_cfg["colors"]["text_dim"]
             help_item = dpg.add_text(
@@ -2207,13 +2207,13 @@ class MainGUI:
                 dpg.add_text("Cmd/Ctrl + Scroll  : Zoom in/out")
                 dpg.add_text("Cmd/Ctrl + L-Drag  : Pan view")
                 dpg.add_text("Mid-Drag           : Pan view")
-                dpg.add_text("Shift+Drag / R-Drag: Adjust Window/Level")
+                dpg.add_text("Shift+Move / R-Drag: Adjust Window/Level")
             else:
                 dpg.add_text("Left Click         : Move crosshair")
                 dpg.add_text("Scroll Wheel       : Change slice")
                 dpg.add_text("Ctrl + Scroll      : Zoom in/out")
                 dpg.add_text("Ctrl+L-Drag / M-Drag: Pan view")
-                dpg.add_text("Shift+Drag / R-Drag: Adjust Window/Level")
+                dpg.add_text("Shift+Move / R-Drag: Adjust Window/Level")
 
             dpg.add_spacer(height=15)
             dpg.add_text("Keyboard Shortcuts", color=active_col)
@@ -2240,9 +2240,13 @@ class MainGUI:
                 "view_sagittal": "Sagittal View",
                 "view_coronal": "Coronal View",
                 "toggle_interp": "Toggle Pixelated Zoom (NN)",
-                "toggle_strips": "Toggle Voxel Strips",
                 "toggle_grid": "Toggle Voxel Grid",
                 "toggle_legend": "Toggle Legend",
+                "toggle_axis": "Toggle Axis Guide",
+                "toggle_scalebar": "Toggle Scalebar",
+                "toggle_mip": "Toggle MIP (Max Intensity Projection)",
+                "add_profile": "Add Profile Line",
+                "sync_all": "Sync All Viewers",
                 "hide_all": "Show/Hide Overlays",
             }
 
