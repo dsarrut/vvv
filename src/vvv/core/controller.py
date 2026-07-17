@@ -253,17 +253,25 @@ class Controller:
 
     def get_image_display_name(self, vs_id):
         """Returns a formatted display name (e.g., '(1) name.mhd') and an is_outdated boolean."""
+        try:
+            idx = list(self.view_states.keys()).index(vs_id) + 1
+        except ValueError:
+            idx = "?"
+
         vol = self.volumes.get(vs_id)
         if not vol:
-            try:
-                idx = list(self.view_states.keys()).index(vs_id) + 1
-            except ValueError:
-                idx = "?"
             return f"({idx}) Unknown", False
 
         is_outdated = getattr(vol, "_is_outdated", False)
         base_name = vol.name
-        name_str = f"{base_name} *" if is_outdated else base_name
+        
+        # Clean any existing leading (number) prefix for dynamic index display
+        import re
+        clean_name = re.sub(r"^\(\d+\)\s*", "", base_name)
+        
+        name_str = f"({idx}) {clean_name}"
+        if is_outdated:
+            name_str += " *"
         return name_str, is_outdated
 
     def save_image(self, vs_id, filepath):

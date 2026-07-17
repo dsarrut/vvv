@@ -556,6 +556,9 @@ class MainGUI:
                             if val is None:
                                 return
                             new_name = val.strip()
+                            import re
+                            new_name = re.sub(r"\s*\*$", "", new_name)
+                            new_name = re.sub(r"^\(\d+\)\s*", "", new_name)
                             vol = self.controller.volumes.get(self.context_viewer.image_id)
                             if vol and new_name:
                                 vol.name = new_name

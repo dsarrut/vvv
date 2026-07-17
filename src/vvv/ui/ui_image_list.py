@@ -187,6 +187,7 @@ def refresh_image_list_ui(gui):
                         # Strip trailing modification stars * if user left them in
                         import re
                         new_name = re.sub(r"\s*\*$", "", new_name)
+                        new_name = re.sub(r"^\(\d+\)\s*", "", new_name)
                         
                         vol = gui.controller.volumes.get(img_vs_id)
                         if vol and new_name:

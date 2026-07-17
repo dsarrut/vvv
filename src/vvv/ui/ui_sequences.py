@@ -112,8 +112,79 @@ def load_single_image_sequence(gui, controller, file_path):
 def load_batch_images_sequence(gui, controller, file_paths):
     import time
     import concurrent.futures
+    import pydicom
+    from collections import defaultdict
 
-    total_files = len(file_paths)
+    # Group individual DICOM files by Series Instance UID
+    dicom_groups = defaultdict(list)
+    non_dicom_paths = []
+
+    for path in file_paths:
+        if isinstance(path, (list, tuple)):
+            # Already a group (e.g. from DICOM Browser or 4D sequence)
+            non_dicom_paths.append(list(path))
+            continue
+
+        is_dicom = False
+        try:
+            if os.path.isfile(path):
+                with open(path, "rb") as f:
+                    f.seek(128)
+                    if f.read(4) == b"DICM":
+                        is_dicom = True
+        except Exception:
+            pass
+
+        if is_dicom:
+            try:
+                ds = pydicom.dcmread(path, stop_before_pixels=True)
+                series_uid = getattr(ds, "SeriesInstanceUID", None)
+                if series_uid:
+                    dicom_groups[series_uid].append(path)
+                else:
+                    non_dicom_paths.append(path)
+            except Exception:
+                non_dicom_paths.append(path)
+        else:
+            non_dicom_paths.append(path)
+
+    # Helper function to sort DICOM files geometrically
+    def sort_dicom_files(files):
+        file_sort_keys = []
+        for f in files:
+            try:
+                ds = pydicom.dcmread(f, stop_before_pixels=True)
+                ipp = getattr(ds, "ImagePositionPatient", None)
+                if ipp is not None and len(ipp) == 3:
+                    iop = getattr(ds, "ImageOrientationPatient", None)
+                    if iop is not None and len(iop) == 6:
+                        normal = [
+                            iop[1]*iop[5] - iop[2]*iop[4],
+                            iop[2]*iop[3] - iop[0]*iop[5],
+                            iop[0]*iop[4] - iop[1]*iop[3]
+                        ]
+                        dist = sum(n*p for n, p in zip(normal, ipp))
+                        file_sort_keys.append((dist, f))
+                    else:
+                        file_sort_keys.append((ipp[2], f))
+                else:
+                    inst = getattr(ds, "InstanceNumber", 0)
+                    file_sort_keys.append((inst, f))
+            except Exception:
+                file_sort_keys.append((0, f))
+        file_sort_keys.sort(key=lambda x: (x[0], x[1]))
+        return [x[1] for x in file_sort_keys]
+
+    # Process and sort each DICOM group
+    clean_paths = []
+    for series_uid, files in dicom_groups.items():
+        if len(files) > 1:
+            clean_paths.append(sort_dicom_files(files))
+        else:
+            clean_paths.extend(files)
+    clean_paths.extend(non_dicom_paths)
+
+    total_files = len(clean_paths)
     warnings = []
 
     display_name = f"Loading {total_files} images..."
@@ -123,12 +194,6 @@ def load_batch_images_sequence(gui, controller, file_paths):
         yield
 
     loaded_ids = []
-    clean_paths = []
-    for path in file_paths:
-        if isinstance(path, (list, tuple)) and len(path) > 0:
-            clean_paths.append(list(path))  # Force it to a list for VolumeData
-        else:
-            clean_paths.append(path)
 
     # --- THE PARALLEL LOADER & REAL PROGRESS BAR ---
     with concurrent.futures.ThreadPoolExecutor(
