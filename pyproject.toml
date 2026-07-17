@@ -31,6 +31,15 @@ memory = [
     "psutil"
 ]
 
+[tool.setuptools.package-data]
+"vvv" = ["fonts/*.otf"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [project.scripts]
 # This line creates the 'vvv' command in your shell
@@ -43,3 +52,4 @@ testpaths = ["tests", "src/vvv/plugins"]
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
+
