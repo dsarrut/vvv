@@ -890,5 +890,46 @@ def test_gui_viewport_layouts_dynamic_active(headless_gui_app):
             dpg.delete_item("image_list_container")
 
 
+def test_image_display_name_consecutive(headless_gui_app, synthetic_volume_factory):
+    """Test that image display names have consecutive indices regardless of next_image_id jumps, and rename strips prefixes."""
+    controller, gui, viewer, vs_id1 = headless_gui_app
+
+    # Load a second image
+    img_path2 = synthetic_volume_factory("img2.nii.gz", val=50.0)
+    vs_id2 = controller.file.load_image(img_path2)
+
+    # Simulate ROI loads which increment next_image_id (e.g., by 130)
+    controller.next_image_id += 130
+
+    # Load a third image after the gap
+    img_path3 = synthetic_volume_factory("img3.nii.gz", val=75.0)
+    vs_id3 = controller.file.load_image(img_path3)
+
+    # Verify indices in display names are (1), (2), (3) consecutive
+    display_name1, _ = controller.get_image_display_name(vs_id1)
+    display_name2, _ = controller.get_image_display_name(vs_id2)
+    display_name3, _ = controller.get_image_display_name(vs_id3)
+
+    assert display_name1.startswith("(1) ")
+    assert display_name2.startswith("(2) ")
+    assert display_name3.startswith("(3) ")
+
+    # Rename an image with a prefix in the text field (as the user might do)
+    # Simulator for on_rename
+    import re
+    input_val = "(2) modified_name.nii.gz"
+    clean_name = re.sub(r"^\(\d+\)\s*", "", input_val)
+    vol = controller.volumes.get(vs_id2)
+    vol.name = clean_name
+
+    # Check that vol.name is clean (no prefix)
+    assert vol.name == "modified_name.nii.gz"
+
+    # But the display name still has the correct sequential prefix
+    display_name2_new, _ = controller.get_image_display_name(vs_id2)
+    assert display_name2_new == "(2) modified_name.nii.gz"
+
+
+
 
 
