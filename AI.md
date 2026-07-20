@@ -83,6 +83,7 @@ When implementing a task, refer to the specific markdown documents in the [docs/
 *   [howto_menu_item.md](docs/howto_menu_item.md): Guide to extending the main window menu bar.
 *   [howto_shortcuts.md](docs/howto_shortcuts.md): How to bind global keyboard/mouse shortcuts in `MainGUI`.
 *   [howto_overlay_mode.md](docs/howto_overlay_mode.md): Guide for drawing visual overlays on top of the slice viewer (e.g. crosshairs, contours).
+*   [howto_programmatic_screenshots.md](docs/howto_programmatic_screenshots.md): Guide to generating programmatic screenshots centered on a physical coordinate from a workspace and JSON file.
 
 ### Plugins Subsystem & Features
 *   [plugin_architecture.md](docs/plugin_architecture.md): Comprehensive guide on the plugin contract, lifetime hooks, settings serialization, and the `PluginAPI` reference.
