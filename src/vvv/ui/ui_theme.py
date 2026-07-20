@@ -332,3 +332,8 @@ def register_dynamic_themes(ui_cfg, controller):
                     dpg.mvThemeCol_ButtonHovered, cfg_c["bg_menu_active"]
                 )
                 dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["text_active"])
+
+    if not dpg.does_item_exist("outdated_image_input_theme"):
+        with dpg.theme(tag="outdated_image_input_theme"):
+            with dpg.theme_component(dpg.mvInputText):
+                dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["outdated"])

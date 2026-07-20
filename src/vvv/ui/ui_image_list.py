@@ -34,14 +34,24 @@ def highlight_active_image_in_list(gui, active_img_id):
             if img_id == active_img_id:
                 dpg.bind_item_theme(label_tag, "active_image_list_theme")
             else:
-                dpg.bind_item_theme(label_tag, "")
+                vol = gui.controller.volumes.get(img_id)
+                is_outdated = getattr(vol, "_is_outdated", False) if vol else False
+                if is_outdated:
+                    dpg.bind_item_theme(label_tag, "outdated_image_input_theme")
+                else:
+                    dpg.bind_item_theme(label_tag, "")
 
     for img_id, label_tag in gui.sync_label_tags.items():
         if dpg.does_item_exist(label_tag):
             if img_id == active_img_id:
                 dpg.bind_item_theme(label_tag, "active_image_list_theme")
             else:
-                dpg.bind_item_theme(label_tag, "")
+                vol = gui.controller.volumes.get(img_id)
+                is_outdated = getattr(vol, "_is_outdated", False) if vol else False
+                if is_outdated:
+                    dpg.bind_item_theme(label_tag, "outdated_image_input_theme")
+                else:
+                    dpg.bind_item_theme(label_tag, "")
 
 def sync_image_list_ui(gui):
     """Synchronizes the image list sliders every frame without a full rebuild."""
@@ -216,8 +226,7 @@ def refresh_image_list_ui(gui):
                     )
 
                     if is_outdated:
-                        # Apply a custom color or style if outdated
-                        pass
+                        dpg.bind_item_theme(lbl_id, "outdated_image_input_theme")
 
                     gui.image_label_tags[vs_id] = lbl_id
 
