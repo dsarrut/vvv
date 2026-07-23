@@ -8,6 +8,7 @@ from vvv.utils import (
     slice_to_voxel,
 )
 import dearpygui.dearpygui as dpg
+from vvv.ui.ui_components import REGISTERED_INPUT_FILTER_TAGS
 
 _overridden_keys = {}
 _original_is_key_down = dpg.is_key_down
@@ -917,7 +918,27 @@ class InteractionManager:
     def on_key_press(self, sender, app_data, user_data):
         if app_data in _overridden_keys:
             del _overridden_keys[app_data]
-        # Prevent keyboard shortcuts from triggering while typing in text/number fields
+
+        # Prevent keyboard shortcuts from triggering while typing in ANY input text/number field or filter bar
+        try:
+            for tag in REGISTERED_INPUT_FILTER_TAGS:
+                if tag and dpg.does_item_exist(tag):
+                    if dpg.is_item_focused(tag) or dpg.is_item_active(tag):
+                        return
+            for item in [dpg.get_focused_item(), dpg.get_active_item()]:
+                if item and dpg.does_item_exist(item):
+                    itype = str(dpg.get_item_type(item))
+                    if any(x in itype for x in ["mvInputText", "mvInputInt", "mvInputFloat"]):
+                        return
+            aliases = dpg.get_aliases()
+            for alias in aliases:
+                if "input_" in alias and dpg.does_item_exist(alias):
+                    if dpg.is_item_focused(alias) or dpg.is_item_active(alias):
+                        return
+        except Exception:
+            pass
+
+        # ROI list window arrow key navigation
         roi_plugin = (
             next((p for p in self.gui.plugins if p.plugin_id == "roi_plugin"), None)
             if self.gui
@@ -925,31 +946,6 @@ class InteractionManager:
         )
         if roi_plugin and hasattr(roi_plugin, "_ui"):
             ui = roi_plugin._ui
-            for input_id in list(ui.roi_selectables.values()):
-                if input_id and dpg.does_item_exist(input_id):
-                    try:
-                        if dpg.is_item_focused(input_id):
-                            return
-                    except Exception:
-                        pass
-
-            filter_tag = ui._t("input_roi_filter")
-            if filter_tag and dpg.does_item_exist(filter_tag):
-                try:
-                    if dpg.is_item_focused(filter_tag):
-                        return
-                except Exception:
-                    pass
-
-            val_tag = ui._t("input_roi_val")
-            if val_tag and dpg.does_item_exist(val_tag):
-                try:
-                    if dpg.is_item_focused(val_tag):
-                        return
-                except Exception:
-                    pass
-
-            # Check if mouse is hovering the ROI list window
             list_win = ui._t("roi_list_window")
             is_hovering_list = False
             if dpg.does_item_exist(list_win):
@@ -971,27 +967,6 @@ class InteractionManager:
                         -1 if app_data == dpg.mvKey_Up else 1
                     )
                     return
-
-        # Suppress keys when renaming images
-        try:
-            if dpg.does_item_exist("input_info_name") and (dpg.is_item_focused("input_info_name") or dpg.is_item_active("input_info_name")):
-                return
-            for vs_id in self.controller.view_states.keys():
-                input_name_tag = f"input_name_{vs_id}"
-                if dpg.does_item_exist(input_name_tag) and (dpg.is_item_focused(input_name_tag) or dpg.is_item_active(input_name_tag)):
-                    return
-        except Exception:
-            pass
-
-        try:
-            # Check if any input text field is focused/active by checking all aliases
-            for alias in dpg.get_aliases():
-                if dpg.does_item_exist(alias) and (dpg.is_item_focused(alias) or dpg.is_item_active(alias)):
-                    itype = dpg.get_item_type(alias)
-                    if itype and any(x in itype for x in ["mvInputText", "mvInputInt", "mvInputFloat"]):
-                        return
-        except Exception:
-            pass
 
         # Global Application shortcuts using centralized modifiers
         if app_data == dpg.mvKey_O and (

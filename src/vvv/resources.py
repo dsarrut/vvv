@@ -30,11 +30,7 @@ def load_fonts():
     try:
         import dearpygui
 
-        v_str = getattr(
-            dearpygui,
-            "__version__",
-            dpg.get_app_configuration().get("version", "2.3.0"),
-        )
+        v_str = getattr(dearpygui, "__version__", None) or "2.3.0"
         if not v_str:
             v_str = "2.3.0"
         parts = v_str.split(".")

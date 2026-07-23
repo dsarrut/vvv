@@ -4,6 +4,8 @@ from vvv.ui.ui_components import (
     build_help_button,
     build_beginner_tooltip,
     build_renamable_input,
+    build_delete_button,
+    build_name_filter_bar,
 )
 from vvv.utils import ViewMode, fmt
 from .control_profile import ProfilePluginController
@@ -17,6 +19,21 @@ class ProfilePluginUI(PluginTagMixin):
         self._plugin_id = plugin_id
         self._c = controller
         self._last_profile_key = None
+        self._filter_text = ""
+
+    def _on_filter_changed(self, text):
+        self._filter_text = (text or "").lower()
+        self._last_profile_key = None
+        if hasattr(self, "_c") and self._c and self._c._api:
+            self.update_ui(self._c._api)
+
+    def _on_clear_filter(self):
+        if dpg.does_item_exist(self._t("input_filter")):
+            dpg.set_value(self._t("input_filter"), "")
+        self._filter_text = ""
+        self._last_profile_key = None
+        if hasattr(self, "_c") and self._c and self._c._api:
+            self.update_ui(self._c._api)
 
     def _bind_icon_font(self, item):
         if dpg.does_item_exist("icon_font_tag"):
@@ -112,6 +129,20 @@ class ProfilePluginUI(PluginTagMixin):
 
             dpg.add_spacer(height=5)
 
+            # Name Filter Bar
+            build_name_filter_bar(
+                group_tag=self._t("group_filter"),
+                input_tag=self._t("input_filter"),
+                btn_clear_tag=self._t("btn_clear_filter"),
+                on_filter_changed=self._on_filter_changed,
+                on_clear_clicked=self._on_clear_filter,
+                hint="Filter profiles by name...",
+                width=180,
+                api=api,
+            )
+
+            dpg.add_spacer(height=5)
+
             with dpg.child_window(tag=self._t("list_window"), height=200, border=False):
                 with dpg.table(
                     tag=self._t("list_table"),
@@ -197,6 +228,8 @@ class ProfilePluginUI(PluginTagMixin):
             return
 
         for p_id, profile in viewer.view_state.profiles.items():
+            if self._filter_text and self._filter_text not in profile.name.lower():
+                continue
             with dpg.table_row(parent=table_id):
                 # Color picker
                 dpg.add_color_edit(
@@ -264,15 +297,13 @@ class ProfilePluginUI(PluginTagMixin):
                     dpg.add_text("Center camera on this profile")
 
                 # Delete icon
-                btn_delete = dpg.add_button(
+                build_delete_button(
                     label="\uf00d",
                     width=20,
                     user_data=p_id,
                     callback=self._c.on_delete_clicked,
+                    tooltip="Delete profile",
                 )
-                self._bind_icon_font(btn_delete)
-                if dpg.does_item_exist("delete_button_theme"):
-                    dpg.bind_item_theme(btn_delete, "delete_button_theme")
 
         dpg.set_y_scroll(table_id, current_scroll)
 

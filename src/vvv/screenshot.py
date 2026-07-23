@@ -85,10 +85,6 @@ def vvv_screenshot(vvw_path: str, sc_json_path: str):
         entries.append(merged)
 
     # 2. Setup DPG context and VVV
-    try:
-        dpg.destroy_context()
-    except Exception:
-        pass
     dpg.create_context()
     controller = Controller()
     controller.use_history = False
@@ -103,7 +99,13 @@ def vvv_screenshot(vvw_path: str, sc_json_path: str):
     win_h = controller.settings.data["layout"]["window_height"]
     dpg.create_viewport(title="VVV Screenshot Session", width=win_w, height=win_h)
     dpg.setup_dearpygui()
+
+    if not dpg.does_item_exist("global_texture_registry"):
+        with dpg.texture_registry(show=False, tag="global_texture_registry"):
+            pass
+
     dpg.show_viewport()
+    dpg.set_primary_window("PrimaryWindow", True)
     gui.on_window_resize()
 
     # 3. Load workspace — sets up everything:
@@ -131,7 +133,16 @@ def vvv_screenshot(vvw_path: str, sc_json_path: str):
         _process_entry(controller, entry)
 
     # Clean up
-    dpg.destroy_context()
+    if hasattr(gui, "plugins") and gui.plugins:
+        for plugin in gui.plugins:
+            try:
+                plugin.destroy()
+            except Exception:
+                pass
+    try:
+        dpg.destroy_context()
+    except Exception:
+        pass
 
 
 def _process_entry(controller, entry):

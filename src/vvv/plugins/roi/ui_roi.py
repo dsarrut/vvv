@@ -7,6 +7,8 @@ from vvv.ui.ui_components import (
     build_beginner_tooltip,
     build_stepped_slider,
     build_renamable_input,
+    build_delete_button,
+    build_name_filter_bar,
 )
 
 
@@ -330,25 +332,16 @@ class RoiPluginUI(PluginTagMixin):
                 if dpg.does_item_exist("icon_font_tag"):
                     dpg.bind_item_font(btn_sort, "icon_font_tag")
 
-                dpg.add_text("Filter:", color=cfg_c["text_dim"])
-                dpg.add_input_text(
-                    tag=self._t("input_roi_filter"),
-                    width=-30,
-                    callback=self.on_roi_filter_changed,
+                build_name_filter_bar(
+                    group_tag=self._t("subgroup_roi_filter"),
+                    input_tag=self._t("input_roi_filter"),
+                    btn_clear_tag=self._t("btn_clear_filter"),
+                    on_filter_changed=self.on_roi_filter_changed,
+                    on_clear_clicked=self.on_clear_roi_filter_clicked,
+                    hint="Filter ROIs by name...",
+                    width=170,
+                    api=self.api,
                 )
-                build_beginner_tooltip(
-                    self._t("input_roi_filter"),
-                    "Type to search and filter the list of ROIs by name.",
-                    self.api,
-                )
-                btn_clear_filter = dpg.add_button(
-                    label="\uf00d",
-                    width=20,
-                    callback=self.on_clear_roi_filter_clicked,
-                    tag=self._t("btn_clear_filter"),
-                )
-                if dpg.does_item_exist("icon_font_tag"):
-                    dpg.bind_item_font(btn_clear_filter, "icon_font_tag")
 
             # Table child window
             with dpg.child_window(
@@ -692,19 +685,17 @@ class RoiPluginUI(PluginTagMixin):
                         else:
                             dpg.add_text("Extract & Save ROI")
 
-                btn_close = dpg.add_button(
+                btn_close = build_delete_button(
                     label="\uf00d",
                     width=20,
                     user_data=roi_id,
                     callback=self.on_roi_close,
+                    tooltip="Delete ROI",
                 )
 
                 if dpg.does_item_exist("icon_font_tag"):
-                    for btn in [btn_eye, btn_action, btn_center, btn_stats, btn_close]:
+                    for btn in [btn_eye, btn_action, btn_center, btn_stats]:
                         dpg.bind_item_font(btn, "icon_font_tag")
-
-                if dpg.does_item_exist("delete_button_theme"):
-                    dpg.bind_item_theme(btn_close, "delete_button_theme")
 
                 if is_mip:
                     for btn in [btn_eye, btn_action, btn_center, btn_stats, btn_close]:
@@ -2799,8 +2790,9 @@ class RoiPluginUI(PluginTagMixin):
         self.api.request_refresh()
         self.api.update_all_viewers_of_image(viewer.image_id, data_dirty=False)
 
-    def on_roi_filter_changed(self, sender, app_data, user_data):
-        self._c.on_roi_filter_changed(app_data)
+    def on_roi_filter_changed(self, sender_or_text, app_data=None, user_data=None):
+        filter_text = sender_or_text if app_data is None else app_data
+        self._c.on_roi_filter_changed(filter_text)
 
     def on_clear_roi_filter_clicked(self, sender, app_data, user_data):
         if dpg.does_item_exist(self._t("input_roi_filter")):

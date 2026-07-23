@@ -4,20 +4,28 @@ from vvv.ui.ui_components import (
     build_section_title,
     build_help_button,
     build_beginner_tooltip,
+    build_delete_button,
+    build_name_filter_bar,
 )
 from vvv.plugins.plugin_api import PluginTagMixin
 from .control_landmark import LandmarkPluginController
 
 
 class LandmarkPluginUI(PluginTagMixin):
-    """UI Layout for the Landmark Plugin with dynamic table rendering."""
+    """UI Layout for the Landmark Plugin inspired by the Profile UI structure."""
 
     def __init__(self, plugin_id: str, controller: LandmarkPluginController):
         self._plugin_id = plugin_id
         self._c = controller
         self._last_state_key = None
+        self._api = None
+
+    def _bind_icon_font(self, item):
+        if dpg.does_item_exist("icon_font_tag"):
+            dpg.bind_item_font(item, "icon_font_tag")
 
     def create_ui(self, parent, api) -> None:
+        self._api = api
         cfg_c = api.get_ui_config()["colors"]
 
         with dpg.group(parent=parent or 0, tag=self._plugin_id):
@@ -34,51 +42,55 @@ class LandmarkPluginUI(PluginTagMixin):
                 api,
             )
 
-            # --- Top Action Buttons ---
+            # --- Top Action Bar ---
             with dpg.group(horizontal=True):
                 btn_add = dpg.add_button(
-                    label="Add Landmark (Space)",
+                    label="Add",
                     tag=self._t("btn_add"),
                     callback=self._c.on_btn_add_clicked,
                 )
                 build_beginner_tooltip(
                     btn_add,
                     "Adds a 3D landmark at the current physical crosshair coordinate.\n"
-                    "Shortcut: Press Space while hovering over an active viewer.",
-                    api,
-                )
-                btn_load = dpg.add_button(
-                    label="Load File",
-                    tag=self._t("btn_load"),
-                    callback=self._c.on_btn_load_clicked,
-                )
-                build_beginner_tooltip(
-                    btn_load,
-                    "Loads landmarks from a .json or .csv file into the active image.",
-                    api,
-                )
-                btn_save = dpg.add_button(
-                    label="Save File",
-                    tag=self._t("btn_save"),
-                    callback=self._c.on_btn_save_clicked,
-                )
-                build_beginner_tooltip(
-                    btn_save,
-                    "Saves landmarks to a .json or .csv file (auto-detected from file extension).",
+                    "Shortcut: Press Space bar while hovering over an active viewer.",
                     api,
                 )
 
-            with dpg.group(horizontal=True):
+                btn_load = dpg.add_button(
+                    label="\uf07c",
+                    tag=self._t("btn_load"),
+                    callback=self._c.on_btn_load_clicked,
+                )
+                self._bind_icon_font(btn_load)
+                build_beginner_tooltip(
+                    btn_load,
+                    "Load landmarks from a .json or .csv file.",
+                    api,
+                )
+
+                btn_save = dpg.add_button(
+                    label="\uf0c7",
+                    tag=self._t("btn_save"),
+                    callback=self._c.on_btn_save_clicked,
+                )
+                self._bind_icon_font(btn_save)
+                build_beginner_tooltip(
+                    btn_save,
+                    "Save landmarks to a .json or .csv file.",
+                    api,
+                )
+
                 btn_snap_all = dpg.add_button(
-                    label="Snap All to Grid",
+                    label="Snap All",
                     tag=self._t("btn_snap_all"),
                     callback=self._c.on_btn_snap_all_clicked,
                 )
                 build_beginner_tooltip(
                     btn_snap_all,
-                    "Snaps all landmarks of the active image to the nearest physical voxel center.",
+                    "Snaps all landmarks to nearest physical voxel center.",
                     api,
                 )
+
                 btn_clear_all = dpg.add_button(
                     label="Clear All",
                     tag=self._t("btn_clear_all"),
@@ -89,47 +101,29 @@ class LandmarkPluginUI(PluginTagMixin):
                     "Clears all landmarks for the active image.",
                     api,
                 )
-                chk_show = dpg.add_checkbox(
-                    label="Show on Image",
-                    tag=self._t("check_show_landmarks"),
-                    default_value=True,
-                )
-                build_beginner_tooltip(
-                    chk_show,
-                    "Toggles drawing landmark markers on 2D slice viewers.",
-                    api,
-                )
+
                 build_help_button(
                     "Landmark Tool:\n\n"
                     "• Press Space bar to place a 3D point landmark at the crosshair.\n"
                     "• Filter landmarks by name and run batch actions.\n"
-                    "• Click 'Goto' to jump the crosshair to any landmark.\n"
-                    "• Distance (mm) displays live 3D physical offset from crosshair.\n"
-                    "• Landmarks automatically dim on adjacent slices.",
+                    "• Click Goto (\uf05b) to jump the crosshair to any landmark.\n"
+                    "• Click Snap (\uf076) to snap a landmark to nearest voxel center.",
                     api,
                 )
 
             dpg.add_spacer(height=5)
 
             # --- Name Filter & Batch Action Toolbar ---
-            with dpg.group(horizontal=True, tag=self._t("group_filter")):
-                dpg.add_input_text(
-                    hint="Filter landmarks by name...",
-                    tag=self._t("input_filter"),
-                    width=180,
-                    callback=lambda s, a: self._c.on_filter_changed(a),
-                )
-                btn_clear_filter = dpg.add_button(
-                    label="X",
-                    tag=self._t("btn_clear_filter"),
-                    width=24,
-                    callback=lambda: self.on_clear_filter_clicked(),
-                )
-                build_beginner_tooltip(
-                    btn_clear_filter,
-                    "Clears the landmark name filter.",
-                    api,
-                )
+            build_name_filter_bar(
+                group_tag=self._t("group_filter"),
+                input_tag=self._t("input_filter"),
+                btn_clear_tag=self._t("btn_clear_filter"),
+                on_filter_changed=self._c.on_filter_changed,
+                on_clear_clicked=self.on_clear_filter_clicked,
+                hint="Filter landmarks by name...",
+                width=180,
+                api=api,
+            )
 
             with dpg.group(horizontal=True, tag=self._t("group_batch_actions")):
                 dpg.add_button(
@@ -150,22 +144,19 @@ class LandmarkPluginUI(PluginTagMixin):
 
             dpg.add_spacer(height=5)
 
-            # --- Scrollable Landmark Table ---
-            with dpg.child_window(tag=self._t("list_window"), height=180, border=True):
+            # --- Scrollable Landmark Table (Inspired by Profile UI) ---
+            with dpg.child_window(tag=self._t("list_window"), height=180, border=False):
                 with dpg.table(
                     tag=self._t("list_table"),
-                    header_row=True,
-                    resizable=True,
+                    header_row=False,
+                    resizable=False,
                     scrollY=True,
                 ):
-                    dpg.add_table_column(label="Vis", width_fixed=True, init_width_or_weight=26)
-                    dpg.add_table_column(label="Name", width_stretch=True, init_width_or_weight=90)
-                    dpg.add_table_column(label="Coords (mm)", width_fixed=True, init_width_or_weight=115)
-                    dpg.add_table_column(label="Dist (mm)", width_fixed=True, init_width_or_weight=65)
-                    dpg.add_table_column(label="Color", width_fixed=True, init_width_or_weight=45)
-                    dpg.add_table_column(label="Goto", width_fixed=True, init_width_or_weight=35)
-                    dpg.add_table_column(label="Snap", width_fixed=True, init_width_or_weight=35)
-                    dpg.add_table_column(label="Del", width_fixed=True, init_width_or_weight=30)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+                    dpg.add_table_column(width_stretch=True)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
 
             dpg.add_spacer(height=3)
 
@@ -182,6 +173,7 @@ class LandmarkPluginUI(PluginTagMixin):
         self._c.on_clear_filter_clicked()
 
     def update_ui(self, api) -> None:
+        self._api = api
         viewer = api.get_active_viewer()
         has_image = bool(viewer and viewer.view_state and viewer.volume)
 
@@ -210,9 +202,6 @@ class LandmarkPluginUI(PluginTagMixin):
         landmarks = self._c.get_landmarks(vs_id)
         filter_text = self._c.landmark_filters.get(vs_id, "").lower()
 
-        # Compute crosshair physical position for live distance calculation
-        crosshair_phys = viewer.view_state.camera.crosshair_phys_coord
-
         # Rebuild key to avoid unneeded redraws if nothing changed
         lm_tuples = tuple(
             (
@@ -224,8 +213,7 @@ class LandmarkPluginUI(PluginTagMixin):
             )
             for lm_id, lm in landmarks.items()
         )
-        crosshair_tuple = tuple(crosshair_phys) if crosshair_phys is not None else None
-        state_key = (vs_id, filter_text, lm_tuples, crosshair_tuple)
+        state_key = (vs_id, filter_text, lm_tuples)
 
         if state_key == self._last_state_key:
             return
@@ -243,67 +231,57 @@ class LandmarkPluginUI(PluginTagMixin):
 
             filtered_count += 1
 
-            # Distance to current crosshair
-            dist_str = "-"
-            if crosshair_phys is not None:
-                dx = lm.pt_phys[0] - crosshair_phys[0]
-                dy = lm.pt_phys[1] - crosshair_phys[1]
-                dz = lm.pt_phys[2] - crosshair_phys[2]
-                dist = math.sqrt(dx * dx + dy * dy + dz * dz)
-                dist_str = f"{dist:.1f}"
-
-            coords_str = f"[{lm.pt_phys[0]:.1f}, {lm.pt_phys[1]:.1f}, {lm.pt_phys[2]:.1f}]"
-
             with dpg.table_row(parent=table_id):
-                # 1. Vis
-                dpg.add_checkbox(
-                    default_value=lm.visible,
+                # 1. Color Picker
+                col_rgba = [c / 255.0 for c in lm.color] if max(lm.color) > 1.0 else lm.color
+                dpg.add_color_edit(
+                    default_value=col_rgba,
+                    no_inputs=True,
+                    no_label=True,
+                    no_alpha=True,
+                    width=20,
+                    height=20,
                     user_data=lm_id,
-                    callback=lambda s, a, u: self._c.update_landmark_visible(u, a),
+                    callback=lambda s, a, u: self._c.update_landmark_color(
+                        u, [int(c * 255) for c in a[:4]]
+                    ),
                 )
-                # 2. Name
+
+                # 2. Name Input Field
                 dpg.add_input_text(
                     default_value=lm.name,
                     width=-1,
                     user_data=lm_id,
                     callback=lambda s, a, u: self._c.update_landmark_name(u, a),
                 )
-                # 3. Coords
-                dpg.add_text(coords_str)
-                # 4. Dist
-                dpg.add_text(dist_str)
-                # 5. Color
-                col_rgba = [c / 255.0 for c in lm.color] if max(lm.color) > 1.0 else lm.color
-                dpg.add_color_edit(
-                    default_value=col_rgba,
-                    no_inputs=True,
-                    no_alpha=False,
-                    width=35,
+
+                # 3. Snap to Grid Button
+                btn_snap = dpg.add_button(
+                    label="\uf076",
                     user_data=lm_id,
-                    callback=lambda s, a, u: self._c.update_landmark_color(
-                        u, [int(c * 255) for c in a[:4]]
-                    ),
+                    callback=lambda s, a, u: None,  # Wired in Step 5
                 )
-                # 6. Goto
-                dpg.add_button(
-                    label="->",
-                    width=28,
+                self._bind_icon_font(btn_snap)
+                with dpg.tooltip(btn_snap):
+                    dpg.add_text("Snap landmark to nearest voxel grid center")
+
+                # 4. Goto Crosshair Button
+                btn_goto = dpg.add_button(
+                    label="\uf05b",
                     user_data=lm_id,
                     callback=lambda s, a, u: self._c.center_on_landmark(u),
                 )
-                # 7. Snap
-                dpg.add_button(
-                    label="S",
-                    width=28,
-                    user_data=lm_id,
-                    callback=lambda s, a, u: None,
-                )
-                # 8. Del
-                dpg.add_button(
-                    label="X",
-                    width=24,
+                self._bind_icon_font(btn_goto)
+                with dpg.tooltip(btn_goto):
+                    dpg.add_text("Jump crosshair to landmark position")
+
+                # 5. Delete Button (Red cross)
+                build_delete_button(
+                    label="\uf00d",
+                    width=20,
                     user_data=lm_id,
                     callback=lambda s, a, u: self._c.remove_landmark(u),
+                    tooltip="Delete landmark",
                 )
 
         # Update counter footer text

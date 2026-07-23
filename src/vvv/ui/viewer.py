@@ -2141,7 +2141,8 @@ class SliceViewer:
                 return
 
         # Landmark Spacebar Shortcut
-        if key == dpg.mvKey_Space:
+        space_key = getattr(dpg, "mvKey_Spacebar", getattr(dpg, "mvKey_Space", 32))
+        if key == space_key:
             if hasattr(self.controller, "gui") and self.controller.gui:
                 lm_plugin = next(
                     (p for p in self.controller.gui.plugins if p.plugin_id == "landmark_plugin"),

@@ -23,6 +23,64 @@ def build_help_button(text, gui):
     gui.beginner_tags.append(tag)
     return btn
 
+
+def build_delete_button(label="\uf00d", width=20, user_data=None, callback=None, tooltip="Delete"):
+    """Creates a standardized red icon close/delete button."""
+    btn = dpg.add_button(label=label, width=width, user_data=user_data, callback=callback)
+    if dpg.does_item_exist("icon_font_tag"):
+        dpg.bind_item_font(btn, "icon_font_tag")
+    if dpg.does_item_exist("delete_button_theme"):
+        dpg.bind_item_theme(btn, "delete_button_theme")
+    if tooltip:
+        with dpg.tooltip(btn):
+            dpg.add_text(tooltip)
+    return btn
+
+
+REGISTERED_INPUT_FILTER_TAGS = set()
+
+
+def build_name_filter_bar(
+    group_tag,
+    input_tag,
+    btn_clear_tag,
+    on_filter_changed,
+    on_clear_clicked,
+    hint="Filter by name...",
+    width=180,
+    api=None,
+):
+    """Creates a standardized search/filter input field with a clear button (X)."""
+    if input_tag:
+        REGISTERED_INPUT_FILTER_TAGS.add(input_tag)
+    with dpg.group(horizontal=True, tag=group_tag):
+        dpg.add_input_text(
+            hint=hint,
+            tag=input_tag,
+            width=width,
+            callback=lambda s, a: on_filter_changed(a),
+        )
+        if api:
+            build_beginner_tooltip(
+                input_tag,
+                "Type to search and filter the list by name.",
+                api,
+            )
+
+        btn_clear = dpg.add_button(
+            label="X",
+            tag=btn_clear_tag,
+            width=24,
+            callback=lambda: on_clear_clicked(),
+        )
+        if api:
+            build_beginner_tooltip(
+                btn_clear,
+                "Clears the name filter.",
+                api,
+            )
+    return group_tag
+
 def build_beginner_tooltip(parent, text, gui):
     """A reusable tooltip attached to an existing widget that only appears when Beginner Mode is active."""
     tag = dpg.add_tooltip(parent=parent, show=getattr(gui, "is_beginner_mode", False))
