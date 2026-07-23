@@ -344,6 +344,8 @@ def build_renamable_input(tag, default_value, callback, user_data=None, width=18
     Creates a renamable text input widget that triggers `callback` on enter or on focus loss (deactivation).
     Passes the current text value of the input field to `callback` as its second argument (app_data).
     """
+    if tag:
+        REGISTERED_INPUT_FILTER_TAGS.add(tag)
     def _wrapped_callback(sender, app_data, u):
         val = dpg.get_value(sender)
         callback(sender, val, u)

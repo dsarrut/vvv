@@ -7,6 +7,7 @@ from vvv.ui.ui_components import (
     build_delete_button,
     build_name_filter_bar,
     build_batch_action_toolbar,
+    build_renamable_input,
 )
 from vvv.plugins.plugin_api import PluginTagMixin
 from .control_landmark import LandmarkPluginController
@@ -241,11 +242,12 @@ class LandmarkPluginUI(PluginTagMixin):
                 )
 
                 # 2. Name Input Field
-                dpg.add_input_text(
+                build_renamable_input(
+                    tag=self._t(f"input_name_{lm_id}"),
                     default_value=lm.name,
-                    width=-1,
-                    user_data=lm_id,
                     callback=lambda s, a, u: self._c.update_landmark_name(u, a),
+                    user_data=lm_id,
+                    width=-1,
                 )
 
                 # 3. Snap to Grid Button

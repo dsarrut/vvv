@@ -4,6 +4,39 @@ import dearpygui.dearpygui as dpg
 from vvv.utils import voxel_to_slice, ViewMode, ProfileInteractionMode, RoiInteractionMode
 
 
+def world_to_screen_pos(viewer, pt_phys):
+    """Maps a 3D physical point [x, y, z] (mm) to 2D viewer canvas screen coordinates [sx, sy]."""
+    if pt_phys is None or not viewer.view_state:
+        return None
+    v_disp = viewer.view_state.world_to_display(
+        pt_phys, is_buffered=viewer._is_buffered()
+    )
+    if v_disp is None:
+        return None
+    shape = viewer.get_slice_shape()
+    real_h, real_w = max(1, shape[0]), max(1, shape[1])
+    pmin, pmax = viewer.current_pmin, viewer.current_pmax
+    disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
+
+    tx, ty = voxel_to_slice(
+        v_disp[0], v_disp[1], v_disp[2], viewer.orientation, shape
+    )
+    sx = (tx / real_w) * disp_w + pmin[0]
+    sy = (ty / real_h) * disp_h + pmin[1]
+    return [sx, sy]
+
+
+def compute_slice_depth_alpha(curr_slice_idx, pt_depth, max_depth_diff=6.5, dim_base_alpha=180):
+    """Computes opacity alpha decay (0-255) based on slice distance."""
+    depth_diff = abs(curr_slice_idx - pt_depth)
+    if depth_diff > max_depth_diff:
+        return 0, depth_diff
+    if depth_diff <= 0.5:
+        return 255, depth_diff
+    alpha = max(30, int(dim_base_alpha - (depth_diff * (dim_base_alpha / (max_depth_diff + 1.0)))))
+    return alpha, depth_diff
+
+
 class OverlayDrawer:
     """
     Handles all DearPyGui drawing node updates for the SliceViewer.
@@ -967,6 +1000,93 @@ class OverlayDrawer:
                         dpg.draw_circle(
                             smid, 2, color=dim_col, fill=dim_col, parent=node
                         )
+
+        dpg.configure_item(node, show=True)
+
+    def draw_landmarks(self):
+        viewer = self.viewer
+        if (
+            not viewer.is_image_orientation()
+            or not viewer.view_state
+            or not viewer.volume
+            or not getattr(viewer.view_state, "landmarks", None)
+            or self._is_mip_active()
+        ):
+            if hasattr(viewer, "landmark_node_tag") and dpg.does_item_exist(viewer.landmark_node_tag):
+                dpg.configure_item(viewer.landmark_node_tag, show=False)
+            return
+
+        node = getattr(viewer, "landmark_node_tag", None)
+        if not node or not dpg.does_item_exist(node):
+            return
+
+        dpg.delete_item(node, children_only=True)
+
+        v_idx, _, _, _ = viewer._ORIENTATION_MAP.get(
+            viewer.orientation, (None, 0, None, None)
+        )
+        if v_idx is None:
+            return
+
+        curr_z = viewer.slice_idx
+
+        for lm_id, lm in viewer.view_state.landmarks.items():
+            if not lm or not lm.visible or lm.pt_phys is None:
+                continue
+
+            v_disp = viewer.view_state.world_to_display(
+                lm.pt_phys, is_buffered=viewer._is_buffered()
+            )
+            if v_disp is None:
+                continue
+
+            lm_depth = v_disp[v_idx]
+            alpha, depth_diff = compute_slice_depth_alpha(curr_z, lm_depth)
+            if alpha <= 0:
+                continue
+
+            screen_pos = world_to_screen_pos(viewer, lm.pt_phys)
+            if not screen_pos:
+                continue
+
+            sx, sy = screen_pos
+            col = list(lm.color[:3]) + [alpha]
+
+            is_in_plane = depth_diff <= 0.5
+            radius = 6.0 if is_in_plane else 4.0
+
+            # Outer circle
+            dpg.draw_circle(
+                center=[sx, sy],
+                radius=radius,
+                color=col,
+                thickness=1.5 if is_in_plane else 1.0,
+                parent=node,
+            )
+
+            if is_in_plane:
+                # Filled center dot & crosshair arms
+                dpg.draw_circle(
+                    center=[sx, sy],
+                    radius=1.5,
+                    color=col,
+                    fill=col,
+                    parent=node,
+                )
+                arm = 4.0
+                dpg.draw_line([sx - arm - radius, sy], [sx - radius, sy], color=col, thickness=1.0, parent=node)
+                dpg.draw_line([sx + radius, sy], [sx + arm + radius, sy], color=col, thickness=1.0, parent=node)
+                dpg.draw_line([sx, sy - arm - radius], [sx, sy - radius], color=col, thickness=1.0, parent=node)
+                dpg.draw_line([sx, sy + radius], [sx, sy + arm + radius], color=col, thickness=1.0, parent=node)
+
+                # Name label beside landmark marker
+                dpg.draw_text(
+                    pos=[sx + radius + 4, sy - 6],
+                    text=lm.name,
+                    color=col,
+                    size=12,
+                    parent=node,
+                )
 
         dpg.configure_item(node, show=True)
 

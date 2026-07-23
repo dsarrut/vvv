@@ -768,6 +768,7 @@ class MainGUI:
                 dpg.add_draw_node(tag=viewer.legend_tag)
                 dpg.add_draw_node(tag=viewer.contour_node_tag)
                 dpg.add_draw_node(tag=viewer.profile_node_tag)
+                dpg.add_draw_node(tag=viewer.landmark_node_tag)
                 dpg.add_draw_node(tag=viewer.roi_handle_node_tag)
                 dpg.add_draw_node(tag=viewer.vector_field_node_tag)
 
@@ -901,6 +902,7 @@ class MainGUI:
                     dpg.add_draw_node(tag=viewer.legend_tag)
                     dpg.add_draw_node(tag=viewer.contour_node_tag)
                     dpg.add_draw_node(tag=viewer.profile_node_tag)
+                    dpg.add_draw_node(tag=viewer.landmark_node_tag)
                     dpg.add_draw_node(tag=viewer.roi_handle_node_tag)
                     dpg.add_draw_node(tag=viewer.vector_field_node_tag)
 
