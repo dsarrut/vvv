@@ -412,6 +412,12 @@ class LandmarkPluginController(PluginTagMixin):
             if not filter_text or filter_text in lm.name.lower():
                 lm.color = color_255
 
+        if self._api:
+            vs = self._api.get_view_states().get(vs_id)
+            if vs:
+                vs.is_geometry_dirty = True
+            self._api.request_refresh()
+
     def on_batch_reset_colors(self) -> None:
         """Reset colors of landmarks sequentially according to ROI_COLORS palette."""
         vs_id = self._get_active_vs_id()
