@@ -34,6 +34,18 @@ class LandmarkPluginUI(PluginTagMixin):
         color_255 = [int(c * scale) for c in app_data[:3]] + [255]
         self._c.update_landmark_color(lm_id, color_255)
 
+    def on_landmark_toggle_visible(self, sender, app_data, user_data):
+        lm_id = user_data
+        if not lm_id:
+            return
+        landmarks = self._c.get_landmarks()
+        lm = landmarks.get(lm_id)
+        if lm is None:
+            return
+        self._c.update_landmark_visible(lm_id, not lm.visible)
+        self._last_state_key = None  # force table rebuild on next update
+        self._api.request_refresh()
+
     def create_ui(self, parent, api) -> None:
         self._api = api
         cfg_c = api.get_ui_config()["colors"]
@@ -159,6 +171,7 @@ class LandmarkPluginUI(PluginTagMixin):
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
 
             dpg.add_spacer(height=3)
 
@@ -256,7 +269,19 @@ class LandmarkPluginUI(PluginTagMixin):
                     width=-1,
                 )
 
-                # 3. Snap to Grid Button
+                # 3. Show/Hide Toggle Button
+                lbl_eye = "\uf06e" if lm.visible else "\uf070"
+                btn_eye = dpg.add_button(
+                    label=lbl_eye,
+                    width=20,
+                    user_data=lm_id,
+                    callback=self.on_landmark_toggle_visible,
+                )
+                self._bind_icon_font(btn_eye)
+                with dpg.tooltip(btn_eye):
+                    dpg.add_text("Show" if not lm.visible else "Hide")
+
+                # 4. Snap to Grid Button
                 btn_snap = dpg.add_button(
                     label="\uf076",
                     user_data=lm_id,
@@ -266,7 +291,7 @@ class LandmarkPluginUI(PluginTagMixin):
                 with dpg.tooltip(btn_snap):
                     dpg.add_text("Snap landmark to nearest voxel grid center")
 
-                # 4. Goto Crosshair Button
+                # 5. Goto Crosshair Button
                 btn_goto = dpg.add_button(
                     label="\uf05b",
                     user_data=lm_id,
@@ -276,7 +301,7 @@ class LandmarkPluginUI(PluginTagMixin):
                 with dpg.tooltip(btn_goto):
                     dpg.add_text("Jump crosshair to landmark position")
 
-                # 5. Delete Button (Red cross)
+                # 6. Delete Button (Red cross)
                 build_delete_button(
                     label="\uf00d",
                     width=20,
