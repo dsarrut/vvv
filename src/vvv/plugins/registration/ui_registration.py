@@ -226,7 +226,7 @@ class RegistrationPluginUI(PluginTagMixin):
                     )
                 with dpg.group(horizontal=True):
                     dpg.add_button(
-                        label="Commit to Volume",
+                        label="Resample Image",
                         tag=self._t("btn_reg_bake"),
                         callback=self._c.on_reg_bake_clicked,
                         width=-28,
@@ -411,8 +411,6 @@ class RegistrationPluginUI(PluginTagMixin):
                     dpg.set_value(cor_tag, "0.0, 0.0, 0.0")
             else:
                 dpg.set_value(cor_tag, "0.0, 0.0, 0.0")
-
-
 
     def pull_reg_sliders_from_transform(self) -> None:
         """ONLY call this when loading a file, switching images, or resetting. NOT during drag!"""
