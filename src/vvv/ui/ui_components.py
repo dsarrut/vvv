@@ -81,6 +81,91 @@ def build_name_filter_bar(
             )
     return group_tag
 
+
+def build_batch_action_toolbar(
+    tag_prefix,
+    on_color_changed=None,
+    on_show_clicked=None,
+    on_hide_clicked=None,
+    on_delete_clicked=None,
+    show_contour=False,
+    on_contour_clicked=None,
+    show_above_overlay=False,
+    on_above_overlay_clicked=None,
+    api=None,
+):
+    """Creates a standardized icon-based batch action toolbar."""
+    with dpg.group(horizontal=True, tag=f"{tag_prefix}_batch_toolbar"):
+        if on_color_changed:
+            col_picker = dpg.add_color_edit(
+                default_value=[1.0, 1.0, 1.0, 1.0],
+                no_inputs=True,
+                no_label=True,
+                no_alpha=True,
+                width=20,
+                height=20,
+                tag=f"{tag_prefix}_batch_color",
+                callback=lambda s, a: on_color_changed(a),
+            )
+            with dpg.tooltip(col_picker):
+                dpg.add_text("Apply color to listed/filtered items")
+
+        if on_show_clicked:
+            btn_show = dpg.add_button(
+                label="\uf06e",
+                width=20,
+                tag=f"{tag_prefix}_batch_show",
+                callback=lambda: on_show_clicked(),
+            )
+            if dpg.does_item_exist("icon_font_tag"):
+                dpg.bind_item_font(btn_show, "icon_font_tag")
+            with dpg.tooltip(btn_show):
+                dpg.add_text("Show listed/filtered items")
+
+        if show_contour and on_contour_clicked:
+            btn_contour = dpg.add_button(
+                label="\uf040",
+                width=20,
+                tag=f"{tag_prefix}_batch_contour",
+                callback=lambda: on_contour_clicked(),
+            )
+            if dpg.does_item_exist("icon_font_tag"):
+                dpg.bind_item_font(btn_contour, "icon_font_tag")
+            with dpg.tooltip(btn_contour):
+                dpg.add_text("Show as contour")
+
+        if on_hide_clicked:
+            btn_hide = dpg.add_button(
+                label="\uf070",
+                width=20,
+                tag=f"{tag_prefix}_batch_hide",
+                callback=lambda: on_hide_clicked(),
+            )
+            if dpg.does_item_exist("icon_font_tag"):
+                dpg.bind_item_font(btn_hide, "icon_font_tag")
+            with dpg.tooltip(btn_hide):
+                dpg.add_text("Hide listed/filtered items")
+
+        if show_above_overlay and on_above_overlay_clicked:
+            btn_overlay = dpg.add_button(
+                label="\uf5fd",
+                width=20,
+                tag=f"{tag_prefix}_batch_overlay",
+                callback=lambda: on_above_overlay_clicked(),
+            )
+            if dpg.does_item_exist("icon_font_tag"):
+                dpg.bind_item_font(btn_overlay, "icon_font_tag")
+            with dpg.tooltip(btn_overlay):
+                dpg.add_text("Toggle on top of fusion overlay")
+
+        if on_delete_clicked:
+            build_delete_button(
+                label="\uf00d",
+                width=20,
+                callback=lambda: on_delete_clicked(),
+                tooltip="Delete listed/filtered items",
+            )
+
 def build_beginner_tooltip(parent, text, gui):
     """A reusable tooltip attached to an existing widget that only appears when Beginner Mode is active."""
     tag = dpg.add_tooltip(parent=parent, show=getattr(gui, "is_beginner_mode", False))

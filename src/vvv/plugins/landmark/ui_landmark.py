@@ -6,6 +6,7 @@ from vvv.ui.ui_components import (
     build_beginner_tooltip,
     build_delete_button,
     build_name_filter_bar,
+    build_batch_action_toolbar,
 )
 from vvv.plugins.plugin_api import PluginTagMixin
 from .control_landmark import LandmarkPluginController
@@ -125,22 +126,14 @@ class LandmarkPluginUI(PluginTagMixin):
                 api=api,
             )
 
-            with dpg.group(horizontal=True, tag=self._t("group_batch_actions")):
-                dpg.add_button(
-                    label="Show Filtered",
-                    tag=self._t("btn_batch_show"),
-                    callback=self._c.on_batch_show_clicked,
-                )
-                dpg.add_button(
-                    label="Hide Filtered",
-                    tag=self._t("btn_batch_hide"),
-                    callback=self._c.on_batch_hide_clicked,
-                )
-                dpg.add_button(
-                    label="Delete Filtered",
-                    tag=self._t("btn_batch_delete"),
-                    callback=self._c.on_batch_delete_clicked,
-                )
+            build_batch_action_toolbar(
+                tag_prefix=self._t("lm"),
+                on_color_changed=self._c.on_batch_color_changed,
+                on_show_clicked=self._c.on_batch_show_clicked,
+                on_hide_clicked=self._c.on_batch_hide_clicked,
+                on_delete_clicked=self._c.on_batch_delete_clicked,
+                api=api,
+            )
 
             dpg.add_spacer(height=5)
 

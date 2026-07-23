@@ -15,6 +15,7 @@ class LandmarkPluginController(PluginTagMixin):
         self._api: Optional[PluginAPI] = None
         self._ui = None
         self.landmark_filters: Dict[str, str] = {}
+        self.landmark_counters: Dict[str, int] = {}
 
     def bind(self, api: PluginAPI) -> None:
         self._api = api
@@ -102,12 +103,14 @@ class LandmarkPluginController(PluginTagMixin):
             else:
                 pt_phys = [0.0, 0.0, 0.0]
 
-        count = len(vs.landmarks)
+        curr_counter = self.landmark_counters.get(target_id, 0) + 1
+        self.landmark_counters[target_id] = curr_counter
+
         if not name:
-            name = f"Landmark {count + 1}"
+            name = f"Landmark {curr_counter}"
 
         if color is None:
-            c = ROI_COLORS[count % len(ROI_COLORS)]
+            c = ROI_COLORS[(curr_counter - 1) % len(ROI_COLORS)]
             color = [c[0], c[1], c[2], 255] if len(c) == 3 else list(c)
 
         lm_id = f"lm_{uuid.uuid4().hex[:8]}"
@@ -234,14 +237,65 @@ class LandmarkPluginController(PluginTagMixin):
             if self._api:
                 self._api.request_refresh()
 
-    def on_batch_color_clicked(self, sender, app_data, user_data) -> None:
-        pass
+    def on_batch_color_changed(self, color_rgba) -> None:
+        vs_id = self._get_active_vs_id()
+        if not vs_id:
+            return
+        landmarks = self.get_landmarks(vs_id)
+        filter_text = self.landmark_filters.get(vs_id, "").lower()
+        color_255 = [int(c * 255) for c in color_rgba[:4]] if max(color_rgba) <= 1.0 else [int(c) for c in color_rgba[:4]]
 
-    def on_batch_show_clicked(self, sender, app_data, user_data) -> None:
-        pass
+        for lm_id, lm in landmarks.items():
+            if not filter_text or filter_text in lm.name.lower():
+                lm.color = color_255
 
-    def on_batch_hide_clicked(self, sender, app_data, user_data) -> None:
-        pass
+        if self._api:
+            vs = self._api.get_view_states().get(vs_id)
+            if vs:
+                vs.is_geometry_dirty = True
+            self._api.request_refresh()
 
-    def on_batch_delete_clicked(self, sender, app_data, user_data) -> None:
-        pass
+    def on_batch_show_clicked(self) -> None:
+        vs_id = self._get_active_vs_id()
+        if not vs_id:
+            return
+        landmarks = self.get_landmarks(vs_id)
+        filter_text = self.landmark_filters.get(vs_id, "").lower()
+        for lm_id, lm in landmarks.items():
+            if not filter_text or filter_text in lm.name.lower():
+                lm.visible = True
+        if self._api:
+            vs = self._api.get_view_states().get(vs_id)
+            if vs:
+                vs.is_geometry_dirty = True
+            self._api.request_refresh()
+
+    def on_batch_hide_clicked(self) -> None:
+        vs_id = self._get_active_vs_id()
+        if not vs_id:
+            return
+        landmarks = self.get_landmarks(vs_id)
+        filter_text = self.landmark_filters.get(vs_id, "").lower()
+        for lm_id, lm in landmarks.items():
+            if not filter_text or filter_text in lm.name.lower():
+                lm.visible = False
+        if self._api:
+            vs = self._api.get_view_states().get(vs_id)
+            if vs:
+                vs.is_geometry_dirty = True
+            self._api.request_refresh()
+
+    def on_batch_delete_clicked(self) -> None:
+        vs_id = self._get_active_vs_id()
+        if not vs_id:
+            return
+        landmarks = self.get_landmarks(vs_id)
+        filter_text = self.landmark_filters.get(vs_id, "").lower()
+        to_delete = [lm_id for lm_id, lm in landmarks.items() if not filter_text or filter_text in lm.name.lower()]
+        for lm_id in to_delete:
+            del landmarks[lm_id]
+        if self._api:
+            vs = self._api.get_view_states().get(vs_id)
+            if vs:
+                vs.is_geometry_dirty = True
+            self._api.request_refresh()
