@@ -222,14 +222,40 @@ def _capture_and_save(viewer, output_path, fov_mm):
                 arr[:, :, :3] = arr[:, :, :3] * (1.0 - ov_alpha) + ov_arr[:, :, :3] * ov_alpha
                 arr[:, :, 3] = np.maximum(arr[:, :, 3], ov_arr[:, :, 3] * opacity)
 
+    # Spacing parameters
+    spacing = viewer.volume.spacing  # [dx, dy, dz]
+    _SPACING_MAP = {
+        ViewMode.AXIAL:    (1, 0),  # row=dy, col=dx
+        ViewMode.SAGITTAL: (2, 1),  # row=dz, col=dy
+        ViewMode.CORONAL:  (2, 0),  # row=dz, col=dx
+    }
+    sp_idx = _SPACING_MAP.get(viewer.orientation)
+    row_sp = abs(spacing[sp_idx[0]]) if sp_idx else 1.0
+    col_sp = abs(spacing[sp_idx[1]]) if sp_idx else 1.0
+
     # FOV-based cropping
     if fov_mm and len(fov_mm) == 2 and viewer.volume:
         arr = _crop_to_fov(arr, viewer, fov_mm, tex_h, tex_w)
+        # Update dimensions after crop
+        tex_h, tex_w = arr.shape[0], arr.shape[1]
+        phys_w_mm, phys_h_mm = fov_mm[0], fov_mm[1]
+    else:
+        phys_w_mm = tex_w * col_sp
+        phys_h_mm = tex_h * row_sp
 
-    # Save (no additional flipping — extract_slice already handles orientation)
+    # Resample the image to respect physical spacing (isotropic pixels)
+    # We use the higher resolution (smaller spacing) as the pixel scale base
+    target_sp = min(row_sp, col_sp)
+    new_w = int(round(phys_w_mm / target_sp))
+    new_h = int(round(phys_h_mm / target_sp))
+
     arr = np.clip(arr, 0.0, 1.0)
     arr = (arr * 255.0).astype(np.uint8)
     img = Image.fromarray(arr, "RGBA")
+
+    # Rescale to final isotropic dimensions using bilinear filtering
+    if (new_w, new_h) != (tex_w, tex_h) and new_w > 0 and new_h > 0:
+        img = img.resize((new_w, new_h), Image.BILINEAR)
 
     # Ensure output directory exists
     out_dir = os.path.dirname(output_path)
