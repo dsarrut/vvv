@@ -1,4 +1,5 @@
 import unittest
+import unittest.mock
 import numpy as np
 import SimpleITK as sitk
 
@@ -80,6 +81,26 @@ class TestLandmarkPlugin(unittest.TestCase):
 
         ctrl.center_on_landmark("lm_002", image_id="img1")
         self.assertEqual(list(self.vs.camera.crosshair_phys_coord), [12.0, 34.0, 56.0])
+
+    def test_ui_callbacks_with_none_api(self):
+        from vvv.plugins.landmark.ui_landmark import LandmarkPluginUI
+        ctrl = LandmarkPluginController("landmark_plugin")
+        ui = LandmarkPluginUI("landmark_plugin", ctrl)
+        
+        lm = Landmark(id="lm_001", name="L1", pt_phys=[10.0, 20.0, 30.0])
+        self.vs.landmarks[lm.id] = lm
+
+        mock_api = unittest.mock.MagicMock()
+        mock_api.get_active_viewer.return_value = unittest.mock.MagicMock(image_id="img1", view_state=self.vs)
+        mock_api.get_view_states.return_value = {"img1": self.vs}
+        ctrl.bind(mock_api)
+
+        # ui._api is None at this point. Should not raise AttributeError when toggling visible/show_name
+        ui.on_landmark_toggle_visible(None, None, "lm_001")
+        self.assertFalse(lm.visible)
+
+        ui.on_landmark_toggle_show_name(None, None, "lm_001")
+        self.assertFalse(lm.show_name)
 
 
 if __name__ == "__main__":

@@ -41,3 +41,13 @@ class Landmark:
             visible=data.get("visible", True),
             show_name=data.get("show_name", True),
         )
+
+    def snap_to_voxel_grid(self, volume) -> None:
+        """Snaps physical coordinate pt_phys to nearest voxel center in volume."""
+        if volume is None or self.pt_phys is None:
+            return
+        import numpy as np
+        v_idx = volume.physic_coord_to_voxel_coord(self.pt_phys)
+        v_center = np.round(v_idx)
+        snapped_phys = volume.voxel_coord_to_physic_coord(v_center)
+        self.pt_phys = list(snapped_phys)

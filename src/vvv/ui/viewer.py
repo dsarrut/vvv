@@ -9,6 +9,7 @@ from vvv.utils import (
     format_pixel_value,
     ProfileInteractionMode,
     RoiInteractionMode,
+    LandmarkInteractionMode,
 )
 import dearpygui.dearpygui as dpg
 from vvv.ui.drawing import OverlayDrawer
@@ -336,6 +337,10 @@ class SliceViewer:
         # ROI Tool Transient Interaction State
         self.roi_mode = RoiInteractionMode.IDLE
         self.hovered_roi_id = None
+
+        # Landmark Tool Transient Interaction State
+        self.landmark_mode = LandmarkInteractionMode.IDLE
+        self.active_landmark_id = None
 
         # Sub-modules
         self.drawer = OverlayDrawer(self)

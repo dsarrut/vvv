@@ -243,6 +243,33 @@ class LandmarkPluginController(PluginTagMixin):
                 vs.is_geometry_dirty = True
             self._api.request_refresh()
 
+    def snap_landmark_to_grid(self, landmark_id: str, image_id: Optional[str] = None) -> None:
+        vs_id = image_id or self._get_active_vs_id()
+        if not vs_id or not self._api:
+            return
+        vol = self._api.get_volumes().get(vs_id)
+        landmarks = self.get_landmarks(vs_id)
+        if landmark_id in landmarks and vol:
+            landmarks[landmark_id].snap_to_voxel_grid(vol)
+            vs = self._api.get_view_states().get(vs_id)
+            if vs:
+                vs.is_geometry_dirty = True
+            self._api.request_refresh()
+
+    def snap_all_landmarks(self, image_id: Optional[str] = None) -> None:
+        vs_id = image_id or self._get_active_vs_id()
+        if not vs_id or not self._api:
+            return
+        vol = self._api.get_volumes().get(vs_id)
+        landmarks = self.get_landmarks(vs_id)
+        if vol and landmarks:
+            for lm in landmarks.values():
+                lm.snap_to_voxel_grid(vol)
+            vs = self._api.get_view_states().get(vs_id)
+            if vs:
+                vs.is_geometry_dirty = True
+            self._api.request_refresh()
+
     # --- UI Callbacks ---
 
     def on_btn_add_clicked(self, sender, app_data, user_data) -> None:
@@ -255,7 +282,7 @@ class LandmarkPluginController(PluginTagMixin):
         pass
 
     def on_btn_snap_all_clicked(self, sender, app_data, user_data) -> None:
-        pass
+        self.snap_all_landmarks()
 
     def on_btn_clear_all_clicked(self, sender, app_data, user_data) -> None:
         self.clear_all_landmarks()

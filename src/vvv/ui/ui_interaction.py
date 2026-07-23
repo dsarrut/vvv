@@ -3,10 +3,12 @@ import numpy as np
 from vvv.utils import (
     ProfileInteractionMode,
     RoiInteractionMode,
+    LandmarkInteractionMode,
     ViewMode,
     voxel_to_slice,
     slice_to_voxel,
 )
+from vvv.ui.drawing import world_to_screen_pos
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import REGISTERED_INPUT_FILTER_TAGS
 
@@ -158,6 +160,20 @@ class NavigationTool:
                     self.roi_drag_start_mouse_phys = viewer.view_state.display_to_world(
                         np.array(v), is_buffered=viewer._is_buffered()
                     )
+                self.drag_viewer = viewer
+                self.drag_viewer.on_mouse_down()
+                return
+
+        # Handle Landmark Grab
+        if (
+            button == dpg.mvMouseButton_Left
+            and hasattr(viewer, "landmark_mode")
+            and viewer.landmark_mode == LandmarkInteractionMode.IDLE
+        ):
+            lm_id = self.manager._check_landmark_hover(viewer)
+            if lm_id:
+                viewer.landmark_mode = LandmarkInteractionMode.MANIPULATING
+                viewer.active_landmark_id = lm_id
                 self.drag_viewer = viewer
                 self.drag_viewer.on_mouse_down()
                 return
@@ -402,6 +418,36 @@ class NavigationTool:
                                 )
                 return
 
+            if (
+                hasattr(self.drag_viewer, "landmark_mode")
+                and self.drag_viewer.landmark_mode == LandmarkInteractionMode.MANIPULATING
+            ):
+                px, py = self.drag_viewer.get_mouse_slice_coords(
+                    ignore_hover=True, allow_outside=True
+                )
+                if px is not None:
+                    vs = self.drag_viewer.view_state
+                    lm_id = self.drag_viewer.active_landmark_id
+                    if lm_id and getattr(vs, "landmarks", None) and lm_id in vs.landmarks:
+                        shape = self.drag_viewer.get_slice_shape()
+                        v = slice_to_voxel(
+                            px,
+                            py,
+                            self.drag_viewer.slice_idx,
+                            self.drag_viewer.orientation,
+                            shape,
+                        )
+                        phys = vs.display_to_world(
+                            np.array(v), is_buffered=self.drag_viewer._is_buffered()
+                        )
+                        if phys is not None:
+                            vs.landmarks[lm_id].pt_phys = list(phys)
+                            vs.is_geometry_dirty = True
+                            self.manager.controller.update_all_viewers_of_image(
+                                self.drag_viewer.image_id, data_dirty=False
+                            )
+                return
+
             self.drag_viewer.on_drag(drag_data)
 
     def on_release(self, button):
@@ -423,6 +469,14 @@ class NavigationTool:
                 self.profile_drag_start_p1 = None
                 self.profile_drag_start_p2 = None
                 self.profile_drag_start_mouse_phys = None
+
+            if (
+                hasattr(self.drag_viewer, "landmark_mode")
+                and self.drag_viewer.landmark_mode == LandmarkInteractionMode.MANIPULATING
+            ):
+                self.drag_viewer.landmark_mode = LandmarkInteractionMode.IDLE
+                self.drag_viewer.active_landmark_id = None
+                self.manager.controller.ui_needs_refresh = True
 
             if (
                 hasattr(self.drag_viewer, "roi_mode")
@@ -661,6 +715,49 @@ class InteractionManager:
                             return p_id, "middle"
 
         return None, None
+
+    def _check_landmark_hover(self, viewer):
+        """Returns landmark_id if mouse is near a visible in-plane landmark, else None."""
+        if not viewer or not viewer.view_state or not viewer.is_image_orientation():
+            return None
+
+        win_tag = f"win_{viewer.tag}"
+        if not dpg.does_item_exist(win_tag):
+            return None
+
+        try:
+            m_pos = dpg.get_drawing_mouse_pos()
+        except Exception:
+            return None
+
+        vs = viewer.view_state
+        if not getattr(vs, "landmarks", None):
+            return None
+
+        v_idx, _, _, _ = viewer._ORIENTATION_MAP.get(
+            viewer.orientation, (None, 0, None, None)
+        )
+        if v_idx is None:
+            return None
+
+        curr_z = viewer.slice_idx
+
+        for lm_id, lm in vs.landmarks.items():
+            if not lm or not lm.visible or lm.pt_phys is None:
+                continue
+
+            v_disp = vs.world_to_display(lm.pt_phys, is_buffered=viewer._is_buffered())
+            if v_disp is None:
+                continue
+
+            # Only allow grabbing in-plane landmarks
+            if abs(curr_z - v_disp[v_idx]) <= 0.5:
+                screen_pos = world_to_screen_pos(viewer, lm.pt_phys)
+                if screen_pos:
+                    if math.hypot(m_pos[0] - screen_pos[0], m_pos[1] - screen_pos[1]) < 12.0:
+                        return lm_id
+
+        return None
 
     def _check_roi_hover(self, viewer):
         """Returns (roi_id, part) if mouse is near a spheroid ROI center/border on the current slice, else None."""

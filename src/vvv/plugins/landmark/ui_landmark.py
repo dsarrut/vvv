@@ -44,7 +44,8 @@ class LandmarkPluginUI(PluginTagMixin):
             return
         self._c.update_landmark_visible(lm_id, not lm.visible)
         self._last_state_key = None  # force table rebuild on next update
-        self._api.request_refresh()
+        if self._api:
+            self._api.request_refresh()
 
     def on_landmark_toggle_show_name(self, sender, app_data, user_data):
         lm_id = user_data
@@ -56,7 +57,8 @@ class LandmarkPluginUI(PluginTagMixin):
             return
         self._c.update_landmark_show_name(lm_id, not lm.show_name)
         self._last_state_key = None  # force table rebuild on next update
-        self._api.request_refresh()
+        if self._api:
+            self._api.request_refresh()
 
     def on_toggle_all_show_names(self):
         self._c.toggle_all_show_names()
@@ -315,7 +317,7 @@ class LandmarkPluginUI(PluginTagMixin):
                 btn_snap = dpg.add_button(
                     label="\uf076",
                     user_data=lm_id,
-                    callback=lambda s, a, u: None,  # Wired in Step 5
+                    callback=lambda s, a, u: self._c.snap_landmark_to_grid(u),
                 )
                 self._bind_icon_font(btn_snap)
                 with dpg.tooltip(btn_snap):
