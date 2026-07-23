@@ -26,7 +26,10 @@ def build_help_button(text, gui):
 
 def build_delete_button(label="\uf00d", width=20, user_data=None, callback=None, tooltip="Delete"):
     """Creates a standardized red icon close/delete button."""
-    btn = dpg.add_button(label=label, width=width, user_data=user_data, callback=callback)
+    if callback is not None:
+        btn = dpg.add_button(label=label, width=width, user_data=user_data, callback=callback)
+    else:
+        btn = dpg.add_button(label=label, width=width, user_data=user_data)
     if dpg.does_item_exist("icon_font_tag"):
         dpg.bind_item_font(btn, "icon_font_tag")
     if dpg.does_item_exist("delete_button_theme"):
@@ -100,7 +103,7 @@ def build_batch_action_toolbar(
     with dpg.group(horizontal=True, tag=f"{tag_prefix}_batch_toolbar"):
         if on_color_changed:
             col_picker = dpg.add_color_edit(
-                default_value=[1.0, 1.0, 1.0, 1.0],
+                default_value=[255, 255, 255, 255],
                 no_inputs=True,
                 no_label=True,
                 no_alpha=True,

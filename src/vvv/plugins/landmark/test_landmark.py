@@ -80,7 +80,9 @@ class TestLandmarkPlugin(unittest.TestCase):
         self.vs.landmarks[lm.id] = lm
 
         ctrl.center_on_landmark("lm_002", image_id="img1")
-        self.assertEqual(list(self.vs.camera.crosshair_phys_coord), [12.0, 34.0, 56.0])
+        coords = self.vs.camera.crosshair_phys_coord
+        self.assertIsNotNone(coords)
+        self.assertEqual(list(coords), [12.0, 34.0, 56.0])
 
     def test_ui_callbacks_with_none_api(self):
         from vvv.plugins.landmark.ui_landmark import LandmarkPluginUI

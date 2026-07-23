@@ -511,7 +511,7 @@ class RoiPluginController(PluginTagMixin):
             if self.ui:
                 self.ui.on_roi_stats_toggle(None, None, roi_id)
 
-    def update_spheroid_mask(self, base_vol, roi_vol, roi_state, new_r_x_mm: float = None, new_r_y_mm: float = None, new_r_z_mm: float = None) -> None:
+    def update_spheroid_mask(self, base_vol, roi_vol, roi_state, new_r_x_mm: float | None = None, new_r_y_mm: float | None = None, new_r_z_mm: float | None = None) -> None:
         import numpy as np
         import SimpleITK as sitk
 
@@ -747,7 +747,7 @@ class RoiPluginController(PluginTagMixin):
             if self.ui:
                 self.ui.on_roi_stats_toggle(None, None, roi_id)
 
-    def update_box_mask(self, base_vol, roi_vol, roi_state, new_size_x: float = None, new_size_y: float = None, new_size_z: float = None) -> None:
+    def update_box_mask(self, base_vol, roi_vol, roi_state, new_size_x: float | None = None, new_size_y: float | None = None, new_size_z: float | None = None) -> None:
         import numpy as np
         import SimpleITK as sitk
 

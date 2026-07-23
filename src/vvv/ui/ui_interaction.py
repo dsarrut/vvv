@@ -1022,7 +1022,7 @@ class InteractionManager:
                 if tag and dpg.does_item_exist(tag):
                     if dpg.is_item_focused(tag) or dpg.is_item_active(tag):
                         return
-            for item in [dpg.get_focused_item(), dpg.get_active_item()]:
+            for item in [dpg.get_focused_item(), dpg.get_active_window()]:
                 if item and dpg.does_item_exist(item):
                     itype = str(dpg.get_item_type(item))
                     if any(x in itype for x in ["mvInputText", "mvInputInt", "mvInputFloat"]):
