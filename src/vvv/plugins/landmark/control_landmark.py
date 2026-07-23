@@ -1,9 +1,14 @@
+import os
+import json
+import csv
 import uuid
 from typing import Optional, Dict, List
+import numpy as np
 import dearpygui.dearpygui as dpg
 
 from vvv.config import ROI_COLORS
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
+from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 from .landmark_state import Landmark
 
 
@@ -16,6 +21,7 @@ class LandmarkPluginController(PluginTagMixin):
         self._ui = None
         self.landmark_filters: Dict[str, str] = {}
         self.landmark_counters: Dict[str, int] = {}
+        self.landmarks_file_path: Dict[str, str] = {}
 
     def bind(self, api: PluginAPI) -> None:
         self._api = api
@@ -32,14 +38,36 @@ class LandmarkPluginController(PluginTagMixin):
 
     def on_image_removed(self, image_id: str) -> None:
         self.landmark_filters.pop(image_id, None)
+        self.landmarks_file_path.pop(image_id, None)
 
     def serialize_image_state(self, image_id: str, context: str = "history") -> dict:
-        return {}
+        file_path = self.landmarks_file_path.get(image_id)
+        landmarks = self.get_landmarks(image_id)
+        if file_path:
+            return {"file_path": file_path}
+        else:
+            return {"landmarks": [lm.to_dict() for lm in landmarks.values()]}
 
     def restore_image_state(
         self, image_id: str, data: dict, context: str = "history"
     ) -> None:
-        pass
+        if not data:
+            return
+        file_path = data.get("file_path")
+        if file_path and os.path.exists(file_path):
+            self.load_landmarks(file_path, image_id)
+        elif "landmarks" in data:
+            vs = self._api.get_view_states().get(image_id) if self._api else None
+            if vs:
+                new_landmarks = {}
+                for idx, item in enumerate(data["landmarks"], start=1):
+                    lm_id = item.get("id") or f"lm_{idx:03d}"
+                    new_landmarks[lm_id] = Landmark.from_dict(item)
+                vs.landmarks = new_landmarks
+                self.landmark_counters[image_id] = len(new_landmarks)
+                vs.is_geometry_dirty = True
+                if self._api:
+                    self._api.request_refresh()
 
     def save_settings(self, api: PluginAPI) -> None:
         pass
@@ -166,7 +194,7 @@ class LandmarkPluginController(PluginTagMixin):
 
         vs = self._api.get_view_states().get(target_id)
         if vs and lm.pt_phys:
-            vs.update_crosshair_from_phys(lm.pt_phys)
+            vs.update_crosshair_from_phys(np.array(lm.pt_phys))
             self._api.propagate_sync(target_id)
             self._api.update_all_viewers_of_image(target_id, data_dirty=False)
 
@@ -270,16 +298,87 @@ class LandmarkPluginController(PluginTagMixin):
                 vs.is_geometry_dirty = True
             self._api.request_refresh()
 
+    def save_landmarks(self, filepath: str, image_id: Optional[str] = None) -> None:
+        """Saves landmarks to a .json or .csv file (detected from extension)."""
+        vs_id = image_id or self._get_active_vs_id()
+        if not vs_id:
+            return
+        landmarks = self.get_landmarks(vs_id)
+        path_str = str(filepath)
+
+        if path_str.lower().endswith(".csv"):
+            fieldnames = ["ID", "Name", "X_mm", "Y_mm", "Z_mm", "Color_R", "Color_G", "Color_B", "Color_A", "Visible", "ShowName"]
+            with open(path_str, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                for lm in landmarks.values():
+                    writer.writerow(lm.to_csv_row())
+        else:
+            # Default to JSON
+            data = {
+                "landmarks": [lm.to_dict() for lm in landmarks.values()]
+            }
+            with open(path_str, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+
+        self.landmarks_file_path[vs_id] = path_str
+        if self._api:
+            self._api.notify(f"Saved {len(landmarks)} landmark(s) to {os.path.basename(path_str)}")
+
+    def load_landmarks(self, filepath: str, image_id: Optional[str] = None) -> None:
+        """Loads landmarks from a .json or .csv file."""
+        vs_id = image_id or self._get_active_vs_id()
+        if not vs_id or not self._api:
+            return
+        vs = self._api.get_view_states().get(vs_id)
+        if not vs:
+            return
+
+        path_str = str(filepath)
+        if not os.path.exists(path_str):
+            return
+
+        new_landmarks = {}
+        if path_str.lower().endswith(".csv"):
+            with open(path_str, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for idx, row in enumerate(reader, start=1):
+                    fallback_id = f"lm_{idx:03d}"
+                    lm_obj = Landmark.from_csv_row(row, fallback_id)
+                    new_landmarks[lm_obj.id] = lm_obj
+        else:
+            with open(path_str, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            raw_list = data.get("landmarks", []) if isinstance(data, dict) else data
+            for idx, item in enumerate(raw_list, start=1):
+                lm_id = item.get("id") or f"lm_{idx:03d}"
+                new_landmarks[lm_id] = Landmark.from_dict(item)
+
+        vs.landmarks = new_landmarks
+        self.landmarks_file_path[vs_id] = path_str
+        self.landmark_counters[vs_id] = len(new_landmarks)
+        vs.is_geometry_dirty = True
+        self._api.request_refresh()
+        self._api.notify(f"Loaded {len(new_landmarks)} landmark(s) from {os.path.basename(path_str)}")
+
     # --- UI Callbacks ---
 
     def on_btn_add_clicked(self, sender, app_data, user_data) -> None:
         self.add_landmark()
 
     def on_btn_load_clicked(self, sender, app_data, user_data) -> None:
-        pass
+        file_paths = open_file_dialog("Load Landmark File (.json, .csv)", multiple=False)
+        if file_paths:
+            fp = file_paths[0] if isinstance(file_paths, list) else file_paths
+            if fp:
+                self.load_landmarks(fp)
 
     def on_btn_save_clicked(self, sender, app_data, user_data) -> None:
-        pass
+        vs_id = self._get_active_vs_id()
+        default_name = f"landmarks_{vs_id}.json" if vs_id else "landmarks.json"
+        file_path = save_file_dialog("Save Landmarks As (.json, .csv)", default_name=default_name)
+        if file_path:
+            self.save_landmarks(file_path)
 
     def on_btn_snap_all_clicked(self, sender, app_data, user_data) -> None:
         self.snap_all_landmarks()
@@ -312,6 +411,18 @@ class LandmarkPluginController(PluginTagMixin):
         for lm_id, lm in landmarks.items():
             if not filter_text or filter_text in lm.name.lower():
                 lm.color = color_255
+
+    def on_batch_reset_colors(self) -> None:
+        """Reset colors of landmarks sequentially according to ROI_COLORS palette."""
+        vs_id = self._get_active_vs_id()
+        if not vs_id:
+            return
+        landmarks = self.get_landmarks(vs_id)
+        if not landmarks:
+            return
+        for idx, lm in enumerate(landmarks.values()):
+            c = ROI_COLORS[idx % len(ROI_COLORS)]
+            lm.color = [c[0], c[1], c[2], 255] if len(c) == 3 else list(c)
 
         if self._api:
             vs = self._api.get_view_states().get(vs_id)

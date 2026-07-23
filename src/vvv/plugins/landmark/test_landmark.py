@@ -7,6 +7,7 @@ from vvv.maths.image import VolumeData
 from vvv.core.view_state import ViewState
 from vvv.plugins.landmark.landmark_state import Landmark
 from vvv.plugins.landmark.control_landmark import LandmarkPluginController
+from vvv.plugins.landmark.ui_landmark import LandmarkPluginUI
 from vvv.plugins.landmark.plugin_landmark import LandmarkPlugin
 
 
@@ -159,7 +160,114 @@ class TestLandmarkPlugin(unittest.TestCase):
         ctrl.snap_landmark_to_grid("lm_snap", image_id="img1")
         self.assertEqual(lm.pt_phys, [0.0, 1.0, 2.0])
 
+    def test_json_and_csv_storage(self):
+        import tempfile
+        import os
+
+        ctrl = LandmarkPluginController("landmark_plugin")
+        mock_api = unittest.mock.MagicMock()
+        mock_api.get_active_viewer.return_value = unittest.mock.MagicMock(image_id="img1", view_state=self.vs)
+        mock_api.get_view_states.return_value = {"img1": self.vs}
+        ctrl.bind(mock_api)
+
+        lm1 = Landmark(id="lm_1", name="Point_A", pt_phys=[10.0, 20.0, 30.0], color=[255, 0, 0, 255])
+        lm2 = Landmark(id="lm_2", name="Point_B", pt_phys=[40.0, 50.0, 60.0], color=[0, 255, 0, 255])
+        self.vs.landmarks = {"lm_1": lm1, "lm_2": lm2}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # 1. Test JSON Save & Load
+            json_path = os.path.join(tmpdir, "test_landmarks.json")
+            ctrl.save_landmarks(json_path, image_id="img1")
+            self.assertTrue(os.path.exists(json_path))
+
+            # Reset viewstate landmarks & reload
+            self.vs.landmarks = {}
+            ctrl.load_landmarks(json_path, image_id="img1")
+            self.assertEqual(len(self.vs.landmarks), 2)
+            self.assertIn("lm_1", self.vs.landmarks)
+            self.assertEqual(self.vs.landmarks["lm_1"].name, "Point_A")
+
+            # 2. Test CSV Save & Load
+            csv_path = os.path.join(tmpdir, "test_landmarks.csv")
+            ctrl.save_landmarks(csv_path, image_id="img1")
+            self.assertTrue(os.path.exists(csv_path))
+
+            self.vs.landmarks = {}
+            ctrl.load_landmarks(csv_path, image_id="img1")
+            self.assertEqual(len(self.vs.landmarks), 2)
+            self.assertEqual(self.vs.landmarks["lm_1"].name, "Point_A")
+            self.assertEqual(self.vs.landmarks["lm_1"].pt_phys, [10.0, 20.0, 30.0])
+
+    def test_workspace_serialization(self):
+        ctrl = LandmarkPluginController("landmark_plugin")
+        mock_api = unittest.mock.MagicMock()
+        mock_api.get_active_viewer.return_value = unittest.mock.MagicMock(image_id="img1", view_state=self.vs)
+        mock_api.get_view_states.return_value = {"img1": self.vs}
+        ctrl.bind(mock_api)
+
+        lm = Landmark(id="lm_1", name="P1", pt_phys=[5.0, 5.0, 5.0])
+        self.vs.landmarks = {"lm_1": lm}
+
+        # Unsaved state: serializes raw landmarks list
+        state = ctrl.serialize_image_state("img1")
+        self.assertIn("landmarks", state)
+        self.assertEqual(len(state["landmarks"]), 1)
+
+        # Restore from dict
+        self.vs.landmarks = {}
+        ctrl.restore_image_state("img1", state)
+        self.assertEqual(len(self.vs.landmarks), 1)
+        self.assertEqual(self.vs.landmarks["lm_1"].name, "P1")
+
+
+    def test_batch_toolbar_dynamic_icons(self):
+        ui = LandmarkPluginUI("landmark_plugin", LandmarkPluginController("landmark_plugin"))
+        mock_api = unittest.mock.MagicMock()
+        mock_viewer = unittest.mock.MagicMock(image_id="img1", view_state=self.vs, volume=unittest.mock.MagicMock())
+        mock_api.get_active_viewer.return_value = mock_viewer
+        mock_api.get_view_states.return_value = {"img1": self.vs}
+        ui._c.bind(mock_api)
+
+        lm1 = Landmark(id="lm_1", name="P1", pt_phys=[1.0, 2.0, 3.0], visible=True, show_name=True)
+        lm2 = Landmark(id="lm_2", name="P2", pt_phys=[4.0, 5.0, 6.0], visible=False, show_name=False)
+        self.vs.landmarks = {"lm_1": lm1, "lm_2": lm2}
+
+        # Any visible = True -> "\uf06e", Any show_name = True -> "\uf02b"
+        with unittest.mock.patch("dearpygui.dearpygui.does_item_exist", return_value=True), \
+             unittest.mock.patch("dearpygui.dearpygui.set_item_label") as mock_set_label, \
+             unittest.mock.patch("dearpygui.dearpygui.delete_item"):
+            ui.update_ui(mock_api)
+            mock_set_label.assert_any_call("landmark_plugin_lm_batch_toggle_visible", "\uf06e")
+            mock_set_label.assert_any_call("landmark_plugin_lm_batch_toggle_names", "\uf02b")
+
+        # Hide all, hide all names
+        lm1.visible = False
+        lm1.show_name = False
+        ui._last_state_key = None
+        with unittest.mock.patch("dearpygui.dearpygui.does_item_exist", return_value=True), \
+             unittest.mock.patch("dearpygui.dearpygui.set_item_label") as mock_set_label, \
+             unittest.mock.patch("dearpygui.dearpygui.delete_item"):
+            ui.update_ui(mock_api)
+            mock_set_label.assert_any_call("landmark_plugin_lm_batch_toggle_visible", "\uf070")
+    def test_batch_reset_colors(self):
+        ctrl = LandmarkPluginController("landmark_plugin")
+        mock_api = unittest.mock.MagicMock()
+        mock_api.get_active_viewer.return_value = unittest.mock.MagicMock(image_id="img1", view_state=self.vs)
+        mock_api.get_view_states.return_value = {"img1": self.vs}
+        ctrl.bind(mock_api)
+
+        lm1 = Landmark(id="lm_1", name="P1", pt_phys=[1.0, 2.0, 3.0], color=[255, 255, 255, 255])
+        lm2 = Landmark(id="lm_2", name="P2", pt_phys=[4.0, 5.0, 6.0], color=[0, 0, 0, 255])
+        self.vs.landmarks = {"lm_1": lm1, "lm_2": lm2}
+
+        ctrl.on_batch_reset_colors()
+        from vvv.config import ROI_COLORS
+        c0 = ROI_COLORS[0]
+        c1 = ROI_COLORS[1]
+        self.assertEqual(lm1.color, [c0[0], c0[1], c0[2], 255])
+        self.assertEqual(lm2.color, [c1[0], c1[1], c1[2], 255])
+
 
 if __name__ == "__main__":
-
     unittest.main()
+

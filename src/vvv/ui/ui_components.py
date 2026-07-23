@@ -92,6 +92,7 @@ def build_batch_action_toolbar(
     on_hide_clicked=None,
     on_toggle_visible=None,
     on_toggle_names=None,
+    on_reset_colors=None,
     on_delete_clicked=None,
     show_contour=False,
     on_contour_clicked=None,
@@ -188,6 +189,18 @@ def build_batch_action_toolbar(
                 dpg.bind_item_font(btn_names, "icon_font_tag")
             with dpg.tooltip(btn_names):
                 dpg.add_text("Toggle name labels for listed/filtered items")
+
+        if on_reset_colors:
+            btn_reset_col = dpg.add_button(
+                label="\uf0e2",
+                width=20,
+                tag=f"{tag_prefix}_batch_reset_colors",
+                callback=lambda: on_reset_colors(),
+            )
+            if dpg.does_item_exist("icon_font_tag"):
+                dpg.bind_item_font(btn_reset_col, "icon_font_tag")
+            with dpg.tooltip(btn_reset_col):
+                dpg.add_text("Reset colors to default initial sequence")
 
         if on_delete_clicked:
             build_delete_button(

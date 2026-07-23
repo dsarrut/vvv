@@ -51,3 +51,43 @@ class Landmark:
         v_center = np.round(v_idx)
         snapped_phys = volume.voxel_coord_to_physic_coord(v_center)
         self.pt_phys = list(snapped_phys)
+
+    def to_csv_row(self) -> dict:
+        return {
+            "ID": self.id,
+            "Name": self.name,
+            "X_mm": f"{self.pt_phys[0]:.4f}",
+            "Y_mm": f"{self.pt_phys[1]:.4f}",
+            "Z_mm": f"{self.pt_phys[2]:.4f}",
+            "Color_R": str(self.color[0]),
+            "Color_G": str(self.color[1]),
+            "Color_B": str(self.color[2]),
+            "Color_A": str(self.color[3] if len(self.color) > 3 else 255),
+            "Visible": str(self.visible),
+            "ShowName": str(self.show_name),
+        }
+
+    @classmethod
+    def from_csv_row(cls, row: dict, landmark_id: str) -> "Landmark":
+        lm_id = row.get("ID", row.get("id", landmark_id))
+        x = float(row.get("X_mm", row.get("x", 0.0)))
+        y = float(row.get("Y_mm", row.get("y", 0.0)))
+        z = float(row.get("Z_mm", row.get("z", 0.0)))
+        r = int(row.get("Color_R", row.get("r", 255)))
+        g = int(row.get("Color_G", row.get("g", 0)))
+        b = int(row.get("Color_B", row.get("b", 0)))
+        a = int(row.get("Color_A", row.get("a", 255)))
+        vis_str = str(row.get("Visible", "True")).lower()
+        visible = vis_str in ("true", "1", "yes")
+        show_str = str(row.get("ShowName", "True")).lower()
+        show_name = show_str in ("true", "1", "yes")
+        name = row.get("Name", row.get("name", f"Landmark {lm_id}"))
+        return cls(
+            id=lm_id,
+            name=name,
+            pt_phys=[x, y, z],
+            color=[r, g, b, a],
+            visible=visible,
+            show_name=show_name,
+        )
+

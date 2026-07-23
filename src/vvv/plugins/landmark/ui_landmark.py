@@ -60,8 +60,20 @@ class LandmarkPluginUI(PluginTagMixin):
         if self._api:
             self._api.request_refresh()
 
+    def on_batch_color_changed(self, color_rgba):
+        self._c.on_batch_color_changed(color_rgba)
+        self._last_state_key = None
+
+    def on_batch_toggle_visible(self):
+        self._c.on_batch_toggle_visible()
+        self._last_state_key = None
+
     def on_toggle_all_show_names(self):
         self._c.toggle_all_show_names()
+        self._last_state_key = None
+
+    def on_batch_reset_colors(self):
+        self._c.on_batch_reset_colors()
         self._last_state_key = None
 
     def create_ui(self, parent, api) -> None:
@@ -167,9 +179,10 @@ class LandmarkPluginUI(PluginTagMixin):
 
             build_batch_action_toolbar(
                 tag_prefix=self._t("lm"),
-                on_color_changed=self._c.on_batch_color_changed,
-                on_toggle_visible=self._c.on_batch_toggle_visible,
+                on_color_changed=self.on_batch_color_changed,
+                on_toggle_visible=self.on_batch_toggle_visible,
                 on_toggle_names=self.on_toggle_all_show_names,
+                on_reset_colors=self.on_batch_reset_colors,
                 on_delete_clicked=self._c.on_batch_delete_clicked,
                 api=api,
             )
@@ -259,6 +272,17 @@ class LandmarkPluginUI(PluginTagMixin):
 
         total_count = len(landmarks)
         filtered_count = 0
+
+        # Update batch toolbar icon labels based on current states
+        btn_vis_tag = self._t("lm_batch_toggle_visible")
+        if dpg.does_item_exist(btn_vis_tag):
+            any_visible = any(lm.visible for lm in landmarks.values())
+            dpg.set_item_label(btn_vis_tag, "\uf06e" if any_visible else "\uf070")
+
+        btn_names_tag = self._t("lm_batch_toggle_names")
+        if dpg.does_item_exist(btn_names_tag):
+            any_names = any(lm.show_name for lm in landmarks.values())
+            dpg.set_item_label(btn_names_tag, "\uf02b" if any_names else "\uf02c")
 
         for lm_id, lm in landmarks.items():
             if filter_text and filter_text not in lm.name.lower():
