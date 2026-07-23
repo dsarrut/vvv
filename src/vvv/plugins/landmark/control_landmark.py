@@ -181,19 +181,29 @@ class LandmarkPluginController(PluginTagMixin):
         landmarks = self.get_landmarks(image_id)
         if landmark_id in landmarks:
             landmarks[landmark_id].name = name
-            if self._api:
-                self._api.request_refresh()
-
-    def update_landmark_color(self, landmark_id: str, color: List[int], image_id: Optional[str] = None) -> None:
-        landmarks = self.get_landmarks(image_id)
-        if landmark_id in landmarks:
-            landmarks[landmark_id].color = list(color)
             vs_id = image_id or self._get_active_vs_id()
             if self._api and vs_id:
                 vs = self._api.get_view_states().get(vs_id)
                 if vs:
                     vs.is_geometry_dirty = True
                 self._api.request_refresh()
+
+    def update_landmark_color(self, landmark_id: str, color: List[int], image_id: Optional[str] = None) -> None:
+        landmarks = self.get_landmarks(image_id)
+        if landmark_id in landmarks:
+            color_255 = [int(c * 255.0) for c in color[:4]] if (all(c <= 1.0 for c in color) and any(c > 0 for c in color)) else [int(c) for c in color[:4]]
+            if len(color_255) == 3:
+                color_255.append(255)
+            landmarks[landmark_id].color = color_255
+            vs_id = image_id or self._get_active_vs_id()
+            if self._api and vs_id:
+                vs = self._api.get_view_states().get(vs_id)
+                if vs:
+                    vs.is_geometry_dirty = True
+                # Use update_all_viewers (not request_refresh) to avoid
+                # rebuilding the sidebar table and destroying the active
+                # color picker widget mid-interaction.
+                self._api.update_all_viewers_of_image(vs_id, data_dirty=False)
 
     def update_landmark_visible(self, landmark_id: str, visible: bool, image_id: Optional[str] = None) -> None:
         landmarks = self.get_landmarks(image_id)

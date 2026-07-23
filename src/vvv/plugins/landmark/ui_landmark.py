@@ -26,6 +26,14 @@ class LandmarkPluginUI(PluginTagMixin):
         if dpg.does_item_exist("icon_font_tag"):
             dpg.bind_item_font(item, "icon_font_tag")
 
+    def on_landmark_color_changed(self, sender, app_data, user_data):
+        lm_id = user_data
+        if not lm_id or not app_data:
+            return
+        scale = 255.0 if all(c <= 1.0 for c in app_data) else 1.0
+        color_255 = [int(c * scale) for c in app_data[:3]] + [255]
+        self._c.update_landmark_color(lm_id, color_255)
+
     def create_ui(self, parent, api) -> None:
         self._api = api
         cfg_c = api.get_ui_config()["colors"]
@@ -227,18 +235,16 @@ class LandmarkPluginUI(PluginTagMixin):
 
             with dpg.table_row(parent=table_id):
                 # 1. Color Picker
-                col_rgba = [c / 255.0 for c in lm.color] if max(lm.color) > 1.0 else lm.color
                 dpg.add_color_edit(
-                    default_value=col_rgba,
+                    default_value=lm.color[:3] + [255],
                     no_inputs=True,
                     no_label=True,
                     no_alpha=True,
                     width=20,
                     height=20,
+                    tag=self._t(f"color_picker_{lm_id}"),
                     user_data=lm_id,
-                    callback=lambda s, a, u: self._c.update_landmark_color(
-                        u, [int(c * 255) for c in a[:4]]
-                    ),
+                    callback=self.on_landmark_color_changed,
                 )
 
                 # 2. Name Input Field
