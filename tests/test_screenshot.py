@@ -5,14 +5,23 @@ import tempfile
 import shutil
 import numpy as np
 import SimpleITK as sitk
+import dearpygui.dearpygui as dpg
 
 from vvv import vvv_screenshot
 
 class TestScreenshot(unittest.TestCase):
     def setUp(self):
+        try:
+            dpg.destroy_context()
+        except Exception:
+            pass
         self.tmp_dir = tempfile.mkdtemp()
 
     def tearDown(self):
+        try:
+            dpg.destroy_context()
+        except Exception:
+            pass
         shutil.rmtree(self.tmp_dir)
 
     def test_screenshot_generation(self):

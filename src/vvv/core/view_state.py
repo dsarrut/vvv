@@ -632,6 +632,7 @@ class ViewState:
         self.rois = {}
         self.contours = {}
         self.profiles = {}
+        self.landmarks = {}
         self.crosshair_value = None  # This will be set by init_crosshair_to_slices
         self.space = SpatialEngine(
             volume, view_state=self

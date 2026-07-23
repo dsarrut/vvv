@@ -1,15 +1,20 @@
-from typing import Optional
+import uuid
+from typing import Optional, Dict, List
+import dearpygui.dearpygui as dpg
+
+from vvv.config import ROI_COLORS
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
+from .landmark_state import Landmark
 
 
 class LandmarkPluginController(PluginTagMixin):
-    """Controller for 3D landmarks plugin."""
+    """Controller managing landmark data, CRUD actions, and UI callbacks."""
 
     def __init__(self, plugin_id: str):
         self._plugin_id = plugin_id
         self._api: Optional[PluginAPI] = None
         self._ui = None
-        self.landmark_filters: dict[str, str] = {}
+        self.landmark_filters: Dict[str, str] = {}
 
     def bind(self, api: PluginAPI) -> None:
         self._api = api
@@ -44,10 +49,164 @@ class LandmarkPluginController(PluginTagMixin):
     def destroy(self) -> None:
         pass
 
-    # --- Callback Stubs (Unwired for Step 1 UI Shell) ---
+    # --- Helpers to access active image state ---
+
+    def _get_active_vs_id(self) -> Optional[str]:
+        if not self._api:
+            return None
+        viewer = self._api.get_active_viewer()
+        if viewer and viewer.image_id and viewer.view_state:
+            return viewer.image_id
+        return None
+
+    def get_landmarks(self, image_id: Optional[str] = None) -> Dict[str, Landmark]:
+        if not self._api:
+            return {}
+        vs_id = image_id or self._get_active_vs_id()
+        if not vs_id:
+            return {}
+        vs = self._api.get_view_states().get(vs_id)
+        if not vs:
+            return {}
+        if not hasattr(vs, "landmarks"):
+            vs.landmarks = {}
+        return vs.landmarks
+
+    # --- Landmark CRUD Operations ---
+
+    def add_landmark(
+        self,
+        image_id: Optional[str] = None,
+        pt_phys: Optional[List[float]] = None,
+        name: Optional[str] = None,
+        color: Optional[List[int]] = None,
+    ) -> Optional[Landmark]:
+        if not self._api:
+            return None
+
+        target_id = image_id or self._get_active_vs_id()
+        if not target_id:
+            self._api.notify("Please select an active image volume first.")
+            return None
+
+        vs = self._api.get_view_states().get(target_id)
+        if not vs:
+            return None
+
+        if not hasattr(vs, "landmarks"):
+            vs.landmarks = {}
+
+        if pt_phys is None:
+            if vs.camera.crosshair_phys_coord is not None:
+                pt_phys = list(vs.camera.crosshair_phys_coord)
+            else:
+                pt_phys = [0.0, 0.0, 0.0]
+
+        count = len(vs.landmarks)
+        if not name:
+            name = f"Landmark {count + 1}"
+
+        if color is None:
+            c = ROI_COLORS[count % len(ROI_COLORS)]
+            color = [c[0], c[1], c[2], 255] if len(c) == 3 else list(c)
+
+        lm_id = f"lm_{uuid.uuid4().hex[:8]}"
+        lm = Landmark(
+            id=lm_id,
+            name=name,
+            pt_phys=pt_phys,
+            color=color,
+            visible=True,
+        )
+
+        vs.landmarks[lm_id] = lm
+        vs.is_geometry_dirty = True
+        self._api.request_refresh()
+        self._api.notify(f"Added landmark '{lm.name}' at [{pt_phys[0]:.1f}, {pt_phys[1]:.1f}, {pt_phys[2]:.1f}]")
+        return lm
+
+    def remove_landmark(self, landmark_id: str, image_id: Optional[str] = None) -> None:
+        if not self._api:
+            return
+        target_id = image_id or self._get_active_vs_id()
+        if not target_id:
+            return
+        vs = self._api.get_view_states().get(target_id)
+        if vs and hasattr(vs, "landmarks") and landmark_id in vs.landmarks:
+            del vs.landmarks[landmark_id]
+            vs.is_geometry_dirty = True
+            self._api.request_refresh()
+
+    def clear_all_landmarks(self, image_id: Optional[str] = None) -> None:
+        if not self._api:
+            return
+        target_id = image_id or self._get_active_vs_id()
+        if not target_id:
+            return
+        vs = self._api.get_view_states().get(target_id)
+        if vs and hasattr(vs, "landmarks"):
+            vs.landmarks.clear()
+            vs.is_geometry_dirty = True
+            self._api.request_refresh()
+            self._api.notify("Cleared all landmarks.")
+
+    def center_on_landmark(self, landmark_id: str, image_id: Optional[str] = None) -> None:
+        if not self._api:
+            return
+        target_id = image_id or self._get_active_vs_id()
+        if not target_id:
+            return
+        landmarks = self.get_landmarks(target_id)
+        lm = landmarks.get(landmark_id)
+        if not lm:
+            return
+
+        vs = self._api.get_view_states().get(target_id)
+        if vs and lm.pt_phys:
+            vs.update_crosshair_from_phys(lm.pt_phys)
+            self._api.propagate_sync(target_id)
+            self._api.update_all_viewers_of_image(target_id, data_dirty=False)
+
+            viewers = self._api.get_viewers()
+            for viewer in viewers.values():
+                if viewer.image_id == target_id:
+                    viewer.center_on_physical_coord(lm.pt_phys)
+
+            self._api.notify(f"Centered crosshair on landmark '{lm.name}'")
+
+    def update_landmark_name(self, landmark_id: str, name: str, image_id: Optional[str] = None) -> None:
+        landmarks = self.get_landmarks(image_id)
+        if landmark_id in landmarks:
+            landmarks[landmark_id].name = name
+            if self._api:
+                self._api.request_refresh()
+
+    def update_landmark_color(self, landmark_id: str, color: List[int], image_id: Optional[str] = None) -> None:
+        landmarks = self.get_landmarks(image_id)
+        if landmark_id in landmarks:
+            landmarks[landmark_id].color = list(color)
+            vs_id = image_id or self._get_active_vs_id()
+            if self._api and vs_id:
+                vs = self._api.get_view_states().get(vs_id)
+                if vs:
+                    vs.is_geometry_dirty = True
+                self._api.request_refresh()
+
+    def update_landmark_visible(self, landmark_id: str, visible: bool, image_id: Optional[str] = None) -> None:
+        landmarks = self.get_landmarks(image_id)
+        if landmark_id in landmarks:
+            landmarks[landmark_id].visible = visible
+            vs_id = image_id or self._get_active_vs_id()
+            if self._api and vs_id:
+                vs = self._api.get_view_states().get(vs_id)
+                if vs:
+                    vs.is_geometry_dirty = True
+                self._api.request_refresh()
+
+    # --- UI Callbacks ---
 
     def on_btn_add_clicked(self, sender, app_data, user_data) -> None:
-        pass
+        self.add_landmark()
 
     def on_btn_load_clicked(self, sender, app_data, user_data) -> None:
         pass
@@ -59,13 +218,21 @@ class LandmarkPluginController(PluginTagMixin):
         pass
 
     def on_btn_clear_all_clicked(self, sender, app_data, user_data) -> None:
-        pass
+        self.clear_all_landmarks()
 
     def on_filter_changed(self, filter_text: str) -> None:
-        pass
+        vs_id = self._get_active_vs_id()
+        if vs_id:
+            self.landmark_filters[vs_id] = filter_text.strip().lower()
+            if self._api:
+                self._api.request_refresh()
 
     def on_clear_filter_clicked(self) -> None:
-        pass
+        vs_id = self._get_active_vs_id()
+        if vs_id:
+            self.landmark_filters[vs_id] = ""
+            if self._api:
+                self._api.request_refresh()
 
     def on_batch_color_clicked(self, sender, app_data, user_data) -> None:
         pass

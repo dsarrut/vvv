@@ -85,6 +85,10 @@ def vvv_screenshot(vvw_path: str, sc_json_path: str):
         entries.append(merged)
 
     # 2. Setup DPG context and VVV
+    try:
+        dpg.destroy_context()
+    except Exception:
+        pass
     dpg.create_context()
     controller = Controller()
     controller.use_history = False

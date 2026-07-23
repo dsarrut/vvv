@@ -2140,6 +2140,20 @@ class SliceViewer:
                 action_func()
                 return
 
+        # Landmark Spacebar Shortcut
+        if key == dpg.mvKey_Space:
+            if hasattr(self.controller, "gui") and self.controller.gui:
+                lm_plugin = next(
+                    (p for p in self.controller.gui.plugins if p.plugin_id == "landmark_plugin"),
+                    None,
+                )
+                if lm_plugin and self.image_id and self.view_state:
+                    lm_plugin._controller.add_landmark(
+                        image_id=self.image_id,
+                        pt_phys=self.view_state.camera.crosshair_phys_coord,
+                    )
+                    return
+
         # Profile Tool Keyboard State Machine
         _profile_val = shortcuts.get("add_profile", "P")
         _profile_key = (

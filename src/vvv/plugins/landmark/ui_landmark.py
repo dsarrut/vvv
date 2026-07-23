@@ -1,3 +1,4 @@
+import math
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import (
     build_section_title,
@@ -9,12 +10,12 @@ from .control_landmark import LandmarkPluginController
 
 
 class LandmarkPluginUI(PluginTagMixin):
-    """UI Layout shell for the Landmark Plugin."""
+    """UI Layout for the Landmark Plugin with dynamic table rendering."""
 
     def __init__(self, plugin_id: str, controller: LandmarkPluginController):
         self._plugin_id = plugin_id
         self._c = controller
-        self._last_key = None
+        self._last_state_key = None
 
     def create_ui(self, parent, api) -> None:
         cfg_c = api.get_ui_config()["colors"]
@@ -131,17 +132,17 @@ class LandmarkPluginUI(PluginTagMixin):
                 )
 
             with dpg.group(horizontal=True, tag=self._t("group_batch_actions")):
-                btn_b_show = dpg.add_button(
+                dpg.add_button(
                     label="Show Filtered",
                     tag=self._t("btn_batch_show"),
                     callback=self._c.on_batch_show_clicked,
                 )
-                btn_b_hide = dpg.add_button(
+                dpg.add_button(
                     label="Hide Filtered",
                     tag=self._t("btn_batch_hide"),
                     callback=self._c.on_batch_hide_clicked,
                 )
-                btn_b_del = dpg.add_button(
+                dpg.add_button(
                     label="Delete Filtered",
                     tag=self._t("btn_batch_delete"),
                     callback=self._c.on_batch_delete_clicked,
@@ -157,14 +158,14 @@ class LandmarkPluginUI(PluginTagMixin):
                     resizable=True,
                     scrollY=True,
                 ):
-                    dpg.add_table_column(label="Vis", width_fixed=True, init_width_or_weight=30)
+                    dpg.add_table_column(label="Vis", width_fixed=True, init_width_or_weight=26)
                     dpg.add_table_column(label="Name", width_stretch=True, init_width_or_weight=90)
-                    dpg.add_table_column(label="Coords (mm)", width_fixed=True, init_width_or_weight=110)
+                    dpg.add_table_column(label="Coords (mm)", width_fixed=True, init_width_or_weight=115)
                     dpg.add_table_column(label="Dist (mm)", width_fixed=True, init_width_or_weight=65)
                     dpg.add_table_column(label="Color", width_fixed=True, init_width_or_weight=45)
-                    dpg.add_table_column(label="Goto", width_fixed=True, init_width_or_weight=40)
-                    dpg.add_table_column(label="Snap", width_fixed=True, init_width_or_weight=40)
-                    dpg.add_table_column(label="Del", width_fixed=True, init_width_or_weight=35)
+                    dpg.add_table_column(label="Goto", width_fixed=True, init_width_or_weight=35)
+                    dpg.add_table_column(label="Snap", width_fixed=True, init_width_or_weight=35)
+                    dpg.add_table_column(label="Del", width_fixed=True, init_width_or_weight=30)
 
             dpg.add_spacer(height=3)
 
@@ -192,3 +193,122 @@ class LandmarkPluginUI(PluginTagMixin):
                 dpg.set_value(active_title, name_str)
             else:
                 dpg.set_value(active_title, "No Image Selected")
+
+        table_id = self._t("list_table")
+        footer_id = self._t("footer_counter")
+        if not dpg.does_item_exist(table_id):
+            return
+
+        if not has_image:
+            dpg.delete_item(table_id, children_only=True, slot=1)
+            if dpg.does_item_exist(footer_id):
+                dpg.set_value(footer_id, "Landmarks: 0")
+            self._last_state_key = None
+            return
+
+        vs_id = viewer.image_id
+        landmarks = self._c.get_landmarks(vs_id)
+        filter_text = self._c.landmark_filters.get(vs_id, "").lower()
+
+        # Compute crosshair physical position for live distance calculation
+        crosshair_phys = viewer.view_state.camera.crosshair_phys_coord
+
+        # Rebuild key to avoid unneeded redraws if nothing changed
+        lm_tuples = tuple(
+            (
+                lm_id,
+                lm.name,
+                tuple(lm.pt_phys),
+                tuple(lm.color),
+                lm.visible,
+            )
+            for lm_id, lm in landmarks.items()
+        )
+        crosshair_tuple = tuple(crosshair_phys) if crosshair_phys is not None else None
+        state_key = (vs_id, filter_text, lm_tuples, crosshair_tuple)
+
+        if state_key == self._last_state_key:
+            return
+        self._last_state_key = state_key
+
+        # Re-render table rows
+        dpg.delete_item(table_id, children_only=True, slot=1)
+
+        total_count = len(landmarks)
+        filtered_count = 0
+
+        for lm_id, lm in landmarks.items():
+            if filter_text and filter_text not in lm.name.lower():
+                continue
+
+            filtered_count += 1
+
+            # Distance to current crosshair
+            dist_str = "-"
+            if crosshair_phys is not None:
+                dx = lm.pt_phys[0] - crosshair_phys[0]
+                dy = lm.pt_phys[1] - crosshair_phys[1]
+                dz = lm.pt_phys[2] - crosshair_phys[2]
+                dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+                dist_str = f"{dist:.1f}"
+
+            coords_str = f"[{lm.pt_phys[0]:.1f}, {lm.pt_phys[1]:.1f}, {lm.pt_phys[2]:.1f}]"
+
+            with dpg.table_row(parent=table_id):
+                # 1. Vis
+                dpg.add_checkbox(
+                    default_value=lm.visible,
+                    user_data=lm_id,
+                    callback=lambda s, a, u: self._c.update_landmark_visible(u, a),
+                )
+                # 2. Name
+                dpg.add_input_text(
+                    default_value=lm.name,
+                    width=-1,
+                    user_data=lm_id,
+                    callback=lambda s, a, u: self._c.update_landmark_name(u, a),
+                )
+                # 3. Coords
+                dpg.add_text(coords_str)
+                # 4. Dist
+                dpg.add_text(dist_str)
+                # 5. Color
+                col_rgba = [c / 255.0 for c in lm.color] if max(lm.color) > 1.0 else lm.color
+                dpg.add_color_edit(
+                    default_value=col_rgba,
+                    no_inputs=True,
+                    no_alpha=False,
+                    width=35,
+                    user_data=lm_id,
+                    callback=lambda s, a, u: self._c.update_landmark_color(
+                        u, [int(c * 255) for c in a[:4]]
+                    ),
+                )
+                # 6. Goto
+                dpg.add_button(
+                    label="->",
+                    width=28,
+                    user_data=lm_id,
+                    callback=lambda s, a, u: self._c.center_on_landmark(u),
+                )
+                # 7. Snap
+                dpg.add_button(
+                    label="S",
+                    width=28,
+                    user_data=lm_id,
+                    callback=lambda s, a, u: None,
+                )
+                # 8. Del
+                dpg.add_button(
+                    label="X",
+                    width=24,
+                    user_data=lm_id,
+                    callback=lambda s, a, u: self._c.remove_landmark(u),
+                )
+
+        # Update counter footer text
+        if dpg.does_item_exist(footer_id):
+            if filter_text:
+                dpg.set_value(footer_id, f"Landmarks: {total_count} (Filtered: {filtered_count})")
+            else:
+                dpg.set_value(footer_id, f"Landmarks: {total_count}")
