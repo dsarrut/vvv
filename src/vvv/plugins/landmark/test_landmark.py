@@ -104,6 +104,62 @@ class TestLandmarkPlugin(unittest.TestCase):
         ui.on_landmark_toggle_show_name(None, None, "lm_001")
         self.assertFalse(lm.show_name)
 
+    def test_batch_actions_and_filtering(self):
+        ctrl = LandmarkPluginController("landmark_plugin")
+        mock_api = unittest.mock.MagicMock()
+        mock_api.get_active_viewer.return_value = unittest.mock.MagicMock(image_id="img1", view_state=self.vs)
+        mock_api.get_view_states.return_value = {"img1": self.vs}
+        ctrl.bind(mock_api)
+
+        # Add 3 landmarks: Tumor_1, Tumor_2, Vessel_1
+        lm1 = Landmark(id="lm_1", name="Tumor_1", pt_phys=[1.0, 1.0, 1.0], color=[255, 0, 0, 255])
+        lm2 = Landmark(id="lm_2", name="Tumor_2", pt_phys=[2.0, 2.0, 2.0], color=[255, 0, 0, 255])
+        lm3 = Landmark(id="lm_3", name="Vessel_1", pt_phys=[3.0, 3.0, 3.0], color=[0, 255, 0, 255])
+        self.vs.landmarks = {"lm_1": lm1, "lm_2": lm2, "lm_3": lm3}
+
+        # Filter for 'Tumor'
+        ctrl.on_filter_changed("Tumor")
+        self.assertEqual(ctrl.landmark_filters["img1"], "tumor")
+
+        # Batch color change (blue) on filtered (Tumor_1 & Tumor_2 only)
+        ctrl.on_batch_color_changed([0, 0, 255, 255])
+        self.assertEqual(lm1.color, [0, 0, 255, 255])
+        self.assertEqual(lm2.color, [0, 0, 255, 255])
+        self.assertEqual(lm3.color, [0, 255, 0, 255])
+
+        # Batch toggle visibility on filtered
+        ctrl.on_batch_toggle_visible()
+        self.assertFalse(lm1.visible)
+        self.assertFalse(lm2.visible)
+        self.assertTrue(lm3.visible)
+
+        # Batch delete on filtered
+        ctrl.on_batch_delete_clicked()
+        self.assertNotIn("lm_1", self.vs.landmarks)
+        self.assertNotIn("lm_2", self.vs.landmarks)
+        self.assertIn("lm_3", self.vs.landmarks)
+
+        # Clear filter
+        ctrl.on_clear_filter_clicked()
+        self.assertEqual(ctrl.landmark_filters["img1"], "")
+
+    def test_grid_snapping(self):
+        ctrl = LandmarkPluginController("landmark_plugin")
+        mock_api = unittest.mock.MagicMock()
+        mock_api.get_active_viewer.return_value = unittest.mock.MagicMock(image_id="img1", view_state=self.vs)
+        mock_api.get_view_states.return_value = {"img1": self.vs}
+        mock_api.get_volumes.return_value = {"img1": self.volume}
+        ctrl.bind(mock_api)
+
+        # Off-grid physical coordinate: [0.3, 0.7, 1.4] -> spacing [1.0, 1.0, 2.0]
+        # Voxel idx = [0.3, 0.7, 0.7] -> round [0, 1, 1] -> phys [0.0, 1.0, 2.0]
+        lm = Landmark(id="lm_snap", name="SnapMe", pt_phys=[0.3, 0.7, 1.4])
+        self.vs.landmarks["lm_snap"] = lm
+
+        ctrl.snap_landmark_to_grid("lm_snap", image_id="img1")
+        self.assertEqual(lm.pt_phys, [0.0, 1.0, 2.0])
+
 
 if __name__ == "__main__":
+
     unittest.main()
