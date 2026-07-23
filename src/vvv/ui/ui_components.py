@@ -87,6 +87,8 @@ def build_batch_action_toolbar(
     on_color_changed=None,
     on_show_clicked=None,
     on_hide_clicked=None,
+    on_toggle_visible=None,
+    on_toggle_names=None,
     on_delete_clicked=None,
     show_contour=False,
     on_contour_clicked=None,
@@ -110,17 +112,43 @@ def build_batch_action_toolbar(
             with dpg.tooltip(col_picker):
                 dpg.add_text("Apply color to listed/filtered items")
 
-        if on_show_clicked:
-            btn_show = dpg.add_button(
+        # Single toggle visible button (replaces separate show/hide when provided)
+        if on_toggle_visible:
+            btn_toggle_vis = dpg.add_button(
                 label="\uf06e",
                 width=20,
-                tag=f"{tag_prefix}_batch_show",
-                callback=lambda: on_show_clicked(),
+                tag=f"{tag_prefix}_batch_toggle_visible",
+                callback=lambda: on_toggle_visible(),
             )
             if dpg.does_item_exist("icon_font_tag"):
-                dpg.bind_item_font(btn_show, "icon_font_tag")
-            with dpg.tooltip(btn_show):
-                dpg.add_text("Show listed/filtered items")
+                dpg.bind_item_font(btn_toggle_vis, "icon_font_tag")
+            with dpg.tooltip(btn_toggle_vis):
+                dpg.add_text("Toggle show/hide listed/filtered items")
+        else:
+            # Legacy: separate show/hide buttons
+            if on_show_clicked:
+                btn_show = dpg.add_button(
+                    label="\uf06e",
+                    width=20,
+                    tag=f"{tag_prefix}_batch_show",
+                    callback=lambda: on_show_clicked(),
+                )
+                if dpg.does_item_exist("icon_font_tag"):
+                    dpg.bind_item_font(btn_show, "icon_font_tag")
+                with dpg.tooltip(btn_show):
+                    dpg.add_text("Show listed/filtered items")
+
+            if on_hide_clicked:
+                btn_hide = dpg.add_button(
+                    label="\uf070",
+                    width=20,
+                    tag=f"{tag_prefix}_batch_hide",
+                    callback=lambda: on_hide_clicked(),
+                )
+                if dpg.does_item_exist("icon_font_tag"):
+                    dpg.bind_item_font(btn_hide, "icon_font_tag")
+                with dpg.tooltip(btn_hide):
+                    dpg.add_text("Hide listed/filtered items")
 
         if show_contour and on_contour_clicked:
             btn_contour = dpg.add_button(
@@ -134,18 +162,6 @@ def build_batch_action_toolbar(
             with dpg.tooltip(btn_contour):
                 dpg.add_text("Show as contour")
 
-        if on_hide_clicked:
-            btn_hide = dpg.add_button(
-                label="\uf070",
-                width=20,
-                tag=f"{tag_prefix}_batch_hide",
-                callback=lambda: on_hide_clicked(),
-            )
-            if dpg.does_item_exist("icon_font_tag"):
-                dpg.bind_item_font(btn_hide, "icon_font_tag")
-            with dpg.tooltip(btn_hide):
-                dpg.add_text("Hide listed/filtered items")
-
         if show_above_overlay and on_above_overlay_clicked:
             btn_overlay = dpg.add_button(
                 label="\uf5fd",
@@ -157,6 +173,18 @@ def build_batch_action_toolbar(
                 dpg.bind_item_font(btn_overlay, "icon_font_tag")
             with dpg.tooltip(btn_overlay):
                 dpg.add_text("Toggle on top of fusion overlay")
+
+        if on_toggle_names:
+            btn_names = dpg.add_button(
+                label="\uf02b",
+                width=20,
+                tag=f"{tag_prefix}_batch_toggle_names",
+                callback=lambda: on_toggle_names(),
+            )
+            if dpg.does_item_exist("icon_font_tag"):
+                dpg.bind_item_font(btn_names, "icon_font_tag")
+            with dpg.tooltip(btn_names):
+                dpg.add_text("Toggle name labels for listed/filtered items")
 
         if on_delete_clicked:
             build_delete_button(

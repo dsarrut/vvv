@@ -46,6 +46,22 @@ class LandmarkPluginUI(PluginTagMixin):
         self._last_state_key = None  # force table rebuild on next update
         self._api.request_refresh()
 
+    def on_landmark_toggle_show_name(self, sender, app_data, user_data):
+        lm_id = user_data
+        if not lm_id:
+            return
+        landmarks = self._c.get_landmarks()
+        lm = landmarks.get(lm_id)
+        if lm is None:
+            return
+        self._c.update_landmark_show_name(lm_id, not lm.show_name)
+        self._last_state_key = None  # force table rebuild on next update
+        self._api.request_refresh()
+
+    def on_toggle_all_show_names(self):
+        self._c.toggle_all_show_names()
+        self._last_state_key = None
+
     def create_ui(self, parent, api) -> None:
         self._api = api
         cfg_c = api.get_ui_config()["colors"]
@@ -150,8 +166,8 @@ class LandmarkPluginUI(PluginTagMixin):
             build_batch_action_toolbar(
                 tag_prefix=self._t("lm"),
                 on_color_changed=self._c.on_batch_color_changed,
-                on_show_clicked=self._c.on_batch_show_clicked,
-                on_hide_clicked=self._c.on_batch_hide_clicked,
+                on_toggle_visible=self._c.on_batch_toggle_visible,
+                on_toggle_names=self.on_toggle_all_show_names,
                 on_delete_clicked=self._c.on_batch_delete_clicked,
                 api=api,
             )
@@ -168,6 +184,7 @@ class LandmarkPluginUI(PluginTagMixin):
                 ):
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
                     dpg.add_table_column(width_stretch=True)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
@@ -225,6 +242,7 @@ class LandmarkPluginUI(PluginTagMixin):
                 tuple(lm.pt_phys),
                 tuple(lm.color),
                 lm.visible,
+                lm.show_name,
             )
             for lm_id, lm in landmarks.items()
         )
@@ -281,7 +299,19 @@ class LandmarkPluginUI(PluginTagMixin):
                 with dpg.tooltip(btn_eye):
                     dpg.add_text("Show" if not lm.visible else "Hide")
 
-                # 4. Snap to Grid Button
+                # 4. Show/Hide Name Label Toggle
+                lbl_tag = "\uf02b" if lm.show_name else "\uf02c"
+                btn_tag = dpg.add_button(
+                    label=lbl_tag,
+                    width=20,
+                    user_data=lm_id,
+                    callback=self.on_landmark_toggle_show_name,
+                )
+                self._bind_icon_font(btn_tag)
+                with dpg.tooltip(btn_tag):
+                    dpg.add_text("Hide name" if lm.show_name else "Show name")
+
+                # 5. Snap to Grid Button
                 btn_snap = dpg.add_button(
                     label="\uf076",
                     user_data=lm_id,
@@ -291,7 +321,7 @@ class LandmarkPluginUI(PluginTagMixin):
                 with dpg.tooltip(btn_snap):
                     dpg.add_text("Snap landmark to nearest voxel grid center")
 
-                # 5. Goto Crosshair Button
+                # 6. Goto Crosshair Button
                 btn_goto = dpg.add_button(
                     label="\uf05b",
                     user_data=lm_id,
@@ -301,7 +331,7 @@ class LandmarkPluginUI(PluginTagMixin):
                 with dpg.tooltip(btn_goto):
                     dpg.add_text("Jump crosshair to landmark position")
 
-                # 6. Delete Button (Red cross)
+                # 7. Delete Button (Red cross)
                 build_delete_button(
                     label="\uf00d",
                     width=20,

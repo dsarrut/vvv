@@ -216,6 +216,33 @@ class LandmarkPluginController(PluginTagMixin):
                     vs.is_geometry_dirty = True
                 self._api.request_refresh()
 
+    def update_landmark_show_name(self, landmark_id: str, show_name: bool, image_id: Optional[str] = None) -> None:
+        landmarks = self.get_landmarks(image_id)
+        if landmark_id in landmarks:
+            landmarks[landmark_id].show_name = show_name
+            vs_id = image_id or self._get_active_vs_id()
+            if self._api and vs_id:
+                vs = self._api.get_view_states().get(vs_id)
+                if vs:
+                    vs.is_geometry_dirty = True
+                self._api.update_all_viewers_of_image(vs_id, data_dirty=False)
+
+    def toggle_all_show_names(self, image_id: Optional[str] = None) -> None:
+        """Toggle show_name for all landmarks. If any is True, set all False; else set all True."""
+        landmarks = self.get_landmarks(image_id)
+        if not landmarks:
+            return
+        any_on = any(lm.show_name for lm in landmarks.values())
+        new_val = not any_on
+        for lm in landmarks.values():
+            lm.show_name = new_val
+        vs_id = image_id or self._get_active_vs_id()
+        if self._api and vs_id:
+            vs = self._api.get_view_states().get(vs_id)
+            if vs:
+                vs.is_geometry_dirty = True
+            self._api.request_refresh()
+
     # --- UI Callbacks ---
 
     def on_btn_add_clicked(self, sender, app_data, user_data) -> None:
@@ -265,30 +292,18 @@ class LandmarkPluginController(PluginTagMixin):
                 vs.is_geometry_dirty = True
             self._api.request_refresh()
 
-    def on_batch_show_clicked(self) -> None:
+    def on_batch_toggle_visible(self) -> None:
+        """Toggle visibility for filtered landmarks. If any visible, hide all; else show all."""
         vs_id = self._get_active_vs_id()
         if not vs_id:
             return
         landmarks = self.get_landmarks(vs_id)
         filter_text = self.landmark_filters.get(vs_id, "").lower()
-        for lm_id, lm in landmarks.items():
-            if not filter_text or filter_text in lm.name.lower():
-                lm.visible = True
-        if self._api:
-            vs = self._api.get_view_states().get(vs_id)
-            if vs:
-                vs.is_geometry_dirty = True
-            self._api.request_refresh()
-
-    def on_batch_hide_clicked(self) -> None:
-        vs_id = self._get_active_vs_id()
-        if not vs_id:
-            return
-        landmarks = self.get_landmarks(vs_id)
-        filter_text = self.landmark_filters.get(vs_id, "").lower()
-        for lm_id, lm in landmarks.items():
-            if not filter_text or filter_text in lm.name.lower():
-                lm.visible = False
+        filtered = [lm for lm in landmarks.values() if not filter_text or filter_text in lm.name.lower()]
+        any_visible = any(lm.visible for lm in filtered)
+        new_val = not any_visible
+        for lm in filtered:
+            lm.visible = new_val
         if self._api:
             vs = self._api.get_view_states().get(vs_id)
             if vs:

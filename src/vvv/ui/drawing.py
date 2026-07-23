@@ -1080,13 +1080,14 @@ class OverlayDrawer:
                 dpg.draw_line([sx, sy + radius], [sx, sy + arm + radius], color=col, thickness=1.0, parent=node)
 
                 # Name label beside landmark marker
-                dpg.draw_text(
-                    pos=[sx + radius + 4, sy - 6],
-                    text=lm.name,
-                    color=col,
-                    size=12,
-                    parent=node,
-                )
+                if getattr(lm, 'show_name', True):
+                    dpg.draw_text(
+                        pos=[sx + radius + 4, sy - 6],
+                        text=lm.name,
+                        color=col,
+                        size=12,
+                        parent=node,
+                    )
 
         dpg.configure_item(node, show=True)
 
