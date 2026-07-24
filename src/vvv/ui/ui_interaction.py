@@ -1024,7 +1024,7 @@ class InteractionManager:
                         return
             for item in [dpg.get_focused_item(), dpg.get_active_window()]:
                 if item and dpg.does_item_exist(item):
-                    itype = str(dpg.get_item_type(item))
+                    itype = dpg.get_item_type(item)
                     if any(x in itype for x in ["mvInputText", "mvInputInt", "mvInputFloat"]):
                         return
             aliases = dpg.get_aliases()

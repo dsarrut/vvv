@@ -96,7 +96,7 @@ def vvv_screenshot(vvw_path: str, sc_json_path: str):
     win_w = controller.settings.data["layout"]["window_width"]
     win_h = controller.settings.data["layout"]["window_height"]
 
-    if not dpg.is_dearpygui_running() and not dpg.is_viewport_created():
+    if not dpg.is_dearpygui_running() and not dpg.is_viewport_ok():
         try:
             dpg.create_viewport(title="VVV Screenshot Session", width=win_w, height=win_h)
             dpg.setup_dearpygui()

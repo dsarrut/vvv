@@ -453,7 +453,7 @@ def normalize_rgba_to_int(color, default_alpha=255):
     if is_float:
         res = [int(c * 255.0) for c in color_list[:4]]
     else:
-        res = [int(np_clip(c)) for c in color_list[:4]]
+        res = [np_clip(c) for c in color_list[:4]]
 
     # Ensure 4 channels (RGBA)
     if len(res) == 3:

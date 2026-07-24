@@ -200,8 +200,7 @@ class RegistrationPluginController(PluginTagMixin):
             elif viewer.view_state and viewer.view_state.display.overlay.image_id == image_id:
                 viewer._overlay_preview_slices = new_overlay_previews
 
-        if vs:
-            vs.is_data_dirty = True
+        vs.is_data_dirty = True
         self._api.request_refresh()
 
     def _check_preview_slice_needed(self, vs_id):
