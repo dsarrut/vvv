@@ -367,8 +367,7 @@ class LandmarkPluginUI(PluginTagMixin):
                     callback=self.on_landmark_toggle_visible,
                 )
                 self._bind_icon_font(btn_eye)
-                with dpg.tooltip(btn_eye):
-                    dpg.add_text("Show" if not lm.visible else "Hide")
+                build_beginner_tooltip(btn_eye, "Show" if not lm.visible else "Hide", api)
 
                 # 4. Show/Hide Name Label Toggle
                 lbl_tag = "\uf02b" if lm.show_name else "\uf02c"
@@ -379,8 +378,7 @@ class LandmarkPluginUI(PluginTagMixin):
                     callback=self.on_landmark_toggle_show_name,
                 )
                 self._bind_icon_font(btn_tag)
-                with dpg.tooltip(btn_tag):
-                    dpg.add_text("Hide name" if lm.show_name else "Show name")
+                build_beginner_tooltip(btn_tag, "Hide name" if lm.show_name else "Show name", api)
 
                 # 5. Snap to Grid Button
                 btn_snap = dpg.add_button(
@@ -389,8 +387,7 @@ class LandmarkPluginUI(PluginTagMixin):
                     callback=lambda s, a, u: self._c.snap_landmark_to_grid(u),
                 )
                 self._bind_icon_font(btn_snap)
-                with dpg.tooltip(btn_snap):
-                    dpg.add_text("Snap landmark to nearest voxel grid center")
+                build_beginner_tooltip(btn_snap, "Snap landmark to nearest voxel grid center", api)
 
                 # 6. Goto Crosshair Button
                 btn_goto = dpg.add_button(
@@ -399,17 +396,16 @@ class LandmarkPluginUI(PluginTagMixin):
                     callback=lambda s, a, u: self._c.center_on_landmark(u),
                 )
                 self._bind_icon_font(btn_goto)
-                with dpg.tooltip(btn_goto):
-                    dpg.add_text("Jump crosshair to landmark position")
+                build_beginner_tooltip(btn_goto, "Jump crosshair to landmark position", api)
 
                 # 7. Delete Button (Red cross)
-                build_delete_button(
+                btn_del = build_delete_button(
                     label="\uf00d",
                     width=20,
                     user_data=lm_id,
                     callback=lambda s, a, u: self._c.remove_landmark(u),
-                    tooltip="Delete landmark",
                 )
+                build_beginner_tooltip(btn_del, "Delete landmark", api)
 
         # Update counter footer text
         if dpg.does_item_exist(footer_id):
