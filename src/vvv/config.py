@@ -50,6 +50,7 @@ DEFAULT_SETTINGS = {
         "time_forward": "Right",
         "time_backward": "Left",
         "add_profile": "P",
+        "add_landmark": "Space",
         "sync_all": "S",
     },
     "interaction": {

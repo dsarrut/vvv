@@ -1940,7 +1940,20 @@ class SliceViewer:
             ),
             "hide_all": self.hide_everything,
             "sync_all": self.action_sync_all,
+            "add_landmark": self.action_add_landmark,
         }
+
+    def action_add_landmark(self):
+        if hasattr(self.controller, "gui") and self.controller.gui:
+            lm_plugin = next(
+                (p for p in self.controller.gui.plugins if p.plugin_id == "landmark_plugin"),
+                None,
+            )
+            if lm_plugin and self.image_id and self.view_state:
+                lm_plugin._controller.add_landmark(
+                    image_id=self.image_id,
+                    pt_phys=self.view_state.camera.crosshair_phys_coord,
+                )
 
     def action_next_image(self):
         next_id = self.controller.get_next_image_id(self.image_id)
@@ -2143,28 +2156,20 @@ class SliceViewer:
 
             if val is None and action_name == "toggle_filename":
                 val = dpg.mvKey_F
+            elif val is None and action_name == "add_landmark":
+                val = "Space"
 
-            mapped_key = (
-                getattr(dpg, f"mvKey_{val}", val) if isinstance(val, str) else val
-            )
+            if isinstance(val, str):
+                key_attr = f"mvKey_{val}"
+                if val in ("Space", "Spacebar") and not hasattr(dpg, key_attr):
+                    key_attr = "mvKey_Spacebar" if hasattr(dpg, "mvKey_Spacebar") else "mvKey_Space"
+                mapped_key = getattr(dpg, key_attr, val)
+            else:
+                mapped_key = val
+
             if key == mapped_key:
                 action_func()
                 return
-
-        # Landmark Spacebar Shortcut
-        space_key = getattr(dpg, "mvKey_Spacebar", getattr(dpg, "mvKey_Space", 32))
-        if key == space_key:
-            if hasattr(self.controller, "gui") and self.controller.gui:
-                lm_plugin = next(
-                    (p for p in self.controller.gui.plugins if p.plugin_id == "landmark_plugin"),
-                    None,
-                )
-                if lm_plugin and self.image_id and self.view_state:
-                    lm_plugin._controller.add_landmark(
-                        image_id=self.image_id,
-                        pt_phys=self.view_state.camera.crosshair_phys_coord,
-                    )
-                    return
 
         # Profile Tool Keyboard State Machine
         _profile_val = shortcuts.get("add_profile", "P")

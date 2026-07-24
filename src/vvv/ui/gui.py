@@ -2253,6 +2253,7 @@ class MainGUI:
                 "toggle_scalebar": "Toggle Scalebar",
                 "toggle_mip": "Toggle MIP (Max Intensity Projection)",
                 "add_profile": "Add Profile Line",
+                "add_landmark": "Add Landmark at Crosshair",
                 "sync_all": "Sync All Viewers",
                 "hide_all": "Show/Hide Overlays",
             }
