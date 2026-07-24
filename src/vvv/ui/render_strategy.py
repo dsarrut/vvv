@@ -88,12 +88,10 @@ def _init_numba():
                     if norm > 1.0:
                         norm = 1.0
                     lut_idx = int(norm * 255.0)
-                    a = lut[lut_idx, 3] * opacity
-                    if a <= 0.0:
-                        continue
                     r = lut[lut_idx, 0]
                     g = lut[lut_idx, 1]
                     b = lut[lut_idx, 2]
+                    a = lut[lut_idx, 3] * opacity
                     ry = cy + c_y0
                     rx = cx + c_x0
                     if precomposite:
@@ -644,11 +642,6 @@ def compute_native_voxel_overlay(
         wl_min = np.float32(ovs.display.wl - ovs.display.ww * 0.5)
         wl_scale = np.float32(1.0 / max(ovs.display.ww, 1e-20))
         thr_nb = np.float32(thr_val if thr_val is not None else -np.inf)
-        if thr_val is not None:
-            lut = lut.copy()
-            norm_thr = (thr_val - wl_min) * wl_scale
-            cutoff = int(np.clip(np.floor(norm_thr * 255.0), 0, 255))
-            lut[: cutoff + 1, 3] = 0.0
         ov_arr = np.ascontiguousarray(ov_data)
         if target_buffer is None:
             rgba[c_y0:c_y1, c_x0:c_x1] = 0.0
