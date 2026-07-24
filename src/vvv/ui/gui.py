@@ -2286,6 +2286,23 @@ class MainGUI:
                         dpg.add_text(desc)
 
             dpg.add_spacer(height=15)
+            dpg.add_text("MIP Controls (when MIP is active)", color=active_col)
+            dpg.add_separator()
+
+            with dpg.table(header_row=False, borders_innerH=True):
+                dpg.add_table_column(width_fixed=True, init_width_or_weight=140)
+                dpg.add_table_column(width_stretch=True)
+
+                mip_controls = [
+                    ("Left / Right", "Rotate MIP projection angle"),
+                    ("Up / Down", "Navigate 4D time frames"),
+                ]
+                for key_str, desc in mip_controls:
+                    with dpg.table_row():
+                        dpg.add_text(key_str, color=ok_col)
+                        dpg.add_text(desc)
+
+            dpg.add_spacer(height=15)
             dpg.add_text("Command Line Usage", color=active_col)
             dpg.add_separator()
 
