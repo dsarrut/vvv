@@ -88,10 +88,12 @@ def _init_numba():
                     if norm > 1.0:
                         norm = 1.0
                     lut_idx = int(norm * 255.0)
+                    a = lut[lut_idx, 3] * opacity
+                    if a <= 0.0:
+                        continue
                     r = lut[lut_idx, 0]
                     g = lut[lut_idx, 1]
                     b = lut[lut_idx, 2]
-                    a = lut[lut_idx, 3] * opacity
                     ry = cy + c_y0
                     rx = cx + c_x0
                     if precomposite:
@@ -512,18 +514,50 @@ def compute_native_voxel_overlay(
     c_x0, c_x1, c_y0, c_y1 = 0, canvas_w, 0, canvas_h
     try:
         A_inv = np.linalg.inv(A_total)
-        corners_ov = np.array(
-            [
-                [0, 0, 0],
-                [ov_W, 0, 0],
-                [0, ov_H, 0],
-                [ov_W, ov_H, 0],
-                [0, 0, ov_D],
-                [ov_W, 0, ov_D],
-                [0, ov_H, ov_D],
-                [ov_W, ov_H, ov_D],
-            ]
-        )
+        thr_val = ovs.display.min_threshold
+        if thr_val is not None:
+            if not hasattr(ov_vol, "_nonzero_bbox_cache"):
+                ov_vol._nonzero_bbox_cache = {}
+            nz_box = ov_vol._nonzero_bbox_cache.get(thr_val)
+            if nz_box is None:
+                nz_mask = ov_data > thr_val
+                if np.any(nz_mask):
+                    nz_z, nz_y, nz_x = np.nonzero(nz_mask)
+                    nz_box = (
+                        int(nz_x.min()), int(nz_x.max()) + 1,
+                        int(nz_y.min()), int(nz_y.max()) + 1,
+                        int(nz_z.min()), int(nz_z.max()) + 1,
+                    )
+                else:
+                    nz_box = (0, ov_W, 0, ov_H, 0, ov_D)
+                ov_vol._nonzero_bbox_cache[thr_val] = nz_box
+
+            ox0, ox1, oy0, oy1, oz0, oz1 = nz_box
+            corners_ov = np.array(
+                [
+                    [ox0, oy0, oz0],
+                    [ox1, oy0, oz0],
+                    [ox0, oy1, oz0],
+                    [ox1, oy1, oz0],
+                    [ox0, oy0, oz1],
+                    [ox1, oy0, oz1],
+                    [ox0, oy1, oz1],
+                    [ox1, oy1, oz1],
+                ]
+            )
+        else:
+            corners_ov = np.array(
+                [
+                    [0, 0, 0],
+                    [ov_W, 0, 0],
+                    [0, ov_H, 0],
+                    [ov_W, ov_H, 0],
+                    [0, 0, ov_D],
+                    [ov_W, 0, ov_D],
+                    [0, ov_H, ov_D],
+                    [ov_W, ov_H, ov_D],
+                ]
+            )
         base_corners = (A_inv @ (corners_ov - b_total).T).T
 
         if viewer.orientation == ViewMode.AXIAL:
@@ -607,9 +641,14 @@ def compute_native_voxel_overlay(
     ).get("numba", True)
 
     if use_numba:
-        thr_nb = np.float32(thr_val if thr_val is not None else -np.inf)
         wl_min = np.float32(ovs.display.wl - ovs.display.ww * 0.5)
         wl_scale = np.float32(1.0 / max(ovs.display.ww, 1e-20))
+        thr_nb = np.float32(thr_val if thr_val is not None else -np.inf)
+        if thr_val is not None:
+            lut = lut.copy()
+            norm_thr = (thr_val - wl_min) * wl_scale
+            cutoff = int(np.clip(np.floor(norm_thr * 255.0), 0, 255))
+            lut[: cutoff + 1, 3] = 0.0
         ov_arr = np.ascontiguousarray(ov_data)
         if target_buffer is None:
             rgba[c_y0:c_y1, c_x0:c_x1] = 0.0

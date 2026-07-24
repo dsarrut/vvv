@@ -173,11 +173,14 @@ def main():
 
         results = []
 
-        # 1. Base Image Only
+        # --- BILINEAR MODE BENCHMARKS ---
         vs_base.display.pixelated_zoom = False
+
+        # 1. Base Image Only
         vs_base.display.overlay.image_id = None
+        vs_base.rois = {}
         row = bench_config(actions, viewers, n_iters, n_warmup=n_warmup)
-        name = "1. Base Image Only"
+        name = "[Lin] 1. Base Image Only"
         print(fmt_row(name, row))
         results.append((name, row))
 
@@ -197,7 +200,7 @@ def main():
             roi_item.r_z_mm = 25.0
             vs_base.rois[f"roi_{i}"] = roi_item
         row = bench_config(actions, viewers, n_iters, n_warmup=n_warmup)
-        name = "2. Base + 10 ROIs Only (No Fusion)"
+        name = "[Lin] 2. Base + 10 ROIs (No Fusion)"
         print(fmt_row(name, row))
         results.append((name, row))
 
@@ -209,7 +212,7 @@ def main():
         vs_base.display.overlay_opacity = 0.5
         vs_base.display.min_threshold = None
         row = bench_config(actions, viewers, n_iters, n_warmup=n_warmup)
-        name = "3. Base + Fusion Overlay"
+        name = "[Lin] 3. Base + Fusion Overlay"
         print(fmt_row(name, row))
         results.append((name, row))
 
@@ -217,27 +220,29 @@ def main():
         ov_vs = c.view_states[ov_id]
         ov_vs.display.min_threshold = 50.0
         row = bench_config(actions, viewers, n_iters, n_warmup=n_warmup)
-        name = "4. Base + Fusion + min_thresh=50"
+        name = "[Lin] 4. Base + Fusion + min_thresh=50"
         print(fmt_row(name, row))
         results.append((name, row))
         ov_vs.display.min_threshold = None
 
-        # 5. Base + Fusion Overlay + 5 Spheroid ROIs (roi_above_overlay=True)
-        vs_base.display.roi_above_overlay = True
-        for i in range(1, 6):
-            roi_item = ROIState(
-                volume_id=f"roi_{i}",
-                name=f"Tumor_{i}",
-                color=[0, 255, 0, 180],
-            )
-            roi_item.is_spheroid = True
-            roi_item.center_phys = [200.0 + i * 20.0, 200.0 + i * 20.0, 450.0 + i * 20.0]
-            roi_item.r_x_mm = 30.0
-            roi_item.r_y_mm = 30.0
-            roi_item.r_z_mm = 30.0
-            vs_base.rois[f"roi_{i}"] = roi_item
+        # --- NN MODE BENCHMARKS (SW_SINGLE_NATIVE via Numba) ---
+        vs_base.display.pixelated_zoom = True
+        vs_base.display.nn_mode = 4  # SW_SINGLE_NATIVE
+
+        # 5. NN Base + Fusion Overlay
+        vs_base.rois = {}
         row = bench_config(actions, viewers, n_iters, n_warmup=n_warmup)
-        name = "5. Base + Fusion + 5 ROIs (Above)"
+        name = "[NN] 5. Base + Fusion Overlay"
+        print(fmt_row(name, row))
+        results.append((name, row))
+
+        # 6. NN Base + Fusion Overlay with min_threshold=50
+        ov_vs.display.min_threshold = 50.0
+        row = bench_config(actions, viewers, n_iters, n_warmup=n_warmup)
+        name = "[NN] 6. Base + Fusion + min_thresh=50"
+        print(fmt_row(name, row))
+        results.append((name, row))
+        ov_vs.display.min_threshold = None
         print(fmt_row(name, row))
         results.append((name, row))
 
