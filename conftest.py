@@ -16,14 +16,19 @@ def fresh_dpg_context():
     """Soft-resets the UI state between every single test."""
     yield
 
-    for window in dpg.get_windows():
-        if dpg.does_item_exist(window):
-            info = dpg.get_item_info(window)
-            if info and info.get("type") == "mvWindowAppItem":
-                try:
-                    dpg.delete_item(window)
-                except Exception:
-                    pass
+    try:
+        if dpg.is_viewport_ok():
+            windows = dpg.get_windows()
+            for window in windows:
+                if dpg.does_item_exist(window):
+                    info = dpg.get_item_info(window)
+                    if info and info.get("type") == "mvWindowAppItem":
+                        try:
+                            dpg.delete_item(window)
+                        except Exception:
+                            pass
+    except Exception:
+        pass
 
     for alias in list(dpg.get_aliases()):
         alias_str = str(alias)

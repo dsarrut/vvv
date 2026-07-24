@@ -16,7 +16,6 @@ class TestScreenshot(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp_dir)
 
-    @unittest.skip("Temporarily skipped to fix GUI test environment later")
     def test_screenshot_generation(self):
         print("Creating synthetic image for testing...")
         # Create a 3D volume with a sphere

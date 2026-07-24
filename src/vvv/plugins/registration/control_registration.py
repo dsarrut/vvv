@@ -683,3 +683,9 @@ class RegistrationPluginController(PluginTagMixin):
         if self._ui:
             self._ui.pull_reg_sliders_from_transform()
         self._api.request_refresh()
+
+    def destroy(self):
+        try:
+            self._preview_queue.put(None)
+        except Exception:
+            pass

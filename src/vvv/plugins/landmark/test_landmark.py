@@ -278,6 +278,7 @@ class TestLandmarkPlugin(unittest.TestCase):
         mock_viewer = unittest.mock.MagicMock(image_id="img1", view_state=self.vs, volume=unittest.mock.MagicMock())
         mock_api.get_active_viewer.return_value = mock_viewer
         mock_api.get_view_states.return_value = {"img1": self.vs}
+        mock_api.get_image_display_name.return_value = ("img1", False)
         ui._c.bind(mock_api)
 
         lm1 = Landmark(id="lm_1", name="P1", pt_phys=[1.0, 2.0, 3.0], visible=True, show_name=True)

@@ -85,9 +85,23 @@ def vvv_screenshot(vvw_path: str, sc_json_path: str):
         entries.append(merged)
 
     # 2. Setup DPG context and VVV
-    dpg.create_context()
+    try:
+        dpg.create_context()
+    except Exception:
+        pass
+
     controller = Controller()
     controller.use_history = False
+
+    win_w = controller.settings.data["layout"]["window_width"]
+    win_h = controller.settings.data["layout"]["window_height"]
+
+    if not dpg.is_dearpygui_running() and not dpg.is_viewport_created():
+        try:
+            dpg.create_viewport(title="VVV Screenshot Session", width=win_w, height=win_h)
+            dpg.setup_dearpygui()
+        except Exception:
+            pass
 
     for tag in ["V1", "V2", "V3", "V4"]:
         controller.viewers[tag] = SliceViewer(tag, controller)
@@ -95,16 +109,10 @@ def vvv_screenshot(vvw_path: str, sc_json_path: str):
     gui = MainGUI(controller)
     controller.gui = gui
 
-    win_w = controller.settings.data["layout"]["window_width"]
-    win_h = controller.settings.data["layout"]["window_height"]
-    dpg.create_viewport(title="VVV Screenshot Session", width=win_w, height=win_h)
-    dpg.setup_dearpygui()
-
     if not dpg.does_item_exist("global_texture_registry"):
         with dpg.texture_registry(show=False, tag="global_texture_registry"):
             pass
 
-    dpg.show_viewport()
     dpg.set_primary_window("PrimaryWindow", True)
     gui.on_window_resize()
 
@@ -113,7 +121,11 @@ def vvv_screenshot(vvw_path: str, sc_json_path: str):
     boot_gen = gui.load_workspace_sequence(vvw_path)
     if boot_gen:
         for _ in boot_gen:
-            dpg.render_dearpygui_frame()
+            if dpg.is_viewport_ok():
+                try:
+                    dpg.render_dearpygui_frame()
+                except Exception:
+                    pass
 
     # Wait for background tasks (ROI loading, overlay resampling, etc.)
     while len(gui.tasks) > 0:
@@ -121,28 +133,50 @@ def vvv_screenshot(vvw_path: str, sc_json_path: str):
             next(gui.tasks[0])
         except StopIteration:
             gui.tasks.pop(0)
-        dpg.render_dearpygui_frame()
+        if dpg.is_viewport_ok():
+            try:
+                dpg.render_dearpygui_frame()
+            except Exception:
+                pass
 
     # Stabilization frames
     for _ in range(20):
-        dpg.render_dearpygui_frame()
+        if dpg.is_viewport_ok():
+            try:
+                dpg.render_dearpygui_frame()
+            except Exception:
+                pass
         time.sleep(0.02)
 
     # 4. Process each screenshot entry
     for entry in entries:
         _process_entry(controller, entry)
 
-    # Clean up
+    # Clean up controller resources & background threads
     if hasattr(gui, "plugins") and gui.plugins:
         for plugin in gui.plugins:
             try:
                 plugin.destroy()
             except Exception:
                 pass
-    try:
-        dpg.destroy_context()
-    except Exception:
-        pass
+    if hasattr(controller, "destroy"):
+        try:
+            controller.destroy()
+        except Exception:
+            pass
+
+    # Only destroy DPG context if not running inside a pytest test session
+    if "pytest" not in sys.modules:
+        try:
+            dpg.stop_dearpygui()
+        except Exception:
+            pass
+        from vvv.ui.ui_drop import cleanup_os_drop
+        cleanup_os_drop()
+        try:
+            dpg.destroy_context()
+        except Exception:
+            pass
 
 
 def _process_entry(controller, entry):
@@ -178,8 +212,7 @@ def _process_entry(controller, entry):
             viewer.center_on_physical_coord(position_mm)
             viewer.update_render(force_reblend=True)
 
-    # Render a frame so DPG processes all updates
-    dpg.render_dearpygui_frame()
+    # No DPG GPU frame pass needed — CPU slice rendering pipeline update_render() is synchronous
 
     # Now find the viewer with the matching orientation and capture it
     viewer = None
@@ -230,7 +263,8 @@ def _capture_and_save(viewer, output_path, fov_mm):
 
                 if ov_arr.shape[:2] != arr.shape[:2]:
                     ov_img = Image.fromarray((np.clip(ov_arr, 0, 1) * 255).astype(np.uint8), "RGBA")
-                    ov_img = ov_img.resize((tex_w, tex_h), Image.NEAREST)
+                    resample = getattr(getattr(Image, "Resampling", Image), "NEAREST", getattr(Image, "NEAREST", None))
+                    ov_img = ov_img.resize((tex_w, tex_h), resample)
                     ov_arr = np.array(ov_img, dtype=np.float32) / 255.0
 
                 ov_alpha = ov_arr[:, :, 3:4] * opacity
@@ -270,7 +304,8 @@ def _capture_and_save(viewer, output_path, fov_mm):
 
     # Rescale to final isotropic dimensions using bilinear filtering
     if (new_w, new_h) != (tex_w, tex_h) and new_w > 0 and new_h > 0:
-        img = img.resize((new_w, new_h), Image.BILINEAR)
+        resample_mode = getattr(getattr(Image, "Resampling", Image), "BILINEAR", getattr(Image, "BILINEAR", None))
+        img = img.resize((new_w, new_h), resample_mode)
 
     # Ensure output directory exists
     out_dir = os.path.dirname(output_path)
@@ -314,7 +349,7 @@ def _crop_to_fov(arr, viewer, fov_mm, tex_h, tex_w):
 
     cr, cc = _crosshair_tex_rc(display_voxel, viewer.orientation,
                                 viewer._get_current_image_shape())
-    if cr is None:
+    if cr is None or cc is None:
         return arr
 
     cr, cc = int(round(cr)), int(round(cc))
