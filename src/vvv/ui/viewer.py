@@ -570,9 +570,8 @@ class SliceViewer:
             target_group = vs.sync_group
             master_vs_id: str | None = None
 
-            # --- BUG FIX #1: PRIORITIZE ACTIVE VIEWERS ---
-            # We must prioritize a master that is actively being rendered on screen!
-            # Otherwise, we might pull coordinates from a hidden image that hasn't updated its camera yet.
+            # --- PRIORITIZE ACTIVE VIEWERS ---
+            # Prioritize a master that is actively being rendered on screen
             active_vs_ids = [
                 v.image_id for v in self.controller.viewers.values() if v.image_id
             ]
@@ -585,10 +584,14 @@ class SliceViewer:
                     master_vs_id = vs_id
                     break
 
-            # Fallback: If no active viewer is showing a synced image, just pick any from the group
+            # Fallback: Pick an image state from the group that has a valid initialized camera coordinate
             if not master_vs_id:
-                for vs_id, vs in self.controller.view_states.items():
-                    if vs_id != self.image_id and vs.sync_group == target_group:
+                for vs_id, other_vs in self.controller.view_states.items():
+                    if (
+                        vs_id != self.image_id
+                        and other_vs.sync_group == target_group
+                        and other_vs.camera.crosshair_phys_coord is not None
+                    ):
                         master_vs_id = vs_id
                         break
 

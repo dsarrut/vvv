@@ -96,8 +96,11 @@ class LandmarkPluginController(PluginTagMixin):
     def _get_active_vs_id(self) -> Optional[str]:
         if not self._api:
             return None
+        img_id = self._api.get_active_image_id()
+        if isinstance(img_id, str):
+            return img_id
         viewer = self._api.get_active_viewer()
-        if viewer and viewer.image_id and viewer.view_state:
+        if viewer and hasattr(viewer, "image_id") and isinstance(viewer.image_id, str):
             return viewer.image_id
         return None
 
@@ -480,9 +483,10 @@ class LandmarkPluginController(PluginTagMixin):
         landmarks = self.get_landmarks(vs_id)
         if not landmarks:
             return
+        from vvv.ui.ui_components import normalize_rgba_to_int
         for idx, lm in enumerate(landmarks.values()):
             c = ROI_COLORS[idx % len(ROI_COLORS)]
-            lm.color = [c[0], c[1], c[2], 255] if len(c) == 3 else list(c)
+            lm.color = normalize_rgba_to_int(c)
 
         if self._api:
             vs = self._api.get_view_states().get(vs_id)

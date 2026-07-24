@@ -61,6 +61,29 @@ class TestPluginAPI(unittest.TestCase):
         self.assertEqual(self.api.get_active_image_name(), "test_image.nii")
         self.mock_controller.get_image_display_name.assert_called_with("img_1")
 
+    def test_get_active_image_id(self):
+        self.mock_gui.context_viewer = None
+        self.assertIsNone(self.api.get_active_image_id())
+
+        mock_viewer = MagicMock()
+        mock_viewer.image_id = "img_123"
+        mock_viewer.view_state = MagicMock()
+        self.mock_gui.context_viewer = mock_viewer
+        self.assertEqual(self.api.get_active_image_id(), "img_123")
+
+    def test_get_active_state(self):
+        self.mock_gui.context_viewer = None
+        self.assertEqual(self.api.get_active_state(), (None, None))
+
+        mock_viewer = MagicMock()
+        mock_vol = MagicMock()
+        mock_vs = MagicMock()
+        mock_viewer.image_id = "img_123"
+        mock_viewer.volume = mock_vol
+        mock_viewer.view_state = mock_vs
+        self.mock_gui.context_viewer = mock_viewer
+        self.assertEqual(self.api.get_active_state(), (mock_vol, mock_vs))
+
     def test_get_crosshair_world(self):
         mock_viewer = MagicMock()
         coords = [10.5, 20.0, -5.2]

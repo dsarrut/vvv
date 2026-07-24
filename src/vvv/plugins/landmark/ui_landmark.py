@@ -49,8 +49,16 @@ class LandmarkPluginUI(PluginTagMixin):
         lm_id = user_data
         if not lm_id:
             return
-        landmarks = self._c.get_landmarks()
-        lm = landmarks.get(lm_id)
+        lm = None
+        if self._api:
+            landmarks = self._c.get_landmarks()
+            lm = landmarks.get(lm_id)
+        else:
+            # Fallback when UI API isn't set yet but controller has an API bound
+            vs_id = self._c._get_active_vs_id()
+            if vs_id:
+                landmarks = self._c.get_landmarks(vs_id)
+                lm = landmarks.get(lm_id)
         if lm is None:
             return
         self._c.update_landmark_visible(lm_id, not lm.visible)
@@ -62,8 +70,15 @@ class LandmarkPluginUI(PluginTagMixin):
         lm_id = user_data
         if not lm_id:
             return
-        landmarks = self._c.get_landmarks()
-        lm = landmarks.get(lm_id)
+        lm = None
+        if self._api:
+            landmarks = self._c.get_landmarks()
+            lm = landmarks.get(lm_id)
+        else:
+            vs_id = self._c._get_active_vs_id()
+            if vs_id:
+                landmarks = self._c.get_landmarks(vs_id)
+                lm = landmarks.get(lm_id)
         if lm is None:
             return
         self._c.update_landmark_show_name(lm_id, not lm.show_name)

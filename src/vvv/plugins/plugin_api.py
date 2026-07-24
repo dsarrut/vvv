@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable, TYPE_CHECKING
+from typing import Any, Protocol, runtime_checkable, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from vvv.core.view_state import ViewState
@@ -105,6 +105,20 @@ class PluginAPI:
 
     def get_active_viewer(self):
         return self._gui.context_viewer
+
+    def get_active_image_id(self) -> str | None:
+        """Returns the image ID currently being displayed in the active viewer, or None."""
+        viewer = self._gui.context_viewer
+        if viewer and viewer.image_id and viewer.view_state:
+            return viewer.image_id
+        return None
+
+    def get_active_state(self) -> tuple[Any, ViewState] | tuple[None, None]:
+        """Returns (VolumeData, ViewState) of the active viewer, or (None, None)."""
+        viewer = self._gui.context_viewer
+        if viewer and viewer.image_id and viewer.volume and viewer.view_state:
+            return viewer.volume, viewer.view_state
+        return None, None
 
     def is_mip_active(self, image_id: str, viewer_tag: str) -> bool:
         """Returns True if MIP mode is enabled for the given image/viewer."""
