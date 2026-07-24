@@ -153,16 +153,25 @@ class SliceRenderer:
 
     @staticmethod
     def _blend_alpha(base_rgba, over_rgba, opacity):
+        # Alpha channel of over_rgba already contains 0.0 where thresholded, and 1.0 otherwise.
         op_mask = over_rgba[..., 3:4]
         if opacity != 1.0:
             np.multiply(op_mask, opacity, out=op_mask)
 
-        # Selective blending: for pixels where overlay alpha > 0, composite them.
-        # Sub-threshold pixels (op_mask == 0) remain untouched base_rgba.
-        nz = op_mask[..., 0] > 0.0
-        if np.any(nz):
-            m = op_mask[nz]
-            base_rgba[nz] = base_rgba[nz] * (1.0 - m) + over_rgba[nz] * m
+        # --- THE IN-PLACE OPTIMIZATION ---
+        # Instead of: base_rgba = base_rgba * (1.0 - op_mask) + over_rgba * op_mask
+
+        # 1. Scale overlay image down (modifies over_rgba memory directly)
+        np.multiply(over_rgba, op_mask, out=over_rgba)
+
+        # 2. Convert op_mask to (1.0 - alpha) IN PLACE to prevent any hidden array allocations
+        np.subtract(1.0, op_mask, out=op_mask)
+
+        # 3. Scale base image down (modifies base_rgba memory directly)
+        np.multiply(base_rgba, op_mask, out=base_rgba)
+
+        # 4. Add them together (writes final result into base_rgba)
+        np.add(base_rgba, over_rgba, out=base_rgba)
 
         return base_rgba
 
@@ -344,18 +353,12 @@ class SliceRenderer:
                 rgba = norm
             return rgba, norm
         else:
-            if threshold is not None and slice_data.max() <= threshold:
-                h, w = slice_data.shape[:2]
-                rgba = np.zeros((h, w, 4), dtype=np.float32)
-                norm = np.zeros((h, w), dtype=np.float32)
-                return rgba, norm
-
             norm = SliceRenderer.normalize_wl(slice_data, ww, wl)
             lut = COLORMAPS.get(cmap_name, COLORMAPS["Grayscale"])
             rgba = SliceRenderer.lut_lookup(lut, norm)
 
             if threshold is not None:
-                rgba[slice_data <= threshold, 3] = 0.0
+                rgba[slice_data <= threshold] = [0.0, 0.0, 0.0, 0.0]
 
             return rgba, norm
 
