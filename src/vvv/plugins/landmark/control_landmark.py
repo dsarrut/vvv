@@ -2,7 +2,7 @@ import os
 import json
 import csv
 import uuid
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Any
 import numpy as np
 import dearpygui.dearpygui as dpg
 
@@ -21,7 +21,7 @@ class LandmarkPluginController(PluginTagMixin):
         self._ui = None
         self.landmark_filters: Dict[str, str] = {}
         self.landmark_counters: Dict[str, int] = {}
-        self.landmarks_file_path: Dict[str, str] = {}
+        self.landmarks_file_path: Dict[str, Optional[str]] = {}
 
     def bind(self, api: PluginAPI) -> None:
         self._api = api
@@ -45,7 +45,7 @@ class LandmarkPluginController(PluginTagMixin):
             return {}
         file_path = self.landmarks_file_path.get(image_id)
         landmarks = self.get_landmarks(image_id)
-        res = {"landmarks": [lm.to_dict() for lm in landmarks.values()]}
+        res: Dict[str, Any] = {"landmarks": [lm.to_dict() for lm in landmarks.values()]}
         if file_path:
             res["file_path"] = file_path
         return res
