@@ -353,6 +353,12 @@ class SliceRenderer:
                 rgba = norm
             return rgba, norm
         else:
+            if threshold is not None and slice_data.max() <= threshold:
+                h, w = slice_data.shape[:2]
+                rgba = np.zeros((h, w, 4), dtype=np.float32)
+                norm = np.zeros((h, w), dtype=np.float32)
+                return rgba, norm
+
             norm = SliceRenderer.normalize_wl(slice_data, ww, wl)
             lut = COLORMAPS.get(cmap_name, COLORMAPS["Grayscale"])
             rgba = SliceRenderer.lut_lookup(lut, norm)
