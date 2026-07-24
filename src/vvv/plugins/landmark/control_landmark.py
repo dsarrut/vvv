@@ -22,6 +22,7 @@ class LandmarkPluginController(PluginTagMixin):
         self.landmark_filters: Dict[str, str] = {}
         self.landmark_counters: Dict[str, int] = {}
         self.landmarks_file_path: Dict[str, Optional[str]] = {}
+        self.enhanced_vis: bool = False
 
     def bind(self, api: PluginAPI) -> None:
         self._api = api
@@ -73,6 +74,13 @@ class LandmarkPluginController(PluginTagMixin):
                 vs.is_geometry_dirty = True
                 if self._api:
                     self._api.request_refresh()
+
+    def on_toggle_enhanced_vis(self, sender, app_data, user_data=None) -> None:
+        self.enhanced_vis = bool(app_data)
+        if self._api:
+            for vs in self._api.get_view_states().values():
+                vs.is_geometry_dirty = True
+            self._api.request_refresh()
 
     def save_settings(self, api: PluginAPI) -> None:
         pass

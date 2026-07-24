@@ -15,8 +15,6 @@ from .control_landmark import LandmarkPluginController
 
 
 class LandmarkPluginUI(PluginTagMixin):
-    """UI Layout for the Landmark Plugin inspired by the Profile UI structure."""
-
     def __init__(self, plugin_id: str, controller: LandmarkPluginController):
         self._plugin_id = plugin_id
         self._c = controller
@@ -26,6 +24,18 @@ class LandmarkPluginUI(PluginTagMixin):
     def _bind_icon_font(self, item):
         if dpg.does_item_exist("icon_font_tag"):
             dpg.bind_item_font(item, "icon_font_tag")
+
+    def on_btn_enhanced_vis_clicked(self, sender, app_data, user_data=None):
+        new_val = not self._c.enhanced_vis
+        self._c.on_toggle_enhanced_vis(sender, new_val)
+        self._update_enhanced_vis_button_style()
+
+    def _update_enhanced_vis_button_style(self):
+        btn_tag = self._t("btn_enhanced_vis")
+        if dpg.does_item_exist(btn_tag):
+            # \uf0d0 (magic wand / stars) for enhanced mode
+            lbl = "\uf0d0"
+            dpg.set_item_label(btn_tag, lbl)
 
     def on_landmark_color_changed(self, sender, app_data, user_data):
         lm_id = user_data
@@ -106,6 +116,24 @@ class LandmarkPluginUI(PluginTagMixin):
                     btn_add,
                     "Adds a 3D landmark at the current physical crosshair coordinate.\n"
                     "Shortcut: Press Space bar while hovering over an active viewer.",
+                    api,
+                )
+
+                btn_enhanced = dpg.add_button(
+                    label="\uf0d0",
+                    tag=self._t("btn_enhanced_vis"),
+                    width=25,
+                    callback=self.on_btn_enhanced_vis_clicked,
+                )
+                self._bind_icon_font(btn_enhanced)
+                if dpg.does_item_exist("icon_button_theme"):
+                    dpg.bind_item_theme(btn_enhanced, "icon_button_theme")
+                build_beginner_tooltip(
+                    btn_enhanced,
+                    "Toggle Enhanced Visualization Mode:\n"
+                    "• High-contrast text labels with background badges\n"
+                    "• Larger markers on adjacent slices with depth arrows (^ / v)\n"
+                    "• Extended slice visibility range and contrast halos",
                     api,
                 )
 
@@ -219,6 +247,7 @@ class LandmarkPluginUI(PluginTagMixin):
 
     def update_ui(self, api) -> None:
         self._api = api
+        self._update_enhanced_vis_button_style()
         viewer = api.get_active_viewer()
         has_image = bool(viewer and viewer.view_state and viewer.volume)
 

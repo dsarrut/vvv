@@ -1030,6 +1030,19 @@ class OverlayDrawer:
 
         curr_z = viewer.slice_idx
 
+        # Check if Landmark Plugin Enhanced Visualization mode is active
+        enhanced_vis = False
+        if hasattr(viewer, "controller") and viewer.controller and hasattr(viewer.controller, "gui") and viewer.controller.gui:
+            lm_plugin = next(
+                (p for p in getattr(viewer.controller.gui, "plugins", []) if getattr(p, "plugin_id", None) == "landmark_plugin"),
+                None,
+            )
+            if lm_plugin and hasattr(lm_plugin, "_controller"):
+                enhanced_vis = getattr(lm_plugin._controller, "enhanced_vis", False)
+
+        max_depth = 15.5 if enhanced_vis else 6.5
+        dim_base = 220 if enhanced_vis else 180
+
         for lm_id, lm in viewer.view_state.landmarks.items():
             if not lm or not lm.visible or lm.pt_phys is None:
                 continue
@@ -1041,7 +1054,9 @@ class OverlayDrawer:
                 continue
 
             lm_depth = v_disp[v_idx]
-            alpha, depth_diff = compute_slice_depth_alpha(curr_z, lm_depth)
+            alpha, depth_diff = compute_slice_depth_alpha(
+                curr_z, lm_depth, max_depth_diff=max_depth, dim_base_alpha=dim_base
+            )
             if alpha <= 0:
                 continue
 
@@ -1053,14 +1068,29 @@ class OverlayDrawer:
             col = list(lm.color[:3]) + [alpha]
 
             is_in_plane = depth_diff <= 0.5
-            radius = 6.0 if is_in_plane else 4.0
 
-            # Outer circle
+            if enhanced_vis:
+                # Enhanced mode: larger marker sizes on adjacent slices (e.g. 7.0 in-plane, 5.5 adjacent)
+                radius = 7.0 if is_in_plane else 5.5
+            else:
+                radius = 6.0 if is_in_plane else 4.0
+
+            # High-contrast halo outline in enhanced mode
+            if enhanced_vis:
+                dpg.draw_circle(
+                    center=[sx, sy],
+                    radius=radius + 1.0,
+                    color=[0, 0, 0, min(255, int(alpha * 0.9))],
+                    thickness=2.0,
+                    parent=node,
+                )
+
+            # Outer marker circle
             dpg.draw_circle(
                 center=[sx, sy],
                 radius=radius,
                 color=col,
-                thickness=1.5 if is_in_plane else 1.0,
+                thickness=2.0 if (enhanced_vis or is_in_plane) else 1.0,
                 parent=node,
             )
 
@@ -1073,21 +1103,55 @@ class OverlayDrawer:
                     fill=col,
                     parent=node,
                 )
-                arm = 4.0
+                arm = 5.0 if enhanced_vis else 4.0
                 dpg.draw_line([sx - arm - radius, sy], [sx - radius, sy], color=col, thickness=1.0, parent=node)
                 dpg.draw_line([sx + radius, sy], [sx + arm + radius, sy], color=col, thickness=1.0, parent=node)
                 dpg.draw_line([sx, sy - arm - radius], [sx, sy - radius], color=col, thickness=1.0, parent=node)
                 dpg.draw_line([sx, sy + radius], [sx, sy + arm + radius], color=col, thickness=1.0, parent=node)
+            elif enhanced_vis:
+                # Filled small center dot for adjacent slices in enhanced mode
+                dpg.draw_circle(
+                    center=[sx, sy],
+                    radius=2.0,
+                    color=col,
+                    fill=col,
+                    parent=node,
+                )
 
-                # Name label beside landmark marker
-                if getattr(lm, 'show_name', True):
-                    dpg.draw_text(
-                        pos=[sx + radius + 4, sy - 6],
-                        text=lm.name,
-                        color=col,
-                        size=12,
+            # Draw name label (and depth direction indicator in enhanced mode)
+            should_draw_label = getattr(lm, "show_name", True) and (is_in_plane or enhanced_vis)
+            if should_draw_label:
+                # Build display text (with depth indicator arrow if off-plane in enhanced mode)
+                label_text = lm.name
+                if enhanced_vis and not is_in_plane:
+                    # Point direction arrow (up if landmark is on a slice above, down if below)
+                    dir_arrow = "^" if lm_depth > curr_z else "v"
+                    label_text = f"{lm.name} ({dir_arrow})"
+
+                text_x = sx + radius + 5
+                text_y = sy - 7
+                char_w, char_h = 7, 14
+                text_w = max(16, len(label_text) * char_w)
+
+                if enhanced_vis:
+                    # Draw opaque background badge behind label text for optimal contrast
+                    bg_color = [0, 0, 0, max(120, int(alpha * 0.75))]
+                    dpg.draw_rectangle(
+                        pmin=[text_x - 3, text_y - 2],
+                        pmax=[text_x + text_w + 3, text_y + char_h + 1],
+                        color=[0, 0, 0, alpha],
+                        fill=bg_color,
+                        rounding=3.0,
                         parent=node,
                     )
+
+                dpg.draw_text(
+                    pos=[text_x, text_y],
+                    text=label_text,
+                    color=col,
+                    size=12,
+                    parent=node,
+                )
 
         dpg.configure_item(node, show=True)
 

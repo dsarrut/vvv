@@ -319,6 +319,18 @@ class TestLandmarkPlugin(unittest.TestCase):
         self.assertEqual(lm1.color, [c0[0], c0[1], c0[2], 255])
         self.assertEqual(lm2.color, [c1[0], c1[1], c1[2], 255])
 
+    def test_enhanced_visualization_mode(self):
+        ctrl = LandmarkPluginController("landmark_plugin")
+        mock_api = unittest.mock.MagicMock()
+        mock_api.get_view_states.return_value = {"img1": self.vs}
+        ctrl.bind(mock_api)
+
+        self.assertFalse(ctrl.enhanced_vis)
+        ctrl.on_toggle_enhanced_vis(None, True)
+        self.assertTrue(ctrl.enhanced_vis)
+        self.assertTrue(self.vs.is_geometry_dirty)
+        mock_api.request_refresh.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
