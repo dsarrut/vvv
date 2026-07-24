@@ -40,6 +40,7 @@ class LandmarkPluginController(PluginTagMixin):
     def on_image_removed(self, image_id: str) -> None:
         self.landmark_filters.pop(image_id, None)
         self.landmarks_file_path.pop(image_id, None)
+        self.landmark_counters.pop(image_id, None)
 
     def serialize_image_state(self, image_id: str, context: str = "history") -> dict:
         if context == "history":
