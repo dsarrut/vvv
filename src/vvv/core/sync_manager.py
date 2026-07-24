@@ -106,13 +106,13 @@ class SyncManager:
         world_phys = source_vs.camera.crosshair_phys_coord
 
         for target_id in target_ids:
-            if target_id == source_vs_id:
-                continue
             target_vs = self.controller.view_states.get(target_id)
             if target_vs:
-                target_vs.update_crosshair_from_phys(world_phys)
-
-        self.trigger_redraw(target_ids)
+                if target_id != source_vs_id:
+                    target_vs.update_crosshair_from_phys(world_phys)
+                else:
+                    target_vs.is_geometry_dirty = True
+        self.rebuild_overlay_base_map()
 
     def propagate_colormap(self, source_vs_id):
         source_vs = self.controller.view_states.get(source_vs_id)
