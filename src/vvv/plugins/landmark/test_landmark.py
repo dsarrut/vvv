@@ -285,23 +285,53 @@ class TestLandmarkPlugin(unittest.TestCase):
         lm2 = Landmark(id="lm_2", name="P2", pt_phys=[4.0, 5.0, 6.0], visible=False, show_name=False)
         self.vs.landmarks = {"lm_1": lm1, "lm_2": lm2}
 
-        # Any visible = True -> "\uf06e", Any show_name = True -> "\uf02b"
-        with unittest.mock.patch("dearpygui.dearpygui.does_item_exist", return_value=True), \
+        btn_vis_tag = ui._t("lm_batch_toggle_visible")
+        btn_names_tag = ui._t("lm_batch_toggle_names")
+        table_tag = ui._t("list_table")
+
+        def mock_does_item_exist(tag):
+            return tag in [btn_vis_tag, btn_names_tag, table_tag]
+
+        with unittest.mock.patch("dearpygui.dearpygui.does_item_exist", side_effect=mock_does_item_exist), \
              unittest.mock.patch("dearpygui.dearpygui.set_item_label") as mock_set_label, \
-             unittest.mock.patch("dearpygui.dearpygui.delete_item"):
+             unittest.mock.patch("dearpygui.dearpygui.delete_item"), \
+             unittest.mock.patch("dearpygui.dearpygui.add_color_edit"), \
+             unittest.mock.patch("dearpygui.dearpygui.add_input_text"), \
+             unittest.mock.patch("dearpygui.dearpygui.add_button"), \
+             unittest.mock.patch("dearpygui.dearpygui.add_tooltip"), \
+             unittest.mock.patch("dearpygui.dearpygui.add_text"), \
+             unittest.mock.patch("dearpygui.dearpygui.set_value"), \
+             unittest.mock.patch("dearpygui.dearpygui.configure_item"), \
+             unittest.mock.patch("dearpygui.dearpygui.item_handler_registry"), \
+             unittest.mock.patch("dearpygui.dearpygui.add_item_deactivated_after_edit_handler"), \
+             unittest.mock.patch("dearpygui.dearpygui.bind_item_handler_registry"), \
+             unittest.mock.patch("dearpygui.dearpygui.tooltip"), \
+             unittest.mock.patch("dearpygui.dearpygui.table_row"):
             ui.update_ui(mock_api)
-            mock_set_label.assert_any_call("landmark_plugin_lm_batch_toggle_visible", "\uf06e")
-            mock_set_label.assert_any_call("landmark_plugin_lm_batch_toggle_names", "\uf02b")
+            mock_set_label.assert_any_call(btn_vis_tag, "\uf06e")
+            mock_set_label.assert_any_call(btn_names_tag, "\uf02b")
 
         # Hide all, hide all names
         lm1.visible = False
         lm1.show_name = False
         ui._last_state_key = None
-        with unittest.mock.patch("dearpygui.dearpygui.does_item_exist", return_value=True), \
+        with unittest.mock.patch("dearpygui.dearpygui.does_item_exist", side_effect=mock_does_item_exist), \
              unittest.mock.patch("dearpygui.dearpygui.set_item_label") as mock_set_label, \
-             unittest.mock.patch("dearpygui.dearpygui.delete_item"):
+             unittest.mock.patch("dearpygui.dearpygui.delete_item"), \
+             unittest.mock.patch("dearpygui.dearpygui.add_color_edit"), \
+             unittest.mock.patch("dearpygui.dearpygui.add_input_text"), \
+             unittest.mock.patch("dearpygui.dearpygui.add_button"), \
+             unittest.mock.patch("dearpygui.dearpygui.add_tooltip"), \
+             unittest.mock.patch("dearpygui.dearpygui.add_text"), \
+             unittest.mock.patch("dearpygui.dearpygui.set_value"), \
+             unittest.mock.patch("dearpygui.dearpygui.configure_item"), \
+             unittest.mock.patch("dearpygui.dearpygui.item_handler_registry"), \
+             unittest.mock.patch("dearpygui.dearpygui.add_item_deactivated_after_edit_handler"), \
+             unittest.mock.patch("dearpygui.dearpygui.bind_item_handler_registry"), \
+             unittest.mock.patch("dearpygui.dearpygui.tooltip"), \
+             unittest.mock.patch("dearpygui.dearpygui.table_row"):
             ui.update_ui(mock_api)
-            mock_set_label.assert_any_call("landmark_plugin_lm_batch_toggle_visible", "\uf070")
+            mock_set_label.assert_any_call(btn_vis_tag, "\uf070")
     def test_batch_reset_colors(self):
         ctrl = LandmarkPluginController("landmark_plugin")
         mock_api = unittest.mock.MagicMock()
