@@ -187,10 +187,17 @@ class LandmarkPluginUI(PluginTagMixin):
                 api=api,
             )
 
+            # --- Footer Landmark Counter ---
+            dpg.add_text(
+                "Landmarks: 0",
+                tag=self._t("footer_counter"),
+                color=cfg_c["text_dim"],
+            )
+
             dpg.add_spacer(height=5)
 
-            # --- Scrollable Landmark Table (Inspired by Profile UI) ---
-            with dpg.child_window(tag=self._t("list_window"), height=180, border=False):
+            # --- Scrollable Landmark Table ---
+            with dpg.child_window(tag=self._t("list_window"), height=-1, border=False):
                 with dpg.table(
                     tag=self._t("list_table"),
                     header_row=False,
@@ -204,15 +211,6 @@ class LandmarkPluginUI(PluginTagMixin):
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
-
-            dpg.add_spacer(height=3)
-
-            # --- Footer Landmark Counter ---
-            dpg.add_text(
-                "Landmarks: 0",
-                tag=self._t("footer_counter"),
-                color=cfg_c["text_dim"],
-            )
 
     def on_clear_filter_clicked(self):
         if dpg.does_item_exist(self._t("input_filter")):
