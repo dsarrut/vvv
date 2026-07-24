@@ -180,21 +180,25 @@ class TestLandmarkPlugin(unittest.TestCase):
             ctrl.save_landmarks(json_path, image_id="img1")
             self.assertTrue(os.path.exists(json_path))
 
-            # Reset viewstate landmarks & reload
-            self.vs.landmarks = {}
+            # Load appends to existing landmarks (2 existing + 2 loaded = 4)
             ctrl.load_landmarks(json_path, image_id="img1")
-            self.assertEqual(len(self.vs.landmarks), 2)
-            self.assertIn("lm_1", self.vs.landmarks)
-            self.assertEqual(self.vs.landmarks["lm_1"].name, "Point_A")
+            self.assertEqual(len(self.vs.landmarks), 4)
 
-            # 2. Test CSV Save & Load
+            # 2. Test Clear All resets landmarks and file path
+            ctrl.clear_all_landmarks(image_id="img1")
+            self.assertEqual(len(self.vs.landmarks), 0)
+            self.assertIsNone(ctrl.landmarks_file_path["img1"])
+
+            # 3. Test CSV Save & Load
+            lm1 = Landmark(id="lm_1", name="Point_A", pt_phys=[10.0, 20.0, 30.0], color=[255, 0, 0, 255])
+            self.vs.landmarks = {"lm_1": lm1}
             csv_path = os.path.join(tmpdir, "test_landmarks.csv")
             ctrl.save_landmarks(csv_path, image_id="img1")
             self.assertTrue(os.path.exists(csv_path))
 
             self.vs.landmarks = {}
             ctrl.load_landmarks(csv_path, image_id="img1")
-            self.assertEqual(len(self.vs.landmarks), 2)
+            self.assertEqual(len(self.vs.landmarks), 1)
             self.assertEqual(self.vs.landmarks["lm_1"].name, "Point_A")
             self.assertEqual(self.vs.landmarks["lm_1"].pt_phys, [10.0, 20.0, 30.0])
 
@@ -212,16 +216,18 @@ class TestLandmarkPlugin(unittest.TestCase):
         history_state = ctrl.serialize_image_state("img1", context="history")
         self.assertEqual(history_state, {})
 
-        # Workspace context: serializes landmarks list
+        # Workspace context: serializes landmarks list and file_path
+        ctrl.landmarks_file_path["img1"] = "/path/to/landmarks.json"
         ws_state = ctrl.serialize_image_state("img1", context="workspace")
         self.assertIn("landmarks", ws_state)
-        self.assertEqual(len(ws_state["landmarks"]), 1)
+        self.assertEqual(ws_state.get("file_path"), "/path/to/landmarks.json")
 
-        # Restore from dict in workspace context
-        self.vs.landmarks = {}
-        ctrl.restore_image_state("img1", ws_state, context="workspace")
-        self.assertEqual(len(self.vs.landmarks), 1)
-        self.assertEqual(self.vs.landmarks["lm_1"].name, "P1")
+        # Restore from dict in workspace context restores file_path and does not crash when counter isn't pre-set
+        ctrl.landmarks_file_path["img1"] = None
+        ctrl.landmark_counters.pop("img1", None)
+        with unittest.mock.patch("os.path.exists", return_value=False):
+            ctrl.restore_image_state("img1", ws_state, context="workspace")
+        self.assertEqual(ctrl.landmarks_file_path.get("img1"), "/path/to/landmarks.json")
 
         # Restoring with history context must not restore landmarks
         self.vs.landmarks = {}
@@ -237,6 +243,33 @@ class TestLandmarkPlugin(unittest.TestCase):
                 multiple=False,
                 extensions=["json", "csv"],
             )
+
+    def test_save_and_save_as_behavior(self):
+        import tempfile
+        import os
+
+        ctrl = LandmarkPluginController("landmark_plugin")
+        mock_api = unittest.mock.MagicMock()
+        mock_api.get_active_viewer.return_value = unittest.mock.MagicMock(image_id="img1", view_state=self.vs)
+        mock_api.get_view_states.return_value = {"img1": self.vs}
+        ctrl.bind(mock_api)
+
+        lm = Landmark(id="lm_1", name="P1", pt_phys=[1.0, 2.0, 3.0])
+        self.vs.landmarks = {"lm_1": lm}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(tmpdir, "my_file.json")
+
+            # First save: no file path stored -> prompts save_file_dialog (Save As)
+            with unittest.mock.patch("vvv.plugins.landmark.control_landmark.save_file_dialog", return_value=file_path) as mock_dialog:
+                ctrl.on_btn_save_clicked(None, None, None)
+                mock_dialog.assert_called_once()
+                self.assertEqual(ctrl.landmarks_file_path["img1"], file_path)
+
+            # Subsequent save: file path exists -> directly saves to existing file without prompt
+            with unittest.mock.patch("vvv.plugins.landmark.control_landmark.save_file_dialog") as mock_dialog:
+                ctrl.on_btn_save_clicked(None, None, None)
+                mock_dialog.assert_not_called()
 
 
     def test_batch_toolbar_dynamic_icons(self):

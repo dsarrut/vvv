@@ -1,3 +1,4 @@
+import os
 import math
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import (
@@ -120,16 +121,36 @@ class LandmarkPluginUI(PluginTagMixin):
                     api,
                 )
 
+                btn_save_as = dpg.add_button(
+                    label="\uf019",
+                    tag=self._t("btn_save_as"),
+                    callback=self._c.on_btn_save_as_clicked,
+                )
+                self._bind_icon_font(btn_save_as)
+                build_beginner_tooltip(
+                    btn_save_as,
+                    "Save landmarks as... (choose new file name)",
+                    api,
+                )
+
                 btn_save = dpg.add_button(
                     label="\uf0c7",
                     tag=self._t("btn_save"),
                     callback=self._c.on_btn_save_clicked,
+                    show=False,
                 )
                 self._bind_icon_font(btn_save)
                 build_beginner_tooltip(
                     btn_save,
-                    "Save landmarks to a .json or .csv file.",
+                    "Save landmarks to file.",
                     api,
+                )
+
+                lbl_file = dpg.add_text(
+                    "",
+                    tag=self._t("file_name_label"),
+                    color=cfg_c["text_dim"],
+                    show=False,
                 )
 
                 build_help_button(
@@ -225,6 +246,24 @@ class LandmarkPluginUI(PluginTagMixin):
         vs_id = viewer.image_id
         landmarks = self._c.get_landmarks(vs_id)
         filter_text = self._c.landmark_filters.get(vs_id, "").lower()
+        file_path = self._c.landmarks_file_path.get(vs_id)
+
+        # Update Save / Save As buttons and filename display
+        btn_save_tag = self._t("btn_save")
+        lbl_file_tag = self._t("file_name_label")
+
+        if file_path and landmarks:
+            filename = os.path.basename(file_path)
+            if dpg.does_item_exist(lbl_file_tag):
+                dpg.set_value(lbl_file_tag, filename)
+                dpg.configure_item(lbl_file_tag, show=True)
+            if dpg.does_item_exist(btn_save_tag):
+                dpg.configure_item(btn_save_tag, show=True)
+        else:
+            if dpg.does_item_exist(lbl_file_tag):
+                dpg.configure_item(lbl_file_tag, show=False)
+            if dpg.does_item_exist(btn_save_tag):
+                dpg.configure_item(btn_save_tag, show=False)
 
         # Rebuild key to avoid unneeded redraws if nothing changed
         lm_tuples = tuple(
@@ -238,7 +277,7 @@ class LandmarkPluginUI(PluginTagMixin):
             )
             for lm_id, lm in landmarks.items()
         )
-        state_key = (vs_id, filter_text, lm_tuples)
+        state_key = (vs_id, filter_text, file_path, lm_tuples)
 
         if state_key == self._last_state_key:
             return

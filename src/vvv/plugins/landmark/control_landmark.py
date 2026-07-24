@@ -45,10 +45,10 @@ class LandmarkPluginController(PluginTagMixin):
             return {}
         file_path = self.landmarks_file_path.get(image_id)
         landmarks = self.get_landmarks(image_id)
+        res = {"landmarks": [lm.to_dict() for lm in landmarks.values()]}
         if file_path:
-            return {"file_path": file_path}
-        else:
-            return {"landmarks": [lm.to_dict() for lm in landmarks.values()]}
+            res["file_path"] = file_path
+        return res
 
     def restore_image_state(
         self, image_id: str, data: dict, context: str = "history"
@@ -56,6 +56,9 @@ class LandmarkPluginController(PluginTagMixin):
         if context == "history" or not data:
             return
         file_path = data.get("file_path")
+        if file_path:
+            self.landmarks_file_path[image_id] = file_path
+
         if file_path and os.path.exists(file_path):
             self.load_landmarks(file_path, image_id)
         elif "landmarks" in data:
@@ -167,6 +170,10 @@ class LandmarkPluginController(PluginTagMixin):
         vs = self._api.get_view_states().get(target_id)
         if vs and hasattr(vs, "landmarks") and landmark_id in vs.landmarks:
             del vs.landmarks[landmark_id]
+            if not vs.landmarks:
+                self.landmarks_file_path[target_id] = None
+                if self._ui:
+                    self._ui._last_state_key = None
             vs.is_geometry_dirty = True
             self._api.request_refresh()
 
@@ -179,7 +186,10 @@ class LandmarkPluginController(PluginTagMixin):
         vs = self._api.get_view_states().get(target_id)
         if vs and hasattr(vs, "landmarks"):
             vs.landmarks.clear()
+            self.landmarks_file_path[target_id] = None
             vs.is_geometry_dirty = True
+            if self._ui:
+                self._ui._last_state_key = None
             self._api.request_refresh()
             self._api.notify("Cleared all landmarks.")
 
@@ -324,7 +334,10 @@ class LandmarkPluginController(PluginTagMixin):
                 json.dump(data, f, indent=2)
 
         self.landmarks_file_path[vs_id] = path_str
+        if self._ui:
+            self._ui._last_state_key = None
         if self._api:
+            self._api.request_refresh()
             self._api.notify(f"Saved {len(landmarks)} landmark(s) to {os.path.basename(path_str)}")
 
     def load_landmarks(self, filepath: str, image_id: Optional[str] = None) -> None:
@@ -340,28 +353,44 @@ class LandmarkPluginController(PluginTagMixin):
         if not os.path.exists(path_str):
             return
 
-        new_landmarks = {}
+        current_landmarks = getattr(vs, "landmarks", {})
+        count_added = 0
+
         if path_str.lower().endswith(".csv"):
             with open(path_str, "r", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 for idx, row in enumerate(reader, start=1):
-                    fallback_id = f"lm_{idx:03d}"
+                    fallback_id = f"lm_{len(current_landmarks) + idx:03d}"
                     lm_obj = Landmark.from_csv_row(row, fallback_id)
-                    new_landmarks[lm_obj.id] = lm_obj
+                    # If ID collides, generate a unique ID
+                    if lm_obj.id in current_landmarks:
+                        curr_c = self.landmark_counters.get(vs_id, 0) + 1
+                        self.landmark_counters[vs_id] = curr_c
+                        lm_obj.id = f"lm_{curr_c:03d}"
+                    current_landmarks[lm_obj.id] = lm_obj
+                    count_added += 1
         else:
             with open(path_str, "r", encoding="utf-8") as f:
                 data = json.load(f)
             raw_list = data.get("landmarks", []) if isinstance(data, dict) else data
             for idx, item in enumerate(raw_list, start=1):
-                lm_id = item.get("id") or f"lm_{idx:03d}"
-                new_landmarks[lm_id] = Landmark.from_dict(item)
+                curr_c = self.landmark_counters.get(vs_id, 0) + 1
+                self.landmark_counters[vs_id] = curr_c
+                lm_id = item.get("id") or f"lm_{curr_c:03d}"
+                if lm_id in current_landmarks:
+                    lm_id = f"lm_{curr_c:03d}"
+                lm_obj = Landmark.from_dict(item)
+                lm_obj.id = lm_id
+                current_landmarks[lm_id] = lm_obj
+                count_added += 1
 
-        vs.landmarks = new_landmarks
+        vs.landmarks = current_landmarks
         self.landmarks_file_path[vs_id] = path_str
-        self.landmark_counters[vs_id] = len(new_landmarks)
         vs.is_geometry_dirty = True
+        if self._ui:
+            self._ui._last_state_key = None
         self._api.request_refresh()
-        self._api.notify(f"Loaded {len(new_landmarks)} landmark(s) from {os.path.basename(path_str)}")
+        self._api.notify(f"Added {count_added} landmark(s) from {os.path.basename(path_str)}")
 
     # --- UI Callbacks ---
 
@@ -381,10 +410,20 @@ class LandmarkPluginController(PluginTagMixin):
 
     def on_btn_save_clicked(self, sender, app_data, user_data) -> None:
         vs_id = self._get_active_vs_id()
+        if not vs_id:
+            return
+        saved_path = self.landmarks_file_path.get(vs_id)
+        if saved_path and os.path.exists(saved_path):
+            self.save_landmarks(saved_path, image_id=vs_id)
+        else:
+            self.on_btn_save_as_clicked(sender, app_data, user_data)
+
+    def on_btn_save_as_clicked(self, sender, app_data, user_data) -> None:
+        vs_id = self._get_active_vs_id()
         default_name = f"landmarks_{vs_id}.json" if vs_id else "landmarks.json"
         file_path = save_file_dialog("Save Landmarks As (.json, .csv)", default_name=default_name)
         if file_path:
-            self.save_landmarks(file_path)
+            self.save_landmarks(file_path, image_id=vs_id)
 
     def on_btn_snap_all_clicked(self, sender, app_data, user_data) -> None:
         self.snap_all_landmarks()
@@ -469,6 +508,10 @@ class LandmarkPluginController(PluginTagMixin):
         to_delete = [lm_id for lm_id, lm in landmarks.items() if not filter_text or filter_text in lm.name.lower()]
         for lm_id in to_delete:
             del landmarks[lm_id]
+        if not landmarks:
+            self.landmarks_file_path[vs_id] = None
+            if self._ui:
+                self._ui._last_state_key = None
         if self._api:
             vs = self._api.get_view_states().get(vs_id)
             if vs:

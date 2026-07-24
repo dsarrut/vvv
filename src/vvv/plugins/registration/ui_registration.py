@@ -42,20 +42,45 @@ class RegistrationPluginUI(PluginTagMixin):
                 # --- TOP: File Management ---
                 dpg.add_spacer(height=10)
                 with dpg.group(horizontal=True):
-                    dpg.add_button(
-                        label="Load Matrix",
+                    btn_load = dpg.add_button(
+                        label="\uf07c",
                         tag=self._t("btn_reg_load"),
                         callback=self._c.on_reg_load_clicked,
                     )
-                    dpg.add_button(
-                        label="Save Matrix",
-                        tag=self._t("btn_reg_save"),
-                        callback=self._c.on_reg_save_clicked,
+                    self._bind_icon_font(btn_load)
+                    build_help_button(
+                        "Load Transform matrix file (.tfm, .mat, .txt)",
+                        api,
                     )
-                    dpg.add_button(
-                        label="Save As",
+
+                    btn_save_as = dpg.add_button(
+                        label="\uf019",
                         tag=self._t("btn_reg_save_as"),
                         callback=self._c.on_reg_save_as_clicked,
+                    )
+                    self._bind_icon_font(btn_save_as)
+                    build_help_button(
+                        "Save Transform matrix as... (choose file name)",
+                        api,
+                    )
+
+                    btn_save = dpg.add_button(
+                        label="\uf0c7",
+                        tag=self._t("btn_reg_save"),
+                        callback=self._c.on_reg_save_clicked,
+                        show=False,
+                    )
+                    self._bind_icon_font(btn_save)
+                    build_help_button(
+                        "Save Transform matrix to current file",
+                        api,
+                    )
+
+                    lbl_file = dpg.add_text(
+                        "",
+                        tag=self._t("text_reg_filename"),
+                        color=cfg_c["text_dim"],
+                        show=False,
                     )
 
                     btn_reload = dpg.add_button(
@@ -68,13 +93,6 @@ class RegistrationPluginUI(PluginTagMixin):
                     if dpg.does_item_exist("icon_button_theme"):
                         dpg.bind_item_theme(btn_reload, "icon_button_theme")
 
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Transform File: ")
-                    dpg.add_text(
-                        "None",
-                        tag=self._t("text_reg_filename"),
-                        color=cfg_c["text_dim"],
-                    )
                     build_help_button(
                         "A Transform file (.tfm, .mat, .txt) contains a rigid 3D spatial matrix (Translations and Rotations) that aligns this image with another.",
                         api,
@@ -310,13 +328,27 @@ class RegistrationPluginUI(PluginTagMixin):
             theme = "orange_button_theme" if needs_resample else 0
             dpg.bind_item_theme(resample_btn, theme)
 
-        # Transform file text
+        # Transform file text and Save button state
         file_tag = self._t("text_reg_filename")
+        btn_save_tag = self._t("btn_reg_save")
+        btn_reload_tag = self._t("btn_reg_reload")
+
+        tf_file = viewer.view_state.space.transform_file if (has_image and getattr(viewer.view_state, "space", None)) else "None"
+        has_transform_file = bool(tf_file and tf_file != "None")
+
         if dpg.does_item_exist(file_tag):
-            if has_image and getattr(viewer.view_state, "space", None):
-                dpg.set_value(file_tag, viewer.view_state.space.transform_file)
+            if has_transform_file:
+                dpg.set_value(file_tag, tf_file)
+                dpg.configure_item(file_tag, show=True)
             else:
-                dpg.set_value(file_tag, "None")
+                dpg.set_value(file_tag, "")
+                dpg.configure_item(file_tag, show=False)
+
+        if dpg.does_item_exist(btn_save_tag):
+            dpg.configure_item(btn_save_tag, show=has_transform_file)
+
+        if dpg.does_item_exist(btn_reload_tag):
+            dpg.configure_item(btn_reload_tag, show=has_transform_file)
 
         # Disable out-of-plane sliders if 2D
         if has_image:

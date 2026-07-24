@@ -1,9 +1,9 @@
 import dearpygui.dearpygui as dpg
 
 # FontAwesome 4 codepoints — same encoding the rest of the nav uses
-_ICON_OPEN    = ""   # fa-folder-open
-_ICON_SAVE    = ""   # fa-save (floppy disk)
-_ICON_SAVE_AS = ""   # fa-files-o (two stacked documents)
+_ICON_OPEN    = "\uf07c"   # fa-folder-open
+_ICON_SAVE    = "\uf0c7"   # fa-save (floppy disk)
+_ICON_SAVE_AS = "\uf019"   # fa-download / save as
 
 
 def build_workspace_nav_icons(gui):
@@ -16,8 +16,8 @@ def build_workspace_nav_icons(gui):
         ─────────  (separator)
         [spacer]
         [  📁  ]   Open Workspace
-        [  💾  ]   Save Workspace    (disabled until a path is set)
-        [  📋  ]   Save Workspace As
+        [  📥  ]   Save Workspace As
+        [  💾  ]   Save Workspace (shown only when a path is set)
     """
     cfg_l = gui.ui_cfg["layout"]
     btn_h = cfg_l["nav_btn_h"]
@@ -59,7 +59,7 @@ def build_workspace_nav_icons(gui):
                 tag=tag,
                 width=-1,
                 height=btn_h,
-                enabled=(tag != "ws_nav_btn_save"),
+                show=(tag != "ws_nav_btn_save"),
                 callback=cb,
             )
             dpg.bind_item_theme(btn, "theme_ws_nav_btn")

@@ -2006,14 +2006,16 @@ class MainGUI:
         has_path = bool(self.current_workspace_path)
 
         # --- Nav: enable/disable Save icon and show current filename ---
-        self._safe_configure("ws_nav_btn_save", enabled=has_path)
+        self._safe_configure("ws_nav_btn_save", show=has_path)
         if self.current_workspace_path:
-            name = os.path.splitext(os.path.basename(self.current_workspace_path))[0]
+            name = os.path.basename(self.current_workspace_path)
+            self._safe_set("ws_nav_filename_text", name)
+            self._safe_configure("ws_nav_filename_text", show=True, indent=5)
+            self._safe_set("ws_nav_path_tooltip", self.current_workspace_path)
         else:
-            name = ""
-        self._safe_set("ws_nav_filename_text", name)
-        self._safe_configure("ws_nav_filename_text", indent=5)
-        self._safe_set("ws_nav_path_tooltip", self.current_workspace_path or "")
+            self._safe_set("ws_nav_filename_text", "")
+            self._safe_configure("ws_nav_filename_text", show=False)
+            self._safe_set("ws_nav_path_tooltip", "")
 
         # --- Nav: update Save tooltip with filename + content summary ---
         if self.current_workspace_path:
