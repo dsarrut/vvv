@@ -208,16 +208,35 @@ class TestLandmarkPlugin(unittest.TestCase):
         lm = Landmark(id="lm_1", name="P1", pt_phys=[5.0, 5.0, 5.0])
         self.vs.landmarks = {"lm_1": lm}
 
-        # Unsaved state: serializes raw landmarks list
-        state = ctrl.serialize_image_state("img1")
-        self.assertIn("landmarks", state)
-        self.assertEqual(len(state["landmarks"]), 1)
+        # History context must return empty dict
+        history_state = ctrl.serialize_image_state("img1", context="history")
+        self.assertEqual(history_state, {})
 
-        # Restore from dict
+        # Workspace context: serializes landmarks list
+        ws_state = ctrl.serialize_image_state("img1", context="workspace")
+        self.assertIn("landmarks", ws_state)
+        self.assertEqual(len(ws_state["landmarks"]), 1)
+
+        # Restore from dict in workspace context
         self.vs.landmarks = {}
-        ctrl.restore_image_state("img1", state)
+        ctrl.restore_image_state("img1", ws_state, context="workspace")
         self.assertEqual(len(self.vs.landmarks), 1)
         self.assertEqual(self.vs.landmarks["lm_1"].name, "P1")
+
+        # Restoring with history context must not restore landmarks
+        self.vs.landmarks = {}
+        ctrl.restore_image_state("img1", ws_state, context="history")
+        self.assertEqual(len(self.vs.landmarks), 0)
+
+    def test_load_landmarks_dialog_extensions(self):
+        ctrl = LandmarkPluginController("landmark_plugin")
+        with unittest.mock.patch("vvv.plugins.landmark.control_landmark.open_file_dialog") as mock_dialog:
+            ctrl.on_btn_load_clicked(None, None, None)
+            mock_dialog.assert_called_once_with(
+                "Load Landmark File (.json, .csv)",
+                multiple=False,
+                extensions=["json", "csv"],
+            )
 
 
     def test_batch_toolbar_dynamic_icons(self):

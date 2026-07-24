@@ -41,6 +41,8 @@ class LandmarkPluginController(PluginTagMixin):
         self.landmarks_file_path.pop(image_id, None)
 
     def serialize_image_state(self, image_id: str, context: str = "history") -> dict:
+        if context == "history":
+            return {}
         file_path = self.landmarks_file_path.get(image_id)
         landmarks = self.get_landmarks(image_id)
         if file_path:
@@ -51,7 +53,7 @@ class LandmarkPluginController(PluginTagMixin):
     def restore_image_state(
         self, image_id: str, data: dict, context: str = "history"
     ) -> None:
-        if not data:
+        if context == "history" or not data:
             return
         file_path = data.get("file_path")
         if file_path and os.path.exists(file_path):
@@ -367,7 +369,11 @@ class LandmarkPluginController(PluginTagMixin):
         self.add_landmark()
 
     def on_btn_load_clicked(self, sender, app_data, user_data) -> None:
-        file_paths = open_file_dialog("Load Landmark File (.json, .csv)", multiple=False)
+        file_paths = open_file_dialog(
+            "Load Landmark File (.json, .csv)",
+            multiple=False,
+            extensions=["json", "csv"],
+        )
         if file_paths:
             fp = file_paths[0] if isinstance(file_paths, list) else file_paths
             if fp:
