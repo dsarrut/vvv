@@ -188,6 +188,8 @@ class ProfilePluginUI(PluginTagMixin):
                     if dpg.does_item_exist(win_tag):
                         self.refresh_plot_series(profile)
                         self.update_plot_info(profile)
+                    else:
+                        self.on_plot_clicked(None, None, p_id)
 
         # Update active image title
         active_title = self._t("active_title")

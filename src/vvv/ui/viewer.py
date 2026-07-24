@@ -1941,7 +1941,69 @@ class SliceViewer:
             "hide_all": self.hide_everything,
             "sync_all": self.action_sync_all,
             "add_landmark": self.action_add_landmark,
+            "add_profile": self.action_add_profile,
         }
+
+    def action_add_profile(self):
+        mip_state = self.get_mip_state()
+        if mip_state and mip_state.mip_enabled:
+            return
+        if self.profile_mode == ProfileInteractionMode.IDLE:
+            if self.view_state is not None:
+                # Create instant horizontal profile in FOV center
+                shape = self.get_slice_shape()
+                real_h, real_w = shape[0], shape[1]
+                can_w, can_h = self._get_canvas_size()
+                if can_w <= 0:
+                    return
+
+                mx_mid, my_mid = can_w / 2.0, can_h / 2.0
+                line_len_px = can_w * (2.0 / 3.0)
+
+                sx1, sy1 = self.mapper.screen_to_image(
+                    mx_mid - line_len_px / 2.0,
+                    my_mid,
+                    real_w,
+                    real_h,
+                    allow_outside=True,
+                )
+                sx2, sy2 = self.mapper.screen_to_image(
+                    mx_mid + line_len_px / 2.0,
+                    my_mid,
+                    real_w,
+                    real_h,
+                    allow_outside=True,
+                )
+                if sx1 is None or sx2 is None:
+                    return
+
+                p = ProfileLineState()
+                p.id = str(dpg.generate_uuid())
+                p.name = f"Profile {len(self.view_state.profiles) + 1}"
+                # Use standard ROI colors for consistency
+                color_idx = len(self.view_state.profiles)
+                p.color = list(ROI_COLORS[color_idx % len(ROI_COLORS)]) + [255]
+
+                v1 = slice_to_voxel(
+                    sx1, sy1, self.slice_idx, self.orientation, shape
+                )
+                v2 = slice_to_voxel(
+                    sx2, sy2, self.slice_idx, self.orientation, shape
+                )
+                is_buf = self._is_buffered()
+                p.pt1_phys = self.view_state.display_to_world(
+                    v1, is_buffered=is_buf
+                )
+                p.pt2_phys = self.view_state.display_to_world(
+                    v2, is_buffered=is_buf
+                )
+                p.orientation = self.orientation
+                p.slice_idx = self.slice_idx
+                p.plot_open = True
+                self.view_state.profiles[p.id] = p
+                self.view_state.is_data_dirty = True
+                self.update_render()
+                self.controller.ui_needs_refresh = True
 
     def action_add_landmark(self):
         if hasattr(self.controller, "gui") and self.controller.gui:
@@ -2010,6 +2072,15 @@ class SliceViewer:
         self.controller.status_message = (
             "Interpolation: off" if vs.display.pixelated_zoom else "Interpolation: on"
         )
+
+    def get_mip_state(self):
+        """Retrieve the MIP state for this viewer if the MIP plugin is available."""
+        if not self.image_id:
+            return None
+        mip_plugin = _safe_get_plugin(self.controller, "mip_plugin")
+        if mip_plugin:
+            return mip_plugin._controller.get_viewer_state(self.image_id, self.tag)
+        return None
 
     def action_toggle_mip(self):
         if not self.image_id:
@@ -2170,83 +2241,6 @@ class SliceViewer:
             if key == mapped_key:
                 action_func()
                 return
-
-        # Profile Tool Keyboard State Machine
-        _profile_val = shortcuts.get("add_profile", "P")
-        _profile_key = (
-            getattr(dpg, f"mvKey_{_profile_val}", _profile_val)
-            if isinstance(_profile_val, str)
-            else _profile_val
-        )
-        if key == _profile_key:
-            if mip_state and mip_state.mip_enabled:
-                return
-            if self.profile_mode == ProfileInteractionMode.IDLE:
-                if self.view_state is not None:
-                    # Create instant horizontal profile in FOV center
-                    shape = self.get_slice_shape()
-                    real_h, real_w = shape[0], shape[1]
-                    can_w, can_h = self._get_canvas_size()
-                    if can_w <= 0:
-                        return
-
-                    mx_mid, my_mid = can_w / 2.0, can_h / 2.0
-                    line_len_px = can_w * (2.0 / 3.0)
-
-                    sx1, sy1 = self.mapper.screen_to_image(
-                        mx_mid - line_len_px / 2.0,
-                        my_mid,
-                        real_w,
-                        real_h,
-                        allow_outside=True,
-                    )
-                    sx2, sy2 = self.mapper.screen_to_image(
-                        mx_mid + line_len_px / 2.0,
-                        my_mid,
-                        real_w,
-                        real_h,
-                        allow_outside=True,
-                    )
-                    if sx1 is None or sx2 is None:
-                        return
-
-                    p = ProfileLineState()
-                    p.id = str(dpg.generate_uuid())
-                    p.name = f"Profile {len(self.view_state.profiles) + 1}"
-                    # Use standard ROI colors for consistency
-                    color_idx = len(self.view_state.profiles)
-                    p.color = list(ROI_COLORS[color_idx % len(ROI_COLORS)]) + [255]
-
-                    v1 = slice_to_voxel(
-                        sx1, sy1, self.slice_idx, self.orientation, shape
-                    )
-                    v2 = slice_to_voxel(
-                        sx2, sy2, self.slice_idx, self.orientation, shape
-                    )
-                    is_buf = self._is_buffered()
-                    p.pt1_phys = self.view_state.display_to_world(
-                        v1, is_buffered=is_buf
-                    )
-                    p.pt2_phys = self.view_state.display_to_world(
-                        v2, is_buffered=is_buf
-                    )
-                    p.orientation = self.orientation
-                    p.slice_idx = self.slice_idx
-                    self.view_state.profiles[p.id] = p
-                    if self.controller.gui:
-                        profile_plugin = next(
-                            (
-                                pl
-                                for pl in self.controller.gui.plugins
-                                if pl.plugin_id == "profile_plugin"
-                            ),
-                            None,
-                        )
-                        if profile_plugin:
-                            profile_plugin._ui.on_plot_clicked(None, None, p.id)
-                    self.controller.status_message = "Profile created"
-                    self.is_geometry_dirty = True
-                self.controller.ui_needs_refresh = True
 
         # Secret developer debugging bindings
         if getattr(self.controller, "debug_mode", False):
