@@ -238,8 +238,7 @@ def refresh_image_list_ui(gui):
                         callback=lambda s, a, u: gui.on_set_all_viewers_image(u),
                         user_data=vs_id,
                     )
-                    with dpg.tooltip(btn_all):
-                        dpg.add_text("Show this image in all 4 viewers")
+                    build_beginner_tooltip(btn_all, "Show this image in all 4 viewers", gui)
 
                     btn_save = dpg.add_button(
                         label="\uf0c7",
@@ -247,18 +246,23 @@ def refresh_image_list_ui(gui):
                         callback=lambda s, a, u: gui.on_save_image_clicked(u),
                         user_data=vs_id,
                     )
+                    build_beginner_tooltip(btn_save, "Save image as...", gui)
+
                     btn_reload = dpg.add_button(
                         label="\uf01e",
                         width=20,
                         callback=lambda s, a, u: gui.controller.reload_image(u),
                         user_data=vs_id,
                     )
+                    build_beginner_tooltip(btn_reload, "Reload image from disk", gui)
+
                     btn_close = dpg.add_button(
                         label="\uf00d",
                         width=20,
                         callback=lambda s, a, u: gui.controller.file.close_image(u),
                         user_data=vs_id,
                     )
+                    build_beginner_tooltip(btn_close, "Close image", gui)
                     
                     if vs.volume.num_timepoints > 1:
                         dpg.add_spacer(width=5)

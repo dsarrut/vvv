@@ -24,7 +24,7 @@ def build_help_button(text, gui):
     return btn
 
 
-def build_delete_button(label="\uf00d", width=20, user_data=None, callback=None, tooltip="Delete"):
+def build_delete_button(label="\uf00d", width=20, user_data=None, callback=None, tooltip="Delete", gui=None):
     """Creates a standardized red icon close/delete button."""
     if callback is not None:
         btn = dpg.add_button(label=label, width=width, user_data=user_data, callback=callback)
@@ -34,9 +34,8 @@ def build_delete_button(label="\uf00d", width=20, user_data=None, callback=None,
         dpg.bind_item_font(btn, "icon_font_tag")
     if dpg.does_item_exist("delete_button_theme"):
         dpg.bind_item_theme(btn, "delete_button_theme")
-    if tooltip:
-        with dpg.tooltip(btn):
-            dpg.add_text(tooltip)
+    if tooltip and gui:
+        build_beginner_tooltip(btn, tooltip, gui)
     return btn
 
 
@@ -85,25 +84,27 @@ def build_name_filter_bar(
     return group_tag
 
 
-def build_batch_action_toolbar(
+def build_color_picker_row(
     tag_prefix,
     on_color_changed=None,
+    on_reset_colors=None,
+    on_toggle_visible=None,
     on_show_clicked=None,
     on_hide_clicked=None,
-    on_toggle_visible=None,
     on_toggle_names=None,
-    on_reset_colors=None,
     on_snap_clicked=None,
-    on_delete_clicked=None,
     show_contour=False,
     on_contour_clicked=None,
     show_above_overlay=False,
     on_above_overlay_clicked=None,
+    on_delete_clicked=None,
+    gui=None,
     api=None,
 ):
-    """Creates a standardized icon-based batch action toolbar.
-    Icon order: Color Picker, Reset Colors, Toggle Visible (or Show/Hide), Toggle Names, Snap All, (Contour/Overlay), Delete
     """
+    Creates a standardized row of batch management buttons for list tables.
+    """
+    g_obj = gui or api
     with dpg.group(horizontal=True, tag=f"{tag_prefix}_batch_toolbar"):
         # 1. Color Picker
         if on_color_changed:
@@ -117,8 +118,8 @@ def build_batch_action_toolbar(
                 tag=f"{tag_prefix}_batch_color",
                 callback=lambda s, a: on_color_changed(a),
             )
-            with dpg.tooltip(col_picker):
-                dpg.add_text("Apply color to listed/filtered items")
+            if g_obj:
+                build_beginner_tooltip(col_picker, "Apply color to listed/filtered items", g_obj)
 
         # 2. Reset Colors
         if on_reset_colors:
@@ -130,8 +131,8 @@ def build_batch_action_toolbar(
             )
             if dpg.does_item_exist("icon_font_tag"):
                 dpg.bind_item_font(btn_reset_col, "icon_font_tag")
-            with dpg.tooltip(btn_reset_col):
-                dpg.add_text("Reset colors to default initial sequence")
+            if g_obj:
+                build_beginner_tooltip(btn_reset_col, "Reset colors to default initial sequence", g_obj)
 
         # 3. Toggle Visible (or Show/Hide)
         if on_toggle_visible:
@@ -143,8 +144,8 @@ def build_batch_action_toolbar(
             )
             if dpg.does_item_exist("icon_font_tag"):
                 dpg.bind_item_font(btn_toggle_vis, "icon_font_tag")
-            with dpg.tooltip(btn_toggle_vis):
-                dpg.add_text("Toggle show/hide listed/filtered items")
+            if g_obj:
+                build_beginner_tooltip(btn_toggle_vis, "Toggle show/hide listed/filtered items", g_obj)
         else:
             # Legacy: separate show/hide buttons
             if on_show_clicked:
@@ -156,8 +157,8 @@ def build_batch_action_toolbar(
                 )
                 if dpg.does_item_exist("icon_font_tag"):
                     dpg.bind_item_font(btn_show, "icon_font_tag")
-                with dpg.tooltip(btn_show):
-                    dpg.add_text("Show listed/filtered items")
+                if g_obj:
+                    build_beginner_tooltip(btn_show, "Show listed/filtered items", g_obj)
 
             if on_hide_clicked:
                 btn_hide = dpg.add_button(
@@ -168,8 +169,8 @@ def build_batch_action_toolbar(
                 )
                 if dpg.does_item_exist("icon_font_tag"):
                     dpg.bind_item_font(btn_hide, "icon_font_tag")
-                with dpg.tooltip(btn_hide):
-                    dpg.add_text("Hide listed/filtered items")
+                if g_obj:
+                    build_beginner_tooltip(btn_hide, "Hide listed/filtered items", g_obj)
 
         # 4. Toggle Name Labels
         if on_toggle_names:
@@ -181,8 +182,8 @@ def build_batch_action_toolbar(
             )
             if dpg.does_item_exist("icon_font_tag"):
                 dpg.bind_item_font(btn_names, "icon_font_tag")
-            with dpg.tooltip(btn_names):
-                dpg.add_text("Toggle name labels for listed/filtered items")
+            if g_obj:
+                build_beginner_tooltip(btn_names, "Toggle name labels for listed/filtered items", g_obj)
 
         # 5. Snap All
         if on_snap_clicked:
@@ -194,8 +195,8 @@ def build_batch_action_toolbar(
             )
             if dpg.does_item_exist("icon_font_tag"):
                 dpg.bind_item_font(btn_snap, "icon_font_tag")
-            with dpg.tooltip(btn_snap):
-                dpg.add_text("Snap all items to nearest voxel grid center")
+            if g_obj:
+                build_beginner_tooltip(btn_snap, "Snap all items to nearest voxel grid center", g_obj)
 
         # Contour & Overlay options
         if show_contour and on_contour_clicked:
@@ -207,8 +208,8 @@ def build_batch_action_toolbar(
             )
             if dpg.does_item_exist("icon_font_tag"):
                 dpg.bind_item_font(btn_contour, "icon_font_tag")
-            with dpg.tooltip(btn_contour):
-                dpg.add_text("Show as contour")
+            if g_obj:
+                build_beginner_tooltip(btn_contour, "Show as contour", g_obj)
 
         if show_above_overlay and on_above_overlay_clicked:
             btn_overlay = dpg.add_button(
@@ -219,8 +220,8 @@ def build_batch_action_toolbar(
             )
             if dpg.does_item_exist("icon_font_tag"):
                 dpg.bind_item_font(btn_overlay, "icon_font_tag")
-            with dpg.tooltip(btn_overlay):
-                dpg.add_text("Toggle on top of fusion overlay")
+            if g_obj:
+                build_beginner_tooltip(btn_overlay, "Toggle on top of fusion overlay", g_obj)
 
         # 6. Delete
         if on_delete_clicked:
@@ -229,15 +230,29 @@ def build_batch_action_toolbar(
                 width=20,
                 callback=lambda: on_delete_clicked(),
                 tooltip="Delete listed/filtered items",
+                gui=g_obj,
             )
+
+
+build_batch_action_toolbar = build_color_picker_row
+
 
 def build_beginner_tooltip(parent, text, gui):
     """A reusable tooltip attached to an existing widget that only appears when Beginner Mode is active."""
-    tag = dpg.add_tooltip(parent=parent, show=getattr(gui, "is_beginner_mode", False))
-    dpg.add_text(text, parent=tag, color=gui.ui_cfg["colors"].get("text_dim", [150, 150, 150]))
-    if not hasattr(gui, "beginner_tags"):
-        gui.beginner_tags = []
-    gui.beginner_tags.append(tag)
+    target_gui = getattr(gui, "_gui", gui) if hasattr(gui, "_gui") else gui
+    is_beg = getattr(target_gui, "is_beginner_mode", False)
+    try:
+        tag = dpg.add_tooltip(parent=parent, show=is_beg)
+    except (Exception, SystemError):
+        return None
+    colors = getattr(target_gui, "ui_cfg", {}).get("colors", {}) if hasattr(target_gui, "ui_cfg") else {}
+    dim_col = colors.get("text_dim", [150, 150, 150]) if isinstance(colors, dict) else [150, 150, 150]
+    try:
+        dpg.add_text(text, parent=tag, color=dim_col)
+    except (Exception, SystemError):
+        pass
+    if hasattr(target_gui, "beginner_tags") and isinstance(target_gui.beginner_tags, list):
+        target_gui.beginner_tags.append(tag)
     return tag
 
 def build_stepped_slider(

@@ -1,5 +1,10 @@
 import dearpygui.dearpygui as dpg
-from vvv.ui.ui_components import build_section_title, build_stepped_slider, build_help_button
+from vvv.ui.ui_components import (
+    build_section_title,
+    build_stepped_slider,
+    build_help_button,
+    build_beginner_tooltip,
+)
 from .control_dvf import DvfController
 from vvv.plugins.plugin_api import PluginTagMixin
 
@@ -15,11 +20,12 @@ class DvfUI(PluginTagMixin):
         with dpg.group(parent=parent or 0, tag=self._plugin_id):
             build_section_title("DVF Visualization", cfg_c["text_header"])
 
-            dpg.add_text(
+            active_title = dpg.add_text(
                 "No Image Selected",
                 tag=self._t("active_title"),
                 color=cfg_c["text_active"],
             )
+            build_beginner_tooltip(active_title, "The currently selected DVF volume.", api)
 
             dpg.add_text(
                 "Not a Displacement Vector Field.",
@@ -38,11 +44,16 @@ class DvfUI(PluginTagMixin):
                         "Vector Field: Overlay 2D/3D arrow glyphs directly on the slice grid.",
                         api,
                     )
-                dpg.add_radio_button(
+                rad_mode = dpg.add_radio_button(
                     items=["Component", "RGB", "Vector Field"],
                     default_value="Component",
                     tag=self._t("radio_mode"),
                     callback=self._c.on_mode_changed,
+                )
+                build_beginner_tooltip(
+                    rad_mode,
+                    "Select rendering mode for vector field visualization (Component, RGB color map, or 2D/3D vector arrows).",
+                    api,
                 )
 
                 dpg.add_spacer(height=10)

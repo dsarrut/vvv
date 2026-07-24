@@ -259,8 +259,8 @@ class ProfilePluginUI(PluginTagMixin):
                     label="\uf08e", user_data=p_id, callback=self.on_plot_clicked
                 )
                 self._bind_icon_font(btn_plot)
-                with dpg.tooltip(btn_plot):
-                    dpg.add_text("Open intensity plot")
+                if api:
+                    build_beginner_tooltip(btn_plot, "Open intensity plot", api)
 
                 # Horizontal alignment
                 btn_h = dpg.add_button(
@@ -269,8 +269,8 @@ class ProfilePluginUI(PluginTagMixin):
                     callback=self._c.on_align_clicked,
                 )
                 self._bind_icon_font(btn_h)
-                with dpg.tooltip(btn_h):
-                    dpg.add_text("Align purely horizontal on current slice")
+                if api:
+                    build_beginner_tooltip(btn_h, "Align purely horizontal on current slice", api)
 
                 # Vertical alignment
                 btn_v = dpg.add_button(
@@ -279,24 +279,24 @@ class ProfilePluginUI(PluginTagMixin):
                     callback=self._c.on_align_clicked,
                 )
                 self._bind_icon_font(btn_v)
-                with dpg.tooltip(btn_v):
-                    dpg.add_text("Align purely vertical on current slice")
+                if api:
+                    build_beginner_tooltip(btn_v, "Align purely vertical on current slice", api)
 
                 # Pixel snap
                 btn_snap = dpg.add_button(
                     label="\uf076", user_data=p_id, callback=self._c.on_snap_clicked
                 )
                 self._bind_icon_font(btn_snap)
-                with dpg.tooltip(btn_snap):
-                    dpg.add_text("Snap endpoints to closest pixel center")
+                if api:
+                    build_beginner_tooltip(btn_snap, "Snap endpoints to closest pixel center", api)
 
                 # Goto button
                 btn_goto = dpg.add_button(
                     label="\uf05b", user_data=p_id, callback=self._c.on_goto_clicked
                 )
                 self._bind_icon_font(btn_goto)
-                with dpg.tooltip(btn_goto):
-                    dpg.add_text("Center camera on this profile")
+                if api:
+                    build_beginner_tooltip(btn_goto, "Center camera on this profile", api)
 
                 # Delete icon
                 build_delete_button(
@@ -305,6 +305,7 @@ class ProfilePluginUI(PluginTagMixin):
                     user_data=p_id,
                     callback=self._c.on_delete_clicked,
                     tooltip="Delete profile",
+                    gui=api,
                 )
 
         dpg.set_y_scroll(table_id, current_scroll)
@@ -456,8 +457,8 @@ class ProfilePluginUI(PluginTagMixin):
                 label="\uf08e", user_data=p_id, callback=self.on_plot_clicked
             )
             self._bind_icon_font(btn_plot)
-            with dpg.tooltip(btn_plot):
-                dpg.add_text("Close plot window")
+            if api:
+                build_beginner_tooltip(btn_plot, "Close plot window", api)
 
             # 2. Alignment
             btn_h = dpg.add_button(
@@ -468,26 +469,25 @@ class ProfilePluginUI(PluginTagMixin):
             )
             self._bind_icon_font(btn_h)
             self._bind_icon_font(btn_v)
-            with dpg.tooltip(btn_h):
-                dpg.add_text("Align purely horizontal")
-            with dpg.tooltip(btn_v):
-                dpg.add_text("Align purely vertical")
+            if api:
+                build_beginner_tooltip(btn_h, "Align purely horizontal", api)
+                build_beginner_tooltip(btn_v, "Align purely vertical", api)
 
             # 2b. Snap
             btn_snap = dpg.add_button(
                 label="\uf076", user_data=p_id, callback=self._c.on_snap_clicked
             )
             self._bind_icon_font(btn_snap)
-            with dpg.tooltip(btn_snap):
-                dpg.add_text("Snap to pixel center")
+            if api:
+                build_beginner_tooltip(btn_snap, "Snap to pixel center", api)
 
             # 3. Goto
             btn_goto = dpg.add_button(
                 label="\uf05b", callback=self._c.on_goto_clicked, user_data=p_id
             )
             self._bind_icon_font(btn_goto)
-            with dpg.tooltip(btn_goto):
-                dpg.add_text("Center camera on profile")
+            if api:
+                build_beginner_tooltip(btn_goto, "Center camera on profile", api)
 
             # 4. Slice Navigation
             btn_prev = dpg.add_button(
@@ -502,10 +502,9 @@ class ProfilePluginUI(PluginTagMixin):
             )
             self._bind_icon_font(btn_prev)
             self._bind_icon_font(btn_next)
-            with dpg.tooltip(btn_prev):
-                dpg.add_text("Move profile to previous slice")
-            with dpg.tooltip(btn_next):
-                dpg.add_text("Move profile to next slice")
+            if api:
+                build_beginner_tooltip(btn_prev, "Move profile to previous slice", api)
+                build_beginner_tooltip(btn_next, "Move profile to next slice", api)
 
             # 5. Delete
             btn_del = dpg.add_button(
@@ -514,16 +513,16 @@ class ProfilePluginUI(PluginTagMixin):
             self._bind_icon_font(btn_del)
             if dpg.does_item_exist("delete_button_theme"):
                 dpg.bind_item_theme(btn_del, "delete_button_theme")
-            with dpg.tooltip(btn_del):
-                dpg.add_text("Delete profile")
+            if api:
+                build_beginner_tooltip(btn_del, "Delete profile", api)
 
             # 6. Copy
             btn_copy = dpg.add_button(
                 label="\uf0c5", user_data=p_id, callback=self.on_copy_profile_clicked
             )
             self._bind_icon_font(btn_copy)
-            with dpg.tooltip(btn_copy):
-                dpg.add_text("Copy profile to another image")
+            if api:
+                build_beginner_tooltip(btn_copy, "Copy profile to another image", api)
 
             build_help_button(
                 "Toolbar buttons (left to right):\n"

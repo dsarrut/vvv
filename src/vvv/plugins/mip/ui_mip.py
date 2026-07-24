@@ -1,6 +1,7 @@
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import (
     build_section_title,
+    build_help_button,
     build_beginner_tooltip,
     build_stepped_slider,
 )
@@ -19,6 +20,14 @@ class MIPPluginUI(PluginTagMixin):
 
         with dpg.group(parent=parent or 0, tag=self._plugin_id):
             build_section_title("MIP Viewer", cfg_c["text_header"])
+            build_help_button(
+                "MIP (Maximum Intensity Projection):\n"
+                "- MIP Mode (M): Toggle 3D maximum intensity projection in the active viewer.\n"
+                "- Projection Axis: Automatically matches current view mode.\n"
+                "- Depth Cueing: Attenuate distant voxels to convey 3D depth.\n"
+                "- Rotation Angle (Left/Right arrows): Rotate projection angle around current slice.",
+                api,
+            )
 
             active_title = dpg.add_text(
                 "No Image Selected",

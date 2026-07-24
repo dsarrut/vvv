@@ -5,6 +5,7 @@ from vvv.ui.ui_components import (
     build_stepped_slider,
     build_section_title,
     build_help_button,
+    build_beginner_tooltip,
 )
 from vvv.plugins.plugin_api import PluginTagMixin
 from .control_registration import RegistrationPluginController
@@ -48,10 +49,7 @@ class RegistrationPluginUI(PluginTagMixin):
                         callback=self._c.on_reg_load_clicked,
                     )
                     self._bind_icon_font(btn_load)
-                    build_help_button(
-                        "Load Transform matrix file (.tfm, .mat, .txt)",
-                        api,
-                    )
+                    build_beginner_tooltip(btn_load, "Load Transform matrix file (.tfm, .mat, .txt)", api)
 
                     btn_save_as = dpg.add_button(
                         label="\uf019",
@@ -59,10 +57,7 @@ class RegistrationPluginUI(PluginTagMixin):
                         callback=self._c.on_reg_save_as_clicked,
                     )
                     self._bind_icon_font(btn_save_as)
-                    build_help_button(
-                        "Save Transform matrix as... (choose file name)",
-                        api,
-                    )
+                    build_beginner_tooltip(btn_save_as, "Save Transform matrix as...", api)
 
                     btn_save = dpg.add_button(
                         label="\uf0c7",
@@ -71,10 +66,7 @@ class RegistrationPluginUI(PluginTagMixin):
                         show=False,
                     )
                     self._bind_icon_font(btn_save)
-                    build_help_button(
-                        "Save Transform matrix to current file",
-                        api,
-                    )
+                    build_beginner_tooltip(btn_save, "Save Transform matrix to current file", api)
 
                     lbl_file = dpg.add_text(
                         "",
@@ -92,6 +84,7 @@ class RegistrationPluginUI(PluginTagMixin):
                     self._bind_icon_font(btn_reload)
                     if dpg.does_item_exist("icon_button_theme"):
                         dpg.bind_item_theme(btn_reload, "icon_button_theme")
+                    build_beginner_tooltip(btn_reload, "Reload transform from disk", api)
 
                     build_help_button(
                         "A Transform file (.tfm, .mat, .txt) contains a rigid 3D spatial matrix (Translations and Rotations) that aligns this image with another.",

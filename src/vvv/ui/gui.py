@@ -296,10 +296,11 @@ class MainGUI:
                                 width=100,
                                 callback=self.on_adv_rendering_changed,
                             )
-                            with dpg.tooltip(lazy_combo):
-                                dpg.add_text(
-                                    "Auto: use bilinear during drag when fusion is active,\nrestore NN after interaction stops.\nOn/Off: force always on or always off."
-                                )
+                            build_beginner_tooltip(
+                                lazy_combo,
+                                "Auto: use bilinear during drag when fusion is active,\nrestore NN after interaction stops.\nOn/Off: force always on or always off.",
+                                self,
+                            )
                             tex_combo = dpg.add_combo(
                                 ["Auto", "Single", "Dual"],
                                 label="Texture Mode",
@@ -307,10 +308,11 @@ class MainGUI:
                                 width=100,
                                 callback=self.on_adv_rendering_changed,
                             )
-                            with dpg.tooltip(tex_combo):
-                                dpg.add_text(
-                                    "Auto: Single texture when fusion is active, Dual otherwise.\nSingle: CPU-blend base+overlay into one canvas texture.\nDual: separate textures for base and overlay."
-                                )
+                            build_beginner_tooltip(
+                                tex_combo,
+                                "Auto: Single texture when fusion is active, Dual otherwise.\nSingle: CPU-blend base+overlay into one canvas texture.\nDual: separate textures for base and overlay.",
+                                self,
+                            )
                             vox_combo = dpg.add_combo(
                                 ["Auto", "Native", "Resampled"],
                                 label="Voxel Mode",
@@ -318,20 +320,22 @@ class MainGUI:
                                 width=100,
                                 callback=self.on_adv_rendering_changed,
                             )
-                            with dpg.tooltip(vox_combo):
-                                dpg.add_text(
-                                    "Auto/Native: overlay rendered at its true voxel resolution.\nResampled: overlay NN-scaled from the base image grid."
-                                )
+                            build_beginner_tooltip(
+                                vox_combo,
+                                "Auto/Native: overlay rendered at its true voxel resolution.\nResampled: overlay NN-scaled from the base image grid.",
+                                self,
+                            )
                             if GL_NEAREST_SUPPORTED:
                                 gl_check = dpg.add_checkbox(
                                     label="Hardware NN Filter",
                                     tag="menu_check_gl_nearest",
                                     callback=self.on_adv_rendering_changed,
                                 )
-                                with dpg.tooltip(gl_check):
-                                    dpg.add_text(
-                                        "Use GPU GL_NEAREST for fast hardware NN upscaling.\nNot available on macOS."
-                                    )
+                                build_beginner_tooltip(
+                                    gl_check,
+                                    "Use GPU GL_NEAREST for fast hardware NN upscaling.\nNot available on macOS.",
+                                    self,
+                                )
                             from vvv.ui.render_strategy import _NUMBA_AVAILABLE
 
                             if _NUMBA_AVAILABLE:
@@ -340,10 +344,11 @@ class MainGUI:
                                     tag="menu_check_numba",
                                     callback=self.on_adv_rendering_changed,
                                 )
-                                with dpg.tooltip(nb_check):
-                                    dpg.add_text(
-                                        "Use Numba JIT for native voxel overlay rendering.\n~40x faster than NumPy for SW NN modes on macOS.\nDisable to fall back to NumPy (useful for debugging)."
-                                    )
+                                build_beginner_tooltip(
+                                    nb_check,
+                                    "Use Numba JIT for native voxel overlay rendering.\n~40x faster than NumPy for SW NN modes on macOS.\nDisable to fall back to NumPy (useful for debugging).",
+                                    self,
+                                )
 
                 dpg.add_spacer(width=20)
                 dpg.add_text(
@@ -1145,8 +1150,7 @@ class MainGUI:
                 dpg.bind_item_theme(item, missing_item_theme)
 
             # 3. Attach the tooltip showing the absolute path
-            with dpg.tooltip(item):
-                dpg.add_text(tooltip_path)
+            build_beginner_tooltip(item, tooltip_path, self)
 
         dpg.add_separator(parent="menu_recent_files")
         dpg.add_menu_item(
@@ -1388,8 +1392,12 @@ class MainGUI:
 
     def on_toggle_beginner_mode(self, sender, app_data, user_data):
         self.is_beginner_mode = not self.is_beginner_mode
+        valid_tags = []
         for tag in self.beginner_tags:
-            self._safe_configure(tag, show=self.is_beginner_mode)
+            if dpg.does_item_exist(tag):
+                self._safe_configure(tag, show=self.is_beginner_mode)
+                valid_tags.append(tag)
+        self.beginner_tags = valid_tags
 
         w = -100 if self.is_beginner_mode else -60
 

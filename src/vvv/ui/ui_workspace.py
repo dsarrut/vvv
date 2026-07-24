@@ -83,5 +83,10 @@ def build_workspace_nav_icons(gui):
                 txt = dpg.add_text("", tag="ws_nav_filename_text", color=cfg_c["text_dim"])
                 if dpg.does_item_exist("small_font_tag"):
                     dpg.bind_item_font(txt, "small_font_tag")
-                with dpg.tooltip(txt):
-                    dpg.add_text("", tag="ws_nav_path_tooltip")
+                try:
+                    tt_ws = dpg.add_tooltip(txt, show=getattr(gui, "is_beginner_mode", False))
+                    if hasattr(gui, "beginner_tags"):
+                        gui.beginner_tags.append(tt_ws)
+                    dpg.add_text("", tag="ws_nav_path_tooltip", parent=tt_ws)
+                except (Exception, SystemError):
+                    pass

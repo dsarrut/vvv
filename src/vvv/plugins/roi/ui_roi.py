@@ -258,29 +258,15 @@ class RoiPluginUI(PluginTagMixin):
                 if dpg.does_item_exist("delete_button_theme"):
                     dpg.bind_item_theme(btn_close_all, "delete_button_theme")
 
-                with dpg.tooltip(btn_color_picker):
-                    dpg.add_text("Change color of all listed ROIs", tag=self._t("tooltip_roi_color_picker"))
-
-                with dpg.tooltip(btn_show):
-                    dpg.add_text("Show All (Raster)")
-
-                with dpg.tooltip(btn_contour):
-                    dpg.add_text("Show All (Contour)")
-
-                with dpg.tooltip(btn_hide):
-                    dpg.add_text("Hide All")
-
-                with dpg.tooltip(btn_roi_above_overlay):
-                    dpg.add_text("Toggle ROI on top of Fusion")
-
-                with dpg.tooltip(btn_close_all):
-                    dpg.add_text("Close All")
-
-                with dpg.tooltip(btn_toggle_all_stats):
-                    dpg.add_text("Toggle all statistics windows")
-
-                with dpg.tooltip(btn_reload_all):
-                    dpg.add_text("Reload all modified ROIs")
+                if api:
+                    build_beginner_tooltip(btn_color_picker, "Change color of all listed ROIs", api)
+                    build_beginner_tooltip(btn_show, "Show All (Raster)", api)
+                    build_beginner_tooltip(btn_contour, "Show All (Contour)", api)
+                    build_beginner_tooltip(btn_hide, "Hide All", api)
+                    build_beginner_tooltip(btn_roi_above_overlay, "Toggle ROI on top of Fusion", api)
+                    build_beginner_tooltip(btn_close_all, "Close All", api)
+                    build_beginner_tooltip(btn_toggle_all_stats, "Toggle all statistics windows", api)
+                    build_beginner_tooltip(btn_reload_all, "Reload all modified ROIs", api)
 
             dpg.add_spacer(height=2)
 
@@ -658,8 +644,8 @@ class RoiPluginUI(PluginTagMixin):
                     user_data=roi_id,
                     callback=self.on_roi_stats_toggle,
                 )
-                with dpg.tooltip(btn_stats):
-                    dpg.add_text("Toggle ROI statistics window")
+                if self.api:
+                    build_beginner_tooltip(btn_stats, "Toggle ROI statistics window", self.api)
 
                 source_type = getattr(roi, "source_type", "Binary")
 
@@ -670,8 +656,8 @@ class RoiPluginUI(PluginTagMixin):
                         user_data=roi_id,
                         callback=self.on_roi_reload,
                     )
-                    with dpg.tooltip(btn_action):
-                        dpg.add_text("Reload modified file")
+                    if self.api:
+                        build_beginner_tooltip(btn_action, "Reload modified file", self.api)
                 else:
                     btn_action = dpg.add_button(
                         label="\uf0c7",
@@ -679,11 +665,12 @@ class RoiPluginUI(PluginTagMixin):
                         user_data=roi_id,
                         callback=self.on_roi_save,
                     )
-                    with dpg.tooltip(btn_action):
-                        if source_type == "Binary":
-                            dpg.add_text("Save ROI As...")
-                        else:
-                            dpg.add_text("Extract & Save ROI")
+                    if self.api:
+                        build_beginner_tooltip(
+                            btn_action,
+                            "Save ROI As..." if source_type == "Binary" else "Extract & Save ROI",
+                            self.api,
+                        )
 
                 btn_close = build_delete_button(
                     label="\uf00d",
@@ -841,10 +828,8 @@ class RoiPluginUI(PluginTagMixin):
                         dpg.add_text("---", tag=self._t("roi_stat_std"))
                     with dpg.group(horizontal=True):
                         peak_lbl = dpg.add_text("Peak:", color=dim_col)
-                        with dpg.tooltip(peak_lbl):
-                            dpg.add_text(
-                                "95th percentile of intensity values inside the ROI"
-                            )
+                        if self.api:
+                            build_beginner_tooltip(peak_lbl, "95th percentile of intensity values inside the ROI", self.api)
                         dpg.add_text("---", tag=self._t("roi_stat_peak"))
                 with dpg.table_row():
                     with dpg.group(horizontal=True):
@@ -1669,8 +1654,8 @@ class RoiPluginUI(PluginTagMixin):
                 user_data=roi_id,
                 callback=self.on_roi_color_changed,
             )
-            with dpg.tooltip(color_picker):
-                dpg.add_text("Change ROI color")
+            if self.api:
+                build_beginner_tooltip(color_picker, "Change ROI color", self.api)
 
             # Copy to Clipboard Button (Icon)
             btn_copy = dpg.add_button(
@@ -1679,8 +1664,8 @@ class RoiPluginUI(PluginTagMixin):
                 callback=self.on_copy_stats_to_clipboard,
                 user_data={"base_vs_id": base_vs_id, "roi_id": roi_id},
             )
-            with dpg.tooltip(btn_copy):
-                dpg.add_text("Copy statistics to clipboard")
+            if self.api:
+                build_beginner_tooltip(btn_copy, "Copy statistics to clipboard", self.api)
 
             # Contour/Visibility Toggle
             if roi.visible:
@@ -1694,8 +1679,8 @@ class RoiPluginUI(PluginTagMixin):
                 user_data=roi_id,
                 callback=self.on_roi_toggle_visible,
             )
-            with dpg.tooltip(btn_eye):
-                dpg.add_text("Toggle visibility (show / contour / hide)")
+            if self.api:
+                build_beginner_tooltip(btn_eye, "Toggle visibility (show / contour / hide)", self.api)
 
             # Center Camera
             btn_center = dpg.add_button(
@@ -1704,8 +1689,8 @@ class RoiPluginUI(PluginTagMixin):
                 user_data=roi_id,
                 callback=self.on_roi_center,
             )
-            with dpg.tooltip(btn_center):
-                dpg.add_text("Center camera on ROI")
+            if self.api:
+                build_beginner_tooltip(btn_center, "Center camera on ROI", self.api)
 
             # Save / Reload
             roi_vol = self.api.get_volumes().get(roi_id)
@@ -1720,11 +1705,8 @@ class RoiPluginUI(PluginTagMixin):
                     user_data=roi_id,
                     callback=self.on_roi_reload,
                 )
-                with dpg.tooltip(btn_action):
-                    dpg.add_text(
-                        "Reload modified file",
-                        tag=self._t(f"stats_tooltip_action_{roi_id}"),
-                    )
+                if self.api:
+                    build_beginner_tooltip(btn_action, "Reload modified file", self.api)
             else:
                 btn_action = dpg.add_button(
                     label="\uf0c7",
@@ -1733,14 +1715,15 @@ class RoiPluginUI(PluginTagMixin):
                     user_data=roi_id,
                     callback=self.on_roi_save,
                 )
-                with dpg.tooltip(btn_action):
-                    dpg.add_text(
+                if self.api:
+                    build_beginner_tooltip(
+                        btn_action,
                         (
                             "Save ROI As..."
                             if source_type == "Binary"
                             else "Extract & Save ROI"
                         ),
-                        tag=self._t(f"stats_tooltip_action_{roi_id}"),
+                        self.api,
                     )
 
             # Slider Opacity/Thickness
@@ -1757,8 +1740,8 @@ class RoiPluginUI(PluginTagMixin):
                     user_data=roi_id,
                     callback=self.on_roi_thickness_changed,
                 )
-                with dpg.tooltip(slider):
-                    dpg.add_text("Adjust contour thickness")
+                if self.api:
+                    build_beginner_tooltip(slider, "Adjust contour thickness", self.api)
             else:
                 slider = dpg.add_slider_float(
                     default_value=getattr(roi, "opacity", 0.5),
@@ -1770,8 +1753,8 @@ class RoiPluginUI(PluginTagMixin):
                     user_data=roi_id,
                     callback=self.on_roi_opacity_changed,
                 )
-                with dpg.tooltip(slider):
-                    dpg.add_text("Adjust ROI opacity")
+                if self.api:
+                    build_beginner_tooltip(slider, "Adjust ROI opacity", self.api)
 
             dpg.bind_item_theme(slider, slider_theme_tag)
             build_help_button(
@@ -2027,9 +2010,8 @@ class RoiPluginUI(PluginTagMixin):
                 stats.get("source_filename", "Unknown"),
                 tag=self._t(f"stats_txt_file_{roi_id}"),
             )
-            if stats.get("source_filepath"):
-                with dpg.tooltip(file_txt):
-                    dpg.add_text(stats["source_filepath"])
+            if stats.get("source_filepath") and self.api:
+                build_beginner_tooltip(file_txt, stats["source_filepath"], self.api)
 
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("Type:", color=dim_col)
@@ -2068,8 +2050,8 @@ class RoiPluginUI(PluginTagMixin):
             )
             dpg.add_spacer(width=10)
             mass_label = dpg.add_text("Mass (g):", color=dim_col)
-            with dpg.tooltip(mass_label):
-                dpg.add_text("Estimated mass, only if the image is a CT (HU)")
+            if self.api:
+                build_beginner_tooltip(mass_label, "Estimated mass, only if the image is a CT (HU)", self.api)
 
             dpg.add_text(
                 f"{stats.get('mass', 0.0):.2f}", tag=self._t(f"stats_txt_mass_{roi_id}")
@@ -2138,8 +2120,8 @@ class RoiPluginUI(PluginTagMixin):
             )
             dpg.add_spacer(width=10)
             peak_label = dpg.add_text("Peak (95%):", color=dim_col)
-            with dpg.tooltip(peak_label):
-                dpg.add_text("95th percentile of intensity values inside the ROI")
+            if self.api:
+                build_beginner_tooltip(peak_label, "95th percentile of intensity values inside the ROI", self.api)
             dpg.add_text(
                 f"{stats['peak']:.2f}", tag=self._t(f"stats_txt_peak_{roi_id}")
             )
@@ -2192,8 +2174,8 @@ class RoiPluginUI(PluginTagMixin):
                 )
                 dpg.add_spacer(width=10)
                 ov_peak_label = dpg.add_text("Peak (95%):", color=dim_col)
-                with dpg.tooltip(ov_peak_label):
-                    dpg.add_text("95th percentile of intensity values inside the ROI")
+                if self.api:
+                    build_beginner_tooltip(ov_peak_label, "95th percentile of intensity values inside the ROI", self.api)
                 dpg.add_text(
                     f"{ov_stats['peak']:.2f}" if ov_stats else "0.00",
                     tag=self._t(f"stats_txt_overlay_peak_{roi_id}"),

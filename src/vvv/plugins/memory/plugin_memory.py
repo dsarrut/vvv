@@ -2,6 +2,7 @@ import os
 import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI, PluginProtocol, PluginTagMixin
+from vvv.ui.ui_components import build_help_button
 
 class MemoryPlugin(PluginProtocol, PluginTagMixin):
     plugin_id = "memory_plugin"
@@ -26,7 +27,7 @@ class MemoryPlugin(PluginProtocol, PluginTagMixin):
                 dpg.delete_item(self._t("menu_item"))
                 
             dpg.add_menu_item(
-                label="Memory Synthesis...",
+                label="Memory Synthesis",
                 parent="menu_system",
                 tag=self._t("menu_item"),
                 callback=self.toggle_memory_window,
@@ -46,6 +47,17 @@ class MemoryPlugin(PluginProtocol, PluginTagMixin):
         ):
             dpg.add_spacer(height=5)
 
+            # Header with help button
+            with dpg.group(horizontal=True):
+                dpg.add_text("Memory Synthesis Overview", color=[230, 230, 230])
+                build_help_button(
+                    "Memory Synthesis:\n"
+                    "- Process Memory RSS: Total resident memory footprint of VVV.\n"
+                    "- Total Volume Memory: Combined uncompressed size of all loaded 3D/4D volumes.\n"
+                    "- Active Worker Threads: Background threads currently running rendering or filtering tasks.",
+                    self._api,
+                )
+
             # Process / system overall memory
             with dpg.group(horizontal=True):
                 dpg.add_text("Process Memory RSS:")
@@ -56,9 +68,15 @@ class MemoryPlugin(PluginProtocol, PluginTagMixin):
                 dpg.add_spacer(width=20)
                 dpg.add_text("Active Threads:")
                 dpg.add_text("Computing...", tag=self._t("threads_val"), color=[200, 200, 255])
-                with dpg.tooltip(self._t("threads_val")):
-                    dpg.add_text("Thread Names:", color=[255, 200, 150])
-                    dpg.add_text("", tag=self._t("threads_tooltip_val"))
+                is_beg = getattr(self._api, "is_beginner_mode", False) if self._api else False
+                try:
+                    tt = dpg.add_tooltip(self._t("threads_val"), show=is_beg)
+                    if self._api and hasattr(self._api._gui, "beginner_tags"):
+                        self._api._gui.beginner_tags.append(tt)
+                    dpg.add_text("Thread Names:", parent=tt, color=[255, 200, 150])
+                    dpg.add_text("", parent=tt, tag=self._t("threads_tooltip_val"))
+                except (Exception, SystemError):
+                    pass
 
             dpg.add_spacer(height=5)
             dpg.add_separator()
