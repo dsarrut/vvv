@@ -1072,8 +1072,8 @@ class RoiPluginUI(PluginTagMixin):
         if not viewer or not viewer.view_state:
             return
         vs = viewer.view_state
-        scale = 255.0 if all(c <= 1.0 for c in app_data) else 1.0
-        vs.rois[roi_id].color = [int(c * scale) for c in app_data[:3]]
+        from vvv.ui.ui_components import normalize_rgba_to_int
+        vs.rois[roi_id].color = normalize_rgba_to_int(app_data)[:3]
         vs.is_data_dirty = True
         self._sync_roi_color_ui(roi_id, sender)
         self.api.update_all_viewers_of_image(viewer.image_id)
@@ -1085,8 +1085,8 @@ class RoiPluginUI(PluginTagMixin):
         vs = viewer.view_state
         vs_id = viewer.image_id
         filter_text = self._c.roi_filters.get(vs_id, "").lower()
-        scale = 255.0 if all(c <= 1.0 for c in app_data) else 1.0
-        new_color = [int(c * scale) for c in app_data[:3]]
+        from vvv.ui.ui_components import normalize_rgba_to_int
+        new_color = normalize_rgba_to_int(app_data)[:3]
 
         changed = False
         for roi_id, roi in list(vs.rois.items()):

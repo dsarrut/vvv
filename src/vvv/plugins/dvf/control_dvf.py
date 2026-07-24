@@ -168,14 +168,14 @@ class DvfController(PluginTagMixin):
     def on_color_min_changed(self, sender, app_data, user_data):
         target_vs, _ = self._get_target_vs()
         if target_vs:
-            scale = 255.0 if all(c <= 1.0 for c in app_data) else 1.0
-            target_vs.dvf.vector_color_min = [int(c * scale) for c in app_data[:4]]
+            from vvv.ui.ui_components import normalize_rgba_to_int
+            target_vs.dvf.vector_color_min = normalize_rgba_to_int(app_data)
 
     def on_color_max_changed(self, sender, app_data, user_data):
         target_vs, _ = self._get_target_vs()
         if target_vs:
-            scale = 255.0 if all(c <= 1.0 for c in app_data) else 1.0
-            target_vs.dvf.vector_color_max = [int(c * scale) for c in app_data[:4]]
+            from vvv.ui.ui_components import normalize_rgba_to_int
+            target_vs.dvf.vector_color_max = normalize_rgba_to_int(app_data)
 
     def on_step_button_clicked(self, sender, app_data, user_data):
         target_vs, _ = self._get_target_vs()

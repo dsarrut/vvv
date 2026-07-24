@@ -41,8 +41,8 @@ class LandmarkPluginUI(PluginTagMixin):
         lm_id = user_data
         if not lm_id or not app_data:
             return
-        scale = 255.0 if all(c <= 1.0 for c in app_data) else 1.0
-        color_255 = [int(c * scale) for c in app_data[:3]] + [255]
+        from vvv.ui.ui_components import normalize_rgba_to_int
+        color_255 = normalize_rgba_to_int(app_data)
         self._c.update_landmark_color(lm_id, color_255)
 
     def on_landmark_toggle_visible(self, sender, app_data, user_data):

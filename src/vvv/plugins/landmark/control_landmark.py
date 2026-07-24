@@ -239,10 +239,8 @@ class LandmarkPluginController(PluginTagMixin):
     def update_landmark_color(self, landmark_id: str, color: List[int], image_id: Optional[str] = None) -> None:
         landmarks = self.get_landmarks(image_id)
         if landmark_id in landmarks:
-            color_255 = [int(c * 255.0) for c in color[:4]] if (all(c <= 1.0 for c in color) and any(c > 0 for c in color)) else [int(c) for c in color[:4]]
-            if len(color_255) == 3:
-                color_255.append(255)
-            landmarks[landmark_id].color = color_255
+            from vvv.ui.ui_components import normalize_rgba_to_int
+            landmarks[landmark_id].color = normalize_rgba_to_int(color)
             vs_id = image_id or self._get_active_vs_id()
             if self._api and vs_id:
                 vs = self._api.get_view_states().get(vs_id)
@@ -461,7 +459,8 @@ class LandmarkPluginController(PluginTagMixin):
             return
         landmarks = self.get_landmarks(vs_id)
         filter_text = self.landmark_filters.get(vs_id, "").lower()
-        color_255 = [int(c * 255) for c in color_rgba[:4]] if max(color_rgba) <= 1.0 else [int(c) for c in color_rgba[:4]]
+        from vvv.ui.ui_components import normalize_rgba_to_int
+        color_255 = normalize_rgba_to_int(color_rgba)
 
         for lm_id, lm in landmarks.items():
             if not filter_text or filter_text in lm.name.lower():

@@ -323,12 +323,12 @@ class ThresholdController(PluginTagMixin):
         state = self.get_image_state(viewer.image_id)
 
         if sender == self._t("color_ext_preview_min"):
-            scale = 255.0 if all(c <= 1.0 for c in app_data) else 1.0
-            state.preview_color_min = [int(c * scale) for c in app_data[:4]]
+            from vvv.ui.ui_components import normalize_rgba_to_int
+            state.preview_color_min = normalize_rgba_to_int(app_data)
 
         elif sender == self._t("color_ext_preview_max"):
-            scale = 255.0 if all(c <= 1.0 for c in app_data) else 1.0
-            state.preview_color_max = [int(c * scale) for c in app_data[:4]]
+            from vvv.ui.ui_components import normalize_rgba_to_int
+            state.preview_color_max = normalize_rgba_to_int(app_data)
 
         elif sender == self._t("check_ext_preview"):
             state.show_preview = app_data

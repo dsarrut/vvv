@@ -437,3 +437,34 @@ def build_renamable_input(tag, default_value, callback, user_data=None, width=18
         build_beginner_tooltip(input_id, tooltip, gui)
 
     return input_id
+
+
+def normalize_rgba_to_int(color, default_alpha=255):
+    """
+    Normalizes an input RGBA/RGB color sequence to a list of integers in range [0, 255].
+    Handles float components in [0.0, 1.0], int components in [0, 255], and short RGB lists.
+    """
+    if not color:
+        return [0, 0, 0, default_alpha]
+
+    color_list = list(color)
+    is_float = any(isinstance(c, float) for c in color_list) and all(c <= 1.0 for c in color_list) and any(c > 0.0 for c in color_list)
+
+    if is_float:
+        res = [int(c * 255.0) for c in color_list[:4]]
+    else:
+        res = [int(np_clip(c)) for c in color_list[:4]]
+
+    # Ensure 4 channels (RGBA)
+    if len(res) == 3:
+        res.append(default_alpha)
+
+    return [max(0, min(255, c)) for c in res]
+
+
+def np_clip(val):
+    try:
+        return int(val)
+    except Exception:
+        return 0
+
