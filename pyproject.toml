@@ -42,4 +42,5 @@ checkerboard = "vvv.checkerboard:create_checkerboard"
 testpaths = ["tests", "src/vvv/plugins"]
 filterwarnings = [
     "ignore::DeprecationWarning",
+    "ignore:SOCKS support in urllib3 requires the installation",
 ]
