@@ -2277,6 +2277,8 @@ class MainGUI:
                     # Map the virtual "hard_reset" action to the physical "reset_view" key
                     lookup_key = "reset_view" if key_id == "hard_reset" else key_id
                     val = shortcuts.get(lookup_key, "N/A")
+                    if not val:
+                        continue
 
                     with dpg.table_row():
                         dpg.add_text(format_key(key_id, val), color=ok_col)
