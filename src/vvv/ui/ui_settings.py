@@ -33,6 +33,7 @@ class SettingsWindow:
                 if dpg.does_item_exist("icon_font_tag"):
                     dpg.bind_item_font(btn, "icon_font_tag")
                 dpg.add_input_text(
+                    tag="input_settings_config_path",
                     default_value=str(self.controller.settings.config_path),
                     readonly=True,
                     width=-1,
@@ -123,7 +124,7 @@ class SettingsWindow:
                 # Leaf Node (Input Widget)
                 is_color = len(keys_path) > 0 and keys_path[0] == "colors"
                 text_tag = f"settings_lbl_{'-'.join(curr_keys)}"
-                widget_tag = f"settings_val_{'-'.join(curr_keys)}"
+                widget_tag = f"input_settings_val_{'-'.join(curr_keys)}"
 
                 with dpg.group(horizontal=True):
                     dpg.add_text(f"{k.replace('_', ' ').capitalize()}:", tag=text_tag)
