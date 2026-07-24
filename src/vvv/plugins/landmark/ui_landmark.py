@@ -132,28 +132,6 @@ class LandmarkPluginUI(PluginTagMixin):
                     api,
                 )
 
-                btn_snap_all = dpg.add_button(
-                    label="Snap All",
-                    tag=self._t("btn_snap_all"),
-                    callback=self._c.on_btn_snap_all_clicked,
-                )
-                build_beginner_tooltip(
-                    btn_snap_all,
-                    "Snaps all landmarks to nearest physical voxel center.",
-                    api,
-                )
-
-                btn_clear_all = dpg.add_button(
-                    label="Clear All",
-                    tag=self._t("btn_clear_all"),
-                    callback=self._c.on_btn_clear_all_clicked,
-                )
-                build_beginner_tooltip(
-                    btn_clear_all,
-                    "Clears all landmarks for the active image.",
-                    api,
-                )
-
                 build_help_button(
                     "Landmark Tool:\n\n"
                     "• Press Space bar to place a 3D point landmark at the crosshair.\n"
@@ -180,9 +158,10 @@ class LandmarkPluginUI(PluginTagMixin):
             build_batch_action_toolbar(
                 tag_prefix=self._t("lm"),
                 on_color_changed=self.on_batch_color_changed,
+                on_reset_colors=self.on_batch_reset_colors,
                 on_toggle_visible=self.on_batch_toggle_visible,
                 on_toggle_names=self.on_toggle_all_show_names,
-                on_reset_colors=self.on_batch_reset_colors,
+                on_snap_clicked=self._c.on_btn_snap_all_clicked,
                 on_delete_clicked=self._c.on_batch_delete_clicked,
                 api=api,
             )

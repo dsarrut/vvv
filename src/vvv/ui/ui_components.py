@@ -93,6 +93,7 @@ def build_batch_action_toolbar(
     on_toggle_visible=None,
     on_toggle_names=None,
     on_reset_colors=None,
+    on_snap_clicked=None,
     on_delete_clicked=None,
     show_contour=False,
     on_contour_clicked=None,
@@ -100,8 +101,11 @@ def build_batch_action_toolbar(
     on_above_overlay_clicked=None,
     api=None,
 ):
-    """Creates a standardized icon-based batch action toolbar."""
+    """Creates a standardized icon-based batch action toolbar.
+    Icon order: Color Picker, Reset Colors, Toggle Visible (or Show/Hide), Toggle Names, Snap All, (Contour/Overlay), Delete
+    """
     with dpg.group(horizontal=True, tag=f"{tag_prefix}_batch_toolbar"):
+        # 1. Color Picker
         if on_color_changed:
             col_picker = dpg.add_color_edit(
                 default_value=[255, 255, 255, 255],
@@ -116,7 +120,20 @@ def build_batch_action_toolbar(
             with dpg.tooltip(col_picker):
                 dpg.add_text("Apply color to listed/filtered items")
 
-        # Single toggle visible button (replaces separate show/hide when provided)
+        # 2. Reset Colors
+        if on_reset_colors:
+            btn_reset_col = dpg.add_button(
+                label="\uf0e2",
+                width=20,
+                tag=f"{tag_prefix}_batch_reset_colors",
+                callback=lambda: on_reset_colors(),
+            )
+            if dpg.does_item_exist("icon_font_tag"):
+                dpg.bind_item_font(btn_reset_col, "icon_font_tag")
+            with dpg.tooltip(btn_reset_col):
+                dpg.add_text("Reset colors to default initial sequence")
+
+        # 3. Toggle Visible (or Show/Hide)
         if on_toggle_visible:
             btn_toggle_vis = dpg.add_button(
                 label="\uf06e",
@@ -154,6 +171,33 @@ def build_batch_action_toolbar(
                 with dpg.tooltip(btn_hide):
                     dpg.add_text("Hide listed/filtered items")
 
+        # 4. Toggle Name Labels
+        if on_toggle_names:
+            btn_names = dpg.add_button(
+                label="\uf02b",
+                width=20,
+                tag=f"{tag_prefix}_batch_toggle_names",
+                callback=lambda: on_toggle_names(),
+            )
+            if dpg.does_item_exist("icon_font_tag"):
+                dpg.bind_item_font(btn_names, "icon_font_tag")
+            with dpg.tooltip(btn_names):
+                dpg.add_text("Toggle name labels for listed/filtered items")
+
+        # 5. Snap All
+        if on_snap_clicked:
+            btn_snap = dpg.add_button(
+                label="\uf076",
+                width=20,
+                tag=f"{tag_prefix}_batch_snap",
+                callback=lambda: on_snap_clicked(),
+            )
+            if dpg.does_item_exist("icon_font_tag"):
+                dpg.bind_item_font(btn_snap, "icon_font_tag")
+            with dpg.tooltip(btn_snap):
+                dpg.add_text("Snap all items to nearest voxel grid center")
+
+        # Contour & Overlay options
         if show_contour and on_contour_clicked:
             btn_contour = dpg.add_button(
                 label="\uf040",
@@ -178,30 +222,7 @@ def build_batch_action_toolbar(
             with dpg.tooltip(btn_overlay):
                 dpg.add_text("Toggle on top of fusion overlay")
 
-        if on_toggle_names:
-            btn_names = dpg.add_button(
-                label="\uf02b",
-                width=20,
-                tag=f"{tag_prefix}_batch_toggle_names",
-                callback=lambda: on_toggle_names(),
-            )
-            if dpg.does_item_exist("icon_font_tag"):
-                dpg.bind_item_font(btn_names, "icon_font_tag")
-            with dpg.tooltip(btn_names):
-                dpg.add_text("Toggle name labels for listed/filtered items")
-
-        if on_reset_colors:
-            btn_reset_col = dpg.add_button(
-                label="\uf0e2",
-                width=20,
-                tag=f"{tag_prefix}_batch_reset_colors",
-                callback=lambda: on_reset_colors(),
-            )
-            if dpg.does_item_exist("icon_font_tag"):
-                dpg.bind_item_font(btn_reset_col, "icon_font_tag")
-            with dpg.tooltip(btn_reset_col):
-                dpg.add_text("Reset colors to default initial sequence")
-
+        # 6. Delete
         if on_delete_clicked:
             build_delete_button(
                 label="\uf00d",
