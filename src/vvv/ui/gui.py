@@ -1937,6 +1937,23 @@ class MainGUI:
             "auto_save_history"
         ] = app_data
 
+    def on_quick_save_image_clicked(self, vs_id):
+        vol = self.controller.volumes.get(vs_id)
+        if not vol:
+            return
+        if vol.file_paths and os.path.exists(vol.file_paths[0]):
+            file_path = vol.file_paths[0]
+            self.show_status_message(f"Saving {vol.name}...")
+
+            def _save():
+                self.controller.save_image(vs_id, file_path)
+                self.controller.status_message = f"Saved: {os.path.basename(file_path)}"
+                self.controller.ui_needs_refresh = True
+
+            threading.Thread(target=_save, daemon=True).start()
+        else:
+            self.on_save_image_clicked(vs_id)
+
     def on_save_image_clicked(self, vs_id):
         vol = self.controller.volumes[vs_id]
 

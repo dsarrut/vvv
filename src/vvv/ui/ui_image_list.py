@@ -243,10 +243,18 @@ def refresh_image_list_ui(gui):
                     btn_save = dpg.add_button(
                         label="\uf0c7",
                         width=20,
+                        callback=lambda s, a, u: gui.on_quick_save_image_clicked(u),
+                        user_data=vs_id,
+                    )
+                    build_beginner_tooltip(btn_save, "Save image to current file", gui)
+
+                    btn_save_as = dpg.add_button(
+                        label="\uf019",
+                        width=20,
                         callback=lambda s, a, u: gui.on_save_image_clicked(u),
                         user_data=vs_id,
                     )
-                    build_beginner_tooltip(btn_save, "Save image as...", gui)
+                    build_beginner_tooltip(btn_save_as, "Save image as...", gui)
 
                     btn_reload = dpg.add_button(
                         label="\uf01e",
@@ -263,6 +271,10 @@ def refresh_image_list_ui(gui):
                         user_data=vs_id,
                     )
                     build_beginner_tooltip(btn_close, "Close image", gui)
+
+                    for btn in [btn_all, btn_save, btn_save_as, btn_reload, btn_close]:
+                        if dpg.does_item_exist("icon_font_tag"):
+                            dpg.bind_item_font(btn, "icon_font_tag")
                     
                     if vs.volume.num_timepoints > 1:
                         dpg.add_spacer(width=5)
