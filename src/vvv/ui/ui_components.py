@@ -118,8 +118,6 @@ def build_color_picker_row(
                 tag=f"{tag_prefix}_batch_color",
                 callback=lambda s, a: on_color_changed(a),
             )
-            if g_obj:
-                build_beginner_tooltip(col_picker, "Apply color to listed/filtered items", g_obj)
 
         # 2. Reset Colors
         if on_reset_colors:

@@ -143,12 +143,13 @@ class ThresholdUI(PluginTagMixin):
 
             dpg.add_spacer(height=5)
             with dpg.group(horizontal=True):
-                dpg.add_button(
+                btn_create = dpg.add_button(
                     label="Create Image",
                     width=-28,
                     tag=self._t("btn_ext_create"),
                     callback=self._c.on_create_image_clicked,
                 )
+                build_beginner_tooltip(btn_create, "Bake current threshold parameters into a new standalone image volume", api)
                 build_help_button("Bakes the current threshold range into a brand new standalone image volume in memory.", api)
 
     def update_ui(self, api) -> None:

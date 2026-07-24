@@ -259,7 +259,6 @@ class RoiPluginUI(PluginTagMixin):
                     dpg.bind_item_theme(btn_close_all, "delete_button_theme")
 
                 if api:
-                    build_beginner_tooltip(btn_color_picker, "Change color of all listed ROIs", api)
                     build_beginner_tooltip(btn_show, "Show All (Raster)", api)
                     build_beginner_tooltip(btn_contour, "Show All (Contour)", api)
                     build_beginner_tooltip(btn_hide, "Hide All", api)
@@ -1654,8 +1653,6 @@ class RoiPluginUI(PluginTagMixin):
                 user_data=roi_id,
                 callback=self.on_roi_color_changed,
             )
-            if self.api:
-                build_beginner_tooltip(color_picker, "Change ROI color", self.api)
 
             # Copy to Clipboard Button (Icon)
             btn_copy = dpg.add_button(

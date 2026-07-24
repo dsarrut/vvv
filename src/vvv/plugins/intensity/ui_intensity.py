@@ -117,24 +117,28 @@ class IntensityUI(PluginTagMixin):
 
             dpg.add_spacer(height=2)
             with dpg.group(horizontal=True):
-                dpg.add_button(
+                btn_ctr = dpg.add_button(
                     label="Ctr", width=36, tag=self._t("btn_hist_center"),
                     callback=self._c.on_hist_center,
                 )
-                dpg.add_button(
+                build_beginner_tooltip(btn_ctr, "Center histogram view around current W/L window", api)
+                btn_bar = dpg.add_button(
                     label="Bar", width=34, tag=self._t("btn_hist_bar"),
                     callback=self._c.on_hist_bar_toggle,
                 )
-                dpg.add_button(
+                build_beginner_tooltip(btn_bar, "Toggle histogram bar rendering", api)
+                btn_lin = dpg.add_button(
                     label="Lin", width=30, tag=self._t("btn_hist_log"),
                     callback=self._c.on_hist_log_toggle,
                 )
+                build_beginner_tooltip(btn_lin, "Toggle Linear / Logarithmic frequency scale", api)
                 btn_popup = dpg.add_button(
                     label="", tag=self._t("btn_hist_popup"),
                     callback=self._c.on_hist_popup,
                 )
                 if dpg.does_item_exist("icon_font_tag"):
                     dpg.bind_item_font(btn_popup, "icon_font_tag")
+                build_beginner_tooltip(btn_popup, "Open standalone floating histogram window", api)
                 dpg.add_text(
                     "computing full histogram",
                     tag=self._t("txt_computing_full_hist"),

@@ -380,11 +380,9 @@ class MainGUI:
                     if dpg.does_item_exist("icon_button_theme"):
                         dpg.bind_item_theme(btn, "icon_button_theme")
 
-                build_beginner_tooltip(btn_layout_4, "4 Viewers Layout", self)
-                build_beginner_tooltip(
-                    btn_layout_2, "2 Viewers (Left/Right) Layout", self
-                )
-                build_beginner_tooltip(btn_layout_1, "1 Viewer (Full) Layout", self)
+                build_beginner_tooltip("btn_layout_4", "4 Viewers Layout", self)
+                build_beginner_tooltip("btn_layout_2", "2 Viewers (Left/Right) Layout", self)
+                build_beginner_tooltip("btn_layout_1", "1 Viewer (Full) Layout", self)
 
         dpg.bind_item_theme("menu_container", "floating_menu_theme")
 
