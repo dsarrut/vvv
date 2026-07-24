@@ -292,6 +292,12 @@ class DisplayState:
             "wl": float(self.wl),
             # pyrefly: ignore [unnecessary-type-conversion]
             "colormap": str(self.colormap),
+            "min_threshold": (
+                # pyrefly: ignore [unnecessary-type-conversion]
+                float(self.min_threshold)
+                if self.min_threshold is not None
+                else None
+            ),
             "base_threshold": (
                 # pyrefly: ignore [unnecessary-type-conversion]
                 float(self.min_threshold)

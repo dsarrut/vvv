@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+from typing import Any
 import os
 import re
 import sys
@@ -200,7 +201,7 @@ def parse_cli_arguments(datasets):
             sync_group = int(match.group(1))
             base_part = match.group(2)
 
-        task = {
+        task: dict[str, Any] = {
             "base": base_part,
             "fusion": None,
             "sync_group": sync_group,
@@ -226,7 +227,7 @@ def parse_cli_arguments(datasets):
                     "cmap": cmap,
                     "mode": mode,
                     "opacity": float(parts[3]) if len(parts) > 3 else 0.5,
-                    "threshold": float(parts[4]) if len(parts) > 4 else 0.0,
+                    "threshold": float(parts[4]) if len(parts) > 4 else None,
                 }
             else:
                 task["base_cmap"] = cmap
