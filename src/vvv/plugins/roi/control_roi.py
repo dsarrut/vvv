@@ -81,7 +81,8 @@ class RoiPluginController(PluginTagMixin):
     # --- Actions called from UI ---
 
     def on_roi_filter_changed(self, filter_text: str) -> None:
-        assert self.api is not None
+        if not self.api:
+            return
         viewer = self.api.get_active_viewer()
         if viewer and viewer.image_id:
             self.roi_filters[viewer.image_id] = filter_text.lower() if filter_text else ""
@@ -89,7 +90,8 @@ class RoiPluginController(PluginTagMixin):
                 self.ui.refresh_rois_ui()
 
     def on_clear_roi_filter(self) -> None:
-        assert self.api is not None
+        if not self.api:
+            return
         viewer = self.api.get_active_viewer()
         if viewer and viewer.image_id:
             self.roi_filters[viewer.image_id] = ""
@@ -97,7 +99,8 @@ class RoiPluginController(PluginTagMixin):
                 self.ui.refresh_rois_ui()
 
     def on_sort_rois(self) -> None:
-        assert self.api is not None
+        if not self.api:
+            return
         viewer = self.api.get_active_viewer()
         if not viewer or not viewer.image_id:
             return

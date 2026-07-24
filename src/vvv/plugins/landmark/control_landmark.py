@@ -403,6 +403,8 @@ class LandmarkPluginController(PluginTagMixin):
     # --- UI Callbacks ---
 
     def on_btn_add_clicked(self, sender, app_data, user_data) -> None:
+        if not self._api:
+            return
         self.add_landmark()
 
     def on_btn_load_clicked(self, sender, app_data, user_data) -> None:
