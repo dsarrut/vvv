@@ -358,7 +358,7 @@ class SliceRenderer:
             rgba = SliceRenderer.lut_lookup(lut, norm)
 
             if threshold is not None:
-                rgba[slice_data <= threshold] = [0.0, 0.0, 0.0, 0.0]
+                rgba[slice_data <= threshold, 3] = 0.0
 
             return rgba, norm
 
