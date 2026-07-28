@@ -166,26 +166,6 @@ DEFAULT_NN_MODE: NNMode = (
     NNMode.HW_GL_NEAREST if GL_NEAREST_SUPPORTED else NNMode.SW_DUAL_NATIVE
 )
 
-# Maximum NN upscale factor relative to the source image resolution.
-# Beyond this, the NN buffer is capped and DPG stretches the remaining factor
-# with bilinear — visually identical since pixel-block edges are already sharp.
-NN_MAX_SCALE_FACTOR = 4
-
-
-def cap_nn_texture_size(
-    canvas_w: int, canvas_h: int, img_w: int, img_h: int
-) -> tuple[int, int]:
-    """Return capped (tex_w, tex_h) for SW NN rendering.
-
-    Limits the rendered NN buffer to at most NN_MAX_SCALE_FACTOR × the source
-    image resolution in each axis.  When capped, DPG's bilinear stretch
-    handles the remaining magnification — since each source pixel already
-    occupies multiple texture pixels, the block edges stay perfectly crisp.
-    """
-    max_w = img_w * NN_MAX_SCALE_FACTOR
-    max_h = img_h * NN_MAX_SCALE_FACTOR
-    return min(canvas_w, max_w), min(canvas_h, max_h)
-
 
 def select_nn_mode(cfg: dict, has_fusion: bool) -> NNMode:
     """Derive the active NNMode from rendering config and fusion state."""
