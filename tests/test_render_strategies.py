@@ -14,6 +14,15 @@ def test_bench_fusion_modes_smoke():
     assert result.returncode == 0, f"Benchmark script failed:\n{result.stderr}\n{result.stdout}"
 
 
+def test_bench_fusion_roi_large_smoke():
+    """Runs the fusion+large-ROI benchmark in very-quick mode to ensure it doesn't crash."""
+    script_path = os.path.join(os.path.dirname(__file__), "bench_fusion_roi_large.py")
+    result = subprocess.run(
+        [sys.executable, script_path, "--very-quick"], capture_output=True, text=True
+    )
+    assert result.returncode == 0, f"Benchmark script failed:\n{result.stderr}\n{result.stdout}"
+
+
 def test_all_nn_modes_execute_without_crashing(headless_gui_app):
     """Iterates through all rendering strategies to ensure the math doesn't throw exceptions."""
     controller, gui, viewer, base_id = headless_gui_app
