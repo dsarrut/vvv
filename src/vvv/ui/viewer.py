@@ -41,7 +41,20 @@ import logging
 # Temporary diagnostic: set VVV_PROFILE=1 to log a per-stage timing breakdown
 # (extract / NN-compute / GPU upload) every 30 render calls. Zero overhead when unset.
 _PROFILE_NN = os.environ.get("VVV_PROFILE") == "1"
-_profile_stats = {"extract": 0.0, "base": 0.0, "overlay": 0.0, "gpu_upload": 0.0, "n": 0}
+_profile_stats = {
+    "extract": 0.0,
+    "base": 0.0,
+    "overlay": 0.0,
+    "gpu_upload": 0.0,
+    "nn_base": 0.0,
+    "native_overlay": 0.0,
+    "package": 0.0,
+    "extract_base": 0.0,
+    "extract_overlay": 0.0,
+    "roi_package": 0.0,
+    "roi_mask_build": 0.0,
+    "n": 0,
+}
 
 
 def _profile_tick():
@@ -51,11 +64,22 @@ def _profile_tick():
         print(
             f"[VVV_PROFILE] avg ms/call over last {n} calls (summed across all viewers): "
             f"extract={_profile_stats['extract'] / n * 1000:.2f}  "
+            f"  (package={_profile_stats['package'] / n * 1000:.2f}  "
+            f"extract_base={_profile_stats['extract_base'] / n * 1000:.2f}  "
+            f"extract_overlay={_profile_stats['extract_overlay'] / n * 1000:.2f})  "
             f"upload_base={_profile_stats['base'] / n * 1000:.2f}  "
+            f"  (nn_base={_profile_stats['nn_base'] / n * 1000:.2f}  "
+            f"native_overlay={_profile_stats['native_overlay'] / n * 1000:.2f}  "
+            f"[roi_package={_profile_stats['roi_package'] / n * 1000:.2f}  "
+            f"roi_mask_build={_profile_stats['roi_mask_build'] / n * 1000:.2f}])  "
             f"upload_overlay={_profile_stats['overlay'] / n * 1000:.2f}  "
             f"gpu_set_value={_profile_stats['gpu_upload'] / n * 1000:.2f}"
         )
-        for k in ("extract", "base", "overlay", "gpu_upload"):
+        for k in (
+            "extract", "base", "overlay", "gpu_upload", "nn_base",
+            "native_overlay", "package", "extract_base", "extract_overlay",
+            "roi_package", "roi_mask_build",
+        ):
             _profile_stats[k] = 0.0
         _profile_stats["n"] = 0
 
@@ -1444,9 +1468,16 @@ class SliceViewer:
 
     def _compute_raw_slice_buffers(self):
         vs = self.view_state
-        base_layer = self._package_base_layer()
-        overlay_layer = self._package_overlay_layer()
-        active_rois = self._package_roi_layers()
+        if _PROFILE_NN:
+            t0 = time.perf_counter()
+            base_layer = self._package_base_layer()
+            overlay_layer = self._package_overlay_layer()
+            active_rois = self._package_roi_layers()
+            _profile_stats["package"] += time.perf_counter() - t0
+        else:
+            base_layer = self._package_base_layer()
+            overlay_layer = self._package_overlay_layer()
+            active_rois = self._package_roi_layers()
 
         if not vs or base_layer is None:
             return
@@ -1465,6 +1496,9 @@ class SliceViewer:
         #   Adding a new mode with custom per-pixel colour logic → use this path and
         #   add the blend function to SliceRenderer in image.py.
         if vs.display.overlay.mode == "Alpha" and overlay_layer is not None:
+            t0 = 0.0
+            if _PROFILE_NN:
+                t0 = time.perf_counter()
             self.last_rgba_flat, self.last_rgba_shape = SliceRenderer.get_slice_rgba(
                 base=base_layer,
                 overlay=None,
@@ -1475,6 +1509,9 @@ class SliceViewer:
                 rois=active_rois,
                 roi_above_overlay=vs.display.roi_above_overlay,
             )
+            if _PROFILE_NN:
+                _profile_stats["extract_base"] += time.perf_counter() - t0
+                t0 = time.perf_counter()
 
             self.last_overlay_rgba_flat, self.last_overlay_rgba_shape = (
                 SliceRenderer.get_slice_rgba(
@@ -1488,6 +1525,8 @@ class SliceViewer:
                     roi_above_overlay=vs.display.roi_above_overlay,
                 )
             )
+            if _PROFILE_NN:
+                _profile_stats["extract_overlay"] += time.perf_counter() - t0
         else:
             self.last_rgba_flat, self.last_rgba_shape = SliceRenderer.get_slice_rgba(
                 base=base_layer,
@@ -3108,19 +3147,38 @@ class TextureManager:
 
         self._clear_previous_single_native_crop()
 
-        nn_base = self._compute_and_cache_nn_base(rgba_2d, canvas_w, canvas_h)
+        if _PROFILE_NN:
+            t0 = time.perf_counter()
+            nn_base = self._compute_and_cache_nn_base(rgba_2d, canvas_w, canvas_h)
+            _profile_stats["nn_base"] += time.perf_counter() - t0
+        else:
+            nn_base = self._compute_and_cache_nn_base(rgba_2d, canvas_w, canvas_h)
 
         # SW_SINGLE_NATIVE: paint overlay at native voxel resolution into the NN base
-        nn_base = self._apply_single_native_overlay(
-            vs,
-            nn_base,
-            rgba_2d,
-            canvas_w,
-            canvas_h,
-            has_alpha_overlay,
-            is_lazy_live,
-            is_mip,
-        )
+        if _PROFILE_NN:
+            t0 = time.perf_counter()
+            nn_base = self._apply_single_native_overlay(
+                vs,
+                nn_base,
+                rgba_2d,
+                canvas_w,
+                canvas_h,
+                has_alpha_overlay,
+                is_lazy_live,
+                is_mip,
+            )
+            _profile_stats["native_overlay"] += time.perf_counter() - t0
+        else:
+            nn_base = self._apply_single_native_overlay(
+                vs,
+                nn_base,
+                rgba_2d,
+                canvas_w,
+                canvas_h,
+                has_alpha_overlay,
+                is_lazy_live,
+                is_mip,
+            )
 
         self._safe_set_texture(
             v.texture_tag,
@@ -3198,6 +3256,31 @@ class TextureManager:
         v._nn_base_crop = crop
         return nn_base
 
+    def _get_cached_roi_mask(self, active_rois, h, w, cache_attr):
+        """Rebuild the composite ROI mask/color buffers only when the ROI set
+        actually changed — not on every frame.
+
+        `active_rois` comes from a cache that reuses the same array object
+        per ROI when its data hasn't changed (see LayerPackager.package_roi_layers),
+        so `id(r.data)` is a safe, cheap invalidation signal alongside the
+        display properties (color/opacity/offset) that don't affect that cache.
+        """
+        v = self.viewer
+        key = (
+            h,
+            w,
+            tuple(
+                (id(r.data), r.color, r.opacity, r.offset_x, r.offset_y)
+                for r in active_rois
+            ),
+        )
+        cached = getattr(v, cache_attr, None)
+        if cached is not None and cached[0] == key:
+            return cached[1], cached[2]
+        roi_mask, roi_color_buf = build_roi_mask_buffer(active_rois, h, w)
+        setattr(v, cache_attr, (key, roi_mask, roi_color_buf))
+        return roi_mask, roi_color_buf
+
     def _apply_single_native_overlay(
         self,
         vs,
@@ -3216,12 +3299,23 @@ class TextureManager:
             and has_alpha_overlay
             and not is_mip
         ):
+            t0 = 0.0
+            if _PROFILE_NN:
+                t0 = time.perf_counter()
             active_rois = v._package_roi_layers()
+            if _PROFILE_NN:
+                _profile_stats["roi_package"] += time.perf_counter() - t0
             roi_mask = None
             roi_color_buf = None
             if vs.display.roi_above_overlay and len(active_rois) > 0:
                 h, w = v.get_slice_shape()
-                roi_mask, roi_color_buf = build_roi_mask_buffer(active_rois, h, w)
+                if _PROFILE_NN:
+                    t0 = time.perf_counter()
+                roi_mask, roi_color_buf = self._get_cached_roi_mask(
+                    active_rois, h, w, "_roi_mask_cache_single_native"
+                )
+                if _PROFILE_NN:
+                    _profile_stats["roi_mask_build"] += time.perf_counter() - t0
 
             if (
                 nn_base is rgba_2d
@@ -3289,7 +3383,9 @@ class TextureManager:
             roi_color_buf = None
             if vs.display.roi_above_overlay and len(active_rois) > 0:
                 h, w = v.get_slice_shape()
-                roi_mask, roi_color_buf = build_roi_mask_buffer(active_rois, h, w)
+                roi_mask, roi_color_buf = self._get_cached_roi_mask(
+                    active_rois, h, w, "_roi_mask_cache_dual_native"
+                )
 
             ov_rgba_display = compute_native_voxel_overlay(
                 v,

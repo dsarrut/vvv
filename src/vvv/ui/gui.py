@@ -38,6 +38,7 @@ from vvv.ui.ui_sequences import (
 from vvv.ui.ui_drop import install_os_drop, cleanup_os_drop
 from vvv.ui.ui_workspace import build_workspace_nav_icons
 from vvv.ui.render_strategy import GL_NEAREST_SUPPORTED, NNMode
+import vvv.ui.render_strategy as _rs_mod
 
 
 class MainGUI:
@@ -2587,8 +2588,11 @@ class MainGUI:
                     n = any(getattr(v, attr, False) for v in vs)
                     return "ALL ON" if a else ("SOME ON" if n else "OFF")
 
+                _rs_mod._init_numba()
                 lines = [
-                    f"Platform: {_plat.system()}   GL: {'ON' if GL_NEAREST_SUPPORTED else 'OFF'}   debug: {getattr(self.controller, 'debug_mode', False)}",
+                    f"Platform: {_plat.system()}   GL: {'ON' if GL_NEAREST_SUPPORTED else 'OFF'}   "
+                    f"Numba: {'ON' if _rs_mod._NUMBA_AVAILABLE else 'OFF (slow fusion!)'}   "
+                    f"debug: {getattr(self.controller, 'debug_mode', False)}",
                     f"Lazy-Lin: {_lazy_summary('lazy_lin')}",
                 ]
                 for vtag, viewer in self.controller.viewers.items():

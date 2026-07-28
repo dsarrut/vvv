@@ -4,6 +4,8 @@ from vvv.config import COLORMAPS
 from vvv.utils import ViewMode
 from enum import IntEnum
 
+import os as _os
+import time as _time
 import platform as _platform
 
 GL_NEAREST_SUPPORTED = _platform.system() in ("Linux", "Windows")
@@ -13,6 +15,30 @@ numba = None
 _NUMBA_AVAILABLE = False
 _native_ov_kernel_nb = None
 _numba_init_done = False
+
+# Temporary diagnostic: set VVV_PROFILE=1 to log the native-overlay kernel's
+# actual workload (crop pixel count, overlay voxel count) every 30 calls.
+_PROFILE_NN = _os.environ.get("VVV_PROFILE") == "1"
+_ov_profile_stats = {"crop_px": 0, "ov_voxels": 0, "kernel_ms": 0.0, "n": 0}
+
+
+def _ov_profile_tick(crop_w, crop_h, ov_W, ov_H, ov_D, kernel_dt):
+    _ov_profile_stats["crop_px"] += crop_w * crop_h
+    _ov_profile_stats["ov_voxels"] += ov_W * ov_H * ov_D
+    _ov_profile_stats["kernel_ms"] += kernel_dt
+    _ov_profile_stats["n"] += 1
+    n = _ov_profile_stats["n"]
+    if n % 30 == 0:
+        print(
+            f"[VVV_PROFILE:overlay] avg over last {n} calls: "
+            f"crop={_ov_profile_stats['crop_px'] / n:.0f}px  "
+            f"ov_volume={_ov_profile_stats['ov_voxels'] / n:.0f}voxels "
+            f"(last: {ov_W}x{ov_H}x{ov_D})  "
+            f"kernel={_ov_profile_stats['kernel_ms'] / n * 1000:.2f}ms"
+        )
+        for k in ("crop_px", "ov_voxels", "kernel_ms"):
+            _ov_profile_stats[k] = 0
+        _ov_profile_stats["n"] = 0
 
 
 def _init_numba():
@@ -682,13 +708,34 @@ def compute_native_voxel_overlay(
         "rendering", {}
     ).get("numba", True)
 
+    if _PROFILE_NN and not _ov_profile_stats.get("_logged_numba_state"):
+        _ov_profile_stats["_logged_numba_state"] = True
+        print(
+            f"[VVV_PROFILE:overlay] use_numba={use_numba}  "
+            f"_NUMBA_AVAILABLE={_NUMBA_AVAILABLE}  "
+            f"settings.numba={viewer.controller.settings.data.get('rendering', {}).get('numba', True)}"
+        )
+
     if use_numba:
         wl_min = np.float32(ovs.display.wl - ovs.display.ww * 0.5)
         wl_scale = np.float32(1.0 / max(ovs.display.ww, 1e-20))
         thr_nb = np.float32(thr_val if thr_val is not None else -np.inf)
-        ov_arr = np.ascontiguousarray(ov_data)
+        if _PROFILE_NN:
+            _t_contig0 = _time.perf_counter()
+            ov_arr = np.ascontiguousarray(ov_data)
+            _t_contig = _time.perf_counter() - _t_contig0
+            if not ov_data.flags["C_CONTIGUOUS"]:
+                print(
+                    f"[VVV_PROFILE:overlay] ov_data NOT contiguous — copying "
+                    f"{ov_W}x{ov_H}x{ov_D} every call! ({_t_contig * 1000:.2f}ms)"
+                )
+        else:
+            ov_arr = np.ascontiguousarray(ov_data)
         if target_buffer is None:
             rgba[c_y0:c_y1, c_x0:c_x1] = 0.0
+        _t_kernel0 = 0.0
+        if _PROFILE_NN:
+            _t_kernel0 = _time.perf_counter()
         _native_ov_kernel_nb(  # type: ignore[misc]
             ov_arr,
             rgba,
@@ -713,11 +760,17 @@ def compute_native_voxel_overlay(
             iy_disp.astype(np.float32),
             ix_disp.astype(np.float32),
         )
+        if _PROFILE_NN:
+            _kernel_dt = _time.perf_counter() - _t_kernel0
+            _ov_profile_tick(c_x1 - c_x0, c_y1 - c_y0, ov_W, ov_H, ov_D, _kernel_dt)
         if target_buffer is not None:
             viewer._last_single_native_ov_crop = (c_y0, c_y1, c_x0, c_x1)
         return rgba.ravel() if target_buffer is None else None
 
     # --- NumPy fallback (no numba) ---
+    _t_fallback0 = 0.0
+    if _PROFILE_NN:
+        _t_fallback0 = _time.perf_counter()
     s_x = B_eff[0] + vec_h[0][:, None] + vec_w[0]
     s_y = B_eff[1] + vec_h[1][:, None] + vec_w[1]
     s_z = B_eff[2] + vec_h[2][:, None] + vec_w[2]
@@ -776,6 +829,11 @@ def compute_native_voxel_overlay(
             else:
                 rgba_crop[in_bounds] = new_colors
 
+    if _PROFILE_NN:
+        _ov_profile_tick(
+            c_x1 - c_x0, c_y1 - c_y0, ov_W, ov_H, ov_D,
+            _time.perf_counter() - _t_fallback0,
+        )
     if target_buffer is not None:
         viewer._last_single_native_ov_crop = (c_y0, c_y1, c_x0, c_x1)
     return rgba.ravel() if target_buffer is None else None

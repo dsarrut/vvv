@@ -322,6 +322,21 @@ def main(no_history, datasets, linkall, sync, linkall_wl, debug, fast_gl):
     else:
         rs_mod.GL_NEAREST_SUPPORTED = False
 
+    # Warn if numba isn't available. On platforms without HW GL_NEAREST
+    # (macOS, or --no-fast-gl), fusion overlay rendering depends on numba's
+    # JIT kernel for reasonable performance — the pure-NumPy fallback measured
+    # ~40-50x slower in profiling, and silently falling back to it is easy to
+    # miss (it produces correct but very slow results, not an error).
+    if not rs_mod.GL_NEAREST_SUPPORTED:
+        rs_mod._init_numba()
+        if not rs_mod._NUMBA_AVAILABLE:
+            print(
+                "WARNING: numba is not installed/importable in this environment. "
+                "Fusion overlay rendering will fall back to a much slower pure-NumPy "
+                "path (~40-50x slower). Install numba for smooth fusion rendering.",
+                file=sys.stderr,
+            )
+
     # --- Setup Application ---
     icon_png = get_resource_path(os.path.join("icons", "py_vv.png"))
     icon_ico = get_resource_path(os.path.join("icons", "py_vv.ico"))
