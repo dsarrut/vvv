@@ -1,5 +1,6 @@
 import time
 import threading
+import os
 import numpy as np
 from vvv.utils import (
     ViewMode,
@@ -33,10 +34,30 @@ from vvv.ui.render_strategy import (
     DEFAULT_NN_MODE,
     select_nn_mode,
     should_use_lazy_lin,
-    cap_nn_texture_size,
 )
 from typing import Any
 import logging
+
+# Temporary diagnostic: set VVV_PROFILE=1 to log a per-stage timing breakdown
+# (extract / NN-compute / GPU upload) every 30 render calls. Zero overhead when unset.
+_PROFILE_NN = os.environ.get("VVV_PROFILE") == "1"
+_profile_stats = {"extract": 0.0, "base": 0.0, "overlay": 0.0, "gpu_upload": 0.0, "n": 0}
+
+
+def _profile_tick():
+    _profile_stats["n"] += 1
+    if _profile_stats["n"] % 30 == 0:
+        n = _profile_stats["n"]
+        print(
+            f"[VVV_PROFILE] avg ms/call over last {n} calls (summed across all viewers): "
+            f"extract={_profile_stats['extract'] / n * 1000:.2f}  "
+            f"upload_base={_profile_stats['base'] / n * 1000:.2f}  "
+            f"upload_overlay={_profile_stats['overlay'] / n * 1000:.2f}  "
+            f"gpu_set_value={_profile_stats['gpu_upload'] / n * 1000:.2f}"
+        )
+        for k in ("extract", "base", "overlay", "gpu_upload"):
+            _profile_stats[k] = 0.0
+        _profile_stats["n"] = 0
 
 
 def _validate_and_reshape(
@@ -1397,13 +1418,29 @@ class SliceViewer:
             dpg.configure_item(drawlist_tag, show=True)
 
         if force_reblend or self.last_rgba_flat is None:
-            self._compute_raw_slice_buffers()
+            if _PROFILE_NN:
+                t0 = time.perf_counter()
+                self._compute_raw_slice_buffers()
+                _profile_stats["extract"] += time.perf_counter() - t0
+            else:
+                self._compute_raw_slice_buffers()
 
         if self.should_use_voxels_strips():
             return
 
-        self._upload_base_texture()
-        self._upload_overlay_texture()
+        if _PROFILE_NN:
+            t0 = time.perf_counter()
+            self._upload_base_texture()
+            _profile_stats["base"] += time.perf_counter() - t0
+
+            t0 = time.perf_counter()
+            self._upload_overlay_texture()
+            _profile_stats["overlay"] += time.perf_counter() - t0
+
+            _profile_tick()
+        else:
+            self._upload_base_texture()
+            self._upload_overlay_texture()
 
     def _compute_raw_slice_buffers(self):
         vs = self.view_state
@@ -2895,7 +2932,7 @@ class TextureManager:
 
         if nn_needs_canvas:
             canvas_w, canvas_h = v._get_canvas_size()
-            base_w, base_h = cap_nn_texture_size(canvas_w, canvas_h, w, h)
+            base_w, base_h = canvas_w, canvas_h
             ov_w, ov_h = base_w, base_h
         else:
             base_w, base_h = w, h
@@ -2999,7 +3036,12 @@ class TextureManager:
         if actual != expected:
             v.is_viewer_data_dirty = True
             return False
-        dpg.set_value(tag, data)  # type: ignore
+        if _PROFILE_NN:
+            t0 = time.perf_counter()
+            dpg.set_value(tag, data)  # type: ignore
+            _profile_stats["gpu_upload"] += time.perf_counter() - t0
+        else:
+            dpg.set_value(tag, data)  # type: ignore
         if GL_NEAREST_SUPPORTED:
             nearest = v._effective_pixelated_zoom() and v._is_hw_gl
             if nearest or getattr(v, "_last_nearest_applied", False):
@@ -3144,22 +3186,10 @@ class TextureManager:
             v._nn_base_buf = _buf
             v._nn_base_crop = None
 
-        # Scale pmin/pmax from screen-pixel coordinates to capped texture
-        # coordinates when the NN buffer is smaller than the full canvas.
-        real_cw, real_ch = v._get_canvas_size()
-        if canvas_w != real_cw or canvas_h != real_ch:
-            sx = canvas_w / real_cw
-            sy = canvas_h / real_ch
-            pmin = [v.current_pmin[0] * sx, v.current_pmin[1] * sy]
-            pmax = [v.current_pmax[0] * sx, v.current_pmax[1] * sy]
-        else:
-            pmin = v.current_pmin
-            pmax = v.current_pmax
-
         nn_base, crop = compute_software_nearest_neighbor(
             rgba_2d,
-            pmin,
-            pmax,
+            v.current_pmin,
+            v.current_pmax,
             canvas_w,
             canvas_h,
             out_buffer=_buf,
@@ -3201,21 +3231,10 @@ class TextureManager:
                     _buf[: rgba_2d.shape[0], : rgba_2d.shape[1]] = rgba_2d
                     nn_base = _buf
 
-            # Scale pmin/pmax from screen to capped texture coordinates
-            real_cw, real_ch = v._get_canvas_size()
-            if canvas_w != real_cw or canvas_h != real_ch:
-                sx = canvas_w / real_cw
-                sy = canvas_h / real_ch
-                pmin = [v.current_pmin[0] * sx, v.current_pmin[1] * sy]
-                pmax = [v.current_pmax[0] * sx, v.current_pmax[1] * sy]
-            else:
-                pmin = v.current_pmin
-                pmax = v.current_pmax
-
             compute_native_voxel_overlay(
                 v,
-                pmin,
-                pmax,
+                v.current_pmin,
+                v.current_pmax,
                 canvas_w,
                 canvas_h,
                 target_buffer=nn_base,
@@ -3264,17 +3283,6 @@ class TextureManager:
         nn_w = getattr(v, "_ov_tex_w", 1)
         nn_h = getattr(v, "_ov_tex_h", 1)
 
-        # Scale pmin/pmax from screen to capped texture coordinates
-        real_cw, real_ch = v._get_canvas_size()
-        if nn_w != real_cw or nn_h != real_ch:
-            sx = nn_w / real_cw
-            sy = nn_h / real_ch
-            pmin = [v.current_pmin[0] * sx, v.current_pmin[1] * sy]
-            pmax = [v.current_pmax[0] * sx, v.current_pmax[1] * sy]
-        else:
-            pmin = v.current_pmin
-            pmax = v.current_pmax
-
         if v.nn_mode == NNMode.SW_DUAL_NATIVE:
             active_rois = v._package_roi_layers()
             roi_mask = None
@@ -3285,8 +3293,8 @@ class TextureManager:
 
             ov_rgba_display = compute_native_voxel_overlay(
                 v,
-                pmin,
-                pmax,
+                v.current_pmin,
+                v.current_pmax,
                 nn_w,
                 nn_h,
                 roi_mask=roi_mask,
@@ -3321,8 +3329,8 @@ class TextureManager:
 
             nn_ov, crop = compute_software_nearest_neighbor(
                 ov_rgba_2d,
-                pmin,
-                pmax,
+                v.current_pmin,
+                v.current_pmax,
                 nn_w,
                 nn_h,
                 out_buffer=v._nn_ov_buf,

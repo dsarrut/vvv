@@ -442,6 +442,25 @@ def _affine_np(transform):
         return np.eye(3, dtype=np.float64), np.zeros(3, dtype=np.float64)
 
 
+def _xfm_key(transform):
+    """Cheap value-based signature for a SimpleITK transform (or None).
+
+    Registration dragging mutates the transform object in place (SetCenter/
+    SetTranslation) rather than replacing it, so identity comparison isn't a
+    safe cache key — this must compare actual parameter values instead.
+    """
+    if transform is None:
+        return None
+    try:
+        return (
+            tuple(transform.GetMatrix()),
+            tuple(transform.GetTranslation()),
+            tuple(transform.GetFixedParameters()),
+        )
+    except Exception:
+        return None
+
+
 def compute_native_voxel_overlay(
     viewer, pmin, pmax, canvas_w, canvas_h, target_buffer=None, opacity=1.0, roi_mask=None, roi_color_buf=None
 ):
@@ -480,26 +499,6 @@ def compute_native_voxel_overlay(
         ovs.space.transform if (ovs.space.transform and ovs.space.is_active) else None
     )
 
-    t_user_A = np.zeros(3, dtype=np.float64)
-    if base_xfm is not None:
-        t_user_A = np.array(base_xfm.GetTranslation(), dtype=np.float64)
-
-    R_B, t_B = _affine_np(ov_xfm)
-    try:
-        R_B_inv = np.linalg.inv(R_B)
-    except np.linalg.LinAlgError:
-        R_B_inv = np.eye(3)
-
-    R_comp = R_B_inv
-    t_comp = R_B_inv @ (t_user_A - t_B)
-
-    # --- 2 & 3. Analytic Composition ---
-    M_base = base_vol.matrix * base_vol.spacing[np.newaxis, :]  # (3, 3)
-    M_inv_ov = ov_vol.inverse_matrix / ov_vol.spacing[:, None]  # (3, 3)
-
-    A_total = M_inv_ov @ R_comp @ M_base
-    b_total = M_inv_ov @ (R_comp @ base_vol.origin + t_comp - ov_vol.origin)
-
     slice_h, slice_w = viewer.get_slice_shape()
     depth = float(viewer.slice_idx)
 
@@ -507,66 +506,114 @@ def compute_native_voxel_overlay(
     ov_data = ov_vol.data[time_idx] if ov_vol.num_timepoints > 1 else ov_vol.data
     ov_D, ov_H, ov_W = ov_data.shape
 
-    # --- SCREEN CROP OPTIMIZATION ---
+    # --- Geometry setup: transform composition (A_total/b_total) and the
+    # projected overlay-bbox corners used for screen-crop culling. None of
+    # this depends on zoom/pan (pmin/pmax) — only on the registration
+    # transforms, threshold, volumes, and orientation — so it's cached per
+    # viewer and only recomputed when one of those actually changes, instead
+    # of on every single frame (including pure zoom/pan ticks).
+    thr_val = ovs.display.min_threshold
+    geom_key = (
+        id(base_vol),
+        id(ov_vol),
+        _xfm_key(base_xfm),
+        _xfm_key(ov_xfm),
+        thr_val,
+        viewer.orientation,
+        slice_w,
+        slice_h,
+    )
+    _geom_cache = getattr(viewer, "_native_ov_geom_cache", None)
+    if _geom_cache is not None and _geom_cache[0] == geom_key:
+        _, A_total, b_total, ix_disp_corners, iy_disp_corners = _geom_cache
+    else:
+        t_user_A = np.zeros(3, dtype=np.float64)
+        if base_xfm is not None:
+            t_user_A = np.array(base_xfm.GetTranslation(), dtype=np.float64)
+
+        R_B, t_B = _affine_np(ov_xfm)
+        try:
+            R_B_inv = np.linalg.inv(R_B)
+        except np.linalg.LinAlgError:
+            R_B_inv = np.eye(3)
+
+        R_comp = R_B_inv
+        t_comp = R_B_inv @ (t_user_A - t_B)
+
+        # --- 2 & 3. Analytic Composition ---
+        M_base = base_vol.matrix * base_vol.spacing[np.newaxis, :]  # (3, 3)
+        M_inv_ov = ov_vol.inverse_matrix / ov_vol.spacing[:, None]  # (3, 3)
+
+        A_total = M_inv_ov @ R_comp @ M_base
+        b_total = M_inv_ov @ (R_comp @ base_vol.origin + t_comp - ov_vol.origin)
+
+        ix_disp_corners = iy_disp_corners = None
+        try:
+            A_inv = np.linalg.inv(A_total)
+            if thr_val is not None:
+                if not hasattr(ov_vol, "_nonzero_bbox_cache"):
+                    ov_vol._nonzero_bbox_cache = {}
+                nz_box = ov_vol._nonzero_bbox_cache.get(thr_val)
+                if nz_box is None:
+                    nz_mask = ov_data > thr_val
+                    if np.any(nz_mask):
+                        nz_z, nz_y, nz_x = np.nonzero(nz_mask)
+                        nz_box = (
+                            int(nz_x.min()), int(nz_x.max()) + 1,
+                            int(nz_y.min()), int(nz_y.max()) + 1,
+                            int(nz_z.min()), int(nz_z.max()) + 1,
+                        )
+                    else:
+                        nz_box = (0, ov_W, 0, ov_H, 0, ov_D)
+                    ov_vol._nonzero_bbox_cache[thr_val] = nz_box
+
+                ox0, ox1, oy0, oy1, oz0, oz1 = nz_box
+                corners_ov = np.array(
+                    [
+                        [ox0, oy0, oz0],
+                        [ox1, oy0, oz0],
+                        [ox0, oy1, oz0],
+                        [ox1, oy1, oz0],
+                        [ox0, oy0, oz1],
+                        [ox1, oy0, oz1],
+                        [ox0, oy1, oz1],
+                        [ox1, oy1, oz1],
+                    ]
+                )
+            else:
+                corners_ov = np.array(
+                    [
+                        [0, 0, 0],
+                        [ov_W, 0, 0],
+                        [0, ov_H, 0],
+                        [ov_W, ov_H, 0],
+                        [0, 0, ov_D],
+                        [ov_W, 0, ov_D],
+                        [0, ov_H, ov_D],
+                        [ov_W, ov_H, ov_D],
+                    ]
+                )
+            base_corners = (A_inv @ (corners_ov - b_total).T).T
+
+            if viewer.orientation == ViewMode.AXIAL:
+                ix_disp_corners = base_corners[:, 0] + 0.5
+                iy_disp_corners = base_corners[:, 1] + 0.5
+            elif viewer.orientation == ViewMode.SAGITTAL:
+                ix_disp_corners = slice_w - base_corners[:, 1] - 0.5
+                iy_disp_corners = slice_h - base_corners[:, 2] - 0.5
+            else:  # CORONAL
+                ix_disp_corners = base_corners[:, 0] + 0.5
+                iy_disp_corners = slice_h - base_corners[:, 2] - 0.5
+        except np.linalg.LinAlgError:
+            ix_disp_corners = iy_disp_corners = None
+
+        viewer._native_ov_geom_cache = (
+            geom_key, A_total, b_total, ix_disp_corners, iy_disp_corners
+        )
+
+    # --- SCREEN CROP OPTIMIZATION (zoom/pan-dependent — always fresh) ---
     c_x0, c_x1, c_y0, c_y1 = 0, canvas_w, 0, canvas_h
-    try:
-        A_inv = np.linalg.inv(A_total)
-        thr_val = ovs.display.min_threshold
-        if thr_val is not None:
-            if not hasattr(ov_vol, "_nonzero_bbox_cache"):
-                ov_vol._nonzero_bbox_cache = {}
-            nz_box = ov_vol._nonzero_bbox_cache.get(thr_val)
-            if nz_box is None:
-                nz_mask = ov_data > thr_val
-                if np.any(nz_mask):
-                    nz_z, nz_y, nz_x = np.nonzero(nz_mask)
-                    nz_box = (
-                        int(nz_x.min()), int(nz_x.max()) + 1,
-                        int(nz_y.min()), int(nz_y.max()) + 1,
-                        int(nz_z.min()), int(nz_z.max()) + 1,
-                    )
-                else:
-                    nz_box = (0, ov_W, 0, ov_H, 0, ov_D)
-                ov_vol._nonzero_bbox_cache[thr_val] = nz_box
-
-            ox0, ox1, oy0, oy1, oz0, oz1 = nz_box
-            corners_ov = np.array(
-                [
-                    [ox0, oy0, oz0],
-                    [ox1, oy0, oz0],
-                    [ox0, oy1, oz0],
-                    [ox1, oy1, oz0],
-                    [ox0, oy0, oz1],
-                    [ox1, oy0, oz1],
-                    [ox0, oy1, oz1],
-                    [ox1, oy1, oz1],
-                ]
-            )
-        else:
-            corners_ov = np.array(
-                [
-                    [0, 0, 0],
-                    [ov_W, 0, 0],
-                    [0, ov_H, 0],
-                    [ov_W, ov_H, 0],
-                    [0, 0, ov_D],
-                    [ov_W, 0, ov_D],
-                    [0, ov_H, ov_D],
-                    [ov_W, ov_H, ov_D],
-                ]
-            )
-        base_corners = (A_inv @ (corners_ov - b_total).T).T
-
-        if viewer.orientation == ViewMode.AXIAL:
-            ix_disp_corners = base_corners[:, 0] + 0.5
-            iy_disp_corners = base_corners[:, 1] + 0.5
-        elif viewer.orientation == ViewMode.SAGITTAL:
-            ix_disp_corners = slice_w - base_corners[:, 1] - 0.5
-            iy_disp_corners = slice_h - base_corners[:, 2] - 0.5
-        else:  # CORONAL
-            ix_disp_corners = base_corners[:, 0] + 0.5
-            iy_disp_corners = slice_h - base_corners[:, 2] - 0.5
-
+    if ix_disp_corners is not None:
         x_screen = (ix_disp_corners * disp_w / slice_w) + pmin[0] - 0.5
         y_screen = (iy_disp_corners * disp_h / slice_h) + pmin[1] - 0.5
 
@@ -575,8 +622,6 @@ def compute_native_voxel_overlay(
 
         c_x0, c_x1 = max(0, min(canvas_w, b_x0)), max(0, min(canvas_w, b_x1))
         c_y0, c_y1 = max(0, min(canvas_h, b_y0)), max(0, min(canvas_h, b_y1))
-    except np.linalg.LinAlgError:
-        pass
 
     if target_buffer is None:
         if not hasattr(viewer, "_native_ov_buf") or viewer._native_ov_buf.shape[:2] != (
