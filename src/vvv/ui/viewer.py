@@ -33,6 +33,7 @@ from vvv.ui.render_strategy import (
     DEFAULT_NN_MODE,
     select_nn_mode,
     should_use_lazy_lin,
+    cap_nn_texture_size,
 )
 from typing import Any
 import logging
@@ -2893,7 +2894,8 @@ class TextureManager:
         nn_needs_canvas = nn_active and not is_hw_gl
 
         if nn_needs_canvas:
-            base_w, base_h = v._get_canvas_size()
+            canvas_w, canvas_h = v._get_canvas_size()
+            base_w, base_h = cap_nn_texture_size(canvas_w, canvas_h, w, h)
             ov_w, ov_h = base_w, base_h
         else:
             base_w, base_h = w, h
@@ -3030,8 +3032,8 @@ class TextureManager:
             )
             return
 
-        canvas_w, canvas_h = v._get_canvas_size()
-        self._upload_sw_nn_base(vs, canvas_w, canvas_h)
+        nn_w, nn_h = getattr(v, "_tex_w", 1), getattr(v, "_tex_h", 1)
+        self._upload_sw_nn_base(vs, nn_w, nn_h)
 
     def _upload_sw_nn_base(self, vs, canvas_w, canvas_h):
         v = self.viewer
@@ -3142,10 +3144,22 @@ class TextureManager:
             v._nn_base_buf = _buf
             v._nn_base_crop = None
 
+        # Scale pmin/pmax from screen-pixel coordinates to capped texture
+        # coordinates when the NN buffer is smaller than the full canvas.
+        real_cw, real_ch = v._get_canvas_size()
+        if canvas_w != real_cw or canvas_h != real_ch:
+            sx = canvas_w / real_cw
+            sy = canvas_h / real_ch
+            pmin = [v.current_pmin[0] * sx, v.current_pmin[1] * sy]
+            pmax = [v.current_pmax[0] * sx, v.current_pmax[1] * sy]
+        else:
+            pmin = v.current_pmin
+            pmax = v.current_pmax
+
         nn_base, crop = compute_software_nearest_neighbor(
             rgba_2d,
-            v.current_pmin,
-            v.current_pmax,
+            pmin,
+            pmax,
             canvas_w,
             canvas_h,
             out_buffer=_buf,
@@ -3186,10 +3200,22 @@ class TextureManager:
                 if _buf is not None:
                     _buf[: rgba_2d.shape[0], : rgba_2d.shape[1]] = rgba_2d
                     nn_base = _buf
+
+            # Scale pmin/pmax from screen to capped texture coordinates
+            real_cw, real_ch = v._get_canvas_size()
+            if canvas_w != real_cw or canvas_h != real_ch:
+                sx = canvas_w / real_cw
+                sy = canvas_h / real_ch
+                pmin = [v.current_pmin[0] * sx, v.current_pmin[1] * sy]
+                pmax = [v.current_pmax[0] * sx, v.current_pmax[1] * sy]
+            else:
+                pmin = v.current_pmin
+                pmax = v.current_pmax
+
             compute_native_voxel_overlay(
                 v,
-                v.current_pmin,
-                v.current_pmax,
+                pmin,
+                pmax,
                 canvas_w,
                 canvas_h,
                 target_buffer=nn_base,
@@ -3235,7 +3261,19 @@ class TextureManager:
         if v.nn_mode in (NNMode.SW_SINGLE_MERGED, NNMode.SW_SINGLE_NATIVE):
             return
 
-        canvas_w, canvas_h = v._get_canvas_size()
+        nn_w = getattr(v, "_ov_tex_w", 1)
+        nn_h = getattr(v, "_ov_tex_h", 1)
+
+        # Scale pmin/pmax from screen to capped texture coordinates
+        real_cw, real_ch = v._get_canvas_size()
+        if nn_w != real_cw or nn_h != real_ch:
+            sx = nn_w / real_cw
+            sy = nn_h / real_ch
+            pmin = [v.current_pmin[0] * sx, v.current_pmin[1] * sy]
+            pmax = [v.current_pmax[0] * sx, v.current_pmax[1] * sy]
+        else:
+            pmin = v.current_pmin
+            pmax = v.current_pmax
 
         if v.nn_mode == NNMode.SW_DUAL_NATIVE:
             active_rois = v._package_roi_layers()
@@ -3247,10 +3285,10 @@ class TextureManager:
 
             ov_rgba_display = compute_native_voxel_overlay(
                 v,
-                v.current_pmin,
-                v.current_pmax,
-                canvas_w,
-                canvas_h,
+                pmin,
+                pmax,
+                nn_w,
+                nn_h,
                 roi_mask=roi_mask,
                 roi_color_buf=roi_color_buf,
             )
@@ -3258,8 +3296,8 @@ class TextureManager:
                 self._safe_set_texture(
                     v.overlay_texture_tag,
                     ov_rgba_display,
-                    getattr(v, "_ov_tex_w", 1),
-                    getattr(v, "_ov_tex_h", 1),
+                    nn_w,
+                    nn_h,
                 )
         else:
             ov_actual_shape = getattr(v, "last_overlay_rgba_shape", None)
@@ -3276,17 +3314,17 @@ class TextureManager:
                 return
 
             _buf = getattr(v, "_nn_ov_buf", None)
-            if _buf is None or _buf.shape[:2] != (canvas_h, canvas_w):
-                _buf = np.zeros((canvas_h, canvas_w, 4), dtype=np.float32)
+            if _buf is None or _buf.shape[:2] != (nn_h, nn_w):
+                _buf = np.zeros((nn_h, nn_w, 4), dtype=np.float32)
                 v._nn_ov_buf = _buf
                 v._nn_ov_crop = None
 
             nn_ov, crop = compute_software_nearest_neighbor(
                 ov_rgba_2d,
-                v.current_pmin,
-                v.current_pmax,
-                canvas_w,
-                canvas_h,
+                pmin,
+                pmax,
+                nn_w,
+                nn_h,
                 out_buffer=v._nn_ov_buf,
                 last_crop=v._nn_ov_crop,
             )
@@ -3294,8 +3332,8 @@ class TextureManager:
             self._safe_set_texture(
                 v.overlay_texture_tag,
                 nn_ov.ravel(),
-                getattr(v, "_ov_tex_w", 1),
-                getattr(v, "_ov_tex_h", 1),
+                nn_w,
+                nn_h,
             )
 
 

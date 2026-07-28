@@ -166,6 +166,26 @@ DEFAULT_NN_MODE: NNMode = (
     NNMode.HW_GL_NEAREST if GL_NEAREST_SUPPORTED else NNMode.SW_DUAL_NATIVE
 )
 
+# Maximum NN upscale factor relative to the source image resolution.
+# Beyond this, the NN buffer is capped and DPG stretches the remaining factor
+# with bilinear — visually identical since pixel-block edges are already sharp.
+NN_MAX_SCALE_FACTOR = 4
+
+
+def cap_nn_texture_size(
+    canvas_w: int, canvas_h: int, img_w: int, img_h: int
+) -> tuple[int, int]:
+    """Return capped (tex_w, tex_h) for SW NN rendering.
+
+    Limits the rendered NN buffer to at most NN_MAX_SCALE_FACTOR × the source
+    image resolution in each axis.  When capped, DPG's bilinear stretch
+    handles the remaining magnification — since each source pixel already
+    occupies multiple texture pixels, the block edges stay perfectly crisp.
+    """
+    max_w = img_w * NN_MAX_SCALE_FACTOR
+    max_h = img_h * NN_MAX_SCALE_FACTOR
+    return min(canvas_w, max_w), min(canvas_h, max_h)
+
 
 def select_nn_mode(cfg: dict, has_fusion: bool) -> NNMode:
     """Derive the active NNMode from rendering config and fusion state."""
@@ -407,11 +427,10 @@ def compute_software_nearest_neighbor(
         return out
 
     if all_valid:
-        if last_crop:
-            oy0, oy1, ox0, ox1 = last_crop
-            out_buffer[oy0:oy1, ox0:ox1] = 0.0
-        out_buffer[:, :] = tile
-        return out_buffer, None
+        # tile is already (canvas_h, canvas_w, 4) and C-contiguous from
+        # np.repeat, so skip the redundant copy into out_buffer.
+        # .ravel() on tile returns a zero-copy view.
+        return tile, None
 
     if last_crop is None:
         # Previous frame was all_valid (entire buffer was filled) — zero it now
