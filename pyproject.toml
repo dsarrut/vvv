@@ -17,15 +17,13 @@ dependencies = [
     "setproctitle",
     "pydicom",
     "pyobjc-framework-Cocoa; sys_platform == 'darwin'",
-    "fabio"
+    "fabio",
+    "numba"
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest"
-]
-numba = [
-    "numba"
 ]
 memory = [
     "psutil"
