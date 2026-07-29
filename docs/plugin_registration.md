@@ -37,7 +37,7 @@ When the transform values change, a full 3D resample of the volume is required f
 
 - **Throttling Timer**: Instead of resampling on every slider tick, changes trigger `_schedule_auto_resample(vs_id)`.
 - **Debounce Logic**: This schedules a `threading.Timer` (default delay 0.35s). If the user moves a slider again before the timer fires, the previous timer is cancelled and a new one is created.
-- Once the user stops moving the slider, the timer fires `_fire_auto_resample`, which spawns a background thread to compute the 3D resampled volume array and updates the display via `api.resample_image`.
+- Once the user stops moving the slider, the timer fires `_fire_auto_resample`, which calls `api.resample_image` to compute the 3D resampled volume array and update the display. `Controller.resample_image()` submits the work to a per-image `JobRunner` ([background_job.py](../src/vvv/core/background_job.py)) rather than spawning a new thread per call — if the transform changes again (or another resample/bake for the same image is submitted) before the job finishes, its result is discarded instead of committed. Baking (below) shares the same per-image `JobRunner`, so a bake and a resample can never race on the same image's data.
 
 ---
 

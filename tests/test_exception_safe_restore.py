@@ -7,6 +7,28 @@ from vvv.core.controller import Controller
 from vvv.maths.image import VolumeData
 from vvv.utils import ViewMode
 
+
+class _ImmediateJob:
+    """Job stand-in that always reports itself as current."""
+
+    def is_current(self):
+        return True
+
+
+class _ImmediateJobRunner:
+    """JobRunner stand-in that runs submitted work synchronously on the calling
+    thread, so tests can assert on state right after the call returns instead
+    of needing to reach into a background thread."""
+
+    def submit(self, fn):
+        job = _ImmediateJob()
+        fn(job)
+        return job
+
+    def invalidate(self):
+        pass
+
+
 def test_reload_image_failure_recovery(headless_gui_app):
     controller, gui, viewer, vs_id = headless_gui_app
     vs = controller.view_states[vs_id]
@@ -82,11 +104,8 @@ def test_bake_transform_failure_recovery(headless_gui_app):
 
     # Force an exception during resampler.Execute by mocking sitk.ResampleImageFilter.Execute
     with patch("SimpleITK.ResampleImageFilter.Execute", side_effect=RuntimeError("Simulated ITK error")):
-        with patch("threading.Thread") as mock_thread:
+        with patch.object(controller, "_get_job_runner", return_value=_ImmediateJobRunner()):
             controller.bake_transform_to_volume(vs_id)
-            # Retrieve target function and run it synchronously
-            target_func = mock_thread.call_args[1]["target"]
-            target_func()
 
     # Verify recovery
     assert vol.data is original_data

@@ -17,6 +17,7 @@ from vvv.core.history_manager import HistoryManager
 from vvv.core.settings_manager import SettingsManager
 from vvv.core.profile_manager import ProfileManager
 from vvv.core.overlay_resampler import resample_base, resample_overlay
+from vvv.core.background_job import JobRunner
 
 
 class Controller:
@@ -65,6 +66,11 @@ class Controller:
 
         self.use_history = True
         self.next_image_id = 1
+
+        # One JobRunner per image, lazily created. resample_image() and
+        # bake_transform_to_volume() share the same runner for a given vs_id so
+        # they can never race each other on that image's data.
+        self._job_runners: dict[str, JobRunner] = {}
 
         self.ui_needs_refresh = False
         self.ui_needs_layout_rebuild = False
@@ -522,6 +528,18 @@ class Controller:
         self.ui_needs_refresh = True
         self._flag_all_viewers_dirty()
 
+    def _get_job_runner(self, vs_id) -> JobRunner:
+        """Return this image's background JobRunner, creating it on first use.
+
+        Shared by resample_image() and bake_transform_to_volume() so the two
+        can never run concurrently on the same image's data.
+        """
+        runner = self._job_runners.get(vs_id)
+        if runner is None:
+            runner = JobRunner()
+            self._job_runners[vs_id] = runner
+        return runner
+
     def update_transform_manual(self, vs_id, tx, ty, tz, rx_deg, ry_deg, rz_deg):
         vs = self.view_states.get(vs_id)
         if not vs:
@@ -529,25 +547,24 @@ class Controller:
         vs.space.set_manual_transform(
             tx, ty, tz, math.radians(rx_deg), math.radians(ry_deg), math.radians(rz_deg)
         )
-        vs._active_resample_job = 0  # mark any in-flight resample as inproductive
+        # Mark any in-flight resample/bake for this image as stale.
+        self._get_job_runner(vs_id).invalidate()
 
     def resample_image(self, image_id):
-        """Spawn a background thread that resamples image_id and all dependent overlays.
+        """Resample image_id and all dependent overlays on its background JobRunner.
 
-        Each call gets a unique job ID.  If the transform changes mid-resample
-        (update_transform_manual sets _active_resample_job = 0), the thread detects
-        it is inproductive at the end and discards the result without touching viewers.
+        If the transform changes mid-resample (update_transform_manual() calls
+        invalidate()), or a newer resample/bake for the same image is submitted
+        before this one finishes, job.is_current() goes False and the result is
+        discarded without touching viewers.
         """
         vs = self.view_states.get(image_id)
         if not vs:
             return
 
-        vs._resample_job_counter += 1
-        my_job_id = vs._resample_job_counter
-        vs._active_resample_job = my_job_id
         self.ui_needs_refresh = True  # update UI debug indicator immediately
 
-        def _do():
+        def _do(job):
             vs = self.view_states.get(image_id)
             if not vs:
                 return
@@ -558,43 +575,42 @@ class Controller:
             # --- Early exit: check before touching any overlay data ---
             # If the transform changed during base resampling, overlay_data was never
             # modified so the old (pre-resample) overlay is still valid — no ghost.
-            if vs._active_resample_job != my_job_id:
-                self._discard_resample(my_job_id)
+            if not job.is_current():
+                self._discard_resample()
                 return
 
             if vs.display.overlay.image_id:
                 ovs = self.view_states.get(vs.display.overlay.image_id)
                 if ovs:
-                    self._apply_overlay_resample(vs, ovs, my_job_id, image_id)
+                    self._apply_overlay_resample(vs, ovs, job)
 
             for other_vs in self.view_states.values():
                 if other_vs.display.overlay.image_id == image_id:
                     ovs = self.view_states.get(image_id)
                     if ovs:
-                        self._apply_overlay_resample(other_vs, ovs, my_job_id, image_id)
+                        self._apply_overlay_resample(other_vs, ovs, job)
 
             # --- Late exit: check after overlay resampling ---
             # If the transform changed during overlay resampling, the overlays now hold
             # wrong-transform data. We discard the resample, but we do not clear the overlay
             # data to None here because that causes a jarring flash/flicker.
-            if vs._active_resample_job != my_job_id:
-                self._discard_resample(my_job_id)
+            if not job.is_current():
+                self._discard_resample()
                 return
 
             # Sync crosshair AFTER all overlay resampling (avoids tombstone flash).
             if vs.base_display_data is not None and vs.camera.crosshair_phys_coord is not None:
                 vs.update_crosshair_from_phys(vs.camera.crosshair_phys_coord)
 
-            vs._active_resample_job = 0
             vs.needs_resample = False
             self.update_all_viewers_of_image(image_id)
             self.status_message = "Resampling complete"
             self.ui_needs_refresh = True
 
-        threading.Thread(target=_do, daemon=True).start()
+        self._get_job_runner(image_id).submit(_do)
 
-    def _discard_resample(self, job_id):
-        self.status_message = f"Resample #{job_id} discarded (transform changed)"
+    def _discard_resample(self):
+        self.status_message = "Resample discarded (superseded)"
         self.ui_needs_refresh = True
 
     def _apply_base_resample(self, vs):
@@ -619,12 +635,13 @@ class Controller:
         vs._sitk_base_cache = new_cache
         vs.base_display_data = new_data
 
-    def _apply_overlay_resample(self, base_vs, ovs, job_id=None, check_image_id=None):
+    def _apply_overlay_resample(self, base_vs, ovs, job=None):
         """Tombstone-safe overlay resample. Wraps the pure resample_overlay() function.
 
         Keeps the old ITK cache alive as a local during Execute() (tombstone pattern)
         so the 60fps render thread never reads a freed numpy view.
-        If job_id and check_image_id are given, aborts if the resample is stale.
+        If a `Job` is given, aborts (keeping the pre-resample overlay) if it has been
+        superseded (see background_job.JobRunner).
         """
         _old_cache = base_vs.display._sitk_overlay_cache
         base_vs.display._sitk_overlay_cache = None
@@ -636,12 +653,10 @@ class Controller:
             ovs.space.transform if ovs.space.is_active else None,
         )
 
-        if job_id is not None and check_image_id is not None:
-            check_vs = self.view_states.get(check_image_id)
-            if check_vs and check_vs._active_resample_job != job_id:
-                with base_vs.display._lock:
-                    base_vs.display._sitk_overlay_cache = _old_cache
-                return
+        if job is not None and not job.is_current():
+            with base_vs.display._lock:
+                base_vs.display._sitk_overlay_cache = _old_cache
+            return
 
         _old_cache = None  # noqa: F841  — release old ITK object after new data is ready
         with base_vs.display._lock:
@@ -671,10 +686,11 @@ class Controller:
     def bake_transform_to_volume(self, vs_id):
         """Permanently apply the registration transform by resampling the volume in-place.
 
-        Runs in a background thread.  Uses the same tombstone pattern as reload_image
-        to safely sever old C++ memory before swapping in the new resampled data.
-        After baking, the transform is reset to identity and the image is indistinguishable
-        from one loaded without any transform.
+        Runs on this image's background JobRunner (shared with resample_image(), so the
+        two can never race on the same image's data). Uses the same tombstone pattern as
+        reload_image to safely sever old C++ memory before swapping in the new resampled
+        data. After baking, the transform is reset to identity and the image is
+        indistinguishable from one loaded without any transform.
         """
         import SimpleITK as sitk
 
@@ -689,7 +705,7 @@ class Controller:
             else None
         )
 
-        def _do_bake():
+        def _do_bake(job):
             assert vs is not None
             assert vol is not None
             with vs.loading_shield():
@@ -714,6 +730,14 @@ class Controller:
 
                     src_img = sitk.Cast(vol.sitk_image, sitk.sitkFloat32)
                     new_sitk = resampler.Execute(src_img)
+
+                    # If the transform changed (or another bake/resample was submitted)
+                    # while Execute() was running, nothing has been touched yet — just
+                    # discard the result rather than commit a stale bake.
+                    if not job.is_current():
+                        self.status_message = "Bake discarded (superseded)"
+                        self.ui_needs_refresh = True
+                        return
 
                     # Capture pre-bake state for overlay rebuild
                     old_state = self._capture_pre_reload_state(vs, vol)
@@ -753,7 +777,7 @@ class Controller:
                     self.status_message = f"Bake failed: {e}"
                     self.ui_needs_refresh = True
 
-        threading.Thread(target=_do_bake, daemon=True).start()
+        self._get_job_runner(vs_id).submit(_do_bake)
 
     def reset_settings(self):
         self.settings.reset()

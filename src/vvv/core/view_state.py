@@ -646,8 +646,6 @@ class ViewState:
         self.needs_resample: bool = (
             False  # True when transform changed since last resample
         )
-        self._resample_job_counter: int = 0  # monotonically increasing job ID generator
-        self._active_resample_job: int = 0  # 0 = idle, N = job N is currently running
         self.base_display_data: np.ndarray | None = None
         self._sitk_base_cache = None
         self._preview_R: "np.ndarray | None" = (
