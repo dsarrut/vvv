@@ -28,30 +28,32 @@ def build_tab_images(gui):
 
 
 def highlight_active_image_in_list(gui, active_img_id):
-    """Highlights the currently active image in both the Images and Sync tabs."""
+    """Highlights the currently active image in both the Images and Sync tabs.
+
+    An outdated (changed-on-disk) image is flagged orange even when it's the
+    active image — that warning must not be hidden by the green "active" theme.
+    """
     for img_id, label_tag in gui.image_label_tags.items():
         if dpg.does_item_exist(label_tag):
-            if img_id == active_img_id:
+            vol = gui.controller.volumes.get(img_id)
+            is_outdated = getattr(vol, "_is_outdated", False) if vol else False
+            if is_outdated:
+                dpg.bind_item_theme(label_tag, "outdated_image_input_theme")
+            elif img_id == active_img_id:
                 dpg.bind_item_theme(label_tag, "active_image_list_theme")
             else:
-                vol = gui.controller.volumes.get(img_id)
-                is_outdated = getattr(vol, "_is_outdated", False) if vol else False
-                if is_outdated:
-                    dpg.bind_item_theme(label_tag, "outdated_image_input_theme")
-                else:
-                    dpg.bind_item_theme(label_tag, "")
+                dpg.bind_item_theme(label_tag, "")
 
     for img_id, label_tag in gui.sync_label_tags.items():
         if dpg.does_item_exist(label_tag):
-            if img_id == active_img_id:
+            vol = gui.controller.volumes.get(img_id)
+            is_outdated = getattr(vol, "_is_outdated", False) if vol else False
+            if is_outdated:
+                dpg.bind_item_theme(label_tag, "outdated_image_input_theme")
+            elif img_id == active_img_id:
                 dpg.bind_item_theme(label_tag, "active_image_list_theme")
             else:
-                vol = gui.controller.volumes.get(img_id)
-                is_outdated = getattr(vol, "_is_outdated", False) if vol else False
-                if is_outdated:
-                    dpg.bind_item_theme(label_tag, "outdated_image_input_theme")
-                else:
-                    dpg.bind_item_theme(label_tag, "")
+                dpg.bind_item_theme(label_tag, "")
 
 def sync_image_list_ui(gui):
     """Synchronizes the image list sliders every frame without a full rebuild."""

@@ -30,6 +30,16 @@ Used to accelerate `compute_native_voxel_overlay` (~40x faster than pure NumPy) 
 ### ROI Mask Buffer Cache
 `build_roi_mask_buffer()` (composites all active ROI masks/colors into `h×w` buffers for native-voxel painting) was being rebuilt from scratch every frame, including pure zoom/pan where no ROI actually changed. For large ROIs this dominated `compute_native_voxel_overlay`'s cost far more than the numba kernel itself (~90% of it, in profiling). Now cached per-viewer via `TextureManager._get_cached_roi_mask()`, keyed on `(h, w, [(id(roi.data), color, opacity, offset_x, offset_y) for each active ROI])`. Safe because `LayerPackager.package_roi_layers()` already reuses the same array object per ROI when its slice hasn't changed, so `id(roi.data)` is a valid, cheap invalidation signal.
 
+### ROI Compositing Cache (get_slice_rgba / _apply_rois)
+
+Separate from the native-overlay ROI mask cache above: `SliceRenderer._apply_rois()` (called from `get_slice_rgba()`, used for the Alpha-mode base/overlay textures) was also rebuilding its ROI mask/color buffers via `build_roi_mask_buffer()` from scratch on every call — including W/L changes, which force a reblend but never touch the ROI. This is a genuinely separate code path from the native-overlay cache (different call site, different resolution space — native canvas vs. slice-native), so that earlier fix didn't cover it.
+
+Fixed the same way: `_apply_rois()` now takes an optional `cache_holder`/`cache_attr` (the `SliceViewer` instance, one attr per call site — `get_slice_rgba()` can be invoked up to 3 times per viewer per frame depending on `roi_above_overlay`, so each needs its own slot). Verified via instrumentation that `build_roi_mask_buffer()` drops to zero calls across repeated W/L updates once the ROI set is unchanged.
+
+This alone didn't fully explain the measured W/L slowdown, though — profiling showed the remaining cost was the alpha-blend step itself (`np.where`/multiply over the full canvas), which necessarily reruns every time because the base RGBA changes with windowing even when the ROI doesn't. Since `roi_mask` is mostly zero outside the ROI's own footprint, `_apply_rois` now derives the ROI's bounding box from `roi_mask` (two `.any()` reductions) and restricts the blend to that sub-region instead of the full `h×w` canvas — a no-op-preserving, size-proportional speedup (bigger win the smaller/sparser the ROI is relative to the canvas).
+
+Net effect on `bench_fusion_roi_large.py` (full-size, 50%-coverage ROI — a pessimistic case since the bbox covers a large fraction of the canvas): W/L's Δ ROI cost dropped from ~20-25ms to ~2-6ms. Slicing's Δ ROI cost (~25ms) is unaffected by design — a real slice change legitimately invalidates the ROI mask cache, so that cost is inherent, not a bug.
+
 ## 4. Diagnostics
 
 Set `VVV_PROFILE=1` to get a per-stage timing breakdown printed every 30 render calls, summed across all viewers:

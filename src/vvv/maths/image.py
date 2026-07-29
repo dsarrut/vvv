@@ -93,6 +93,28 @@ def build_roi_mask_buffer(active_rois, h, w):
     return roi_mask, roi_color_buf
 
 
+def _cached_roi_mask_buffer(active_rois, h, w, cache_holder, cache_attr):
+    """Like build_roi_mask_buffer, but skips the rebuild when `cache_holder`
+    already holds a buffer for the same (h, w, roi-signature) key."""
+    if cache_holder is None:
+        return build_roi_mask_buffer(active_rois, h, w)
+
+    key = (
+        h, w,
+        tuple(
+            (id(r.data), r.color, r.opacity, r.offset_x, r.offset_y)
+            for r in active_rois
+        ),
+    )
+    cached = getattr(cache_holder, cache_attr, None)
+    if cached is not None and cached[0] == key:
+        return cached[1], cached[2]
+
+    roi_mask, roi_color_buf = build_roi_mask_buffer(active_rois, h, w)
+    setattr(cache_holder, cache_attr, (key, roi_mask, roi_color_buf))
+    return roi_mask, roi_color_buf
+
+
 class SliceRenderer:
     """Pure utility to generate renderable RGBA arrays using a streamlined pipeline."""
 
@@ -241,19 +263,41 @@ class SliceRenderer:
         return np.ascontiguousarray(padded[y0 : y0 + h, x0 : x0 + w])
 
     @staticmethod
-    def _apply_rois(base_rgba, rois):
-        """Rapidly composites binary ROI masks using 2D Bounding Boxes."""
+    def _apply_rois(base_rgba, rois, cache_holder=None, cache_attr="_roi_mask_cache"):
+        """Rapidly composites binary ROI masks using 2D Bounding Boxes.
+
+        `cache_holder`/`cache_attr` let the caller (a SliceViewer) reuse the
+        composited mask/color buffers across calls where the ROI set, and
+        canvas size, haven't actually changed (e.g. W/L drag, which forces a
+        reblend but doesn't touch the ROI) instead of rebuilding them from
+        scratch on every call.
+        """
         bh, bw = base_rgba.shape[:2]
-        roi_mask, roi_color_buf = build_roi_mask_buffer(rois, bh, bw)
+        roi_mask, roi_color_buf = _cached_roi_mask_buffer(rois, bh, bw, cache_holder, cache_attr)
 
         has_roi = roi_mask > 0.0
-        if np.any(has_roi):
-            alpha = roi_mask[:, :, np.newaxis]   # (h, w, 1)
-            mask3 = has_roi[:, :, np.newaxis]     # (h, w, 1)
-            blended_rgb = base_rgba[:, :, :3] * (1.0 - alpha) + roi_color_buf * alpha
-            base_rgba[:, :, :3] = np.where(mask3, blended_rgb, base_rgba[:, :, :3])
-            blended_a = base_rgba[:, :, 3] * (1.0 - roi_mask) + roi_mask
-            base_rgba[:, :, 3] = np.where(has_roi, blended_a, base_rgba[:, :, 3])
+        rows = has_roi.any(axis=1)
+        if rows.any():
+            # Restrict the blend to the ROI's own bounding box instead of the
+            # full canvas — has_roi is mostly False outside it, so this skips
+            # blending pixels that would just no-op through np.where anyway.
+            cols = has_roi.any(axis=0)
+            y0, y1 = np.nonzero(rows)[0][[0, -1]]
+            x0, x1 = np.nonzero(cols)[0][[0, -1]]
+            y1 += 1
+            x1 += 1
+
+            sub_base = base_rgba[y0:y1, x0:x1]
+            sub_mask = roi_mask[y0:y1, x0:x1]
+            sub_color = roi_color_buf[y0:y1, x0:x1]
+            sub_has = has_roi[y0:y1, x0:x1]
+
+            alpha = sub_mask[:, :, np.newaxis]   # (bh, bw, 1)
+            mask3 = sub_has[:, :, np.newaxis]     # (bh, bw, 1)
+            blended_rgb = sub_base[:, :, :3] * (1.0 - alpha) + sub_color * alpha
+            sub_base[:, :, :3] = np.where(mask3, blended_rgb, sub_base[:, :, :3])
+            blended_a = sub_base[:, :, 3] * (1.0 - sub_mask) + sub_mask
+            sub_base[:, :, 3] = np.where(sub_has, blended_a, sub_base[:, :, 3])
 
         return base_rgba
 
@@ -374,6 +418,8 @@ class SliceRenderer:
         checkerboard_swap: bool = False,
         rois=(),
         roi_above_overlay: bool = False,
+        roi_cache_holder=None,
+        roi_cache_attr="_roi_mask_cache",
     ):
         if orientation not in SliceRenderer._AXIS_MAP:
             return np.zeros(4, dtype=np.float32), (1, 1)
@@ -434,7 +480,9 @@ class SliceRenderer:
             )
 
         if rois and not roi_above_overlay:
-            base_rgba = SliceRenderer._apply_rois(base_rgba.copy(), rois)
+            base_rgba = SliceRenderer._apply_rois(
+                base_rgba.copy(), rois, roi_cache_holder, roi_cache_attr
+            )
 
         res_rgba = base_rgba
 
@@ -504,7 +552,9 @@ class SliceRenderer:
 
         # --- 3. ROIs & FINAL EXPORT ---
         if rois and roi_above_overlay:
-            res_rgba = SliceRenderer._apply_rois(res_rgba, rois)
+            res_rgba = SliceRenderer._apply_rois(
+                res_rgba, rois, roi_cache_holder, roi_cache_attr
+            )
 
         return res_rgba.astype(np.float32, copy=False).ravel(), (h, w)
 

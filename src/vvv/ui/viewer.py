@@ -1508,6 +1508,8 @@ class SliceViewer:
                 orientation=self.orientation,
                 rois=active_rois,
                 roi_above_overlay=vs.display.roi_above_overlay,
+                roi_cache_holder=self,
+                roi_cache_attr="_roi_mask_cache_pathA_base",
             )
             if _PROFILE_NN:
                 _profile_stats["extract_base"] += time.perf_counter() - t0
@@ -1523,6 +1525,8 @@ class SliceViewer:
                     orientation=self.orientation,
                     rois=active_rois if vs.display.roi_above_overlay else [],
                     roi_above_overlay=vs.display.roi_above_overlay,
+                    roi_cache_holder=self,
+                    roi_cache_attr="_roi_mask_cache_pathA_overlay",
                 )
             )
             if _PROFILE_NN:
@@ -1539,6 +1543,8 @@ class SliceViewer:
                 checkerboard_swap=vs.display.overlay.swap,
                 rois=active_rois,
                 roi_above_overlay=vs.display.roi_above_overlay,
+                roi_cache_holder=self,
+                roi_cache_attr="_roi_mask_cache_pathB",
             )
             self.last_overlay_rgba_flat = None
             self.last_overlay_rgba_shape = None
