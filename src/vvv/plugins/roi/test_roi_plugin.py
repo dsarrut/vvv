@@ -2246,6 +2246,31 @@ class TestRoiPlugin(unittest.TestCase):
 
         dpg.delete_item("test_parent")
 
+    def test_clear_roi_filter_button_callback_arity(self):
+        """Regression: build_name_filter_bar()'s clear button invokes
+        on_clear_clicked() with zero arguments (`callback=lambda: on_clear_clicked()`
+        in ui_components.py). on_clear_roi_filter_clicked() used to require
+        (self, sender, app_data, user_data), which raised a TypeError as soon as
+        a user clicked the ROI filter's clear ("X") button in the running app."""
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+
+        ctrl = self.plugin._controller
+        ui = self.plugin._ui
+
+        rois = {"roi_1": MockROI("roi_1", "Tumor", [255, 0, 0])}
+        mock_viewer = MockViewer("img_1", rois)
+        self.mock_api.get_active_viewer.return_value = mock_viewer
+        ctrl.roi_filters["img_1"] = "tum"
+
+        ui.on_clear_roi_filter_clicked()  # must not raise TypeError
+
+        self.assertEqual(ctrl.roi_filters["img_1"], "")
+
+        dpg.delete_item("test_parent")
+
     @patch("vvv.ui.file_dialog.save_file_dialog")
     def test_save_roi_to_disk(self, mock_save_dialog):
         """Test on_roi_save triggers save and updates source metadata."""

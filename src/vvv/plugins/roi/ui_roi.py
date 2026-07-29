@@ -2773,7 +2773,7 @@ class RoiPluginUI(PluginTagMixin):
         filter_text = sender_or_text if app_data is None else app_data
         self._c.on_roi_filter_changed(filter_text)
 
-    def on_clear_roi_filter_clicked(self, sender, app_data, user_data):
+    def on_clear_roi_filter_clicked(self):
         if dpg.does_item_exist(self._t("input_roi_filter")):
             dpg.set_value(self._t("input_roi_filter"), "")
         self._c.on_clear_roi_filter()
