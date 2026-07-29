@@ -122,11 +122,17 @@ class SliceRenderer:
 
     @staticmethod
     def lut_lookup(lut, norm):
+        """Maps normalized [0,1] values to RGBA via the LUT.
+
+        `norm` must not be mutated: `_colorize_layer()` returns this same array
+        back to its caller as `base_norm`/`over_norm`, and `_blend_registration()`
+        depends on those staying in [0,1]. Scale into the preallocated uint8
+        index buffer directly instead of scaling `norm` in place first.
+        """
         shape = norm.shape
         if SliceRenderer._index_buffer is None or SliceRenderer._index_buffer.shape != shape:
             SliceRenderer._index_buffer = np.empty(shape, dtype=np.uint8)
-        norm *= 255.0
-        np.copyto(SliceRenderer._index_buffer, norm, casting='unsafe')
+        np.multiply(norm, 255.0, out=SliceRenderer._index_buffer, casting='unsafe')
         return lut[SliceRenderer._index_buffer]
 
     _AXIS_MAP = {

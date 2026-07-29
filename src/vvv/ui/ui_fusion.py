@@ -106,15 +106,24 @@ class FusionUI:
                     )
 
                 build_stepped_slider(
-                    "Min Thr:",
+                    "Min Thr (Target):",
                     "drag_fusion_threshold",
                     callback=gui.fusion_ui.on_fusion_threshold_changed,
                     step_callback=gui.fusion_ui.on_step_button_clicked,
                     has_checkbox=True,
                     check_tag="check_fusion_threshold",
                     check_cb=gui.fusion_ui.on_fusion_threshold_toggle,
+                    label_width=110,
                 )
-                build_beginner_tooltip("drag_fusion_threshold", "Pixels below this value will be completely transparent.", gui)
+                build_beginner_tooltip(
+                    "drag_fusion_threshold",
+                    "Threshold for the TARGET/overlay image only (not the base image). "
+                    "Pixels of the target below this value are excluded from the fusion blend. "
+                    "In Registration mode especially, this should be set well above background/air "
+                    "so only real structure contributes to the color overlay — leaving it disabled "
+                    "compares every pixel (including background noise) between the two images.",
+                    gui,
+                )
 
     def refresh_fusion_ui(self):
         viewer = self.gui.context_viewer
