@@ -1,6 +1,6 @@
 import json
 import math
-from typing import Optional
+from typing import Dict, Optional
 import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
@@ -15,6 +15,7 @@ class ProfilePluginController(PluginTagMixin):
         self._plugin_id = plugin_id
         self._api: Optional[PluginAPI] = None
         self._ui = None
+        self.profile_filters: Dict[str, str] = {}
 
     def bind(self, api: PluginAPI) -> None:
         self._api = api
@@ -41,8 +42,31 @@ class ProfilePluginController(PluginTagMixin):
                     win_tag = self._t(f"plot_win_{p_id}")
                     if dpg.does_item_exist(win_tag):
                         dpg.delete_item(win_tag)
+        self.profile_filters.pop(image_id, None)
         if self._ui:
             self._ui._last_profile_key = None
+
+    # --- Name filter (per-image, mirrors ROI/Landmark controllers) ---
+
+    def on_filter_changed(self, filter_text: str) -> None:
+        if not self._api:
+            return
+        viewer = self._api.get_active_viewer()
+        if viewer and viewer.image_id:
+            self.profile_filters[viewer.image_id] = (filter_text or "").lower()
+            if self._ui:
+                self._ui._last_profile_key = None
+                self._ui.update_ui(self._api)
+
+    def on_clear_filter_clicked(self) -> None:
+        if not self._api:
+            return
+        viewer = self._api.get_active_viewer()
+        if viewer and viewer.image_id:
+            self.profile_filters[viewer.image_id] = ""
+            if self._ui:
+                self._ui._last_profile_key = None
+                self._ui.update_ui(self._api)
 
     def serialize_image_state(self, image_id: str, context: str = "history") -> dict:
         if self._api:

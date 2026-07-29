@@ -64,7 +64,7 @@ Plugins must only interact with the app through `PluginAPI`. Bypassing it create
 - [ ] Restored values are applied **before** the first `update()` call so the first frame is correct
 - [ ] Old history entries with missing keys are handled gracefully (`data.get("key", default)`)
 - [ ] State that belongs to the **core** (WW/WL, colormap, camera) is not duplicated in the plugin's serialization
-- [ ] check that history never interfere when workspace is used
+- [ ] Workspace-restored per-image state is not silently overwritten by a stale history auto-restore triggered by the same load
 
 ---
 
@@ -75,6 +75,13 @@ Plugins must only interact with the app through `PluginAPI`. Bypassing it create
 - [ ] Thread results are posted back via `api.run_on_main_thread(callback)` — never touch DPG or plugin state directly from a background thread
 - [ ] Inside the callback, call `api.request_refresh()` and `api.set_async_status()` to signal the main loop
 - [ ] Thread is a **daemon thread** so it does not block app exit
+
+---
+
+## Testing
+
+- [ ] A `test_<plugin_id>.py` file exists alongside the plugin (see `plugins/registration/test_registration.py` for an example) and covers the new/changed behavior. `pyproject.toml`'s `testpaths` includes `src/vvv/plugins`, so pytest picks these up automatically — no separate registration needed.
+- [ ] `pytest` passes locally before considering the plugin done.
 
 ---
 

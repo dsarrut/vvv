@@ -19,21 +19,14 @@ class ProfilePluginUI(PluginTagMixin):
         self._plugin_id = plugin_id
         self._c = controller
         self._last_profile_key = None
-        self._filter_text = ""
 
     def _on_filter_changed(self, text):
-        self._filter_text = (text or "").lower()
-        self._last_profile_key = None
-        if hasattr(self, "_c") and self._c and self._c._api:
-            self.update_ui(self._c._api)
+        self._c.on_filter_changed(text)
 
     def _on_clear_filter(self):
         if dpg.does_item_exist(self._t("input_filter")):
             dpg.set_value(self._t("input_filter"), "")
-        self._filter_text = ""
-        self._last_profile_key = None
-        if hasattr(self, "_c") and self._c and self._c._api:
-            self.update_ui(self._c._api)
+        self._c.on_clear_filter_clicked()
 
     def _bind_icon_font(self, item):
         if dpg.does_item_exist("icon_font_tag"):
@@ -214,6 +207,17 @@ class ProfilePluginUI(PluginTagMixin):
         if not dpg.does_item_exist(table_id):
             return
 
+        filter_text = self._c.profile_filters.get(viewer.image_id, "") if has_image else ""
+
+        # Resync the visible filter box to this image's own remembered filter —
+        # otherwise switching images leaves stale text in the box while the
+        # list itself (correctly) filters by the new image's filter_text below.
+        input_filter_tag = self._t("input_filter")
+        if dpg.does_item_exist(input_filter_tag) and not dpg.is_item_focused(
+            input_filter_tag
+        ):
+            dpg.set_value(input_filter_tag, filter_text)
+
         profile_key = (
             (viewer.image_id, tuple(viewer.view_state.profiles.keys()))
             if active
@@ -229,8 +233,9 @@ class ProfilePluginUI(PluginTagMixin):
         if not active:
             return
 
+        filter_text = filter_text.lower()
         for p_id, profile in viewer.view_state.profiles.items():
-            if self._filter_text and self._filter_text not in profile.name.lower():
+            if filter_text and filter_text not in profile.name.lower():
                 continue
             with dpg.table_row(parent=table_id):
                 # Color picker

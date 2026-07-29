@@ -292,6 +292,15 @@ class LandmarkPluginUI(PluginTagMixin):
         filter_text = self._c.landmark_filters.get(vs_id, "").lower()
         file_path = self._c.landmarks_file_path.get(vs_id)
 
+        # Resync the visible filter box to this image's own remembered filter —
+        # otherwise switching images leaves stale text in the box while the
+        # list itself (correctly) filters by the new image's filter_text above.
+        input_filter_tag = self._t("input_filter")
+        if dpg.does_item_exist(input_filter_tag) and not dpg.is_item_focused(
+            input_filter_tag
+        ):
+            dpg.set_value(input_filter_tag, self._c.landmark_filters.get(vs_id, ""))
+
         # Update Save / Save As buttons and filename display
         btn_save_tag = self._t("btn_save")
         lbl_file_tag = self._t("file_name_label")

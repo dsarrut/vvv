@@ -3,6 +3,7 @@ import numpy as np
 from unittest.mock import MagicMock
 from vvv.core.profile_manager import ProfileManager
 from vvv.core.view_state import ProfileLineState
+from vvv.plugins.profile.control_profile import ProfilePluginController
 from vvv.utils import ViewMode
 
 
@@ -11,6 +12,54 @@ def make_profile(pt1, pt2) -> ProfileLineState:
     p.pt1_phys = np.array(pt1, dtype=float)
     p.pt2_phys = np.array(pt2, dtype=float)
     return p
+
+
+class TestProfileFilterPerImage(unittest.TestCase):
+    """Regression test: the name filter must be scoped per-image, like the
+    ROI and Landmark plugins' filters, not a single value shared across every
+    loaded image."""
+
+    def setUp(self):
+        self.ctrl = ProfilePluginController("profile_plugin")
+        self.mock_api = MagicMock()
+        self.mock_api.get_view_states.return_value = {}
+        self.ctrl.bind(self.mock_api)
+
+    def _set_active_image(self, image_id):
+        self.mock_api.get_active_viewer.return_value = MagicMock(image_id=image_id)
+
+    def test_filter_does_not_leak_across_images(self):
+        self._set_active_image("img1")
+        self.ctrl.on_filter_changed("Tumor")
+        self.assertEqual(self.ctrl.profile_filters["img1"], "tumor")
+
+        # A different, never-filtered image must not inherit img1's filter.
+        self._set_active_image("img2")
+        self.assertEqual(self.ctrl.profile_filters.get("img2", ""), "")
+
+        self.ctrl.on_filter_changed("Vessel")
+        self.assertEqual(self.ctrl.profile_filters["img2"], "vessel")
+        self.assertEqual(self.ctrl.profile_filters["img1"], "tumor")  # untouched
+
+    def test_clear_filter_only_affects_active_image(self):
+        self._set_active_image("img1")
+        self.ctrl.on_filter_changed("Tumor")
+        self._set_active_image("img2")
+        self.ctrl.on_filter_changed("Vessel")
+
+        self._set_active_image("img2")
+        self.ctrl.on_clear_filter_clicked()
+
+        self.assertEqual(self.ctrl.profile_filters["img2"], "")
+        self.assertEqual(self.ctrl.profile_filters["img1"], "tumor")
+
+    def test_filter_cleaned_up_on_image_removed(self):
+        self._set_active_image("img1")
+        self.ctrl.on_filter_changed("Tumor")
+        self.assertIn("img1", self.ctrl.profile_filters)
+
+        self.ctrl.on_image_removed("img1")
+        self.assertNotIn("img1", self.ctrl.profile_filters)
 
 
 class TestProfileExtraction(unittest.TestCase):
