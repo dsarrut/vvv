@@ -189,32 +189,21 @@ def _process_entry(controller, entry):
 
     # Resolve image_id
     target_vs_id = image_id
-    if not target_vs_id or target_vs_id not in controller.view_states:
-        if controller.view_states:
-            target_vs_id = list(controller.view_states.keys())[0]
+    if target_vs_id and target_vs_id not in controller.view_states:
+        print(
+            f"Warning: image_id='{image_id}' not found in workspace "
+            f"(loaded image ids: {list(controller.view_states.keys())}); "
+            f"falling back to the first loaded image for '{output_path}'."
+        )
+        target_vs_id = None
+    if not target_vs_id and controller.view_states:
+        target_vs_id = list(controller.view_states.keys())[0]
 
     if target_vs_id not in controller.view_states:
         print(f"Warning: No view state for image_id='{image_id}', skipping '{output_path}'.")
         return
 
-    # Set crosshair on target image and propagate to all synced viewers
-    vs = controller.view_states[target_vs_id]
-    vs.update_crosshair_from_phys(position_mm)
-    controller.sync.propagate_sync(target_vs_id)
-
-    # Update ALL viewers — the full rendering pipeline (base + overlay + ROIs)
-    # depends on all viewers being in sync. This replicates the exact flow that
-    # produces correct output (base + fusion + ROIs).
-    for tag in ["V1", "V2", "V3", "V4"]:
-        viewer = controller.viewers[tag]
-        if viewer.image_id and viewer.image_id in controller.view_states:
-            viewer.set_current_slice_to_crosshair()
-            viewer.center_on_physical_coord(position_mm)
-            viewer.update_render(force_reblend=True)
-
-    # No DPG GPU frame pass needed — CPU slice rendering pipeline update_render() is synchronous
-
-    # Now find the viewer with the matching orientation and capture it
+    # 1. Find or repurpose a viewer for the target image_id and orientation
     viewer = None
     for tag in ["V1", "V2", "V3", "V4"]:
         v = controller.viewers[tag]
@@ -223,16 +212,29 @@ def _process_entry(controller, entry):
             break
 
     if viewer is None:
-        # No viewer with exact match — try any viewer with the target orientation
         for tag in ["V1", "V2", "V3", "V4"]:
             v = controller.viewers[tag]
-            if v.orientation == orientation and v.image_id:
+            if v.image_id == target_vs_id:
+                v.set_orientation(orientation)
                 viewer = v
                 break
 
     if viewer is None:
-        print(f"Warning: No viewer with orientation {orientation.name} for '{output_path}'.")
-        return
+        viewer = controller.viewers["V1"]
+        viewer.set_image(target_vs_id)
+        viewer.set_orientation(orientation)
+
+    # 2. NOW update 3D crosshair and center ALL viewers on position_mm AFTER orientation is set
+    vs = controller.view_states[target_vs_id]
+    vs.update_crosshair_from_phys(position_mm)
+    controller.sync.propagate_sync(target_vs_id)
+
+    for tag in ["V1", "V2", "V3", "V4"]:
+        v = controller.viewers[tag]
+        if v.image_id and v.image_id in controller.view_states:
+            v.set_current_slice_to_crosshair()
+            v.center_on_physical_coord(position_mm)
+            v.update_render(force_reblend=True)
 
     _capture_and_save(viewer, output_path, fov_mm)
 

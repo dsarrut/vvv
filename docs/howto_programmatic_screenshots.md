@@ -13,7 +13,7 @@ Create a JSON file (e.g., `screenshot_config.json`):
 ```json
 {
   "defaults": {
-    "image_id": "img_1",
+    "image_id": "1",
     "fov_mm": [156, 148]
   },
   "screenshots": [
@@ -50,6 +50,20 @@ Shared settings applied to every entry unless overridden. Avoids repeating the s
 | `output` | **Yes** | Output PNG file path (`.png` auto-appended if missing) |
 | `image_id` | No | Image to use. Defaults to first loaded image |
 | `fov_mm` | No | `[width, height]` in mm. Full slice if omitted |
+
+**`image_id` is a plain integer string** (`"1"`, `"2"`, ...), assigned fresh each
+time a workspace is loaded, in the order images appear in the `.vvw` file's
+`images` section — it is **not** whatever key name appears in the `.vvw`
+file itself (workspace loading always remaps saved keys to fresh ids via
+`Controller.next_image_id`). To find the right value, open the `.vvw` file
+(it's JSON) and count position in its `images` dict, or just omit `image_id`
+to use the first one. If a specified `image_id` doesn't match any loaded
+image, `vvv_screenshot` prints a warning naming the ids that *are* available
+and falls back to the first loaded image, rather than failing silently.
+
+A screenshot's target image does not need to already be visible in one of
+the workspace's saved viewports — `vvv_screenshot` will assign it to a
+viewer and set the requested orientation on demand if needed.
 
 ### Orientation values
 
