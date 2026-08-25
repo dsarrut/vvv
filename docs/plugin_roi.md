@@ -54,7 +54,18 @@ Rebuilding DearPyGui tables or sliders on every frame tick causes active widgets
 
 ---
 
-## 6. Beginner Mode & Settings Persistence
+## 6. Label Map Sidecar JSON (Names & Colors)
+
+When loading an integer label map (multi-label segmentation), `load_label_map_sequence` ([ui_sequences.py](../src/vvv/ui/ui_sequences.py)) looks for a sidecar JSON next to the image (`labels.nii.gz` → `labels.json`) and parses it via `_parse_label_map_json`.
+
+- **Legacy format** (name only, still fully supported): `{"1": "Liver", "2": "Spleen"}`.
+- **Extended format** (name + explicit RGB color): `{"1": {"name": "Liver", "color": [200, 80, 80]}}`.
+- The two formats can be **mixed** within the same file, entry by entry. Labels without an explicit `color` fall back to the default `ROI_COLORS` palette, exactly as before this feature existed — so pre-existing sidecar JSON files keep working unchanged.
+- Malformed entries (non-integer keys, non-numeric colors, etc.) are skipped individually rather than discarding the whole file.
+
+---
+
+## 7. Beginner Mode & Settings Persistence
 
 - **Beginner Mode Tooltips**: Explanatory tooltips (`build_beginner_tooltip`) are attached to the load button, rule combo box, global opacity and thickness sliders, and search filter input.
 - **Settings Persistence**: Implemented `save_settings` and `load_settings` in [ui_roi_plugin.py](../src/vvv/plugins/roi/ui_roi_plugin.py) to save and load default loading settings (mode and default values) into the main settings database.

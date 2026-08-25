@@ -210,3 +210,74 @@ def test_reload_label_map_with_json_outdated(headless_gui_app, tmp_path):
     assert controller.volumes[spleen_id]._is_outdated is False
 
 
+def test_parse_label_map_json_schema():
+    """Unit test for the label-map sidecar JSON parser: the legacy flat
+    {"<id>": "<name>"} format, the extended {"<id>": {"name", "color"}} format,
+    the two mixed in one file, and graceful skipping of malformed entries."""
+    from vvv.ui.ui_sequences import _parse_label_map_json
+
+    raw = {
+        "1": "Liver",
+        "2": {"name": "Spleen", "color": [10, 20, 30, 255]},
+        "3": {"color": [1, 2, 3]},  # color only, no name -> no label_dict entry
+        "4": {"name": "NoColor"},
+        "not_an_int": "Ignored",
+        "5": {"name": "BadColor", "color": "red"},
+    }
+    label_dict, color_dict = _parse_label_map_json(raw)
+
+    assert label_dict == {1: "Liver", 2: "Spleen", 4: "NoColor", 5: "BadColor"}
+    assert color_dict[2] == [10, 20, 30]  # RGBA truncated to RGB
+    assert color_dict[3] == [1, 2, 3]
+    assert 1 not in color_dict
+    assert 4 not in color_dict
+    assert 5 not in color_dict  # malformed color silently ignored
+
+
+def test_load_label_map_json_with_custom_colors(headless_gui_app, tmp_path):
+    """Verifies that a label-map sidecar JSON can optionally specify a
+    per-label color (mixed with the legacy plain-name format), and that
+    labels without an explicit color still fall back to the default
+    ROI_COLORS palette, exactly as before this feature existed."""
+    controller, gui, viewer, vs_id = headless_gui_app
+
+    shape = controller.volumes[vs_id].shape3d
+    mask_data = np.zeros(shape, dtype=np.uint8)
+    mask_data[2, 2, 2] = 1
+    mask_data[3, 3, 3] = 2
+    mask_img = sitk.GetImageFromArray(mask_data)
+
+    mask_path = str(tmp_path / "labels_color.nii.gz")
+    sitk.WriteImage(mask_img, mask_path)
+
+    json_path = str(tmp_path / "labels_color.json")
+    import json
+    with open(json_path, "w") as f:
+        json.dump(
+            {
+                "1": {"name": "Liver", "color": [10, 20, 30]},
+                "2": "Spleen",
+            },
+            f,
+        )
+
+    from vvv.ui.ui_sequences import load_label_map_sequence
+    for _ in load_label_map_sequence(gui, controller, vs_id, mask_path):
+        pass
+
+    vs = controller.view_states[vs_id]
+    rois = vs.rois
+    assert len(rois) == 2
+
+    liver_id = next(rid for rid, rstate in rois.items() if rstate.name == "Liver")
+    spleen_id = next(rid for rid, rstate in rois.items() if rstate.name == "Spleen")
+
+    # Custom color from the JSON is applied.
+    assert list(rois[liver_id].color) == [10, 20, 30]
+
+    # No color specified for label 2 -> falls back to the default palette,
+    # unchanged from the pre-existing behavior for legacy JSON files.
+    from vvv.config import ROI_COLORS
+    assert list(rois[spleen_id].color) == list(ROI_COLORS[1])
+
+

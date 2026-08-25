@@ -332,8 +332,38 @@ def load_batch_rois_sequence(
             yield
 
 
+def _parse_label_map_json(raw_dict):
+    """Parses a label-map sidecar JSON into (label_dict, color_dict).
+
+    Supports the legacy flat format {"<id>": "<name>"} and an extended
+    per-label format {"<id>": {"name": "...", "color": [r, g, b]}}; the two
+    may be mixed within the same file. Malformed entries are skipped so one
+    bad entry doesn't discard the whole file.
+    """
+    label_dict = {}
+    color_dict = {}
+    for k, v in raw_dict.items():
+        try:
+            val_int = int(k)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(v, dict):
+            if "name" in v:
+                label_dict[val_int] = str(v["name"])
+            color = v.get("color")
+            if isinstance(color, (list, tuple)) and len(color) >= 3:
+                try:
+                    color_dict[val_int] = [int(c) for c in color[:3]]
+                except (TypeError, ValueError):
+                    pass
+        else:
+            label_dict[val_int] = str(v)
+    return label_dict, color_dict
+
+
 def _rasterize_and_load_labels(
-    gui, controller, base_image_id, filepath, unique_labels, label_dict, saved_preferences=None
+    gui, controller, base_image_id, filepath, unique_labels, label_dict,
+    saved_preferences=None, color_dict=None,
 ):
     """
     [REUSABLE_WORKER]
@@ -352,6 +382,7 @@ def _rasterize_and_load_labels(
     base_vol = controller.volumes[base_image_id]
     total_lbls = len(unique_labels)
     base_name = controller.roi._clean_roi_name(filepath)
+    color_dict = color_dict or {}
 
     # --- Read the full image ONCE ---
     img = sitk.ReadImage(filepath)
@@ -374,7 +405,9 @@ def _rasterize_and_load_labels(
             for i, val in enumerate(unique_labels, 1):
                 val_int = int(val)
                 custom_name = label_dict.get(val_int, f"{base_name} - Lbl {val_int}")
-                color = ROI_COLORS[(val_int - 1) % len(ROI_COLORS)]
+                color = color_dict.get(val_int) or ROI_COLORS[
+                    (val_int - 1) % len(ROI_COLORS)
+                ]
                 bbox = bboxes.get(val_int)
                 futures.append(
                     executor.submit(_process_label, val_int, custom_name, color, bbox)
@@ -518,19 +551,21 @@ def load_label_map_sequence(gui, controller, base_image_id, filepath, saved_pref
         json_path = os.path.splitext(filepath)[0] + ".json"
 
     label_dict = {}
+    color_dict = {}
     if os.path.exists(json_path):
         try:
             import json
 
             with open(json_path, "r") as f:
                 raw_dict = json.load(f)
-                label_dict = {int(k): str(v) for k, v in raw_dict.items()}
+                label_dict, color_dict = _parse_label_map_json(raw_dict)
         except Exception as e:
             print(f"Warning: Failed to parse {json_path}: {e}")
 
     completed = 0
     for roi_id in _rasterize_and_load_labels(
-        gui, controller, base_image_id, filepath, unique_labels, label_dict, saved_preferences
+        gui, controller, base_image_id, filepath, unique_labels, label_dict,
+        saved_preferences, color_dict,
     ):
         if roi_id == "KEEP_ALIVE":
             yield
