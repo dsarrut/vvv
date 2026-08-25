@@ -71,6 +71,7 @@ class MainGUI:
         self.active_tab = "tab_images"
         self.active_layout = "4"
         self.last_tab_for_image: dict[str, str] = {}
+        self._active_image_path_full = ""
 
         # internal states
         self._is_roi_tab_active = None
@@ -358,6 +359,21 @@ class MainGUI:
                     "",
                     tag="global_status_text",
                     color=self.ui_cfg["colors"]["text_status_ok"],
+                )
+
+                dpg.add_text(
+                    "",
+                    tag="active_image_path_text",
+                    color=self.ui_cfg["colors"]["text_dim"],
+                )
+                with dpg.tooltip("active_image_path_text"):
+                    dpg.add_text("", tag="active_image_path_tooltip_text")
+                with dpg.item_handler_registry(tag="active_image_path_click_handler"):
+                    dpg.add_item_clicked_handler(
+                        callback=self.on_active_image_path_clicked
+                    )
+                dpg.bind_item_handler_registry(
+                    "active_image_path_text", "active_image_path_click_handler"
                 )
 
                 # Define layout buttons inside the menu_bar so they aren't clipped, but position them absolutely
@@ -1231,10 +1247,17 @@ class MainGUI:
                 self._safe_set(t, "")
 
             self.fusion_ui.refresh_fusion_ui()
+            self._active_image_path_full = ""
+            self._refresh_active_image_path_bar()
             return
 
         assert viewer is not None
         vol = viewer.volume
+        path = getattr(vol, "path", None)
+        if isinstance(path, list):
+            path = path[0] if path else None
+        self._active_image_path_full = self._format_home_relative_abs_path(path)
+        self._refresh_active_image_path_bar()
         if dpg.does_item_exist("input_info_name"):
             if not dpg.is_item_focused("input_info_name") and not dpg.is_item_active("input_info_name"):
                 name_str, _ = self.controller.get_image_display_name(viewer.image_id)
@@ -1462,6 +1485,61 @@ class MainGUI:
         self.controller.ui_needs_refresh = True
         self.on_window_resize()
 
+    @staticmethod
+    def _format_home_relative_abs_path(path):
+        """Absolute path with the user's home directory collapsed to '~'.
+        Works the same way on macOS/Linux/Windows since it relies on
+        os.path.expanduser/abspath rather than a hardcoded separator."""
+        if not path:
+            return ""
+        abs_path = os.path.abspath(path)
+        home = os.path.expanduser("~")
+        if home and (abs_path == home or abs_path.startswith(home + os.sep)):
+            abs_path = "~" + abs_path[len(home):]
+        return abs_path
+
+    def on_active_image_path_clicked(self, sender, app_data, user_data):
+        if not self._active_image_path_full:
+            return
+        dpg.set_clipboard_text(self._active_image_path_full)
+        self.show_status_message("Image path copied to clipboard")
+
+    def _refresh_active_image_path_bar(self):
+        """Keeps the centered image-path label in the top menu bar in sync with
+        the active viewer's full file path, truncating (with a full-path
+        tooltip) it to fit between the menus and the layout buttons."""
+        tag = "active_image_path_text"
+        if not dpg.does_item_exist(tag) or not dpg.does_item_exist("menu_container"):
+            return
+
+        full_path = self._active_image_path_full
+        tooltip_text = f"{full_path}\n(click to copy)" if full_path else ""
+        self._safe_set("active_image_path_tooltip_text", tooltip_text)
+
+        menu_w = dpg.get_item_width("menu_container") or 0
+        left_bound, right_bound = 260, menu_w - 100
+        avail = right_bound - left_bound
+
+        if not full_path or avail < 40:
+            dpg.set_value(tag, "")
+            return
+
+        def text_width(s):
+            size = dpg.get_text_size(s)
+            return size[0] if size else None
+
+        display_text = full_path
+        while True:
+            w = text_width(display_text)
+            if w is None or w <= avail or len(display_text) <= 4:
+                break
+            display_text = "..." + display_text[4:]
+        dpg.set_value(tag, display_text)
+
+        text_w = text_width(display_text)
+        x = left_bound if text_w is None else left_bound + max(0, (avail - text_w) / 2)
+        dpg.set_item_pos(tag, [x, 6])
+
     def on_window_resize(self):
         try:
             window_w = dpg.get_viewport_client_width()
@@ -1483,6 +1561,8 @@ class MainGUI:
                     dpg.set_item_pos("btn_layout_2", [menu_w - 58, btn_y])
                 if dpg.does_item_exist("btn_layout_4"):
                     dpg.set_item_pos("btn_layout_4", [menu_w - 86, btn_y])
+
+                self._refresh_active_image_path_bar()
 
             panels_y = m_t + cfg["menu_h"] + cfg["menu_m_bottom"]
             nav_w = cfg["nav_panel_w"]  # MUST match the width defined in build_sidebar

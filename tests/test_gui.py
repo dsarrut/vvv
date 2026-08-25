@@ -1,3 +1,4 @@
+import os
 import pytest
 import threading
 import numpy as np
@@ -928,6 +929,62 @@ def test_gui_per_image_last_tool_memory(headless_gui_app, synthetic_volume_facto
     # Removing an image cleans up its recorded tool.
     gui.notify_plugins_image_removed(vs1_id)
     assert vs1_id not in gui.last_tab_for_image
+
+
+def test_gui_active_image_path_shown_in_menu_bar(headless_gui_app, synthetic_volume_factory):
+    """Verifies the centered label in the top menu bar reflects the active
+    viewer's full file path, updates on viewer switch, and clears when the
+    active viewer has no image."""
+    controller, gui, viewer1, vs1_id = headless_gui_app
+    vol1 = controller.volumes[vs1_id]
+
+    assert gui._active_image_path_full == vol1.path
+    assert dpg.get_value("active_image_path_tooltip_text") == f"{vol1.path}\n(click to copy)"
+    assert dpg.get_value("active_image_path_text") == vol1.path
+
+    # Switching the active viewer updates the label to the new image's path.
+    path2 = synthetic_volume_factory("img2.nii.gz", val=200.0)
+    vs2_id = controller.file.load_image(path2)
+    viewer2 = controller.viewers["V2"]
+    viewer2.set_image(vs2_id)
+    gui.set_context_viewer(viewer2)
+    vol2 = controller.volumes[vs2_id]
+    assert vol2.path != vol1.path
+    assert gui._active_image_path_full == vol2.path
+    assert dpg.get_value("active_image_path_text") == vol2.path
+
+    # A viewer with no image clears the label.
+    empty_viewer = controller.viewers["V3"]
+    gui.set_context_viewer(empty_viewer)
+    assert gui._active_image_path_full == ""
+    assert dpg.get_value("active_image_path_text") == ""
+
+
+def test_gui_active_image_path_home_shortening_and_copy(headless_gui_app, monkeypatch):
+    """Verifies the absolute path is shortened with '~' for paths under the
+    user's home directory (cross-platform via os.path.expanduser), and that
+    clicking the label copies the full displayed path to the clipboard."""
+    controller, gui, viewer1, vs1_id = headless_gui_app
+
+    home = os.path.expanduser("~")
+    inside_home = os.path.join(home, "scans", "patient1.nii.gz")
+    assert gui._format_home_relative_abs_path(inside_home) == os.path.join(
+        "~", "scans", "patient1.nii.gz"
+    )
+
+    outside_home = os.path.abspath("/some/other/place/img.nii.gz")
+    assert gui._format_home_relative_abs_path(outside_home) == outside_home
+
+    assert gui._format_home_relative_abs_path("") == ""
+    assert gui._format_home_relative_abs_path(None) == ""
+
+    copied = {}
+    monkeypatch.setattr(
+        dpg, "set_clipboard_text", lambda text: copied.setdefault("text", text)
+    )
+    gui._active_image_path_full = "~/scans/patient1.nii.gz"
+    gui.on_active_image_path_clicked(None, None, None)
+    assert copied["text"] == "~/scans/patient1.nii.gz"
 
 
 def test_image_display_name_consecutive(headless_gui_app, synthetic_volume_factory):
