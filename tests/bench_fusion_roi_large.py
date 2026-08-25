@@ -256,7 +256,7 @@ def main():
                     (1.0 / r - 1.0 / n) * 1000 if r > 0 and n > 0 else 0.0
                     for n, r in zip(row_no_roi, row_roi)
                 ]
-                print(fmt_row("  Δ ROI cost", delta, unit="ms"))
+                print(fmt_row("  delta ROI cost", delta, unit="ms"))
             print(sep)
 
         print(
