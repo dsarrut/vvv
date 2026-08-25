@@ -70,6 +70,7 @@ class MainGUI:
         self.beginner_tags = []
         self.active_tab = "tab_images"
         self.active_layout = "4"
+        self.last_tab_for_image: dict[str, str] = {}
 
         # internal states
         self._is_roi_tab_active = None
@@ -147,6 +148,7 @@ class MainGUI:
             self._call_plugin(plugin, "on_image_loaded", image_id)
 
     def notify_plugins_image_removed(self, image_id: str) -> None:
+        self.last_tab_for_image.pop(image_id, None)
         for plugin in self.plugins:
             self._call_plugin(plugin, "on_image_removed", image_id)
 
@@ -1368,6 +1370,8 @@ class MainGUI:
         self.context_viewer = viewer
 
         if self.context_viewer:
+            self._restore_or_seed_tab_for_image(viewer.image_id)
+
             show_xh = (
                 self.context_viewer.view_state.camera.show_crosshair
                 if self.context_viewer.view_state
@@ -1388,6 +1392,17 @@ class MainGUI:
     # ==========================================
     # 4. EVENT HANDLERS
     # ==========================================
+
+    def _restore_or_seed_tab_for_image(self, image_id: str | None) -> None:
+        """Switch to the tool tab last used on this image, or seed it with the
+        currently active tab if this is the first time we're seeing it."""
+        if not image_id:
+            return
+        last_tab = self.last_tab_for_image.get(image_id)
+        if last_tab and last_tab != self.active_tab:
+            self.on_nav_clicked(None, None, last_tab)
+        else:
+            self.last_tab_for_image.setdefault(image_id, self.active_tab)
 
     def on_toggle_beginner_mode(self, sender, app_data, user_data):
         self.is_beginner_mode = not self.is_beginner_mode
@@ -1418,6 +1433,9 @@ class MainGUI:
         """Replaces on_tab_changed. Handles hiding/showing the content groups."""
         target_tab_tag = user_data
         self.active_tab = target_tab_tag
+
+        if self.context_viewer and self.context_viewer.image_id:
+            self.last_tab_for_image[self.context_viewer.image_id] = target_tab_tag
 
         # 1. Update Button Highlighting & Show/Hide Content
         for name, tag in self.nav_items:

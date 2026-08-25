@@ -890,6 +890,46 @@ def test_gui_viewport_layouts_dynamic_active(headless_gui_app):
             dpg.delete_item("image_list_container")
 
 
+def test_gui_per_image_last_tool_memory(headless_gui_app, synthetic_volume_factory):
+    """Verifies that switching the active viewer restores the tool tab last used
+    on that image, while a never-before-seen image inherits the current tab
+    instead of resetting."""
+    controller, gui, viewer1, vs1_id = headless_gui_app
+
+    # Image1 (V1) is already the context viewer, seeded at "tab_images".
+    assert gui.last_tab_for_image[vs1_id] == "tab_images"
+
+    # User switches to Landmarks while Image1 is active.
+    gui.on_nav_clicked(None, None, "landmark_plugin")
+    assert gui.last_tab_for_image[vs1_id] == "landmark_plugin"
+
+    # Load a second image into V2 and make it active for the first time:
+    # it has no recorded tool yet, so it should just inherit the current tab.
+    path2 = synthetic_volume_factory("img2.nii.gz", val=200.0)
+    vs2_id = controller.file.load_image(path2)
+    viewer2 = controller.viewers["V2"]
+    viewer2.set_image(vs2_id)
+    gui.set_context_viewer(viewer2)
+    assert gui.active_tab == "landmark_plugin"
+    assert gui.last_tab_for_image[vs2_id] == "landmark_plugin"
+
+    # User switches to ROI while Image2 is active.
+    gui.on_nav_clicked(None, None, "roi_plugin")
+    assert gui.last_tab_for_image[vs2_id] == "roi_plugin"
+
+    # Switching back to Image1 restores Landmarks.
+    gui.set_context_viewer(viewer1)
+    assert gui.active_tab == "landmark_plugin"
+
+    # Switching back to Image2 restores ROI.
+    gui.set_context_viewer(viewer2)
+    assert gui.active_tab == "roi_plugin"
+
+    # Removing an image cleans up its recorded tool.
+    gui.notify_plugins_image_removed(vs1_id)
+    assert vs1_id not in gui.last_tab_for_image
+
+
 def test_image_display_name_consecutive(headless_gui_app, synthetic_volume_factory):
     """Test that image display names have consecutive indices regardless of next_image_id jumps, and rename strips prefixes."""
     controller, gui, viewer, vs_id1 = headless_gui_app
