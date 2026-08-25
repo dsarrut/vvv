@@ -832,6 +832,76 @@ def test_gui_center_view_synchronization(headless_gui_app, monkeypatch):
     assert v2.zoom == v1.zoom
 
 
+def test_landmark_goto_pans_synced_other_image(
+    headless_gui_app, synthetic_volume_factory, monkeypatch
+):
+    """Regression: clicking 'goto' on a landmark must pan OTHER synced viewers
+    (showing a different image in the same sync group), not just move their
+    crosshair — mirroring what pressing 'c' (center view) already does."""
+    from vvv.plugins.landmark.landmark_state import Landmark
+
+    controller, gui, viewer1, vs1_id = headless_gui_app
+
+    # Load a second image into V2.
+    path2 = synthetic_volume_factory("img2.nii.gz", val=200.0)
+    vs2_id = controller.file.load_image(path2)
+    viewer2 = controller.viewers["V2"]
+    viewer2.set_image(vs2_id)
+    viewer2.orientation = viewer1.orientation
+
+    # Put both images in the same spatial sync group.
+    vs1 = controller.view_states[vs1_id]
+    vs2 = controller.view_states[vs2_id]
+    vs1.sync_group = 1
+    vs2.sync_group = 1
+
+    # Prime headless geometry (tick() can't compute canvas size without a real
+    # DPG window/viewport), same approach as test_gui_center_view_synchronization.
+    for v in (viewer1, viewer2):
+        monkeypatch.setattr(v, "_get_window_dims", lambda: (400, 400))
+        monkeypatch.setattr(v, "_get_canvas_size", lambda: (400, 400))
+        v.quad_w, v.quad_h = 400, 400
+        canvas_w, canvas_h = v._get_canvas_size()
+        sw, sh = v.volume.get_physical_aspect_ratio(v.orientation)
+        shape = v.get_slice_shape()
+        v.mapper.update(canvas_w, canvas_h, shape[1], shape[0], sw, sh, v.zoom, v.pan_offset)
+        v.last_consumed_ppm = v.get_pixels_per_mm()
+        cent = v.get_center_physical_coord()
+        if cent is not None:
+            v.last_consumed_center = list(cent)
+
+    monkeypatch.setattr(dpg, "does_item_exist", lambda item: True)
+    monkeypatch.setattr(dpg, "is_item_shown", lambda item: True)
+    monkeypatch.setattr(dpg, "configure_item", lambda item, **kwargs: None)
+    monkeypatch.setattr(dpg, "set_value", lambda item, value, **kwargs: None)
+    monkeypatch.setattr(
+        dpg, "draw_image", lambda texture_tag, pmin, pmax, **kwargs: "mock_image_node"
+    )
+
+    # Give both viewers an off-center pan so a real re-centering has to move them.
+    viewer1.pan_offset = [100.0, 50.0]
+    viewer2.pan_offset = [100.0, 50.0]
+
+    # Add a landmark to image1, away from the current crosshair.
+    lm = Landmark(id="lm_far", name="Target", pt_phys=[8.0, 12.0, 5.0])
+    vs1.landmarks[lm.id] = lm
+
+    landmark_plugin = next(p for p in gui.plugins if p.plugin_id == "landmark_plugin")
+    landmark_plugin._controller.center_on_landmark(lm.id, image_id=vs1_id)
+
+    # viewer1 (the one the landmark belongs to) is re-panned directly.
+    assert viewer1.pan_offset != [100.0, 50.0]
+
+    # image2's ViewState must have received a camera target from the sync broadcast...
+    assert vs2.camera.target_center is not None
+
+    # ...and consuming it on the next tick must actually re-pan viewer2 — not
+    # just leave its crosshair moved with a stale pan_offset (the reported bug).
+    prev_v2_pan = list(viewer2.pan_offset)
+    viewer2.tick()
+    assert viewer2.pan_offset != prev_v2_pan
+
+
 def test_gui_viewport_layouts_dynamic_active(headless_gui_app):
     """Verifies that changing viewport layouts dynamically targets the active viewer (e.g. V3)."""
     controller, gui, viewer, vs_id = headless_gui_app

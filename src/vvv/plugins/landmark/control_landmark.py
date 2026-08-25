@@ -226,6 +226,10 @@ class LandmarkPluginController(PluginTagMixin):
             for viewer in viewers.values():
                 if viewer.image_id == target_id:
                     viewer.center_on_physical_coord(lm.pt_phys)
+                    # Also broadcast the new center/zoom to synced viewers of
+                    # OTHER images, mirroring what the 'c' (center view) key
+                    # does — otherwise their crosshair moves but they never pan.
+                    self._api.propagate_camera(viewer)
 
             self._api.notify(f"Centered crosshair on landmark '{lm.name}'")
 

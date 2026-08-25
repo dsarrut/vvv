@@ -173,6 +173,11 @@ class PluginAPI:
     def propagate_sync(self, image_id):
         self._controller.sync.propagate_sync(image_id)
 
+    def propagate_camera(self, viewer):
+        """Broadcasts a viewer's current center/zoom to synced viewers of other
+        images, so they re-pan on their next tick (see SliceViewer.action_center_view)."""
+        self._controller.sync.propagate_camera(viewer)
+
     def get_sync_group_vs_ids(self, image_id, active_only=False) -> list[str]:
         return self._controller.sync.get_sync_group_vs_ids(image_id, active_only=active_only)
 
