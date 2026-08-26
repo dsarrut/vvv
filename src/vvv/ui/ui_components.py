@@ -122,7 +122,7 @@ def build_color_picker_row(
         # 2. Reset Colors
         if on_reset_colors:
             btn_reset_col = dpg.add_button(
-                label="\uf0e2",
+                label="\uf043",
                 width=20,
                 tag=f"{tag_prefix}_batch_reset_colors",
                 callback=lambda: on_reset_colors(),
