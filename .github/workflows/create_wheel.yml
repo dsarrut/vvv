@@ -111,4 +111,5 @@ jobs:
         run: |
           ls
           pip freeze
+          export NUMBA_THREADING_LAYER="omp"
           pytest -v
