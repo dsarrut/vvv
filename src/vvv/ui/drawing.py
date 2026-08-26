@@ -1038,7 +1038,7 @@ class OverlayDrawer:
                 None,
             )
             if lm_plugin and hasattr(lm_plugin, "_controller"):
-                enhanced_vis = getattr(lm_plugin._controller, "enhanced_vis", False)
+                enhanced_vis = lm_plugin._controller.is_enhanced_vis(viewer.image_id)
 
         max_depth = 15.5 if enhanced_vis else 6.5
         dim_base = 220 if enhanced_vis else 180

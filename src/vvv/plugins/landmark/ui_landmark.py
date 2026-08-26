@@ -26,16 +26,17 @@ class LandmarkPluginUI(PluginTagMixin):
             dpg.bind_item_font(item, "icon_font_tag")
 
     def on_btn_enhanced_vis_clicked(self, sender, app_data, user_data=None):
-        new_val = not self._c.enhanced_vis
+        new_val = not self._c.is_enhanced_vis()
         self._c.on_toggle_enhanced_vis(sender, new_val)
         self._update_enhanced_vis_button_style()
 
     def _update_enhanced_vis_button_style(self):
         btn_tag = self._t("btn_enhanced_vis")
         if dpg.does_item_exist(btn_tag):
-            # \uf0d0 (magic wand / stars) for enhanced mode
-            lbl = "\uf0d0"
-            dpg.set_item_label(btn_tag, lbl)
+            if self._c.is_enhanced_vis() and dpg.does_item_exist("active_nav_button_theme"):
+                dpg.bind_item_theme(btn_tag, "active_nav_button_theme")
+            elif dpg.does_item_exist("icon_button_theme"):
+                dpg.bind_item_theme(btn_tag, "icon_button_theme")
 
     def on_landmark_color_changed(self, sender, app_data, user_data):
         lm_id = user_data

@@ -22,7 +22,7 @@ class LandmarkPluginController(PluginTagMixin):
         self.landmark_filters: Dict[str, str] = {}
         self.landmark_counters: Dict[str, int] = {}
         self.landmarks_file_path: Dict[str, Optional[str]] = {}
-        self.enhanced_vis: bool = False
+        self.enhanced_vis: Dict[str, bool] = {}
 
     def bind(self, api: PluginAPI) -> None:
         self._api = api
@@ -41,6 +41,7 @@ class LandmarkPluginController(PluginTagMixin):
         self.landmark_filters.pop(image_id, None)
         self.landmarks_file_path.pop(image_id, None)
         self.landmark_counters.pop(image_id, None)
+        self.enhanced_vis.pop(image_id, None)
 
     def serialize_image_state(self, image_id: str, context: str = "history") -> dict:
         if context == "history":
@@ -76,10 +77,18 @@ class LandmarkPluginController(PluginTagMixin):
                 if self._api:
                     self._api.request_refresh()
 
+    def is_enhanced_vis(self, image_id: Optional[str] = None) -> bool:
+        vs_id = image_id or self._get_active_vs_id()
+        return self.enhanced_vis.get(vs_id, False) if vs_id else False
+
     def on_toggle_enhanced_vis(self, sender, app_data, user_data=None) -> None:
-        self.enhanced_vis = bool(app_data)
+        target_id = self._get_active_vs_id()
+        if not target_id:
+            return
+        self.enhanced_vis[target_id] = bool(app_data)
         if self._api:
-            for vs in self._api.get_view_states().values():
+            vs = self._api.get_view_states().get(target_id)
+            if vs:
                 vs.is_geometry_dirty = True
             self._api.request_refresh()
 

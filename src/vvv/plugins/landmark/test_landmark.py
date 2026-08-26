@@ -350,17 +350,43 @@ class TestLandmarkPlugin(unittest.TestCase):
         self.assertEqual(lm1.color, [c0[0], c0[1], c0[2], 255])
         self.assertEqual(lm2.color, [c1[0], c1[1], c1[2], 255])
 
-    def test_enhanced_visualization_mode(self):
+    def test_enhanced_visualization_mode_is_per_image(self):
+        """Regression: Enhanced Visualization Mode must be scoped to the image
+        it was toggled on, not shared globally across all open images."""
         ctrl = LandmarkPluginController("landmark_plugin")
         mock_api = unittest.mock.MagicMock()
-        mock_api.get_view_states.return_value = {"img1": self.vs}
+
+        vs2 = ViewState(self.volume)
+        mock_api.get_view_states.return_value = {"img1": self.vs, "img2": vs2}
+
+        active = {"id": "img1"}
+        mock_api.get_active_image_id.side_effect = lambda: active["id"]
         ctrl.bind(mock_api)
 
-        self.assertFalse(ctrl.enhanced_vis)
+        # Off by default for both images.
+        active["id"] = "img1"
+        self.assertFalse(ctrl.is_enhanced_vis())
+        active["id"] = "img2"
+        self.assertFalse(ctrl.is_enhanced_vis())
+
+        # Turning it on while img1 is active must only affect img1.
+        active["id"] = "img1"
+        self.vs.is_geometry_dirty = False
+        vs2.is_geometry_dirty = False
         ctrl.on_toggle_enhanced_vis(None, True)
-        self.assertTrue(ctrl.enhanced_vis)
+        self.assertTrue(ctrl.is_enhanced_vis("img1"))
         self.assertTrue(self.vs.is_geometry_dirty)
+        self.assertFalse(vs2.is_geometry_dirty)
         mock_api.request_refresh.assert_called_once()
+
+        # img2 stays untouched even though it's now the active image.
+        active["id"] = "img2"
+        self.assertFalse(ctrl.is_enhanced_vis())
+        self.assertTrue(ctrl.is_enhanced_vis("img1"))
+
+        # Cleanup on image removal.
+        ctrl.on_image_removed("img1")
+        self.assertFalse(ctrl.is_enhanced_vis("img1"))
 
 
 if __name__ == "__main__":
