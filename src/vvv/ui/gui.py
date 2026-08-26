@@ -793,6 +793,7 @@ class MainGUI:
                 dpg.add_draw_node(tag=viewer.landmark_node_tag)
                 dpg.add_draw_node(tag=viewer.roi_handle_node_tag)
                 dpg.add_draw_node(tag=viewer.vector_field_node_tag)
+                dpg.add_draw_node(tag=viewer.tracker_tag)
 
              # Separate overlay child window for the slider + text, positioned absolutely
             with dpg.child_window(
@@ -873,8 +874,10 @@ class MainGUI:
                             dpg.bind_item_font(txt_zoom, "small_font_tag")
 
             # --- ORIGINAL TRUNCATED CODES PRESERVED BELOW ---
+            # (tracker readout is drawn into viewer.tracker_tag, a draw_node
+            # inside the drawlist above, alongside the legend/landmark/etc.
+            # overlays - see SliceViewer._draw_tracker_text())
             col = self.controller.settings.data["colors"]["tracker_text"]
-            dpg.add_text("", tag=viewer.tracker_tag, color=col, pos=[5, 5])
 
             # Beginner mode help text for non-active viewers
             viewer_help_tag = f"viewer_help_text_{tag}"

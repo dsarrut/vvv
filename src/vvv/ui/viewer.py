@@ -728,14 +728,12 @@ class SliceViewer:
             self.legend_tag,
             self.filename_text_tag,
             self.vector_field_node_tag,
+            self.tracker_tag,
         ]
 
         for node_tag in nodes_to_hide:
             if dpg.does_item_exist(node_tag):
                 dpg.configure_item(node_tag, show=False)
-
-        if dpg.does_item_exist(self.tracker_tag):
-            dpg.set_value(self.tracker_tag, "")
 
         if hasattr(self, "overlay_image_tag") and dpg.does_item_exist(
             self.overlay_image_tag
@@ -1814,7 +1812,9 @@ class SliceViewer:
             or not vs.camera.show_tracker
             or not self.is_image_orientation()
         ):
-            dpg.set_value(self.tracker_tag, "")
+            if dpg.does_item_exist(self.tracker_tag):
+                dpg.delete_item(self.tracker_tag, children_only=True)
+                dpg.configure_item(self.tracker_tag, show=False)
             self._external_tracker_active = False
             self._last_tracker_state = None
             return
@@ -1887,7 +1887,9 @@ class SliceViewer:
 
             phys = vs.camera.target_tracker_phys
             if phys is None:
-                dpg.set_value(self.tracker_tag, "")
+                if dpg.does_item_exist(self.tracker_tag):
+                    dpg.delete_item(self.tracker_tag, children_only=True)
+                    dpg.configure_item(self.tracker_tag, show=False)
                 self._external_tracker_active = False
                 return
 
@@ -1903,7 +1905,6 @@ class SliceViewer:
 
         # --- The drawing logic remains exactly the same! ---
         col = self.controller.settings.data["colors"]["tracker_text"]
-        dpg.configure_item(self.tracker_tag, color=col)
 
         # Look up the value at the physical coordinate
         info = self.controller.get_pixel_values_at_phys(
@@ -1946,7 +1947,7 @@ class SliceViewer:
 
             # Format the text differently depending on if we are active or passive
             if is_external:
-                final_text = text_lines[0]
+                text_lines = [text_lines[0]]
             else:
                 # This assertion helps Pylance understand that 'native_v' cannot be None
                 # in this branch, resolving the incorrect type warning.
@@ -1967,19 +1968,56 @@ class SliceViewer:
                     text_lines.append(fmt(native_v, 1))
 
                 text_lines.append(f"{fmt(phys, 1)} mm")
-                final_text = "\n".join(text_lines)
-
-            dpg.set_value(self.tracker_tag, final_text)
-            est_h = final_text.count("\n") * 16 + 25
         else:
-            dpg.set_value(self.tracker_tag, "Out of image" if not is_external else "")
-            est_h = 25
+            text_lines = ["Out of image"] if not is_external else []
+
+        self._draw_tracker_text(text_lines, col)
+
+    def _draw_tracker_text(self, text_lines, col):
+        """Redraws the tracker readout (value/voxel/phys coords) as a small
+        HUD badge with a translucent background behind it, anchored near the
+        bottom-left of the viewer. Drawn as drawlist items (like the legend
+        and landmark name badges) rather than a text widget, so it can be
+        cleared and redrawn every frame - as the mouse moves - without the
+        flicker/overhead of resizing a child_window every frame."""
+        if not dpg.does_item_exist(self.tracker_tag):
+            return
+        dpg.delete_item(self.tracker_tag, children_only=True)
+
+        if not text_lines:
+            dpg.configure_item(self.tracker_tag, show=False)
+            return
+        dpg.configure_item(self.tracker_tag, show=True)
+
+        # Fixed footprint (not sized to content) so the badge doesn't jump
+        # around as the text changes while the mouse moves.
+        line_h = 16
+        box_w = 210
+        box_h = 60
 
         win_h = self.quad_h
-        dpg.set_item_pos(
-            self.tracker_tag,
-            [8, max(5, win_h - est_h - 15)],
+        x0 = 8
+        box_bottom = max(box_h + 5, win_h - 15)
+        box_top = box_bottom - box_h
+        y0 = box_top + 6
+
+        bg_col = self.controller.settings.data["colors"]["legend_bg"]
+        dpg.draw_rectangle(
+            pmin=[x0 - 4, box_top],
+            pmax=[x0 - 4 + box_w, box_bottom],
+            color=bg_col,
+            fill=bg_col,
+            rounding=3.0,
+            parent=self.tracker_tag,
         )
+        for i, line in enumerate(text_lines):
+            dpg.draw_text(
+                pos=[x0, y0 + i * line_h],
+                text=line,
+                color=col,
+                size=14,
+                parent=self.tracker_tag,
+            )
 
     # --- ACTIONS & KEYBINDING DISPATCHER ---
 

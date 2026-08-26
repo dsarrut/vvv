@@ -1157,6 +1157,51 @@ def test_image_display_name_consecutive(headless_gui_app, synthetic_volume_facto
     assert display_name2_new == "(2) modified_name.nii.gz"
 
 
+def test_tracker_background_panel_shows_and_sizes_with_text(headless_gui_app, monkeypatch):
+    """Regression: the mouse-tracker readout needs a translucent background
+    drawn behind it so it stays legible over bright image content, and must
+    be hidden again once there's nothing to show. Drawn as drawlist items
+    (like the legend/landmark badges) rather than a text widget wrapped in a
+    child_window, since resizing a child_window every frame as the mouse
+    moves caused visible flicker."""
+    controller, gui, viewer, vs_id = headless_gui_app
+    vs = viewer.view_state
+
+    # build_main_layout() already created viewer.tracker_tag as a draw_node
+    # inside win_V1's drawlist; this is just a defensive fallback in case a
+    # prior test left the shared DPG context in a different state.
+    if not dpg.does_item_exist(f"win_{viewer.tag}"):
+        dpg.add_child_window(tag=f"win_{viewer.tag}")
+    if not dpg.does_item_exist(viewer.tracker_tag):
+        with dpg.drawlist(width=100, height=100, parent=f"win_{viewer.tag}"):
+            dpg.add_draw_node(tag=viewer.tracker_tag)
+
+    viewer.quad_h = 300
+
+    # Force the "not locally hovered" path so update_tracker falls back to the
+    # externally-propagated tracker target instead of live mouse hover.
+    monkeypatch.setattr(viewer, "get_mouse_slice_coords", lambda *a, **k: (None, None))
+    monkeypatch.setattr(dpg, "is_item_hovered", lambda tag: False)
+
+    center = controller.get_volume_physical_center(viewer.volume)
+    vs.camera.target_tracker_phys = center
+    viewer._was_hovered = False
+    viewer._last_tracker_state = None
+
+    viewer.update_tracker()
+
+    assert dpg.is_item_shown(viewer.tracker_tag) is True
+    drawn_items = dpg.get_item_children(viewer.tracker_tag, slot=2)
+    # A background rectangle plus at least one line of text.
+    assert len(drawn_items) >= 2
+
+    # Clearing the external target must hide the tracker readout again.
+    viewer._last_tracker_state = None  # bust the throttle cache
+    vs.camera.target_tracker_phys = None
+    viewer.update_tracker()
+    assert dpg.is_item_shown(viewer.tracker_tag) is False
+
+
 
 
 
