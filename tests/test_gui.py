@@ -902,6 +902,66 @@ def test_landmark_goto_pans_synced_other_image(
     assert viewer2.pan_offset != prev_v2_pan
 
 
+def test_is_mouse_on_slice_slider_scoped_to_own_viewer(headless_gui_app, monkeypatch):
+    """Regression: a stale hover/active state on one viewer's slice slider must
+    not swallow clicks/drags on a DIFFERENT viewer — the check was ignoring
+    its `viewer` argument and scanning all 4 sliders regardless of which
+    viewer the click actually landed on."""
+    controller, gui, viewer1, vs_id = headless_gui_app
+    viewer2 = controller.viewers["V2"]
+
+    # Simulate V2's slider being stuck hovered/active (e.g. after a drag that
+    # didn't cleanly release focus), while the user is now clicking on V1.
+    monkeypatch.setattr(
+        dpg, "does_item_exist", lambda tag: tag in ("win_slider_V1", "win_slider_V2")
+    )
+    monkeypatch.setattr(dpg, "is_item_shown", lambda tag: True)
+    monkeypatch.setattr(
+        dpg, "is_item_hovered", lambda tag: tag in ("win_slider_V2", "slider_slice_V2")
+    )
+    monkeypatch.setattr(dpg, "is_item_active", lambda tag: tag == "slider_slice_V2")
+
+    # V1's click must NOT be swallowed by V2's stuck slider state.
+    assert gui.interaction._is_mouse_on_slice_slider(viewer1) is False
+    # V2's own click is still correctly recognized as being on its slider.
+    assert gui.interaction._is_mouse_on_slice_slider(viewer2) is True
+
+
+def test_update_trackers_self_heals_stray_active_border(headless_gui_app, monkeypatch):
+    """Regression: exactly one viewer window must show the active (green)
+    border. If some transient glitch left a second, non-active viewer's
+    window bound to the active theme, the next tracker tick must correct it."""
+    controller, gui, viewer1, vs_id = headless_gui_app
+
+    created_windows = []
+    for tag in ["V1", "V2"]:
+        win_tag = f"win_{tag}"
+        if not dpg.does_item_exist(win_tag):
+            dpg.add_child_window(tag=win_tag)
+            created_windows.append(win_tag)
+
+    try:
+        gui.set_context_viewer(viewer1)
+
+        # Simulate the bug: V2 (not the active viewer) is stuck with the
+        # active border theme bound to its window.
+        dpg.bind_item_theme("win_V2", "active_black_viewer_theme")
+
+        monkeypatch.setattr(dpg, "is_key_down", lambda key: False)
+        monkeypatch.setattr(gui.interaction, "get_hovered_viewer", lambda: None)
+
+        gui.interaction.update_trackers()
+
+        # V1 (the active viewer) must show the active theme...
+        assert dpg.get_item_theme("win_V1") == "active_black_viewer_theme"
+        # ...and V2 must have been corrected back to the inactive theme.
+        assert dpg.get_item_theme("win_V2") == "black_viewer_theme"
+    finally:
+        for win_tag in created_windows:
+            if dpg.does_item_exist(win_tag):
+                dpg.delete_item(win_tag)
+
+
 def test_gui_viewport_layouts_dynamic_active(headless_gui_app):
     """Verifies that changing viewport layouts dynamically targets the active viewer (e.g. V3)."""
     controller, gui, viewer, vs_id = headless_gui_app

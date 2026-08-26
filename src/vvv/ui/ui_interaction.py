@@ -893,12 +893,21 @@ class InteractionManager:
         return None
 
     def _is_mouse_on_slice_slider(self, viewer):
-        for tag in ["V1", "V2", "V3", "V4"]:
-            slider_win = f"win_slider_{tag}"
-            slider_tag = f"slider_slice_{tag}"
-            if dpg.does_item_exist(slider_win) and dpg.is_item_shown(slider_win):
-                if dpg.is_item_hovered(slider_win) or dpg.is_item_active(slider_tag) or dpg.is_item_hovered(slider_tag):
-                    return True
+        """Whether the mouse is currently on `viewer`'s own slice slider.
+
+        Must only check `viewer`'s slider, not every viewer's: this gates
+        whether a click/drag on `viewer` gets treated as slider interaction
+        vs. viewer-focus/crosshair navigation, so checking unrelated viewers'
+        sliders could swallow clicks on `viewer` because some OTHER viewer's
+        slider was left hovered/active.
+        """
+        if not viewer:
+            return False
+        slider_win = f"win_slider_{viewer.tag}"
+        slider_tag = f"slider_slice_{viewer.tag}"
+        if dpg.does_item_exist(slider_win) and dpg.is_item_shown(slider_win):
+            if dpg.is_item_hovered(slider_win) or dpg.is_item_active(slider_tag) or dpg.is_item_hovered(slider_tag):
+                return True
         return False
 
     def on_mouse_click(self, sender, app_data, user_data):
@@ -1159,13 +1168,28 @@ class InteractionManager:
         # 2. OUTSIDE THE LOOP: Update the master UI state safely
         if self.gui.context_viewer:
             if not is_dragging:
-                show_xh = (
-                    self.gui.context_viewer.view_state.camera.show_crosshair
-                    if self.gui.context_viewer.view_state
-                    else False
-                )
-                theme = "active_black_viewer_theme" if show_xh else "black_viewer_theme"
-                dpg.bind_item_theme(f"win_{self.gui.context_viewer.tag}", theme)
+                # Re-derive EVERY viewer's border theme from context_viewer each
+                # frame (self-healing) instead of only touching the active one -
+                # guarantees exactly one viewer stays highlighted even if some
+                # transient glitch elsewhere left a stale binding on another window.
+                for viewer in self.controller.viewers.values():
+                    win_tag = f"win_{viewer.tag}"
+                    if not dpg.does_item_exist(win_tag):
+                        continue
+                    if viewer == self.gui.context_viewer:
+                        show_xh = (
+                            viewer.view_state.camera.show_crosshair
+                            if viewer.view_state
+                            else False
+                        )
+                        theme = (
+                            "active_black_viewer_theme"
+                            if show_xh
+                            else "black_viewer_theme"
+                        )
+                    else:
+                        theme = "black_viewer_theme"
+                    dpg.bind_item_theme(win_tag, theme)
 
             # High-frequency 60fps text updates MUST be done directly, not via the heavy UI refresh flag!
             self.gui.update_sidebar_crosshair(self.gui.context_viewer)
