@@ -109,6 +109,6 @@ jobs:
 
       - name: Run tests
         run: |
+          ls
+          pip freeze
           pytest -v
-
-

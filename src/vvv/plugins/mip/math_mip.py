@@ -18,7 +18,7 @@ except ImportError:
 
 
 if _NUMBA_AVAILABLE:
-    @numba.njit(parallel=True, cache=True, fastmath=True)
+    @numba.njit(parallel=False, cache=True, fastmath=True)
     def project_mip_z(data: np.ndarray, depth_cueing_strength: float) -> np.ndarray:
         """Compute MIP along the Z (depth) axis using Numba. Output shape is (H, W)."""
         D, H, W = data.shape
@@ -37,7 +37,7 @@ if _NUMBA_AVAILABLE:
         return out
 
 
-    @numba.njit(parallel=True, cache=True, fastmath=True)
+    @numba.njit(parallel=False, cache=True, fastmath=True)
     def project_mip_y(data: np.ndarray, depth_cueing_strength: float) -> np.ndarray:
         """Compute MIP along the Y (depth) axis using Numba. Output shape is (D, W)."""
         D, H, W = data.shape
@@ -56,7 +56,7 @@ if _NUMBA_AVAILABLE:
         return out
 
 
-    @numba.njit(parallel=True, cache=True, fastmath=True)
+    @numba.njit(parallel=False, cache=True, fastmath=True)
     def project_mip_x(data: np.ndarray, depth_cueing_strength: float) -> np.ndarray:
         """Compute MIP along the X (depth) axis using Numba. Output shape is (D, H)."""
         D, H, W = data.shape
@@ -75,7 +75,7 @@ if _NUMBA_AVAILABLE:
         return out
 
 
-    @numba.njit(parallel=True, cache=True, fastmath=True)
+    @numba.njit(parallel=False, cache=True, fastmath=True)
     def project_mip_z_rotated(data: np.ndarray, theta: float, depth_cueing_strength: float) -> np.ndarray:
         """Compute rotated MIP along Z (rotation around Y). Output shape is (H, W)."""
         D, H, W = data.shape
@@ -136,7 +136,7 @@ if _NUMBA_AVAILABLE:
         return out
 
 
-    @numba.njit(parallel=True, cache=True, fastmath=True)
+    @numba.njit(parallel=False, cache=True, fastmath=True)
     def project_mip_y_rotated(data: np.ndarray, theta: float, depth_cueing_strength: float) -> np.ndarray:
         """Compute rotated MIP along Y (rotation around Z). Output shape is (D, W)."""
         D, H, W = data.shape
@@ -197,7 +197,7 @@ if _NUMBA_AVAILABLE:
         return out
 
 
-    @numba.njit(parallel=True, cache=True, fastmath=True)
+    @numba.njit(parallel=False, cache=True, fastmath=True)
     def project_mip_x_rotated(data: np.ndarray, theta: float, depth_cueing_strength: float) -> np.ndarray:
         """Compute rotated MIP along X (rotation around Z). Output shape is (D, H)."""
         D, H, W = data.shape
