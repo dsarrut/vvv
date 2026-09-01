@@ -1,6 +1,13 @@
 from vvv.utils import ViewMode
 
+import pytest
+try:
+    import intel_openmp
+    HAS_INTEL_OPENMP = True
+except ImportError:
+    HAS_INTEL_OPENMP = False
 
+@pytest.mark.skipif(not HAS_INTEL_OPENMP, reason="Requires Intel OpenMP")
 def test_mip_integration(headless_gui_app):
     controller, gui, viewer, base_id = headless_gui_app
     
