@@ -76,9 +76,17 @@ def _profile_tick():
             f"gpu_set_value={_profile_stats['gpu_upload'] / n * 1000:.2f}"
         )
         for k in (
-            "extract", "base", "overlay", "gpu_upload", "nn_base",
-            "native_overlay", "package", "extract_base", "extract_overlay",
-            "roi_package", "roi_mask_build",
+            "extract",
+            "base",
+            "overlay",
+            "gpu_upload",
+            "nn_base",
+            "native_overlay",
+            "package",
+            "extract_base",
+            "extract_overlay",
+            "roi_package",
+            "roi_mask_build",
         ):
             _profile_stats[k] = 0.0
         _profile_stats["n"] = 0
@@ -2105,19 +2113,11 @@ class SliceViewer:
                 color_idx = len(self.view_state.profiles)
                 p.color = list(ROI_COLORS[color_idx % len(ROI_COLORS)]) + [255]
 
-                v1 = slice_to_voxel(
-                    sx1, sy1, self.slice_idx, self.orientation, shape
-                )
-                v2 = slice_to_voxel(
-                    sx2, sy2, self.slice_idx, self.orientation, shape
-                )
+                v1 = slice_to_voxel(sx1, sy1, self.slice_idx, self.orientation, shape)
+                v2 = slice_to_voxel(sx2, sy2, self.slice_idx, self.orientation, shape)
                 is_buf = self._is_buffered()
-                p.pt1_phys = self.view_state.display_to_world(
-                    v1, is_buffered=is_buf
-                )
-                p.pt2_phys = self.view_state.display_to_world(
-                    v2, is_buffered=is_buf
-                )
+                p.pt1_phys = self.view_state.display_to_world(v1, is_buffered=is_buf)
+                p.pt2_phys = self.view_state.display_to_world(v2, is_buffered=is_buf)
                 p.orientation = self.orientation
                 p.slice_idx = self.slice_idx
                 p.plot_open = True
@@ -2129,7 +2129,11 @@ class SliceViewer:
     def action_add_landmark(self):
         if hasattr(self.controller, "gui") and self.controller.gui:
             lm_plugin = next(
-                (p for p in self.controller.gui.plugins if p.plugin_id == "landmark_plugin"),
+                (
+                    p
+                    for p in self.controller.gui.plugins
+                    if p.plugin_id == "landmark_plugin"
+                ),
                 None,
             )
             if lm_plugin and self.image_id and self.view_state:
@@ -2213,7 +2217,11 @@ class SliceViewer:
             state = mip_plugin._controller.get_viewer_state(self.image_id, self.tag)
             state.mip_enabled = not state.mip_enabled
             if state.mip_enabled:
-                axis_map = {"Z": ViewMode.AXIAL, "Y": ViewMode.SAGITTAL}
+                axis_map = {
+                    "Z": ViewMode.AXIAL,
+                    "Y": ViewMode.CORONAL,
+                    "X": ViewMode.SAGITTAL,
+                }
                 target = axis_map.get(state.projection_axis.upper())
                 if target and self.orientation != target:
                     self.set_orientation(target)
@@ -2244,17 +2252,6 @@ class SliceViewer:
                 self.controller.status_message = f"{hint}: {'on' if new_val else 'off'}"
 
     def _set_orientation_with_hint(self, mode):
-        if mode == ViewMode.CORONAL and self.image_id:
-            try:
-                mip_plugin = _safe_get_plugin(self.controller, "mip_plugin")
-                if mip_plugin:
-                    mip_st = mip_plugin._controller.get_viewer_state(
-                        self.image_id, self.tag
-                    )
-                    if mip_st and mip_st.mip_enabled:
-                        return
-            except Exception:
-                pass
         self.set_orientation(mode)
         if self.controller:
             self.controller.status_message = mode.name.capitalize()
@@ -2354,7 +2351,11 @@ class SliceViewer:
             if isinstance(val, str):
                 key_attr = f"mvKey_{val}"
                 if val in ("Space", "Spacebar") and not hasattr(dpg, key_attr):
-                    key_attr = "mvKey_Spacebar" if hasattr(dpg, "mvKey_Spacebar") else "mvKey_Space"
+                    key_attr = (
+                        "mvKey_Spacebar"
+                        if hasattr(dpg, "mvKey_Spacebar")
+                        else "mvKey_Space"
+                    )
                 mapped_key = getattr(dpg, key_attr, val)
             else:
                 mapped_key = val

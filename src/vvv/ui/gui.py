@@ -135,7 +135,9 @@ class MainGUI:
 
     def get_plugin(self, plugin_id: str) -> Any | None:
         """Get plugin by its ID."""
-        if not hasattr(self, "_plugin_map") or len(self._plugin_map) != len(self.plugins):
+        if not hasattr(self, "_plugin_map") or len(self._plugin_map) != len(
+            self.plugins
+        ):
             self._plugin_map = {p.plugin_id: p for p in self.plugins}
         return self._plugin_map.get(plugin_id)
 
@@ -400,7 +402,9 @@ class MainGUI:
                         dpg.bind_item_theme(btn, "icon_button_theme")
 
                 build_beginner_tooltip("btn_layout_4", "4 Viewers Layout", self)
-                build_beginner_tooltip("btn_layout_2", "2 Viewers (Left/Right) Layout", self)
+                build_beginner_tooltip(
+                    "btn_layout_2", "2 Viewers (Left/Right) Layout", self
+                )
                 build_beginner_tooltip("btn_layout_1", "1 Viewer (Full) Layout", self)
 
         dpg.bind_item_theme("menu_container", "floating_menu_theme")
@@ -579,9 +583,12 @@ class MainGUI:
                                 return
                             new_name = val.strip()
                             import re
+
                             new_name = re.sub(r"\s*\*$", "", new_name)
                             new_name = re.sub(r"^\(\d+\)\s*", "", new_name)
-                            vol = self.controller.volumes.get(self.context_viewer.image_id)
+                            vol = self.controller.volumes.get(
+                                self.context_viewer.image_id
+                            )
                             if vol and new_name:
                                 vol.name = new_name
                                 # Immediately update the filename overlay text in all viewports using this volume
@@ -589,11 +596,13 @@ class MainGUI:
                                     if viewer.image_id == self.context_viewer.image_id:
                                         viewer.update_filename_overlay()
                                 # Immediately update the list view text field as well
-                                input_name_tag = f"input_name_{self.context_viewer.image_id}"
+                                input_name_tag = (
+                                    f"input_name_{self.context_viewer.image_id}"
+                                )
                                 if dpg.does_item_exist(input_name_tag):
                                     dpg.set_value(input_name_tag, new_name)
                                 self.controller.ui_needs_refresh = True
-                    
+
                     dim_col = self.ui_cfg["colors"]["text_dim"]
                     with dpg.group(horizontal=True):
                         dpg.add_text("", tag="info_name_label", color=dim_col)
@@ -607,7 +616,9 @@ class MainGUI:
                         if not dpg.does_item_exist(handler_tag):
                             with dpg.item_handler_registry(tag=handler_tag):
                                 dpg.add_item_deactivated_after_edit_handler(
-                                    callback=lambda s, a, u: on_info_name_rename("input_info_name", None, None)
+                                    callback=lambda s, a, u: on_info_name_rename(
+                                        "input_info_name", None, None
+                                    )
                                 )
                         dpg.bind_item_handler_registry("input_info_name", handler_tag)
                     self.create_labeled_field("Type", tag="info_voxel_type")
@@ -795,7 +806,7 @@ class MainGUI:
                 dpg.add_draw_node(tag=viewer.vector_field_node_tag)
                 dpg.add_draw_node(tag=viewer.tracker_tag)
 
-             # Separate overlay child window for the slider + text, positioned absolutely
+            # Separate overlay child window for the slider + text, positioned absolutely
             with dpg.child_window(
                 tag=f"win_slider_{tag}",
                 width=58,
@@ -836,10 +847,12 @@ class MainGUI:
                             callback=self.on_viewer_slider_decrement,
                             user_data=tag,
                         )
-                        txt_slice = dpg.add_text("", tag=f"slider_txt_{tag}", show=False)
+                        txt_slice = dpg.add_text(
+                            "", tag=f"slider_txt_{tag}", show=False
+                        )
                         if dpg.does_item_exist("small_font_tag"):
                             dpg.bind_item_font(txt_slice, "small_font_tag")
-                    
+
                     # Column 2: Zoom Slider
                     with dpg.group(horizontal=False, width=18):
                         dpg.add_slider_float(
@@ -869,7 +882,9 @@ class MainGUI:
                             callback=self.on_viewer_zoom_decrement,
                             user_data=tag,
                         )
-                        txt_zoom = dpg.add_text("", tag=f"slider_zoom_txt_{tag}", show=False)
+                        txt_zoom = dpg.add_text(
+                            "", tag=f"slider_zoom_txt_{tag}", show=False
+                        )
                         if dpg.does_item_exist("small_font_tag"):
                             dpg.bind_item_font(txt_zoom, "small_font_tag")
 
@@ -1252,6 +1267,7 @@ class MainGUI:
             self.fusion_ui.refresh_fusion_ui()
             self._active_image_path_full = ""
             self._refresh_active_image_path_bar()
+            self._update_window_title()
             return
 
         assert viewer is not None
@@ -1261,11 +1277,15 @@ class MainGUI:
             path = path[0] if path else None
         self._active_image_path_full = self._format_home_relative_abs_path(path)
         self._refresh_active_image_path_bar()
+        self._update_window_title()
         if dpg.does_item_exist("input_info_name"):
-            if not dpg.is_item_focused("input_info_name") and not dpg.is_item_active("input_info_name"):
+            if not dpg.is_item_focused("input_info_name") and not dpg.is_item_active(
+                "input_info_name"
+            ):
                 name_str, _ = self.controller.get_image_display_name(viewer.image_id)
                 # Strip trailing outdated stars if they are present in display name
                 import re
+
                 name_clean = re.sub(r"\s*\*$", "", name_str)
                 dpg.set_value("input_info_name", name_clean)
         dpg.set_value("info_name_label", viewer.tag)
@@ -1498,7 +1518,7 @@ class MainGUI:
         abs_path = os.path.abspath(path)
         home = os.path.expanduser("~")
         if home and (abs_path == home or abs_path.startswith(home + os.sep)):
-            abs_path = "~" + abs_path[len(home):]
+            abs_path = "~" + abs_path[len(home) :]
         return abs_path
 
     def on_active_image_path_clicked(self, sender, app_data, user_data):
@@ -1542,6 +1562,47 @@ class MainGUI:
         text_w = text_width(display_text)
         x = left_bound if text_w is None else left_bound + max(0, (avail - text_w) / 2)
         dpg.set_item_pos(tag, [x, 6])
+
+    def get_window_title(self) -> str:
+        """Constructs the dynamic window title based on loaded images and the active viewer."""
+        num_images = len(self.controller.view_states)
+        img_word = "image" if num_images == 1 else "images"
+        title_parts = [f"VVV --- {num_images} loaded {img_word}"]
+
+        viewer = self.context_viewer
+        if viewer and viewer.image_id and viewer.image_id in self.controller.volumes:
+            vol = self.controller.volumes[viewer.image_id]
+            path = getattr(vol, "path", None)
+            if isinstance(path, list):
+                path = path[0] if path else None
+            base_name = self._format_home_relative_abs_path(path) if path else vol.name
+
+            active_str = base_name
+            ov_id = (
+                viewer.view_state.display.overlay.image_id
+                if (
+                    viewer.view_state
+                    and hasattr(viewer.view_state, "display")
+                    and hasattr(viewer.view_state.display, "overlay")
+                )
+                else None
+            )
+            if ov_id and ov_id in self.controller.volumes:
+                ov_vol = self.controller.volumes[ov_id]
+                active_str += f" + {ov_vol.name}"
+
+            title_parts.append(f"Active: {active_str}")
+
+        return " --- ".join(title_parts)
+
+    def _update_window_title(self):
+        """Updates the OS viewport window title."""
+        try:
+            if not dpg.is_viewport_ok():
+                return
+            dpg.set_viewport_title(self.get_window_title())
+        except Exception:
+            pass
 
     def on_window_resize(self):
         try:
@@ -1772,17 +1833,20 @@ class MainGUI:
                     ],
                 )
 
-    def set_viewport_layout(self, layout):
+    def set_viewport_layout(self, layout, visible_viewers=None):
         self.active_layout = layout
 
         active_tag = self.context_viewer.tag if self.context_viewer else "V1"
-        next_map = {"V1": "V2", "V2": "V3", "V3": "V4", "V4": "V1"}
-        next_tag = next_map[active_tag]
 
-        if layout == "4":
+        if visible_viewers and len(visible_viewers) > 0:
+            self.visible_viewers = list(visible_viewers)
+        elif layout == "4":
             self.visible_viewers = ["V1", "V2", "V3", "V4"]
         elif layout == "2":
-            self.visible_viewers = [active_tag, next_tag]
+            if active_tag in ("V3", "V4"):
+                self.visible_viewers = ["V3", "V4"]
+            else:
+                self.visible_viewers = ["V1", "V2"]
         else:  # layout == "1"
             self.visible_viewers = [active_tag]
 
@@ -1846,7 +1910,7 @@ class MainGUI:
         tag = user_data
         viewer = self.controller.viewers.get(tag)
         if viewer and viewer.view_state:
-            new_zoom = 2.0 ** app_data
+            new_zoom = 2.0**app_data
 
             canvas_w, canvas_h = viewer._get_canvas_size()
             cx = (canvas_w - viewer.mapper.margin_left * 2.0) / 2.0
@@ -1865,7 +1929,14 @@ class MainGUI:
                 shape = viewer.get_slice_shape()
                 sw, sh = viewer.volume.get_physical_aspect_ratio(viewer.orientation)
                 viewer.mapper.update(
-                    win_w, win_h, shape[1], shape[0], sw, sh, new_zoom, viewer.pan_offset
+                    win_w,
+                    win_h,
+                    shape[1],
+                    shape[0],
+                    sw,
+                    sh,
+                    new_zoom,
+                    viewer.pan_offset,
                 )
 
             viewer.is_geometry_dirty = True
@@ -1886,8 +1957,14 @@ class MainGUI:
                 shape = viewer.get_slice_shape()
                 sw, sh = viewer.volume.get_physical_aspect_ratio(viewer.orientation)
                 viewer.mapper.update(
-                    canvas_w, canvas_h, shape[1], shape[0],
-                    sw, sh, new_zoom, viewer.pan_offset,
+                    canvas_w,
+                    canvas_h,
+                    shape[1],
+                    shape[0],
+                    sw,
+                    sh,
+                    new_zoom,
+                    viewer.pan_offset,
                 )
 
             self.controller.ui_needs_refresh = True
@@ -2122,9 +2199,13 @@ class MainGUI:
     ):
         if self.current_workspace_path:
             self.controller.file.save_workspace(self.current_workspace_path)
+            self.refresh_workspace_bar()
             self.show_status_message(
                 f"Workspace saved: {os.path.basename(self.current_workspace_path)}"
             )
+            self.controller.ui_needs_refresh = True
+        else:
+            self.on_save_workspace_clicked()
 
     def refresh_workspace_bar(self):
         """Sync the nav-column workspace icons and the menu item with current state."""
@@ -2530,6 +2611,7 @@ class MainGUI:
 
         dpg.show_viewport()
         dpg.set_primary_window("PrimaryWindow", True)
+        self._update_window_title()
 
         # Force the initial layout calculation now that the viewport has physical dimensions!
         self.on_window_resize()

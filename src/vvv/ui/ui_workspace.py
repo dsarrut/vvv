@@ -1,9 +1,9 @@
 import dearpygui.dearpygui as dpg
 
 # FontAwesome 4 codepoints — same encoding the rest of the nav uses
-_ICON_OPEN    = "\uf07c"   # fa-folder-open
-_ICON_SAVE    = "\uf0c7"   # fa-save (floppy disk)
-_ICON_SAVE_AS = "\uf019"   # fa-download / save as
+_ICON_OPEN = "\uf07c"  # fa-folder-open
+_ICON_SAVE = "\uf0c7"  # fa-save (floppy disk)
+_ICON_SAVE_AS = "\uf019"  # fa-download / save as
 
 
 def build_workspace_nav_icons(gui):
@@ -67,7 +67,9 @@ def build_workspace_nav_icons(gui):
                 dpg.bind_item_font(btn, "icon_font_tag")
 
             tt_id = dpg.generate_uuid()
-            with dpg.tooltip(btn, tag=tt_id, show=getattr(gui, "is_beginner_mode", False)):
+            with dpg.tooltip(
+                btn, tag=tt_id, show=getattr(gui, "is_beginner_mode", False)
+            ):
                 if not hasattr(gui, "beginner_tags"):
                     gui.beginner_tags = []
                 gui.beginner_tags.append(tt_id)
@@ -76,15 +78,30 @@ def build_workspace_nav_icons(gui):
                     dpg.add_text(label, tag=tooltip_tag)
                 else:
                     dpg.add_text(label)
-                    
-                dpg.add_text("A Workspace saves your exact session (loaded images, overlays, window/level, and ROIs) so you can resume your work later.", color=cfg_c["text_dim"])
+
+                dpg.add_text(
+                    "A Workspace saves your exact session (loaded images, overlays, window/level, and ROIs) so you can resume your work later.",
+                    color=cfg_c["text_dim"],
+                )
 
             if tag == "ws_nav_btn_save":
-                txt = dpg.add_text("", tag="ws_nav_filename_text", color=cfg_c["text_dim"])
+                txt = dpg.add_text(
+                    "", tag="ws_nav_filename_text", color=cfg_c["text_dim"]
+                )
                 if dpg.does_item_exist("small_font_tag"):
                     dpg.bind_item_font(txt, "small_font_tag")
                 try:
-                    tt_ws = dpg.add_tooltip(txt, show=getattr(gui, "is_beginner_mode", False))
+                    with dpg.item_handler_registry() as txt_handler:
+                        dpg.add_item_clicked_handler(
+                            callback=gui.on_save_workspace_current_clicked
+                        )
+                    dpg.bind_item_handler_registry(txt, txt_handler)
+                except Exception:
+                    pass
+                try:
+                    tt_ws = dpg.add_tooltip(
+                        txt, show=getattr(gui, "is_beginner_mode", False)
+                    )
                     if hasattr(gui, "beginner_tags"):
                         gui.beginner_tags.append(tt_ws)
                     dpg.add_text("", tag="ws_nav_path_tooltip", parent=tt_ws)
