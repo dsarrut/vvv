@@ -159,11 +159,11 @@ def load_batch_images_sequence(gui, controller, file_paths):
                     iop = getattr(ds, "ImageOrientationPatient", None)
                     if iop is not None and len(iop) == 6:
                         normal = [
-                            iop[1]*iop[5] - iop[2]*iop[4],
-                            iop[2]*iop[3] - iop[0]*iop[5],
-                            iop[0]*iop[4] - iop[1]*iop[3]
+                            iop[1] * iop[5] - iop[2] * iop[4],
+                            iop[2] * iop[3] - iop[0] * iop[5],
+                            iop[0] * iop[4] - iop[1] * iop[3],
                         ]
-                        dist = sum(n*p for n, p in zip(normal, ipp))
+                        dist = sum(n * p for n, p in zip(normal, ipp))
                         file_sort_keys.append((dist, f))
                     else:
                         file_sort_keys.append((ipp[2], f))
@@ -362,8 +362,14 @@ def _parse_label_map_json(raw_dict):
 
 
 def _rasterize_and_load_labels(
-    gui, controller, base_image_id, filepath, unique_labels, label_dict,
-    saved_preferences=None, color_dict=None,
+    gui,
+    controller,
+    base_image_id,
+    filepath,
+    unique_labels,
+    label_dict,
+    saved_preferences=None,
+    color_dict=None,
 ):
     """
     [REUSABLE_WORKER]
@@ -405,9 +411,10 @@ def _rasterize_and_load_labels(
             for i, val in enumerate(unique_labels, 1):
                 val_int = int(val)
                 custom_name = label_dict.get(val_int, f"{base_name} - Lbl {val_int}")
-                color = color_dict.get(val_int) or ROI_COLORS[
-                    (val_int - 1) % len(ROI_COLORS)
-                ]
+                color = (
+                    color_dict.get(val_int)
+                    or ROI_COLORS[(val_int - 1) % len(ROI_COLORS)]
+                )
                 bbox = bboxes.get(val_int)
                 futures.append(
                     executor.submit(_process_label, val_int, custom_name, color, bbox)
@@ -434,7 +441,9 @@ def _rasterize_and_load_labels(
                 time.sleep(0.01)
 
 
-def load_label_map_sequence(gui, controller, base_image_id, filepath, saved_preferences=None):
+def load_label_map_sequence(
+    gui, controller, base_image_id, filepath, saved_preferences=None
+):
     import os
     import json
     import time
@@ -564,8 +573,14 @@ def load_label_map_sequence(gui, controller, base_image_id, filepath, saved_pref
 
     completed = 0
     for roi_id in _rasterize_and_load_labels(
-        gui, controller, base_image_id, filepath, unique_labels, label_dict,
-        saved_preferences, color_dict,
+        gui,
+        controller,
+        base_image_id,
+        filepath,
+        unique_labels,
+        label_dict,
+        saved_preferences,
+        color_dict,
     ):
         if roi_id == "KEEP_ALIVE":
             yield
@@ -721,16 +736,20 @@ def load_workspace_sequence(gui, controller, filepath):
                         item_abs = os.path.expanduser(item)
                         rel_to_orig = os.path.relpath(item_abs, orig_dir)
                         resolved_dir = os.path.dirname(resolved_first)
-                        candidate = os.path.abspath(os.path.join(resolved_dir, rel_to_orig))
+                        candidate = os.path.abspath(
+                            os.path.join(resolved_dir, rel_to_orig)
+                        )
                         resolved_list.append(candidate)
                     except Exception:
                         resolved_list.append(resolve_workspace_path(item))
                 else:
                     resolved_list.append(resolve_workspace_path(item))
-            return resolved_list if isinstance(stored_path, list) else tuple(resolved_list)
+            return (
+                resolved_list if isinstance(stored_path, list) else tuple(resolved_list)
+            )
         if isinstance(stored_path, str) and stored_path.startswith("4D:"):
             return stored_path
-        
+
         p = os.path.expanduser(stored_path)
         if os.path.exists(p):
             return p
@@ -756,7 +775,9 @@ def load_workspace_sequence(gui, controller, filepath):
                 candidate = os.path.abspath(os.path.join(local_ws_dir, subpath))
                 if os.path.exists(candidate):
                     return candidate
-                candidate_parent = os.path.abspath(os.path.join(os.path.dirname(local_ws_dir), subpath))
+                candidate_parent = os.path.abspath(
+                    os.path.join(os.path.dirname(local_ws_dir), subpath)
+                )
                 if os.path.exists(candidate_parent):
                     return candidate_parent
         return p
@@ -774,7 +795,9 @@ def load_workspace_sequence(gui, controller, filepath):
                 if os.path.exists(p0):
                     tasks_to_load.append((old_id, tuple(resolved_list)))
                 else:
-                    warnings.append(f"Missing DICOM File: {os.path.basename(raw_path[0])}")
+                    warnings.append(
+                        f"Missing DICOM File: {os.path.basename(raw_path[0])}"
+                    )
             elif isinstance(raw_path, str) and raw_path.startswith("4D:"):
                 tasks_to_load.append((old_id, raw_path))
             else:
@@ -795,7 +818,9 @@ def load_workspace_sequence(gui, controller, filepath):
                     if os.path.exists(p0):
                         legacy_overlays.append((old_id, tuple(resolved_list)))
                     else:
-                        warnings.append(f"Missing Overlay DICOM: {os.path.basename(ov_raw_path[0])}")
+                        warnings.append(
+                            f"Missing Overlay DICOM: {os.path.basename(ov_raw_path[0])}"
+                        )
                 elif isinstance(ov_raw_path, str) and ov_raw_path.startswith("4D:"):
                     legacy_overlays.append((old_id, ov_raw_path))
                 else:
@@ -803,7 +828,9 @@ def load_workspace_sequence(gui, controller, filepath):
                     if os.path.exists(ov_path):
                         legacy_overlays.append((old_id, ov_path))
                     else:
-                        warnings.append(f"Missing Overlay: {os.path.basename(ov_raw_path)}")
+                        warnings.append(
+                            f"Missing Overlay: {os.path.basename(ov_raw_path)}"
+                        )
 
     total_files = len(tasks_to_load) + len(legacy_overlays)
     id_map = {}
@@ -819,17 +846,17 @@ def load_workspace_sequence(gui, controller, filepath):
                 f = executor.submit(
                     controller.file.load_image,
                     list(p) if isinstance(p, tuple) else p,
-                    ignore_history=True
+                    ignore_history=True,
                 )
                 future_to_path[f] = ("base", old_id, p)
             for parent_old_id, p in legacy_overlays:
                 f = executor.submit(
                     controller.file.load_image,
                     list(p) if isinstance(p, tuple) else p,
-                    ignore_history=True
+                    ignore_history=True,
                 )
                 future_to_path[f] = ("legacy_ov", parent_old_id, p)
-            
+
             futures: list[concurrent.futures.Future | None] = [
                 f for f in future_to_path.keys()
             ]
@@ -867,11 +894,14 @@ def load_workspace_sequence(gui, controller, filepath):
 
     # --- PHASE 3: APPLY STATES SYNCHRONOUSLY ---
     from vvv.core.view_state import ProfileLineState
+
     for old_id, img_data in ws.get("images", {}).items():
         if old_id in id_map:
             new_id = id_map[old_id]
-            
-            controller.volumes[new_id].is_overlay_only = img_data.get("is_overlay_only", False)
+
+            controller.volumes[new_id].is_overlay_only = img_data.get(
+                "is_overlay_only", False
+            )
 
             vs = controller.view_states[new_id]
             vs.display.from_dict(img_data.get("display", {}))
@@ -896,7 +926,9 @@ def load_workspace_sequence(gui, controller, filepath):
                 for plugin in gui.plugins:
                     plugin_data = plugins_data.get(plugin.plugin_id, {})
                     if plugin_data:
-                        plugin.restore_image_state(new_id, plugin_data, context="workspace")
+                        plugin.restore_image_state(
+                            new_id, plugin_data, context="workspace"
+                        )
             vs.sync_group = img_data.get("sync_group", 0)
             vs.sync_wl_group = img_data.get("sync_wl_group", 0)
 
@@ -920,16 +952,18 @@ def load_workspace_sequence(gui, controller, filepath):
                         if ov_raw_path:
                             if isinstance(ov_raw_path, list):
                                 ov_p = tuple(resolve_workspace_path(ov_raw_path))
-                            elif isinstance(ov_raw_path, str) and ov_raw_path.startswith("4D:"):
+                            elif isinstance(
+                                ov_raw_path, str
+                            ) and ov_raw_path.startswith("4D:"):
                                 ov_p = ov_raw_path
                             else:
                                 ov_p = resolve_workspace_path(ov_raw_path)
-                                
+
                                 for t_old_id, t_p in tasks_to_load:
                                     if t_p == ov_p and t_old_id in id_map:
                                         ov_id = id_map[t_old_id]
                                         break
-                                    
+
                 if ov_id and ov_id in controller.volumes:
                     if "id" not in ov_info:
                         controller.volumes[ov_id].is_overlay_only = True
@@ -942,19 +976,21 @@ def load_workspace_sequence(gui, controller, filepath):
                     ovs = controller.view_states.get(ov_id)
                     if ovs:
                         import threading
+
                         threading.Thread(
                             target=controller._apply_overlay_resample,
                             args=(vs, ovs),
-                            daemon=True
+                            daemon=True,
                         ).start()
                     vs.display.overlay.mode = ov_info.get("mode", "Registration")
                     vs.display.overlay.opacity = ov_info.get("opacity", 0.5)
 
     # --- PHASE 4: MAP VIEWERS ---
-    for tag, v_data in ws.get("viewers", {}).items():
-        old_img_id = v_data.get("image_id")
-        if old_img_id in id_map:
-            new_id = id_map[old_img_id]
+    saved_viewers = ws.get("viewers", {})
+    for tag in ["V1", "V2", "V3", "V4"]:
+        if tag in saved_viewers and saved_viewers[tag].get("image_id") in id_map:
+            v_data = saved_viewers[tag]
+            new_id = id_map[v_data["image_id"]]
 
             # 1. Update the global layout state
             controller.layout[tag] = new_id
@@ -964,12 +1000,17 @@ def load_workspace_sequence(gui, controller, filepath):
             viewer = controller.viewers[tag]
             viewer.set_image(new_id)
             viewer.orientation = ViewMode[v_data["orientation"]]
+            viewer.is_geometry_dirty = True
+            viewer.is_viewer_data_dirty = True
             viewer.needs_recenter = False
 
             if "zoom" in v_data:
                 viewer.zoom = v_data["zoom"]
             if "pan_offset" in v_data:
                 viewer.pan_offset = v_data["pan_offset"]
+        else:
+            controller.layout[tag] = None
+            controller.viewers[tag].drop_image()
     yield
 
     show_loading_modal("Loading image...", "Restoring ROIs...")
@@ -987,25 +1028,33 @@ def load_workspace_sequence(gui, controller, filepath):
                         resolved_list = resolve_workspace_path(raw_r_path)
                         p0 = resolved_list[0]
                         if os.path.exists(p0):
-                            valid_rois_to_load.append({
-                                "new_id": new_id,
-                                "path": tuple(resolved_list),
-                                "state": roi_data.get("state", {}),
-                            })
+                            valid_rois_to_load.append(
+                                {
+                                    "new_id": new_id,
+                                    "path": tuple(resolved_list),
+                                    "state": roi_data.get("state", {}),
+                                }
+                            )
                         else:
-                            warnings.append(f"Missing ROI DICOM: {os.path.basename(raw_r_path[0])}")
+                            warnings.append(
+                                f"Missing ROI DICOM: {os.path.basename(raw_r_path[0])}"
+                            )
                     elif isinstance(raw_r_path, str) and raw_r_path.startswith("4D:"):
                         warnings.append("4D ROIs are not supported.")
                     else:
                         r_path = resolve_workspace_path(raw_r_path)
                         if os.path.exists(r_path):
-                            valid_rois_to_load.append({
-                                "new_id": new_id,
-                                "path": r_path,
-                                "state": roi_data.get("state", {}),
-                            })
+                            valid_rois_to_load.append(
+                                {
+                                    "new_id": new_id,
+                                    "path": r_path,
+                                    "state": roi_data.get("state", {}),
+                                }
+                            )
                         else:
-                            warnings.append(f"Missing ROI: {os.path.basename(raw_r_path)}")
+                            warnings.append(
+                                f"Missing ROI: {os.path.basename(raw_r_path)}"
+                            )
 
     total_rois = len(valid_rois_to_load)
 
@@ -1023,15 +1072,21 @@ def load_workspace_sequence(gui, controller, filepath):
         def process_file_group(r_path, tasks):
             results = []
             is_rtstruct = any(t["state"].get("rtstruct_info") for t in tasks)
-            
+
             actual_path = list(r_path) if isinstance(r_path, tuple) else r_path
-            path_for_print = os.path.basename(actual_path[0]) if isinstance(actual_path, list) else os.path.basename(actual_path)
+            path_for_print = (
+                os.path.basename(actual_path[0])
+                if isinstance(actual_path, list)
+                else os.path.basename(actual_path)
+            )
 
             if is_rtstruct:
                 try:
                     import pydicom
 
-                    rt_path = actual_path[0] if isinstance(actual_path, list) else actual_path
+                    rt_path = (
+                        actual_path[0] if isinstance(actual_path, list) else actual_path
+                    )
                     ds = pydicom.dcmread(rt_path, force=True)
                     for task in tasks:
                         try:
@@ -1056,14 +1111,16 @@ def load_workspace_sequence(gui, controller, filepath):
                             (
                                 task,
                                 None,
-                                    f"- Failed to read {path_for_print}: {e}",
+                                f"- Failed to read {path_for_print}: {e}",
                             )
                         )
             else:
                 try:
                     read_path = actual_path
                     if isinstance(read_path, (list, tuple)):
-                        read_path = [p for p in read_path if not p.lower().endswith(".json")]
+                        read_path = [
+                            p for p in read_path if not p.lower().endswith(".json")
+                        ]
                         if len(read_path) == 1:
                             read_path = read_path[0]
                     img = sitk.ReadImage(read_path)
@@ -1127,7 +1184,7 @@ def load_workspace_sequence(gui, controller, filepath):
                             (
                                 task,
                                 None,
-                                    f"- Failed to read {path_for_print}: {e}",
+                                f"- Failed to read {path_for_print}: {e}",
                             )
                         )
 
@@ -1141,7 +1198,9 @@ def load_workspace_sequence(gui, controller, filepath):
                 f = executor.submit(process_file_group, path, tasks)
                 future_to_tasks[f] = tasks
 
-            futures: list[concurrent.futures.Future | None] = list(future_to_tasks.keys())
+            futures: list[concurrent.futures.Future | None] = list(
+                future_to_tasks.keys()
+            )
 
             completed_rois = 0
             while completed_rois < total_rois:
@@ -1172,7 +1231,9 @@ def load_workspace_sequence(gui, controller, filepath):
                                 completed_rois += 1
                         except Exception as e:
                             for task in tasks:
-                                warnings.append(f"- Failed to load {task['state'].get('name')}: {e}")
+                                warnings.append(
+                                    f"- Failed to load {task['state'].get('name')}: {e}"
+                                )
                                 completed_rois += 1
 
                         futures[i] = None
@@ -1207,7 +1268,7 @@ def load_workspace_sequence(gui, controller, filepath):
                 ov_id = id_map.get(ov_info["id"])
             else:
                 ov_id = legacy_overlay_map.get(old_id)
-                
+
             if ov_id and ov_id in controller.view_states and ov_id not in ordered_vs:
                 ordered_vs[ov_id] = controller.view_states[ov_id]
                 ordered_vol[ov_id] = controller.volumes[ov_id]
@@ -1234,15 +1295,37 @@ def load_workspace_sequence(gui, controller, filepath):
         vs = controller.view_states[new_id]
         for p_id, p in vs.profiles.items():
             if getattr(p, "plot_open", False):
-                profile_plugin = next((pl for pl in gui.plugins if pl.plugin_id == "profile_plugin"), None)
+                profile_plugin = next(
+                    (pl for pl in gui.plugins if pl.plugin_id == "profile_plugin"), None
+                )
                 if profile_plugin:
                     profile_plugin._ui.on_plot_clicked(None, None, p_id)
 
     controller.ui_needs_refresh = True
-    gui.on_window_resize()
+    controller._flag_all_viewers_dirty()
 
-    if id_map:
-        gui.set_context_viewer(controller.viewers["V1"])
+    if gui:
+        for plugin in gui.plugins:
+            if hasattr(plugin, "_controller") and hasattr(
+                plugin._controller, "clear_viewer_cache"
+            ):
+                for v_tag in ["V1", "V2", "V3", "V4"]:
+                    plugin._controller.clear_viewer_cache(v_tag)
+
+        active_tag = ws.get("active_viewer", "V1")
+        if active_tag in controller.viewers:
+            gui.set_context_viewer(controller.viewers[active_tag])
+        elif id_map:
+            gui.set_context_viewer(controller.viewers["V1"])
+
+        layout_mode = str(ws.get("layout_mode") or ws.get("viewport_layout") or "4")
+        saved_visible = ws.get("visible_viewers")
+        if layout_mode in ["1", "2", "4"]:
+            gui.set_viewport_layout(layout_mode, visible_viewers=saved_visible)
+        else:
+            gui.on_window_resize()
+    elif gui:
+        gui.on_window_resize()
 
     yield from _handle_warnings_and_cleanup(
         gui, warnings, "Workspace Warnings", "Some files could not be found or loaded:"
@@ -1267,7 +1350,9 @@ def load_workspace_sequence(gui, controller, filepath):
             yield
 
 
-def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=False, link_all_wl=False):
+def create_boot_sequence(
+    gui, controller, image_tasks, sync=False, link_all=False, link_all_wl=False
+):
     import time
     import concurrent.futures
 
@@ -1373,10 +1458,11 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
                 base_vs = controller.view_states[base_id]
                 base_vs.set_overlay(fuse_id, fuse_vs.volume)
                 import threading
+
                 threading.Thread(
                     target=controller._apply_overlay_resample,
                     args=(base_vs, fuse_vs),
-                    daemon=True
+                    daemon=True,
                 ).start()
                 base_vs.display.overlay.opacity = task["fusion"]["opacity"]
 
@@ -1386,7 +1472,9 @@ def create_boot_sequence(gui, controller, image_tasks, sync=False, link_all=Fals
         # Load associated labels (ROIs) for the base image
         if task.get("labels"):
             for label_path in task["labels"]:
-                for val in load_label_map_sequence(gui, controller, base_id, label_path):
+                for val in load_label_map_sequence(
+                    gui, controller, base_id, label_path
+                ):
                     yield val
 
     controller.default_viewers_orientation()

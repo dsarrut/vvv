@@ -59,7 +59,9 @@ class FileManager:
                 for plugin in self.controller.gui.plugins:
                     plugin_data = history_entry["plugins"].get(plugin.plugin_id, {})
                     if plugin_data:
-                        plugin.restore_image_state(img_id, plugin_data, context="history")
+                        plugin.restore_image_state(
+                            img_id, plugin_data, context="history"
+                        )
 
         # Auto-load overlay
         # Prevent infinite recursion with is_auto_overlay flag
@@ -81,6 +83,7 @@ class FileManager:
     def scan_dicom_folder(self, folder_path, recursive=True):
         """Scans a folder for DICOM series and YIELDS progress updates."""
         import SimpleITK as sitk
+
         if not os.path.exists(folder_path):
             yield (1.0, "Done", [])
             return
@@ -115,7 +118,9 @@ class FileManager:
 
                         if sid in series_dict:
                             # Avoid appending duplicate files (e.g. from duplicate/backup folders) by base name
-                            existing_basenames = {os.path.basename(f) for f in series_dict[sid]["files"]}
+                            existing_basenames = {
+                                os.path.basename(f) for f in series_dict[sid]["files"]
+                            }
                             for fn in file_names:
                                 if os.path.basename(fn) not in existing_basenames:
                                     series_dict[sid]["files"].append(fn)
@@ -128,11 +133,17 @@ class FileManager:
                                     return ""
                                 try:
                                     # Convert to string and strip null bytes
-                                    val_str = str(val).replace('\x00', '')
+                                    val_str = str(val).replace("\x00", "")
                                     # Filter out surrogate escapes (range 0xD800 to 0xDFFF)
-                                    val_str = "".join(c for c in val_str if not (0xD800 <= ord(c) <= 0xDFFF))
+                                    val_str = "".join(
+                                        c
+                                        for c in val_str
+                                        if not (0xD800 <= ord(c) <= 0xDFFF)
+                                    )
                                     # Encode as utf-8, ignoring any invalid bytes, and decode back
-                                    return val_str.encode('utf-8', 'ignore').decode('utf-8')
+                                    return val_str.encode("utf-8", "ignore").decode(
+                                        "utf-8"
+                                    )
                                 except Exception:
                                     return "Unknown"
 
@@ -161,7 +172,9 @@ class FileManager:
                                     try:
                                         raw_dose = file_reader.GetMetaData(k).strip()
                                         try:
-                                            dose_str = f"{float(raw_dose) / 1e6:.2f} MBq"
+                                            dose_str = (
+                                                f"{float(raw_dose) / 1e6:.2f} MBq"
+                                            )
                                         except:
                                             dose_str = raw_dose
                                     except:
@@ -255,9 +268,31 @@ class FileManager:
         yield (1.0, "Done", found_series, scan_errors)
 
     def save_workspace(self, filepath):
+        active_layout = (
+            getattr(self.controller.gui, "active_layout", "4")
+            if self.controller.gui
+            else "4"
+        )
+        active_viewer_tag = (
+            self.controller.gui.context_viewer.tag
+            if (
+                self.controller.gui
+                and getattr(self.controller.gui, "context_viewer", None)
+            )
+            else "V1"
+        )
+        visible_viewers = (
+            getattr(self.controller.gui, "visible_viewers", ["V1", "V2", "V3", "V4"])
+            if self.controller.gui
+            else ["V1", "V2", "V3", "V4"]
+        )
+
         workspace = {
             "version": 1.0,
             "workspace_path": os.path.abspath(filepath),
+            "layout_mode": str(active_layout),
+            "active_viewer": active_viewer_tag,
+            "visible_viewers": visible_viewers,
             "viewers": {},
             "images": {},
         }
@@ -316,24 +351,70 @@ class FileManager:
                     ].display.colormap,
                 }
 
-            # Extract ROIs Info
+            # Extract ROIs Info: separate multi-label maps from independent ROIs
             rois_list = []
+            label_maps_dict = {}
             for roi_id, roi_state in list(vs.rois.items()):
                 if roi_id in self.controller.volumes:
                     r_vol = self.controller.volumes[roi_id]
-                    if r_vol.file_paths:
+                    if not r_vol.file_paths:
+                        continue
+                    is_spheroid = getattr(roi_state, "is_spheroid", False)
+                    is_box = getattr(roi_state, "is_box", False)
+                    is_rtstruct = getattr(roi_state, "rtstruct_info", None) is not None
+                    stype = getattr(roi_state, "source_type", None)
+                    smode = getattr(roi_state, "source_mode", None)
+                    is_label_map = stype == "Label Map" or (
+                        smode == "Target FG (val)"
+                        and not is_spheroid
+                        and not is_box
+                        and not is_rtstruct
+                    )
+
+                    if is_label_map:
+                        primary_path = r_vol.file_paths[0]
+                        if primary_path not in label_maps_dict:
+                            label_maps_dict[primary_path] = {
+                                "path": portable_path(primary_path),
+                                "labels": {},
+                            }
+                        lbl_val = (
+                            int(roi_state.source_val)
+                            if isinstance(roi_state.source_val, (int, float))
+                            and float(roi_state.source_val).is_integer()
+                            else roi_state.source_val
+                        )
+                        label_maps_dict[primary_path]["labels"][str(lbl_val)] = {
+                            "name": roi_state.name,
+                            "color": roi_state.color,
+                            "opacity": roi_state.opacity,
+                            "visible": roi_state.visible,
+                            "is_contour": roi_state.is_contour,
+                            "thickness": roi_state.thickness,
+                        }
+                    else:
                         rois_list.append(
                             {
-                                "path": portable_path(r_vol.file_paths) if len(r_vol.file_paths) > 1 else portable_path(r_vol.file_paths[0]),
+                                "path": (
+                                    portable_path(r_vol.file_paths)
+                                    if len(r_vol.file_paths) > 1
+                                    else portable_path(r_vol.file_paths[0])
+                                ),
                                 "state": roi_state.to_dict(),
                             }
                         )
+
+            label_maps_list = list(label_maps_dict.values())
 
             # Extract Profiles Info
             profiles_list = [p.to_dict() for p in vs.profiles.values()]
 
             image_entry = {
-                "path": portable_path(vol.file_paths) if len(vol.file_paths) > 1 else portable_path(vol.file_paths[0]),
+                "path": (
+                    portable_path(vol.file_paths)
+                    if len(vol.file_paths) > 1
+                    else portable_path(vol.file_paths[0])
+                ),
                 "is_overlay_only": is_overlay,
                 "sync_group": vs.sync_group,
                 "sync_wl_group": getattr(vs, "sync_wl_group", 0),
@@ -343,6 +424,7 @@ class FileManager:
                 "dvf": vs.dvf.to_dict(),
                 "overlay": overlay_info,
                 "rois": rois_list,
+                "label_maps": label_maps_list,
                 "profiles": profiles_list,
             }
 

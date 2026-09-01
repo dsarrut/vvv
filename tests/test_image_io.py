@@ -148,7 +148,7 @@ def test_load_workspace_relative_path_resolution(tmp_path):
     img_dir = tmp_path / "a" / "b" / "c"
     img_dir.mkdir(parents=True, exist_ok=True)
     img_path = img_dir / "titi.mha"
-    
+
     # Create simple dummy image file
     img = sitk.GetImageFromArray(np.zeros((3, 3, 3), dtype=np.uint8))
     sitk.WriteImage(img, str(img_path))
@@ -168,11 +168,11 @@ def test_load_workspace_relative_path_resolution(tmp_path):
                 "extraction": {},
                 "dvf": {},
                 "rois": [],
-                "profiles": []
+                "profiles": [],
             }
-        }
+        },
     }
-    
+
     ws_path = tmp_path / "a" / "b" / "toto.vvw"
     with open(ws_path, "w") as f:
         json.dump(ws_data, f)
@@ -191,7 +191,9 @@ def test_load_workspace_relative_path_resolution(tmp_path):
 
     # Check that it called load_image with the resolved local path!
     expected_local_path = str(img_path)
-    controller.file.load_image.assert_called_once_with(expected_local_path, ignore_history=True)
+    controller.file.load_image.assert_called_once_with(
+        expected_local_path, ignore_history=True
+    )
 
 
 def test_load_workspace_roi_json_filtering(tmp_path):
@@ -205,7 +207,7 @@ def test_load_workspace_roi_json_filtering(tmp_path):
     img_dir = tmp_path / "a" / "b" / "c"
     img_dir.mkdir(parents=True, exist_ok=True)
     img_path = img_dir / "titi.mha"
-    
+
     # Create simple dummy image file
     img = sitk.GetImageFromArray(np.zeros((3, 3, 3), dtype=np.uint8))
     sitk.WriteImage(img, str(img_path))
@@ -232,7 +234,7 @@ def test_load_workspace_roi_json_filtering(tmp_path):
                     {
                         "path": [
                             "/home/dsarrut/a/b/c/labels.nii.gz",
-                            "/home/dsarrut/a/b/c/labels.json"
+                            "/home/dsarrut/a/b/c/labels.json",
                         ],
                         "state": {
                             "volume_id": "1",
@@ -243,15 +245,15 @@ def test_load_workspace_roi_json_filtering(tmp_path):
                             "is_contour": False,
                             "source_mode": "Target FG (val)",
                             "source_val": 1.0,
-                            "source_type": "Label Map"
-                        }
+                            "source_type": "Label Map",
+                        },
                     }
                 ],
-                "profiles": []
+                "profiles": [],
             }
-        }
+        },
     }
-    
+
     ws_path = tmp_path / "a" / "b" / "toto.vvw"
     with open(ws_path, "w") as f:
         json.dump(ws_data, f)
@@ -288,7 +290,7 @@ def test_load_workspace_paths_with_json_and_tildes(tmp_path, monkeypatch):
     local_dir = tmp_path / "local_workspace"
     local_dir.mkdir(parents=True, exist_ok=True)
     img_path = local_dir / "base.mha"
-    
+
     # Create simple dummy image file
     img = sitk.GetImageFromArray(np.zeros((3, 3, 3), dtype=np.uint8))
     sitk.WriteImage(img, str(img_path))
@@ -300,10 +302,12 @@ def test_load_workspace_paths_with_json_and_tildes(tmp_path, monkeypatch):
 
     # 2. Mock os.path.expanduser to redirect a dummy home directory `~/my_home` to our temp path
     original_expanduser = os.path.expanduser
+
     def mock_expanduser(path):
         if path.startswith("~/my_home"):
             return path.replace("~/my_home", str(tmp_path / "mocked_home"))
         return original_expanduser(path)
+
     monkeypatch.setattr(os.path, "expanduser", mock_expanduser)
 
     # Set up the mocked home directory path where the workspace originally expected them
@@ -325,7 +329,7 @@ def test_load_workspace_paths_with_json_and_tildes(tmp_path, monkeypatch):
                     {
                         "path": [
                             "~/my_home/project/labels.nii.gz",
-                            "~/my_home/project/labels.json"
+                            "~/my_home/project/labels.json",
                         ],
                         "state": {
                             "volume_id": "roi_1",
@@ -336,15 +340,15 @@ def test_load_workspace_paths_with_json_and_tildes(tmp_path, monkeypatch):
                             "is_contour": False,
                             "source_mode": "Target FG (val)",
                             "source_val": 1.0,
-                            "source_type": "Label Map"
-                        }
+                            "source_type": "Label Map",
+                        },
                     }
                 ],
-                "profiles": []
+                "profiles": [],
             }
-        }
+        },
     }
-    
+
     # Write workspace JSON to the local directory (simulating that the workspace was moved to a new environment)
     ws_path = local_dir / "workspace.vvw"
     with open(ws_path, "w") as f:
@@ -354,17 +358,14 @@ def test_load_workspace_paths_with_json_and_tildes(tmp_path, monkeypatch):
     gui = MagicMock()
     controller = MagicMock()
     controller.file.load_image.return_value = "img_1_loaded"
-    
+
     loaded_roi_vol = MagicMock()
     # Simulate the initial file_paths set by the loader (which will lack the JSON because it doesn't exist on disk)
     loaded_roi_vol.file_paths = [str(labels_nii)]
-    controller.volumes = {
-        "img_1_loaded": MagicMock(),
-        "roi_1_loaded": loaded_roi_vol
-    }
+    controller.volumes = {"img_1_loaded": MagicMock(), "roi_1_loaded": loaded_roi_vol}
 
     controller.view_states = MagicMock()
-    
+
     # Mock ROI creation to return our loaded_roi_vol ID
     controller.roi.extract_label_from_image.return_value = "roi_1_loaded"
 
@@ -374,44 +375,361 @@ def test_load_workspace_paths_with_json_and_tildes(tmp_path, monkeypatch):
 
     # Verify that extract_label_from_image was called
     controller.roi.extract_label_from_image.assert_called_once()
-    
-    # Verify that the loaded ROI's file_paths was updated to the resolved paths, 
+
+    # Verify that the loaded ROI's file_paths was updated to the resolved paths,
     # including the resolved path of the non-existent JSON file!
     expected_image_resolved = str(labels_nii)
     expected_json_resolved = str(local_dir / "labels.json")
-    
-    assert loaded_roi_vol.file_paths == [expected_image_resolved, expected_json_resolved]
+
+    assert loaded_roi_vol.file_paths == [
+        expected_image_resolved,
+        expected_json_resolved,
+    ]
 
 
 def test_load_dicom_directory(tmp_path):
     """Test that a directory containing a DICOM series is correctly scanned and loaded as a series."""
     dicom_dir = tmp_path / "my_dicom_series"
     dicom_dir.mkdir()
-    
+
     # Write a dummy DICOM image inside the folder
     data = np.zeros((3, 5, 5), dtype=np.int16)
     img = sitk.GetImageFromArray(data)
     img.SetSpacing((1.0, 1.0, 1.0))
-    
+
     # To make it a valid series, write a few slices
     writer = sitk.ImageFileWriter()
     writer.KeepOriginalImageUIDOn()
-    
+
     for i in range(3):
         slice_img = img[:, :, i]
-        slice_img.SetMetaData("0020|000D", "1.2.3.4.5.6.7.8.9") # Study Instance UID
-        slice_img.SetMetaData("0020|000E", "1.2.3.4.5.6.7.8.9.1") # Series Instance UID
-        slice_img.SetMetaData("0020|0013", str(i)) # Instance Number
+        slice_img.SetMetaData("0020|000D", "1.2.3.4.5.6.7.8.9")  # Study Instance UID
+        slice_img.SetMetaData("0020|000E", "1.2.3.4.5.6.7.8.9.1")  # Series Instance UID
+        slice_img.SetMetaData("0020|0013", str(i))  # Instance Number
         writer.SetFileName(str(dicom_dir / f"slice_{i}.dcm"))
         writer.Execute(slice_img)
-        
+
     # Load the directory directly
     vol = VolumeData(str(dicom_dir))
-    
+
     assert vol.shape3d == (3, 5, 5)
     assert vol.name == "my_dicom_series"
     assert len(vol.file_paths) == 3
 
 
+def test_save_workspace_label_maps_grouping(tmp_path):
+    """Test that saving a workspace groups multi-label ROIs into a single label_maps entry."""
+    import json
+    from unittest.mock import MagicMock
+    from vvv.core.controller import Controller
+    from vvv.core.view_state import ViewState
+    from vvv.core.roi_manager import ROIState
+    from vvv.maths.image import VolumeData
+
+    # Create dummy base image
+    base_file = str(tmp_path / "base.nii.gz")
+    base_img = sitk.GetImageFromArray(np.zeros((5, 5, 5), dtype=np.uint8))
+    sitk.WriteImage(base_img, base_file)
+    base_vol = VolumeData(base_file)
+
+    # Create dummy label map volume
+    labels_file = str(tmp_path / "labels.nii.gz")
+    sitk.WriteImage(base_img, labels_file)
+
+    roi_vol_1 = VolumeData(labels_file)
+    roi_vol_1.file_paths = [labels_file]
+    roi_vol_2 = VolumeData(labels_file)
+    roi_vol_2.file_paths = [labels_file]
+
+    controller = Controller()
+    controller.volumes["1"] = base_vol
+    controller.volumes["2"] = roi_vol_1
+    controller.volumes["3"] = roi_vol_2
+
+    vs = ViewState(base_vol)
+    roi_state_1 = ROIState(
+        "2",
+        "Organ_1",
+        [255, 0, 0],
+        source_mode="Target FG (val)",
+        source_val=1.0,
+        source_type="Label Map",
+    )
+    roi_state_1.opacity = 0.8
+    roi_state_1.visible = False
+
+    roi_state_2 = ROIState(
+        "3",
+        "Organ_2",
+        [0, 255, 0],
+        source_mode="Target FG (val)",
+        source_val=2.0,
+        source_type="Label Map",
+    )
+    roi_state_2.opacity = 0.4
+    roi_state_2.visible = True
+
+    vs.rois["2"] = roi_state_1
+    vs.rois["3"] = roi_state_2
+    controller.view_states["1"] = vs
+
+    ws_file = str(tmp_path / "saved_ws.vvw")
+    controller.file.save_workspace(ws_file)
+
+    with open(ws_file, "r") as f:
+        saved_ws = json.load(f)
+
+    img_1 = saved_ws["images"]["1"]
+    assert "label_maps" in img_1
+    assert len(img_1["label_maps"]) == 1
+    assert len(img_1["rois"]) == 0
+
+    lm = img_1["label_maps"][0]
+    assert "labels" in lm
+    assert "1" in lm["labels"]
+    assert "2" in lm["labels"]
+    assert lm["labels"]["1"]["name"] == "Organ_1"
+    assert lm["labels"]["1"]["opacity"] == 0.8
+    assert lm["labels"]["1"]["visible"] is False
+    assert lm["labels"]["2"]["name"] == "Organ_2"
 
 
+def test_load_workspace_label_maps_with_sidecar_priority(tmp_path):
+    """Test loading a workspace with label_maps format and verifying sidecar JSON takes priority for name and color."""
+    import json
+    from unittest.mock import MagicMock
+    from vvv.core.controller import Controller
+    from vvv.ui.ui_sequences import load_workspace_sequence
+
+    # 1. Create base image on disk
+    base_file = tmp_path / "base.nii.gz"
+    base_img = sitk.GetImageFromArray(np.zeros((10, 10, 10), dtype=np.uint8))
+    sitk.WriteImage(base_img, str(base_file))
+
+    # 2. Create label map with labels 1 and 2
+    label_arr = np.zeros((10, 10, 10), dtype=np.uint8)
+    label_arr[2:5, 2:5, 2:5] = 1
+    label_arr[6:8, 6:8, 6:8] = 2
+    labels_img = sitk.GetImageFromArray(label_arr)
+    labels_file = tmp_path / "labels.nii.gz"
+    sitk.WriteImage(labels_img, str(labels_file))
+
+    # 3. Create sidecar JSON with name and color for label 1
+    sidecar_json = tmp_path / "labels.json"
+    with open(sidecar_json, "w") as f:
+        json.dump({"1": {"name": "Sidecar_Liver", "color": [10, 20, 30]}}, f)
+
+    # 4. Create workspace JSON pointing to base image and label_maps
+    ws_data = {
+        "version": 1.0,
+        "workspace_path": str(tmp_path / "test.vvw"),
+        "viewers": {},
+        "images": {
+            "1": {
+                "path": str(base_file),
+                "display": {},
+                "camera": {},
+                "extraction": {},
+                "dvf": {},
+                "label_maps": [
+                    {
+                        "path": str(labels_file),
+                        "labels": {
+                            "1": {
+                                "name": "Old_VVW_Name",
+                                "color": [200, 200, 200],
+                                "visible": False,
+                                "opacity": 0.35,
+                                "is_contour": True,
+                                "thickness": 2.5,
+                            },
+                            "2": {
+                                "name": "VVW_Kidney",
+                                "color": [40, 50, 60],
+                                "visible": True,
+                                "opacity": 0.6,
+                            },
+                        },
+                    }
+                ],
+                "rois": [],
+                "profiles": [],
+            }
+        },
+    }
+
+    ws_file = tmp_path / "test.vvw"
+    with open(ws_file, "w") as f:
+        json.dump(ws_data, f)
+
+    # 5. Load workspace
+    gui = MagicMock()
+    gui.plugins = []
+    controller = Controller()
+
+    gen = load_workspace_sequence(gui, controller, str(ws_file))
+    list(gen)
+
+    # Verify loaded state
+    assert len(controller.view_states) == 1
+    base_id = list(controller.view_states.keys())[0]
+    vs = controller.view_states[base_id]
+
+    assert len(vs.rois) == 2
+
+    # Find the ROIs corresponding to label 1 and label 2
+    r1 = next(r for r in vs.rois.values() if int(r.source_val) == 1)
+    r2 = next(r for r in vs.rois.values() if int(r.source_val) == 2)
+
+    # Label 1: Sidecar name and color MUST override VVW, while VVW display preferences are applied
+    assert r1.name == "Sidecar_Liver"
+    assert r1.color == [10, 20, 30]
+    assert r1.visible is False
+    assert r1.opacity == 0.35
+    assert r1.is_contour is True
+    assert r1.thickness == 2.5
+
+    # Label 2: Not in sidecar JSON, so VVW name and color are preserved
+    assert r2.name == "VVW_Kidney"
+    assert r2.color == [40, 50, 60]
+    assert r2.visible is True
+    assert r2.opacity == 0.6
+
+
+def test_save_and_load_workspace_viewport_layout(tmp_path):
+    """Test that workspace saving and loading preserves the layout_mode (1, 2, 4) and active_viewer."""
+    import json
+    from unittest.mock import MagicMock
+    from vvv.core.controller import Controller
+    from vvv.core.view_state import ViewState
+    from vvv.ui.ui_sequences import load_workspace_sequence
+
+    # 1. Create a dummy base image
+    base_file = tmp_path / "base.nii.gz"
+    base_img = sitk.GetImageFromArray(np.zeros((5, 5, 5), dtype=np.uint8))
+    sitk.WriteImage(base_img, str(base_file))
+    base_vol = VolumeData(str(base_file))
+
+    controller = Controller()
+    controller.volumes["1"] = base_vol
+    controller.view_states["1"] = ViewState(base_vol)
+
+    for tag in ["V1", "V2", "V3", "V4"]:
+        mock_viewer = MagicMock()
+        mock_viewer.tag = tag
+        mock_viewer.image_id = "1"
+        mock_viewer.orientation.name = "AXIAL"
+        mock_viewer.zoom = 1.0
+        mock_viewer.pan_offset = [0.0, 0.0]
+        controller.viewers[tag] = mock_viewer
+
+    # Mock GUI state: 2-viewer mode with active viewer V2
+    gui = MagicMock()
+    gui.active_layout = "2"
+    gui.context_viewer = controller.viewers["V2"]
+    controller.gui = gui
+
+    ws_file = tmp_path / "layout_test.vvw"
+    controller.file.save_workspace(str(ws_file))
+
+    with open(ws_file, "r") as f:
+        saved_ws = json.load(f)
+
+    assert saved_ws["layout_mode"] == "2"
+    assert saved_ws["active_viewer"] == "V2"
+    assert saved_ws["visible_viewers"] == ["V1", "V2"]
+
+    # 2. Test restoring the workspace
+    load_gui = MagicMock()
+    load_controller = Controller()
+    for tag in ["V1", "V2", "V3", "V4"]:
+        load_controller.viewers[tag] = MagicMock()
+
+    gen = load_workspace_sequence(load_gui, load_controller, str(ws_file))
+    list(gen)
+
+    load_gui.set_context_viewer.assert_called_with(load_controller.viewers["V2"])
+    load_gui.set_viewport_layout.assert_called_with("2", visible_viewers=["V1", "V2"])
+
+
+def test_save_and_load_workspace_mip_multi_viewer_state(tmp_path):
+    """Test saving and loading a workspace with per-viewer MIP plugin configurations."""
+    import json
+    from unittest.mock import MagicMock
+    from vvv.core.controller import Controller
+    from vvv.core.view_state import ViewState
+    from vvv.ui.ui_sequences import load_workspace_sequence
+    from vvv.plugins.mip.plugin_mip import MIPPlugin
+
+    # 1. Create a dummy base image
+    base_file = tmp_path / "base_mip.nii.gz"
+    base_img = sitk.GetImageFromArray(np.zeros((6, 6, 6), dtype=np.uint8))
+    sitk.WriteImage(base_img, str(base_file))
+    base_vol = VolumeData(str(base_file))
+
+    controller = Controller()
+    controller.volumes["1"] = base_vol
+    controller.view_states["1"] = ViewState(base_vol)
+
+    for tag in ["V1", "V2", "V3", "V4"]:
+        mock_viewer = MagicMock()
+        mock_viewer.tag = tag
+        mock_viewer.image_id = "1"
+        mock_viewer.orientation.name = "SAGITTAL"
+        mock_viewer.zoom = 1.0
+        mock_viewer.pan_offset = [0.0, 0.0]
+        controller.viewers[tag] = mock_viewer
+
+    mip_plugin = MIPPlugin()
+    mip_plugin._controller.on_image_loaded("1")
+
+    # Set V1 to MIP at 0 deg, V2 to MIP at 90 deg
+    s1 = mip_plugin._controller.get_viewer_state("1", "V1")
+    s1.mip_enabled = True
+    s1.rotation_angles["X"] = 0.0
+    s1.projection_axis = "X"
+
+    s2 = mip_plugin._controller.get_viewer_state("1", "V2")
+    s2.mip_enabled = True
+    s2.rotation_angles["X"] = 90.0
+    s2.projection_axis = "X"
+
+    gui = MagicMock()
+    gui.active_layout = "2"
+    gui.visible_viewers = ["V1", "V2"]
+    gui.context_viewer = controller.viewers["V1"]
+    gui.plugins = [mip_plugin]
+    controller.gui = gui
+
+    ws_file = tmp_path / "mip_multi_test.vvw"
+    controller.file.save_workspace(str(ws_file))
+
+    with open(ws_file, "r") as f:
+        saved_ws = json.load(f)
+
+    mip_data = saved_ws["images"]["1"]["plugins"]["mip_plugin"]
+    assert mip_data["V1"]["mip_enabled"] is True
+    assert mip_data["V1"]["rotation_angles"]["X"] == 0.0
+    assert mip_data["V2"]["mip_enabled"] is True
+    assert mip_data["V2"]["rotation_angles"]["X"] == 90.0
+
+    # 2. Test restore
+    load_mip_plugin = MIPPlugin()
+    load_gui = MagicMock()
+    load_gui.plugins = [load_mip_plugin]
+    load_controller = Controller()
+    for tag in ["V1", "V2", "V3", "V4"]:
+        load_controller.viewers[tag] = MagicMock()
+
+    gen = load_workspace_sequence(load_gui, load_controller, str(ws_file))
+    list(gen)
+
+    # Verify restored MIP states on the new image ID
+    restored_id = list(load_controller.view_states.keys())[0]
+    restored_s1 = load_mip_plugin._controller.get_viewer_state(restored_id, "V1")
+    restored_s2 = load_mip_plugin._controller.get_viewer_state(restored_id, "V2")
+
+    assert restored_s1.mip_enabled is True
+    assert restored_s1.rotation_angles["X"] == 0.0
+    assert restored_s2.mip_enabled is True
+    assert restored_s2.rotation_angles["X"] == 90.0

@@ -1205,6 +1205,41 @@ def test_tracker_background_panel_shows_and_sizes_with_text(headless_gui_app, mo
     assert dpg.is_item_shown(viewer.tracker_tag) is False
 
 
+def test_gui_window_title(headless_gui_app, synthetic_volume_factory):
+    """Verifies that get_window_title dynamically reflects loaded images and active overlay."""
+    controller, gui, viewer, vs1_id = headless_gui_app
+
+    # 1. Single image loaded and active
+    title = gui.get_window_title()
+    assert "VVV --- 1 loaded image --- Active: " in title
+    assert "base.nii.gz" in title
+
+    # 2. Load a second image (pet)
+    path2 = synthetic_volume_factory("pet.nii.gz", val=200.0)
+    vs2_id = controller.file.load_image(path2)
+
+    title2 = gui.get_window_title()
+    assert "VVV --- 2 loaded images --- Active: " in title2
+    assert "base.nii.gz" in title2
+
+    # 3. Add pet as overlay to active viewer
+    vol2 = controller.volumes[vs2_id]
+    viewer.view_state.set_overlay(vs2_id, vol2)
+
+    title3 = gui.get_window_title()
+    assert "VVV --- 2 loaded images --- Active: " in title3
+    assert "base.nii.gz + pet.nii.gz" in title3
+
+    # 4. Remove all images
+    controller.file.close_image(vs1_id)
+    controller.file.close_image(vs2_id)
+    gui.set_context_viewer(None)
+
+    title4 = gui.get_window_title()
+    assert title4 == "VVV --- 0 loaded images"
+
+
+
 
 
 
