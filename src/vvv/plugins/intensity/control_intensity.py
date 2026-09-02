@@ -263,7 +263,9 @@ class IntensityController(PluginTagMixin):
                 continue
 
             popup_win = self._t(f"wl_hist_popup_win_{img_id}")
-            popup_visible = dpg.does_item_exist(popup_win) and dpg.is_item_shown(popup_win)
+            popup_visible = dpg.does_item_exist(popup_win) and dpg.is_item_shown(
+                popup_win
+            )
             sidebar_visible = is_active and dpg.is_item_shown(self._plugin_id)
 
             if not sidebar_visible and not popup_visible:
@@ -357,7 +359,9 @@ class IntensityController(PluginTagMixin):
 
                     if hs.x_center is None:
                         # pyrefly: ignore [unnecessary-type-conversion]
-                        hs.x_center = float(vs.display.wl) if vs.display.wl is not None else 0.0
+                        hs.x_center = (
+                            float(vs.display.wl) if vs.display.wl is not None else 0.0
+                        )
                     if hs.x_range is None:
                         ww = vs.display.ww if vs.display.ww is not None else 1.0
                         hs.x_range = max(1e-5, ww / 0.3)
@@ -993,6 +997,24 @@ class IntensityController(PluginTagMixin):
     def on_image_loaded(self, image_id: str) -> None:
         self._hist[image_id] = HistogramState()
 
+    def on_image_reloading(self, image_id: str) -> None:
+        hs = self._hist.get(image_id)
+        if hs is not None:
+            hs.stop_event.set()
+
+    def on_image_reloaded(self, image_id: str) -> None:
+        hs = self._hist.get(image_id)
+        if hs is not None:
+            hs._hist_cache.clear()
+            hs.is_dirty = True
+            hs.full_hist_ready = False
+            hs.computing_full_hist = False
+            hs._vol_data_id = None
+        self._last_colorscale_states.pop(image_id, None)
+        vol = self._api.get_volumes().get(image_id) if self._api else None
+        if vol is not None and vol.data is not None:
+            self._minmax_cache.pop(id(vol.data), None)
+
     def on_image_removed(self, image_id: str) -> None:
         hs = self._hist.pop(image_id, None)
         if hs is not None:
@@ -1027,9 +1049,11 @@ class IntensityController(PluginTagMixin):
         hs = self._hist.get(image_id)
         if hs is None or not data:
             return
+
         def get_val(key, default):
             v = data.get(key, default)
             return default if v is None else v
+
         hs.use_bars = get_val("use_bars", hs.use_bars)
         hs.use_log = get_val("use_log", hs.use_log)
         hs.bins = get_val("bins", hs.bins)

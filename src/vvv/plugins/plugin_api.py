@@ -6,7 +6,6 @@ if TYPE_CHECKING:
     from vvv.core.view_state import ViewState
 
 
-
 import numpy as np
 
 
@@ -31,8 +30,12 @@ class PluginProtocol(Protocol):
     def update(self, api: PluginAPI) -> None: ...
     def on_image_loaded(self, image_id: str) -> None: ...
     def on_image_removed(self, image_id: str) -> None: ...
-    def serialize_image_state(self, image_id: str, context: str = "history") -> dict: ...
-    def restore_image_state(self, image_id: str, data: dict, context: str = "history") -> None: ...
+    def serialize_image_state(
+        self, image_id: str, context: str = "history"
+    ) -> dict: ...
+    def restore_image_state(
+        self, image_id: str, data: dict, context: str = "history"
+    ) -> None: ...
     def save_settings(self, api: PluginAPI) -> None: ...
     def load_settings(self, api: PluginAPI) -> None: ...
     def destroy(self) -> None: ...
@@ -94,7 +97,11 @@ class PluginAPI:
 
     def get_crosshair_world(self):
         viewer = self._gui.context_viewer
-        if viewer and viewer.view_state and viewer.view_state.camera.crosshair_phys_coord is not None:
+        if (
+            viewer
+            and viewer.view_state
+            and viewer.view_state.camera.crosshair_phys_coord is not None
+        ):
             return viewer.view_state.camera.crosshair_phys_coord
         return [0.0, 0.0, 0.0]
 
@@ -128,7 +135,9 @@ class PluginAPI:
             )
             if not mip_plugin:
                 return False
-            return mip_plugin._controller.get_viewer_state(image_id, viewer_tag).mip_enabled
+            return mip_plugin._controller.get_viewer_state(
+                image_id, viewer_tag
+            ).mip_enabled
         except Exception:
             return False
 
@@ -146,7 +155,6 @@ class PluginAPI:
     def get_view_states(self) -> dict[str, ViewState]:
         with self._controller._state_lock:
             return self._controller.view_states.copy()
-
 
     def request_refresh(self):
         self._controller.ui_needs_refresh = True
@@ -175,11 +183,14 @@ class PluginAPI:
 
     def propagate_camera(self, viewer):
         """Broadcasts a viewer's current center/zoom to synced viewers of other
-        images, so they re-pan on their next tick (see SliceViewer.action_center_view)."""
+        images, so they re-pan on their next tick (see SliceViewer.action_center_view).
+        """
         self._controller.sync.propagate_camera(viewer)
 
     def get_sync_group_vs_ids(self, image_id, active_only=False) -> list[str]:
-        return self._controller.sync.get_sync_group_vs_ids(image_id, active_only=active_only)
+        return self._controller.sync.get_sync_group_vs_ids(
+            image_id, active_only=active_only
+        )
 
     def get_profile_data(self, image_id, profile):
         return self._controller.profiles.get_profile_data(image_id, profile)
@@ -226,6 +237,7 @@ class PluginAPI:
 
     def load_dicom_series(self, file_list: list[str]) -> None:
         from vvv.ui.ui_sequences import load_batch_images_sequence
+
         self._gui.tasks.append(
             load_batch_images_sequence(self._gui, self._controller, [file_list])
         )
@@ -245,7 +257,9 @@ class PluginAPI:
         self._controller.roi.center_on_roi(image_id, roi_id)
 
     def get_roi_stats(self, base_vs_id, roi_id, is_overlay) -> dict | None:
-        return self._controller.roi.get_roi_stats(base_vs_id=base_vs_id, roi_id=roi_id, is_overlay=is_overlay)
+        return self._controller.roi.get_roi_stats(
+            base_vs_id=base_vs_id, roi_id=roi_id, is_overlay=is_overlay
+        )
 
     def create_memory_roi(
         self,
@@ -274,20 +288,33 @@ class PluginAPI:
 
     def load_rtstruct(self, image_id, filepath, selected_rois) -> None:
         from vvv.ui.ui_sequences import load_rtstruct_sequence
+
         self._gui.tasks.append(
-            load_rtstruct_sequence(self._gui, self._controller, image_id, filepath, selected_rois)
+            load_rtstruct_sequence(
+                self._gui, self._controller, image_id, filepath, selected_rois
+            )
         )
 
     def load_label_map(self, image_id, file_paths) -> None:
         from vvv.ui.ui_sequences import load_label_map_sequence
+
         self._gui.tasks.append(
             load_label_map_sequence(self._gui, self._controller, image_id, file_paths)
         )
 
     def load_batch_rois(self, image_id, file_paths, source_type, mode, val) -> None:
         from vvv.ui.ui_sequences import load_batch_rois_sequence
+
         self._gui.tasks.append(
-            load_batch_rois_sequence(self._gui, self._controller, image_id, file_paths, source_type, mode, val)
+            load_batch_rois_sequence(
+                self._gui,
+                self._controller,
+                image_id,
+                file_paths,
+                source_type,
+                mode,
+                val,
+            )
         )
 
     # --- Image mounting ---
@@ -317,8 +344,14 @@ class PluginAPI:
 
     def get_settings(self, namespace: str) -> dict:
         import copy
-        return copy.deepcopy(self._controller.settings.data.get("plugins", {}).get(namespace, {}))
+
+        return copy.deepcopy(
+            self._controller.settings.data.get("plugins", {}).get(namespace, {})
+        )
 
     def set_settings(self, namespace: str, data: dict) -> None:
         import copy
-        self._controller.settings.data.setdefault("plugins", {})[namespace] = copy.deepcopy(data)
+
+        self._controller.settings.data.setdefault("plugins", {})[namespace] = (
+            copy.deepcopy(data)
+        )

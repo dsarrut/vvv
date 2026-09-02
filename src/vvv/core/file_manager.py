@@ -269,23 +269,34 @@ class FileManager:
 
     def save_workspace(self, filepath):
         active_layout = (
-            getattr(self.controller.gui, "active_layout", "4")
-            if self.controller.gui
-            else "4"
-        )
-        active_viewer_tag = (
-            self.controller.gui.context_viewer.tag
+            str(self.controller.gui.active_layout)
             if (
                 self.controller.gui
-                and getattr(self.controller.gui, "context_viewer", None)
+                and isinstance(
+                    getattr(self.controller.gui, "active_layout", None), (str, int)
+                )
             )
-            else "V1"
+            else "4"
         )
-        visible_viewers = (
-            getattr(self.controller.gui, "visible_viewers", ["V1", "V2", "V3", "V4"])
+        active_viewer_tag = "V1"
+        if self.controller.gui and getattr(self.controller.gui, "context_viewer", None):
+            cv = self.controller.gui.context_viewer
+            if hasattr(cv, "tag") and isinstance(cv.tag, str):
+                active_viewer_tag = cv.tag
+
+        gui_vv = (
+            getattr(self.controller.gui, "visible_viewers", None)
             if self.controller.gui
-            else ["V1", "V2", "V3", "V4"]
+            else None
         )
+        if isinstance(gui_vv, (list, tuple)):
+            visible_viewers = [str(x) for x in gui_vv]
+        elif active_layout == "2":
+            visible_viewers = ["V1", "V2"]
+        elif active_layout == "1":
+            visible_viewers = [active_viewer_tag]
+        else:
+            visible_viewers = ["V1", "V2", "V3", "V4"]
 
         workspace = {
             "version": 1.0,
@@ -314,14 +325,29 @@ class FileManager:
 
         # 1. Save Viewers
         for tag, viewer in self.controller.viewers.items():
-            if viewer.image_id:
+            if getattr(viewer, "image_id", None):
                 active_viewer_ids.add(viewer.image_id)
+                nr = getattr(viewer, "needs_recenter", False)
                 workspace["viewers"][tag] = {
-                    "image_id": viewer.image_id,
-                    "orientation": viewer.orientation.name,
-                    "zoom": viewer.zoom,
-                    "pan_offset": viewer.pan_offset,
-                    "needs_recenter": getattr(viewer, "needs_recenter", False),
+                    "image_id": str(viewer.image_id),
+                    "orientation": (
+                        viewer.orientation.name
+                        if hasattr(viewer.orientation, "name")
+                        else str(viewer.orientation)
+                    ),
+                    "zoom": (
+                        float(viewer.zoom)
+                        if isinstance(getattr(viewer, "zoom", None), (int, float))
+                        else 1.0
+                    ),
+                    "pan_offset": (
+                        list(viewer.pan_offset)
+                        if isinstance(
+                            getattr(viewer, "pan_offset", None), (list, tuple)
+                        )
+                        else [0.0, 0.0]
+                    ),
+                    "needs_recenter": bool(nr) if isinstance(nr, bool) else False,
                 }
 
         # 2. Save Images & ViewStates

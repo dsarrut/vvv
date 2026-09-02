@@ -6,7 +6,9 @@ from .control_intensity import IntensityController
 class IntensityPlugin(PluginProtocol):
     plugin_id = "intensity_plugin"
     label = "Intensity"
-    description = "Adjust window/level, colormaps, thresholds, and view the image histogram."
+    description = (
+        "Adjust window/level, colormaps, thresholds, and view the image histogram."
+    )
     order = 10
 
     def __init__(self):
@@ -24,13 +26,21 @@ class IntensityPlugin(PluginProtocol):
     def on_image_loaded(self, image_id: str) -> None:
         self._controller.on_image_loaded(image_id)
 
+    def on_image_reloading(self, image_id: str) -> None:
+        self._controller.on_image_reloading(image_id)
+
+    def on_image_reloaded(self, image_id: str) -> None:
+        self._controller.on_image_reloaded(image_id)
+
     def on_image_removed(self, image_id: str) -> None:
         self._controller.on_image_removed(image_id)
 
     def serialize_image_state(self, image_id: str, context: str = "history") -> dict:
         return self._controller.serialize_image_state(image_id, context=context)
 
-    def restore_image_state(self, image_id: str, data: dict, context: str = "history") -> None:
+    def restore_image_state(
+        self, image_id: str, data: dict, context: str = "history"
+    ) -> None:
         self._controller.restore_image_state(image_id, data, context=context)
 
     def save_settings(self, api: PluginAPI) -> None:

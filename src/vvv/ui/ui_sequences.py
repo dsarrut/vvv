@@ -996,21 +996,23 @@ def load_workspace_sequence(gui, controller, filepath):
             controller.layout[tag] = new_id
 
             # 2. Force the mount immediately so we can safely override the default boot-up re-center flag.
-            # This ensures the viewer uses the exact zoom/pan we restored in Phase 3.
-            viewer = controller.viewers[tag]
-            viewer.set_image(new_id)
-            viewer.orientation = ViewMode[v_data["orientation"]]
-            viewer.is_geometry_dirty = True
-            viewer.is_viewer_data_dirty = True
-            viewer.needs_recenter = False
+            viewer = controller.viewers.get(tag)
+            if viewer:
+                viewer.set_image(new_id)
+                viewer.orientation = ViewMode[v_data["orientation"]]
+                viewer.is_geometry_dirty = True
+                viewer.is_viewer_data_dirty = True
+                viewer.needs_recenter = False
 
-            if "zoom" in v_data:
-                viewer.zoom = v_data["zoom"]
-            if "pan_offset" in v_data:
-                viewer.pan_offset = v_data["pan_offset"]
+                if "zoom" in v_data:
+                    viewer.zoom = v_data["zoom"]
+                if "pan_offset" in v_data:
+                    viewer.pan_offset = v_data["pan_offset"]
         else:
             controller.layout[tag] = None
-            controller.viewers[tag].drop_image()
+            viewer = controller.viewers.get(tag)
+            if viewer:
+                viewer.drop_image()
     yield
 
     show_loading_modal("Loading image...", "Restoring ROIs...")
@@ -1051,10 +1053,66 @@ def load_workspace_sequence(gui, controller, filepath):
                                     "state": roi_data.get("state", {}),
                                 }
                             )
-                        else:
-                            warnings.append(
-                                f"Missing ROI: {os.path.basename(raw_r_path)}"
+            for lm_data in img_data.get("label_maps", []):
+                raw_lm_path = lm_data.get("path", "")
+                labels_dict = lm_data.get("labels", {})
+                if raw_lm_path:
+                    if isinstance(raw_lm_path, list):
+                        resolved_path = tuple(resolve_workspace_path(raw_lm_path))
+                        p0 = resolved_path[0]
+                    else:
+                        resolved_path = resolve_workspace_path(raw_lm_path)
+                        p0 = resolved_path
+
+                    if os.path.exists(p0):
+                        # Sidecar JSON check
+                        sidecar_dict = {}
+                        base_p = p0[:-3] if p0.lower().endswith(".gz") else p0
+                        json_candidate = os.path.splitext(base_p)[0] + ".json"
+                        if os.path.exists(json_candidate):
+                            try:
+                                with open(json_candidate, "r") as jf:
+                                    sidecar_dict = json.load(jf)
+                            except Exception:
+                                sidecar_dict = {}
+
+                        for val_str, l_info in labels_dict.items():
+                            val = float(val_str)
+                            sidecar_info = (
+                                sidecar_dict.get(val_str)
+                                or sidecar_dict.get(int(val))
+                                or {}
                             )
+                            name = (
+                                sidecar_info.get("name")
+                                or l_info.get("name")
+                                or f"Label {val_str}"
+                            )
+                            color = (
+                                sidecar_info.get("color")
+                                or l_info.get("color")
+                                or [255, 0, 0]
+                            )
+                            state = {
+                                "source_mode": "Target FG (val)",
+                                "source_val": val,
+                                "source_type": "Label Map",
+                                "name": name,
+                                "color": color,
+                                "opacity": l_info.get("opacity", 0.5),
+                                "visible": l_info.get("visible", True),
+                                "is_contour": l_info.get("is_contour", False),
+                                "thickness": l_info.get("thickness", 1.0),
+                            }
+                            valid_rois_to_load.append(
+                                {
+                                    "new_id": new_id,
+                                    "path": resolved_path,
+                                    "state": state,
+                                }
+                            )
+                    else:
+                        warnings.append(f"Missing Label Map: {os.path.basename(p0)}")
 
     total_rois = len(valid_rois_to_load)
 
@@ -1315,7 +1373,7 @@ def load_workspace_sequence(gui, controller, filepath):
         active_tag = ws.get("active_viewer", "V1")
         if active_tag in controller.viewers:
             gui.set_context_viewer(controller.viewers[active_tag])
-        elif id_map:
+        elif id_map and "V1" in controller.viewers:
             gui.set_context_viewer(controller.viewers["V1"])
 
         layout_mode = str(ws.get("layout_mode") or ws.get("viewport_layout") or "4")

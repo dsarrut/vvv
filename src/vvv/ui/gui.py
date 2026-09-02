@@ -150,6 +150,14 @@ class MainGUI:
         for plugin in self.plugins:
             self._call_plugin(plugin, "on_image_loaded", image_id)
 
+    def notify_plugins_image_reloading(self, image_id: str) -> None:
+        for plugin in self.plugins:
+            self._call_plugin(plugin, "on_image_reloading", image_id)
+
+    def notify_plugins_image_reloaded(self, image_id: str) -> None:
+        for plugin in self.plugins:
+            self._call_plugin(plugin, "on_image_reloaded", image_id)
+
     def notify_plugins_image_removed(self, image_id: str) -> None:
         self.last_tab_for_image.pop(image_id, None)
         for plugin in self.plugins:
@@ -157,6 +165,8 @@ class MainGUI:
 
     def _call_plugin(self, plugin, method_name: str, *args) -> None:
         """Call a plugin method, printing once per (plugin, method) on error."""
+        if not hasattr(plugin, method_name):
+            return
         try:
             getattr(plugin, method_name)(*args)
         except Exception as e:

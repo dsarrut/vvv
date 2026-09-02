@@ -54,6 +54,26 @@ class MIPPluginController(PluginTagMixin):
         for tag in ["V1", "V2", "V3", "V4"]:
             _ = self.get_viewer_state(image_id, tag)
 
+    def on_image_reloading(self, image_id: str) -> None:
+        # Immediately abort all background precompute threads before C++ memory is freed
+        for tag, stop_ev in list(self._precompute_stops.items()):
+            stop_ev.set()
+
+        # Clear precomputed projection caches
+        for tag, cache_dict in list(self._caches.items()):
+            lock = self._cache_locks.get(tag)
+            if lock:
+                with lock:
+                    cache_dict.clear()
+            else:
+                cache_dict.clear()
+
+        self._precompute_params.clear()
+
+    def on_image_reloaded(self, image_id: str) -> None:
+        for tag in ["V1", "V2", "V3", "V4"]:
+            self.clear_viewer_cache(tag)
+
     def on_image_removed(self, image_id: str) -> None:
         self._states.pop(image_id, None)
 
@@ -76,7 +96,9 @@ class MIPPluginController(PluginTagMixin):
             v1_state = states_dict["V1"]
             serialized.update(
                 {
-                    "mip_enabled": v1_state.mip_enabled if context != "history" else False,
+                    "mip_enabled": (
+                        v1_state.mip_enabled if context != "history" else False
+                    ),
                     "projection_axis": v1_state.projection_axis,
                     "depth_cueing": v1_state.depth_cueing,
                     "invert_contrast": v1_state.invert_contrast,
@@ -101,7 +123,9 @@ class MIPPluginController(PluginTagMixin):
                 state = self.get_viewer_state(image_id, tag)
                 self._restore_single_state(state, data, context=context)
 
-    def _restore_single_state(self, state: MIPViewerState, data: dict, context: str = "history") -> None:
+    def _restore_single_state(
+        self, state: MIPViewerState, data: dict, context: str = "history"
+    ) -> None:
         if context != "history":
             state.mip_enabled = data.get("mip_enabled", state.mip_enabled)
         else:
@@ -307,6 +331,7 @@ class MIPPluginController(PluginTagMixin):
         state.rotation_step = round(new_val, 1)
         dpg.set_value(user_data["tag"], new_val)
         self._api.request_refresh()
+
     def get_mip_projection(
         self,
         viewer,
@@ -318,36 +343,45 @@ class MIPPluginController(PluginTagMixin):
         proj_axis,
         mip_state,
         extra_layers=None,
-        image_id=None
+        image_id=None,
     ) -> Optional[np.ndarray]:
         tag = viewer.tag.upper()
         if tag not in self._caches:
             self._caches[tag] = {}
             self._cache_locks[tag] = threading.Lock()
             self._precompute_stops[tag] = threading.Event()
-            
+
         cache_dict = self._caches[tag]
         cache_lock = self._cache_locks[tag]
-        
+
         # Build cache key
         img_id = image_id or viewer.image_id
-        cache_key = (img_id, time_idx, orientation, depth_cueing, current_angle, id(data_3d))
-        
+        cache_key = (
+            img_id,
+            time_idx,
+            orientation,
+            depth_cueing,
+            current_angle,
+            id(data_3d),
+        )
+
         with cache_lock:
             preview = cache_dict.get(cache_key)
-            
+
         if preview is None:
             # Miss: compute projection synchronously
             from vvv.plugins.mip.math_mip import compute_mip_projection
+
             if data_3d.ndim == 4:
                 t = min(time_idx, data_3d.shape[0] - 1)
                 d3d = data_3d[t]
             else:
                 d3d = data_3d
-                
+
             if d3d.ndim == 3:
                 mip_raw = compute_mip_projection(
-                    d3d, axis=proj_axis,
+                    d3d,
+                    axis=proj_axis,
                     depth_cueing=depth_cueing > 0.0,
                     depth_cueing_strength=depth_cueing,
                     rotation_angle=current_angle,
@@ -357,16 +391,24 @@ class MIPPluginController(PluginTagMixin):
                     if orientation == ViewMode.AXIAL
                     else np.ascontiguousarray(np.flipud(mip_raw))
                 )
-                
+
                 with cache_lock:
                     if len(cache_dict) >= 400:  # _MIP_CACHE_MAX
                         cache_dict.pop(next(iter(cache_dict)), None)
                     cache_dict[cache_key] = preview
-            
+
         # Start background precomputation for other angles if parameters changed (e.g. extra_layers added)
         if extra_layers is not None:
             extra_layers_tuple = tuple((l_id, l_t) for _, l_id, l_t in extra_layers)
-            params_key = (img_id, time_idx, orientation, depth_cueing, current_angle, mip_state.rotation_step, extra_layers_tuple)
+            params_key = (
+                img_id,
+                time_idx,
+                orientation,
+                depth_cueing,
+                current_angle,
+                mip_state.rotation_step,
+                extra_layers_tuple,
+            )
             if self._precompute_params.get(tag) != params_key:
                 self._precompute_params[tag] = params_key
                 self._start_mip_precompute(
@@ -378,29 +420,36 @@ class MIPPluginController(PluginTagMixin):
                     rotation_step=mip_state.rotation_step,
                     time_idx=time_idx,
                     orientation=orientation,
-                    extra_layers=extra_layers
+                    extra_layers=extra_layers,
                 )
-                
+
         return preview
 
     def _start_mip_precompute(
-        self, viewer, data_3d, proj_axis, depth_cueing,
-        center_angle, rotation_step, time_idx, orientation,
-        extra_layers=None
+        self,
+        viewer,
+        data_3d,
+        proj_axis,
+        depth_cueing,
+        center_angle,
+        rotation_step,
+        time_idx,
+        orientation,
+        extra_layers=None,
     ):
         tag = viewer.tag.upper()
         stop_event = self._precompute_stops[tag]
         stop_event.set()
-        
+
         new_stop = threading.Event()
         self._precompute_stops[tag] = new_stop
-        
+
         image_id = viewer.image_id
         cache_lock = self._cache_locks[tag]
         cache_dict = self._caches[tag]
         step = max(0.1, rotation_step)
         extra_layers = extra_layers or []
-        
+
         # Build all angles in the full rotation ordered by distance from current
         n = max(1, round(360.0 / step))
         all_angles = []
@@ -412,12 +461,14 @@ class MIPPluginController(PluginTagMixin):
                 while a <= -180.0:
                     a += 360.0
                 all_angles.append(round(a, 2))
-                
+
         def _compute_and_cache(d3d, key):
             from vvv.plugins.mip.math_mip import compute_mip_projection
+
             try:
                 mip_raw = compute_mip_projection(
-                    d3d, axis=proj_axis,
+                    d3d,
+                    axis=proj_axis,
                     depth_cueing=key[3] > 0.0,
                     depth_cueing_strength=key[3],
                     rotation_angle=key[4],
@@ -435,15 +486,23 @@ class MIPPluginController(PluginTagMixin):
                         viewer.controller.ui_needs_refresh = True
             except Exception as e:
                 import traceback
+
                 traceback.print_exc()
-                
+
         def _run():
             for angle in all_angles:
                 if new_stop.is_set():
                     return
-                    
+
                 # Base layer
-                base_key = (image_id, time_idx, orientation, depth_cueing, angle, id(data_3d))
+                base_key = (
+                    image_id,
+                    time_idx,
+                    orientation,
+                    depth_cueing,
+                    angle,
+                    id(data_3d),
+                )
                 with cache_lock:
                     base_cached = base_key in cache_dict
                 if not base_cached:
@@ -455,13 +514,20 @@ class MIPPluginController(PluginTagMixin):
                     else:
                         d3d_base = data_3d
                     _compute_and_cache(d3d_base, base_key)
-                    
+
                 # Extra/overlay layers
                 for layer_data, layer_id, layer_time_idx in extra_layers:
                     if new_stop.is_set():
                         return
                     # Overlays always use 0.0 depth cueing
-                    layer_key = (layer_id, layer_time_idx, orientation, 0.0, angle, id(layer_data))
+                    layer_key = (
+                        layer_id,
+                        layer_time_idx,
+                        orientation,
+                        0.0,
+                        angle,
+                        id(layer_data),
+                    )
                     with cache_lock:
                         layer_cached = layer_key in cache_dict
                     if not layer_cached:
@@ -473,7 +539,7 @@ class MIPPluginController(PluginTagMixin):
                         else:
                             l_3d = layer_data
                         _compute_and_cache(l_3d, layer_key)
-                        
+
         threading.Thread(target=_run, daemon=True).start()
 
     def on_save_movie_clicked(self, sender, app_data, user_data):
@@ -487,8 +553,7 @@ class MIPPluginController(PluginTagMixin):
 
         default_name = f"mip_rotation_{viewer.image_id}.gif"
         file_path = save_file_dialog(
-            title="Save MIP Rotation Movie",
-            default_name=default_name
+            title="Save MIP Rotation Movie", default_name=default_name
         )
         if not file_path:
             return
@@ -498,9 +563,7 @@ class MIPPluginController(PluginTagMixin):
             file_path += ".gif"
 
         # Add the generator sequence to the GUI tasks list
-        self._api._gui.tasks.append(
-            self._save_movie_sequence(viewer, file_path)
-        )
+        self._api._gui.tasks.append(self._save_movie_sequence(viewer, file_path))
 
     def _save_movie_sequence(self, viewer, filepath):
         from vvv.ui.ui_notifications import show_loading_modal, hide_loading_modal
@@ -528,7 +591,7 @@ class MIPPluginController(PluginTagMixin):
                 show_loading_modal(
                     "Generating Movie",
                     f"Rendering frame {idx+1} of {total_frames}...",
-                    progress=(idx / total_frames)
+                    progress=(idx / total_frames),
                 )
                 yield
 
@@ -541,11 +604,20 @@ class MIPPluginController(PluginTagMixin):
 
                 # Generate RGBA slice
                 from vvv.maths.image import SliceRenderer
+
                 flat, shape = SliceRenderer.get_slice_rgba(
                     base=base_layer,
                     overlay=overlay_layer,
-                    overlay_opacity=viewer.view_state.display.overlay.opacity if (viewer.view_state and viewer.view_state.display.overlay) else 0.0,
-                    overlay_mode=viewer.view_state.display.overlay.mode if (viewer.view_state and viewer.view_state.display.overlay) else "Alpha",
+                    overlay_opacity=(
+                        viewer.view_state.display.overlay.opacity
+                        if (viewer.view_state and viewer.view_state.display.overlay)
+                        else 0.0
+                    ),
+                    overlay_mode=(
+                        viewer.view_state.display.overlay.mode
+                        if (viewer.view_state and viewer.view_state.display.overlay)
+                        else "Alpha"
+                    ),
                     slice_idx=viewer.slice_idx,
                     orientation=viewer.orientation,
                 )
@@ -557,17 +629,25 @@ class MIPPluginController(PluginTagMixin):
                 rgba_uint8 = (np.clip(rgba_2d, 0.0, 1.0) * 255.0).astype(np.uint8)
 
                 # Blend transparency with the background color (invert_contrast check)
-                bg_color = np.array([255, 255, 255] if state.invert_contrast else [0, 0, 0], dtype=np.uint8)
+                bg_color = np.array(
+                    [255, 255, 255] if state.invert_contrast else [0, 0, 0],
+                    dtype=np.uint8,
+                )
                 alpha = rgba_uint8[..., 3:4] / 255.0
-                rgb = (rgba_uint8[..., :3] * alpha + bg_color * (1.0 - alpha)).astype(np.uint8)
+                rgb = (rgba_uint8[..., :3] * alpha + bg_color * (1.0 - alpha)).astype(
+                    np.uint8
+                )
 
                 # Convert to PIL Image
                 from PIL import Image
+
                 img = Image.fromarray(rgb)
 
                 # Resize to respect physical voxel spacing (aspect ratio)
                 if viewer.volume:
-                    spacing_w, spacing_h = viewer.volume.get_physical_aspect_ratio(viewer.orientation)
+                    spacing_w, spacing_h = viewer.volume.get_physical_aspect_ratio(
+                        viewer.orientation
+                    )
                     if spacing_w != spacing_h:
                         if spacing_w > spacing_h:
                             new_w = int(round(w * (spacing_w / spacing_h)))
@@ -580,21 +660,26 @@ class MIPPluginController(PluginTagMixin):
                 frames.append(img)
 
             if frames:
-                show_loading_modal("Generating Movie", "Saving animated GIF...", progress=0.99)
+                show_loading_modal(
+                    "Generating Movie", "Saving animated GIF...", progress=0.99
+                )
                 yield
                 frames[0].save(
                     filepath,
                     save_all=True,
                     append_images=frames[1:],
                     duration=100,  # 100ms per frame
-                    loop=0
+                    loop=0,
                 )
 
         except Exception as e:
             import traceback
+
             traceback.print_exc()
             if self._api:
-                self._api.show_message("Error Saving Movie", f"An error occurred while exporting: {str(e)}")
+                self._api.show_message(
+                    "Error Saving Movie", f"An error occurred while exporting: {str(e)}"
+                )
         finally:
             # Restore original rotation angle
             state.rotation_angles[proj_axis] = original_angle

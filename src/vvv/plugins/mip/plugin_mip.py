@@ -24,6 +24,12 @@ class MIPPlugin(PluginProtocol):
     def on_image_loaded(self, image_id: str) -> None:
         self._controller.on_image_loaded(image_id)
 
+    def on_image_reloading(self, image_id: str) -> None:
+        self._controller.on_image_reloading(image_id)
+
+    def on_image_reloaded(self, image_id: str) -> None:
+        self._controller.on_image_reloaded(image_id)
+
     def on_image_removed(self, image_id: str) -> None:
         self._controller.on_image_removed(image_id)
 

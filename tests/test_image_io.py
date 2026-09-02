@@ -733,3 +733,62 @@ def test_save_and_load_workspace_mip_multi_viewer_state(tmp_path):
     assert restored_s1.rotation_angles["X"] == 0.0
     assert restored_s2.mip_enabled is True
     assert restored_s2.rotation_angles["X"] == 90.0
+
+
+def test_reload_image_with_mip_and_intensity_plugins(tmp_path):
+    """Test reloading an image from disk while MIP and Intensity plugins are active."""
+    import time
+    from unittest.mock import MagicMock
+    from vvv.core.controller import Controller
+    from vvv.core.view_state import ViewState
+    from vvv.plugins.mip.plugin_mip import MIPPlugin
+    from vvv.plugins.intensity.plugin_intensity import IntensityPlugin
+
+    # 1. Create dummy image on disk
+    img_file = tmp_path / "reload_test.nii.gz"
+    arr1 = np.ones((8, 8, 8), dtype=np.float32)
+    sitk.WriteImage(sitk.GetImageFromArray(arr1), str(img_file))
+    vol = VolumeData(str(img_file))
+
+    controller = Controller()
+    controller.volumes["1"] = vol
+    vs = ViewState(vol)
+    controller.view_states["1"] = vs
+
+    for tag in ["V1", "V2", "V3", "V4"]:
+        mock_v = MagicMock()
+        mock_v.tag = tag
+        mock_v.image_id = "1"
+        mock_v.orientation.name = "AXIAL"
+        controller.viewers[tag] = mock_v
+
+    mip = MIPPlugin()
+    intensity = IntensityPlugin()
+    gui = MagicMock()
+    gui.controller = controller
+    gui.plugins = [mip, intensity]
+    controller.gui = gui
+
+    # Initialize plugins with the image
+    gui.notify_plugins_image_loaded("1")
+    mip._controller.bind(gui.plugin_api)
+    intensity._controller.bind(gui.plugin_api)
+
+    # Enable MIP on V1 and V2
+    s1 = mip._controller.get_viewer_state("1", "V1")
+    s1.mip_enabled = True
+    s2 = mip._controller.get_viewer_state("1", "V2")
+    s2.mip_enabled = True
+
+    # 2. Overwrite file on disk with new values
+    arr2 = np.full((8, 8, 8), 5.0, dtype=np.float32)
+    sitk.WriteImage(sitk.GetImageFromArray(arr2), str(img_file))
+
+    # 3. Reload image
+    controller.reload_image("1")
+
+    # 4. Verify reload succeeded without errors
+    assert controller.volumes["1"].data is not None
+    assert np.allclose(controller.volumes["1"].data, 5.0)
+    assert mip._controller.get_viewer_state("1", "V1").mip_enabled is True
+    assert mip._controller.get_viewer_state("1", "V2").mip_enabled is True

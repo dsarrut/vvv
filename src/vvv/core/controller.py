@@ -54,7 +54,12 @@ class Controller:
         self.viewers = {}
         self._state_lock = threading.RLock()
 
-        self.layout: dict[str, str | None] = {"V1": None, "V2": None, "V3": None, "V4": None}
+        self.layout: dict[str, str | None] = {
+            "V1": None,
+            "V2": None,
+            "V3": None,
+            "V4": None,
+        }
 
         self.file = FileManager(self)
         self.sync = SyncManager(self)
@@ -158,6 +163,7 @@ class Controller:
 
         try:
             from vvv.maths.transform_io import TransformIO
+
             new_transform = TransformIO.read_transform(filepath, fallback_center)
 
             vs.space.transform = new_transform
@@ -172,6 +178,7 @@ class Controller:
         if vs and vs.space.transform:
             try:
                 from vvv.maths.transform_io import TransformIO
+
                 TransformIO.write_transform(vs.space.transform, filepath)
                 vs.space.transform_file = os.path.basename(filepath)
             except Exception as e:
@@ -184,7 +191,9 @@ class Controller:
         elif isinstance(path, str):
             if path.startswith("4D:"):
                 try:
-                    path_for_shlex = path[3:].replace("\\", "\\\\") if os.name == "nt" else path[3:]
+                    path_for_shlex = (
+                        path[3:].replace("\\", "\\\\") if os.name == "nt" else path[3:]
+                    )
                     tokens = shlex.split(path_for_shlex)
                     abs_tokens = [os.path.abspath(t) for t in tokens]
                     path = "4D:" + " ".join(f'"{t}"' for t in abs_tokens)
@@ -221,7 +230,9 @@ class Controller:
         elif isinstance(path, str):
             if path.startswith("4D:"):
                 try:
-                    path_for_shlex = path[3:].replace("\\", "\\\\") if os.name == "nt" else path[3:]
+                    path_for_shlex = (
+                        path[3:].replace("\\", "\\\\") if os.name == "nt" else path[3:]
+                    )
                     tokens = shlex.split(path_for_shlex)
                     resolved_tokens = [self._resolve_single_path(t) for t in tokens]
                     return "4D:" + " ".join(f'"{t}"' for t in resolved_tokens)
@@ -270,11 +281,12 @@ class Controller:
 
         is_outdated = getattr(vol, "_is_outdated", False)
         base_name = vol.name
-        
+
         # Clean any existing leading (number) prefix for dynamic index display
         import re
+
         clean_name = re.sub(r"^\(\d+\)\s*", "", base_name)
-        
+
         name_str = f"({idx}) {clean_name}"
         if is_outdated:
             name_str += " *"
@@ -310,7 +322,9 @@ class Controller:
         if getattr(vol, "is_dvf", False):
             return vol.data[:, iz, iy, ix], ix, iy, iz
         t = min(time_idx, vol.num_timepoints - 1)
-        val = vol.data[t, iz, iy, ix] if vol.num_timepoints > 1 else vol.data[iz, iy, ix]
+        val = (
+            vol.data[t, iz, iy, ix] if vol.num_timepoints > 1 else vol.data[iz, iy, ix]
+        )
         return val, ix, iy, iz
 
     def get_pixel_values_at_phys(self, vs_id, phys_coord, time_idx):
@@ -337,10 +351,15 @@ class Controller:
 
             # 2. Fused Target Overlay Value
             overlay_val = None
-            if vs.display.overlay.image_id and vs.display.overlay.image_id in self.volumes:
+            if (
+                vs.display.overlay.image_id
+                and vs.display.overlay.image_id in self.volumes
+            ):
                 ov_vol = self.volumes[vs.display.overlay.image_id]
                 ov_vs = self.view_states[vs.display.overlay.image_id]
-                overlay_val, _, _, _ = self._get_voxel_value(ov_vol, ov_vs, phys_coord, time_idx)
+                overlay_val, _, _, _ = self._get_voxel_value(
+                    ov_vol, ov_vs, phys_coord, time_idx
+                )
 
             # 3. Intersecting ROIs (ROIs share the Base Image's spatial grid)
             roi_names = []
@@ -398,7 +417,7 @@ class Controller:
         # Find the "Source of Truth" for this new group
         master_vs_id = None
         active_viewer = self.gui.context_viewer if self.gui else None
-        
+
         # If the active viewer is in the same sync group, use it as master
         if active_viewer and active_viewer.image_id in self.view_states:
             active_vs = self.view_states[active_viewer.image_id]
@@ -484,7 +503,9 @@ class Controller:
     def _flag_viewers_for_image(self, vs_id, data_dirty=False, geometry_dirty=False):
         """Set dirty flags on all viewers that display vs_id as base image or overlay."""
         for v in self.viewers.values():
-            if v.image_id == vs_id or (v.view_state and v.view_state.display.overlay.image_id == vs_id):
+            if v.image_id == vs_id or (
+                v.view_state and v.view_state.display.overlay.image_id == vs_id
+            ):
                 if data_dirty:
                     v.is_viewer_data_dirty = True
                 if geometry_dirty:
@@ -599,7 +620,10 @@ class Controller:
                 return
 
             # Sync crosshair AFTER all overlay resampling (avoids tombstone flash).
-            if vs.base_display_data is not None and vs.camera.crosshair_phys_coord is not None:
+            if (
+                vs.base_display_data is not None
+                and vs.camera.crosshair_phys_coord is not None
+            ):
                 vs.update_crosshair_from_phys(vs.camera.crosshair_phys_coord)
 
             vs.needs_resample = False
@@ -658,7 +682,9 @@ class Controller:
                 base_vs.display._sitk_overlay_cache = _old_cache
             return
 
-        _old_cache = None  # noqa: F841  — release old ITK object after new data is ready
+        _old_cache = (
+            None  # noqa: F841  — release old ITK object after new data is ready
+        )
         with base_vs.display._lock:
             base_vs.display._sitk_overlay_cache = new_cache
             base_vs.display.overlay_data = new_data
@@ -713,7 +739,9 @@ class Controller:
                 try:
                     # Build reference grid (same size/spacing/origin/direction as original)
                     ref = sitk.Image(
-                        int(vol.shape3d[2]), int(vol.shape3d[1]), int(vol.shape3d[0]),
+                        int(vol.shape3d[2]),
+                        int(vol.shape3d[1]),
+                        int(vol.shape3d[0]),
                         sitk.sitkFloat32,
                     )
                     ref.SetSpacing(vol.spacing.tolist())
@@ -723,7 +751,9 @@ class Controller:
                     resampler = sitk.ResampleImageFilter()
                     resampler.SetReferenceImage(ref)
                     resampler.SetInterpolator(sitk.sitkLinear)
-                    resampler.SetDefaultPixelValue(float(np.min(vol.data) if vol.data is not None else 0))
+                    resampler.SetDefaultPixelValue(
+                        float(np.min(vol.data) if vol.data is not None else 0)
+                    )
                     transform = vs.space.transform
                     assert transform is not None
                     resampler.SetTransform(transform.GetInverse())
@@ -746,8 +776,14 @@ class Controller:
                     self._tombstone_image_memory(vs_id, vs, vol)
 
                     # Swap in the resampled data
-                    vol.sitk_image = sitk.Cast(new_sitk, vol.sitk_image.GetPixelID()
-                                                if vol.sitk_image else sitk.sitkFloat32)
+                    vol.sitk_image = sitk.Cast(
+                        new_sitk,
+                        (
+                            vol.sitk_image.GetPixelID()
+                            if vol.sitk_image
+                            else sitk.sitkFloat32
+                        ),
+                    )
                     vol.data = sitk.GetArrayViewFromImage(vol.sitk_image)
                     vol._is_outdated = True
 
@@ -821,6 +857,10 @@ class Controller:
         self.status_message = f"Reloading {vol.name} ..."
         self.ui_needs_refresh = True
 
+        # 0. Signal plugins to safely abort any background threads accessing this image
+        if self.gui:
+            self.gui.notify_plugins_image_reloading(vs_id)
+
         with vs.loading_shield():
             # 1. Snapshot the world and memory before the reload
             old_state = self._capture_pre_reload_state(vs, vol)
@@ -849,7 +889,11 @@ class Controller:
             # 5. Re-link Fusions/Overlays
             self._rebuild_dependent_overlays(vs_id, vs, vol, old_state)
 
-            # 6. Flag UI
+            # 6. Notify plugins that reload has finished so they can refresh caches
+            if self.gui:
+                self.gui.notify_plugins_image_reloaded(vs_id)
+
+            # 7. Flag UI
             self.status_message = f"Reloaded: {vol.name}"
             if shape_changed and self.gui and hasattr(self.gui, "rois_need_refresh"):
                 self.gui.rois_need_refresh = True
@@ -879,6 +923,7 @@ class Controller:
             vs.display.overlay_data = None
             vs.display._sitk_overlay_cache = None
         vol.data = None
+        vol.data_4d = None
 
         for other_vs in self.view_states.values():
             if other_vs.display.overlay.image_id == vs_id:
@@ -888,10 +933,15 @@ class Controller:
                     )
                     other_vs.display._sitk_overlay_cache = None  # Also sever the cache
 
-
-        # Instantly blind the viewers so DPG doesn't read dead memory
+        # Instantly blind the viewers and flush temporary slice preview caches
         for v in self.viewers.values():
-            v.is_viewer_data_dirty = True
+            if v.image_id == vs_id:
+                v.is_viewer_data_dirty = True
+                v.is_geometry_dirty = True
+                if hasattr(v, "_preview_slices"):
+                    v._preview_slices.clear()
+                if hasattr(v, "_overlay_preview_slices"):
+                    v._overlay_preview_slices.clear()
 
     def _resolve_reloaded_geometry(self, vs_id, vs, vol, old_state, was_reset):
         """Checks if the image dimensions changed and re-aligns the UI accordingly."""
@@ -955,13 +1005,13 @@ class Controller:
             "vs_sitk_base_cache": vs._sitk_base_cache,
             "vs_overlay_data": vs.display.overlay_data,
             "vs_sitk_overlay_cache": vs.display._sitk_overlay_cache,
-            "dependent_overlays": {}
+            "dependent_overlays": {},
         }
         for other_id, other_vs in self.view_states.items():
             if other_vs.display.overlay.image_id == vs_id:
                 snapshot["dependent_overlays"][other_id] = {
                     "overlay_data": other_vs.display.overlay_data,
-                    "sitk_overlay_cache": other_vs.display._sitk_overlay_cache
+                    "sitk_overlay_cache": other_vs.display._sitk_overlay_cache,
                 }
         return snapshot
 
@@ -973,14 +1023,16 @@ class Controller:
         with vs.display._lock:
             vs.display.overlay_data = snapshot["vs_overlay_data"]
             vs.display._sitk_overlay_cache = snapshot["vs_sitk_overlay_cache"]
-        
+
         for other_id, other_snapshot in snapshot["dependent_overlays"].items():
             other_vs = self.view_states.get(other_id)
             if other_vs:
                 with other_vs.display._lock:
                     other_vs.display.overlay_data = other_snapshot["overlay_data"]
-                    other_vs.display._sitk_overlay_cache = other_snapshot["sitk_overlay_cache"]
-        
+                    other_vs.display._sitk_overlay_cache = other_snapshot[
+                        "sitk_overlay_cache"
+                    ]
+
         self.update_all_viewers_of_image(vs_id)
 
     def _rebuild_dependent_overlays(self, vs_id, vs, vol, old_state):
@@ -1014,6 +1066,7 @@ class Controller:
             return self.settings.save()
         except Exception as e:
             import logging
+
             logging.warning(f"Could not save settings: {e}")
             return None
 
@@ -1032,7 +1085,9 @@ class Controller:
             is_data = getattr(vs, "is_data_dirty", False)
 
             if is_geom or is_data:
-                self._flag_viewers_for_image(vs_id, data_dirty=is_data, geometry_dirty=is_geom)
+                self._flag_viewers_for_image(
+                    vs_id, data_dirty=is_data, geometry_dirty=is_geom
+                )
 
             # Safe Reset (ONLY after all viewers in the loop have been flagged)
             vs.is_data_dirty = False
