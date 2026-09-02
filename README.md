@@ -33,6 +33,12 @@ VVV has been carefully "vibe-coded" (mostly Gemini, a bit of Claude) following t
 ## Installation
 
 ```bash
+    pip install open-vvv
+```
+
+or for develop version
+
+```
     git clone https://github.com/dsarrut/vvv
     cd vvv
     pip install -e .
