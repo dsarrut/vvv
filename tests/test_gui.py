@@ -1,5 +1,6 @@
 import os
 import pytest
+import platform
 import threading
 import numpy as np
 import SimpleITK as sitk
@@ -244,6 +245,7 @@ def test_cli_boot_sequence_logic(headless_gui_app, synthetic_volume_factory):
     assert groups[0] == groups[1]
     assert groups[0] > 0
 
+@pytest.mark.skipif(platform.system() == "Windows", reason="Unix-specific test")
 def test_gui_interaction_modifiers(headless_gui_app, monkeypatch):
     """Verifies that holding the Ctrl key changes the mouse scroll from Slicing to Zooming."""
     import sys
@@ -1061,6 +1063,7 @@ def test_gui_per_image_last_tool_memory(headless_gui_app, synthetic_volume_facto
     assert vs1_id not in gui.last_tab_for_image
 
 
+@pytest.mark.skipif(platform.system() == "Windows", reason="Unix-specific test")
 def test_gui_active_image_path_shown_in_menu_bar(headless_gui_app, synthetic_volume_factory):
     """Verifies the centered label in the top menu bar reflects the active
     viewer's full file path, updates on viewer switch, and clears when the

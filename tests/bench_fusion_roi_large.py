@@ -239,10 +239,10 @@ def main():
         os_label = platform.system()
         sep = "-" * 96
 
-        print(f"\n{'═'*96}")
+        print(f"\n{'='*96}")
         print(f"  {os_label}  ·  Fusion + Large ROI  ·  {n_iters} iters/action")
         print(f"  ROI coverage: 50% box, {'ON' if roi_ready else 'FAILED TO LOAD'}")
-        print(f"{'═'*96}")
+        print(f"{'='*96}")
         print(f"{'Mode':<24} | {'Slicing':>9} | {'Pan Move':>9} | {'Zoom In':>9} | {'Zoom Out':>9} | {'W/L (W)':>9} | {'W/L (X)':>9}")
         print(sep)
 
@@ -256,7 +256,7 @@ def main():
                     (1.0 / r - 1.0 / n) * 1000 if r > 0 and n > 0 else 0.0
                     for n, r in zip(row_no_roi, row_roi)
                 ]
-                print(fmt_row("  Δ ROI cost", delta, unit="ms"))
+                print(fmt_row("  delta ROI cost", delta, unit="ms"))
             print(sep)
 
         print(

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vvv"
-version = "1.0"
+version = "0.5.0"
 description = "A Python-based 3D/4D image viewer inspired by VV."
 requires-python = ">=3.10"
 dependencies = [
@@ -29,6 +29,15 @@ memory = [
     "psutil"
 ]
 
+[tool.setuptools.package-data]
+"vvv" = ["fonts/*.otf"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [project.scripts]
 # This line creates the 'vvv' command in your shell
@@ -42,3 +51,4 @@ filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore:SOCKS support in urllib3 requires the installation",
 ]
+

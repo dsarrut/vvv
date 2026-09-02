@@ -228,9 +228,9 @@ def main():
         os_label = platform.system()
         sep = "-" * 102
 
-        print(f"\n{'═'*102}")
+        print(f"\n{'='*102}")
         print(f"  {os_label}  ·  Full NN every frame (lazy_nn=False)  ·  {n_iters} iters/action")
-        print(f"{'═'*102}")
+        print(f"{'='*102}")
         print(f"{'Mode':<28} | {'Slicing':>9} | {'Pan Move':>9} | {'Zoom In':>9} | {'Zoom Out':>9} | {'W/L (W)':>9} | {'W/L (X)':>9}")
         print(sep)
 
@@ -250,9 +250,9 @@ def main():
         note = ("  Pan(live)  = bilinear during drag  |  "
                 "Settle = one NN upload after 150ms pause  (= Pan Move cost above)")
 
-        print(f"\n{'═'*78}")
+        print(f"\n{'='*78}")
         print(f"  {os_label}  ·  Lazy NN (lazy_nn=True, settle={int(LAZY_SETTLE_S*1000)}ms)  ·  {n_iters} iters/action")
-        print(f"{'═'*78}")
+        print(f"{'='*78}")
         print(hdr_lazy)
         print(sep)
 
