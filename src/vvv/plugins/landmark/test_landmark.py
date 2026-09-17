@@ -306,6 +306,7 @@ class TestLandmarkPlugin(unittest.TestCase):
              unittest.mock.patch("dearpygui.dearpygui.add_item_deactivated_after_edit_handler"), \
              unittest.mock.patch("dearpygui.dearpygui.bind_item_handler_registry"), \
              unittest.mock.patch("dearpygui.dearpygui.tooltip"), \
+             unittest.mock.patch("dearpygui.dearpygui.group"), \
              unittest.mock.patch("dearpygui.dearpygui.table_row"):
             ui.update_ui(mock_api)
             mock_set_label.assert_any_call(btn_vis_tag, "\uf06e")
@@ -329,6 +330,7 @@ class TestLandmarkPlugin(unittest.TestCase):
              unittest.mock.patch("dearpygui.dearpygui.add_item_deactivated_after_edit_handler"), \
              unittest.mock.patch("dearpygui.dearpygui.bind_item_handler_registry"), \
              unittest.mock.patch("dearpygui.dearpygui.tooltip"), \
+             unittest.mock.patch("dearpygui.dearpygui.group"), \
              unittest.mock.patch("dearpygui.dearpygui.table_row"):
             ui.update_ui(mock_api)
             mock_set_label.assert_any_call(btn_vis_tag, "\uf070")
@@ -387,6 +389,125 @@ class TestLandmarkPlugin(unittest.TestCase):
         # Cleanup on image removal.
         ctrl.on_image_removed("img1")
         self.assertFalse(ctrl.is_enhanced_vis("img1"))
+
+    def test_file_modification_detection_and_reload(self):
+        import tempfile
+        import os
+        import time
+
+        ctrl = LandmarkPluginController("landmark_plugin")
+        mock_api = unittest.mock.MagicMock()
+        mock_api.get_active_viewer.return_value = unittest.mock.MagicMock(image_id="img1", view_state=self.vs)
+        mock_api.get_view_states.return_value = {"img1": self.vs}
+        mock_api.get_active_image_id.return_value = "img1"
+        ctrl.bind(mock_api)
+
+        lm1 = Landmark(id="lm_1", name="Original_Point", pt_phys=[1.0, 2.0, 3.0], color=[255, 0, 0, 255])
+        self.vs.landmarks = {"lm_1": lm1}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            json_path = os.path.join(tmpdir, "landmarks.json")
+            ctrl.save_landmarks(json_path, image_id="img1")
+            self.assertTrue(os.path.exists(json_path))
+            self.assertFalse(ctrl.is_file_outdated("img1"))
+
+            # Simulate external modification on disk
+            time.sleep(0.05)
+            new_mtime = os.path.getmtime(json_path) + 10.0
+            with open(json_path, "w", encoding="utf-8") as f:
+                import json
+                json.dump({"landmarks": [{"id": "lm_new", "name": "Reloaded_Point", "pt_phys": [10.0, 20.0, 30.0]}]}, f)
+            os.utime(json_path, (new_mtime, new_mtime))
+
+            # Force mtime check by bypassing throttle in test
+            ctrl._last_mtime_check["img1"] = 0.0
+            self.assertTrue(ctrl.is_file_outdated("img1"))
+
+            # Call reload_landmarks
+            self.vs.is_geometry_dirty = False
+            reloaded = ctrl.reload_landmarks("img1")
+            self.assertTrue(reloaded)
+            self.assertFalse(ctrl.is_file_outdated("img1"))
+            self.assertTrue(self.vs.is_geometry_dirty)
+            self.assertIn("lm_new", self.vs.landmarks)
+            self.assertNotIn("lm_1", self.vs.landmarks)
+            self.assertEqual(self.vs.landmarks["lm_new"].name, "Reloaded_Point")
+            mock_api.update_all_viewers_of_image.assert_called_with("img1", data_dirty=False)
+
+    def test_ui_reload_button_and_outdated_badge(self):
+        ui = LandmarkPluginUI("landmark_plugin", LandmarkPluginController("landmark_plugin"))
+        mock_api = unittest.mock.MagicMock()
+        mock_viewer = unittest.mock.MagicMock(image_id="img1", view_state=self.vs, volume=unittest.mock.MagicMock())
+        mock_api.get_active_viewer.return_value = mock_viewer
+        mock_api.get_view_states.return_value = {"img1": self.vs}
+        mock_api.get_image_display_name.return_value = ("img1", False)
+        mock_api.get_ui_config.return_value = {"colors": {"text_dim": [180, 180, 180, 255], "outdated": [255, 100, 100, 255]}}
+        mock_api.get_ui_config.return_value = {"colors": {"text_dim": [180, 180, 180, 255], "outdated": [255, 180, 50, 255]}}
+        ui._c.bind(mock_api)
+
+        lm = Landmark(id="lm_1", name="P1", pt_phys=[1.0, 2.0, 3.0])
+        self.vs.landmarks = {"lm_1": lm}
+        ui._c.landmarks_file_path["img1"] = "/path/to/test_landmarks.json"
+        ui._c.is_file_outdated = unittest.mock.MagicMock(return_value=True)
+
+        btn_save_tag = ui._t("btn_save")
+        btn_reload_tag = ui._t("btn_reload")
+        lbl_file_tag = ui._t("file_name_label")
+        table_tag = ui._t("list_table")
+        input_tag = ui._t("input_name_lm_1")
+
+        def mock_does_item_exist(tag):
+            return tag in [btn_save_tag, btn_reload_tag, lbl_file_tag, table_tag, "outdated_image_input_theme"]
+            return tag in [btn_save_tag, btn_reload_tag, lbl_file_tag, table_tag, "outdated_image_input_theme", input_tag]
+
+        with unittest.mock.patch("dearpygui.dearpygui.does_item_exist", side_effect=mock_does_item_exist), \
+             unittest.mock.patch("dearpygui.dearpygui.set_value") as mock_set_val, \
+             unittest.mock.patch("dearpygui.dearpygui.configure_item") as mock_cfg, \
+             unittest.mock.patch("dearpygui.dearpygui.bind_item_theme") as mock_bind_theme, \
+             unittest.mock.patch("dearpygui.dearpygui.delete_item"), \
+             unittest.mock.patch("dearpygui.dearpygui.add_color_edit"), \
+             unittest.mock.patch("dearpygui.dearpygui.add_input_text"), \
+             unittest.mock.patch("dearpygui.dearpygui.add_input_text", return_value=input_tag), \
+             unittest.mock.patch("dearpygui.dearpygui.add_button"), \
+             unittest.mock.patch("dearpygui.dearpygui.add_tooltip"), \
+             unittest.mock.patch("dearpygui.dearpygui.add_text"), \
+             unittest.mock.patch("dearpygui.dearpygui.item_handler_registry"), \
+             unittest.mock.patch("dearpygui.dearpygui.add_item_deactivated_after_edit_handler"), \
+             unittest.mock.patch("dearpygui.dearpygui.bind_item_handler_registry"), \
+             unittest.mock.patch("dearpygui.dearpygui.tooltip"), \
+             unittest.mock.patch("dearpygui.dearpygui.group"), \
+             unittest.mock.patch("dearpygui.dearpygui.table_row"):
+            # 1. Outdated = True: Reload button shown, filename has *, input has outdated theme
+            ui.update_ui(mock_api)
+            mock_cfg.assert_any_call(btn_reload_tag, show=True)
+            mock_set_val.assert_any_call(lbl_file_tag, "test_landmarks.json *")
+            mock_bind_theme.assert_any_call(btn_reload_tag, "outdated_image_input_theme")
+            mock_bind_theme.assert_any_call(input_tag, "outdated_image_input_theme")
+
+            # 2. Outdated = False: Reload button hidden
+            ui._c.is_file_outdated.return_value = False
+            ui._last_state_key = None
+            mock_cfg.reset_mock()
+            ui.update_ui(mock_api)
+            mock_cfg.assert_any_call(btn_reload_tag, show=False)
+            mock_set_val.assert_any_call(lbl_file_tag, "test_landmarks.json")
+
+    def test_tick_triggers_refresh_on_file_change(self):
+        plugin = LandmarkPlugin()
+        mock_api = unittest.mock.MagicMock()
+        plugin._controller.bind(mock_api)
+        plugin._controller.landmarks_file_path["img1"] = "/path/to/landmarks.json"
+        plugin._controller.landmarks_is_outdated["img1"] = False
+
+        # No change in outdated status -> no refresh requested
+        with unittest.mock.patch.object(plugin._controller, "is_file_outdated", return_value=False):
+            plugin.tick()
+            mock_api.request_refresh.assert_not_called()
+
+        # Outdated status becomes True -> triggers request_refresh
+        with unittest.mock.patch.object(plugin._controller, "is_file_outdated", return_value=True):
+            plugin.tick()
+            mock_api.request_refresh.assert_called_once()
 
 
 if __name__ == "__main__":

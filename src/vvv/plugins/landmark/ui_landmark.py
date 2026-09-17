@@ -33,7 +33,9 @@ class LandmarkPluginUI(PluginTagMixin):
     def _update_enhanced_vis_button_style(self):
         btn_tag = self._t("btn_enhanced_vis")
         if dpg.does_item_exist(btn_tag):
-            if self._c.is_enhanced_vis() and dpg.does_item_exist("active_nav_button_theme"):
+            if self._c.is_enhanced_vis() and dpg.does_item_exist(
+                "active_nav_button_theme"
+            ):
                 dpg.bind_item_theme(btn_tag, "active_nav_button_theme")
             elif dpg.does_item_exist("icon_button_theme"):
                 dpg.bind_item_theme(btn_tag, "icon_button_theme")
@@ -43,6 +45,7 @@ class LandmarkPluginUI(PluginTagMixin):
         if not lm_id or not app_data:
             return
         from vvv.ui.ui_components import normalize_rgba_to_int
+
         color_255 = normalize_rgba_to_int(app_data)
         self._c.update_landmark_color(lm_id, color_255)
 
@@ -106,6 +109,11 @@ class LandmarkPluginUI(PluginTagMixin):
     def create_ui(self, parent, api) -> None:
         self._api = api
         cfg_c = api.get_ui_config()["colors"]
+
+        if not dpg.does_item_exist(self._t("outdated_landmark_input_theme")):
+            with dpg.theme(tag=self._t("outdated_landmark_input_theme")):
+                with dpg.theme_component(dpg.mvInputText):
+                    dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["outdated"])
 
         with dpg.group(parent=parent or 0, tag=self._plugin_id):
             build_section_title("Landmarks Plugin", cfg_c["text_header"])
@@ -190,11 +198,17 @@ class LandmarkPluginUI(PluginTagMixin):
                     api,
                 )
 
-                lbl_file = dpg.add_text(
-                    "",
-                    tag=self._t("file_name_label"),
-                    color=cfg_c["text_dim"],
+                btn_reload = dpg.add_button(
+                    label="\uf01e",
+                    tag=self._t("btn_reload"),
+                    callback=self._c.on_btn_reload_clicked,
                     show=False,
+                )
+                self._bind_icon_font(btn_reload)
+                build_beginner_tooltip(
+                    btn_reload,
+                    "Reload landmarks from disk.",
+                    api,
                 )
 
                 build_help_button(
@@ -205,6 +219,14 @@ class LandmarkPluginUI(PluginTagMixin):
                     "• Click Snap (\uf076) to snap a landmark to nearest voxel center.",
                     api,
                 )
+
+            # File name label placed below the action bar icons
+            lbl_file = dpg.add_text(
+                "",
+                tag=self._t("file_name_label"),
+                color=cfg_c["text_dim"],
+                show=False,
+            )
 
             dpg.add_spacer(height=5)
 
@@ -303,21 +325,45 @@ class LandmarkPluginUI(PluginTagMixin):
             dpg.set_value(input_filter_tag, self._c.landmark_filters.get(vs_id, ""))
 
         # Update Save / Save As buttons and filename display
+        # Update Save / Save As / Reload buttons and filename display
         btn_save_tag = self._t("btn_save")
+        btn_reload_tag = self._t("btn_reload")
         lbl_file_tag = self._t("file_name_label")
+        is_outdated = self._c.is_file_outdated(vs_id) if has_image else False
+        cfg_c = api.get_ui_config()["colors"]
+        outdated_color = cfg_c.get("outdated", [255, 180, 50, 255])
 
         if file_path and landmarks:
             filename = os.path.basename(file_path)
+            display_name = f"{filename} *" if is_outdated else filename
+            cfg_c = api.get_ui_config()["colors"]
+            outdated_color = cfg_c.get("outdated", [255, 100, 100, 255])
             if dpg.does_item_exist(lbl_file_tag):
                 dpg.set_value(lbl_file_tag, filename)
                 dpg.configure_item(lbl_file_tag, show=True)
+                dpg.set_value(lbl_file_tag, display_name)
+                dpg.configure_item(
+                    lbl_file_tag,
+                    show=True,
+                    color=outdated_color if is_outdated else cfg_c["text_dim"],
+                )
             if dpg.does_item_exist(btn_save_tag):
                 dpg.configure_item(btn_save_tag, show=True)
+            if dpg.does_item_exist(btn_reload_tag):
+                dpg.configure_item(btn_reload_tag, show=True)
+                # Reload button is only visible when file is out of date
+                dpg.configure_item(btn_reload_tag, show=is_outdated)
+                if is_outdated and dpg.does_item_exist("outdated_image_input_theme"):
+                    dpg.bind_item_theme(btn_reload_tag, "outdated_image_input_theme")
+                elif dpg.does_item_exist("icon_button_theme"):
+                    dpg.bind_item_theme(btn_reload_tag, "icon_button_theme")
         else:
             if dpg.does_item_exist(lbl_file_tag):
                 dpg.configure_item(lbl_file_tag, show=False)
             if dpg.does_item_exist(btn_save_tag):
                 dpg.configure_item(btn_save_tag, show=False)
+            if dpg.does_item_exist(btn_reload_tag):
+                dpg.configure_item(btn_reload_tag, show=False)
 
         # Rebuild key to avoid unneeded redraws if nothing changed
         lm_tuples = tuple(
@@ -332,6 +378,7 @@ class LandmarkPluginUI(PluginTagMixin):
             for lm_id, lm in landmarks.items()
         )
         state_key = (vs_id, filter_text, file_path, lm_tuples)
+        state_key = (vs_id, filter_text, file_path, is_outdated, lm_tuples)
 
         if state_key == self._last_state_key:
             return
@@ -374,14 +421,25 @@ class LandmarkPluginUI(PluginTagMixin):
                     callback=self.on_landmark_color_changed,
                 )
 
-                # 2. Name Input Field
-                build_renamable_input(
-                    tag=self._t(f"input_name_{lm_id}"),
-                    default_value=lm.name,
-                    callback=lambda s, a, u: self._c.update_landmark_name(u, a),
-                    user_data=lm_id,
-                    width=-1,
-                )
+                # 2. Name Input Field (orange text with asterisk when outdated, like ROI)
+                with dpg.group(horizontal=True):
+                    input_id = build_renamable_input(
+                        tag=self._t(f"input_name_{lm_id}"),
+                        default_value=lm.name,
+                        callback=lambda s, a, u: self._c.update_landmark_name(u, a),
+                        user_data=lm_id,
+                        width=-15 if is_outdated else -1,
+                    )
+                    if is_outdated:
+                        dpg.add_text("*", color=outdated_color)
+
+                if is_outdated:
+                    if dpg.does_item_exist(self._t("outdated_landmark_input_theme")):
+                        dpg.bind_item_theme(
+                            input_id, self._t("outdated_landmark_input_theme")
+                        )
+                    elif dpg.does_item_exist("outdated_image_input_theme"):
+                        dpg.bind_item_theme(input_id, "outdated_image_input_theme")
 
                 # 3. Show/Hide Toggle Button
                 lbl_eye = "\uf06e" if lm.visible else "\uf070"
@@ -392,7 +450,9 @@ class LandmarkPluginUI(PluginTagMixin):
                     callback=self.on_landmark_toggle_visible,
                 )
                 self._bind_icon_font(btn_eye)
-                build_beginner_tooltip(btn_eye, "Show" if not lm.visible else "Hide", api)
+                build_beginner_tooltip(
+                    btn_eye, "Show" if not lm.visible else "Hide", api
+                )
 
                 # 4. Show/Hide Name Label Toggle
                 lbl_tag = "\uf02b" if lm.show_name else "\uf02c"
@@ -403,7 +463,9 @@ class LandmarkPluginUI(PluginTagMixin):
                     callback=self.on_landmark_toggle_show_name,
                 )
                 self._bind_icon_font(btn_tag)
-                build_beginner_tooltip(btn_tag, "Hide name" if lm.show_name else "Show name", api)
+                build_beginner_tooltip(
+                    btn_tag, "Hide name" if lm.show_name else "Show name", api
+                )
 
                 # 5. Snap to Grid Button
                 btn_snap = dpg.add_button(
@@ -412,7 +474,9 @@ class LandmarkPluginUI(PluginTagMixin):
                     callback=lambda s, a, u: self._c.snap_landmark_to_grid(u),
                 )
                 self._bind_icon_font(btn_snap)
-                build_beginner_tooltip(btn_snap, "Snap landmark to nearest voxel grid center", api)
+                build_beginner_tooltip(
+                    btn_snap, "Snap landmark to nearest voxel grid center", api
+                )
 
                 # 6. Goto Crosshair Button
                 btn_goto = dpg.add_button(
@@ -421,7 +485,9 @@ class LandmarkPluginUI(PluginTagMixin):
                     callback=lambda s, a, u: self._c.center_on_landmark(u),
                 )
                 self._bind_icon_font(btn_goto)
-                build_beginner_tooltip(btn_goto, "Jump crosshair to landmark position", api)
+                build_beginner_tooltip(
+                    btn_goto, "Jump crosshair to landmark position", api
+                )
 
                 # 7. Delete Button (Red cross)
                 btn_del = build_delete_button(
@@ -435,6 +501,8 @@ class LandmarkPluginUI(PluginTagMixin):
         # Update counter footer text
         if dpg.does_item_exist(footer_id):
             if filter_text:
-                dpg.set_value(footer_id, f"Landmarks: {total_count} (Filtered: {filtered_count})")
+                dpg.set_value(
+                    footer_id, f"Landmarks: {total_count} (Filtered: {filtered_count})"
+                )
             else:
                 dpg.set_value(footer_id, f"Landmarks: {total_count}")

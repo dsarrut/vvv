@@ -2,6 +2,7 @@ import os
 import json
 import csv
 import uuid
+import time
 from typing import Optional, Dict, List, Any
 import numpy as np
 import dearpygui.dearpygui as dpg
@@ -22,6 +23,9 @@ class LandmarkPluginController(PluginTagMixin):
         self.landmark_filters: Dict[str, str] = {}
         self.landmark_counters: Dict[str, int] = {}
         self.landmarks_file_path: Dict[str, Optional[str]] = {}
+        self.landmarks_last_mtimes: Dict[str, float] = {}
+        self.landmarks_is_outdated: Dict[str, bool] = {}
+        self._last_mtime_check: Dict[str, float] = {}
         self.enhanced_vis: Dict[str, bool] = {}
 
     def bind(self, api: PluginAPI) -> None:
@@ -40,6 +44,9 @@ class LandmarkPluginController(PluginTagMixin):
     def on_image_removed(self, image_id: str) -> None:
         self.landmark_filters.pop(image_id, None)
         self.landmarks_file_path.pop(image_id, None)
+        self.landmarks_last_mtimes.pop(image_id, None)
+        self.landmarks_is_outdated.pop(image_id, None)
+        self._last_mtime_check.pop(image_id, None)
         self.landmark_counters.pop(image_id, None)
         self.enhanced_vis.pop(image_id, None)
 
@@ -179,7 +186,9 @@ class LandmarkPluginController(PluginTagMixin):
         vs.landmarks[lm_id] = lm
         vs.is_geometry_dirty = True
         self._api.request_refresh()
-        self._api.notify(f"Added landmark '{lm.name}' at [{pt_phys[0]:.1f}, {pt_phys[1]:.1f}, {pt_phys[2]:.1f}]")
+        self._api.notify(
+            f"Added landmark '{lm.name}' at [{pt_phys[0]:.1f}, {pt_phys[1]:.1f}, {pt_phys[2]:.1f}]"
+        )
         return lm
 
     def remove_landmark(self, landmark_id: str, image_id: Optional[str] = None) -> None:
@@ -214,7 +223,9 @@ class LandmarkPluginController(PluginTagMixin):
             self._api.request_refresh()
             self._api.notify("Cleared all landmarks.")
 
-    def center_on_landmark(self, landmark_id: str, image_id: Optional[str] = None) -> None:
+    def center_on_landmark(
+        self, landmark_id: str, image_id: Optional[str] = None
+    ) -> None:
         if not self._api:
             return
         target_id = image_id or self._get_active_vs_id()
@@ -242,7 +253,9 @@ class LandmarkPluginController(PluginTagMixin):
 
             self._api.notify(f"Centered crosshair on landmark '{lm.name}'")
 
-    def update_landmark_name(self, landmark_id: str, name: str, image_id: Optional[str] = None) -> None:
+    def update_landmark_name(
+        self, landmark_id: str, name: str, image_id: Optional[str] = None
+    ) -> None:
         landmarks = self.get_landmarks(image_id)
         if landmark_id in landmarks:
             landmarks[landmark_id].name = name
@@ -253,10 +266,13 @@ class LandmarkPluginController(PluginTagMixin):
                     vs.is_geometry_dirty = True
                 self._api.request_refresh()
 
-    def update_landmark_color(self, landmark_id: str, color: List[int], image_id: Optional[str] = None) -> None:
+    def update_landmark_color(
+        self, landmark_id: str, color: List[int], image_id: Optional[str] = None
+    ) -> None:
         landmarks = self.get_landmarks(image_id)
         if landmark_id in landmarks:
             from vvv.ui.ui_components import normalize_rgba_to_int
+
             landmarks[landmark_id].color = normalize_rgba_to_int(color)
             vs_id = image_id or self._get_active_vs_id()
             if self._api and vs_id:
@@ -268,7 +284,9 @@ class LandmarkPluginController(PluginTagMixin):
                 # color picker widget mid-interaction.
                 self._api.update_all_viewers_of_image(vs_id, data_dirty=False)
 
-    def update_landmark_visible(self, landmark_id: str, visible: bool, image_id: Optional[str] = None) -> None:
+    def update_landmark_visible(
+        self, landmark_id: str, visible: bool, image_id: Optional[str] = None
+    ) -> None:
         landmarks = self.get_landmarks(image_id)
         if landmark_id in landmarks:
             landmarks[landmark_id].visible = visible
@@ -279,7 +297,9 @@ class LandmarkPluginController(PluginTagMixin):
                     vs.is_geometry_dirty = True
                 self._api.request_refresh()
 
-    def update_landmark_show_name(self, landmark_id: str, show_name: bool, image_id: Optional[str] = None) -> None:
+    def update_landmark_show_name(
+        self, landmark_id: str, show_name: bool, image_id: Optional[str] = None
+    ) -> None:
         landmarks = self.get_landmarks(image_id)
         if landmark_id in landmarks:
             landmarks[landmark_id].show_name = show_name
@@ -306,7 +326,9 @@ class LandmarkPluginController(PluginTagMixin):
                 vs.is_geometry_dirty = True
             self._api.request_refresh()
 
-    def snap_landmark_to_grid(self, landmark_id: str, image_id: Optional[str] = None) -> None:
+    def snap_landmark_to_grid(
+        self, landmark_id: str, image_id: Optional[str] = None
+    ) -> None:
         vs_id = image_id or self._get_active_vs_id()
         if not vs_id or not self._api:
             return
@@ -342,7 +364,19 @@ class LandmarkPluginController(PluginTagMixin):
         path_str = str(filepath)
 
         if path_str.lower().endswith(".csv"):
-            fieldnames = ["ID", "Name", "X_mm", "Y_mm", "Z_mm", "Color_R", "Color_G", "Color_B", "Color_A", "Visible", "ShowName"]
+            fieldnames = [
+                "ID",
+                "Name",
+                "X_mm",
+                "Y_mm",
+                "Z_mm",
+                "Color_R",
+                "Color_G",
+                "Color_B",
+                "Color_A",
+                "Visible",
+                "ShowName",
+            ]
             with open(path_str, "w", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
@@ -350,20 +384,30 @@ class LandmarkPluginController(PluginTagMixin):
                     writer.writerow(lm.to_csv_row())
         else:
             # Default to JSON
-            data = {
-                "landmarks": [lm.to_dict() for lm in landmarks.values()]
-            }
+            data = {"landmarks": [lm.to_dict() for lm in landmarks.values()]}
             with open(path_str, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
 
         self.landmarks_file_path[vs_id] = path_str
+        try:
+            if os.path.exists(path_str):
+                self.landmarks_last_mtimes[vs_id] = os.path.getmtime(path_str)
+                self.landmarks_is_outdated[vs_id] = False
+                self._last_mtime_check[vs_id] = time.time()
+        except Exception:
+            pass
+
         if self._ui:
             self._ui._last_state_key = None
         if self._api:
             self._api.request_refresh()
-            self._api.notify(f"Saved {len(landmarks)} landmark(s) to {os.path.basename(path_str)}")
+            self._api.notify(
+                f"Saved {len(landmarks)} landmark(s) to {os.path.basename(path_str)}"
+            )
 
-    def load_landmarks(self, filepath: str, image_id: Optional[str] = None) -> None:
+    def load_landmarks(
+        self, filepath: str, image_id: Optional[str] = None, replace: bool = False
+    ) -> None:
         """Loads landmarks from a .json or .csv file."""
         vs_id = image_id or self._get_active_vs_id()
         if not vs_id or not self._api:
@@ -376,7 +420,11 @@ class LandmarkPluginController(PluginTagMixin):
         if not os.path.exists(path_str):
             return
 
-        current_landmarks = getattr(vs, "landmarks", {})
+        if replace:
+            current_landmarks = {}
+            self.landmark_counters[vs_id] = 0
+        else:
+            current_landmarks = getattr(vs, "landmarks", {})
         count_added = 0
 
         if path_str.lower().endswith(".csv"):
@@ -409,11 +457,79 @@ class LandmarkPluginController(PluginTagMixin):
 
         vs.landmarks = current_landmarks
         self.landmarks_file_path[vs_id] = path_str
+        try:
+            if os.path.exists(path_str):
+                self.landmarks_last_mtimes[vs_id] = os.path.getmtime(path_str)
+                self.landmarks_is_outdated[vs_id] = False
+                self._last_mtime_check[vs_id] = time.time()
+        except Exception:
+            pass
+
         vs.is_geometry_dirty = True
         if self._ui:
             self._ui._last_state_key = None
         self._api.request_refresh()
-        self._api.notify(f"Added {count_added} landmark(s) from {os.path.basename(path_str)}")
+        self._api.notify(
+            f"Added {count_added} landmark(s) from {os.path.basename(path_str)}"
+        )
+        action_verb = "Reloaded" if replace else "Added"
+        self._api.notify(
+            f"{action_verb} {count_added} landmark(s) from {os.path.basename(path_str)}"
+        )
+
+    def tick(self) -> None:
+        """Periodically checks if any loaded landmark files have changed on disk."""
+        if not self._api:
+            return
+        outdated_changed = False
+        for vs_id in list(self.landmarks_file_path.keys()):
+            was_outdated = self.landmarks_is_outdated.get(vs_id, False)
+            is_out = self.is_file_outdated(vs_id)
+            if is_out != was_outdated:
+                outdated_changed = True
+        if outdated_changed:
+            self._api.request_refresh()
+
+    def is_file_outdated(self, image_id: Optional[str] = None) -> bool:
+        """Returns True if the landmarks file on disk has been modified since last load/save."""
+        vs_id = image_id or self._get_active_vs_id()
+        if not vs_id:
+            return False
+        path_str = self.landmarks_file_path.get(vs_id)
+        if not path_str or not os.path.exists(path_str):
+            self.landmarks_is_outdated[vs_id] = False
+            return False
+
+        now = time.time()
+        last_check = self._last_mtime_check.get(vs_id, 0.0)
+        if now - last_check > 1.0:
+            self._last_mtime_check[vs_id] = now
+            try:
+                curr_mtime = os.path.getmtime(path_str)
+                prev_mtime = self.landmarks_last_mtimes.get(vs_id, 0.0)
+                if prev_mtime == 0.0:
+                    self.landmarks_last_mtimes[vs_id] = curr_mtime
+                elif curr_mtime > prev_mtime:
+                    self.landmarks_is_outdated[vs_id] = True
+            except Exception:
+                pass
+        return self.landmarks_is_outdated.get(vs_id, False)
+
+    def reload_landmarks(self, image_id: Optional[str] = None) -> bool:
+        """Reloads landmarks from the disk file, replacing current landmarks."""
+        vs_id = image_id or self._get_active_vs_id()
+        if not vs_id or not self._api:
+            return False
+        path_str = self.landmarks_file_path.get(vs_id)
+        if not path_str or not os.path.exists(path_str):
+            if self._api:
+                self._api.notify("Cannot reload landmarks: file not found.")
+            return False
+
+        self.load_landmarks(path_str, image_id=vs_id, replace=True)
+        if self._api:
+            self._api.update_all_viewers_of_image(vs_id, data_dirty=False)
+        return True
 
     # --- UI Callbacks ---
 
@@ -433,6 +549,9 @@ class LandmarkPluginController(PluginTagMixin):
             if fp:
                 self.load_landmarks(fp)
 
+    def on_btn_reload_clicked(self, sender=None, app_data=None, user_data=None) -> None:
+        self.reload_landmarks()
+
     def on_btn_save_clicked(self, sender, app_data, user_data) -> None:
         vs_id = self._get_active_vs_id()
         if not vs_id:
@@ -446,7 +565,9 @@ class LandmarkPluginController(PluginTagMixin):
     def on_btn_save_as_clicked(self, sender, app_data, user_data) -> None:
         vs_id = self._get_active_vs_id()
         default_name = f"landmarks_{vs_id}.json" if vs_id else "landmarks.json"
-        file_path = save_file_dialog("Save Landmarks As (.json, .csv)", default_name=default_name)
+        file_path = save_file_dialog(
+            "Save Landmarks As (.json, .csv)", default_name=default_name
+        )
         if file_path:
             self.save_landmarks(file_path, image_id=vs_id)
 
@@ -477,6 +598,7 @@ class LandmarkPluginController(PluginTagMixin):
         landmarks = self.get_landmarks(vs_id)
         filter_text = self.landmark_filters.get(vs_id, "").lower()
         from vvv.ui.ui_components import normalize_rgba_to_int
+
         color_255 = normalize_rgba_to_int(color_rgba)
 
         for lm_id, lm in landmarks.items():
@@ -498,6 +620,7 @@ class LandmarkPluginController(PluginTagMixin):
         if not landmarks:
             return
         from vvv.ui.ui_components import normalize_rgba_to_int
+
         for idx, lm in enumerate(landmarks.values()):
             c = ROI_COLORS[idx % len(ROI_COLORS)]
             lm.color = normalize_rgba_to_int(c)
@@ -515,7 +638,11 @@ class LandmarkPluginController(PluginTagMixin):
             return
         landmarks = self.get_landmarks(vs_id)
         filter_text = self.landmark_filters.get(vs_id, "").lower()
-        filtered = [lm for lm in landmarks.values() if not filter_text or filter_text in lm.name.lower()]
+        filtered = [
+            lm
+            for lm in landmarks.values()
+            if not filter_text or filter_text in lm.name.lower()
+        ]
         any_visible = any(lm.visible for lm in filtered)
         new_val = not any_visible
         for lm in filtered:
@@ -532,7 +659,11 @@ class LandmarkPluginController(PluginTagMixin):
             return
         landmarks = self.get_landmarks(vs_id)
         filter_text = self.landmark_filters.get(vs_id, "").lower()
-        to_delete = [lm_id for lm_id, lm in landmarks.items() if not filter_text or filter_text in lm.name.lower()]
+        to_delete = [
+            lm_id
+            for lm_id, lm in landmarks.items()
+            if not filter_text or filter_text in lm.name.lower()
+        ]
         for lm_id in to_delete:
             del landmarks[lm_id]
         if not landmarks:

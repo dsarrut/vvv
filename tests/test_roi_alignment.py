@@ -233,6 +233,16 @@ def test_parse_label_map_json_schema():
     assert 4 not in color_dict
     assert 5 not in color_dict  # malformed color silently ignored
 
+    # Test top-level colors / labels table schema and hex / float colors
+    raw_extended = {
+        "labels": {"1": "Tumor", "2": "Kidney"},
+        "colors": {"1": "#FF8000", "2": [0.0, 1.0, 0.5]},
+    }
+    label_dict_ext, color_dict_ext = _parse_label_map_json(raw_extended)
+    assert label_dict_ext == {1: "Tumor", 2: "Kidney"}
+    assert color_dict_ext[1] == [255, 128, 0]
+    assert color_dict_ext[2] == [0, 255, 127]
+
 
 def test_load_label_map_json_with_custom_colors(headless_gui_app, tmp_path):
     """Verifies that a label-map sidecar JSON can optionally specify a
@@ -279,5 +289,86 @@ def test_load_label_map_json_with_custom_colors(headless_gui_app, tmp_path):
     # unchanged from the pre-existing behavior for legacy JSON files.
     from vvv.config import ROI_COLORS
     assert list(rois[spleen_id].color) == list(ROI_COLORS[1])
+
+
+def test_reload_label_map_json_updates_colors(headless_gui_app, tmp_path):
+    """Verifies that when a label map sidecar JSON is modified on disk with new colors,
+    reloading the ROI re-reads the JSON colors and applies them instead of keeping the old colors."""
+    controller, gui, viewer, vs_id = headless_gui_app
+
+    shape = controller.volumes[vs_id].shape3d
+    mask_data = np.zeros(shape, dtype=np.uint8)
+    mask_data[2, 2, 2] = 1
+    mask_data[3, 3, 3] = 2
+    mask_img = sitk.GetImageFromArray(mask_data)
+
+    mask_path = str(tmp_path / "labels_reload.nii.gz")
+    sitk.WriteImage(mask_img, mask_path)
+
+    json_path = str(tmp_path / "labels_reload.json")
+    import json
+    with open(json_path, "w") as f:
+        json.dump(
+            {
+                "1": {"name": "Liver", "color": [10, 20, 30]},
+                "2": {"name": "Spleen", "color": [40, 50, 60]},
+            },
+            f,
+        )
+
+    from vvv.ui.ui_sequences import load_label_map_sequence
+    for _ in load_label_map_sequence(gui, controller, vs_id, mask_path):
+        pass
+
+    vs = controller.view_states[vs_id]
+    rois = vs.rois
+    assert len(rois) == 2
+
+    liver_id = next(rid for rid, rstate in rois.items() if rstate.name == "Liver")
+    spleen_id = next(rid for rid, rstate in rois.items() if rstate.name == "Spleen")
+
+    assert list(rois[liver_id].color) == [10, 20, 30]
+    assert list(rois[spleen_id].color) == [40, 50, 60]
+
+    # Now modify the JSON with new colors and names
+    with open(json_path, "w") as f:
+        json.dump(
+            {
+                "1": {"name": "Liver", "color": [200, 100, 50]},
+                "2": {"name": "Spleen", "color": [0, 255, 128]},
+            },
+            f,
+        )
+
+    # Touch JSON mtime into the future to ensure outdated trigger
+    new_mtime = time.time() + 10.0
+    os.utime(json_path, (new_mtime, new_mtime))
+
+    controller.volumes[liver_id]._last_check_time = 0
+    controller.volumes[spleen_id]._last_check_time = 0
+    controller.tick()
+
+    assert controller.volumes[liver_id]._is_outdated is True
+    assert controller.volumes[spleen_id]._is_outdated is True
+
+    # Reload via ROI plugin UI callback or reload_roi
+    roi_plugin = next((p for p in gui.plugins if p.plugin_id == "roi_plugin"), None)
+    assert roi_plugin is not None
+    roi_plugin._ui.on_roi_reload_all(None, None, None)
+
+    while gui.tasks:
+        try:
+            next(gui.tasks[0])
+        except StopIteration:
+            gui.tasks.pop(0)
+
+    # Check updated colors
+    rois = vs.rois
+    new_liver_id = next(rid for rid, rstate in rois.items() if rstate.name == "Liver")
+    new_spleen_id = next(rid for rid, rstate in rois.items() if rstate.name == "Spleen")
+
+    assert list(rois[new_liver_id].color) == [200, 100, 50]
+    assert list(rois[new_spleen_id].color) == [0, 255, 128]
+
 
 

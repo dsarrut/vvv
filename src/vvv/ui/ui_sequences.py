@@ -339,9 +339,83 @@ def _parse_label_map_json(raw_dict):
     per-label format {"<id>": {"name": "...", "color": [r, g, b]}}; the two
     may be mixed within the same file. Malformed entries are skipped so one
     bad entry doesn't discard the whole file.
+    Supports:
+    - Flat dict: {"1": "name", ...}
+    - Nested struct dict: {"1": {"name": "...", "color": [r, g, b]}, ...}
+    - Separate dicts: {"labels": {"1": "name"}, "colors": {"1": [r, g, b]}}
+    - List of dicts: [{"label": 1, "name": "...", "color": ...}, ...]
+    - Colors as [0-255], float [0.0-1.0], RGBA, or hex string "#RRGGBB".
+    Malformed entries are skipped gracefully.
     """
     label_dict = {}
     color_dict = {}
+
+    if not isinstance(raw_dict, (dict, list)):
+        return label_dict, color_dict
+
+    def _parse_color(c):
+        if isinstance(c, str):
+            c_str = c.strip().lstrip("#")
+            if len(c_str) in (6, 8):
+                try:
+                    r = int(c_str[0:2], 16)
+                    g = int(c_str[2:4], 16)
+                    b = int(c_str[4:6], 16)
+                    return [r, g, b]
+                except ValueError:
+                    pass
+        elif isinstance(c, (list, tuple)) and len(c) >= 3:
+            try:
+                from vvv.ui.ui_components import normalize_rgba_to_int
+
+                norm = normalize_rgba_to_int(c)
+                return norm[:3]
+            except Exception:
+                pass
+        return None
+
+    # Handle separate "colors" / "colormap" / "palette" dict if present
+    if isinstance(raw_dict, dict):
+        colors_section = (
+            raw_dict.get("colors")
+            or raw_dict.get("colormap")
+            or raw_dict.get("palette")
+        )
+        if isinstance(colors_section, dict):
+            for ck, cv in colors_section.items():
+                parsed_c = _parse_color(cv)
+                if parsed_c is not None:
+                    try:
+                        color_dict[int(ck)] = parsed_c
+                    except (TypeError, ValueError):
+                        pass
+
+        # If there is a sub-dictionary for labels / names / structures / rois
+        for key in ("labels", "names", "structures", "rois"):
+            if key in raw_dict and isinstance(raw_dict[key], (dict, list)):
+                raw_dict = raw_dict[key]
+                break
+
+    if isinstance(raw_dict, list):
+        dict_from_list = {}
+        for item in raw_dict:
+            if isinstance(item, dict):
+                lbl = (
+                    item.get("label")
+                    if item.get("label") is not None
+                    else item.get("id")
+                    if item.get("id") is not None
+                    else item.get("value")
+                    if item.get("value") is not None
+                    else item.get("val")
+                )
+                if lbl is not None:
+                    dict_from_list[str(lbl)] = item
+        raw_dict = dict_from_list
+
+    if not isinstance(raw_dict, dict):
+        return label_dict, color_dict
+
     for k, v in raw_dict.items():
         try:
             val_int = int(k)
@@ -350,12 +424,21 @@ def _parse_label_map_json(raw_dict):
         if isinstance(v, dict):
             if "name" in v:
                 label_dict[val_int] = str(v["name"])
+            elif "label" in v and isinstance(v["label"], str):
+                label_dict[val_int] = str(v["label"])
             color = v.get("color")
             if isinstance(color, (list, tuple)) and len(color) >= 3:
                 try:
                     color_dict[val_int] = [int(c) for c in color[:3]]
                 except (TypeError, ValueError):
                     pass
+            if color is None:
+                color = v.get("rgb")
+            if color is None:
+                color = v.get("rgba")
+            parsed_c = _parse_color(color)
+            if parsed_c is not None:
+                color_dict[val_int] = parsed_c
         else:
             label_dict[val_int] = str(v)
     return label_dict, color_dict
@@ -433,6 +516,9 @@ def _rasterize_and_load_labels(
                             if lbl_val in saved_preferences:
                                 prefs = saved_preferences[lbl_val]
                                 for k, v in prefs.items():
+                                    if k == "color" and lbl_val in color_dict:
+                                        # Prefer the color read from the newly reloaded JSON file
+                                        continue
                                     setattr(rstate, k, v)
                         yield res
 
