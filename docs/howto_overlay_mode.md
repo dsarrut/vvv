@@ -1,8 +1,8 @@
 Goal: Add a new fusion blending algorithm (e.g., "Difference" or "Maximum Intensity").
 
-1.  **Implement the Math:** In `src/vvv/math/image.py`, create a new `@staticmethod` inside the `SliceRenderer` class (e.g., `_blend_difference`). This function should accept the `RenderLayer` objects for the base and overlay, and return a blended 1D RGBA NumPy array and its 2D shape.
+1.  **Implement the Math:** In `src/vvv/maths/image.py`, create a new `@staticmethod` inside the `SliceRenderer` class (e.g., `_blend_difference`). This function should accept the `RenderLayer` objects for the base and overlay, and return a blended 1D RGBA NumPy array and its 2D shape.
 
-2.  **Update the Router:** In the same `src/vvv/math/image.py` file, locate the `SliceRenderer.get_slice_rgba` method. Add a new `elif` block for your new mode.
+2.  **Update the Router:** In the same `src/vvv/maths/image.py` file, locate the `SliceRenderer.get_slice_rgba` method. Add a new `elif` block for your new mode.
     ```python
     elif overlay_mode == "Difference":
         rgba_flat, shape = SliceRenderer._blend_difference(base, overlay, overlay_opacity)
