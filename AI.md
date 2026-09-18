@@ -73,6 +73,7 @@ When implementing a task, refer to the specific markdown documents in the [docs/
 ### Core Guides & Architecture
 *   [core_overview.md](docs/core_overview.md): High-level system architecture, threading model, render loop lifecycle, and coordinate definitions.
 *   [core_image_types.md](docs/core_image_types.md): Specification document on image types (2D, 3D, 4D, DVF, RGB), loading pipelines, and tool capabilities.
+*   [core_image_list.md](docs/core_image_list.md): Specification and lifecycle of the core image list sidebar tool.
 *   [core_rendering.md](docs/core_rendering.md): Slice blending, window leveling math, Numba acceleration, and texture mapping logic.
 *   [core_sync.md](docs/core_sync.md): How viewports are synchronized spatially and temporally.
 *   [core_units.md](docs/core_units.md): Physical voxel units (HU, SUV, SUL, Bq/mL), sidecar JSON persistence, clinical presets, and publication colorbar legends.
@@ -88,9 +89,8 @@ When implementing a task, refer to the specific markdown documents in the [docs/
 
 ### Plugins Subsystem & Features
 *   [plugin_architecture.md](docs/plugin_architecture.md): Comprehensive guide on the plugin contract, lifetime hooks, settings serialization, and the `PluginAPI` reference.
-*   [PLUGIN_CHECKLIST.md](docs/PLUGIN_CHECKLIST.md): Practical checklist for developing, reviewing, and verifying plugins.
+*   [plugin_checklist.md](docs/plugin_checklist.md): Practical checklist for developing, reviewing, and verifying plugins.
 *   [plugin_api_method.md](docs/plugin_api_method.md): How to safely add new methods to `PluginAPI` and export them from the core.
-*   [plugin_image_list.md](docs/plugin_image_list.md): Details of the image list sidepanel tool.
 *   [plugin_roi.md](docs/plugin_roi.md): Outline of region-of-interest (ROI) tools and managers.
 *   [plugin_registration.md](docs/plugin_registration.md): Extrinsic rigid registration preview and resample logic.
 *   [plugin_dicom.md](docs/plugin_dicom.md): Recursive DICOM folder scanning, tag/metadata lists, and thread safety.

@@ -51,8 +51,10 @@ Keep wrappers thin. `PluginAPI` is a boundary, not a logic layer. If you find yo
 Avoid returning raw references to internal dicts that a plugin could accidentally mutate in unexpected ways. Prefer returning specific values or copies when the internal structure is sensitive. (`get_volumes()` and `get_view_states()` are intentional exceptions — plugins need broad read access.)
 
 ### 4. Update `PLUGIN_CHECKLIST.md`
+### 4. Update `plugin_checklist.md`
 
 If plugins are expected to call this new method (rather than it being a low-level utility), add it to the relevant checklist item so future plugin authors know to use it:
+If plugins are expected to call this new method (rather than it being a low-level utility), add it to the relevant checklist item in [plugin_checklist.md](plugin_checklist.md) so future plugin authors know to use it:
 
 ```markdown
 - [ ] Contours: use `api.add_contour(image_id, roi)` and `api.remove_contour(image_id, roi_id)`

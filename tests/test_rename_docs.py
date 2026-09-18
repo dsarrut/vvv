@@ -10,6 +10,7 @@ def test_rename():
         ("docs/readme_dev_plugins.md", "docs/plugin_architecture.md"),
         ("docs/readme_dev_plugin_api_method.md", "docs/plugin_api_method.md"),
         ("docs/readme_dev_image_list.md", "docs/plugin_image_list.md"),
+        ("docs/readme_dev_image_list.md", "docs/core_image_list.md"),
         ("docs/readme_dev_roi.md", "docs/plugin_roi.md"),
         ("docs/readme_dev_contours.md", "docs/plugin_contours.md"),
         ("docs/readme_dev_reg.md", "docs/plugin_registration.md"),
