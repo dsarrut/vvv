@@ -441,6 +441,8 @@ class FileManager:
                     if len(vol.file_paths) > 1
                     else portable_path(vol.file_paths[0])
                 ),
+                "unit": getattr(vol, "unit", None),
+                "unit_source": getattr(vol, "unit_source", None),
                 "is_overlay_only": is_overlay,
                 "sync_group": vs.sync_group,
                 "sync_wl_group": getattr(vs, "sync_wl_group", 0),

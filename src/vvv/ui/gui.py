@@ -17,8 +17,12 @@ from vvv.plugins.plugin_api import PluginAPI
 from vvv.plugins import discover_plugins
 from vvv.resources import load_fonts, setup_themes
 from vvv.ui.ui_interaction import InteractionManager
-from vvv.ui.ui_components import build_section_title, build_help_button
-from vvv.ui.ui_components import build_beginner_tooltip  # Added this line
+from vvv.ui.ui_components import (
+    build_section_title,
+    build_help_button,
+    build_renamable_input,
+    build_beginner_tooltip,
+)
 from vvv.ui.ui_sync import build_tab_sync, refresh_sync_ui
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 from vvv.ui.ui_theme import build_ui_config, register_dynamic_themes
@@ -632,6 +636,68 @@ class MainGUI:
                                 )
                         dpg.bind_item_handler_registry("input_info_name", handler_tag)
                     self.create_labeled_field("Type", tag="info_voxel_type")
+
+                    STANDARD_UNITS = [
+                        "?",
+                        "HU",
+                        "SUV",
+                        "Bq/mL",
+                        "kBq/mL",
+                        "Gy",
+                        "counts",
+                        "a.u.",
+                    ]
+
+                    def on_info_unit_change(sender, app_data, user_data):
+                        if self.context_viewer and self.context_viewer.image_id:
+                            vol = self.controller.volumes.get(
+                                self.context_viewer.image_id
+                            )
+                            if not vol:
+                                return
+                            val = dpg.get_value(sender)
+                            new_unit = val.strip() if val else None
+                            if new_unit == "?":
+                                new_unit = None
+                            if getattr(vol, "unit", None) != new_unit:
+                                vol.unit = new_unit
+                                vol.unit_source = "modified, unsaved"
+                                vol._is_outdated = True
+                                self.controller.ui_needs_refresh = True
+
+                    def on_info_unit_combo_change(sender, app_data, user_data):
+                        if self.context_viewer and self.context_viewer.image_id:
+                            vol = self.controller.volumes.get(
+                                self.context_viewer.image_id
+                            )
+                            if not vol:
+                                return
+                            val = str(app_data).strip()
+                            new_unit = None if val == "?" else val
+                            if getattr(vol, "unit", None) != new_unit:
+                                vol.unit = new_unit
+                                vol.unit_source = "modified, unsaved"
+                                vol._is_outdated = True
+                                self.controller.ui_needs_refresh = True
+
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("Unit:", tag="info_unit_label", color=dim_col)
+                        dpg.add_combo(
+                            STANDARD_UNITS,
+                            tag="combo_info_unit",
+                            default_value="?",
+                            width=65,
+                            callback=on_info_unit_combo_change,
+                        )
+                        build_renamable_input(
+                            tag="input_info_unit",
+                            default_value="?",
+                            callback=on_info_unit_change,
+                            width=55,
+                            gui=self,
+                        )
+                        dpg.add_text("", tag="info_unit_source", color=dim_col)
+
                     self.create_labeled_field("Size", tag="info_size")
                     self.create_labeled_field("Spacing", tag="info_spacing")
                     self.create_labeled_field("Origin", tag="info_origin")
@@ -1260,6 +1326,8 @@ class MainGUI:
         if not has_image:
             for t in (
                 "input_info_name",
+                "input_info_unit",
+                "info_unit_source",
                 "info_size",
                 "info_spacing",
                 "info_origin",
@@ -1300,6 +1368,28 @@ class MainGUI:
                 dpg.set_value("input_info_name", name_clean)
         dpg.set_value("info_name_label", viewer.tag)
         dpg.set_value("info_voxel_type", f"{vol.pixel_type}")
+        if dpg.does_item_exist("input_info_unit"):
+            if not dpg.is_item_focused("input_info_unit") and not dpg.is_item_active(
+                "input_info_unit"
+            ):
+                unit_val = getattr(vol, "unit", None)
+                dpg.set_value("input_info_unit", unit_val if unit_val else "?")
+        if dpg.does_item_exist("combo_info_unit"):
+            unit_val = getattr(vol, "unit", None)
+            display_u = unit_val if unit_val else "?"
+            std_units = ["?", "HU", "SUV", "Bq/mL", "kBq/mL", "Gy", "counts", "a.u."]
+            if display_u not in std_units:
+                items = [display_u] + [u for u in std_units if u != "?"]
+            else:
+                items = std_units
+            dpg.configure_item("combo_info_unit", items=items)
+            dpg.set_value("combo_info_unit", display_u)
+        if dpg.does_item_exist("info_unit_source"):
+            source_val = getattr(vol, "unit_source", None)
+            dpg.set_value(
+                "info_unit_source",
+                f"({source_val})" if source_val and source_val != "Unknown" else "",
+            )
         if vol.num_timepoints > 1:
             size_str = f"{vol.shape3d[2]} x {vol.shape3d[1]} x {vol.shape3d[0]} x {vol.num_timepoints}"
             if getattr(vol, "is_dvf", False):

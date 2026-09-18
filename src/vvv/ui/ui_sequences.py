@@ -403,11 +403,15 @@ def _parse_label_map_json(raw_dict):
                 lbl = (
                     item.get("label")
                     if item.get("label") is not None
-                    else item.get("id")
-                    if item.get("id") is not None
-                    else item.get("value")
-                    if item.get("value") is not None
-                    else item.get("val")
+                    else (
+                        item.get("id")
+                        if item.get("id") is not None
+                        else (
+                            item.get("value")
+                            if item.get("value") is not None
+                            else item.get("val")
+                        )
+                    )
                 )
                 if lbl is not None:
                     dict_from_list[str(lbl)] = item
@@ -988,6 +992,10 @@ def load_workspace_sequence(gui, controller, filepath):
             controller.volumes[new_id].is_overlay_only = img_data.get(
                 "is_overlay_only", False
             )
+            if "unit" in img_data and img_data["unit"] is not None:
+                controller.volumes[new_id].unit = img_data["unit"]
+            if "unit_source" in img_data and img_data["unit_source"] is not None:
+                controller.volumes[new_id].unit_source = img_data["unit_source"]
 
             vs = controller.view_states[new_id]
             vs.display.from_dict(img_data.get("display", {}))

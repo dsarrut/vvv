@@ -1,5 +1,10 @@
 import dearpygui.dearpygui as dpg
-from vvv.ui.ui_components import build_section_title, build_help_button, build_beginner_tooltip, build_renamable_input
+from vvv.ui.ui_components import (
+    build_section_title,
+    build_help_button,
+    build_beginner_tooltip,
+    build_renamable_input,
+)
 
 """
 ARCHITECTURE MANDATES (UI Components):
@@ -55,6 +60,7 @@ def highlight_active_image_in_list(gui, active_img_id):
             else:
                 dpg.bind_item_theme(label_tag, "")
 
+
 def sync_image_list_ui(gui):
     """Synchronizes the image list sliders every frame without a full rebuild."""
     for vs_id, vs in gui.controller.view_states.items():
@@ -63,7 +69,7 @@ def sync_image_list_ui(gui):
             if not dpg.is_item_active(slider_tag):
                 if dpg.get_value(slider_tag) != vs.camera.time_idx:
                     dpg.set_value(slider_tag, vs.camera.time_idx)
-            
+
             is_dvf = getattr(vs.volume, "is_dvf", False)
             is_enabled = not is_dvf or vs.dvf.display_mode == "Component"
             if dpg.get_item_configuration(slider_tag)["enabled"] != is_enabled:
@@ -76,6 +82,7 @@ def sync_image_list_ui(gui):
                 name_str, _ = gui.controller.get_image_display_name(vs_id)
                 if dpg.get_value(input_tag) != name_str:
                     dpg.set_value(input_tag, name_str)
+
 
 def _on_time_slider_changed(gui, vs_id, time_idx):
     """Updates the time slice of a 4D image when the slider is dragged."""
@@ -116,7 +123,7 @@ def refresh_image_list_ui(gui):
         "V1": "Top Left viewer",
         "V2": "Top Right viewer",
         "V3": "Bottom Left viewer",
-        "V4": "Bottom Right viewer"
+        "V4": "Bottom Right viewer",
     }
 
     if not dpg.does_item_exist("faded_checkbox_theme"):
@@ -130,7 +137,9 @@ def refresh_image_list_ui(gui):
                 dpg.add_theme_color(dpg.mvThemeCol_FrameBg, [30, 30, 30, 255])
                 dpg.add_theme_color(dpg.mvThemeCol_CheckMark, [50, 50, 50, 255])
 
-    for idx, (vs_id, vs) in enumerate(list(gui.controller.view_states.items()), start=1):
+    for idx, (vs_id, vs) in enumerate(
+        list(gui.controller.view_states.items()), start=1
+    ):
         with dpg.group(parent=container, horizontal=True):
             layout = getattr(gui, "active_layout", "4")
             with dpg.group():
@@ -141,7 +150,7 @@ def refresh_image_list_ui(gui):
                         win_tag = f"win_{v_tag}"
                         if dpg.does_item_exist(win_tag):
                             is_layout_enabled = bool(dpg.is_item_shown(win_tag))
-                        
+
                         is_active = gui.controller.layout[v_tag] == vs_id
                         cb = dpg.add_checkbox(
                             label=f"##{vs_id}_{v_tag}",
@@ -164,7 +173,7 @@ def refresh_image_list_ui(gui):
                         win_tag = f"win_{v_tag}"
                         if dpg.does_item_exist(win_tag):
                             is_layout_enabled = bool(dpg.is_item_shown(win_tag))
-                        
+
                         is_active = gui.controller.layout[v_tag] == vs_id
                         cb = dpg.add_checkbox(
                             label=f"##{vs_id}_{v_tag}",
@@ -185,22 +194,23 @@ def refresh_image_list_ui(gui):
                 # Line 1: Image Name
                 with dpg.group(horizontal=True):
                     name_str, is_outdated = gui.controller.get_image_display_name(vs_id)
-                    
+
                     # Store input tag with prefix 'input_name_' so shortcuts are automatically suppressed by ui_interaction.py
                     input_name_tag = f"input_name_{vs_id}"
-                    
+
                     def on_rename(sender, app_data, user_data):
                         img_vs_id = user_data
                         val = dpg.get_value(sender)
                         if val is None:
                             return
                         new_name = val.strip()
-                        
+
                         # Strip trailing modification stars * if user left them in
                         import re
+
                         new_name = re.sub(r"\s*\*$", "", new_name)
                         new_name = re.sub(r"^\(\d+\)\s*", "", new_name)
-                        
+
                         vol = gui.controller.volumes.get(img_vs_id)
                         if vol and new_name:
                             vol.name = new_name
@@ -212,11 +222,14 @@ def refresh_image_list_ui(gui):
                                         dpg.set_value(target_input_tag, new_name)
                                     viewer.update_filename_overlay()
                             # Immediately update the info panel text field if it represents this image
-                            if gui.context_viewer and gui.context_viewer.image_id == img_vs_id:
+                            if (
+                                gui.context_viewer
+                                and gui.context_viewer.image_id == img_vs_id
+                            ):
                                 if dpg.does_item_exist("input_info_name"):
                                     dpg.set_value("input_info_name", new_name)
                             gui.controller.ui_needs_refresh = True
-                    
+
                     lbl_id = build_renamable_input(
                         tag=input_name_tag,
                         default_value=name_str,
@@ -240,7 +253,9 @@ def refresh_image_list_ui(gui):
                         callback=lambda s, a, u: gui.on_set_all_viewers_image(u),
                         user_data=vs_id,
                     )
-                    build_beginner_tooltip(btn_all, "Show this image in all 4 viewers", gui)
+                    build_beginner_tooltip(
+                        btn_all, "Show this image in all 4 viewers", gui
+                    )
 
                     btn_save = dpg.add_button(
                         label="\uf0c7",
@@ -277,14 +292,14 @@ def refresh_image_list_ui(gui):
                     for btn in [btn_all, btn_save, btn_save_as, btn_reload, btn_close]:
                         if dpg.does_item_exist("icon_font_tag"):
                             dpg.bind_item_font(btn, "icon_font_tag")
-                    
+
                     if vs.volume.num_timepoints > 1:
                         dpg.add_spacer(width=5)
                         dpg.add_text("4D")
-                        
+
                         is_dvf = getattr(vs.volume, "is_dvf", False)
                         is_enabled = not is_dvf or vs.dvf.display_mode == "Component"
- 
+
                         reserve_w = 20 + len(str(vs.volume.num_timepoints)) * 8
                         dpg.add_slider_int(
                             tag=f"slider_time_{vs_id}",
@@ -297,7 +312,7 @@ def refresh_image_list_ui(gui):
                             user_data=vs_id,
                         )
                         dpg.add_text(f"/ {vs.volume.num_timepoints}")
- 
+
                     if dpg.does_item_exist("icon_font_tag"):
                         dpg.bind_item_font(btn_all, "icon_font_tag")
                         dpg.bind_item_font(btn_save, "icon_font_tag")
@@ -308,8 +323,11 @@ def refresh_image_list_ui(gui):
                     if dpg.does_item_exist("icon_button_theme"):
                         dpg.bind_item_theme(btn_all, "icon_button_theme")
                         dpg.bind_item_theme(btn_reload, "icon_button_theme")
-                        
-                    build_help_button("The 4 checkboxes assign this image to the 4 viewers (V1: Top Left, V2: Top Right, V3: Bottom Left, V4: Bottom Right).", gui)
+
+                    build_help_button(
+                        "The 4 checkboxes assign this image to the 4 viewers (V1: Top Left, V2: Top Right, V3: Bottom Left, V4: Bottom Right).",
+                        gui,
+                    )
 
         dpg.add_spacer(height=4, parent=container)
         dpg.add_separator(parent=container)

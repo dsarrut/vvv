@@ -305,6 +305,34 @@ class Controller:
             return
         sitk.WriteImage(vol.sitk_image, filepath)
 
+        # Update or create sidecar JSON if unit is set or sidecar exists
+        if filepath.endswith(".nii.gz"):
+            json_path = filepath[:-7] + ".json"
+        else:
+            json_path = os.path.splitext(filepath)[0] + ".json"
+
+        unit_val = getattr(vol, "unit", None)
+        if unit_val is not None or os.path.isfile(json_path):
+            try:
+                jdata = {}
+                if os.path.isfile(json_path):
+                    with open(json_path, "r", encoding="utf-8") as f:
+                        jdata = json.load(f)
+                    if not isinstance(jdata, dict):
+                        jdata = {}
+                if unit_val:
+                    jdata["unit"] = unit_val
+                elif "unit" in jdata:
+                    del jdata["unit"]
+                if jdata:
+                    with open(json_path, "w", encoding="utf-8") as f:
+                        json.dump(jdata, f, indent=4)
+                    vol.sidecar_json_path = json_path
+                    if unit_val:
+                        vol.unit_source = f"{os.path.basename(json_path)}"
+            except Exception as e:
+                print(f"Warning: Failed to write sidecar JSON {json_path}: {e}")
+
         # Update internal state so the UI reflects the new filename and path
         vol.path = filepath
         vol.file_paths = [filepath]

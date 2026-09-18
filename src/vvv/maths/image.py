@@ -1,5 +1,6 @@
 import os
 import glob
+import json
 import shlex
 import time
 import numpy as np
@@ -28,7 +29,9 @@ class RenderLayer:
     offset_y: int = 0
     offset_slice: int = 0
     dvf_mode: str = "Component"
-    preview_override: "np.ndarray | None" = None  # 2D fast preview slice, bypasses extraction
+    preview_override: "np.ndarray | None" = (
+        None  # 2D fast preview slice, bypasses extraction
+    )
     data_4d: np.ndarray = field(init=False)
 
     def __post_init__(self):
@@ -42,7 +45,6 @@ class RenderLayer:
                 self.data_4d = self.data[np.newaxis, ...]
             else:
                 self.data_4d = self.data
-
 
 
 @dataclass
@@ -85,10 +87,17 @@ def build_roi_mask_buffer(active_rois, h, w):
             if np.any(mask):
                 dst_mask = roi_mask[dst_y0:dst_y1, dst_x0:dst_x1]
                 dst_color = roi_color_buf[dst_y0:dst_y1, dst_x0:dst_x1]
-                roi_color_f = np.array([roi.color[0] / 255.0, roi.color[1] / 255.0, roi.color[2] / 255.0], dtype=np.float32)
-                np.maximum(dst_mask, np.where(mask, roi.opacity, dst_mask), out=dst_mask)
+                roi_color_f = np.array(
+                    [roi.color[0] / 255.0, roi.color[1] / 255.0, roi.color[2] / 255.0],
+                    dtype=np.float32,
+                )
+                np.maximum(
+                    dst_mask, np.where(mask, roi.opacity, dst_mask), out=dst_mask
+                )
                 for c in range(3):
-                    dst_color[:, :, c] = np.where(mask, roi_color_f[c], dst_color[:, :, c])
+                    dst_color[:, :, c] = np.where(
+                        mask, roi_color_f[c], dst_color[:, :, c]
+                    )
 
     return roi_mask, roi_color_buf
 
@@ -100,7 +109,8 @@ def _cached_roi_mask_buffer(active_rois, h, w, cache_holder, cache_attr):
         return build_roi_mask_buffer(active_rois, h, w)
 
     key = (
-        h, w,
+        h,
+        w,
         tuple(
             (id(r.data), r.color, r.opacity, r.offset_x, r.offset_y)
             for r in active_rois
@@ -130,9 +140,12 @@ class SliceRenderer:
         index buffer directly instead of scaling `norm` in place first.
         """
         shape = norm.shape
-        if SliceRenderer._index_buffer is None or SliceRenderer._index_buffer.shape != shape:
+        if (
+            SliceRenderer._index_buffer is None
+            or SliceRenderer._index_buffer.shape != shape
+        ):
             SliceRenderer._index_buffer = np.empty(shape, dtype=np.uint8)
-        np.multiply(norm, 255.0, out=SliceRenderer._index_buffer, casting='unsafe')
+        np.multiply(norm, 255.0, out=SliceRenderer._index_buffer, casting="unsafe")
         return lut[SliceRenderer._index_buffer]
 
     _AXIS_MAP = {
@@ -279,7 +292,9 @@ class SliceRenderer:
         scratch on every call.
         """
         bh, bw = base_rgba.shape[:2]
-        roi_mask, roi_color_buf = _cached_roi_mask_buffer(rois, bh, bw, cache_holder, cache_attr)
+        roi_mask, roi_color_buf = _cached_roi_mask_buffer(
+            rois, bh, bw, cache_holder, cache_attr
+        )
 
         has_roi = roi_mask > 0.0
         rows = has_roi.any(axis=1)
@@ -298,8 +313,8 @@ class SliceRenderer:
             sub_color = roi_color_buf[y0:y1, x0:x1]
             sub_has = has_roi[y0:y1, x0:x1]
 
-            alpha = sub_mask[:, :, np.newaxis]   # (bh, bw, 1)
-            mask3 = sub_has[:, :, np.newaxis]     # (bh, bw, 1)
+            alpha = sub_mask[:, :, np.newaxis]  # (bh, bw, 1)
+            mask3 = sub_has[:, :, np.newaxis]  # (bh, bw, 1)
             blended_rgb = sub_base[:, :, :3] * (1.0 - alpha) + sub_color * alpha
             sub_base[:, :, :3] = np.where(mask3, blended_rgb, sub_base[:, :, :3])
             blended_a = sub_base[:, :, 3] * (1.0 - sub_mask) + sub_mask
@@ -448,10 +463,16 @@ class SliceRenderer:
             base_rgba[:, :, 3] = 1.0  # Solid black
             base_norm = np.zeros((h, w), dtype=np.float32)
         elif getattr(base, "dvf_mode", "Component") == "RGB":
-            r = SliceRenderer._extract_layer(base.data_4d, False, 0, slice_idx, orientation, max_s)
-            g = SliceRenderer._extract_layer(base.data_4d, False, 1, slice_idx, orientation, max_s)
-            b = SliceRenderer._extract_layer(base.data_4d, False, 2, slice_idx, orientation, max_s)
-            
+            r = SliceRenderer._extract_layer(
+                base.data_4d, False, 0, slice_idx, orientation, max_s
+            )
+            g = SliceRenderer._extract_layer(
+                base.data_4d, False, 1, slice_idx, orientation, max_s
+            )
+            b = SliceRenderer._extract_layer(
+                base.data_4d, False, 2, slice_idx, orientation, max_s
+            )
+
             if r is None or g is None or b is None:
                 base_rgba = np.zeros((h, w, 4), dtype=np.float32)
                 base_rgba[:, :, 3] = 1.0
@@ -467,7 +488,12 @@ class SliceRenderer:
                 base_slice = base.preview_override
             else:
                 base_slice = SliceRenderer._extract_layer(
-                    base.data_4d, base.is_rgb, base.time_idx, slice_idx, orientation, max_s
+                    base.data_4d,
+                    base.is_rgb,
+                    base.time_idx,
+                    slice_idx,
+                    orientation,
+                    max_s,
                 )
 
             if base_slice is None:  # Out of bounds
@@ -499,7 +525,9 @@ class SliceRenderer:
             if overlay.preview_override is not None:
                 over_slice = overlay.preview_override
                 if overlay.offset_x != 0 or overlay.offset_y != 0:
-                    over_slice = SliceRenderer._shift_2d_array(over_slice, overlay.offset_x, overlay.offset_y)
+                    over_slice = SliceRenderer._shift_2d_array(
+                        over_slice, overlay.offset_x, overlay.offset_y
+                    )
             else:
                 over_slice = SliceRenderer._extract_layer(
                     overlay.data_4d,
@@ -554,7 +582,7 @@ class SliceRenderer:
                     overlay.is_rgb,
                 )
             elif overlay_mode == "DVF":
-                res_rgba = base_rgba # DPG OverlayDrawer handles rendering the vectors
+                res_rgba = base_rgba  # DPG OverlayDrawer handles rendering the vectors
 
         # --- 3. ROIs & FINAL EXPORT ---
         if rois and roi_above_overlay:
@@ -636,11 +664,14 @@ class VolumeData:
             else:
                 if isinstance(path, str) and os.path.isdir(path):
                     import SimpleITK as sitk
+
                     reader = sitk.ImageSeriesReader()
                     try:
                         series_ids = reader.GetGDCMSeriesIDs(path)
                         if series_ids:
-                            file_names = reader.GetGDCMSeriesFileNames(path, series_ids[0])
+                            file_names = reader.GetGDCMSeriesFileNames(
+                                path, series_ids[0]
+                            )
                             if file_names:
                                 self.file_paths = list(file_names)
                             else:
@@ -675,6 +706,7 @@ class VolumeData:
         )
 
         import SimpleITK as sitk
+
         self.sitk_image = straighten_image(
             raw_sitk_image, os.path.basename(self.file_paths[0]), is_label_map=is_roi
         )
@@ -692,7 +724,11 @@ class VolumeData:
                 self.data_4d = self.data
 
         is_4d = self.sitk_image.GetDimension() == 4 and self.data.shape[0] > 1
-        self.name = os.path.basename(path) if isinstance(path, str) and os.path.isdir(path) else os.path.basename(self.file_paths[0])
+        self.name = (
+            os.path.basename(path)
+            if isinstance(path, str) and os.path.isdir(path)
+            else os.path.basename(self.file_paths[0])
+        )
         if is_4d and len(self.file_paths) > 1:
             self.name += f" ({len(self.file_paths)})"
 
@@ -792,7 +828,9 @@ class VolumeData:
             if missing:
                 names = ", ".join(os.path.basename(p) for p in missing[:3])
                 suffix = f" (+{len(missing) - 3} more)" if len(missing) > 3 else ""
-                raise FileNotFoundError(f"{len(missing)} file(s) not found: {names}{suffix}")
+                raise FileNotFoundError(
+                    f"{len(missing)} file(s) not found: {names}{suffix}"
+                )
             # SimpleITK has a dedicated reader for cleanly stacking multiple files
             try:
                 reader = sitk.ImageSeriesReader()
@@ -833,6 +871,7 @@ class VolumeData:
 
         # 4. Rebuild as a SimpleITK Image
         import SimpleITK as sitk
+
         sitk_img = sitk.GetImageFromArray(vol_array)
 
         # Fabio headers are highly format-dependent (and often lack physical spacing).
@@ -939,7 +978,9 @@ class VolumeData:
             raw_comp_array = np.fromfile(path, dtype=np.uint8, offset=data_offset)
             org_size, nki_mode = struct.unpack("<II", raw_comp_array[:8].tobytes())
             decompress_fn: Any = nki_private_decompress
-            decompressed_1d: np.ndarray = decompress_fn(raw_comp_array, org_size, nki_mode)
+            decompressed_1d: np.ndarray = decompress_fn(
+                raw_comp_array, org_size, nki_mode
+            )
 
             if decompressed_1d.size < expected_elements:
                 raise ValueError(
@@ -986,6 +1027,7 @@ class VolumeData:
 
         # 5. Build the SimpleITK Image
         import SimpleITK as sitk
+
         sitk_img = sitk.GetImageFromArray(vol_array)
 
         # Cast numpy.float32 to native Python float.
@@ -1043,6 +1085,7 @@ class VolumeData:
 
         # 6. Build SimpleITK Image
         import SimpleITK as sitk
+
         sitk_img = sitk.GetImageFromArray(vol_array)
         sitk_img.SetSpacing((spacing_x, spacing_y, 1.0))
 
@@ -1065,6 +1108,7 @@ class VolumeData:
     def _crop_raw_sitk_image(self, sitk_img, mode="Ignore BG (val)", target_val=0.0):
         """Uses ITK's C++ engine to instantly crop empty space before heavy resampling."""
         import SimpleITK as sitk
+
         # 0. Guard against RGB/Vector images crashing the mathematical threshold filter
         if sitk_img.GetNumberOfComponentsPerPixel() > 1:
             return sitk_img
@@ -1151,6 +1195,105 @@ class VolumeData:
         self.memory_mb = (
             self.sitk_image.GetNumberOfPixels() * bytes_per_pixel / (1024 * 1024)
         )
+        self._detect_unit_and_source()
+
+    def _detect_unit_and_source(self):
+        """Detects voxel intensity unit and its provenance from sidecar JSON or DICOM."""
+        # 1. Check sidecar JSON
+        if self.file_paths:
+            fp = self.file_paths[0]
+            if fp.endswith(".nii.gz"):
+                json_candidate = fp[:-7] + ".json"
+            else:
+                json_candidate = os.path.splitext(fp)[0] + ".json"
+
+            if os.path.isfile(json_candidate):
+                try:
+                    with open(json_candidate, "r", encoding="utf-8") as f:
+                        jdata = json.load(f)
+                    if isinstance(jdata, dict):
+                        self.sidecar_json_path = json_candidate
+                        if "unit" in jdata and jdata["unit"] is not None:
+                            raw_unit = str(jdata["unit"]).strip()
+                            mapping = {
+                                "hu": "HU",
+                                "suv": "SUV",
+                                "suvbw": "SUVbw",
+                                "suvlbm": "SUVlbm",
+                                "suvbsa": "SUVbsa",
+                                "bq": "Bq/mL",
+                                "bq/ml": "Bq/mL",
+                                "bqml": "Bq/mL",
+                                "kbq": "kBq/mL",
+                                "kbq/ml": "kBq/mL",
+                                "kbqml": "kBq/mL",
+                                "mbq": "MBq/mL",
+                                "mbq/ml": "MBq/mL",
+                                "gy": "Gy",
+                                "cgy": "cGy",
+                                "mgy": "mGy",
+                                "cnts": "counts",
+                                "counts": "counts",
+                                "a.u.": "a.u.",
+                                "au": "a.u.",
+                            }
+                            self.unit = mapping.get(raw_unit.lower(), raw_unit)
+                            self.unit_source = f"{os.path.basename(json_candidate)}"
+                            return
+                        elif "modality" in jdata and jdata["modality"] is not None:
+                            mod = str(jdata["modality"]).strip().lower()
+                            if mod == "ct":
+                                self.unit = "HU"
+                                self.unit_source = f"{os.path.basename(json_candidate)}"
+                                return
+                            elif mod in ("pt", "pet"):
+                                self.unit = "SUV"
+                                self.unit_source = f"{os.path.basename(json_candidate)}"
+                                return
+                except Exception:
+                    pass
+
+        # 2. Check DICOM metadata
+        if self.file_paths:
+            fp = self.file_paths[0]
+            try:
+                import pydicom
+
+                ds = pydicom.dcmread(fp, stop_before_pixels=True, force=True)
+                modality = getattr(ds, "Modality", "")
+                if modality == "CT":
+                    self.unit = "HU"
+                    self.unit_source = "DICOM (CT)"
+                    return
+                elif modality in ("PT", "PET"):
+                    units_tag = getattr(ds, "Units", "").strip().upper()
+                    if units_tag == "BQML":
+                        self.unit = "Bq/mL"
+                        self.unit_source = "DICOM (0054,1001: BQML)"
+                    elif units_tag == "CNTS":
+                        self.unit = "counts"
+                        self.unit_source = "DICOM (0054,1001: CNTS)"
+                    elif units_tag == "GML":
+                        self.unit = "SUV"
+                        self.unit_source = "DICOM (0054,1001: GML)"
+                    else:
+                        self.unit = "SUV" if units_tag == "" else units_tag
+                        self.unit_source = f"DICOM ({modality})"
+                    return
+                elif modality == "RTDOSE":
+                    self.unit = "Gy"
+                    self.unit_source = "DICOM (RTDOSE)"
+                    return
+                elif modality == "MR":
+                    self.unit = "a.u."
+                    self.unit_source = "DICOM (MR)"
+                    return
+            except Exception:
+                pass
+
+        # 3. Fallback
+        self.unit = None
+        self.unit_source = "Unknown"
 
     def update_mtime_tracker(self):
         self.last_mtimes = {}
@@ -1182,7 +1325,7 @@ class VolumeData:
         # Throttled test (every 5 seconds) to guarantee 0 GUI lag.
         if now - self._last_check_time > 5.0:
             self._last_check_time = now
-            if not hasattr(self, 'last_mtimes') or not self.last_mtimes:
+            if not hasattr(self, "last_mtimes") or not self.last_mtimes:
                 self.update_mtime_tracker()
             any_updated = False
             for p in self.file_paths:
