@@ -638,14 +638,14 @@ class MainGUI:
                     self.create_labeled_field("Type", tag="info_voxel_type")
 
                     STANDARD_UNITS = [
-                        "?",
-                        "HU",
-                        "SUV",
-                        "Bq/mL",
-                        "kBq/mL",
-                        "Gy",
-                        "counts",
-                        "a.u.",
+                        ("? (Unknown)", None),
+                        ("HU (CT)", "HU"),
+                        ("SUV (PET)", "SUV"),
+                        ("Bq/mL (Activity)", "Bq/mL"),
+                        ("kBq/mL", "kBq/mL"),
+                        ("Gy (Dose)", "Gy"),
+                        ("counts", "counts"),
+                        ("a.u. (Arbitrary)", "a.u."),
                     ]
 
                     def on_info_unit_change(sender, app_data, user_data):
@@ -665,36 +665,53 @@ class MainGUI:
                                 vol._is_outdated = True
                                 self.controller.ui_needs_refresh = True
 
-                    def on_info_unit_combo_change(sender, app_data, user_data):
+                    def on_select_unit_preset(sender, app_data, user_data):
                         if self.context_viewer and self.context_viewer.image_id:
                             vol = self.controller.volumes.get(
                                 self.context_viewer.image_id
                             )
                             if not vol:
                                 return
-                            val = str(app_data).strip()
-                            new_unit = None if val == "?" else val
+                            new_unit = user_data
                             if getattr(vol, "unit", None) != new_unit:
                                 vol.unit = new_unit
                                 vol.unit_source = "modified, unsaved"
                                 vol._is_outdated = True
+                                if dpg.does_item_exist("input_info_unit"):
+                                    dpg.set_value(
+                                        "input_info_unit",
+                                        new_unit if new_unit else "?",
+                                    )
                                 self.controller.ui_needs_refresh = True
 
                     with dpg.group(horizontal=True):
                         dpg.add_text("Unit:", tag="info_unit_label", color=dim_col)
-                        dpg.add_combo(
-                            STANDARD_UNITS,
-                            tag="combo_info_unit",
-                            default_value="?",
-                            width=65,
-                            callback=on_info_unit_combo_change,
-                        )
                         build_renamable_input(
                             tag="input_info_unit",
                             default_value="?",
                             callback=on_info_unit_change,
-                            width=55,
+                            width=60,
+                            tooltip="Voxel intensity unit. Edit directly or click the dropdown arrow for presets.",
                             gui=self,
+                        )
+                        btn_preset = dpg.add_button(
+                            label="\uf0d7",
+                            tag="btn_info_unit_preset",
+                            width=20,
+                        )
+                        if dpg.does_item_exist("icon_font_tag"):
+                            dpg.bind_item_font(btn_preset, "icon_font_tag")
+                        with dpg.popup(btn_preset, mousebutton=dpg.mvMouseButton_Left):
+                            dpg.add_text("Standard Presets", color=dim_col)
+                            dpg.add_separator()
+                            for label, u_val in STANDARD_UNITS:
+                                dpg.add_selectable(
+                                    label=label,
+                                    callback=on_select_unit_preset,
+                                    user_data=u_val,
+                                )
+                        build_beginner_tooltip(
+                            btn_preset, "Select a standard unit preset", self
                         )
                         dpg.add_text("", tag="info_unit_source", color=dim_col)
 
@@ -1310,7 +1327,11 @@ class MainGUI:
         )
 
         # Profile Visibility Toggle
-        has_profiles = has_image and len(viewer.view_state.profiles) > 0
+        has_profiles = (
+            has_image and len(viewer.view_state.profiles) > 0
+            if has_image and viewer is not None and viewer.view_state is not None
+            else False
+        )
         self._safe_configure("check_profiles", show=has_profiles)
 
         if not has_image:
@@ -1374,16 +1395,6 @@ class MainGUI:
             ):
                 unit_val = getattr(vol, "unit", None)
                 dpg.set_value("input_info_unit", unit_val if unit_val else "?")
-        if dpg.does_item_exist("combo_info_unit"):
-            unit_val = getattr(vol, "unit", None)
-            display_u = unit_val if unit_val else "?"
-            std_units = ["?", "HU", "SUV", "Bq/mL", "kBq/mL", "Gy", "counts", "a.u."]
-            if display_u not in std_units:
-                items = [display_u] + [u for u in std_units if u != "?"]
-            else:
-                items = std_units
-            dpg.configure_item("combo_info_unit", items=items)
-            dpg.set_value("combo_info_unit", display_u)
         if dpg.does_item_exist("info_unit_source"):
             source_val = getattr(vol, "unit_source", None)
             dpg.set_value(
