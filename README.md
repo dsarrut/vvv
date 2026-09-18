@@ -25,6 +25,7 @@ Features:
 - History: automatically remembers last-viewed images.
 - Interactive Profiles: draw lines on slices and plot intensity values (press `P`).
 - Interactive Thresholding: preview contour lines and generate masks.
+- Voxel units & publication legends: auto-detection from sidecar JSON / DICOM (HU, SUV, SUL, Bq/mL, Gy), interactive editing, and publication colorbars (press `L`).
 - 6-DOF Registration: align images with manual sliders, fast 2D previews, and 3D resampling.
 - DVF Visualization: render displacement vector fields as arrow overlays, component maps, or RGB channels.
 

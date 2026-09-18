@@ -55,7 +55,7 @@ TrackerFunction:
 - Displays real-time information about the image voxel currently under the mouse cursor.  
 - Information Displayed:
     - Coordinates: Physical coordinates in millimeters (mm) and integer voxel indices.  
-    - Pixel Values: The raw value of the base image and any active overlay.  
+    - Pixel Values: The raw value of the base image and any active overlay (including physical units such as HU, SUV, SUL, Bq/mL, Gy; see [core_units.md](core_units.md)).  
     - DVF Support: For Displacement Vector Fields, it displays the three vector components $[dx dy dz]$ and the calculated vector length (L2 norm) in mm.  
     - Sync Behavior: If images are in a sync group, the tracker propagates to other viewers, showing the values of linked images at the same physical world position.  
     - ROI Detection: Lists the names of all ROIs present at the current mouse position.  
