@@ -91,13 +91,15 @@ When implementing a task, refer to the specific markdown documents in the [docs/
 *   [plugin_architecture.md](docs/plugin_architecture.md): Comprehensive guide on the plugin contract, lifetime hooks, settings serialization, and the `PluginAPI` reference.
 *   [plugin_checklist.md](docs/plugin_checklist.md): Practical checklist for developing, reviewing, and verifying plugins.
 *   [plugin_api_method.md](docs/plugin_api_method.md): How to safely add new methods to `PluginAPI` and export them from the core.
-*   [plugin_roi.md](docs/plugin_roi.md): Outline of region-of-interest (ROI) tools and managers.
-*   [plugin_registration.md](docs/plugin_registration.md): Extrinsic rigid registration preview and resample logic.
-*   [plugin_dicom.md](docs/plugin_dicom.md): Recursive DICOM folder scanning, tag/metadata lists, and thread safety.
 *   [plugin_intensity.md](docs/plugin_intensity.md): Window/Level presets, dynamic slider speeds, and async histogram computing.
+*   [plugin_landmark.md](docs/plugin_landmark.md): 3D physical point landmarks, voxel snapping, CSV import/export, and spatial navigation.
+*   [plugin_mip.md](docs/plugin_mip.md): Maximum Intensity Projection, interactive rotation, slab thickness, and Numba acceleration.
 *   [plugin_threshold.md](docs/plugin_threshold.md): Interactive min/max intensity threshold previews and image extraction.
+*   [plugin_roi.md](docs/plugin_roi.md): Outline of region-of-interest (ROI) tools and managers.
 *   [plugin_profile.md](docs/plugin_profile.md): Intensity line profiles, sampling, coordinate spaces, and XY plots.
+*   [plugin_registration.md](docs/plugin_registration.md): Extrinsic rigid registration preview and resample logic.
 *   [plugin_dvf.md](docs/plugin_dvf.md): Vector field, component-wise, and RGB visualization parameters for displacement vector fields.
+*   [plugin_dicom.md](docs/plugin_dicom.md): Recursive DICOM folder scanning, tag/metadata lists, and thread safety.
 
 ---
 
