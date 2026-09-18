@@ -44,6 +44,18 @@ def test_sidecar_json_unit_detection(tmp_path):
     assert pet_bq_vol.unit == "Bq/mL"
     assert "pet_bq.json" in pet_bq_vol.unit_source
 
+    # 4. PET with "sul"
+    pet_sul_img = sitk.GetImageFromArray(np.zeros((10, 10, 10), dtype=np.float32))
+    pet_sul_path = str(tmp_path / "pet_sul.nii.gz")
+    sitk.WriteImage(pet_sul_img, pet_sul_path)
+    pet_sul_json_path = str(tmp_path / "pet_sul.json")
+    with open(pet_sul_json_path, "w") as f:
+        json.dump({"modality": "pet", "unit": "sul"}, f)
+
+    pet_sul_vol = VolumeData(pet_sul_path)
+    assert pet_sul_vol.unit == "SUL"
+    assert "pet_sul.json" in pet_sul_vol.unit_source
+
 
 def test_fallback_unit_when_no_json(tmp_path):
     """Verifies that an image without sidecar JSON or DICOM metadata defaults to None (?)."""
@@ -155,3 +167,106 @@ def test_p200_sidecar_detection():
         pet_bq_vol = VolumeData(pet_bq_path)
         assert pet_bq_vol.unit == "Bq/mL"
         assert "pet_bq.json" in pet_bq_vol.unit_source
+
+
+def test_legend_draws_with_unit(headless_gui_app):
+    """Verifies that draw_legend reflects image units and invalidates cache when unit changes."""
+    controller, gui, viewer, vs_id = headless_gui_app
+    vol = controller.volumes[vs_id]
+    vol.unit = "HU"
+
+    viewer.quad_w = 400
+    viewer.quad_h = 400
+    viewer.show_legend = True
+
+    with (
+        patch("dearpygui.dearpygui.does_item_exist", return_value=True),
+        patch("dearpygui.dearpygui.delete_item"),
+        patch("dearpygui.dearpygui.draw_text") as mock_draw_text,
+        patch("dearpygui.dearpygui.draw_rectangle") as mock_draw_rect,
+        patch("dearpygui.dearpygui.draw_line"),
+    ):
+
+        # Single colorbar legend drawing
+        viewer.drawer.draw_legend()
+
+        # Verify that "HU" was drawn
+        drawn_texts = [call.args[1] for call in mock_draw_text.call_args_list]
+        assert "HU" in drawn_texts
+
+        # Verify draw_rectangle calls have exactly 2 positional arguments (pmin, pmax)
+        for call in mock_draw_rect.call_args_list:
+            assert (
+                len(call.args) == 2
+            ), f"draw_rectangle called with {len(call.args)} args: {call.args}"
+
+        # Verify caching: subsequent call with same state should not re-draw
+        mock_draw_text.reset_mock()
+        viewer.drawer.draw_legend()
+        assert mock_draw_text.call_count == 0
+
+        # Change unit to SUL -> cache invalidation -> re-draws with SUL
+        vol.unit = "SUL"
+        viewer.drawer.draw_legend()
+        drawn_texts_sul = [call.args[1] for call in mock_draw_text.call_args_list]
+        assert "SUL" in drawn_texts_sul
+
+        # Test Dual Colorbar with base and overlay
+        mock_draw_text.reset_mock()
+        mock_draw_rect.reset_mock()
+        viewer.view_state.display.overlay.image_id = "2"
+        controller.volumes["2"].unit = "SUV"
+        viewer.drawer.draw_legend()
+        drawn_texts_dual = [call.args[1] for call in mock_draw_text.call_args_list]
+        assert "SUL" in drawn_texts_dual
+        assert "SUV" in drawn_texts_dual
+        assert "(1)" in drawn_texts_dual
+        assert "(2)" in drawn_texts_dual
+
+        for call in mock_draw_rect.call_args_list:
+            assert (
+                len(call.args) == 2
+            ), f"draw_rectangle called with {len(call.args)} args: {call.args}"
+
+        # Verify that image id and unit are centered with respect to each other
+        text_positions = {
+            call.args[1]: call.args[0] for call in mock_draw_text.call_args_list
+        }
+        # (1) and SUL have the same character count (3 chars), so their x coordinates must match exactly
+        assert text_positions["(1)"][0] == text_positions["SUL"][0]
+        # (2) and SUV have the same character count (3 chars), so their x coordinates must match exactly
+        assert text_positions["(2)"][0] == text_positions["SUV"][0]
+
+
+def test_ui_unit_change_triggers_legend_update(headless_gui_app):
+    """Verifies that changing unit marks viewers dirty and updates active legend immediately."""
+    controller, gui, viewer, vs_id = headless_gui_app
+    viewer.quad_w = 400
+    viewer.quad_h = 400
+    viewer.show_legend = True
+
+    with (
+        patch("dearpygui.dearpygui.does_item_exist", return_value=True),
+        patch("dearpygui.dearpygui.delete_item"),
+        patch("dearpygui.dearpygui.draw_text") as mock_draw_text,
+        patch("dearpygui.dearpygui.draw_rectangle"),
+        patch("dearpygui.dearpygui.draw_line"),
+        patch("dearpygui.dearpygui.set_value"),
+    ):
+
+        # Initial draw without unit
+        viewer.drawer.draw_legend()
+        mock_draw_text.reset_mock()
+
+        # Update unit and invoke redraw logic as gui callbacks do
+        vol = controller.volumes[vs_id]
+        vol.unit = "SUV"
+        for v in controller.viewers.values():
+            v.is_geometry_dirty = True
+            v.drawer._last_leg_state = None
+            if getattr(v, "show_legend", False):
+                v.drawer.draw_legend()
+
+        drawn_texts = [call.args[1] for call in mock_draw_text.call_args_list]
+        assert "SUV" in drawn_texts
+        assert viewer.is_geometry_dirty is True

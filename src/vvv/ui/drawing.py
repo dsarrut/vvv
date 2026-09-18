@@ -1,7 +1,12 @@
 import numpy as np
 from vvv.config import COLORMAPS
 import dearpygui.dearpygui as dpg
-from vvv.utils import voxel_to_slice, ViewMode, ProfileInteractionMode, RoiInteractionMode
+from vvv.utils import (
+    voxel_to_slice,
+    ViewMode,
+    ProfileInteractionMode,
+    RoiInteractionMode,
+)
 
 
 def world_to_screen_pos(viewer, pt_phys):
@@ -18,22 +23,25 @@ def world_to_screen_pos(viewer, pt_phys):
     pmin, pmax = viewer.current_pmin, viewer.current_pmax
     disp_w, disp_h = pmax[0] - pmin[0], pmax[1] - pmin[1]
 
-    tx, ty = voxel_to_slice(
-        v_disp[0], v_disp[1], v_disp[2], viewer.orientation, shape
-    )
+    tx, ty = voxel_to_slice(v_disp[0], v_disp[1], v_disp[2], viewer.orientation, shape)
     sx = (tx / real_w) * disp_w + pmin[0]
     sy = (ty / real_h) * disp_h + pmin[1]
     return [sx, sy]
 
 
-def compute_slice_depth_alpha(curr_slice_idx, pt_depth, max_depth_diff=6.5, dim_base_alpha=180):
+def compute_slice_depth_alpha(
+    curr_slice_idx, pt_depth, max_depth_diff=6.5, dim_base_alpha=180
+):
     """Computes opacity alpha decay (0-255) based on slice distance."""
     depth_diff = abs(curr_slice_idx - pt_depth)
     if depth_diff > max_depth_diff:
         return 0, depth_diff
     if depth_diff <= 0.5:
         return 255, depth_diff
-    alpha = max(30, int(dim_base_alpha - (depth_diff * (dim_base_alpha / (max_depth_diff + 1.0)))))
+    alpha = max(
+        30,
+        int(dim_base_alpha - (depth_diff * (dim_base_alpha / (max_depth_diff + 1.0)))),
+    )
     return alpha, depth_diff
 
 
@@ -48,6 +56,7 @@ class OverlayDrawer:
 
     def _is_mip_active(self) -> bool:
         from vvv.ui.viewer import _safe_get_plugin
+
         viewer = self.viewer
         if not viewer.image_id:
             return False
@@ -55,7 +64,9 @@ class OverlayDrawer:
             mip_plugin = _safe_get_plugin(viewer.controller, "mip_plugin")
             if not mip_plugin:
                 return False
-            return mip_plugin._controller.get_viewer_state(viewer.image_id, viewer.tag).mip_enabled
+            return mip_plugin._controller.get_viewer_state(
+                viewer.image_id, viewer.tag
+            ).mip_enabled
         except Exception:
             return False
 
@@ -427,8 +438,21 @@ class OverlayDrawer:
         cv = viewer.view_state.crosshair_value
 
         overlay_id = viewer.view_state.display.overlay.image_id
-        overlay_vs = viewer.controller.view_states.get(overlay_id) if overlay_id else None
+        overlay_vs = (
+            viewer.controller.view_states.get(overlay_id) if overlay_id else None
+        )
         has_overlay = overlay_vs is not None
+
+        base_unit = (
+            getattr(viewer.view_state.volume, "unit", None)
+            if getattr(viewer.view_state, "volume", None)
+            else None
+        )
+        ov_unit = (
+            getattr(overlay_vs.volume, "unit", None)
+            if has_overlay and getattr(overlay_vs, "volume", None)
+            else None
+        )
 
         ov_cv = None
         ov_ww = None
@@ -438,7 +462,7 @@ class OverlayDrawer:
             ov_ww = overlay_vs.display.ww
             ov_wl = overlay_vs.display.wl
             ov_cmap_name = overlay_vs.display.colormap
-            
+
             # Dynamically read overlay voxel value at active viewer's physical crosshair position
             phys = viewer.view_state.camera.crosshair_phys_coord
             if phys is not None:
@@ -451,11 +475,37 @@ class OverlayDrawer:
                     iy = int(np.round(ov_v[1]))
                     iz = int(np.round(ov_v[2]))
                     if 0 <= ix < limit_x and 0 <= iy < limit_y and 0 <= iz < limit_z:
-                        ov_cv = overlay_vs._read_voxel_value(ix, iy, iz, use_buffer=False)
-            
-            current_state = (win_h, ww, wl, cmap_name, cv, True, ov_ww, ov_wl, ov_cmap_name, ov_cv)
+                        ov_cv = overlay_vs._read_voxel_value(
+                            ix, iy, iz, use_buffer=False
+                        )
+
+            current_state = (
+                win_h,
+                viewer.image_id,
+                ww,
+                wl,
+                cmap_name,
+                cv,
+                base_unit,
+                True,
+                overlay_id,
+                ov_ww,
+                ov_wl,
+                ov_cmap_name,
+                ov_cv,
+                ov_unit,
+            )
         else:
-            current_state = (win_h, ww, wl, cmap_name, cv, False)
+            current_state = (
+                win_h,
+                viewer.image_id,
+                ww,
+                wl,
+                cmap_name,
+                cv,
+                base_unit,
+                False,
+            )
 
         if getattr(self, "_last_leg_state", None) == current_state:
             return
@@ -470,18 +520,41 @@ class OverlayDrawer:
         text_col = viewer.controller.settings.data["colors"]["tracker_text"]
         border_col = [255, 255, 255, 120]
 
+        def _text_w(txt):
+            try:
+                ts = dpg.get_text_size(txt)
+                if ts and ts[0] > 0:
+                    return float(ts[0])
+            except Exception:
+                pass
+            return float(len(txt) * 7.0)
+
+        def _center_x(cx, txt):
+            return int(round(cx - _text_w(txt) / 2.0))
+
         if not has_overlay:
             # Single Colorbar Layout (Base Image only)
             x_start = 20
             y_start = (win_h - cb_height) // 2
+            top_y = y_start - 35 if base_unit else y_start - 20
 
             dpg.draw_rectangle(
-                [5, y_start - 20],
+                [5, top_y],
                 [115, y_start + cb_height + 20],
                 color=bg_col,
                 fill=bg_col,
                 parent=viewer.legend_tag,
             )
+
+            if base_unit:
+                unit_x = max(8, _center_x(x_start + cb_width / 2.0, base_unit))
+                dpg.draw_text(
+                    [unit_x, y_start - 26],
+                    base_unit,
+                    color=text_col,
+                    size=13,
+                    parent=viewer.legend_tag,
+                )
 
             cmap = COLORMAPS.get(cmap_name, COLORMAPS["Grayscale"])
             for i in range(256):
@@ -552,9 +625,11 @@ class OverlayDrawer:
             panel_w = 175
             x_start_panel = 5
             y_start = (win_h - cb_height) // 2 + 10
+            has_units = bool(base_unit or ov_unit)
+            top_y = y_start - 50 if has_units else y_start - 35
 
             dpg.draw_rectangle(
-                [x_start_panel, y_start - 35],
+                [x_start_panel, top_y],
                 [x_start_panel + panel_w, y_start + cb_height + 20],
                 color=bg_col,
                 fill=bg_col,
@@ -564,21 +639,59 @@ class OverlayDrawer:
             # Titles (using image numbers, e.g. (1) and (4))
             base_title = f"({viewer.image_id})"
             overlay_title = f"({overlay_id})"
+            title_y = y_start - 45 if has_units else y_start - 30
+
+            # Centers of base and overlay colorbars
+            center_base_x = (x_start_panel + 55) + cb_width / 2.0
+            center_ov_x = (x_start_panel + 110) + cb_width / 2.0
+
+            base_title_x = max(x_start_panel + 5, _center_x(center_base_x, base_title))
+            overlay_title_x = max(
+                x_start_panel + 60, _center_x(center_ov_x, overlay_title)
+            )
 
             dpg.draw_text(
-                [x_start_panel + 50, y_start - 30],
+                [base_title_x, title_y],
                 base_title,
                 color=text_col,
                 size=13,
                 parent=viewer.legend_tag,
             )
             dpg.draw_text(
-                [x_start_panel + 107, y_start - 30],
+                [overlay_title_x, title_y],
                 overlay_title,
                 color=text_col,
                 size=13,
                 parent=viewer.legend_tag,
             )
+
+            # Units
+            if has_units:
+                unit_y = y_start - 26
+                if base_unit:
+                    base_unit_x = max(
+                        x_start_panel + 5,
+                        _center_x(center_base_x, base_unit),
+                    )
+                    dpg.draw_text(
+                        [base_unit_x, unit_y],
+                        base_unit,
+                        color=text_col,
+                        size=13,
+                        parent=viewer.legend_tag,
+                    )
+                if ov_unit:
+                    ov_unit_x = max(
+                        x_start_panel + 60,
+                        _center_x(center_ov_x, ov_unit),
+                    )
+                    dpg.draw_text(
+                        [ov_unit_x, unit_y],
+                        ov_unit,
+                        color=text_col,
+                        size=13,
+                        parent=viewer.legend_tag,
+                    )
 
             # --- Left Colorbar: Base ---
             x_cb_base = x_start_panel + 55
@@ -648,7 +761,11 @@ class OverlayDrawer:
 
             # --- Right Colorbar: Overlay ---
             x_cb_ov = x_start_panel + 110
-            cmap_ov = COLORMAPS.get(ov_cmap_name, COLORMAPS["Grayscale"]) if isinstance(ov_cmap_name, str) else COLORMAPS["Grayscale"]
+            cmap_ov = (
+                COLORMAPS.get(ov_cmap_name, COLORMAPS["Grayscale"])
+                if isinstance(ov_cmap_name, str)
+                else COLORMAPS["Grayscale"]
+            )
             for i in range(256):
                 y = y_start + cb_height - (i / 255.0) * cb_height
                 color = [int(c * 255) for c in cmap_ov[i]]
@@ -922,23 +1039,37 @@ class OverlayDrawer:
                             viewer.profile_mode == ProfileInteractionMode.MANIPULATING
                             and getattr(viewer, "active_profile_id", None) == p_id
                         )
-                        active_handle = getattr(viewer, "active_handle", None) if is_active else None
+                        active_handle = (
+                            getattr(viewer, "active_handle", None)
+                            if is_active
+                            else None
+                        )
 
                         is_hovered = (
                             not is_active
                             and getattr(viewer, "hovered_profile_id", None) == p_id
                         )
-                        hovered_handle = getattr(viewer, "hovered_handle_key", None) if is_hovered else None
+                        hovered_handle = (
+                            getattr(viewer, "hovered_handle_key", None)
+                            if is_hovered
+                            else None
+                        )
 
                         highlight_handle = active_handle or hovered_handle
 
                         line_thick = 3.5 if highlight_handle == "middle" else 2.0
-                        dpg.draw_line(s1, s2, color=col, thickness=line_thick, parent=node)
+                        dpg.draw_line(
+                            s1, s2, color=col, thickness=line_thick, parent=node
+                        )
 
                         # Draw start circle (with a glowing halo if hovered/active)
                         if highlight_handle == "start":
                             dpg.draw_circle(
-                                s1, 8, color=[255, 255, 255, 180], thickness=1.5, parent=node
+                                s1,
+                                8,
+                                color=[255, 255, 255, 180],
+                                thickness=1.5,
+                                parent=node,
                             )
                             dpg.draw_circle(
                                 s1, 5, color=[255, 255, 255], fill=col, parent=node
@@ -951,7 +1082,11 @@ class OverlayDrawer:
                         # Draw end circle (with a glowing halo if hovered/active)
                         if highlight_handle == "end":
                             dpg.draw_circle(
-                                s2, 8, color=[255, 255, 255, 180], thickness=1.5, parent=node
+                                s2,
+                                8,
+                                color=[255, 255, 255, 180],
+                                thickness=1.5,
+                                parent=node,
                             )
                             dpg.draw_circle(
                                 s2, 5, color=[255, 255, 255], fill=col, parent=node
@@ -964,22 +1099,32 @@ class OverlayDrawer:
                         # Draw hover marker from profile plot
                         hovered_dist = getattr(profile, "hovered_distance", None)
                         if hovered_dist is not None:
-                            total_dist = float(np.linalg.norm(
-                                profile.pt2_phys - profile.pt1_phys
-                            ))
+                            total_dist = float(
+                                np.linalg.norm(profile.pt2_phys - profile.pt1_phys)
+                            )
                             if total_dist > 1e-5:
                                 t = float(np.clip(hovered_dist / total_dist, 0.0, 1.0))
-                                pt_phys = profile.pt1_phys + t * (profile.pt2_phys - profile.pt1_phys)
+                                pt_phys = profile.pt1_phys + t * (
+                                    profile.pt2_phys - profile.pt1_phys
+                                )
                                 v_m = viewer.view_state.world_to_display(
                                     pt_phys, is_buffered=viewer._is_buffered()
                                 )
                                 sm = get_screen_pos(v_m)
                                 if sm:
                                     dpg.draw_circle(
-                                        sm, 7, color=[255, 255, 255, 180], thickness=1.5, parent=node
+                                        sm,
+                                        7,
+                                        color=[255, 255, 255, 180],
+                                        thickness=1.5,
+                                        parent=node,
                                     )
                                     dpg.draw_circle(
-                                        sm, 4, color=[255, 255, 255], fill=col, parent=node
+                                        sm,
+                                        4,
+                                        color=[255, 255, 255],
+                                        fill=col,
+                                        parent=node,
                                     )
 
             # Case 2: The segment is cross-plane (Show clue ring)
@@ -1012,7 +1157,9 @@ class OverlayDrawer:
             or not getattr(viewer.view_state, "landmarks", None)
             or self._is_mip_active()
         ):
-            if hasattr(viewer, "landmark_node_tag") and dpg.does_item_exist(viewer.landmark_node_tag):
+            if hasattr(viewer, "landmark_node_tag") and dpg.does_item_exist(
+                viewer.landmark_node_tag
+            ):
                 dpg.configure_item(viewer.landmark_node_tag, show=False)
             return
 
@@ -1032,9 +1179,18 @@ class OverlayDrawer:
 
         # Check if Landmark Plugin Enhanced Visualization mode is active
         enhanced_vis = False
-        if hasattr(viewer, "controller") and viewer.controller and hasattr(viewer.controller, "gui") and viewer.controller.gui:
+        if (
+            hasattr(viewer, "controller")
+            and viewer.controller
+            and hasattr(viewer.controller, "gui")
+            and viewer.controller.gui
+        ):
             lm_plugin = next(
-                (p for p in getattr(viewer.controller.gui, "plugins", []) if getattr(p, "plugin_id", None) == "landmark_plugin"),
+                (
+                    p
+                    for p in getattr(viewer.controller.gui, "plugins", [])
+                    if getattr(p, "plugin_id", None) == "landmark_plugin"
+                ),
                 None,
             )
             if lm_plugin and hasattr(lm_plugin, "_controller"):
@@ -1104,10 +1260,34 @@ class OverlayDrawer:
                     parent=node,
                 )
                 arm = 5.0 if enhanced_vis else 4.0
-                dpg.draw_line([sx - arm - radius, sy], [sx - radius, sy], color=col, thickness=1.0, parent=node)
-                dpg.draw_line([sx + radius, sy], [sx + arm + radius, sy], color=col, thickness=1.0, parent=node)
-                dpg.draw_line([sx, sy - arm - radius], [sx, sy - radius], color=col, thickness=1.0, parent=node)
-                dpg.draw_line([sx, sy + radius], [sx, sy + arm + radius], color=col, thickness=1.0, parent=node)
+                dpg.draw_line(
+                    [sx - arm - radius, sy],
+                    [sx - radius, sy],
+                    color=col,
+                    thickness=1.0,
+                    parent=node,
+                )
+                dpg.draw_line(
+                    [sx + radius, sy],
+                    [sx + arm + radius, sy],
+                    color=col,
+                    thickness=1.0,
+                    parent=node,
+                )
+                dpg.draw_line(
+                    [sx, sy - arm - radius],
+                    [sx, sy - radius],
+                    color=col,
+                    thickness=1.0,
+                    parent=node,
+                )
+                dpg.draw_line(
+                    [sx, sy + radius],
+                    [sx, sy + arm + radius],
+                    color=col,
+                    thickness=1.0,
+                    parent=node,
+                )
             elif enhanced_vis:
                 # Filled small center dot for adjacent slices in enhanced mode
                 dpg.draw_circle(
@@ -1119,7 +1299,9 @@ class OverlayDrawer:
                 )
 
             # Draw name label (and depth direction indicator in enhanced mode)
-            should_draw_label = getattr(lm, "show_name", True) and (is_in_plane or enhanced_vis)
+            should_draw_label = getattr(lm, "show_name", True) and (
+                is_in_plane or enhanced_vis
+            )
             if should_draw_label:
                 # Build display text (with depth indicator arrow if off-plane in enhanced mode)
                 label_text = lm.name
@@ -1374,7 +1556,7 @@ class OverlayDrawer:
         # Check if we should draw the hovered or active handle
         hovered_roi_id = getattr(viewer, "hovered_roi_id", None)
         hovered_roi_part = getattr(viewer, "hovered_roi_part", None)
-        
+
         # Safe lookup of active tool and roi_drag_id/action
         active_roi_drag_id = None
         active_roi_drag_action = None
@@ -1400,14 +1582,28 @@ class OverlayDrawer:
             return
 
         if is_spheroid:
-            r_x = getattr(roi_state, "spheroid_radius_x", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
-            r_y = getattr(roi_state, "spheroid_radius_y", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
-            r_z = getattr(roi_state, "spheroid_radius_z", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+            r_x = (
+                getattr(roi_state, "spheroid_radius_x", None)
+                or getattr(roi_state, "spheroid_radius_xy", None)
+                or getattr(roi_state, "spheroid_radius", None)
+                or 10.0
+            )
+            r_y = (
+                getattr(roi_state, "spheroid_radius_y", None)
+                or getattr(roi_state, "spheroid_radius_xy", None)
+                or getattr(roi_state, "spheroid_radius", None)
+                or 10.0
+            )
+            r_z = (
+                getattr(roi_state, "spheroid_radius_z", None)
+                or getattr(roi_state, "spheroid_radius", None)
+                or 10.0
+            )
             center = roi_state.spheroid_center
-        else: # is_box
-            r_x = (getattr(roi_state, "box_size_x", 20.0) / 2.0)
-            r_y = (getattr(roi_state, "box_size_y", 20.0) / 2.0)
-            r_z = (getattr(roi_state, "box_size_z", 20.0) / 2.0)
+        else:  # is_box
+            r_x = getattr(roi_state, "box_size_x", 20.0) / 2.0
+            r_y = getattr(roi_state, "box_size_y", 20.0) / 2.0
+            r_z = getattr(roi_state, "box_size_z", 20.0) / 2.0
             center = roi_state.box_center
 
         if center is None or r_x is None:
@@ -1428,7 +1624,9 @@ class OverlayDrawer:
             dpg.configure_item(node, show=False)
             return
 
-        tx, ty = voxel_to_slice(v_center[0], v_center[1], v_center[2], viewer.orientation, shape)
+        tx, ty = voxel_to_slice(
+            v_center[0], v_center[1], v_center[2], viewer.orientation, shape
+        )
         px = (tx / real_w) * disp_w + pmin[0]
         py = (ty / real_h) * disp_h + pmin[1]
 
@@ -1439,7 +1637,7 @@ class OverlayDrawer:
 
         # Determine which part to render
         part = active_roi_drag_action or hovered_roi_part
-        is_active_drag = (active_roi_drag_id == target_roi_id)
+        is_active_drag = active_roi_drag_id == target_roi_id
         is_resizing = is_active_drag and (active_roi_drag_action == "border")
 
         d_mm = abs(proj_phys[v_idx] - center[v_idx])
@@ -1458,10 +1656,10 @@ class OverlayDrawer:
 
         F = 1.0
         if is_spheroid:
-            F = 1.0 - (d_mm ** 2) / (R_depth ** 2)
-            intersects = (F >= 0.0)
-        else: # is_box
-            intersects = (d_mm <= R_depth)
+            F = 1.0 - (d_mm**2) / (R_depth**2)
+            intersects = F >= 0.0
+        else:  # is_box
+            intersects = d_mm <= R_depth
 
         # Draw center reticle ALWAYS if actively dragging, or if hovered at center
         draw_center = is_active_drag or (part == "center")
@@ -1470,13 +1668,14 @@ class OverlayDrawer:
         draw_border = (is_resizing or part == "border") and intersects
 
         import math
+
         drew_anything = False
 
         if draw_border:
             if is_spheroid:
                 r_h = r_h_base * math.sqrt(F)
                 r_v = r_v_base * math.sqrt(F)
-            else: # is_box
+            else:  # is_box
                 r_h = r_h_base
                 r_v = r_v_base
 
@@ -1489,14 +1688,22 @@ class OverlayDrawer:
             if is_box:
                 p_min_rect = [px - r_h_px, py - r_v_px]
                 p_max_rect = [px + r_h_px, py + r_v_px]
-                dpg.draw_rectangle(p_min_rect, p_max_rect, color=outline_color, thickness=1.5, parent=node)
+                dpg.draw_rectangle(
+                    p_min_rect,
+                    p_max_rect,
+                    color=outline_color,
+                    thickness=1.5,
+                    parent=node,
+                )
             else:
                 points = []
-                for theta in np.linspace(0, 2*np.pi, 36):
+                for theta in np.linspace(0, 2 * np.pi, 36):
                     ex = px + r_h_px * math.cos(theta)
                     ey = py + r_v_px * math.sin(theta)
                     points.append([ex, ey])
-                dpg.draw_polyline(points, color=outline_color, thickness=1.5, closed=True, parent=node)
+                dpg.draw_polyline(
+                    points, color=outline_color, thickness=1.5, closed=True, parent=node
+                )
 
             # Get mouse position to place the dot handle closest to it
             try:
@@ -1528,7 +1735,13 @@ class OverlayDrawer:
                 hy = py + r_v_px * math.sin(angle)
 
             # Draw border handle dot (solid circle with glowing halo)
-            dpg.draw_circle([hx, hy], radius=7.0, color=[255, 255, 255, 200], thickness=1.5, parent=node)
+            dpg.draw_circle(
+                [hx, hy],
+                radius=7.0,
+                color=[255, 255, 255, 200],
+                thickness=1.5,
+                parent=node,
+            )
             dpg.draw_circle([hx, hy], radius=4.0, color=color, fill=color, parent=node)
             drew_anything = True
 
@@ -1536,26 +1749,41 @@ class OverlayDrawer:
             # Draw center reticle
             dpg.draw_circle([px, py], radius=8.0, color=color, thickness=2, parent=node)
             dpg.draw_circle([px, py], radius=2.5, color=color, fill=color, parent=node)
-            
-            dpg.draw_line([px - 14, py], [px - 8, py], color=color, thickness=2, parent=node)
-            dpg.draw_line([px + 8, py], [px + 14, py], color=color, thickness=2, parent=node)
-            dpg.draw_line([px, py - 14], [px, py - 8], color=color, thickness=2, parent=node)
-            dpg.draw_line([px, py + 8], [px, py + 14], color=color, thickness=2, parent=node)
+
+            dpg.draw_line(
+                [px - 14, py], [px - 8, py], color=color, thickness=2, parent=node
+            )
+            dpg.draw_line(
+                [px + 8, py], [px + 14, py], color=color, thickness=2, parent=node
+            )
+            dpg.draw_line(
+                [px, py - 14], [px, py - 8], color=color, thickness=2, parent=node
+            )
+            dpg.draw_line(
+                [px, py + 8], [px, py + 14], color=color, thickness=2, parent=node
+            )
             drew_anything = True
 
         # Default drawing when not dragging but hovered/intersects
         if not drew_anything and intersects and not is_active_drag:
             dpg.draw_circle([px, py], radius=8.0, color=color, thickness=2, parent=node)
             dpg.draw_circle([px, py], radius=2.5, color=color, fill=color, parent=node)
-            
-            dpg.draw_line([px - 14, py], [px - 8, py], color=color, thickness=2, parent=node)
-            dpg.draw_line([px + 8, py], [px + 14, py], color=color, thickness=2, parent=node)
-            dpg.draw_line([px, py - 14], [px, py - 8], color=color, thickness=2, parent=node)
-            dpg.draw_line([px, py + 8], [px, py + 14], color=color, thickness=2, parent=node)
+
+            dpg.draw_line(
+                [px - 14, py], [px - 8, py], color=color, thickness=2, parent=node
+            )
+            dpg.draw_line(
+                [px + 8, py], [px + 14, py], color=color, thickness=2, parent=node
+            )
+            dpg.draw_line(
+                [px, py - 14], [px, py - 8], color=color, thickness=2, parent=node
+            )
+            dpg.draw_line(
+                [px, py + 8], [px, py + 14], color=color, thickness=2, parent=node
+            )
             drew_anything = True
 
         if drew_anything:
             dpg.configure_item(node, show=True)
         else:
             dpg.configure_item(node, show=False)
-

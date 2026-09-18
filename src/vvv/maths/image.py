@@ -1218,6 +1218,7 @@ class VolumeData:
                             mapping = {
                                 "hu": "HU",
                                 "suv": "SUV",
+                                "sul": "SUL",
                                 "suvbw": "SUVbw",
                                 "suvlbm": "SUVlbm",
                                 "suvbsa": "SUVbsa",

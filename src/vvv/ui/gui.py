@@ -641,6 +641,7 @@ class MainGUI:
                         ("? (Unknown)", None),
                         ("HU (CT)", "HU"),
                         ("SUV (PET)", "SUV"),
+                        ("SUL (PET)", "SUL"),
                         ("Bq/mL (Activity)", "Bq/mL"),
                         ("kBq/mL", "kBq/mL"),
                         ("Gy (Dose)", "Gy"),
@@ -663,6 +664,15 @@ class MainGUI:
                                 vol.unit = new_unit
                                 vol.unit_source = "modified, unsaved"
                                 vol._is_outdated = True
+                                if dpg.does_item_exist("info_unit_source"):
+                                    dpg.set_value(
+                                        "info_unit_source", "(modified, unsaved)"
+                                    )
+                                for v in self.controller.viewers.values():
+                                    v.is_geometry_dirty = True
+                                    v.drawer._last_leg_state = None
+                                    if getattr(v, "show_legend", False):
+                                        v.drawer.draw_legend()
                                 self.controller.ui_needs_refresh = True
 
                     def on_select_unit_preset(sender, app_data, user_data):
@@ -682,6 +692,15 @@ class MainGUI:
                                         "input_info_unit",
                                         new_unit if new_unit else "?",
                                     )
+                                if dpg.does_item_exist("info_unit_source"):
+                                    dpg.set_value(
+                                        "info_unit_source", "(modified, unsaved)"
+                                    )
+                                for v in self.controller.viewers.values():
+                                    v.is_geometry_dirty = True
+                                    v.drawer._last_leg_state = None
+                                    if getattr(v, "show_legend", False):
+                                        v.drawer.draw_legend()
                                 self.controller.ui_needs_refresh = True
 
                     with dpg.group(horizontal=True):
