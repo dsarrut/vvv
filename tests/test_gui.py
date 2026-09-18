@@ -11,6 +11,8 @@ from vvv.ui.viewer import SliceViewer
 from vvv.core.controller import Controller
 from vvv.ui.ui_sequences import create_boot_sequence
 from vvv.ui.ui_sync import handle_sync_group_change, handle_wl_group_change
+from vvv.config import WL_PRESETS
+
 
 
 @pytest.fixture
@@ -194,6 +196,39 @@ def test_gui_fusion_controls(headless_gui_app, synthetic_volume_factory, monkeyp
     )
     assert vs.display.overlay.mode == "Checkerboard"
 
+    # 6. Simulate UI: Apply PET Preset to Fusion Overlay
+    gui.fusion_ui.on_fusion_preset_changed(
+        sender=None, app_data="PET: [0 - 10]", user_data=None
+    )
+    ov_vs = controller.view_states[ov_id]
+    assert ov_vs.display.ww == 10.0
+    assert ov_vs.display.wl == 5.0
+    assert ov_vs.display.min_threshold == 0.0
+
+    gui.fusion_ui.sync_fusion_ui()
+    assert dpg.get_value("combo_fusion_wl_presets") == "PET: [0 - 10]"
+
+    # 7. Modify WW manually -> should set preset dropdown to "Custom"
+    gui.fusion_ui.on_fusion_ww_changed(sender=None, app_data=100.0, user_data=None)
+    assert dpg.get_value("combo_fusion_wl_presets") == "Custom"
+
+    # 8. Apply CT Preset -> should clear min_threshold
+    gui.fusion_ui.on_fusion_preset_changed(
+        sender=None, app_data="CT: Bone", user_data=None
+    )
+    assert ov_vs.display.ww == 2000.0
+    assert ov_vs.display.wl == 400.0
+    assert ov_vs.display.min_threshold is None
+    gui.fusion_ui.sync_fusion_ui()
+    assert dpg.get_value("combo_fusion_wl_presets") == "CT: Bone"
+
+    # 9. Call refresh_fusion_ui() to ensure full panel refresh works with active overlay
+    gui.fusion_ui.refresh_fusion_ui()
+    gui._refresh_all_ui_panels()
+
+
+
+
 
 def test_cli_boot_sequence_logic(headless_gui_app, synthetic_volume_factory):
     """Tests the CLI startup generator logic (loading files & syncing)."""
@@ -244,6 +279,50 @@ def test_cli_boot_sequence_logic(headless_gui_app, synthetic_volume_factory):
     ]
     assert groups[0] == groups[1]
     assert groups[0] > 0
+
+
+def test_cli_fusion_boot_sequence_logic(headless_gui_app, synthetic_volume_factory):
+    """Tests loading fusion images via CLI boot sequence and panel refresh."""
+    controller, gui, viewer, _ = headless_gui_app
+
+    path1 = synthetic_volume_factory("cli_ct.nii.gz")
+    path2 = synthetic_volume_factory("cli_pet.nii.gz")
+
+    image_tasks = [
+        {
+            "base": path1,
+            "base_cmap": None,
+            "fusion": {
+                "path": path2,
+                "opacity": 0.5,
+                "cmap": "Hot",
+                "mode": "Alpha",
+                "threshold": None,
+            },
+            "labels": [],
+        },
+    ]
+
+    boot_gen = create_boot_sequence(
+        gui, controller, image_tasks, sync=False, link_all=False
+    )
+    list(boot_gen)
+
+    # Simulate what gui.run() does at startup
+    base_id, base_vs = next(
+        (img_id, vs)
+        for img_id, vs in controller.view_states.items()
+        if "cli_ct" in vs.volume.name
+    )
+    assert base_vs.display.overlay.image_id is not None
+
+    viewer.set_image(base_id)
+    gui.set_context_viewer(viewer)
+    gui._refresh_all_ui_panels()
+    assert dpg.get_value("combo_fusion_select") != "None"
+    assert dpg.get_value("combo_fusion_wl_presets") in list(WL_PRESETS.keys()) + ["Custom"]
+
+
 
 @pytest.mark.skipif(platform.system() == "Windows", reason="Unix-specific test")
 def test_gui_interaction_modifiers(headless_gui_app, monkeypatch):

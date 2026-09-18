@@ -2213,13 +2213,14 @@ class MainGUI:
             return
         vs = viewer.view_state
 
-        if user_data in (
+        if user_data == "legend":
+            vs.camera.show_legend = 1 if value else 0
+        elif user_data in (
             "axis",
             "grid",
             "tracker",
             "crosshair",
             "scalebar",
-            "legend",
             "profiles",
         ):
             setattr(vs.camera, f"show_{user_data}", value)

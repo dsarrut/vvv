@@ -557,13 +557,13 @@ class SliceViewer:
     @property
     def show_legend(self):
         vs = self.view_state
-        return vs.camera.show_legend if vs else False
+        return getattr(vs.camera, "show_legend", 0) if vs else 0
 
     @show_legend.setter
     def show_legend(self, value):
         vs = self.view_state
         if vs:
-            vs.camera.show_legend = value
+            vs.camera.show_legend = int(value)
 
     @property
     def slice_idx(self):
@@ -2060,7 +2060,7 @@ class SliceViewer:
             "toggle_interp": self.action_toggle_pixelated_zoom,
             "toggle_mip": self.action_toggle_mip,
             "toggle_strips": self.action_toggle_strips,
-            "toggle_legend": lambda: self._toggle_camera_bool("show_legend", "Legend"),
+            "toggle_legend": self.action_toggle_legend,
             "toggle_filename": self.action_toggle_filename,
             "toggle_grid": lambda: self._toggle_camera_bool("show_grid", "Grid"),
             "toggle_axis": lambda: self._toggle_camera_bool("show_axis", "Axis"),
@@ -2280,6 +2280,20 @@ class SliceViewer:
             self.controller.status_message = (
                 "Sync: all unlinked" if all_linked else "Sync: all linked"
             )
+
+    def action_toggle_legend(self):
+        vs = self.view_state
+        if vs:
+            current = getattr(vs.camera, "show_legend", 0)
+            if isinstance(current, bool):
+                current = 1 if current else 0
+            new_val = (current + 1) % 3
+            vs.camera.show_legend = new_val
+            mode_names = {0: "off", 1: "mode 1", 2: "mode 2 (AQARA)"}
+            if self.controller:
+                self.controller.status_message = (
+                    f"Legend: {mode_names.get(new_val, str(new_val))}"
+                )
 
     def action_toggle_filename(self):
         vs = self.view_state

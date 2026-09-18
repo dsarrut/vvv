@@ -80,6 +80,10 @@ WL_PRESETS = {
     "CT: Bone": {"ww": 2000.0, "wl": 400.0},
     "CT: Lung": {"ww": 1500.0, "wl": -600.0},
     "CT: Brain": {"ww": 80.0, "wl": 40.0},
+    "PET: [0 - 10]": {"ww": 10.0, "wl": 5.0, "min_threshold": 0.0},
+    "PET: [0 - 5]": {"ww": 5.0, "wl": 2.5, "min_threshold": 0.0},
+    "PET: [0 - 15]": {"ww": 15.0, "wl": 7.5, "min_threshold": 0.0},
+    "PET: [0 - 20]": {"ww": 20.0, "wl": 10.0, "min_threshold": 0.0},
 }
 
 ROI_COLORS = [

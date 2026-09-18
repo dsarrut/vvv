@@ -45,6 +45,41 @@ def compute_slice_depth_alpha(
     return alpha, depth_diff
 
 
+def compute_legend_ticks(
+    val_min: float, val_max: float, target_count: int = 5
+) -> list[float]:
+    """Computes clean, human-readable tick values across [val_min, val_max] for AQARA publication colorbars."""
+    if val_max <= val_min:
+        return [val_min]
+    delta = val_max - val_min
+    raw_step = delta / max(1, target_count)
+    magnitude = 10 ** np.floor(np.log10(raw_step))
+    fraction = raw_step / magnitude
+    if fraction < 1.5:
+        step = 1.0 * magnitude
+    elif fraction < 3.0:
+        step = 2.0 * magnitude
+    elif fraction < 7.0:
+        step = 5.0 * magnitude
+    else:
+        step = 10.0 * magnitude
+
+    first_tick = np.ceil(val_min / step) * step
+    ticks = []
+    cur = first_tick
+    while cur <= val_max + 1e-6 * step:
+        val = 0.0 if abs(cur) < 1e-12 else cur
+        ticks.append(val)
+        cur += step
+
+    if len(ticks) < 2:
+        ticks = [
+            float(x) for x in np.linspace(val_min, val_max, max(2, target_count + 1))
+        ]
+
+    return ticks
+
+
 class OverlayDrawer:
     """
     Handles all DearPyGui drawing node updates for the SliceViewer.
@@ -407,10 +442,11 @@ class OverlayDrawer:
     def draw_legend(self):
         viewer = self.viewer
 
+        legend_mode = int(getattr(viewer, "show_legend", 0))
         if (
             not viewer.is_image_orientation()
             or not viewer.view_state
-            or not viewer.show_legend
+            or not legend_mode
         ):
             if dpg.does_item_exist(viewer.legend_tag):
                 dpg.delete_item(viewer.legend_tag, children_only=True)
@@ -463,47 +499,72 @@ class OverlayDrawer:
             ov_wl = overlay_vs.display.wl
             ov_cmap_name = overlay_vs.display.colormap
 
-            # Dynamically read overlay voxel value at active viewer's physical crosshair position
-            phys = viewer.view_state.camera.crosshair_phys_coord
-            if phys is not None:
-                ov_v = overlay_vs.world_to_display(phys, is_buffered=False)
-                if ov_v is not None:
-                    limit_x = overlay_vs.volume.shape3d[2]
-                    limit_y = overlay_vs.volume.shape3d[1]
-                    limit_z = overlay_vs.volume.shape3d[0]
-                    ix = int(np.round(ov_v[0]))
-                    iy = int(np.round(ov_v[1]))
-                    iz = int(np.round(ov_v[2]))
-                    if 0 <= ix < limit_x and 0 <= iy < limit_y and 0 <= iz < limit_z:
-                        ov_cv = overlay_vs._read_voxel_value(
-                            ix, iy, iz, use_buffer=False
-                        )
+            # Dynamically read overlay voxel value at active viewer's physical crosshair position (Mode 1 only)
+            if legend_mode == 1:
+                phys = viewer.view_state.camera.crosshair_phys_coord
+                if phys is not None:
+                    ov_v = overlay_vs.world_to_display(phys, is_buffered=False)
+                    if ov_v is not None:
+                        limit_x = overlay_vs.volume.shape3d[2]
+                        limit_y = overlay_vs.volume.shape3d[1]
+                        limit_z = overlay_vs.volume.shape3d[0]
+                        ix = int(np.round(ov_v[0]))
+                        iy = int(np.round(ov_v[1]))
+                        iz = int(np.round(ov_v[2]))
+                        if (
+                            0 <= ix < limit_x
+                            and 0 <= iy < limit_y
+                            and 0 <= iz < limit_z
+                        ):
+                            ov_cv = overlay_vs._read_voxel_value(
+                                ix, iy, iz, use_buffer=False
+                            )
 
+        base_thr = (
+            viewer.view_state.display.min_threshold
+            if getattr(viewer.view_state, "display", None)
+            else None
+        )
+        ov_thr = (
+            overlay_vs.display.min_threshold
+            if has_overlay and getattr(overlay_vs, "display", None)
+            else None
+        )
+
+        effective_cv = cv if legend_mode == 1 else None
+        effective_ov_cv = ov_cv if legend_mode == 1 else None
+
+        if has_overlay:
             current_state = (
+                legend_mode,
                 win_h,
                 viewer.image_id,
                 ww,
                 wl,
                 cmap_name,
-                cv,
+                effective_cv,
                 base_unit,
+                base_thr,
                 True,
                 overlay_id,
                 ov_ww,
                 ov_wl,
                 ov_cmap_name,
-                ov_cv,
+                effective_ov_cv,
                 ov_unit,
+                ov_thr,
             )
         else:
             current_state = (
+                legend_mode,
                 win_h,
                 viewer.image_id,
                 ww,
                 wl,
                 cmap_name,
-                cv,
+                effective_cv,
                 base_unit,
+                base_thr,
                 False,
             )
 
@@ -538,9 +599,25 @@ class OverlayDrawer:
             y_start = (win_h - cb_height) // 2
             top_y = y_start - 35 if base_unit else y_start - 20
 
+            val_min = wl - ww / 2.0
+            val_max = wl + ww / 2.0
+
+            if legend_mode == 2:
+                ticks = compute_legend_ticks(val_min, val_max)
+                max_txt_w = max((_text_w(f"{t:g}") for t in ticks), default=20.0)
+            else:
+                ticks = []
+                max_txt_w = max(
+                    _text_w(f"{val_max:g}"), _text_w(f"{wl:g}"), _text_w(f"{val_min:g}")
+                )
+
+            panel_right = max(115, int(x_start + cb_width + 12 + max_txt_w))
+            has_sub_min_base = base_thr is not None and base_thr < val_min
+            bottom_y = y_start + cb_height + (32 if has_sub_min_base else 20)
+
             dpg.draw_rectangle(
                 [5, top_y],
-                [115, y_start + cb_height + 20],
+                [panel_right, bottom_y],
                 color=bg_col,
                 fill=bg_col,
                 parent=viewer.legend_tag,
@@ -559,7 +636,23 @@ class OverlayDrawer:
             cmap = COLORMAPS.get(cmap_name, COLORMAPS["Grayscale"])
             for i in range(256):
                 y = y_start + cb_height - (i / 255.0) * cb_height
-                color = [int(c * 255) for c in cmap[i]]
+                val_i = val_min + (i / 255.0) * ww
+                raw_c = cmap[i]
+                if base_thr is not None and val_i <= base_thr:
+                    dim_factor = 0.30
+                    color = [
+                        int(
+                            raw_c[0] * 255 * dim_factor + bg_col[0] * (1.0 - dim_factor)
+                        ),
+                        int(
+                            raw_c[1] * 255 * dim_factor + bg_col[1] * (1.0 - dim_factor)
+                        ),
+                        int(
+                            raw_c[2] * 255 * dim_factor + bg_col[2] * (1.0 - dim_factor)
+                        ),
+                    ]
+                else:
+                    color = [int(c * 255) for c in raw_c]
                 dpg.draw_line(
                     [x_start, y],
                     [x_start + cb_width, y],
@@ -575,51 +668,104 @@ class OverlayDrawer:
                 parent=viewer.legend_tag,
             )
 
-            val_min = wl - ww / 2.0
-            val_max = wl + ww / 2.0
+            # Draw cutoff indicator line across the bar at min_threshold position
+            if base_thr is not None:
+                norm_thr = (base_thr - val_min) / max(1e-5, ww)
+                if 0.0 <= norm_thr <= 1.0:
+                    y_thr = y_start + cb_height - (norm_thr * cb_height)
+                    dpg.draw_line(
+                        [x_start - 3, y_thr],
+                        [x_start + cb_width + 3, y_thr],
+                        color=[255, 180, 50, 230],
+                        thickness=2,
+                        parent=viewer.legend_tag,
+                    )
+                elif base_thr < val_min:
+                    # Option A: Threshold cutoff is below the bottom of the colorbar
+                    center_x = x_start + cb_width / 2.0
+                    dpg.draw_triangle(
+                        [center_x, y_start + cb_height + 6],
+                        [center_x - 3, y_start + cb_height + 2],
+                        [center_x + 3, y_start + cb_height + 2],
+                        color=[255, 180, 50, 230],
+                        fill=[255, 180, 50, 230],
+                        parent=viewer.legend_tag,
+                    )
+                    thr_txt = f"thr: {base_thr:g}"
+                    thr_txt_x = max(6, _center_x(center_x, thr_txt))
+                    dpg.draw_text(
+                        [thr_txt_x, y_start + cb_height + 8],
+                        thr_txt,
+                        color=[255, 180, 50, 230],
+                        size=11,
+                        parent=viewer.legend_tag,
+                    )
 
-            dpg.draw_text(
-                [x_start + cb_width + 8, y_start - 7],
-                f"{val_max:g}",
-                color=text_col,
-                size=14,
-                parent=viewer.legend_tag,
-            )
-            dpg.draw_text(
-                [x_start + cb_width + 8, y_start + cb_height / 2 - 7],
-                f"{wl:g}",
-                color=text_col,
-                size=14,
-                parent=viewer.legend_tag,
-            )
-            dpg.draw_text(
-                [x_start + cb_width + 8, y_start + cb_height - 7],
-                f"{val_min:g}",
-                color=text_col,
-                size=14,
-                parent=viewer.legend_tag,
-            )
+            if legend_mode == 2:
+                # Mode 2: AQARA with tics (no cursor needle)
+                for t_val in ticks:
+                    norm = (t_val - val_min) / max(1e-5, ww)
+                    norm = np.clip(norm, 0.0, 1.0)
+                    y_pos = y_start + cb_height - (norm * cb_height)
 
-            if cv is not None and isinstance(cv, (int, float, np.number)):
-                norm = (cv - val_min) / max(1e-5, ww)
-                norm = np.clip(norm, 0.0, 1.0)
-                y_pos = y_start + cb_height - (norm * cb_height)
-
-                dpg.draw_line(
-                    [x_start - 6, y_pos],
-                    [x_start + cb_width + 6, y_pos],
-                    color=[255, 255, 255, 255],
-                    thickness=1,
+                    dpg.draw_line(
+                        [x_start + cb_width, y_pos],
+                        [x_start + cb_width + 5, y_pos],
+                        color=border_col,
+                        thickness=1.5,
+                        parent=viewer.legend_tag,
+                    )
+                    dpg.draw_text(
+                        [x_start + cb_width + 9, y_pos - 7],
+                        f"{t_val:g}",
+                        color=text_col,
+                        size=13,
+                        parent=viewer.legend_tag,
+                    )
+            else:
+                # Mode 1: Min, WL, Max + Interactive crosshair indicator
+                dpg.draw_text(
+                    [x_start + cb_width + 8, y_start - 7],
+                    f"{val_max:g}",
+                    color=text_col,
+                    size=14,
                     parent=viewer.legend_tag,
                 )
-                dpg.draw_triangle(
-                    [x_start - 5, y_pos],
-                    [x_start - 11, y_pos - 4],
-                    [x_start - 11, y_pos + 4],
-                    color=[255, 255, 255, 255],
-                    fill=[255, 255, 255, 255],
+                dpg.draw_text(
+                    [x_start + cb_width + 8, y_start + cb_height / 2 - 7],
+                    f"{wl:g}",
+                    color=text_col,
+                    size=14,
                     parent=viewer.legend_tag,
                 )
+                dpg.draw_text(
+                    [x_start + cb_width + 8, y_start + cb_height - 7],
+                    f"{val_min:g}",
+                    color=text_col,
+                    size=14,
+                    parent=viewer.legend_tag,
+                )
+
+                if cv is not None and isinstance(cv, (int, float, np.number)):
+                    norm = (cv - val_min) / max(1e-5, ww)
+                    norm = np.clip(norm, 0.0, 1.0)
+                    y_pos = y_start + cb_height - (norm * cb_height)
+
+                    dpg.draw_line(
+                        [x_start - 6, y_pos],
+                        [x_start + cb_width + 6, y_pos],
+                        color=[255, 255, 255, 255],
+                        thickness=1,
+                        parent=viewer.legend_tag,
+                    )
+                    dpg.draw_triangle(
+                        [x_start - 5, y_pos],
+                        [x_start - 11, y_pos - 4],
+                        [x_start - 11, y_pos + 4],
+                        color=[255, 255, 255, 255],
+                        fill=[255, 255, 255, 255],
+                        parent=viewer.legend_tag,
+                    )
         else:
             # Dual Colorbar Layout (Base + Overlay/Fusion)
             panel_w = 175
@@ -628,9 +774,82 @@ class OverlayDrawer:
             has_units = bool(base_unit or ov_unit)
             top_y = y_start - 50 if has_units else y_start - 35
 
+            val_min_base = wl - ww / 2.0
+            val_max_base = wl + ww / 2.0
+
+            x_cb_base = x_start_panel + 55
+            x_cb_ov = x_start_panel + 110
+
+            val_min_ov = (
+                (ov_wl - ov_ww / 2.0)
+                if (ov_wl is not None and ov_ww is not None)
+                else 0.0
+            )
+            val_max_ov = (
+                (ov_wl + ov_ww / 2.0)
+                if (ov_wl is not None and ov_ww is not None)
+                else 1.0
+            )
+
+            if legend_mode == 2:
+                base_ticks = compute_legend_ticks(val_min_base, val_max_base)
+                ov_ticks = (
+                    compute_legend_ticks(val_min_ov, val_max_ov)
+                    if (ov_wl is not None and ov_ww is not None)
+                    else []
+                )
+                max_base_w = max((_text_w(f"{t:g}") for t in base_ticks), default=20.0)
+                max_ov_w = max((_text_w(f"{t:g}") for t in ov_ticks), default=20.0)
+            else:
+                base_ticks, ov_ticks = [], []
+                max_base_w = max(
+                    _text_w(f"{val_max_base:g}"),
+                    _text_w(f"{wl:g}"),
+                    _text_w(f"{val_min_base:g}"),
+                )
+                if ov_wl is not None and ov_ww is not None:
+                    max_ov_w = max(
+                        _text_w(f"{val_max_ov:g}"),
+                        _text_w(f"{ov_wl:g}"),
+                        _text_w(f"{val_min_ov:g}"),
+                    )
+                else:
+                    max_ov_w = 20.0
+
+            center_base_x = x_cb_base + cb_width / 2.0
+            center_ov_x = x_cb_ov + cb_width / 2.0
+
+            left_panel_x = min(x_start_panel, int(x_cb_base - 10 - max_base_w))
+            right_panel_x = max(
+                x_start_panel + panel_w, int(x_cb_ov + cb_width + 12 + max_ov_w)
+            )
+
+            has_sub_min_base = base_thr is not None and base_thr < val_min_base
+            has_sub_min_ov = (
+                ov_thr is not None and ov_ww is not None and ov_thr < val_min_ov
+            )
+            bottom_y = (
+                y_start
+                + cb_height
+                + (32 if (has_sub_min_base or has_sub_min_ov) else 20)
+            )
+
+            if has_sub_min_base:
+                thr_base_txt = f"thr: {base_thr:g}"
+                thr_base_w = _text_w(thr_base_txt)
+                left_panel_x = min(
+                    left_panel_x, int(center_base_x - thr_base_w / 2.0 - 4)
+                )
+            if has_sub_min_ov:
+                thr_ov_txt = f"thr: {ov_thr:g}"
+                thr_ov_w = _text_w(thr_ov_txt)
+                right_panel_x = max(
+                    right_panel_x, int(center_ov_x + thr_ov_w / 2.0 + 6)
+                )
+
             dpg.draw_rectangle(
-                [x_start_panel, top_y],
-                [x_start_panel + panel_w, y_start + cb_height + 20],
+                [left_panel_x, top_y],
+                [right_panel_x, bottom_y],
                 color=bg_col,
                 fill=bg_col,
                 parent=viewer.legend_tag,
@@ -641,11 +860,7 @@ class OverlayDrawer:
             overlay_title = f"({overlay_id})"
             title_y = y_start - 45 if has_units else y_start - 30
 
-            # Centers of base and overlay colorbars
-            center_base_x = (x_start_panel + 55) + cb_width / 2.0
-            center_ov_x = (x_start_panel + 110) + cb_width / 2.0
-
-            base_title_x = max(x_start_panel + 5, _center_x(center_base_x, base_title))
+            base_title_x = max(left_panel_x + 2, _center_x(center_base_x, base_title))
             overlay_title_x = max(
                 x_start_panel + 60, _center_x(center_ov_x, overlay_title)
             )
@@ -670,7 +885,7 @@ class OverlayDrawer:
                 unit_y = y_start - 26
                 if base_unit:
                     base_unit_x = max(
-                        x_start_panel + 5,
+                        left_panel_x + 2,
                         _center_x(center_base_x, base_unit),
                     )
                     dpg.draw_text(
@@ -694,11 +909,26 @@ class OverlayDrawer:
                     )
 
             # --- Left Colorbar: Base ---
-            x_cb_base = x_start_panel + 55
             cmap_base = COLORMAPS.get(cmap_name, COLORMAPS["Grayscale"])
             for i in range(256):
                 y = y_start + cb_height - (i / 255.0) * cb_height
-                color = [int(c * 255) for c in cmap_base[i]]
+                val_i = val_min_base + (i / 255.0) * ww
+                raw_c = cmap_base[i]
+                if base_thr is not None and val_i <= base_thr:
+                    dim_factor = 0.30
+                    color = [
+                        int(
+                            raw_c[0] * 255 * dim_factor + bg_col[0] * (1.0 - dim_factor)
+                        ),
+                        int(
+                            raw_c[1] * 255 * dim_factor + bg_col[1] * (1.0 - dim_factor)
+                        ),
+                        int(
+                            raw_c[2] * 255 * dim_factor + bg_col[2] * (1.0 - dim_factor)
+                        ),
+                    ]
+                else:
+                    color = [int(c * 255) for c in raw_c]
                 dpg.draw_line(
                     [x_cb_base, y],
                     [x_cb_base + cb_width, y],
@@ -713,62 +943,132 @@ class OverlayDrawer:
                 parent=viewer.legend_tag,
             )
 
-            val_min_base = wl - ww / 2.0
-            val_max_base = wl + ww / 2.0
+            # Draw threshold cutoff indicator line for base
+            if base_thr is not None:
+                norm_thr = (base_thr - val_min_base) / max(1e-5, ww)
+                if 0.0 <= norm_thr <= 1.0:
+                    y_thr = y_start + cb_height - (norm_thr * cb_height)
+                    dpg.draw_line(
+                        [x_cb_base - 3, y_thr],
+                        [x_cb_base + cb_width + 3, y_thr],
+                        color=[255, 180, 50, 230],
+                        thickness=2,
+                        parent=viewer.legend_tag,
+                    )
+                elif base_thr < val_min_base:
+                    # Option A: Threshold cutoff below the base colorbar
+                    dpg.draw_triangle(
+                        [center_base_x, y_start + cb_height + 6],
+                        [center_base_x - 3, y_start + cb_height + 2],
+                        [center_base_x + 3, y_start + cb_height + 2],
+                        color=[255, 180, 50, 230],
+                        fill=[255, 180, 50, 230],
+                        parent=viewer.legend_tag,
+                    )
+                    thr_txt = f"thr: {base_thr:g}"
+                    thr_txt_x = max(left_panel_x + 2, _center_x(center_base_x, thr_txt))
+                    dpg.draw_text(
+                        [thr_txt_x, y_start + cb_height + 8],
+                        thr_txt,
+                        color=[255, 180, 50, 230],
+                        size=11,
+                        parent=viewer.legend_tag,
+                    )
 
-            dpg.draw_text(
-                [x_cb_base - 48, y_start - 7],
-                f"{val_max_base:g}",
-                color=text_col,
-                size=13,
-                parent=viewer.legend_tag,
-            )
-            dpg.draw_text(
-                [x_cb_base - 48, y_start + cb_height / 2 - 7],
-                f"{wl:g}",
-                color=text_col,
-                size=13,
-                parent=viewer.legend_tag,
-            )
-            dpg.draw_text(
-                [x_cb_base - 48, y_start + cb_height - 7],
-                f"{val_min_base:g}",
-                color=text_col,
-                size=13,
-                parent=viewer.legend_tag,
-            )
+            if legend_mode == 2:
+                # Mode 2: AQARA ticks for Base
+                for t_val in base_ticks:
+                    norm = (t_val - val_min_base) / max(1e-5, ww)
+                    norm = np.clip(norm, 0.0, 1.0)
+                    y_pos = y_start + cb_height - (norm * cb_height)
 
-            if cv is not None and isinstance(cv, (int, float, np.number)):
-                norm = (cv - val_min_base) / max(1e-5, ww)
-                norm = np.clip(norm, 0.0, 1.0)
-                y_pos = y_start + cb_height - (norm * cb_height)
-
-                dpg.draw_line(
-                    [x_cb_base - 6, y_pos],
-                    [x_cb_base + cb_width, y_pos],
-                    color=[255, 255, 255, 255],
-                    thickness=1,
+                    dpg.draw_line(
+                        [x_cb_base - 5, y_pos],
+                        [x_cb_base, y_pos],
+                        color=border_col,
+                        thickness=1.5,
+                        parent=viewer.legend_tag,
+                    )
+                    txt = f"{t_val:g}"
+                    txt_w = _text_w(txt)
+                    dpg.draw_text(
+                        [x_cb_base - 8 - txt_w, y_pos - 7],
+                        txt,
+                        color=text_col,
+                        size=13,
+                        parent=viewer.legend_tag,
+                    )
+            else:
+                # Mode 1: Min, WL, Max + crosshair indicator for Base
+                dpg.draw_text(
+                    [x_cb_base - 48, y_start - 7],
+                    f"{val_max_base:g}",
+                    color=text_col,
+                    size=13,
                     parent=viewer.legend_tag,
                 )
-                dpg.draw_triangle(
-                    [x_cb_base - 2, y_pos],
-                    [x_cb_base - 8, y_pos - 4],
-                    [x_cb_base - 8, y_pos + 4],
-                    color=[255, 255, 255, 255],
-                    fill=[255, 255, 255, 255],
+                dpg.draw_text(
+                    [x_cb_base - 48, y_start + cb_height / 2 - 7],
+                    f"{wl:g}",
+                    color=text_col,
+                    size=13,
                     parent=viewer.legend_tag,
                 )
+                dpg.draw_text(
+                    [x_cb_base - 48, y_start + cb_height - 7],
+                    f"{val_min_base:g}",
+                    color=text_col,
+                    size=13,
+                    parent=viewer.legend_tag,
+                )
+
+                if cv is not None and isinstance(cv, (int, float, np.number)):
+                    norm = (cv - val_min_base) / max(1e-5, ww)
+                    norm = np.clip(norm, 0.0, 1.0)
+                    y_pos = y_start + cb_height - (norm * cb_height)
+
+                    dpg.draw_line(
+                        [x_cb_base - 6, y_pos],
+                        [x_cb_base + cb_width, y_pos],
+                        color=[255, 255, 255, 255],
+                        thickness=1,
+                        parent=viewer.legend_tag,
+                    )
+                    dpg.draw_triangle(
+                        [x_cb_base - 2, y_pos],
+                        [x_cb_base - 8, y_pos - 4],
+                        [x_cb_base - 8, y_pos + 4],
+                        color=[255, 255, 255, 255],
+                        fill=[255, 255, 255, 255],
+                        parent=viewer.legend_tag,
+                    )
 
             # --- Right Colorbar: Overlay ---
-            x_cb_ov = x_start_panel + 110
             cmap_ov = (
                 COLORMAPS.get(ov_cmap_name, COLORMAPS["Grayscale"])
                 if isinstance(ov_cmap_name, str)
                 else COLORMAPS["Grayscale"]
             )
+            effective_ov_ww = ov_ww if ov_ww is not None else 1.0
             for i in range(256):
                 y = y_start + cb_height - (i / 255.0) * cb_height
-                color = [int(c * 255) for c in cmap_ov[i]]
+                val_i = val_min_ov + (i / 255.0) * effective_ov_ww
+                raw_c = cmap_ov[i]
+                if ov_thr is not None and val_i <= ov_thr:
+                    dim_factor = 0.30
+                    color = [
+                        int(
+                            raw_c[0] * 255 * dim_factor + bg_col[0] * (1.0 - dim_factor)
+                        ),
+                        int(
+                            raw_c[1] * 255 * dim_factor + bg_col[1] * (1.0 - dim_factor)
+                        ),
+                        int(
+                            raw_c[2] * 255 * dim_factor + bg_col[2] * (1.0 - dim_factor)
+                        ),
+                    ]
+                else:
+                    color = [int(c * 255) for c in raw_c]
                 dpg.draw_line(
                     [x_cb_ov, y],
                     [x_cb_ov + cb_width, y],
@@ -783,52 +1083,104 @@ class OverlayDrawer:
                 parent=viewer.legend_tag,
             )
 
-            if ov_wl is not None and ov_ww is not None:
-                val_min_ov = ov_wl - ov_ww / 2.0
-                val_max_ov = ov_wl + ov_ww / 2.0
-
-                dpg.draw_text(
-                    [x_cb_ov + cb_width + 8, y_start - 7],
-                    f"{val_max_ov:g}",
-                    color=text_col,
-                    size=13,
-                    parent=viewer.legend_tag,
-                )
-                dpg.draw_text(
-                    [x_cb_ov + cb_width + 8, y_start + cb_height / 2 - 7],
-                    f"{ov_wl:g}",
-                    color=text_col,
-                    size=13,
-                    parent=viewer.legend_tag,
-                )
-                dpg.draw_text(
-                    [x_cb_ov + cb_width + 8, y_start + cb_height - 7],
-                    f"{val_min_ov:g}",
-                    color=text_col,
-                    size=13,
-                    parent=viewer.legend_tag,
-                )
-
-                if ov_cv is not None and isinstance(ov_cv, (int, float, np.number)):
-                    norm = (ov_cv - val_min_ov) / max(1e-5, ov_ww)
-                    norm = np.clip(norm, 0.0, 1.0)
-                    y_pos = y_start + cb_height - (norm * cb_height)
-
+            # Draw threshold cutoff indicator line for overlay
+            if ov_thr is not None and ov_ww is not None:
+                norm_thr = (ov_thr - val_min_ov) / max(1e-5, ov_ww)
+                if 0.0 <= norm_thr <= 1.0:
+                    y_thr = y_start + cb_height - (norm_thr * cb_height)
                     dpg.draw_line(
-                        [x_cb_ov, y_pos],
-                        [x_cb_ov + cb_width + 6, y_pos],
-                        color=[255, 255, 255, 255],
-                        thickness=1,
+                        [x_cb_ov - 3, y_thr],
+                        [x_cb_ov + cb_width + 3, y_thr],
+                        color=[255, 180, 50, 230],
+                        thickness=2,
                         parent=viewer.legend_tag,
                     )
+                elif ov_thr < val_min_ov:
+                    # Option A: Threshold cutoff below the overlay colorbar
                     dpg.draw_triangle(
-                        [x_cb_ov + cb_width + 2, y_pos],
-                        [x_cb_ov + cb_width + 8, y_pos - 4],
-                        [x_cb_ov + cb_width + 8, y_pos + 4],
-                        color=[255, 255, 255, 255],
-                        fill=[255, 255, 255, 255],
+                        [center_ov_x, y_start + cb_height + 6],
+                        [center_ov_x - 3, y_start + cb_height + 2],
+                        [center_ov_x + 3, y_start + cb_height + 2],
+                        color=[255, 180, 50, 230],
+                        fill=[255, 180, 50, 230],
                         parent=viewer.legend_tag,
                     )
+                    thr_txt = f"thr: {ov_thr:g}"
+                    thr_txt_x = max(x_start_panel + 60, _center_x(center_ov_x, thr_txt))
+                    dpg.draw_text(
+                        [thr_txt_x, y_start + cb_height + 8],
+                        thr_txt,
+                        color=[255, 180, 50, 230],
+                        size=11,
+                        parent=viewer.legend_tag,
+                    )
+
+            if ov_wl is not None and ov_ww is not None:
+                if legend_mode == 2:
+                    # Mode 2: AQARA ticks for Overlay
+                    for t_val in ov_ticks:
+                        norm = (t_val - val_min_ov) / max(1e-5, ov_ww)
+                        norm = np.clip(norm, 0.0, 1.0)
+                        y_pos = y_start + cb_height - (norm * cb_height)
+
+                        dpg.draw_line(
+                            [x_cb_ov + cb_width, y_pos],
+                            [x_cb_ov + cb_width + 5, y_pos],
+                            color=border_col,
+                            thickness=1.5,
+                            parent=viewer.legend_tag,
+                        )
+                        dpg.draw_text(
+                            [x_cb_ov + cb_width + 9, y_pos - 7],
+                            f"{t_val:g}",
+                            color=text_col,
+                            size=13,
+                            parent=viewer.legend_tag,
+                        )
+                else:
+                    # Mode 1: Min, WL, Max + crosshair indicator for Overlay
+                    dpg.draw_text(
+                        [x_cb_ov + cb_width + 8, y_start - 7],
+                        f"{val_max_ov:g}",
+                        color=text_col,
+                        size=13,
+                        parent=viewer.legend_tag,
+                    )
+                    dpg.draw_text(
+                        [x_cb_ov + cb_width + 8, y_start + cb_height / 2 - 7],
+                        f"{ov_wl:g}",
+                        color=text_col,
+                        size=13,
+                        parent=viewer.legend_tag,
+                    )
+                    dpg.draw_text(
+                        [x_cb_ov + cb_width + 8, y_start + cb_height - 7],
+                        f"{val_min_ov:g}",
+                        color=text_col,
+                        size=13,
+                        parent=viewer.legend_tag,
+                    )
+
+                    if ov_cv is not None and isinstance(ov_cv, (int, float, np.number)):
+                        norm = (ov_cv - val_min_ov) / max(1e-5, ov_ww)
+                        norm = np.clip(norm, 0.0, 1.0)
+                        y_pos = y_start + cb_height - (norm * cb_height)
+
+                        dpg.draw_line(
+                            [x_cb_ov, y_pos],
+                            [x_cb_ov + cb_width + 6, y_pos],
+                            color=[255, 255, 255, 255],
+                            thickness=1,
+                            parent=viewer.legend_tag,
+                        )
+                        dpg.draw_triangle(
+                            [x_cb_ov + cb_width + 2, y_pos],
+                            [x_cb_ov + cb_width + 8, y_pos - 4],
+                            [x_cb_ov + cb_width + 8, y_pos + 4],
+                            color=[255, 255, 255, 255],
+                            fill=[255, 255, 255, 255],
+                            parent=viewer.legend_tag,
+                        )
 
     def draw_contours(self):
         viewer = self.viewer

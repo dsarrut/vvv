@@ -5,7 +5,6 @@ from vvv.config import WL_PRESETS
 from vvv.maths.geometry import SpatialEngine
 from vvv.utils import ViewMode
 
-
 _SENTINEL = object()
 
 
@@ -21,7 +20,7 @@ class CameraState:
     show_crosshair: bool
     show_scalebar: bool
     show_grid: bool
-    show_legend: bool
+    show_legend: int
     show_profiles: bool
     show_filename: int
     zoom: dict
@@ -68,7 +67,7 @@ class CameraState:
         self.show_crosshair = True
         self.show_scalebar = False
         self.show_grid = False
-        self.show_legend = False
+        self.show_legend = 0
         self.show_profiles = True
         self.show_filename = 0
 
@@ -113,7 +112,7 @@ class CameraState:
             "show_crosshair": self.show_crosshair,
             "show_scalebar": self.show_scalebar,
             "show_grid": self.show_grid,
-            "show_legend": self.show_legend,
+            "show_legend": int(self.show_legend),
             "show_profiles": self.show_profiles,
             # pyrefly: ignore [unnecessary-type-conversion]
             "show_filename": int(self.show_filename),
@@ -161,7 +160,7 @@ class CameraState:
         self.show_crosshair = d.get("show_crosshair", self.show_crosshair)
         self.show_scalebar = d.get("show_scalebar", self.show_scalebar)
         self.show_grid = d.get("show_grid", self.show_grid)
-        self.show_legend = d.get("show_legend", self.show_legend)
+        self.show_legend = int(d.get("show_legend", self.show_legend))
         self.show_profiles = d.get("show_profiles", self.show_profiles)
         self.show_filename = d.get("show_filename", self.show_filename)
 
@@ -836,6 +835,8 @@ class ViewState:
 
         if self.is_ct_image(sample_data):
             self.set_ct_window_level(sample_data)
+        elif getattr(self.volume, "unit", None) in ("SUV", "SUL"):
+            self.apply_wl_preset("PET: [0 - 10]")
         else:
             p1, p99 = np.percentile(sample_data, [1, 99])
             p2, p98 = np.percentile(sample_data, [2, 98])
@@ -943,6 +944,7 @@ class ViewState:
             if preset is not None:
                 self.display.ww = preset["ww"]
                 self.display.wl = preset["wl"]
+                self.display.min_threshold = preset.get("min_threshold", None)
 
     def set_overlay(self, overlay_id, other_vol):
         if overlay_id is None or other_vol is None:

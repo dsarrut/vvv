@@ -226,9 +226,16 @@ class IntensityController(PluginTagMixin):
                             and abs(vs.display.ww - p_val["ww"]) < 1e-3
                             and abs(vs.display.wl - p_val["wl"]) < 1e-3
                         ):
-                            dpg.set_value(preset_tag, p_name)
-                            matched = True
-                            break
+                            p_thr = p_val.get("min_threshold")
+                            v_thr = vs.display.min_threshold
+                            if (p_thr is None and v_thr is None) or (
+                                p_thr is not None
+                                and v_thr is not None
+                                and abs(p_thr - v_thr) < 1e-3
+                            ):
+                                dpg.set_value(preset_tag, p_name)
+                                matched = True
+                                break
                 if not matched:
                     cur_preset = dpg.get_value(preset_tag)
                     if cur_preset not in ["Custom", "Optimal", "Min/Max"]:
