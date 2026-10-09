@@ -43,6 +43,7 @@ from vvv.ui.ui_drop import install_os_drop, cleanup_os_drop
 from vvv.ui.ui_workspace import build_workspace_nav_icons
 from vvv.ui.render_strategy import GL_NEAREST_SUPPORTED, NNMode
 import vvv.ui.render_strategy as _rs_mod
+from vvv.utils import capture_whole_window, copy_image_to_clipboard
 
 
 class MainGUI:
@@ -394,7 +395,12 @@ class MainGUI:
                     "active_image_path_text", "active_image_path_click_handler"
                 )
 
-                # Define layout buttons inside the menu_bar so they aren't clipped, but position them absolutely
+                # Define layout & screenshot buttons inside the menu_bar so they aren't clipped, but position them absolutely
+                btn_screenshot = dpg.add_button(
+                    label="\uf030",
+                    callback=self.on_copy_window_screenshot_clicked,
+                    tag="btn_screenshot",
+                )
                 btn_layout_4 = dpg.add_button(
                     label="\uf009",
                     callback=lambda: self.set_viewport_layout("4"),
@@ -411,12 +417,15 @@ class MainGUI:
                     tag="btn_layout_1",
                 )
 
-                for btn in [btn_layout_4, btn_layout_2, btn_layout_1]:
+                for btn in [btn_screenshot, btn_layout_4, btn_layout_2, btn_layout_1]:
                     if dpg.does_item_exist("icon_font_tag"):
                         dpg.bind_item_font(btn, "icon_font_tag")
                     if dpg.does_item_exist("icon_button_theme"):
                         dpg.bind_item_theme(btn, "icon_button_theme")
 
+                build_beginner_tooltip(
+                    "btn_screenshot", "Copy Window Screenshot to Clipboard", self
+                )
                 build_beginner_tooltip("btn_layout_4", "4 Viewers Layout", self)
                 build_beginner_tooltip(
                     "btn_layout_2", "2 Viewers (Left/Right) Layout", self
@@ -1675,6 +1684,17 @@ class MainGUI:
         dpg.set_clipboard_text(self._active_image_path_full)
         self.show_status_message("Image path copied to clipboard")
 
+    def on_copy_window_screenshot_clicked(self, sender, app_data, user_data):
+        img = capture_whole_window()
+        if img is not None:
+            ok = copy_image_to_clipboard(img)
+            if ok:
+                self.show_status_message(f"Window screenshot ({img.size[0]}x{img.size[1]}) copied to clipboard")
+            else:
+                self.show_status_message("Failed to copy screenshot to clipboard", color=[255, 100, 100])
+        else:
+            self.show_status_message("Could not capture window", color=[255, 100, 100])
+
     def _refresh_active_image_path_bar(self):
         """Keeps the centered image-path label in the top menu bar in sync with
         the active viewer's full file path, truncating (with a full-path
@@ -1688,7 +1708,7 @@ class MainGUI:
         self._safe_set("active_image_path_tooltip_text", tooltip_text)
 
         menu_w = dpg.get_item_width("menu_container") or 0
-        left_bound, right_bound = 260, menu_w - 100
+        left_bound, right_bound = 260, menu_w - 128
         avail = right_bound - left_bound
 
         if not full_path or avail < 40:
@@ -1773,6 +1793,8 @@ class MainGUI:
                     dpg.set_item_pos("btn_layout_2", [menu_w - 58, btn_y])
                 if dpg.does_item_exist("btn_layout_4"):
                     dpg.set_item_pos("btn_layout_4", [menu_w - 86, btn_y])
+                if dpg.does_item_exist("btn_screenshot"):
+                    dpg.set_item_pos("btn_screenshot", [menu_w - 114, btn_y])
 
                 self._refresh_active_image_path_bar()
 

@@ -31,6 +31,9 @@ def _resolve_orientation(name: str) -> ViewMode:
     return mode
 
 
+from vvv.utils import copy_image_to_clipboard, capture_whole_window
+
+
 def vvv_screenshot(vvw_path: str, sc_json_path: str):
     """
     Loads VVV with a workspace and generates screenshots based on a JSON configuration.
