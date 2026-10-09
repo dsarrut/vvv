@@ -1536,21 +1536,24 @@ def create_boot_sequence(
     loaded_ids = []
     id_to_group = {}
 
-    # 1. Gather all file paths that need loading
+    # 1. Gather all file tasks that need loading
+    # Each job is (task_idx, role, path) where role is "base" or "fusion"
     jobs = []
-    for task in image_tasks:
-        jobs.append(task["base"])
+    for idx, task in enumerate(image_tasks):
+        jobs.append((idx, "base", task["base"]))
         if task["fusion"]:
-            jobs.append(task["fusion"]["path"])
+            jobs.append((idx, "fusion", task["fusion"]["path"]))
 
-    job_results = {}
+    task_results = {}
+    base_ids = []
 
     # --- THE PARALLEL LOADER & REAL PROGRESS BAR ---
     if total_files == 1:
         # Bypasses threads, modals and frame yields entirely for maximum boot speed
-        path = jobs[0]
+        idx, role, path = jobs[0]
         try:
-            job_results[path] = controller.file.load_image(path)
+            img_id = controller.file.load_image(path)
+            task_results[(idx, role)] = img_id
         except Exception as e:
             warnings.append(f"- {os.path.basename(path)}: {e}")
     else:
@@ -1560,21 +1563,22 @@ def create_boot_sequence(
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=min(total_files, 4)
         ) as executor:
-            future_to_path = {
-                executor.submit(controller.file.load_image, path): path for path in jobs
+            future_to_job = {
+                executor.submit(controller.file.load_image, job[2]): job
+                for job in jobs
             }
             futures: list[concurrent.futures.Future | None] = [
-                f for f in future_to_path.keys()
+                f for f in future_to_job.keys()
             ]
 
             completed = 0
             while completed < total_files:
                 for i, future in enumerate(futures):
                     if future is not None and future.done():
-                        path = future_to_path[future]
+                        idx, role, path = future_to_job[future]
                         try:
                             img_id = future.result()
-                            job_results[path] = img_id
+                            task_results[(idx, role)] = img_id
                         except Exception as e:
                             warnings.append(f"- {os.path.basename(path)}: {e}")
 
@@ -1596,12 +1600,12 @@ def create_boot_sequence(
     # -----------------------------------------------
 
     # 3. Now wire up the loaded data into the ViewStates synchronously
-    for task in image_tasks:
-        base_path = task["base"]
-        if base_path not in job_results:
+    for idx, task in enumerate(image_tasks):
+        if (idx, "base") not in task_results:
             continue
 
-        base_id = job_results[base_path]
+        base_id = task_results[(idx, "base")]
+        base_ids.append(base_id)
         loaded_ids.append(base_id)
         id_to_group[base_id] = task.get("sync_group", 0)
 
@@ -1614,9 +1618,8 @@ def create_boot_sequence(
             controller.view_states[base_id].is_data_dirty = True
 
         if task["fusion"]:
-            fuse_path = task["fusion"]["path"]
-            if fuse_path in job_results:
-                fuse_id = job_results[fuse_path]
+            if (idx, "fusion") in task_results:
+                fuse_id = task_results[(idx, "fusion")]
                 loaded_ids.append(fuse_id)
                 id_to_group[fuse_id] = task.get("sync_group", 0)
 
@@ -1651,7 +1654,7 @@ def create_boot_sequence(
 
     controller.default_viewers_orientation()
 
-    for i, img_id in enumerate(loaded_ids):
+    for i, img_id in enumerate(base_ids):
         if i == 0:
             for tag in ["V1", "V2", "V3", "V4"]:
                 controller.layout[tag] = img_id
@@ -1659,7 +1662,7 @@ def create_boot_sequence(
             controller.layout["V3"] = img_id
             controller.layout["V4"] = img_id
         elif i == 2:
-            controller.layout["V2"] = loaded_ids[1]
+            controller.layout["V2"] = base_ids[1]
             controller.layout["V3"] = img_id
             controller.layout["V4"] = img_id
         elif i >= 3:

@@ -349,6 +349,59 @@ def test_cli_fusion_boot_sequence_logic(headless_gui_app, synthetic_volume_facto
     assert dpg.get_value("combo_fusion_wl_presets") in list(WL_PRESETS.keys()) + ["Custom"]
 
 
+def test_cli_multiple_identical_base_fusion_boot_sequence(
+    headless_gui_app, synthetic_volume_factory
+):
+    """
+    Tests loading duplicate/multiple base + fusion pairs:
+    vvv ct.nii.gz, spect.nii.gz, jet ct.nii.gz, spect.nii.gz, jet
+    Verifies that both base images get their overlays attached and
+    viewers are assigned to the base images (not to the overlays).
+    """
+    controller, gui, viewer, _ = headless_gui_app
+
+    ct_path = synthetic_volume_factory("ct_task.nii.gz")
+    spect_path = synthetic_volume_factory("spect_task.nii.gz")
+
+    from vvv.cli import parse_cli_arguments
+
+    args = [f"{ct_path},", f"{spect_path},", "jet", f"{ct_path},", f"{spect_path},", "jet"]
+    image_tasks = parse_cli_arguments(args)
+
+    assert len(image_tasks) == 2
+
+    boot_gen = create_boot_sequence(
+        gui, controller, image_tasks, sync=False, link_all=False
+    )
+    list(boot_gen)
+
+    # Find the two base CT view states
+    ct_vs_list = [
+        vs for vs in controller.view_states.values() if vs.volume.name == "ct_task.nii.gz"
+    ]
+    assert len(ct_vs_list) == 2
+
+    # BOTH base images MUST have an overlay configured!
+    for vs in ct_vs_list:
+        assert vs.display.overlay.image_id is not None
+        overlay_id = vs.display.overlay.image_id
+        overlay_vs = controller.view_states[overlay_id]
+        assert overlay_vs.volume.name == "spect_task.nii.gz"
+        assert overlay_vs.display.colormap == "Jet"
+
+    # Layout should contain the two base CTs, not the overlays
+    ct_ids = [
+        img_id
+        for img_id, vs in controller.view_states.items()
+        if vs.volume.name == "ct_task.nii.gz"
+    ]
+    assert controller.layout["V1"] == ct_ids[0]
+    assert controller.layout["V2"] == ct_ids[0]
+    assert controller.layout["V3"] == ct_ids[1]
+    assert controller.layout["V4"] == ct_ids[1]
+
+
+
 
 @pytest.mark.skipif(platform.system() == "Windows", reason="Unix-specific test")
 def test_gui_interaction_modifiers(headless_gui_app, monkeypatch):
