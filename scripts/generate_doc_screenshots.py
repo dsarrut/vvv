@@ -321,11 +321,341 @@ def generate_doc_03_screenshots(img_dir: Path):
     dpg.destroy_context()
 
 
+def generate_doc_04_screenshots(img_dir: Path):
+    """Generates screenshots for doc_04 (Synchronization tab and multi-viewer sync)."""
+    from vvv.cli import parse_cli_arguments
+    from vvv.ui.ui_sequences import create_boot_sequence
+
+    dpg.create_context()
+    ctrl = Controller()
+    ctrl.use_history = False
+    for tag in ["V1", "V2", "V3", "V4"]:
+        ctrl.viewers[tag] = SliceViewer(tag, ctrl)
+
+    gui = MainGUI(ctrl)
+    ctrl.gui = gui
+
+    vp_title = "VVV Sync Doc Session"
+    dpg.create_viewport(title=vp_title, width=1280, height=800, x_pos=50, y_pos=50)
+    dpg.setup_dearpygui()
+    dpg.show_viewport()
+    dpg.set_primary_window("PrimaryWindow", True)
+    gui.on_window_resize()
+
+    tasks = parse_cli_arguments(["data/ct.nii.gz", "data/spect.nii.gz"])
+    list(create_boot_sequence(gui, ctrl, tasks))
+    ctrl.sync.link_all()
+
+    # Position crosshair in overlapping physical space
+    import numpy as np
+    from vvv.core.view_state import ViewMode
+
+    vs_ct = ctrl.view_states["1"]
+    vs_ct.update_crosshair_from_phys(np.array([-32.9, -16.6, 1565.5]))
+    vs_ct.camera.zoom[("V2", ViewMode.SAGITTAL)] = 2.94
+    vs_ct.camera.zoom[ViewMode.SAGITTAL] = 2.94
+    vs_ct.camera.pan[("V2", ViewMode.SAGITTAL)] = [-20.0, 180.0]
+    vs_ct.camera.pan[ViewMode.SAGITTAL] = [-20.0, 180.0]
+
+    ctrl.sync.propagate_sync("1")
+
+    # Switch sidebar to Sync tab
+    gui.active_tab = "tab_sync"
+    for t in ["tab_images", "tab_fusion"]:
+        if dpg.does_item_exist(t):
+            dpg.configure_item(t, show=False)
+    if dpg.does_item_exist("tab_sync"):
+        dpg.configure_item("tab_sync", show=True)
+    gui._refresh_all_ui_panels()
+
+    ctrl.status_message = None
+
+    if sys.platform == "darwin":
+        from Cocoa import NSApplication
+
+        app = NSApplication.sharedApplication()
+        app.activateIgnoringOtherApps_(True)
+
+    for _ in range(50):
+        ctrl.tick()
+        gui._refresh_all_ui_panels()
+        gui.update_sidebar_crosshair(gui.context_viewer)
+        dpg.render_dearpygui_frame()
+
+    main_w = app.mainWindow() or app.keyWindow()
+    if main_w is None or main_w.frame().size.width < 800:
+        for w in app.windows():
+            if w.frame().size.width >= 1000 and w.isVisible():
+                main_w = w
+                break
+
+    main_w.makeKeyAndOrderFront_(None)
+    content_rect = main_w.contentRectForFrameRect_(main_w.frame())
+    scale = main_w.backingScaleFactor()
+    screen_h = main_w.screen().frame().size.height
+
+    win_x = content_rect.origin.x
+    win_y = screen_h - (content_rect.origin.y + content_rect.size.height)
+
+    def crop_item(min_pt, max_pt, pad=4):
+        x1 = win_x + min_pt[0] - pad
+        y1 = win_y + min_pt[1] - pad
+        x2 = win_x + max_pt[0] + pad
+        y2 = win_y + max_pt[1] + pad
+        return (
+            int(round(x1 * scale)),
+            int(round(y1 * scale)),
+            int(round(x2 * scale)),
+            int(round(y2 * scale)),
+        )
+
+    # 1. Full Layout with Sync Tab
+    bbox_full = (
+        int(round(win_x * scale)),
+        int(round(win_y * scale)),
+        int(round((win_x + content_rect.size.width) * scale)),
+        int(round((win_y + content_rect.size.height) * scale)),
+    )
+    im_full = ImageGrab.grab(bbox=bbox_full)
+    im_full.save(img_dir / "doc_04_sync_layout.png")
+    print(f"Generated: doc_04_sync_layout.png ({im_full.size[0]}x{im_full.size[1]})")
+
+    # 2. Sync Tab crop
+    sync_min = dpg.get_item_rect_min("tab_sync")
+    sync_max = dpg.get_item_rect_max("tab_sync")
+    bbox_sync = crop_item(sync_min, sync_max, pad=8)
+    im_sync = ImageGrab.grab(bbox=bbox_sync)
+    im_sync.save(img_dir / "doc_04_sync_panel.png")
+    print(f"Generated: doc_04_sync_panel.png ({im_sync.size[0]}x{im_sync.size[1]})")
+
+    dpg.destroy_context()
+
+
+def generate_doc_05_screenshots(img_dir: Path):
+    """Generates screenshots for doc_05 (Fusion tab, alpha overlay, checkerboard)."""
+    from vvv.cli import parse_cli_arguments
+    from vvv.ui.ui_sequences import create_boot_sequence
+    from vvv.core.view_state import ViewMode
+    import numpy as np
+
+    dpg.create_context()
+    ctrl = Controller()
+    ctrl.use_history = False
+    for tag in ["V1", "V2", "V3", "V4"]:
+        ctrl.viewers[tag] = SliceViewer(tag, ctrl)
+
+    gui = MainGUI(ctrl)
+    ctrl.gui = gui
+
+    vp_title = "VVV Fusion Doc Session"
+    dpg.create_viewport(title=vp_title, width=1280, height=800, x_pos=50, y_pos=50)
+    dpg.setup_dearpygui()
+    dpg.show_viewport()
+    dpg.set_primary_window("PrimaryWindow", True)
+    gui.on_window_resize()
+
+    tasks = parse_cli_arguments(["data/ct.nii.gz,data/spect.nii.gz,hot,0.65"])
+    list(create_boot_sequence(gui, ctrl, tasks))
+
+    # Configure camera for full patient display in sagittal V2
+    vs_ct = ctrl.view_states["1"]
+    vs_ct.update_crosshair_from_phys(np.array([-32.9, -16.6, 1565.5]))
+    vs_ct.camera.zoom[("V2", ViewMode.SAGITTAL)] = 2.94
+    vs_ct.camera.zoom[ViewMode.SAGITTAL] = 2.94
+    vs_ct.camera.pan[("V2", ViewMode.SAGITTAL)] = [-20.0, 180.0]
+    vs_ct.camera.pan[ViewMode.SAGITTAL] = [-20.0, 180.0]
+
+    # Switch sidebar to Fusion tab
+    gui.active_tab = "tab_fusion"
+    for t in ["tab_images", "tab_sync"]:
+        if dpg.does_item_exist(t):
+            dpg.configure_item(t, show=False)
+    if dpg.does_item_exist("tab_fusion"):
+        dpg.configure_item("tab_fusion", show=True)
+    gui._refresh_all_ui_panels()
+
+    ctrl.status_message = None
+
+    if sys.platform == "darwin":
+        from Cocoa import NSApplication
+
+        app = NSApplication.sharedApplication()
+        app.activateIgnoringOtherApps_(True)
+
+    for _ in range(50):
+        ctrl.tick()
+        gui._refresh_all_ui_panels()
+        gui.update_sidebar_crosshair(gui.context_viewer)
+        dpg.render_dearpygui_frame()
+
+    main_w = app.mainWindow() or app.keyWindow()
+    if main_w is None or main_w.frame().size.width < 800:
+        for w in app.windows():
+            if w.frame().size.width >= 1000 and w.isVisible():
+                main_w = w
+                break
+
+    main_w.makeKeyAndOrderFront_(None)
+    content_rect = main_w.contentRectForFrameRect_(main_w.frame())
+    scale = main_w.backingScaleFactor()
+    screen_h = main_w.screen().frame().size.height
+
+    win_x = content_rect.origin.x
+    win_y = screen_h - (content_rect.origin.y + content_rect.size.height)
+
+    def crop_item(min_pt, max_pt, pad=4):
+        x1 = win_x + min_pt[0] - pad
+        y1 = win_y + min_pt[1] - pad
+        x2 = win_x + max_pt[0] + pad
+        y2 = win_y + max_pt[1] + pad
+        return (
+            int(round(x1 * scale)),
+            int(round(y1 * scale)),
+            int(round(x2 * scale)),
+            int(round(y2 * scale)),
+        )
+
+    # 1. Full Layout with Fusion
+    bbox_full = (
+        int(round(win_x * scale)),
+        int(round(win_y * scale)),
+        int(round((win_x + content_rect.size.width) * scale)),
+        int(round((win_y + content_rect.size.height) * scale)),
+    )
+    im_full = ImageGrab.grab(bbox=bbox_full)
+    im_full.save(img_dir / "doc_05_fusion_layout.png")
+    print(f"Generated: doc_05_fusion_layout.png ({im_full.size[0]}x{im_full.size[1]})")
+
+    # 2. Fusion Tab panel crop
+    fus_min = dpg.get_item_rect_min("tab_fusion")
+    fus_max = dpg.get_item_rect_max("tab_fusion")
+    bbox_fus = crop_item(fus_min, fus_max, pad=8)
+    im_fus = ImageGrab.grab(bbox=bbox_fus)
+    im_fus.save(img_dir / "doc_05_fusion_panel.png")
+    print(f"Generated: doc_05_fusion_panel.png ({im_fus.size[0]}x{im_fus.size[1]})")
+
+    dpg.destroy_context()
+
+
+def generate_doc_06_screenshots(img_dir: Path):
+    """Generates screenshots for doc_06 (Intensity tab, W/L presets, colormap, histogram)."""
+    from vvv.cli import parse_cli_arguments
+    from vvv.ui.ui_sequences import create_boot_sequence
+    from vvv.core.view_state import ViewMode
+    import numpy as np
+
+    dpg.create_context()
+    ctrl = Controller()
+    ctrl.use_history = False
+    for tag in ["V1", "V2", "V3", "V4"]:
+        ctrl.viewers[tag] = SliceViewer(tag, ctrl)
+
+    gui = MainGUI(ctrl)
+    ctrl.gui = gui
+
+    vp_title = "VVV Intensity Doc Session"
+    dpg.create_viewport(title=vp_title, width=1280, height=800, x_pos=50, y_pos=50)
+    dpg.setup_dearpygui()
+    dpg.show_viewport()
+    dpg.set_primary_window("PrimaryWindow", True)
+    gui.on_window_resize()
+
+    tasks = parse_cli_arguments(["data/ct.nii.gz"])
+    list(create_boot_sequence(gui, ctrl, tasks))
+
+    # Configure camera for full patient display in sagittal V2
+    vs_ct = ctrl.view_states["1"]
+    vs_ct.update_crosshair_from_phys(np.array([-32.9, -16.6, 1565.5]))
+    vs_ct.camera.zoom[("V2", ViewMode.SAGITTAL)] = 2.94
+    vs_ct.camera.zoom[ViewMode.SAGITTAL] = 2.94
+    vs_ct.camera.pan[("V2", ViewMode.SAGITTAL)] = [-20.0, 180.0]
+    vs_ct.camera.pan[ViewMode.SAGITTAL] = [-20.0, 180.0]
+
+    gui.set_context_viewer(ctrl.viewers["V1"])
+    ctrl.view_states["1"].apply_wl_preset("CT Abdomen")
+
+    # Switch sidebar to Intensity tab
+    gui.active_tab = "intensity_plugin"
+    for t in ["tab_images", "tab_sync", "tab_fusion"]:
+        if dpg.does_item_exist(t):
+            dpg.configure_item(t, show=False)
+    if dpg.does_item_exist("intensity_plugin"):
+        dpg.configure_item("intensity_plugin", show=True)
+    gui._refresh_all_ui_panels()
+
+    ctrl.status_message = None
+    for p in gui.plugins:
+        if hasattr(p, "landmarks"):
+            p.landmarks.clear()
+
+    if sys.platform == "darwin":
+        from Cocoa import NSApplication
+
+        app = NSApplication.sharedApplication()
+        app.activateIgnoringOtherApps_(True)
+
+    for _ in range(50):
+        ctrl.tick()
+        gui._refresh_all_ui_panels()
+        for p in gui.plugins:
+            gui._call_plugin(p, "update", gui.plugin_api)
+        gui.update_sidebar_crosshair(gui.context_viewer)
+        dpg.render_dearpygui_frame()
+
+    main_w = app.mainWindow() or app.keyWindow()
+    if main_w is None or main_w.frame().size.width < 800:
+        for w in app.windows():
+            if w.frame().size.width >= 1000 and w.isVisible():
+                main_w = w
+                break
+
+    main_w.makeKeyAndOrderFront_(None)
+    content_rect = main_w.contentRectForFrameRect_(main_w.frame())
+    scale = main_w.backingScaleFactor()
+    screen_h = main_w.screen().frame().size.height
+
+    win_x = content_rect.origin.x
+    win_y = screen_h - (content_rect.origin.y + content_rect.size.height)
+
+    def crop_item(min_pt, max_pt, pad=4):
+        x1 = win_x + min_pt[0] - pad
+        y1 = win_y + min_pt[1] - pad
+        x2 = win_x + max_pt[0] + pad
+        y2 = win_y + max_pt[1] + pad
+        return (
+            int(round(x1 * scale)),
+            int(round(y1 * scale)),
+            int(round(x2 * scale)),
+            int(round(y2 * scale)),
+        )
+
+    # 1. Full Layout with Intensity Tab
+    bbox_full = (
+        int(round(win_x * scale)),
+        int(round(win_y * scale)),
+        int(round((win_x + content_rect.size.width) * scale)),
+        int(round((win_y + content_rect.size.height) * scale)),
+    )
+    im_full = ImageGrab.grab(bbox=bbox_full)
+    im_full.save(img_dir / "doc_06_intensity_layout.png")
+    print(f"Generated: doc_06_intensity_layout.png ({im_full.size[0]}x{im_full.size[1]})")
+
+    # 2. Intensity Tab panel crop
+    int_min = dpg.get_item_rect_min("intensity_plugin")
+    int_max = dpg.get_item_rect_max("intensity_plugin")
+    bbox_int = crop_item(int_min, int_max, pad=8)
+    im_int = ImageGrab.grab(bbox=bbox_int)
+    im_int.save(img_dir / "doc_06_intensity_panel.png")
+    print(f"Generated: doc_06_intensity_panel.png ({im_int.size[0]}x{im_int.size[1]})")
+
+    dpg.destroy_context()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Generate VVV documentation screenshots.")
     parser.add_argument(
         "--target",
-        choices=["all", "help_buttons", "doc_02", "doc_03"],
+        choices=["all", "help_buttons", "doc_02", "doc_03", "doc_04", "doc_05", "doc_06"],
         default="all",
         help="Target screenshot(s) to generate (default: all)",
     )
@@ -344,6 +674,15 @@ def main():
 
     if args.target in ("all", "doc_03"):
         generate_doc_03_screenshots(img_dir)
+
+    if args.target in ("all", "doc_04"):
+        generate_doc_04_screenshots(img_dir)
+
+    if args.target in ("all", "doc_05"):
+        generate_doc_05_screenshots(img_dir)
+
+    if args.target in ("all", "doc_06"):
+        generate_doc_06_screenshots(img_dir)
 
 
 if __name__ == "__main__":
