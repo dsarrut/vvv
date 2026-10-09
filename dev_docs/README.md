@@ -38,6 +38,7 @@ VVV uses an extensible plugin system located in `src/vvv/plugins/`:
 * **[plugin_profile.md](plugin_profile.md)**: Interactive line profile drawing, physical length measurement, voxel sampling, and 1D plots.
 * **[plugin_dvf.md](plugin_dvf.md)**: Displacement Vector Field visualization (arrow grids, component maps, and RGB color direction).
 * **[plugin_dicom.md](plugin_dicom.md)**: DICOM folder scanning, series parsing, metadata browser, and thread safety.
+* **[plugin_dose.md](plugin_dose.md)**: Radiation dose tools, scaling, normalization (% rx, % max), isodoses, and DVH.
 
 ---
 
