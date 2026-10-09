@@ -57,6 +57,7 @@ Managed by `propagate_window_level()` and `propagate_colormap()`:
 * **Window / Level**: Broadcasts `DisplayState.ww` and `DisplayState.wl` across `sync_wl_group` members.
 * **Minimum Thresholding**: Propagates `DisplayState.min_threshold` so noise/air cutoff is applied uniformly across comparative views.
 * **Colormap**: Ensures comparative or fused viewports share the same colormap palette.
+* **Fusion Overlay Opacity**: Propagates `DisplayState.overlay.opacity` across base images whose overlays belong to the same `sync_wl_group` (or when base images share `sync_wl_group`).
 
 ---
 

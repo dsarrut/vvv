@@ -262,6 +262,11 @@ class FusionUI:
                 )
                 if not has_overlay:
                     dpg.set_value("slider_fusion_opacity", 0.0)
+                else:
+                    dpg.set_value(
+                        "slider_fusion_opacity",
+                        viewer.view_state.display.overlay.opacity,
+                    )
             if dpg.does_item_exist("text_fusion_opacity_label"):
                 dpg.set_value(
                     "text_fusion_opacity_label", "Balance" if is_reg else "Opacity"
@@ -534,6 +539,15 @@ class FusionUI:
             if current_map != new_map:
                 dpg.set_value("combo_fusion_colormap", new_map)
 
+        # 4. Overlay Opacity
+        if dpg.does_item_exist("slider_fusion_opacity") and not dpg.is_item_active(
+            "slider_fusion_opacity"
+        ):
+            current_op = dpg.get_value("slider_fusion_opacity")
+            new_op = viewer.view_state.display.overlay.opacity
+            if abs(current_op - new_op) > 1e-4:
+                dpg.set_value("slider_fusion_opacity", new_op)
+
     # Callbacks
     def on_fusion_preset_changed(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer
@@ -774,6 +788,9 @@ class FusionUI:
         self.controller.sync.propagate_overlay_mode(viewer.image_id)
 
     def on_fusion_opacity_changed(self, sender, app_data, user_data):
-        if self.gui.context_viewer and self.gui.context_viewer.view_state:
-            self.gui.context_viewer.view_state.display.overlay.opacity = app_data
-            self.gui.context_viewer.view_state.is_data_dirty = True
+        viewer = self.gui.context_viewer
+        if viewer and viewer.view_state:
+            viewer.view_state.display.overlay.opacity = app_data
+            viewer.view_state.is_data_dirty = True
+            self.controller.sync.propagate_overlay_opacity(viewer.image_id)
+            self.controller.update_all_viewers_of_image(viewer.image_id)

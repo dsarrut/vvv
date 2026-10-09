@@ -516,6 +516,7 @@ class Controller:
         if master_vs_id:
             self.sync.propagate_window_level(master_vs_id)
             self.sync.propagate_colormap(master_vs_id)
+            self.sync.propagate_overlay_opacity(master_vs_id)
 
         self.ui_needs_refresh = True
 

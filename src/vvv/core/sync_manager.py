@@ -180,6 +180,42 @@ class SyncManager:
 
         self.trigger_redraw(list(dirty_ids))
 
+    def propagate_overlay_opacity(self, source_vs_id):
+        """Propagate fusion overlay opacity across base images displaying overlays that share the same Window/Level sync group."""
+        source_vs = self.controller.view_states.get(source_vs_id)
+        if not source_vs:
+            return
+
+        new_opacity = source_vs.display.overlay.opacity
+        source_ov_id = source_vs.display.overlay.image_id
+        source_ov_vs = self.controller.view_states.get(source_ov_id) if source_ov_id else None
+
+        # Determine target overlay IDs in the same W/L sync group
+        overlay_target_ids = set()
+        if source_ov_id:
+            overlay_target_ids.add(source_ov_id)
+            if source_ov_vs:
+                overlay_target_ids.update(self.get_sync_wl_group_vs_ids(source_ov_id))
+
+        dirty_ids = set([source_vs_id])
+
+        # 1. Base images whose overlays belong to the same overlay W/L sync group
+        if overlay_target_ids:
+            for base_id, vs in list(self.controller.view_states.items()):
+                if base_id != source_vs_id and vs.display.overlay.image_id in overlay_target_ids:
+                    vs.display.overlay.opacity = new_opacity
+                    dirty_ids.add(base_id)
+
+        # 2. Base images that share the base W/L sync group (if base is grouped)
+        for vs_id in self.get_sync_wl_group_vs_ids(source_vs_id):
+            if vs_id != source_vs_id:
+                vs = self.controller.view_states[vs_id]
+                if vs.display.overlay.image_id:
+                    vs.display.overlay.opacity = new_opacity
+                    dirty_ids.add(vs_id)
+
+        self.trigger_redraw(list(dirty_ids))
+
     def propagate_ppm(self, target_viewer_tags):
         valid_viewers = [
             self.controller.viewers[tag]
@@ -343,6 +379,7 @@ class SyncManager:
 
         self.propagate_window_level(master_vs_id)
         self.propagate_colormap(master_vs_id)
+        self.propagate_overlay_opacity(master_vs_id)
 
         for vs_id in list(self.controller.view_states.keys()):
             self.controller.update_all_viewers_of_image(vs_id)

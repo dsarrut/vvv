@@ -224,7 +224,33 @@ def test_gui_fusion_controls(headless_gui_app, synthetic_volume_factory, monkeyp
 
     # 9. Call refresh_fusion_ui() to ensure full panel refresh works with active overlay
     gui.fusion_ui.refresh_fusion_ui()
+    assert dpg.get_value("slider_fusion_opacity") == 0.75
     gui._refresh_all_ui_panels()
+
+    # 10. Test W/L Sync propagation of overlay opacity
+    base2_path = synthetic_volume_factory("base2.nii.gz", val=10.0)
+    base2_id = controller.file.load_image(base2_path)
+    vs2 = controller.view_states[base2_id]
+    vs2.set_overlay(ov_id, controller.volumes[ov_id])
+    assert vs2.display.overlay.opacity == 0.5
+
+    # Group base1 and base2 into sync_wl_group = 1
+    controller.set_sync_wl_group(base_id, 1)
+    controller.set_sync_wl_group(base2_id, 1)
+
+    # 11. Test sync when base images are unlinked (sync_wl_group = 0) but overlays share sync_wl_group
+    controller.set_sync_wl_group(base_id, 0)
+    controller.set_sync_wl_group(base2_id, 0)
+    assert vs.sync_wl_group == 0
+    assert vs2.sync_wl_group == 0
+
+    # Put the overlay in sync_wl_group = 1
+    controller.set_sync_wl_group(ov_id, 1)
+
+    # Change opacity on base1 -> should propagate to base2 because both fuse overlay from W/L group 1
+    gui.fusion_ui.on_fusion_opacity_changed(sender=None, app_data=0.62, user_data=None)
+    assert vs.display.overlay.opacity == 0.62
+    assert vs2.display.overlay.opacity == 0.62
 
 
 
