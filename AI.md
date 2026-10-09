@@ -34,7 +34,8 @@ This document serves as the global entry point and instruction manual for AI age
 
 ```
 vvv/
-├── docs/                      # Reference manuals and how-to guides (detailed in Section 3)
+├── dev_docs/                  # Developer reference manuals and how-to guides (detailed in Section 3)
+├── user_docs/                 # User guide and manuals
 ├── src/vvv/                   # Core application codebase
 │   ├── core/                  # State management, view state, controller, sub-managers
 │   │   ├── controller.py      # State bridge
@@ -66,40 +67,40 @@ Most new tools and features are modular plugins located in [src/vvv/plugins/](sr
 
 ---
 
-## 3. Developer Documentation Index (docs/)
+## 3. Developer Documentation Index (dev_docs/)
 
-When implementing a task, refer to the specific markdown documents in the [docs/](docs/) folder:
+When implementing a task, refer to the specific markdown documents in the [dev_docs/](dev_docs/) folder:
 
 ### Core Guides & Architecture
-*   [core_overview.md](docs/core_overview.md): High-level system architecture, threading model, render loop lifecycle, and coordinate definitions.
-*   [core_image_types.md](docs/core_image_types.md): Specification document on image types (2D, 3D, 4D, DVF, RGB), loading pipelines, and tool capabilities.
-*   [core_image_list.md](docs/core_image_list.md): Specification and lifecycle of the core image list sidebar tool.
-*   [core_rendering.md](docs/core_rendering.md): Slice blending, window leveling math, Numba acceleration, and texture mapping logic.
-*   [core_sync.md](docs/core_sync.md): How viewports are synchronized spatially and temporally.
-*   [core_units.md](docs/core_units.md): Physical voxel units (HU, SUV, SUL, Bq/mL), sidecar JSON persistence, clinical presets, and publication colorbar legends.
-*   [core_viewstate_property.md](docs/core_viewstate_property.md): How to add new reactive properties to `ViewState` (handling synchronization, events, and redraw triggers).
-*   [core_contours.md](docs/core_contours.md): Guide on the contour detection and drawing architecture.
+*   [core_overview.md](dev_docs/core_overview.md): High-level system architecture, threading model, render loop lifecycle, and coordinate definitions.
+*   [core_image_types.md](dev_docs/core_image_types.md): Specification document on image types (2D, 3D, 4D, DVF, RGB), loading pipelines, and tool capabilities.
+*   [core_image_list.md](dev_docs/core_image_list.md): Specification and lifecycle of the core image list sidebar tool.
+*   [core_rendering.md](dev_docs/core_rendering.md): Slice blending, window leveling math, Numba acceleration, and texture mapping logic.
+*   [core_sync.md](dev_docs/core_sync.md): How viewports are synchronized spatially and temporally.
+*   [core_units.md](dev_docs/core_units.md): Physical voxel units (HU, SUV, SUL, Bq/mL), sidecar JSON persistence, clinical presets, and publication colorbar legends.
+*   [core_viewstate_property.md](dev_docs/core_viewstate_property.md): How to add new reactive properties to `ViewState` (handling synchronization, events, and redraw triggers).
+*   [core_contours.md](dev_docs/core_contours.md): Guide on the contour detection and drawing architecture.
 
 ### How-To Integration Recipes
-*   [howto_sidebar_tab.md](docs/howto_sidebar_tab.md): Step-by-step instructions to add a new tab to the sidebar menu.
-*   [howto_menu_item.md](docs/howto_menu_item.md): Guide to extending the main window menu bar.
-*   [howto_shortcuts.md](docs/howto_shortcuts.md): How to bind global keyboard/mouse shortcuts in `MainGUI`.
-*   [howto_overlay_mode.md](docs/howto_overlay_mode.md): Guide for drawing visual overlays on top of the slice viewer (e.g. crosshairs, contours).
-*   [howto_programmatic_screenshots.md](docs/howto_programmatic_screenshots.md): Guide to generating programmatic screenshots centered on a physical coordinate from a workspace and JSON file.
+*   [howto_sidebar_tab.md](dev_docs/howto_sidebar_tab.md): Step-by-step instructions to add a new tab to the sidebar menu.
+*   [howto_menu_item.md](dev_docs/howto_menu_item.md): Guide to extending the main window menu bar.
+*   [howto_shortcuts.md](dev_docs/howto_shortcuts.md): How to bind global keyboard/mouse shortcuts in `MainGUI`.
+*   [howto_overlay_mode.md](dev_docs/howto_overlay_mode.md): Guide for drawing visual overlays on top of the slice viewer (e.g. crosshairs, contours).
+*   [howto_programmatic_screenshots.md](dev_docs/howto_programmatic_screenshots.md): Guide to generating programmatic screenshots centered on a physical coordinate from a workspace and JSON file.
 
 ### Plugins Subsystem & Features
-*   [plugin_architecture.md](docs/plugin_architecture.md): Comprehensive guide on the plugin contract, lifetime hooks, settings serialization, and the `PluginAPI` reference.
-*   [plugin_checklist.md](docs/plugin_checklist.md): Practical checklist for developing, reviewing, and verifying plugins.
-*   [plugin_api_method.md](docs/plugin_api_method.md): How to safely add new methods to `PluginAPI` and export them from the core.
-*   [plugin_intensity.md](docs/plugin_intensity.md): Window/Level presets, dynamic slider speeds, and async histogram computing.
-*   [plugin_landmark.md](docs/plugin_landmark.md): 3D physical point landmarks, voxel snapping, CSV import/export, and spatial navigation.
-*   [plugin_mip.md](docs/plugin_mip.md): Maximum Intensity Projection, interactive rotation, slab thickness, and Numba acceleration.
-*   [plugin_threshold.md](docs/plugin_threshold.md): Interactive min/max intensity threshold previews and image extraction.
-*   [plugin_roi.md](docs/plugin_roi.md): Outline of region-of-interest (ROI) tools and managers.
-*   [plugin_profile.md](docs/plugin_profile.md): Intensity line profiles, sampling, coordinate spaces, and XY plots.
-*   [plugin_registration.md](docs/plugin_registration.md): Extrinsic rigid registration preview and resample logic.
-*   [plugin_dvf.md](docs/plugin_dvf.md): Vector field, component-wise, and RGB visualization parameters for displacement vector fields.
-*   [plugin_dicom.md](docs/plugin_dicom.md): Recursive DICOM folder scanning, tag/metadata lists, and thread safety.
+*   [plugin_architecture.md](dev_docs/plugin_architecture.md): Comprehensive guide on the plugin contract, lifetime hooks, settings serialization, and the `PluginAPI` reference.
+*   [plugin_checklist.md](dev_docs/plugin_checklist.md): Practical checklist for developing, reviewing, and verifying plugins.
+*   [plugin_api_method.md](dev_docs/plugin_api_method.md): How to safely add new methods to `PluginAPI` and export them from the core.
+*   [plugin_intensity.md](dev_docs/plugin_intensity.md): Window/Level presets, dynamic slider speeds, and async histogram computing.
+*   [plugin_landmark.md](dev_docs/plugin_landmark.md): 3D physical point landmarks, voxel snapping, CSV import/export, and spatial navigation.
+*   [plugin_mip.md](dev_docs/plugin_mip.md): Maximum Intensity Projection, interactive rotation, slab thickness, and Numba acceleration.
+*   [plugin_threshold.md](dev_docs/plugin_threshold.md): Interactive min/max intensity threshold previews and image extraction.
+*   [plugin_roi.md](dev_docs/plugin_roi.md): Outline of region-of-interest (ROI) tools and managers.
+*   [plugin_profile.md](dev_docs/plugin_profile.md): Intensity line profiles, sampling, coordinate spaces, and XY plots.
+*   [plugin_registration.md](dev_docs/plugin_registration.md): Extrinsic rigid registration preview and resample logic.
+*   [plugin_dvf.md](dev_docs/plugin_dvf.md): Vector field, component-wise, and RGB visualization parameters for displacement vector fields.
+*   [plugin_dicom.md](dev_docs/plugin_dicom.md): Recursive DICOM folder scanning, tag/metadata lists, and thread safety.
 
 ---
 

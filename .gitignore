@@ -213,4 +213,6 @@ uv.lock
 *pth
 test_dpg.py
 scratch*
-dev_doc/
+local_doc/
+
+
