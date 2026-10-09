@@ -11,7 +11,9 @@ class RoiPluginController(PluginTagMixin):
 
         # State Persistence (similar to native RoiUI)
         self.active_roi_id = None
+        self.selected_roi_ids: set[str] = set()
         self.roi_filters = {}
+        self.roi_filter_inverts = {}  # image_id -> bool
         self.roi_sort_orders = {}
 
         self._last_image_id = None
@@ -35,6 +37,11 @@ class RoiPluginController(PluginTagMixin):
         if api.ui_needs_refresh or image_id != self._last_image_id or roi_ids != self._last_roi_ids:
             self._last_image_id = image_id
             self._last_roi_ids = roi_ids
+            # Prune any selected_roi_ids that no longer exist
+            if self.selected_roi_ids:
+                self.selected_roi_ids.intersection_update(roi_ids)
+                if self.active_roi_id and self.active_roi_id not in self.selected_roi_ids:
+                    self.active_roi_id = next(iter(self.selected_roi_ids), None)
             self.ui.refresh_rois_ui()
 
     def on_image_loaded(self, image_id: str) -> None:
@@ -45,7 +52,9 @@ class RoiPluginController(PluginTagMixin):
         # active_roi_id is a roi_id, not an image_id — always clear it;
         # the UI list is fully rebuilt right after.
         self.active_roi_id = None
+        self.selected_roi_ids.clear()
         self.roi_filters.pop(image_id, None)
+        self.roi_filter_inverts.pop(image_id, None)
         self.roi_sort_orders.pop(image_id, None)
         if self.ui:
             self.ui.close_rtstruct_modal()
@@ -55,12 +64,15 @@ class RoiPluginController(PluginTagMixin):
     def serialize_image_state(self, image_id: str, context: str = "history") -> dict:
         return {
             "roi_filter": self.roi_filters.get(image_id, ""),
+            "roi_filter_invert": self.roi_filter_inverts.get(image_id, False),
             "roi_sort_order": self.roi_sort_orders.get(image_id, 0),
         }
 
     def restore_image_state(self, image_id: str, data: dict, context: str = "history") -> None:
         if "roi_filter" in data:
             self.roi_filters[image_id] = data["roi_filter"]
+        if "roi_filter_invert" in data:
+            self.roi_filter_inverts[image_id] = data["roi_filter_invert"]
         if "roi_sort_order" in data:
             self.roi_sort_orders[image_id] = data["roi_sort_order"]
 
@@ -79,6 +91,16 @@ class RoiPluginController(PluginTagMixin):
             self.ui.close_all_stats_windows()
 
     # --- Actions called from UI ---
+
+    def on_toggle_roi_filter_invert(self) -> None:
+        if not self.api:
+            return
+        viewer = self.api.get_active_viewer()
+        if viewer and viewer.image_id:
+            vs_id = viewer.image_id
+            self.roi_filter_inverts[vs_id] = not self.roi_filter_inverts.get(vs_id, False)
+            if self.ui:
+                self.ui.refresh_rois_ui()
 
     def on_roi_filter_changed(self, filter_text: str) -> None:
         if not self.api:
@@ -115,8 +137,49 @@ class RoiPluginController(PluginTagMixin):
         if self.ui:
             self.ui.refresh_rois_ui()
 
-    def on_roi_selected(self, roi_id: str) -> None:
-        self.active_roi_id = roi_id
+    def clear_roi_selection(self) -> None:
+        self.selected_roi_ids.clear()
+        self.active_roi_id = None
+        if self.ui:
+            self.ui.refresh_rois_ui()
+
+    def on_roi_selected(
+        self,
+        roi_id: str,
+        ctrl: bool = False,
+        shift: bool = False,
+        visible_ids: list[str] | None = None,
+    ) -> None:
+        if shift and visible_ids and roi_id in visible_ids:
+            # Range selection
+            anchor = self.active_roi_id if (self.active_roi_id and self.active_roi_id in visible_ids) else (visible_ids[0] if visible_ids else roi_id)
+            try:
+                idx_start = visible_ids.index(anchor)
+                idx_end = visible_ids.index(roi_id)
+                low, high = min(idx_start, idx_end), max(idx_start, idx_end)
+                range_ids = set(visible_ids[low : high + 1])
+                if ctrl:
+                    self.selected_roi_ids.update(range_ids)
+                else:
+                    self.selected_roi_ids = range_ids
+                self.active_roi_id = roi_id
+            except ValueError:
+                self.selected_roi_ids = {roi_id}
+                self.active_roi_id = roi_id
+        elif ctrl:
+            # Toggle individual ROI
+            if roi_id in self.selected_roi_ids:
+                self.selected_roi_ids.remove(roi_id)
+                if self.active_roi_id == roi_id:
+                    self.active_roi_id = next(iter(self.selected_roi_ids), None)
+            else:
+                self.selected_roi_ids.add(roi_id)
+                self.active_roi_id = roi_id
+        else:
+            # Normal single selection
+            self.selected_roi_ids = {roi_id}
+            self.active_roi_id = roi_id
+
         if self.ui:
             self.ui.refresh_rois_ui()
 
@@ -129,6 +192,7 @@ class RoiPluginController(PluginTagMixin):
 
         vs_id = viewer.image_id
         filter_text = self.roi_filters.get(vs_id, "")
+        invert = self.roi_filter_inverts.get(vs_id, False)
         sort_order = self.roi_sort_orders.get(vs_id, 0)
 
         roi_items = list(viewer.view_state.rois.items())
@@ -140,7 +204,8 @@ class RoiPluginController(PluginTagMixin):
         # Filter the items
         filtered_roi_ids = []
         for roi_id, roi in roi_items:
-            if filter_text and filter_text not in roi.name.lower():
+            match = (filter_text in roi.name.lower()) if filter_text else True
+            if filter_text and ((not match) if not invert else match):
                 continue
             filtered_roi_ids.append(roi_id)
 

@@ -31,6 +31,11 @@ class RoiPluginUI(PluginTagMixin):
             with dpg.item_handler_registry(tag=self._t("item_clicked_handler")):
                 dpg.add_item_clicked_handler(callback=self.on_roi_input_clicked)
 
+        # Global key handler for Esc key to clear ROI selection
+        if not dpg.does_item_exist(self._t("roi_global_key_handler")):
+            with dpg.handler_registry(tag=self._t("roi_global_key_handler")):
+                dpg.add_key_press_handler(key=dpg.mvKey_Escape, callback=self.on_escape_key_pressed)
+
         # Create active and inactive text themes
         if not dpg.does_item_exist(self._t("active_input_theme")):
             with dpg.theme(tag=self._t("active_input_theme")):
@@ -51,6 +56,22 @@ class RoiPluginUI(PluginTagMixin):
                     dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["outdated"])
                     dpg.add_theme_color(dpg.mvThemeCol_FrameBg, [0, 0, 0, 0])
                     dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 0)
+
+        if not dpg.does_item_exist(self._t("selected_input_theme")):
+            with dpg.theme(tag=self._t("selected_input_theme")):
+                with dpg.theme_component(dpg.mvInputText):
+                    dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["text_active"])
+                    dpg.add_theme_color(dpg.mvThemeCol_FrameBg, [45, 90, 60, 180])
+                    dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 1)
+                    dpg.add_theme_color(dpg.mvThemeCol_Border, [60, 180, 80, 200])
+
+        if not dpg.does_item_exist(self._t("outdated_selected_roi_input_theme")):
+            with dpg.theme(tag=self._t("outdated_selected_roi_input_theme")):
+                with dpg.theme_component(dpg.mvInputText):
+                    dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["outdated"])
+                    dpg.add_theme_color(dpg.mvThemeCol_FrameBg, [90, 70, 30, 180])
+                    dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 1)
+                    dpg.add_theme_color(dpg.mvThemeCol_Border, [255, 180, 50, 200])
 
         if not dpg.does_item_exist(self._t("outdated_inactive_roi_input_theme")):
             with dpg.theme(tag=self._t("outdated_inactive_roi_input_theme")):
@@ -232,6 +253,18 @@ class RoiPluginUI(PluginTagMixin):
                     tag=self._t("btn_roi_reload_all"),
                     show=False,
                 )
+                dpg.add_text(
+                    "",
+                    tag=self._t("text_roi_selected_count"),
+                    color=cfg_c.get("text_dim", [150, 150, 150]),
+                )
+                btn_clear_sel = dpg.add_button(
+                    label="\uf00d",
+                    width=20,
+                    tag=self._t("btn_roi_clear_selection"),
+                    callback=self.on_clear_selection_clicked,
+                    show=False,
+                )
                 build_help_button(
                     "Global ROI Actions:\n"
                     "- Show All (Raster) [Eye Icon]: Display all ROIs as solid filled regions.\n"
@@ -252,20 +285,23 @@ class RoiPluginUI(PluginTagMixin):
                         btn_reload_all,
                         btn_roi_above_overlay,
                         btn_close_all,
+                        btn_clear_sel,
                     ]:
                         dpg.bind_item_font(btn, "icon_font_tag")
 
                 if dpg.does_item_exist("delete_button_theme"):
                     dpg.bind_item_theme(btn_close_all, "delete_button_theme")
+                    dpg.bind_item_theme(btn_clear_sel, "delete_button_theme")
 
                 if api:
-                    build_beginner_tooltip(btn_show, "Show All (Raster)", api)
-                    build_beginner_tooltip(btn_contour, "Show All (Contour)", api)
-                    build_beginner_tooltip(btn_hide, "Hide All", api)
+                    build_beginner_tooltip(btn_show, "Show Listed (Raster)", api)
+                    build_beginner_tooltip(btn_contour, "Show Listed (Contour)", api)
+                    build_beginner_tooltip(btn_hide, "Hide Listed", api)
                     build_beginner_tooltip(btn_roi_above_overlay, "Toggle ROI on top of Fusion", api)
-                    build_beginner_tooltip(btn_close_all, "Close All", api)
-                    build_beginner_tooltip(btn_toggle_all_stats, "Toggle all statistics windows", api)
+                    build_beginner_tooltip(btn_close_all, "Close Listed", api)
+                    build_beginner_tooltip(btn_toggle_all_stats, "Toggle statistics windows for listed ROIs", api)
                     build_beginner_tooltip(btn_reload_all, "Reload all modified ROIs", api)
+                    build_beginner_tooltip(btn_clear_sel, "Clear ROI selection (Esc)", api)
 
             dpg.add_spacer(height=2)
 
@@ -326,6 +362,8 @@ class RoiPluginUI(PluginTagMixin):
                     hint="Filter ROIs by name...",
                     width=170,
                     api=self.api,
+                    btn_invert_tag=self._t("btn_roi_filter_invert"),
+                    on_invert_clicked=self.on_toggle_filter_invert_clicked,
                 )
 
             # Table child window
@@ -501,36 +539,52 @@ class RoiPluginUI(PluginTagMixin):
             return
 
         vs_id = viewer.image_id
+        filter_text = self._c.roi_filters.get(vs_id, "")
+        invert = self._c.roi_filter_inverts.get(vs_id, False)
+        sort_order = self._c.roi_sort_orders.get(vs_id, 0)
+
+        # Update invert button theme to show active state if invert is True
+        btn_invert_tag = self._t("btn_roi_filter_invert")
+        if dpg.does_item_exist(btn_invert_tag):
+            if invert:
+                if dpg.does_item_exist("active_nav_button_theme"):
+                    dpg.bind_item_theme(btn_invert_tag, "active_nav_button_theme")
+            else:
+                dpg.bind_item_theme(btn_invert_tag, 0)
+
         color_picker_tag = self._t("btn_roi_color_picker")
         if dpg.does_item_exist(color_picker_tag):
-            filter_text = self._c.roi_filters.get(vs_id, "").lower()
+            filter_text_lower = filter_text.lower()
             matching_colors = []
-            for roi in viewer.view_state.rois.values():
-                if filter_text and filter_text not in roi.name.lower():
-                    continue
+            for roi_id, roi in viewer.view_state.rois.items():
+                if self._c.selected_roi_ids:
+                    if roi_id not in self._c.selected_roi_ids:
+                        continue
+                elif filter_text_lower:
+                    match = filter_text_lower in roi.name.lower()
+                    if (not match) if not invert else match:
+                        continue
                 matching_colors.append(tuple(roi.color[:3]))
 
             unique_colors = set(matching_colors)
             tooltip_tag = self._t("tooltip_roi_color_picker")
 
+            target_scope = "selected" if self._c.selected_roi_ids else "listed"
             if not matching_colors:
                 dpg.set_value(color_picker_tag, [255, 255, 255, 255])
                 if dpg.does_item_exist(tooltip_tag):
-                    dpg.set_value(tooltip_tag, "No ROIs listed")
+                    dpg.set_value(tooltip_tag, f"No ROIs {target_scope}")
             elif len(unique_colors) == 1:
-                # All listed ROIs share the same color
+                # All target ROIs share the same color
                 single_color = list(matching_colors[0])
                 dpg.set_value(color_picker_tag, single_color + [255])
                 if dpg.does_item_exist(tooltip_tag):
-                    dpg.set_value(tooltip_tag, "Change color of all listed ROIs (currently sharing this color)")
+                    dpg.set_value(tooltip_tag, f"Change color of all {target_scope} ROIs (currently sharing this color)")
             else:
                 # Mixed colors: set alpha to 0 for checkerboard, fallback to neutral gray
                 dpg.set_value(color_picker_tag, [127, 127, 127, 0])
                 if dpg.does_item_exist(tooltip_tag):
-                    dpg.set_value(tooltip_tag, "Change color of all listed ROIs (currently mixed colors)")
-
-        filter_text = self._c.roi_filters.get(vs_id, "")
-        sort_order = self._c.roi_sort_orders.get(vs_id, 0)
+                    dpg.set_value(tooltip_tag, f"Change color of all {target_scope} ROIs (currently mixed colors)")
 
         if dpg.does_item_exist(self._t("input_roi_filter")) and not dpg.is_item_focused(
             self._t("input_roi_filter")
@@ -564,10 +618,47 @@ class RoiPluginUI(PluginTagMixin):
         elif sort_order == -1:
             roi_items.sort(key=lambda x: x[1].name.lower(), reverse=True)
 
+        # Pre-filter items
+        filter_text_lower = filter_text.lower()
+        visible_rois = []
         for roi_id, roi in roi_items:
-            if filter_text and filter_text not in roi.name.lower():
-                continue
+            if filter_text_lower:
+                match = filter_text_lower in roi.name.lower()
+                if (not match) if not invert else match:
+                    continue
+            visible_rois.append((roi_id, roi))
 
+        # Update selection indicator and dynamic tooltips on top buttons
+        num_selected = len(self._c.selected_roi_ids)
+        target_count = num_selected if num_selected > 0 else len(visible_rois)
+        scope_str = "selected" if num_selected > 0 else "listed"
+
+        if dpg.does_item_exist(self._t("text_roi_selected_count")):
+            count_label = f"({num_selected} selected)" if num_selected > 0 else ""
+            dpg.set_value(self._t("text_roi_selected_count"), count_label)
+        if dpg.does_item_exist(self._t("btn_roi_clear_selection")):
+            dpg.configure_item(self._t("btn_roi_clear_selection"), show=num_selected > 0)
+
+        # Update dynamic tooltips on top buttons
+        top_button_tooltips = {
+            self._t("btn_roi_show_all"): f"Show {scope_str} ROIs as raster ({target_count})",
+            self._t("btn_roi_contour_all"): f"Show {scope_str} ROIs as contour ({target_count})",
+            self._t("btn_roi_hide_all"): f"Hide {scope_str} ROIs ({target_count})",
+            self._t("btn_roi_close_all"): f"Close {scope_str} ROIs ({target_count})",
+            self._t("btn_roi_toggle_all_stats"): f"Toggle statistics for {scope_str} ROIs ({target_count})",
+        }
+        for btn_tag, tt_text in top_button_tooltips.items():
+            if dpg.does_item_exist(btn_tag):
+                children = dpg.get_item_children(btn_tag, slot=3) or []
+                for child in children:
+                    txt_items = dpg.get_item_children(child, slot=1) or []
+                    for txt_id in txt_items:
+                        try:
+                            dpg.set_value(txt_id, tt_text)
+                        except Exception:
+                            pass
+
+        for roi_id, roi in visible_rois:
             with dpg.table_row(parent=table_id):
                 if roi.visible:
                     lbl_eye = "\uf040" if roi.is_contour else "\uf06e"
@@ -587,6 +678,7 @@ class RoiPluginUI(PluginTagMixin):
                 )
 
                 is_active = roi_id == self._c.active_roi_id
+                is_selected = roi_id in self._c.selected_roi_ids
                 roi_vol = self.api.get_volumes().get(roi_id)
                 is_outdated = roi_vol._is_outdated if roi_vol else False
 
@@ -613,6 +705,15 @@ class RoiPluginUI(PluginTagMixin):
                             self._t("outdated_active_roi_input_theme")
                             if is_outdated
                             else self._t("active_input_theme")
+                        ),
+                    )
+                elif is_selected:
+                    dpg.bind_item_theme(
+                        input_id,
+                        (
+                            self._t("outdated_selected_roi_input_theme")
+                            if is_outdated
+                            else self._t("selected_input_theme")
                         ),
                     )
                 else:
@@ -725,21 +826,28 @@ class RoiPluginUI(PluginTagMixin):
         assert self.api is not None
         viewer = self.api.get_active_viewer()
 
-        has_selection = (
+        num_selected = len(self._c.selected_roi_ids)
+        has_single_selection = (
             viewer
             and viewer.view_state
             and self._c.active_roi_id
             and self._c.active_roi_id in viewer.view_state.rois
+            and (num_selected == 1 or num_selected == 0)
         )
 
-        if not has_selection:
+        if not has_single_selection:
             if dpg.does_item_exist(header):
                 dpg.configure_item(header, show=False)
             if dpg.does_item_exist(window):
                 dpg.configure_item(window, show=False)
             dpg.delete_item(container, children_only=True)
+            msg = (
+                f"{num_selected} ROIs selected."
+                if num_selected > 1
+                else "Select a ROI from the list above."
+            )
             dpg.add_text(
-                "Select a ROI from the list above.",
+                msg,
                 color=self.api.ui_cfg["colors"]["text_dim"],
                 parent=container,
             )
@@ -944,13 +1052,56 @@ class RoiPluginUI(PluginTagMixin):
         vp_height = max(dpg.get_viewport_client_height(), 600)
         dpg.set_item_pos(modal_tag, [vp_width // 2 - 225, vp_height // 2 - 250])
 
+    def _get_target_rois(self, viewer) -> list[tuple[str, object]]:
+        """Returns list of (roi_id, roi) that global/batch actions should target:
+        selected ROIs if any, otherwise all listed (filtered) ROIs."""
+        if not viewer or not viewer.view_state or not viewer.view_state.rois:
+            return []
+        vs_id = viewer.image_id
+        filter_text = self._c.roi_filters.get(vs_id, "").lower()
+        invert = self._c.roi_filter_inverts.get(vs_id, False)
+
+        targets = []
+        for roi_id, roi in viewer.view_state.rois.items():
+            if self._c.selected_roi_ids:
+                if roi_id in self._c.selected_roi_ids:
+                    targets.append((roi_id, roi))
+            else:
+                if filter_text:
+                    match = filter_text in roi.name.lower()
+                    if (not match) if not invert else match:
+                        continue
+                targets.append((roi_id, roi))
+        return targets
+
     def on_roi_input_clicked(self, sender, app_data, user_data):
         if not app_data or len(app_data) < 2:
             return
         item_id = app_data[1]
         roi_id = dpg.get_item_user_data(item_id)
-        if roi_id and self._c.active_roi_id != roi_id:
-            self._c.on_roi_selected(roi_id)
+        if not roi_id:
+            return
+
+        is_shift = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(dpg.mvKey_RShift)
+        is_ctrl = (
+            dpg.is_key_down(dpg.mvKey_LControl)
+            or dpg.is_key_down(dpg.mvKey_RControl)
+            or (hasattr(dpg, "mvKey_LWin") and dpg.is_key_down(dpg.mvKey_LWin))
+            or (hasattr(dpg, "mvKey_RWin") and dpg.is_key_down(dpg.mvKey_RWin))
+        )
+
+        visible_ids = list(self.roi_selectables.keys())
+        self._c.on_roi_selected(roi_id, ctrl=is_ctrl, shift=is_shift, visible_ids=visible_ids)
+
+    def on_escape_key_pressed(self, sender=None, app_data=None, user_data=None):
+        if self._c.selected_roi_ids or self._c.active_roi_id:
+            self._c.clear_roi_selection()
+
+    def on_clear_selection_clicked(self, sender=None, app_data=None, user_data=None):
+        self._c.clear_roi_selection()
+
+    def on_toggle_filter_invert_clicked(self):
+        self._c.on_toggle_roi_filter_invert()
 
     def on_load_rtstruct_clicked(self, sender, app_data, user_data):
         viewer = self.api.get_active_viewer()
@@ -1033,18 +1184,30 @@ class RoiPluginUI(PluginTagMixin):
         if not viewer or not viewer.view_state:
             return
         vs = viewer.view_state
+        if roi_id not in vs.rois:
+            return
         roi = vs.rois[roi_id]
 
+        # Determine next state from clicked ROI
         if roi.visible and not roi.is_contour:
-            roi.visible = True
-            roi.is_contour = True
-            roi.invalidate()
+            next_visible, next_contour = True, True
         elif roi.visible and roi.is_contour:
-            roi.visible = False
-            roi.is_contour = False
+            next_visible, next_contour = False, False
         else:
-            roi.visible = True
-            roi.is_contour = False
+            next_visible, next_contour = True, False
+
+        # If clicked ROI is part of a multi-selection group, apply to all selected ROIs
+        if roi_id in self._c.selected_roi_ids and len(self._c.selected_roi_ids) > 1:
+            target_ids = [rid for rid in self._c.selected_roi_ids if rid in vs.rois]
+        else:
+            target_ids = [roi_id]
+
+        for rid in target_ids:
+            r = vs.rois[rid]
+            r.visible = next_visible
+            r.is_contour = next_contour
+            if next_contour:
+                r.invalidate()
 
         vs.is_data_dirty = True
         vs.is_geometry_dirty = True
@@ -1058,9 +1221,18 @@ class RoiPluginUI(PluginTagMixin):
             return
         vs = viewer.view_state
         from vvv.ui.ui_components import normalize_rgba_to_int
-        vs.rois[roi_id].color = normalize_rgba_to_int(app_data)[:3]
+        new_color = normalize_rgba_to_int(app_data)[:3]
+
+        if roi_id in self._c.selected_roi_ids and len(self._c.selected_roi_ids) > 1:
+            target_ids = [rid for rid in self._c.selected_roi_ids if rid in vs.rois]
+        else:
+            target_ids = [roi_id] if roi_id in vs.rois else []
+
+        for rid in target_ids:
+            vs.rois[rid].color = list(new_color)
+            self._sync_roi_color_ui(rid, sender)
+
         vs.is_data_dirty = True
-        self._sync_roi_color_ui(roi_id, sender)
         self.api.update_all_viewers_of_image(viewer.image_id)
 
     def on_global_roi_color_picker_changed(self, sender, app_data, user_data):
@@ -1068,15 +1240,12 @@ class RoiPluginUI(PluginTagMixin):
         if not viewer or not viewer.view_state or not viewer.view_state.rois:
             return
         vs = viewer.view_state
-        vs_id = viewer.image_id
-        filter_text = self._c.roi_filters.get(vs_id, "").lower()
         from vvv.ui.ui_components import normalize_rgba_to_int
         new_color = normalize_rgba_to_int(app_data)[:3]
 
         changed = False
-        for roi_id, roi in list(vs.rois.items()):
-            if filter_text and filter_text not in roi.name.lower():
-                continue
+        target_rois = self._get_target_rois(viewer)
+        for roi_id, roi in target_rois:
             roi.color = list(new_color)
             self._sync_roi_color_ui(roi_id, sender)
             changed = True
@@ -1497,16 +1666,15 @@ class RoiPluginUI(PluginTagMixin):
         if not viewer or not viewer.image_id or not viewer.view_state:
             return
 
-        filter_text = self._c.roi_filters.get(viewer.image_id, "")
-        for roi_id, roi in list(viewer.view_state.rois.items()):
-            if filter_text and filter_text not in roi.name.lower():
-                continue
+        target_rois = self._get_target_rois(viewer)
+        for roi_id, roi in target_rois:
             self.api.close_roi(viewer.image_id, roi_id)
             win_tag = self._t(f"stats_win_{roi_id}")
             if win_tag in self.open_stats_wins:
                 self.open_stats_wins.remove(win_tag)
             if dpg.does_item_exist(win_tag):
                 dpg.delete_item(win_tag)
+            self._c.selected_roi_ids.discard(roi_id)
 
         if (
             self._c.active_roi_id
@@ -2633,12 +2801,8 @@ class RoiPluginUI(PluginTagMixin):
         if not viewer or not viewer.image_id or not viewer.view_state:
             return
 
-        filter_text = self._c.roi_filters.get(viewer.image_id, "")
-        rois_to_toggle = []
-        for roi_id, roi in list(viewer.view_state.rois.items()):
-            if filter_text and filter_text not in roi.name.lower():
-                continue
-            rois_to_toggle.append(roi_id)
+        target_rois = self._get_target_rois(viewer)
+        rois_to_toggle = [roi_id for roi_id, _ in target_rois]
 
         if not rois_to_toggle:
             return
@@ -2691,10 +2855,8 @@ class RoiPluginUI(PluginTagMixin):
         viewer = self.api.get_active_viewer()
         if not viewer or not viewer.view_state:
             return
-        filter_text = self._c.roi_filters.get(viewer.image_id, "")
-        for roi in viewer.view_state.rois.values():
-            if filter_text and filter_text not in roi.name.lower():
-                continue
+        target_rois = self._get_target_rois(viewer)
+        for roi_id, roi in target_rois:
             roi.visible = True
             roi.is_contour = False
         viewer.view_state.is_data_dirty = True
@@ -2706,10 +2868,8 @@ class RoiPluginUI(PluginTagMixin):
         viewer = self.api.get_active_viewer()
         if not viewer or not viewer.view_state:
             return
-        filter_text = self._c.roi_filters.get(viewer.image_id, "")
-        for roi in viewer.view_state.rois.values():
-            if filter_text and filter_text not in roi.name.lower():
-                continue
+        target_rois = self._get_target_rois(viewer)
+        for roi_id, roi in target_rois:
             roi.visible = True
             roi.is_contour = True
             roi.invalidate()
@@ -2722,10 +2882,8 @@ class RoiPluginUI(PluginTagMixin):
         viewer = self.api.get_active_viewer()
         if not viewer or not viewer.view_state:
             return
-        filter_text = self._c.roi_filters.get(viewer.image_id, "")
-        for roi in viewer.view_state.rois.values():
-            if filter_text and filter_text not in roi.name.lower():
-                continue
+        target_rois = self._get_target_rois(viewer)
+        for roi_id, roi in target_rois:
             roi.visible = False
         viewer.view_state.is_data_dirty = True
         viewer.view_state.is_geometry_dirty = True
@@ -2753,10 +2911,8 @@ class RoiPluginUI(PluginTagMixin):
         viewer = self.api.get_active_viewer()
         if not viewer or not viewer.view_state:
             return
-        filter_text = self._c.roi_filters.get(viewer.image_id, "")
-        for roi in viewer.view_state.rois.values():
-            if filter_text and filter_text not in roi.name.lower():
-                continue
+        target_rois = self._get_target_rois(viewer)
+        for roi_id, roi in target_rois:
             roi.opacity = app_data
         viewer.view_state.is_data_dirty = True
         self.api.request_refresh()
@@ -2766,10 +2922,8 @@ class RoiPluginUI(PluginTagMixin):
         viewer = self.api.get_active_viewer()
         if not viewer or not viewer.view_state:
             return
-        filter_text = self._c.roi_filters.get(viewer.image_id, "")
-        for roi in viewer.view_state.rois.values():
-            if filter_text and filter_text not in roi.name.lower():
-                continue
+        target_rois = self._get_target_rois(viewer)
+        for roi_id, roi in target_rois:
             roi.thickness = app_data
         viewer.view_state.is_geometry_dirty = True
         self.api.request_refresh()

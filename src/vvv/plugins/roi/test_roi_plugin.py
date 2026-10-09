@@ -141,9 +141,11 @@ class TestRoiPlugin(unittest.TestCase):
         self.plugin.on_image_removed("img1")
         self.assertEqual(
             self.plugin.serialize_image_state("img1"),
-            {"roi_filter": "", "roi_sort_order": 0},
+            {"roi_filter": "", "roi_filter_invert": False, "roi_sort_order": 0},
         )
-        self.plugin.restore_image_state("img1", {"roi_filter": "", "roi_sort_order": 0})
+        self.plugin.restore_image_state(
+            "img1", {"roi_filter": "", "roi_filter_invert": False, "roi_sort_order": 0}
+        )
         self.plugin.save_settings(self.mock_api)
         self.plugin.load_settings(self.mock_api)
 
@@ -2355,6 +2357,196 @@ class TestRoiPlugin(unittest.TestCase):
         roi2 = ROIState("vol_2", "Lesion2", [255, 0, 0])
         roi2.from_dict({"name": "Lesion2", "color": [10, 20, 30, 255]})
         self.assertEqual(roi2.color, [10, 20, 30])
+
+        dpg.delete_item("test_parent")
+
+    def test_multi_roi_selection_and_clear(self):
+        """Test multi-selection via Ctrl and Shift keys, and clearing selection."""
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+
+        ctrl = self.plugin._controller
+        ui = self.plugin._ui
+        visible_ids = ["roi_1", "roi_2", "roi_3", "roi_4"]
+
+        # Single select
+        ctrl.on_roi_selected("roi_1", ctrl=False, shift=False, visible_ids=visible_ids)
+        self.assertEqual(ctrl.selected_roi_ids, {"roi_1"})
+        self.assertEqual(ctrl.active_roi_id, "roi_1")
+
+        # Ctrl-click to add roi_3
+        ctrl.on_roi_selected("roi_3", ctrl=True, shift=False, visible_ids=visible_ids)
+        self.assertEqual(ctrl.selected_roi_ids, {"roi_1", "roi_3"})
+        self.assertEqual(ctrl.active_roi_id, "roi_3")
+
+        # Ctrl-click to deselect roi_1
+        ctrl.on_roi_selected("roi_1", ctrl=True, shift=False, visible_ids=visible_ids)
+        self.assertEqual(ctrl.selected_roi_ids, {"roi_3"})
+
+        # Shift-click range from roi_1 to roi_4
+        ctrl.on_roi_selected("roi_1", ctrl=False, shift=False, visible_ids=visible_ids)
+        ctrl.on_roi_selected("roi_4", ctrl=False, shift=True, visible_ids=visible_ids)
+        self.assertEqual(ctrl.selected_roi_ids, {"roi_1", "roi_2", "roi_3", "roi_4"})
+        self.assertEqual(ctrl.active_roi_id, "roi_4")
+
+        # Clear selection
+        ctrl.clear_roi_selection()
+        self.assertEqual(ctrl.selected_roi_ids, set())
+        self.assertIsNone(ctrl.active_roi_id)
+
+        dpg.delete_item("test_parent")
+
+    def test_multi_selection_row_eye_toggle(self):
+        """Test that clicking row eye on a multi-selected ROI toggles all selected ROIs."""
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+
+        ui = self.plugin._ui
+        ctrl = self.plugin._controller
+
+        rois = {
+            "r1": MockROI("r1", "Tumor 1", [255, 0, 0], visible=True, is_contour=False),
+            "r2": MockROI("r2", "Tumor 2", [0, 255, 0], visible=True, is_contour=False),
+            "r3": MockROI("r3", "Liver", [0, 0, 255], visible=True, is_contour=False),
+        }
+        mock_viewer = MockViewer("img_1", rois)
+        self.mock_api.get_active_viewer.return_value = mock_viewer
+
+        # Select r1 and r2
+        ctrl.selected_roi_ids = {"r1", "r2"}
+        ctrl.active_roi_id = "r1"
+
+        # Toggle eye on r1: solid raster -> contour for both r1 and r2, leaving r3 untouched
+        ui.on_roi_toggle_visible(None, None, "r1")
+        self.assertTrue(rois["r1"].visible)
+        self.assertTrue(rois["r1"].is_contour)
+        self.assertTrue(rois["r2"].visible)
+        self.assertTrue(rois["r2"].is_contour)
+        self.assertTrue(rois["r3"].visible)
+        self.assertFalse(rois["r3"].is_contour)
+
+        # Toggle eye again: contour -> hidden
+        ui.on_roi_toggle_visible(None, None, "r1")
+        self.assertFalse(rois["r1"].visible)
+        self.assertFalse(rois["r2"].visible)
+        self.assertTrue(rois["r3"].visible)
+
+        # Toggle eye again: hidden -> solid raster
+        ui.on_roi_toggle_visible(None, None, "r1")
+        self.assertTrue(rois["r1"].visible)
+        self.assertFalse(rois["r1"].is_contour)
+        self.assertTrue(rois["r2"].visible)
+        self.assertFalse(rois["r2"].is_contour)
+        self.assertTrue(rois["r3"].visible)
+
+        # Changing color on r1 row color picker updates all selected ROIs (r1 and r2), but not r3
+        ui.on_roi_color_changed(None, [100, 200, 50, 255], "r1")
+        self.assertEqual(rois["r1"].color, [100, 200, 50])
+        self.assertEqual(rois["r2"].color, [100, 200, 50])
+        self.assertEqual(rois["r3"].color, [0, 0, 255])
+
+        # Detail panel is NOT shown when multiple ROIs are selected
+        ui.refresh_roi_detail_ui()
+        # header and window should be hidden when multiple selected
+        self.assertFalse(dpg.is_item_shown(ui._t("roi_detail_header_group")))
+        self.assertFalse(dpg.is_item_shown(ui._t("roi_detail_window")))
+
+        # When only 1 selected, detail panel IS shown
+        ctrl.selected_roi_ids = {"r1"}
+        ui.refresh_roi_detail_ui()
+        self.assertTrue(dpg.is_item_shown(ui._t("roi_detail_header_group")))
+        self.assertTrue(dpg.is_item_shown(ui._t("roi_detail_window")))
+
+        dpg.delete_item("test_parent")
+
+    def test_top_buttons_target_selection_vs_all(self):
+        """Test top action buttons target selected ROIs if any, or filtered ROIs if none."""
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+
+        ui = self.plugin._ui
+        ctrl = self.plugin._controller
+
+        rois = {
+            "r1": MockROI("r1", "L1", [255, 0, 0], visible=True),
+            "r2": MockROI("r2", "L2", [0, 255, 0], visible=True),
+            "r3": MockROI("r3", "L3", [0, 0, 255], visible=True),
+        }
+        mock_viewer = MockViewer("img_1", rois)
+        self.mock_api.get_active_viewer.return_value = mock_viewer
+
+        # 1. When selection is active: hide only selected
+        ctrl.selected_roi_ids = {"r1", "r2"}
+        ui.on_roi_hide_all(None, None, None)
+        self.assertFalse(rois["r1"].visible)
+        self.assertFalse(rois["r2"].visible)
+        self.assertTrue(rois["r3"].visible)
+
+        # 2. When selection is cleared: show all listed
+        ctrl.clear_roi_selection()
+        ui.on_roi_show_all(None, None, None)
+        self.assertTrue(rois["r1"].visible)
+        self.assertTrue(rois["r2"].visible)
+        self.assertTrue(rois["r3"].visible)
+
+        # Opacity batch action with selection
+        ctrl.selected_roi_ids = {"r1"}
+        ui.on_roi_global_opacity_changed(None, 0.8, None)
+        self.assertEqual(rois["r1"].opacity, 0.8)
+        self.assertEqual(rois["r2"].opacity, 0.5)
+
+        # Thickness batch action with selection
+        ui.on_roi_global_thickness_changed(None, 3.5, None)
+        self.assertEqual(rois["r1"].thickness, 3.5)
+        self.assertEqual(rois["r2"].thickness, 1.0)
+
+        dpg.delete_item("test_parent")
+
+    def test_filter_invert_and_persistence(self):
+        """Test filter invert logic and persistence across serialization."""
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+
+        ui = self.plugin._ui
+        ctrl = self.plugin._controller
+
+        rois = {
+            "r1": MockROI("r1", "Vertebra L1", [255, 0, 0]),
+            "r2": MockROI("r2", "Vertebra L2", [0, 255, 0]),
+            "r3": MockROI("r3", "Liver", [0, 0, 255]),
+        }
+        mock_viewer = MockViewer("img_1", rois)
+        self.mock_api.get_active_viewer.return_value = mock_viewer
+
+        ctrl.roi_filters["img_1"] = "vertebra"
+        ctrl.roi_filter_inverts["img_1"] = False
+
+        # Invert toggle
+        ctrl.on_toggle_roi_filter_invert()
+        self.assertTrue(ctrl.roi_filter_inverts["img_1"])
+
+        # When inverted, _get_target_rois returns non-matching ROIs (Liver)
+        targets = ui._get_target_rois(mock_viewer)
+        target_ids = [tid for tid, _ in targets]
+        self.assertEqual(target_ids, ["r3"])
+
+        # Serialization
+        serialized = self.plugin.serialize_image_state("img_1")
+        self.assertEqual(serialized["roi_filter_invert"], True)
+        self.assertEqual(serialized["roi_filter"], "vertebra")
+
+        # Restoration
+        self.plugin.restore_image_state("img_2", serialized)
+        self.assertEqual(ctrl.roi_filter_inverts.get("img_2"), True)
+        self.assertEqual(ctrl.roi_filters.get("img_2"), "vertebra")
 
         dpg.delete_item("test_parent")
 

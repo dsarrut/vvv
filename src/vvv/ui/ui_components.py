@@ -51,8 +51,10 @@ def build_name_filter_bar(
     hint="Filter by name...",
     width=180,
     api=None,
+    btn_invert_tag=None,
+    on_invert_clicked=None,
 ):
-    """Creates a standardized search/filter input field with a clear button (X)."""
+    """Creates a standardized search/filter input field with a clear button (X) and optional invert button."""
     if input_tag:
         REGISTERED_INPUT_FILTER_TAGS.add(input_tag)
     with dpg.group(horizontal=True, tag=group_tag):
@@ -68,6 +70,22 @@ def build_name_filter_bar(
                 "Type to search and filter the list by name.",
                 api,
             )
+
+        if btn_invert_tag and on_invert_clicked:
+            btn_invert = dpg.add_button(
+                label="!",
+                tag=btn_invert_tag,
+                width=24,
+                callback=lambda: on_invert_clicked(),
+            )
+            if dpg.does_item_exist("icon_font_tag"):
+                dpg.bind_item_font(btn_invert, "icon_font_tag")
+            if api:
+                build_beginner_tooltip(
+                    btn_invert,
+                    "Invert filter: when active, excludes items containing this text.",
+                    api,
+                )
 
         btn_clear = dpg.add_button(
             label="X",
