@@ -148,11 +148,36 @@ def generate_doc_02_screenshots(img_dir: Path):
     from vvv.ui.ui_sequences import create_boot_sequence
 
     tasks = [
-        {"base": "data/crop_ct.nii.gz", "base_cmap": None, "fusion": None, "labels": []},
         {"base": "data/spect.nii.gz", "base_cmap": None, "fusion": None, "labels": []},
+        {"base": "data/ct.nii.gz", "base_cmap": None, "fusion": None, "labels": []},
     ]
     boot_gen = create_boot_sequence(gui, ctrl, tasks)
     list(boot_gen)
+
+    # Set layout: ct.nii.gz on V1 and V2 (top), spect.nii.gz on V3 and V4 (bottom)
+    ctrl.layout["V1"] = "2"
+    ctrl.layout["V2"] = "2"
+    ctrl.layout["V3"] = "1"
+    ctrl.layout["V4"] = "1"
+    gui.set_context_viewer(ctrl.viewers["V2"])
+
+    import numpy as np
+    from vvv.core.view_state import ViewMode
+
+    vs_ct = ctrl.view_states["2"]
+    vs_ct.update_crosshair_from_phys(np.array([-32.9, -16.6, 1565.5]))
+
+    # Set camera zoom & pan to show the full body sagittal view like user example
+    vs_ct.camera.zoom[("V2", ViewMode.SAGITTAL)] = 2.94
+    vs_ct.camera.zoom[ViewMode.SAGITTAL] = 2.94
+    vs_ct.camera.pan[("V2", ViewMode.SAGITTAL)] = [-20.0, 180.0]
+    vs_ct.camera.pan[ViewMode.SAGITTAL] = [-20.0, 180.0]
+
+    # Clean up status message and any landmarks for clean doc screenshot
+    ctrl.status_message = None
+    for p in gui.plugins:
+        if hasattr(p, "landmarks"):
+            p.landmarks.clear()
 
     if sys.platform == "darwin":
         from Cocoa import NSApplication
@@ -163,6 +188,7 @@ def generate_doc_02_screenshots(img_dir: Path):
     for _ in range(50):
         ctrl.tick()
         gui._refresh_all_ui_panels()
+        gui.update_sidebar_crosshair(gui.context_viewer)
         dpg.render_dearpygui_frame()
 
     main_w = app.windows()[0]
@@ -216,11 +242,90 @@ def generate_doc_02_screenshots(img_dir: Path):
     dpg.destroy_context()
 
 
+def generate_doc_03_screenshots(img_dir: Path):
+    """Generates screenshots for doc_03 (CLI examples: fusion overlay, label maps)."""
+    from vvv.cli import parse_cli_arguments
+    from vvv.ui.ui_sequences import create_boot_sequence
+
+    dpg.create_context()
+    ctrl = Controller()
+    ctrl.use_history = False
+    for tag in ["V1", "V2", "V3", "V4"]:
+        ctrl.viewers[tag] = SliceViewer(tag, ctrl)
+
+    gui = MainGUI(ctrl)
+    ctrl.gui = gui
+
+    vp_title = "VVV CLI Doc Session"
+    dpg.create_viewport(title=vp_title, width=1280, height=800, x_pos=50, y_pos=50)
+    dpg.setup_dearpygui()
+    dpg.show_viewport()
+    dpg.set_primary_window("PrimaryWindow", True)
+    gui.on_window_resize()
+
+    tasks = parse_cli_arguments(["data/ct.nii.gz,data/spect.nii.gz,hot,0.6", "+", "data/Sphere_1.nii.gz"])
+    boot_gen = create_boot_sequence(gui, ctrl, tasks)
+    for _ in boot_gen:
+        ctrl.tick()
+        dpg.render_dearpygui_frame()
+
+    from vvv.core.view_state import ViewMode
+    import numpy as np
+
+    vs_ct = ctrl.view_states["2"]
+    vs_ct.update_crosshair_from_phys(np.array([-32.9, -16.6, 1690.0]))
+    vs_ct.camera.zoom[("V2", ViewMode.SAGITTAL)] = 2.94
+    vs_ct.camera.zoom[ViewMode.SAGITTAL] = 2.94
+    vs_ct.camera.pan[("V2", ViewMode.SAGITTAL)] = [-20.0, 180.0]
+    vs_ct.camera.pan[ViewMode.SAGITTAL] = [-20.0, 180.0]
+
+    ctrl.status_message = None
+
+    if sys.platform == "darwin":
+        from Cocoa import NSApplication
+
+        app = NSApplication.sharedApplication()
+        app.activateIgnoringOtherApps_(True)
+
+    for _ in range(50):
+        ctrl.tick()
+        gui._refresh_all_ui_panels()
+        gui.update_sidebar_crosshair(gui.context_viewer)
+        dpg.render_dearpygui_frame()
+
+    main_w = app.mainWindow() or app.keyWindow()
+    if main_w is None or main_w.frame().size.width < 800:
+        for w in app.windows():
+            if w.frame().size.width >= 1000 and w.isVisible():
+                main_w = w
+                break
+
+    main_w.makeKeyAndOrderFront_(None)
+    content_rect = main_w.contentRectForFrameRect_(main_w.frame())
+    scale = main_w.backingScaleFactor()
+    screen_h = main_w.screen().frame().size.height
+
+    win_x = content_rect.origin.x
+    win_y = screen_h - (content_rect.origin.y + content_rect.size.height)
+
+    bbox_full = (
+        int(round(win_x * scale)),
+        int(round(win_y * scale)),
+        int(round((win_x + content_rect.size.width) * scale)),
+        int(round((win_y + content_rect.size.height) * scale)),
+    )
+    im_full = ImageGrab.grab(bbox=bbox_full)
+    im_full.save(img_dir / "doc_03_cli_fusion.png")
+    print(f"Generated: doc_03_cli_fusion.png ({im_full.size[0]}x{im_full.size[1]})")
+
+    dpg.destroy_context()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Generate VVV documentation screenshots.")
     parser.add_argument(
         "--target",
-        choices=["all", "help_buttons", "doc_02"],
+        choices=["all", "help_buttons", "doc_02", "doc_03"],
         default="all",
         help="Target screenshot(s) to generate (default: all)",
     )
@@ -236,6 +341,9 @@ def main():
 
     if args.target in ("all", "doc_02"):
         generate_doc_02_screenshots(img_dir)
+
+    if args.target in ("all", "doc_03"):
+        generate_doc_03_screenshots(img_dir)
 
 
 if __name__ == "__main__":
