@@ -70,7 +70,9 @@ class MainGUI:
         self.image_label_tags = {}
         self.sync_label_tags = {}
         self.current_workspace_path: str | None = None
-        self.is_beginner_mode = False
+        self.is_beginner_mode = bool(
+            self.controller.settings.data.get("behavior", {}).get("beginner_mode", False)
+        )
         self.beginner_tags = []
         self.active_tab = "tab_images"
         self.active_layout = "4"
@@ -525,6 +527,7 @@ class MainGUI:
             with dpg.group(tag="nav_bot_group"):
                 btn_settings = dpg.add_button(
                     label="\uf013",
+                    tag="btn_settings",
                     width=-1,
                     height=cfg_l["nav_btn_h"],
                     callback=lambda: self.settings_window.show(),
@@ -534,18 +537,27 @@ class MainGUI:
                     dpg.bind_item_font(btn_settings, "icon_font_tag")
 
                 with dpg.group(horizontal=True, horizontal_spacing=5):
+                    init_theme = (
+                        "theme_beginner_active"
+                        if self.is_beginner_mode
+                        else "theme_beginner_btn"
+                    )
                     btn_beginner = dpg.add_button(
                         label="\uf77c",
+                        tag="btn_beginner",
                         width=31,
                         height=cfg_l["nav_btn_h"],
                         callback=self.on_toggle_beginner_mode,
                     )
-                    dpg.bind_item_theme(btn_beginner, "theme_rounded_nav")
-                    if dpg.does_item_exist("icon_font_tag"):
+                    dpg.bind_item_theme(btn_beginner, init_theme)
+                    if dpg.does_item_exist("icon_font_18_tag"):
+                        dpg.bind_item_font(btn_beginner, "icon_font_18_tag")
+                    elif dpg.does_item_exist("icon_font_tag"):
                         dpg.bind_item_font(btn_beginner, "icon_font_tag")
 
                     btn_help = dpg.add_button(
                         label="\uf059",
+                        tag="btn_help",
                         width=-1,
                         height=cfg_l["nav_btn_h"],
                         callback=self.show_help_window,
@@ -1592,14 +1604,20 @@ class MainGUI:
         w = -100 if self.is_beginner_mode else -60
 
         if self.is_beginner_mode:
-            dpg.bind_item_theme(sender, "active_nav_button_theme")
+            dpg.bind_item_theme(sender, "theme_beginner_active")
         else:
-            dpg.bind_item_theme(sender, "theme_rounded_nav")
+            dpg.bind_item_theme(sender, "theme_beginner_btn")
         self._update_viewer_help_texts()  # Update help texts when beginner mode changes
 
         self.controller.ui_needs_refresh = True
         for plugin in self.plugins:
             self._call_plugin(plugin, "update", self.plugin_api)
+
+        # Persist beginner mode in settings
+        self.controller.settings.data.setdefault("behavior", {})[
+            "beginner_mode"
+        ] = self.is_beginner_mode
+        self.controller.settings.save()
 
         self.show_status_message(
             f"Beginner Mode {'ON' if self.is_beginner_mode else 'OFF'}"
@@ -1954,14 +1972,16 @@ class MainGUI:
 
             dpg.configure_item(viewer_help_tag, show=should_show)
             if should_show:
-                help_text_size = dpg.get_text_size(dpg.get_value(viewer_help_tag))
-                dpg.set_item_pos(
-                    viewer_help_tag,
-                    [
-                        max(5, int((viewer_w - help_text_size[0]) / 2)),
-                        max(5, int(viewer_h - help_text_size[1] - 10)),
-                    ],
-                )
+                txt_val = dpg.get_value(viewer_help_tag) or ""
+                help_text_size = dpg.get_text_size(txt_val)
+                if help_text_size:
+                    dpg.set_item_pos(
+                        viewer_help_tag,
+                        [
+                            max(5, int((viewer_w - help_text_size[0]) / 2)),
+                            max(5, int(viewer_h - help_text_size[1] - 10)),
+                        ],
+                    )
 
     def set_viewport_layout(self, layout, visible_viewers=None):
         self.active_layout = layout

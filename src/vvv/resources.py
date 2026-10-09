@@ -61,7 +61,7 @@ def load_fonts():
                     except Exception:
                         pass
 
-        # 2. Load the Icon Font
+        # 2. Load the Icon Font (standard 14px and slightly larger 18px for prominent buttons)
         if os.path.exists(icon_font_path):
             with dpg.font(icon_font_path, 14, tag="icon_font_tag"):
                 if is_legacy_dpg:
@@ -97,6 +97,15 @@ def load_fonts():
                                 0xF0C8,  # Square/Rect
                             ]
                         )
+                        # pyrefly: ignore [deprecated]
+                        dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
+                    except Exception:
+                        pass
+            with dpg.font(icon_font_path, 18, tag="icon_font_18_tag"):
+                if is_legacy_dpg:
+                    try:
+                        # pyrefly: ignore [deprecated]
+                        dpg.add_font_chars([0xF77C, 0xF059, 0xF013])
                         # pyrefly: ignore [deprecated]
                         dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
                     except Exception:

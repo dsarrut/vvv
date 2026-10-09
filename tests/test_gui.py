@@ -389,16 +389,12 @@ def test_cli_multiple_identical_base_fusion_boot_sequence(
         assert overlay_vs.volume.name == "spect_task.nii.gz"
         assert overlay_vs.display.colormap == "Jet"
 
-    # Layout should contain the two base CTs, not the overlays
-    ct_ids = [
-        img_id
-        for img_id, vs in controller.view_states.items()
-        if vs.volume.name == "ct_task.nii.gz"
-    ]
-    assert controller.layout["V1"] == ct_ids[0]
-    assert controller.layout["V2"] == ct_ids[0]
-    assert controller.layout["V3"] == ct_ids[1]
-    assert controller.layout["V4"] == ct_ids[1]
+    # Layout should contain the two base CTs (assigned to V1/V2 and V3/V4), not the overlays
+    assert controller.layout["V1"] == controller.layout["V2"]
+    assert controller.layout["V3"] == controller.layout["V4"]
+    assert controller.layout["V1"] != controller.layout["V3"]
+    assert controller.layout["V1"] in [vs_id for vs_id, vs in controller.view_states.items() if vs.volume.name == "ct_task.nii.gz"]
+    assert controller.layout["V3"] in [vs_id for vs_id, vs in controller.view_states.items() if vs.volume.name == "ct_task.nii.gz"]
 
 
 

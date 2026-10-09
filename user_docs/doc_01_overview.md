@@ -76,7 +76,10 @@ See [doc_03_command_line.md](doc_03_command_line.md) for the complete CLI syntax
 
 At the bottom-left of the sidebar, two quick-access help buttons are always available:
 
-* 🎓 **Beginner Mode** (Academic cap icon): Toggles interactive hover tooltips across buttons, sliders, and plugin controls. Enable this when learning the interface.
-* ❓ **Shortcuts & Controls** (Question mark icon): Opens the full in-app reference window listing mouse bindings, keyboard shortcuts, MIP navigation, and CLI quick examples.
+![Help and Beginner Mode Buttons](images/doc_01_help_buttons.png)
+
+* 👶 **Beginner Mode** (left button): Toggles interactive hover tooltips across buttons, sliders, and plugin controls. Enable this when learning the interface.
+* ❓ **Shortcuts & Controls** (right button): Opens the full in-app reference window listing mouse bindings, keyboard shortcuts, MIP navigation, and CLI quick examples.
+
 
 

@@ -337,3 +337,17 @@ def register_dynamic_themes(ui_cfg, controller):
         with dpg.theme(tag="outdated_image_input_theme"):
             with dpg.theme_component(dpg.mvInputText):
                 dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["outdated"])
+
+    if not dpg.does_item_exist("theme_beginner_btn"):
+        with dpg.theme(tag="theme_beginner_btn"):
+            with dpg.theme_component(dpg.mvButton):
+                dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 6)
+
+    if not dpg.does_item_exist("theme_beginner_active"):
+        with dpg.theme(tag="theme_beginner_active"):
+            with dpg.theme_component(dpg.mvButton):
+                dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 6)
+                dpg.add_theme_color(dpg.mvThemeCol_Button, [215, 220, 230, 255])
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, [235, 240, 250, 255])
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, [185, 190, 200, 255])
+                dpg.add_theme_color(dpg.mvThemeCol_Text, [20, 25, 30, 255])

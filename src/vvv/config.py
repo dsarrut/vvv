@@ -69,6 +69,7 @@ DEFAULT_SETTINGS = {
     },
     "behavior": {
         "auto_save_history": True,
+        "beginner_mode": False,
     },
 }
 
