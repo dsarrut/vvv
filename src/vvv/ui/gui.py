@@ -1689,7 +1689,7 @@ class MainGUI:
         if img is not None:
             ok = copy_image_to_clipboard(img)
             if ok:
-                self.show_status_message(f"Window screenshot ({img.size[0]}x{img.size[1]}) copied to clipboard")
+                self.show_status_message("Screenshot copied to clipboard")
             else:
                 self.show_status_message("Failed to copy screenshot to clipboard", color=[255, 100, 100])
         else:
@@ -1708,7 +1708,15 @@ class MainGUI:
         self._safe_set("active_image_path_tooltip_text", tooltip_text)
 
         menu_w = dpg.get_item_width("menu_container") or 0
-        left_bound, right_bound = 260, menu_w - 128
+        status_w = 0
+        if dpg.does_item_exist("global_status_text"):
+            st_text = dpg.get_value("global_status_text")
+            if st_text:
+                st_size = dpg.get_text_size(st_text)
+                if st_size:
+                    status_w = st_size[0] + 15
+        left_bound = 230 + status_w
+        right_bound = menu_w - 128
         avail = right_bound - left_bound
 
         if not full_path or avail < 40:

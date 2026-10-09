@@ -655,7 +655,7 @@ def main():
     parser = argparse.ArgumentParser(description="Generate VVV documentation screenshots.")
     parser.add_argument(
         "--target",
-        choices=["all", "help_buttons", "doc_02", "doc_03", "doc_04", "doc_05", "doc_06"],
+        choices=["all", "help_buttons", "doc_02", "doc_03", "doc_04", "doc_05", "doc_06", "doc_07"],
         default="all",
         help="Target screenshot(s) to generate (default: all)",
     )
@@ -683,6 +683,69 @@ def main():
 
     if args.target in ("all", "doc_06"):
         generate_doc_06_screenshots(img_dir)
+
+    if args.target in ("all", "doc_07"):
+        generate_doc_07_screenshots(img_dir)
+
+
+def generate_doc_07_screenshots(img_dir: Path):
+    """Generates screenshots for Chapter 07 (ROIs and Contours)."""
+    dpg.create_context()
+    ctrl = Controller()
+    for tag in ["V1", "V2", "V3", "V4"]:
+        ctrl.viewers[tag] = SliceViewer(tag, ctrl)
+
+    gui = MainGUI(ctrl)
+    ctrl.gui = gui
+
+    vp_title = "VVV ROIs Doc Session"
+    dpg.create_viewport(title=vp_title, width=1280, height=1100, x_pos=50, y_pos=50)
+    dpg.setup_dearpygui()
+    dpg.show_viewport()
+    dpg.set_primary_window("PrimaryWindow", True)
+    gui.on_window_resize()
+
+    boot_gen = gui.load_workspace_sequence("data/rois.vvw")
+    if boot_gen:
+        for _ in boot_gen:
+            if dpg.is_viewport_ok():
+                dpg.render_dearpygui_frame()
+
+    while len(gui.tasks) > 0:
+        try:
+            next(gui.tasks[0])
+        except StopIteration:
+            gui.tasks.pop(0)
+        if dpg.is_viewport_ok():
+            dpg.render_dearpygui_frame()
+
+    # Switch to the ROIs tab on the sidebar
+    gui.active_tab = "roi_plugin"
+    for t in ["tab_images", "tab_sync", "tab_fusion", "intensity_plugin"]:
+        if dpg.does_item_exist(t):
+            dpg.configure_item(t, show=False)
+    if dpg.does_item_exist("roi_plugin"):
+        dpg.configure_item("roi_plugin", show=True)
+
+    gui._refresh_all_ui_panels()
+    for p in gui.plugins:
+        gui._call_plugin(p, "update", gui.plugin_api)
+
+    for _ in range(40):
+        ctrl.tick()
+        gui._refresh_all_ui_panels()
+        for p in gui.plugins:
+            gui._call_plugin(p, "update", gui.plugin_api)
+        gui.update_sidebar_crosshair(gui.context_viewer)
+        dpg.render_dearpygui_frame()
+
+    from vvv.utils import capture_whole_window
+    img = capture_whole_window()
+    if img is not None:
+        img.save(img_dir / "doc_07_roi_layout.png")
+        print(f"Generated: doc_07_roi_layout.png ({img.size[0]}x{img.size[1]})")
+
+    dpg.destroy_context()
 
 
 if __name__ == "__main__":
