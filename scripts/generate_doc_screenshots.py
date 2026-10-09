@@ -94,12 +94,124 @@ def generate_help_buttons_screenshot(output_path: str):
 
     bbox = get_window_crop_bounds(vp_title, b_beg_min, b_help_max, padding=6)
     if bbox:
-        img = ImageGrab.grab(bbox=bbox)
+        img_off = ImageGrab.grab(bbox=bbox)
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-        img.save(output_path)
-        print(f"Generated: {output_path} ({img.size[0]}x{img.size[1]})")
+        img_off.save(output_path)
+        print(f"Generated (OFF): {output_path} ({img_off.size[0]}x{img_off.size[1]})")
+
+        # Toggle to ON and capture active state
+        gui.on_toggle_beginner_mode("btn_beginner", None, None)
+        for _ in range(10):
+            dpg.render_dearpygui_frame()
+
+        img_on = ImageGrab.grab(bbox=bbox)
+        on_path = str(Path(output_path).with_name("doc_01_help_buttons_on.png"))
+        img_on.save(on_path)
+        print(f"Generated (ON): {on_path} ({img_on.size[0]}x{img_on.size[1]})")
+
+        # Create combined side-by-side comparison
+        from PIL import Image
+
+        spacing = 16
+        combined_w = img_off.width + img_on.width + spacing
+        combined_h = max(img_off.height, img_on.height)
+        combined = Image.new("RGBA", (combined_w, combined_h), (0, 0, 0, 0))
+        combined.paste(img_off, (0, 0))
+        combined.paste(img_on, (img_off.width + spacing, 0))
+        states_path = str(Path(output_path).with_name("doc_01_help_buttons_states.png"))
+        combined.save(states_path)
+        print(f"Generated (States): {states_path} ({combined_w}x{combined_h})")
     else:
         print(f"Error: Could not locate window '{vp_title}' for crop capture.")
+
+    dpg.destroy_context()
+
+
+def generate_doc_02_screenshots(img_dir: Path):
+    """Generates screenshots for doc_02 (Images, formats, list, and active viewer panel)."""
+    dpg.create_context()
+    ctrl = Controller()
+    ctrl.use_history = False
+    for tag in ["V1", "V2", "V3", "V4"]:
+        ctrl.viewers[tag] = SliceViewer(tag, ctrl)
+
+    gui = MainGUI(ctrl)
+    ctrl.gui = gui
+
+    vp_title = "VVV Doc Session"
+    dpg.create_viewport(title=vp_title, width=1280, height=800, x_pos=50, y_pos=50)
+    dpg.setup_dearpygui()
+    dpg.show_viewport()
+    dpg.set_primary_window("PrimaryWindow", True)
+    gui.on_window_resize()
+
+    from vvv.ui.ui_sequences import create_boot_sequence
+
+    tasks = [
+        {"base": "data/crop_ct.nii.gz", "base_cmap": None, "fusion": None, "labels": []},
+        {"base": "data/spect.nii.gz", "base_cmap": None, "fusion": None, "labels": []},
+    ]
+    boot_gen = create_boot_sequence(gui, ctrl, tasks)
+    list(boot_gen)
+
+    if sys.platform == "darwin":
+        from Cocoa import NSApplication
+
+        app = NSApplication.sharedApplication()
+        app.activateIgnoringOtherApps_(True)
+
+    for _ in range(50):
+        ctrl.tick()
+        gui._refresh_all_ui_panels()
+        dpg.render_dearpygui_frame()
+
+    main_w = app.windows()[0]
+    main_w.makeKeyAndOrderFront_(None)
+    content_rect = main_w.contentRectForFrameRect_(main_w.frame())
+    scale = main_w.backingScaleFactor()
+    screen_h = main_w.screen().frame().size.height
+
+    win_x = content_rect.origin.x
+    win_y = screen_h - (content_rect.origin.y + content_rect.size.height)
+
+    # 1. Full Layout
+    bbox_full = (
+        int(round(win_x * scale)),
+        int(round(win_y * scale)),
+        int(round((win_x + content_rect.size.width) * scale)),
+        int(round((win_y + content_rect.size.height) * scale)),
+    )
+    im_full = ImageGrab.grab(bbox=bbox_full)
+    im_full.save(img_dir / "doc_02_main_layout.png")
+    print(f"Generated: doc_02_main_layout.png ({im_full.size[0]}x{im_full.size[1]})")
+
+    def crop_item(min_pt, max_pt, pad=4):
+        x1 = win_x + min_pt[0] - pad
+        y1 = win_y + min_pt[1] - pad
+        x2 = win_x + max_pt[0] + pad
+        y2 = win_y + max_pt[1] + pad
+        return (
+            int(round(x1 * scale)),
+            int(round(y1 * scale)),
+            int(round(x2 * scale)),
+            int(round(y2 * scale)),
+        )
+
+    # 2. Images List
+    img_min = dpg.get_item_rect_min("image_list_container")
+    img_max = dpg.get_item_rect_max("image_list_container")
+    bbox_img = crop_item(img_min, img_max, pad=10)
+    im_img = ImageGrab.grab(bbox=bbox_img)
+    im_img.save(img_dir / "doc_02_images_list.png")
+    print(f"Generated: doc_02_images_list.png ({im_img.size[0]}x{im_img.size[1]})")
+
+    # 3. Active Viewer Info
+    av_min = dpg.get_item_rect_min("image_info_group")
+    av_max = dpg.get_item_rect_max("image_info_group")
+    bbox_av = crop_item(av_min, av_max, pad=10)
+    im_av = ImageGrab.grab(bbox=bbox_av)
+    im_av.save(img_dir / "doc_02_active_viewer.png")
+    print(f"Generated: doc_02_active_viewer.png ({im_av.size[0]}x{im_av.size[1]})")
 
     dpg.destroy_context()
 
@@ -108,7 +220,7 @@ def main():
     parser = argparse.ArgumentParser(description="Generate VVV documentation screenshots.")
     parser.add_argument(
         "--target",
-        choices=["all", "help_buttons"],
+        choices=["all", "help_buttons", "doc_02"],
         default="all",
         help="Target screenshot(s) to generate (default: all)",
     )
@@ -121,6 +233,9 @@ def main():
     if args.target in ("all", "help_buttons"):
         help_btn_img = img_dir / "doc_01_help_buttons.png"
         generate_help_buttons_screenshot(str(help_btn_img))
+
+    if args.target in ("all", "doc_02"):
+        generate_doc_02_screenshots(img_dir)
 
 
 if __name__ == "__main__":
