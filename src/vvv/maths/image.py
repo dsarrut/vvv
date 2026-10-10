@@ -746,6 +746,8 @@ class VolumeData:
         self.num_timepoints = 1
         self.shape3d = (1, 1, 1)
         self.is_outside = False
+        self.scale_factor: float = 1.0
+        self.scale_unit: str | None = None
         self.read_image_metadata()
 
         # Modification tracking

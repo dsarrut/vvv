@@ -251,6 +251,9 @@ class IntensityController(PluginTagMixin):
 
         self._refresh_wl_histogram(viewer, has_image, is_rgb)
 
+        if self._ui and hasattr(self._ui, "scaling_comp"):
+            self._ui.scaling_comp.update_ui(api)
+
     def _refresh_wl_histogram(self, viewer, has_image, is_rgb):
         sidebar_plot_tag = self._t("wl_hist_plot")
         if dpg.does_item_exist(sidebar_plot_tag):

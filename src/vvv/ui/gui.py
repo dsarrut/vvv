@@ -1656,7 +1656,13 @@ class MainGUI:
         is_roi = target_tab_tag in ["tab_rois", "roi_plugin"]
         self._is_roi_tab_active = is_roi
 
-        hide_av = target_tab_tag in ["tab_rois", "registration_plugin", "roi_plugin"]
+        hide_av = target_tab_tag in [
+            "tab_rois",
+            "registration_plugin",
+            "roi_plugin",
+            "dose_plugin",
+            "intensity_plugin",
+        ]
         self._hide_av_panel = hide_av
 
         if dpg.does_item_exist("av_panel"):

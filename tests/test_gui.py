@@ -690,6 +690,16 @@ def test_gui_roi_plugin_hides_active_viewer(headless_gui_app):
     assert gui._hide_av_panel is True
     assert dpg.is_item_shown("av_panel") is False
 
+    # Select Dose Plugin -> Active Viewer is hidden
+    gui.on_nav_clicked(None, None, "dose_plugin")
+    assert gui._hide_av_panel is True
+    assert dpg.is_item_shown("av_panel") is False
+
+    # Select Intensity Plugin -> Active Viewer is hidden
+    gui.on_nav_clicked(None, None, "intensity_plugin")
+    assert gui._hide_av_panel is True
+    assert dpg.is_item_shown("av_panel") is False
+
     # Switch back to Images -> Active Viewer is shown again
     gui.on_nav_clicked(None, None, "tab_images")
     assert gui._hide_av_panel is False

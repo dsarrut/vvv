@@ -479,13 +479,31 @@ class OverlayDrawer:
         )
         has_overlay = overlay_vs is not None
 
+        base_sf = (
+            getattr(viewer.view_state.volume, "scale_factor", 1.0)
+            if getattr(viewer.view_state, "volume", None)
+            else 1.0
+        )
+        if not isinstance(base_sf, (int, float)) or base_sf <= 0 or np.isnan(base_sf):
+            base_sf = 1.0
+
+        ov_sf = (
+            getattr(overlay_vs.volume, "scale_factor", 1.0)
+            if has_overlay and getattr(overlay_vs, "volume", None)
+            else 1.0
+        )
+        if not isinstance(ov_sf, (int, float)) or ov_sf <= 0 or np.isnan(ov_sf):
+            ov_sf = 1.0
+
         base_unit = (
-            getattr(viewer.view_state.volume, "unit", None)
+            getattr(viewer.view_state.volume, "scale_unit", None)
+            or getattr(viewer.view_state.volume, "unit", None)
             if getattr(viewer.view_state, "volume", None)
             else None
         )
         ov_unit = (
-            getattr(overlay_vs.volume, "unit", None)
+            getattr(overlay_vs.volume, "scale_unit", None)
+            or getattr(overlay_vs.volume, "unit", None)
             if has_overlay and getattr(overlay_vs, "volume", None)
             else None
         )
@@ -545,6 +563,7 @@ class OverlayDrawer:
                 effective_cv,
                 base_unit,
                 base_thr,
+                base_sf,
                 True,
                 overlay_id,
                 ov_ww,
@@ -553,6 +572,7 @@ class OverlayDrawer:
                 effective_ov_cv,
                 ov_unit,
                 ov_thr,
+                ov_sf,
             )
         else:
             current_state = (
@@ -565,6 +585,7 @@ class OverlayDrawer:
                 effective_cv,
                 base_unit,
                 base_thr,
+                base_sf,
                 False,
             )
 
@@ -599,8 +620,12 @@ class OverlayDrawer:
             y_start = (win_h - cb_height) // 2
             top_y = y_start - 35 if base_unit else y_start - 20
 
-            val_min = wl - ww / 2.0
-            val_max = wl + ww / 2.0
+            val_min = (wl - ww / 2.0) * base_sf
+            val_max = (wl + ww / 2.0) * base_sf
+            disp_wl = wl * base_sf
+            disp_ww = ww * base_sf
+            disp_thr = base_thr * base_sf if base_thr is not None else None
+            disp_cv = cv * base_sf if cv is not None and isinstance(cv, (int, float, np.number)) else None
 
             if legend_mode == 2:
                 ticks = compute_legend_ticks(val_min, val_max)
@@ -608,11 +633,11 @@ class OverlayDrawer:
             else:
                 ticks = []
                 max_txt_w = max(
-                    _text_w(f"{val_max:g}"), _text_w(f"{wl:g}"), _text_w(f"{val_min:g}")
+                    _text_w(f"{val_max:g}"), _text_w(f"{disp_wl:g}"), _text_w(f"{val_min:g}")
                 )
 
             panel_right = max(115, int(x_start + cb_width + 12 + max_txt_w))
-            has_sub_min_base = base_thr is not None and base_thr < val_min
+            has_sub_min_base = disp_thr is not None and disp_thr < val_min
             bottom_y = y_start + cb_height + (32 if has_sub_min_base else 20)
 
             dpg.draw_rectangle(
@@ -669,8 +694,8 @@ class OverlayDrawer:
             )
 
             # Draw cutoff indicator line across the bar at min_threshold position
-            if base_thr is not None:
-                norm_thr = (base_thr - val_min) / max(1e-5, ww)
+            if disp_thr is not None:
+                norm_thr = (disp_thr - val_min) / max(1e-5, disp_ww)
                 if 0.0 <= norm_thr <= 1.0:
                     y_thr = y_start + cb_height - (norm_thr * cb_height)
                     dpg.draw_line(
@@ -680,7 +705,7 @@ class OverlayDrawer:
                         thickness=2,
                         parent=viewer.legend_tag,
                     )
-                elif base_thr < val_min:
+                elif disp_thr < val_min:
                     # Option A: Threshold cutoff is below the bottom of the colorbar
                     center_x = x_start + cb_width / 2.0
                     dpg.draw_triangle(
@@ -691,7 +716,7 @@ class OverlayDrawer:
                         fill=[255, 180, 50, 230],
                         parent=viewer.legend_tag,
                     )
-                    thr_txt = f"thr: {base_thr:g}"
+                    thr_txt = f"thr: {disp_thr:g}"
                     thr_txt_x = max(6, _center_x(center_x, thr_txt))
                     dpg.draw_text(
                         [thr_txt_x, y_start + cb_height + 8],
@@ -704,7 +729,7 @@ class OverlayDrawer:
             if legend_mode == 2:
                 # Mode 2: AQARA with tics (no cursor needle)
                 for t_val in ticks:
-                    norm = (t_val - val_min) / max(1e-5, ww)
+                    norm = (t_val - val_min) / max(1e-5, disp_ww)
                     norm = np.clip(norm, 0.0, 1.0)
                     y_pos = y_start + cb_height - (norm * cb_height)
 
@@ -733,7 +758,7 @@ class OverlayDrawer:
                 )
                 dpg.draw_text(
                     [x_start + cb_width + 8, y_start + cb_height / 2 - 7],
-                    f"{wl:g}",
+                    f"{disp_wl:g}",
                     color=text_col,
                     size=14,
                     parent=viewer.legend_tag,
@@ -746,8 +771,8 @@ class OverlayDrawer:
                     parent=viewer.legend_tag,
                 )
 
-                if cv is not None and isinstance(cv, (int, float, np.number)):
-                    norm = (cv - val_min) / max(1e-5, ww)
+                if disp_cv is not None:
+                    norm = (disp_cv - val_min) / max(1e-5, disp_ww)
                     norm = np.clip(norm, 0.0, 1.0)
                     y_pos = y_start + cb_height - (norm * cb_height)
 
@@ -774,22 +799,30 @@ class OverlayDrawer:
             has_units = bool(base_unit or ov_unit)
             top_y = y_start - 50 if has_units else y_start - 35
 
-            val_min_base = wl - ww / 2.0
-            val_max_base = wl + ww / 2.0
+            val_min_base = (wl - ww / 2.0) * base_sf
+            val_max_base = (wl + ww / 2.0) * base_sf
+            disp_wl_base = wl * base_sf
+            disp_ww_base = ww * base_sf
+            disp_thr_base = base_thr * base_sf if base_thr is not None else None
+            disp_cv_base = cv * base_sf if cv is not None and isinstance(cv, (int, float, np.number)) else None
 
             x_cb_base = x_start_panel + 55
             x_cb_ov = x_start_panel + 110
 
             val_min_ov = (
-                (ov_wl - ov_ww / 2.0)
+                ((ov_wl - ov_ww / 2.0) * ov_sf)
                 if (ov_wl is not None and ov_ww is not None)
                 else 0.0
             )
             val_max_ov = (
-                (ov_wl + ov_ww / 2.0)
+                ((ov_wl + ov_ww / 2.0) * ov_sf)
                 if (ov_wl is not None and ov_ww is not None)
                 else 1.0
             )
+            disp_wl_ov = (ov_wl * ov_sf) if ov_wl is not None else None
+            disp_ww_ov = (ov_ww * ov_sf) if ov_ww is not None else None
+            disp_thr_ov = (ov_thr * ov_sf) if ov_thr is not None else None
+            disp_ov_cv = (ov_cv * ov_sf) if ov_cv is not None and isinstance(ov_cv, (int, float, np.number)) else None
 
             if legend_mode == 2:
                 base_ticks = compute_legend_ticks(val_min_base, val_max_base)
@@ -804,13 +837,13 @@ class OverlayDrawer:
                 base_ticks, ov_ticks = [], []
                 max_base_w = max(
                     _text_w(f"{val_max_base:g}"),
-                    _text_w(f"{wl:g}"),
+                    _text_w(f"{disp_wl_base:g}"),
                     _text_w(f"{val_min_base:g}"),
                 )
-                if ov_wl is not None and ov_ww is not None:
+                if disp_wl_ov is not None and disp_ww_ov is not None:
                     max_ov_w = max(
                         _text_w(f"{val_max_ov:g}"),
-                        _text_w(f"{ov_wl:g}"),
+                        _text_w(f"{disp_wl_ov:g}"),
                         _text_w(f"{val_min_ov:g}"),
                     )
                 else:
@@ -824,9 +857,9 @@ class OverlayDrawer:
                 x_start_panel + panel_w, int(x_cb_ov + cb_width + 12 + max_ov_w)
             )
 
-            has_sub_min_base = base_thr is not None and base_thr < val_min_base
+            has_sub_min_base = disp_thr_base is not None and disp_thr_base < val_min_base
             has_sub_min_ov = (
-                ov_thr is not None and ov_ww is not None and ov_thr < val_min_ov
+                disp_thr_ov is not None and disp_ww_ov is not None and disp_thr_ov < val_min_ov
             )
             bottom_y = (
                 y_start
@@ -835,13 +868,13 @@ class OverlayDrawer:
             )
 
             if has_sub_min_base:
-                thr_base_txt = f"thr: {base_thr:g}"
+                thr_base_txt = f"thr: {disp_thr_base:g}"
                 thr_base_w = _text_w(thr_base_txt)
                 left_panel_x = min(
                     left_panel_x, int(center_base_x - thr_base_w / 2.0 - 4)
                 )
             if has_sub_min_ov:
-                thr_ov_txt = f"thr: {ov_thr:g}"
+                thr_ov_txt = f"thr: {disp_thr_ov:g}"
                 thr_ov_w = _text_w(thr_ov_txt)
                 right_panel_x = max(
                     right_panel_x, int(center_ov_x + thr_ov_w / 2.0 + 6)
@@ -944,8 +977,8 @@ class OverlayDrawer:
             )
 
             # Draw threshold cutoff indicator line for base
-            if base_thr is not None:
-                norm_thr = (base_thr - val_min_base) / max(1e-5, ww)
+            if disp_thr_base is not None:
+                norm_thr = (disp_thr_base - val_min_base) / max(1e-5, disp_ww_base)
                 if 0.0 <= norm_thr <= 1.0:
                     y_thr = y_start + cb_height - (norm_thr * cb_height)
                     dpg.draw_line(
@@ -955,7 +988,7 @@ class OverlayDrawer:
                         thickness=2,
                         parent=viewer.legend_tag,
                     )
-                elif base_thr < val_min_base:
+                elif disp_thr_base < val_min_base:
                     # Option A: Threshold cutoff below the base colorbar
                     dpg.draw_triangle(
                         [center_base_x, y_start + cb_height + 6],
@@ -965,7 +998,7 @@ class OverlayDrawer:
                         fill=[255, 180, 50, 230],
                         parent=viewer.legend_tag,
                     )
-                    thr_txt = f"thr: {base_thr:g}"
+                    thr_txt = f"thr: {disp_thr_base:g}"
                     thr_txt_x = max(left_panel_x + 2, _center_x(center_base_x, thr_txt))
                     dpg.draw_text(
                         [thr_txt_x, y_start + cb_height + 8],
@@ -978,7 +1011,7 @@ class OverlayDrawer:
             if legend_mode == 2:
                 # Mode 2: AQARA ticks for Base
                 for t_val in base_ticks:
-                    norm = (t_val - val_min_base) / max(1e-5, ww)
+                    norm = (t_val - val_min_base) / max(1e-5, disp_ww_base)
                     norm = np.clip(norm, 0.0, 1.0)
                     y_pos = y_start + cb_height - (norm * cb_height)
 
@@ -1009,7 +1042,7 @@ class OverlayDrawer:
                 )
                 dpg.draw_text(
                     [x_cb_base - 48, y_start + cb_height / 2 - 7],
-                    f"{wl:g}",
+                    f"{disp_wl_base:g}",
                     color=text_col,
                     size=13,
                     parent=viewer.legend_tag,
@@ -1022,8 +1055,8 @@ class OverlayDrawer:
                     parent=viewer.legend_tag,
                 )
 
-                if cv is not None and isinstance(cv, (int, float, np.number)):
-                    norm = (cv - val_min_base) / max(1e-5, ww)
+                if disp_cv_base is not None:
+                    norm = (disp_cv_base - val_min_base) / max(1e-5, disp_ww_base)
                     norm = np.clip(norm, 0.0, 1.0)
                     y_pos = y_start + cb_height - (norm * cb_height)
 
@@ -1049,12 +1082,12 @@ class OverlayDrawer:
                 if isinstance(ov_cmap_name, str)
                 else COLORMAPS["Grayscale"]
             )
-            effective_ov_ww = ov_ww if ov_ww is not None else 1.0
+            effective_ov_ww = disp_ww_ov if disp_ww_ov is not None else 1.0
             for i in range(256):
                 y = y_start + cb_height - (i / 255.0) * cb_height
                 val_i = val_min_ov + (i / 255.0) * effective_ov_ww
                 raw_c = cmap_ov[i]
-                if ov_thr is not None and val_i <= ov_thr:
+                if disp_thr_ov is not None and val_i <= disp_thr_ov:
                     dim_factor = 0.30
                     color = [
                         int(
@@ -1084,8 +1117,8 @@ class OverlayDrawer:
             )
 
             # Draw threshold cutoff indicator line for overlay
-            if ov_thr is not None and ov_ww is not None:
-                norm_thr = (ov_thr - val_min_ov) / max(1e-5, ov_ww)
+            if disp_thr_ov is not None and disp_ww_ov is not None:
+                norm_thr = (disp_thr_ov - val_min_ov) / max(1e-5, disp_ww_ov)
                 if 0.0 <= norm_thr <= 1.0:
                     y_thr = y_start + cb_height - (norm_thr * cb_height)
                     dpg.draw_line(
@@ -1095,7 +1128,7 @@ class OverlayDrawer:
                         thickness=2,
                         parent=viewer.legend_tag,
                     )
-                elif ov_thr < val_min_ov:
+                elif disp_thr_ov < val_min_ov:
                     # Option A: Threshold cutoff below the overlay colorbar
                     dpg.draw_triangle(
                         [center_ov_x, y_start + cb_height + 6],
@@ -1105,7 +1138,7 @@ class OverlayDrawer:
                         fill=[255, 180, 50, 230],
                         parent=viewer.legend_tag,
                     )
-                    thr_txt = f"thr: {ov_thr:g}"
+                    thr_txt = f"thr: {disp_thr_ov:g}"
                     thr_txt_x = max(x_start_panel + 60, _center_x(center_ov_x, thr_txt))
                     dpg.draw_text(
                         [thr_txt_x, y_start + cb_height + 8],
@@ -1115,11 +1148,11 @@ class OverlayDrawer:
                         parent=viewer.legend_tag,
                     )
 
-            if ov_wl is not None and ov_ww is not None:
+            if disp_wl_ov is not None and disp_ww_ov is not None:
                 if legend_mode == 2:
                     # Mode 2: AQARA ticks for Overlay
                     for t_val in ov_ticks:
-                        norm = (t_val - val_min_ov) / max(1e-5, ov_ww)
+                        norm = (t_val - val_min_ov) / max(1e-5, disp_ww_ov)
                         norm = np.clip(norm, 0.0, 1.0)
                         y_pos = y_start + cb_height - (norm * cb_height)
 
@@ -1148,7 +1181,7 @@ class OverlayDrawer:
                     )
                     dpg.draw_text(
                         [x_cb_ov + cb_width + 8, y_start + cb_height / 2 - 7],
-                        f"{ov_wl:g}",
+                        f"{disp_wl_ov:g}",
                         color=text_col,
                         size=13,
                         parent=viewer.legend_tag,
@@ -1161,8 +1194,8 @@ class OverlayDrawer:
                         parent=viewer.legend_tag,
                     )
 
-                    if ov_cv is not None and isinstance(ov_cv, (int, float, np.number)):
-                        norm = (ov_cv - val_min_ov) / max(1e-5, ov_ww)
+                    if disp_ov_cv is not None:
+                        norm = (disp_ov_cv - val_min_ov) / max(1e-5, disp_ww_ov)
                         norm = np.clip(norm, 0.0, 1.0)
                         y_pos = y_start + cb_height - (norm * cb_height)
 

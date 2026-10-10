@@ -37,26 +37,19 @@ The plugin is strictly scoped to images representing absorbed dose or dose rate.
 
 ## 3. Core Features & Functional Content
 
-### A. Intensity & Dose Scaling Tools (Implemented in Step 2)
-* **Physical Dose Scaling Factor ($S$)**:
-  * Raw image voxels may represent absorbed dose directly ($S=1.0$) or require calibration scaling (e.g. Monte Carlo dose-per-simulated-particle, calibration factors, decay-to-fraction multiplication).
-  * Interactive scaling multiplier input ($D_{\text{scaled}} = S \times D_{\text{raw}}$) with `x1`, `x0.001`, and `x1000` quick presets.
-  * **"Apply to Voxels" (Bake)**: Permanently multiplies the voxel values in memory by $S$ and resets $S=1.0$, adapting window/level synchronously.
-* **Min / Max Dose Range**:
-  * Real-time readouts of volume dose range ($D_{\min}$ and $D_{\max}$) computed via cached `volume.get_data_range()`.
-  * In absolute mode: displayed in physical units (e.g., `0.00 Gy` to `65.4 Gy`).
-  * In relative modes: displays both physical dose and relative percentage (e.g., `[0.0 % - 130.8 %]`).
-
-### B. Dose Normalization Modes (Implemented in Step 2)
-Quick toggling between absolute dose and relative percentage representations:
-1. **Absolute Dose**: $\text{Gy}$, $\text{mGy}$, or $\text{Gy/decay}$.
-2. **% to Max Dose ($D_{\max}$)**: Normalized such that $100\% = \max(D)$.
-3. **% to Prescription Dose ($D_{\text{rx}}$)**:
-   * User-defined prescription dose target (e.g. $50.0\text{ Gy}$ or $60.0\text{ Gy}$), with quick presets (`2 Gy`, `50 Gy`, `60 Gy`, `Set to Max`).
-   * $100\%$ corresponds to $D_{\text{rx}}$.
-4. **% to ROI Mean / Target**:
-   * Normalization based on the mean dose inside a selected target structure (e.g., PTV or tumor ROI).
-   * Populated dynamically from available organ ROIs; computes and displays $\bar{D}_{\text{ROI}}$.
+### A. Shared Intensity Scaling & Normalization Component (`src/vvv/ui/ui_scaling.py`)
+Both the **Intensity Tool** and the **Dose Tool** share a unified component (`IntensityScalingComponent`):
+* **Active Viewer Panel Hidden**: Switching to either `dose_plugin` or `intensity_plugin` hides the `Active Viewer` sidebar panel to maximize vertical tool space.
+* **Two Operating Modes**:
+  1. **Manual Scaling**: User specifies or adjusts the scaling factor $S$ directly (with quick multipliers `x1`, `x0.001`, `x1000`, `x0.1`, `x10`).
+  2. **Normalization**: The scaling factor $S$ is **auto-set** from the chosen normalization target:
+     - **Max**: $S = \text{target\_scale} / V_{\max}$ (normalizes max to 100% or 1.0).
+     - **Target Value**: $S = \text{target\_scale} / V_{\text{target}}$ (e.g. prescription dose $D_{\text{rx}}$ or target intensity).
+     - **ROI Mean**: $S = \text{target\_scale} / \bar{V}_{\text{ROI}}$ (normalizes mean inside selected ROI to 100% or 1.0).
+* **Actions**:
+  - **`Apply to Image`**: Permanently multiplies voxel values in memory by $S$, adjusts Window/Level proportionally, clears range/histogram caches, and resets $S = 1.0$.
+  - **`Reset Original`**: Inverts cumulative scale $\prod S$ to safely restore original unscaled voxel values without duplicate memory allocation.
+  - **Real-time Range Preview**: Displays `Current Range [min, max]` and `Scaled Range [min*S, max*S]`.
 
 ### C. Clinical Window/Level Presets & Colormaps (Implemented in Step 2)
 * **Presets**:

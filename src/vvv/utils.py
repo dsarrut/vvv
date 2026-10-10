@@ -81,16 +81,21 @@ def format_pixel_value(val, vol, time_idx, dvf_precision=2):
     """
     if val is None:
         return "-"
+    sf = getattr(vol, "scale_factor", 1.0)
+    if not isinstance(sf, (int, float)) or sf == 0.0 or np.isnan(sf):
+        sf = 1.0
     if getattr(vol, "is_rgb", False):
+        if sf != 1.0:
+            return f"{val[0]*sf:g} {val[1]*sf:g} {val[2]*sf:g}"
         return f"{val[0]:g} {val[1]:g} {val[2]:g}"
     if getattr(vol, "is_dvf", False):
-        mag = np.linalg.norm(val)
+        mag = np.linalg.norm(val) * sf
         comps = [
-            f"*{v:.{dvf_precision}f}" if i == time_idx else f"{v:.{dvf_precision}f}"
+            f"*{v*sf:.{dvf_precision}f}" if i == time_idx else f"{v*sf:.{dvf_precision}f}"
             for i, v in enumerate(val)
         ]
         return f"[{' '.join(comps)}] L:{mag:.{dvf_precision}f}"
-    return f"{val:g}"
+    return f"{val * sf:g}"
 
 
 def slice_to_voxel(slice_x, slice_y, slice_idx, orientation, shape):

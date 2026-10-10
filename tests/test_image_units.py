@@ -610,3 +610,137 @@ def test_legend_sub_min_threshold_option_a(headless_gui_app):
         expected_bottom_y = y_start + cb_height + 32
         panel_rect = drawn_rects[0][0]  # first drawn rectangle is background panel
         assert panel_rect[1][1] == expected_bottom_y
+
+
+def test_virtual_scaling_format_pixel_value():
+    """Verifies that format_pixel_value respects vol.scale_factor."""
+    from vvv.utils import format_pixel_value
+
+    mock_vol = MagicMock()
+    mock_vol.is_rgb = False
+    mock_vol.is_dvf = False
+    mock_vol.scale_factor = 1.0
+
+    # 1. Default scale factor 1.0
+    val_str = format_pixel_value(25.0, mock_vol, 0)
+    assert val_str == "25"
+
+    # 2. Virtual scale factor 2.0
+    mock_vol.scale_factor = 2.0
+    val_str = format_pixel_value(25.0, mock_vol, 0)
+    assert val_str == "50"
+
+    # 3. Virtual scale factor 0.1
+    mock_vol.scale_factor = 0.1
+    val_str = format_pixel_value(25.0, mock_vol, 0)
+    assert val_str == "2.5"
+
+    # 4. RGB volume
+    rgb_vol = MagicMock()
+    rgb_vol.is_rgb = True
+    rgb_vol.is_dvf = False
+    rgb_vol.scale_factor = 2.0
+    val_str = format_pixel_value([10.0, 20.0, 30.0], rgb_vol, 0)
+    assert val_str == "20 40 60"
+
+
+def test_virtual_scaling_draw_legend():
+    """Verifies that draw_legend scales tick and range labels when scale_factor is set."""
+    from vvv.ui.drawing import OverlayDrawer
+    import dearpygui.dearpygui as dpg
+
+    viewer = MagicMock()
+    viewer.is_image_orientation.return_value = True
+    viewer.show_legend = 1
+    viewer.quad_w = 400
+    viewer.quad_h = 400
+    viewer.legend_tag = "test_scaled_legend"
+    viewer.image_id = "test_img"
+
+    vol = MagicMock()
+    vol.is_rgb = False
+    vol.unit = "Gy"
+    vol.scale_factor = 2.0
+    vol.scale_unit = "%"
+    viewer.volume = vol
+    viewer.view_state.volume = vol
+
+    viewer.view_state.display.ww = 50.0
+    viewer.view_state.display.wl = 25.0
+    viewer.view_state.display.colormap = "Grayscale"
+    viewer.view_state.crosshair_value = 10.0
+    viewer.view_state.display.min_threshold = None
+    viewer.view_state.display.overlay.image_id = None
+    viewer.controller.settings.data = {
+        "colors": {
+            "legend_bg": [0, 0, 0, 180],
+            "tracker_text": [255, 255, 255, 255],
+        }
+    }
+
+    drawer = OverlayDrawer(viewer)
+    drawn_texts = []
+    with patch("dearpygui.dearpygui.does_item_exist", return_value=True), \
+         patch("dearpygui.dearpygui.delete_item"), \
+         patch("dearpygui.dearpygui.draw_rectangle"), \
+         patch("dearpygui.dearpygui.draw_line"), \
+         patch("dearpygui.dearpygui.draw_triangle"), \
+         patch("dearpygui.dearpygui.draw_text", side_effect=lambda *a, **kw: drawn_texts.append((a, kw))):
+        drawer.draw_legend()
+
+        text_labels = [args[1] for (args, kw) in drawn_texts]
+        # Val max: (25 + 25) * 2 = 100
+        # WL: 25 * 2 = 50
+        # Val min: (25 - 25) * 2 = 0
+        assert "100" in text_labels
+        assert "50" in text_labels
+        assert "0" in text_labels
+        # Unit shows scale_unit "%"
+        assert "%" in text_labels
+
+
+def test_fusion_ui_scaling_component():
+    """Verifies that FusionUI.scaling_comp targets the overlay volume."""
+    from vvv.ui.ui_fusion import FusionUI
+
+    mock_gui = MagicMock()
+    mock_ctrl = MagicMock()
+
+    fusion_ui = FusionUI(mock_gui, mock_ctrl)
+    comp = fusion_ui.scaling_comp
+
+    # 1. When no overlay is selected
+    mock_gui.context_viewer.view_state.display.overlay.image_id = None
+    target_vol, target_vs, is_ov, unit, tid = fusion_ui._get_scaling_target()
+    assert target_vol is None
+    assert is_ov is False
+
+    # 2. When overlay is selected
+    ov_vol = MagicMock()
+    ov_vol.unit = "HU"
+    ov_vol.scale_factor = 1.0
+    ov_vol.get_data_range.return_value = (0.0, 1000.0)
+    ov_vs = MagicMock()
+
+    mock_gui.context_viewer.view_state.display.overlay.image_id = "overlay_img_1"
+    mock_ctrl.volumes = {"overlay_img_1": ov_vol}
+    mock_ctrl.view_states = {"overlay_img_1": ov_vs}
+
+    target_vol, target_vs, is_ov, unit, tid = fusion_ui._get_scaling_target()
+    assert target_vol == ov_vol
+    assert is_ov is True
+    assert tid == "overlay_img_1"
+
+    # 3. Normalization on overlay
+    comp._on_norm_max_clicked()
+    assert comp.get_state("overlay_img_1").norm_mode == "Max"
+    # Auto S = 100 / 1000 = 0.1
+    assert comp.get_state("overlay_img_1").scaling_factor == 0.1
+    assert ov_vol.scale_factor == 0.1
+    assert ov_vol.scale_unit == "%"
+
+    # 4. Manual edit on overlay disables norm
+    comp._on_scale_factor_changed(None, 0.5, None)
+    assert comp.get_state("overlay_img_1").norm_mode is None
+    assert ov_vol.scale_factor == 0.5
+

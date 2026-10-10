@@ -4,7 +4,6 @@ import numpy as np
 import dearpygui.dearpygui as dpg
 
 from vvv.plugins.dose.plugin_dose import DosePlugin
-from vvv.plugins.dose.control_dose import DoseSettings
 
 
 class TestDosePlugin(unittest.TestCase):
@@ -22,6 +21,7 @@ class TestDosePlugin(unittest.TestCase):
         self.mock_viewer.volume.shape3d = (10, 10, 10)
         self.mock_viewer.volume.num_timepoints = 1
         self.mock_viewer.volume.is_rgb = False
+        self.mock_viewer.volume._cumulative_scale = 1.0
         self.mock_viewer.volume.get_data_range.return_value = (0.0, 60.0)
 
         self.mock_overlay = MagicMock()
@@ -31,6 +31,7 @@ class TestDosePlugin(unittest.TestCase):
         self.mock_overlay.shape3d = (10, 10, 10)
         self.mock_overlay.num_timepoints = 1
         self.mock_overlay.is_rgb = False
+        self.mock_overlay._cumulative_scale = 1.0
         self.mock_overlay.get_data_range.return_value = (0.0, 50.0)
 
         self.mock_viewer.view_state.display.overlay = None
@@ -155,149 +156,146 @@ class TestDosePlugin(unittest.TestCase):
         self.assertEqual(target_vol, self.mock_overlay)
 
     # -------------------------------------------------------------
-    # STEP 2 TESTS
+    # COMPONENT TESTS: Scaling & Normalization
     # -------------------------------------------------------------
-    def test_dose_scaling_factor(self):
+    def test_scaling_component_manual(self):
         self.mock_viewer.volume.unit = "Gy"
-        settings = self.plugin._controller.get_settings("img_1")
-        self.assertEqual(settings.scaling_factor, 1.0)
+        comp = self.plugin._ui.scaling_comp
+        state = comp.get_state("img_1")
+        self.assertEqual(state.scaling_factor, 1.0)
+        self.assertIsNone(state.norm_mode)
 
-        # Base range is (0.0, 60.0)
-        d_min, d_max = self.plugin._controller.get_scaled_dose_range(self.mock_viewer.volume, settings.scaling_factor)
-        self.assertEqual(d_min, 0.0)
-        self.assertEqual(d_max, 60.0)
+        # Set scale factor to 2.5
+        comp._set_scale_factor(2.5)
+        self.assertEqual(state.scaling_factor, 2.5)
+        self.assertEqual(self.mock_viewer.volume.scale_factor, 2.5)
 
-        # Change scaling factor to 2.5
-        settings.scaling_factor = 2.5
-        d_min, d_max = self.plugin._controller.get_scaled_dose_range(self.mock_viewer.volume, settings.scaling_factor)
-        self.assertEqual(d_min, 0.0)
-        self.assertEqual(d_max, 150.0)
+        comp.update_ui(self.mock_api)
+        self.assertIn("150", dpg.get_value(comp._t("text_range")))
 
-        # UI update shows scaled values
-        self.plugin._ui.update_ui(self.mock_api)
-        self.assertIn("150", dpg.get_value(self.plugin._ui._t("text_dose_max")))
+    def test_scaling_component_norm_to_max(self):
+        self.mock_viewer.volume.unit = "Gy"
+        comp = self.plugin._ui.scaling_comp
+        state = comp.get_state("img_1")
 
-    def test_bake_scaling_factor(self):
+        # Click Max normalization (100%)
+        comp._on_norm_max_clicked()
+        self.assertEqual(state.norm_mode, "Max")
+        # Max is 60.0 -> Auto S = 100 / 60 = 1.6666...
+        self.assertAlmostEqual(state.scaling_factor, 100.0 / 60.0)
+        self.assertEqual(self.mock_viewer.volume.scale_unit, "%")
+
+    def test_scaling_component_norm_to_value(self):
+        self.mock_viewer.volume.unit = "Gy"
+        comp = self.plugin._ui.scaling_comp
+        state = comp.get_state("img_1")
+
+        comp._on_norm_val_clicked()
+        comp._on_norm_val_changed(None, 50.0, None)
+
+        self.assertIn(state.norm_mode, ("Ref Value", "Target Value", "Prescription"))
+        self.assertEqual(state.norm_target_value, 50.0)
+        # Target 50.0 -> S = 100 / 50 = 2.0
+        self.assertEqual(state.scaling_factor, 2.0)
+        self.assertEqual(self.mock_viewer.volume.scale_unit, "%")
+
+    def test_scaling_component_norm_to_roi_mean(self):
+        self.mock_viewer.volume.unit = "Gy"
+        mock_roi = MagicMock()
+        mock_roi.data = np.ones((10, 10, 10), dtype=np.uint8)
+        self.mock_viewer.volume.data = np.full((10, 10, 10), 25.0, dtype=np.float32)
+        self.mock_api.get_volumes.return_value["roi_1"] = mock_roi
+
+        comp = self.plugin._ui.scaling_comp
+        state = comp.get_state("img_1")
+
+        comp._on_norm_roi_clicked()
+        comp._on_norm_roi_changed(None, "PTV (roi_1)", None)
+
+        self.assertEqual(state.norm_mode, "ROI Mean")
+        self.assertEqual(state.norm_roi_id, "roi_1")
+        # ROI Mean is 25.0 -> S = 100 / 25 = 4.0
+        self.assertEqual(state.scaling_factor, 4.0)
+
+    def test_scaling_component_manual_edit_disables_norm(self):
+        self.mock_viewer.volume.unit = "Gy"
+        comp = self.plugin._ui.scaling_comp
+        state = comp.get_state("img_1")
+
+        # First normalize to max
+        comp._on_norm_max_clicked()
+        self.assertEqual(state.norm_mode, "Max")
+
+        # Manually changing scale factor disables active normalization mode
+        comp._on_scale_factor_changed(None, 2.0, None)
+        self.assertIsNone(state.norm_mode)
+        self.assertEqual(state.scaling_factor, 2.0)
+        self.assertIsNone(self.mock_viewer.volume.scale_unit)
+
+    def test_scaling_component_bake_and_reset(self):
         self.mock_viewer.volume.unit = "Gy"
         self.mock_viewer.volume.data = np.full((4, 4, 4), 10.0, dtype=np.float32)
         self.mock_viewer.view_state.display.ww = 20.0
         self.mock_viewer.view_state.display.wl = 10.0
 
-        settings = self.plugin._controller.get_settings("img_1")
-        settings.scaling_factor = 3.0
+        comp = self.plugin._ui.scaling_comp
+        comp._set_scale_factor(3.0)
 
-        self.plugin._controller.bake_scaling_factor()
+        # Bake (applies to array)
+        comp._on_bake_clicked()
         self.assertTrue(np.allclose(self.mock_viewer.volume.data, 30.0))
-        self.assertEqual(settings.scaling_factor, 1.0)
+        self.assertEqual(getattr(self.mock_viewer.volume, "_cumulative_scale", 1.0), 3.0)
+        self.assertEqual(self.mock_viewer.view_state.display.ww, 60.0)
+        self.assertEqual(self.mock_viewer.view_state.display.wl, 30.0)
+        self.assertEqual(comp.get_state("img_1").scaling_factor, 1.0)
+
+        # Reset (reverts array)
+        comp._on_reset_clicked()
+        self.assertTrue(np.allclose(self.mock_viewer.volume.data, 10.0))
+        self.assertEqual(getattr(self.mock_viewer.volume, "_cumulative_scale", 1.0), 1.0)
+        self.assertEqual(self.mock_viewer.view_state.display.ww, 20.0)
+        self.assertEqual(self.mock_viewer.view_state.display.wl, 10.0)
+
+    # -------------------------------------------------------------
+    # Clinical Presets & Sampling Tests
+    # -------------------------------------------------------------
+    def test_window_level_presets(self):
+        self.mock_viewer.volume.unit = "Gy"
+        # [0 - 100%] -> [0, 60.0]
+        self.plugin._controller.apply_display_window("rx_100")
         self.assertEqual(self.mock_viewer.view_state.display.ww, 60.0)
         self.assertEqual(self.mock_viewer.view_state.display.wl, 30.0)
 
-    def test_normalization_modes(self):
-        self.mock_viewer.volume.unit = "Gy"
-        settings = self.plugin._controller.get_settings("img_1")
-
-        # 1. Absolute Dose -> reference defaults to d_max (60.0)
-        settings.norm_mode = "Absolute Dose"
-        ref = self.plugin._controller.get_reference_dose(self.mock_viewer.volume, False, settings)
-        self.assertEqual(ref, 60.0)
-
-        # 2. % to Max -> reference is 60.0
-        settings.norm_mode = "% to Max"
-        ref = self.plugin._controller.get_reference_dose(self.mock_viewer.volume, False, settings)
-        self.assertEqual(ref, 60.0)
-
-        # 3. % to Prescription -> reference is rx_dose
-        settings.norm_mode = "% to Prescription"
-        settings.rx_dose = 45.0
-        ref = self.plugin._controller.get_reference_dose(self.mock_viewer.volume, False, settings)
-        self.assertEqual(ref, 45.0)
-
-        # 4. % to ROI Mean
-        mock_roi_vol = MagicMock()
-        mock_roi_vol.data = np.ones((10, 10, 10), dtype=np.uint8)
-        self.mock_viewer.volume.data = np.full((10, 10, 10), 40.0, dtype=np.float32)
-        self.mock_api.get_volumes.return_value["roi_ptv"] = mock_roi_vol
-
-        settings.norm_mode = "% to ROI Mean"
-        settings.norm_roi_id = "roi_ptv"
-        ref = self.plugin._controller.get_reference_dose(self.mock_viewer.volume, False, settings)
-        self.assertEqual(ref, 40.0)
-
-    def test_window_level_presets(self):
-        self.mock_viewer.volume.unit = "Gy"
-        settings = self.plugin._controller.get_settings("img_1")
-        settings.norm_mode = "% to Prescription"
-        settings.rx_dose = 50.0
-        settings.scaling_factor = 1.0
-
-        # [0 - 100%]
-        self.plugin._controller.apply_display_window("rx_100")
-        self.assertEqual(self.mock_viewer.view_state.display.ww, 50.0)
-        self.assertEqual(self.mock_viewer.view_state.display.wl, 25.0)
-
-        # [0 - 107%]
+        # [0 - 107%] -> [0, 64.2]
         self.plugin._controller.apply_display_window("rx_107")
-        self.assertAlmostEqual(self.mock_viewer.view_state.display.ww, 53.5)
-        self.assertAlmostEqual(self.mock_viewer.view_state.display.wl, 26.75)
+        self.assertAlmostEqual(self.mock_viewer.view_state.display.ww, 64.2)
+        self.assertAlmostEqual(self.mock_viewer.view_state.display.wl, 32.1)
 
-        # [Full Range] -> (0, 60)
+        # [Full Range] -> [0, 60]
         self.plugin._controller.apply_display_window("full_range")
         self.assertEqual(self.mock_viewer.view_state.display.ww, 60.0)
         self.assertEqual(self.mock_viewer.view_state.display.wl, 30.0)
 
     def test_background_threshold_toggle(self):
         self.mock_viewer.volume.unit = "Gy"
-        settings = self.plugin._controller.get_settings("img_1")
-        settings.norm_mode = "% to Prescription"
-        settings.rx_dose = 50.0
-        settings.scaling_factor = 1.0
-
         self.plugin._controller.set_background_threshold(True, pct=0.05)
-        self.assertEqual(self.mock_viewer.view_state.display.min_threshold, 2.5)
-        self.assertTrue(settings.threshold_5pct)
+        # 5% of 60.0 = 3.0
+        self.assertEqual(self.mock_viewer.view_state.display.min_threshold, 3.0)
+        self.assertTrue(self.plugin._controller._threshold_5pct)
 
         self.plugin._controller.set_background_threshold(False)
         self.assertIsNone(self.mock_viewer.view_state.display.min_threshold)
-        self.assertFalse(settings.threshold_5pct)
+        self.assertFalse(self.plugin._controller._threshold_5pct)
 
     def test_crosshair_dose_sampling(self):
         self.mock_viewer.volume.unit = "Gy"
-        settings = self.plugin._controller.get_settings("img_1")
-        settings.norm_mode = "% to Prescription"
-        settings.rx_dose = 50.0
-
         self.mock_viewer.view_state.camera.crosshair_phys_coord = np.array([10.0, 20.0, 30.0])
         self.mock_viewer.view_state.world_to_display.return_value = np.array([4.0, 5.0, 6.0])
-        self.mock_viewer.view_state._read_voxel_value.return_value = 25.0
+        self.mock_viewer.view_state._read_voxel_value.return_value = 30.0
 
-        pt_dose, pt_pct = self.plugin._controller.get_crosshair_dose_sample()
-        self.assertEqual(pt_dose, 25.0)
-        self.assertEqual(pt_pct, 50.0)
-
-    def test_serialization_and_restore(self):
-        settings = self.plugin._controller.get_settings("img_1")
-        settings.scaling_factor = 1.75
-        settings.norm_mode = "% to Prescription"
-        settings.rx_dose = 66.0
-        settings.norm_roi_id = "roi_target"
-        settings.threshold_5pct = True
-
-        state_dict = self.plugin.serialize_image_state("img_1")
-        self.assertEqual(state_dict["scaling_factor"], 1.75)
-        self.assertEqual(state_dict["norm_mode"], "% to Prescription")
-        self.assertEqual(state_dict["rx_dose"], 66.0)
-        self.assertEqual(state_dict["norm_roi_id"], "roi_target")
-        self.assertTrue(state_dict["threshold_5pct"])
-
-        # Create fresh plugin and restore
-        plugin2 = DosePlugin()
-        plugin2.restore_image_state("img_1", state_dict)
-        restored = plugin2._controller.get_settings("img_1")
-        self.assertEqual(restored.scaling_factor, 1.75)
-        self.assertEqual(restored.norm_mode, "% to Prescription")
-        self.assertEqual(restored.rx_dose, 66.0)
-        self.assertEqual(restored.norm_roi_id, "roi_target")
-        self.assertTrue(restored.threshold_5pct)
+        val, pct = self.plugin._controller.get_crosshair_dose_sample()
+        self.assertEqual(val, 30.0)
+        self.assertEqual(pct, 50.0)  # 30 / 60 * 100 = 50%
 
 
 if __name__ == "__main__":
