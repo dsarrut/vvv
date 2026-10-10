@@ -1,7 +1,6 @@
 import dearpygui.dearpygui as dpg
 from vvv.config import WL_PRESETS, COLORMAPS
 from vvv.ui.ui_components import build_stepped_slider, build_section_title, build_help_button, build_beginner_tooltip
-from vvv.ui.ui_scaling import IntensityScalingComponent
 from .control_intensity import IntensityController
 from vvv.plugins.plugin_api import PluginTagMixin
 
@@ -11,18 +10,6 @@ class IntensityUI(PluginTagMixin):
         self._plugin_id = plugin_id
         self._c = controller
         self._api = None
-        self.scaling_comp = IntensityScalingComponent(
-            prefix=self._t("scaling"),
-            get_target_fn=self._get_scaling_target,
-            default_target_value=100.0,
-        )
-
-    def _get_scaling_target(self):
-        viewer = self._api.get_active_viewer() if self._api else None
-        if not viewer or not viewer.volume:
-            return None, None, False, None, None
-        unit_str = getattr(viewer.volume, "unit", "")
-        return viewer.volume, viewer.view_state, False, unit_str, getattr(viewer, "image_id", None)
 
     def create_ui(self, parent, api) -> None:
         self._api = api
@@ -89,9 +76,6 @@ class IntensityUI(PluginTagMixin):
             with dpg.group(horizontal=True):
                 dpg.add_text("Image Range:", color=cfg_c["text_dim"])
                 dpg.add_text("---", tag=self._t("minmax"))
-
-            dpg.add_spacer(height=4)
-            self.scaling_comp.create_ui(parent=None, api=api)
 
             dpg.add_spacer(height=4)
             with dpg.plot(

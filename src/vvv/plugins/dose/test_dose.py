@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 import numpy as np
 import dearpygui.dearpygui as dpg
 
@@ -195,9 +195,24 @@ class TestDosePlugin(unittest.TestCase):
 
         self.assertIn(state.norm_mode, ("Ref Value", "Target Value", "Prescription"))
         self.assertEqual(state.norm_target_value, 50.0)
-        # Target 50.0 -> S = 100 / 50 = 2.0
-        self.assertEqual(state.scaling_factor, 2.0)
+        # Prescription works independently with user scale factor:
+        self.assertEqual(state.scaling_factor, 1.0)
+        self.assertEqual(self.mock_viewer.volume.scale_factor, 2.0)
         self.assertEqual(self.mock_viewer.volume.scale_unit, "%")
+
+        # Changing user scale factor while in Prescription mode preserves Prescription mode:
+        comp._on_scale_factor_changed(None, 0.5, None)
+        self.assertEqual(state.norm_mode, "Ref Value")
+        self.assertEqual(state.scaling_factor, 0.5)
+        # S_eff = 0.5 * 100 / 50 = 1.0
+        self.assertEqual(self.mock_viewer.volume.scale_factor, 1.0)
+
+        # Clicking None returns to Absolute dose without forgetting prescription value:
+        comp._on_norm_none_clicked()
+        self.assertIsNone(state.norm_mode)
+        self.assertEqual(state.norm_target_value, 50.0)
+        self.assertEqual(self.mock_viewer.volume.scale_factor, 0.5)
+        self.assertIsNone(self.mock_viewer.volume.scale_unit)
 
     def test_scaling_component_norm_to_roi_mean(self):
         self.mock_viewer.volume.unit = "Gy"
@@ -216,6 +231,24 @@ class TestDosePlugin(unittest.TestCase):
         self.assertEqual(state.norm_roi_id, "roi_1")
         # ROI Mean is 25.0 -> S = 100 / 25 = 4.0
         self.assertEqual(state.scaling_factor, 4.0)
+
+    @patch("dearpygui.dearpygui.configure_item")
+    @patch("dearpygui.dearpygui.does_item_exist", return_value=True)
+    def test_scaling_component_roi_mean_disabled_when_no_rois(self, mock_exist, mock_config):
+        self.mock_viewer.volume.unit = "Gy"
+        comp = self.plugin._ui.scaling_comp
+
+        # No ROIs loaded
+        self.mock_api.get_volumes.return_value = {}
+        self.mock_viewer.view_state.rois = {}
+        comp.update_ui(self.mock_api)
+        mock_config.assert_any_call(comp._t("btn_norm_roi"), enabled=False)
+
+        # With ROI loaded
+        mock_config.reset_mock()
+        self.mock_viewer.view_state.rois = {"roi_1": MagicMock()}
+        comp.update_ui(self.mock_api)
+        mock_config.assert_any_call(comp._t("btn_norm_roi"), enabled=True)
 
     def test_scaling_component_manual_edit_disables_norm(self):
         self.mock_viewer.volume.unit = "Gy"

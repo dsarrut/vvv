@@ -9,7 +9,6 @@ from vvv.ui.ui_components import (
 )
 from vvv.utils import compute_adaptive_step_and_speed
 from vvv.config import WL_PRESETS, COLORMAPS
-from vvv.ui.ui_scaling import IntensityScalingComponent
 
 
 class FusionUI:
@@ -18,25 +17,6 @@ class FusionUI:
     def __init__(self, gui, controller):
         self.gui = gui
         self.controller = controller
-        self.scaling_comp = IntensityScalingComponent(
-            prefix="fusion_scaling",
-            get_target_fn=self._get_scaling_target,
-            default_target_value=100.0,
-        )
-
-    def _get_scaling_target(self):
-        viewer = self.gui.context_viewer
-        if not viewer or not viewer.view_state:
-            return None, None, False, None, None
-        overlay_id = viewer.view_state.display.overlay.image_id
-        if not overlay_id:
-            return None, None, False, None, None
-        overlay_vol = self.controller.volumes.get(overlay_id)
-        overlay_vs = self.controller.view_states.get(overlay_id)
-        if not overlay_vol:
-            return None, None, False, None, None
-        unit_str = getattr(overlay_vol, "unit", "")
-        return overlay_vol, overlay_vs, True, unit_str, overlay_id
 
     @staticmethod
     def build_tab_fusion(gui):
@@ -171,9 +151,6 @@ class FusionUI:
                     "compares every pixel (including background noise) between the two images.",
                     gui,
                 )
-
-                dpg.add_spacer(height=5)
-                gui.fusion_ui.scaling_comp.create_ui(parent=None, api=gui.plugin_api)
 
     def refresh_fusion_ui(self):
         viewer = self.gui.context_viewer
@@ -445,7 +422,6 @@ class FusionUI:
 
         # Ensure the text values are immediately correct
         self.sync_fusion_ui()
-        self.scaling_comp.update_ui(self.gui.plugin_api)
 
     def sync_fusion_ui(self):
         """Called every frame to update the text boxes if they changed via hotkeys (e.g., 'X' Auto-Window)."""

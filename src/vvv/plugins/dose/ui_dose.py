@@ -41,7 +41,7 @@ class DosePluginUI(PluginTagMixin):
             with dpg.group(tag=self._t("group_dose_requirement"), show=True):
                 dpg.add_text(
                     "Dose Unit Required",
-                    color=cfg_c.get("warning", [255, 180, 50, 255]),
+                    color=[255, 255, 255, 255],
                 )
                 dpg.add_spacer(height=4)
                 dpg.add_text(
