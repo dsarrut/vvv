@@ -14,7 +14,6 @@ class DosePluginController(PluginTagMixin):
         self._plugin_id = plugin_id
         self._api: Optional[PluginAPI] = None
         self._ui: Optional["DosePluginUI"] = None
-        self._threshold_5pct: bool = False
 
     def bind(self, api: PluginAPI) -> None:
         self._api = api
@@ -115,100 +114,57 @@ class DosePluginController(PluginTagMixin):
 
             self._api.request_refresh()
 
-    def apply_display_window(self, mode: str) -> None:
-        """
-        Applies standard radiotherapy dose window/level presets:
-            - 'full_range': [D_min, D_max]
-            - 'rx_100': [0, D_max]
-            - 'rx_107': [0, 1.07 * D_max]
-        """
+
+
+    def go_to_max(self) -> None:
+        """Finds the maximum dose voxel in the active target volume and centers crosshair and camera on it."""
         is_active, target_vol, is_overlay, _, target_id, target_vs = self.get_dose_target_info()
-        if not is_active or not target_vol or not target_vs:
+        if not is_active or not target_vol or not self._api:
             return
-
-        raw_min, raw_max = target_vol.get_data_range()
-        d_min = float(raw_min)
-        d_max = float(raw_max)
-
-        if mode == "full_range":
-            low = min(0.0, d_min)
-            high = max(1e-12, d_max)
-            ww = high - low
-            wl = (high + low) / 2.0
-        elif mode == "rx_100":
-            ww = max(1e-12, d_max)
-            wl = d_max / 2.0
-        elif mode == "rx_107":
-            ww = max(1e-12, 1.07 * d_max)
-            wl = (1.07 * d_max) / 2.0
-        else:
-            return
-
-        target_vs.display.ww = max(1e-20, ww)
-        target_vs.display.wl = wl
-        target_vs.is_data_dirty = True
-
-        if self._api:
-            self._api.request_refresh()
-
-    def set_background_threshold(self, enabled: bool, pct: float = 0.05) -> None:
-        """Thresholds low dose (< pct * D_max) so exterior anatomy is visible."""
-        is_active, target_vol, _, _, _, target_vs = self.get_dose_target_info()
-        if not is_active or not target_vol or not target_vs:
-            return
-
-        self._threshold_5pct = enabled
-        if enabled:
-            _, raw_max = target_vol.get_data_range()
-            target_vs.display.min_threshold = float(pct * raw_max)
-        else:
-            target_vs.display.min_threshold = None
-
-        target_vs.is_data_dirty = True
-        if self._api:
-            self._api.request_refresh()
-
-    def set_colormap(self, cmap_name: str) -> None:
-        is_active, _, _, _, _, target_vs = self.get_dose_target_info()
-        if not is_active or not target_vs:
-            return
-        target_vs.display.colormap = cmap_name
-        target_vs.is_data_dirty = True
-        if self._api:
-            self._api.request_refresh()
-
-    def get_crosshair_dose_sample(self) -> Tuple[Optional[float], Optional[float]]:
-        """Returns (dose_value, percentage_of_max) at the current crosshair position."""
-        is_active, target_vol, _, _, _, target_vs = self.get_dose_target_info()
-        if not is_active or not target_vol or not target_vs or not self._api:
-            return None, None
 
         viewer = self._api.get_active_viewer()
         if not viewer or not viewer.view_state:
-            return None, None
+            return
 
-        phys = viewer.view_state.camera.crosshair_phys_coord
-        if phys is None:
-            return None, None
+        arr = target_vol.data
+        if arr is None or arr.size == 0:
+            return
 
-        target_v = target_vs.world_to_display(phys, is_buffered=False)
-        if target_v is None:
-            return None, None
+        if arr.ndim == 4 and not getattr(target_vol, "is_rgb", False):
+            t_idx = min(getattr(viewer.view_state.camera, "time_idx", 0), arr.shape[0] - 1)
+            arr_3d = arr[t_idx]
+        else:
+            arr_3d = arr
 
-        limit_x = target_vol.shape3d[2]
-        limit_y = target_vol.shape3d[1]
-        limit_z = target_vol.shape3d[0]
-        ix, iy, iz = int(np.round(target_v[0])), int(np.round(target_v[1])), int(np.round(target_v[2]))
+        try:
+            if np.isnan(arr_3d).any():
+                idx_flat = int(np.nanargmax(arr_3d))
+            else:
+                idx_flat = int(np.argmax(arr_3d))
+            z_idx, y_idx, x_idx = np.unravel_index(idx_flat, arr_3d.shape)
+        except Exception:
+            return
 
-        if 0 <= ix < limit_x and 0 <= iy < limit_y and 0 <= iz < limit_z:
-            raw_val = target_vs._read_voxel_value(ix, iy, iz, use_buffer=False)
-            if raw_val is not None:
-                val = float(raw_val)
-                _, raw_max = target_vol.get_data_range()
-                pct = (val / raw_max) * 100.0 if raw_max > 0 else 0.0
-                return val, pct
+        if getattr(target_vol, "sitk_image", None):
+            try:
+                phys = target_vol.sitk_image.TransformIndexToPhysicalPoint([int(x_idx), int(y_idx), int(z_idx)])
+                phys_coord = np.array(phys[:3], dtype=np.float64)
+            except Exception:
+                phys_coord = target_vol.voxel_coord_to_physic_coord(np.array([float(x_idx), float(y_idx), float(z_idx)]))
+        else:
+            phys_coord = target_vol.voxel_coord_to_physic_coord(np.array([float(x_idx), float(y_idx), float(z_idx)]))
 
-        return None, None
+        vs = viewer.view_state
+        vs.camera.target_center = phys_coord
+        vs.update_crosshair_from_phys(phys_coord)
+
+        base_id = getattr(viewer, "image_id", None)
+        if base_id and hasattr(self._api, "propagate_sync"):
+            self._api.propagate_sync(base_id)
+
+        self._api.request_refresh()
+        if hasattr(self._api, "update_sidebar_crosshair"):
+            self._api.update_sidebar_crosshair(viewer)
 
     def on_image_loaded(self, image_id: str) -> None:
         pass
@@ -217,11 +173,10 @@ class DosePluginController(PluginTagMixin):
         pass
 
     def serialize_image_state(self, image_id: str, context: str = "history") -> dict:
-        return {"threshold_5pct": self._threshold_5pct}
+        return {}
 
     def restore_image_state(self, image_id: str, data: dict, context: str = "history") -> None:
-        if data:
-            self._threshold_5pct = bool(data.get("threshold_5pct", False))
+        pass
 
     def save_settings(self, api: PluginAPI) -> None:
         pass

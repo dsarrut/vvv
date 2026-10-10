@@ -50,6 +50,10 @@ class IntensityScalingComponent:
     def _t(self, tag: str) -> str:
         return f"{self._prefix}_{tag}"
 
+    def _bind_icon_font(self, item) -> None:
+        if dpg.does_item_exist("icon_font_tag"):
+            dpg.bind_item_font(item, "icon_font_tag")
+
     def get_state(self, image_id: Optional[str]) -> ScalingState:
         if not image_id:
             return ScalingState(norm_target_value=self._default_target_value)
@@ -118,15 +122,16 @@ class IntensityScalingComponent:
                 )
                 build_beginner_tooltip(b_max, "Relative normalization: peak voxel equals 100%.", api)
 
-                b_val = dpg.add_button(
-                    label=self._ref_label,
-                    tag=self._t("btn_norm_val"),
-                    width=90,
-                    callback=self._on_norm_val_clicked,
+                b_goto_max = dpg.add_button(
+                    label="\uf05b",
+                    tag=self._t("btn_goto_max"),
+                    width=20,
+                    callback=self._on_goto_max_clicked,
                 )
+                self._bind_icon_font(b_goto_max)
                 build_beginner_tooltip(
-                    b_val,
-                    f"Relative normalization: specified {self._ref_label.lower()} equals 100%.",
+                    b_goto_max,
+                    "Go to Max: Center crosshair and camera on maximum dose voxel.",
                     api,
                 )
 
@@ -139,7 +144,22 @@ class IntensityScalingComponent:
                 )
                 build_beginner_tooltip(b_roi, "Relative normalization: mean inside ROI equals 100%.", api)
 
-            # Sub-panel for Prescription / Ref Value
+            # Prescription / Reference Value row below
+            dpg.add_spacer(height=2)
+            with dpg.group(horizontal=True):
+                b_val = dpg.add_button(
+                    label=self._ref_label,
+                    tag=self._t("btn_norm_val"),
+                    width=90,
+                    callback=self._on_norm_val_clicked,
+                )
+                build_beginner_tooltip(
+                    b_val,
+                    f"Relative normalization: specified {self._ref_label.lower()} equals 100%.",
+                    api,
+                )
+
+            # Sub-panel for Prescription / Ref Value input
             with dpg.group(tag=self._t("group_norm_val"), show=False):
                 dpg.add_spacer(height=2)
                 with dpg.group(horizontal=True):
@@ -240,9 +260,26 @@ class IntensityScalingComponent:
         ctrl = getattr(self._api, "controller", None)
         return getattr(ctrl, "volumes", {}) if ctrl else {}
 
+    def _get_viewers(self):
+        if not self._api:
+            return {}
+        if hasattr(self._api, "get_viewers"):
+            return self._api.get_viewers()
+        ctrl = getattr(self._api, "controller", None)
+        return getattr(ctrl, "viewers", {}) if ctrl else {}
+
     def _refresh(self):
         if not self._api:
             return
+
+        viewers = self._get_viewers()
+        for v in viewers.values():
+            v.is_geometry_dirty = True
+            if hasattr(v, "drawer"):
+                v.drawer._last_leg_state = None
+                if getattr(v, "show_legend", False):
+                    v.drawer.draw_legend()
+
         if hasattr(self._api, "request_refresh"):
             self._api.request_refresh()
         elif hasattr(self._api, "request_render"):
@@ -392,6 +429,54 @@ class IntensityScalingComponent:
         self._sync_volume_virtual_scale(target_vol, state)
         self.update_ui(self._api)
         self._refresh()
+
+    def _on_goto_max_clicked(self, sender=None, app_data=None, user_data=None) -> None:
+        target_vol, _, _, _, target_id = self._get_target_fn()
+        if not target_vol or not self._api:
+            return
+        viewer = self._get_active_viewer()
+        if not viewer or not viewer.view_state:
+            return
+
+        arr = target_vol.data
+        if arr is None or arr.size == 0:
+            return
+
+        if arr.ndim == 4 and not getattr(target_vol, "is_rgb", False):
+            t_idx = min(getattr(viewer.view_state.camera, "time_idx", 0), arr.shape[0] - 1)
+            arr_3d = arr[t_idx]
+        else:
+            arr_3d = arr
+
+        try:
+            if np.isnan(arr_3d).any():
+                idx_flat = int(np.nanargmax(arr_3d))
+            else:
+                idx_flat = int(np.argmax(arr_3d))
+            z_idx, y_idx, x_idx = np.unravel_index(idx_flat, arr_3d.shape)
+        except Exception:
+            return
+
+        if getattr(target_vol, "sitk_image", None):
+            try:
+                phys = target_vol.sitk_image.TransformIndexToPhysicalPoint([int(x_idx), int(y_idx), int(z_idx)])
+                phys_coord = np.array(phys[:3], dtype=np.float64)
+            except Exception:
+                phys_coord = target_vol.voxel_coord_to_physic_coord(np.array([float(x_idx), float(y_idx), float(z_idx)]))
+        else:
+            phys_coord = target_vol.voxel_coord_to_physic_coord(np.array([float(x_idx), float(y_idx), float(z_idx)]))
+
+        vs = viewer.view_state
+        vs.camera.target_center = phys_coord
+        vs.update_crosshair_from_phys(phys_coord)
+
+        base_id = getattr(viewer, "image_id", None)
+        if base_id and hasattr(self._api, "propagate_sync"):
+            self._api.propagate_sync(base_id)
+
+        self._refresh()
+        if hasattr(self._api, "update_sidebar_crosshair"):
+            self._api.update_sidebar_crosshair(viewer)
 
     def _on_target_scale_changed(self, sender=None, app_data=None, user_data=None) -> None:
         pass
@@ -586,11 +671,17 @@ class IntensityScalingComponent:
         if not target_vol or not target_id:
             if dpg.does_item_exist(self._t("text_range")):
                 dpg.set_value(self._t("text_range"), "[---, ---]")
+            if dpg.does_item_exist(self._t("btn_goto_max")):
+                dpg.configure_item(self._t("btn_goto_max"), enabled=False)
             if dpg.does_item_exist(self._t("input_scale_factor")):
                 dpg.set_value(self._t("input_scale_factor"), 1.0)
             if dpg.does_item_exist(self._t("text_norm_status")):
                 dpg.set_value(self._t("text_norm_status"), "Absolute")
             return
+
+        if dpg.does_item_exist(self._t("btn_goto_max")):
+            self._bind_icon_font(self._t("btn_goto_max"))
+            dpg.configure_item(self._t("btn_goto_max"), enabled=True)
 
         state = self.get_state(target_id)
         try:

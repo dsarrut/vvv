@@ -173,6 +173,19 @@ class TestDosePlugin(unittest.TestCase):
         comp.update_ui(self.mock_api)
         self.assertIn("150", dpg.get_value(comp._t("text_range")))
 
+    def test_scaling_component_updates_legend(self):
+        self.mock_viewer.volume.unit = "Gy"
+        self.mock_viewer.show_legend = True
+        comp = self.plugin._ui.scaling_comp
+
+        # Trigger normalization to max
+        comp._on_norm_max_clicked()
+
+        self.assertTrue(self.mock_viewer.is_geometry_dirty)
+        self.assertIsNone(self.mock_viewer.drawer._last_leg_state)
+        self.mock_viewer.drawer.draw_legend.assert_called()
+        self.mock_api.request_refresh.assert_called()
+
     def test_scaling_component_norm_to_max(self):
         self.mock_viewer.volume.unit = "Gy"
         comp = self.plugin._ui.scaling_comp
@@ -289,46 +302,57 @@ class TestDosePlugin(unittest.TestCase):
         self.assertEqual(self.mock_viewer.view_state.display.ww, 20.0)
         self.assertEqual(self.mock_viewer.view_state.display.wl, 10.0)
 
-    # -------------------------------------------------------------
-    # Clinical Presets & Sampling Tests
-    # -------------------------------------------------------------
-    def test_window_level_presets(self):
+
+    def test_go_to_max(self):
         self.mock_viewer.volume.unit = "Gy"
-        # [0 - 100%] -> [0, 60.0]
-        self.plugin._controller.apply_display_window("rx_100")
-        self.assertEqual(self.mock_viewer.view_state.display.ww, 60.0)
-        self.assertEqual(self.mock_viewer.view_state.display.wl, 30.0)
+        data = np.zeros((10, 10, 10), dtype=np.float32)
+        # Place maximum at z=3, y=4, x=5
+        data[3, 4, 5] = 95.0
+        self.mock_viewer.volume.data = data
+        self.mock_viewer.volume.sitk_image = None
+        self.mock_viewer.volume.voxel_coord_to_physic_coord.side_effect = (
+            lambda vox: np.array([vox[0] * 2.0, vox[1] * 2.0, vox[2] * 2.0])
+        )
 
-        # [0 - 107%] -> [0, 64.2]
-        self.plugin._controller.apply_display_window("rx_107")
-        self.assertAlmostEqual(self.mock_viewer.view_state.display.ww, 64.2)
-        self.assertAlmostEqual(self.mock_viewer.view_state.display.wl, 32.1)
+        self.plugin._controller.go_to_max()
 
-        # [Full Range] -> [0, 60]
-        self.plugin._controller.apply_display_window("full_range")
-        self.assertEqual(self.mock_viewer.view_state.display.ww, 60.0)
-        self.assertEqual(self.mock_viewer.view_state.display.wl, 30.0)
+        expected_phys = np.array([10.0, 8.0, 6.0])  # x=5*2, y=4*2, z=3*2
+        np.testing.assert_allclose(self.mock_viewer.view_state.camera.target_center, expected_phys)
+        self.mock_viewer.view_state.update_crosshair_from_phys.assert_called()
+        np.testing.assert_allclose(
+            self.mock_viewer.view_state.update_crosshair_from_phys.call_args[0][0],
+            expected_phys,
+        )
+        self.mock_api.propagate_sync.assert_called_with("img_1")
+        self.mock_api.request_refresh.assert_called()
 
-    def test_background_threshold_toggle(self):
+    def test_scaling_component_goto_max(self):
         self.mock_viewer.volume.unit = "Gy"
-        self.plugin._controller.set_background_threshold(True, pct=0.05)
-        # 5% of 60.0 = 3.0
-        self.assertEqual(self.mock_viewer.view_state.display.min_threshold, 3.0)
-        self.assertTrue(self.plugin._controller._threshold_5pct)
+        data = np.zeros((8, 8, 8), dtype=np.float32)
+        data[2, 3, 4] = 88.0
+        self.mock_viewer.volume.data = data
+        self.mock_viewer.volume.sitk_image = None
+        self.mock_viewer.volume.voxel_coord_to_physic_coord.side_effect = (
+            lambda vox: np.array([vox[0] * 1.5, vox[1] * 1.5, vox[2] * 1.5])
+        )
 
-        self.plugin._controller.set_background_threshold(False)
-        self.assertIsNone(self.mock_viewer.view_state.display.min_threshold)
-        self.assertFalse(self.plugin._controller._threshold_5pct)
+        comp = self.plugin._ui.scaling_comp
+        comp._on_goto_max_clicked()
 
-    def test_crosshair_dose_sampling(self):
-        self.mock_viewer.volume.unit = "Gy"
-        self.mock_viewer.view_state.camera.crosshair_phys_coord = np.array([10.0, 20.0, 30.0])
-        self.mock_viewer.view_state.world_to_display.return_value = np.array([4.0, 5.0, 6.0])
-        self.mock_viewer.view_state._read_voxel_value.return_value = 30.0
+        expected_phys = np.array([6.0, 4.5, 3.0])  # x=4*1.5, y=3*1.5, z=2*1.5
+        np.testing.assert_allclose(self.mock_viewer.view_state.camera.target_center, expected_phys)
+        self.mock_viewer.view_state.update_crosshair_from_phys.assert_called()
+        np.testing.assert_allclose(
+            self.mock_viewer.view_state.update_crosshair_from_phys.call_args[0][0],
+            expected_phys,
+        )
 
-        val, pct = self.plugin._controller.get_crosshair_dose_sample()
-        self.assertEqual(val, 30.0)
-        self.assertEqual(pct, 50.0)  # 30 / 60 * 100 = 50%
+    @patch("dearpygui.dearpygui.bind_item_font")
+    @patch("dearpygui.dearpygui.does_item_exist", return_value=True)
+    def test_goto_max_icon_font_bound(self, mock_exist, mock_bind_font):
+        comp = self.plugin._ui.scaling_comp
+        comp._bind_icon_font("test_btn")
+        mock_bind_font.assert_called_with("test_btn", "icon_font_tag")
 
 
 if __name__ == "__main__":

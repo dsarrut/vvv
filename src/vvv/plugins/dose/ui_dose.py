@@ -99,94 +99,6 @@ class DosePluginUI(PluginTagMixin):
                 # --- Shared Intensity Scaling & Normalization Component ---
                 self.scaling_comp.create_ui(parent=None, api=api)
 
-                dpg.add_spacer(height=4)
-                dpg.add_separator()
-                dpg.add_spacer(height=4)
-
-                # --- Clinical Display Presets & Colormaps ---
-                with dpg.collapsing_header(label="Display & Presets", default_open=True):
-                    dpg.add_text("Window / Level Presets:", color=cfg_c["text_dim"])
-                    with dpg.group(horizontal=True):
-                        btn_w100 = dpg.add_button(
-                            label="[0 - 100%]",
-                            callback=lambda: self._c.apply_display_window("rx_100"),
-                        )
-                        build_beginner_tooltip(
-                            btn_w100,
-                            "Sets window range from 0 to 100% (max dose).",
-                            api,
-                        )
-                        btn_w107 = dpg.add_button(
-                            label="[0 - 107%]",
-                            callback=lambda: self._c.apply_display_window("rx_107"),
-                        )
-                        build_beginner_tooltip(
-                            btn_w107,
-                            "Sets window range from 0 to 107% (standard ICRU clinical target coverage).",
-                            api,
-                        )
-                        btn_wfull = dpg.add_button(
-                            label="Full Range",
-                            callback=lambda: self._c.apply_display_window("full_range"),
-                        )
-                        build_beginner_tooltip(
-                            btn_wfull,
-                            "Sets window range covering the entire image min to max dose.",
-                            api,
-                        )
-
-                    dpg.add_spacer(height=2)
-                    chk_thr = dpg.add_checkbox(
-                        tag=self._t("chk_bg_threshold"),
-                        label="Threshold < 5% Max",
-                        default_value=False,
-                        callback=self._on_threshold_toggled,
-                    )
-                    build_beginner_tooltip(
-                        chk_thr,
-                        "Hides low background dose below 5% of max level\n"
-                        "so underlying anatomy remains visible.",
-                        api,
-                    )
-
-                    dpg.add_spacer(height=4)
-                    dpg.add_text("Colormap:", color=cfg_c["text_dim"])
-                    with dpg.group(horizontal=True):
-                        dpg.add_button(
-                            label="Dosimetry",
-                            callback=lambda: self._c.set_colormap("Dosimetry"),
-                        )
-                        dpg.add_button(
-                            label="Jet",
-                            callback=lambda: self._c.set_colormap("Jet"),
-                        )
-                        dpg.add_button(
-                            label="Turbo",
-                            callback=lambda: self._c.set_colormap("Turbo"),
-                        )
-                        dpg.add_button(
-                            label="Hot",
-                            callback=lambda: self._c.set_colormap("Hot"),
-                        )
-
-                dpg.add_spacer(height=4)
-                dpg.add_separator()
-                dpg.add_spacer(height=4)
-
-                # --- Point Dose Sampling (Crosshair Tracker) ---
-                with dpg.collapsing_header(label="Point Dose Sampling", default_open=True):
-                    with dpg.group(horizontal=True):
-                        dpg.add_text("Crosshair Dose: ", color=cfg_c["text_dim"])
-                        dpg.add_text(
-                            "---",
-                            tag=self._t("text_dose_point"),
-                            color=cfg_c.get("text_status_ok", [80, 220, 100, 255]),
-                        )
-
-    def _on_threshold_toggled(self, sender, app_data, user_data) -> None:
-        if app_data is not None:
-            self._c.set_background_threshold(bool(app_data))
-
     def update_ui(self, api: PluginAPI) -> None:
         if not dpg.does_item_exist(self._t("group_dose_requirement")):
             return
@@ -208,22 +120,6 @@ class DosePluginUI(PluginTagMixin):
 
             # Update shared scaling component
             self.scaling_comp.update_ui(api)
-
-            # Update Point Dose Sampling (Crosshair Tracker)
-            pt_dose, pt_pct = self._c.get_crosshair_dose_sample()
-            unit_lbl = current_unit or "Gy"
-            if pt_dose is not None:
-                txt_pt = f"{pt_dose:.3g} {unit_lbl}  ({pt_pct:.1f} %)"
-            else:
-                txt_pt = "---"
-
-            if dpg.does_item_exist(self._t("text_dose_point")):
-                dpg.set_value(self._t("text_dose_point"), txt_pt)
-
-            # Update background threshold checkbox state
-            if dpg.does_item_exist(self._t("chk_bg_threshold")):
-                dpg.set_value(self._t("chk_bg_threshold"), self._c._threshold_5pct)
-
         else:
             # Show requirement banner
             dpg.configure_item(self._t("group_dose_requirement"), show=True)
