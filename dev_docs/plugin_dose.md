@@ -37,27 +37,41 @@ The plugin is strictly scoped to images representing absorbed dose or dose rate.
 
 ## 3. Core Features & Functional Content
 
-### A. Intensity & Dose Scaling Tools
+### A. Intensity & Dose Scaling Tools (Implemented in Step 2)
 * **Physical Dose Scaling Factor ($S$)**:
   * Raw image voxels may represent absorbed dose directly ($S=1.0$) or require calibration scaling (e.g. Monte Carlo dose-per-simulated-particle, calibration factors, decay-to-fraction multiplication).
-  * Interactive scaling multiplier slider / input ($D_{\text{scaled}} = S \times D_{\text{raw}}$).
+  * Interactive scaling multiplier input ($D_{\text{scaled}} = S \times D_{\text{raw}}$) with `x1`, `x0.001`, and `x1000` quick presets.
+  * **"Apply to Voxels" (Bake)**: Permanently multiplies the voxel values in memory by $S$ and resets $S=1.0$, adapting window/level synchronously.
 * **Min / Max Dose Range**:
-  * Real-time readouts of true volume dose range: $D_{\min}$ and $D_{\max}$ (in Gy or relative %). Warning, if dose image is large, can be long. 
-  * Excludes voxels below lower threshold (air / exterior).
-NO. Unsure how to deal with that. Ignore for the moment. 
-### B. Dose Normalization Modes
+  * Real-time readouts of volume dose range ($D_{\min}$ and $D_{\max}$) computed via cached `volume.get_data_range()`.
+  * In absolute mode: displayed in physical units (e.g., `0.00 Gy` to `65.4 Gy`).
+  * In relative modes: displays both physical dose and relative percentage (e.g., `[0.0 % - 130.8 %]`).
+
+### B. Dose Normalization Modes (Implemented in Step 2)
 Quick toggling between absolute dose and relative percentage representations:
-1. **Absolute Dose**: $\text{Gy}$, $\text{mGy}$, or $\text{Gy/decay}$. Can be maybe Gy.IA (injected activity), so we need an injected activity field (?)
+1. **Absolute Dose**: $\text{Gy}$, $\text{mGy}$, or $\text{Gy/decay}$.
 2. **% to Max Dose ($D_{\max}$)**: Normalized such that $100\% = \max(D)$.
 3. **% to Prescription Dose ($D_{\text{rx}}$)**:
-   * User-defined prescription dose target (e.g. $50.0\text{ Gy}$ or $60.0\text{ Gy}$).
+   * User-defined prescription dose target (e.g. $50.0\text{ Gy}$ or $60.0\text{ Gy}$), with quick presets (`2 Gy`, `50 Gy`, `60 Gy`, `Set to Max`).
    * $100\%$ corresponds to $D_{\text{rx}}$.
 4. **% to ROI Mean / Target**:
    * Normalization based on the mean dose inside a selected target structure (e.g., PTV or tumor ROI).
-only if ROIs exists
-### C. Colormap & Legend Integration
-* Automatic binding to dedicated radiotherapy lookup tables (`Dosimetry`, `Jet`, `Hot`).
-* The existing viewer color legend bar (<kbd>L</kbd>) automatically reflects the chosen normalization scale (Gy or %).
+   * Populated dynamically from available organ ROIs; computes and displays $\bar{D}_{\text{ROI}}$.
+
+### C. Clinical Window/Level Presets & Colormaps (Implemented in Step 2)
+* **Presets**:
+  * `[0 - 100%]`: sets window range $[0, D_{\text{ref}}]$.
+  * `[0 - 107%]`: sets window range $[0, 1.07 \times D_{\text{ref}}]$ (standard ICRU clinical target coverage).
+  * `[Full Range]`: sets window range $[D_{\min}, D_{\max}]$.
+* **Threshold Background (< 5% Ref)**:
+  * Checkbox to hide low non-clinical dose below 5% of reference dose, preserving underlying anatomical CT/MRI visibility.
+* **Colormaps**:
+  * Dedicated radiotherapy colormaps: `Dosimetry`, `Jet`, `Turbo`, `Hot`.
+
+### D. Point Dose Sampling (Implemented in Step 2)
+* Displays real-time dose at the crosshair position:
+  * Absolute physical dose ($D_{\text{pt}}$ in Gy).
+  * Relative dose percentage ($\% D_{\text{ref}}$).
 
 ### D. Point Dose & Profile Sampling (Adaptation)
 * **Point Sampling**:
