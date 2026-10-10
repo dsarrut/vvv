@@ -492,7 +492,7 @@ class IntensityScalingComponent:
         self._refresh()
 
     def _on_norm_max_clicked(self, sender=None, app_data=None, user_data=None) -> None:
-        target_vol, _, is_ov, _, target_id = self._get_target_fn()
+        target_vol, target_vs, is_ov, _, target_id = self._get_target_fn()
         if not target_id or not target_vol:
             return
         state = self.get_state(target_id)
@@ -504,13 +504,17 @@ class IntensityScalingComponent:
             raw_max = 1.0
         if raw_max != 0.0 and not np.isnan(raw_max):
             state.scaling_factor = float(100.0 / raw_max)
+            if target_vs and hasattr(target_vs, "display"):
+                target_vs.display.wl = raw_max / 2.0
+                target_vs.display.ww = max(1e-20, raw_max)
+                target_vs.is_data_dirty = True
 
         self._sync_volume_virtual_scale(target_vol, state)
         self.update_ui(self._api)
         self._refresh()
 
     def _on_norm_val_clicked(self, sender=None, app_data=None, user_data=None) -> None:
-        target_vol, _, is_ov, _, target_id = self._get_target_fn()
+        target_vol, target_vs, is_ov, _, target_id = self._get_target_fn()
         if not target_id or not target_vol:
             return
         state = self.get_state(target_id)
@@ -527,12 +531,20 @@ class IntensityScalingComponent:
             except Exception:
                 pass
 
+        v_ref = float(state.norm_target_value)
+        user_s = float(state.scaling_factor) if state.scaling_factor != 0 else 1.0
+        raw_ref = v_ref / user_s if user_s != 0 else v_ref
+        if raw_ref > 0 and target_vs and hasattr(target_vs, "display"):
+            target_vs.display.wl = raw_ref / 2.0
+            target_vs.display.ww = max(1e-20, raw_ref)
+            target_vs.is_data_dirty = True
+
         self._sync_volume_virtual_scale(target_vol, state)
         self.update_ui(self._api)
         self._refresh()
 
     def _on_norm_val_changed(self, sender=None, app_data=None, user_data=None) -> None:
-        target_vol, _, is_ov, _, target_id = self._get_target_fn()
+        target_vol, target_vs, is_ov, _, target_id = self._get_target_fn()
         if not target_id or app_data is None:
             return
         state = self.get_state(target_id)
@@ -541,12 +553,21 @@ class IntensityScalingComponent:
         except (ValueError, TypeError):
             return
         state.norm_mode = "Ref Value"
+
+        v_ref = float(state.norm_target_value)
+        user_s = float(state.scaling_factor) if state.scaling_factor != 0 else 1.0
+        raw_ref = v_ref / user_s if user_s != 0 else v_ref
+        if raw_ref > 0 and target_vs and hasattr(target_vs, "display"):
+            target_vs.display.wl = raw_ref / 2.0
+            target_vs.display.ww = max(1e-20, raw_ref)
+            target_vs.is_data_dirty = True
+
         self._sync_volume_virtual_scale(target_vol, state)
         self.update_ui(self._api)
         self._refresh()
 
     def _on_norm_roi_clicked(self, sender=None, app_data=None, user_data=None) -> None:
-        target_vol, _, is_ov, _, target_id = self._get_target_fn()
+        target_vol, target_vs, is_ov, _, target_id = self._get_target_fn()
         if not target_id or not target_vol:
             return
         state = self.get_state(target_id)
@@ -554,13 +575,17 @@ class IntensityScalingComponent:
         mean_val = self.compute_roi_mean(target_vol, is_ov, state.norm_roi_id)
         if mean_val != 0.0 and not np.isnan(mean_val):
             state.scaling_factor = float(100.0 / mean_val)
+            if target_vs and hasattr(target_vs, "display"):
+                target_vs.display.wl = mean_val / 2.0
+                target_vs.display.ww = max(1e-20, mean_val)
+                target_vs.is_data_dirty = True
 
         self._sync_volume_virtual_scale(target_vol, state)
         self.update_ui(self._api)
         self._refresh()
 
     def _on_norm_roi_changed(self, sender=None, app_data=None, user_data=None) -> None:
-        target_vol, _, is_ov, _, target_id = self._get_target_fn()
+        target_vol, target_vs, is_ov, _, target_id = self._get_target_fn()
         if not target_id or not app_data:
             return
         state = self.get_state(target_id)
@@ -577,10 +602,12 @@ class IntensityScalingComponent:
         mean_val = self.compute_roi_mean(target_vol, is_ov, state.norm_roi_id)
         if mean_val != 0.0 and not np.isnan(mean_val):
             state.scaling_factor = float(100.0 / mean_val)
+            if target_vs and hasattr(target_vs, "display"):
+                target_vs.display.wl = mean_val / 2.0
+                target_vs.display.ww = max(1e-20, mean_val)
+                target_vs.is_data_dirty = True
 
         self._sync_volume_virtual_scale(target_vol, state)
-        self.update_ui(self._api)
-        self._refresh()
         self.update_ui(self._api)
         self._refresh()
 

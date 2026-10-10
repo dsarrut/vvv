@@ -197,6 +197,15 @@ class TestDosePlugin(unittest.TestCase):
         # Max is 60.0 -> Auto S = 100 / 60 = 1.6666...
         self.assertAlmostEqual(state.scaling_factor, 100.0 / 60.0)
         self.assertEqual(self.mock_viewer.volume.scale_unit, "%")
+        # Display window/level updated to [0, max]
+        self.assertEqual(self.mock_viewer.view_state.display.ww, 60.0)
+        self.assertEqual(self.mock_viewer.view_state.display.wl, 30.0)
+        # Scaled max: (30 + 30) * (100/60) = 100.0
+        scaled_max = (
+            self.mock_viewer.view_state.display.wl
+            + self.mock_viewer.view_state.display.ww / 2.0
+        ) * self.mock_viewer.volume.scale_factor
+        self.assertAlmostEqual(scaled_max, 100.0)
 
     def test_scaling_component_norm_to_value(self):
         self.mock_viewer.volume.unit = "Gy"
@@ -212,6 +221,15 @@ class TestDosePlugin(unittest.TestCase):
         self.assertEqual(state.scaling_factor, 1.0)
         self.assertEqual(self.mock_viewer.volume.scale_factor, 2.0)
         self.assertEqual(self.mock_viewer.volume.scale_unit, "%")
+        # Display window/level updated to [0, ref] (ref=50)
+        self.assertEqual(self.mock_viewer.view_state.display.ww, 50.0)
+        self.assertEqual(self.mock_viewer.view_state.display.wl, 25.0)
+        # Scaled max: (25 + 25) * 2.0 = 100.0
+        scaled_max = (
+            self.mock_viewer.view_state.display.wl
+            + self.mock_viewer.view_state.display.ww / 2.0
+        ) * self.mock_viewer.volume.scale_factor
+        self.assertAlmostEqual(scaled_max, 100.0)
 
         # Changing user scale factor while in Prescription mode preserves Prescription mode:
         comp._on_scale_factor_changed(None, 0.5, None)
