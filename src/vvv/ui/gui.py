@@ -42,8 +42,7 @@ from vvv.ui.ui_sequences import (
 from vvv.ui.ui_drop import install_os_drop, cleanup_os_drop
 from vvv.ui.ui_workspace import build_workspace_nav_icons
 from vvv.ui.render_strategy import GL_NEAREST_SUPPORTED, NNMode
-import vvv.ui.render_strategy as _rs_mod
-from vvv.utils import capture_whole_window, copy_image_to_clipboard
+from vvv.utils import capture_whole_window, copy_image_to_clipboard, save_screenshot_to_file
 
 
 class MainGUI:
@@ -1697,7 +1696,11 @@ class MainGUI:
             if ok:
                 self.show_status_message("Screenshot copied to clipboard")
             else:
-                self.show_status_message("Failed to copy screenshot to clipboard", color=[255, 100, 100])
+                try:
+                    save_path = save_screenshot_to_file(img)
+                    self.show_status_message(f"Clipboard unavailable. Saved screenshot to {save_path.name}")
+                except Exception:
+                    self.show_status_message("Failed to copy screenshot to clipboard", color=[255, 100, 100])
         else:
             self.show_status_message("Could not capture window", color=[255, 100, 100])
 

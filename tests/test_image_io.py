@@ -863,3 +863,113 @@ def test_reload_image_with_mip_and_intensity_plugins(tmp_path):
     assert np.allclose(controller.volumes["1"].data, 5.0)
     assert mip._controller.get_viewer_state("1", "V1").mip_enabled is True
     assert mip._controller.get_viewer_state("1", "V2").mip_enabled is True
+
+
+def test_load_workspace_when_label_map_file_changed_on_disk(tmp_path):
+    """When workspace saved with labels 1, 2, 3, but the file on disk now only contains labels 1 and 4,
+    the restored ROIs must strictly reflect the file on disk (only 1 and 4, not deleted labels 2 and 3).
+    """
+    import json
+    import numpy as np
+    import SimpleITK as sitk
+    from unittest.mock import MagicMock
+    from vvv.core.controller import Controller
+    from vvv.ui.ui_sequences import load_workspace_sequence
+
+    # 1. Base image
+    base_file = tmp_path / "base.nii.gz"
+    base_arr = np.zeros((10, 10, 10), dtype=np.float32)
+    sitk.WriteImage(sitk.GetImageFromArray(base_arr), str(base_file))
+
+    # 2. Label map file on disk: initially created with labels 1 and 4
+    # (e.g. file changed on disk: labels 2 and 3 were removed, label 4 was added)
+    lm_file = tmp_path / "labels.nii.gz"
+    lm_arr = np.zeros((10, 10, 10), dtype=np.uint8)
+    lm_arr[1:3, 1:3, 1:3] = 1
+    lm_arr[5:7, 5:7, 5:7] = 4
+    sitk.WriteImage(sitk.GetImageFromArray(lm_arr), str(lm_file))
+
+    # 3. Workspace saved earlier when labels were 1, 2, 3
+    ws_data = {
+        "version": 1.0,
+        "workspace_path": str(tmp_path / "test.vvw"),
+        "layout_mode": "1",
+        "active_viewer": "V1",
+        "visible_viewers": ["V1"],
+        "viewers": {
+            "V1": {
+                "image_id": "1",
+                "orientation": "AXIAL",
+                "zoom": 1.0,
+                "pan_offset": [0.0, 0.0],
+            }
+        },
+        "images": {
+            "1": {
+                "path": str(base_file),
+                "is_overlay_only": False,
+                "display": {
+                    "colormap": "Grayscale",
+                    "window_width": 100.0,
+                    "window_level": 50.0,
+                },
+                "camera": {},
+                "extraction": {},
+                "dvf": {},
+                "overlay": None,
+                "label_maps": [
+                    {
+                        "path": str(lm_file),
+                        "labels": {
+                            "1": {
+                                "name": "Custom_Label_1",
+                                "color": [255, 0, 128],
+                                "visible": True,
+                                "opacity": 0.8,
+                            },
+                            "2": {
+                                "name": "Old_Deleted_Label_2",
+                                "color": [0, 255, 0],
+                                "visible": True,
+                            },
+                            "3": {
+                                "name": "Old_Deleted_Label_3",
+                                "color": [0, 0, 255],
+                                "visible": True,
+                            },
+                        },
+                    }
+                ],
+                "rois": [],
+                "profiles": [],
+            }
+        },
+    }
+
+    ws_file = tmp_path / "test.vvw"
+    with open(ws_file, "w") as f:
+        json.dump(ws_data, f)
+
+    gui = MagicMock()
+    gui.plugins = []
+    controller = Controller()
+
+    gen = load_workspace_sequence(gui, controller, str(ws_file))
+    list(gen)
+
+    # 4. Verification:
+    # Only labels 1 and 4 should be loaded, exactly what's on disk!
+    vs = list(controller.view_states.values())[0]
+    loaded_vals = {int(r.source_val) for r in vs.rois.values()}
+    assert loaded_vals == {1, 4}, f"Expected labels {{1, 4}}, got {loaded_vals}"
+
+    # Label 1 should have preserved the workspace customizations
+    r1 = next(r for r in vs.rois.values() if int(r.source_val) == 1)
+    assert r1.name == "Custom_Label_1"
+    assert r1.color == [255, 0, 128]
+    assert r1.opacity == 0.8
+
+    # Label 4 should be loaded automatically as a new label
+    r4 = next(r for r in vs.rois.values() if int(r.source_val) == 4)
+    assert int(r4.source_val) == 4
+    assert r4.visible is True

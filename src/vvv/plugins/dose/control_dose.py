@@ -1,12 +1,49 @@
-from typing import Optional, TYPE_CHECKING, Tuple, Any
+from dataclasses import dataclass, field, asdict
+from typing import Optional, TYPE_CHECKING, Tuple, Any, List, Dict
 import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginTagMixin, PluginAPI
+from vvv.maths.contours import ContourROI, extract_2d_contours_from_slice
+from vvv.maths.image import SliceRenderer
 
 if TYPE_CHECKING:
     from .ui_dose import DosePluginUI
 
 DOSE_UNITS = {"gy", "mgy", "gy/decay"}
+
+# Standard clinical radiotherapy isodose colors
+DEFAULT_ISODOSE_LEVELS = [
+    (107.0, [255, 0, 0, 255]),      # 107% Hotspot (Red)
+    (100.0, [0, 255, 0, 255]),      # 100% Prescription (Green)
+    (95.0,  [0, 200, 255, 255]),    # 95% Target coverage (Cyan)
+    (90.0,  [0, 100, 255, 255]),    # 90% High dose (Blue)
+    (80.0,  [180, 50, 255, 255]),   # 80% Medium-high dose (Purple)
+    (50.0,  [255, 200, 0, 255]),    # 50% Medium dose (Yellow/Orange)
+    (20.0,  [255, 120, 0, 255]),    # 20% Low dose (Orange)
+    (10.0,  [150, 150, 150, 255]),  # 10% Peripheral low dose (Gray)
+]
+
+
+@dataclass
+class DoseIsocontourLevel:
+    value: float                     # Relative % (or Gy in absolute mode)
+    color: List[int]                 # RGBA [0-255]
+    enabled: bool = True
+    thickness: float = 1.5
+
+
+@dataclass
+class DoseIsocontourState:
+    is_enabled: bool = True
+    subpixel_accurate: bool = True
+    levels: List[DoseIsocontourLevel] = field(default_factory=list)
+
+    def __post_init__(self):
+        if not self.levels:
+            self.levels = [
+                DoseIsocontourLevel(val, list(col), True, 1.5)
+                for val, col in DEFAULT_ISODOSE_LEVELS
+            ]
 
 
 class DosePluginController(PluginTagMixin):
@@ -14,6 +51,33 @@ class DosePluginController(PluginTagMixin):
         self._plugin_id = plugin_id
         self._api: Optional[PluginAPI] = None
         self._ui: Optional["DosePluginUI"] = None
+        self._states: Dict[str, DoseIsocontourState] = {}
+        self._contour_rois: Dict[str, Dict[int, ContourROI]] = {}  # target_id -> {level_idx: ContourROI}
+        self._cache_version: int = 0
+
+    def get_isocontour_state(self, image_id: Optional[str]) -> DoseIsocontourState:
+        if not image_id:
+            return DoseIsocontourState()
+        if image_id not in self._states:
+            self._states[image_id] = DoseIsocontourState()
+        return self._states[image_id]
+
+    def get_isocontour_cache_token(self, viewer=None) -> Any:
+        is_active, _, _, _, target_id, _ = self.get_dose_target_info(viewer)
+        if not is_active or not target_id:
+            return None
+        state = self.get_isocontour_state(target_id)
+        if not state.is_enabled:
+            return (target_id, False)
+        levels_tuple = tuple(
+            (lvl.value, lvl.enabled, tuple(lvl.color), lvl.thickness)
+            for lvl in state.levels
+        )
+        scaling_state = None
+        if self._ui and hasattr(self._ui, "scaling_comp"):
+            sc = self._ui.scaling_comp.get_state(target_id)
+            scaling_state = (sc.norm_mode, sc.scaling_factor, sc.norm_target_value, sc.norm_roi_id)
+        return (target_id, state.is_enabled, state.subpixel_accurate, levels_tuple, scaling_state, self._cache_version)
 
     def bind(self, api: PluginAPI) -> None:
         self._api = api
@@ -26,21 +90,22 @@ class DosePluginController(PluginTagMixin):
             self._ui.update_ui(api)
 
     def get_dose_target_info(
-        self,
+        self, viewer=None
     ) -> Tuple[bool, Any, bool, Optional[str], Optional[str], Optional[Any]]:
         """
-        Evaluates the active viewer to identify the dose target image and its ViewState.
+        Evaluates the active viewer (or provided viewer) to identify the dose target image and its ViewState.
         Returns:
             (is_active, target_volume, is_overlay, unit_string, target_id, target_vs)
         Priority:
-            1. Fused overlay image if unit in {'gy', 'mgy', 'gy/decay'}.
-            2. Base image if unit in {'gy', 'mgy', 'gy/decay'}.
+            1. Fused overlay image if unit in {'gy', 'mgy', 'gy/decay'} or 'dose' in name/path.
+            2. Base image if unit in {'gy', 'mgy', 'gy/decay'} or 'dose' in name/path.
             3. Fallback (inactive): overlay if present, else base.
         """
         if not self._api:
             return False, None, False, None, None, None
 
-        viewer = self._api.get_active_viewer()
+        if viewer is None:
+            viewer = self._api.get_active_viewer()
         if not viewer or not viewer.volume:
             return False, None, False, None, None, None
 
@@ -50,33 +115,53 @@ class DosePluginController(PluginTagMixin):
         base_unit = getattr(base_vol, "unit", None)
         base_unit_str = str(base_unit).strip() if base_unit else None
 
+        def is_dose_vol(vol, unit_str):
+            if unit_str and unit_str.lower() in DOSE_UNITS:
+                return True
+            if vol:
+                name = (getattr(vol, "name", "") or "").lower()
+                first_path = vol.file_paths[0].lower() if (getattr(vol, "file_paths", None) and len(vol.file_paths) > 0) else ""
+                if "dose" in name or "dose" in first_path:
+                    return True
+            return False
+
         # 1. Check fused overlay first
         if base_vs and base_vs.display.overlay:
             ov_id = base_vs.display.overlay.image_id
             if ov_id:
-                ov_vol = self._api.get_volumes().get(ov_id)
-                ov_vs = self._api.get_view_states().get(ov_id)
+                vols = self._api.get_volumes()
+                ov_vol = vols.get(ov_id) or vols.get(str(ov_id))
+                view_states = self._api.get_view_states()
+                ov_vs = view_states.get(ov_id) or view_states.get(str(ov_id))
                 if ov_vol:
                     ov_unit = getattr(ov_vol, "unit", None)
                     ov_unit_str = str(ov_unit).strip() if ov_unit else None
-                    if ov_unit_str and ov_unit_str.lower() in DOSE_UNITS:
-                        return True, ov_vol, True, ov_unit_str, ov_id, ov_vs
+                    if is_dose_vol(ov_vol, ov_unit_str):
+                        if not ov_unit_str or ov_unit_str.lower() not in DOSE_UNITS:
+                            ov_vol.unit = "Gy"
+                            ov_unit_str = "Gy"
+                        return True, ov_vol, True, ov_unit_str, str(ov_id), ov_vs
 
         # 2. Check base image
-        if base_unit_str and base_unit_str.lower() in DOSE_UNITS:
-            return True, base_vol, False, base_unit_str, base_id, base_vs
+        if is_dose_vol(base_vol, base_unit_str):
+            if not base_unit_str or base_unit_str.lower() not in DOSE_UNITS:
+                base_vol.unit = "Gy"
+                base_unit_str = "Gy"
+            return True, base_vol, False, base_unit_str, str(base_id) if base_id is not None else None, base_vs
 
         # 3. Fallback inactive target (overlay if present, else base)
         if base_vs and base_vs.display.overlay:
             ov_id = base_vs.display.overlay.image_id
             if ov_id:
-                ov_vol = self._api.get_volumes().get(ov_id)
-                ov_vs = self._api.get_view_states().get(ov_id)
+                vols = self._api.get_volumes()
+                ov_vol = vols.get(ov_id) or vols.get(str(ov_id))
+                view_states = self._api.get_view_states()
+                ov_vs = view_states.get(ov_id) or view_states.get(str(ov_id))
                 if ov_vol:
                     ov_unit = getattr(ov_vol, "unit", None)
-                    return False, ov_vol, True, str(ov_unit) if ov_unit else None, ov_id, ov_vs
+                    return False, ov_vol, True, str(ov_unit) if ov_unit else None, str(ov_id), ov_vs
 
-        return False, base_vol, False, base_unit_str, base_id, base_vs
+        return False, base_vol, False, base_unit_str, str(base_id) if base_id is not None else None, base_vs
 
     def get_dose_status(self) -> Tuple[bool, Any, bool, Optional[str]]:
         """Backwards compatible status accessor."""
@@ -166,17 +251,399 @@ class DosePluginController(PluginTagMixin):
         if hasattr(self._api, "update_sidebar_crosshair"):
             self._api.update_sidebar_crosshair(viewer)
 
+    def get_reference_dose(self, target_vol, is_overlay: bool, target_id: str) -> float:
+        """Computes reference dose value (in physical/raw Gy) for the active target volume."""
+        if not target_vol:
+            return 1.0
+
+        sc_state = None
+        if self._ui and hasattr(self._ui, "scaling_comp"):
+            sc_state = self._ui.scaling_comp.get_state(target_id)
+
+        if not sc_state or not sc_state.norm_mode:
+            # Absolute mode: reference is 1.0 Gy (or 100% of max)
+            try:
+                rng = target_vol.get_data_range()
+                return float(rng[1]) if rng and len(rng) == 2 and rng[1] > 0 else 1.0
+            except Exception:
+                return 1.0
+
+        if sc_state.norm_mode == "Max":
+            try:
+                rng = target_vol.get_data_range()
+                return float(rng[1]) if rng and len(rng) == 2 and rng[1] > 0 else 1.0
+            except Exception:
+                return 1.0
+        elif sc_state.norm_mode in ("Target Value", "Ref Value", "Prescription"):
+            v_ref = float(sc_state.norm_target_value)
+            user_s = float(sc_state.scaling_factor) if sc_state.scaling_factor != 0 else 1.0
+            return (v_ref / user_s) if user_s != 0 else v_ref
+        elif sc_state.norm_mode == "ROI Mean":
+            if self._ui and hasattr(self._ui, "scaling_comp"):
+                mean_val = self._ui.scaling_comp.compute_roi_mean(target_vol, is_overlay, sc_state.norm_roi_id)
+                return mean_val if mean_val > 0 else 1.0
+            return 1.0
+
+        return 1.0
+
+    def compute_raw_threshold_for_level(
+        self, level: DoseIsocontourLevel, target_vol, is_overlay: bool, target_id: str
+    ) -> float:
+        """
+        Converts the isodose level value (%) to raw voxel threshold:
+        raw_threshold = (level.value / 100.0) * D_ref
+        where D_ref is determined by get_reference_dose() (Prescription, Max, ROI Mean, or raw Max).
+        """
+        d_ref = self.get_reference_dose(target_vol, is_overlay, target_id)
+        raw_thr = float((level.value / 100.0) * d_ref)
+        try:
+            rng = target_vol.get_data_range()
+            raw_max = float(rng[1]) if rng and len(rng) == 2 else None
+            if raw_max is not None and abs(level.value - 100.0) < 1e-3 and abs(raw_thr - raw_max) < 1e-3 * abs(raw_max):
+                # Nudge 100% level slightly below absolute peak so marching squares
+                # finds the closed contour enclosing the maximum voxel(s)
+                raw_thr = raw_max * 0.999
+        except Exception:
+            pass
+        return raw_thr
+
+    def _sync_isocontour_rois(self, target_id: str, target_vs, state: DoseIsocontourState) -> Dict[int, ContourROI]:
+        """Ensures ContourROI instances exist in target_vs.contours matching state.levels."""
+        if not self._api:
+            return {}
+
+        if target_id not in self._contour_rois:
+            self._contour_rois[target_id] = {}
+        rois_map = self._contour_rois[target_id]
+
+        if not state.is_enabled:
+            # Remove all isocontour ROIs from ViewState
+            for idx, c_roi in list(rois_map.items()):
+                if c_roi.id and hasattr(target_vs, "contours") and c_roi.id in target_vs.contours:
+                    self._api.remove_contour(target_id, c_roi.id)
+            rois_map.clear()
+            return {}
+
+        # Remove extra indices if levels were deleted
+        current_indices = set(range(len(state.levels)))
+        for idx in list(rois_map.keys()):
+            if idx not in current_indices:
+                c_roi = rois_map.pop(idx)
+                if c_roi.id and hasattr(target_vs, "contours") and c_roi.id in target_vs.contours:
+                    self._api.remove_contour(target_id, c_roi.id)
+
+        # Update or create ContourROI for each level
+        for idx, lvl in enumerate(state.levels):
+            name = f"Isodose {lvl.value:g}%"
+            if idx not in rois_map:
+                c_roi = ContourROI(name=name, color=list(lvl.color), thickness=lvl.thickness)
+                c_roi.is_dose_isocontour = True
+                c_roi.visible = lvl.enabled
+                self._api.add_contour(target_id, c_roi)
+                rois_map[idx] = c_roi
+            else:
+                c_roi = rois_map[idx]
+                c_roi.name = name
+                c_roi.color = list(lvl.color)
+                c_roi.thickness = lvl.thickness
+                c_roi.visible = lvl.enabled
+                if not hasattr(target_vs, "contours") or c_roi.id not in target_vs.contours:
+                    self._api.add_contour(target_id, c_roi)
+
+        return rois_map
+
+    def clear_isocontours(self, target_id: str, target_vs) -> None:
+        """Removes all dose isocontours for the given target."""
+        if not self._api or not target_vs:
+            return
+        rois_map = self._contour_rois.pop(target_id, {})
+        for c_roi in rois_map.values():
+            if c_roi.id and hasattr(target_vs, "contours") and c_roi.id in target_vs.contours:
+                self._api.remove_contour(target_id, c_roi.id)
+
+    def invalidate_isocontour_cache(self) -> None:
+        """Invalidates all cached isocontour slice polygons across all targets."""
+        self._cache_version += 1
+        for rois_map in self._contour_rois.values():
+            for c_roi in rois_map.values():
+                c_roi.invalidate()
+
+    def update_isocontours(self, viewer) -> None:
+        """Computes missing isocontour slice polygons on the fly during slice rendering."""
+        if not self._api or not viewer or not viewer.view_state:
+            return
+
+        is_active, target_vol, is_overlay, _, target_id, target_vs = self.get_dose_target_info(viewer)
+        if not is_active or not target_vol or not target_id or not target_vs:
+            return
+
+        # The viewer must be showing the target image (either as base or as fused overlay)
+        v_img_id = str(viewer.image_id) if viewer.image_id is not None else ""
+        t_img_id = str(target_id)
+        ov_img_id = str(getattr(viewer.view_state.display.overlay, "image_id", None) or "")
+        if v_img_id != t_img_id and ov_img_id != t_img_id:
+            return
+
+        state = self.get_isocontour_state(target_id)
+        if not state.is_enabled:
+            return
+
+        rois_map = self._sync_isocontour_rois(target_id, target_vs, state)
+        if not rois_map:
+            return
+
+        time_idx = 0
+        cam = getattr(target_vs, "camera", None)
+        if cam is not None and isinstance(getattr(cam, "time_idx", None), (int, np.integer)):
+            time_idx = int(cam.time_idx)
+
+        # Extract 2D slice data from the dose target volume
+        slice_data = None
+        data_token = None
+        if is_overlay:
+            # Resampled overlay data matching base geometry
+            base_vs = viewer.view_state
+            ov_data = getattr(base_vs.display, "overlay_data", None)
+            if isinstance(ov_data, np.ndarray):
+                data_token = id(ov_data)
+                slice_data = SliceRenderer.get_raw_slice(
+                    ov_data, False, time_idx, viewer.slice_idx, viewer.orientation
+                )
+            elif isinstance(target_vol.data, np.ndarray):
+                data_token = id(target_vol.data)
+                slice_data = SliceRenderer.get_raw_slice(
+                    target_vol.data, False, time_idx, viewer.slice_idx, viewer.orientation
+                )
+        else:
+            display_data = getattr(target_vs, "base_display_data", None)
+            if not isinstance(display_data, np.ndarray):
+                display_data = target_vol.data
+            if isinstance(display_data, np.ndarray):
+                data_token = id(display_data)
+                slice_data = SliceRenderer.get_raw_slice(
+                    display_data, False, time_idx, viewer.slice_idx, viewer.orientation
+                )
+
+        if slice_data is None or slice_data.size == 0:
+            return
+
+        sw, sh = viewer.volume.get_physical_aspect_ratio(viewer.orientation)
+        ori = viewer.orientation
+        s_idx = viewer.slice_idx
+
+        # Compute each enabled level
+        c_max = np.max(slice_data) if slice_data.size > 0 else 0.0
+
+        for idx, lvl in enumerate(state.levels):
+            c_roi = rois_map.get(idx)
+            if not c_roi or not lvl.enabled:
+                if c_roi:
+                    c_roi.polygons[ori][s_idx] = []
+                continue
+
+            raw_thr = self.compute_raw_threshold_for_level(lvl, target_vol, is_overlay, target_id)
+
+            # Check if threshold value, subpixel, or data array changed
+            if (
+                getattr(c_roi, "last_computed_level", None) != raw_thr
+                or getattr(c_roi, "last_computed_subpixel", None) != state.subpixel_accurate
+                or getattr(c_roi, "last_computed_data_token", None) != data_token
+            ):
+                c_roi.invalidate()
+                c_roi.last_computed_level = raw_thr
+                c_roi.last_computed_subpixel = state.subpixel_accurate
+                c_roi.last_computed_data_token = data_token
+
+            if s_idx in c_roi.polygons[ori]:
+                continue
+
+            if c_max >= raw_thr:
+                if state.subpixel_accurate:
+                    c_roi.polygons[ori][s_idx] = extract_2d_contours_from_slice(
+                        slice_data, raw_thr, sw, sh
+                    )
+                else:
+                    mask = (slice_data >= raw_thr).astype(np.uint8)
+                    if np.any(mask):
+                        c_roi.polygons[ori][s_idx] = extract_2d_contours_from_slice(
+                            mask, 0.5, sw, sh
+                        )
+                    else:
+                        c_roi.polygons[ori][s_idx] = []
+            else:
+                c_roi.polygons[ori][s_idx] = []
+
+    # -------------------------------------------------------------
+    # UI Interaction Callbacks for Isocontours
+    # -------------------------------------------------------------
+    def on_toggle_isocontours(self, sender=None, app_data=None, user_data=None) -> None:
+        is_active, _, _, _, target_id, target_vs = self.get_dose_target_info()
+        if not is_active or not target_id:
+            return
+        state = self.get_isocontour_state(target_id)
+        state.is_enabled = bool(app_data)
+        if not state.is_enabled:
+            self.clear_isocontours(target_id, target_vs)
+        self.invalidate_isocontour_cache()
+        self._refresh_all_viewers()
+
+    def on_toggle_subpixel(self, sender=None, app_data=None, user_data=None) -> None:
+        is_active, _, _, _, target_id, _ = self.get_dose_target_info()
+        if not is_active or not target_id:
+            return
+        state = self.get_isocontour_state(target_id)
+        state.subpixel_accurate = bool(app_data)
+        self.invalidate_isocontour_cache()
+        self._refresh_all_viewers()
+
+    def on_level_enabled_toggle(self, sender=None, app_data=None, user_data=None) -> None:
+        is_active, _, _, _, target_id, _ = self.get_dose_target_info()
+        if not is_active or not target_id or user_data is None:
+            return
+        idx = int(user_data)
+        state = self.get_isocontour_state(target_id)
+        if 0 <= idx < len(state.levels):
+            state.levels[idx].enabled = bool(app_data)
+            rois_map = self._contour_rois.get(target_id, {})
+            if idx in rois_map:
+                rois_map[idx].visible = state.levels[idx].enabled
+            self.invalidate_isocontour_cache()
+            self._refresh_all_viewers()
+
+    def on_level_value_changed(self, sender=None, app_data=None, user_data=None) -> None:
+        is_active, _, _, _, target_id, _ = self.get_dose_target_info()
+        if not is_active or not target_id or user_data is None or app_data is None:
+            return
+        idx = int(user_data)
+        try:
+            val = float(app_data)
+        except (ValueError, TypeError):
+            return
+        state = self.get_isocontour_state(target_id)
+        if 0 <= idx < len(state.levels):
+            state.levels[idx].value = val
+            rois_map = self._contour_rois.get(target_id, {})
+            if idx in rois_map:
+                rois_map[idx].name = f"Isodose {val:g}%"
+            self.invalidate_isocontour_cache()
+            self._refresh_all_viewers()
+
+    def on_level_color_changed(self, sender=None, app_data=None, user_data=None) -> None:
+        is_active, _, _, _, target_id, _ = self.get_dose_target_info()
+        if not is_active or not target_id or user_data is None or not app_data:
+            return
+        from vvv.ui.ui_components import normalize_rgba_to_int
+        idx = int(user_data)
+        state = self.get_isocontour_state(target_id)
+        if 0 <= idx < len(state.levels):
+            col = normalize_rgba_to_int(app_data)
+            state.levels[idx].color = col
+            rois_map = self._contour_rois.get(target_id, {})
+            if idx in rois_map:
+                rois_map[idx].color = list(col)
+            self.invalidate_isocontour_cache()
+            self._refresh_all_viewers()
+
+    def on_add_level_clicked(self, sender=None, app_data=None, user_data=None) -> None:
+        is_active, _, _, _, target_id, _ = self.get_dose_target_info()
+        if not is_active or not target_id:
+            return
+        state = self.get_isocontour_state(target_id)
+        # Default new level at 70% or midway
+        new_val = 70.0
+        if state.levels:
+            existing_vals = [lvl.value for lvl in state.levels]
+            new_val = round(max(5.0, min(existing_vals) - 10.0), 1) if min(existing_vals) > 10 else 75.0
+        new_col = [255, 100, 200, 255]
+        state.levels.append(DoseIsocontourLevel(new_val, new_col, True, 1.5))
+        self.invalidate_isocontour_cache()
+        if self._ui:
+            self._ui.rebuild_levels_ui(self._api)
+        self._refresh_all_viewers()
+
+    def on_delete_level_clicked(self, sender=None, app_data=None, user_data=None) -> None:
+        is_active, _, _, _, target_id, target_vs = self.get_dose_target_info()
+        if not is_active or not target_id or user_data is None:
+            return
+        idx = int(user_data)
+        state = self.get_isocontour_state(target_id)
+        if 0 <= idx < len(state.levels):
+            state.levels.pop(idx)
+            self.clear_isocontours(target_id, target_vs)
+            self.invalidate_isocontour_cache()
+            if self._ui:
+                self._ui.rebuild_levels_ui(self._api)
+            self._refresh_all_viewers()
+
+    def on_reset_levels_clicked(self, sender=None, app_data=None, user_data=None) -> None:
+        is_active, _, _, _, target_id, target_vs = self.get_dose_target_info()
+        if not is_active or not target_id:
+            return
+        state = self.get_isocontour_state(target_id)
+        state.levels = [
+            DoseIsocontourLevel(val, list(col), True, 1.5)
+            for val, col in DEFAULT_ISODOSE_LEVELS
+        ]
+        self.clear_isocontours(target_id, target_vs)
+        self.invalidate_isocontour_cache()
+        if self._ui:
+            self._ui.rebuild_levels_ui(self._api)
+        self._refresh_all_viewers()
+
+    def _refresh_all_viewers(self) -> None:
+        if not self._api:
+            return
+        viewers = self._api.get_viewers() if hasattr(self._api, "get_viewers") else {}
+        for v in viewers.values():
+            v.is_geometry_dirty = True
+            if hasattr(v, "drawer") and hasattr(v.drawer, "_last_contour_image"):
+                v.drawer._last_contour_image = None
+        self._api.request_refresh()
+
     def on_image_loaded(self, image_id: str) -> None:
         pass
 
     def on_image_removed(self, image_id: str) -> None:
-        pass
+        self._states.pop(image_id, None)
+        self._contour_rois.pop(image_id, None)
 
     def serialize_image_state(self, image_id: str, context: str = "history") -> dict:
+        state = self._states.get(image_id)
+        if state:
+            return {
+                "is_enabled": state.is_enabled,
+                "subpixel_accurate": state.subpixel_accurate,
+                "levels": [
+                    {
+                        "value": lvl.value,
+                        "color": list(lvl.color),
+                        "enabled": lvl.enabled,
+                        "thickness": lvl.thickness,
+                    }
+                    for lvl in state.levels
+                ],
+            }
         return {}
 
     def restore_image_state(self, image_id: str, data: dict, context: str = "history") -> None:
-        pass
+        if not data:
+            return
+        levels_data = data.get("levels", [])
+        levels = [
+            DoseIsocontourLevel(
+                value=float(ld.get("value", 100.0)),
+                color=list(ld.get("color", [255, 0, 0, 255])),
+                enabled=bool(ld.get("enabled", True)),
+                thickness=float(ld.get("thickness", 1.5)),
+            )
+            for ld in levels_data
+        ]
+        self._states[image_id] = DoseIsocontourState(
+            is_enabled=bool(data.get("is_enabled", True)),
+            subpixel_accurate=bool(data.get("subpixel_accurate", True)),
+            levels=levels,
+        )
+        self.invalidate_isocontour_cache()
 
     def save_settings(self, api: PluginAPI) -> None:
         pass
@@ -185,4 +652,10 @@ class DosePluginController(PluginTagMixin):
         pass
 
     def destroy(self) -> None:
-        pass
+        if self._api:
+            for target_id, rois_map in list(self._contour_rois.items()):
+                target_vs = self._api.get_view_states().get(target_id)
+                if target_vs:
+                    self.clear_isocontours(target_id, target_vs)
+        self._states.clear()
+        self._contour_rois.clear()

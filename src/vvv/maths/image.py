@@ -1295,6 +1295,13 @@ class VolumeData:
                 pass
 
         # 3. Fallback
+        first_path = self.file_paths[0] if (getattr(self, "file_paths", None) and len(self.file_paths) > 0) else getattr(self, "name", "")
+        base_name = os.path.basename(first_path).lower() if first_path else ""
+        if "dose" in base_name:
+            self.unit = "Gy"
+            self.unit_source = "Inferred (Filename)"
+            return
+
         self.unit = None
         self.unit_source = "Unknown"
 

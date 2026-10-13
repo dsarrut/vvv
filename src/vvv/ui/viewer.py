@@ -1799,6 +1799,10 @@ class SliceViewer:
                 slice_data,
             )
 
+        dose_plugin = _safe_get_plugin(self.controller, "dose_plugin")
+        if dose_plugin and hasattr(dose_plugin, "_controller"):
+            dose_plugin._controller.update_isocontours(self)
+
         if not self.drawer._is_mip_active():
             self.controller.roi.update_roi_contours(self)
 

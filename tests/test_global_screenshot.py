@@ -34,3 +34,47 @@ def test_copy_image_to_clipboard():
     res = copy_image_to_clipboard(img)
     # On macOS with Cocoa, this should return True
     assert res is True
+
+
+def test_copy_image_to_clipboard_linux_xclip():
+    img = Image.new("RGBA", (10, 10), (0, 255, 0, 255))
+    with patch("sys.platform", "linux"):
+        # Mock subprocess.Popen for xclip
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.communicate.return_value = (b"", b"")
+
+        def side_effect(cmd, *args, **kwargs):
+            if "wl-copy" in cmd[0]:
+                raise FileNotFoundError()
+            if "xclip" in cmd[0]:
+                # Verify that -i is present in the arguments
+                assert "-i" in cmd
+                return mock_proc
+            raise FileNotFoundError()
+
+        with patch("subprocess.Popen", side_effect=side_effect):
+            res = copy_image_to_clipboard(img)
+            assert res is True
+
+
+def test_copy_image_to_clipboard_linux_failure_and_fallback(headless_gui_app, tmp_path):
+    controller, gui, viewer, vs_id = headless_gui_app
+    test_img = Image.new("RGBA", (100, 100), (0, 0, 255, 255))
+
+    with patch("sys.platform", "linux"):
+        with patch("subprocess.Popen", side_effect=FileNotFoundError):
+            assert copy_image_to_clipboard(test_img) is False
+
+    # Verify fallback in GUI saves file and updates status message
+    with patch("vvv.ui.gui.capture_whole_window", return_value=test_img):
+        with patch("vvv.ui.gui.copy_image_to_clipboard", return_value=False):
+            with patch("vvv.utils.Path.home", return_value=tmp_path):
+                with patch.object(gui, "show_status_message") as mock_status:
+                    gui.on_copy_window_screenshot_clicked(None, None, None)
+                    mock_status.assert_called_once()
+                    status_text = mock_status.call_args[0][0]
+                    assert "Saved screenshot to" in status_text
+                    # Check file actually exists in tmp_path
+                    saved_files = list(tmp_path.glob("vvv_screenshot_*.png"))
+                    assert len(saved_files) == 1

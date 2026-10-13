@@ -45,6 +45,15 @@ or for develop version
     pip install -e .
 ```
 
+> **Linux Note (Clipboard support for screenshots):**
+> On Linux, copying screenshots directly to the system clipboard requires `xclip` (X11) or `wl-clipboard` (Wayland). These are system utilities and cannot be installed via `pip`:
+> ```bash
+> sudo apt install xclip         # Ubuntu / Debian (X11)
+> # or: sudo apt install wl-clipboard   # Ubuntu / Debian (Wayland)
+> # or: sudo dnf install xclip          # Fedora / RHEL
+> ```
+> If neither is installed, clicking the screenshot button automatically saves the image to `~/Pictures/vvv_screenshot_<timestamp>.png` (or `~/vvv_screenshot_...png`).
+
 ## Command line
 
 ```bash

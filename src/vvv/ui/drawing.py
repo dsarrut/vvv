@@ -1240,6 +1240,18 @@ class OverlayDrawer:
         contour_dict = getattr(viewer.view_state, "contours", {})
         contour_rois = list(contour_dict.values())
 
+        # Include contours from active overlay (e.g. dose isocontours when dose is fused over base image)
+        ov_id = getattr(getattr(viewer.view_state.display, "overlay", None), "image_id", None)
+        if ov_id is not None and viewer.controller and hasattr(viewer.controller, "view_states"):
+            ov_vs = viewer.controller.view_states.get(ov_id) or viewer.controller.view_states.get(str(ov_id))
+            if ov_vs:
+                if hasattr(ov_vs, "contours"):
+                    contour_rois.extend(ov_vs.contours.values())
+                if hasattr(ov_vs, "rois"):
+                    for r_id, r_state in list(ov_vs.rois.items()):
+                        if r_state.visible and getattr(r_state, "is_contour", False):
+                            contour_rois.append(r_state)
+
         # Include ROIs in contour mode
         for r_id, r_state in list(viewer.view_state.rois.items()):
             if r_state.visible and getattr(r_state, "is_contour", False):
@@ -1260,18 +1272,17 @@ class OverlayDrawer:
                     (id(roi), tuple(roi.color), getattr(roi, "thickness", 1.0))
                 )
 
-        # Also track the mathematical state of the preview
+        # Also track the mathematical state of the preview & dose isocontours
         ext_math_state = None
         thr_plugin = None
+        dose_plugin = None
         if viewer.controller.gui and hasattr(viewer.controller.gui, "plugins"):
-            thr_plugin = next(
-                (
-                    p
-                    for p in viewer.controller.gui.plugins
-                    if p.plugin_id == "threshold_plugin"
-                ),
-                None,
-            )
+            for p in viewer.controller.gui.plugins:
+                if p.plugin_id == "threshold_plugin":
+                    thr_plugin = p
+                elif p.plugin_id == "dose_plugin":
+                    dose_plugin = p
+
         if thr_plugin and viewer.image_id:
             thr_state = thr_plugin._controller.get_image_state(viewer.image_id)
             if thr_state and thr_state.is_enabled and thr_state.show_preview:
@@ -1281,6 +1292,10 @@ class OverlayDrawer:
                     thr_state.subpixel_accurate,
                 )
 
+        dose_isocontour_state = None
+        if dose_plugin and hasattr(dose_plugin, "_controller"):
+            dose_isocontour_state = dose_plugin._controller.get_isocontour_cache_token(viewer)
+
         current_state = (
             viewer.image_id,
             viewer.orientation,
@@ -1289,6 +1304,7 @@ class OverlayDrawer:
             total_polys,
             tuple(roi_visual_states),  # Triggers redraw if ANY color changes
             ext_math_state,  # Triggers redraw if Subpixel changes
+            dose_isocontour_state,
         )
 
         if getattr(self, "_last_contour_image", None) != current_state:

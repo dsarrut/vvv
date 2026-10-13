@@ -21,6 +21,11 @@ A workspace file stores the entire state of your session in a clean, human-reada
   ```bash
   vvv data/dose.vvw
   ```
+* **Dynamic Label Maps on Disk**: When a workspace referencing a multi-label segmentation map is reopened, VVV reads the actual label map image file currently on disk as the source of truth:
+  * Any labels present in the file on disk are loaded.
+  * Preferences saved in the workspace (custom names, colors, contours, visibility, and opacity) are reapplied to matching labels.
+  * Labels removed from the file on disk since the workspace was saved are not loaded (preventing phantom or empty masks).
+  * Newly added labels in the file on disk are automatically loaded with default colors and naming.
 
 ---
 
@@ -29,17 +34,22 @@ A workspace file stores the entire state of your session in a clean, human-reada
 VVV provides flexible tools for exporting clean, publication-ready figures:
 
 ### 1. Interactive Screenshot
-* Click the **Screenshot** icon or press <kbd>F12</kbd> (or <kbd>P</kbd> depending on configuration).
-* Options include:
-  * **Capture Entire Window**: Captures all viewers, sidebars, and controls.
-  * **Capture Viewer Only**: Extracts only the slice viewport without UI borders or menus.
-  * **Include / Exclude Overlays**: Toggle crosshairs, anatomical orientation letters (A/P/L/R/S/I), physical scale bars, and color legends.
+* Click the **Screenshot** icon (camera icon in the top bar) or use the screenshot menu.
+* **macOS & Windows**: Automatically copied directly to your system clipboard ready to paste into documents or presentation slides.
+* **Linux**:
+  * Copying directly to the clipboard uses `xclip` (on X11) or `wl-clipboard` (`wl-copy` on Wayland). These system utilities cannot be installed via `pip`:
+    ```bash
+    sudo apt install xclip         # X11
+    sudo apt install wl-clipboard  # Wayland
+    ```
+  * If neither utility is installed, VVV gracefully falls back to automatically saving the captured image to `~/Pictures/vvv_screenshot_<timestamp>.png` (or `~/vvv_screenshot_<timestamp>.png`).
 
 ### 2. Automated Headless Screenshots via CLI
 You can generate batch figures directly from scripts or CI pipelines without displaying an interactive window:
 ```bash
 vvv --screenshot my_session.vvw --output figure1.png
 ```
+
 
 ---
 

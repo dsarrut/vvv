@@ -99,6 +99,137 @@ class DosePluginUI(PluginTagMixin):
                 # --- Shared Intensity Scaling & Normalization Component ---
                 self.scaling_comp.create_ui(parent=None, api=api)
 
+                dpg.add_spacer(height=6)
+                dpg.add_separator()
+                dpg.add_spacer(height=4)
+
+                # --- Isodose Contours Section ---
+                build_section_title("Isodose Contours", cfg_c["text_header"])
+
+                with dpg.group(horizontal=True):
+                    dpg.add_checkbox(
+                        label="Show Isodoses",
+                        tag=self._t("check_isodose_enable"),
+                        default_value=True,
+                        callback=self._c.on_toggle_isocontours,
+                    )
+                    build_beginner_tooltip(
+                        self._t("check_isodose_enable"),
+                        "Displays isolines / isodose contours for the active dose image.",
+                        api,
+                    )
+
+                    dpg.add_checkbox(
+                        label="Sub-Pixel",
+                        tag=self._t("check_isodose_subpixel"),
+                        default_value=True,
+                        callback=self._c.on_toggle_subpixel,
+                    )
+                    build_beginner_tooltip(
+                        self._t("check_isodose_subpixel"),
+                        "Uses marching squares linear interpolation for smooth sub-voxel curves.",
+                        api,
+                    )
+
+                dpg.add_spacer(height=4)
+
+                # Action buttons: Add Level, Reset Defaults
+                with dpg.group(horizontal=True):
+                    btn_add = dpg.add_button(
+                        label="+ Add Level",
+                        tag=self._t("btn_add_level"),
+                        callback=self._c.on_add_level_clicked,
+                    )
+                    build_beginner_tooltip(
+                        btn_add,
+                        "Adds a new customizable isodose level.",
+                        api,
+                    )
+
+                    btn_reset_lvls = dpg.add_button(
+                        label="Reset Defaults",
+                        tag=self._t("btn_reset_levels"),
+                        callback=self._c.on_reset_levels_clicked,
+                    )
+                    build_beginner_tooltip(
+                        btn_reset_lvls,
+                        "Restores standard radiotherapy isodose levels (10% to 107%).",
+                        api,
+                    )
+
+                dpg.add_spacer(height=4)
+                dpg.add_text("Levels:", color=cfg_c["text_dim"])
+
+                # Dynamic container for individual isodose levels
+                dpg.add_group(tag=self._t("group_isodose_levels"))
+
+    def rebuild_levels_ui(self, api: PluginAPI) -> None:
+        """Reconstructs the list of isodose level rows."""
+        levels_group = self._t("group_isodose_levels")
+        if not dpg.does_item_exist(levels_group):
+            return
+
+        dpg.delete_item(levels_group, children_only=True)
+
+        is_active, target_vol, is_overlay, current_unit, target_id, target_vs = (
+            self._c.get_dose_target_info()
+        )
+        if not is_active or not target_id:
+            return
+
+        state = self._c.get_isocontour_state(target_id)
+        unit_str = "%"
+
+        for idx, lvl in enumerate(state.levels):
+            row_tag = self._t(f"row_level_{idx}")
+            with dpg.group(horizontal=True, parent=levels_group, tag=row_tag):
+                # Enable / Disable checkbox
+                dpg.add_checkbox(
+                    default_value=lvl.enabled,
+                    user_data=idx,
+                    callback=self._c.on_level_enabled_toggle,
+                    tag=self._t(f"chk_lvl_{idx}"),
+                )
+
+                # Color picker
+                dpg.add_color_edit(
+                    default_value=lvl.color,
+                    user_data=idx,
+                    callback=self._c.on_level_color_changed,
+                    no_inputs=True,
+                    no_label=True,
+                    no_alpha=True,
+                    width=20,
+                    height=20,
+                    tag=self._t(f"col_lvl_{idx}"),
+                )
+
+                # Value input float
+                dpg.add_input_float(
+                    default_value=float(lvl.value),
+                    user_data=idx,
+                    format="%.4g",
+                    step=0.0,
+                    step_fast=0.0,
+                    width=75,
+                    callback=self._c.on_level_value_changed,
+                    tag=self._t(f"inp_lvl_{idx}"),
+                )
+
+                # Unit label
+                dpg.add_text(unit_str, color=[255, 255, 255, 255])
+
+                # Delete button (red X)
+                btn_del = dpg.add_button(
+                    label="X",
+                    user_data=idx,
+                    width=20,
+                    callback=self._c.on_delete_level_clicked,
+                    tag=self._t(f"btn_del_lvl_{idx}"),
+                )
+                if dpg.does_item_exist("delete_button_theme"):
+                    dpg.bind_item_theme(btn_del, "delete_button_theme")
+
     def update_ui(self, api: PluginAPI) -> None:
         if not dpg.does_item_exist(self._t("group_dose_requirement")):
             return
@@ -120,6 +251,28 @@ class DosePluginUI(PluginTagMixin):
 
             # Update shared scaling component
             self.scaling_comp.update_ui(api)
+
+            # Update isocontour checkbox values
+            state = self._c.get_isocontour_state(target_id)
+            if dpg.does_item_exist(self._t("check_isodose_enable")):
+                dpg.set_value(self._t("check_isodose_enable"), state.is_enabled)
+            if dpg.does_item_exist(self._t("check_isodose_subpixel")):
+                dpg.set_value(self._t("check_isodose_subpixel"), state.subpixel_accurate)
+
+            # Check if levels rows need to be refreshed
+            levels_group = self._t("group_isodose_levels")
+            if dpg.does_item_exist(levels_group):
+                children = dpg.get_item_children(levels_group, slot=1) or []
+                if len(children) != len(state.levels):
+                    self.rebuild_levels_ui(api)
+                else:
+                    for idx, lvl in enumerate(state.levels):
+                        chk_tag = self._t(f"chk_lvl_{idx}")
+                        inp_tag = self._t(f"inp_lvl_{idx}")
+                        if dpg.does_item_exist(chk_tag):
+                            dpg.set_value(chk_tag, lvl.enabled)
+                        if dpg.does_item_exist(inp_tag) and not dpg.is_item_active(inp_tag):
+                            dpg.set_value(inp_tag, lvl.value)
         else:
             # Show requirement banner
             dpg.configure_item(self._t("group_dose_requirement"), show=True)

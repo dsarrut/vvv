@@ -25,6 +25,8 @@ class ContourROI:
         self.is_draft_max = False
         self.is_plugin_draft_min = False
         self.is_plugin_draft_max = False
+        self.is_dose_isocontour = False
+        self.last_computed_level = None
         self.last_computed_threshold_min = None
         self.last_computed_threshold_max = None
         self.last_computed_subpixel = None

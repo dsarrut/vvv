@@ -173,6 +173,20 @@ def get_config_dir() -> Path:
     return Path.home() / ".config" / "vvv"
 
 
+def save_screenshot_to_file(image) -> Path:
+    """Saves a screenshot PIL Image to ~/Pictures or ~/vvv_screenshot_<timestamp>.png."""
+    import time
+    from pathlib import Path
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    pictures_dir = Path.home() / "Pictures"
+    if pictures_dir.is_dir():
+        save_path = pictures_dir / f"vvv_screenshot_{timestamp}.png"
+    else:
+        save_path = Path.home() / f"vvv_screenshot_{timestamp}.png"
+    image.save(save_path, format="PNG")
+    return save_path
+
+
 def copy_image_to_clipboard(image) -> bool:
     """Copies a PIL Image to the system clipboard (macOS, Windows, Linux)."""
     import sys
@@ -212,9 +226,16 @@ def copy_image_to_clipboard(image) -> bool:
             buf = io.BytesIO()
             image.save(buf, format="PNG")
             png_bytes = buf.getvalue()
-            for cmd in [["wl-copy", "-t", "image/png"], ["xclip", "-selection", "clipboard", "-t", "image/png"]]:
+            # Note: xclip requires -i (or -in) to read from stdin into selection.
+            # wl-copy reads from stdin by default.
+            for cmd in [
+                ["wl-copy", "--type", "image/png"],
+                ["wl-copy", "-t", "image/png"],
+                ["xclip", "-selection", "clipboard", "-target", "image/png", "-i"],
+                ["xclip", "-selection", "clipboard", "-t", "image/png", "-i"],
+            ]:
                 try:
-                    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+                    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     proc.communicate(input=png_bytes)
                     if proc.returncode == 0:
                         return True

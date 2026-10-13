@@ -34,6 +34,8 @@ class TestDosePlugin(unittest.TestCase):
         self.mock_overlay._cumulative_scale = 1.0
         self.mock_overlay.get_data_range.return_value = (0.0, 50.0)
 
+        self.mock_viewer.view_state.base_display_data = None
+        self.mock_viewer.view_state.camera.time_idx = 0
         self.mock_viewer.view_state.display.overlay = None
         self.mock_viewer.view_state.display.ww = 1.0
         self.mock_viewer.view_state.display.wl = 0.5
@@ -42,6 +44,8 @@ class TestDosePlugin(unittest.TestCase):
         self.mock_viewer.view_state.rois = {}
 
         self.mock_overlay_vs = MagicMock()
+        self.mock_overlay_vs.base_display_data = None
+        self.mock_overlay_vs.camera.time_idx = 0
         self.mock_overlay_vs.display.ww = 1.0
         self.mock_overlay_vs.display.wl = 0.5
         self.mock_overlay_vs.display.min_threshold = None
@@ -372,6 +376,221 @@ class TestDosePlugin(unittest.TestCase):
         comp._bind_icon_font("test_btn")
         mock_bind_font.assert_called_with("test_btn", "icon_font_tag")
 
+    # -------------------------------------------------------------
+    # ISOCONTOUR TESTS
+    # -------------------------------------------------------------
+    def test_isocontour_default_state(self):
+        self.mock_viewer.volume.unit = "Gy"
+        state = self.plugin._controller.get_isocontour_state("img_1")
+        self.assertTrue(state.is_enabled)
+        self.assertTrue(state.subpixel_accurate)
+        self.assertEqual(len(state.levels), 8)
+        self.assertEqual(state.levels[0].value, 107.0)
+        self.assertEqual(state.levels[1].value, 100.0)
+
+    def test_isocontour_update_and_extract(self):
+        self.mock_viewer.volume.unit = "Gy"
+        # 10x10x10 slice with dose peak in center (30 Gy max)
+        data = np.zeros((10, 10, 10), dtype=np.float32)
+        data[5, 4:7, 4:7] = 30.0
+        self.mock_viewer.volume.data = data
+        self.mock_viewer.volume.get_data_range.return_value = (0.0, 30.0)
+        self.mock_viewer.slice_idx = 5
+        from vvv.utils import ViewMode
+        self.mock_viewer.orientation = ViewMode.AXIAL
+        self.mock_viewer.volume.get_physical_aspect_ratio.return_value = (1.0, 1.0)
+        self.mock_viewer.view_state.contours = {}
+
+        def mock_add(img_id, c_roi):
+            c_id = f"c_{len(self.mock_viewer.view_state.contours)}"
+            c_roi.id = c_id
+            self.mock_viewer.view_state.contours[c_id] = c_roi
+            return c_id
+
+        self.mock_api.add_contour.side_effect = mock_add
+
+        # Normalize to Max (Max = 30 Gy = 100%)
+        comp = self.plugin._ui.scaling_comp
+        comp._on_norm_max_clicked()
+
+        # Update isocontours
+        self.plugin._controller.update_isocontours(self.mock_viewer)
+
+        # Contours should be created in contours dict
+        self.assertGreater(len(self.mock_viewer.view_state.contours), 0)
+
+        # Check 100% and 50% levels
+        rois = list(self.mock_viewer.view_state.contours.values())
+        dose_rois = [r for r in rois if getattr(r, "is_dose_isocontour", False)]
+        self.assertEqual(len(dose_rois), 8)
+
+        # Test extraction even before normalizing (unnormalized mode uses raw max as 100% reference)
+        lvl_100_roi = next(r for r in dose_rois if "100" in r.name)
+        self.assertIn(5, lvl_100_roi.polygons[ViewMode.AXIAL])
+        self.assertGreater(len(lvl_100_roi.polygons[ViewMode.AXIAL][5]), 0)
+
+        # For level 50% (threshold = 15 Gy), polygons should be present on slice 5
+        lvl_50_roi = next(r for r in dose_rois if "50" in r.name)
+        self.assertIn(5, lvl_50_roi.polygons[ViewMode.AXIAL])
+        self.assertGreater(len(lvl_50_roi.polygons[ViewMode.AXIAL][5]), 0)
+
+    def test_isocontour_overlay_extract(self):
+        # Base CT image
+        self.mock_viewer.image_id = "img_ct"
+        self.mock_viewer.volume.unit = "HU"
+        self.mock_viewer.slice_idx = 5
+        from vvv.utils import ViewMode
+        self.mock_viewer.orientation = ViewMode.AXIAL
+        self.mock_viewer.volume.get_physical_aspect_ratio.return_value = (1.0, 1.0)
+        self.mock_viewer.view_state.contours = {}
+
+        # Dose overlay
+        data = np.zeros((10, 10, 10), dtype=np.float32)
+        data[5, 4:7, 4:7] = 20.0
+        self.mock_overlay.unit = "Gy"
+        self.mock_overlay.data = data
+        self.mock_overlay.get_data_range.return_value = (0.0, 20.0)
+        self.mock_viewer.view_state.display.overlay = MagicMock()
+        self.mock_viewer.view_state.display.overlay.image_id = "img_2"
+        self.mock_viewer.view_state.display.overlay_data = data
+        self.mock_overlay_vs.contours = {}
+
+        def mock_add(img_id, c_roi):
+            c_id = f"c_{len(self.mock_overlay_vs.contours)}"
+            c_roi.id = c_id
+            self.mock_overlay_vs.contours[c_id] = c_roi
+            return c_id
+
+        self.mock_api.add_contour.side_effect = mock_add
+
+        # Update isocontours for overlay
+        self.plugin._controller.update_isocontours(self.mock_viewer)
+
+        # Contours should be created in overlay's contours dict
+        self.assertEqual(len(self.mock_overlay_vs.contours), 8)
+        rois = list(self.mock_overlay_vs.contours.values())
+        lvl_50 = next(r for r in rois if "50" in r.name)
+        self.assertIn(5, lvl_50.polygons[ViewMode.AXIAL])
+        self.assertGreater(len(lvl_50.polygons[ViewMode.AXIAL][5]), 0)
+
+    def test_isocontour_level_callbacks(self):
+        self.mock_viewer.volume.unit = "Gy"
+        controller = self.plugin._controller
+
+        # Toggle subpixel
+        controller.on_toggle_subpixel(None, False, None)
+        state = controller.get_isocontour_state("img_1")
+        self.assertFalse(state.subpixel_accurate)
+
+        # Toggle a level
+        controller.on_level_enabled_toggle(None, False, 0)
+        self.assertFalse(state.levels[0].enabled)
+
+        # Edit level value
+        controller.on_level_value_changed(None, 65.0, 0)
+        self.assertEqual(state.levels[0].value, 65.0)
+
+        # Change color
+        controller.on_level_color_changed(None, [10, 20, 30, 255], 0)
+        self.assertEqual(state.levels[0].color, [10, 20, 30, 255])
+
+        # Add level
+        initial_len = len(state.levels)
+        controller.on_add_level_clicked()
+        self.assertEqual(len(state.levels), initial_len + 1)
+
+        # Delete level
+        controller.on_delete_level_clicked(None, None, 0)
+        self.assertEqual(len(state.levels), initial_len)
+
+        # Reset levels
+        controller.on_reset_levels_clicked()
+        self.assertEqual(len(state.levels), 8)
+        self.assertEqual(state.levels[0].value, 107.0)
+
+    def test_isocontour_serialization_and_restore(self):
+        controller = self.plugin._controller
+        state = controller.get_isocontour_state("img_1")
+        state.levels[0].value = 110.0
+        state.subpixel_accurate = False
+
+        data = controller.serialize_image_state("img_1")
+        self.assertIn("levels", data)
+        self.assertFalse(data["subpixel_accurate"])
+        self.assertEqual(data["levels"][0]["value"], 110.0)
+
+        # Restore into another image
+        controller.restore_image_state("img_restore", data)
+        restored = controller.get_isocontour_state("img_restore")
+        self.assertFalse(restored.subpixel_accurate)
+        self.assertEqual(restored.levels[0].value, 110.0)
+
+    def test_monte_carlo_low_magnitude_thresholds(self):
+        from vvv.plugins.dose.control_dose import DoseIsocontourLevel
+        controller = self.plugin._controller
+        # Create a mock volume with small magnitude values (e.g. Monte Carlo dose 6.7e-8 Gy/particle)
+        vol = MagicMock()
+        vol.get_data_range.return_value = (0.0, 6.746e-8)
+        vol.unit = "Gy"
+
+        # Check 10%, 50%, 100% levels
+        lvl_10 = DoseIsocontourLevel(10.0, [255, 0, 0, 255])
+        thr_10 = controller.compute_raw_threshold_for_level(lvl_10, vol, False, "test_mc")
+        self.assertAlmostEqual(thr_10, 0.10 * 6.746e-8, delta=1e-12)
+
+        lvl_50 = DoseIsocontourLevel(50.0, [255, 0, 0, 255])
+        thr_50 = controller.compute_raw_threshold_for_level(lvl_50, vol, False, "test_mc")
+        self.assertAlmostEqual(thr_50, 0.50 * 6.746e-8, delta=1e-12)
+
+        lvl_100 = DoseIsocontourLevel(100.0, [255, 0, 0, 255])
+        thr_100 = controller.compute_raw_threshold_for_level(lvl_100, vol, False, "test_mc")
+        # 100% should be nudged slightly (0.999 * max)
+        self.assertAlmostEqual(thr_100, 6.746e-8 * 0.999, delta=1e-12)
+
+    def test_dose_filename_heuristic_unit(self):
+        from vvv.maths.image import VolumeData
+        vol = VolumeData("data/output_dose.mhd")
+        self.assertEqual(vol.unit, "Gy")
+        self.assertIn("Filename", vol.unit_source)
+
+    def test_update_isocontours_data_token_invalidation(self):
+        controller = self.plugin._controller
+        self.mock_viewer.image_id = "img_1"
+        self.mock_viewer.slice_idx = 2
+        from vvv.utils import ViewMode
+        self.mock_viewer.orientation = ViewMode.AXIAL
+        self.mock_viewer.volume.get_physical_aspect_ratio.return_value = (1.0, 1.0)
+
+        # Initial overlay data
+        data1 = np.zeros((5, 5, 5), dtype=np.float32)
+        data1[2, 2, 2] = 10.0
+        self.mock_overlay.data = data1
+        self.mock_overlay.unit = "Gy"
+        self.mock_overlay.get_data_range.return_value = (0.0, 10.0)
+        self.mock_viewer.view_state.display.overlay = MagicMock()
+        self.mock_viewer.view_state.display.overlay.image_id = "img_2"
+        self.mock_viewer.view_state.display.overlay_data = data1
+        self.mock_overlay_vs.contours = {}
+
+        def mock_add(img_id, c_roi):
+            c_id = f"c_{len(self.mock_overlay_vs.contours)}"
+            c_roi.id = c_id
+            self.mock_overlay_vs.contours[c_id] = c_roi
+            return c_id
+        self.mock_api.add_contour.side_effect = mock_add
+
+        controller.update_isocontours(self.mock_viewer)
+        c_roi = self.mock_overlay_vs.contours["c_0"]
+        self.assertEqual(c_roi.last_computed_data_token, id(data1))
+
+        # Now simulate background resample finishing and replacing overlay_data with data2
+        data2 = np.zeros((5, 5, 5), dtype=np.float32)
+        data2[2, 1:4, 1:4] = 10.0
+        self.mock_viewer.view_state.display.overlay_data = data2
+        controller.update_isocontours(self.mock_viewer)
+        self.assertEqual(c_roi.last_computed_data_token, id(data2))
+
 
 if __name__ == "__main__":
     unittest.main()
+
