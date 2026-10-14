@@ -14,6 +14,9 @@ class RegistrationPlugin(PluginProtocol):
         self._ui = RegistrationPluginUI(self.plugin_id, self._controller)
         self._controller.bind_ui(self._ui)
 
+    def bind(self, api: PluginAPI) -> None:
+        self._controller.bind(api)
+
     def create_ui(self, parent, api: PluginAPI) -> None:
         self._controller.bind(api)
         self._ui.create_ui(parent, api)

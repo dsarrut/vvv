@@ -295,7 +295,15 @@ def _save_file_dialog_impl(title="Save File", default_name="workspace.vvw", star
     else:
         ext = "*"
 
-    filter_name = "VVV Workspace" if ext == "vvw" else "File"
+    filter_map = {
+        "vvw": "VVV Workspace",
+        "tfm": "ITK Transform",
+        "nii.gz": "NIfTI Image",
+        "png": "PNG Image",
+        "json": "JSON File",
+        "csv": "CSV File",
+    }
+    filter_name = filter_map.get(ext.lower(), "File")
 
     if sys.platform == "darwin":  # macOS
         script = (

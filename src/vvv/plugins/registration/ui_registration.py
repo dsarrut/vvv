@@ -39,6 +39,27 @@ class RegistrationPluginUI(PluginTagMixin):
                 show=False,
             )
 
+            with dpg.group(tag=self._t("group_reg_target"), show=False):
+                dpg.add_spacer(height=5)
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Target:")
+                    dpg.add_radio_button(
+                        items=["Base", "Fusion"],
+                        default_value="Base",
+                        horizontal=True,
+                        tag=self._t("radio_reg_target"),
+                        callback=self._c.on_reg_target_changed,
+                    )
+                    build_help_button(
+                        "Switch between modifying the Base image transform and the Fusion overlay transform.",
+                        api,
+                    )
+                dpg.add_text(
+                    "",
+                    tag=self._t("text_reg_target_summary"),
+                    color=cfg_c["text_dim"],
+                )
+
             with dpg.group(tag=self._t("group_registration_controls")):
                 # --- TOP: File Management ---
                 dpg.add_spacer(height=10)
@@ -57,7 +78,7 @@ class RegistrationPluginUI(PluginTagMixin):
                         callback=self._c.on_reg_save_as_clicked,
                     )
                     self._bind_icon_font(btn_save_as)
-                    build_beginner_tooltip(btn_save_as, "Save Transform matrix as...", api)
+                    build_beginner_tooltip(btn_save_as, "Save Transform matrix as (.tfm)...", api)
 
                     btn_save = dpg.add_button(
                         label="\uf0c7",
@@ -66,7 +87,7 @@ class RegistrationPluginUI(PluginTagMixin):
                         show=False,
                     )
                     self._bind_icon_font(btn_save)
-                    build_beginner_tooltip(btn_save, "Save Transform matrix to current file", api)
+                    build_beginner_tooltip(btn_save, "Save Transform matrix to current file (.tfm)", api)
 
                     lbl_file = dpg.add_text(
                         "",
@@ -85,6 +106,17 @@ class RegistrationPluginUI(PluginTagMixin):
                     if dpg.does_item_exist("icon_button_theme"):
                         dpg.bind_item_theme(btn_reload, "icon_button_theme")
                     build_beginner_tooltip(btn_reload, "Reload transform from disk", api)
+
+                    btn_invert_icon = dpg.add_button(
+                        label="\uf0ec",
+                        width=20,
+                        tag=self._t("btn_reg_invert_icon"),
+                        callback=self._c.on_reg_invert_clicked,
+                    )
+                    self._bind_icon_font(btn_invert_icon)
+                    if dpg.does_item_exist("icon_button_theme"):
+                        dpg.bind_item_theme(btn_invert_icon, "icon_button_theme")
+                    build_beginner_tooltip(btn_invert_icon, "Invert transform (T <-> T^-1)", api)
 
                     build_help_button(
                         "A Transform file (.tfm, .mat, .txt) contains a rigid 3D spatial matrix (Translations and Rotations) that aligns this image with another.",
@@ -209,12 +241,13 @@ class RegistrationPluginUI(PluginTagMixin):
                         label="Reset to Identity",
                         callback=self._c.on_reg_reset_clicked,
                     )
-                    dpg.add_button(
+                    btn_inv = dpg.add_button(
                         label="Invert Transform",
                         width=-1,
                         tag=self._t("btn_reg_invert"),
                         callback=self._c.on_reg_invert_clicked,
                     )
+                    build_beginner_tooltip(btn_inv, "Invert the current spatial transform (T <-> T^-1)", api)
                 dpg.add_spacer(height=5)
 
                 # --- Resample & Bake ---
@@ -276,12 +309,52 @@ class RegistrationPluginUI(PluginTagMixin):
     def update_ui(self, api) -> None:
         viewer = api.get_active_viewer()
         has_image = bool(viewer and viewer.view_state and viewer.volume)
+        target_id, target_vs, target_vol, actual_role = self._c.get_target_info()
+
+        base_vs = viewer.view_state if has_image else None
+        overlay_id = None
+        if base_vs and getattr(base_vs, "display", None) and getattr(base_vs.display, "overlay", None):
+            raw_ov_id = base_vs.display.overlay.image_id
+            if isinstance(raw_ov_id, str) and raw_ov_id:
+                overlay_id = raw_ov_id
+        has_overlay = bool(overlay_id)
+
+        # Update Target selection group and summary
+        target_group = self._t("group_reg_target")
+        if dpg.does_item_exist(target_group):
+            dpg.configure_item(target_group, show=(has_image and has_overlay))
+
+        target_radio = self._t("radio_reg_target")
+        if dpg.does_item_exist(target_radio):
+            dpg.set_value(target_radio, actual_role)
+
+        summary_tag = self._t("text_reg_target_summary")
+        if dpg.does_item_exist(summary_tag):
+            if has_image and has_overlay:
+                ov_vs = api.get_view_states().get(overlay_id)
+                base_tf = (
+                    base_vs.space.transform_file
+                    if (base_vs and base_vs.space.transform_file and base_vs.space.transform_file != "None")
+                    else ("Active" if (base_vs and base_vs.space.transform and base_vs.space.is_active) else "Identity")
+                )
+                ov_tf = (
+                    ov_vs.space.transform_file
+                    if (ov_vs and ov_vs.space.transform_file and ov_vs.space.transform_file != "None")
+                    else ("Active" if (ov_vs and ov_vs.space.transform and ov_vs.space.is_active) else "Identity")
+                )
+                dpg.set_value(summary_tag, f"Base: {base_tf}  |  Fusion: {ov_tf}")
+                dpg.configure_item(summary_tag, show=True)
+            else:
+                dpg.set_value(summary_tag, "")
+                dpg.configure_item(summary_tag, show=False)
 
         # Update active title
         title_tag = self._t("text_reg_active_title")
         if dpg.does_item_exist(title_tag):
-            if has_image:
-                name_str, is_outdated = api.get_image_display_name(viewer.image_id)
+            if has_image and target_id:
+                name_str, is_outdated = api.get_image_display_name(target_id)
+                if has_overlay:
+                    name_str = f"[{actual_role}] {name_str}"
                 dpg.set_value(title_tag, name_str)
                 col = (
                     api.get_ui_config()["colors"]["outdated"]
@@ -298,9 +371,8 @@ class RegistrationPluginUI(PluginTagMixin):
         # DVF warning
         warning_tag = self._t("text_reg_dvf_warning")
         is_dvf = False
-        if has_image:
-            vol = viewer.volume
-            is_dvf = getattr(vol, "is_dvf", False) is True
+        if has_image and target_vol is not None:
+            is_dvf = getattr(target_vol, "is_dvf", False) is True
         if dpg.does_item_exist(warning_tag):
             dpg.configure_item(warning_tag, show=(has_image and is_dvf))
 
@@ -309,15 +381,13 @@ class RegistrationPluginUI(PluginTagMixin):
         if dpg.does_item_exist(ctrls_group):
             dpg.configure_item(ctrls_group, show=(has_image and not is_dvf))
 
-        if not has_image or is_dvf:
+        if not has_image or is_dvf or not target_vs:
             return
 
         # Update button theme for Resample
         resample_btn = self._t("btn_reg_resample")
         if dpg.does_item_exist(resample_btn):
-            needs_resample = False
-            if has_image and viewer.view_state:
-                needs_resample = getattr(viewer.view_state, "needs_resample", False)
+            needs_resample = getattr(target_vs, "needs_resample", False)
             theme = "orange_button_theme" if needs_resample else 0
             dpg.bind_item_theme(resample_btn, theme)
 
@@ -326,7 +396,7 @@ class RegistrationPluginUI(PluginTagMixin):
         btn_save_tag = self._t("btn_reg_save")
         btn_reload_tag = self._t("btn_reg_reload")
 
-        tf_file = viewer.view_state.space.transform_file if (has_image and getattr(viewer.view_state, "space", None)) else "None"
+        tf_file = target_vs.space.transform_file if getattr(target_vs, "space", None) else "None"
         has_transform_file = bool(tf_file and tf_file != "None")
 
         if dpg.does_item_exist(file_tag):
@@ -344,18 +414,23 @@ class RegistrationPluginUI(PluginTagMixin):
             dpg.configure_item(btn_reload_tag, show=has_transform_file)
 
         # Disable out-of-plane sliders if 2D
-        if has_image:
-            vol = viewer.volume
-            is_2d = min(vol.shape3d) == 1 if vol else False
-            out_of_plane_tags = ["drag_reg_rx", "drag_reg_ry", "drag_reg_tz"]
-            for name in out_of_plane_tags:
-                tag = self._t(name)
-                if dpg.does_item_exist(tag):
-                    dpg.configure_item(tag, enabled=not is_2d)
-                if dpg.does_item_exist(f"btn_{tag}_minus"):
-                    dpg.configure_item(f"btn_{tag}_minus", enabled=not is_2d)
-                if dpg.does_item_exist(f"btn_{tag}_plus"):
-                    dpg.configure_item(f"btn_{tag}_plus", enabled=not is_2d)
+        is_2d = False
+        if (
+            target_vol
+            and hasattr(target_vol, "shape3d")
+            and isinstance(target_vol.shape3d, (list, tuple))
+            and len(target_vol.shape3d) > 0
+        ):
+            is_2d = min(target_vol.shape3d) == 1
+        out_of_plane_tags = ["drag_reg_rx", "drag_reg_ry", "drag_reg_tz"]
+        for name in out_of_plane_tags:
+            tag = self._t(name)
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, enabled=not is_2d)
+            if dpg.does_item_exist(f"btn_{tag}_minus"):
+                dpg.configure_item(f"btn_{tag}_minus", enabled=not is_2d)
+            if dpg.does_item_exist(f"btn_{tag}_plus"):
+                dpg.configure_item(f"btn_{tag}_plus", enabled=not is_2d)
 
         # Update sliders from transform (if not active/dragging)
         slider_tags = [
@@ -366,8 +441,8 @@ class RegistrationPluginUI(PluginTagMixin):
             self._t("drag_reg_ty"),
             self._t("drag_reg_tz"),
         ]
-        if has_image and viewer.view_state and viewer.view_state.space.transform:
-            params = viewer.view_state.space.get_parameters()
+        if target_vs.space.transform:
+            params = target_vs.space.get_parameters()
             vals = [
                 math.degrees(params[0]),
                 math.degrees(params[1]),
@@ -385,11 +460,11 @@ class RegistrationPluginUI(PluginTagMixin):
                     dpg.set_value(tag, 0.0)
 
         # Update affine matrix display
-        if has_image and viewer.view_state and viewer.view_state.space.transform:
-            matrix = np.array(viewer.view_state.space.transform.GetMatrix()).reshape(
+        if target_vs.space.transform:
+            matrix = np.array(target_vs.space.transform.GetMatrix()).reshape(
                 3, 3
             )
-            params = viewer.view_state.space.get_parameters()
+            params = target_vs.space.get_parameters()
 
             for r in range(3):
                 for c in range(3):
@@ -415,14 +490,14 @@ class RegistrationPluginUI(PluginTagMixin):
         # CoR text
         cor_tag = self._t("input_reg_cor")
         if dpg.does_item_exist(cor_tag):
-            if has_image and viewer.view_state and viewer.view_state.space.transform:
-                center = viewer.view_state.space.transform.GetCenter()
+            if target_vs.space.transform:
+                center = target_vs.space.transform.GetCenter()
                 dpg.set_value(
                     cor_tag,
                     f"{center[0]:.1f}, {center[1]:.1f}, {center[2]:.1f}",
                 )
-            elif has_image and viewer.volume:
-                center = api.get_volume_physical_center(viewer.volume)
+            elif target_vol:
+                center = api.get_volume_physical_center(target_vol)
                 if (
                     center is not None
                     and isinstance(center, (list, tuple, np.ndarray))
@@ -438,15 +513,12 @@ class RegistrationPluginUI(PluginTagMixin):
                 dpg.set_value(cor_tag, "0.0, 0.0, 0.0")
 
     def pull_reg_sliders_from_transform(self) -> None:
-        """ONLY call this when loading a file, switching images, or resetting. NOT during drag!"""
+        """ONLY call this when loading a file, switching images/targets, or resetting. NOT during drag!"""
         api = self._c._api
         if not api:
             return
-        viewer = api.get_active_viewer()
-        if not viewer or not viewer.image_id:
-            return
+        target_id, vs, vol, role = self._c.get_target_info()
 
-        vs = viewer.view_state
         slider_tags = [
             self._t("drag_reg_rx"),
             self._t("drag_reg_ry"),
@@ -455,7 +527,7 @@ class RegistrationPluginUI(PluginTagMixin):
             self._t("drag_reg_ty"),
             self._t("drag_reg_tz"),
         ]
-        if vs and vs.space.transform:
+        if vs and vs.space and vs.space.transform:
             params = vs.space.get_parameters()
             vals = [
                 math.degrees(params[0]),

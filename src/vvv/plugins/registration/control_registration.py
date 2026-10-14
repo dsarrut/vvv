@@ -33,6 +33,54 @@ class RegistrationPluginController(PluginTagMixin):
         self._auto_timer_lock = threading.Lock()
         self._auto_timer_vs_id: str | None = None
         self._last_data_ids: dict[str, int] = {}
+        self._target_role: str = "Base"
+
+    def get_target_info(self) -> tuple[str | None, Optional["ViewState"], Any, str]:
+        """Returns (target_id, target_vs, target_vol, actual_role).
+
+        actual_role is either 'Base' or 'Fusion'. If 'Fusion' is selected but no
+        overlay is loaded in the active viewer, falls back to 'Base'.
+        """
+        if not self._api:
+            return None, None, None, "Base"
+        viewer = self._api.get_active_viewer()
+        if not viewer or not viewer.image_id:
+            return None, None, None, "Base"
+
+        base_id = viewer.image_id
+        base_vs = viewer.view_state
+        if base_vs is None and self._api:
+            vss = self._api.get_view_states()
+            if base_id in vss:
+                base_vs = vss.get(base_id)
+
+        base_vol = None
+        if self._api:
+            vols = self._api.get_volumes()
+            if base_id in vols:
+                base_vol = vols.get(base_id)
+        if base_vol is None:
+            base_vol = getattr(viewer, "volume", None)
+
+        overlay_id = None
+        if base_vs and getattr(base_vs, "display", None) and getattr(base_vs.display, "overlay", None):
+            raw_ov_id = base_vs.display.overlay.image_id
+            if isinstance(raw_ov_id, str) and raw_ov_id:
+                overlay_id = raw_ov_id
+
+        if self._target_role == "Fusion" and overlay_id:
+            ov_vs = self._api.get_view_states().get(overlay_id)
+            ov_vol = self._api.get_volumes().get(overlay_id)
+            return overlay_id, ov_vs, ov_vol, "Fusion"
+
+        return base_id, base_vs, base_vol, "Base"
+
+    def on_reg_target_changed(self, sender, app_data, user_data):
+        self._target_role = app_data
+        if self._ui:
+            self._ui.pull_reg_sliders_from_transform()
+        if self._api:
+            self._api.request_refresh()
 
     def bind(self, api: PluginAPI) -> None:
         self._api = api
@@ -67,8 +115,81 @@ class RegistrationPluginController(PluginTagMixin):
         if self._ui:
             self._ui.update_ui(api)
 
+    def _find_tfm_candidate(self, vol) -> str | None:
+        """Looks for a matching .tfm file on disk for a loaded volume."""
+        if not vol:
+            return None
+
+        candidates = []
+        file_paths = getattr(vol, "file_paths", None)
+        if file_paths and len(file_paths) > 0:
+            p0 = file_paths[0]
+            if p0.lower().endswith(".nii.gz") or p0.lower().endswith(".tar.gz"):
+                stem = p0[:-7]
+            else:
+                stem = os.path.splitext(p0)[0]
+
+            candidates.append(f"{stem}.tfm")
+            candidates.append(f"{stem}.TFM")
+            candidates.append(f"{p0}.tfm")
+            candidates.append(f"{p0}.TFM")
+
+            # Check directory-level names for multi-file series (e.g. DICOM)
+            dir_path = os.path.dirname(os.path.abspath(p0))
+            folder_name = os.path.basename(dir_path)
+            candidates.append(f"{dir_path}.tfm")
+            candidates.append(f"{dir_path}.TFM")
+            candidates.append(os.path.join(dir_path, f"{folder_name}.tfm"))
+            candidates.append(os.path.join(dir_path, f"{folder_name}.TFM"))
+            if getattr(vol, "name", None):
+                candidates.append(os.path.join(dir_path, f"{vol.name}.tfm"))
+                candidates.append(os.path.join(dir_path, f"{vol.name}.TFM"))
+
+        name = getattr(vol, "name", None)
+        if name:
+            if name.lower().endswith(".nii.gz") or name.lower().endswith(".tar.gz"):
+                nstem = name[:-7]
+            else:
+                nstem = os.path.splitext(name)[0]
+            candidates.append(f"{nstem}.tfm")
+            candidates.append(f"{nstem}.TFM")
+
+        for c in candidates:
+            if c and os.path.isfile(c):
+                return os.path.abspath(c)
+        return None
+
     def on_image_loaded(self, image_id: str) -> None:
-        pass
+        if not self._api:
+            return
+        vol = self._api.get_volumes().get(image_id)
+        vs = self._api.get_view_states().get(image_id)
+        if not vol or not vs:
+            return
+
+        # Do not overwrite if transform is already set
+        if vs.space.transform is not None:
+            return
+
+        tfm_path = self._find_tfm_candidate(vol)
+        if not tfm_path:
+            return
+
+        if self._api.load_transform(image_id, tfm_path):
+            vs.space.full_transform_path = tfm_path
+            vs.space.is_active = True
+            self._ensure_tracked(image_id)
+
+            world_pos = vs.camera.crosshair_phys_coord
+            if world_pos is not None:
+                vs.update_crosshair_from_phys(world_pos)
+
+            self._api.resample_image(image_id)
+            self._api.update_all_viewers_of_image(image_id)
+            if self._ui:
+                self._ui.pull_reg_sliders_from_transform()
+            self._api.notify(f"Auto-applied transform: {os.path.basename(tfm_path)}")
+            self._api.request_refresh()
 
     def on_image_removed(self, image_id: str) -> None:
         self._last_data_ids.pop(image_id, None)
@@ -286,34 +407,35 @@ class RegistrationPluginController(PluginTagMixin):
     def on_reg_load_clicked(self, sender, app_data, user_data):
         if not self._api:
             return
-        viewer = self._api.get_active_viewer()
-        if not viewer or not viewer.image_id:
+        target_id, vs, vol, role = self.get_target_info()
+        if not target_id or not vs:
             return
 
         file_path = open_file_dialog(
-            "Load Transform",
+            f"Load Transform ({role})",
             multiple=False,
             extensions=[".tfm", ".txt", ".mat", ".xfm"],
         )
         if isinstance(file_path, str):
-            vs = viewer.view_state
             world_pos = vs.camera.crosshair_phys_coord
 
-            if self._api.load_transform(viewer.image_id, file_path):
+            if self._api.load_transform(target_id, file_path):
                 vs.space.full_transform_path = file_path
-                self._api.notify(f"Loaded {os.path.basename(file_path)}")
+                self._api.notify(f"Loaded ({role}): {os.path.basename(file_path)}")
                 vs.space.is_active = True
-                self._ensure_tracked(viewer.image_id)
+                self._ensure_tracked(target_id)
 
                 if world_pos is not None:
                     vs.update_crosshair_from_phys(world_pos)
 
-                self._api.update_all_viewers_of_image(viewer.image_id)
-                self._api.update_sidebar_crosshair(viewer)
+                self._api.update_all_viewers_of_image(target_id)
+                viewer = self._api.get_active_viewer()
+                if viewer:
+                    self._api.update_sidebar_crosshair(viewer)
                 if self._ui:
                     self._ui.pull_reg_sliders_from_transform()
 
-                self._api.resample_image(viewer.image_id)
+                self._api.resample_image(target_id)
                 if dpg.does_item_exist(self._t("btn_reg_resample")):
                     dpg.bind_item_theme(self._t("btn_reg_resample"), 0)
                 self._api.request_refresh()
@@ -326,11 +448,10 @@ class RegistrationPluginController(PluginTagMixin):
     def on_reg_save_clicked(self, sender, app_data, user_data):
         if not self._api:
             return
-        viewer = self._api.get_active_viewer()
-        if not viewer or not viewer.view_state:
+        target_id, vs, vol, role = self.get_target_info()
+        if not target_id or not vs:
             return
 
-        vs = viewer.view_state
         if not vs.space.transform:
             self._api.notify(
                 "No transform to save!",
@@ -340,8 +461,8 @@ class RegistrationPluginController(PluginTagMixin):
 
         full_path = vs.space.full_transform_path
         if full_path and os.path.exists(os.path.dirname(full_path)):
-            self._api.save_transform(viewer.image_id, full_path)
-            self._api.notify(f"Saved: {os.path.basename(full_path)}")
+            self._api.save_transform(target_id, full_path)
+            self._api.notify(f"Saved ({role}): {os.path.basename(full_path)}")
             self._api.request_refresh()
         else:
             self.on_reg_save_as_clicked(sender, app_data, user_data)
@@ -349,11 +470,10 @@ class RegistrationPluginController(PluginTagMixin):
     def on_reg_save_as_clicked(self, sender, app_data, user_data):
         if not self._api:
             return
-        viewer = self._api.get_active_viewer()
-        if not viewer or not viewer.view_state:
+        target_id, vs, vol, role = self.get_target_info()
+        if not target_id or not vs:
             return
 
-        vs = viewer.view_state
         if not vs.space.transform:
             self._api.notify(
                 "No transform to save!",
@@ -361,46 +481,75 @@ class RegistrationPluginController(PluginTagMixin):
             )
             return
 
-        default_name = (
-            vs.space.transform_file
-            if vs.space.transform_file != "None"
-            else "matrix.tfm"
+        start_dir = None
+        if vs.space.full_transform_path:
+            start_dir = os.path.dirname(vs.space.full_transform_path)
+
+        if vs.space.transform_file and vs.space.transform_file != "None":
+            default_name = vs.space.transform_file
+        elif vol and getattr(vol, "file_paths", None) and vol.file_paths:
+            fp0 = vol.file_paths[0]
+            if start_dir is None:
+                start_dir = os.path.dirname(fp0)
+            if fp0.lower().endswith(".nii.gz") or fp0.lower().endswith(".tar.gz"):
+                img_stem = os.path.basename(fp0[:-7])
+            else:
+                img_stem = os.path.splitext(os.path.basename(fp0))[0]
+            default_name = f"{img_stem}.tfm"
+        elif vol and getattr(vol, "name", None):
+            name = vol.name
+            if name.lower().endswith(".nii.gz") or name.lower().endswith(".tar.gz"):
+                nstem = name[:-7]
+            else:
+                nstem = os.path.splitext(name)[0]
+            default_name = f"{nstem}.tfm"
+        else:
+            default_name = "matrix.tfm"
+
+        if not os.path.splitext(default_name)[1]:
+            default_name += ".tfm"
+
+        file_path = save_file_dialog(
+            f"Save Transform As ({role}) (.tfm)",
+            default_name=default_name,
+            start_dir=start_dir,
         )
-        file_path = save_file_dialog("Save Transform As", default_name=default_name)
         if file_path:
-            self._api.save_transform(viewer.image_id, file_path)
+            if not os.path.splitext(file_path)[1]:
+                file_path += ".tfm"
+
+            self._api.save_transform(target_id, file_path)
             vs.space.full_transform_path = file_path
-            self._api.notify(f"Saved: {os.path.basename(file_path)}")
+            self._api.notify(f"Saved ({role}): {os.path.basename(file_path)}")
             self._api.request_refresh()
 
     def on_reg_reload_clicked(self, sender, app_data, user_data):
         if not self._api:
             return
-        viewer = self._api.get_active_viewer()
-        if not viewer or not viewer.view_state:
+        target_id, vs, vol, role = self.get_target_info()
+        if not target_id or not vs:
             return
 
-        full_path = viewer.view_state.space.full_transform_path
+        full_path = vs.space.full_transform_path
         if full_path and os.path.exists(full_path):
-            if self._api.load_transform(viewer.image_id, full_path):
+            if self._api.load_transform(target_id, full_path):
                 self._api.request_refresh()
                 if self._ui:
                     self._ui.pull_reg_sliders_from_transform()
                 if dpg.does_item_exist(self._t("btn_reg_resample")):
                     dpg.bind_item_theme(self._t("btn_reg_resample"), 0)
-                self._api.resample_image(viewer.image_id)
-                self._api.notify(f"Reloaded: {os.path.basename(full_path)}")
+                self._api.resample_image(target_id)
+                self._api.notify(f"Reloaded ({role}): {os.path.basename(full_path)}")
         else:
             self.on_reg_load_clicked(sender, app_data, user_data)
 
     def on_reg_center_cor_clicked(self, sender, app_data, user_data):
         if not self._api:
             return
-        viewer = self._api.get_active_viewer()
-        if not viewer or not viewer.image_id:
+        target_id, vs, vol, role = self.get_target_info()
+        if not target_id or not vs:
             return
-        vs = viewer.view_state
-        vol = self._api.get_volumes().get(viewer.image_id)
+
         center = (
             vs.space.transform.GetCenter()
             if vs.space.transform
@@ -409,28 +558,29 @@ class RegistrationPluginController(PluginTagMixin):
         if center is not None:
             vs.update_crosshair_from_phys(center)
 
-        target_ids = self._api.get_sync_group_vs_ids(viewer.image_id, active_only=True)
+        target_ids = self._api.get_sync_group_vs_ids(target_id, active_only=True)
         for tid in target_ids:
             self._api.get_view_states()[tid].camera.target_center = center
 
-        self._api.update_all_viewers_of_image(viewer.image_id)
-        self._api.propagate_sync(viewer.image_id)
+        self._api.update_all_viewers_of_image(target_id)
+        self._api.propagate_sync(target_id)
         self._api.request_refresh()
 
     def on_reg_cor_to_crosshair_clicked(self, sender, app_data, user_data):
         if not self._api:
             return
-        viewer = self._api.get_active_viewer()
-        if not viewer or not viewer.image_id:
+        target_id, vs, vol, role = self.get_target_info()
+        if not target_id or not vs:
             return
 
-        vs = viewer.view_state
         if not vs.space.transform:
             import SimpleITK as sitk
 
             vs.space.transform = sitk.Euler3DTransform()
 
-        new_center = vs.camera.crosshair_phys_coord
+        viewer = self._api.get_active_viewer()
+        active_vs = viewer.view_state if viewer else vs
+        new_center = active_vs.camera.crosshair_phys_coord
         if new_center is None:
             return
 
@@ -450,7 +600,7 @@ class RegistrationPluginController(PluginTagMixin):
         vs.space.transform.SetCenter(new_center_tuple)
         vs.space.transform.SetTranslation(new_translation)
         vs.space.is_active = True
-        self._ensure_tracked(viewer.image_id)
+        self._ensure_tracked(target_id)
 
         if self._ui:
             self._ui.pull_reg_sliders_from_transform()
@@ -458,7 +608,7 @@ class RegistrationPluginController(PluginTagMixin):
             dpg.bind_item_theme(self._t("btn_reg_resample"), "orange_button_theme")
         vs.needs_resample = True
         self._api.request_refresh()
-        self._api.notify("CoR snapped to Crosshair")
+        self._api.notify(f"CoR snapped to Crosshair ({role})")
 
     def on_reg_step_changed(self, sender, app_data, user_data):
         speed = 1.0 if app_data == "Coarse" else 0.1
@@ -489,9 +639,10 @@ class RegistrationPluginController(PluginTagMixin):
         self._cancel_auto_timer()
         if not self._api:
             return
-        viewer = self._api.get_active_viewer()
-        if not viewer or not viewer.image_id:
+        target_id, vs, vol, role = self.get_target_info()
+        if not target_id or not vs:
             return
+
         slider_tags = [
             self._t("drag_reg_rx"),
             self._t("drag_reg_ry"),
@@ -503,29 +654,29 @@ class RegistrationPluginController(PluginTagMixin):
         for tag in slider_tags:
             if dpg.does_item_exist(tag):
                 dpg.set_value(tag, 0.0)
-        self._api.update_transform_manual(viewer.image_id, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        self._api.update_transform_manual(target_id, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 
         with self._preview_lock:
             self._preview_version += 1
 
-        vs: ViewState | None = self._api.get_view_states().get(viewer.image_id)
-        if vs:
-            vs.reset_preview_rotation()
-            vs.needs_resample = True
+        vs.reset_preview_rotation()
+        vs.needs_resample = True
         if dpg.does_item_exist(self._t("btn_reg_resample")):
             dpg.bind_item_theme(self._t("btn_reg_resample"), 0)
-        self._api.resample_image(viewer.image_id)
+        self._api.resample_image(target_id)
         self._api.request_refresh()
 
     def on_reg_invert_clicked(self, sender, app_data, user_data):
         if not self._api:
             return
-        viewer = self._api.get_active_viewer()
-        if not viewer or not viewer.image_id:
+        target_id, vs, vol, role = self.get_target_info()
+        if not target_id or not vs or not vs.space.transform:
+            self._api.notify(
+                "No transform to invert!",
+                color=self._api.get_ui_config()["colors"].get("warning"),
+            )
             return
-        vs = viewer.view_state
-        if not vs.space.transform:
-            return
+
         params = vs.space.transform.GetInverse().GetParameters()
         vals = [
             math.degrees(params[0]),
@@ -546,7 +697,8 @@ class RegistrationPluginController(PluginTagMixin):
         for tag, val in zip(slider_tags, vals):
             if dpg.does_item_exist(tag):
                 dpg.set_value(tag, val)
-        self.on_reg_manual_changed(sender, app_data, user_data)
+        self._apply_manual_transform(target_id, vs, vals)
+        self._api.notify(f"Inverted transform ({role})")
 
     def on_reg_auto_resample_toggled(self, sender, app_data, user_data):
         if not app_data:
@@ -554,76 +706,52 @@ class RegistrationPluginController(PluginTagMixin):
             return
         if not self._api:
             return
-        viewer = self._api.get_active_viewer()
-        if not viewer or not viewer.image_id:
+        target_id, vs, vol, role = self.get_target_info()
+        if not target_id or not vs:
             return
-        vs = self._api.get_view_states().get(viewer.image_id)
-        if vs and vs.needs_resample:
-            self._api.resample_image(viewer.image_id)
+        if vs.needs_resample:
+            self._api.resample_image(target_id)
 
     def on_reg_resample_clicked(self, sender, app_data, user_data):
         self._cancel_auto_timer()
         if not self._api:
             return
-        viewer = self._api.get_active_viewer()
-        if not viewer or not viewer.image_id:
+        target_id, vs, vol, role = self.get_target_info()
+        if not target_id or not vs:
             return
-        vs_id = viewer.image_id
 
         if dpg.does_item_exist(self._t("btn_reg_resample")):
             dpg.bind_item_theme(self._t("btn_reg_resample"), 0)
 
         self._api.notify(
-            "Resampling display...",
+            f"Resampling display ({role})...",
             color=self._api.get_ui_config()["colors"].get("working"),
         )
-        self._api.resample_image(vs_id)
-        vs: ViewState | None = self._api.get_view_states().get(vs_id)
-        if vs:
-            vs.needs_resample = False
+        self._api.resample_image(target_id)
+        vs.needs_resample = False
 
-    def on_reg_manual_changed(self, sender, app_data, user_data):
-        if not self._api:
-            return
-        viewer = self._api.get_active_viewer()
-        if not viewer or not viewer.image_id:
-            return
-        vs_id = viewer.image_id
+    def _apply_manual_transform(self, target_id: str, vs, vals: list[float]):
+        vs.space.is_active = True
+        self._ensure_tracked(target_id)
 
-        vs: ViewState | None = self._api.get_view_states().get(vs_id)
-
-        if vs:
-            vs.space.is_active = True
-            self._ensure_tracked(vs_id)
-
-        slider_tags = [
-            self._t("drag_reg_rx"),
-            self._t("drag_reg_ry"),
-            self._t("drag_reg_rz"),
-            self._t("drag_reg_tx"),
-            self._t("drag_reg_ty"),
-            self._t("drag_reg_tz"),
-        ]
-        vals = [dpg.get_value(t) for t in slider_tags]
         self._api.update_transform_manual(
-            vs_id, vals[3], vals[4], vals[5], vals[0], vals[1], vals[2]
+            target_id, vals[3], vals[4], vals[5], vals[0], vals[1], vals[2]
         )
         if dpg.does_item_exist(self._t("btn_reg_resample")):
             dpg.bind_item_theme(self._t("btn_reg_resample"), "orange_button_theme")
-        if vs:
-            vs.needs_resample = True
+        vs.needs_resample = True
 
-        has_rotation = vs is not None and vs.space.has_rotation()
+        has_rotation = vs.space.has_rotation()
 
         with self._preview_lock:
             self._preview_version += 1
             version = self._preview_version
 
-        if vs and not has_rotation:
+        if not has_rotation:
             vs.reset_preview_rotation()
 
         preview_thread_spawned = False
-        if self._is_live_preview_enabled() and has_rotation and vs:
+        if self._is_live_preview_enabled() and has_rotation:
             rot_transform = vs.space.get_rotation_only_transform()
             matrix_val = rot_transform.GetMatrix()
             if (
@@ -646,39 +774,59 @@ class RegistrationPluginController(PluginTagMixin):
                 center = np.array(center_val, dtype=np.float64)
             viewer_slices = {}
             for v in self._api.get_viewers().values():
-                if v.image_id == vs_id:
+                if v.image_id == target_id:
                     viewer_slices[id(v)] = ("base", v.orientation, v.slice_idx)
-                elif v.view_state and v.view_state.display.overlay.image_id == vs_id:
+                elif v.view_state and v.view_state.display.overlay.image_id == target_id:
                     viewer_slices[id(v)] = ("overlay", v.orientation, v.slice_idx)
-            self._preview_queue.put((vs_id, version, R, center, viewer_slices))
+            self._preview_queue.put((target_id, version, R, center, viewer_slices))
             preview_thread_spawned = True
 
         if not preview_thread_spawned:
-            self._api.update_all_viewers_of_image(vs_id)
+            self._api.update_all_viewers_of_image(target_id)
 
-        if self._is_auto_resample_enabled() and vs and vs.needs_resample:
-            self._schedule_auto_resample(vs_id)
+        if self._is_auto_resample_enabled() and vs.needs_resample:
+            self._schedule_auto_resample(target_id)
 
         self._api.request_refresh()
+
+    def on_reg_manual_changed(self, sender, app_data, user_data):
+        if not self._api:
+            return
+        target_id, vs, vol, role = self.get_target_info()
+        if not target_id or not vs:
+            return
+
+        slider_tags = [
+            self._t("drag_reg_rx"),
+            self._t("drag_reg_ry"),
+            self._t("drag_reg_rz"),
+            self._t("drag_reg_tx"),
+            self._t("drag_reg_ty"),
+            self._t("drag_reg_tz"),
+        ]
+        vals = [
+            dpg.get_value(t) if (dpg.does_item_exist(t) and dpg.get_value(t) is not None) else 0.0
+            for t in slider_tags
+        ]
+        self._apply_manual_transform(target_id, vs, vals)
 
     def on_reg_bake_clicked(self, sender, app_data, user_data):
         if not self._api:
             return
-        viewer = self._api.get_active_viewer()
-        if not viewer or not viewer.image_id:
+        target_id, vs, vol, role = self.get_target_info()
+        if not target_id or not vs:
             return
-        vs = viewer.view_state
-        if not vs or not vs.space.transform or not vs.space.is_active:
+        if not vs.space.transform or not vs.space.is_active:
             self._api.notify(
-                "No active transform to bake.",
+                f"No active transform to bake on {role}.",
                 color=self._api.get_ui_config()["colors"]["warning"],
             )
             return
         self._api.notify(
-            "Baking transform...",
+            f"Baking transform on {role}...",
             color=self._api.get_ui_config()["colors"].get("working"),
         )
-        self._api.bake_transform_to_volume(viewer.image_id)
+        self._api.bake_transform_to_volume(target_id)
         if self._ui:
             self._ui.pull_reg_sliders_from_transform()
         self._api.request_refresh()

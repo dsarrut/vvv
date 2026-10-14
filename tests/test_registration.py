@@ -171,3 +171,46 @@ def test_registration_sync_behavior(headless_gui_app, synthetic_volume_factory):
     
     # 4. Assert B's physical coordinate identically snapped to A's transformed world coordinate
     np.testing.assert_allclose(vsB.camera.crosshair_phys_coord, vsA.camera.crosshair_phys_coord)
+
+
+def test_auto_load_tfm_on_image_load(headless_gui_app, tmp_path):
+    """Verifies that loading an image automatically finds and applies a .tfm file with the same name."""
+    import SimpleITK as sitk
+
+    controller, gui, viewer, _ = headless_gui_app
+
+    # 1. Create a synthetic image and matching .tfm file
+    img_data = np.ones((10, 10, 10), dtype=np.float32)
+    sitk_img = sitk.GetImageFromArray(img_data)
+    img_file = tmp_path / "scan_with_tfm.nii.gz"
+    sitk.WriteImage(sitk_img, str(img_file))
+
+    tfm_file = tmp_path / "scan_with_tfm.tfm"
+    transform = sitk.Euler3DTransform()
+    transform.SetTranslation((25.0, -10.0, 5.0))
+    sitk.WriteTransform(transform, str(tfm_file))
+
+    # 2. Load image via the standard file loading pipeline
+    loaded_id = controller.file.load_image(str(img_file))
+
+    # 3. Assert the transform was automatically discovered, loaded, and applied
+    vs = controller.view_states[loaded_id]
+    assert vs.space.is_active is True
+    assert vs.space.transform is not None
+    assert vs.space.transform_file == "scan_with_tfm.tfm"
+    assert vs.space.full_transform_path == str(tfm_file)
+
+    tx, ty, tz = vs.space.transform.GetTranslation()
+    # In Option A: T_display = T_disk^-1, so translation is inverted in display space
+    assert tx == -25.0
+    assert ty == 10.0
+    assert tz == -5.0
+
+    # Test roundtrip saving: T_disk = T_display^-1 should restore original ITK transform
+    roundtrip_file = tmp_path / "roundtrip.tfm"
+    controller.save_transform(loaded_id, str(roundtrip_file))
+    reloaded_itk = sitk.Euler3DTransform(sitk.ReadTransform(str(roundtrip_file)))
+    rt_tx, rt_ty, rt_tz = reloaded_itk.GetTranslation()
+    assert rt_tx == 25.0
+    assert rt_ty == -10.0
+    assert rt_tz == 5.0

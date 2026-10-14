@@ -93,14 +93,33 @@ class TransformIO:
         ):
             new_transform.SetCenter(fallback_center)
 
-        return new_transform
+        # Convert from standard ITK convention (Fixed -> Moving)
+        # to VVV forward display space (Moving -> World).
+        try:
+            inv = new_transform.GetInverse()
+            euler = sitk.Euler3DTransform()
+            euler.SetMatrix(inv.GetMatrix())
+            euler.SetTranslation(inv.GetTranslation())
+            if hasattr(inv, "GetCenter"):
+                euler.SetCenter(inv.GetCenter())
+            return euler
+        except Exception:
+            return new_transform
 
     @staticmethod
     def write_transform(transform, filepath):
-        """Writes an Euler3DTransform to disk (.mat, .txt, or ITK formats)."""
+        """Writes an Euler3DTransform to disk (.mat, .txt, or ITK formats) in standard ITK convention (Fixed -> Moving)."""
+        import os
+
+        # Invert from VVV forward display space (Moving -> World) to standard ITK convention (Fixed -> Moving)
+        try:
+            disk_transform = transform.GetInverse()
+        except Exception:
+            disk_transform = transform
+
         if filepath.lower().endswith(".mat") or filepath.lower().endswith(".txt"):
-            mat = transform.GetMatrix()  # Tuple of 9 (r00, r01, r02, r10, r11, r12, r20, r21, r22)
-            trans = transform.GetTranslation()  # Tuple of 3 (tx, ty, tz)
+            mat = disk_transform.GetMatrix()  # Tuple of 9 (r00, r01, r02, r10, r11, r12, r20, r21, r22)
+            trans = disk_transform.GetTranslation()  # Tuple of 3 (tx, ty, tz)
 
             with open(filepath, "w") as f:
                 f.write(f"{mat[0]:.6f} {mat[1]:.6f} {mat[2]:.6f} {trans[0]:.6f}\n")
@@ -109,4 +128,6 @@ class TransformIO:
                 f.write("0.000000 0.000000 0.000000 1.000000\n")
         else:
             # Otherwise use standard SimpleITK .tfm format
-            sitk.WriteTransform(transform, filepath)
+            if not os.path.splitext(filepath)[1]:
+                filepath = filepath + ".tfm"
+            sitk.WriteTransform(disk_transform, filepath)

@@ -120,8 +120,8 @@ class MainGUI:
         self.plugins = []
         self._plugin_map = {}
         self._plugin_errors: set[tuple[str, str]] = set()
-        self._init_plugins()
         self.plugin_api = PluginAPI(self)
+        self._init_plugins()
 
         # Go
         self.build_main_layout()
@@ -137,6 +137,9 @@ class MainGUI:
     def _init_plugins(self):
         """Discover and load plugins dynamically."""
         self.plugins = discover_plugins()
+        for p in self.plugins:
+            if hasattr(p, "bind"):
+                p.bind(self.plugin_api)
         self._plugin_map = {p.plugin_id: p for p in self.plugins}
 
     def get_plugin(self, plugin_id: str) -> Any | None:
@@ -154,6 +157,8 @@ class MainGUI:
 
     def notify_plugins_image_loaded(self, image_id: str) -> None:
         for plugin in self.plugins:
+            if hasattr(plugin, "bind"):
+                plugin.bind(self.plugin_api)
             self._call_plugin(plugin, "on_image_loaded", image_id)
 
     def notify_plugins_image_reloading(self, image_id: str) -> None:

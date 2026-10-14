@@ -179,10 +179,17 @@ class Controller:
             try:
                 from vvv.maths.transform_io import TransformIO
 
+                if not os.path.splitext(filepath)[1]:
+                    filepath = filepath + ".tfm"
+
                 TransformIO.write_transform(vs.space.transform, filepath)
                 vs.space.transform_file = os.path.basename(filepath)
+                vs.space.full_transform_path = os.path.abspath(filepath)
+                return True
             except Exception as e:
                 print(f"Failed to save transform: {e}")
+                return False
+        return False
 
     def add_recent_file(self, path):
         """Adds a path to the recent files list in settings and caps it at 10."""

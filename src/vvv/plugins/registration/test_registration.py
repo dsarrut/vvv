@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.plugins.registration.plugin_registration import RegistrationPlugin
@@ -349,6 +349,177 @@ class TestRegistrationPlugin(unittest.TestCase):
         self.assertTrue(dpg.is_item_shown("registration_plugin_group_reg_matrix_section"))
         
         dpg.delete_item("test_parent")
+
+    def test_on_image_loaded_auto_applies_tfm(self):
+        import tempfile, os
+        import SimpleITK as sitk
+        from unittest.mock import patch
+
+        controller = self.plugin._controller
+        controller.bind(self.mock_api)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            img_path = os.path.join(tmp_dir, "patient_scan.nii.gz")
+            tfm_path = os.path.join(tmp_dir, "patient_scan.tfm")
+
+            # Write a valid dummy ITK transform
+            t = sitk.Euler3DTransform()
+            t.SetTranslation((12.0, -5.0, 3.5))
+            sitk.WriteTransform(t, tfm_path)
+
+            vol = MagicMock()
+            vol.file_paths = [img_path]
+            vol.name = "patient_scan"
+
+            vs = MagicMock()
+            vs.space.transform = None
+            vs.camera.crosshair_phys_coord = [10.0, 20.0, 30.0]
+
+            self.mock_api.get_volumes.return_value = {"img1": vol}
+            self.mock_api.get_view_states.return_value = {"img1": vs}
+            self.mock_api.load_transform.return_value = True
+
+            controller.on_image_loaded("img1")
+
+            self.mock_api.load_transform.assert_called_with("img1", tfm_path)
+            self.assertEqual(vs.space.full_transform_path, tfm_path)
+            self.assertTrue(vs.space.is_active)
+            self.mock_api.resample_image.assert_called_with("img1")
+            self.mock_api.update_all_viewers_of_image.assert_called_with("img1")
+            self.mock_api.notify.assert_called_with("Auto-applied transform: patient_scan.tfm")
+
+    def test_on_image_loaded_no_tfm(self):
+        controller = self.plugin._controller
+        controller.bind(self.mock_api)
+
+        vol = MagicMock()
+        vol.file_paths = ["/non/existent/path/scan.mha"]
+        vol.name = "scan"
+
+        vs = MagicMock()
+        vs.space.transform = None
+
+        self.mock_api.get_volumes.return_value = {"img1": vol}
+        self.mock_api.get_view_states.return_value = {"img1": vs}
+
+        controller.on_image_loaded("img1")
+
+        self.mock_api.load_transform.assert_not_called()
+        self.mock_api.resample_image.assert_not_called()
+
+    @patch("vvv.plugins.registration.control_registration.save_file_dialog")
+    def test_save_as_indicates_tfm_and_appends_extension(self, mock_save_dialog):
+        controller = self.plugin._controller
+        controller.bind(self.mock_api)
+
+        viewer = MagicMock()
+        viewer.image_id = "img1"
+        vs = MagicMock()
+        vs.space.transform = MagicMock()
+        vs.space.transform_file = "None"
+        vs.space.full_transform_path = None
+        viewer.view_state = vs
+
+        vol = MagicMock()
+        vol.file_paths = ["/data/study/brain.nii.gz"]
+        vol.name = "brain"
+
+        self.mock_api.get_active_viewer.return_value = viewer
+        self.mock_api.get_volumes.return_value = {"img1": vol}
+
+        # Simulate user entering name without extension in save dialog
+        mock_save_dialog.return_value = "/data/study/custom_reg"
+
+        controller.on_reg_save_as_clicked(None, None, None)
+
+        # Dialog should have title indicating (Base) and (.tfm) and default_name based on image
+        mock_save_dialog.assert_called_once_with(
+            "Save Transform As (Base) (.tfm)",
+            default_name="brain.tfm",
+            start_dir="/data/study",
+        )
+
+        # .tfm should have been appended automatically
+        self.mock_api.save_transform.assert_called_once_with("img1", "/data/study/custom_reg.tfm")
+        self.assertEqual(vs.space.full_transform_path, "/data/study/custom_reg.tfm")
+
+    def test_target_switching_base_and_fusion(self):
+        controller = self.plugin._controller
+        controller.bind(self.mock_api)
+
+        # Base image
+        base_vs = MagicMock()
+        base_vs.display.overlay.image_id = "img_fusion"
+        base_vs.space.transform = None
+        base_vol = MagicMock()
+        base_vol.name = "base_scan"
+
+        # Fusion overlay image
+        ov_vs = MagicMock()
+        ov_vs.display.overlay.image_id = None
+        ov_vs.space.transform = None
+        ov_vol = MagicMock()
+        ov_vol.name = "fusion_scan"
+
+        viewer = MagicMock()
+        viewer.image_id = "img_base"
+        viewer.view_state = base_vs
+        viewer.volume = base_vol
+
+        self.mock_api.get_active_viewer.return_value = viewer
+        self.mock_api.get_view_states.return_value = {"img_base": base_vs, "img_fusion": ov_vs}
+        self.mock_api.get_volumes.return_value = {"img_base": base_vol, "img_fusion": ov_vol}
+
+        # Initially defaults to Base
+        tid, tvs, tvol, role = controller.get_target_info()
+        self.assertEqual(tid, "img_base")
+        self.assertEqual(role, "Base")
+        self.assertEqual(tvs, base_vs)
+
+        # Switch to Fusion
+        controller.on_reg_target_changed(None, "Fusion", None)
+        tid, tvs, tvol, role = controller.get_target_info()
+        self.assertEqual(tid, "img_fusion")
+        self.assertEqual(role, "Fusion")
+        self.assertEqual(tvs, ov_vs)
+
+        # Switch back to Base
+        controller.on_reg_target_changed(None, "Base", None)
+        tid, tvs, tvol, role = controller.get_target_info()
+        self.assertEqual(tid, "img_base")
+        self.assertEqual(role, "Base")
+
+    def test_invert_transform(self):
+        import SimpleITK as sitk
+
+        controller = self.plugin._controller
+        controller.bind(self.mock_api)
+
+        t = sitk.Euler3DTransform()
+        t.SetTranslation((15.0, -10.0, 5.0))
+
+        vs = MagicMock()
+        vs.space.transform = t
+        vs.space.has_rotation.return_value = False
+
+        viewer = MagicMock()
+        viewer.image_id = "img1"
+        viewer.view_state = vs
+        viewer.volume = MagicMock()
+
+        self.mock_api.get_active_viewer.return_value = viewer
+        self.mock_api.get_view_states.return_value = {"img1": vs}
+        self.mock_api.get_volumes.return_value = {"img1": viewer.volume}
+
+        controller.on_reg_invert_clicked(None, None, None)
+
+        # Verify update_transform_manual was called with inverted translation (-15, 10, -5)
+        call_args = self.mock_api.update_transform_manual.call_args[0]
+        self.assertEqual(call_args[0], "img1")
+        self.assertAlmostEqual(call_args[1], -15.0)
+        self.assertAlmostEqual(call_args[2], 10.0)
+        self.assertAlmostEqual(call_args[3], -5.0)
+        self.mock_api.notify.assert_called_with("Inverted transform (Base)")
 
 
 if __name__ == "__main__":
