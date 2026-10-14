@@ -1403,6 +1403,58 @@ def test_gui_window_title(headless_gui_app, synthetic_volume_factory):
     assert title4 == "VVV --- 0 loaded images"
 
 
+def test_active_viewer_toggle_fusion_info(headless_gui_app, synthetic_volume_factory):
+    """Verifies that the Active Viewer panel toggle button switches between Base and Fusion info."""
+    controller, gui, viewer, base_id = headless_gui_app
+
+    # 1. Initially only base image loaded: toggle button is disabled, label is '\uf0ec'
+    gui.update_sidebar_info(viewer)
+    assert dpg.get_item_label("btn_toggle_info_fusion") == "\uf0ec"
+    assert dpg.is_item_enabled("btn_toggle_info_fusion") is False
+    assert "base.nii.gz" in dpg.get_value("input_info_name")
+
+    # Verify tooltip is beginner-only
+    gui.is_beginner_mode = False
+    assert any(tag in gui.beginner_tags for tag in dpg.get_aliases() if "tooltip" in str(tag).lower()) or len(gui.beginner_tags) > 0
+
+    # 2. Load a fusion image and assign as overlay
+    fuse_path = synthetic_volume_factory("dose.nii.gz", val=50.0)
+    fuse_id = controller.file.load_image(fuse_path)
+    fuse_vol = controller.volumes[fuse_id]
+    fuse_vol.unit = "Gy"
+    viewer.view_state.set_overlay(fuse_id, fuse_vol)
+
+    gui.update_sidebar_info(viewer)
+    # Now button should be enabled, still showing Base
+    assert dpg.is_item_enabled("btn_toggle_info_fusion") is True
+    assert dpg.get_item_label("btn_toggle_info_fusion") == "\uf0ec"
+    assert "base.nii.gz" in dpg.get_value("input_info_name")
+
+    # 3. Click toggle button -> switches to Fusion
+    gui.on_toggle_active_viewer_fusion()
+    assert gui.active_viewer_show_fusion is True
+    assert dpg.get_item_label("btn_toggle_info_fusion") == "\uf0ec"
+    assert "dose.nii.gz" in dpg.get_value("input_info_name")
+    assert dpg.get_value("input_info_unit") == "Gy"
+
+    # 4. Click toggle button again -> switches back to Base
+    gui.on_toggle_active_viewer_fusion()
+    assert gui.active_viewer_show_fusion is False
+    assert dpg.get_item_label("btn_toggle_info_fusion") == "\uf0ec"
+    assert "base.nii.gz" in dpg.get_value("input_info_name")
+
+    # 5. Switch to Fusion, then remove overlay -> automatically falls back to Base
+    gui.on_toggle_active_viewer_fusion()
+    assert gui.active_viewer_show_fusion is True
+    viewer.view_state.display.overlay.image_id = None
+    gui.update_sidebar_info(viewer)
+    assert gui.active_viewer_show_fusion is False
+    assert dpg.get_item_label("btn_toggle_info_fusion") == "\uf0ec"
+    assert dpg.is_item_enabled("btn_toggle_info_fusion") is False
+    assert "base.nii.gz" in dpg.get_value("input_info_name")
+
+
+
 
 
 

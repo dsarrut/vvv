@@ -222,10 +222,12 @@ def refresh_image_list_ui(gui):
                                         dpg.set_value(target_input_tag, new_name)
                                     viewer.update_filename_overlay()
                             # Immediately update the info panel text field if it represents this image
-                            if (
-                                gui.context_viewer
-                                and gui.context_viewer.image_id == img_vs_id
-                            ):
+                            target_active_id = (
+                                gui._get_active_viewer_info_target_id()
+                                if hasattr(gui, "_get_active_viewer_info_target_id")
+                                else (gui.context_viewer.image_id if gui.context_viewer else None)
+                            )
+                            if target_active_id == img_vs_id:
                                 if dpg.does_item_exist("input_info_name"):
                                     dpg.set_value("input_info_name", new_name)
                             gui.controller.ui_needs_refresh = True

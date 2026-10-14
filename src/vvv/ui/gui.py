@@ -84,6 +84,7 @@ class MainGUI:
         self._hide_av_panel = None
         self._last_interaction_time = 0.0
         self._last_mouse_pos = (0.0, 0.0)
+        self.active_viewer_show_fusion: bool = False
 
         # --- DATA BINDING DICTIONARY ---
         # Maps DPG tag -> ViewState property name
@@ -616,7 +617,8 @@ class MainGUI:
                 with dpg.group(tag="image_info_group"):
                     # Store input tag with prefix 'input_info_name' so shortcuts are automatically suppressed by ui_interaction.py
                     def on_info_name_rename(sender, app_data, user_data):
-                        if self.context_viewer and self.context_viewer.image_id:
+                        target_id = self._get_active_viewer_info_target_id()
+                        if target_id:
                             val = dpg.get_value(sender)
                             if val is None:
                                 return
@@ -625,19 +627,15 @@ class MainGUI:
 
                             new_name = re.sub(r"\s*\*$", "", new_name)
                             new_name = re.sub(r"^\(\d+\)\s*", "", new_name)
-                            vol = self.controller.volumes.get(
-                                self.context_viewer.image_id
-                            )
+                            vol = self.controller.volumes.get(target_id)
                             if vol and new_name:
                                 vol.name = new_name
                                 # Immediately update the filename overlay text in all viewports using this volume
                                 for viewer in self.controller.viewers.values():
-                                    if viewer.image_id == self.context_viewer.image_id:
+                                    if viewer.image_id == target_id:
                                         viewer.update_filename_overlay()
                                 # Immediately update the list view text field as well
-                                input_name_tag = (
-                                    f"input_name_{self.context_viewer.image_id}"
-                                )
+                                input_name_tag = f"input_name_{target_id}"
                                 if dpg.does_item_exist(input_name_tag):
                                     dpg.set_value(input_name_tag, new_name)
                                 self.controller.ui_needs_refresh = True
@@ -645,6 +643,21 @@ class MainGUI:
                     dim_col = self.ui_cfg["colors"]["text_dim"]
                     with dpg.group(horizontal=True):
                         dpg.add_text("", tag="info_name_label", color=dim_col)
+                        btn_toggle = dpg.add_button(
+                            label="\uf0ec",
+                            tag="btn_toggle_info_fusion",
+                            width=22,
+                            callback=self.on_toggle_active_viewer_fusion,
+                            enabled=False,
+                        )
+                        if dpg.does_item_exist("icon_font_tag"):
+                            dpg.bind_item_font(btn_toggle, "icon_font_tag")
+                        build_beginner_tooltip(
+                            btn_toggle,
+                            "Toggle between Base and Fusion image info",
+                            self,
+                            text_tag="text_tooltip_info_fusion",
+                        )
                         dpg.add_input_text(
                             tag="input_info_name",
                             width=-1,
@@ -675,10 +688,9 @@ class MainGUI:
                     ]
 
                     def on_info_unit_change(sender, app_data, user_data):
-                        if self.context_viewer and self.context_viewer.image_id:
-                            vol = self.controller.volumes.get(
-                                self.context_viewer.image_id
-                            )
+                        target_id = self._get_active_viewer_info_target_id()
+                        if target_id:
+                            vol = self.controller.volumes.get(target_id)
                             if not vol:
                                 return
                             val = dpg.get_value(sender)
@@ -701,10 +713,9 @@ class MainGUI:
                                 self.controller.ui_needs_refresh = True
 
                     def on_select_unit_preset(sender, app_data, user_data):
-                        if self.context_viewer and self.context_viewer.image_id:
-                            vol = self.controller.volumes.get(
-                                self.context_viewer.image_id
-                            )
+                        target_id = self._get_active_viewer_info_target_id()
+                        if target_id:
+                            vol = self.controller.volumes.get(target_id)
                             if not vol:
                                 return
                             new_unit = user_data
@@ -1346,6 +1357,34 @@ class MainGUI:
                     v.pan_offset[0] += dtx * ppm
                     v.pan_offset[1] += -dtz * ppm
 
+    def _get_active_viewer_info_target_id(self) -> str | None:
+        if not self.context_viewer:
+            return None
+        if self.active_viewer_show_fusion:
+            ov = (
+                getattr(self.context_viewer.view_state.display, "overlay", None)
+                if self.context_viewer.view_state
+                else None
+            )
+            ov_id = getattr(ov, "image_id", None) if ov else None
+            if ov_id and ov_id in self.controller.volumes:
+                return ov_id
+        return self.context_viewer.image_id
+
+    def on_toggle_active_viewer_fusion(self, sender=None, app_data=None, user_data=None):
+        if not self.context_viewer or not self.context_viewer.view_state:
+            return
+        ov = (
+            getattr(self.context_viewer.view_state.display, "overlay", None)
+            if self.context_viewer.view_state
+            else None
+        )
+        ov_id = getattr(ov, "image_id", None) if ov else None
+        if ov_id and ov_id in self.controller.volumes:
+            self.active_viewer_show_fusion = not self.active_viewer_show_fusion
+            self.update_sidebar_info(self.context_viewer)
+            self.controller.ui_needs_refresh = True
+
     def update_sidebar_info(self, viewer):
         has_image = (
             viewer is not None and getattr(viewer, "view_state", None) is not None
@@ -1385,10 +1424,16 @@ class MainGUI:
                 "slider_fusion_opacity",
                 "input_fusion_threshold",
                 "combo_fusion_mode",
+                "btn_toggle_info_fusion",
             )
 
         # Handle early exit UI clearing
         if not has_image:
+            self._safe_configure("btn_toggle_info_fusion", label="\uf0ec", enabled=False)
+            if dpg.does_item_exist("btn_toggle_info_fusion"):
+                dpg.bind_item_theme("btn_toggle_info_fusion", 0)
+            if dpg.does_item_exist("text_tooltip_info_fusion"):
+                dpg.set_value("text_tooltip_info_fusion", "No active image")
             for t in (
                 "input_info_name",
                 "input_info_unit",
@@ -1414,7 +1459,38 @@ class MainGUI:
             return
 
         assert viewer is not None
-        vol = viewer.volume
+
+        ov = (
+            getattr(viewer.view_state.display, "overlay", None)
+            if viewer.view_state
+            else None
+        )
+        ov_id = getattr(ov, "image_id", None) if ov else None
+        has_overlay = bool(ov_id and ov_id in self.controller.volumes)
+
+        if not has_overlay:
+            self.active_viewer_show_fusion = False
+
+        show_fusion = self.active_viewer_show_fusion and has_overlay
+        target_id = ov_id if show_fusion else viewer.image_id
+        vol = self.controller.volumes.get(target_id, viewer.volume)
+
+        btn_tag = "btn_toggle_info_fusion"
+        if dpg.does_item_exist(btn_tag):
+            dpg.configure_item(btn_tag, label="\uf0ec", enabled=has_overlay)
+            if show_fusion and dpg.does_item_exist("active_nav_button_theme"):
+                dpg.bind_item_theme(btn_tag, "active_nav_button_theme")
+            else:
+                dpg.bind_item_theme(btn_tag, 0)
+        if dpg.does_item_exist("text_tooltip_info_fusion"):
+            if not has_overlay:
+                tip = "No fusion image in active viewer"
+            elif show_fusion:
+                tip = "Showing Fusion image info (click to show Base image)"
+            else:
+                tip = "Showing Base image info (click to show Fusion image)"
+            dpg.set_value("text_tooltip_info_fusion", tip)
+
         path = getattr(vol, "path", None)
         if isinstance(path, list):
             path = path[0] if path else None
@@ -1425,7 +1501,7 @@ class MainGUI:
             if not dpg.is_item_focused("input_info_name") and not dpg.is_item_active(
                 "input_info_name"
             ):
-                name_str, _ = self.controller.get_image_display_name(viewer.image_id)
+                name_str, _ = self.controller.get_image_display_name(target_id)
                 # Strip trailing outdated stars if they are present in display name
                 import re
 

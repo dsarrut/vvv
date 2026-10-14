@@ -95,6 +95,7 @@ def load_fonts():
                                 0xF77C,  # Baby icon
                                 0xF111,  # Circle/Sphere
                                 0xF0C8,  # Square/Rect
+                                0xF0EC,  # Exchange / swap icon
                             ]
                         )
                         # pyrefly: ignore [deprecated]

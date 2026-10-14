@@ -253,7 +253,7 @@ def build_color_picker_row(
 build_batch_action_toolbar = build_color_picker_row
 
 
-def build_beginner_tooltip(parent, text, gui):
+def build_beginner_tooltip(parent, text, gui, text_tag=None):
     """A reusable tooltip attached to an existing widget that only appears when Beginner Mode is active."""
     target_gui = getattr(gui, "_gui", gui) if hasattr(gui, "_gui") else gui
     is_beg = getattr(target_gui, "is_beginner_mode", False)
@@ -264,7 +264,10 @@ def build_beginner_tooltip(parent, text, gui):
     colors = getattr(target_gui, "ui_cfg", {}).get("colors", {}) if hasattr(target_gui, "ui_cfg") else {}
     dim_col = colors.get("text_dim", [150, 150, 150]) if isinstance(colors, dict) else [150, 150, 150]
     try:
-        dpg.add_text(text, parent=tag, color=dim_col)
+        if text_tag:
+            dpg.add_text(text, parent=tag, color=dim_col, tag=text_tag)
+        else:
+            dpg.add_text(text, parent=tag, color=dim_col)
     except (Exception, SystemError):
         pass
     if hasattr(target_gui, "beginner_tags") and isinstance(target_gui.beginner_tags, list):
