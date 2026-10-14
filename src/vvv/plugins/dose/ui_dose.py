@@ -1,7 +1,13 @@
 import dearpygui.dearpygui as dpg
 from typing import TYPE_CHECKING
 from vvv.plugins.plugin_api import PluginTagMixin, PluginAPI
-from vvv.ui.ui_components import build_section_title, build_beginner_tooltip, build_help_button
+from vvv.ui.ui_components import (
+    build_section_title,
+    build_beginner_tooltip,
+    build_help_button,
+    build_stepped_slider,
+)
+from vvv.utils import compute_adaptive_step_and_speed
 from vvv.ui.ui_scaling import IntensityScalingComponent
 
 if TYPE_CHECKING:
@@ -103,6 +109,30 @@ class DosePluginUI(PluginTagMixin):
                 dpg.add_separator()
                 dpg.add_spacer(height=4)
 
+                # --- Display Threshold Section ---
+                build_section_title("Display Threshold", cfg_c["text_header"])
+                build_stepped_slider(
+                    "Min Thr:",
+                    self._t("drag_dose_threshold"),
+                    callback=self._c.on_dose_threshold_changed,
+                    step_callback=self._c.on_step_button_clicked,
+                    has_checkbox=True,
+                    check_tag=self._t("check_dose_threshold"),
+                    check_cb=self._c.on_dose_threshold_toggle,
+                    label_width=110,
+                    gui=api,
+                )
+                build_beginner_tooltip(
+                    self._t("drag_dose_threshold"),
+                    "Threshold for the dose image. Voxels below this value are made transparent "
+                    "so that background anatomy (e.g. CT/MRI) remains clearly visible.",
+                    api,
+                )
+
+                dpg.add_spacer(height=6)
+                dpg.add_separator()
+                dpg.add_spacer(height=4)
+
                 # --- Isodose Contours Section ---
                 build_section_title("Isodose Contours", cfg_c["text_header"])
 
@@ -133,29 +163,17 @@ class DosePluginUI(PluginTagMixin):
 
                 dpg.add_spacer(height=4)
 
-                # Action buttons: Add Level, Reset Defaults
-                with dpg.group(horizontal=True):
-                    btn_add = dpg.add_button(
-                        label="+ Add Level",
-                        tag=self._t("btn_add_level"),
-                        callback=self._c.on_add_level_clicked,
-                    )
-                    build_beginner_tooltip(
-                        btn_add,
-                        "Adds a new customizable isodose level.",
-                        api,
-                    )
-
-                    btn_reset_lvls = dpg.add_button(
-                        label="Reset Defaults",
-                        tag=self._t("btn_reset_levels"),
-                        callback=self._c.on_reset_levels_clicked,
-                    )
-                    build_beginner_tooltip(
-                        btn_reset_lvls,
-                        "Restores standard radiotherapy isodose levels (10% to 107%).",
-                        api,
-                    )
+                # Action button: Reset Defaults
+                btn_reset_lvls = dpg.add_button(
+                    label="Reset Defaults",
+                    tag=self._t("btn_reset_levels"),
+                    callback=self._c.on_reset_levels_clicked,
+                )
+                build_beginner_tooltip(
+                    btn_reset_lvls,
+                    "Restores standard radiotherapy isodose levels (10% to 107%).",
+                    api,
+                )
 
                 dpg.add_spacer(height=4)
                 dpg.add_text("Levels:", color=cfg_c["text_dim"])
@@ -251,6 +269,26 @@ class DosePluginUI(PluginTagMixin):
 
             # Update shared scaling component
             self.scaling_comp.update_ui(api)
+
+            # Update threshold UI
+            thr_tag = self._t("drag_dose_threshold")
+            chk_thr_tag = self._t("check_dose_threshold")
+            if dpg.does_item_exist(thr_tag) and target_vs:
+                cur_thr = getattr(target_vs.display, "min_threshold", None)
+                has_thr = cur_thr is not None
+                if dpg.does_item_exist(chk_thr_tag) and not dpg.is_item_active(chk_thr_tag):
+                    dpg.set_value(chk_thr_tag, has_thr)
+
+                ww = getattr(target_vs.display, "ww", 100.0)
+                _, dynamic_speed, dpg_fmt = compute_adaptive_step_and_speed(ww)
+                dpg.configure_item(thr_tag, speed=dynamic_speed, format=dpg_fmt, enabled=has_thr)
+                if dpg.does_item_exist(f"btn_{thr_tag}_minus"):
+                    dpg.configure_item(f"btn_{thr_tag}_minus", enabled=has_thr)
+                if dpg.does_item_exist(f"btn_{thr_tag}_plus"):
+                    dpg.configure_item(f"btn_{thr_tag}_plus", enabled=has_thr)
+
+                if has_thr and not dpg.is_item_active(thr_tag):
+                    dpg.set_value(thr_tag, cur_thr)
 
             # Update isocontour checkbox values
             state = self._c.get_isocontour_state(target_id)

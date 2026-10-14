@@ -494,14 +494,10 @@ class TestDosePlugin(unittest.TestCase):
         controller.on_level_color_changed(None, [10, 20, 30, 255], 0)
         self.assertEqual(state.levels[0].color, [10, 20, 30, 255])
 
-        # Add level
-        initial_len = len(state.levels)
-        controller.on_add_level_clicked()
-        self.assertEqual(len(state.levels), initial_len + 1)
-
         # Delete level
+        initial_len = len(state.levels)
         controller.on_delete_level_clicked(None, None, 0)
-        self.assertEqual(len(state.levels), initial_len)
+        self.assertEqual(len(state.levels), initial_len - 1)
 
         # Reset levels
         controller.on_reset_levels_clicked()
@@ -590,7 +586,51 @@ class TestDosePlugin(unittest.TestCase):
         controller.update_isocontours(self.mock_viewer)
         self.assertEqual(c_roi.last_computed_data_token, id(data2))
 
+    def test_dose_threshold_toggle_and_change(self):
+        self.mock_viewer.volume.unit = "Gy"
+        controller = self.plugin._controller
+
+        # Initial state: None
+        self.assertIsNone(self.mock_viewer.view_state.display.min_threshold)
+
+        # Toggle ON
+        controller.on_dose_threshold_toggle(None, True, None)
+        self.assertEqual(self.mock_viewer.view_state.display.min_threshold, 0.0)
+        self.assertTrue(self.mock_viewer.view_state.is_data_dirty)
+        self.mock_api.request_refresh.assert_called()
+
+        # Change threshold value
+        controller.on_dose_threshold_changed(None, 5.5, None)
+        self.assertEqual(self.mock_viewer.view_state.display.min_threshold, 5.5)
+
+        # Step button clicked (+ direction)
+        with patch("dearpygui.dearpygui.does_item_exist", return_value=True), \
+             patch("dearpygui.dearpygui.get_value", return_value=5.5):
+            controller.on_step_button_clicked(None, None, {"tag": controller._t("drag_dose_threshold"), "dir": 1.0})
+            self.assertGreater(self.mock_viewer.view_state.display.min_threshold, 5.5)
+
+        # Toggle OFF
+        controller.on_dose_threshold_toggle(None, False, None)
+        self.assertIsNone(self.mock_viewer.view_state.display.min_threshold)
+
+    def test_dicom_rtdose_scaling(self):
+        import SimpleITK as sitk
+        from vvv.maths.image import VolumeData
+
+        # Create a synthetic 3D image with DoseGridScaling tag
+        img = sitk.Image([4, 4, 4], sitk.sitkUInt16)
+        img.SetSpacing([1.0, 1.0, 1.0])
+        img.SetOrigin([0.0, 0.0, 0.0])
+        img = sitk.Add(img, 1000)
+        img.SetMetaData("3004|000e", "0.001114921")
+
+        scaled_img = VolumeData._apply_dicom_dose_scaling(img)
+        self.assertEqual(scaled_img.GetPixelID(), sitk.sitkFloat32)
+        arr = sitk.GetArrayFromImage(scaled_img)
+        np.testing.assert_allclose(arr, 1.114921, rtol=1e-5)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

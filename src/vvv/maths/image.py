@@ -810,6 +810,7 @@ class VolumeData:
                 img = sitk.ReadImage(paths[0])
                 if img.GetDimension() == 2:
                     img = sitk.JoinSeries([img])
+                img = self._apply_dicom_dose_scaling(img)
                 return img
             except RuntimeError as sitk_error:
                 # ITK threw an error (likely "Could not create IO object")
@@ -841,9 +842,33 @@ class VolumeData:
                 img = reader.Execute()
                 if img.GetDimension() == 2:
                     img = sitk.JoinSeries([img])
+                img = self._apply_dicom_dose_scaling(img)
                 return img
             except RuntimeError as sitk_error:
                 raise RuntimeError(f"Failed to load image series: {sitk_error}")
+
+    @staticmethod
+    def _apply_dicom_dose_scaling(img):
+        """If image is a DICOM RTDOSE with DoseGridScaling (3004|000e), scales pixel data to Gy."""
+        import SimpleITK as sitk
+
+        if img.HasMetaDataKey("3004|000e"):
+            try:
+                scale = float(img.GetMetaData("3004|000e"))
+                if scale > 0 and scale != 1.0:
+                    orig, spc, dirn = (
+                        img.GetOrigin(),
+                        img.GetSpacing(),
+                        img.GetDirection(),
+                    )
+                    scaled = sitk.Cast(img, sitk.sitkFloat32) * scale
+                    scaled.SetOrigin(orig)
+                    scaled.SetSpacing(spc)
+                    scaled.SetDirection(dirn)
+                    return scaled
+            except Exception:
+                pass
+        return img
 
     def _read_via_fabio(self, paths):
         """

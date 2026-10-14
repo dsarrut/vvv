@@ -5,6 +5,7 @@ import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginTagMixin, PluginAPI
 from vvv.maths.contours import ContourROI, extract_2d_contours_from_slice
 from vvv.maths.image import SliceRenderer
+from vvv.utils import compute_adaptive_step_and_speed
 
 if TYPE_CHECKING:
     from .ui_dose import DosePluginUI
@@ -544,22 +545,77 @@ class DosePluginController(PluginTagMixin):
             self.invalidate_isocontour_cache()
             self._refresh_all_viewers()
 
-    def on_add_level_clicked(self, sender=None, app_data=None, user_data=None) -> None:
-        is_active, _, _, _, target_id, _ = self.get_dose_target_info()
-        if not is_active or not target_id:
+    def on_dose_threshold_toggle(self, sender=None, app_data=None, user_data=None) -> None:
+        is_active, target_vol, is_overlay, current_unit, target_id, target_vs = (
+            self.get_dose_target_info()
+        )
+        if not is_active or not target_vs or not target_id:
             return
-        state = self.get_isocontour_state(target_id)
-        # Default new level at 70% or midway
-        new_val = 70.0
-        if state.levels:
-            existing_vals = [lvl.value for lvl in state.levels]
-            new_val = round(max(5.0, min(existing_vals) - 10.0), 1) if min(existing_vals) > 10 else 75.0
-        new_col = [255, 100, 200, 255]
-        state.levels.append(DoseIsocontourLevel(new_val, new_col, True, 1.5))
-        self.invalidate_isocontour_cache()
-        if self._ui:
-            self._ui.rebuild_levels_ui(self._api)
-        self._refresh_all_viewers()
+
+        is_enabled = bool(app_data)
+        if is_enabled:
+            val = dpg.get_value(self._t("drag_dose_threshold"))
+            target_vs.display.min_threshold = float(val) if val is not None else 0.0
+        else:
+            target_vs.display.min_threshold = None
+
+        target_vs.is_data_dirty = True
+        if self._api:
+            viewer = self._api.get_active_viewer()
+            if viewer and viewer.view_state:
+                viewer.view_state.is_data_dirty = True
+            self._api.update_all_viewers_of_image(target_id)
+            self._api.request_refresh()
+
+    def on_dose_threshold_changed(self, sender=None, app_data=None, user_data=None) -> None:
+        is_active, target_vol, is_overlay, current_unit, target_id, target_vs = (
+            self.get_dose_target_info()
+        )
+        if not is_active or not target_vs or not target_id or app_data is None:
+            return
+
+        try:
+            val = float(app_data)
+        except (ValueError, TypeError):
+            return
+
+        target_vs.display.min_threshold = val
+        if dpg.does_item_exist(self._t("check_dose_threshold")):
+            dpg.set_value(self._t("check_dose_threshold"), True)
+
+        target_vs.is_data_dirty = True
+        if self._api:
+            viewer = self._api.get_active_viewer()
+            if viewer and viewer.view_state:
+                viewer.view_state.is_data_dirty = True
+            self._api.update_all_viewers_of_image(target_id)
+            self._api.request_refresh()
+
+    def on_step_button_clicked(self, sender=None, app_data=None, user_data=None) -> None:
+        if not user_data or not isinstance(user_data, dict):
+            return
+        target_tag = user_data.get("tag")
+        direction = user_data.get("dir", 1.0)
+        if not target_tag or not dpg.does_item_exist(target_tag):
+            return
+
+        is_active, target_vol, is_overlay, current_unit, target_id, target_vs = (
+            self.get_dose_target_info()
+        )
+        step_size = 1.0
+        if target_vs and hasattr(target_vs.display, "ww") and target_vs.display.ww > 0:
+            step_size, _, _ = compute_adaptive_step_and_speed(target_vs.display.ww)
+        elif target_vol:
+            rng = target_vol.get_data_range()
+            if rng and rng[1] > rng[0]:
+                step_size, _, _ = compute_adaptive_step_and_speed(rng[1] - rng[0])
+
+        current_val = dpg.get_value(target_tag) or 0.0
+        new_val = current_val + (step_size * direction)
+        dpg.set_value(target_tag, new_val)
+
+        if target_tag == self._t("drag_dose_threshold"):
+            self.on_dose_threshold_changed(sender, new_val, user_data)
 
     def on_delete_level_clicked(self, sender=None, app_data=None, user_data=None) -> None:
         is_active, _, _, _, target_id, target_vs = self.get_dose_target_info()
