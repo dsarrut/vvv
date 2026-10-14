@@ -70,6 +70,7 @@ class IntensityScalingComponent:
                 "Intensity Scaling & Normalization",
                 cfg_c.get("text_header", [255, 255, 255, 255]),
             )
+            dpg.add_spacer(height=2)
 
             # --- 1. Current Scaled Range (White text) ---
             with dpg.group(horizontal=True):
@@ -84,16 +85,17 @@ class IntensityScalingComponent:
             dpg.add_spacer(height=3)
 
             # --- 2. Scale Factor Input (No +- buttons, no multipliers) ---
-            dpg.add_text("Scale factor:", color=cfg_c["text_dim"])
-            inp_s = dpg.add_input_float(
-                tag=self._t("input_scale_factor"),
-                default_value=1.0,
-                step=0.0,
-                step_fast=0.0,
-                format="%.4g",
-                width=-1,
-                callback=self._on_scale_factor_changed,
-            )
+            with dpg.group(horizontal=True):
+                dpg.add_text("Scale factor:", color=cfg_c["text_dim"])
+                inp_s = dpg.add_input_float(
+                    tag=self._t("input_scale_factor"),
+                    default_value=1.0,
+                    step=0.0,
+                    step_fast=0.0,
+                    format="%.4g",
+                    width=-1,
+                    callback=self._on_scale_factor_changed,
+                )
             build_beginner_tooltip(
                 inp_s,
                 "User multiplier S: scales raw image values.\n"
@@ -104,12 +106,12 @@ class IntensityScalingComponent:
             dpg.add_spacer(height=4)
 
             # --- 3. Normalization Controls ---
-            dpg.add_text("Normalize:", color=cfg_c["text_dim"])
             with dpg.group(horizontal=True):
+                dpg.add_text("Normalize:", color=cfg_c["text_dim"])
                 b_none = dpg.add_button(
                     label="None",
                     tag=self._t("btn_norm_none"),
-                    width=46,
+                    width=42,
                     callback=self._on_norm_none_clicked,
                 )
                 build_beginner_tooltip(b_none, "Display absolute values (Gy, mGy) using user scale factor.", api)
@@ -117,7 +119,7 @@ class IntensityScalingComponent:
                 b_max = dpg.add_button(
                     label="Max",
                     tag=self._t("btn_norm_max"),
-                    width=46,
+                    width=40,
                     callback=self._on_norm_max_clicked,
                 )
                 build_beginner_tooltip(b_max, "Relative normalization: peak voxel equals 100%.", api)
@@ -125,7 +127,7 @@ class IntensityScalingComponent:
                 b_goto_max = dpg.add_button(
                     label="\uf05b",
                     tag=self._t("btn_goto_max"),
-                    width=20,
+                    width=22,
                     callback=self._on_goto_max_clicked,
                 )
                 self._bind_icon_font(b_goto_max)
@@ -134,15 +136,6 @@ class IntensityScalingComponent:
                     "Go to Max: Center crosshair and camera on maximum dose voxel.",
                     api,
                 )
-
-                b_roi = dpg.add_button(
-                    label="ROI Mean",
-                    tag=self._t("btn_norm_roi"),
-                    width=75,
-                    enabled=False,
-                    callback=self._on_norm_roi_clicked,
-                )
-                build_beginner_tooltip(b_roi, "Relative normalization: mean inside ROI equals 100%.", api)
 
             # Prescription / Reference Value row below
             dpg.add_spacer(height=2)
@@ -158,6 +151,15 @@ class IntensityScalingComponent:
                     f"Relative normalization: specified {self._ref_label.lower()} equals 100%.",
                     api,
                 )
+
+                b_roi = dpg.add_button(
+                    label="ROI Mean",
+                    tag=self._t("btn_norm_roi"),
+                    width=75,
+                    enabled=False,
+                    callback=self._on_norm_roi_clicked,
+                )
+                build_beginner_tooltip(b_roi, "Relative normalization: mean inside ROI equals 100%.", api)
 
             # Sub-panel for Prescription / Ref Value input
             with dpg.group(tag=self._t("group_norm_val"), show=False):

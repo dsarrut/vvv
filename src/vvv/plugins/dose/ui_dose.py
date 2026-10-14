@@ -1,5 +1,5 @@
 import dearpygui.dearpygui as dpg
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from vvv.plugins.plugin_api import PluginTagMixin, PluginAPI
 from vvv.ui.ui_components import (
     build_section_title,
@@ -34,12 +34,17 @@ class DosePluginUI(PluginTagMixin):
             return None, None, False, None, None
         return target_vol, target_vs, is_ov, unit_str, target_id
 
+    def _bind_icon_font(self, item: Any) -> None:
+        if dpg.does_item_exist("icon_font_tag"):
+            dpg.bind_item_font(item, "icon_font_tag")
+
     def create_ui(self, parent, api: PluginAPI) -> None:
         self._api = api
         cfg_c = api.get_ui_config()["colors"]
 
         with dpg.group(parent=parent or 0, tag=self._plugin_id):
             build_section_title("Dose", cfg_c["text_header"])
+            dpg.add_spacer(height=2)
 
             # -------------------------------------------------------------
             # 1. REQUIREMENT / INACTIVE STATE BANNER
@@ -98,19 +103,16 @@ class DosePluginUI(PluginTagMixin):
                         color=cfg_c["text_active"],
                     )
 
-                dpg.add_spacer(height=4)
-                dpg.add_separator()
-                dpg.add_spacer(height=4)
+                dpg.add_spacer(height=5)
 
                 # --- Shared Intensity Scaling & Normalization Component ---
                 self.scaling_comp.create_ui(parent=None, api=api)
 
-                dpg.add_spacer(height=6)
-                dpg.add_separator()
-                dpg.add_spacer(height=4)
+                dpg.add_spacer(height=5)
 
                 # --- Display Threshold Section ---
                 build_section_title("Display Threshold", cfg_c["text_header"])
+                dpg.add_spacer(height=2)
                 build_stepped_slider(
                     "Min Thr:",
                     self._t("drag_dose_threshold"),
@@ -129,16 +131,15 @@ class DosePluginUI(PluginTagMixin):
                     api,
                 )
 
-                dpg.add_spacer(height=6)
-                dpg.add_separator()
-                dpg.add_spacer(height=4)
+                dpg.add_spacer(height=5)
 
                 # --- Isodose Contours Section ---
                 build_section_title("Isodose Contours", cfg_c["text_header"])
+                dpg.add_spacer(height=2)
 
                 with dpg.group(horizontal=True):
                     dpg.add_checkbox(
-                        label="Show Isodoses",
+                        label="Show",
                         tag=self._t("check_isodose_enable"),
                         default_value=True,
                         callback=self._c.on_toggle_isocontours,
@@ -161,19 +162,20 @@ class DosePluginUI(PluginTagMixin):
                         api,
                     )
 
-                dpg.add_spacer(height=4)
-
-                # Action button: Reset Defaults
-                btn_reset_lvls = dpg.add_button(
-                    label="Reset Defaults",
-                    tag=self._t("btn_reset_levels"),
-                    callback=self._c.on_reset_levels_clicked,
-                )
-                build_beginner_tooltip(
-                    btn_reset_lvls,
-                    "Restores standard radiotherapy isodose levels (10% to 107%).",
-                    api,
-                )
+                    btn_reset_lvls = dpg.add_button(
+                        label="\uf01e",
+                        tag=self._t("btn_reset_levels"),
+                        width=22,
+                        callback=self._c.on_reset_levels_clicked,
+                    )
+                    self._bind_icon_font(btn_reset_lvls)
+                    if dpg.does_item_exist("icon_button_theme"):
+                        dpg.bind_item_theme(btn_reset_lvls, "icon_button_theme")
+                    build_beginner_tooltip(
+                        btn_reset_lvls,
+                        "Reset default isodose levels (10% to 107%).",
+                        api,
+                    )
 
                 dpg.add_spacer(height=4)
                 dpg.add_text("Levels:", color=cfg_c["text_dim"])
