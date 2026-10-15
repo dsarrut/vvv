@@ -75,13 +75,16 @@ Both the **Intensity Tool** and the **Dose Tool** share a unified component (`In
 
 ---
 
-## 4. Roadmap & Future Modules (Planned)
+### E. Isodose Contours (Implemented)
+* Real-time 2D isodose curve extraction and rendering in physical space across orthogonal slice views.
+* Customizable isodose level presets with standard clinical levels (10% to 107%).
+* Individual isodose level visibility toggles, color swatch pickers, numeric threshold inputs, and deletion.
+* Sub-pixel isoline extraction built on top of the marching squares contour engine.
+* Compact toolbar with `Show`, `Sub-Pixel`, and reset defaults icon button (`↺`).
 
-### E. Isodose Contours (Phase 2)
-* Customizable isodose level presets:
-  * Standard clinical levels: $107\%$, $100\%$, $95\%$, $90\%$, $80\%$, $50\%$, $20\%$ (or fixed Gy intervals).
-* Individual isodose level toggles, colors, line widths, and fill shading.
-* Sub-pixel isoline extraction built on top of the existing `marching_squares` contour engine.
+---
+
+## 4. Roadmap & Future Modules (Planned)
 
 ### F. Dose-Volume Histograms (DVH) (Phase 3)
 * Active when both a dose volume and organ ROIs / structure sets are loaded.

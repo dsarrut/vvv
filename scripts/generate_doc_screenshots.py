@@ -655,7 +655,7 @@ def main():
     parser = argparse.ArgumentParser(description="Generate VVV documentation screenshots.")
     parser.add_argument(
         "--target",
-        choices=["all", "help_buttons", "doc_02", "doc_03", "doc_04", "doc_05", "doc_06", "doc_07"],
+        choices=["all", "help_buttons", "doc_02", "doc_03", "doc_04", "doc_05", "doc_06", "doc_07", "doc_11"],
         default="all",
         help="Target screenshot(s) to generate (default: all)",
     )
@@ -686,6 +686,9 @@ def main():
 
     if args.target in ("all", "doc_07"):
         generate_doc_07_screenshots(img_dir)
+
+    if args.target in ("all", "doc_11"):
+        generate_doc_11_screenshots(img_dir)
 
 
 def generate_doc_07_screenshots(img_dir: Path):
@@ -744,6 +747,68 @@ def generate_doc_07_screenshots(img_dir: Path):
     if img is not None:
         img.save(img_dir / "doc_07_roi_layout.png")
         print(f"Generated: doc_07_roi_layout.png ({img.size[0]}x{img.size[1]})")
+
+    dpg.destroy_context()
+
+
+def generate_doc_11_screenshots(img_dir: Path):
+    """Generates screenshots for Chapter 11 (Manual Rigid Registration)."""
+    dpg.create_context()
+    ctrl = Controller()
+    for tag in ["V1", "V2", "V3", "V4"]:
+        ctrl.viewers[tag] = SliceViewer(tag, ctrl)
+
+    gui = MainGUI(ctrl)
+    ctrl.gui = gui
+
+    vp_title = "VVV Registration Doc Session"
+    dpg.create_viewport(title=vp_title, width=1280, height=800, x_pos=50, y_pos=50)
+    dpg.setup_dearpygui()
+    dpg.show_viewport()
+    dpg.set_primary_window("PrimaryWindow", True)
+    gui.on_window_resize()
+
+    boot_gen = gui.load_workspace_sequence("data/reg3.vvw")
+    if boot_gen:
+        for _ in boot_gen:
+            if dpg.is_viewport_ok():
+                dpg.render_dearpygui_frame()
+
+    while len(gui.tasks) > 0:
+        try:
+            next(gui.tasks[0])
+        except StopIteration:
+            gui.tasks.pop(0)
+        if dpg.is_viewport_ok():
+            dpg.render_dearpygui_frame()
+
+    # Switch to the Registration tab on the sidebar
+    gui.on_nav_clicked(None, None, "registration_plugin")
+
+    # Wait for overlay resampling background thread to complete
+    import time
+    vs = ctrl.view_states.get("1")
+    if vs:
+        t0 = time.time()
+        while vs.display.overlay_data is None and time.time() - t0 < 30:
+            ctrl.tick()
+            gui._refresh_all_ui_panels()
+            dpg.render_dearpygui_frame()
+            time.sleep(0.05)
+
+    for _ in range(60):
+        ctrl.tick()
+        gui._refresh_all_ui_panels()
+        for p in gui.plugins:
+            gui._call_plugin(p, "update", gui.plugin_api)
+        gui.update_sidebar_crosshair(gui.context_viewer)
+        dpg.render_dearpygui_frame()
+
+    from vvv.utils import capture_whole_window
+    img = capture_whole_window()
+    if img is not None:
+        img.save(img_dir / "doc_11_registration_layout.png")
+        print(f"Generated: doc_11_registration_layout.png ({img.size[0]}x{img.size[1]})")
 
     dpg.destroy_context()
 

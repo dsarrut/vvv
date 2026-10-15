@@ -70,7 +70,8 @@ When clicking on any viewport, it becomes the **Active Viewer** (highlighted bor
 
 ![Active Viewer & Crosshair Panels](images/doc_02_active_viewer.png)
 
-### Physical Metadata
+### Physical Metadata & Base/Fusion Toggle
+* **⇄ (Toggle Base / Fusion Info)**: When a Fusion overlay is loaded in the active viewer, an icon button `⇄` appears directly to the left of the image name. Clicking this button toggles the panel display between the **Base image** metadata and the **Fusion overlay image** metadata (viewport display and slice axis buttons remain unchanged).
 * **Type**: Voxel data type (e.g. `int16`, `float32`).
 * **Unit**: Physical intensity unit. Click the dropdown arrow <kbd>▾</kbd> to assign presets (`HU`, `SUV`, `Gy`, `Bq/mL`, `counts`, `a.u.`) or type a custom unit.
 * **Size**: Voxel grid dimensions $(N_x \times N_y \times N_z)$.
