@@ -108,11 +108,44 @@ class DosePluginUI(PluginTagMixin):
                 # --- Shared Intensity Scaling & Normalization Component ---
                 self.scaling_comp.create_ui(parent=None, api=api)
 
-                dpg.add_spacer(height=5)
+                dpg.add_spacer(height=6)
 
-                # --- Display Threshold Section ---
-                build_section_title("Display Threshold", cfg_c["text_header"])
+                # --- Isodose Contours Section ---
+                build_section_title("Isodose Contours", cfg_c["text_header"])
+                dpg.add_spacer(height=3)
+
+                # 1. Shading toggle and Opacity slider on the same row
+                with dpg.group(horizontal=True, tag=self._t("group_shading_opacity")):
+                    dpg.add_checkbox(
+                        label="Shading",
+                        tag=self._t("check_isodose_shading"),
+                        default_value=False,
+                        callback=self._c.on_toggle_shading,
+                    )
+                    build_beginner_tooltip(
+                        self._t("check_isodose_shading"),
+                        "Displays semi-transparent colorwash shading between isodose levels.",
+                        api,
+                    )
+                    dpg.add_text("Opacity:", color=cfg_c["text_dim"])
+                    dpg.add_slider_float(
+                        tag=self._t("slider_shading_opacity"),
+                        default_value=0.5,
+                        min_value=0.0,
+                        max_value=1.0,
+                        format="%.2f",
+                        width=-1,
+                        callback=self._c.on_shading_opacity_changed,
+                    )
+                    build_beginner_tooltip(
+                        self._t("slider_shading_opacity"),
+                        "Opacity of the dose overlay or shading.",
+                        api,
+                    )
+
                 dpg.add_spacer(height=2)
+
+                # 2. Min threshold stepped slider
                 build_stepped_slider(
                     "Min Thr:",
                     self._t("drag_dose_threshold"),
@@ -121,7 +154,6 @@ class DosePluginUI(PluginTagMixin):
                     has_checkbox=True,
                     check_tag=self._t("check_dose_threshold"),
                     check_cb=self._c.on_dose_threshold_toggle,
-                    label_width=110,
                     gui=api,
                 )
                 build_beginner_tooltip(
@@ -131,12 +163,9 @@ class DosePluginUI(PluginTagMixin):
                     api,
                 )
 
-                dpg.add_spacer(height=5)
-
-                # --- Isodose Contours Section ---
-                build_section_title("Isodose Contours", cfg_c["text_header"])
                 dpg.add_spacer(height=2)
 
+                # 3. Lines + Sub-Pixel + Reset defaults icon
                 with dpg.group(horizontal=True):
                     dpg.add_checkbox(
                         label="Lines",
@@ -147,18 +176,6 @@ class DosePluginUI(PluginTagMixin):
                     build_beginner_tooltip(
                         self._t("check_isodose_enable"),
                         "Displays isolines / isodose contours for the active dose image.",
-                        api,
-                    )
-
-                    dpg.add_checkbox(
-                        label="Shading",
-                        tag=self._t("check_isodose_shading"),
-                        default_value=False,
-                        callback=self._c.on_toggle_shading,
-                    )
-                    build_beginner_tooltip(
-                        self._t("check_isodose_shading"),
-                        "Displays semi-transparent colorwash shading between isodose levels.",
                         api,
                     )
 
@@ -188,23 +205,6 @@ class DosePluginUI(PluginTagMixin):
                         "Reset default isodose levels (10% to 107%).",
                         api,
                     )
-
-                with dpg.group(horizontal=True, tag=self._t("group_shading_opacity")):
-                    dpg.add_text("Opacity:", color=cfg_c["text_dim"])
-                    dpg.add_slider_float(
-                        tag=self._t("slider_shading_opacity"),
-                        default_value=0.5,
-                        min_value=0.0,
-                        max_value=1.0,
-                        format="%.2f",
-                        width=-1,
-                        callback=self._c.on_shading_opacity_changed,
-                    )
-                build_beginner_tooltip(
-                    self._t("slider_shading_opacity"),
-                    "Opacity of the dose overlay or shading.",
-                    api,
-                )
 
                 dpg.add_spacer(height=4)
                 dpg.add_text("Levels:", color=cfg_c["text_dim"])

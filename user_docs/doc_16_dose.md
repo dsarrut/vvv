@@ -58,31 +58,24 @@ Easily switch between absolute physical dosimetry and relative clinical percenta
 | **Prescription** | **Prescription** | Relative normalization setting a specified prescription reference dose (e.g. $50.0\text{ Gy}$) to $100\%$. Opens an input field to configure the prescription value. |
 | **ROI Mean** | **ROI Mean** | *(When an ROI structure is selected)* Normalizes the mean dose inside the chosen contour to $100\%$. |
 
----
+### Actions: Bake & Reset
 
-## 3. Display Threshold
-
-The **Display Threshold** section controls background dose transparency:
-
-* **Min Thr**: Stepped slider with an enable/disable checkbox.
-* Voxels with dose values below the threshold cutoff are rendered completely transparent.
-* This removes low non-clinical background dose (e.g. $< 5\%$ of prescription) so that underlying anatomical structures (such as CT or MRI tissues) remain clearly visible.
+* **Bake**: Permanently applies the current effective scaling multiplier to the voxel data in memory and resets the virtual multiplier to $1.0$ (useful prior to saving or exporting).
+* **Reset**: Resets scale factor to $1.0$ and clears any active normalization mode back to absolute physical dose.
 
 ---
 
-## 4. Isodose Contours & Colorwash Shading
+## 3. Isodose Contours & Colorwash Shading
 
-The **Isodose Contours** engine provides dual visualization modes standard in clinical radiation therapy planning systems (TPS):
+The **Isodose Contours** engine provides comprehensive dose visualization standard in clinical radiation therapy planning systems (TPS):
 
-### Visualization Modes
+### Top Controls
 
-* **Lines**: Toggles visibility of sharp 2D isodose contour lines in the active viewports.
-* **Shading (Colorwash)**: Toggles semi-transparent colorwash shading between isodose levels.
-  * Dose voxels between adjacent isodose levels are filled with the corresponding level's color.
-  * Dose voxels below the lowest enabled isodose level (e.g. $< 10\%$) remain completely transparent so underlying anatomy is never obscured.
-  * Can be combined with **Lines** for simultaneous stepped colorwash and demarcated isodose boundaries.
+* **Shading**: Toggles semi-transparent colorwash shading between adjacent isodose levels. Dose voxels below the lowest active level remain transparent so background anatomical structures stay visible.
 * **Opacity**: Unified opacity slider controlling overlay and shader transparency. When dose is an overlay in Fusion mode, it directly controls the fusion overlay opacity (synchronized bidirectionally with the Fusion tab's opacity slider). When Shading (colorwash) is enabled, it defines the colorwash shader transparency. When dose is a base image and shading is turned off, the slider is disabled.
-* **Sub-Pixel**: Uses marching squares linear interpolation for smooth, sub-voxel contour curves rather than jagged voxel edges.
+* **Min Thr**: Stepped slider with an enable/disable checkbox. Cutoff below which dose voxels are rendered transparent (e.g. $< 5\%$ background cutoff).
+* **Lines**: Toggles sharp 2D isodose contour line overlays in the viewports.
+* **Sub-Pixel**: Uses marching squares linear interpolation for smooth, sub-voxel curves rather than jagged voxel steps.
 * **↺ (Reset Defaults)**: Restores standard clinical radiotherapy isodose levels:
   * $107\%$ (Hot spot / overdose target)
   * $100\%$ (Prescription dose coverage)
@@ -101,7 +94,7 @@ Below the header, each isodose level is listed with individual controls:
 
 ---
 
-## 5. Working with Multi-Modal Datasets (CT + RTDOSE)
+## 4. Working with Multi-Modal Datasets (CT + RTDOSE)
 
 In typical radiotherapy workflows (e.g. using data from the `data/head_neck` sample):
 
@@ -120,7 +113,7 @@ In typical radiotherapy workflows (e.g. using data from the `data/head_neck` sam
 
 ---
 
-## 6. Workspace Serialization (`.vvw`)
+## 5. Workspace Serialization (`.vvw`)
 
 All Dose tool parameters are fully saved and restored in VVV workspace files (`.vvw`):
 
