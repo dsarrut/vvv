@@ -1,6 +1,8 @@
 import os
 import sys
+import threading
 import subprocess
+import dearpygui.dearpygui as dpg
 
 # Global variable to remember the last directory used in this session
 _last_visited_dir = None
@@ -17,6 +19,36 @@ def _update_last_visited_dir(paths, is_directory=False):
         _last_visited_dir = first_path
     else:
         _last_visited_dir = os.path.dirname(first_path)
+
+
+def _run_dialog_process(cmd, **kwargs):
+    """subprocess.run() that keeps the DPG window repainting while the native dialog is open.
+
+    Callbacks run on the main thread, so a plain blocking call would freeze the
+    window until the dialog closes. The process runs in a helper thread while
+    the main thread renders frames (no ticks: the app is modal meanwhile; clicks
+    are queued by DPG and handled after the dialog closes).
+    """
+    if threading.current_thread() is not threading.main_thread():
+        return subprocess.run(cmd, **kwargs)
+
+    outcome = {}
+
+    def _target():
+        try:
+            outcome["result"] = subprocess.run(cmd, **kwargs)
+        except BaseException as e:
+            outcome["error"] = e
+
+    worker = threading.Thread(target=_target, daemon=True)
+    worker.start()
+    while worker.is_alive():
+        if dpg.is_dearpygui_running():
+            dpg.render_dearpygui_frame()
+        worker.join(1 / 30)
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome["result"]
 
 
 def _clear_keys():
@@ -128,7 +160,7 @@ def _open_file_dialog_impl(
         script += f"  end try\n" f"end tell"
 
         try:
-            result = subprocess.run(
+            result = _run_dialog_process(
                 ["osascript", "-e", script], capture_output=True, text=True
             )
             path = result.stdout.strip()
@@ -162,7 +194,7 @@ def _open_file_dialog_impl(
                 cmd.append("--multiple")
                 cmd.append("--separator=\n")
 
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = _run_dialog_process(cmd, capture_output=True, text=True)
             if result.returncode != 0 and result.stderr.strip():
                 print(f"[Debug] Zenity failed with exit code {result.returncode}: {result.stderr.strip()}", file=sys.stderr)
             path = result.stdout.strip()
@@ -192,7 +224,7 @@ def _open_file_dialog_impl(
                     cmd.append("--multiple")
                     cmd.append("--separate-output")
 
-                result = subprocess.run(cmd, capture_output=True, text=True)
+                result = _run_dialog_process(cmd, capture_output=True, text=True)
                 if result.returncode != 0 and result.stderr.strip():
                     print(f"[Debug] Kdialog failed with exit code {result.returncode}: {result.stderr.strip()}", file=sys.stderr)
                 path = result.stdout.strip()
@@ -240,7 +272,7 @@ def _open_file_dialog_impl(
             )
 
         try:
-            result = subprocess.run(
+            result = _run_dialog_process(
                 ["powershell", "-Command", script],
                 capture_output=True,
                 text=True,
@@ -317,7 +349,7 @@ def _save_file_dialog_impl(title="Save File", default_name="workspace.vvw", star
             f"end tell"
         )
         try:
-            result = subprocess.run(
+            result = _run_dialog_process(
                 ["osascript", "-e", script], capture_output=True, text=True
             )
             path = result.stdout.strip()
@@ -343,7 +375,7 @@ def _save_file_dialog_impl(title="Save File", default_name="workspace.vvw", star
                 f"--filename={full_default}",
                 f"--file-filter={filter_name} | *.{ext}",
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = _run_dialog_process(cmd, capture_output=True, text=True)
             if result.returncode != 0 and result.stderr.strip():
                 print(f"[Debug] Zenity save dialog failed with exit code {result.returncode}: {result.stderr.strip()}", file=sys.stderr)
             path = result.stdout.strip()
@@ -361,7 +393,7 @@ def _save_file_dialog_impl(title="Save File", default_name="workspace.vvw", star
                     f"*.{ext} | {filter_name}",
                     f"--title={title}",
                 ]
-                result = subprocess.run(cmd, capture_output=True, text=True)
+                result = _run_dialog_process(cmd, capture_output=True, text=True)
                 if result.returncode != 0 and result.stderr.strip():
                     print(f"[Debug] Kdialog save dialog failed with exit code {result.returncode}: {result.stderr.strip()}", file=sys.stderr)
                 path = result.stdout.strip()
@@ -389,7 +421,7 @@ def _save_file_dialog_impl(title="Save File", default_name="workspace.vvw", star
             f"if ($f.ShowDialog($form) -eq 'OK') {{ $f.FileName }}"
         )
         try:
-            result = subprocess.run(
+            result = _run_dialog_process(
                 ["powershell", "-Command", script],
                 capture_output=True,
                 text=True,

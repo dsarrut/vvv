@@ -46,6 +46,11 @@ from vvv.ui.ui_workspace import build_workspace_nav_icons
 from vvv.ui.render_strategy import GL_NEAREST_SUPPORTED, NNMode
 from vvv.utils import capture_whole_window, copy_image_to_clipboard, save_screenshot_to_file
 
+_POSITIONAL_KINDS = (
+    inspect.Parameter.POSITIONAL_ONLY,
+    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+)
+
 
 class MainGUI:
     """
@@ -174,11 +179,11 @@ class MainGUI:
             if cb is None:
                 continue
             try:
-                params = inspect.signature(cb).parameters.values()
-                if any(p.kind == p.VAR_POSITIONAL for p in params):
+                kinds = [p.kind for p in inspect.signature(cb).parameters.values()]
+                if inspect.Parameter.VAR_POSITIONAL in kinds:
                     n = 3
                 else:
-                    n = min(3, len(params))
+                    n = min(3, sum(k in _POSITIONAL_KINDS for k in kinds))
                 cb(*job[1 : 1 + n])
             except Exception:
                 traceback.print_exc()
