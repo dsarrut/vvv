@@ -2750,6 +2750,11 @@ class LayerPackager:
         if display_data is None:
             display_data = np.zeros((1, 1, 1), dtype=np.float32)
 
+        colorwash = None
+        dose_plugin = _safe_get_plugin(v.controller, "dose_plugin")
+        if dose_plugin and hasattr(dose_plugin, "_controller"):
+            colorwash = dose_plugin._controller.get_colorwash_bands(v.image_id, is_overlay=False)
+
         return RenderLayer(
             data=display_data,
             is_rgb=getattr(vol, "is_rgb", False),
@@ -2762,6 +2767,7 @@ class LayerPackager:
             spacing_2d=vol.get_physical_aspect_ratio(v.orientation),
             dvf_mode=dvf_mode,
             preview_override=preview,
+            colorwash=colorwash,
         )
 
     def package_overlay_layer(self):
@@ -2869,6 +2875,11 @@ class LayerPackager:
                             image_id=vs.display.overlay.image_id,
                         )
 
+            colorwash = None
+            dose_plugin = _safe_get_plugin(v.controller, "dose_plugin")
+            if dose_plugin and hasattr(dose_plugin, "_controller"):
+                colorwash = dose_plugin._controller.get_colorwash_bands(vs.display.overlay.image_id, is_overlay=True)
+
             return RenderLayer(
                 data=vs.display.overlay_data,
                 is_rgb=getattr(ovs.volume, "is_rgb", False),
@@ -2883,6 +2894,7 @@ class LayerPackager:
                 offset_y=off_y,
                 offset_slice=off_slice,
                 preview_override=overlay_preview,
+                colorwash=colorwash,
             )
 
     def package_roi_layers(self):
@@ -3388,6 +3400,13 @@ class TextureManager:
                     _buf[: rgba_2d.shape[0], : rgba_2d.shape[1]] = rgba_2d
                     nn_base = _buf
 
+            colorwash = None
+            dose_plugin = _safe_get_plugin(v.controller, "dose_plugin")
+            if dose_plugin and hasattr(dose_plugin, "_controller"):
+                colorwash = dose_plugin._controller.get_colorwash_bands(
+                    vs.display.overlay.image_id, is_overlay=True
+                )
+
             compute_native_voxel_overlay(
                 v,
                 v.current_pmin,
@@ -3398,6 +3417,7 @@ class TextureManager:
                 opacity=vs.display.overlay.opacity,
                 roi_mask=roi_mask,
                 roi_color_buf=roi_color_buf,
+                colorwash=colorwash,
             )
         return nn_base
 
@@ -3450,6 +3470,13 @@ class TextureManager:
                     active_rois, h, w, "_roi_mask_cache_dual_native"
                 )
 
+            colorwash = None
+            dose_plugin = _safe_get_plugin(v.controller, "dose_plugin")
+            if dose_plugin and hasattr(dose_plugin, "_controller"):
+                colorwash = dose_plugin._controller.get_colorwash_bands(
+                    vs.display.overlay.image_id, is_overlay=True
+                )
+
             ov_rgba_display = compute_native_voxel_overlay(
                 v,
                 v.current_pmin,
@@ -3458,6 +3485,7 @@ class TextureManager:
                 nn_h,
                 roi_mask=roi_mask,
                 roi_color_buf=roi_color_buf,
+                colorwash=colorwash,
             )
             if ov_rgba_display is not None:
                 self._safe_set_texture(

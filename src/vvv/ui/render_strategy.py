@@ -78,9 +78,12 @@ def _init_numba():
             roi_color_buf,
             iy_disp,
             ix_disp,
+            cw_thresholds,
+            cw_colors,
         ):
             crop_h = len(iy_adj)
             crop_w = len(ix_adj)
+            num_cw = len(cw_thresholds)
             for cy in numba.prange(crop_h):  # type: ignore[union-attr]
                 iy = iy_adj[cy]
                 iy_disp_val = iy_disp[cy]
@@ -108,16 +111,30 @@ def _init_numba():
                     val = np.float32(ov_data[zi, yi, xi])
                     if val <= threshold:
                         continue
-                    norm = (val - wl_min) * wl_scale
-                    if norm < 0.0:
-                        norm = 0.0
-                    if norm > 1.0:
-                        norm = 1.0
-                    lut_idx = int(norm * 255.0)
-                    r = lut[lut_idx, 0]
-                    g = lut[lut_idx, 1]
-                    b = lut[lut_idx, 2]
-                    a = lut[lut_idx, 3] * opacity
+                    if num_cw > 0:
+                        if val < cw_thresholds[0]:
+                            continue
+                        cw_idx = 0
+                        for k in range(num_cw):
+                            if val >= cw_thresholds[k]:
+                                cw_idx = k
+                            else:
+                                break
+                        r = cw_colors[cw_idx, 0]
+                        g = cw_colors[cw_idx, 1]
+                        b = cw_colors[cw_idx, 2]
+                        a = cw_colors[cw_idx, 3] * opacity
+                    else:
+                        norm = (val - wl_min) * wl_scale
+                        if norm < 0.0:
+                            norm = 0.0
+                        if norm > 1.0:
+                            norm = 1.0
+                        lut_idx = int(norm * 255.0)
+                        r = lut[lut_idx, 0]
+                        g = lut[lut_idx, 1]
+                        b = lut[lut_idx, 2]
+                        a = lut[lut_idx, 3] * opacity
                     ry = cy + c_y0
                     rx = cx + c_x0
                     if precomposite:
@@ -488,7 +505,16 @@ def _xfm_key(transform):
 
 
 def compute_native_voxel_overlay(
-    viewer, pmin, pmax, canvas_w, canvas_h, target_buffer=None, opacity=1.0, roi_mask=None, roi_color_buf=None
+    viewer,
+    pmin,
+    pmax,
+    canvas_w,
+    canvas_h,
+    target_buffer=None,
+    opacity=1.0,
+    roi_mask=None,
+    roi_color_buf=None,
+    colorwash=None,
 ):
     if roi_mask is None:
         roi_mask = np.zeros((0, 0), dtype=np.float32)
@@ -703,6 +729,27 @@ def compute_native_voxel_overlay(
     lut = COLORMAPS.get(ovs.display.colormap, COLORMAPS["Grayscale"])
     thr_val = ovs.display.min_threshold
 
+    if colorwash is None and hasattr(viewer, "controller"):
+        from vvv.ui.viewer import _safe_get_plugin
+
+        dose_plugin = _safe_get_plugin(viewer.controller, "dose_plugin")
+        if dose_plugin and hasattr(dose_plugin, "_controller"):
+            colorwash = dose_plugin._controller.get_colorwash_bands(
+                vs.display.overlay.image_id, is_overlay=True
+            )
+
+    if colorwash is not None and len(colorwash) > 0:
+        cw_thresholds = np.ascontiguousarray(
+            [t for t, _ in colorwash], dtype=np.float32
+        )
+        cw_colors = np.ascontiguousarray([c for _, c in colorwash], dtype=np.float32)
+    else:
+        cw_thresholds = np.zeros(0, dtype=np.float32)
+        cw_colors = np.zeros((0, 4), dtype=np.float32)
+
+    if target_buffer is None:
+        rgba[c_y0:c_y1, c_x0:c_x1] = 0.0
+
     _init_numba()
     use_numba = _NUMBA_AVAILABLE and viewer.controller.settings.data.get(
         "rendering", {}
@@ -731,8 +778,6 @@ def compute_native_voxel_overlay(
                 )
         else:
             ov_arr = np.ascontiguousarray(ov_data)
-        if target_buffer is None:
-            rgba[c_y0:c_y1, c_x0:c_x1] = 0.0
         _t_kernel0 = 0.0
         if _PROFILE_NN:
             _t_kernel0 = _time.perf_counter()
@@ -759,6 +804,8 @@ def compute_native_voxel_overlay(
             roi_color_buf,
             iy_disp.astype(np.float32),
             ix_disp.astype(np.float32),
+            cw_thresholds,
+            cw_colors,
         )
         if _PROFILE_NN:
             _kernel_dt = _time.perf_counter() - _t_kernel0
@@ -812,22 +859,41 @@ def compute_native_voxel_overlay(
             valid_vals, in_bounds[in_bounds] = valid_vals[thr_mask], thr_mask
 
         if in_bounds.any():
-            norm = SliceRenderer.normalize_wl(
-                valid_vals, ovs.display.ww, ovs.display.wl
-            )
-            new_colors = SliceRenderer.lut_lookup(lut, norm)
-            rgba_crop = rgba[c_y0:c_y1, c_x0:c_x1]
+            if len(cw_thresholds) > 0:
+                cw_mask = valid_vals >= cw_thresholds[0]
+                if not cw_mask.all():
+                    in_bounds[in_bounds] = cw_mask
+                    valid_vals = valid_vals[cw_mask]
 
-            if target_buffer is not None:
-                alpha = new_colors[:, 3:4] * opacity
-                inv_alpha = 1.0 - alpha
-                dst_colors = rgba_crop[in_bounds]
-                rgba_crop[in_bounds, :3] = (
-                    new_colors[:, :3] * alpha + dst_colors[:, :3] * inv_alpha
-                )
-                rgba_crop[in_bounds, 3:4] = alpha + dst_colors[:, 3:4] * inv_alpha
+                if in_bounds.any():
+                    band_indices = (
+                        np.searchsorted(cw_thresholds, valid_vals, side="right") - 1
+                    )
+                    band_indices = np.clip(band_indices, 0, len(cw_thresholds) - 1)
+                    new_colors = cw_colors[band_indices].copy()
+                else:
+                    new_colors = np.zeros((0, 4), dtype=np.float32)
             else:
-                rgba_crop[in_bounds] = new_colors
+                norm = SliceRenderer.normalize_wl(
+                    valid_vals, ovs.display.ww, ovs.display.wl
+                )
+                new_colors = SliceRenderer.lut_lookup(lut, norm)
+
+            if in_bounds.any():
+                rgba_crop = rgba[c_y0:c_y1, c_x0:c_x1]
+
+                if target_buffer is not None:
+                    alpha = new_colors[:, 3:4] * opacity
+                    inv_alpha = 1.0 - alpha
+                    dst_colors = rgba_crop[in_bounds]
+                    rgba_crop[in_bounds, :3] = (
+                        new_colors[:, :3] * alpha + dst_colors[:, :3] * inv_alpha
+                    )
+                    rgba_crop[in_bounds, 3:4] = alpha + dst_colors[:, 3:4] * inv_alpha
+                else:
+                    alpha = new_colors[:, 3:4] * opacity
+                    new_colors[:, 3:4] = alpha
+                    rgba_crop[in_bounds] = new_colors
 
     if _PROFILE_NN:
         _ov_profile_tick(

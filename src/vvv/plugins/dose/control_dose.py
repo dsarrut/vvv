@@ -36,6 +36,8 @@ class DoseIsocontourLevel:
 @dataclass
 class DoseIsocontourState:
     is_enabled: bool = True
+    colorwash_enabled: bool = False
+    colorwash_opacity: float = 0.5
     subpixel_accurate: bool = True
     levels: List[DoseIsocontourLevel] = field(default_factory=list)
 
@@ -68,7 +70,7 @@ class DosePluginController(PluginTagMixin):
         if not is_active or not target_id:
             return None
         state = self.get_isocontour_state(target_id)
-        if not state.is_enabled:
+        if not state.is_enabled and not state.colorwash_enabled:
             return (target_id, False)
         levels_tuple = tuple(
             (lvl.value, lvl.enabled, tuple(lvl.color), lvl.thickness)
@@ -78,7 +80,62 @@ class DosePluginController(PluginTagMixin):
         if self._ui and hasattr(self._ui, "scaling_comp"):
             sc = self._ui.scaling_comp.get_state(target_id)
             scaling_state = (sc.norm_mode, sc.scaling_factor, sc.norm_target_value, sc.norm_roi_id)
-        return (target_id, state.is_enabled, state.subpixel_accurate, levels_tuple, scaling_state, self._cache_version)
+        return (
+            target_id,
+            state.is_enabled,
+            state.colorwash_enabled,
+            state.colorwash_opacity,
+            state.subpixel_accurate,
+            levels_tuple,
+            scaling_state,
+            self._cache_version,
+        )
+
+    @staticmethod
+    def is_dose_unit(unit: Optional[str]) -> bool:
+        if not unit:
+            return False
+        return str(unit).strip().lower() in DOSE_UNITS
+
+    def get_colorwash_bands(
+        self, image_id: Optional[str], is_overlay: bool = False
+    ) -> Optional[List[Tuple[float, List[float]]]]:
+        if not image_id:
+            return None
+        state = self._states.get(str(image_id))
+        if not state or not state.colorwash_enabled:
+            return None
+
+        vols = self._api.get_volumes() if self._api else {}
+        vol = vols.get(image_id) or vols.get(str(image_id))
+        if not vol:
+            return None
+
+        unit_str = getattr(vol, "unit", "") or ""
+        if not self.is_dose_unit(unit_str):
+            is_active, _, _, _, target_id, _ = self.get_dose_target_info()
+            if not is_active or str(target_id) != str(image_id):
+                return None
+
+        bands = []
+        op = 1.0 if is_overlay else float(state.colorwash_opacity)
+        for lvl in state.levels:
+            if not lvl.enabled:
+                continue
+            raw_thr = self.compute_raw_threshold_for_level(lvl, vol, is_overlay, str(image_id))
+            col = [
+                lvl.color[0] / 255.0,
+                lvl.color[1] / 255.0,
+                lvl.color[2] / 255.0,
+                op,
+            ]
+            bands.append((raw_thr, col))
+
+        if not bands:
+            return None
+
+        bands.sort(key=lambda x: x[0])
+        return bands
 
     def bind(self, api: PluginAPI) -> None:
         self._api = api
@@ -497,6 +554,49 @@ class DosePluginController(PluginTagMixin):
         self.invalidate_isocontour_cache()
         self._refresh_all_viewers()
 
+    def on_toggle_shading(self, sender=None, app_data=None, user_data=None) -> None:
+        is_active, target_vol, is_overlay, _, target_id, target_vs = self.get_dose_target_info()
+        if not is_active or not target_id:
+            return
+        state = self.get_isocontour_state(target_id)
+        state.colorwash_enabled = bool(app_data)
+        self.invalidate_isocontour_cache()
+        if target_vs:
+            target_vs.is_data_dirty = True
+        if self._ui and hasattr(self._ui, "_t"):
+            opacity_grp = self._ui._t("group_shading_opacity")
+            if dpg.does_item_exist(opacity_grp):
+                dpg.configure_item(opacity_grp, show=state.colorwash_enabled)
+        self._refresh_all_viewers()
+
+    def on_shading_opacity_changed(self, sender=None, app_data=None, user_data=None) -> None:
+        is_active, target_vol, is_overlay, _, target_id, target_vs = self.get_dose_target_info()
+        if not is_active or not target_id or app_data is None:
+            return
+        try:
+            val = max(0.0, min(1.0, float(app_data)))
+        except (ValueError, TypeError):
+            return
+
+        state = self.get_isocontour_state(target_id)
+        state.colorwash_opacity = val
+
+        if is_overlay and self._api:
+            for v in self._api.get_viewers().values():
+                if v.view_state and v.view_state.display.overlay:
+                    if str(v.view_state.display.overlay.image_id) == str(target_id):
+                        v.view_state.display.overlay.opacity = val
+                if hasattr(v, "drawer") and hasattr(v.drawer, "_last_leg_state"):
+                    v.drawer._last_leg_state = None
+                if hasattr(v, "update_render"):
+                    v.update_render(force_reblend=False)
+            self._api.request_refresh()
+            return
+
+        if target_vs:
+            target_vs.is_data_dirty = True
+        self._refresh_all_viewers()
+
     def on_level_enabled_toggle(self, sender=None, app_data=None, user_data=None) -> None:
         is_active, _, _, _, target_id, _ = self.get_dose_target_info()
         if not is_active or not target_id or user_data is None:
@@ -652,8 +752,15 @@ class DosePluginController(PluginTagMixin):
         viewers = self._api.get_viewers() if hasattr(self._api, "get_viewers") else {}
         for v in viewers.values():
             v.is_geometry_dirty = True
+            v.is_viewer_data_dirty = True
+            if getattr(v, "view_state", None):
+                v.view_state.is_data_dirty = True
             if hasattr(v, "drawer") and hasattr(v.drawer, "_last_contour_image"):
                 v.drawer._last_contour_image = None
+            if hasattr(v, "drawer") and hasattr(v.drawer, "_last_leg_state"):
+                v.drawer._last_leg_state = None
+            if hasattr(v, "update_render"):
+                v.update_render(force_reblend=True)
         self._api.request_refresh()
 
     def on_image_loaded(self, image_id: str) -> None:
@@ -665,41 +772,63 @@ class DosePluginController(PluginTagMixin):
 
     def serialize_image_state(self, image_id: str, context: str = "history") -> dict:
         state = self._states.get(image_id)
+        scaling_data = None
+        if self._ui and hasattr(self._ui, "scaling_comp"):
+            scaling_data = self._ui.scaling_comp.serialize_state(image_id)
+
+        res = {}
         if state:
-            return {
-                "is_enabled": state.is_enabled,
-                "subpixel_accurate": state.subpixel_accurate,
-                "levels": [
-                    {
-                        "value": lvl.value,
-                        "color": list(lvl.color),
-                        "enabled": lvl.enabled,
-                        "thickness": lvl.thickness,
-                    }
-                    for lvl in state.levels
-                ],
-            }
-        return {}
+            res["is_enabled"] = state.is_enabled
+            res["colorwash_enabled"] = state.colorwash_enabled
+            res["colorwash_opacity"] = state.colorwash_opacity
+            res["subpixel_accurate"] = state.subpixel_accurate
+            res["levels"] = [
+                {
+                    "value": lvl.value,
+                    "color": list(lvl.color),
+                    "enabled": lvl.enabled,
+                    "thickness": lvl.thickness,
+                }
+                for lvl in state.levels
+            ]
+        if scaling_data:
+            res["scaling"] = scaling_data
+
+        return res
 
     def restore_image_state(self, image_id: str, data: dict, context: str = "history") -> None:
         if not data:
             return
         levels_data = data.get("levels", [])
-        levels = [
-            DoseIsocontourLevel(
-                value=float(ld.get("value", 100.0)),
-                color=list(ld.get("color", [255, 0, 0, 255])),
-                enabled=bool(ld.get("enabled", True)),
-                thickness=float(ld.get("thickness", 1.5)),
+        if levels_data or "is_enabled" in data or "colorwash_enabled" in data:
+            levels = [
+                DoseIsocontourLevel(
+                    value=float(ld.get("value", 100.0)),
+                    color=list(ld.get("color", [255, 0, 0, 255])),
+                    enabled=bool(ld.get("enabled", True)),
+                    thickness=float(ld.get("thickness", 1.5)),
+                )
+                for ld in levels_data
+            ]
+            self._states[image_id] = DoseIsocontourState(
+                is_enabled=bool(data.get("is_enabled", True)),
+                colorwash_enabled=bool(data.get("colorwash_enabled", False)),
+                colorwash_opacity=float(data.get("colorwash_opacity", 0.5)),
+                subpixel_accurate=bool(data.get("subpixel_accurate", True)),
+                levels=levels,
             )
-            for ld in levels_data
-        ]
-        self._states[image_id] = DoseIsocontourState(
-            is_enabled=bool(data.get("is_enabled", True)),
-            subpixel_accurate=bool(data.get("subpixel_accurate", True)),
-            levels=levels,
-        )
+
+        scaling_data = data.get("scaling")
+        if scaling_data and self._ui and hasattr(self._ui, "scaling_comp"):
+            target_vol = None
+            if self._api:
+                target_vol = self._api.get_volumes().get(image_id)
+            self._ui.scaling_comp.restore_state(image_id, scaling_data, target_vol=target_vol)
+
         self.invalidate_isocontour_cache()
+        if self._ui:
+            self._ui.rebuild_levels_ui(self._api)
+        self._refresh_all_viewers()
 
     def save_settings(self, api: PluginAPI) -> None:
         pass

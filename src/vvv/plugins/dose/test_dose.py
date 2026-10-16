@@ -629,6 +629,281 @@ class TestDosePlugin(unittest.TestCase):
         arr = sitk.GetArrayFromImage(scaled_img)
         np.testing.assert_allclose(arr, 1.114921, rtol=1e-5)
 
+    def test_dose_colorwash_bands(self):
+        self.mock_viewer.volume.unit = "Gy"
+        self.mock_viewer.volume.get_data_range.return_value = (0.0, 70.0)
+        controller = self.plugin._controller
+
+        # Initial: colorwash is disabled
+        bands = controller.get_colorwash_bands(self.mock_viewer.image_id)
+        self.assertIsNone(bands)
+
+        # Toggle shading ON
+        controller.on_toggle_shading(None, True, None)
+        bands = controller.get_colorwash_bands(self.mock_viewer.image_id, is_overlay=False)
+        self.assertIsNotNone(bands)
+        self.assertGreater(len(bands), 0)
+
+        # Verify sorted in ascending order of threshold
+        thrs = [b[0] for b in bands]
+        self.assertEqual(thrs, sorted(thrs))
+
+        # Check opacity: for base (is_overlay=False), op is colorwash_opacity (0.5)
+        self.assertEqual(bands[0][1][3], 0.5)
+
+        # For overlay (is_overlay=True), op is 1.0 (DPG GPU compositor handles overlay opacity)
+        bands_ov = controller.get_colorwash_bands(self.mock_viewer.image_id, is_overlay=True)
+        self.assertEqual(bands_ov[0][1][3], 1.0)
+
+    def test_dose_shading_opacity_callback(self):
+        self.mock_viewer.volume.unit = "Gy"
+        controller = self.plugin._controller
+
+        # When target is base image
+        controller.on_shading_opacity_changed(None, 0.72, None)
+        state = controller.get_isocontour_state(self.mock_viewer.image_id)
+        self.assertEqual(state.colorwash_opacity, 0.72)
+
+        # When target is overlay image
+        self.mock_viewer.view_state.display.overlay = MagicMock(image_id="ov_dose_id", opacity=0.5)
+        ov_vol = MagicMock(unit="Gy", is_roi=False)
+        ov_vol.get_data_range.return_value = (0.0, 60.0)
+        self.mock_api.get_volumes.return_value = {"ov_dose_id": ov_vol, self.mock_viewer.image_id: self.mock_viewer.volume}
+        self.mock_api.get_view_states.return_value = {
+            "ov_dose_id": MagicMock(display=MagicMock(overlay=None)),
+            self.mock_viewer.image_id: self.mock_viewer.view_state,
+        }
+
+        controller.on_shading_opacity_changed(None, 0.85, None)
+        self.assertEqual(self.mock_viewer.view_state.display.overlay.opacity, 0.85)
+
+    def test_dose_full_vvw_serialization_and_restore(self):
+        controller = self.plugin._controller
+        img_id = "dose_vvw_test"
+        state = controller.get_isocontour_state(img_id)
+        state.colorwash_enabled = True
+        state.colorwash_opacity = 0.42
+        state.levels[0].value = 115.0
+        state.levels[1].enabled = False
+
+        # Set scaling component state
+        scaling_comp = self.plugin._ui.scaling_comp
+        sc_state = scaling_comp.get_state(img_id)
+        sc_state.scaling_factor = 2.5
+        sc_state.norm_mode = "Prescription"
+        sc_state.norm_target_value = 60.0
+
+        # Serialize
+        data = controller.serialize_image_state(img_id)
+        self.assertTrue(data.get("colorwash_enabled"))
+        self.assertEqual(data.get("colorwash_opacity"), 0.42)
+        self.assertIn("scaling", data)
+        self.assertEqual(data["scaling"]["scaling_factor"], 2.5)
+        self.assertEqual(data["scaling"]["norm_mode"], "Prescription")
+        self.assertEqual(data["scaling"]["norm_target_value"], 60.0)
+
+        # Restore into another image
+        target_vol = MagicMock(unit="Gy", scale_factor=1.0, scale_unit=None)
+        target_vol.get_data_range.return_value = (0.0, 70.0)
+        self.mock_api.get_volumes.return_value = {"dose_restored": target_vol}
+
+        controller.restore_image_state("dose_restored", data)
+        restored_state = controller.get_isocontour_state("dose_restored")
+        self.assertTrue(restored_state.colorwash_enabled)
+        self.assertEqual(restored_state.colorwash_opacity, 0.42)
+        self.assertEqual(restored_state.levels[0].value, 115.0)
+        self.assertFalse(restored_state.levels[1].enabled)
+
+        # Check restored scaling state
+        restored_sc = scaling_comp.get_state("dose_restored")
+        self.assertEqual(restored_sc.scaling_factor, 2.5)
+        self.assertEqual(restored_sc.norm_mode, "Prescription")
+        self.assertEqual(restored_sc.norm_target_value, 60.0)
+
+        # Check volume scale factor synced
+        self.assertEqual(target_vol.scale_unit, "%")
+
+    def test_slice_renderer_colorwash_colorize(self):
+        from vvv.maths.image import SliceRenderer
+
+        slice_data = np.array([
+            [0.0, 15.0],
+            [55.0, 100.0]
+        ], dtype=np.float32)
+
+        bands = [
+            (10.0, [0.0, 0.0, 1.0, 0.5]),   # Blue >= 10
+            (50.0, [1.0, 1.0, 0.0, 0.5]),   # Yellow >= 50
+            (90.0, [1.0, 0.0, 0.0, 0.5]),   # Red >= 90
+        ]
+
+        rgba, norm = SliceRenderer._colorize_layer(
+            slice_data=slice_data,
+            is_rgb=False,
+            num_components=1,
+            ww=100.0,
+            wl=50.0,
+            cmap_name="Grayscale",
+            threshold=None,
+            colorwash=bands,
+        )
+
+        self.assertEqual(rgba.shape, (2, 2, 4))
+        # (0, 0) is 0.0 (< 10): transparent
+        np.testing.assert_allclose(rgba[0, 0], [0.0, 0.0, 0.0, 0.0])
+        # (0, 1) is 15.0 (>= 10 and < 50): blue
+        np.testing.assert_allclose(rgba[0, 1], [0.0, 0.0, 1.0, 0.5])
+        # (1, 0) is 55.0 (>= 50 and < 90): yellow
+        np.testing.assert_allclose(rgba[1, 0], [1.0, 1.0, 0.0, 0.5])
+        # (1, 1) is 100.0 (>= 90): red
+        np.testing.assert_allclose(rgba[1, 1], [1.0, 0.0, 0.0, 0.5])
+
+        # Test with display threshold
+        rgba_thr, _ = SliceRenderer._colorize_layer(
+            slice_data=slice_data,
+            is_rgb=False,
+            num_components=1,
+            ww=100.0,
+            wl=50.0,
+            cmap_name="Grayscale",
+            threshold=20.0,
+            colorwash=bands,
+        )
+        # (0, 1) has value 15.0 <= 20.0: should be masked to transparent
+        np.testing.assert_allclose(rgba_thr[0, 1], [0.0, 0.0, 0.0, 0.0])
+        # (1, 0) and (1, 1) are > 20.0: remain colored
+        np.testing.assert_allclose(rgba_thr[1, 0], [1.0, 1.0, 0.0, 0.5])
+
+    def test_dose_overlay_shading_toggles_and_refreshes(self):
+        controller = self.plugin._controller
+        controller.bind(self.mock_api)
+
+        # Configure mock_viewer to have an overlay pointing to mock_overlay ("img_2")
+        mock_ov_config = MagicMock()
+        mock_ov_config.image_id = "img_2"
+        mock_ov_config.opacity = 0.5
+        self.mock_viewer.view_state.display.overlay = mock_ov_config
+        self.mock_viewer.view_state.is_data_dirty = False
+        self.mock_overlay.unit = "Gy"
+
+        # Toggle shading ON
+        controller.on_toggle_shading(app_data=True)
+        state = controller.get_isocontour_state("img_2")
+        self.assertTrue(state.colorwash_enabled)
+        # Viewer was notified to refresh
+        self.mock_api.request_refresh.assert_called()
+
+        # Check colorwash bands generated for overlay
+        bands = controller.get_colorwash_bands("img_2", is_overlay=True)
+        self.assertIsNotNone(bands)
+        self.assertGreater(len(bands), 0)
+        # Overlay band colors should have alpha 1.0 (GPU/CPU compositing uses overlay.opacity)
+        for thr, col in bands:
+            self.assertEqual(col[3], 1.0)
+
+        # Changing shading opacity updates overlay opacity on viewer view_state
+        controller.on_shading_opacity_changed(app_data=0.75)
+        self.assertEqual(mock_ov_config.opacity, 0.75)
+        self.assertEqual(state.colorwash_opacity, 0.75)
+
+    def test_compute_native_voxel_overlay_with_colorwash(self):
+        from vvv.ui.render_strategy import compute_native_voxel_overlay
+        from vvv.maths.image import ViewMode
+
+        # Create mock viewer and mock overlay volume
+        mock_v = MagicMock()
+        mock_v.orientation = ViewMode.AXIAL
+        mock_v.slice_idx = 0
+        mock_v.get_slice_shape.return_value = (2, 2)
+        mock_v.current_pmin = [0.0, 0.0]
+        mock_v.current_pmax = [2.0, 2.0]
+
+        # Base volume
+        base_vol = MagicMock()
+        base_vol.origin = np.zeros(3)
+        base_vol.spacing = np.ones(3)
+        base_vol.matrix = np.eye(3)
+        base_vol.inverse_matrix = np.eye(3)
+        mock_v.volume = base_vol
+
+        # Overlay volume with 3D dose data: [0, 15, 55, 100]
+        ov_vol = MagicMock()
+        ov_vol.origin = np.zeros(3)
+        ov_vol.spacing = np.ones(3)
+        ov_vol.matrix = np.eye(3)
+        ov_vol.inverse_matrix = np.eye(3)
+        ov_vol.num_timepoints = 1
+        data = np.array([[[0.0, 15.0], [55.0, 100.0]]], dtype=np.float32)  # (1, 2, 2)
+        ov_vol.data = data
+        ov_vol.shape3d = (1, 2, 2)
+
+        # View states
+        base_vs = MagicMock()
+        base_vs.camera.time_idx = 0
+        base_vs.space.transform = None
+        base_vs.space.is_active = False
+        base_vs.display.overlay.image_id = "ov_dose"
+        mock_v.view_state = base_vs
+
+        ov_vs = MagicMock()
+        ov_vs.space.transform = None
+        ov_vs.space.is_active = False
+        ov_vs.display.colormap = "Grayscale"
+        ov_vs.display.min_threshold = None
+        ov_vs.display.wl = 50.0
+        ov_vs.display.ww = 100.0
+
+        mock_v.controller.view_states = {"ov_dose": ov_vs}
+        mock_v.controller.volumes = {"ov_dose": ov_vol}
+        mock_v.controller.settings.data = {"rendering": {"numba": False}}
+
+        bands = [
+            (10.0, [0.0, 0.0, 1.0, 1.0]),  # Blue >= 10
+            (50.0, [1.0, 1.0, 0.0, 1.0]),  # Yellow >= 50
+            (90.0, [1.0, 0.0, 0.0, 1.0]),  # Red >= 90
+        ]
+
+        # 1. Dual-texture mode (target_buffer=None): returns RGBA flat array
+        res = compute_native_voxel_overlay(
+            mock_v,
+            pmin=[0.0, 0.0],
+            pmax=[2.0, 2.0],
+            canvas_w=2,
+            canvas_h=2,
+            target_buffer=None,
+            opacity=1.0,
+            colorwash=bands,
+        )
+        self.assertIsNotNone(res)
+        res_2d = res.reshape(2, 2, 4)
+        # Voxel (0, 0) is 0.0 (< 10): transparent
+        np.testing.assert_allclose(res_2d[0, 0], [0.0, 0.0, 0.0, 0.0])
+        # Voxel (0, 1) is 15.0 (>= 10 and < 50): Blue
+        np.testing.assert_allclose(res_2d[0, 1], [0.0, 0.0, 1.0, 1.0])
+        # Voxel (1, 0) is 55.0 (>= 50 and < 90): Yellow
+        np.testing.assert_allclose(res_2d[1, 0], [1.0, 1.0, 0.0, 1.0])
+        # Voxel (1, 1) is 100.0 (>= 90): Red
+        np.testing.assert_allclose(res_2d[1, 1], [1.0, 0.0, 0.0, 1.0])
+
+        # 2. Single-texture mode (target_buffer=nn_base): precomposited into base
+        base_buf = np.zeros((2, 2, 4), dtype=np.float32)
+        base_buf[:, :] = [0.2, 0.2, 0.2, 1.0]  # dark gray base
+        compute_native_voxel_overlay(
+            mock_v,
+            pmin=[0.0, 0.0],
+            pmax=[2.0, 2.0],
+            canvas_w=2,
+            canvas_h=2,
+            target_buffer=base_buf,
+            opacity=0.5,
+            colorwash=bands,
+        )
+        # (0, 0) was < 10, so base pixel is left untouched!
+        np.testing.assert_allclose(base_buf[0, 0], [0.2, 0.2, 0.2, 1.0])
+        # (0, 1) blended with blue at 0.5 opacity: 0.0*0.5 + 0.2*0.5 = 0.1, 1.0*0.5 + 0.2*0.5 = 0.6
+        np.testing.assert_allclose(base_buf[0, 1, 0], 0.1, atol=1e-5)
+        np.testing.assert_allclose(base_buf[0, 1, 2], 0.6, atol=1e-5)
+
 
 if __name__ == "__main__":
     unittest.main()

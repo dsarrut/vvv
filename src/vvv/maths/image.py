@@ -6,6 +6,7 @@ import time
 import numpy as np
 from vvv.utils import ViewMode
 from vvv.config import COLORMAPS
+from typing import Any
 from dataclasses import dataclass, field
 from vvv.utils import get_history_path_key
 from vvv.maths.image_utils import straighten_image, extract_orientation_strings
@@ -32,6 +33,7 @@ class RenderLayer:
     preview_override: "np.ndarray | None" = (
         None  # 2D fast preview slice, bypasses extraction
     )
+    colorwash: Any = None  # Optional list of (threshold, [r, g, b, a])
     data_4d: np.ndarray = field(init=False)
 
     def __post_init__(self):
@@ -406,9 +408,23 @@ class SliceRenderer:
 
     @staticmethod
     def _colorize_layer(
-        slice_data, is_rgb, num_components, ww, wl, cmap_name, threshold
+        slice_data, is_rgb, num_components, ww, wl, cmap_name, threshold, colorwash=None
     ):
         """Applies Window/Level, Colormaps, and Alpha channels."""
+        if colorwash is not None and len(colorwash) > 0:
+            h, w = slice_data.shape[:2]
+            rgba = np.zeros((h, w, 4), dtype=np.float32)
+            # colorwash is list of (raw_thr, [r, g, b, a]) in ascending order
+            for thr, col in colorwash:
+                mask = slice_data >= thr
+                rgba[mask] = col
+
+            if threshold is not None:
+                rgba[slice_data <= threshold] = [0.0, 0.0, 0.0, 0.0]
+
+            norm = SliceRenderer.normalize_wl(slice_data, ww, wl)
+            return rgba, norm
+
         if is_rgb:
             norm = np.clip(slice_data.astype(np.float32) / 255.0, 0.0, 1.0)
             if num_components == 3:
@@ -509,6 +525,7 @@ class SliceRenderer:
                 base.wl,
                 base.cmap_name,
                 base.threshold,
+                getattr(base, "colorwash", None),
             )
 
         if rois and not roi_above_overlay:
@@ -552,6 +569,7 @@ class SliceRenderer:
                 overlay.wl,
                 overlay.cmap_name,
                 overlay.threshold,
+                getattr(overlay, "colorwash", None),
             )
 
             # --- Compositing Router ---

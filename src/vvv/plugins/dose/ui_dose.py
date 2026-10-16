@@ -139,7 +139,7 @@ class DosePluginUI(PluginTagMixin):
 
                 with dpg.group(horizontal=True):
                     dpg.add_checkbox(
-                        label="Show",
+                        label="Lines",
                         tag=self._t("check_isodose_enable"),
                         default_value=True,
                         callback=self._c.on_toggle_isocontours,
@@ -147,6 +147,18 @@ class DosePluginUI(PluginTagMixin):
                     build_beginner_tooltip(
                         self._t("check_isodose_enable"),
                         "Displays isolines / isodose contours for the active dose image.",
+                        api,
+                    )
+
+                    dpg.add_checkbox(
+                        label="Shading",
+                        tag=self._t("check_isodose_shading"),
+                        default_value=False,
+                        callback=self._c.on_toggle_shading,
+                    )
+                    build_beginner_tooltip(
+                        self._t("check_isodose_shading"),
+                        "Displays semi-transparent colorwash shading between isodose levels.",
                         api,
                     )
 
@@ -176,6 +188,23 @@ class DosePluginUI(PluginTagMixin):
                         "Reset default isodose levels (10% to 107%).",
                         api,
                     )
+
+                with dpg.group(horizontal=True, tag=self._t("group_shading_opacity"), show=False):
+                    dpg.add_text("Opacity:", color=cfg_c["text_dim"])
+                    dpg.add_slider_float(
+                        tag=self._t("slider_shading_opacity"),
+                        default_value=0.5,
+                        min_value=0.05,
+                        max_value=1.0,
+                        format="%.2f",
+                        width=-1,
+                        callback=self._c.on_shading_opacity_changed,
+                    )
+                build_beginner_tooltip(
+                    self._t("slider_shading_opacity"),
+                    "Opacity of the isodose colorwash shading overlay.",
+                    api,
+                )
 
                 dpg.add_spacer(height=4)
                 dpg.add_text("Levels:", color=cfg_c["text_dim"])
@@ -296,8 +325,19 @@ class DosePluginUI(PluginTagMixin):
             state = self._c.get_isocontour_state(target_id)
             if dpg.does_item_exist(self._t("check_isodose_enable")):
                 dpg.set_value(self._t("check_isodose_enable"), state.is_enabled)
+            if dpg.does_item_exist(self._t("check_isodose_shading")):
+                dpg.set_value(self._t("check_isodose_shading"), state.colorwash_enabled)
             if dpg.does_item_exist(self._t("check_isodose_subpixel")):
                 dpg.set_value(self._t("check_isodose_subpixel"), state.subpixel_accurate)
+            if dpg.does_item_exist(self._t("group_shading_opacity")):
+                dpg.configure_item(self._t("group_shading_opacity"), show=state.colorwash_enabled)
+            if dpg.does_item_exist(self._t("slider_shading_opacity")) and not dpg.is_item_active(self._t("slider_shading_opacity")):
+                cur_op = state.colorwash_opacity
+                if is_overlay and api:
+                    active_v = api.get_active_viewer()
+                    if active_v and active_v.view_state and active_v.view_state.display.overlay:
+                        cur_op = active_v.view_state.display.overlay.opacity
+                dpg.set_value(self._t("slider_shading_opacity"), cur_op)
 
             # Check if levels rows need to be refreshed
             levels_group = self._t("group_isodose_levels")

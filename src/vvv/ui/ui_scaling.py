@@ -61,6 +61,30 @@ class IntensityScalingComponent:
             self._states[image_id] = ScalingState(norm_target_value=self._default_target_value)
         return self._states[image_id]
 
+    def serialize_state(self, image_id: Optional[str]) -> dict:
+        if not image_id or image_id not in self._states:
+            return {}
+        st = self._states[image_id]
+        return {
+            "scaling_factor": float(st.scaling_factor),
+            "norm_mode": st.norm_mode,
+            "norm_target_value": float(st.norm_target_value),
+            "norm_scale_type": st.norm_scale_type,
+            "norm_roi_id": st.norm_roi_id,
+        }
+
+    def restore_state(self, image_id: Optional[str], data: dict, target_vol=None) -> None:
+        if not image_id or not data:
+            return
+        st = self.get_state(image_id)
+        st.scaling_factor = float(data.get("scaling_factor", 1.0))
+        st.norm_mode = data.get("norm_mode", None)
+        st.norm_target_value = float(data.get("norm_target_value", self._default_target_value))
+        st.norm_scale_type = data.get("norm_scale_type", "100 %")
+        st.norm_roi_id = data.get("norm_roi_id", None)
+        if target_vol:
+            self._sync_volume_virtual_scale(target_vol, st)
+
     def create_ui(self, parent, api: Any) -> None:
         self._api = api
         cfg_c = self._get_colors(api)
