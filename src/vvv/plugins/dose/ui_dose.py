@@ -9,6 +9,7 @@ from vvv.ui.ui_components import (
 )
 from vvv.utils import compute_adaptive_step_and_speed
 from vvv.ui.ui_scaling import IntensityScalingComponent
+from vvv.plugins.dose.ui_dvh import DVHWindow
 
 if TYPE_CHECKING:
     from .control_dose import DosePluginController
@@ -25,6 +26,7 @@ class DosePluginUI(PluginTagMixin):
             default_target_value=50.0,
             ref_label="Prescription",
         )
+        self.dvh_win = DVHWindow(plugin_id=self._plugin_id, controller=self._c)
 
     def _get_scaling_target(self):
         is_active, target_vol, is_ov, unit_str, target_id, target_vs = (
@@ -211,6 +213,39 @@ class DosePluginUI(PluginTagMixin):
 
                 # Dynamic container for individual isodose levels
                 dpg.add_group(tag=self._t("group_isodose_levels"))
+
+                dpg.add_spacer(height=10)
+                dpg.add_separator()
+                dpg.add_spacer(height=6)
+
+                # --- Dose-Volume Histogram (DVH) Section ---
+                build_section_title("Dose-Volume Histogram (DVH)", cfg_c["text_header"])
+                dpg.add_spacer(height=4)
+                dpg.add_text(
+                    "Compute cumulative & differential DVH curves\n"
+                    "and clinical dosimetric metrics for all ROIs.",
+                    color=cfg_c["text_dim"],
+                )
+                dpg.add_spacer(height=6)
+                btn_dvh = dpg.add_button(
+                    label="Open DVH Window",
+                    width=-1,
+                    height=28,
+                    callback=self.on_open_dvh_clicked,
+                    tag=self._t("btn_open_dvh"),
+                )
+                build_beginner_tooltip(
+                    btn_dvh,
+                    "Opens the interactive Dose-Volume Histogram (DVH/HDV) floating window\n"
+                    "to analyze dose coverage, D98, D50, D2, and export metrics.",
+                    api,
+                )
+                if dpg.does_item_exist("icon_button_theme"):
+                    dpg.bind_item_theme(btn_dvh, "icon_button_theme")
+
+    def on_open_dvh_clicked(self, sender=None, app_data=None, user_data=None) -> None:
+        if self._api:
+            self.dvh_win.show_window(self._api)
 
     def rebuild_levels_ui(self, api: PluginAPI) -> None:
         """Reconstructs the list of isodose level rows."""

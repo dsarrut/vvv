@@ -953,6 +953,99 @@ class TestDosePlugin(unittest.TestCase):
             self.assertEqual(state.colorwash_opacity, 0.88)
             mock_set_val.assert_any_call(slider_tag, 0.88)
 
+    def test_dvh_calculation(self):
+        import SimpleITK as sitk
+        from vvv.plugins.dose.dvh_calc import compute_roi_dvh
+
+        # Create mock dose volume (shape: 10x10x10)
+        dose_arr = np.linspace(0, 50, 1000, dtype=np.float32).reshape((10, 10, 10))
+        mock_dose_vol = MagicMock()
+        mock_dose_vol.sitk_image = sitk.GetImageFromArray(dose_arr)
+        mock_dose_vol.sitk_image.SetSpacing((1.0, 1.0, 1.0))
+        mock_dose_vol.data = dose_arr
+
+        # Create mock ROI volume (shape: 10x10x10 with 100 non-zero voxels)
+        roi_arr = np.zeros((10, 10, 10), dtype=np.uint8)
+        roi_arr[2:4, 2:7, 2:7] = 1  # 2 * 5 * 5 = 50 voxels
+        mock_roi_vol = MagicMock()
+        mock_roi_vol.sitk_image = sitk.GetImageFromArray(roi_arr)
+        mock_roi_vol.sitk_image.SetSpacing((1.0, 1.0, 1.0))
+        mock_roi_vol.data = roi_arr
+
+        curve = compute_roi_dvh(
+            dose_vol=mock_dose_vol,
+            roi_vol=mock_roi_vol,
+            roi_name="PTV",
+            color=[255, 0, 0, 255],
+            num_bins=100,
+        )
+
+        self.assertIsNotNone(curve)
+        self.assertEqual(curve.roi_name, "PTV")
+        self.assertAlmostEqual(curve.volume_cc, 0.05, places=3)
+        self.assertEqual(curve.volume_percent[0], 100.0)
+        self.assertTrue(curve.volume_percent[-1] <= 1.0)
+        self.assertTrue(curve.min_dose < curve.max_dose)
+        self.assertTrue(curve.d98 <= curve.median_dose <= curve.d2)
+
+    def test_dvh_window_ui(self):
+        import SimpleITK as sitk
+
+        ui = self.plugin._ui
+        ctrl = self.plugin._controller
+
+        # Setup active dose image
+        self.mock_viewer.volume.unit = "Gy"
+        dose_arr = np.full((10, 10, 10), 45.0, dtype=np.float32)
+        self.mock_viewer.volume.data = dose_arr
+        self.mock_viewer.volume.sitk_image = sitk.GetImageFromArray(dose_arr)
+        self.mock_viewer.volume.sitk_image.SetSpacing((1.0, 1.0, 1.0))
+
+        # Setup ROI in view_state
+        roi_arr = np.ones((10, 10, 10), dtype=np.uint8)
+        mock_roi_vol = MagicMock()
+        mock_roi_vol.data = roi_arr
+        mock_roi_vol.sitk_image = sitk.GetImageFromArray(roi_arr)
+        mock_roi_vol.sitk_image.SetSpacing((1.0, 1.0, 1.0))
+
+        roi_state = MagicMock()
+        roi_state.name = "Bladder"
+        roi_state.color = [0, 0, 255, 255]
+        self.mock_viewer.view_state.rois = {"roi_bladder": roi_state}
+        self.mock_api.get_volumes.return_value = {
+            "img_1": self.mock_viewer.volume,
+            "roi_bladder": mock_roi_vol,
+        }
+
+        # Open DVH window
+        ui.on_open_dvh_clicked()
+        win_tag = ui.dvh_win.window_tag
+        self.assertTrue(dpg.does_item_exist(win_tag))
+        self.assertTrue(dpg.does_item_exist(ui.dvh_win._t("dvh_plot")))
+        self.assertTrue(dpg.does_item_exist(ui.dvh_win._t("dvh_metrics_table")))
+
+        # Check controls existence
+        self.assertTrue(dpg.does_item_exist(ui.dvh_win._t("dvh_btn_fit_view")))
+        self.assertTrue(dpg.does_item_exist(ui.dvh_win._t("dvh_chk_show_legend")))
+
+        # Check that curve was computed
+        self.assertEqual(len(ui.dvh_win.curves), 1)
+        self.assertEqual(ui.dvh_win.curves[0].roi_name, "Bladder")
+
+        # Test Fit View
+        ui.dvh_win.fit_view()
+
+        # Test legend toggle
+        dpg.set_value(ui.dvh_win._t("dvh_chk_show_legend"), False)
+        ui.dvh_win._on_toggle_legend()
+
+        # Test radio toggle
+        ui.dvh_win._on_display_option_changed()
+
+        # Close window
+        ui.dvh_win.on_window_close()
+        self.assertFalse(dpg.does_item_exist(win_tag))
+
 
 if __name__ == "__main__":
     unittest.main()
