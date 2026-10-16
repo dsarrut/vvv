@@ -1132,6 +1132,81 @@ class TestDosePlugin(unittest.TestCase):
 
         ui.dvh_win.on_window_close()
 
+    def test_dvh_table_sorting(self):
+        import SimpleITK as sitk
+
+        ui = self.plugin._ui
+        self.mock_viewer.volume.unit = "Gy"
+        dose_arr = np.linspace(0, 50, 1000, dtype=np.float32).reshape((10, 10, 10))
+        self.mock_viewer.volume.data = dose_arr
+        self.mock_viewer.volume.sitk_image = sitk.GetImageFromArray(dose_arr)
+        self.mock_viewer.volume.sitk_image.SetSpacing((1.0, 1.0, 1.0))
+
+        # Setup 3 ROIs
+        def make_roi(name, mask_slice):
+            arr = np.zeros((10, 10, 10), dtype=np.uint8)
+            arr[mask_slice] = 1
+            vol = MagicMock()
+            vol.data = arr
+            vol.sitk_image = sitk.GetImageFromArray(arr)
+            vol.sitk_image.SetSpacing((1.0, 1.0, 1.0))
+            st = MagicMock()
+            st.name = name
+            st.color = [255, 0, 0, 255]
+            return vol, st
+
+        v_blad, s_blad = make_roi("Bladder", (slice(0, 2), slice(0, 5), slice(0, 5)))
+        v_rect, s_rect = make_roi("Rectum", (slice(0, 1), slice(0, 5), slice(0, 5)))
+        v_ptv, s_ptv = make_roi("PTV", (slice(0, 4), slice(0, 5), slice(0, 5)))
+
+        self.mock_viewer.view_state.rois = {
+            "roi_blad": s_blad,
+            "roi_rect": s_rect,
+            "roi_ptv": s_ptv,
+        }
+        self.mock_api.get_volumes.return_value = {
+            "img_1": self.mock_viewer.volume,
+            "roi_blad": v_blad,
+            "roi_rect": v_rect,
+            "roi_ptv": v_ptv,
+        }
+
+        # Open DVH window
+        ui.on_open_dvh_clicked()
+        tbl_tag = ui.dvh_win._t("dvh_metrics_table")
+        self.assertTrue(dpg.does_item_exist(tbl_tag))
+        self.assertTrue(dpg.get_item_configuration(tbl_tag)["sortable"])
+
+        def get_rendered_names():
+            rows = dpg.get_item_children(tbl_tag, slot=1) or []
+            names = []
+            for r in rows:
+                first_cell = (dpg.get_item_children(r, slot=1) or [])[0]
+                names.append(dpg.get_value(first_cell))
+            return names
+
+        # 1. Sort by structure name ascending
+        ui.dvh_win._on_table_sort(sort_specs=[[ui.dvh_win._t("dvh_col_struct"), 1]])
+        self.assertEqual(get_rendered_names(), ["Bladder", "PTV", "Rectum"])
+
+        # 2. Sort by structure name descending
+        ui.dvh_win._on_table_sort(sort_specs=[[ui.dvh_win._t("dvh_col_struct"), -1]])
+        self.assertEqual(get_rendered_names(), ["Rectum", "PTV", "Bladder"])
+
+        # 3. Sort by volume ascending (Rectum < Bladder < PTV)
+        ui.dvh_win._on_table_sort(sort_specs=[[ui.dvh_win._t("dvh_col_vol"), 1]])
+        self.assertEqual(get_rendered_names(), ["Rectum", "Bladder", "PTV"])
+
+        # 4. Sort by volume descending (PTV > Bladder > Rectum)
+        ui.dvh_win._on_table_sort(sort_specs=[[ui.dvh_win._t("dvh_col_vol"), -1]])
+        self.assertEqual(get_rendered_names(), ["PTV", "Bladder", "Rectum"])
+
+        # 5. Clear sorting
+        ui.dvh_win._on_table_sort(sort_specs=None)
+        self.assertIsNone(ui.dvh_win.sort_column)
+
+        ui.dvh_win.on_window_close()
+
 
 if __name__ == "__main__":
     unittest.main()

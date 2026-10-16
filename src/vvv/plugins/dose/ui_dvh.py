@@ -24,6 +24,8 @@ class DVHWindow(PluginTagMixin):
         self.is_volume_relative: bool = True   # True: %, False: cc
         self.is_dose_relative: bool = False     # True: %, False: Gy
         self.norm_prescription_gy: float = 50.0 # From IntensityScalingComponent if available
+        self.sort_column: Optional[str] = None
+        self.sort_reverse: bool = False
         self.window_tag = self._t("dvh_window")
 
     def show_window(self, api: PluginAPI) -> None:
@@ -217,20 +219,70 @@ class DVHWindow(PluginTagMixin):
                     tag=self._t("dvh_metrics_table"),
                     header_row=True,
                     resizable=True,
+                    sortable=True,
+                    sort_tristate=True,
+                    callback=self._on_table_sort,
                     borders_innerH=True,
                     borders_innerV=True,
                     borders_outerH=True,
                     borders_outerV=True,
                     row_background=True,
                 ):
-                    dpg.add_table_column(label="Structure", width_stretch=True)
-                    dpg.add_table_column(label="Vol (cm³)", width_fixed=True, init_width_or_weight=75)
-                    dpg.add_table_column(label="Min (Gy)", width_fixed=True, init_width_or_weight=70)
-                    dpg.add_table_column(label="Mean (Gy)", width_fixed=True, init_width_or_weight=75)
-                    dpg.add_table_column(label="Max (Gy)", width_fixed=True, init_width_or_weight=70)
-                    dpg.add_table_column(label="D98 (Gy)", width_fixed=True, init_width_or_weight=70)
-                    dpg.add_table_column(label="D50 (Gy)", width_fixed=True, init_width_or_weight=70)
-                    dpg.add_table_column(label="D2 (Gy)", width_fixed=True, init_width_or_weight=70)
+                    dpg.add_table_column(
+                        label="Structure",
+                        width_stretch=True,
+                        tag=self._t("dvh_col_struct"),
+                        user_data="roi_name",
+                    )
+                    dpg.add_table_column(
+                        label="Vol (cm³)",
+                        width_fixed=True,
+                        init_width_or_weight=75,
+                        tag=self._t("dvh_col_vol"),
+                        user_data="volume_cc",
+                    )
+                    dpg.add_table_column(
+                        label="Min (Gy)",
+                        width_fixed=True,
+                        init_width_or_weight=70,
+                        tag=self._t("dvh_col_min"),
+                        user_data="min_dose",
+                    )
+                    dpg.add_table_column(
+                        label="Mean (Gy)",
+                        width_fixed=True,
+                        init_width_or_weight=75,
+                        tag=self._t("dvh_col_mean"),
+                        user_data="mean_dose",
+                    )
+                    dpg.add_table_column(
+                        label="Max (Gy)",
+                        width_fixed=True,
+                        init_width_or_weight=70,
+                        tag=self._t("dvh_col_max"),
+                        user_data="max_dose",
+                    )
+                    dpg.add_table_column(
+                        label="D98 (Gy)",
+                        width_fixed=True,
+                        init_width_or_weight=70,
+                        tag=self._t("dvh_col_d98"),
+                        user_data="d98",
+                    )
+                    dpg.add_table_column(
+                        label="D50 (Gy)",
+                        width_fixed=True,
+                        init_width_or_weight=70,
+                        tag=self._t("dvh_col_d50"),
+                        user_data="median_dose",
+                    )
+                    dpg.add_table_column(
+                        label="D2 (Gy)",
+                        width_fixed=True,
+                        init_width_or_weight=70,
+                        tag=self._t("dvh_col_d2"),
+                        user_data="d2",
+                    )
 
         # Initial calculation
         self.recompute_and_update(fit_axes=True)
@@ -553,6 +605,54 @@ class DVHWindow(PluginTagMixin):
                 )
                 dpg.add_text(c.roi_name, tag=self._t(f"dvh_struct_name_{c.roi_id}"))
 
+    @property
+    def _column_attr_map(self) -> Dict[Any, str]:
+        return {
+            self._t("dvh_col_struct"): "roi_name",
+            self._t("dvh_col_vol"): "volume_cc",
+            self._t("dvh_col_min"): "min_dose",
+            self._t("dvh_col_mean"): "mean_dose",
+            self._t("dvh_col_max"): "max_dose",
+            self._t("dvh_col_d98"): "d98",
+            self._t("dvh_col_d50"): "median_dose",
+            self._t("dvh_col_d2"): "d2",
+            "Structure": "roi_name",
+            "Vol (cm³)": "volume_cc",
+            "Min (Gy)": "min_dose",
+            "Mean (Gy)": "mean_dose",
+            "Max (Gy)": "max_dose",
+            "D98 (Gy)": "d98",
+            "D50 (Gy)": "median_dose",
+            "D2 (Gy)": "d2",
+        }
+
+    def _on_table_sort(self, sender=None, sort_specs=None, user_data=None):
+        """Callback when any column header is clicked in the metrics table."""
+        if not sort_specs or len(sort_specs) == 0:
+            self.sort_column = None
+            self.sort_reverse = False
+        else:
+            col_id, direction = sort_specs[0]
+            self.sort_reverse = (direction < 0)
+
+            attr = None
+            if dpg.does_item_exist(col_id):
+                attr = dpg.get_item_user_data(col_id)
+            if not attr:
+                attr = self._column_attr_map.get(col_id)
+            if not attr and dpg.does_item_exist(col_id):
+                alias = dpg.get_item_alias(col_id)
+                if alias:
+                    attr = self._column_attr_map.get(alias)
+            if not attr and dpg.does_item_exist(col_id):
+                label = dpg.get_item_label(col_id)
+                if label:
+                    attr = self._column_attr_map.get(label)
+
+            self.sort_column = attr
+
+        self._render_metrics_table()
+
     def _render_metrics_table(self):
         """Populates the dosimetric metrics table with currently filtered/visible structures."""
         table_tag = self._t("dvh_metrics_table")
@@ -563,7 +663,20 @@ class DVHWindow(PluginTagMixin):
         for r in rows:
             dpg.delete_item(r)
 
-        targets = self._get_filtered_curves()
+        targets = list(self._get_filtered_curves())
+        if self.sort_column:
+            attr = self.sort_column
+            if attr == "roi_name":
+                targets.sort(
+                    key=lambda c: getattr(c, "roi_name", "").lower(),
+                    reverse=self.sort_reverse,
+                )
+            else:
+                targets.sort(
+                    key=lambda c: float(getattr(c, attr, 0.0)),
+                    reverse=self.sort_reverse,
+                )
+
         for c in targets:
             row = dpg.add_table_row(parent=table_tag)
             # Structure name with color indicator
@@ -691,7 +804,19 @@ class DVHWindow(PluginTagMixin):
                 writer = csv.writer(f)
 
                 # Export filtered curves if search filter active, otherwise all
-                export_curves = self._get_filtered_curves() if self.filter_text else self.curves
+                export_curves = list(self._get_filtered_curves() if self.filter_text else self.curves)
+                if self.sort_column:
+                    attr = self.sort_column
+                    if attr == "roi_name":
+                        export_curves.sort(
+                            key=lambda c: getattr(c, "roi_name", "").lower(),
+                            reverse=self.sort_reverse,
+                        )
+                    else:
+                        export_curves.sort(
+                            key=lambda c: float(getattr(c, attr, 0.0)),
+                            reverse=self.sort_reverse,
+                        )
 
                 # 1. Summary Metrics Table
                 writer.writerow(["# DVH Summary Metrics"])
