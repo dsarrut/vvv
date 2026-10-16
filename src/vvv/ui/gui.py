@@ -5,7 +5,9 @@ import os
 import json
 import shlex
 import time
+import inspect
 import threading
+import traceback
 import collections
 import numpy as np
 from vvv.utils import fmt, ViewMode, format_pixel_value
@@ -155,6 +157,31 @@ class MainGUI:
         """Schedule a callback to be run on the main thread during the next frame tick."""
         with self._main_thread_lock:
             self._main_thread_callbacks.append(callback)
+
+    def _run_dpg_callbacks(self):
+        """Run DPG callbacks queued since the last frame, on the main thread.
+
+        With manual_callback_management, DPG queues callbacks instead of running
+        them on its own thread, so handlers never race the render loop.
+        Replaces dpg.run_callbacks() so that one failing callback neither drops
+        the rest of the queue nor kills the main loop.
+        """
+        jobs = dpg.get_callback_queue()
+        if not jobs:
+            return
+        for job in jobs:
+            cb = job[0]
+            if cb is None:
+                continue
+            try:
+                params = inspect.signature(cb).parameters.values()
+                if any(p.kind == p.VAR_POSITIONAL for p in params):
+                    n = 3
+                else:
+                    n = min(3, len(params))
+                cb(*job[1 : 1 + n])
+            except Exception:
+                traceback.print_exc()
 
     def notify_plugins_image_loaded(self, image_id: str) -> None:
         for plugin in self.plugins:
@@ -2874,6 +2901,8 @@ class MainGUI:
 
     def run(self, boot_generator=None, debug=False):
         self.controller.debug_mode = debug
+        # Callbacks are queued by DPG and run by _run_dpg_callbacks() in the loop
+        dpg.configure_app(manual_callback_management=True)
         dpg.setup_dearpygui()
 
         if not dpg.does_item_exist("global_texture_registry"):
@@ -2889,12 +2918,14 @@ class MainGUI:
 
         for _ in range(3):
             dpg.render_dearpygui_frame()
+            self._run_dpg_callbacks()
 
         install_os_drop(self.on_file_drop)
 
         if boot_generator:
             for _ in boot_generator:
                 dpg.render_dearpygui_frame()
+                self._run_dpg_callbacks()
 
         # --- DEBUG FPS + RENDER-ROUTE OVERLAY ---
         import platform as _plat
@@ -2940,6 +2971,7 @@ class MainGUI:
         last_frame_time = time.perf_counter()
 
         while dpg.is_dearpygui_running():
+            self._run_dpg_callbacks()
             t_now = time.perf_counter()
 
             # Detect activity/necessity to run at full speed
