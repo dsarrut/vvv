@@ -265,9 +265,13 @@ class PluginAPI:
             None,
         )
         if roi_plugin and hasattr(roi_plugin, "_ui"):
-            rois_info = self.parse_rtstruct(filepath)
+            res = self.parse_rtstruct(filepath, return_ds=True)
+            if isinstance(res, tuple) and len(res) == 2:
+                rois_info, ds = res
+            else:
+                rois_info, ds = res, None
             roi_plugin._ui.show_rtstruct_selection_modal(
-                filepath, rois_info, target_image_id=target_image_id
+                filepath, rois_info, target_image_id=target_image_id, ds=ds
             )
         else:
             self.show_message(
@@ -277,8 +281,8 @@ class PluginAPI:
 
     # --- ROI operations ---
 
-    def parse_rtstruct(self, filepath) -> list[dict]:
-        return self._controller.roi.parse_rtstruct(filepath)
+    def parse_rtstruct(self, filepath, return_ds: bool = False):
+        return self._controller.roi.parse_rtstruct(filepath, return_ds=return_ds)
 
     def close_roi(self, image_id, roi_id) -> None:
         self._controller.roi.close_roi(image_id, roi_id)
@@ -319,12 +323,17 @@ class PluginAPI:
     def save_image(self, image_id, file_path) -> None:
         self._controller.save_image(image_id, file_path)
 
-    def load_rtstruct(self, image_id, filepath, selected_rois) -> None:
+    def load_rtstruct(self, image_id, filepath, selected_rois, ds=None) -> None:
         from vvv.ui.ui_sequences import load_rtstruct_sequence
 
         self._gui.tasks.append(
             load_rtstruct_sequence(
-                self._gui, self._controller, image_id, filepath, selected_rois
+                self._gui,
+                self._controller,
+                image_id,
+                filepath,
+                selected_rois,
+                ds=ds,
             )
         )
 

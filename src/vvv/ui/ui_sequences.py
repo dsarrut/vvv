@@ -717,7 +717,9 @@ def load_label_map_sequence(
             yield
 
 
-def load_rtstruct_sequence(gui, controller, base_image_id, filepath, selected_rois):
+def load_rtstruct_sequence(
+    gui, controller, base_image_id, filepath, selected_rois, ds=None
+):
     import os
 
     # Give DearPyGui 3 frames to completely destroy the selection modal
@@ -734,15 +736,16 @@ def load_rtstruct_sequence(gui, controller, base_image_id, filepath, selected_ro
     vs = controller.view_states[base_image_id]
     initial_roi_ids = set(vs.rois.keys())
 
-    try:
-        import pydicom
+    if ds is None:
+        try:
+            import pydicom
 
-        ds = pydicom.dcmread(filepath, force=True)
-    except Exception as e:
-        hide_loading_modal()
-        yield
-        gui.show_message("Error", f"Failed to read DICOM:\n{e}")
-        return
+            ds = pydicom.dcmread(filepath, force=True)
+        except Exception as e:
+            hide_loading_modal()
+            yield
+            gui.show_message("Error", f"Failed to read DICOM:\n{e}")
+            return
 
     for i, r_info in enumerate(selected_rois, 1):
         name = r_info.get("name", "Unknown")
@@ -829,9 +832,15 @@ def load_series_and_rtstruct_sequence(
     )
     if roi_plugin and hasattr(roi_plugin, "_ui"):
         try:
-            rois_info = controller.roi.parse_rtstruct(rtstruct_filepath)
+            res = controller.roi.parse_rtstruct(
+                rtstruct_filepath, return_ds=True
+            )
+            if isinstance(res, tuple) and len(res) == 2:
+                rois_info, ds = res
+            else:
+                rois_info, ds = res, None
             roi_plugin._ui.show_rtstruct_selection_modal(
-                rtstruct_filepath, rois_info, target_image_id=loaded_id
+                rtstruct_filepath, rois_info, target_image_id=loaded_id, ds=ds
             )
         except Exception as e:
             gui.show_message("Error", f"Failed to parse RT-Struct:\n{e}")

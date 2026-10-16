@@ -669,10 +669,11 @@ class ROIManager:
 
         return mask_id
 
-    def parse_rtstruct(self, filepath):
+    def parse_rtstruct(self, filepath, return_ds: bool = False):
         """
         Parses an RT-Struct DICOM file and returns a list of dictionaries
         containing information about the available ROIs.
+        If return_ds is True, returns (rois_info, ds) to avoid re-reading the file.
         """
         try:
             import pydicom
@@ -727,6 +728,8 @@ class ROIManager:
                 }
             )
 
+        if return_ds:
+            return rois_info, ds
         return rois_info
 
     def load_rtstruct_roi(self, base_id, filepath, roi_info, ds=None):

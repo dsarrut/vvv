@@ -259,7 +259,7 @@ class TestPluginAPI(unittest.TestCase):
         self.api.show_rtstruct_selection_modal("/path/to/rt.dcm", target_image_id="img_1")
 
         mock_roi_plugin._ui.show_rtstruct_selection_modal.assert_called_once_with(
-            "/path/to/rt.dcm", [{"id": 1, "name": "GTV"}], target_image_id="img_1"
+            "/path/to/rt.dcm", [{"id": 1, "name": "GTV"}], target_image_id="img_1", ds=None
         )
 
     def test_load_series_and_rtstruct_sequence(self):
@@ -283,7 +283,7 @@ class TestPluginAPI(unittest.TestCase):
 
         self.mock_controller.file.load_image.assert_called_once_with(["/path/to/ct.dcm"])
         mock_roi_plugin._ui.show_rtstruct_selection_modal.assert_called_once_with(
-            "/path/to/rt.dcm", [{"id": 1, "name": "PTV"}], target_image_id="img_new"
+            "/path/to/rt.dcm", [{"id": 1, "name": "PTV"}], target_image_id="img_new", ds=None
         )
 
 

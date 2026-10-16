@@ -982,7 +982,9 @@ class RoiPluginUI(PluginTagMixin):
         self.update_roi_stats_ui()
         self.api.on_window_resize()
 
-    def show_rtstruct_selection_modal(self, filepath, rois_info, target_image_id=None):
+    def show_rtstruct_selection_modal(
+        self, filepath, rois_info, target_image_id=None, ds=None
+    ):
         modal_tag = self._t("rtstruct_selection_modal")
         if dpg.does_item_exist(modal_tag):
             dpg.delete_item(modal_tag)
@@ -1081,7 +1083,9 @@ class RoiPluginUI(PluginTagMixin):
                         viewer = self.api.get_active_viewer()
                         dest_id = viewer.image_id if (viewer and viewer.image_id) else None
                     if dest_id:
-                        self.api.load_rtstruct(dest_id, filepath, selected_rois)
+                        self.api.load_rtstruct(
+                            dest_id, filepath, selected_rois, ds=ds
+                        )
 
                 dpg.add_button(label="Load", width=80, callback=_on_load)
 
@@ -1157,7 +1161,11 @@ class RoiPluginUI(PluginTagMixin):
         first_file = file_paths[0] if isinstance(file_paths, list) else file_paths
 
         try:
-            rois_info = self.api.parse_rtstruct(first_file)
+            res = self.api.parse_rtstruct(first_file, return_ds=True)
+            if isinstance(res, tuple) and len(res) == 2:
+                rois_info, ds = res
+            else:
+                rois_info, ds = res, None
         except Exception as e:
             self.api.show_message("Error", f"Failed to parse RT-Struct:\n{e}")
             return
@@ -1168,7 +1176,7 @@ class RoiPluginUI(PluginTagMixin):
             )
             return
 
-        self.show_rtstruct_selection_modal(first_file, rois_info)
+        self.show_rtstruct_selection_modal(first_file, rois_info, ds=ds)
 
     def on_load_labels_clicked(self, sender, app_data, user_data):
         viewer = self.api.get_active_viewer()

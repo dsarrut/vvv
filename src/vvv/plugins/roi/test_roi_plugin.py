@@ -397,6 +397,7 @@ class TestRoiPlugin(unittest.TestCase):
                     {"name": "ROI 1", "color": [255, 0, 0]},
                     {"name": "ROI 2", "color": [0, 255, 0]},
                 ],
+                ds=None,
             )
 
         dpg.delete_item("test_parent")
