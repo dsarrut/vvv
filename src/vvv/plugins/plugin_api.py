@@ -242,6 +242,39 @@ class PluginAPI:
             load_batch_images_sequence(self._gui, self._controller, [file_list])
         )
 
+    def load_dicom_series_and_rtstruct(
+        self, file_list: list[str], rtstruct_filepath: str
+    ) -> None:
+        from vvv.ui.ui_sequences import load_series_and_rtstruct_sequence
+
+        self._gui.tasks.append(
+            load_series_and_rtstruct_sequence(
+                self._gui, self._controller, file_list, rtstruct_filepath
+            )
+        )
+
+    def show_rtstruct_selection_modal(
+        self, filepath: str, target_image_id: str | None = None
+    ) -> None:
+        roi_plugin = next(
+            (
+                p
+                for p in getattr(self._gui, "plugins", [])
+                if getattr(p, "plugin_id", "") == "roi_plugin"
+            ),
+            None,
+        )
+        if roi_plugin and hasattr(roi_plugin, "_ui"):
+            rois_info = self.parse_rtstruct(filepath)
+            roi_plugin._ui.show_rtstruct_selection_modal(
+                filepath, rois_info, target_image_id=target_image_id
+            )
+        else:
+            self.show_message(
+                "ROI Plugin Required",
+                "The ROI plugin is required to load RT-Struct files.",
+            )
+
     # --- ROI operations ---
 
     def parse_rtstruct(self, filepath) -> list[dict]:

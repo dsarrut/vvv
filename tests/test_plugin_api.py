@@ -250,6 +250,42 @@ class TestPluginAPI(unittest.TestCase):
                 self.assertEqual(len(plugins), 1)
                 self.assertEqual(plugins[0].plugin_id, "mock_intensity")
 
+    def test_show_rtstruct_selection_modal_with_plugin_list(self):
+        mock_roi_plugin = MagicMock()
+        mock_roi_plugin.plugin_id = "roi_plugin"
+        self.mock_gui.plugins = [mock_roi_plugin]
+        self.mock_controller.roi.parse_rtstruct.return_value = [{"id": 1, "name": "GTV"}]
+
+        self.api.show_rtstruct_selection_modal("/path/to/rt.dcm", target_image_id="img_1")
+
+        mock_roi_plugin._ui.show_rtstruct_selection_modal.assert_called_once_with(
+            "/path/to/rt.dcm", [{"id": 1, "name": "GTV"}], target_image_id="img_1"
+        )
+
+    def test_load_series_and_rtstruct_sequence(self):
+        from vvv.ui.ui_sequences import load_series_and_rtstruct_sequence
+        from unittest.mock import patch
+
+        mock_roi_plugin = MagicMock()
+        mock_roi_plugin.plugin_id = "roi_plugin"
+        self.mock_gui.plugins = [mock_roi_plugin]
+        self.mock_controller.file.load_image.return_value = "img_new"
+        self.mock_controller.roi.parse_rtstruct.return_value = [{"id": 1, "name": "PTV"}]
+
+        with patch("vvv.ui.ui_sequences.show_loading_modal"), \
+             patch("vvv.ui.ui_sequences._apply_default_layout"), \
+             patch("vvv.ui.ui_sequences._handle_warnings_and_cleanup"):
+            gen = load_series_and_rtstruct_sequence(
+                self.mock_gui, self.mock_controller, ["/path/to/ct.dcm"], "/path/to/rt.dcm"
+            )
+            # Consume generator
+            list(gen)
+
+        self.mock_controller.file.load_image.assert_called_once_with(["/path/to/ct.dcm"])
+        mock_roi_plugin._ui.show_rtstruct_selection_modal.assert_called_once_with(
+            "/path/to/rt.dcm", [{"id": 1, "name": "PTV"}], target_image_id="img_new"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

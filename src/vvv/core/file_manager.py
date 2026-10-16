@@ -102,6 +102,25 @@ class FileManager:
         file_reader = sitk.ImageFileReader()
 
         # Silence the C++ GDCM Warnings
+        def clean_string(val):
+            if val is None:
+                return ""
+            try:
+                # Convert to string and strip null bytes
+                val_str = str(val).replace("\x00", "")
+                # Filter out surrogate escapes (range 0xD800 to 0xDFFF)
+                val_str = "".join(
+                    c
+                    for c in val_str
+                    if not (0xD800 <= ord(c) <= 0xDFFF)
+                )
+                # Encode as utf-8, ignoring any invalid bytes, and decode back
+                return val_str.encode("utf-8", "ignore").decode(
+                    "utf-8"
+                )
+            except Exception:
+                return "Unknown"
+
         sitk.ProcessObject.SetGlobalWarningDisplay(False)
 
         try:
@@ -110,11 +129,14 @@ class FileManager:
                 yield (i / total_dirs, os.path.basename(d))
 
                 try:
+                    claimed_files = set()
                     series_ids = reader.GetGDCMSeriesIDs(d)
                     for sid in series_ids:
                         file_names = reader.GetGDCMSeriesFileNames(d, sid)
                         if not file_names:
                             continue
+
+                        claimed_files.update(file_names)
 
                         if sid in series_dict:
                             # Avoid appending duplicate files (e.g. from duplicate/backup folders) by base name
@@ -128,25 +150,6 @@ class FileManager:
                             file_reader.SetFileName(file_names[0])
                             file_reader.ReadImageInformation()
 
-                            def clean_string(val):
-                                if val is None:
-                                    return ""
-                                try:
-                                    # Convert to string and strip null bytes
-                                    val_str = str(val).replace("\x00", "")
-                                    # Filter out surrogate escapes (range 0xD800 to 0xDFFF)
-                                    val_str = "".join(
-                                        c
-                                        for c in val_str
-                                        if not (0xD800 <= ord(c) <= 0xDFFF)
-                                    )
-                                    # Encode as utf-8, ignoring any invalid bytes, and decode back
-                                    return val_str.encode("utf-8", "ignore").decode(
-                                        "utf-8"
-                                    )
-                                except Exception:
-                                    return "Unknown"
-
                             def get_tag(tag, default=""):
                                 if file_reader.HasMetaDataKey(tag):
                                     try:
@@ -154,7 +157,7 @@ class FileManager:
                                         return clean_string(val)
                                     except Exception:
                                         return default
-                                return default
+                                    return default
 
                             # --- FORMAT DATE & TIME ---
                             d_str = get_tag("0008|0020")
@@ -247,6 +250,172 @@ class FileManager:
                                     series_info["tags"].append((tag, name, val))
 
                             series_dict[sid] = series_info
+
+                    # --- DETECT RTSTRUCT FILES (IGNORED BY GDCM SERIES READER) ---
+                    try:
+                        dir_entries = os.listdir(d)
+                    except Exception:
+                        dir_entries = []
+
+                    unclaimed = [
+                        os.path.join(d, f)
+                        for f in dir_entries
+                        if os.path.isfile(os.path.join(d, f))
+                        and os.path.join(d, f) not in claimed_files
+                    ]
+
+                    for fpath in unclaimed:
+                        try:
+                            import pydicom
+
+                            ds = pydicom.dcmread(
+                                fpath, stop_before_pixels=True, force=True
+                            )
+                            if str(getattr(ds, "Modality", "")).upper() == "RTSTRUCT":
+                                sid = str(getattr(ds, "SeriesInstanceUID", ""))
+                                if not sid:
+                                    sid = f"RTSTRUCT_{os.path.basename(fpath)}"
+                                if sid in series_dict:
+                                    continue
+
+                                p_name = clean_string(
+                                    str(getattr(ds, "PatientName", "Unknown"))
+                                )
+                                s_desc = clean_string(
+                                    str(getattr(ds, "StudyDescription", "Unknown"))
+                                )
+                                struct_label = clean_string(
+                                    str(getattr(ds, "StructureSetLabel", ""))
+                                )
+                                ser_desc = clean_string(
+                                    str(
+                                        getattr(
+                                            ds,
+                                            "SeriesDescription",
+                                            struct_label or "RT Structure Set",
+                                        )
+                                    )
+                                )
+
+                                d_str = clean_string(
+                                    str(getattr(ds, "StudyDate", ""))
+                                )
+                                t_str = clean_string(
+                                    str(getattr(ds, "StudyTime", ""))
+                                )
+                                fmt_date = d_str
+                                if len(d_str) >= 8:
+                                    fmt_date = f"{d_str[0:4]}-{d_str[4:6]}-{d_str[6:8]}"
+                                    if len(t_str) >= 4:
+                                        fmt_date += f" {t_str[0:2]}:{t_str[2:4]}"
+
+                                seq_rois = (
+                                    getattr(ds, "StructureSetROISequence", None) or []
+                                )
+                                num_rois = len(seq_rois)
+
+                                frame_of_ref_uid = ""
+                                ref_series_uid = ""
+                                if (
+                                    hasattr(ds, "ReferencedFrameOfReferenceSequence")
+                                    and ds.ReferencedFrameOfReferenceSequence
+                                ):
+                                    for rfor in ds.ReferencedFrameOfReferenceSequence:
+                                        if hasattr(rfor, "FrameOfReferenceUID"):
+                                            frame_of_ref_uid = str(
+                                                rfor.FrameOfReferenceUID
+                                            )
+                                        if hasattr(rfor, "RTReferencedStudySequence"):
+                                            for rstud in rfor.RTReferencedStudySequence:
+                                                if hasattr(
+                                                    rstud, "RTReferencedSeriesSequence"
+                                                ):
+                                                    for (
+                                                        rser
+                                                    ) in rstud.RTReferencedSeriesSequence:
+                                                        if hasattr(
+                                                            rser, "SeriesInstanceUID"
+                                                        ):
+                                                            ref_series_uid = str(
+                                                                rser.SeriesInstanceUID
+                                                            )
+                                                            break
+                                if not frame_of_ref_uid and hasattr(
+                                    ds, "FrameOfReferenceUID"
+                                ):
+                                    frame_of_ref_uid = str(ds.FrameOfReferenceUID)
+
+                                study_instance_uid = str(
+                                    getattr(ds, "StudyInstanceUID", "")
+                                )
+
+                                tags = []
+
+                                def add_t(tg, name, val):
+                                    if val:
+                                        tags.append(
+                                            (tg, name, clean_string(str(val)))
+                                        )
+
+                                add_t("0008|0008", "Image Type", "RTSTRUCT")
+                                add_t("0008|0020", "Study Date", d_str)
+                                add_t("0008|0030", "Study Time", t_str)
+                                add_t("0008|0060", "Modality", "RTSTRUCT")
+                                add_t(
+                                    "0008|0070",
+                                    "Manufacturer",
+                                    getattr(ds, "Manufacturer", ""),
+                                )
+                                add_t("0008|1030", "Study Description", s_desc)
+                                add_t("0008|103E", "Series Description", ser_desc)
+                                add_t(
+                                    "3006|0002",
+                                    "Structure Set Label",
+                                    struct_label,
+                                )
+                                add_t("0010|0010", "Patient Name", p_name)
+                                add_t(
+                                    "0010|0020",
+                                    "Patient ID",
+                                    getattr(ds, "PatientID", ""),
+                                )
+                                add_t(
+                                    "0010|0030",
+                                    "Patient Birth Date",
+                                    getattr(ds, "PatientBirthDate", ""),
+                                )
+                                add_t(
+                                    "0010|0040",
+                                    "Patient Sex",
+                                    getattr(ds, "PatientSex", ""),
+                                )
+                                add_t(
+                                    "3006|0020",
+                                    "ROIs Count",
+                                    f"{num_rois} ROI(s)",
+                                )
+
+                                series_dict[sid] = {
+                                    "id": sid,
+                                    "dir": d,
+                                    "files": [fpath],
+                                    "patient_name": p_name,
+                                    "study_desc": s_desc,
+                                    "series_desc": ser_desc,
+                                    "modality": "RTSTRUCT",
+                                    "date": fmt_date if fmt_date else "Unknown",
+                                    "spacing": "N/A",
+                                    "size": f"{num_rois} ROI(s)",
+                                    "frame_of_ref_uid": frame_of_ref_uid,
+                                    "referenced_series_uid": ref_series_uid,
+                                    "study_instance_uid": study_instance_uid,
+                                    "structure_set_label": struct_label,
+                                    "num_rois": num_rois,
+                                    "tags": tags,
+                                    "_is_rtstruct": True,
+                                }
+                        except Exception:
+                            pass
                 except Exception as e:
                     scan_errors.append(f"{d}: {e}")
         finally:
@@ -255,6 +424,9 @@ class FileManager:
         # Final post-processing to flatten the dictionary and fix the Z-Size
         found_series = []
         for sid, s in series_dict.items():
+            if s.pop("_is_rtstruct", False):
+                found_series.append(s)
+                continue
             x, y, z_header = s.pop("_base_x"), s.pop("_base_y"), s.pop("_base_z")
             file_count = len(s["files"])
 

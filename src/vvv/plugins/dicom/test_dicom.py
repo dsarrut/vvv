@@ -285,6 +285,155 @@ class TestDicomPlugin(unittest.TestCase):
         
         dpg.delete_item("test_parent")
 
+    def test_rtstruct_selection_and_load_with_open_image(self):
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+            ui = self.plugin._ui
+            ui.show_window()
+
+            rtstruct_series = {
+                "id": "rtstruct_uid_123",
+                "modality": "RTSTRUCT",
+                "series_desc": "Structure Set",
+                "date": "2026-01-01",
+                "files": ["/path/to/rtstruct.dcm"],
+                "patient_name": "John Doe",
+                "study_desc": "Chest Study",
+                "size": "5 ROI(s)",
+                "spacing": "N/A",
+                "referenced_series_uid": "ct_uid_456",
+                "frame_of_ref_uid": "for_uid_789",
+                "tags": [],
+            }
+            ui.scanned_series = [rtstruct_series]
+            ui._populate_series_list()
+
+            # Select the RTSTRUCT series
+            sel_tag = ui._t("sel_0")
+            ui.on_series_selected(sel_tag, None, 0)
+            self.assertEqual(dpg.get_item_label(ui._t("btn_open")), "Load RT-Struct ROIs")
+
+            # Mock an open volume in VVV
+            mock_vol = MagicMock()
+            mock_vol.is_roi = False
+            self.mock_api.get_volumes.return_value = {"img_ct": mock_vol}
+
+            # Clicking open should directly show the RT-Struct selection modal on img_ct
+            ui.on_open_clicked()
+            self.mock_api.show_rtstruct_selection_modal.assert_called_once_with(
+                "/path/to/rtstruct.dcm", target_image_id="img_ct"
+            )
+
+        dpg.delete_item("test_parent")
+
+    def test_rtstruct_load_auto_loads_scanned_reference_series(self):
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+            ui = self.plugin._ui
+            ui.show_window()
+
+            ct_series = {
+                "id": "ct_uid_456",
+                "modality": "CT",
+                "series_desc": "Chest CT",
+                "date": "2026-01-01",
+                "files": ["/path/to/ct1.dcm", "/path/to/ct2.dcm"],
+                "patient_name": "John Doe",
+                "study_desc": "Chest Study",
+                "frame_of_ref_uid": "for_uid_789",
+                "tags": [],
+            }
+            rtstruct_series = {
+                "id": "rtstruct_uid_123",
+                "modality": "RTSTRUCT",
+                "series_desc": "Structure Set",
+                "date": "2026-01-01",
+                "files": ["/path/to/rtstruct.dcm"],
+                "patient_name": "John Doe",
+                "study_desc": "Chest Study",
+                "size": "5 ROI(s)",
+                "spacing": "N/A",
+                "referenced_series_uid": "ct_uid_456",
+                "frame_of_ref_uid": "for_uid_789",
+                "tags": [],
+            }
+            ui.scanned_series = [ct_series, rtstruct_series]
+            ui.active_series = rtstruct_series
+            self.mock_api.get_volumes.return_value = {}  # No images currently open
+
+            # Calling on_load_rtstruct_clicked should auto-load the CT series first
+            ui.on_load_rtstruct_clicked()
+            self.mock_api.load_dicom_series_and_rtstruct.assert_called_once_with(
+                ["/path/to/ct1.dcm", "/path/to/ct2.dcm"], "/path/to/rtstruct.dcm"
+            )
+
+        dpg.delete_item("test_parent")
+
+    def test_rtstruct_load_no_reference_shows_message(self):
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+            ui = self.plugin._ui
+            ui.show_window()
+
+            rtstruct_series = {
+                "id": "rtstruct_uid_123",
+                "modality": "RTSTRUCT",
+                "series_desc": "Structure Set",
+                "files": ["/path/to/rtstruct.dcm"],
+                "referenced_series_uid": "unknown_uid",
+                "frame_of_ref_uid": "unknown_for",
+                "tags": [],
+            }
+            ui.scanned_series = [rtstruct_series]
+            ui.active_series = rtstruct_series
+            self.mock_api.get_volumes.return_value = {}
+
+            ui.on_load_rtstruct_clicked()
+            self.mock_api.show_message.assert_called_once()
+            args = self.mock_api.show_message.call_args[0]
+            self.assertEqual(args[0], "Reference Image Required")
+
+        dpg.delete_item("test_parent")
+
+    def test_scan_dicom_folder_detects_rtstruct(self):
+        from vvv.core.controller import Controller
+
+        c = Controller()
+        results = list(c.file.scan_dicom_folder("data/rt_dcm"))
+        final_series = results[-1][2]
+        modalities = [s["modality"] for s in final_series]
+        self.assertIn("RTSTRUCT", modalities)
+        rtstruct = next(s for s in final_series if s["modality"] == "RTSTRUCT")
+        self.assertIn("ROI(s)", rtstruct["size"])
+        self.assertEqual(rtstruct["spacing"], "N/A")
+    def test_modality_theme_distinction(self):
+        ui = self.plugin._ui
+        theme_ct = ui._get_modality_theme("CT")
+        theme_rtstruct = ui._get_modality_theme("RTSTRUCT")
+        theme_rtdose = ui._get_modality_theme("RTDOSE")
+        theme_pet = ui._get_modality_theme("PT")
+        theme_nm = ui._get_modality_theme("NM")
+        theme_mr = ui._get_modality_theme("MR")
+
+        # Ensure RTSTRUCT does not collide with CT
+        self.assertNotEqual(theme_rtstruct, theme_ct)
+        # Ensure RTDOSE does not collide with CT or RTSTRUCT
+        self.assertNotEqual(theme_rtdose, theme_ct)
+        self.assertNotEqual(theme_rtdose, theme_rtstruct)
+
+        # Ensure all major modalities have unique themes
+        themes = [theme_ct, theme_rtstruct, theme_rtdose, theme_pet, theme_nm, theme_mr]
+        self.assertEqual(len(themes), len(set(themes)))
+
 
 if __name__ == "__main__":
     unittest.main()

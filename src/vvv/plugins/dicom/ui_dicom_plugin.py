@@ -92,23 +92,31 @@ class DicomPluginUI(PluginTagMixin):
             return theme_tag
 
         # Define text color based on modality
-        mod = modality.upper()
-        if "CT" in mod:
-            text_color = [160, 190, 220, 255]  # Slate Blue
-            hover_color = [50, 70, 95, 255]
-            select_color = [70, 95, 130, 255]
-        elif "PT" in mod or "PET" in mod:
-            text_color = [200, 170, 230, 255]  # Soft Violet
-            hover_color = [70, 50, 95, 255]
-            select_color = [95, 70, 130, 255]
-        elif "NM" in mod or "SPECT" in mod:
-            text_color = [140, 210, 180, 255]  # Muted Teal
-            hover_color = [40, 75, 60, 255]
-            select_color = [55, 105, 85, 255]
-        elif "MR" in mod:
-            text_color = [230, 190, 140, 255]  # Muted Amber
-            hover_color = [75, 60, 40, 255]
-            select_color = [105, 85, 55, 255]
+        mod = modality.upper().strip()
+        if mod in ("RTSTRUCT", "RS") or "STRUCT" in mod:
+            text_color = [80, 235, 150, 255]   # Bright Spring Green
+            hover_color = [25, 75, 50, 255]
+            select_color = [35, 105, 70, 255]
+        elif mod in ("RTDOSE", "RD") or "DOSE" in mod:
+            text_color = [255, 105, 180, 255]  # Vivid Rose / Pink
+            hover_color = [80, 35, 60, 255]
+            select_color = [115, 50, 85, 255]
+        elif mod == "CT" or mod.startswith("CT"):
+            text_color = [100, 185, 255, 255]  # Clear Sky Blue
+            hover_color = [30, 60, 95, 255]
+            select_color = [40, 85, 135, 255]
+        elif mod in ("PT", "PET") or "PET" in mod or "PT" in mod:
+            text_color = [215, 130, 255, 255]  # Bright Violet
+            hover_color = [70, 40, 95, 255]
+            select_color = [100, 55, 135, 255]
+        elif mod in ("NM", "SPECT") or "SPECT" in mod or "NM" in mod:
+            text_color = [255, 205, 70, 255]   # Golden Amber
+            hover_color = [75, 65, 30, 255]
+            select_color = [110, 90, 40, 255]
+        elif mod == "MR" or mod.startswith("MR") or "MR" in mod:
+            text_color = [255, 130, 90, 255]   # Vivid Coral / Orange
+            hover_color = [75, 45, 35, 255]
+            select_color = [110, 60, 45, 255]
         else:
             text_color = [220, 220, 220, 255]  # Light Gray
             hover_color = [60, 60, 65, 255]
@@ -250,13 +258,17 @@ class DicomPluginUI(PluginTagMixin):
                                         tag=self._t("btn_expand_all"),
                                     )
                                     dpg.add_spacer(width=10)
-                                    dpg.add_text("CT", color=[160, 190, 220, 255])
+                                    dpg.add_text("CT", color=[100, 185, 255, 255])
                                     dpg.add_text("|", color=[80, 80, 80, 255])
-                                    dpg.add_text("PET", color=[200, 170, 230, 255])
+                                    dpg.add_text("PET", color=[215, 130, 255, 255])
                                     dpg.add_text("|", color=[80, 80, 80, 255])
-                                    dpg.add_text("NM", color=[140, 210, 180, 255])
+                                    dpg.add_text("NM", color=[255, 205, 70, 255])
                                     dpg.add_text("|", color=[80, 80, 80, 255])
-                                    dpg.add_text("MR", color=[230, 190, 140, 255])
+                                    dpg.add_text("MR", color=[255, 130, 90, 255])
+                                    dpg.add_text("|", color=[80, 80, 80, 255])
+                                    dpg.add_text("RS", color=[80, 235, 150, 255])
+                                    dpg.add_text("|", color=[80, 80, 80, 255])
+                                    dpg.add_text("DOSE", color=[255, 105, 180, 255])
 
                                 # Progress bar hidden by default
                                 dpg.add_progress_bar(
@@ -615,6 +627,13 @@ class DicomPluginUI(PluginTagMixin):
         dpg.set_value(self._t("lbl_file"), clean_string(first_file))
         dpg.set_value(self._t("lbl_dir"), clean_string(dir_path))
 
+        # Dynamic Button Label for RTSTRUCT vs Image Series
+        if dpg.does_item_exist(self._t("btn_open")):
+            if s.get("modality") == "RTSTRUCT":
+                dpg.configure_item(self._t("btn_open"), label="Load RT-Struct ROIs")
+            else:
+                dpg.configure_item(self._t("btn_open"), label="Open Series as Image")
+
         # --- DYNAMIC TABLE POPULATION ---
         if dpg.does_item_exist(self._t("tags_table")):
             # Delete all existing rows
@@ -636,12 +655,126 @@ class DicomPluginUI(PluginTagMixin):
         if not self.active_series:
             return
 
+        if self.active_series.get("modality") == "RTSTRUCT":
+            self.on_load_rtstruct_clicked()
+            return
+
         # Cast the SimpleITK tuple into a standard list
         file_list = list(self.active_series["files"])
 
         # Call load_dicom_series via PluginAPI to register task on main thread
         assert self.api is not None
         self.api.load_dicom_series(file_list)
+
+    def _find_reference_series(self, rtstruct_series):
+        """
+        Determines the reference volume / series for an RTSTRUCT.
+        Returns:
+            (target_open_image_id, matching_scanned_series)
+            If target_open_image_id is not None: reference image is already loaded in VVV.
+            Else if matching_scanned_series is not None: reference series found in scanned list, needs auto-load.
+            Else: (None, None)
+        """
+        ref_series_uid = rtstruct_series.get("referenced_series_uid", "")
+        ref_frame_uid = rtstruct_series.get("frame_of_ref_uid", "")
+        study_uid = rtstruct_series.get("study_instance_uid", "")
+
+        # 1. Check open volumes in VVV
+        volumes = self.api.get_volumes() if self.api else {}
+        open_non_roi_volumes = {
+            img_id: vol
+            for img_id, vol in volumes.items()
+            if not getattr(vol, "is_roi", False)
+        }
+
+        if open_non_roi_volumes:
+            # Check if any open volume's file_paths match a scanned series that references this RTSTRUCT
+            for s in self.scanned_series:
+                s_uid = s.get("id", "")
+                s_frame = s.get("frame_of_ref_uid", "")
+                s_files = {os.path.abspath(f) for f in s.get("files", [])}
+
+                for img_id, vol in open_non_roi_volumes.items():
+                    vol_files = {
+                        os.path.abspath(f) for f in getattr(vol, "file_paths", [])
+                    }
+                    if vol_files and vol_files.issubset(s_files):
+                        if ref_series_uid and s_uid == ref_series_uid:
+                            return img_id, None
+                        if ref_frame_uid and s_frame == ref_frame_uid:
+                            return img_id, None
+
+            # If only one non-ROI image is currently open in VVV, use it as reference
+            if len(open_non_roi_volumes) == 1:
+                return next(iter(open_non_roi_volumes.keys())), None
+
+            # If the active viewer has an open image, check it
+            viewer = self.api.get_active_viewer() if self.api else None
+            if viewer and viewer.image_id and viewer.image_id in open_non_roi_volumes:
+                return viewer.image_id, None
+
+        # 2. Check scanned_series list to auto-load
+        # Priority 2a: Exact referenced series UID match
+        if ref_series_uid:
+            for s in self.scanned_series:
+                if s.get("id") == ref_series_uid and s.get("modality") != "RTSTRUCT":
+                    return None, s
+
+        # Priority 2b: Matching frame_of_ref_uid with CT, MR, or PT
+        if ref_frame_uid:
+            for s in self.scanned_series:
+                if s.get("frame_of_ref_uid") == ref_frame_uid and s.get("modality") in (
+                    "CT",
+                    "MR",
+                    "PT",
+                ):
+                    return None, s
+
+        # Priority 2c: Matching study_instance_uid with CT, MR, or PT
+        if study_uid:
+            for s in self.scanned_series:
+                if s.get("study_instance_uid") == study_uid and s.get("modality") in (
+                    "CT",
+                    "MR",
+                    "PT",
+                ):
+                    return None, s
+
+        # Priority 2d: Single candidate non-RTSTRUCT series in scanned list
+        candidate_series = [
+            s for s in self.scanned_series if s.get("modality") != "RTSTRUCT"
+        ]
+        if len(candidate_series) == 1:
+            return None, candidate_series[0]
+
+        return None, None
+
+    def on_load_rtstruct_clicked(self) -> None:
+        if not self.active_series or not self.active_series.get("files"):
+            return
+
+        rtstruct_file = self.active_series["files"][0]
+        target_img_id, matching_series = self._find_reference_series(self.active_series)
+
+        if target_img_id is not None:
+            # Reference image is already open in VVV
+            assert self.api is not None
+            self.api.show_rtstruct_selection_modal(
+                rtstruct_file, target_image_id=target_img_id
+            )
+        elif matching_series is not None:
+            # Reference series found in scanned list: auto-load series first, then load RT-Struct
+            series_files = list(matching_series["files"])
+            assert self.api is not None
+            self.api.load_dicom_series_and_rtstruct(series_files, rtstruct_file)
+        else:
+            # No reference geometry found
+            if self.api:
+                self.api.show_message(
+                    "Reference Image Required",
+                    "Could not identify a reference image (e.g. CT/MR) for this RT-Struct.\n"
+                    "Please load or open the corresponding reference image first.",
+                )
 
     def move_selection(self, delta):
         """Called by the Interaction Manager to shift selection up/down via arrows."""

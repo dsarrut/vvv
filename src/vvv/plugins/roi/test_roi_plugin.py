@@ -2,6 +2,9 @@ import unittest
 from unittest.mock import MagicMock, patch
 import dearpygui.dearpygui as dpg
 import os
+import tempfile
+import numpy as np
+import SimpleITK as sitk
 from vvv.plugins.roi.plugin_roi import RoiPlugin
 from vvv.core.roi_manager import ROIState
 
@@ -2314,12 +2317,16 @@ class TestRoiPlugin(unittest.TestCase):
                 "Save ROI As", default_name="Tumor.nii.gz"
             )
 
-            # The save runs in a background thread — simulate the _on_done callback
-            # by calling it directly (since we can't wait for threads in tests)
-            self.mock_api.save_image.assert_called_with("roi_1", dest)
+            # Wait for thread callback to complete
+            import time
+            for _ in range(50):
+                if self.mock_api.run_on_main_thread.called:
+                    break
+                time.sleep(0.01)
 
             # Simulate the main-thread callback
             call_args = self.mock_api.run_on_main_thread.call_args
+            self.assertIsNotNone(call_args)
             on_done_callback = call_args[0][0]
             on_done_callback()
 
@@ -2548,6 +2555,182 @@ class TestRoiPlugin(unittest.TestCase):
         self.assertEqual(ctrl.roi_filter_inverts.get("img_2"), True)
         self.assertEqual(ctrl.roi_filters.get("img_2"), "vertebra")
 
+        dpg.delete_item("test_parent")
+
+    def test_save_filtered_rois_as_labels(self):
+        """Test controller combining filtered ROIs into label image and JSON sidecar."""
+        import tempfile
+        import json
+        import numpy as np
+
+        ctrl = self.plugin._controller
+        ctrl.api = self.mock_api
+
+        # Setup mock base volume (shape: 10 x 20 x 30)
+        mock_base_vol = MagicMock()
+        mock_base_vol.shape3d = (10, 20, 30)
+        mock_base_vol.spacing = np.array([1.0, 1.0, 1.0])
+        mock_base_vol.origin = np.array([0.0, 0.0, 0.0])
+        mock_base_vol.sitk_image = MagicMock()
+        mock_base_vol.sitk_image.GetSpacing.return_value = (1.0, 1.0, 1.0)
+        mock_base_vol.sitk_image.GetOrigin.return_value = (0.0, 0.0, 0.0)
+        mock_base_vol.sitk_image.GetDirection.return_value = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+
+        # Setup mock ROI volumes
+        r1_vol = MagicMock()
+        r1_vol.data = np.ones((4, 4, 4), dtype=np.uint8)
+        r1_vol.roi_bbox = (1, 5, 2, 6, 3, 7)
+
+        r2_vol = MagicMock()
+        r2_vol.data = np.ones((3, 3, 3), dtype=np.uint8)
+        r2_vol.roi_bbox = (6, 9, 7, 10, 8, 11)
+
+        r3_vol = MagicMock()
+        r3_vol.data = np.ones((2, 2, 2), dtype=np.uint8)
+        r3_vol.roi_bbox = (0, 2, 0, 2, 0, 2)
+
+        rois = {
+            "r1": MockROI("r1", "Liver", [255, 0, 0]),
+            "r2": MockROI("r2", "Kidney_L", [0, 255, 0]),
+            "r3": MockROI("r3", "Kidney_R", [0, 0, 255]),
+        }
+        mock_vs = MagicMock()
+        mock_vs.rois = rois
+
+        self.mock_api.get_volumes.return_value = {
+            "base_1": mock_base_vol,
+            "r1": r1_vol,
+            "r2": r2_vol,
+            "r3": r3_vol,
+        }
+        self.mock_api.get_view_states.return_value = {"base_1": mock_vs}
+
+        # Filter only Kidneys
+        ctrl.roi_filters["base_1"] = "kidney"
+        ctrl.roi_filter_inverts["base_1"] = False
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_nii = os.path.join(tmpdir, "test_labels.nii.gz")
+            out_json = os.path.join(tmpdir, "test_labels.json")
+
+            with patch("SimpleITK.WriteImage") as mock_write:
+                success = ctrl.save_filtered_rois_as_labels("base_1", out_nii)
+                self.assertTrue(success)
+                mock_write.assert_called_once()
+
+            # Verify sidecar JSON content
+            self.assertTrue(os.path.exists(out_json))
+            with open(out_json, "r") as f:
+                sidecar = json.load(f)
+
+            # Exactly 2 filtered ROIs (Kidney_L and Kidney_R)
+            self.assertEqual(len(sidecar), 2)
+            self.assertEqual(sidecar["1"]["name"], "Kidney_L")
+            self.assertEqual(sidecar["1"]["color"], [0, 255, 0])
+            self.assertEqual(sidecar["2"]["name"], "Kidney_R")
+            self.assertEqual(sidecar["2"]["color"], [0, 0, 255])
+
+    def test_save_filtered_rois_as_individual_files(self):
+        """Test exporting ROIs as individual binary mask files."""
+        ctrl = self.plugin._controller
+        ctrl.api = self.mock_api
+
+        mock_base = MagicMock()
+        mock_base.shape3d = (10, 20, 20)
+        mock_base.sitk_image = sitk.Image(20, 20, 10, sitk.sitkFloat32)
+
+        data_1 = np.zeros((10, 20, 20), dtype=np.uint8)
+        data_1[2:5, 5:10, 5:10] = 1
+        vol_1 = MagicMock()
+        vol_1.data = data_1
+        vol_1.shape3d = (10, 20, 20)
+        vol_1.sitk_image = sitk.GetImageFromArray(data_1)
+        vol_1.roi_bbox = None
+
+        roi_state_1 = MagicMock()
+        roi_state_1.name = "Kidney_L"
+        roi_state_1.color = [0, 255, 0]
+
+        mock_vs = MagicMock()
+        mock_vs.rois = {"roi_1": roi_state_1}
+
+        self.mock_api.get_volumes.return_value = {"img_1": mock_base, "roi_1": vol_1}
+        self.mock_api.get_view_states.return_value = {"img_1": mock_vs}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_dir = os.path.join(tmpdir, "rois_dir")
+            success = ctrl.save_filtered_rois_as_individual_files("img_1", out_dir, auto_crop=True)
+            self.assertTrue(success)
+
+            saved_files = os.listdir(out_dir)
+            self.assertIn("Kidney_L.nii.gz", saved_files)
+            read_img = sitk.ReadImage(os.path.join(out_dir, "Kidney_L.nii.gz"))
+            self.assertEqual(read_img.GetSize(), (20, 20, 10))
+
+    def test_ui_save_labels_buttons(self):
+        """Test Save and Save As modal dialog and filename tracking."""
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+
+        ui = self.plugin._ui
+        ctrl = self.plugin._controller
+
+        self.assertTrue(dpg.does_item_exist(ui._t("btn_roi_save_as")))
+        self.assertTrue(dpg.does_item_exist(ui._t("btn_roi_save")))
+        self.assertTrue(dpg.does_item_exist(ui._t("text_roi_save_filename")))
+
+        mock_viewer = MagicMock()
+        mock_viewer.image_id = "img_ct"
+        mock_viewer.view_state = MagicMock()
+        mock_viewer.view_state.rois = {}
+        self.mock_api.get_active_viewer.return_value = mock_viewer
+        self.mock_api.get_image_display_name.return_value = ("patient_ct.nii.gz", False)
+
+        with patch.object(ui, "show_save_rois_modal") as mock_show_modal, \
+             patch.object(ui, "_execute_save_rois") as mock_exec:
+            # 1. Clicking Save when no path stored opens modal
+            ui.on_save_filtered_rois_clicked()
+            mock_show_modal.assert_called_once_with("img_ct")
+            mock_exec.assert_not_called()
+
+            # 2. Clicking Save As opens modal
+            mock_show_modal.reset_mock()
+            ui.on_save_filtered_rois_as_clicked()
+            mock_show_modal.assert_called_once_with("img_ct")
+
+            # 3. Setting remembered settings allows Save to execute directly
+            ui.roi_save_settings["img_ct"] = {
+                "mode": "single",
+                "path": "/tmp/patient_ct_labels.nii.gz",
+                "sort_by_volume": True,
+                "auto_crop": True,
+            }
+            ui.labels_save_paths["img_ct"] = "/tmp/patient_ct_labels.nii.gz"
+            ui.update_save_filename_ui()
+            self.assertEqual(dpg.get_value(ui._t("text_roi_save_filename")), "patient_ct_labels.nii.gz")
+
+            mock_show_modal.reset_mock()
+            ui.on_save_filtered_rois_clicked()
+            mock_show_modal.assert_not_called()
+            mock_exec.assert_called_once()
+
+        # Test modal creation and controls
+        ui.show_save_rois_modal("img_ct")
+        modal_tag = ui._t("save_rois_modal")
+        self.assertTrue(dpg.does_item_exist(modal_tag))
+        self.assertTrue(dpg.does_item_exist(ui._t("save_modal_format_radio")))
+        self.assertTrue(dpg.does_item_exist(ui._t("save_modal_path_input")))
+        self.assertTrue(dpg.does_item_exist(ui._t("save_modal_cb_sort")))
+        self.assertTrue(dpg.does_item_exist(ui._t("save_modal_cb_autocrop")))
+
+        # Test mode switch changes group visibility
+        ui._on_save_modal_mode_changed(None, "One file per label (<roi_name>.nii.gz)", None)
+        self.assertFalse(dpg.is_item_shown(ui._t("save_modal_grp_single")))
+        self.assertTrue(dpg.is_item_shown(ui._t("save_modal_grp_indiv")))
+
+        dpg.delete_item(modal_tag)
         dpg.delete_item("test_parent")
 
 

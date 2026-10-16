@@ -790,6 +790,53 @@ def load_rtstruct_sequence(gui, controller, base_image_id, filepath, selected_ro
             yield
 
 
+def load_series_and_rtstruct_sequence(
+    gui, controller, series_files, rtstruct_filepath
+):
+    import time
+
+    show_loading_modal("Loading reference image...", "Reading DICOM files...")
+    for _ in range(3):
+        yield
+
+    loaded_id = None
+    try:
+        loaded_id = controller.file.load_image(series_files)
+    except Exception as e:
+        hide_loading_modal()
+        yield
+        gui.show_message("Error", f"Failed to load reference image:\n{e}")
+        return
+
+    show_loading_modal(
+        "Loading reference image...", "Applying layouts...", progress=1.0
+    )
+    yield
+
+    if loaded_id:
+        _apply_default_layout(gui, controller, loaded_id)
+
+    yield from _handle_warnings_and_cleanup(gui, [], "", "")
+
+    # Now show the RT-Struct selection modal targeting the loaded image
+    roi_plugin = next(
+        (
+            p
+            for p in getattr(gui, "plugins", [])
+            if getattr(p, "plugin_id", "") == "roi_plugin"
+        ),
+        None,
+    )
+    if roi_plugin and hasattr(roi_plugin, "_ui"):
+        try:
+            rois_info = controller.roi.parse_rtstruct(rtstruct_filepath)
+            roi_plugin._ui.show_rtstruct_selection_modal(
+                rtstruct_filepath, rois_info, target_image_id=loaded_id
+            )
+        except Exception as e:
+            gui.show_message("Error", f"Failed to parse RT-Struct:\n{e}")
+
+
 def load_workspace_sequence(gui, controller, filepath):
     """Safely restores a full workspace using ID mapping, strict hierarchy, and Parallel Loading."""
     import json

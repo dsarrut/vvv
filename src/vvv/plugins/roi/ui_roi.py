@@ -20,6 +20,8 @@ class RoiPluginUI(PluginTagMixin):
         self.roi_selectables = {}
         self.open_stats_wins = set()
         self.stats_win_positions = {}
+        self.labels_save_paths: dict[str, str] = {}
+        self.roi_save_settings: dict[str, dict] = {}
 
     def create_ui(self, parent, api: PluginAPI) -> None:
         self.api = api
@@ -192,6 +194,35 @@ class RoiPluginUI(PluginTagMixin):
                     "- Click Sphere (circle) to create a spheroid ROI centered at the crosshair.\n"
                     "- Click Box (square) to create a rectangular box ROI centered at the crosshair.\n"
                     "- You can translate/resize these ROIs directly in the slice viewers or edit them in their statistics windows.",
+                    self.api,
+                )
+
+            with dpg.group(horizontal=True):
+                btn_save_as = dpg.add_button(
+                    label="Save as...",
+                    width=90,
+                    callback=self.on_save_filtered_rois_as_clicked,
+                    tag=self._t("btn_roi_save_as"),
+                )
+                btn_save = dpg.add_button(
+                    label="Save",
+                    width=60,
+                    callback=self.on_save_filtered_rois_clicked,
+                    tag=self._t("btn_roi_save"),
+                )
+                dpg.add_text(
+                    "",
+                    tag=self._t("text_roi_save_filename"),
+                    color=cfg_c["text_dim"],
+                )
+                build_beginner_tooltip(
+                    btn_save_as,
+                    "Save all filtered ROIs as a multi-label image (.nii.gz) and JSON sidecar (prompts for filename).",
+                    self.api,
+                )
+                build_beginner_tooltip(
+                    btn_save,
+                    "Save all filtered ROIs to the current label image file and JSON sidecar.",
                     self.api,
                 )
 
@@ -487,6 +518,8 @@ class RoiPluginUI(PluginTagMixin):
             "slider_roi_global_thickness",
             "input_roi_filter",
             "btn_roi_above_overlay",
+            "btn_roi_save_as",
+            "btn_roi_save",
         ]
         for name in roi_controls:
             tag = self._t(name)
@@ -817,6 +850,7 @@ class RoiPluginUI(PluginTagMixin):
         self.refresh_roi_detail_ui()
 
     def refresh_roi_detail_ui(self):
+        self.update_save_filename_ui()
         container = self._t("roi_detail_container")
         header = self._t("roi_detail_header_group")
         window = self._t("roi_detail_window")
@@ -948,7 +982,7 @@ class RoiPluginUI(PluginTagMixin):
         self.update_roi_stats_ui()
         self.api.on_window_resize()
 
-    def show_rtstruct_selection_modal(self, filepath, rois_info):
+    def show_rtstruct_selection_modal(self, filepath, rois_info, target_image_id=None):
         modal_tag = self._t("rtstruct_selection_modal")
         if dpg.does_item_exist(modal_tag):
             dpg.delete_item(modal_tag)
@@ -956,7 +990,7 @@ class RoiPluginUI(PluginTagMixin):
         self._rtstruct_cb_ids = []
 
         viewer = self.api.get_active_viewer()
-        image_id = viewer.image_id if (viewer and viewer.image_id) else ""
+        image_id = target_image_id or (viewer.image_id if (viewer and viewer.image_id) else "")
         name_str = ""
         if image_id:
             name_str, _ = self.api.get_image_display_name(image_id)
@@ -1042,9 +1076,12 @@ class RoiPluginUI(PluginTagMixin):
                         return
 
                     selected_rois = [rois_info[i] for i in selected_indices]
-                    viewer = self.api.get_active_viewer()
-                    if viewer and viewer.image_id:
-                        self.api.load_rtstruct(viewer.image_id, filepath, selected_rois)
+                    dest_id = target_image_id
+                    if not dest_id:
+                        viewer = self.api.get_active_viewer()
+                        dest_id = viewer.image_id if (viewer and viewer.image_id) else None
+                    if dest_id:
+                        self.api.load_rtstruct(dest_id, filepath, selected_rois)
 
                 dpg.add_button(label="Load", width=80, callback=_on_load)
 
@@ -1144,6 +1181,10 @@ class RoiPluginUI(PluginTagMixin):
         file_paths = open_file_dialog("Load Labels Image", multiple=False)
         if not file_paths:
             return
+
+        first_file = file_paths[0] if isinstance(file_paths, (list, tuple)) else file_paths
+        self.labels_save_paths[viewer.image_id] = first_file
+        self.update_save_filename_ui()
 
         self.api.load_label_map(viewer.image_id, file_paths)
 
@@ -1397,6 +1438,316 @@ class RoiPluginUI(PluginTagMixin):
 
             import threading
             threading.Thread(target=_save, daemon=True).start()
+
+    def update_save_filename_ui(self):
+        viewer = self.api.get_active_viewer() if self.api else None
+        if not viewer or not viewer.image_id:
+            if dpg.does_item_exist(self._t("text_roi_save_filename")):
+                dpg.set_value(self._t("text_roi_save_filename"), "")
+            return
+
+        curr_path = self.labels_save_paths.get(viewer.image_id, "")
+        if dpg.does_item_exist(self._t("text_roi_save_filename")):
+            fn = os.path.basename(curr_path) if curr_path else ""
+            dpg.set_value(self._t("text_roi_save_filename"), fn)
+
+    def on_save_filtered_rois_as_clicked(
+        self, sender=None, app_data=None, user_data=None
+    ):
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.image_id:
+            self.api.notify(
+                "Please select an active image first.", color=[255, 100, 100]
+            )
+            return
+
+        self.show_save_rois_modal(viewer.image_id)
+
+    def on_save_filtered_rois_clicked(
+        self, sender=None, app_data=None, user_data=None
+    ):
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.image_id:
+            self.api.notify(
+                "Please select an active image first.", color=[255, 100, 100]
+            )
+            return
+
+        base_id = viewer.image_id
+        settings = self.roi_save_settings.get(base_id)
+        if not settings or not settings.get("path"):
+            self.show_save_rois_modal(base_id)
+            return
+
+        # Execute save using remembered settings
+        self._execute_save_rois(base_id, settings)
+
+    def show_save_rois_modal(self, base_id: str):
+        modal_tag = self._t("save_rois_modal")
+        if dpg.does_item_exist(modal_tag):
+            dpg.delete_item(modal_tag)
+
+        base_name, _ = self.api.get_image_display_name(base_id)
+        import re
+
+        clean_base = re.sub(r"^\(\d+\)\s*", "", base_name).strip()
+        for ext in (".nii.gz", ".nii", ".mhd", ".nrrd", ".dcm"):
+            if clean_base.lower().endswith(ext):
+                clean_base = clean_base[: -len(ext)]
+                break
+
+        # Existing settings or defaults
+        existing = self.roi_save_settings.get(base_id, {})
+        default_mode = existing.get("mode", "single")  # "single" or "individual"
+        default_sort = existing.get("sort_by_volume", True)
+        default_autocrop = existing.get("auto_crop", True)
+
+        curr_path = existing.get("path") or self.labels_save_paths.get(base_id, "")
+        if not curr_path:
+            curr_path = f"{clean_base}_labels.nii.gz"
+
+        # Count filtered ROIs
+        filtered_targets = []
+        viewer = self.api.get_active_viewer()
+        if viewer and viewer.view_state:
+            filtered_targets = self._get_target_rois(viewer)
+        num_rois = len(filtered_targets)
+
+        cfg_c = self.api.get_ui_config()["colors"]
+
+        # Viewport dimensions for centering
+        vp_w = dpg.get_viewport_client_width() if dpg.is_dearpygui_running() else 1000
+        vp_h = dpg.get_viewport_client_height() if dpg.is_dearpygui_running() else 700
+        win_w, win_h = 560, 390
+        pos = [max(20, (vp_w - win_w) // 2), max(20, (vp_h - win_h) // 2)]
+
+        with dpg.window(
+            tag=modal_tag,
+            modal=True,
+            show=True,
+            label=f"Save Filtered ROIs ({num_rois} structures)",
+            no_collapse=True,
+            width=win_w,
+            height=win_h,
+            pos=pos,
+        ):
+            dpg.add_text(
+                f"Exporting {num_rois} ROI(s) for image: {clean_base}",
+                color=cfg_c["text_header"],
+            )
+            dpg.add_spacer(height=5)
+            dpg.add_separator()
+            dpg.add_spacer(height=5)
+
+            # Export Mode Toggle
+            dpg.add_text("Export Format:", color=cfg_c["text_dim"])
+            with dpg.group(horizontal=True):
+                tag_radio = self._t("save_modal_format_radio")
+                dpg.add_radio_button(
+                    items=[
+                        "Single multi-label image (.nii.gz + .json sidecar)",
+                        "One file per label (<roi_name>.nii.gz)",
+                    ],
+                    default_value=(
+                        "Single multi-label image (.nii.gz + .json sidecar)"
+                        if default_mode == "single"
+                        else "One file per label (<roi_name>.nii.gz)"
+                    ),
+                    tag=tag_radio,
+                    callback=self._on_save_modal_mode_changed,
+                )
+
+            dpg.add_spacer(height=10)
+
+            # Destination Path Selector
+            dpg.add_text("Destination:", color=cfg_c["text_dim"])
+            with dpg.group(horizontal=True):
+                tag_input_path = self._t("save_modal_path_input")
+                dpg.add_input_text(
+                    default_value=curr_path,
+                    width=475,
+                    tag=tag_input_path,
+                )
+                dpg.add_button(
+                    label="...",
+                    width=35,
+                    callback=lambda: self._on_save_modal_browse_clicked(base_id),
+                )
+
+            dpg.add_spacer(height=10)
+
+            # Dynamic Options Group: Single File Options
+            tag_grp_single = self._t("save_modal_grp_single")
+            with dpg.group(tag=tag_grp_single, show=(default_mode == "single")):
+                tag_cb_sort = self._t("save_modal_cb_sort")
+                dpg.add_checkbox(
+                    label="Sort by volume before fusing (largest to smallest)",
+                    default_value=default_sort,
+                    tag=tag_cb_sort,
+                )
+                dpg.add_text(
+                    "Ensures large structures (e.g. External) burn first so smaller/nested\n"
+                    "organs (PTV, Bladder, etc.) remain visible and are not erased.",
+                    color=cfg_c["text_dim"],
+                )
+
+            # Dynamic Options Group: Individual Files Options
+            tag_grp_indiv = self._t("save_modal_grp_indiv")
+            with dpg.group(tag=tag_grp_indiv, show=(default_mode == "individual")):
+                tag_cb_autocrop = self._t("save_modal_cb_autocrop")
+                dpg.add_checkbox(
+                    label="Auto-crop each ROI to its bounding box",
+                    default_value=default_autocrop,
+                    tag=tag_cb_autocrop,
+                )
+                dpg.add_text(
+                    "Reduces file size by cropping each mask to its tight bounding box\n"
+                    "while preserving its spatial coordinates/origin.",
+                    color=cfg_c["text_dim"],
+                )
+
+            dpg.add_spacer(height=15)
+            dpg.add_separator()
+            dpg.add_spacer(height=8)
+
+            # Dialog Buttons (Cancel / Save)
+            with dpg.group(horizontal=True):
+                dpg.add_spacer(width=340)
+                dpg.add_button(
+                    label="Cancel",
+                    width=85,
+                    callback=lambda: dpg.delete_item(modal_tag),
+                )
+                dpg.add_button(
+                    label="Save",
+                    width=85,
+                    callback=lambda: self._on_save_modal_confirm(base_id),
+                )
+
+    def _on_save_modal_mode_changed(self, sender, app_data, user_data):
+        is_single = "Single" in app_data
+        tag_grp_single = self._t("save_modal_grp_single")
+        tag_grp_indiv = self._t("save_modal_grp_indiv")
+        tag_input_path = self._t("save_modal_path_input")
+
+        if dpg.does_item_exist(tag_grp_single):
+            dpg.configure_item(tag_grp_single, show=is_single)
+        if dpg.does_item_exist(tag_grp_indiv):
+            dpg.configure_item(tag_grp_indiv, show=not is_single)
+
+        # Update default extension or folder path if appropriate
+        curr = dpg.get_value(tag_input_path) if dpg.does_item_exist(tag_input_path) else ""
+        if is_single:
+            if os.path.isdir(curr) or not curr.lower().endswith(".nii.gz"):
+                dirname = curr if os.path.isdir(curr) else os.path.dirname(curr)
+                new_path = os.path.join(dirname or ".", "labels.nii.gz")
+                dpg.set_value(tag_input_path, new_path)
+        else:
+            if curr.lower().endswith(".nii.gz"):
+                new_dir = os.path.splitext(os.path.splitext(curr)[0])[0]
+                dpg.set_value(tag_input_path, new_dir)
+
+    def _on_save_modal_browse_clicked(self, base_id: str):
+        tag_radio = self._t("save_modal_format_radio")
+        tag_input_path = self._t("save_modal_path_input")
+        format_val = dpg.get_value(tag_radio) if dpg.does_item_exist(tag_radio) else ""
+        curr_val = dpg.get_value(tag_input_path) if dpg.does_item_exist(tag_input_path) else ""
+        is_single = "Single" in format_val
+
+        from vvv.ui.file_dialog import save_file_dialog, open_file_dialog
+
+        if is_single:
+            default_name = os.path.basename(curr_val) if curr_val else "labels.nii.gz"
+            res = save_file_dialog(
+                "Save Filtered ROIs as Labels Image", default_name=default_name
+            )
+            if res:
+                if not res.lower().endswith(".nii.gz"):
+                    if res.lower().endswith(".nii"):
+                        res += ".gz"
+                    else:
+                        res += ".nii.gz"
+                dpg.set_value(tag_input_path, res)
+        else:
+            res = open_file_dialog("Select Output Folder for ROIs", is_directory=True)
+            if res:
+                dpg.set_value(tag_input_path, res)
+
+    def _on_save_modal_confirm(self, base_id: str):
+        modal_tag = self._t("save_rois_modal")
+        tag_radio = self._t("save_modal_format_radio")
+        tag_input_path = self._t("save_modal_path_input")
+        tag_cb_sort = self._t("save_modal_cb_sort")
+        tag_cb_autocrop = self._t("save_modal_cb_autocrop")
+
+        format_val = dpg.get_value(tag_radio) if dpg.does_item_exist(tag_radio) else ""
+        dest_path = (
+            dpg.get_value(tag_input_path).strip()
+            if dpg.does_item_exist(tag_input_path)
+            else ""
+        )
+        is_single = "Single" in format_val
+        sort_by_volume = (
+            dpg.get_value(tag_cb_sort) if dpg.does_item_exist(tag_cb_sort) else True
+        )
+        auto_crop = (
+            dpg.get_value(tag_cb_autocrop)
+            if dpg.does_item_exist(tag_cb_autocrop)
+            else True
+        )
+
+        if not dest_path:
+            self.api.notify("Please specify a destination path.", color=[255, 100, 100])
+            return
+
+        settings = {
+            "mode": "single" if is_single else "individual",
+            "path": dest_path,
+            "sort_by_volume": sort_by_volume,
+            "auto_crop": auto_crop,
+        }
+
+        # Close modal
+        if dpg.does_item_exist(modal_tag):
+            dpg.delete_item(modal_tag)
+
+        self._execute_save_rois(base_id, settings)
+
+    def _execute_save_rois(self, base_id: str, settings: dict):
+        mode = settings.get("mode", "single")
+        dest_path = settings.get("path", "")
+        sort_by_volume = settings.get("sort_by_volume", True)
+        auto_crop = settings.get("auto_crop", True)
+
+        self.api.notify(f"Saving ROIs to {os.path.basename(dest_path)}...")
+
+        def _save():
+            try:
+                if mode == "single":
+                    success = self._c.save_filtered_rois_as_labels(
+                        base_id, dest_path, sort_by_volume=sort_by_volume
+                    )
+                else:
+                    success = self._c.save_filtered_rois_as_individual_files(
+                        base_id, dest_path, auto_crop=auto_crop
+                    )
+
+                if success:
+                    def _on_done():
+                        self.roi_save_settings[base_id] = settings
+                        self.labels_save_paths[base_id] = dest_path
+                        self.update_save_filename_ui()
+
+                    self.api.run_on_main_thread(_on_done)
+            except Exception as e:
+                self.api.notify(
+                    f"Error saving ROIs: {e}", color=[255, 100, 100]
+                )
+
+        import threading
+
+        threading.Thread(target=_save, daemon=True).start()
+
 
     def on_roi_stats_radius_x_slider_changed(self, sender, app_data, user_data):
         roi_id = user_data

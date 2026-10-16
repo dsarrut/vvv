@@ -916,3 +916,240 @@ class RoiPluginController(PluginTagMixin):
         roi_vol.data = mask_data
         roi_vol.origin = ref_origin
         roi_vol.roi_bbox = (min_z, max_z, min_y, max_y, min_x, max_x)
+
+    def save_filtered_rois_as_labels(
+        self, base_id: str, filepath: str, sort_by_volume: bool = True
+    ) -> bool:
+        """
+        Combines all filtered ROIs on base_id into a single multi-label image (.nii.gz)
+        and exports a JSON sidecar mapping each label index to {name, color}.
+        If sort_by_volume is True, ROIs are sorted largest-to-smallest so smaller
+        nested structures burn on top without being completely overwritten.
+        """
+        import os
+        import json
+        import numpy as np
+        import SimpleITK as sitk
+
+        if not self.api:
+            return False
+
+        volumes = self.api.get_volumes()
+        view_states = self.api.get_view_states()
+
+        base_vol = volumes.get(base_id)
+        base_vs = view_states.get(base_id)
+        if not base_vol or not base_vs:
+            self.api.notify("Base image not found.")
+            return False
+
+        # Get filtered ROIs
+        filter_text = self.roi_filters.get(base_id, "").strip().lower()
+        invert = self.roi_filter_inverts.get(base_id, False)
+
+        filtered_rois = []
+        for roi_id, roi_state in base_vs.rois.items():
+            if filter_text:
+                match = filter_text in roi_state.name.lower()
+                if (not match) if not invert else match:
+                    continue
+            filtered_rois.append((roi_id, roi_state))
+
+        if not filtered_rois:
+            self.api.notify("No filtered ROIs to save.")
+            return False
+
+        # Calculate volumes for sorting if requested
+        if sort_by_volume and len(filtered_rois) > 1:
+            def _roi_volume(item):
+                rid, _ = item
+                r_vol = volumes.get(rid)
+                if not r_vol or r_vol.data is None:
+                    return 0
+                r_data = r_vol.data[0] if r_vol.data.ndim == 4 else r_vol.data
+                return int(np.count_nonzero(r_data))
+
+            # Largest first (descending), so large bodies burn first and smaller organs burn on top
+            filtered_rois.sort(key=_roi_volume, reverse=True)
+
+        mz, my, mx = base_vol.shape3d
+        labels_arr = np.zeros((mz, my, mx), dtype=np.int32)
+        label_json = {}
+
+        for idx, (roi_id, roi_state) in enumerate(filtered_rois, start=1):
+            r_vol = volumes.get(roi_id)
+            if not r_vol or r_vol.data is None:
+                continue
+
+            r_data = r_vol.data[0] if r_vol.data.ndim == 4 else r_vol.data
+            mask = r_data > 0
+
+            if hasattr(r_vol, "roi_bbox") and r_vol.roi_bbox:
+                z0, z1, y0, y1, x0, x1 = r_vol.roi_bbox
+                z0_c, z1_c = max(0, z0), min(mz, z1)
+                y0_c, y1_c = max(0, y0), min(my, y1)
+                x0_c, x1_c = max(0, x0), min(mx, x1)
+
+                if z0_c < z1_c and y0_c < y1_c and x0_c < x1_c:
+                    sub_mask = mask[
+                        (z0_c - z0) : (z1_c - z0),
+                        (y0_c - y0) : (y1_c - y0),
+                        (x0_c - x0) : (x1_c - x0),
+                    ]
+                    sub_slice = labels_arr[z0_c:z1_c, y0_c:y1_c, x0_c:x1_c]
+                    sub_slice[sub_mask] = idx
+            else:
+                rmz, rmy, rmx = r_vol.shape3d
+                if (rmz, rmy, rmx) == (mz, my, mx):
+                    labels_arr[mask] = idx
+
+            color = getattr(roi_state, "color", None) or [255, 0, 0]
+            try:
+                rgb = [max(0, min(255, int(c))) for c in color[:3]]
+            except Exception:
+                rgb = [255, 0, 0]
+
+            label_json[str(idx)] = {
+                "name": roi_state.name,
+                "color": rgb,
+            }
+
+        if len(filtered_rois) < 256:
+            dtype = np.uint8
+        elif len(filtered_rois) < 65536:
+            dtype = np.uint16
+        else:
+            dtype = np.int32
+
+        dir_path = os.path.dirname(os.path.abspath(filepath))
+        if dir_path:
+            os.makedirs(dir_path, exist_ok=True)
+
+        sitk_img = sitk.GetImageFromArray(labels_arr.astype(dtype))
+        if hasattr(base_vol, "sitk_image") and base_vol.sitk_image is not None:
+            try:
+                sitk_img.SetSpacing(base_vol.sitk_image.GetSpacing())
+            except Exception:
+                pass
+            try:
+                sitk_img.SetOrigin(base_vol.sitk_image.GetOrigin())
+            except Exception:
+                pass
+            try:
+                sitk_img.SetDirection(base_vol.sitk_image.GetDirection())
+            except Exception:
+                pass
+
+        sitk.WriteImage(sitk_img, filepath)
+
+        # JSON sidecar
+        if filepath.lower().endswith(".nii.gz"):
+            json_path = filepath[:-7] + ".json"
+        else:
+            json_path = os.path.splitext(filepath)[0] + ".json"
+
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(label_json, f, indent=4)
+
+        self.api.notify(f"Saved: {os.path.basename(filepath)}")
+        return True
+
+    def save_filtered_rois_as_individual_files(
+        self, base_id: str, out_dir: str, auto_crop: bool = True
+    ) -> bool:
+        """
+        Exports currently filtered ROIs on base_id as individual binary mask files
+        into out_dir (<roi_name>.nii.gz).
+        If auto_crop is False, each mask is saved matching base_vol shape/origin.
+        """
+        import os
+        import numpy as np
+        import SimpleITK as sitk
+
+        if not self.api:
+            return False
+
+        volumes = self.api.get_volumes()
+        view_states = self.api.get_view_states()
+
+        base_vol = volumes.get(base_id)
+        base_vs = view_states.get(base_id)
+        if not base_vol or not base_vs:
+            self.api.notify("Base image not found.")
+            return False
+
+        filter_text = self.roi_filters.get(base_id, "").strip().lower()
+        invert = self.roi_filter_inverts.get(base_id, False)
+
+        filtered_rois = []
+        for roi_id, roi_state in base_vs.rois.items():
+            if filter_text:
+                match = filter_text in roi_state.name.lower()
+                if (not match) if not invert else match:
+                    continue
+            filtered_rois.append((roi_id, roi_state))
+
+        if not filtered_rois:
+            self.api.notify("No filtered ROIs to save.")
+            return False
+
+        os.makedirs(out_dir, exist_ok=True)
+        saved_count = 0
+
+        for roi_id, roi_state in filtered_rois:
+            r_vol = volumes.get(roi_id)
+            if not r_vol or r_vol.data is None:
+                continue
+
+            # Sanitize filename
+            clean_name = "".join(
+                c for c in roi_state.name if c.isalnum() or c in (" ", "_", "-")
+            ).strip()
+            if not clean_name:
+                clean_name = f"roi_{saved_count + 1}"
+            out_file = os.path.join(out_dir, f"{clean_name}.nii.gz")
+
+            r_data = r_vol.data[0] if r_vol.data.ndim == 4 else r_vol.data
+            mask_arr = (r_data > 0).astype(np.uint8)
+
+            if auto_crop:
+                # Use roi's own cropped sitk_image if available
+                if hasattr(r_vol, "sitk_image") and r_vol.sitk_image is not None:
+                    sitk_crop = sitk.GetImageFromArray(mask_arr)
+                    sitk_crop.CopyInformation(r_vol.sitk_image)
+                    sitk.WriteImage(sitk_crop, out_file)
+                    saved_count += 1
+                    continue
+
+            # Full uncropped volume
+            mz, my, mx = base_vol.shape3d
+            full_mask = np.zeros((mz, my, mx), dtype=np.uint8)
+
+            if hasattr(r_vol, "roi_bbox") and r_vol.roi_bbox:
+                z0, z1, y0, y1, x0, x1 = r_vol.roi_bbox
+                z0_c, z1_c = max(0, z0), min(mz, z1)
+                y0_c, y1_c = max(0, y0), min(my, y1)
+                x0_c, x1_c = max(0, x0), min(mx, x1)
+
+                if z0_c < z1_c and y0_c < y1_c and x0_c < x1_c:
+                    sub_m = mask_arr[
+                        (z0_c - z0) : (z1_c - z0),
+                        (y0_c - y0) : (y1_c - y0),
+                        (x0_c - x0) : (x1_c - x0),
+                    ]
+                    full_mask[z0_c:z1_c, y0_c:y1_c, x0_c:x1_c] = sub_m
+            else:
+                rmz, rmy, rmx = r_vol.shape3d
+                if (rmz, rmy, rmx) == (mz, my, mx):
+                    full_mask = mask_arr
+
+            sitk_full = sitk.GetImageFromArray(full_mask)
+            if hasattr(base_vol, "sitk_image") and base_vol.sitk_image is not None:
+                sitk_full.CopyInformation(base_vol.sitk_image)
+
+            sitk.WriteImage(sitk_full, out_file)
+            saved_count += 1
+
+        self.api.notify(f"Saved {saved_count} ROI files to {os.path.basename(out_dir)}/")
+        return True
+
