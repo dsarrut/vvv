@@ -676,6 +676,7 @@ class TestDosePlugin(unittest.TestCase):
 
         controller.on_shading_opacity_changed(None, 0.85, None)
         self.assertEqual(self.mock_viewer.view_state.display.overlay.opacity, 0.85)
+        self.mock_api.propagate_overlay_opacity.assert_called_with(self.mock_viewer.image_id)
 
     def test_dose_full_vvw_serialization_and_restore(self):
         controller = self.plugin._controller
@@ -1206,6 +1207,39 @@ class TestDosePlugin(unittest.TestCase):
         self.assertIsNone(ui.dvh_win.sort_column)
 
         ui.dvh_win.on_window_close()
+
+    def test_isodose_input_tag_shielding(self):
+        ui = self.plugin._ui
+        self.mock_viewer.volume.unit = "Gy"
+        ui.rebuild_levels_ui(self.mock_api)
+        tag = ui._t("input_lvl_0")
+        self.assertTrue(dpg.does_item_exist(tag))
+        self.assertIn("input_", tag)
+
+    def test_dvh_window_cleanup_on_image_removed_and_destroy(self):
+        import SimpleITK as sitk
+
+        ui = self.plugin._ui
+        controller = self.plugin._controller
+        self.mock_viewer.volume.unit = "Gy"
+        dose_arr = np.linspace(0, 50, 1000, dtype=np.float32).reshape((10, 10, 10))
+        self.mock_viewer.volume.data = dose_arr
+        self.mock_viewer.volume.sitk_image = sitk.GetImageFromArray(dose_arr)
+        self.mock_viewer.volume.sitk_image.SetSpacing((1.0, 1.0, 1.0))
+
+        # 1. Test image removal closes DVH window when target dose image is removed
+        ui.on_open_dvh_clicked()
+        self.assertTrue(dpg.does_item_exist(ui.dvh_win.window_tag))
+
+        # When img_1 (active dose volume) is removed
+        controller.on_image_removed("img_1")
+        self.assertFalse(dpg.does_item_exist(ui.dvh_win.window_tag))
+
+        # 2. Test destroy closes DVH window
+        ui.on_open_dvh_clicked()
+        self.assertTrue(dpg.does_item_exist(ui.dvh_win.window_tag))
+        self.plugin.destroy()
+        self.assertFalse(dpg.does_item_exist(ui.dvh_win.window_tag))
 
 
 if __name__ == "__main__":

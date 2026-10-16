@@ -597,8 +597,8 @@ class DosePluginController(PluginTagMixin):
 
             active_v = self._api.get_active_viewer()
             if active_v and active_v.image_id is not None:
-                if hasattr(self._api, "_controller") and hasattr(self._api._controller, "sync"):
-                    self._api._controller.sync.propagate_overlay_opacity(active_v.image_id)
+                if hasattr(self._api, "propagate_overlay_opacity"):
+                    self._api.propagate_overlay_opacity(active_v.image_id)
 
             self._api.request_refresh()
             return
@@ -779,6 +779,13 @@ class DosePluginController(PluginTagMixin):
     def on_image_removed(self, image_id: str) -> None:
         self._states.pop(image_id, None)
         self._contour_rois.pop(image_id, None)
+        if self._ui and hasattr(self._ui, "dvh_win") and self._ui.dvh_win:
+            if dpg.does_item_exist(self._ui.dvh_win.window_tag):
+                is_active, dose_vol, _, _, target_id, _ = self.get_dose_target_info()
+                if not is_active or not dose_vol or target_id == image_id:
+                    self._ui.dvh_win.on_window_close()
+                else:
+                    self._ui.dvh_win.recompute_and_update(fit_axes=False)
 
     def serialize_image_state(self, image_id: str, context: str = "history") -> dict:
         state = self._states.get(image_id)
@@ -847,6 +854,8 @@ class DosePluginController(PluginTagMixin):
         pass
 
     def destroy(self) -> None:
+        if self._ui and hasattr(self._ui, "dvh_win") and self._ui.dvh_win:
+            self._ui.dvh_win.on_window_close()
         if self._api:
             for target_id, rois_map in list(self._contour_rois.items()):
                 target_vs = self._api.get_view_states().get(target_id)

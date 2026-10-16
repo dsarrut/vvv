@@ -181,6 +181,9 @@ class PluginAPI:
     def propagate_sync(self, image_id):
         self._controller.sync.propagate_sync(image_id)
 
+    def propagate_overlay_opacity(self, image_id):
+        self._controller.sync.propagate_overlay_opacity(image_id)
+
     def propagate_camera(self, viewer):
         """Broadcasts a viewer's current center/zoom to synced viewers of other
         images, so they re-pan on their next tick (see SliceViewer.action_center_view).

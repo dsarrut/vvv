@@ -297,7 +297,7 @@ class DosePluginUI(PluginTagMixin):
                     step_fast=0.0,
                     width=75,
                     callback=self._c.on_level_value_changed,
-                    tag=self._t(f"inp_lvl_{idx}"),
+                    tag=self._t(f"input_lvl_{idx}"),
                 )
 
                 # Unit label
@@ -385,7 +385,7 @@ class DosePluginUI(PluginTagMixin):
                 else:
                     for idx, lvl in enumerate(state.levels):
                         chk_tag = self._t(f"chk_lvl_{idx}")
-                        inp_tag = self._t(f"inp_lvl_{idx}")
+                        inp_tag = self._t(f"input_lvl_{idx}")
                         if dpg.does_item_exist(chk_tag):
                             dpg.set_value(chk_tag, lvl.enabled)
                         if dpg.does_item_exist(inp_tag) and not dpg.is_item_active(inp_tag):
