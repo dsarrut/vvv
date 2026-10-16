@@ -829,9 +829,9 @@ class ViewState:
         max_sample_size = 100000
         if total_pixels > max_sample_size:
             stride = max(1, total_pixels // max_sample_size)
-            sample_data = self.volume.data.flatten()[::stride]
+            sample_data = self.volume.data.ravel()[::stride]
         else:
-            sample_data = self.volume.data.flatten()
+            sample_data = self.volume.data.ravel()
 
         if self.is_ct_image(sample_data):
             self.set_ct_window_level(sample_data)
@@ -930,7 +930,7 @@ class ViewState:
             return
         if "Optimal" in preset_name:
             stride = max(1, total_pixels // 100000)
-            sample_data = self.volume.data.flatten()[::stride]
+            sample_data = self.volume.data.ravel()[::stride]
             p2, p98 = np.percentile(sample_data, [2, 98])
             self.display.ww = max(1e-20, p98 - p2)
             self.display.wl = (p98 + p2) / 2
