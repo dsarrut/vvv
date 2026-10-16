@@ -412,3 +412,6 @@ class DosePluginUI(PluginTagMixin):
 
             if dpg.does_item_exist(self._t("text_current_units")):
                 dpg.set_value(self._t("text_current_units"), f"Current: {status_txt}")
+
+        if hasattr(self, "dvh_win") and self.dvh_win:
+            self.dvh_win.update_ui(api)

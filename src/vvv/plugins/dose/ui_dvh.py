@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, List, Dict, Optional, Any
 import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginTagMixin, PluginAPI
-from vvv.ui.ui_components import build_beginner_tooltip
+from vvv.ui.ui_components import build_beginner_tooltip, build_name_filter_bar
 from vvv.plugins.dose.dvh_calc import ROI_DVH_Curve, compute_roi_dvh
 
 if TYPE_CHECKING:
@@ -18,6 +18,8 @@ class DVHWindow(PluginTagMixin):
         self._api: Optional[PluginAPI] = None
 
         self.curves: List[ROI_DVH_Curve] = []
+        self.filter_text: str = ""
+        self.filter_invert: bool = False
         self.is_cumulative: bool = True
         self.is_volume_relative: bool = True   # True: %, False: cc
         self.is_dose_relative: bool = False     # True: %, False: Gy
@@ -37,7 +39,7 @@ class DVHWindow(PluginTagMixin):
         # Viewport dimensions for positioning
         vp_w = dpg.get_viewport_client_width() if dpg.is_dearpygui_running() else 1200
         vp_h = dpg.get_viewport_client_height() if dpg.is_dearpygui_running() else 800
-        win_w = min(880, max(600, vp_w - 100))
+        win_w = min(920, max(650, vp_w - 80))
         win_h = min(680, max(500, vp_h - 100))
         pos = [max(50, (vp_w - win_w) // 2), max(50, (vp_h - win_h) // 2)]
 
@@ -88,7 +90,7 @@ class DVHWindow(PluginTagMixin):
                     tag=self._t("dvh_radio_curve_type"),
                     callback=self._on_display_option_changed,
                 )
-                dpg.add_spacer(width=15)
+                dpg.add_spacer(width=12)
                 # Volume Scale: % vs cc
                 dpg.add_radio_button(
                     items=["Volume: %", "Volume: cm³"],
@@ -97,7 +99,7 @@ class DVHWindow(PluginTagMixin):
                     tag=self._t("dvh_radio_volume_scale"),
                     callback=self._on_display_option_changed,
                 )
-                dpg.add_spacer(width=15)
+                dpg.add_spacer(width=12)
                 # Dose Scale: Gy vs %
                 dpg.add_radio_button(
                     items=["Dose: Gy", "Dose: %"],
@@ -106,12 +108,24 @@ class DVHWindow(PluginTagMixin):
                     tag=self._t("dvh_radio_dose_scale"),
                     callback=self._on_display_option_changed,
                 )
-                dpg.add_spacer(width=15)
+                dpg.add_spacer(width=12)
                 dpg.add_checkbox(
-                    label="Legend",
+                    label="Legend:",
                     default_value=True,
                     tag=self._t("dvh_chk_show_legend"),
                     callback=self._on_toggle_legend,
+                )
+                combo_leg = dpg.add_combo(
+                    items=["Top-Right", "Top-Left", "Bottom-Left", "Bottom-Right", "Outside"],
+                    default_value="Top-Right",
+                    width=105,
+                    tag=self._t("dvh_combo_legend_loc"),
+                    callback=self._on_legend_location_changed,
+                )
+                build_beginner_tooltip(
+                    combo_leg,
+                    "Switch plot legend corner (Top-Right, Top-Left, Bottom-Left, Bottom-Right, or Outside).\nYou can also right-click the legend inside the plot to configure it.",
+                    self._api,
                 )
 
             dpg.add_spacer(height=6)
@@ -120,8 +134,8 @@ class DVHWindow(PluginTagMixin):
 
             # Main Section: 2 columns (Left: Plot, Right: Structure Checklist)
             with dpg.table(header_row=False, resizable=True, tag=self._t("dvh_split_table")):
-                dpg.add_table_column(width_stretch=True, init_width_or_weight=620)
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=220)
+                dpg.add_table_column(width_stretch=True, init_width_or_weight=600)
+                dpg.add_table_column(width_fixed=True, init_width_or_weight=240)
 
                 with dpg.table_row():
                     # Left column: Interactive Plot
@@ -149,22 +163,43 @@ class DVHWindow(PluginTagMixin):
 
                     # Right column: Structure Selector
                     with dpg.group():
-                        dpg.add_text("Structures", color=cfg_c["text_header"])
                         with dpg.group(horizontal=True):
-                            dpg.add_button(
+                            dpg.add_text("Structures", color=cfg_c["text_header"])
+                            dpg.add_spacer(width=10)
+                            btn_all = dpg.add_button(
                                 label="All",
-                                width=45,
+                                width=40,
                                 callback=self._on_select_all_structures,
+                                tag=self._t("dvh_btn_select_all"),
                             )
-                            dpg.add_button(
+                            build_beginner_tooltip(btn_all, "Check all visible structures", self._api)
+                            btn_none = dpg.add_button(
                                 label="None",
-                                width=45,
+                                width=40,
                                 callback=self._on_select_none_structures,
+                                tag=self._t("dvh_btn_select_none"),
                             )
+                            build_beginner_tooltip(btn_none, "Uncheck all visible structures", self._api)
+
+                        dpg.add_spacer(height=3)
+
+                        # Standardized name filter bar (matching ROI plugin)
+                        build_name_filter_bar(
+                            group_tag=self._t("group_dvh_filter"),
+                            input_tag=self._t("input_dvh_filter"),
+                            btn_clear_tag=self._t("btn_clear_dvh_filter"),
+                            on_filter_changed=self._on_filter_changed,
+                            on_clear_clicked=self._on_clear_filter,
+                            hint="Filter...",
+                            width=140,
+                            api=self._api,
+                            btn_invert_tag=self._t("btn_dvh_filter_invert"),
+                            on_invert_clicked=self._on_toggle_filter_invert,
+                        )
 
                         dpg.add_spacer(height=4)
                         with dpg.child_window(
-                            height=280,
+                            height=250,
                             width=-1,
                             border=True,
                             tag=self._t("dvh_structures_list"),
@@ -207,9 +242,64 @@ class DVHWindow(PluginTagMixin):
     def _on_toggle_legend(self, sender=None, app_data=None, user_data=None):
         chk_tag = self._t("dvh_chk_show_legend")
         leg_tag = self._t("dvh_plot_legend")
+        combo_tag = self._t("dvh_combo_legend_loc")
         if dpg.does_item_exist(leg_tag) and dpg.does_item_exist(chk_tag):
             val = dpg.get_value(chk_tag)
             dpg.configure_item(leg_tag, show=bool(val))
+            if dpg.does_item_exist(combo_tag):
+                dpg.configure_item(combo_tag, enabled=bool(val))
+
+    def _on_legend_location_changed(self, sender=None, app_data=None, user_data=None):
+        val = app_data if app_data else (dpg.get_value(self._t("dvh_combo_legend_loc")) if dpg.does_item_exist(self._t("dvh_combo_legend_loc")) else "Top-Right")
+        leg_tag = self._t("dvh_plot_legend")
+        if not dpg.does_item_exist(leg_tag):
+            return
+
+        loc_map = {
+            "Top-Right": (dpg.mvPlot_Location_NorthEast, False),
+            "Top-Left": (dpg.mvPlot_Location_NorthWest, False),
+            "Bottom-Right": (dpg.mvPlot_Location_SouthEast, False),
+            "Bottom-Left": (dpg.mvPlot_Location_SouthWest, False),
+            "Outside": (dpg.mvPlot_Location_NorthEast, True),
+        }
+        loc, outside = loc_map.get(val, (dpg.mvPlot_Location_NorthEast, False))
+        dpg.configure_item(leg_tag, location=loc, outside=outside)
+
+    def _get_filtered_curves(self) -> List[ROI_DVH_Curve]:
+        filter_lower = self.filter_text.strip().lower()
+        if not filter_lower:
+            return self.curves
+        res = []
+        for c in self.curves:
+            match = filter_lower in c.roi_name.lower()
+            if match if not self.filter_invert else not match:
+                res.append(c)
+        return res
+
+    def _on_filter_changed(self, text: str):
+        self.filter_text = text or ""
+        self._rebuild_structure_checklist()
+        self._render_metrics_table()
+
+    def _on_clear_filter(self):
+        self.filter_text = ""
+        inp_tag = self._t("input_dvh_filter")
+        if dpg.does_item_exist(inp_tag):
+            dpg.set_value(inp_tag, "")
+        self._rebuild_structure_checklist()
+        self._render_metrics_table()
+
+    def _on_toggle_filter_invert(self):
+        self.filter_invert = not self.filter_invert
+        btn_invert_tag = self._t("btn_dvh_filter_invert")
+        if dpg.does_item_exist(btn_invert_tag):
+            if self.filter_invert:
+                if dpg.does_item_exist("active_nav_button_theme"):
+                    dpg.bind_item_theme(btn_invert_tag, "active_nav_button_theme")
+            else:
+                dpg.bind_item_theme(btn_invert_tag, 0)
+        self._rebuild_structure_checklist()
+        self._render_metrics_table()
 
     def _on_display_option_changed(self, sender=None, app_data=None, user_data=None):
         if dpg.does_item_exist(self._t("dvh_radio_curve_type")):
@@ -227,7 +317,7 @@ class DVHWindow(PluginTagMixin):
         self._render_plot_and_table(fit_axes=True)
 
     def _on_select_all_structures(self):
-        for c in self.curves:
+        for c in self._get_filtered_curves():
             c.enabled = True
             tag = self._t(f"chk_struct_{c.roi_id}")
             if dpg.does_item_exist(tag):
@@ -235,7 +325,7 @@ class DVHWindow(PluginTagMixin):
         self._render_plot_and_table(fit_axes=False)
 
     def _on_select_none_structures(self):
-        for c in self.curves:
+        for c in self._get_filtered_curves():
             c.enabled = False
             tag = self._t(f"chk_struct_{c.roi_id}")
             if dpg.does_item_exist(tag):
@@ -319,19 +409,8 @@ class DVHWindow(PluginTagMixin):
         global_max_dose = max(float(d_max) * 1.05, 10.0)
 
         # Find reference image with ROIs (prioritize active viewer's view_state, or base)
-        viewer = self._api.get_active_viewer()
-        all_view_states = self._api.get_view_states()
         all_volumes = self._api.get_volumes()
-
-        rois_dict = {}
-        if viewer and viewer.view_state and viewer.view_state.rois:
-            rois_dict = viewer.view_state.rois
-        else:
-            # Look for any open image with ROIs
-            for vs in all_view_states.values():
-                if vs.rois:
-                    rois_dict = vs.rois
-                    break
+        rois_dict = self._find_all_rois()
 
         self.curves = []
         for roi_id, roi_state in rois_dict.items():
@@ -355,6 +434,93 @@ class DVHWindow(PluginTagMixin):
         self._rebuild_structure_checklist()
         self._render_plot_and_table(fit_axes=fit_axes)
 
+    def _find_all_rois(self) -> Dict[str, Any]:
+        """Finds all segmented ROIs across all view states."""
+        if not self._api:
+            return {}
+        rois = {}
+        all_volumes = self._api.get_volumes()
+        for vs in self._api.get_view_states().values():
+            if vs and vs.rois:
+                for rid, rstate in vs.rois.items():
+                    if rid in all_volumes and rid not in rois:
+                        rois[rid] = rstate
+        if not rois:
+            viewer = self._api.get_active_viewer()
+            if viewer and viewer.view_state and viewer.view_state.rois:
+                rois = dict(viewer.view_state.rois)
+        return rois
+
+    def _on_structure_color_edited(self, sender, app_data, user_data):
+        roi_id = user_data
+        from vvv.ui.ui_components import normalize_rgba_to_int
+        new_rgb = normalize_rgba_to_int(app_data)[:3]
+
+        for c in self.curves:
+            if c.roi_id == roi_id:
+                c.color = list(new_rgb) + [255]
+                color_tag = self._t(f"dvh_series_col_{c.roi_id}")
+                if dpg.does_item_exist(color_tag):
+                    dpg.set_value(color_tag, list(new_rgb) + [255])
+                text_tag = self._t(f"dvh_metric_name_{c.roi_id}")
+                if dpg.does_item_exist(text_tag):
+                    dpg.configure_item(text_tag, color=list(new_rgb) + [255])
+                break
+
+        if self._api:
+            for vs_id, vs in self._api.get_view_states().items():
+                if vs and vs.rois and roi_id in vs.rois:
+                    vs.rois[roi_id].color = list(new_rgb)
+                    vs.is_data_dirty = True
+                    self._api.update_all_viewers_of_image(vs_id)
+            self._api.request_refresh()
+
+    def sync_colors(self) -> None:
+        """Synchronizes DVH curve, checklist, and table colors with current ROI colors from ROI tool."""
+        if not self._api or not dpg.does_item_exist(self.window_tag):
+            return
+
+        all_rois = self._find_all_rois()
+        if not all_rois:
+            return
+
+        for c in self.curves:
+            roi_state = all_rois.get(c.roi_id)
+            if not roi_state or not hasattr(roi_state, "color"):
+                continue
+
+            raw_rgb = roi_state.color[:3]
+            r = int(raw_rgb[0] * 255) if isinstance(raw_rgb[0], float) and raw_rgb[0] <= 1.0 else int(raw_rgb[0])
+            g = int(raw_rgb[1] * 255) if isinstance(raw_rgb[1], float) and raw_rgb[1] <= 1.0 else int(raw_rgb[1])
+            b = int(raw_rgb[2] * 255) if isinstance(raw_rgb[2], float) and raw_rgb[2] <= 1.0 else int(raw_rgb[2])
+            r, g, b = max(0, min(255, r)), max(0, min(255, g)), max(0, min(255, b))
+            new_color = [r, g, b, 255]
+
+            if c.color[:3] != [r, g, b]:
+                c.color = new_color
+
+                # 1. Update plot line series theme color
+                color_tag = self._t(f"dvh_series_col_{c.roi_id}")
+                if dpg.does_item_exist(color_tag):
+                    dpg.set_value(color_tag, new_color)
+
+                # 2. Update color swatch in structure checklist
+                swatch_tag = self._t(f"dvh_struct_color_{c.roi_id}")
+                if dpg.does_item_exist(swatch_tag):
+                    dpg.set_value(swatch_tag, new_color)
+
+                # 3. Update structure name color in metrics table
+                text_tag = self._t(f"dvh_metric_name_{c.roi_id}")
+                if dpg.does_item_exist(text_tag):
+                    dpg.configure_item(text_tag, color=new_color)
+
+    def update_ui(self, api: PluginAPI) -> None:
+        """Called every frame to ensure live sync with ROI tool."""
+        if not dpg.does_item_exist(self.window_tag):
+            return
+        self._api = api
+        self.sync_colors()
+
     def _rebuild_structure_checklist(self):
         list_tag = self._t("dvh_structures_list")
         if not dpg.does_item_exist(list_tag):
@@ -362,7 +528,8 @@ class DVHWindow(PluginTagMixin):
 
         dpg.delete_item(list_tag, children_only=True)
 
-        for c in self.curves:
+        filtered = self._get_filtered_curves()
+        for c in filtered:
             row_tag = self._t(f"dvh_struct_row_{c.roi_id}")
             with dpg.group(horizontal=True, parent=list_tag, tag=row_tag):
                 dpg.add_checkbox(
@@ -372,6 +539,7 @@ class DVHWindow(PluginTagMixin):
                     tag=self._t(f"chk_struct_{c.roi_id}"),
                 )
                 r, g, b = c.color[:3]
+                swatch_tag = self._t(f"dvh_struct_color_{c.roi_id}")
                 dpg.add_color_edit(
                     default_value=[r, g, b, 255],
                     no_inputs=True,
@@ -379,8 +547,40 @@ class DVHWindow(PluginTagMixin):
                     no_alpha=True,
                     width=18,
                     height=18,
+                    tag=swatch_tag,
+                    user_data=c.roi_id,
+                    callback=self._on_structure_color_edited,
                 )
-                dpg.add_text(c.roi_name)
+                dpg.add_text(c.roi_name, tag=self._t(f"dvh_struct_name_{c.roi_id}"))
+
+    def _render_metrics_table(self):
+        """Populates the dosimetric metrics table with currently filtered/visible structures."""
+        table_tag = self._t("dvh_metrics_table")
+        if not dpg.does_item_exist(table_tag):
+            return
+
+        rows = dpg.get_item_children(table_tag, slot=1) or []
+        for r in rows:
+            dpg.delete_item(r)
+
+        targets = self._get_filtered_curves()
+        for c in targets:
+            row = dpg.add_table_row(parent=table_tag)
+            # Structure name with color indicator
+            r, g, b = c.color[:3]
+            dpg.add_text(
+                c.roi_name,
+                color=[r, g, b, 255],
+                parent=row,
+                tag=self._t(f"dvh_metric_name_{c.roi_id}"),
+            )
+            dpg.add_text(f"{c.volume_cc:.2f}", parent=row)
+            dpg.add_text(f"{c.min_dose:.2f}", parent=row)
+            dpg.add_text(f"{c.mean_dose:.2f}", parent=row)
+            dpg.add_text(f"{c.max_dose:.2f}", parent=row)
+            dpg.add_text(f"{c.d98:.2f}", parent=row)
+            dpg.add_text(f"{c.median_dose:.2f}", parent=row)
+            dpg.add_text(f"{c.d2:.2f}", parent=row)
 
     def _render_plot_and_table(self, fit_axes: bool = False):
         """Redraws the DVH plot lines and updates the metrics table."""
@@ -431,14 +631,38 @@ class DVHWindow(PluginTagMixin):
             )
 
             # Apply curve color and 2px thickness
-            r, g, b = c.color[:3]
+            raw_rgb = c.color[:3]
+            r = int(raw_rgb[0] * 255) if isinstance(raw_rgb[0], float) and raw_rgb[0] <= 1.0 else int(raw_rgb[0])
+            g = int(raw_rgb[1] * 255) if isinstance(raw_rgb[1], float) and raw_rgb[1] <= 1.0 else int(raw_rgb[1])
+            b = int(raw_rgb[2] * 255) if isinstance(raw_rgb[2], float) and raw_rgb[2] <= 1.0 else int(raw_rgb[2])
+            r, g, b = max(0, min(255, r)), max(0, min(255, g)), max(0, min(255, b))
+
             theme_tag = self._t(f"dvh_series_theme_{c.roi_id}")
             if dpg.does_item_exist(theme_tag):
                 dpg.delete_item(theme_tag)
             with dpg.theme(tag=theme_tag):
                 with dpg.theme_component(dpg.mvLineSeries):
-                    dpg.add_theme_color(dpg.mvPlotCol_Line, [r, g, b, 255])
-                    dpg.add_theme_style(dpg.mvPlotStyleVar_LineWeight, 2.0, category=dpg.mvThemeCat_Plots)
+                    dpg.add_theme_color(
+                        dpg.mvPlotCol_Line,
+                        [r, g, b, 255],
+                        category=dpg.mvThemeCat_Plots,
+                        tag=self._t(f"dvh_series_col_{c.roi_id}"),
+                    )
+                    dpg.add_theme_color(
+                        dpg.mvPlotCol_MarkerFill,
+                        [r, g, b, 255],
+                        category=dpg.mvThemeCat_Plots,
+                    )
+                    dpg.add_theme_color(
+                        dpg.mvPlotCol_MarkerOutline,
+                        [r, g, b, 255],
+                        category=dpg.mvThemeCat_Plots,
+                    )
+                    dpg.add_theme_style(
+                        dpg.mvPlotStyleVar_LineWeight,
+                        2.0,
+                        category=dpg.mvThemeCat_Plots,
+                    )
             dpg.bind_item_theme(line, theme_tag)
 
         # Apply axis limits if requested (initial load, display options change, fit view)
@@ -446,24 +670,7 @@ class DVHWindow(PluginTagMixin):
             self._apply_axis_limits()
 
         # 2. Rebuild Metrics Table
-        table_tag = self._t("dvh_metrics_table")
-        if dpg.does_item_exist(table_tag):
-            rows = dpg.get_item_children(table_tag, slot=1) or []
-            for r in rows:
-                dpg.delete_item(r)
-
-            for c in self.curves:
-                row = dpg.add_table_row(parent=table_tag)
-                # Structure name with color indicator
-                r, g, b = c.color[:3]
-                dpg.add_text(c.roi_name, color=[r, g, b, 255], parent=row)
-                dpg.add_text(f"{c.volume_cc:.2f}", parent=row)
-                dpg.add_text(f"{c.min_dose:.2f}", parent=row)
-                dpg.add_text(f"{c.mean_dose:.2f}", parent=row)
-                dpg.add_text(f"{c.max_dose:.2f}", parent=row)
-                dpg.add_text(f"{c.d98:.2f}", parent=row)
-                dpg.add_text(f"{c.median_dose:.2f}", parent=row)
-                dpg.add_text(f"{c.d2:.2f}", parent=row)
+        self._render_metrics_table()
 
     def on_export_csv_clicked(self):
         """Exports DVH curves and metrics summary to a CSV file."""
@@ -483,10 +690,13 @@ class DVHWindow(PluginTagMixin):
             with open(file_path, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
 
+                # Export filtered curves if search filter active, otherwise all
+                export_curves = self._get_filtered_curves() if self.filter_text else self.curves
+
                 # 1. Summary Metrics Table
                 writer.writerow(["# DVH Summary Metrics"])
                 writer.writerow(["Structure", "Volume (cm3)", "Min (Gy)", "Mean (Gy)", "Max (Gy)", "D98 (Gy)", "D50 (Gy)", "D2 (Gy)"])
-                for c in self.curves:
+                for c in export_curves:
                     writer.writerow([
                         c.roi_name,
                         f"{c.volume_cc:.4f}",
@@ -503,15 +713,15 @@ class DVHWindow(PluginTagMixin):
 
                 # Headers
                 headers = []
-                for c in self.curves:
+                for c in export_curves:
                     headers.extend([f"{c.roi_name}_Dose_Gy", f"{c.roi_name}_Vol_Pct"])
                 writer.writerow(headers)
 
                 # Curves data rows
-                max_pts = max((len(c.doses) for c in self.curves), default=0)
+                max_pts = max((len(c.doses) for c in export_curves), default=0)
                 for i in range(max_pts):
                     row = []
-                    for c in self.curves:
+                    for c in export_curves:
                         if i < len(c.doses):
                             row.extend([f"{c.doses[i]:.4f}", f"{c.volume_percent[i]:.4f}"])
                         else:

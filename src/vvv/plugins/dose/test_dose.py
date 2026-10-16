@@ -1027,17 +1027,41 @@ class TestDosePlugin(unittest.TestCase):
         # Check controls existence
         self.assertTrue(dpg.does_item_exist(ui.dvh_win._t("dvh_btn_fit_view")))
         self.assertTrue(dpg.does_item_exist(ui.dvh_win._t("dvh_chk_show_legend")))
+        self.assertTrue(dpg.does_item_exist(ui.dvh_win._t("dvh_combo_legend_loc")))
+        self.assertTrue(dpg.does_item_exist(ui.dvh_win._t("input_dvh_filter")))
+        self.assertTrue(dpg.does_item_exist(ui.dvh_win._t("btn_clear_dvh_filter")))
+        self.assertTrue(dpg.does_item_exist(ui.dvh_win._t("btn_dvh_filter_invert")))
 
         # Check that curve was computed
         self.assertEqual(len(ui.dvh_win.curves), 1)
         self.assertEqual(ui.dvh_win.curves[0].roi_name, "Bladder")
 
+        # Test filter matching & inverting
+        ui.dvh_win._on_filter_changed("blad")
+        self.assertEqual(len(ui.dvh_win._get_filtered_curves()), 1)
+        ui.dvh_win._on_filter_changed("rect")
+        self.assertEqual(len(ui.dvh_win._get_filtered_curves()), 0)
+
+        # Invert filter
+        ui.dvh_win._on_toggle_filter_invert()
+        self.assertEqual(len(ui.dvh_win._get_filtered_curves()), 1)
+        self.assertEqual(ui.dvh_win._get_filtered_curves()[0].roi_name, "Bladder")
+
+        # Clear filter
+        ui.dvh_win._on_clear_filter()
+        self.assertEqual(len(ui.dvh_win._get_filtered_curves()), 1)
+
         # Test Fit View
         ui.dvh_win.fit_view()
 
-        # Test legend toggle
+        # Test legend toggle & location switcher
+        for loc in ["Top-Left", "Bottom-Left", "Bottom-Right", "Outside", "Top-Right"]:
+            dpg.set_value(ui.dvh_win._t("dvh_combo_legend_loc"), loc)
+            ui.dvh_win._on_legend_location_changed(app_data=loc)
+
         dpg.set_value(ui.dvh_win._t("dvh_chk_show_legend"), False)
         ui.dvh_win._on_toggle_legend()
+        self.assertFalse(dpg.get_item_configuration(ui.dvh_win._t("dvh_combo_legend_loc"))["enabled"])
 
         # Test radio toggle
         ui.dvh_win._on_display_option_changed()
@@ -1045,6 +1069,68 @@ class TestDosePlugin(unittest.TestCase):
         # Close window
         ui.dvh_win.on_window_close()
         self.assertFalse(dpg.does_item_exist(win_tag))
+
+    def test_dvh_roi_color_sync(self):
+        import SimpleITK as sitk
+
+        ui = self.plugin._ui
+        self.mock_viewer.volume.unit = "Gy"
+        dose_arr = np.linspace(0, 50, 1000, dtype=np.float32).reshape((10, 10, 10))
+        self.mock_viewer.volume.data = dose_arr
+        self.mock_viewer.volume.sitk_image = sitk.GetImageFromArray(dose_arr)
+        self.mock_viewer.volume.sitk_image.SetSpacing((1.0, 1.0, 1.0))
+
+        # Setup ROI in view_state with Red color
+        roi_arr = np.ones((10, 10, 10), dtype=np.uint8)
+        mock_roi_vol = MagicMock()
+        mock_roi_vol.data = roi_arr
+        mock_roi_vol.sitk_image = sitk.GetImageFromArray(roi_arr)
+        mock_roi_vol.sitk_image.SetSpacing((1.0, 1.0, 1.0))
+
+        roi_state = MagicMock()
+        roi_state.name = "PTV"
+        roi_state.color = [255, 0, 0, 255]
+        self.mock_viewer.view_state.rois = {"roi_ptv": roi_state}
+        self.mock_api.get_volumes.return_value = {
+            "img_1": self.mock_viewer.volume,
+            "roi_ptv": mock_roi_vol,
+        }
+
+        # Open DVH window
+        ui.on_open_dvh_clicked()
+        self.assertTrue(dpg.does_item_exist(ui.dvh_win.window_tag))
+        self.assertEqual(len(ui.dvh_win.curves), 1)
+        self.assertEqual(ui.dvh_win.curves[0].color[:3], [255, 0, 0])
+
+        series_col_tag = ui.dvh_win._t("dvh_series_col_roi_ptv")
+        swatch_tag = ui.dvh_win._t("dvh_struct_color_roi_ptv")
+        metric_name_tag = ui.dvh_win._t("dvh_metric_name_roi_ptv")
+
+        self.assertTrue(dpg.does_item_exist(series_col_tag))
+        self.assertTrue(dpg.does_item_exist(swatch_tag))
+        self.assertTrue(dpg.does_item_exist(metric_name_tag))
+
+        # 1. External change in ROI tool (e.g. ROI color changed to green)
+        roi_state.color = [0, 255, 0, 255]
+        ui.update_ui(self.mock_api)
+
+        # DVH curve, line series theme, swatch, and table metric should be updated to green
+        self.assertEqual(ui.dvh_win.curves[0].color[:3], [0, 255, 0])
+        self.assertEqual(dpg.get_value(series_col_tag)[:3], [0, 255, 0])
+        self.assertEqual(dpg.get_value(swatch_tag)[:3], [0, 255, 0])
+
+        # 2. User edits color swatch directly inside DVH window (e.g. to cyan)
+        ui.dvh_win._on_structure_color_edited(
+            sender=swatch_tag,
+            app_data=[0.0, 1.0, 1.0, 1.0],
+            user_data="roi_ptv",
+        )
+        self.assertEqual(roi_state.color[:3], [0, 255, 255])
+        self.assertEqual(ui.dvh_win.curves[0].color[:3], [0, 255, 255])
+        self.assertEqual(dpg.get_value(series_col_tag)[:3], [0, 255, 255])
+        self.assertTrue(self.mock_api.request_refresh.called)
+
+        ui.dvh_win.on_window_close()
 
 
 if __name__ == "__main__":
