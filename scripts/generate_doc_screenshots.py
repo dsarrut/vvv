@@ -321,8 +321,8 @@ def generate_doc_03_screenshots(img_dir: Path):
     dpg.destroy_context()
 
 
-def generate_doc_04_screenshots(img_dir: Path):
-    """Generates screenshots for doc_04 (Synchronization tab and multi-viewer sync)."""
+def generate_doc_05_screenshots(img_dir: Path):
+    """Generates screenshots for doc_05 (Synchronization tab and multi-viewer sync)."""
     from vvv.cli import parse_cli_arguments
     from vvv.ui.ui_sequences import create_boot_sequence
 
@@ -417,22 +417,22 @@ def generate_doc_04_screenshots(img_dir: Path):
         int(round((win_y + content_rect.size.height) * scale)),
     )
     im_full = ImageGrab.grab(bbox=bbox_full)
-    im_full.save(img_dir / "doc_04_sync_layout.png")
-    print(f"Generated: doc_04_sync_layout.png ({im_full.size[0]}x{im_full.size[1]})")
+    im_full.save(img_dir / "doc_05_sync_layout.png")
+    print(f"Generated: doc_05_sync_layout.png ({im_full.size[0]}x{im_full.size[1]})")
 
     # 2. Sync Tab crop
     sync_min = dpg.get_item_rect_min("tab_sync")
     sync_max = dpg.get_item_rect_max("tab_sync")
     bbox_sync = crop_item(sync_min, sync_max, pad=8)
     im_sync = ImageGrab.grab(bbox=bbox_sync)
-    im_sync.save(img_dir / "doc_04_sync_panel.png")
-    print(f"Generated: doc_04_sync_panel.png ({im_sync.size[0]}x{im_sync.size[1]})")
+    im_sync.save(img_dir / "doc_05_sync_panel.png")
+    print(f"Generated: doc_05_sync_panel.png ({im_sync.size[0]}x{im_sync.size[1]})")
 
     dpg.destroy_context()
 
 
-def generate_doc_05_screenshots(img_dir: Path):
-    """Generates screenshots for doc_05 (Fusion tab, alpha overlay, checkerboard)."""
+def generate_doc_06_screenshots(img_dir: Path):
+    """Generates screenshots for doc_06 (Fusion tab, alpha overlay, checkerboard)."""
     from vvv.cli import parse_cli_arguments
     from vvv.ui.ui_sequences import create_boot_sequence
     from vvv.core.view_state import ViewMode
@@ -523,22 +523,22 @@ def generate_doc_05_screenshots(img_dir: Path):
         int(round((win_y + content_rect.size.height) * scale)),
     )
     im_full = ImageGrab.grab(bbox=bbox_full)
-    im_full.save(img_dir / "doc_05_fusion_layout.png")
-    print(f"Generated: doc_05_fusion_layout.png ({im_full.size[0]}x{im_full.size[1]})")
+    im_full.save(img_dir / "doc_06_fusion_layout.png")
+    print(f"Generated: doc_06_fusion_layout.png ({im_full.size[0]}x{im_full.size[1]})")
 
     # 2. Fusion Tab panel crop
     fus_min = dpg.get_item_rect_min("tab_fusion")
     fus_max = dpg.get_item_rect_max("tab_fusion")
     bbox_fus = crop_item(fus_min, fus_max, pad=8)
     im_fus = ImageGrab.grab(bbox=bbox_fus)
-    im_fus.save(img_dir / "doc_05_fusion_panel.png")
-    print(f"Generated: doc_05_fusion_panel.png ({im_fus.size[0]}x{im_fus.size[1]})")
+    im_fus.save(img_dir / "doc_06_fusion_panel.png")
+    print(f"Generated: doc_06_fusion_panel.png ({im_fus.size[0]}x{im_fus.size[1]})")
 
     dpg.destroy_context()
 
 
-def generate_doc_06_screenshots(img_dir: Path):
-    """Generates screenshots for doc_06 (Intensity tab, W/L presets, colormap, histogram)."""
+def generate_doc_07_screenshots(img_dir: Path):
+    """Generates screenshots for doc_07 (Intensity tab, W/L presets, colormap, histogram)."""
     from vvv.cli import parse_cli_arguments
     from vvv.ui.ui_sequences import create_boot_sequence
     from vvv.core.view_state import ViewMode
@@ -637,16 +637,16 @@ def generate_doc_06_screenshots(img_dir: Path):
         int(round((win_y + content_rect.size.height) * scale)),
     )
     im_full = ImageGrab.grab(bbox=bbox_full)
-    im_full.save(img_dir / "doc_06_intensity_layout.png")
-    print(f"Generated: doc_06_intensity_layout.png ({im_full.size[0]}x{im_full.size[1]})")
+    im_full.save(img_dir / "doc_07_intensity_layout.png")
+    print(f"Generated: doc_07_intensity_layout.png ({im_full.size[0]}x{im_full.size[1]})")
 
     # 2. Intensity Tab panel crop
     int_min = dpg.get_item_rect_min("intensity_plugin")
     int_max = dpg.get_item_rect_max("intensity_plugin")
     bbox_int = crop_item(int_min, int_max, pad=8)
     im_int = ImageGrab.grab(bbox=bbox_int)
-    im_int.save(img_dir / "doc_06_intensity_panel.png")
-    print(f"Generated: doc_06_intensity_panel.png ({im_int.size[0]}x{im_int.size[1]})")
+    im_int.save(img_dir / "doc_07_intensity_panel.png")
+    print(f"Generated: doc_07_intensity_panel.png ({im_int.size[0]}x{im_int.size[1]})")
 
     dpg.destroy_context()
 
@@ -655,7 +655,7 @@ def main():
     parser = argparse.ArgumentParser(description="Generate VVV documentation screenshots.")
     parser.add_argument(
         "--target",
-        choices=["all", "help_buttons", "doc_02", "doc_03", "doc_04", "doc_05", "doc_06", "doc_07", "doc_11"],
+        choices=["all", "help_buttons", "doc_02", "doc_03", "doc_05", "doc_06", "doc_07", "doc_08", "doc_12"],
         default="all",
         help="Target screenshot(s) to generate (default: all)",
     )
@@ -675,9 +675,6 @@ def main():
     if args.target in ("all", "doc_03"):
         generate_doc_03_screenshots(img_dir)
 
-    if args.target in ("all", "doc_04"):
-        generate_doc_04_screenshots(img_dir)
-
     if args.target in ("all", "doc_05"):
         generate_doc_05_screenshots(img_dir)
 
@@ -687,12 +684,15 @@ def main():
     if args.target in ("all", "doc_07"):
         generate_doc_07_screenshots(img_dir)
 
-    if args.target in ("all", "doc_11"):
-        generate_doc_11_screenshots(img_dir)
+    if args.target in ("all", "doc_08"):
+        generate_doc_08_screenshots(img_dir)
+
+    if args.target in ("all", "doc_12"):
+        generate_doc_12_screenshots(img_dir)
 
 
-def generate_doc_07_screenshots(img_dir: Path):
-    """Generates screenshots for Chapter 07 (ROIs and Contours)."""
+def generate_doc_08_screenshots(img_dir: Path):
+    """Generates screenshots for Chapter 08 (ROIs and Contours)."""
     dpg.create_context()
     ctrl = Controller()
     for tag in ["V1", "V2", "V3", "V4"]:
@@ -745,14 +745,14 @@ def generate_doc_07_screenshots(img_dir: Path):
     from vvv.utils import capture_whole_window
     img = capture_whole_window()
     if img is not None:
-        img.save(img_dir / "doc_07_roi_layout.png")
-        print(f"Generated: doc_07_roi_layout.png ({img.size[0]}x{img.size[1]})")
+        img.save(img_dir / "doc_08_roi_layout.png")
+        print(f"Generated: doc_08_roi_layout.png ({img.size[0]}x{img.size[1]})")
 
     dpg.destroy_context()
 
 
-def generate_doc_11_screenshots(img_dir: Path):
-    """Generates screenshots for Chapter 11 (Manual Rigid Registration)."""
+def generate_doc_12_screenshots(img_dir: Path):
+    """Generates screenshots for Chapter 12 (Manual Rigid Registration)."""
     dpg.create_context()
     ctrl = Controller()
     for tag in ["V1", "V2", "V3", "V4"]:
@@ -796,6 +796,19 @@ def generate_doc_11_screenshots(img_dir: Path):
             dpg.render_dearpygui_frame()
             time.sleep(0.05)
 
+    # Center all viewers on the crosshair with optimal zoom
+    ctrl.viewers["V1"].zoom = 4.2
+    ctrl.viewers["V1"].action_center_view()
+
+    ctrl.viewers["V2"].zoom = 4.2
+    ctrl.viewers["V2"].action_center_view()
+
+    ctrl.viewers["V3"].zoom = 4.2
+    ctrl.viewers["V3"].action_center_view()
+
+    ctrl.viewers["V4"].zoom = 3.6
+    ctrl.viewers["V4"].action_center_view()
+
     for _ in range(60):
         ctrl.tick()
         gui._refresh_all_ui_panels()
@@ -807,8 +820,8 @@ def generate_doc_11_screenshots(img_dir: Path):
     from vvv.utils import capture_whole_window
     img = capture_whole_window()
     if img is not None:
-        img.save(img_dir / "doc_11_registration_layout.png")
-        print(f"Generated: doc_11_registration_layout.png ({img.size[0]}x{img.size[1]})")
+        img.save(img_dir / "doc_12_registration_layout.png")
+        print(f"Generated: doc_12_registration_layout.png ({img.size[0]}x{img.size[1]})")
 
     dpg.destroy_context()
 

@@ -2,7 +2,7 @@
 
 VVV allows saving and restoring complete multi-viewer visualization sessions using lightweight Workspace files (`.vvw`), as well as high-resolution image exports and automated screenshots.
 
-![Workspace Interface](images/doc_15_workspace_layout.png)
+![Workspace Interface](images/doc_04_workspace_layout.png)
 
 ---
 

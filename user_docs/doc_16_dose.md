@@ -62,26 +62,31 @@ The **Display Threshold** section controls background dose transparency:
 
 ---
 
-## 4. Isodose Contours (2D Isolines)
+## 4. Isodose Contours & Colorwash Shading
 
-The **Isodose Contours** engine extracts and renders real-time 2D isodose curves in physical space across orthogonal slice views (Axial, Coronal, Sagittal).
+The **Isodose Contours** engine provides dual visualization modes standard in clinical radiation therapy planning systems (TPS):
 
-### Global Contours Controls
-* **Show**: Toggles visibility of all isodose lines in the active viewport.
+### Visualization Modes
+* **Lines**: Toggles visibility of sharp 2D isodose contour lines in the active viewports.
+* **Shading (Colorwash)**: Toggles semi-transparent colorwash shading between isodose levels.
+  * Dose voxels between adjacent isodose levels are filled with the corresponding level's color.
+  * Dose voxels below the lowest enabled isodose level (e.g. $< 10\%$) remain completely transparent so underlying anatomy is never obscured.
+  * Can be combined with **Lines** for simultaneous stepped colorwash and demarcated isodose boundaries.
+* **Opacity**: When **Shading** is enabled, an interactive slider allows dynamically adjusting the shading overlay transparency. When dose is a fused overlay, this seamlessly drives GPU alpha compositing for real-time 60 FPS feedback.
 * **Sub-Pixel**: Uses marching squares linear interpolation for smooth, sub-voxel contour curves rather than jagged voxel edges.
 * **↺ (Reset Defaults)**: Restores standard clinical radiotherapy isodose levels:
   * $107\%$ (Hot spot / overdose target)
   * $100\%$ (Prescription dose coverage)
   * $95\%$ (Target volume minimum coverage)
-  * $90\%$, $80\%$, $70\%$, $60\%$, $50\%$, $40\%$, $30\%$, $20\%$, $10\%$
+  * $90\%$, $80\%$, $70\%$, $50\%$, $20\%$, $10\%$
 
 ### Managing Individual Levels
 Below the header, each isodose level is listed with individual controls:
-* **Checkbox**: Toggle visibility of that specific isodose curve on and off.
-* **Color Swatch**: Click the colored square to open the color picker and customize the contour line color.
+* **Checkbox**: Toggle visibility of that specific isodose curve / colorwash band on and off.
+* **Color Swatch**: Click the colored square to open the color picker and customize the contour line and shading color.
 * **Value Input**: Edit the threshold value (in $\%$ for normalized dose, or in $\text{Gy}$ for absolute dose).
 * **Unit Label**: Displays `%` or physical dose unit.
-* **✕ (Delete)**: Removes the level line.
+* **✕ (Delete)**: Removes the level.
 
 ---
 
@@ -90,14 +95,25 @@ Below the header, each isodose level is listed with individual controls:
 In typical radiotherapy workflows (e.g. using data from the `data/head_neck` sample):
 1. **Load Anatomy & Dose**:
    * Load the planning CT as the base image.
-   * In the **Fusion** tab, select the RTDOSE volume as the **Target (Overlay)** with `Alpha` mode and a colormap such as `Jet` or `Dosimetry`.
+   * In the **Fusion** tab, select the RTDOSE volume as the **Target (Overlay)** with `Alpha` mode.
 2. **Open the Dose Tab**:
    * The Dose tool automatically detects the dose overlay and targets it.
 3. **Normalize to Prescription**:
    * Click **Prescription**, enter the prescribed dose (e.g., $50\text{ Gy}$), and watch the display and isodoses re-scale to percentages ($100\% = 50\text{ Gy}$).
 4. **Inspect Isodoses & Hot Spots**:
-   * Check **Show** under Isodose Contours.
+   * Check **Lines** for contour isolines, and **Shading** for isodose colorwash.
    * Click **⌖** to immediately jump the crosshair to the location of maximum dose ($D_{\max}$).
 5. **Inspect Metadata**:
    * In the **Active Viewer** panel, use the **⇄** toggle button next to the image name to toggle between viewing CT metadata and RTDOSE metadata.
+
+---
+
+## 6. Workspace Serialization (`.vvw`)
+
+All Dose tool parameters are fully saved and restored in VVV workspace files (`.vvw`):
+* **Scaling & Normalization**: User multiplier $S$, active normalization mode (`None`, `Max`, `Prescription`, `ROI Mean`), and reference prescription target dose.
+* **Isodose Configuration**: All custom level values, colors, enabled states, line thickness, and sub-pixel interpolation setting.
+* **Shading & Display**: `Lines` visibility, `Shading` colorwash toggle, and shading opacity.
+
+Opening a saved workspace automatically reconstructs the exact clinical isodose display and scaling state without requiring manual re-configuration.
 

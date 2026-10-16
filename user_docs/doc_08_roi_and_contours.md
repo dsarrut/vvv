@@ -2,7 +2,7 @@
 
 VVV supports simultaneous display of multiple segmentation masks, organ contours, and radiation therapy structure sets (RT-Struct).
 
-![ROI and Contours Interface](images/doc_07_roi_layout.png)
+![ROI and Contours Interface](images/doc_08_roi_layout.png)
 
 ---
 

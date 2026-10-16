@@ -2,7 +2,7 @@
 
 VVV provides a built-in DICOM Browser capable of recursively scanning directories containing mixed DICOM files, sorting slices into consistent volumetric series, and inspecting clinical metadata.
 
-![DICOM Browser Interface](images/doc_14_dicom_browser.png)
+![DICOM Browser Interface](images/doc_15_dicom_browser.png)
 
 ---
 

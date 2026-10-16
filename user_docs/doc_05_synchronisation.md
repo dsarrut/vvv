@@ -2,7 +2,7 @@
 
 VVV allows multiple images and viewports to synchronize in real time. Synchronization operates in physical space (mm), linking images regardless of differences in image matrix dimensions, voxel resolutions, or orientations.
 
-![Multi-Viewer Synchronization with CT and SPECT](images/doc_04_sync_layout.png)
+![Multi-Viewer Synchronization with CT and SPECT](images/doc_05_sync_layout.png)
 
 ---
 
@@ -21,7 +21,7 @@ VVV distinguishes two independent synchronization modes:
 
 Open the **Sync** tab in the sidebar to manage synchronization groups for all loaded images:
 
-![Synchronization Control Panel](images/doc_04_sync_panel.png)
+![Synchronization Control Panel](images/doc_05_sync_panel.png)
 
 ### 1. Global Link Buttons
 * **Link All / Unlink All**: Assigns all loaded volumes to Spatial Sync **Grp 1** (or disconnects all).

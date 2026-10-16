@@ -2,7 +2,7 @@
 
 VVV supports real-time multi-modal image fusion (e.g., PET/CT, SPECT/CT, Dose/CT, MRI/CT). Overlays are dynamically resampled and blended on the GPU in physical space (mm), accommodating differences in matrix resolution, voxel spacing, and patient orientation.
 
-![Multi-modal Fusion Layout (SPECT on CT)](images/doc_05_fusion_layout.png)
+![Multi-modal Fusion Layout (SPECT on CT)](images/doc_06_fusion_layout.png)
 
 ---
 
@@ -21,7 +21,7 @@ VVV supports real-time multi-modal image fusion (e.g., PET/CT, SPECT/CT, Dose/CT
 
 Select the **Fusion** tab in the sidebar to configure the overlay for the active viewer:
 
-![Fusion Tab Controls](images/doc_05_fusion_panel.png)
+![Fusion Tab Controls](images/doc_06_fusion_panel.png)
 
 ### 1. Active Fusion Setup
 * **Base**: Displays the primary image shown in the active viewport.

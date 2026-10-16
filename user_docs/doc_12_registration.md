@@ -2,7 +2,7 @@
 
 The Registration tool provides interactive manual rigid alignment (6 Degrees of Freedom: 3 translations, 3 rotations) between a fixed reference image and a moving floating image.
 
-![Registration Interface](images/doc_11_registration_layout.png)
+![Registration Interface](images/doc_12_registration_layout.png)
 
 ---
 

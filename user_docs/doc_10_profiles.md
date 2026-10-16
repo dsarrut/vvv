@@ -2,7 +2,7 @@
 
 The Profile tool extracts and plots 1D voxel intensity profiles along arbitrary lines in 2D and 3D space, useful for spatial resolution assessment, edge sharpness, dosimetry verification, and distance measurements.
 
-![Profiles Interface](images/doc_09_profiles_layout.png)
+![Profiles Interface](images/doc_10_profiles_layout.png)
 
 ---
 

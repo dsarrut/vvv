@@ -2,7 +2,7 @@
 
 VVV provides precise control over image contrast (Window/Level), color lookup tables, intensity thresholds, real-time histograms, and physical calibrated units.
 
-![Intensity & Histogram Interface](images/doc_06_intensity_layout.png)
+![Intensity & Histogram Interface](images/doc_07_intensity_layout.png)
 
 ---
 
@@ -10,7 +10,7 @@ VVV provides precise control over image contrast (Window/Level), color lookup ta
 
 Select the **Intensity** tab on the sidebar to adjust radiometry for the active base image:
 
-![Intensity Tab Panel](images/doc_06_intensity_panel.png)
+![Intensity Tab Panel](images/doc_07_intensity_panel.png)
 
 ### 1. Contrast Controls
 * **Preset**: Quick clinical presets for CT (`CT Abdomen`, `CT Bone`, `CT Lung`, `CT Brain`, `CT Mediastinum`), as well as statistical presets (`Optimal`, `Min/Max`).

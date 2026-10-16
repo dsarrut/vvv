@@ -2,7 +2,7 @@
 
 VVV enables placing, labeling, measuring, and navigating anatomical and fiducial 3D point landmarks across multi-modality volumes.
 
-![Landmarks Interface](images/doc_10_landmarks_layout.png)
+![Landmarks Interface](images/doc_11_landmarks_layout.png)
 
 ---
 

@@ -2,7 +2,7 @@
 
 Maximum Intensity Projection (MIP) projects voxels with the highest intensity values along rays through a 3D volume or slab onto a 2D projection plane. It is widely used in nuclear medicine (PET/SPECT) for detecting hot spots and in CT/MR angiography for visualizing vascular structures.
 
-![MIP Interface](images/doc_12_mip_layout.png)
+![MIP Interface](images/doc_13_mip_layout.png)
 
 ---
 

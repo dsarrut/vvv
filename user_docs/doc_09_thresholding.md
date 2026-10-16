@@ -2,7 +2,7 @@
 
 VVV includes an interactive thresholding tool to segment tissues, bone structures, air cavities, or high-uptake regions with real-time visual contour feedback.
 
-![Thresholding Interface](images/doc_08_threshold_layout.png)
+![Thresholding Interface](images/doc_09_threshold_layout.png)
 
 ---
 
