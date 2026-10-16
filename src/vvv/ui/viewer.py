@@ -1127,7 +1127,7 @@ class SliceViewer:
 
         # --- 5. DATA UPLOAD ---
         # texture_changed means a brand-new (empty) texture was just created → must fill it.
-        needs_reblend = vs.is_data_dirty or self.is_viewer_data_dirty or texture_changed
+        needs_reblend = self.is_viewer_data_dirty or texture_changed
 
         needs_nn_remap = False
         if self.is_geometry_dirty and pixelated and not self.should_use_voxels_strips():

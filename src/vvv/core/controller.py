@@ -29,9 +29,10 @@ class Controller:
        micromanage Viewers or the GUI. Its primary job is to sync data flags between
        the central 'ViewState' (Data) and the 'SliceViewer' (View).
 
-    2. TICK LOOP PRIORITY: Inside the tick() loop, the Viewers (View) must always
-       execute BEFORE the Bridge (Sync). The Bridge must broadcast 'is_geometry_dirty'
-       and 'is_data_dirty' to all relevant Viewers BEFORE resetting the source flags.
+    2. TICK LOOP PRIORITY: Inside the tick() loop, the Bridge broadcasts each
+       ViewState's 'is_geometry_dirty' / 'is_data_dirty' to the Viewers displaying it
+       (then resets the source flags) BEFORE the Viewers tick, so a change is
+       rendered exactly once, in the same frame. Viewers only read their own flags.
 
     3. NO IMPERATIVE UI CALLS: Never call 'gui.refresh_rois_ui()' or 'dpg.set_value()'
        from this class or any of its Managers (FileManager, SyncManager, etc.).
@@ -1107,27 +1108,23 @@ class Controller:
             return None
 
     def tick(self):
-        for viewer in self.viewers.values():
-            viewer.tick()
-
         with self._state_lock:
             vs_items = list(self.view_states.items())
             vol_items = list(self.volumes.values())
 
-        # Optimized: Consolidate geometry and data checks into a single loop
+        # Broadcast flags from each central ViewState to the Viewers displaying it,
+        # then let the Viewers render. Read and reset are kept adjacent so a flag
+        # set by another thread is not lost in between.
         for vs_id, vs in vs_items:
-            # Broadcast flags from central ViewState to all Viewers displaying it
-            is_geom = getattr(vs, "is_geometry_dirty", False)
-            is_data = getattr(vs, "is_data_dirty", False)
-
+            is_geom, vs.is_geometry_dirty = vs.is_geometry_dirty, False
+            is_data, vs.is_data_dirty = vs.is_data_dirty, False
             if is_geom or is_data:
                 self._flag_viewers_for_image(
                     vs_id, data_dirty=is_data, geometry_dirty=is_geom
                 )
 
-            # Safe Reset (ONLY after all viewers in the loop have been flagged)
-            vs.is_data_dirty = False
-            vs.is_geometry_dirty = False
+        for viewer in self.viewers.values():
+            viewer.tick()
 
         # Check if files changed on disk, update UI if needed
         outdated_changed = False
