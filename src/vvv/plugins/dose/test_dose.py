@@ -1067,6 +1067,19 @@ class TestDosePlugin(unittest.TestCase):
         # Test radio toggle
         ui.dvh_win._on_display_option_changed()
 
+        # Test CSV export
+        import os
+        import tempfile
+        test_csv_path = os.path.join(tempfile.gettempdir(), "test_dvh.csv")
+        with patch("vvv.ui.file_dialog.save_file_dialog", return_value=test_csv_path):
+            ui.dvh_win.on_export_csv_clicked()
+            self.assertTrue(os.path.exists(test_csv_path))
+            with open(test_csv_path, "r", encoding="utf-8") as f:
+                content = f.read()
+                self.assertIn("Bladder", content)
+                self.assertIn("# DVH Summary Metrics", content)
+            os.remove(test_csv_path)
+
         # Close window
         ui.dvh_win.on_window_close()
         self.assertFalse(dpg.does_item_exist(win_tag))

@@ -28,6 +28,7 @@ Features:
 - Voxel units & publication legends: auto-detection from sidecar JSON / DICOM (HU, SUV, SUL, Bq/mL, Gy), interactive editing, and publication colorbars (press `L`).
 - 6-DOF Registration: align images with manual sliders, fast 2D previews, and 3D resampling.
 - DVF Visualization: render displacement vector fields as arrow overlays, component maps, or RGB channels.
+- Radiation Dose & DVH: quantitative radiotherapy tools, relative normalization (% rx, % max), smooth 2D isodose contours/colorwash, and interactive Dose-Volume Histograms (DVH / HDV) with sortable metrics and CSV export.
 
 VVV has been carefully "vibe-coded" (mostly Gemini, a bit of Claude) following the path of VV. We paid special attention to robustness, clear architecture and performance. 
 

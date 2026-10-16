@@ -84,32 +84,34 @@ Both the **Intensity Tool** and the **Dose Tool** share a unified component (`In
 
 ---
 
-## 4. Roadmap & Future Modules (Planned)
-
-### F. Dose-Volume Histograms (DVH) (Phase 3)
+### F. Dose-Volume Histograms (DVH / HDV) (Implemented)
 * Active when both a dose volume and organ ROIs / structure sets are loaded.
-* Interactive cumulative and differential DVH plots ($V(D)$ vs. $D$):
+* Interactive cumulative ($c\text{DVH}$) and differential ($d\text{DVH}$) plots ($V(D)$ vs. $D$):
   * Volume axis: $\%$ volume or $\text{cm}^3$.
   * Dose axis: $\text{Gy}$ or $\% D_{\text{rx}}$.
-* Clinical dose-volume metrics table:
+  * Interactive plot legend positionable across any corner or outside.
+* Structure checklist with real-time substring search, invert filter (`!`), and bidirectional color sync with the ROI plugin.
+* Clinical dosimetric metrics table:
   * $D_{\text{mean}}$, $D_{\min}$, $D_{\max}$.
-  * $D_{98\%}$, $D_{95\%}$, $D_{50\%}$, $D_{2\%}$ (near-minimum and near-maximum metrics).
-  * $V_{x\text{Gy}}$ (volume receiving at least $x\text{ Gy}$).
-* CSV export for DVH curves and clinical metrics.
+  * $D_{98\%}$, $D_{50\%}$, $D_{2\%}$ (near-minimum, median, and near-maximum metrics).
+  * Interactive column sorting across all metrics (Structure, Vol, Min, Mean, Max, D98, D50, D2).
+* CSV export for both summary metrics and full dose-volume curves, preserving active filters and sort orders.
 
 ---
 
-## 5. Architecture & File Structure
+## 4. Architecture & File Structure
 
 ```
 src/vvv/plugins/dose/
 ├── __init__.py           # Package init
 ├── plugin_dose.py        # Lifecycle entry point, discovery, order
-├── control_dose.py       # State, scaling logic, normalization math, callbacks
+├── control_dose.py       # State, isodoses, normalization, callbacks
 ├── ui_dose.py            # Sidebar panel, requirement banner, preset buttons
-└── test_dose.py          # Pytest unit tests
+├── dvh_calc.py           # High-performance dose-volume histogram calculation
+├── ui_dvh.py             # Interactive DVH window (plots, metrics, sorting, CSV)
+└── test_dose.py          # Pytest unit tests (40+ test cases)
 ```
 
 ### State Storage & Workspace
-* Dose settings (`scaling_factor`, `norm_mode`, `rx_dose`, `selected_roi_id`) will be serialized into workspace `.vvw` under `plugins.dose_plugin`.
+* Dose settings (`scaling_factor`, `norm_mode`, `rx_dose`, `selected_roi_id`, isodose levels, colors, opacity) are fully serialized into workspace `.vvw` under `plugins.dose_plugin`.
 

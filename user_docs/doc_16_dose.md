@@ -2,6 +2,8 @@
 
 The **Dose** tool provides quantitative radiotherapy, dosimetry, and nuclear medicine tools for radiation dose inspection, dose scaling, relative normalization, and interactive 2D isodose contour visualization.
 
+![Dose & Isodoses Interface](images/doc_16_dose_layout.png)
+
 ---
 
 ## 1. Activation & Target Selection
@@ -108,12 +110,61 @@ In typical radiotherapy workflows (e.g. using data from the `data/head_neck` sam
 4. **Inspect Isodoses & Hot Spots**:
    * Check **Lines** for contour isolines, and **Shading** for isodose colorwash.
    * Click **⌖** to immediately jump the crosshair to the location of maximum dose ($D_{\max}$).
-5. **Inspect Metadata**:
+5. **Open Dose-Volume Histogram (DVH)**:
+   * Click **DVH Window...** to compute cumulative dose-volume curves and clinical indices across all segmented structures.
+6. **Inspect Metadata**:
    * In the **Active Viewer** panel, use the **⇄** toggle button next to the image name to toggle between viewing CT metadata and RTDOSE metadata.
 
 ---
 
-## 5. Workspace Serialization (`.vvw`)
+## 5. Dose-Volume Histogram (DVH / HDV)
+
+The **DVH Window** provides clinical radiotherapy dose-volume histogram analysis, dosimetric metrics evaluation, and CSV export.
+
+![Dose-Volume Histogram Window](images/doc_16_dvh_window.png)
+
+Clicking **DVH Window...** in the Dose sidebar opens the dedicated analysis window:
+
+### Graph & Curve Options
+
+* **Curve Modes**:
+  * **Cumulative ($c\text{DVH}$)**: Standard integral dose-volume curve ($V(D)$ showing the percentage or volume receiving at least dose $D$).
+  * **Differential ($d\text{DVH}$)**: Differential histogram showing volume per dose interval.
+* **Volume Axis**: Toggle between relative percentage (**Volume: %**) and absolute physical volume in cubic centimeters (**Volume: $\text{cm}^3$**).
+* **Dose Axis**: Toggle between absolute physical dose in Gray (**Dose: Gy**) and relative percentage of prescription reference dose (**Dose: %**).
+* **Interactive Legend**: Toggle the plot legend on or off, and position it across any corner (**Top-Right**, **Top-Left**, **Bottom-Right**, **Bottom-Left**) or outside the plotting area (**Outside**).
+* **Fit View**: Instantly rescales and pans the graph axes to fit all active curves comfortably.
+
+### Structure List & Interactive Controls
+
+* **Visibility**: Toggle individual organ curves on and off via checkboxes. Use **All** and **None** for batch selection.
+* **Filter Bar**: Fast real-time substring search to find structures in complex RTSTRUCT sets (e.g. typing `ptv` or `cord`).
+* **Invert Filter (`!`)**: Inverts the match condition to inspect all non-matching structures.
+* **Two-Way Color Synchronization**:
+  * Curves, legend markers, list color swatches, and metrics table labels automatically reflect the structure colors configured in the ROI plugin.
+  * Clicking any color swatch inside the DVH checklist opens an interactive color picker: updating the color synchronizes the DVH curve, viewports, and ROI plugin in real time.
+
+### Dosimetric Metrics Table
+
+The table below the graph reports standard radiation oncology indices for all visible structures:
+
+| Metric | Description |
+| :--- | :--- |
+| **Structure** | Organ / ROI contour name displayed in its designated color. |
+| **Vol ($\text{cm}^3$)** | Absolute delineated volume in cubic centimeters. |
+| **Min (Gy)** | Minimum dose delivered to the structure. |
+| **Mean (Gy)** | Mean dose across all voxels in the volume. |
+| **Max (Gy)** | Maximum point dose delivered to the structure ($D_{\max}$). |
+| **D98 (Gy)** | Dose received by $98\%$ of the volume (near-minimum dose / target coverage metric). |
+| **D50 (Gy)** | Median dose received by $50\%$ of the volume. |
+| **D2 (Gy)** | Dose received by $2\%$ of the volume (near-maximum / hot spot dose metric). |
+
+* **Interactive Column Sorting**: Click any column header (**Structure**, **Vol**, **Min**, **Mean**, **Max**, **D98**, **D50**, **D2**) to sort rows in ascending or descending order. Tri-state sorting cycles through Ascending $\rightarrow$ Descending $\rightarrow$ Original order.
+* **CSV Export**: Click **Export CSV...** to save both the summary metrics table and the full high-resolution dose-volume curves to a standard CSV spreadsheet file. Active structure filters and column sort orders are preserved in the export.
+
+---
+
+## 6. Workspace Serialization (`.vvw`)
 
 All Dose tool parameters are fully saved and restored in VVV workspace files (`.vvw`):
 
