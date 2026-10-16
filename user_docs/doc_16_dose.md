@@ -9,12 +9,14 @@ The **Dose** tool provides quantitative radiotherapy, dosimetry, and nuclear med
 The Dose plugin is strictly dedicated to volumes representing absorbed dose or dose rate.
 
 ### Activation Criteria
+
 * The tool is automatically active when:
   * The active viewer's **Base image** has physical unit **`Gy`**, **`mGy`**, or **`Gy/decay`**.
   * **OR** the active viewer's **Fusion overlay** has unit **`Gy`**, **`mGy`**, or **`Gy/decay`**.
 * **DICOM RTDOSE**: VVV automatically reads `DoseGridScaling` from DICOM RTDOSE series and sets `image.unit = "Gy"`. RTDOSE images therefore satisfy the activation requirement immediately upon loading.
 
 ### Inactive State (Dose Unit Required)
+
 * When neither the base image nor the overlay has a Gy-compatible unit, the panel displays an informational banner:
   > *"Dose Unit Required: This tool is active when the base image or fused overlay has a Gy-compatible unit: Gy, mGy, or Gy/decay."*
 * An **"Enable (Set unit to Gy)"** button is provided:
@@ -23,7 +25,9 @@ The Dose plugin is strictly dedicated to volumes representing absorbed dose or d
   * Instantly activates the plugin controls.
 
 ### Automatic Dose Target
+
 When active, the tool indicates its target dose volume (`Target: <Image Name>`):
+
 * If a Fusion overlay represents a dose (e.g. anatomical CT base with RTDOSE overlay), the tool automatically targets the **overlay** layer.
 * If the base image is a dose volume, it targets the **base** image.
 
@@ -34,13 +38,16 @@ When active, the tool indicates its target dose volume (`Target: <Image Name>`):
 The Dose tool features a comprehensive scaling and normalization engine shared with the Intensity component:
 
 ### Scaled Range Preview
+
 * **Range**: Displays the real-time dynamic range `[min, max]` of the dose volume, taking into account the active user scale factor.
 
 ### User Scale Factor ($S$)
+
 * **Scale factor**: Interactive numeric input (defaults to `1.0`). Allows applying an arbitrary physical multiplier $S$ to raw image values (e.g. converting between units, applying monitor units, or scaling Monte Carlo fractions).
 * Works independently alongside prescription dose normalization.
 
 ### Normalization Controls
+
 Easily switch between absolute physical dosimetry and relative clinical percentages:
 
 | Mode | Control | Behavior |
@@ -56,6 +63,7 @@ Easily switch between absolute physical dosimetry and relative clinical percenta
 ## 3. Display Threshold
 
 The **Display Threshold** section controls background dose transparency:
+
 * **Min Thr**: Stepped slider with an enable/disable checkbox.
 * Voxels with dose values below the threshold cutoff are rendered completely transparent.
 * This removes low non-clinical background dose (e.g. $< 5\%$ of prescription) so that underlying anatomical structures (such as CT or MRI tissues) remain clearly visible.
@@ -67,12 +75,13 @@ The **Display Threshold** section controls background dose transparency:
 The **Isodose Contours** engine provides dual visualization modes standard in clinical radiation therapy planning systems (TPS):
 
 ### Visualization Modes
+
 * **Lines**: Toggles visibility of sharp 2D isodose contour lines in the active viewports.
 * **Shading (Colorwash)**: Toggles semi-transparent colorwash shading between isodose levels.
   * Dose voxels between adjacent isodose levels are filled with the corresponding level's color.
   * Dose voxels below the lowest enabled isodose level (e.g. $< 10\%$) remain completely transparent so underlying anatomy is never obscured.
   * Can be combined with **Lines** for simultaneous stepped colorwash and demarcated isodose boundaries.
-* **Opacity**: When **Shading** is enabled, an interactive slider allows dynamically adjusting the shading overlay transparency. When dose is a fused overlay, this seamlessly drives GPU alpha compositing for real-time 60 FPS feedback.
+* **Opacity**: Unified opacity slider controlling overlay and shader transparency. When dose is an overlay in Fusion mode, it directly controls the fusion overlay opacity (synchronized bidirectionally with the Fusion tab's opacity slider). When Shading (colorwash) is enabled, it defines the colorwash shader transparency. When dose is a base image and shading is turned off, the slider is disabled.
 * **Sub-Pixel**: Uses marching squares linear interpolation for smooth, sub-voxel contour curves rather than jagged voxel edges.
 * **↺ (Reset Defaults)**: Restores standard clinical radiotherapy isodose levels:
   * $107\%$ (Hot spot / overdose target)
@@ -81,7 +90,9 @@ The **Isodose Contours** engine provides dual visualization modes standard in cl
   * $90\%$, $80\%$, $70\%$, $50\%$, $20\%$, $10\%$
 
 ### Managing Individual Levels
+
 Below the header, each isodose level is listed with individual controls:
+
 * **Checkbox**: Toggle visibility of that specific isodose curve / colorwash band on and off.
 * **Color Swatch**: Click the colored square to open the color picker and customize the contour line and shading color.
 * **Value Input**: Edit the threshold value (in $\%$ for normalized dose, or in $\text{Gy}$ for absolute dose).
@@ -93,6 +104,7 @@ Below the header, each isodose level is listed with individual controls:
 ## 5. Working with Multi-Modal Datasets (CT + RTDOSE)
 
 In typical radiotherapy workflows (e.g. using data from the `data/head_neck` sample):
+
 1. **Load Anatomy & Dose**:
    * Load the planning CT as the base image.
    * In the **Fusion** tab, select the RTDOSE volume as the **Target (Overlay)** with `Alpha` mode.
@@ -111,9 +123,9 @@ In typical radiotherapy workflows (e.g. using data from the `data/head_neck` sam
 ## 6. Workspace Serialization (`.vvw`)
 
 All Dose tool parameters are fully saved and restored in VVV workspace files (`.vvw`):
+
 * **Scaling & Normalization**: User multiplier $S$, active normalization mode (`None`, `Max`, `Prescription`, `ROI Mean`), and reference prescription target dose.
 * **Isodose Configuration**: All custom level values, colors, enabled states, line thickness, and sub-pixel interpolation setting.
 * **Shading & Display**: `Lines` visibility, `Shading` colorwash toggle, and shading opacity.
 
 Opening a saved workspace automatically reconstructs the exact clinical isodose display and scaling state without requiring manual re-configuration.
-

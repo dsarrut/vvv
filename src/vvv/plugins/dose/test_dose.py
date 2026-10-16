@@ -904,6 +904,55 @@ class TestDosePlugin(unittest.TestCase):
         np.testing.assert_allclose(base_buf[0, 1, 0], 0.1, atol=1e-5)
         np.testing.assert_allclose(base_buf[0, 1, 2], 0.6, atol=1e-5)
 
+    def test_dose_opacity_slider_synchronization(self):
+        controller = self.plugin._controller
+        ui = self.plugin._ui
+        slider_tag = ui._t("slider_shading_opacity")
+
+        # 1. Base image mode
+        self.mock_viewer.volume.unit = "Gy"
+        self.mock_viewer.view_state.display.overlay = None
+
+        with patch("dearpygui.dearpygui.does_item_exist", return_value=True), \
+             patch("dearpygui.dearpygui.configure_item") as mock_cfg, \
+             patch("dearpygui.dearpygui.set_value") as mock_set_val, \
+             patch("dearpygui.dearpygui.is_item_active", return_value=False):
+
+            # Base + Shading OFF -> slider should be disabled
+            controller.on_toggle_shading(app_data=False)
+            mock_cfg.assert_called_with(slider_tag, enabled=False)
+
+            # Base + Shading ON -> slider should be enabled
+            controller.on_toggle_shading(app_data=True)
+            mock_cfg.assert_called_with(slider_tag, enabled=True)
+
+            # 2. Overlay mode
+            mock_ov = MagicMock(image_id="img_ov", opacity=0.4)
+            self.mock_viewer.view_state.display.overlay = mock_ov
+            ov_vol = MagicMock(unit="Gy", is_roi=False)
+            self.mock_api.get_volumes.return_value = {"img_ov": ov_vol, self.mock_viewer.image_id: self.mock_viewer.volume}
+            self.mock_api.get_view_states.return_value = {
+                "img_ov": MagicMock(display=MagicMock(overlay=None)),
+                self.mock_viewer.image_id: self.mock_viewer.view_state,
+            }
+
+            # Overlay + Shading OFF -> slider should remain enabled (controls fusion opacity!)
+            controller.on_toggle_shading(app_data=False)
+            mock_cfg.assert_called_with(slider_tag, enabled=True)
+
+            # Changing slider updates both overlay.opacity and state.colorwash_opacity
+            controller.on_shading_opacity_changed(app_data=0.62)
+            self.assertEqual(mock_ov.opacity, 0.62)
+            state = controller.get_isocontour_state("img_ov")
+            self.assertEqual(state.colorwash_opacity, 0.62)
+            mock_set_val.assert_any_call("slider_fusion_opacity", 0.62)
+
+            # In update_ui, slider and state are synced with overlay.opacity
+            mock_ov.opacity = 0.88
+            ui.update_ui(self.mock_api)
+            self.assertEqual(state.colorwash_opacity, 0.88)
+            mock_set_val.assert_any_call(slider_tag, 0.88)
+
 
 if __name__ == "__main__":
     unittest.main()

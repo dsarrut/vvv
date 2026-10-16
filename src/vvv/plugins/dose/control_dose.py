@@ -564,9 +564,9 @@ class DosePluginController(PluginTagMixin):
         if target_vs:
             target_vs.is_data_dirty = True
         if self._ui and hasattr(self._ui, "_t"):
-            opacity_grp = self._ui._t("group_shading_opacity")
-            if dpg.does_item_exist(opacity_grp):
-                dpg.configure_item(opacity_grp, show=state.colorwash_enabled)
+            slider_tag = self._ui._t("slider_shading_opacity")
+            if dpg.does_item_exist(slider_tag):
+                dpg.configure_item(slider_tag, enabled=is_overlay or state.colorwash_enabled)
         self._refresh_all_viewers()
 
     def on_shading_opacity_changed(self, sender=None, app_data=None, user_data=None) -> None:
@@ -586,10 +586,20 @@ class DosePluginController(PluginTagMixin):
                 if v.view_state and v.view_state.display.overlay:
                     if str(v.view_state.display.overlay.image_id) == str(target_id):
                         v.view_state.display.overlay.opacity = val
+                        v.view_state.is_data_dirty = True
                 if hasattr(v, "drawer") and hasattr(v.drawer, "_last_leg_state"):
                     v.drawer._last_leg_state = None
                 if hasattr(v, "update_render"):
                     v.update_render(force_reblend=False)
+
+            if dpg.does_item_exist("slider_fusion_opacity") and not dpg.is_item_active("slider_fusion_opacity"):
+                dpg.set_value("slider_fusion_opacity", val)
+
+            active_v = self._api.get_active_viewer()
+            if active_v and active_v.image_id is not None:
+                if hasattr(self._api, "_controller") and hasattr(self._api._controller, "sync"):
+                    self._api._controller.sync.propagate_overlay_opacity(active_v.image_id)
+
             self._api.request_refresh()
             return
 
