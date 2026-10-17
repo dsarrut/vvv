@@ -25,6 +25,7 @@ class TestPluginAPI(unittest.TestCase):
         self.mock_gui = MagicMock()
         self.mock_controller = MagicMock()
         self.mock_gui.controller = self.mock_controller
+        self.mock_gui.ui_dirty_this_frame = False
         self.api = PluginAPI(self.mock_gui)
 
     def test_is_dirty_controller(self):
@@ -142,6 +143,9 @@ class TestPluginAPI(unittest.TestCase):
         self.assertTrue(self.api.ui_needs_refresh)
         self.mock_controller.ui_needs_refresh = False
         self.assertFalse(self.api.ui_needs_refresh)
+        # the loop cleared the flag at the start of the frame: plugins still see it
+        self.mock_gui.ui_dirty_this_frame = True
+        self.assertTrue(self.api.ui_needs_refresh)
 
     def test_create_memory_roi(self):
         self.mock_controller.roi = MagicMock()

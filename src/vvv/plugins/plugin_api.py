@@ -50,7 +50,7 @@ class PluginAPI:
 
     @property
     def is_dirty(self):
-        if self._controller.ui_needs_refresh:
+        if self.ui_needs_refresh:
             return True
         viewer = self._gui.context_viewer
         if not viewer or not viewer.view_state:
@@ -66,7 +66,11 @@ class PluginAPI:
 
     @property
     def ui_needs_refresh(self) -> bool:
-        return self._controller.ui_needs_refresh
+        # The loop clears the controller flag at the start of the frame; plugins
+        # see that frame's value (or a request made since)
+        return getattr(self._gui, "ui_dirty_this_frame", False) or bool(
+            self._controller.ui_needs_refresh
+        )
 
     def get_ui_config(self):
         return self._gui.ui_cfg

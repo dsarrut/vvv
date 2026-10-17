@@ -134,6 +134,7 @@ class MainGUI:
         self._plugin_map = {}
         self._plugin_errors: set[tuple[str, str]] = set()
         self._frame_errors: set[tuple[str, str]] = set()
+        self.ui_dirty_this_frame = False
         self.plugin_api = PluginAPI(self)
         self._init_plugins()
 
@@ -3162,12 +3163,18 @@ class MainGUI:
                         self.tasks.pop(0)
 
                     # Status messages are polled every frame so they appear immediately
-                    if getattr(self.controller, "status_message", None):
-                        self.show_status_message(self.controller.status_message)
-                        self.controller.status_message = None
+                    # Read and clear in one statement: a message or refresh request
+                    # set from now on (this refresh, plugins, a worker thread) is
+                    # kept for the next frame instead of being lost.
+                    msg, self.controller.status_message = self.controller.status_message, None
+                    if msg:
+                        self.show_status_message(msg)
 
-                    # Capture if the frame was flagged for refresh at the start
-                    ui_dirty = getattr(self.controller, "ui_needs_refresh", False)
+                    ui_dirty, self.controller.ui_needs_refresh = (
+                        self.controller.ui_needs_refresh,
+                        False,
+                    )
+                    self.ui_dirty_this_frame = ui_dirty  # what plugins see this frame
                     if ui_dirty:
                         self._refresh_all_ui_panels()
 
@@ -3178,10 +3185,6 @@ class MainGUI:
                     if self.plugin_api.is_dirty:
                         for plugin in self.plugins:
                             self._call_plugin(plugin, "update", self.plugin_api)
-
-                    # Clear the flag only after all logic and plugins have seen it
-                    if ui_dirty:
-                        self.controller.ui_needs_refresh = False
 
                     # Call tick on plugins (e.g. for high-frequency progress indicators)
                     for plugin in self.plugins:
