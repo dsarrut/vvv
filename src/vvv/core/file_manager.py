@@ -13,8 +13,7 @@ class FileManager:
 
     def load_image(self, path, is_auto_overlay=False, ignore_history=False):
 
-        img_id = str(self.controller.next_image_id)
-        self.controller.next_image_id += 1
+        img_id = self.controller.allocate_image_id()
         vol = VolumeData(path)
         vol.name = vol.name
         vs = ViewState(vol)

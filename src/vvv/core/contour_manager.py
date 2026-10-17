@@ -17,8 +17,7 @@ class ContourManager:
         self._ensure_dict(vs)
 
         # Generate a unique ID
-        contour_id = str(self.controller.next_image_id)
-        self.controller.next_image_id += 1
+        contour_id = self.controller.allocate_image_id()
 
         contour_roi.id = contour_id
         vs.contours[contour_id] = contour_roi

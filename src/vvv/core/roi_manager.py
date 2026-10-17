@@ -532,8 +532,7 @@ class ROIManager:
             return None
 
         with self.controller._state_lock:
-            roi_id = str(self.controller.next_image_id)
-            self.controller.next_image_id += 1
+            roi_id = self.controller.allocate_image_id()
             self.controller.volumes[roi_id] = mask_vol
 
             roi_state = ROIState(roi_id, name, **state_kwargs)
@@ -663,8 +662,7 @@ class ROIManager:
 
         # 4. Register the Volume and State
         with self.controller._state_lock:
-            mask_id = str(self.controller.next_image_id)
-            self.controller.next_image_id += 1
+            mask_id = self.controller.allocate_image_id()
             self.controller.volumes[mask_id] = mask_vol
 
             if name is None:

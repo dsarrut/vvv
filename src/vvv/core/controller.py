@@ -94,6 +94,13 @@ class Controller:
             return self.gui.get_plugin(plugin_id)
         return None
 
+    def allocate_image_id(self) -> str:
+        """Return a new unique image id. Thread-safe: images load in parallel."""
+        with self._state_lock:
+            img_id = str(self.next_image_id)
+            self.next_image_id += 1
+            return img_id
+
     def get_next_image_id(self, current_id):
         with self._state_lock:
             if not self.view_states:
