@@ -1,7 +1,6 @@
 import os
 import pytest
 import platform
-import time
 import numpy as np
 import SimpleITK as sitk
 from vvv.ui.gui import MainGUI
@@ -172,10 +171,9 @@ def test_gui_fusion_controls(headless_gui_app, synthetic_volume_factory, monkeyp
         sender=None, app_data=opt_name, user_data=None
     )
     assert vs.display.overlay.image_id == ov_id
-    # The resample runs on the image's background JobRunner: wait for it
-    deadline = time.time() + 10
-    while vs.display.overlay_data is None and time.time() < deadline:
-        time.sleep(0.01)
+    # The resample runs on the image's background JobRunner, then is committed
+    # on the main thread: wait for both
+    assert controller.wait_for_jobs(timeout=10)
     assert vs.display.overlay_data is not None
 
     # 4. Simulate UI: Change Opacity

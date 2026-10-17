@@ -106,6 +106,7 @@ def test_bake_transform_failure_recovery(headless_gui_app):
     with patch("SimpleITK.ResampleImageFilter.Execute", side_effect=RuntimeError("Simulated ITK error")):
         with patch.object(controller, "_get_job_runner", return_value=_ImmediateJobRunner()):
             controller.bake_transform_to_volume(vs_id)
+    controller.run_main_thread_commits()  # results are applied on the main thread
 
     # Verify recovery
     assert vol.data is original_data

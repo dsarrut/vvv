@@ -142,6 +142,10 @@ def vvv_screenshot(vvw_path: str, sc_json_path: str):
             except Exception:
                 pass
 
+    # Background resamples (overlays, rotations) and their main-thread commits
+    if not controller.wait_for_jobs(timeout=120):
+        print("Warning: background jobs still running, screenshots may be incomplete")
+
     # Stabilization frames
     for _ in range(20):
         if dpg.is_viewport_ok():

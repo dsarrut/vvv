@@ -3029,6 +3029,7 @@ class MainGUI:
                     has_active_tasks = (
                         len(self.tasks) > 0
                         or len(self._main_thread_callbacks) > 0
+                        or len(self.controller._main_commits) > 0
                         or getattr(self.controller, "ui_needs_refresh", False)
                     )
 
