@@ -412,9 +412,12 @@ def main(no_history, datasets, linkall, sync, linkall_wl, debug, fast_gl):
     # JIT kernel for reasonable performance — the pure-NumPy fallback measured
     # ~40-50x slower in profiling, and silently falling back to it is easy to
     # miss (it produces correct but very slow results, not an error).
+    # find_spec only checks it is installed: importing numba costs ~150 ms at
+    # every start, it is imported on first use (fusion / MIP render).
     if not rs_mod.GL_NEAREST_SUPPORTED:
-        rs_mod._init_numba()
-        if not rs_mod._NUMBA_AVAILABLE:
+        import importlib.util
+
+        if importlib.util.find_spec("numba") is None:
             print(
                 "WARNING: numba is not installed/importable in this environment. "
                 "Fusion overlay rendering will fall back to a much slower pure-NumPy "

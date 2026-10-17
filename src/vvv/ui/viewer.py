@@ -439,6 +439,8 @@ class SliceViewer:
     @property
     def lazy_lin(self) -> bool:
         cfg = self._rendering_cfg
+        if self.has_fusion and not self._is_hw_gl:
+            _rs._init_numba()  # first fusion: numba is not imported at startup
         use_numba = _rs._NUMBA_AVAILABLE and cfg.get("numba", True)
         return should_use_lazy_lin(cfg, self.has_fusion, self._is_hw_gl, use_numba)
 

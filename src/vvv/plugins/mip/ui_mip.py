@@ -1,3 +1,4 @@
+import importlib.util
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import (
     build_section_title,
@@ -7,7 +8,6 @@ from vvv.ui.ui_components import (
 )
 from vvv.plugins.plugin_api import PluginTagMixin
 from vvv.utils import ViewMode
-from vvv.plugins.mip.math_mip import _NUMBA_AVAILABLE
 
 
 class MIPPluginUI(PluginTagMixin):
@@ -132,7 +132,8 @@ class MIPPluginUI(PluginTagMixin):
                 api,
             )
 
-            if not _NUMBA_AVAILABLE:
+            # find_spec: no import (numba ~150 ms), kernels are loaded on first MIP
+            if importlib.util.find_spec("numba") is None:
                 numba_warning = dpg.add_text(
                     "Warning: Numba not installed. MIP rendering will be slow.\n"
                     "Please install numba to improve performance.",
