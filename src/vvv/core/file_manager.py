@@ -12,10 +12,17 @@ class FileManager:
         self.controller = controller
 
     def load_image(self, path, is_auto_overlay=False, ignore_history=False):
+        """Read and register an image (main thread). Returns its id."""
+        return self.register_image(self.read_image(path, is_auto_overlay, ignore_history))
 
-        img_id = self.controller.allocate_image_id()
+    def read_image(self, path, is_auto_overlay=False, ignore_history=False):
+        """Read an image from disk, without registering it. Safe in a worker thread.
+
+        Builds the VolumeData + ViewState (restoring its history) and also reads
+        the overlay remembered in its history, so that no disk read is left for
+        register_image(), which runs on the main thread.
+        """
         vol = VolumeData(path)
-        vol.name = vol.name
         vs = ViewState(vol)
 
         # History
@@ -48,6 +55,32 @@ class FileManager:
 
             vs.is_data_dirty = True
 
+        # Auto-load overlay
+        # Prevent infinite recursion with is_auto_overlay flag
+        overlay = None
+        if history_entry and history_entry.get("overlay_path") and not is_auto_overlay:
+            op_path = resolve_history_path_key(history_entry["overlay_path"])
+            if os.path.exists(op_path):
+                overlay = self.read_image(op_path, is_auto_overlay=True)
+
+        return {
+            "path": path,
+            "vol": vol,
+            "vs": vs,
+            "history": history_entry,
+            "is_auto_overlay": is_auto_overlay,
+            "overlay": overlay,
+        }
+
+    def register_image(self, loaded):
+        """Register an image returned by read_image() and notify plugins.
+
+        Main thread only: plugins may build UI, and settings are saved.
+        """
+        vol, vs, history_entry = loaded["vol"], loaded["vs"], loaded["history"]
+        is_auto_overlay = loaded["is_auto_overlay"]
+
+        img_id = self.controller.allocate_image_id()
         with self.controller._state_lock:
             self.controller.volumes[img_id] = vol
             self.controller.view_states[img_id] = vs
@@ -62,19 +95,13 @@ class FileManager:
                             img_id, plugin_data, context="history"
                         )
 
-        # Auto-load overlay
-        # Prevent infinite recursion with is_auto_overlay flag
-        if history_entry and history_entry.get("overlay_path") and not is_auto_overlay:
-            op_path = resolve_history_path_key(history_entry["overlay_path"])
-            if os.path.exists(op_path):
-                # Load the overlay quietly in the background
-                op_id = self.load_image(op_path, is_auto_overlay=True)
-                op_vol = self.controller.volumes[op_id]
-                # Restore the link (opacity, mode, threshold are already restored in from_dict).
-                vs.set_overlay(op_id, op_vol)
+        if loaded["overlay"] is not None:
+            op_id = self.register_image(loaded["overlay"])
+            # Restore the link (opacity, mode, threshold are already restored in from_dict).
+            vs.set_overlay(op_id, self.controller.volumes[op_id])
 
         if not is_auto_overlay:
-            self.controller.add_recent_file(path)
+            self.controller.add_recent_file(loaded["path"])
 
         self.controller.ui_needs_refresh = True
         return img_id

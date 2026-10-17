@@ -180,8 +180,8 @@ def test_load_workspace_relative_path_resolution(tmp_path):
     # 3. Call load_workspace_sequence and verify it loads the resolved path
     gui = MagicMock()
     controller = MagicMock()
-    # Mock file load to return a dummy volume ID
-    controller.file.load_image.return_value = "img_1_loaded"
+    # Mock image registration to return a dummy volume ID
+    controller.file.register_image.return_value = "img_1_loaded"
     controller.volumes = {"img_1_loaded": MagicMock()}
     controller.view_states = MagicMock()
 
@@ -189,9 +189,9 @@ def test_load_workspace_relative_path_resolution(tmp_path):
     generator = load_workspace_sequence(gui, controller, str(ws_path))
     list(generator)  # Consume the generator
 
-    # Check that it called load_image with the resolved local path!
+    # Check that it read the image from the resolved local path!
     expected_local_path = str(img_path)
-    controller.file.load_image.assert_called_once_with(
+    controller.file.read_image.assert_called_once_with(
         expected_local_path, ignore_history=True
     )
 
@@ -261,7 +261,7 @@ def test_load_workspace_roi_json_filtering(tmp_path):
     # 3. Call load_workspace_sequence and verify it loads the resolved path
     gui = MagicMock()
     controller = MagicMock()
-    controller.file.load_image.return_value = "img_1_loaded"
+    controller.file.register_image.return_value = "img_1_loaded"
     controller.volumes = {"img_1_loaded": MagicMock()}
     controller.view_states = MagicMock()
 
@@ -357,7 +357,7 @@ def test_load_workspace_paths_with_json_and_tildes(tmp_path, monkeypatch):
     # 3. Setup GUI and Controller Mocks
     gui = MagicMock()
     controller = MagicMock()
-    controller.file.load_image.return_value = "img_1_loaded"
+    controller.file.register_image.return_value = "img_1_loaded"
 
     loaded_roi_vol = MagicMock()
     # Simulate the initial file_paths set by the loader (which will lack the JSON because it doesn't exist on disk)

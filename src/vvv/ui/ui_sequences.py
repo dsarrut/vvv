@@ -77,7 +77,7 @@ def load_single_image_sequence(gui, controller, file_path):
 
     # NON-BLOCKING FOR SINGLE FILES & 4D SEQUENCES
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(controller.file.load_image, file_path)
+        future = executor.submit(controller.file.read_image, file_path)
 
         # Keep DearPyGui spinning while SimpleITK loads the heavy file!
         while not future.done():
@@ -85,7 +85,7 @@ def load_single_image_sequence(gui, controller, file_path):
             time.sleep(0.01)
 
         try:
-            img_id = future.result()
+            img_id = controller.file.register_image(future.result())
         except Exception as e:
             load_error = e
 
@@ -202,7 +202,7 @@ def load_batch_images_sequence(gui, controller, file_paths):
     ) as executor:
         # Submit all tasks simultaneously
         futures: list[concurrent.futures.Future | None] = [
-            executor.submit(controller.file.load_image, p) for p in clean_paths
+            executor.submit(controller.file.read_image, p) for p in clean_paths
         ]
 
         completed = 0
@@ -210,7 +210,7 @@ def load_batch_images_sequence(gui, controller, file_paths):
             for i, future in enumerate(futures):
                 if future is not None and future.done():
                     try:
-                        img_id = future.result()
+                        img_id = controller.file.register_image(future.result())
                         loaded_ids.append(img_id)
                     except Exception as e:
                         warnings.append(f"- Failed: {e}")
@@ -991,14 +991,14 @@ def load_workspace_sequence(gui, controller, filepath):
             future_to_path = {}
             for old_id, p in tasks_to_load:
                 f = executor.submit(
-                    controller.file.load_image,
+                    controller.file.read_image,
                     list(p) if isinstance(p, tuple) else p,
                     ignore_history=True,
                 )
                 future_to_path[f] = ("base", old_id, p)
             for parent_old_id, p in legacy_overlays:
                 f = executor.submit(
-                    controller.file.load_image,
+                    controller.file.read_image,
                     list(p) if isinstance(p, tuple) else p,
                     ignore_history=True,
                 )
@@ -1014,7 +1014,7 @@ def load_workspace_sequence(gui, controller, filepath):
                     if future is not None and future.done():
                         p = future_to_path[future]
                         try:
-                            new_id = future.result()
+                            new_id = controller.file.register_image(future.result())
                             task_type, task_id, _p = future_to_path[future]
                             if task_type == "base":
                                 id_map[task_id] = new_id
@@ -1692,7 +1692,7 @@ def create_boot_sequence(
             max_workers=min(total_files, 4)
         ) as executor:
             future_to_job = {
-                executor.submit(controller.file.load_image, job[2]): job
+                executor.submit(controller.file.read_image, job[2]): job
                 for job in jobs
             }
             futures: list[concurrent.futures.Future | None] = [
@@ -1705,7 +1705,7 @@ def create_boot_sequence(
                     if future is not None and future.done():
                         idx, role, path = future_to_job[future]
                         try:
-                            img_id = future.result()
+                            img_id = controller.file.register_image(future.result())
                             task_results[(idx, role)] = img_id
                         except Exception as e:
                             warnings.append(f"- {os.path.basename(path)}: {e}")
