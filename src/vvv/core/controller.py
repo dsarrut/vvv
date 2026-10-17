@@ -324,17 +324,57 @@ class Controller:
         return name_str, is_outdated
 
     def save_image(self, vs_id, filepath):
-        """Exports the active volume to disk as a NIfTI, MHD, etc."""
-        if vs_id not in self.volumes:  # Guard against invalid vs_id
-            print(f"Error: Volume {vs_id} not found for saving.")
+        """Exports the volume to disk as a NIfTI, MHD, etc. (synchronous)."""
+        vol = self._volume_to_save(vs_id)
+        if vol is None:
             return
-        import SimpleITK as sitk
+        state = self._write_image_files(vol.sitk_image, getattr(vol, "unit", None), filepath)
+        self._apply_saved_state(vol, filepath, state)
 
-        vol = self.volumes[vs_id]
+    def save_image_async(self, vs_id, filepath):
+        """Same as save_image(), writing the files in a background thread.
+
+        The image is captured now (main thread); the volume's path/name are
+        updated, or the error reported, on the main thread when it is done.
+        """
+        vol = self._volume_to_save(vs_id)
+        if vol is None:
+            return
+        img, unit = vol.sitk_image, getattr(vol, "unit", None)
+        name = os.path.basename(filepath)
+
+        def _save():
+            try:
+                state = self._write_image_files(img, unit, filepath)
+            except Exception as e:
+                msg = f"Save failed ({name}): {e}"
+                self.call_on_main(lambda: self._set_status(msg))
+                return
+
+            def _commit():
+                self._apply_saved_state(vol, filepath, state)
+                self._set_status(f"Saved: {name}")
+
+            self.call_on_main(_commit)
+
+        threading.Thread(target=_save, daemon=True).start()
+
+    def _volume_to_save(self, vs_id):
+        vol = self.volumes.get(vs_id)
+        if vol is None:  # Guard against invalid vs_id
+            print(f"Error: Volume {vs_id} not found for saving.")
+            return None
         if vol.data is None:  # Guard against unloaded data
             print(f"Error: Volume {vs_id} has no data loaded.")
-            return
-        sitk.WriteImage(vol.sitk_image, filepath)
+            return None
+        return vol
+
+    @staticmethod
+    def _write_image_files(img, unit_val, filepath):
+        """Write the image and its unit sidecar JSON. Touches no app state."""
+        import SimpleITK as sitk
+
+        sitk.WriteImage(img, filepath)
 
         # Update or create sidecar JSON if unit is set or sidecar exists
         if filepath.endswith(".nii.gz"):
@@ -342,7 +382,7 @@ class Controller:
         else:
             json_path = os.path.splitext(filepath)[0] + ".json"
 
-        unit_val = getattr(vol, "unit", None)
+        state = {}
         if unit_val is not None or os.path.isfile(json_path):
             try:
                 jdata = {}
@@ -357,13 +397,18 @@ class Controller:
                     del jdata["unit"]
                 if jdata:
                     write_json_atomic(json_path, jdata)
-                    vol.sidecar_json_path = json_path
+                    state["sidecar_json_path"] = json_path
                     if unit_val:
-                        vol.unit_source = f"{os.path.basename(json_path)}"
+                        state["unit_source"] = os.path.basename(json_path)
             except Exception as e:
                 print(f"Warning: Failed to write sidecar JSON {json_path}: {e}")
+        return state
 
-        # Update internal state so the UI reflects the new filename and path
+    @staticmethod
+    def _apply_saved_state(vol, filepath, state):
+        """Main thread: the volume now refers to the file it was saved to."""
+        for key, value in state.items():
+            setattr(vol, key, value)
         vol.path = filepath
         vol.file_paths = [filepath]
         vol.name = os.path.basename(filepath)

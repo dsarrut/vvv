@@ -2471,13 +2471,7 @@ class MainGUI:
         if vol.file_paths and os.path.exists(vol.file_paths[0]):
             file_path = vol.file_paths[0]
             self.show_status_message(f"Saving {vol.name}...")
-
-            def _save():
-                self.controller.save_image(vs_id, file_path)
-                self.controller.status_message = f"Saved: {os.path.basename(file_path)}"
-                self.controller.ui_needs_refresh = True
-
-            threading.Thread(target=_save, daemon=True).start()
+            self.controller.save_image_async(vs_id, file_path)
         else:
             self.on_save_image_clicked(vs_id)
 
@@ -2510,14 +2504,8 @@ class MainGUI:
 
         if file_path:
             self.show_status_message(f"Saving {vol.name}...")
-
-            # Run in a thread so the UI doesn't freeze during heavy compression!
-            def _save():
-                self.controller.save_image(vs_id, file_path)
-                self.controller.status_message = f"Saved: {os.path.basename(file_path)}"
-                self.controller.ui_needs_refresh = True
-
-            threading.Thread(target=_save, daemon=True).start()
+            # Files written in a background thread (heavy compression)
+            self.controller.save_image_async(vs_id, file_path)
 
     def on_save_workspace_clicked(self, sender=None, app_data=None, user_data=None):
         file_path = save_file_dialog("Save VVV Workspace", default_name="workspace.vvw")
