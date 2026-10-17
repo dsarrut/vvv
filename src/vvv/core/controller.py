@@ -123,7 +123,10 @@ class Controller:
         return keys[next_idx]
 
     def default_viewers_orientation(self):
-        n = len(self.view_states)
+        # Count the displayed images: one only fused as overlay of another
+        # (e.g. CT + PET fusion) does not need its own viewers.
+        overlays = {vs.display.overlay.image_id for vs in self.view_states.values()}
+        n = len([i for i in self.view_states if i not in overlays]) or len(self.view_states)
         if n == 1:
             self.viewers["V1"].set_orientation(ViewMode.AXIAL)
             self.viewers["V2"].set_orientation(ViewMode.SAGITTAL)
