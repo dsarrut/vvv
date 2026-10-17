@@ -81,16 +81,30 @@ def straighten_image(img, filename="image", is_label_map=False):
     print(
         f"Oblique orientation detected in {filename}. Straightening to physical grid..."
     )
+    return _resample_axis_aligned(img, is_label_map)
 
+
+def _resample_axis_aligned(img, is_label_map=False):
+    """Linearly resample img onto an identity-direction grid covering all its voxel centres.
+
+    Each output (physical) axis takes the spacing of the index axis that maps
+    mostly onto it, so a pure flip/permutation would give back the original grid.
+    """
+    import SimpleITK as sitk
+
+    dim = img.GetDimension()
+    identity_dir = np.eye(dim).flatten()
+
+    # Bounding box of the voxel centres (last index is size - 1)
     size = img.GetSize()
-    corners = list(itertools.product(*[(0, s) for s in size]))
+    corners = list(itertools.product(*[(0, s - 1) for s in size]))
     phys_corners = np.array([img.TransformIndexToPhysicalPoint(c) for c in corners])
-
     min_phys = np.min(phys_corners, axis=0)
     max_phys = np.max(phys_corners, axis=0)
 
-    spacing = np.array(img.GetSpacing())
-    new_size = np.ceil((max_phys - min_phys) / spacing).astype(int)
+    m = np.array(img.GetDirection()).reshape(dim, dim)
+    spacing = np.array(img.GetSpacing())[np.argmax(np.abs(m), axis=1)]
+    new_size = np.ceil((max_phys - min_phys) / spacing - 1e-6).astype(int) + 1
 
     resampler = sitk.ResampleImageFilter()
     resampler.SetOutputDirection(identity_dir.tolist())
