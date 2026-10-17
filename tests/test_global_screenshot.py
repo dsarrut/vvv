@@ -1,3 +1,4 @@
+import sys
 import pytest
 from unittest.mock import MagicMock, patch
 from PIL import Image
@@ -32,8 +33,25 @@ def test_top_menu_screenshot_button_exists(headless_gui_app):
 def test_copy_image_to_clipboard():
     img = Image.new("RGBA", (50, 50), (255, 0, 0, 255))
     res = copy_image_to_clipboard(img)
-    # On macOS with Cocoa, this should return True
-    assert res is True
+    if sys.platform == "darwin":
+        # On macOS with Cocoa, this should return True
+        assert res is True
+    else:
+        # On headless Linux/Windows CI runners without clipboard tools installed
+        assert isinstance(res, bool)
+
+
+def test_copy_image_to_clipboard_windows():
+    img = Image.new("RGBA", (10, 10), (0, 255, 0, 255))
+    with patch("sys.platform", "win32"):
+        mock_win32clipboard = MagicMock()
+        with patch.dict("sys.modules", {"win32clipboard": mock_win32clipboard}):
+            res = copy_image_to_clipboard(img)
+            assert res is True
+            mock_win32clipboard.OpenClipboard.assert_called_once()
+            mock_win32clipboard.EmptyClipboard.assert_called_once()
+            mock_win32clipboard.SetClipboardData.assert_called_once()
+            mock_win32clipboard.CloseClipboard.assert_called_once()
 
 
 def test_copy_image_to_clipboard_linux_xclip():
