@@ -28,7 +28,11 @@ from vvv.ui.ui_components import (
 from vvv.ui.ui_sync import build_tab_sync, refresh_sync_ui
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 from vvv.ui.ui_theme import build_ui_config, register_dynamic_themes
-from vvv.ui.ui_notifications import show_message, show_status_message
+from vvv.ui.ui_notifications import (
+    show_message,
+    show_status_message,
+    hide_loading_modal,
+)
 from vvv.ui.ui_image_list import (
     build_tab_images,
     refresh_image_list_ui,
@@ -44,6 +48,7 @@ from vvv.ui.ui_sequences import (
 from vvv.ui.ui_drop import install_os_drop, cleanup_os_drop
 from vvv.ui.ui_workspace import build_workspace_nav_icons
 from vvv.ui.render_strategy import GL_NEAREST_SUPPORTED, NNMode
+import vvv.ui.render_strategy as _rs_mod  # module ref: _NUMBA_AVAILABLE changes at runtime
 from vvv.utils import capture_whole_window, copy_image_to_clipboard, save_screenshot_to_file
 
 _POSITIONAL_KINDS = (
@@ -128,6 +133,7 @@ class MainGUI:
         self.plugins = []
         self._plugin_map = {}
         self._plugin_errors: set[tuple[str, str]] = set()
+        self._frame_errors: set[tuple[str, str]] = set()
         self.plugin_api = PluginAPI(self)
         self._init_plugins()
 
@@ -187,6 +193,44 @@ class MainGUI:
                 cb(*job[1 : 1 + n])
             except Exception:
                 traceback.print_exc()
+
+    def _step_task(self, task):
+        """Advance a generator task (loading sequence) by one step.
+
+        Returns False once the task is finished or has failed. A failing task is
+        dropped with an error message instead of taking the whole app down; the
+        UI is refreshed from whatever state it left (no rollback).
+        """
+        try:
+            next(task)
+            return True
+        except StopIteration:
+            return False
+        except Exception as e:
+            if self.controller.debug_mode:
+                raise
+            traceback.print_exc()
+            hide_loading_modal()
+            self.show_message(
+                "Task failed",
+                f"An operation failed and was stopped:\n\n{type(e).__name__}: {e}"
+                "\n\nSee the console for details.",
+            )
+            self.controller.ui_needs_refresh = True
+            return False
+
+    def _report_frame_error(self, e):
+        """Keep the main loop alive on an unexpected error, reporting each distinct one once."""
+        if self.controller.debug_mode:
+            raise e
+        key = (type(e).__name__, str(e))
+        if key in self._frame_errors:
+            return
+        self._frame_errors.add(key)
+        traceback.print_exc()
+        self.controller.status_message = (
+            f"Internal error: {type(e).__name__}: {e} (see console)"
+        )
 
     def notify_plugins_image_loaded(self, image_id: str) -> None:
         for plugin in self.plugins:
@@ -2926,229 +2970,232 @@ class MainGUI:
             self._run_dpg_callbacks()
 
         install_os_drop(self.on_file_drop)
+        # Always run the shutdown (save history/settings) even if the loop dies
+        try:
+            if boot_generator:
+                while self._step_task(boot_generator):
+                    dpg.render_dearpygui_frame()
+                    self._run_dpg_callbacks()
 
-        if boot_generator:
-            for _ in boot_generator:
-                dpg.render_dearpygui_frame()
-                self._run_dpg_callbacks()
+            # --- DEBUG FPS + RENDER-ROUTE OVERLAY ---
+            import platform as _plat
 
-        # --- DEBUG FPS + RENDER-ROUTE OVERLAY ---
-        import platform as _plat
-
-        fps_label = fps_series = x_axis = y_axis = render_input = None
-        fps_data = time_data = None
-        if debug:
-            fps_data = collections.deque(maxlen=600)
-            time_data = collections.deque(maxlen=600)
-            with dpg.window(
-                label="Debug",
-                tag="fps_debug_window",
-                width=480,
-                height=370,
-                pos=[10, 30],
-            ):
-                fps_label = dpg.add_text("FPS: --   Avg: --   Min: --")
-                # Multiline readonly input_text → user can select & copy the text
-                render_input = dpg.add_input_text(
-                    default_value="...",
-                    multiline=True,
-                    readonly=True,
-                    width=-1,
-                    height=120,
-                    tag="debug_render_info",
-                )
-                with dpg.plot(
-                    label="",
-                    height=180,
-                    width=-1,
-                    no_menus=True,
-                    no_title=True,
+            fps_label = fps_series = x_axis = y_axis = render_input = None
+            fps_data = time_data = None
+            if debug:
+                fps_data = collections.deque(maxlen=600)
+                time_data = collections.deque(maxlen=600)
+                with dpg.window(
+                    label="Debug",
+                    tag="fps_debug_window",
+                    width=480,
+                    height=370,
+                    pos=[10, 30],
                 ):
-                    x_axis = dpg.add_plot_axis(
-                        dpg.mvXAxis, label="Time (s)", no_gridlines=True
+                    fps_label = dpg.add_text("FPS: --   Avg: --   Min: --")
+                    # Multiline readonly input_text → user can select & copy the text
+                    render_input = dpg.add_input_text(
+                        default_value="...",
+                        multiline=True,
+                        readonly=True,
+                        width=-1,
+                        height=120,
+                        tag="debug_render_info",
                     )
-                    y_axis = dpg.add_plot_axis(dpg.mvYAxis, label="FPS")
-                    dpg.set_axis_limits(y_axis, 0, 125)
-                    fps_series = dpg.add_line_series([], [], label="FPS", parent=y_axis)
+                    with dpg.plot(
+                        label="",
+                        height=180,
+                        width=-1,
+                        no_menus=True,
+                        no_title=True,
+                    ):
+                        x_axis = dpg.add_plot_axis(
+                            dpg.mvXAxis, label="Time (s)", no_gridlines=True
+                        )
+                        y_axis = dpg.add_plot_axis(dpg.mvYAxis, label="FPS")
+                        dpg.set_axis_limits(y_axis, 0, 125)
+                        fps_series = dpg.add_line_series([], [], label="FPS", parent=y_axis)
 
-        target_fps = 60.0
-        frame_budget = 1.0 / target_fps
-        last_frame_time = time.perf_counter()
-
-        while dpg.is_dearpygui_running():
-            self._run_dpg_callbacks()
-            t_now = time.perf_counter()
-
-            # Detect activity/necessity to run at full speed
-            has_active_tasks = (
-                len(self.tasks) > 0
-                or len(self._main_thread_callbacks) > 0
-                or getattr(self.controller, "ui_needs_refresh", False)
-            )
-
-            # Get mouse position and viewport boundaries
-            mx, my = dpg.get_mouse_pos(local=False)
-            vw = dpg.get_viewport_width()
-            vh = dpg.get_viewport_height()
-
-            # Check if mouse is inside the window
-            mouse_in_viewport = (0 <= mx <= vw) and (0 <= my <= vh)
-
-            # Did mouse position change?
-            mouse_moved = (mx, my) != self._last_mouse_pos
-            if mouse_moved:
-                self._last_mouse_pos = (mx, my)
-
-            # Check if any mouse button is down
-            mouse_clicked = False
-            for btn in range(3):
-                if dpg.is_mouse_button_down(btn):
-                    mouse_clicked = True
-                    break
-
-            if mouse_moved or mouse_clicked or has_active_tasks:
-                self._last_interaction_time = t_now
-
-            # Set dynamic FPS target
-            if has_active_tasks:
-                target_fps = 60.0
-            elif not mouse_in_viewport:
-                # Hovering outside or window minimized/backgrounded: extremely low rate to save CPU
-                target_fps = 5.0
-            elif t_now - self._last_interaction_time > 2.0:
-                # Inside viewport but completely inactive/idle: low rate
-                target_fps = 10.0
-            else:
-                target_fps = 60.0
-
+            target_fps = 60.0
             frame_budget = 1.0 / target_fps
-            t_elapsed = t_now - last_frame_time
-            t_sleep = frame_budget - t_elapsed
-            if t_sleep > 0.001:
-                time.sleep(t_sleep)
             last_frame_time = time.perf_counter()
 
-            # Process thread-safe callbacks scheduled from background threads
-            callbacks_to_run = []
-            with self._main_thread_lock:
-                while self._main_thread_callbacks:
-                    callbacks_to_run.append(self._main_thread_callbacks.popleft())
-            for cb in callbacks_to_run:
+            while dpg.is_dearpygui_running():
                 try:
-                    cb()
-                except Exception as cb_err:
-                    import sys
+                    self._run_dpg_callbacks()
+                    t_now = time.perf_counter()
 
-                    print(
-                        f"Error executing scheduled main-thread callback: {cb_err}",
-                        file=sys.stderr,
+                    # Detect activity/necessity to run at full speed
+                    has_active_tasks = (
+                        len(self.tasks) > 0
+                        or len(self._main_thread_callbacks) > 0
+                        or getattr(self.controller, "ui_needs_refresh", False)
                     )
-            if debug:
-                assert fps_data is not None and time_data is not None
-                assert fps_label is not None and fps_series is not None
-                assert x_axis is not None and render_input is not None
 
-                delta = dpg.get_delta_time()
-                t_now = dpg.get_total_time()
-                if 0.0001 < delta < 5.0:
-                    fps = 1.0 / delta
-                    fps_data.append(fps)
-                    time_data.append(t_now)
-                    avg = sum(fps_data) / len(fps_data)
-                    mn = min(fps_data)
-                    dpg.set_value(
-                        fps_label, f"FPS: {fps:.1f}   Avg: {avg:.1f}   Min: {mn:.1f}"
-                    )
-                    xs = list(time_data)
-                    dpg.set_value(fps_series, [xs, list(fps_data)])
-                    dpg.set_axis_limits(x_axis, max(0.0, t_now - 10.0), t_now + 0.2)
+                    # Get mouse position and viewport boundaries
+                    mx, my = dpg.get_mouse_pos(local=False)
+                    vw = dpg.get_viewport_width()
+                    vh = dpg.get_viewport_height()
 
-                # ---- render-route info (copyable text, updated every frame) ----
-                _nn_labels = {
-                    NNMode.HW_GL_NEAREST: "HW GL_NEAREST",
-                    NNMode.SW_DUAL_NATIVE: "SW Dual-Native",
-                    NNMode.SW_DUAL_RESAMPLED: "SW Dual-Resampled",
-                    NNMode.SW_SINGLE_MERGED: "SW Single-Merged",
-                    NNMode.SW_SINGLE_NATIVE: "SW Single-Native",
-                }
+                    # Check if mouse is inside the window
+                    mouse_in_viewport = (0 <= mx <= vw) and (0 <= my <= vh)
 
-                # Summarise lazy state across all viewers for a quick top-level read
-                def _lazy_summary(attr):
-                    vs = self.controller.viewers.values()
-                    a = all(getattr(v, attr, False) for v in vs)
-                    n = any(getattr(v, attr, False) for v in vs)
-                    return "ALL ON" if a else ("SOME ON" if n else "OFF")
+                    # Did mouse position change?
+                    mouse_moved = (mx, my) != self._last_mouse_pos
+                    if mouse_moved:
+                        self._last_mouse_pos = (mx, my)
 
-                _rs_mod._init_numba()
-                lines = [
-                    f"Platform: {_plat.system()}   GL: {'ON' if GL_NEAREST_SUPPORTED else 'OFF'}   "
-                    f"Numba: {'ON' if _rs_mod._NUMBA_AVAILABLE else 'OFF (slow fusion!)'}   "
-                    f"debug: {getattr(self.controller, 'debug_mode', False)}",
-                    f"Lazy-Lin: {_lazy_summary('lazy_lin')}",
-                ]
-                for vtag, viewer in self.controller.viewers.items():
-                    vs = viewer.view_state
-                    pix = bool(vs and vs.display.pixelated_zoom) if vs else False
-                    tex = getattr(viewer, "texture_tag", "?")
-                    nn_mode = getattr(viewer, "nn_mode", None)
-                    lazy_lin = getattr(viewer, "lazy_lin", False)
-                    settled = getattr(viewer, "_nn_settle_done", True)
-                    live_s = "" if settled else " LIVE"
-                    lazy_tag = ""
-                    if lazy_lin:
-                        lazy_tag = f"  [lazy-lin{live_s}]"
-                    if pix and nn_mode is not None:
-                        mode = _nn_labels.get(nn_mode, f"mode-{nn_mode}") + lazy_tag
-                    elif pix:
-                        mode = "NN" + lazy_tag
+                    # Check if any mouse button is down
+                    mouse_clicked = False
+                    for btn in range(3):
+                        if dpg.is_mouse_button_down(btn):
+                            mouse_clicked = True
+                            break
+
+                    if mouse_moved or mouse_clicked or has_active_tasks:
+                        self._last_interaction_time = t_now
+
+                    # Set dynamic FPS target
+                    if has_active_tasks:
+                        target_fps = 60.0
+                    elif not mouse_in_viewport:
+                        # Hovering outside or window minimized/backgrounded: extremely low rate to save CPU
+                        target_fps = 5.0
+                    elif t_now - self._last_interaction_time > 2.0:
+                        # Inside viewport but completely inactive/idle: low rate
+                        target_fps = 10.0
                     else:
-                        mode = "Bilinear"
-                    lines.append(f"  {vtag}: {mode}")
-                dpg.set_value(render_input, "\n".join(lines))
+                        target_fps = 60.0
 
-            if time.time() > self.status_message_expire_time:
-                if dpg.does_item_exist("global_status_text"):
-                    dpg.set_value("global_status_text", "")
-                self.status_message_expire_time = float("inf")
+                    frame_budget = 1.0 / target_fps
+                    t_elapsed = t_now - last_frame_time
+                    t_sleep = frame_budget - t_elapsed
+                    if t_sleep > 0.001:
+                        time.sleep(t_sleep)
+                    last_frame_time = time.perf_counter()
 
-            if self.tasks:
-                try:
-                    next(self.tasks[0])
-                except StopIteration:
-                    self.tasks.pop(0)
+                    # Process thread-safe callbacks scheduled from background threads
+                    callbacks_to_run = []
+                    with self._main_thread_lock:
+                        while self._main_thread_callbacks:
+                            callbacks_to_run.append(self._main_thread_callbacks.popleft())
+                    for cb in callbacks_to_run:
+                        try:
+                            cb()
+                        except Exception as cb_err:
+                            import sys
 
-            # Status messages are polled every frame so they appear immediately
-            if getattr(self.controller, "status_message", None):
-                self.show_status_message(self.controller.status_message)
-                self.controller.status_message = None
+                            print(
+                                f"Error executing scheduled main-thread callback: {cb_err}",
+                                file=sys.stderr,
+                            )
+                    if debug:
+                        assert fps_data is not None and time_data is not None
+                        assert fps_label is not None and fps_series is not None
+                        assert x_axis is not None and render_input is not None
 
-            # Capture if the frame was flagged for refresh at the start
-            ui_dirty = getattr(self.controller, "ui_needs_refresh", False)
-            if ui_dirty:
-                self._refresh_all_ui_panels()
+                        delta = dpg.get_delta_time()
+                        t_now = dpg.get_total_time()
+                        if 0.0001 < delta < 5.0:
+                            fps = 1.0 / delta
+                            fps_data.append(fps)
+                            time_data.append(t_now)
+                            avg = sum(fps_data) / len(fps_data)
+                            mn = min(fps_data)
+                            dpg.set_value(
+                                fps_label, f"FPS: {fps:.1f}   Avg: {avg:.1f}   Min: {mn:.1f}"
+                            )
+                            xs = list(time_data)
+                            dpg.set_value(fps_series, [xs, list(fps_data)])
+                            dpg.set_axis_limits(x_axis, max(0.0, t_now - 10.0), t_now + 0.2)
 
-            self.interaction.update_trackers()
-            self.sync_bound_ui()
+                        # ---- render-route info (copyable text, updated every frame) ----
+                        _nn_labels = {
+                            NNMode.HW_GL_NEAREST: "HW GL_NEAREST",
+                            NNMode.SW_DUAL_NATIVE: "SW Dual-Native",
+                            NNMode.SW_DUAL_RESAMPLED: "SW Dual-Resampled",
+                            NNMode.SW_SINGLE_MERGED: "SW Single-Merged",
+                            NNMode.SW_SINGLE_NATIVE: "SW Single-Native",
+                        }
 
-            # Update Plugins (only when state has changed)
-            if self.plugin_api.is_dirty:
-                for plugin in self.plugins:
-                    self._call_plugin(plugin, "update", self.plugin_api)
+                        # Summarise lazy state across all viewers for a quick top-level read
+                        def _lazy_summary(attr):
+                            vs = self.controller.viewers.values()
+                            a = all(getattr(v, attr, False) for v in vs)
+                            n = any(getattr(v, attr, False) for v in vs)
+                            return "ALL ON" if a else ("SOME ON" if n else "OFF")
 
-            # Clear the flag only after all logic and plugins have seen it
-            if ui_dirty:
-                self.controller.ui_needs_refresh = False
+                        _rs_mod._init_numba()
+                        lines = [
+                            f"Platform: {_plat.system()}   GL: {'ON' if GL_NEAREST_SUPPORTED else 'OFF'}   "
+                            f"Numba: {'ON' if _rs_mod._NUMBA_AVAILABLE else 'OFF (slow fusion!)'}   "
+                            f"debug: {getattr(self.controller, 'debug_mode', False)}",
+                            f"Lazy-Lin: {_lazy_summary('lazy_lin')}",
+                        ]
+                        for vtag, viewer in self.controller.viewers.items():
+                            vs = viewer.view_state
+                            pix = bool(vs and vs.display.pixelated_zoom) if vs else False
+                            tex = getattr(viewer, "texture_tag", "?")
+                            nn_mode = getattr(viewer, "nn_mode", None)
+                            lazy_lin = getattr(viewer, "lazy_lin", False)
+                            settled = getattr(viewer, "_nn_settle_done", True)
+                            live_s = "" if settled else " LIVE"
+                            lazy_tag = ""
+                            if lazy_lin:
+                                lazy_tag = f"  [lazy-lin{live_s}]"
+                            if pix and nn_mode is not None:
+                                mode = _nn_labels.get(nn_mode, f"mode-{nn_mode}") + lazy_tag
+                            elif pix:
+                                mode = "NN" + lazy_tag
+                            else:
+                                mode = "Bilinear"
+                            lines.append(f"  {vtag}: {mode}")
+                        dpg.set_value(render_input, "\n".join(lines))
 
-            # Call tick on plugins (e.g. for high-frequency progress indicators)
-            for plugin in self.plugins:
-                if hasattr(plugin, "tick"):
-                    self._call_plugin(plugin, "tick")
+                    if time.time() > self.status_message_expire_time:
+                        if dpg.does_item_exist("global_status_text"):
+                            dpg.set_value("global_status_text", "")
+                        self.status_message_expire_time = float("inf")
 
-            self.controller.tick()
+                    if self.tasks and not self._step_task(self.tasks[0]):
+                        self.tasks.pop(0)
 
-            dpg.render_dearpygui_frame()
+                    # Status messages are polled every frame so they appear immediately
+                    if getattr(self.controller, "status_message", None):
+                        self.show_status_message(self.controller.status_message)
+                        self.controller.status_message = None
 
-        # Shutdown sequence
+                    # Capture if the frame was flagged for refresh at the start
+                    ui_dirty = getattr(self.controller, "ui_needs_refresh", False)
+                    if ui_dirty:
+                        self._refresh_all_ui_panels()
+
+                    self.interaction.update_trackers()
+                    self.sync_bound_ui()
+
+                    # Update Plugins (only when state has changed)
+                    if self.plugin_api.is_dirty:
+                        for plugin in self.plugins:
+                            self._call_plugin(plugin, "update", self.plugin_api)
+
+                    # Clear the flag only after all logic and plugins have seen it
+                    if ui_dirty:
+                        self.controller.ui_needs_refresh = False
+
+                    # Call tick on plugins (e.g. for high-frequency progress indicators)
+                    for plugin in self.plugins:
+                        if hasattr(plugin, "tick"):
+                            self._call_plugin(plugin, "tick")
+
+                    self.controller.tick()
+                except Exception as e:
+                    self._report_frame_error(e)
+
+                dpg.render_dearpygui_frame()
+        finally:
+            self._shutdown()
+
+    def _shutdown(self):
         for plugin in self.plugins:
             self._call_plugin(plugin, "save_settings", self.plugin_api)
             self._call_plugin(plugin, "destroy")
@@ -3161,7 +3208,10 @@ class MainGUI:
 
         if auto_save and hasattr(self.controller, "history"):
             for vs_id in list(self.controller.view_states.keys()):
-                self.controller.history.save_image_state(self.controller, vs_id)
+                try:
+                    self.controller.history.save_image_state(self.controller, vs_id)
+                except Exception:
+                    traceback.print_exc()
 
         self.controller.save_settings()
         dpg.destroy_context()
