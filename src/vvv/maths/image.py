@@ -786,6 +786,12 @@ class SliceRenderer:
         return res_rgba.astype(np.float32, copy=False).ravel(), (h, w)
 
 
+_NOT_DICOM_EXTENSIONS = (
+    ".nii", ".nii.gz", ".mhd", ".mha", ".nrrd", ".nhdr", ".hdr", ".img",
+    ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".vtk", ".json",
+)
+
+
 class VolumeData:
     """Stores the immutable medical image data and physical metadata."""
 
@@ -1480,8 +1486,11 @@ class VolumeData:
                 except Exception:
                     pass
 
-        # 2. Check DICOM metadata
-        if self.file_paths:
+        # 2. Check DICOM metadata (force=True parses any file as DICOM: on a
+        # NIfTI it never finds a modality, but can take 100+ ms per call)
+        if self.file_paths and not self.file_paths[0].lower().endswith(
+            _NOT_DICOM_EXTENSIONS
+        ):
             fp = self.file_paths[0]
             try:
                 import pydicom

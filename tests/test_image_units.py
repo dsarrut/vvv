@@ -70,8 +70,8 @@ def test_fallback_unit_when_no_json(tmp_path):
 
 def test_dicom_unit_detection(tmp_path):
     """Verifies that DICOM files infer their unit from modality/tags."""
-    img_path = str(tmp_path / "fake_dicom.nii.gz")
-    img = sitk.GetImageFromArray(np.zeros((5, 5, 5), dtype=np.int16))
+    img_path = str(tmp_path / "fake_dicom.dcm")
+    img = sitk.GetImageFromArray(np.zeros((5, 5), dtype=np.int16))
     sitk.WriteImage(img, img_path)
 
     with patch("pydicom.dcmread") as mock_dcmread:
@@ -93,6 +93,19 @@ def test_dicom_unit_detection(tmp_path):
         vol_pt = VolumeData(img_path)
         assert vol_pt.unit == "Bq/mL"
         assert "BQML" in vol_pt.unit_source
+
+
+def test_no_dicom_probe_for_nifti(tmp_path):
+    """A NIfTI file is never parsed as DICOM (force=True parsing took 100+ ms
+    per label when loading a label map)."""
+    img_path = str(tmp_path / "labels.nii.gz")
+    sitk.WriteImage(sitk.GetImageFromArray(np.zeros((5, 5, 5), dtype=np.uint8)), img_path)
+
+    with patch("pydicom.dcmread") as mock_dcmread:
+        vol = VolumeData(img_path)
+    mock_dcmread.assert_not_called()
+    assert vol.unit is None
+    assert vol.unit_source == "Unknown"
 
 
 def test_save_image_updates_sidecar_json(headless_gui_app, tmp_path):

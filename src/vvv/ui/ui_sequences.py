@@ -509,28 +509,34 @@ def _rasterize_and_load_labels(
                 executor.submit(_process_label, val_int, custom_name, color, bbox)
             )
 
+        # Register all ROIs at the end: each registration re-renders the
+        # viewers with every ROI so far (150 labels = 150 ever slower frames).
+        pending = [None] * total_lbls
         completed = 0
         while completed < total_lbls:
             for i, future in enumerate(futures):
                 if future is not None and future.done():
-                    res = controller.roi.register_roi(future.result())
+                    pending[i] = future.result()
                     futures[i] = None
                     completed += 1
-                    if res and saved_preferences and res in vs.rois:
-                        rstate = vs.rois[res]
-                        lbl_val = int(rstate.source_val)
-                        if lbl_val in saved_preferences:
-                            prefs = saved_preferences[lbl_val]
-                            for k, v in prefs.items():
-                                if k == "color" and lbl_val in color_dict:
-                                    # Prefer the color read from the newly reloaded JSON file
-                                    continue
-                                setattr(rstate, k, v)
-                    yield res
+                    yield "EXTRACTED"
 
             # Yield control to DearPyGui while waiting for threads
             yield "KEEP_ALIVE"
             time.sleep(0.01)
+
+    for p in pending:
+        res = controller.roi.register_roi(p)
+        if res and saved_preferences and res in vs.rois:
+            rstate = vs.rois[res]
+            lbl_val = int(rstate.source_val)
+            if lbl_val in saved_preferences:
+                prefs = saved_preferences[lbl_val]
+                for k, v in prefs.items():
+                    if k == "color" and lbl_val in color_dict:
+                        # Prefer the color read from the newly reloaded JSON file
+                        continue
+                    setattr(rstate, k, v)
 
 
 def load_label_map_sequence(
