@@ -24,9 +24,11 @@ comparison with earlier runs of the same machine only. <host> is the macOS
 LocalHostName or the Linux hostname (override with VVV_BENCH_HOST).
 
 Usage:
-    python tests/bench_core.py               # full run, writes results
+    python tests/bench_core.py               # full run, save, compare with previous run
+    python tests/bench_core.py --ref 9f08fb5 # compare with the latest run of a commit
     python tests/bench_core.py --quick       # fewer frames, smoke test
     python tests/bench_core.py --no-save     # print only
+    python tests/bench_compare.py [OLD] [NEW]  # compare saved results, no run
 Do not use the mouse/keyboard on the bench window while it runs.
 """
 
@@ -35,8 +37,6 @@ import datetime
 import json
 import math
 import os
-import platform
-import socket
 import statistics
 import subprocess
 import sys
@@ -45,6 +45,8 @@ import time
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(REPO, "src"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import bench_common as bc  # noqa: E402
 
 DATA_VERSION = 1  # bump when the generated data changes (invalidates the cache)
 VIEWPORT = (1600, 1000)
@@ -298,64 +300,6 @@ def run_worker(config, data_dir, n_frames, n_warmup):
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-def _git(*args):
-    try:
-        return subprocess.run(
-            ["git", *args], cwd=REPO, capture_output=True, text=True, check=True
-        ).stdout.strip()
-    except Exception:
-        return ""
-
-
-def machine_name():
-    """Stable machine name: the network hostname of a laptop changes (DHCP)."""
-    if os.environ.get("VVV_BENCH_HOST"):
-        return os.environ["VVV_BENCH_HOST"]
-    if sys.platform == "darwin":
-        name = subprocess.run(
-            ["scutil", "--get", "LocalHostName"], capture_output=True, text=True
-        ).stdout.strip()
-        if name:
-            return name.lower()
-    return socket.gethostname().split(".")[0].lower()
-
-
-def environment():
-    import numpy
-    import SimpleITK
-    import dearpygui
-
-    try:
-        import numba
-        numba_v = numba.__version__
-    except Exception:
-        numba_v = None
-    dirty = [
-        l for l in _git("status", "--porcelain").splitlines()
-        if not l[3:].startswith("bench_results/")
-    ]
-    return {
-        "host": machine_name(),
-        "platform": f"{platform.system()} {platform.release()} ({platform.machine()})",
-        "cpu_count": os.cpu_count(),
-        "python": platform.python_version(),
-        "numpy": numpy.__version__,
-        "simpleitk": SimpleITK.Version_VersionString(),
-        "dearpygui": dearpygui.__version__,
-        "numba": numba_v,
-        "commit": _git("rev-parse", "--short", "HEAD"),
-        "branch": _git("rev-parse", "--abbrev-ref", "HEAD"),
-        "dirty": bool(dirty),
-    }
-
-
-def _loadavg():
-    try:
-        return [round(x, 2) for x in os.getloadavg()]
-    except (OSError, AttributeError):
-        return None
-
-
 def print_table(results):
     print(f"\n  {'scenario':28s} {'median':>9s} {'p90':>9s} {'fps':>7s}")
     print("  " + "-" * 56)
@@ -366,13 +310,13 @@ def print_table(results):
 
 
 def master_main(args):
-    env = environment()
-    n_frames, n_warmup, load_rep = (30, 15, 2) if args.quick else (120, 15, 5)
+    env = bc.environment()
+    n_frames, n_warmup, load_rep = (30, 15, 3) if args.quick else (120, 15, 10)
     data_dir = os.path.join(tempfile.gettempdir(), f"vvv_bench_data_v{DATA_VERSION}")
 
     print(f"vvv bench_core — host {env['host']} · {env['platform']} · commit {env['commit']}"
           f"{' (dirty)' if env['dirty'] else ''}")
-    la = _loadavg()
+    la = bc.loadavg()
     if la and env["cpu_count"] and la[0] > 0.5 * env["cpu_count"]:
         print(f"  WARNING: machine looks busy (load average {la}) — results may be slower")
 
@@ -395,25 +339,30 @@ def master_main(args):
         "env": env,
         "params": {"frames": n_frames, "warmup": n_warmup, "load_repeats": load_rep,
                    "viewport": list(VIEWPORT), "data_version": DATA_VERSION, "quick": args.quick},
-        "loadavg": {"start": la, "end": _loadavg()},
+        "loadavg": {"start": la, "end": bc.loadavg()},
         "render_modes": run_info,
         "results": results,
     }
     print_table(results)
+    saved = None
     if not args.no_save:
-        out_dir = os.path.join(REPO, "bench_results", env["host"])
-        os.makedirs(out_dir, exist_ok=True)
-        stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        out = os.path.join(out_dir, f"core_{stamp}_{env['commit'] or 'nogit'}.json")
-        with open(out, "w") as f:
-            json.dump(report, f, indent=2)
-        print(f"\n  saved {os.path.relpath(out, REPO)}")
+        saved = bc.save_report(report)
+        print(f"\n  saved {os.path.relpath(saved, REPO)}")
+    if not args.no_compare:
+        ref = bc.resolve_ref(args.ref, "core", env["host"], before=saved)
+        if ref is None:
+            print("\n  no earlier result on this machine to compare with")
+        else:
+            bc.compare(bc.load_report(ref), report)
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--quick", action="store_true", help="fewer frames (smoke test)")
     p.add_argument("--no-save", action="store_true", help="do not write bench_results/")
+    p.add_argument("--ref", help="result to compare with: commit prefix or json path "
+                   "(default: previous result of this machine)")
+    p.add_argument("--no-compare", action="store_true", help="skip the comparison")
     p.add_argument("--worker", help=argparse.SUPPRESS)
     p.add_argument("--data", help=argparse.SUPPRESS)
     p.add_argument("--frames", type=int, default=120, help=argparse.SUPPRESS)
