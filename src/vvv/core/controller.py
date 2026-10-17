@@ -73,6 +73,11 @@ class Controller:
         self.use_history = True
         self.next_image_id = 1
 
+        # ITK images whose numpy views may still be in use by the main thread
+        # (see _retire); released at the start of the next tick().
+        self._retired = []
+        self._retired_lock = threading.Lock()
+
         # One JobRunner per image, lazily created. resample_image() and
         # bake_transform_to_volume() share the same runner for a given vs_id so
         # they can never race each other on that image's data.
@@ -586,6 +591,21 @@ class Controller:
         self.ui_needs_refresh = True
         self._flag_all_viewers_dirty()
 
+    def _retire(self, *objs):
+        """Keep ITK images alive until the main thread's next tick().
+
+        Display arrays are numpy *views* of ITK images (GetArrayViewFromImage)
+        and do not keep them alive: if a background thread drops an image while
+        the main thread is still reading a view of it, that read hits freed
+        memory. Anything a worker replaces is retired here instead; tick() on
+        the main thread releases it, when no view from the previous frame is
+        still in use (no main-thread code keeps such views across frames).
+        """
+        objs = [o for o in objs if o is not None]
+        if objs:
+            with self._retired_lock:
+                self._retired.extend(objs)
+
     def _get_job_runner(self, vs_id) -> JobRunner:
         """Return this image's background JobRunner, creating it on first use.
 
@@ -682,17 +702,17 @@ class Controller:
         """
         if not vs.space.is_active or not vs.space.has_rotation():
             vs.base_display_data = None
+            self._retire(vs._sitk_base_cache)
             vs._sitk_base_cache = None
             return
 
         vs.base_display_data = None
-        _old_cache = vs._sitk_base_cache  # noqa: F841 — keep alive during Execute()
+        self._retire(vs._sitk_base_cache)  # its views may still be in use
         vs._sitk_base_cache = None
 
         rot_transform = vs.space.get_rotation_only_transform()
         new_cache, new_data = resample_base(vs.volume, rot_transform)
 
-        del _old_cache  # release old ITK object now that new data is ready
         vs._sitk_base_cache = new_cache
         vs.base_display_data = new_data
 
@@ -719,13 +739,12 @@ class Controller:
                 base_vs.display._sitk_overlay_cache = _old_cache
             return
 
-        _old_cache = (
-            None  # noqa: F841  — release old ITK object after new data is ready
-        )
         with base_vs.display._lock:
             base_vs.display._sitk_overlay_cache = new_cache
             base_vs.display.overlay_data = new_data
             base_vs.display.baked_overlay_translation = baked
+        # The main thread may still be reading the old overlay_data view
+        self._retire(_old_cache)
         base_vs.is_data_dirty = True
 
     def _clear_overlay_data(self, image_id):
@@ -840,6 +859,8 @@ class Controller:
                     # Rebuild overlays that depended on this image
                     self._rebuild_dependent_overlays(vs_id, vs, vol, old_state)
 
+                    # Old images: the main thread may still read views of them
+                    self._retire(data_snapshot)
                     self.update_all_viewers_of_image(vs_id)
                     self.sync.propagate_sync(vs_id)
                     self.status_message = "Transform baked into image"
@@ -1108,6 +1129,10 @@ class Controller:
             return None
 
     def tick(self):
+        # Previous frame is over: retired ITK images can be freed now
+        with self._retired_lock:
+            self._retired.clear()
+
         with self._state_lock:
             vs_items = list(self.view_states.items())
             vol_items = list(self.volumes.values())
