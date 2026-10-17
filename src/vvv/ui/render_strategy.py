@@ -504,6 +504,29 @@ def _xfm_key(transform):
         return None
 
 
+def _nonzero_bbox(ov_vol, ov_data, time_idx, thr_val):
+    """(x0, x1, y0, y1, z0, z1) of the voxels above thr_val in this frame.
+
+    Cached on the volume per (frame, threshold): a 4D overlay has a different
+    extent per frame. VolumeData.reload() drops the cache.
+    """
+    cache = ov_vol.__dict__.setdefault("_nonzero_bbox_cache", {})
+    key = (time_idx, thr_val)
+    if key not in cache:
+        ov_D, ov_H, ov_W = ov_data.shape
+        nz_mask = ov_data > thr_val
+        if np.any(nz_mask):
+            nz_z, nz_y, nz_x = np.nonzero(nz_mask)
+            cache[key] = (
+                int(nz_x.min()), int(nz_x.max()) + 1,
+                int(nz_y.min()), int(nz_y.max()) + 1,
+                int(nz_z.min()), int(nz_z.max()) + 1,
+            )
+        else:
+            cache[key] = (0, ov_W, 0, ov_H, 0, ov_D)
+    return cache[key]
+
+
 def compute_native_voxel_overlay(
     viewer,
     pmin,
@@ -571,6 +594,7 @@ def compute_native_voxel_overlay(
         _xfm_key(base_xfm),
         _xfm_key(ov_xfm),
         thr_val,
+        time_idx,  # the culling bbox depends on the frame of a 4D overlay
         viewer.orientation,
         slice_w,
         slice_h,
@@ -603,23 +627,9 @@ def compute_native_voxel_overlay(
         try:
             A_inv = np.linalg.inv(A_total)
             if thr_val is not None:
-                if not hasattr(ov_vol, "_nonzero_bbox_cache"):
-                    ov_vol._nonzero_bbox_cache = {}
-                nz_box = ov_vol._nonzero_bbox_cache.get(thr_val)
-                if nz_box is None:
-                    nz_mask = ov_data > thr_val
-                    if np.any(nz_mask):
-                        nz_z, nz_y, nz_x = np.nonzero(nz_mask)
-                        nz_box = (
-                            int(nz_x.min()), int(nz_x.max()) + 1,
-                            int(nz_y.min()), int(nz_y.max()) + 1,
-                            int(nz_z.min()), int(nz_z.max()) + 1,
-                        )
-                    else:
-                        nz_box = (0, ov_W, 0, ov_H, 0, ov_D)
-                    ov_vol._nonzero_bbox_cache[thr_val] = nz_box
-
-                ox0, ox1, oy0, oy1, oz0, oz1 = nz_box
+                ox0, ox1, oy0, oy1, oz0, oz1 = _nonzero_bbox(
+                    ov_vol, ov_data, time_idx, thr_val
+                )
                 corners_ov = np.array(
                     [
                         [ox0, oy0, oz0],
