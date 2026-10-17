@@ -11,8 +11,9 @@ Time from launching vvv to the first frame drawn with everything loaded:
   startup.python       interpreter start (spawn -> first line), all runs
   startup.imports      vvv + DearPyGui imports, all runs
 
-Each boot is a fresh subprocess (cold start, like the command line) with HOME
-pointed to a temporary directory: default settings, user config untouched.
+Each boot is a fresh subprocess running vvv.cli.main with the command line a
+user would type (cold start, whole CLI path), with HOME pointed to a
+temporary directory: default settings and window size, user config untouched.
 "Ready" = boot finished, no task left, overlays resampled, one frame rendered.
 Each scenario checks it loaded what it should, so a broken boot cannot report
 a (fast) time.
@@ -41,7 +42,6 @@ import tempfile  # noqa: E402
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 DATA_VERSION = 1
-VIEWPORT = (1280, 720)
 SCENARIOS = {
     # name: expected (images, rois, overlays)
     "empty": (0, 0, 0),
@@ -59,41 +59,24 @@ SCENARIOS = {
 def worker_main(scenario, data_dir):
     sys.path.insert(0, os.path.join(REPO, "src"))
     import dearpygui.dearpygui as dpg
-    from vvv.core.controller import Controller
+    import vvv.cli
     from vvv.ui.gui import MainGUI
-    from vvv.ui.viewer import SliceViewer
 
     t_imports = time.time()
 
-    dpg.create_context()
-    c = Controller()
-    c.use_history = False
-    for tag in ["V1", "V2", "V3", "V4"]:
-        c.viewers[tag] = SliceViewer(tag, c)
-    gui = MainGUI(c)
-    c.gui = gui
-    dpg.create_viewport(title="vvv bench startup", width=VIEWPORT[0], height=VIEWPORT[1])
-
-    def task(path, sync_group=0):
-        return {"base": path, "fusion": None, "sync_group": sync_group,
-                "base_cmap": None, "labels": []}
-
-    if scenario == "empty":
-        boot = None
-    elif scenario == "ct_large":
-        boot = gui.create_boot_sequence([task(os.path.join(data_dir, "large.nii"))])
-    elif scenario == "four_images":
-        boot = gui.create_boot_sequence(
-            [task(os.path.join(data_dir, f"img{i}.nii"), 1) for i in range(4)]
-        )
-    else:
-        boot = gui.load_workspace_sequence(os.path.join(data_dir, "ws.vvw"))
-
+    # Same command lines a user types: the whole CLI path is timed
+    args = {
+        "empty": [],
+        "ct_large": [os.path.join(data_dir, "large.nii")],
+        "four_images": [f"1:{os.path.join(data_dir, f'img{i}.nii')}" for i in range(4)],
+        "workspace": [os.path.join(data_dir, "ws.vvw")],
+    }[scenario]
     out = {}
 
-    def ready_monitor():
+    def ready_monitor(gui):
         # boot_generator has finished when the first task runs; wait for the
         # rest (other tasks, background overlay resample), then one frame
+        c = gui.controller
         t_end = time.time() + 120
         while time.time() < t_end:
             overlays_pending = any(
@@ -113,8 +96,14 @@ def worker_main(scenario, data_dir):
         )
         dpg.stop_dearpygui()
 
-    gui.tasks.append(ready_monitor())
-    gui.run(boot_generator=boot)
+    original_run = MainGUI.run
+
+    def run_with_monitor(self, boot_generator=None, debug=False):
+        self.tasks.append(ready_monitor(self))
+        return original_run(self, boot_generator=boot_generator, debug=debug)
+
+    MainGUI.run = run_with_monitor
+    vvv.cli.main(args, standalone_mode=False)
     out.update({"script": _T_SCRIPT, "imports": t_imports})
     print("RESULT_JSON: " + json.dumps(out))
 
@@ -248,7 +237,7 @@ def master_main(args):
         "bench": "startup",
         "date": datetime.datetime.now().isoformat(timespec="seconds"),
         "env": env,
-        "params": {"warmup": n_warmup, "boots": n_iter, "viewport": list(VIEWPORT),
+        "params": {"warmup": n_warmup, "boots": n_iter, "boot_path": "vvv.cli.main",
                    "data_version": DATA_VERSION, "quick": args.quick},
         "loadavg": {"start": la, "end": bc.loadavg()},
         "results": results,
