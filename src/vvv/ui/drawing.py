@@ -1267,9 +1267,15 @@ class OverlayDrawer:
                 poly_list = roi.polygons[viewer.orientation].get(viewer.slice_idx, [])
                 total_polys += len(poly_list)
 
-                # Track visual properties to break the cache if they change
+                # Track visual properties to break the cache if they change;
+                # version: polygons edited (invalidate()) even if their count is the same
                 roi_visual_states.append(
-                    (id(roi), tuple(roi.color), getattr(roi, "thickness", 1.0))
+                    (
+                        id(roi),
+                        getattr(roi, "version", 0),
+                        tuple(roi.color),
+                        getattr(roi, "thickness", 1.0),
+                    )
                 )
 
         # Also track the mathematical state of the preview & dose isocontours
