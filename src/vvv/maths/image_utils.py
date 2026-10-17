@@ -42,6 +42,16 @@ def extract_orientation_strings(raw_img):
     return display_str, tooltip_str
 
 
+def _is_signed_permutation(m, atol=1e-4):
+    """True if the direction matrix only flips and/or swaps axes (entries 0 or ±1)."""
+    p = np.round(m)
+    return (
+        np.allclose(m, p, atol=atol)
+        and np.all(np.abs(p).sum(axis=0) == 1)
+        and np.all(np.abs(p).sum(axis=1) == 1)
+    )
+
+
 def straighten_image(img, filename="image", is_label_map=False):
     """
     Intercepts oblique/rotated images and warps them into a perfectly
@@ -59,6 +69,14 @@ def straighten_image(img, filename="image", is_label_map=False):
     # If the image is already perfectly aligned, do nothing.
     if np.allclose(current_dir, identity_dir, atol=1e-4):
         return img
+
+    # Axis flips/permutations only (e.g. RAS NIfTI, sagittal acquisitions):
+    # reorder the voxels exactly instead of resampling.
+    if dim == 3 and _is_signed_permutation(current_dir.reshape(3, 3)):
+        out = sitk.DICOMOrient(img, "LPS")
+        if np.allclose(out.GetDirection(), identity_dir, atol=1e-4):
+            out.SetDirection(identity_dir.tolist())
+            return out
 
     print(
         f"Oblique orientation detected in {filename}. Straightening to physical grid..."
