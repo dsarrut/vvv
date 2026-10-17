@@ -10,6 +10,7 @@ import json
 import os
 import platform
 import socket
+import statistics
 import subprocess
 import sys
 
@@ -30,6 +31,18 @@ def _beyond(ref, value, rel, abs_ms):
     """True if `value` (a median) is clearly above `ref` (a result dict)."""
     m = ref["median_ms"]
     return value > ref.get("p90_ms", m) and value - m > abs_ms and value > m * (1 + rel)
+
+
+def stats_ms(seconds):
+    ms = sorted(s * 1000.0 for s in seconds)
+    p90 = ms[min(len(ms) - 1, int(round(0.9 * (len(ms) - 1))))]
+    med = statistics.median(ms)
+    return {
+        "median_ms": round(med, 3),
+        "p90_ms": round(p90, 3),
+        "mean_ms": round(statistics.fmean(ms), 3),
+        "n": len(ms),
+    }
 
 
 def _git(*args):

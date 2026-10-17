@@ -37,7 +37,6 @@ import datetime
 import json
 import math
 import os
-import statistics
 import subprocess
 import sys
 import tempfile
@@ -107,18 +106,6 @@ def make_data(data_dir):
     return paths
 
 
-def stats_ms(seconds):
-    ms = sorted(s * 1000.0 for s in seconds)
-    p90 = ms[min(len(ms) - 1, int(round(0.9 * (len(ms) - 1))))]
-    med = statistics.median(ms)
-    return {
-        "median_ms": round(med, 3),
-        "p90_ms": round(p90, 3),
-        "mean_ms": round(statistics.fmean(ms), 3),
-        "n": len(ms),
-    }
-
-
 # ──────────────────────────────────────────────────────────────────────────────
 # Load benchmark (headless)
 # ──────────────────────────────────────────────────────────────────────────────
@@ -134,7 +121,7 @@ def bench_load(paths, repeats):
         t0 = time.perf_counter()
         ViewState(VolumeData(paths["ct"]))
         times.append(time.perf_counter() - t0)
-    return {"load.ct": stats_ms(times)}
+    return {"load.ct": bc.stats_ms(times)}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -250,7 +237,7 @@ def worker_main(config, data_dir, n_frames, n_warmup):
                 now = time.perf_counter()
                 times.append(now - t)
                 t = now
-            out["results"][f"{config}.{name}"] = stats_ms(times)
+            out["results"][f"{config}.{name}"] = bc.stats_ms(times)
         out["complete"] = True
         dpg.stop_dearpygui()
 
