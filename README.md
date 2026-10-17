@@ -1,6 +1,6 @@
 # VVV
 
-**VVV** is a fast, research-oriented, and minimalist 3D/4D (medical) image viewer, conceived as a modern Python successor to [VV](https://github.com/open-vv).
+**VVV** is a fast, research-oriented, and "minimalist" 3D/4D (medical) image viewer, conceived as a successor to [VV](https://github.com/open-vv).
 
 📖 **[Complete User Documentation](user_docs/README.md)** | **[Getting Started Guide](user_docs/doc_01_overview.md)** | **[CLI Reference](user_docs/doc_03_command_line.md)**
 
