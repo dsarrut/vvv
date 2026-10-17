@@ -2734,6 +2734,97 @@ class TestRoiPlugin(unittest.TestCase):
         dpg.delete_item(modal_tag)
         dpg.delete_item("test_parent")
 
+    def test_rtstruct_native_pixel_center_contours(self):
+        from vvv.core.roi_manager import ROIManager, ROIState
+        from vvv.utils import ViewMode
+        import numpy as np
+
+        mock_controller = MagicMock()
+        mock_controller.volumes = {}
+        mock_controller.view_states = {}
+        mock_controller.next_image_id = 1
+        roi_mgr = ROIManager(mock_controller)
+
+        # Base volume: 10x10x10, spacing [2.0, 3.0, 1.0]
+        import SimpleITK as sitk
+        base_vol = MagicMock()
+        base_vol.shape3d = (10, 10, 10)
+        base_vol.spacing = np.array([2.0, 3.0, 1.0])
+        base_vol.origin = np.array([0.0, 0.0, 0.0])
+        base_vol.matrix = np.eye(3)
+        base_vol.matrix_display_str = "identity"
+        base_vol.matrix_tooltip_str = "identity"
+        base_vol.physic_coord_to_voxel_coord.side_effect = lambda pt: pt
+        base_sitk = sitk.Image(10, 10, 10, sitk.sitkFloat32)
+        base_sitk.SetSpacing([2.0, 3.0, 1.0])
+        base_vol.sitk_image = base_sitk
+
+        mock_vs = MagicMock()
+        mock_vs.rois = {}
+        mock_controller.volumes["base_1"] = base_vol
+        mock_controller.view_states["base_1"] = mock_vs
+
+        # Create mock DICOM dataset
+        mock_ds = MagicMock()
+        contour = MagicMock()
+        # Triangle at slice Z = 4 with voxel centers: (1, 1), (5, 1), (3, 5)
+        contour.ContourData = [
+            1.0, 1.0, 4.0,
+            5.0, 1.0, 4.0,
+            3.0, 5.0, 4.0,
+        ]
+        roi_contour = MagicMock()
+        roi_contour.ReferencedROINumber = 1
+        roi_contour.ContourSequence = [contour]
+        mock_ds.ROIContourSequence = [roi_contour]
+
+        roi_id = roi_mgr.load_rtstruct_roi(
+            base_id="base_1",
+            filepath="/path/to/rtstruct.dcm",
+            roi_info={"id": 1, "name": "Target", "color": [255, 0, 0]},
+            ds=mock_ds,
+        )
+
+        self.assertIsNotNone(roi_id)
+        roi_state = mock_vs.rois[roi_id]
+
+        # Verify native_polygons exists and has slice 4
+        self.assertIn(ViewMode.AXIAL, roi_state.native_polygons)
+        self.assertIn(4, roi_state.native_polygons[ViewMode.AXIAL])
+        polys_z4 = roi_state.native_polygons[ViewMode.AXIAL][4]
+        self.assertEqual(len(polys_z4), 1)
+
+        # Expected coordinates: (vox + 0.5) * spacing
+        # For point 0: vox_x = 1.0, vox_y = 1.0 -> px = (1.0 + 0.5) * 2.0 = 3.0, py = (1.0 + 0.5) * 3.0 = 4.5
+        # For point 1: vox_x = 5.0, vox_y = 1.0 -> px = (5.0 + 0.5) * 2.0 = 11.0, py = 4.5
+        # For point 2: vox_x = 3.0, vox_y = 5.0 -> px = (3.0 + 0.5) * 2.0 = 7.0, py = (5.0 + 0.5) * 3.0 = 16.5
+        poly = polys_z4[0]
+        self.assertAlmostEqual(poly[0][0], 3.0)
+        self.assertAlmostEqual(poly[0][1], 4.5)
+        self.assertAlmostEqual(poly[1][0], 11.0)
+        self.assertAlmostEqual(poly[1][1], 4.5)
+        self.assertAlmostEqual(poly[2][0], 7.0)
+        self.assertAlmostEqual(poly[2][1], 16.5)
+        # Closed loop check: last point equals first point
+        self.assertEqual(poly[0], poly[-1])
+
+        # Verify that roi_state.polygons[ViewMode.AXIAL] is pre-seeded with native polygons
+        self.assertEqual(roi_state.polygons[ViewMode.AXIAL][4], [poly])
+
+        # Verify invalidate restores native polygons
+        roi_state.invalidate()
+        self.assertIn(4, roi_state.polygons[ViewMode.AXIAL])
+        self.assertEqual(roi_state.polygons[ViewMode.AXIAL][4], [poly])
+
+        # Verify update_roi_contours uses native polygons on axial
+        viewer = MagicMock()
+        viewer.view_state = mock_vs
+        viewer.orientation = ViewMode.AXIAL
+        viewer.slice_idx = 4
+        viewer.volume = base_vol
+        roi_mgr.update_roi_contours(viewer)
+        self.assertEqual(roi_state.polygons[ViewMode.AXIAL][4], [poly])
+
 
 if __name__ == "__main__":
     unittest.main()
