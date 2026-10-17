@@ -3,7 +3,7 @@ import copy
 import json
 from pathlib import Path
 from vvv.config import DEFAULT_SETTINGS
-from vvv.utils import get_config_dir
+from vvv.utils import get_config_dir, write_json_atomic
 
 
 class SettingsManager:
@@ -38,6 +38,5 @@ class SettingsManager:
 
     def save(self):
         self.config_dir.mkdir(parents=True, exist_ok=True)
-        with open(self.config_path, "w") as f:
-            json.dump(self.data, f, indent=4)
+        write_json_atomic(self.config_path, self.data)
         return str(self.config_path)

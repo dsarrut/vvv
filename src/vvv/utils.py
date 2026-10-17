@@ -160,6 +160,34 @@ def resolve_relative_path(rel_path, base_dir):
     return os.path.normpath(os.path.join(os.path.abspath(base_dir), rel_path))
 
 
+def write_json_atomic(path, data, indent=4):
+    """Write JSON so that `path` always holds either the old or the new content.
+
+    The data goes to a temporary file in the same folder, which then replaces
+    `path` (os.replace is atomic). A crash, or an error while serialising, can
+    no longer leave a truncated settings / history / workspace file behind.
+    """
+    import json
+    import tempfile
+
+    path = os.fspath(path)
+    fd, tmp = tempfile.mkstemp(
+        dir=os.path.dirname(os.path.abspath(path)), prefix=".tmp_", suffix=".json"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=indent)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def get_config_dir() -> Path:
     """Gets the user configuration directory in a cross-platform way."""
     if "PYTEST_CURRENT_TEST" in os.environ:

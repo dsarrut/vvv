@@ -3213,9 +3213,15 @@ class MainGUI:
         if auto_save and hasattr(self.controller, "history"):
             for vs_id in list(self.controller.view_states.keys()):
                 try:
-                    self.controller.history.save_image_state(self.controller, vs_id)
+                    self.controller.history.save_image_state(
+                        self.controller, vs_id, save=False
+                    )
                 except Exception:
                     traceback.print_exc()
+            try:
+                self.controller.history.save()  # once, not once per image
+            except Exception:
+                traceback.print_exc()
 
         self.controller.save_settings()
         dpg.destroy_context()

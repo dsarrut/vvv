@@ -2,7 +2,7 @@ import os
 import json
 from vvv.maths.image import VolumeData
 from vvv.core.view_state import ViewState
-from vvv.utils import resolve_history_path_key
+from vvv.utils import resolve_history_path_key, write_json_atomic
 
 
 class FileManager:
@@ -665,8 +665,7 @@ class FileManager:
 
             workspace["images"][vs_id] = image_entry
 
-        with open(filepath, "w") as f:
-            json.dump(workspace, f, indent=4)
+        write_json_atomic(filepath, workspace)
 
         if self.controller.gui:
             self.controller.gui.show_status_message(

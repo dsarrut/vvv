@@ -7,7 +7,7 @@ import numpy as np
 import collections
 import concurrent.futures
 from typing import Any
-from vvv.utils import ViewMode
+from vvv.utils import ViewMode, write_json_atomic
 from vvv.maths.image import VolumeData
 from vvv.maths.geometry import SpatialEngine
 from vvv.core.roi_manager import ROIManager
@@ -356,8 +356,7 @@ class Controller:
                 elif "unit" in jdata:
                     del jdata["unit"]
                 if jdata:
-                    with open(json_path, "w", encoding="utf-8") as f:
-                        json.dump(jdata, f, indent=4)
+                    write_json_atomic(json_path, jdata)
                     vol.sidecar_json_path = json_path
                     if unit_val:
                         vol.unit_source = f"{os.path.basename(json_path)}"
