@@ -16,6 +16,14 @@ if TYPE_CHECKING:
     from vvv.maths.image import VolumeData
 
 
+def _outside_value(vol) -> float:
+    """Value for voxels outside the resampled image: its minimum (background),
+    or 0 for a displacement field (no displacement, not a fake vector)."""
+    if getattr(vol, "is_dvf", False):
+        return 0.0
+    return float(vol.get_data_range()[0])  # cached: no full scan per resample
+
+
 def resample_overlay(
     base_vol: "VolumeData",
     overlay_vol: "VolumeData",
@@ -54,7 +62,7 @@ def resample_overlay(
     resampler = sitk.ResampleImageFilter()
     resampler.SetReferenceImage(ref_img)
     resampler.SetInterpolator(sitk.sitkLinear)
-    resampler.SetDefaultPixelValue(np.min(overlay_vol.data).item())
+    resampler.SetDefaultPixelValue(_outside_value(overlay_vol))
 
     # Map from base physical space → overlay physical space via composite transform.
     composite = sitk.CompositeTransform(3)
@@ -139,7 +147,7 @@ def resample_base(vol: "VolumeData", rotation_transform) -> tuple:
     resampler = sitk.ResampleImageFilter()
     resampler.SetReferenceImage(ref_img)
     resampler.SetInterpolator(sitk.sitkLinear)
-    resampler.SetDefaultPixelValue(float(np.min(vol.data)))
+    resampler.SetDefaultPixelValue(_outside_value(vol))
     resampler.SetTransform(rotation_transform.GetInverse())
 
     target_dim = vol.sitk_image.GetDimension()
