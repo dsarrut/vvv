@@ -41,6 +41,34 @@ import logging
 # Temporary diagnostic: set VVV_PROFILE=1 to log a per-stage timing breakdown
 # (extract / NN-compute / GPU upload) every 30 render calls. Zero overhead when unset.
 _PROFILE_NN = os.environ.get("VVV_PROFILE") == "1"
+# Raw textures: set_value only stores a reference to the buffer (no copy);
+# DPG uploads it at every frame. Dynamic textures copy the buffer on
+# set_value, which was the main cost of interactive frames (C10).
+# VVV_DYNAMIC_TEXTURES=1 restores the old path (kept to compare on Linux).
+_RAW_TEXTURES = os.environ.get("VVV_DYNAMIC_TEXTURES") != "1"
+
+
+def _add_slice_texture(tag: str, width: int, height: int) -> None:
+    """Create a viewer texture (RGBA float32)."""
+    if _RAW_TEXTURES:
+        dpg.add_raw_texture(
+            width=width,
+            height=height,
+            default_value=np.zeros(width * height * 4, dtype=np.float32),  # type: ignore
+            format=dpg.mvFormat_Float_rgba,
+            tag=tag,
+            parent="global_texture_registry",
+        )
+        return
+    dpg.add_dynamic_texture(
+        width=width,
+        height=height,
+        default_value=np.zeros(width * height * 4, dtype=np.float32),  # type: ignore
+        tag=tag,
+        parent="global_texture_registry",
+    )
+
+
 _profile_stats = {
     "extract": 0.0,
     "base": 0.0,
@@ -408,22 +436,10 @@ class SliceViewer:
                 pass
 
         if not dpg.does_item_exist(self.texture_tag):
-            dpg.add_dynamic_texture(
-                width=1,
-                height=1,
-                default_value=np.zeros(4, dtype=np.float32),  # type: ignore
-                tag=self.texture_tag,
-                parent="global_texture_registry",
-            )
+            _add_slice_texture(self.texture_tag, 1, 1)
 
         if not dpg.does_item_exist(self.overlay_texture_tag):
-            dpg.add_dynamic_texture(
-                width=1,
-                height=1,
-                default_value=np.zeros(4, dtype=np.float32),  # type: ignore
-                tag=self.overlay_texture_tag,
-                parent="global_texture_registry",
-            )
+            _add_slice_texture(self.overlay_texture_tag, 1, 1)
 
     @property
     def has_fusion(self) -> bool:
@@ -3089,24 +3105,12 @@ class TextureManager:
             v._textures_to_delete.add(v.overlay_texture_tag)
 
         if not dpg.does_item_exist(new_texture_tag):
-            dpg.add_dynamic_texture(
-                width=base_w,
-                height=base_h,
-                default_value=np.zeros(base_w * base_h * 4, dtype=np.float32),  # type: ignore
-                tag=new_texture_tag,
-                parent="global_texture_registry",
-            )
+            _add_slice_texture(new_texture_tag, base_w, base_h)
             if is_hw_gl:
                 try_set_gl_nearest(nn_active, base_w, base_h)
 
         if not dpg.does_item_exist(new_ov_texture_tag):
-            dpg.add_dynamic_texture(
-                width=ov_w,
-                height=ov_h,
-                default_value=np.zeros(ov_w * ov_h * 4, dtype=np.float32),  # type: ignore
-                tag=new_ov_texture_tag,
-                parent="global_texture_registry",
-            )
+            _add_slice_texture(new_ov_texture_tag, ov_w, ov_h)
             if is_hw_gl:
                 try_set_gl_nearest(nn_active, ov_w, ov_h)
 
@@ -3151,6 +3155,10 @@ class TextureManager:
         if actual != expected:
             v.is_viewer_data_dirty = True
             return False
+        if _RAW_TEXTURES:
+            # A raw texture keeps a reference to this buffer and uploads it
+            # at each frame: it must be float32 and contiguous.
+            data = np.ascontiguousarray(data, dtype=np.float32)
         if _PROFILE_NN:
             t0 = time.perf_counter()
             dpg.set_value(tag, data)  # type: ignore
