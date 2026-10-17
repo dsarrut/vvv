@@ -635,6 +635,12 @@ class VolumeData:
     ):
         self.path = path
         self.file_paths = []
+        # Kept so that reload() reads the file again the same way
+        self._load_kwargs = {
+            "is_roi": is_roi,
+            "roi_mode": roi_mode,
+            "roi_target_val": roi_target_val,
+        }
 
         if isinstance(path, list):
             self.file_paths = path
@@ -1413,12 +1419,21 @@ class VolumeData:
         import SimpleITK as sitk
         from vvv.maths.image_utils import straighten_image
 
+        load_kwargs = getattr(self, "_load_kwargs", {})
         try:
             new_sitk = self.read_image_from_disk(self.file_paths)
-            new_sitk = straighten_image(new_sitk, os.path.basename(self.file_paths[0]))
+            new_sitk = straighten_image(
+                new_sitk,
+                os.path.basename(self.file_paths[0]),
+                is_label_map=load_kwargs.get("is_roi", False),
+            )
         except Exception as e:
             print(f"Warning: Failed to reload {self.name}. Error: {e}")
             raise e
+
+        # Caches computed from the old data
+        for cache in ("_data_range_cache", "_nonzero_bbox_cache"):
+            self.__dict__.pop(cache, None)
 
         new_shape = new_sitk.GetSize()
         current_shape = self.sitk_image.GetSize() if self.sitk_image else None
@@ -1451,5 +1466,5 @@ class VolumeData:
             # old_sitk safely drops out of scope here
             return False
         else:
-            self.__init__(self.path)
+            self.__init__(self.path, **load_kwargs)
             return True
