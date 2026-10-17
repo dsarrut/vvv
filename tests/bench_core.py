@@ -220,6 +220,13 @@ def worker_main(config, data_dir, n_frames, n_warmup):
             c.ui_needs_refresh = True
         for _ in range(10):
             yield
+        # Steady state: wait for the background-compiled colormap kernel (C9)
+        import vvv.maths.image as vimage
+
+        t_end = time.time() + 30
+        while not vimage._fast["ready"] and not vimage._fast["disabled"] and time.time() < t_end:
+            yield
+        out["fast_colorize"] = sorted("/".join(k) for k in vimage._fast["ready"])
         out["nn_modes"] = {t: v.nn_mode.name for t, v in c.viewers.items()}
         out["lazy_lin"] = {t: v.lazy_lin for t, v in c.viewers.items()}
 
@@ -317,7 +324,11 @@ def master_main(args):
         print(f"  frames: {config} ...", flush=True)
         res = run_worker(config, data_dir, n_frames, n_warmup)
         results.update(res["results"])
-        run_info[config] = {"nn_modes": res.get("nn_modes"), "lazy_lin": res.get("lazy_lin")}
+        run_info[config] = {
+            "nn_modes": res.get("nn_modes"),
+            "lazy_lin": res.get("lazy_lin"),
+            "fast_colorize": res.get("fast_colorize"),
+        }
 
     report = {
         "schema": 1,

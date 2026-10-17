@@ -49,6 +49,7 @@ from vvv.ui.ui_drop import install_os_drop, cleanup_os_drop
 from vvv.ui.ui_workspace import build_workspace_nav_icons
 from vvv.ui.render_strategy import GL_NEAREST_SUPPORTED, NNMode
 import vvv.ui.render_strategy as _rs_mod  # module ref: _NUMBA_AVAILABLE changes at runtime
+from vvv.maths.image import fast_colorize_compiling_for
 from vvv.utils import capture_whole_window, copy_image_to_clipboard, save_screenshot_to_file
 
 _POSITIONAL_KINDS = (
@@ -135,6 +136,7 @@ class MainGUI:
         self._plugin_errors: set[tuple[str, str]] = set()
         self._frame_errors: set[tuple[str, str]] = set()
         self.ui_dirty_this_frame = False
+        self._fast_render_notice = False
         self.plugin_api = PluginAPI(self)
         self._init_plugins()
 
@@ -219,6 +221,22 @@ class MainGUI:
             )
             self.controller.ui_needs_refresh = True
             return False
+
+    def _update_fast_render_notice(self):
+        """Tell the user while the fast colormap kernel compiles (numba, first
+        run mainly): rendering uses the slower numpy path meanwhile. Shown only
+        if compiling takes a while, so cached runs do not flash a message."""
+        elapsed = fast_colorize_compiling_for()
+        if elapsed is not None and elapsed > 0.3 and not self._fast_render_notice:
+            self._fast_render_notice = True
+            self.show_status_message(
+                "Preparing fast rendering (first run only)... display may be slower",
+                duration=120.0,
+                color=self.ui_cfg["colors"]["working"],
+            )
+        elif elapsed is None and self._fast_render_notice:
+            self._fast_render_notice = False
+            self.show_status_message("Fast rendering ready")
 
     def _report_frame_error(self, e):
         """Keep the main loop alive on an unexpected error, reporting each distinct one once."""
@@ -3157,6 +3175,7 @@ class MainGUI:
                     msg, self.controller.status_message = self.controller.status_message, None
                     if msg:
                         self.show_status_message(msg)
+                    self._update_fast_render_notice()
 
                     ui_dirty, self.controller.ui_needs_refresh = (
                         self.controller.ui_needs_refresh,
