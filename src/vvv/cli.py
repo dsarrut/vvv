@@ -69,7 +69,6 @@ def parse_cli_arguments(datasets):
     Supports '+' prefix or separator to attach label map ROIs to base images.
     """
     import numpy as np
-    import SimpleITK as sitk
 
     # 1. Normalize datasets by splitting any tokens containing '+'
     normalized_datasets = []
@@ -107,6 +106,8 @@ def parse_cli_arguments(datasets):
 
     def get_info(path):
         """Ultra-fast header peek without loading pixel data."""
+        import SimpleITK as sitk  # lazy: an empty start does not need it
+
         try:
             reader = sitk.ImageFileReader()
             reader.SetFileName(path)

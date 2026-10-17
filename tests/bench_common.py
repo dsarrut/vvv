@@ -111,7 +111,8 @@ def save_report(report):
     out_dir = os.path.join(RESULTS_DIR, env["host"])
     os.makedirs(out_dir, exist_ok=True)
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    path = os.path.join(out_dir, f"{report['bench']}_{stamp}_{env['commit'] or 'nogit'}.json")
+    commit = (env["commit"] or "nogit") + ("-dirty" if env["dirty"] else "")
+    path = os.path.join(out_dir, f"{report['bench']}_{stamp}_{commit}.json")
     with open(path, "w") as f:
         json.dump(report, f, indent=2)
     return path
@@ -124,8 +125,9 @@ def list_reports(bench, host=None):
 
 
 def resolve_ref(ref, bench, host=None, before=None):
-    """Find a result file: a path, a commit prefix (latest run of it), or None for
-    the latest result older than `before` (a path)."""
+    """Find a result file: a path, a commit prefix (its latest clean run, else its
+    latest run with uncommitted changes), or None for the latest result older
+    than `before` (a path)."""
     files = list_reports(bench, host)
     if before is not None:
         files = [f for f in files if os.path.abspath(f) != os.path.abspath(before)
@@ -135,7 +137,9 @@ def resolve_ref(ref, bench, host=None, before=None):
     if os.path.isfile(ref):
         return ref
     matches = [f for f in files if os.path.splitext(f)[0].rsplit("_", 1)[-1].startswith(ref)]
-    return matches[-1] if matches else None
+    clean = [f for f in matches if not f.endswith("-dirty.json")]
+    # a commit means its clean runs; runs with uncommitted changes only as fallback
+    return (clean or matches)[-1] if matches else None
 
 
 def _describe(rep):

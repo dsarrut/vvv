@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple, Any
 import numpy as np
-import SimpleITK as sitk
 
 
 @dataclass
@@ -38,6 +37,8 @@ def compute_roi_dvh(
     Handles differing spatial resolution/orientation between dose and ROI grids
     using SimpleITK linear interpolation within the ROI.
     """
+    import SimpleITK as sitk  # lazy: not needed to start vvv
+
     if not hasattr(roi_vol, "sitk_image") or roi_vol.sitk_image is None:
         return None
     if not hasattr(dose_vol, "sitk_image") or dose_vol.sitk_image is None:
