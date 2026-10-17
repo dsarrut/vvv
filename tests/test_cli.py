@@ -152,3 +152,51 @@ def test_cli_label_rois(dummy_images):
     assert tasks_c[1]["labels"] == []
 
 
+
+
+def test_cannot_open_reason(dummy_images, tmp_path):
+    """Cheap openability check used to avoid starting the UI with nothing to show."""
+    import os
+    from vvv.cli import cannot_open_reason
+
+    ok = dummy_images("ok.mhd", size=(5, 5, 5))
+    assert cannot_open_reason(ok) is None
+    assert "no such file" in cannot_open_reason(str(tmp_path / "missing.nii"))
+
+    junk = tmp_path / "junk.nii"
+    junk.write_text("not an image")
+    assert "not a readable image" in cannot_open_reason(str(junk))
+
+    # Formats vvv reads itself: not rejected because SimpleITK cannot read them
+    xdr = tmp_path / "field.xdr"
+    xdr.write_bytes(b"# AVS field file\nndim=3\n\x0c\x0c" + b"\x00" * 16)
+    assert cannot_open_reason(str(xdr)) is None
+    edf = tmp_path / "frame.edf"
+    edf.write_bytes(b"{ header }")
+    assert cannot_open_reason(str(edf)) is None
+    assert cannot_open_reason(str(tmp_path)) is None  # folder (DICOM series)
+
+    # 4D sequence: openable if at least one frame is
+    missing = str(tmp_path / "missing.nii")
+    assert cannot_open_reason(f"4D: {ok} {missing}") is None
+    assert cannot_open_reason(f"4D: {missing} {missing}") is not None
+
+    if os.name != "nt" and os.geteuid() != 0:
+        locked = dummy_images("locked.mhd", size=(5, 5, 5))
+        os.chmod(locked, 0)
+        try:
+            assert "permission denied" in cannot_open_reason(locked)
+        finally:
+            os.chmod(locked, 0o644)
+
+
+def test_check_inputs_start_only_if_something_opens(dummy_images, tmp_path):
+    from vvv.cli import check_inputs
+
+    ok = dummy_images("ok.mhd", size=(5, 5, 5))
+    missing = str(tmp_path / "missing.nii")
+    assert check_inputs(parse_cli_arguments([ok, missing]), None) is True
+    assert check_inputs(parse_cli_arguments([missing]), None) is False
+    assert check_inputs(parse_cli_arguments([f"{ok},{missing},hot"]), None) is True
+    assert check_inputs([], None) is True  # no argument: empty viewer
+    assert check_inputs([], str(tmp_path / "s.vvw")) is False

@@ -244,6 +244,85 @@ def parse_cli_arguments(datasets):
     return image_tasks
 
 
+# Formats vvv reads itself (no SimpleITK header to probe)
+_OWN_READER_EXTS = (".edf", ".hst", ".cbf", ".his")
+
+
+def _input_files(spec):
+    """Files/folders an image argument refers to (4D sequences may list several)."""
+    s = spec.strip()
+    if s.upper().startswith(VolumeData.SEQUENCE_PREFIXES):
+        rest = s[3:].strip()  # same prefix stripping as VolumeData
+        if os.path.isdir(rest):
+            return [rest]
+        if "*" in rest or "?" in rest:
+            import glob
+
+            return sorted(glob.glob(rest))
+        import shlex
+
+        return shlex.split(rest.replace("\\", "\\\\") if os.name == "nt" else rest)
+    return [s]
+
+
+def cannot_open_reason(spec):
+    """Why an image argument cannot be opened, or None if it looks openable.
+
+    Cheap (never reads pixel data) and mirrors VolumeData's reader routing: a
+    SimpleITK-readable header, a format vvv reads itself, an AVS/XDR file, or a
+    folder (DICOM series). A sequence is openable if one of its files is.
+    """
+    import SimpleITK as sitk
+
+    reasons = []
+    for path in _input_files(spec) or [spec]:
+        if not os.path.exists(path):
+            reasons.append(f"{path}: no such file or directory")
+            continue
+        if not os.access(path, os.R_OK):
+            reasons.append(f"{path}: permission denied")
+            continue
+        if os.path.isdir(path) or path.lower().endswith(_OWN_READER_EXTS):
+            return None
+        try:
+            reader = sitk.ImageFileReader()
+            reader.SetFileName(path)
+            reader.ReadImageInformation()
+            return None
+        except Exception:
+            pass
+        try:
+            with open(path, "rb") as f:
+                if b"\x0c\x0c" in f.read(4096):  # AVS/XDR header delimiter
+                    return None
+        except OSError:
+            pass
+        reasons.append(f"{path}: not a readable image")
+    return "; ".join(reasons)
+
+
+def check_inputs(image_tasks, workspace_file):
+    """Print what cannot be opened; return False if nothing given can be opened."""
+    if workspace_file:
+        if not os.path.isfile(workspace_file):
+            print(f"vvv: cannot open workspace {workspace_file}", file=sys.stderr)
+            return False
+        return True
+    n_ok = 0
+    for task in image_tasks:
+        reason = cannot_open_reason(task["base"])
+        if reason:
+            print(f"vvv: cannot open {reason}", file=sys.stderr)
+        else:
+            n_ok += 1
+        extra = ([task["fusion"]["path"]] if task.get("fusion") else []) + task.get("labels", [])
+        for path in extra:
+            reason = cannot_open_reason(path)
+            if reason:
+                print(f"vvv: cannot open {reason}", file=sys.stderr)
+    return n_ok > 0 or not image_tasks
+
+
 @click.command(context_settings=dict(help_option_names=["-h", "--help"]))
 @click.argument("datasets", nargs=-1)
 # --linkall is kept as a legacy alias from the old `vv` application; --sync is the preferred form.
@@ -315,6 +394,12 @@ def main(no_history, datasets, linkall, sync, linkall_wl, debug, fast_gl):
     datasets = [ds for ds in datasets if ds.strip()]
     image_tasks = parse_cli_arguments(datasets)
 
+    # Do not open a window if none of the given images can be opened
+    workspace_file = next((f for f in datasets if f.lower().endswith(".vvw")), None)
+    if not check_inputs(image_tasks, workspace_file):
+        print("vvv: nothing to open, not starting the viewer.", file=sys.stderr)
+        sys.exit(1)
+
     import vvv.ui.render_strategy as rs_mod
     if fast_gl:
         import platform as _platform
@@ -361,9 +446,7 @@ def main(no_history, datasets, linkall, sync, linkall_wl, debug, fast_gl):
     dpg.set_viewport_small_icon(active_icon)
     dpg.set_viewport_large_icon(active_icon)
 
-    # 1. Detect if a workspace file was passed in the arguments
-    workspace_file = next((f for f in datasets if f.lower().endswith(".vvw")), None)
-
+    # 1. A workspace file passed in the arguments (detected above)
     # 2. Swap the boot generator based on the file type
     if workspace_file:
         if len(datasets) > 1:
