@@ -14,6 +14,7 @@ dependencies = [
     "numpy",
     "scikit-image",
     "pytest",
+    "Pillow",
     "setproctitle",
     "pydicom",
     "pyobjc-framework-Cocoa; sys_platform == 'darwin'",
