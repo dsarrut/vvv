@@ -17,6 +17,7 @@ class ROIState:
         source_val=0.0,
         rtstruct_info=None,
         source_type="Binary",
+        native_polygons=None,
     ):
         self.volume_id = volume_id
         self.name = name
@@ -38,6 +39,15 @@ class ROIState:
             ViewMode.SAGITTAL: {},
             ViewMode.CORONAL: {},
         }
+        self.native_polygons = {
+            ViewMode.AXIAL: {},
+            ViewMode.SAGITTAL: {},
+            ViewMode.CORONAL: {},
+        }
+        if native_polygons:
+            for ori, poly_map in native_polygons.items():
+                self.native_polygons[ori] = {k: list(v) for k, v in poly_map.items()}
+                self.polygons[ori] = {k: list(v) for k, v in poly_map.items()}
         self.is_spheroid = False
         self.spheroid_center = None
         self.spheroid_radius = None
@@ -56,6 +66,10 @@ class ROIState:
         self.version += 1
         for ori in self.polygons:
             self.polygons[ori].clear()
+            if hasattr(self, "native_polygons") and ori in self.native_polygons:
+                self.polygons[ori].update(
+                    {k: list(v) for k, v in self.native_polygons[ori].items()}
+                )
 
     def to_dict(self):
         d = {
@@ -757,6 +771,9 @@ class ROIManager:
         mz, my, mx = base_vol.shape3d
         mask_data = np.zeros((mz, my, mx), dtype=np.uint8)
         is_outside = False
+        native_axial_polygons = {z: [] for z in range(mz)}
+        sw = float(base_vol.spacing[0])
+        sh = float(base_vol.spacing[1])
 
         seq_contours = getattr(ds, "ROIContourSequence", None) or []
         for roi_contour in seq_contours:
@@ -801,6 +818,7 @@ class ROIManager:
                         z_idx = int(round(np.mean(mapped_pts[:, 2])))
 
                         if 0 <= z_idx < mz:
+                            # 1. Rasterize for mask_data (volume, DVH, stats)
                             # skimage.draw.polygon takes (r, c) which maps to (Y, X)
                             r = mapped_pts[:, 1]
                             c = mapped_pts[:, 0]
@@ -808,6 +826,17 @@ class ROIManager:
 
                             # XOR assignment handles internal holes natively!
                             mask_data[z_idx, rr, cc] ^= 1
+
+                            # 2. Extract native 2D display polygon for pixel-center alignment
+                            # In slice coordinates (mm): px = (vox_x + 0.5) * sw, py = (vox_y + 0.5) * sh
+                            poly_2d = [
+                                [float((pt[0] + 0.5) * sw), float((pt[1] + 0.5) * sh)]
+                                for pt in mapped_pts
+                            ]
+                            if len(poly_2d) >= 3:
+                                if poly_2d[0] != poly_2d[-1]:
+                                    poly_2d.append([poly_2d[0][0], poly_2d[0][1]])
+                                native_axial_polygons[z_idx].append(poly_2d)
                         else:
                             is_outside = True
                 break
@@ -821,6 +850,10 @@ class ROIManager:
         mask_img.SetSpacing(base_vol.spacing.tolist())
         mask_img.SetOrigin(base_vol.origin.tolist())
         mask_img.SetDirection(base_vol.matrix.flatten().tolist())
+
+        native_polygons = {
+            ViewMode.AXIAL: native_axial_polygons,
+        }
 
         return self._create_memory_roi(
             base_id,
@@ -836,6 +869,7 @@ class ROIManager:
             source_val=0.0,
             rtstruct_info=roi_info,
             source_type="RT-Struct",
+            native_polygons=native_polygons,
         )
 
     def get_roi_stats(self, base_vs_id, roi_id, is_overlay=False):
@@ -1121,6 +1155,18 @@ class ROIManager:
                 continue
 
             if s_idx in roi_state.polygons[ori]:
+                continue
+
+            # If native polygons exist for this orientation, use them directly
+            if (
+                getattr(roi_state, "native_polygons", None)
+                and ori in roi_state.native_polygons
+                and roi_state.native_polygons[ori]
+            ):
+                roi_state.polygons[ori][s_idx] = list(
+                    roi_state.native_polygons[ori].get(s_idx, [])
+                )
+                extracted_any = True
                 continue
 
             roi_vol = self.controller.volumes.get(roi_id)
