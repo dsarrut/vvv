@@ -35,7 +35,7 @@ class SpatialEngine:
         if use_buffered_geometry and self.view_state and self.view_state._sitk_base_cache:
             target_sitk_image = self.view_state._sitk_base_cache
 
-        # Tombstone fallback: Use pure Python math if C++ memory is temporarily detached or not available
+        # No ITK image (e.g. during a reload): use the pure Python math
         if target_sitk_image is None:
             return self.volume.voxel_coord_to_physic_coord(np.array(voxel[:3]))
 
@@ -65,7 +65,7 @@ class SpatialEngine:
         if use_buffered_geometry and self.view_state and self.view_state._sitk_base_cache:
             target_sitk_image = self.view_state._sitk_base_cache
 
-        # Tombstone fallback
+        # No ITK image (e.g. during a reload): use the pure Python math
         if target_sitk_image is None:
             return self.volume.physic_coord_to_voxel_coord(np.array(phys[:3]))
 

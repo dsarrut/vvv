@@ -1020,7 +1020,7 @@ class SliceViewer:
         # --- Slice Slider Overlay ---
         self.slider_overlay.tick()
 
-        if not vs or getattr(vs, "is_loading", False):
+        if not vs:
             self.last_drawn_image_id = None
             return False
 
@@ -2748,7 +2748,7 @@ class LayerPackager:
                 else vol.data
             )
 
-        # Tombstone failsafe: Prevent the renderer from choking on dead memory
+        # No data (e.g. a failed reload): render an empty layer rather than fail
         if display_data is None:
             display_data = np.zeros((1, 1, 1), dtype=np.float32)
 
@@ -2778,126 +2778,125 @@ class LayerPackager:
         vol = v.volume
         if not vs or not vol:
             return None
-        with vs.display._lock:
-            if vs.display.overlay_data is None:
-                return None
-            if vs.display.overlay.image_id not in v.controller.view_states:
-                return None
+        if vs.display.overlay_data is None:
+            return None
+        if vs.display.overlay.image_id not in v.controller.view_states:
+            return None
 
-            ovs = v.controller.view_states[vs.display.overlay.image_id]
+        ovs = v.controller.view_states[vs.display.overlay.image_id]
 
-            # 2D OVERLAY PHYSICAL CLAMPING
-            if min(ovs.volume.shape3d) == 1:
-                center_phys = v.get_center_physical_coord()
-                if center_phys is not None:
-                    # Map the base view back into the overlay's native index space
-                    ov_vox = ovs.space.world_to_display(center_phys, is_buffered=False)
-                    if ov_vox is not None:
-                        # Check out-of-plane distances. Continuous index > 0.5 means we scrolled past it.
-                        if ovs.volume.shape3d[2] == 1 and abs(ov_vox[0]) > 0.5:
-                            return None
-                        if ovs.volume.shape3d[1] == 1 and abs(ov_vox[1]) > 0.5:
-                            return None
-                        if ovs.volume.shape3d[0] == 1 and abs(ov_vox[2]) > 0.5:
-                            return None
+        # 2D OVERLAY PHYSICAL CLAMPING
+        if min(ovs.volume.shape3d) == 1:
+            center_phys = v.get_center_physical_coord()
+            if center_phys is not None:
+                # Map the base view back into the overlay's native index space
+                ov_vox = ovs.space.world_to_display(center_phys, is_buffered=False)
+                if ov_vox is not None:
+                    # Check out-of-plane distances. Continuous index > 0.5 means we scrolled past it.
+                    if ovs.volume.shape3d[2] == 1 and abs(ov_vox[0]) > 0.5:
+                        return None
+                    if ovs.volume.shape3d[1] == 1 and abs(ov_vox[1]) > 0.5:
+                        return None
+                    if ovs.volume.shape3d[0] == 1 and abs(ov_vox[2]) > 0.5:
+                        return None
 
-            # --- Calculate Relative Pixel Shift ---
-            dx, dy, dz = vs.compute_overlay_pixel_shift(ovs, vol.spacing, v.orientation)
-            off_x, off_y, off_slice = 0, 0, 0
+        # --- Calculate Relative Pixel Shift ---
+        dx, dy, dz = vs.compute_overlay_pixel_shift(ovs, vol.spacing, v.orientation)
+        off_x, off_y, off_slice = 0, 0, 0
 
-            v.active_overlay_shift_x = dx
-            v.active_overlay_shift_y = dy
+        v.active_overlay_shift_x = dx
+        v.active_overlay_shift_y = dy
 
-            # Delegate to GPU if Alpha or DVF, fallback to CPU Array Slicing if Registration/Checkerboard
-            if vs.display.overlay.mode in ("Alpha", "DVF"):
-                off_x, off_y = 0, 0
-            else:
-                off_x = int(round(dx))
-                off_y = int(round(dy))
-                v.active_overlay_shift_x = 0.0
-                v.active_overlay_shift_y = 0.0
+        # Delegate to GPU if Alpha or DVF, fallback to CPU Array Slicing if Registration/Checkerboard
+        if vs.display.overlay.mode in ("Alpha", "DVF"):
+            off_x, off_y = 0, 0
+        else:
+            off_x = int(round(dx))
+            off_y = int(round(dy))
+            v.active_overlay_shift_x = 0.0
+            v.active_overlay_shift_y = 0.0
 
-            off_slice = int(round(dz))
+        off_slice = int(round(dz))
 
-            # Check MIP state first — it takes priority over the rotation-preview path.
-            mip_plugin = _safe_get_plugin(v.controller, "mip_plugin")
-            mip_state = (
-                mip_plugin._controller.get_viewer_state(v.image_id, v.tag)
-                if (mip_plugin and v.image_id)
-                else None
-            )
-            mip_active = bool(mip_state and mip_state.mip_enabled)
+        # Check MIP state first — it takes priority over the rotation-preview path.
+        mip_plugin = _safe_get_plugin(v.controller, "mip_plugin")
+        mip_state = (
+            mip_plugin._controller.get_viewer_state(v.image_id, v.tag)
+            if (mip_plugin and v.image_id)
+            else None
+        )
+        mip_active = bool(mip_state and mip_state.mip_enabled)
 
-            # Live rotation preview for the overlay (skipped when MIP is active).
-            overlay_preview = None
-            if (
-                not mip_active
-                and ovs._preview_R is not None
-                and vs.display.overlay_data is not None
-            ):
-                ov_key = (v.orientation, v.slice_idx)
-                overlay_preview = v._overlay_preview_slices.get(ov_key)
-                if overlay_preview is None:
-                    # Cache miss — signal worker; suppress overlay_data
-                    ovs._preview_slice_needed = True
-                    return None  # no overlay this frame; worker will deliver the correct one
+        # Live rotation preview for the overlay (skipped when MIP is active).
+        overlay_preview = None
+        if (
+            not mip_active
+            and ovs._preview_R is not None
+            and vs.display.overlay_data is not None
+        ):
+            ov_key = (v.orientation, v.slice_idx)
+            overlay_preview = v._overlay_preview_slices.get(ov_key)
+            if overlay_preview is None:
+                # Cache miss — signal worker; suppress overlay_data
+                ovs._preview_slice_needed = True
+                return None  # no overlay this frame; worker will deliver the correct one
 
-            if (
-                mip_plugin
-                and mip_state
-                and mip_active
-                and not getattr(ovs.volume, "is_dvf", False)
-            ):
-                ov_data_raw = vs.display.overlay_data
-                if ov_data_raw is not None:
-                    ov_time_idx = min(vs.camera.time_idx, ovs.volume.num_timepoints - 1)
-                    ov_data_3d = (
-                        ov_data_raw[ov_time_idx]
-                        if ov_data_raw.ndim == 4
-                        else ov_data_raw
+        if (
+            mip_plugin
+            and mip_state
+            and mip_active
+            and not getattr(ovs.volume, "is_dvf", False)
+        ):
+            ov_data_raw = vs.display.overlay_data
+            if ov_data_raw is not None:
+                ov_time_idx = min(vs.camera.time_idx, ovs.volume.num_timepoints - 1)
+                ov_data_3d = (
+                    ov_data_raw[ov_time_idx]
+                    if ov_data_raw.ndim == 4
+                    else ov_data_raw
+                )
+                if ov_data_3d.ndim == 3:
+                    axis_map = {
+                        ViewMode.AXIAL: "Z",
+                        ViewMode.CORONAL: "Y",
+                        ViewMode.SAGITTAL: "X",
+                    }
+                    proj_axis = axis_map.get(v.orientation, "Y")
+                    current_angle = mip_state.rotation_angles.get(proj_axis, 0.0)
+
+                    overlay_preview = mip_plugin._controller.get_mip_projection(
+                        viewer=v,
+                        data_3d=ov_data_raw,
+                        time_idx=ov_time_idx,
+                        orientation=v.orientation,
+                        depth_cueing=0.0,
+                        current_angle=current_angle,
+                        proj_axis=proj_axis,
+                        mip_state=mip_state,
+                        image_id=vs.display.overlay.image_id,
                     )
-                    if ov_data_3d.ndim == 3:
-                        axis_map = {
-                            ViewMode.AXIAL: "Z",
-                            ViewMode.CORONAL: "Y",
-                            ViewMode.SAGITTAL: "X",
-                        }
-                        proj_axis = axis_map.get(v.orientation, "Y")
-                        current_angle = mip_state.rotation_angles.get(proj_axis, 0.0)
 
-                        overlay_preview = mip_plugin._controller.get_mip_projection(
-                            viewer=v,
-                            data_3d=ov_data_raw,
-                            time_idx=ov_time_idx,
-                            orientation=v.orientation,
-                            depth_cueing=0.0,
-                            current_angle=current_angle,
-                            proj_axis=proj_axis,
-                            mip_state=mip_state,
-                            image_id=vs.display.overlay.image_id,
-                        )
+        colorwash = None
+        dose_plugin = _safe_get_plugin(v.controller, "dose_plugin")
+        if dose_plugin and hasattr(dose_plugin, "_controller"):
+            colorwash = dose_plugin._controller.get_colorwash_bands(vs.display.overlay.image_id, is_overlay=True)
 
-            colorwash = None
-            dose_plugin = _safe_get_plugin(v.controller, "dose_plugin")
-            if dose_plugin and hasattr(dose_plugin, "_controller"):
-                colorwash = dose_plugin._controller.get_colorwash_bands(vs.display.overlay.image_id, is_overlay=True)
-
-            return RenderLayer(
-                data=vs.display.overlay_data,
-                is_rgb=getattr(ovs.volume, "is_rgb", False),
-                num_components=ovs.volume.num_components,
-                ww=ovs.display.ww,
-                wl=ovs.display.wl,
-                cmap_name=ovs.display.colormap,
-                threshold=ovs.display.min_threshold,
-                time_idx=min(vs.camera.time_idx, ovs.volume.num_timepoints - 1),
-                spacing_2d=vol.get_physical_aspect_ratio(v.orientation),
-                offset_x=off_x,
-                offset_y=off_y,
-                offset_slice=off_slice,
-                preview_override=overlay_preview,
-                colorwash=colorwash,
-            )
+        return RenderLayer(
+            data=vs.display.overlay_data,
+            is_rgb=getattr(ovs.volume, "is_rgb", False),
+            num_components=ovs.volume.num_components,
+            ww=ovs.display.ww,
+            wl=ovs.display.wl,
+            cmap_name=ovs.display.colormap,
+            threshold=ovs.display.min_threshold,
+            time_idx=min(vs.camera.time_idx, ovs.volume.num_timepoints - 1),
+            spacing_2d=vol.get_physical_aspect_ratio(v.orientation),
+            offset_x=off_x,
+            offset_y=off_y,
+            offset_slice=off_slice,
+            preview_override=overlay_preview,
+            colorwash=colorwash,
+        )
 
     def package_roi_layers(self):
         v = self.viewer

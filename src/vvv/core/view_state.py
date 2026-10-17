@@ -1,6 +1,4 @@
-import threading
 import numpy as np
-from contextlib import contextmanager
 from vvv.config import WL_PRESETS
 from vvv.maths.geometry import SpatialEngine
 from vvv.utils import ViewMode
@@ -260,7 +258,6 @@ class DisplayState:
 
     def __init__(self, parent_vs: "ViewState | None" = None):
         self._parent = parent_vs
-        self._lock = threading.Lock()
         self.overlay_data: np.ndarray | None = None
         self._sitk_overlay_cache = None
         self.baked_overlay_translation = (0.0, 0.0, 0.0)
@@ -627,7 +624,6 @@ class ViewState:
         self.volume = volume
         self.is_data_dirty = True
         self.is_geometry_dirty = True
-        self.is_loading = False
         self.camera = CameraState(volume, parent_vs=self)
         self.display = DisplayState(parent_vs=self)
         self.extraction = ExtractionState(parent_vs=self)
@@ -731,15 +727,6 @@ class ViewState:
                 p_temp -= np.array([tx, ty, tz])
             return self.volume.physic_coord_to_voxel_coord(p_temp)
         return self.space.world_to_display(phys_coord, is_buffered=False)
-
-    @contextmanager
-    def loading_shield(self):
-        """A context manager that guarantees the viewer shield is raised and lowered safely."""
-        self.is_loading = True
-        try:
-            yield
-        finally:
-            self.is_loading = False
 
     def is_ct_image(self, flat_data):
         if flat_data is None or flat_data.size == 0:
@@ -948,11 +935,10 @@ class ViewState:
 
     def set_overlay(self, overlay_id, other_vol):
         if overlay_id is None or other_vol is None:
-            with self.display._lock:
-                self.display.overlay.image_id = None
-                self.display.overlay_data = None
-                self.display._sitk_overlay_cache = None
-                self.display.baked_overlay_translation = (0.0, 0.0, 0.0)
+            self.display.overlay.image_id = None
+            self.display.overlay_data = None
+            self.display._sitk_overlay_cache = None
+            self.display.baked_overlay_translation = (0.0, 0.0, 0.0)
             self.is_data_dirty = True
             return True
 

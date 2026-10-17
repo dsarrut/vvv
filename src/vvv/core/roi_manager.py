@@ -661,30 +661,29 @@ class ROIManager:
         vs = self.controller.view_states[base_id]
 
         # [ASYNC_BOUNDARY]: Shield the viewer during C++ binarization and cropping
-        with vs.loading_shield():
-            # 1. Instantiate the raw ROI data
-            mask_vol = VolumeData(
-                filepath,
-                is_roi=True,
-                roi_mode=mode,
-                roi_target_val=target_val,
-                preloaded_sitk=preloaded_sitk,
-            )
+        # 1. Instantiate the raw ROI data
+        mask_vol = VolumeData(
+            filepath,
+            is_roi=True,
+            roi_mode=mode,
+            roi_target_val=target_val,
+            preloaded_sitk=preloaded_sitk,
+        )
 
-            # 2. Apply binarization rule BEFORE resampling to avoid interpolation artifacts
-            self._apply_binarization_rule(mask_vol, mode, target_val)
+        # 2. Apply binarization rule BEFORE resampling to avoid interpolation artifacts
+        self._apply_binarization_rule(mask_vol, mode, target_val)
 
-            if mask_vol.data.size == 0:
-                raise ValueError("Completely empty ROI.")
+        if mask_vol.data.size == 0:
+            raise ValueError("Completely empty ROI.")
 
-            # 3. SAFELY RESAMPLE AND AUTOCROP
-            # This handles mismatched spacing, differing origins, and differing orientations,
-            # and automatically calculates mask_vol.roi_bbox.
-            self.process_binary_mask(base_vol, mask_vol)
+        # 3. SAFELY RESAMPLE AND AUTOCROP
+        # This handles mismatched spacing, differing origins, and differing orientations,
+        # and automatically calculates mask_vol.roi_bbox.
+        self.process_binary_mask(base_vol, mask_vol)
 
-            # Check if resampling pushed the ROI completely out of bounds
-            if mask_vol.data.size == 0:
-                raise ValueError("ROI is completely outside the base image FOV.")
+        # Check if resampling pushed the ROI completely out of bounds
+        if mask_vol.data.size == 0:
+            raise ValueError("ROI is completely outside the base image FOV.")
 
         # 4. Register the Volume and State
         pending = {
@@ -1095,42 +1094,41 @@ class ROIManager:
         old_polygons = {ori: dict(poly) for ori, poly in roi_state.polygons.items()}
         old_bbox = getattr(mask_vol, "roi_bbox", None)
 
-        with vs.loading_shield():
-            try:
-                was_reset = mask_vol.reload()
-                if not was_reset and mask_vol.data is None:
-                    raise RuntimeError("Reload failed or was aborted.")
-            except Exception as e:
-                mask_vol.sitk_image = old_sitk
-                mask_vol.data = old_data
-                if old_bbox is not None:
-                    mask_vol.roi_bbox = old_bbox
-                roi_state.polygons = old_polygons
-                if self.controller.gui:
-                    self.controller.gui.show_status_message(
-                        f"Reload failed: {e}",
-                        color=self.controller.gui.ui_cfg["colors"]["warning"],
-                    )
-                return
-
-            roi_state.invalidate()
-
-            mode = getattr(roi_state, "source_mode", "Ignore BG (val)")
-            target_val = getattr(roi_state, "source_val", 0.0)
-
-            # Apply rule BEFORE resampling
-            self._apply_binarization_rule(mask_vol, mode, target_val)
-
-            base_vol = self.controller.volumes[base_id]
-            self.process_binary_mask(base_vol, mask_vol)
-
-            self.controller.view_states[base_id].is_data_dirty = True
-            self.controller.update_all_viewers_of_image(base_id)
-
+        try:
+            was_reset = mask_vol.reload()
+            if not was_reset and mask_vol.data is None:
+                raise RuntimeError("Reload failed or was aborted.")
+        except Exception as e:
+            mask_vol.sitk_image = old_sitk
+            mask_vol.data = old_data
+            if old_bbox is not None:
+                mask_vol.roi_bbox = old_bbox
+            roi_state.polygons = old_polygons
             if self.controller.gui:
-                self.controller.gui.show_status_message(f"Reloaded: {roi_state.name}")
+                self.controller.gui.show_status_message(
+                    f"Reload failed: {e}",
+                    color=self.controller.gui.ui_cfg["colors"]["warning"],
+                )
+            return
 
-            self.controller.ui_needs_refresh = True
+        roi_state.invalidate()
+
+        mode = getattr(roi_state, "source_mode", "Ignore BG (val)")
+        target_val = getattr(roi_state, "source_val", 0.0)
+
+        # Apply rule BEFORE resampling
+        self._apply_binarization_rule(mask_vol, mode, target_val)
+
+        base_vol = self.controller.volumes[base_id]
+        self.process_binary_mask(base_vol, mask_vol)
+
+        self.controller.view_states[base_id].is_data_dirty = True
+        self.controller.update_all_viewers_of_image(base_id)
+
+        if self.controller.gui:
+            self.controller.gui.show_status_message(f"Reloaded: {roi_state.name}")
+
+        self.controller.ui_needs_refresh = True
 
     def close_roi(self, base_id, roi_id):
         with self.controller._state_lock:

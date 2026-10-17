@@ -46,9 +46,10 @@ class Controller:
        Instead, set 'self.ui_needs_refresh = True' and let the MainGUI handle it
        reactively in the next frame.
 
-    4. THREAD SAFETY: Background threads (threading.Thread) must NEVER call UI functions.
-       To report a status update from a thread, set 'self.status_message = "..."'
-       and 'self.ui_needs_refresh = True'.
+    4. THREAD SAFETY: Only the main thread touches DPG and the state viewers
+       read (view states, volumes, display data). Background work computes from
+       inputs captured on the main thread and hands its result to
+       call_on_main(): the commit runs at the start of the next tick().
 
     5. GEOMETRY UPDATES: To force a viewer re-center, DO NOT set 'viewer.needs_recenter'.
        Instead, set 'vs.camera.target_center = world_pos'. The Viewers watch this
@@ -330,7 +331,7 @@ class Controller:
         import SimpleITK as sitk
 
         vol = self.volumes[vs_id]
-        if vol.data is None:  # Guard against tombstoned or unloaded data
+        if vol.data is None:  # Guard against unloaded data
             print(f"Error: Volume {vs_id} has no data loaded.")
             return
         sitk.WriteImage(vol.sitk_image, filepath)
@@ -553,8 +554,7 @@ class Controller:
     def update_all_viewers_of_image(self, vs_id, data_dirty=True):
         if vs_id in self.view_states and data_dirty:
             self.view_states[vs_id].is_data_dirty = True
-            # GUARDRAIL 3: Push the data flag to viewers to prevent them
-            # from rendering tombstoned C++ memory during the 1-frame Bridge gap.
+            # Flag the viewers now rather than at the next tick's broadcast
             self._flag_viewers_for_image(vs_id, data_dirty=True)
         else:
             self._flag_viewers_for_image(vs_id, geometry_dirty=True)
@@ -717,11 +717,10 @@ class Controller:
         for target, ov_id, (cache, data, baked) in overlays:
             if target.display.overlay.image_id != ov_id:
                 continue  # overlay changed or removed meanwhile
-            with target.display._lock:
-                self._retire(target.display._sitk_overlay_cache)
-                target.display._sitk_overlay_cache = cache
-                target.display.overlay_data = data
-                target.display.baked_overlay_translation = baked
+            self._retire(target.display._sitk_overlay_cache)
+            target.display._sitk_overlay_cache = cache
+            target.display.overlay_data = data
+            target.display.baked_overlay_translation = baked
             target.is_data_dirty = True
 
         if vs.base_display_data is not None and vs.camera.crosshair_phys_coord is not None:
@@ -737,12 +736,12 @@ class Controller:
         self.ui_needs_refresh = True
 
     def _apply_overlay_resample(self, base_vs, ovs, job=None):
-        """Tombstone-safe overlay resample. Wraps the pure resample_overlay() function.
+        """Resample ovs onto base_vs's grid and apply it now, synchronously.
 
-        Keeps the old ITK cache alive as a local during Execute() (tombstone pattern)
-        so the 60fps render thread never reads a freed numpy view.
-        If a `Job` is given, aborts (keeping the pre-resample overlay) if it has been
-        superseded (see background_job.JobRunner).
+        Main thread only (setup code, tests): background resampling goes through
+        resample_image(). The replaced ITK cache is retired, not freed, since
+        views of it may still be in use this frame. If a `Job` is given, keeps
+        the previous overlay when that job has been superseded.
         """
         _old_cache = base_vs.display._sitk_overlay_cache
         base_vs.display._sitk_overlay_cache = None
@@ -755,35 +754,15 @@ class Controller:
         )
 
         if job is not None and not job.is_current():
-            with base_vs.display._lock:
-                base_vs.display._sitk_overlay_cache = _old_cache
+            base_vs.display._sitk_overlay_cache = _old_cache
             return
 
-        with base_vs.display._lock:
-            base_vs.display._sitk_overlay_cache = new_cache
-            base_vs.display.overlay_data = new_data
-            base_vs.display.baked_overlay_translation = baked
+        base_vs.display._sitk_overlay_cache = new_cache
+        base_vs.display.overlay_data = new_data
+        base_vs.display.baked_overlay_translation = baked
         # The main thread may still be reading the old overlay_data view
         self._retire(_old_cache)
         base_vs.is_data_dirty = True
-
-    def _clear_overlay_data(self, image_id):
-        """Clear overlay data that was written with a wrong transform during a discarded resample.
-
-        Called when a resample is discarded AFTER overlay resampling has already run.
-        Sets overlay_data to None so viewers show no overlay rather than a ghost at
-        the wrong rotation. The next valid resample will restore correct overlay data.
-        """
-        vs = self.view_states.get(image_id)
-        if vs and vs.display.overlay.image_id:
-            with vs.display._lock:
-                vs.display.overlay_data = None
-                vs.display._sitk_overlay_cache = None
-        for other_vs in self.view_states.values():
-            if other_vs.display.overlay.image_id == image_id:
-                with other_vs.display._lock:
-                    other_vs.display.overlay_data = None
-                    other_vs.display._sitk_overlay_cache = None
 
     def bake_transform_to_volume(self, vs_id):
         """Permanently apply the registration transform by resampling the volume.
@@ -856,7 +835,7 @@ class Controller:
         old_state = self._capture_pre_reload_state(vs, vol)
         data_snapshot = self._capture_volume_data_snapshot(vs_id, vs, vol)
         try:
-            self._tombstone_image_memory(vs_id, vs, vol)
+            self._drop_display_data(vs_id, vs, vol)
             vol.sitk_image = new_sitk
             vol.data = sitk.GetArrayViewFromImage(new_sitk)
             vol._is_outdated = True
@@ -924,42 +903,41 @@ class Controller:
         if self.gui:
             self.gui.notify_plugins_image_reloading(vs_id)
 
-        with vs.loading_shield():
-            # 1. Snapshot the world and memory before the reload
-            old_state = self._capture_pre_reload_state(vs, vol)
-            data_snapshot = self._capture_volume_data_snapshot(vs_id, vs, vol)
+        # 1. Snapshot the world and memory before the reload
+        old_state = self._capture_pre_reload_state(vs, vol)
+        data_snapshot = self._capture_volume_data_snapshot(vs_id, vs, vol)
 
-            try:
-                # 2. Safely destroy C++ bindings to prevent Segfaults
-                self._tombstone_image_memory(vs_id, vs, vol)
+        try:
+            # 2. Safely destroy C++ bindings to prevent Segfaults
+            self._drop_display_data(vs_id, vs, vol)
 
-                # 3. Read the disk
-                was_reset = vol.reload()
-                if not was_reset and vol.data is None:
-                    raise RuntimeError("Reload failed or was aborted.")
-            except Exception as e:
-                # Restore previous state on failure
-                self._restore_volume_data_snapshot(vs_id, vs, vol, data_snapshot)
-                self.status_message = f"Reload failed: {e}"
-                self.ui_needs_refresh = True
-                return
+            # 3. Read the disk
+            was_reset = vol.reload()
+            if not was_reset and vol.data is None:
+                raise RuntimeError("Reload failed or was aborted.")
+        except Exception as e:
+            # Restore previous state on failure
+            self._restore_volume_data_snapshot(vs_id, vs, vol, data_snapshot)
+            self.status_message = f"Reload failed: {e}"
+            self.ui_needs_refresh = True
+            return
 
-            # 4. Resolve the new spatial reality
-            shape_changed = self._resolve_reloaded_geometry(
-                vs_id, vs, vol, old_state, was_reset
-            )
+        # 4. Resolve the new spatial reality
+        shape_changed = self._resolve_reloaded_geometry(
+            vs_id, vs, vol, old_state, was_reset
+        )
 
-            # 5. Re-link Fusions/Overlays
-            self._rebuild_dependent_overlays(vs_id, vs, vol, old_state)
+        # 5. Re-link Fusions/Overlays
+        self._rebuild_dependent_overlays(vs_id, vs, vol, old_state)
 
-            # 6. Notify plugins that reload has finished so they can refresh caches
-            if self.gui:
-                self.gui.notify_plugins_image_reloaded(vs_id)
+        # 6. Notify plugins that reload has finished so they can refresh caches
+        if self.gui:
+            self.gui.notify_plugins_image_reloaded(vs_id)
 
-            # 7. Flag UI
-            self.status_message = f"Reloaded: {vol.name}"
-            if shape_changed and self.gui and hasattr(self.gui, "rois_need_refresh"):
-                self.gui.rois_need_refresh = True
+        # 7. Flag UI
+        self.status_message = f"Reloaded: {vol.name}"
+        if shape_changed and self.gui and hasattr(self.gui, "rois_need_refresh"):
+            self.gui.rois_need_refresh = True
 
         self.ui_needs_refresh = True
 
@@ -978,23 +956,24 @@ class Controller:
             "overlay_opacity": vs.display.overlay.opacity,
         }
 
-    def _tombstone_image_memory(self, vs_id, vs, vol):
-        """Severs all Numpy views pointing to ITK C++ memory to prevent segfaults."""
+    def _drop_display_data(self, vs_id, vs, vol):
+        """Drop everything displayed from this image's data before it is replaced
+        (main thread): its own buffers, the overlays other images derive from it,
+        and the viewers' slice caches. The old ITK images stay alive in the
+        caller's snapshot (restored on failure, else retired)."""
         vs.base_display_data = None
         vs._sitk_base_cache = None
-        with vs.display._lock:
-            vs.display.overlay_data = None
-            vs.display._sitk_overlay_cache = None
+        vs.display.overlay_data = None
+        vs.display._sitk_overlay_cache = None
         vol.data = None
         vol.data_4d = None
 
         for other_vs in self.view_states.values():
             if other_vs.display.overlay.image_id == vs_id:
-                with other_vs.display._lock:
-                    other_vs.display.overlay_data = (
-                        None  # Sever the other viewstate's overlay if it points to us
-                    )
-                    other_vs.display._sitk_overlay_cache = None  # Also sever the cache
+                other_vs.display.overlay_data = (
+                    None  # Sever the other viewstate's overlay if it points to us
+                )
+                other_vs.display._sitk_overlay_cache = None  # Also sever the cache
 
         # Instantly blind the viewers and flush temporary slice preview caches
         for v in self.viewers.values():
@@ -1083,18 +1062,16 @@ class Controller:
         vol.data = snapshot["vol_data"]
         vs.base_display_data = snapshot["vs_base_display_data"]
         vs._sitk_base_cache = snapshot["vs_sitk_base_cache"]
-        with vs.display._lock:
-            vs.display.overlay_data = snapshot["vs_overlay_data"]
-            vs.display._sitk_overlay_cache = snapshot["vs_sitk_overlay_cache"]
+        vs.display.overlay_data = snapshot["vs_overlay_data"]
+        vs.display._sitk_overlay_cache = snapshot["vs_sitk_overlay_cache"]
 
         for other_id, other_snapshot in snapshot["dependent_overlays"].items():
             other_vs = self.view_states.get(other_id)
             if other_vs:
-                with other_vs.display._lock:
-                    other_vs.display.overlay_data = other_snapshot["overlay_data"]
-                    other_vs.display._sitk_overlay_cache = other_snapshot[
-                        "sitk_overlay_cache"
-                    ]
+                other_vs.display.overlay_data = other_snapshot["overlay_data"]
+                other_vs.display._sitk_overlay_cache = other_snapshot[
+                    "sitk_overlay_cache"
+                ]
 
         self.update_all_viewers_of_image(vs_id)
 
