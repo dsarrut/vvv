@@ -486,8 +486,10 @@ def _rasterize_and_load_labels(
     bboxes = _compute_label_bboxes(img, unique_labels)
 
     def _process_label(val_int, custom_name, color, bbox):
+        # worker: compute only, registered below on the main thread
         return controller.roi.extract_label_from_image(
-            base_image_id, filepath, img, data, val_int, custom_name, color, bbox
+            base_image_id, filepath, img, data, val_int, custom_name, color, bbox,
+            defer=True,
         )
 
     # --- PARALLEL PROCESSING ---
@@ -512,7 +514,7 @@ def _rasterize_and_load_labels(
             while completed < total_lbls:
                 for i, future in enumerate(futures):
                     if future is not None and future.done():
-                        res = future.result()
+                        res = controller.roi.register_roi(future.result())
                         futures[i] = None
                         completed += 1
                         if res and saved_preferences and res in vs.rois:
@@ -1388,13 +1390,14 @@ def load_workspace_sequence(gui, controller, filepath):
                     ds = pydicom.dcmread(rt_path, force=True)
                     for task in tasks:
                         try:
-                            roi_id = controller.roi.load_rtstruct_roi(
+                            pending = controller.roi.load_rtstruct_roi(
                                 task["new_id"],
                                 rt_path,
                                 task["state"]["rtstruct_info"],
                                 ds=ds,
+                                defer=True,
                             )
-                            results.append((task, roi_id, None))
+                            results.append((task, pending, None))
                         except Exception as e:
                             results.append(
                                 (
@@ -1435,7 +1438,7 @@ def load_workspace_sequence(gui, controller, filepath):
                     for task in tasks:
                         mode = task["state"].get("source_mode", "Ignore BG (val)")
                         target_val = task["state"].get("source_val", 0.0)
-                        roi_id = None
+                        pending = None  # computed here, registered on the main thread
                         err = None
 
                         try:
@@ -1443,7 +1446,7 @@ def load_workspace_sequence(gui, controller, filepath):
                             if mode == "Target FG (val)" and bboxes is not None:
                                 val_int = int(target_val)
                                 if float(val_int) == target_val:
-                                    roi_id = controller.roi.extract_label_from_image(
+                                    pending = controller.roi.extract_label_from_image(
                                         task["new_id"],
                                         read_path,
                                         img,
@@ -1452,13 +1455,14 @@ def load_workspace_sequence(gui, controller, filepath):
                                         task["state"].get("name"),
                                         task["state"].get("color", [255, 0, 0]),
                                         bboxes.get(val_int),
+                                        defer=True,
                                     )
 
                             # --- SLOW PATH FALLBACK ---
                             # Note: For Label Maps (Target FG), if extract_label_from_image returned None,
                             # the label is genuinely not in the image and should not be created as an empty mask.
-                            if roi_id is None and task["state"].get("source_type") != "Label Map":
-                                roi_id = controller.roi.load_binary_mask(
+                            if pending is None and task["state"].get("source_type") != "Label Map":
+                                pending = controller.roi.load_binary_mask(
                                     task["new_id"],
                                     read_path,
                                     name=task["state"].get("name"),
@@ -1466,10 +1470,11 @@ def load_workspace_sequence(gui, controller, filepath):
                                     mode=mode,
                                     target_val=target_val,
                                     preloaded_sitk=img,
+                                    defer=True,
                                 )
 
-                            if roi_id and roi_id in controller.volumes:
-                                vol = controller.volumes[roi_id]
+                            if pending is not None:
+                                vol = pending["vol"]
                                 if isinstance(actual_path, list):
                                     vol.file_paths = actual_path
                                 else:
@@ -1477,7 +1482,7 @@ def load_workspace_sequence(gui, controller, filepath):
                         except Exception as e:
                             err = f"- Failed to load {task['state'].get('name')}: {e}"
 
-                        results.append((task, roi_id, err))
+                        results.append((task, pending, err))
                 except Exception as e:
                     for task in tasks:
                         results.append(
@@ -1509,7 +1514,8 @@ def load_workspace_sequence(gui, controller, filepath):
                         tasks = future_to_tasks[future]
                         try:
                             group_results = future.result()
-                            for task, roi_id, err in group_results:
+                            for task, pending, err in group_results:
+                                roi_id = controller.roi.register_roi(pending)
                                 if err:
                                     warnings.append(err)
                                 elif roi_id:

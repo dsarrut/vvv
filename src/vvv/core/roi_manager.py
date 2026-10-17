@@ -493,12 +493,14 @@ class ROIManager:
         skip_crop=False,
         is_contour=False,
         is_outside=False,
+        defer=False,
         **state_kwargs,
     ):
-        """Centralized helper for creating an ROI exclusively from memory (Label Maps, RT-Structs)."""
-        # keep original signature unchanged
+        """Centralized helper for creating an ROI exclusively from memory (Label Maps, RT-Structs).
 
-        """Centralized helper for creating an ROI exclusively from memory (Label Maps, RT-Structs)."""
+        defer=True (worker threads): compute only and return a pending ROI, to be
+        registered on the main thread with register_roi().
+        """
         import os
 
         base_vol = self.controller.volumes[base_id]
@@ -531,14 +533,31 @@ class ROIManager:
         if mask_vol.data.size == 0:
             return None
 
+        pending = {
+            "base_id": base_id,
+            "vol": mask_vol,
+            "name": name,
+            "is_contour": is_contour,
+            "state_kwargs": state_kwargs,
+        }
+        return pending if defer else self.register_roi(pending)
+
+    def register_roi(self, pending):
+        """Register a pending ROI (from a defer=True call); return its id.
+
+        Main thread only: viewers and plugins iterate controller.volumes and
+        vs.rois every frame. None (nothing to register) gives None.
+        """
+        if pending is None:
+            return None
         with self.controller._state_lock:
             roi_id = self.controller.allocate_image_id()
-            self.controller.volumes[roi_id] = mask_vol
+            self.controller.volumes[roi_id] = pending["vol"]
 
-            roi_state = ROIState(roi_id, name, **state_kwargs)
-            roi_state.is_contour = is_contour
+            roi_state = ROIState(roi_id, pending["name"], **pending["state_kwargs"])
+            roi_state.is_contour = pending["is_contour"]
 
-            vs = self.controller.view_states[base_id]
+            vs = self.controller.view_states[pending["base_id"]]
             vs.rois[roi_id] = roi_state
             vs.is_geometry_dirty = True
             vs.is_data_dirty = True
@@ -546,7 +565,7 @@ class ROIManager:
         return roi_id
 
     def extract_label_from_image(
-        self, base_id, filepath, img, data, val_int, name, color, bbox
+        self, base_id, filepath, img, data, val_int, name, color, bbox, defer=False
     ):
         """Fast-path NumPy slicing to extract a specific label from a pre-loaded label map."""
         import SimpleITK as sitk
@@ -612,6 +631,7 @@ class ROIManager:
             source_mode="Target FG (val)",
             source_val=float(val_int),
             source_type="Label Map",
+            defer=defer,
         )
 
     # ==========================================
@@ -627,7 +647,13 @@ class ROIManager:
         mode="Ignore BG (val)",
         target_val=0.0,
         preloaded_sitk=None,
+        defer=False,
     ):
+        """Load a binary mask as an ROI of base_id; return its id.
+
+        defer=True (worker threads): compute only and return a pending ROI, to be
+        registered on the main thread with register_roi().
+        """
         if color is None:
             color = [255, 50, 50]
 
@@ -661,25 +687,19 @@ class ROIManager:
                 raise ValueError("ROI is completely outside the base image FOV.")
 
         # 4. Register the Volume and State
-        with self.controller._state_lock:
-            mask_id = self.controller.allocate_image_id()
-            self.controller.volumes[mask_id] = mask_vol
-
-            if name is None:
-                name = self._clean_roi_name(filepath)
-
-            roi_state = ROIState(
-                mask_id,
-                name,
-                color,
-                source_mode=mode,
-                source_val=target_val,
-                source_type="Binary",
-            )
-            vs.rois[mask_id] = roi_state
-            vs.is_data_dirty = True
-
-        return mask_id
+        pending = {
+            "base_id": base_id,
+            "vol": mask_vol,
+            "name": name if name is not None else self._clean_roi_name(filepath),
+            "is_contour": False,
+            "state_kwargs": {
+                "color": color,
+                "source_mode": mode,
+                "source_val": target_val,
+                "source_type": "Binary",
+            },
+        }
+        return pending if defer else self.register_roi(pending)
 
     def parse_rtstruct(self, filepath, return_ds: bool = False):
         """
@@ -744,7 +764,7 @@ class ROIManager:
             return rois_info, ds
         return rois_info
 
-    def load_rtstruct_roi(self, base_id, filepath, roi_info, ds=None):
+    def load_rtstruct_roi(self, base_id, filepath, roi_info, ds=None, defer=False):
         """Registers the RT-Struct ROI and maps its DICOM polygons to 2D slices."""
         import SimpleITK as sitk
 
@@ -868,6 +888,7 @@ class ROIManager:
             rtstruct_info=roi_info,
             source_type="RT-Struct",
             native_polygons=native_polygons,
+            defer=defer,
         )
 
     def get_roi_stats(self, base_vs_id, roi_id, is_overlay=False):

@@ -366,8 +366,10 @@ def test_load_workspace_paths_with_json_and_tildes(tmp_path, monkeypatch):
 
     controller.view_states = MagicMock()
 
-    # Mock ROI creation to return our loaded_roi_vol ID
-    controller.roi.extract_label_from_image.return_value = "roi_1_loaded"
+    # Mock ROI creation: computed in the loader thread (pending ROI holding
+    # our loaded_roi_vol), then registered on the main thread
+    controller.roi.extract_label_from_image.return_value = {"vol": loaded_roi_vol}
+    controller.roi.register_roi.return_value = "roi_1_loaded"
 
     # Consume the generator
     generator = load_workspace_sequence(gui, controller, str(ws_path))
