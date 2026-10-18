@@ -11,7 +11,7 @@ import dearpygui.dearpygui as dpg
 from vvv.ui.viewer import SliceViewer
 from vvv.maths.image import VolumeData
 from vvv.core.controller import Controller
-from vvv.resources import get_resource_path
+from vvv.utils import get_resource_path
 import logging
 
 logger = logging.getLogger(__name__)

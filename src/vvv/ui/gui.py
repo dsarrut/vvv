@@ -17,7 +17,6 @@ from vvv.ui.ui_contours import ContoursUI
 from vvv.ui.ui_settings import SettingsWindow
 from vvv.plugins.plugin_api import PluginAPI
 from vvv.plugins import discover_plugins
-from vvv.resources import load_fonts, setup_themes
 from vvv.ui.ui_interaction import InteractionManager
 from vvv.ui.ui_components import (
     build_section_title,
@@ -27,7 +26,7 @@ from vvv.ui.ui_components import (
 )
 from vvv.ui.ui_sync import build_tab_sync, refresh_sync_ui
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
-from vvv.ui.ui_theme import build_ui_config, register_dynamic_themes
+from vvv.ui.ui_theme import build_ui_config, register_dynamic_themes, load_fonts, setup_themes
 from vvv.ui.ui_notifications import (
     show_message,
     show_status_message,
@@ -51,7 +50,7 @@ from vvv.ui.ui_debug import DebugOverlay
 from vvv.ui.ui_help import show_help_window
 from vvv.ui.render_strategy import GL_NEAREST_SUPPORTED
 from vvv.maths.image import fast_colorize_compiling_for
-from vvv.utils import capture_whole_window, copy_image_to_clipboard, save_screenshot_to_file
+from vvv.ui.ui_capture import capture_whole_window, copy_image_to_clipboard, save_screenshot_to_file
 import logging
 
 logger = logging.getLogger(__name__)

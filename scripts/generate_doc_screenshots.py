@@ -742,7 +742,7 @@ def generate_doc_08_screenshots(img_dir: Path):
         gui.update_sidebar_crosshair(gui.context_viewer)
         dpg.render_dearpygui_frame()
 
-    from vvv.utils import capture_whole_window
+    from vvv.ui.ui_capture import capture_whole_window
     img = capture_whole_window()
     if img is not None:
         img.save(img_dir / "doc_08_roi_layout.png")
@@ -817,7 +817,7 @@ def generate_doc_12_screenshots(img_dir: Path):
         gui.update_sidebar_crosshair(gui.context_viewer)
         dpg.render_dearpygui_frame()
 
-    from vvv.utils import capture_whole_window
+    from vvv.ui.ui_capture import capture_whole_window
     img = capture_whole_window()
     if img is not None:
         img.save(img_dir / "doc_12_registration_layout.png")

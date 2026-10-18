@@ -7,7 +7,7 @@ import dearpygui.dearpygui as dpg
 from vvv.core.controller import Controller
 from vvv.ui.gui import MainGUI
 from vvv.ui.viewer import SliceViewer
-from vvv.utils import copy_image_to_clipboard
+from vvv.ui.ui_capture import copy_image_to_clipboard
 
 
 def test_top_menu_screenshot_button_exists(headless_gui_app):
