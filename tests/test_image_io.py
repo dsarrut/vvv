@@ -669,6 +669,13 @@ def test_load_workspace_label_maps_with_flat_string_sidecar(tmp_path):
     assert r1.name == "Flat_Liver"
 
 
+def gui_workspace_view(gui):
+    """MainGUI.workspace_view() on a mock GUI."""
+    from vvv.ui.gui import MainGUI
+
+    return MainGUI.workspace_view(gui)
+
+
 def test_save_and_load_workspace_viewport_layout(tmp_path):
     """Test that workspace saving and loading preserves the layout_mode (1, 2, 4) and active_viewer."""
     import json
@@ -703,7 +710,7 @@ def test_save_and_load_workspace_viewport_layout(tmp_path):
     controller.gui = gui
 
     ws_file = tmp_path / "layout_test.vvw"
-    controller.file.save_workspace(str(ws_file))
+    controller.file.save_workspace(str(ws_file), gui_workspace_view(gui))
 
     with open(ws_file, "r") as f:
         saved_ws = json.load(f)
@@ -775,7 +782,7 @@ def test_save_and_load_workspace_mip_multi_viewer_state(tmp_path):
     controller.gui = gui
 
     ws_file = tmp_path / "mip_multi_test.vvw"
-    controller.file.save_workspace(str(ws_file))
+    controller.file.save_workspace(str(ws_file), gui_workspace_view(gui))
 
     with open(ws_file, "r") as f:
         saved_ws = json.load(f)

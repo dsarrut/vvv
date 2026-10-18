@@ -465,30 +465,18 @@ class FileManager:
 
         yield (1.0, "Done", found_series, scan_errors)
 
-    def save_workspace(self, filepath):
-        active_layout = (
-            str(self.controller.gui.active_layout)
-            if (
-                self.controller.gui
-                and isinstance(
-                    getattr(self.controller.gui, "active_layout", None), (str, int)
-                )
-            )
-            else "4"
-        )
-        active_viewer_tag = "V1"
-        if self.controller.gui and getattr(self.controller.gui, "context_viewer", None):
-            cv = self.controller.gui.context_viewer
-            if hasattr(cv, "tag") and isinstance(cv.tag, str):
-                active_viewer_tag = cv.tag
+    def save_workspace(self, filepath, view=None):
+        """Write the workspace file.
 
-        gui_vv = (
-            getattr(self.controller.gui, "visible_viewers", None)
-            if self.controller.gui
-            else None
-        )
-        if isinstance(gui_vv, (list, tuple)):
-            visible_viewers = [str(x) for x in gui_vv]
+        view: the GUI viewport layout, {"layout": "1"|"2"|"4", "active_viewer":
+        tag, "visible_viewers": [tags]}; any missing key gets a default.
+        """
+        view = view or {}
+        active_layout = str(view.get("layout") or "4")
+        active_viewer_tag = view.get("active_viewer") or "V1"
+        visible_viewers = view.get("visible_viewers")
+        if visible_viewers:
+            visible_viewers = [str(x) for x in visible_viewers]
         elif active_layout == "2":
             visible_viewers = ["V1", "V2"]
         elif active_layout == "1":
@@ -667,11 +655,6 @@ class FileManager:
 
         write_json_atomic(filepath, workspace)
 
-        if self.controller.gui:
-            self.controller.gui.show_status_message(
-                f"Saved Workspace: {os.path.basename(filepath)}"
-            )
-
     def close_image(self, vs_id):
         with self.controller._state_lock:
             if vs_id in self.controller.view_states:
@@ -711,5 +694,4 @@ class FileManager:
 
                 self.controller.ui_needs_refresh = True
 
-                if self.controller.gui:
-                    self.controller.gui.show_status_message(f"Closed: {name}")
+                self.controller._set_status(f"Closed: {name}")

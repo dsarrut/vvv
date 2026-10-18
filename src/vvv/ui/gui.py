@@ -2525,6 +2525,15 @@ class MainGUI:
             # Files written in a background thread (heavy compression)
             self.controller.save_image_async(vs_id, file_path)
 
+    def workspace_view(self):
+        """Viewport layout saved in a workspace (see FileManager.save_workspace)."""
+        cv = self.context_viewer
+        return {
+            "layout": str(self.active_layout),
+            "active_viewer": cv.tag if cv else None,
+            "visible_viewers": list(getattr(self, "visible_viewers", None) or []),
+        }
+
     def on_save_workspace_clicked(self, sender=None, app_data=None, user_data=None):
         file_path = save_file_dialog("Save VVV Workspace", default_name="workspace.vvw")
 
@@ -2533,7 +2542,7 @@ class MainGUI:
             if not file_path.endswith(".vvw"):
                 file_path += ".vvw"
 
-            self.controller.file.save_workspace(file_path)
+            self.controller.file.save_workspace(file_path, self.workspace_view())
             self.current_workspace_path = file_path
             self.refresh_workspace_bar()
             self.show_status_message(f"Workspace saved: {os.path.basename(file_path)}")
@@ -2552,7 +2561,7 @@ class MainGUI:
         self, sender=None, app_data=None, user_data=None
     ):
         if self.current_workspace_path:
-            self.controller.file.save_workspace(self.current_workspace_path)
+            self.controller.file.save_workspace(self.current_workspace_path, self.workspace_view())
             self.refresh_workspace_bar()
             self.show_status_message(
                 f"Workspace saved: {os.path.basename(self.current_workspace_path)}"
@@ -3174,7 +3183,9 @@ class MainGUI:
                     # kept for the next frame instead of being lost.
                     msg, self.controller.status_message = self.controller.status_message, None
                     if msg:
-                        self.show_status_message(msg)
+                        text, level = msg if isinstance(msg, tuple) else (msg, None)
+                        color = self.ui_cfg["colors"].get(level) if level else None
+                        self.show_status_message(text, color=color)
                     self._update_fast_render_notice()
 
                     ui_dirty, self.controller.ui_needs_refresh = (

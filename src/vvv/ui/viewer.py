@@ -1822,7 +1822,9 @@ class SliceViewer:
             dose_plugin._controller.update_isocontours(self)
 
         if not self.drawer._is_mip_active():
-            self.controller.roi.update_roi_contours(self)
+            self.controller.roi.update_roi_contours(
+                self.view_state, self.orientation, self.slice_idx
+            )
 
         self.drawer.draw_contours()
         self.drawer.draw_profiles()

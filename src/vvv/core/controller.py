@@ -864,8 +864,12 @@ class Controller:
 
         self._get_job_runner(vs_id).submit(_do_bake)
 
-    def _set_status(self, message):
-        self.status_message = message
+    def _set_status(self, message, level=None):
+        """Status bar message, shown by the GUI at its next frame.
+
+        level: None, or a ui_cfg color name ("working", "warning").
+        """
+        self.status_message = message if level is None else (message, level)
         self.ui_needs_refresh = True
 
     def _commit_bake(self, job, vs_id, new_sitk, anchor_world):
@@ -970,9 +974,7 @@ class Controller:
             return
 
         # 4. Resolve the new spatial reality
-        shape_changed = self._resolve_reloaded_geometry(
-            vs_id, vs, vol, old_state, was_reset
-        )
+        self._resolve_reloaded_geometry(vs_id, vs, vol, old_state, was_reset)
 
         # 5. Re-link Fusions/Overlays
         self._rebuild_dependent_overlays(vs_id, vs, vol, old_state)
@@ -982,11 +984,7 @@ class Controller:
             self.gui.notify_plugins_image_reloaded(vs_id)
 
         # 7. Flag UI
-        self.status_message = f"Reloaded: {vol.name}"
-        if shape_changed and self.gui and hasattr(self.gui, "rois_need_refresh"):
-            self.gui.rois_need_refresh = True
-
-        self.ui_needs_refresh = True
+        self._set_status(f"Reloaded: {vol.name}")
 
     # --- RELOAD HELPER METHODS ---
 

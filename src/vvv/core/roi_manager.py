@@ -1007,7 +1007,54 @@ class ROIManager:
             t_vs = self.controller.view_states[tid]
             t_vs.camera.target_center = phys_center
 
+    def take_file_rois_for_reload(self, base_id, roi_id):
+        """Close all ROIs read from the same label map / RT-Struct as roi_id.
+
+        Returns (source_type, filepath, info) for the UI to reload the file as
+        a whole: info is the saved preferences per label value (Label Map) or
+        the RT-Struct ROIs to read again. None for any other ROI.
+        """
+        if (
+            base_id not in self.controller.view_states
+            or roi_id not in self.controller.volumes
+        ):
+            return None
+        vs = self.controller.view_states[base_id]
+        mask_vol = self.controller.volumes[roi_id]
+        source_type = getattr(vs.rois[roi_id], "source_type", "Binary")
+        filepath = mask_vol.file_paths[0] if mask_vol.file_paths else None
+        if source_type not in ("Label Map", "RT-Struct") or not filepath:
+            return None
+
+        info = {} if source_type == "Label Map" else []
+        rois_to_delete = []
+        for rid, rstate in list(vs.rois.items()):
+            rvol = self.controller.volumes.get(rid)
+            if not (rvol and rvol.file_paths and rvol.file_paths[0] == filepath):
+                continue
+            if source_type == "Label Map":
+                info[int(rstate.source_val)] = {
+                    "color": rstate.color,
+                    "opacity": rstate.opacity,
+                    "visible": rstate.visible,
+                    "is_contour": rstate.is_contour,
+                    "thickness": rstate.thickness,
+                }
+            elif getattr(rstate, "rtstruct_info", None):
+                # Preserve user's visual preferences during the reload
+                rinfo = dict(rstate.rtstruct_info)
+                rinfo["color"] = rstate.color
+                rinfo["name"] = rstate.name
+                info.append(rinfo)
+            rois_to_delete.append(rid)
+
+        for rid in rois_to_delete:
+            self.close_roi(base_id, rid)
+        return source_type, filepath, info
+
     def reload_roi(self, base_id, roi_id):
+        """Reload one binary mask ROI from disk (label maps and RT-Structs:
+        take_file_rois_for_reload, then the UI loading sequence)."""
         if (
             base_id not in self.controller.view_states
             or roi_id not in self.controller.volumes
@@ -1018,77 +1065,8 @@ class ROIManager:
         vs = self.controller.view_states[base_id]
         roi_state = vs.rois[roi_id]
 
-        source_type = getattr(roi_state, "source_type", "Binary")
-        filepath = mask_vol.file_paths[0] if mask_vol.file_paths else None
-
-        # --- NATIVE BATCH RELOADING FOR COMPLEX FILES ---
-        if source_type == "Label Map" and filepath and self.controller.gui:
-            rois_to_delete = []
-            saved_preferences = {}
-            for rid, rstate in list(vs.rois.items()):
-                rvol = self.controller.volumes.get(rid)
-                if rvol and rvol.file_paths and rvol.file_paths[0] == filepath:
-                    saved_preferences[int(rstate.source_val)] = {
-                        "color": rstate.color,
-                        "opacity": rstate.opacity,
-                        "visible": rstate.visible,
-                        "is_contour": rstate.is_contour,
-                        "thickness": rstate.thickness,
-                    }
-                    rois_to_delete.append(rid)
-            for rid in rois_to_delete:
-                self.close_roi(base_id, rid)
-
-            from vvv.ui.ui_sequences import load_label_map_sequence
-
-            self.controller.gui.tasks.append(
-                load_label_map_sequence(
-                    self.controller.gui,
-                    self.controller,
-                    base_id,
-                    filepath,
-                    saved_preferences=saved_preferences,
-                )
-            )
-            return
-
-        if source_type == "RT-Struct" and filepath and self.controller.gui:
-            selected_rois = []
-            rois_to_delete = []
-            for rid, rstate in list(vs.rois.items()):
-                rvol = self.controller.volumes.get(rid)
-                if rvol and rvol.file_paths and rvol.file_paths[0] == filepath:
-                    if getattr(rstate, "rtstruct_info", None):
-                        # Preserve user's visual preferences during the reload
-                        rinfo = dict(rstate.rtstruct_info)
-                        rinfo["color"] = rstate.color
-                        rinfo["name"] = rstate.name
-                        selected_rois.append(rinfo)
-                    rois_to_delete.append(rid)
-
-            for rid in rois_to_delete:
-                self.close_roi(base_id, rid)
-
-            if selected_rois:
-                from vvv.ui.ui_sequences import load_rtstruct_sequence
-
-                self.controller.gui.tasks.append(
-                    load_rtstruct_sequence(
-                        self.controller.gui,
-                        self.controller,
-                        base_id,
-                        filepath,
-                        selected_rois,
-                    )
-                )
-            return
-
         # --- STANDARD BINARY MASK RELOAD ---
-        if self.controller.gui:
-            self.controller.gui.show_status_message(
-                f"Reloading: {roi_state.name} ...",
-                color=self.controller.gui.ui_cfg["colors"]["working"],
-            )
+        self.controller._set_status(f"Reloading: {roi_state.name} ...", "working")
 
         old_sitk = mask_vol.sitk_image
         old_data = mask_vol.data
@@ -1105,11 +1083,7 @@ class ROIManager:
             if old_bbox is not None:
                 mask_vol.roi_bbox = old_bbox
             roi_state.polygons = old_polygons
-            if self.controller.gui:
-                self.controller.gui.show_status_message(
-                    f"Reload failed: {e}",
-                    color=self.controller.gui.ui_cfg["colors"]["warning"],
-                )
+            self.controller._set_status(f"Reload failed: {e}", "warning")
             return
 
         roi_state.invalidate()
@@ -1126,10 +1100,7 @@ class ROIManager:
         self.controller.view_states[base_id].is_data_dirty = True
         self.controller.update_all_viewers_of_image(base_id)
 
-        if self.controller.gui:
-            self.controller.gui.show_status_message(f"Reloaded: {roi_state.name}")
-
-        self.controller.ui_needs_refresh = True
+        self.controller._set_status(f"Reloaded: {roi_state.name}")
 
     def close_roi(self, base_id, roi_id):
         with self.controller._state_lock:
@@ -1144,14 +1115,10 @@ class ROIManager:
 
             self.controller.update_all_viewers_of_image(base_id)
 
-    def update_roi_contours(self, viewer):
-        """Extracts 2D marching squares for all contour ROIs on the current slice."""
-        vs = viewer.view_state
+    def update_roi_contours(self, vs, ori, s_idx):
+        """Extracts 2D marching squares for all contour ROIs on slice s_idx of orientation ori."""
         if not vs:
             return
-
-        ori = viewer.orientation
-        s_idx = viewer.slice_idx
 
         needs_update = False
         for roi_state in vs.rois.values():
@@ -1163,8 +1130,8 @@ class ROIManager:
         if not needs_update:
             return
 
-        sw, sh = viewer.volume.get_physical_aspect_ratio(ori)
-        base_z, base_y, base_x = viewer.volume.shape3d
+        sw, sh = vs.volume.get_physical_aspect_ratio(ori)
+        base_z, base_y, base_x = vs.volume.shape3d
         from vvv.maths.contours import extract_2d_contours_from_slice
 
         extracted_any = False

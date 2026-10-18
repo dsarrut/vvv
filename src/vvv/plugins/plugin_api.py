@@ -295,7 +295,29 @@ class PluginAPI:
         self._controller.roi.close_roi(image_id, roi_id)
 
     def reload_roi(self, image_id, roi_id) -> None:
-        self._controller.roi.reload_roi(image_id, roi_id)
+        # A label map or RT-Struct is reloaded as a whole (all its ROIs)
+        batch = self._controller.roi.take_file_rois_for_reload(image_id, roi_id)
+        if batch is None:
+            self._controller.roi.reload_roi(image_id, roi_id)
+            return
+        source_type, filepath, info = batch
+        if source_type == "Label Map":
+            from vvv.ui.ui_sequences import load_label_map_sequence
+
+            self._gui.tasks.append(
+                load_label_map_sequence(
+                    self._gui, self._controller, image_id, filepath,
+                    saved_preferences=info,
+                )
+            )
+        elif info:
+            from vvv.ui.ui_sequences import load_rtstruct_sequence
+
+            self._gui.tasks.append(
+                load_rtstruct_sequence(
+                    self._gui, self._controller, image_id, filepath, info
+                )
+            )
 
     def center_on_roi(self, image_id, roi_id) -> None:
         self._controller.roi.center_on_roi(image_id, roi_id)
