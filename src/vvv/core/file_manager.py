@@ -204,9 +204,9 @@ class FileManager:
                                             dose_str = (
                                                 f"{float(raw_dose) / 1e6:.2f} MBq"
                                             )
-                                        except:
+                                        except Exception:
                                             dose_str = raw_dose
-                                    except:
+                                    except Exception:
                                         dose_str = ""
                                     dose_str = clean_string(dose_str)
                                     break

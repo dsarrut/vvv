@@ -1,6 +1,9 @@
 import os
 import sys
 import dearpygui.dearpygui as dpg
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def get_resource_path(rel_path):
@@ -112,7 +115,7 @@ def load_fonts():
                     except Exception:
                         pass
         else:
-            print("ERROR: Icon font file not found! Buttons will show '?'.")
+            logger.error("Icon font file not found! Buttons will show '?'.")
 
         # 3. Bind the default text font at the very end
         if default_font:

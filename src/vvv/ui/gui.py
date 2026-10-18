@@ -52,6 +52,9 @@ from vvv.ui.ui_help import show_help_window
 from vvv.ui.render_strategy import GL_NEAREST_SUPPORTED
 from vvv.maths.image import fast_colorize_compiling_for
 from vvv.utils import capture_whole_window, copy_image_to_clipboard, save_screenshot_to_file
+import logging
+
+logger = logging.getLogger(__name__)
 
 _POSITIONAL_KINDS = (
     inspect.Parameter.POSITIONAL_ONLY,
@@ -281,9 +284,8 @@ class MainGUI:
             key = (plugin.plugin_id, method_name)
             if key not in self._plugin_errors:
                 self._plugin_errors.add(key)
-                print(
+                logger.exception(
                     f"[Plugin error] {plugin.plugin_id}.{method_name}: {e}",
-                    file=sys.stderr,
                 )
 
     # ==========================================
@@ -1285,7 +1287,7 @@ class MainGUI:
                 path_obj = (
                     json.loads(path_str) if path_str.startswith("[") else path_str
                 )
-            except:
+            except Exception:
                 path_obj = path_str
 
             # Resolve the path to handle robust user profile path fallback
@@ -1309,7 +1311,7 @@ class MainGUI:
                         tokens = shlex.split(path_for_shlex)
                         # For 4D sequences, verify the first frame exists
                         exists = len(tokens) > 0 and os.path.exists(tokens[0])
-                    except:
+                    except Exception:
                         exists = False
                 else:
                     exists = os.path.exists(path_obj)
@@ -2775,9 +2777,8 @@ class MainGUI:
                         except Exception as cb_err:
                             import sys
 
-                            print(
+                            logger.exception(
                                 f"Error executing scheduled main-thread callback: {cb_err}",
-                                file=sys.stderr,
                             )
                     if debug_overlay:
                         debug_overlay.update()

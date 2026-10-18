@@ -12,6 +12,9 @@ Supported:
 
 import sys
 from typing import Any
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Linux: keep GLFW handle + window so cleanup_os_drop() can null the callback
 # before DPG destroys its context (prevents segfault at exit).
@@ -148,7 +151,7 @@ def _install_macos_drop(callback):
                     main_window = w
                     break
         if main_window is None:
-            print("Warning: VVV drag-and-drop: could not find main NSWindow")
+            logger.warning("VVV drag-and-drop: could not find main NSWindow")
             return
 
         content_view = main_window.contentView()
@@ -161,7 +164,7 @@ def _install_macos_drop(callback):
         content_view.addSubview_positioned_relativeTo_(drop_view, 1, None)
 
     except Exception as e:
-        print(f"Warning: VVV drag-and-drop install failed: {e}")
+        logger.warning(f"VVV drag-and-drop install failed: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +185,7 @@ def _install_linux_drop(callback):
         glfw = ctypes.CDLL(dpg_so)
 
         if not hasattr(glfw, "glfwSetDropCallback"):
-            print("Warning: VVV drag-and-drop: glfwSetDropCallback not found in _dearpygui.so")
+            logger.warning("VVV drag-and-drop: glfwSetDropCallback not found in _dearpygui.so")
             return
 
         # Declare return types for all GLFW functions that return pointers.
@@ -195,7 +198,7 @@ def _install_linux_drop(callback):
 
         window = glfw.glfwGetCurrentContext()
         if not window:
-            print("Warning: VVV drag-and-drop: glfwGetCurrentContext() returned NULL")
+            logger.warning("VVV drag-and-drop: glfwGetCurrentContext() returned NULL")
             return
 
         # void (*GLFWdropfun)(GLFWwindow*, int count, const char** paths)
@@ -211,7 +214,7 @@ def _install_linux_drop(callback):
                 file_paths = [paths[i].decode("utf-8", errors="replace") for i in range(count)]
                 callback(None, file_paths, None)
             except Exception as exc:
-                print(f"Warning: VVV drag-and-drop callback error: {exc}")
+                logger.exception(f"VVV drag-and-drop callback error: {exc}")
 
         global _linux_filter_ref, _linux_glfw, _linux_window
         func = DropFun(_on_drop)
@@ -221,7 +224,7 @@ def _install_linux_drop(callback):
         _linux_window = window
 
     except Exception as e:
-        print(f"Warning: VVV drag-and-drop install failed: {e}")
+        logger.warning(f"VVV drag-and-drop install failed: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -290,7 +293,7 @@ def _install_windows_drop(callback):
                                      for i in range(count)]
                             callback(None, files, None)
                         except Exception as exc:
-                            print(f"Warning: VVV drag-and-drop callback error: {exc}")
+                            logger.exception(f"VVV drag-and-drop callback error: {exc}")
 
                     global _linux_filter_ref, _linux_glfw, _linux_window
                     func = DropFun(_on_drop_glfw)
@@ -329,7 +332,7 @@ def _install_windows_drop(callback):
 
         hwnd = _get_dpg_hwnd_windows()
         if not hwnd:
-            print("Warning: VVV drag-and-drop: cannot find main window HWND")
+            logger.warning("VVV drag-and-drop: cannot find main window HWND")
             return
 
         shell32.DragAcceptFiles(hwnd, True)
@@ -364,4 +367,4 @@ def _install_windows_drop(callback):
         _windows_drop_refs = (new_proc, hwnd, orig_ptr)
 
     except Exception as e:
-        print(f"Warning: VVV drag-and-drop install failed: {e}")
+        logger.warning(f"VVV drag-and-drop install failed: {e}")

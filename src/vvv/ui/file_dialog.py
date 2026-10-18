@@ -3,6 +3,9 @@ import sys
 import threading
 import subprocess
 import dearpygui.dearpygui as dpg
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Global variable to remember the last directory used in this session
 _last_visited_dir = None
@@ -196,14 +199,14 @@ def _open_file_dialog_impl(
 
             result = _run_dialog_process(cmd, capture_output=True, text=True)
             if result.returncode != 0 and result.stderr.strip():
-                print(f"[Debug] Zenity failed with exit code {result.returncode}: {result.stderr.strip()}", file=sys.stderr)
+                logger.debug(f"Zenity failed with exit code {result.returncode}: {result.stderr.strip()}")
             path = result.stdout.strip()
             if path:
                 final_paths = path.splitlines() if multiple else path
                 _update_last_visited_dir(final_paths, is_directory)
                 return final_paths
         except FileNotFoundError:
-            print("[Debug] Zenity not found. Falling back to kdialog.", file=sys.stderr)
+            logger.debug("Zenity not found. Falling back to kdialog.")
             try:
                 if is_directory:
                     cmd = [
@@ -226,14 +229,14 @@ def _open_file_dialog_impl(
 
                 result = _run_dialog_process(cmd, capture_output=True, text=True)
                 if result.returncode != 0 and result.stderr.strip():
-                    print(f"[Debug] Kdialog failed with exit code {result.returncode}: {result.stderr.strip()}", file=sys.stderr)
+                    logger.debug(f"Kdialog failed with exit code {result.returncode}: {result.stderr.strip()}")
                 path = result.stdout.strip()
                 if path:
                     final_paths = path.splitlines() if multiple else path
                     _update_last_visited_dir(final_paths, is_directory)
                     return final_paths
             except FileNotFoundError:
-                print("[Debug] Kdialog not found. No file dialog utilities (zenity or kdialog) are available on this system.", file=sys.stderr)
+                logger.warning("Kdialog not found. No file dialog utilities (zenity or kdialog) are available on this system.")
                 return [] if multiple else None
 
     elif sys.platform == "win32":  # Windows
@@ -377,13 +380,13 @@ def _save_file_dialog_impl(title="Save File", default_name="workspace.vvw", star
             ]
             result = _run_dialog_process(cmd, capture_output=True, text=True)
             if result.returncode != 0 and result.stderr.strip():
-                print(f"[Debug] Zenity save dialog failed with exit code {result.returncode}: {result.stderr.strip()}", file=sys.stderr)
+                logger.debug(f"Zenity save dialog failed with exit code {result.returncode}: {result.stderr.strip()}")
             path = result.stdout.strip()
             if path:
                 _update_last_visited_dir(path, is_directory=False)
             return path if path else None
         except FileNotFoundError:
-            print("[Debug] Zenity not found. Falling back to kdialog.", file=sys.stderr)
+            logger.debug("Zenity not found. Falling back to kdialog.")
             try:
                 # Kdialog
                 cmd = [
@@ -395,13 +398,13 @@ def _save_file_dialog_impl(title="Save File", default_name="workspace.vvw", star
                 ]
                 result = _run_dialog_process(cmd, capture_output=True, text=True)
                 if result.returncode != 0 and result.stderr.strip():
-                    print(f"[Debug] Kdialog save dialog failed with exit code {result.returncode}: {result.stderr.strip()}", file=sys.stderr)
+                    logger.debug(f"Kdialog save dialog failed with exit code {result.returncode}: {result.stderr.strip()}")
                 path = result.stdout.strip()
                 if path:
                     _update_last_visited_dir(path, is_directory=False)
                 return path if path else None
             except FileNotFoundError:
-                print("[Debug] Kdialog not found. No file dialog utilities (zenity or kdialog) are available on this system.", file=sys.stderr)
+                logger.warning("Kdialog not found. No file dialog utilities (zenity or kdialog) are available on this system.")
                 return None
 
     elif sys.platform == "win32":  # Windows

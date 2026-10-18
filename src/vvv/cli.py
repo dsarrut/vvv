@@ -12,6 +12,21 @@ from vvv.ui.viewer import SliceViewer
 from vvv.maths.image import VolumeData
 from vvv.core.controller import Controller
 from vvv.resources import get_resource_path
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def setup_logging(debug=False):
+    """Messages of the vvv modules go to stderr: warnings and errors, plus
+    debug details with --debug. Other libraries (numba...) are not affected."""
+    vvv_logger = logging.getLogger("vvv")
+    if not vvv_logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("vvv %(levelname)s: %(message)s"))
+        vvv_logger.addHandler(handler)
+    vvv_logger.setLevel(logging.DEBUG if debug else logging.WARNING)
+    vvv_logger.propagate = False
 
 
 def set_macos_dock_info(name, icon_path=None):
@@ -336,7 +351,7 @@ def check_inputs(image_tasks, workspace_file):
     is_flag=True,
     help="Ignore saved history and load with defaults.",
 )
-@click.option("--debug", is_flag=True, help="Show FPS debug overlay with graph.")
+@click.option("--debug", is_flag=True, help="Show FPS debug overlay with graph, print debug messages, raise on internal errors.")
 @click.option("--fast-gl/--no-fast-gl", default=True, help="Enable/disable fast GL nearest-neighbor (Linux/Windows).")
 def main(no_history, datasets, linkall, sync, linkall_wl, debug, fast_gl):
     """VVV — multi-image medical viewer.
@@ -377,16 +392,17 @@ def main(no_history, datasets, linkall, sync, linkall_wl, debug, fast_gl):
       vvv session.vvw                      restore a previously saved workspace
     """
 
+    setup_logging(debug)
+
     # Check dearpygui version compatibility
     try:
         import dearpygui
         dpg_ver = dearpygui.__version__
         parts = [int(p) for p in dpg_ver.split(".") if p.isdigit()]
         if parts and (parts[0] < 2 or (parts[0] == 2 and len(parts) > 1 and parts[1] < 3)):
-            print(
-                f"WARNING: dearpygui version {dpg_ver} is detected. Version >= 2.3.1 is highly recommended "
+            logger.warning(
+                f"dearpygui version {dpg_ver} is detected. Version >= 2.3.1 is highly recommended "
                 f"to prevent segmentation faults/crashes, particularly under Python 3.14+ or in headless environments.",
-                file=sys.stderr
             )
     except Exception:
         pass
@@ -419,11 +435,10 @@ def main(no_history, datasets, linkall, sync, linkall_wl, debug, fast_gl):
         import importlib.util
 
         if importlib.util.find_spec("numba") is None:
-            print(
-                "WARNING: numba is not installed/importable in this environment. "
+            logger.warning(
+                "numba is not installed/importable in this environment. "
                 "Fusion overlay rendering will fall back to a much slower pure-NumPy "
                 "path (~40-50x slower). Install numba for smooth fusion rendering.",
-                file=sys.stderr,
             )
 
     # --- Setup Application ---
@@ -454,7 +469,7 @@ def main(no_history, datasets, linkall, sync, linkall_wl, debug, fast_gl):
     # 2. Swap the boot generator based on the file type
     if workspace_file:
         if len(datasets) > 1:
-            print(
+            logger.warning(
                 f"Find workspace {workspace_file}, ignoring other files on the command line"
             )
         # Use the workspace loader

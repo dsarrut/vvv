@@ -11,6 +11,9 @@ from typing import Any
 from dataclasses import dataclass, field
 from vvv.utils import get_history_path_key
 from vvv.maths.image_utils import straighten_image, extract_orientation_strings
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -245,7 +248,7 @@ def _compile_fast_signature(key, dtype, delay=0.0):
         _fast["ready"].add(key)
     except Exception as e:  # numba missing or failing: stay on the numpy path
         _fast["disabled"] = True
-        print(f"Note: fast colormap path disabled ({type(e).__name__}: {e})")
+        logger.warning(f"fast colormap path disabled ({type(e).__name__}: {e})")
 
 
 def _build_fast_kernel():
@@ -1185,7 +1188,7 @@ class VolumeData:
                     spacing[2] = 10.0 * (pts[5] - pts[4]) / max(1, dim3 - 1)
                     origin = [10.0 * pts[0], 10.0 * pts[2], 10.0 * pts[4]]
             except Exception as e:
-                print(f"Warning: Failed to parse AVS coordinates - {e}")
+                logger.warning(f"Failed to parse AVS coordinates - {e}")
 
         # Override with explicit spacing if provided in comments (rare but possible)
         spacing_match = re.search(
@@ -1388,8 +1391,8 @@ class VolumeData:
         try:
             self.inverse_matrix = np.linalg.inv(self.matrix)
         except np.linalg.LinAlgError:
-            print(
-                f"Warning: Singular spatial matrix detected in {self.name}. Falling back to Identity."
+            logger.warning(
+                f"Singular spatial matrix detected in {self.name}. Falling back to Identity."
             )
             self.matrix = np.eye(3)
             self.inverse_matrix = np.eye(3)
@@ -1545,7 +1548,7 @@ class VolumeData:
                 try:
                     if os.path.exists(p):
                         self.last_mtimes[p] = os.path.getmtime(p)
-                except:
+                except Exception:
                     pass
         self.last_mtime = self._get_latest_mtime()
 
@@ -1559,7 +1562,7 @@ class VolumeData:
                     mtime = os.path.getmtime(p)
                     if mtime > max_mtime:
                         max_mtime = mtime
-            except:
+            except Exception:
                 pass
         return max_mtime
 
@@ -1578,7 +1581,7 @@ class VolumeData:
                         prev_mtime = self.last_mtimes.get(p, 0.0)
                         if self.last_mtime == 0.0 or curr_mtime > prev_mtime:
                             any_updated = True
-                except:
+                except Exception:
                     pass
             if any_updated:
                 self._is_outdated = True
@@ -1612,7 +1615,7 @@ class VolumeData:
                 is_label_map=load_kwargs.get("is_roi", False),
             )
         except Exception as e:
-            print(f"Warning: Failed to reload {self.name}. Error: {e}")
+            logger.warning(f"Failed to reload {self.name}. Error: {e}")
             raise e
 
         # Caches computed from the old data

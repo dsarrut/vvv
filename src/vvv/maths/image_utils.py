@@ -1,5 +1,8 @@
 import itertools
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def extract_orientation_strings(raw_img):
@@ -78,7 +81,7 @@ def straighten_image(img, filename="image", is_label_map=False):
             out.SetDirection(identity_dir.tolist())
             return out
 
-    print(
+    logger.warning(
         f"Oblique orientation detected in {filename}. Straightening to physical grid..."
     )
     return _resample_axis_aligned(img, is_label_map)

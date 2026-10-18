@@ -19,6 +19,9 @@ from vvv.core.settings_manager import SettingsManager
 from vvv.core.profile_manager import ProfileManager
 from vvv.core.overlay_resampler import resample_base, resample_overlay
 from vvv.core.background_job import JobRunner
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def _active_transform_copy(vs):
@@ -176,7 +179,7 @@ class Controller:
                     loaded_volumes[path] = vol
                     # If you have a logger, this is a great place to log: f"Successfully loaded {vol.name}"
                 except Exception as exc:
-                    print(f"CRITICAL: Failed to load {path}. Error: {exc}")
+                    logger.exception(f"Failed to load {path}. Error: {exc}")
 
         return loaded_volumes
 
@@ -197,7 +200,7 @@ class Controller:
             vs.space.transform_file = os.path.basename(filepath)
             return True
         except Exception as e:
-            print(f"Error loading transform: {e}")
+            logger.exception(f"Error loading transform: {e}")
             return False
 
     def save_transform(self, vs_id, filepath):
@@ -214,7 +217,7 @@ class Controller:
                 vs.space.full_transform_path = os.path.abspath(filepath)
                 return True
             except Exception as e:
-                print(f"Failed to save transform: {e}")
+                logger.exception(f"Failed to save transform: {e}")
                 return False
         return False
 
@@ -231,7 +234,7 @@ class Controller:
                     tokens = shlex.split(path_for_shlex)
                     abs_tokens = [os.path.abspath(t) for t in tokens]
                     path = "4D:" + " ".join(f'"{t}"' for t in abs_tokens)
-                except:
+                except Exception:
                     pass
             else:
                 path = os.path.abspath(path)
@@ -270,7 +273,7 @@ class Controller:
                     tokens = shlex.split(path_for_shlex)
                     resolved_tokens = [self._resolve_single_path(t) for t in tokens]
                     return "4D:" + " ".join(f'"{t}"' for t in resolved_tokens)
-                except:
+                except Exception:
                     return path
             else:
                 return self._resolve_single_path(path)
@@ -365,10 +368,10 @@ class Controller:
     def _volume_to_save(self, vs_id):
         vol = self.volumes.get(vs_id)
         if vol is None:  # Guard against invalid vs_id
-            print(f"Error: Volume {vs_id} not found for saving.")
+            logger.error(f"Volume {vs_id} not found for saving.")
             return None
         if vol.data is None:  # Guard against unloaded data
-            print(f"Error: Volume {vs_id} has no data loaded.")
+            logger.error(f"Volume {vs_id} has no data loaded.")
             return None
         return vol
 
@@ -404,7 +407,7 @@ class Controller:
                     if unit_val:
                         state["unit_source"] = os.path.basename(json_path)
             except Exception as e:
-                print(f"Warning: Failed to write sidecar JSON {json_path}: {e}")
+                logger.warning(f"Failed to write sidecar JSON {json_path}: {e}")
         return state
 
     @staticmethod
@@ -1152,9 +1155,7 @@ class Controller:
         try:
             return self.settings.save()
         except Exception as e:
-            import logging
-
-            logging.warning(f"Could not save settings: {e}")
+            logger.warning(f"Could not save settings: {e}")
             return None
 
     def call_on_main(self, fn):

@@ -9,6 +9,9 @@ reinvent their own thread + job-counter + discard dance.
 
 import queue
 import threading
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class Job:
@@ -99,7 +102,7 @@ class JobRunner:
                 if job.is_current():
                     fn(job)
             except Exception as exc:
-                print(f"JobRunner: background job raised: {exc}")
+                logger.exception(f"JobRunner: background job raised: {exc}")
             finally:
                 self._done()
 

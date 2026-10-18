@@ -38,6 +38,8 @@ from vvv.ui.render_strategy import (
 from typing import Any
 import logging
 
+logger = logging.getLogger(__name__)
+
 # Temporary diagnostic: set VVV_PROFILE=1 to log a per-stage timing breakdown
 # (extract / NN-compute / GPU upload) every 30 render calls. Zero overhead when unset.
 _PROFILE_NN = os.environ.get("VVV_PROFILE") == "1"
@@ -140,7 +142,7 @@ def _validate_and_reshape(
         ):
             actual_shape = fallback_slice_shape
         else:
-            logging.warning(
+            logger.warning(
                 f"Shape mismatch in {context_name}: flat size is {flat_len}, "
                 f"but expected {expected_len} (shape {expected_shape}). Skipping."
             )

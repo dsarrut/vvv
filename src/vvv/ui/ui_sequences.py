@@ -3,6 +3,9 @@ import dearpygui.dearpygui as dpg
 import numpy as np
 from vvv.config import ROI_COLORS
 from vvv.ui.ui_notifications import show_loading_modal, hide_loading_modal
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def _apply_default_layout(gui, controller, img_id):
@@ -663,7 +666,7 @@ def load_label_map_sequence(
                 raw_dict = json.load(f)
                 label_dict, color_dict = _parse_label_map_json(raw_dict)
         except Exception as e:
-            print(f"Warning: Failed to parse {json_path}: {e}")
+            logger.warning(f"Failed to parse {json_path}: {e}")
 
     yield from _rasterize_and_load_labels(
         gui,
