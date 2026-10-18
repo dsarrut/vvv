@@ -17,7 +17,7 @@ Most plugins (e.g. Intensity) only read `ViewState` to drive their UI. The DVF p
 As a consequence, **`DVFState` lives in `core/view_state.py`**, not inside the plugin itself. This is an intentional architectural decision:
 
 - The renderer (`viewer.py`) reads `vs.dvf` directly to draw arrows. It cannot call into the plugin.
-- The core serialization systems (`history_manager`, `save_workspace`, `load_workspace`) need access to DVF state without coupling to the plugin layer.
+- The core serialization systems (`history_manager`, `save_workspace`, `load_workspace_sequence`) need access to DVF state without coupling to the plugin layer.
 - DVFState is initialized automatically at `ViewState` construction time with sensible defaults computed from the data (see §3).
 
 **If DVFState were owned by the plugin**, the renderer would need a plugin-aware API (not yet built), and serialization hooks would need to pass through the plugin contract. This is the right long-term direction as the plugin system matures, but requires an `on_image_loaded` event and plugin-owned serialization infrastructure that does not yet exist.

@@ -12,16 +12,18 @@ This document serves as the global entry point and instruction manual for AI age
 
 *   **Strict separation of UI and Backend**: Keep all GUI/DearPyGui imports and logic inside the `ui/` folder or plugins. The core logic and mathematical/image operations must remain completely headless (no DPG references) to allow scripting or testing without a GUI.
 *   **Model-View-Controller (MVC) Pattern**:
-    *   **Model**: [VolumeData](src/vvv/core/volume_data.py) (immutable image/array data source of truth) and [ViewState](src/vvv/core/view_state.py) (transient display parameters).
+    *   **Model**: [VolumeData](src/vvv/maths/image.py) (image data: NumPy array + SimpleITK image, source of truth; replaced on reload, bake and save) and [ViewState](src/vvv/core/view_state.py) (transient display parameters).
     *   **View**: `ui/` modules (e.g., [SliceViewer](src/vvv/ui/viewer.py) for the viewports, [MainGUI](src/vvv/ui/gui.py)).
     *   **Controller**: [Controller](src/vvv/core/controller.py) coordinates state, holds view states, and delegates to specialized sub-managers (e.g., `FileManager`, `SyncManager`, `ROIManager`).
 *   **Dirty-Flag Reactive Render Loop**:
-    *   The render loop tick occurs in [MainGUI.tick()](src/vvv/ui/gui.py).
+    *   The main loop is [MainGUI.run()](src/vvv/ui/gui.py): each frame runs the queued UI callbacks and tasks, then [Controller.tick()](src/vvv/core/controller.py), which applies the pending main-thread commits, passes the `ViewState` dirty flags to the viewers and calls `SliceViewer.tick()` for each viewer.
     *   `is_geometry_dirty`: Indicates that 2D bounds, zoom, pan, or window shapes need recalculation.
     *   `is_data_dirty`: Indicates that the underlying slice image must be re-extracted, window/level (W/L) applied, and pushed to the GPU texture.
 *   **Concurrency & Thread Safety**:
     *   **Main Thread**: The exclusive owner of all DearPyGui calls. Never invoke DPG functions from background threads.
-    *   **Background Threads**: Perform heavy operations (e.g., loading files, resampling, ITK computations) and set flags like `controller.ui_needs_refresh` to schedule UI updates.
+    *   **Background Threads**: Compute only (file reading, resampling, ITK filters), from inputs captured on the main thread. They never modify `controller.volumes`, `view_states` or a `VolumeData` that the viewers use.
+    *   **Commit on the main thread**: a worker hands its result back with `controller.call_on_main(fn)`; `Controller.tick()` runs these commits at the start of the next frame. Per-image jobs (resample, bake) go through a `JobRunner` (one worker per image, only the latest job is kept, `job.is_current()` to discard a stale result). Plugins use `api.run_on_main_thread(callback)`.
+    *   **Loading sequences** (`ui/ui_sequences.py`) are generators run one per frame by the GUI: files are read in a thread pool (`_run_parallel`) and registered on the main thread (`file_manager.register_image`, `roi_manager.register_roi`).
 *   **Spatial Coordinate Systems**:
     *   **Voxel**: Integer NumPy array coordinates in `[Z, Y, X]` order.
     *   **Physical**: Real-world millimeter coordinates `[x, y, z]` used for spatial synchronization, overlay registration, and measurement.
@@ -110,12 +112,14 @@ When implementing a task, refer to the specific markdown documents in the [dev_d
 2.  **Type Hinting**: Provide explicit type hints for method signatures, especially in public APIs or plugin boundaries.
 3.  **DPG Tag Namespacing**: Always prefix DearPyGui item tags in plugins with the unique `plugin_id` (e.g. using `f"{self.plugin_id}_widget_name"`) to avoid namespace conflicts.
 4.  **Testing**:
-    *   All test files are in the `tests/` directory and must be prefixed with `test_` (e.g., `test_gui.py`).
+    *   Test files are prefixed with `test_` (e.g., `test_gui.py`): core and UI tests in `tests/`, plugin tests next to their plugin (`src/vvv/plugins/<name>/test_<name>.py`).
     *   Run tests locally with `pytest`. Ensure new features or bug fixes have associated unit tests.
 5.  **macOS Specifics**: Be aware that the project runs on macOS (with some Cocoa bindings, e.g., in file dialogs or menus) and Linux. Maintain cross-platform compatibility.
 6.  **Prohibited Actions**:
     *   Do not bypass the dirty-flag architecture. Modify state flags (`is_data_dirty`, `is_geometry_dirty`, etc.) and let `tick()` trigger the updates instead of calling render updates directly.
-    *   Do not add DPG imports inside `core/` or `maths/` folders.
+    *   Do not add DPG imports inside `core/` or `maths/` folders, and do not drive the UI from `core/` (no `gui.tasks`, no `gui.show_status_message`): set state and flags, the UI reacts.
+    *   Do not modify `controller.volumes`, `view_states` or a displayed `VolumeData` from a worker thread: compute in the worker, commit with `controller.call_on_main()`.
     *   Do not suppress global warnings or hardcode sensitive information.
 7.  **Documentation Links**: When creating or editing developer documentation (`.md` files) in the repository, always use relative repository paths (e.g., `../src/vvv/ui/ui_image_list.py`) instead of absolute `file:///` URLs so that links function correctly across all developer environments and hosting platforms.
 8.  **Shared UI Components**: Avoid recreating common widgets like text rename fields or stepped sliders. Always import and reuse components from [ui_components.py](src/vvv/ui/ui_components.py) (e.g., `build_renamable_input` for input fields with focus-loss renaming, `build_stepped_slider`, `build_help_button`, and `build_beginner_tooltip`) to preserve styling and behavior consistency.
+9.  **Messages**: use `logger = logging.getLogger(__name__)` (`logger.warning`, `logger.error`, `logger.exception` inside an `except` block to keep the traceback, `logger.debug` for details shown with `--debug`) instead of `print`. `print` is only for real command-line output. Status-bar messages from `core/`: `controller._set_status(message, level=None)` (level: a `ui_cfg` color name such as `"warning"`).

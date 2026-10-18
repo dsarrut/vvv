@@ -32,7 +32,7 @@ def build_tab_mytool(gui):
 ```
 
 ### Step 2: Add Navigation Icon Button
-In `src/vvv/ui/gui.py`, locate `build_sidebar_left()`:
+In `src/vvv/ui/gui.py`, locate `build_vertical_nav()` (buttons are built from `self.nav_items`):
 1. Choose an icon glyph from FontAwesome (embedded in `icon_font_tag`).
 2. Add your tab identifier to the navigation buttons loop or add a button:
 ```python

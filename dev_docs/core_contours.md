@@ -10,7 +10,7 @@ Used by the threshold plugin to show a live preview of threshold boundaries.
 |-------|------|------|
 | Data model | `maths/contours.py` → `ContourROI` | Stores polygons per orientation/slice, color, thickness, visibility |
 | Math | `maths/contours.py` → `extract_2d_contours_from_slice()` | Marching squares on a 2D slice |
-| Lifecycle | `core/contour_manager.py` → `ContourManager` | `add_contour`, `remove_contour`, `update_contour` |
+| Lifecycle | `core/contour_manager.py` → `ContourManager` | `add_contour`, `remove_contour` |
 | Storage | `vs.contours` dict | Keyed by contour id |
 | Consumer | Threshold plugin only | Creates/removes `ContourROI` via `api.add_contour()` / `api.remove_contour()` |
 

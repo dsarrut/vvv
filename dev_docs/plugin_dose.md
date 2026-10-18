@@ -59,7 +59,7 @@ Both the **Intensity Tool** and the **Dose Tool** share a unified component (`In
 * **Threshold Background (< 5% Ref)**:
   * Checkbox to hide low non-clinical dose below 5% of reference dose, preserving underlying anatomical CT/MRI visibility.
 * **Colormaps**:
-  * Dedicated radiotherapy colormaps: `Dosimetry`, `Jet`, `Turbo`, `Hot`.
+  * Dedicated radiotherapy colormaps: `Dosimetry`, `Jet`, `Hot`.
 
 ### D. Point Dose Sampling (Implemented in Step 2)
 * Displays real-time dose at the crosshair position:
@@ -113,5 +113,5 @@ src/vvv/plugins/dose/
 ```
 
 ### State Storage & Workspace
-* Dose settings (`scaling_factor`, `norm_mode`, `rx_dose`, `selected_roi_id`, isodose levels, colors, opacity) are fully serialized into workspace `.vvw` under `plugins.dose_plugin`.
+* Dose settings (`scaling_factor`, `norm_mode`, `norm_target_value`, `norm_roi_id`, isodose levels, colors, opacity) are fully serialized into workspace `.vvw` under `plugins.dose_plugin`.
 

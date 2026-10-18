@@ -6,14 +6,14 @@ The ROI plugin provides comprehensive Region of Interest (ROI) management, suppo
 
 - **[plugin_roi.py](../src/vvv/plugins/roi/plugin_roi.py)**: Plugin entry point conforming to `PluginProtocol`. Registers lifecycle events, and delegates to the controller and UI.
 - **[control_roi.py](../src/vvv/plugins/roi/control_roi.py)**: Controller. Coordinates selection updates, caches filter text and sort orders, and manages workspace serialization/restoration hooks.
-- **[ui_roi_plugin.py](../src/vvv/plugins/roi/ui_roi_plugin.py)**: UI. Renders the ROI list window, load options (Rule/Val), global slider overrides, selected ROI properties, and the interactive RT-Struct selection modal.
+- **[ui_roi.py](../src/vvv/plugins/roi/ui_roi.py)**: UI. Renders the ROI list window, load options (Rule/Val), global slider overrides, selected ROI properties, and the interactive RT-Struct selection modal.
 - **[test_roi_plugin.py](../src/vvv/plugins/roi/test_roi_plugin.py)**: Unit tests covering loader options, table rebuilding, properties changes, stats, modal selections, and settings persistence.
 
 ---
 
 ## 1. Core Model Ownership & Workspace Serialization
 
-ROIs belong to the base volume view state under `ViewState.rois` (mapping unique string IDs to `RoiState` objects).
+ROIs belong to the base volume view state under `ViewState.rois` (mapping unique string IDs to `ROIState` objects).
 
 - **State Persistence**: In [control_roi.py](../src/vvv/plugins/roi/control_roi.py), `serialize_image_state` and `restore_image_state` save and restore `roi_filter` and `roi_sort_order` properties per-image.
 - **Backward Compatibility**: The sequence loader ([ui_sequences.py](../src/vvv/ui/ui_sequences.py)) and save manager ([file_manager.py](../src/vvv/core/file_manager.py)) bridge these values from older workspaces directly into the plugin's controller state cache.
@@ -68,4 +68,4 @@ When loading an integer label map (multi-label segmentation), `load_label_map_se
 ## 7. Beginner Mode & Settings Persistence
 
 - **Beginner Mode Tooltips**: Explanatory tooltips (`build_beginner_tooltip`) are attached to the load button, rule combo box, global opacity and thickness sliders, and search filter input.
-- **Settings Persistence**: Implemented `save_settings` and `load_settings` in [ui_roi_plugin.py](../src/vvv/plugins/roi/ui_roi_plugin.py) to save and load default loading settings (mode and default values) into the main settings database.
+- **Settings Persistence**: Implemented `save_settings` and `load_settings` in [ui_roi.py](../src/vvv/plugins/roi/ui_roi.py) to save and load default loading settings (mode and default values) into the main settings database.
