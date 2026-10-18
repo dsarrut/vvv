@@ -644,7 +644,7 @@ class InteractionManager:
 
     def _check_profile_handle_hover(self, viewer):
         """Returns (profile_id, handle_key) if mouse is near an endpoint, else (None, None)."""
-        if not viewer or not viewer.view_state or not viewer.is_image_orientation():
+        if not viewer or not viewer.view_state:
             return None, None
 
         win_tag = f"win_{viewer.tag}"
@@ -718,7 +718,7 @@ class InteractionManager:
 
     def _check_landmark_hover(self, viewer):
         """Returns landmark_id if mouse is near a visible in-plane landmark, else None."""
-        if not viewer or not viewer.view_state or not viewer.is_image_orientation():
+        if not viewer or not viewer.view_state:
             return None
 
         win_tag = f"win_{viewer.tag}"
@@ -761,7 +761,7 @@ class InteractionManager:
 
     def _check_roi_hover(self, viewer):
         """Returns (roi_id, part) if mouse is near a spheroid ROI center/border on the current slice, else None."""
-        if not viewer or not viewer.view_state or not viewer.is_image_orientation():
+        if not viewer or not viewer.view_state:
             return None
 
         win_tag = f"win_{viewer.tag}"

@@ -663,7 +663,6 @@ def test_virtual_scaling_draw_legend():
     import dearpygui.dearpygui as dpg
 
     viewer = MagicMock()
-    viewer.is_image_orientation.return_value = True
     viewer.show_legend = 1
     viewer.quad_w = 400
     viewer.quad_h = 400

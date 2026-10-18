@@ -441,7 +441,6 @@ def test_zoom_to_cursor_no_drift(headless_gui_app, monkeypatch):
     gui.set_context_viewer(viewer)
 
     assert viewer.volume is not None, "fixture did not load a volume"
-    assert viewer.is_image_orientation(), "viewer is not in image orientation"
 
     # Manually prime the mapper to a valid canvas state.
     # _get_window_dims() returns (0,0) in headless tests so tick() never calls

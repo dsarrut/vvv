@@ -700,9 +700,8 @@ class SliceViewer:
         if self.orientation == orientation:
             return
 
-        is_old_image = self.is_image_orientation()
-        old_ppm = self.get_pixels_per_mm() if is_old_image else None
-        old_center = self.get_center_physical_coord() if is_old_image else None
+        old_ppm = self.get_pixels_per_mm()
+        old_center = self.get_center_physical_coord()
 
         self.orientation = orientation
 
@@ -716,13 +715,12 @@ class SliceViewer:
             # It also handles sync propagation.
             self.set_image(self.image_id)
 
-        if self.is_image_orientation():
-            if old_ppm and old_ppm > 0:
-                self.set_pixels_per_mm(old_ppm)
-            if old_center is not None:
-                self.center_on_physical_coord(old_center)
-            self.set_current_slice_to_crosshair()
-            self.controller.sync.propagate_camera(self)
+        if old_ppm and old_ppm > 0:
+            self.set_pixels_per_mm(old_ppm)
+        if old_center is not None:
+            self.center_on_physical_coord(old_center)
+        self.set_current_slice_to_crosshair()
+        self.controller.sync.propagate_camera(self)
 
     def ensure_texture_exists(self):
         return self.texture_manager.ensure_texture_exists()
@@ -768,9 +766,6 @@ class SliceViewer:
 
         if self.controller:
             self.controller.ui_needs_refresh = True
-
-    def is_image_orientation(self):
-        return True
 
     def get_slice_shape(self):
         if not self.view_state or not self.volume:
@@ -936,7 +931,6 @@ class SliceViewer:
         vol = self.volume
         if (
             self.image_id is None
-            or not self.is_image_orientation()
             or not vol
             or not vs
         ):
@@ -1336,7 +1330,6 @@ class SliceViewer:
         vol = self.volume
         if (
             not vs
-            or not self.is_image_orientation()
             or not vol
             or getattr(vol, "is_rgb", False)
         ):
@@ -1368,9 +1361,6 @@ class SliceViewer:
 
         vs.update_crosshair_from_phys(phys)
 
-    def update_crosshair_from_slice(self):
-        pass
-
     def update_filename_overlay(self):
         vol = self.volume
         if not self.image_id or not self.view_state or not vol:
@@ -1382,7 +1372,7 @@ class SliceViewer:
         if isinstance(show_state, bool):
             show_state = 1 if show_state else 0
 
-        if show_state == 0 or not self.is_image_orientation():
+        if show_state == 0:
             dpg.configure_item(self.filename_text_tag, show=False)
             return
 
@@ -1746,7 +1736,7 @@ class SliceViewer:
     def update_overlays_and_decorations(self):
         vs = self.view_state
         vol = self.volume
-        if not self.is_image_orientation() or not vs or not vol:
+        if not vs or not vol:
             return
 
         if getattr(self, "last_rgba_shape", None) is not None:
@@ -1842,7 +1832,6 @@ class SliceViewer:
             or not vs
             or not vol
             or not vs.camera.show_tracker
-            or not self.is_image_orientation()
         ):
             if dpg.does_item_exist(self.tracker_tag):
                 dpg.delete_item(self.tracker_tag, children_only=True)
@@ -2450,7 +2439,6 @@ class SliceViewer:
         vol = self.volume
         if (
             self.image_id is None
-            or not self.is_image_orientation()
             or not vs
             or not vol
         ):
@@ -2527,7 +2515,7 @@ class SliceViewer:
 
     def on_mouse_down(self):
         vs = self.view_state
-        if self.image_id is None or not self.is_image_orientation() or not vs:
+        if self.image_id is None or not vs:
             return
 
         # 1. Capture the absolute starting mouse position for Pan/Zoom
@@ -2545,7 +2533,7 @@ class SliceViewer:
 
     def on_drag(self, data):
         vs = self.view_state
-        if self.image_id is None or not self.is_image_orientation() or not vs:
+        if self.image_id is None or not vs:
             return
 
         # --- 3. CALCULATE ABSOLUTE DRAG ---
@@ -2607,7 +2595,6 @@ class SliceViewer:
         vol = self.volume
         if (
             self.image_id is None
-            or not self.is_image_orientation()
             or not vs
             or not vol
         ):
@@ -3053,7 +3040,7 @@ class TextureManager:
         v = self.viewer
         vs = v.view_state
         vol = v.volume
-        if not v.is_image_orientation() or not vol:
+        if not vol:
             return False
 
         display_slice_shape = v.get_slice_shape()
@@ -3674,7 +3661,7 @@ class SliderOverlay:
                     margin_right = 10
                     margin_y = 10
                     margin_bottom = 10
-                    if vs and vs.camera.show_scalebar and v.is_image_orientation():
+                    if vs and vs.camera.show_scalebar:
                         margin_bottom = 50  # Prevent overlap with scalebar
 
                     x_pos = win_w - slider_w - margin_right

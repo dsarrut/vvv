@@ -91,7 +91,6 @@ def test_mip_scroll_rotation():
     
     # Setup viewer attributes to satisfy checks
     viewer.image_id = "test_image"
-    viewer.is_image_orientation = MagicMock(return_value=True)
     viewer.orientation = ViewMode.AXIAL
     
     # Setup MIP viewer state

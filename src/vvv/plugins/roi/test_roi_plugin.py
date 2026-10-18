@@ -1072,7 +1072,6 @@ class TestRoiPlugin(unittest.TestCase):
         mock_viewer._ORIENTATION_MAP = {ViewMode.AXIAL: (2, 0, ("x", "y"), (1, 1))}
         mock_viewer.roi_mode = RoiInteractionMode.IDLE
         mock_viewer._is_buffered.return_value = False
-        mock_viewer.is_image_orientation.return_value = True
         mock_viewer.on_mouse_down = MagicMock()
 
         # Mock base volume
@@ -1193,7 +1192,6 @@ class TestRoiPlugin(unittest.TestCase):
         mock_viewer._ORIENTATION_MAP = {ViewMode.AXIAL: (2, 0, ("x", "y"), (1, 1))}
         mock_viewer.roi_mode = RoiInteractionMode.IDLE
         mock_viewer._is_buffered.return_value = False
-        mock_viewer.is_image_orientation.return_value = True
         mock_viewer.on_mouse_down = MagicMock()
         mock_viewer.get_pixels_per_mm.return_value = 1.0  # PPM = 1.0
         mock_viewer.view_state.world_to_display.side_effect = lambda pt, **kw: np.array(
@@ -1504,7 +1502,6 @@ class TestRoiPlugin(unittest.TestCase):
         mock_viewer._ORIENTATION_MAP = {ViewMode.AXIAL: (2, 0, ("x", "y"), (1, 1))}
         mock_viewer.roi_mode = RoiInteractionMode.IDLE
         mock_viewer._is_buffered.return_value = False
-        mock_viewer.is_image_orientation.return_value = True
         mock_viewer.on_mouse_down = MagicMock()
 
         # Mock base volume
@@ -1610,7 +1607,6 @@ class TestRoiPlugin(unittest.TestCase):
         mock_viewer._ORIENTATION_MAP = {ViewMode.AXIAL: (2, 0, ("x", "y"), (1, 1))}
         mock_viewer.roi_mode = RoiInteractionMode.IDLE
         mock_viewer._is_buffered.return_value = False
-        mock_viewer.is_image_orientation.return_value = True
         mock_viewer.on_mouse_down = MagicMock()
         mock_viewer.get_pixels_per_mm.return_value = 1.0
         mock_viewer.view_state.world_to_display.side_effect = lambda pt, **kw: np.array(
@@ -1841,7 +1837,6 @@ class TestRoiPlugin(unittest.TestCase):
         mock_viewer._ORIENTATION_MAP = {ViewMode.AXIAL: (2, 0, ("x", "y"), (1, 1))}
         mock_viewer.roi_mode = RoiInteractionMode.IDLE
         mock_viewer._is_buffered.return_value = False
-        mock_viewer.is_image_orientation.return_value = True
         mock_viewer.on_mouse_down = MagicMock()
 
         base_vol = MagicMock()
@@ -1949,6 +1944,7 @@ class TestRoiPlugin(unittest.TestCase):
     def test_out_of_bounds_roi_warning(self):
         from vvv.core.roi_manager import ROIManager
         import numpy as np
+        import SimpleITK as sitk
 
         mock_gui = MagicMock()
         mock_controller = MagicMock()
@@ -1963,8 +1959,7 @@ class TestRoiPlugin(unittest.TestCase):
         base_vol.spacing = np.array([1.0, 1.0, 1.0])
         base_vol.origin = np.array([0.0, 0.0, 0.0])
         base_vol.matrix = np.eye(3)
-        base_vol.sitk_image = MagicMock()
-        base_vol.sitk_image.GetDirection.return_value = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+        base_vol.sitk_image = sitk.Image(10, 10, 10, sitk.sitkUInt8)  # origin 0, spacing 1
 
         # Mock mask_vol
         mask_vol = MagicMock()
@@ -1974,14 +1969,10 @@ class TestRoiPlugin(unittest.TestCase):
         mask_vol.data[2, 2, 2] = 1  # non-empty
 
         # Set up origin to be outside the base image FOV (e.g. at [15.0, 0.0, 0.0])
-        mask_vol.sitk_image = MagicMock()
-        mask_vol.sitk_image.GetOrigin.return_value = [15.0, 0.0, 0.0]
-        mask_vol.sitk_image.GetDirection.return_value = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+        mask_vol.sitk_image = sitk.GetImageFromArray(mask_vol.data)
+        mask_vol.sitk_image.SetOrigin((15.0, 0.0, 0.0))
 
         # Mock continuous index transform
-        base_vol.sitk_image.TransformPhysicalPointToContinuousIndex.side_effect = (
-            lambda pt: pt
-        )
 
         # Call process_binary_mask
         roi_mgr.process_binary_mask(base_vol, mask_vol, skip_initial_crop=True)
@@ -2074,6 +2065,7 @@ class TestRoiPlugin(unittest.TestCase):
     def test_completely_out_of_bounds_roi_warning(self):
         from vvv.core.roi_manager import ROIManager
         import numpy as np
+        import SimpleITK as sitk
 
         mock_gui = MagicMock()
         mock_controller = MagicMock()
@@ -2087,8 +2079,7 @@ class TestRoiPlugin(unittest.TestCase):
         base_vol.spacing = np.array([1.0, 1.0, 1.0])
         base_vol.origin = np.array([0.0, 0.0, 0.0])
         base_vol.matrix = np.eye(3)
-        base_vol.sitk_image = MagicMock()
-        base_vol.sitk_image.GetDirection.return_value = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+        base_vol.sitk_image = sitk.Image(10, 10, 10, sitk.sitkUInt8)  # origin 0, spacing 1
 
         # Mock mask_vol (completely out of bounds)
         mask_vol = MagicMock()
@@ -2097,17 +2088,9 @@ class TestRoiPlugin(unittest.TestCase):
         mask_vol.data = np.zeros((5, 5, 5), dtype=np.uint8)
         mask_vol.data[2, 2, 2] = 1
 
-        mask_vol.sitk_image = MagicMock()
-        mask_vol.sitk_image.GetOrigin.return_value = [
-            50.0,
-            50.0,
-            50.0,
-        ]  # Far outside base_vol [10, 10, 10]
-        mask_vol.sitk_image.GetDirection.return_value = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+        mask_vol.sitk_image = sitk.GetImageFromArray(mask_vol.data)
+        mask_vol.sitk_image.SetOrigin((50.0, 50.0, 50.0))  # Far outside base_vol [10, 10, 10]
 
-        base_vol.sitk_image.TransformPhysicalPointToContinuousIndex.side_effect = (
-            lambda pt: pt
-        )
 
         # Call process_binary_mask
         roi_mgr.process_binary_mask(base_vol, mask_vol, skip_initial_crop=True)

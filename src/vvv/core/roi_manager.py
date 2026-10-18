@@ -198,41 +198,29 @@ class ROIManager:
             cy_orig = np.mean(indices_com[1])
             cx_orig = np.mean(indices_com[2])
             pt_idx = [float(cx_orig), float(cy_orig), float(cz_orig)]
-            if "mock" in type(mask_vol.sitk_image).__name__.lower():
+            try:
+                dim = mask_vol.sitk_image.GetDimension()
+                if len(pt_idx) < dim:
+                    pt_idx = pt_idx + [0.0] * (dim - len(pt_idx))
+                elif len(pt_idx) > dim:
+                    pt_idx = pt_idx[:dim]
+                phys_pt = mask_vol.sitk_image.TransformContinuousIndexToPhysicalPoint(
+                    pt_idx
+                )
+                mask_vol.physical_center = list(phys_pt)[:3]
+            except Exception:
                 mask_vol.physical_center = pt_idx
-            else:
-                try:
-                    dim = mask_vol.sitk_image.GetDimension()
-                    if len(pt_idx) < dim:
-                        pt_idx = pt_idx + [0.0] * (dim - len(pt_idx))
-                    elif len(pt_idx) > dim:
-                        pt_idx = pt_idx[:dim]
-                    phys_pt = (
-                        mask_vol.sitk_image.TransformContinuousIndexToPhysicalPoint(
-                            pt_idx
-                        )
-                    )
-                    mask_vol.physical_center = list(phys_pt)[:3]
-                except Exception:
-                    mask_vol.physical_center = pt_idx
         else:
             if not getattr(mask_vol, "physical_center", None):
-                if not "mock" in type(mask_vol.sitk_image).__name__.lower():
-                    try:
-                        mask_vol.physical_center = list(
-                            mask_vol.sitk_image.GetOrigin()
-                        )[:3]
-                    except Exception:
-                        mask_vol.physical_center = [0.0, 0.0, 0.0]
-                else:
+                try:
+                    mask_vol.physical_center = list(mask_vol.sitk_image.GetOrigin())[:3]
+                except Exception:
                     mask_vol.physical_center = [0.0, 0.0, 0.0]
 
         base_sz, base_sy, base_sx = base_vol.shape3d
         is_outside = getattr(mask_vol, "is_outside", False)
 
         def get_spatial_direction(img):
-            if "mock" in type(img).__name__.lower():
-                return np.eye(3).flatten()
             dir_flat = img.GetDirection()
             dim = img.GetDimension()
             if dim == 3:
@@ -248,10 +236,7 @@ class ROIManager:
                 return mat.flatten()
 
         def transform_point_to_continuous_index(target_img, phys_pt):
-            if "mock" in type(target_img).__name__.lower():
-                target_dim = 3
-            else:
-                target_dim = target_img.GetDimension()
+            target_dim = target_img.GetDimension()
             pt = list(phys_pt)
             if len(pt) < target_dim:
                 pt = pt + [0.0] * (target_dim - len(pt))
@@ -260,10 +245,7 @@ class ROIManager:
             return target_img.TransformPhysicalPointToContinuousIndex(pt)
 
         def transform_index_to_point(source_img, idx_tuple):
-            if "mock" in type(source_img).__name__.lower():
-                source_dim = 3
-            else:
-                source_dim = source_img.GetDimension()
+            source_dim = source_img.GetDimension()
             idx = list(idx_tuple)
             if len(idx) < source_dim:
                 idx = idx + [0] * (source_dim - len(idx))

@@ -161,8 +161,7 @@ class OverlayDrawer:
     def draw_crosshair(self):
         viewer = self.viewer
         if (
-            not viewer.is_image_orientation()
-            or not viewer.view_state
+            not viewer.view_state
             or not viewer.volume
         ):
             return
@@ -285,13 +284,6 @@ class OverlayDrawer:
 
     def draw_orientation_axes(self):
         viewer = self.viewer
-        if not viewer.is_image_orientation():
-            if viewer.axes_nodes:
-                dpg.configure_item(viewer.axes_nodes[0], show=False)
-                dpg.configure_item(viewer.axes_nodes[1], show=False)
-            self._last_axes_state = None
-            return
-
         current_state = viewer.orientation
         if getattr(self, "_last_axes_state", None) == current_state:
             dpg.configure_item(viewer.axes_nodes[viewer.active_axes_idx], show=True)
@@ -357,8 +349,7 @@ class OverlayDrawer:
         viewer = self.viewer
 
         if (
-            not viewer.is_image_orientation()
-            or not viewer.view_state
+            not viewer.view_state
             or not viewer.view_state.camera.show_scalebar
         ):
             if dpg.does_item_exist(viewer.scale_bar_tag):
@@ -444,8 +435,7 @@ class OverlayDrawer:
 
         legend_mode = int(getattr(viewer, "show_legend", 0))
         if (
-            not viewer.is_image_orientation()
-            or not viewer.view_state
+            not viewer.view_state
             or not legend_mode
         ):
             if dpg.does_item_exist(viewer.legend_tag):
@@ -1219,8 +1209,7 @@ class OverlayDrawer:
         viewer = self.viewer
 
         if (
-            not viewer.is_image_orientation()
-            or not viewer.view_state
+            not viewer.view_state
             or not viewer.volume
             or self._is_mip_active()
         ):
@@ -1357,8 +1346,7 @@ class OverlayDrawer:
         viewer = self.viewer
 
         if (
-            not viewer.is_image_orientation()
-            or not viewer.view_state
+            not viewer.view_state
             or not viewer.volume
             or not getattr(viewer.view_state.camera, "show_profiles", True)
             or self._is_mip_active()
@@ -1558,8 +1546,7 @@ class OverlayDrawer:
     def draw_landmarks(self):
         viewer = self.viewer
         if (
-            not viewer.is_image_orientation()
-            or not viewer.view_state
+            not viewer.view_state
             or not viewer.volume
             or not getattr(viewer.view_state, "landmarks", None)
             or self._is_mip_active()
@@ -1753,7 +1740,7 @@ class OverlayDrawer:
         if not node_tag or not dpg.does_item_exist(node_tag):
             return
 
-        if not viewer.is_image_orientation() or not vs or not vol:
+        if not vs or not vol:
             dpg.configure_item(node_tag, show=False)
             return
 
@@ -1939,8 +1926,7 @@ class OverlayDrawer:
         dpg.delete_item(node, children_only=True)
 
         if (
-            not viewer.is_image_orientation()
-            or not viewer.view_state
+            not viewer.view_state
             or not viewer.volume
             or self._is_mip_active()
         ):
