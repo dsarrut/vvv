@@ -47,8 +47,9 @@ from vvv.ui.ui_sequences import (
 )
 from vvv.ui.ui_drop import install_os_drop, cleanup_os_drop
 from vvv.ui.ui_workspace import build_workspace_nav_icons
-from vvv.ui.render_strategy import GL_NEAREST_SUPPORTED, NNMode
-import vvv.ui.render_strategy as _rs_mod  # module ref: _NUMBA_AVAILABLE changes at runtime
+from vvv.ui.ui_debug import DebugOverlay
+from vvv.ui.ui_help import show_help_window
+from vvv.ui.render_strategy import GL_NEAREST_SUPPORTED
 from vvv.maths.image import fast_colorize_compiling_for
 from vvv.utils import capture_whole_window, copy_image_to_clipboard, save_screenshot_to_file
 
@@ -1902,6 +1903,9 @@ class MainGUI:
         try:
             window_w = dpg.get_viewport_client_width()
             window_h = dpg.get_viewport_client_height()
+        except Exception:
+            return  # no viewport yet (the GUI is built before it is created)
+        try:
             if not window_w or not window_h:
                 return
 
@@ -2093,8 +2097,9 @@ class MainGUI:
                     v_obj.quad_w, v_obj.quad_h = w, h
 
             self._update_viewer_help_texts()  # Recalculate positions for viewer help texts
-        except Exception:
-            pass
+        except Exception as e:
+            # A layout bug must not stop the app, but must not be silent either
+            self._report_frame_error(e)
 
     def _update_viewer_help_texts(self):
         """Manages visibility and positioning of help text in non-active viewers."""
@@ -2685,182 +2690,7 @@ class MainGUI:
         show_status_message(self, message, duration, color)
 
     def show_help_window(self):
-        window_tag = "help_window"
-        if dpg.does_item_exist(window_tag):
-            dpg.delete_item(window_tag)
-            return
-
-        active_col = self.ui_cfg["colors"]["text_active"]
-        ok_col = self.ui_cfg["colors"]["text_status_ok"]
-
-        with dpg.window(
-            tag=window_tag,
-            show=True,
-            label="Shortcuts & Controls",
-            width=520,  # Slightly wider to accommodate longer shortcut names
-            height=750,  # Slightly taller for the new entry
-            no_collapse=False,
-            on_close=lambda: dpg.delete_item(window_tag),
-        ):
-            import sys
-
-            is_mac = sys.platform == "darwin"
-            cmd_name = "Cmd" if is_mac else "Ctrl"
-
-            dpg.add_spacer(height=5)
-            dpg.add_text("Mouse Controls", color=active_col)
-            dpg.add_separator()
-            if is_mac:
-                dpg.add_text("Left Click         : Move crosshair")
-                dpg.add_text("Scroll Wheel       : Change slice")
-                dpg.add_text("Cmd/Ctrl + Scroll  : Zoom in/out")
-                dpg.add_text("Cmd/Ctrl + L-Drag  : Pan view")
-                dpg.add_text("Mid-Drag           : Pan view")
-                dpg.add_text("Shift+Move / R-Drag: Adjust Window/Level")
-            else:
-                dpg.add_text("Left Click         : Move crosshair")
-                dpg.add_text("Scroll Wheel       : Change slice")
-                dpg.add_text("Ctrl + Scroll      : Zoom in/out")
-                dpg.add_text("Ctrl+L-Drag / M-Drag: Pan view")
-                dpg.add_text("Shift+Move / R-Drag: Adjust Window/Level")
-
-            dpg.add_spacer(height=15)
-            dpg.add_text("Keyboard Shortcuts", color=active_col)
-            dpg.add_separator()
-
-            shortcuts = self.controller.settings.data["shortcuts"]
-            descriptions = {
-                "open_file": "Open File(s)",
-                "next_image": "Next Image in List",
-                "auto_window": "Auto Window/Level (Base)",
-                "auto_window_overlay": "Auto Window/Level (Overlay)",
-                "scroll_up": "Scroll Slice Up",
-                "scroll_down": "Scroll Slice Down",
-                "fast_scroll_up": "Fast Scroll Up",
-                "fast_scroll_down": "Fast Scroll Down",
-                "time_backward": "Previous Time Frame (4D)",
-                "time_forward": "Next Time Frame (4D)",
-                "zoom_in": "Zoom In",
-                "zoom_out": "Zoom Out",
-                "reset_view": "Reset Zoom & Pan",
-                "hard_reset": "Hard Reset (Zoom, W/L, Defaults)",
-                "center_view": "Center View on Crosshair",
-                "view_axial": "Axial View",
-                "view_sagittal": "Sagittal View",
-                "view_coronal": "Coronal View",
-                "toggle_interp": "Toggle Pixelated Zoom (NN)",
-                "toggle_grid": "Toggle Voxel Grid",
-                "toggle_legend": "Toggle Legend",
-                "toggle_axis": "Toggle Axis Guide",
-                "toggle_scalebar": "Toggle Scalebar",
-                "toggle_mip": "Toggle MIP (Max Intensity Projection)",
-                "add_profile": "Add Profile Line",
-                "add_landmark": "Add Landmark at Crosshair",
-                "sync_all": "Sync All Viewers",
-                "hide_all": "Show/Hide Overlays",
-            }
-
-            def format_key(key_name, k):
-                if k == 517:
-                    return "Page Up"
-                if k == 518:
-                    return "Page Down"
-                if key_name == "open_file":
-                    return f"{cmd_name} + {k}"
-                if key_name == "hard_reset":
-                    return f"Shift + {k}"
-                return str(k)
-
-            # Removed the conflicting policy=dpg.mvTable_SizingFixedFit!
-            with dpg.table(header_row=False, borders_innerH=True):
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=140)
-                dpg.add_table_column(width_stretch=True)
-
-                for key_id, desc in descriptions.items():
-                    # Map the virtual "hard_reset" action to the physical "reset_view" key
-                    lookup_key = "reset_view" if key_id == "hard_reset" else key_id
-                    val = shortcuts.get(lookup_key, "N/A")
-                    if not val:
-                        continue
-
-                    with dpg.table_row():
-                        dpg.add_text(format_key(key_id, val), color=ok_col)
-                        dpg.add_text(desc)
-
-            dpg.add_spacer(height=15)
-            dpg.add_text("MIP Controls (when MIP is active)", color=active_col)
-            dpg.add_separator()
-
-            with dpg.table(header_row=False, borders_innerH=True):
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=140)
-                dpg.add_table_column(width_stretch=True)
-
-                mip_controls = [
-                    ("Left / Right", "Rotate MIP projection angle"),
-                    ("Up / Down", "Navigate 4D time frames"),
-                ]
-                for key_str, desc in mip_controls:
-                    with dpg.table_row():
-                        dpg.add_text(key_str, color=ok_col)
-                        dpg.add_text(desc)
-
-            dpg.add_spacer(height=15)
-            dpg.add_text("List & Table Navigation", color=active_col)
-            dpg.add_separator()
-
-            with dpg.table(header_row=False, borders_innerH=True):
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=140)
-                dpg.add_table_column(width_stretch=True)
-
-                list_controls = [
-                    (
-                        "Up / Down",
-                        "Navigate selection when hovering over ROI list or DICOM browser",
-                    ),
-                ]
-                for key_str, desc in list_controls:
-                    with dpg.table_row():
-                        dpg.add_text(key_str, color=ok_col)
-                        dpg.add_text(desc)
-
-            dpg.add_spacer(height=15)
-            dpg.add_text("Command Line Usage", color=active_col)
-            dpg.add_separator()
-
-            with dpg.table(header_row=False, borders_innerH=True):
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=220)
-                dpg.add_table_column(width_stretch=True)
-
-                cli_examples = [
-                    ("vvv image.nii", "Load a base image"),
-                    ("vvv ct.nii,pet.nii", "Load CT with transparent PET overlay"),
-                    (
-                        "vvv ct.nii,pet.nii,hot,0.7",
-                        "Overlay with custom colormap and opacity",
-                    ),
-                    ("vvv ct.nii + labels.nii", "Load label map ROIs on CT base image"),
-                    (
-                        "vvv 1:ct.nii 1:pet.nii",
-                        "Load and group images in spatial sync group 1",
-                    ),
-                    ("vvv 4D f1.nii f2.nii ...", "Load frames as a 4D sequence"),
-                ]
-                for cmd, desc in cli_examples:
-                    with dpg.table_row():
-                        dpg.add_text(cmd, color=ok_col)
-                        dpg.add_text(desc)
-
-            dpg.add_spacer(height=15)
-            with dpg.group(horizontal=True):
-                dpg.add_spacer(width=210)
-                dpg.add_button(
-                    label="Close",
-                    width=100,
-                    callback=lambda: dpg.delete_item(window_tag),
-                )
-
-        vp_width = max(dpg.get_viewport_client_width(), 800)
-        dpg.set_item_pos(window_tag, [vp_width - 540, 40])
+        show_help_window(self)
 
     def load_workspace_sequence(self, file_path):
         """Wrapper to pass the CLI workspace request into the external Sequence Manager."""
@@ -2926,103 +2756,13 @@ class MainGUI:
                     dpg.render_dearpygui_frame()
                     self._run_dpg_callbacks()
 
-            # --- DEBUG FPS + RENDER-ROUTE OVERLAY ---
-            import platform as _plat
-
-            fps_label = fps_series = x_axis = y_axis = render_input = None
-            fps_data = time_data = None
-            if debug:
-                fps_data = collections.deque(maxlen=600)
-                time_data = collections.deque(maxlen=600)
-                with dpg.window(
-                    label="Debug",
-                    tag="fps_debug_window",
-                    width=480,
-                    height=370,
-                    pos=[10, 30],
-                ):
-                    fps_label = dpg.add_text("FPS: --   Avg: --   Min: --")
-                    # Multiline readonly input_text → user can select & copy the text
-                    render_input = dpg.add_input_text(
-                        default_value="...",
-                        multiline=True,
-                        readonly=True,
-                        width=-1,
-                        height=120,
-                        tag="debug_render_info",
-                    )
-                    with dpg.plot(
-                        label="",
-                        height=180,
-                        width=-1,
-                        no_menus=True,
-                        no_title=True,
-                    ):
-                        x_axis = dpg.add_plot_axis(
-                            dpg.mvXAxis, label="Time (s)", no_gridlines=True
-                        )
-                        y_axis = dpg.add_plot_axis(dpg.mvYAxis, label="FPS")
-                        dpg.set_axis_limits(y_axis, 0, 125)
-                        fps_series = dpg.add_line_series([], [], label="FPS", parent=y_axis)
-
-            target_fps = 60.0
-            frame_budget = 1.0 / target_fps
+            debug_overlay = DebugOverlay(self.controller) if debug else None
             last_frame_time = time.perf_counter()
 
             while dpg.is_dearpygui_running():
                 try:
                     self._run_dpg_callbacks()
-                    t_now = time.perf_counter()
-
-                    # Detect activity/necessity to run at full speed
-                    has_active_tasks = (
-                        len(self.tasks) > 0
-                        or len(self._main_thread_callbacks) > 0
-                        or len(self.controller._main_commits) > 0
-                        or getattr(self.controller, "ui_needs_refresh", False)
-                    )
-
-                    # Get mouse position and viewport boundaries
-                    mx, my = dpg.get_mouse_pos(local=False)
-                    vw = dpg.get_viewport_width()
-                    vh = dpg.get_viewport_height()
-
-                    # Check if mouse is inside the window
-                    mouse_in_viewport = (0 <= mx <= vw) and (0 <= my <= vh)
-
-                    # Did mouse position change?
-                    mouse_moved = (mx, my) != self._last_mouse_pos
-                    if mouse_moved:
-                        self._last_mouse_pos = (mx, my)
-
-                    # Check if any mouse button is down
-                    mouse_clicked = False
-                    for btn in range(3):
-                        if dpg.is_mouse_button_down(btn):
-                            mouse_clicked = True
-                            break
-
-                    if mouse_moved or mouse_clicked or has_active_tasks:
-                        self._last_interaction_time = t_now
-
-                    # Set dynamic FPS target
-                    if has_active_tasks:
-                        target_fps = 60.0
-                    elif not mouse_in_viewport:
-                        # Hovering outside or window minimized/backgrounded: extremely low rate to save CPU
-                        target_fps = 5.0
-                    elif t_now - self._last_interaction_time > 2.0:
-                        # Inside viewport but completely inactive/idle: low rate
-                        target_fps = 10.0
-                    else:
-                        target_fps = 60.0
-
-                    frame_budget = 1.0 / target_fps
-                    t_elapsed = t_now - last_frame_time
-                    t_sleep = frame_budget - t_elapsed
-                    if t_sleep > 0.001:
-                        time.sleep(t_sleep)
-                    last_frame_time = time.perf_counter()
+                    last_frame_time = self._throttle_frame(last_frame_time)
 
                     # Process thread-safe callbacks scheduled from background threads
                     callbacks_to_run = []
@@ -3039,68 +2779,8 @@ class MainGUI:
                                 f"Error executing scheduled main-thread callback: {cb_err}",
                                 file=sys.stderr,
                             )
-                    if debug:
-                        assert fps_data is not None and time_data is not None
-                        assert fps_label is not None and fps_series is not None
-                        assert x_axis is not None and render_input is not None
-
-                        delta = dpg.get_delta_time()
-                        t_now = dpg.get_total_time()
-                        if 0.0001 < delta < 5.0:
-                            fps = 1.0 / delta
-                            fps_data.append(fps)
-                            time_data.append(t_now)
-                            avg = sum(fps_data) / len(fps_data)
-                            mn = min(fps_data)
-                            dpg.set_value(
-                                fps_label, f"FPS: {fps:.1f}   Avg: {avg:.1f}   Min: {mn:.1f}"
-                            )
-                            xs = list(time_data)
-                            dpg.set_value(fps_series, [xs, list(fps_data)])
-                            dpg.set_axis_limits(x_axis, max(0.0, t_now - 10.0), t_now + 0.2)
-
-                        # ---- render-route info (copyable text, updated every frame) ----
-                        _nn_labels = {
-                            NNMode.HW_GL_NEAREST: "HW GL_NEAREST",
-                            NNMode.SW_DUAL_NATIVE: "SW Dual-Native",
-                            NNMode.SW_DUAL_RESAMPLED: "SW Dual-Resampled",
-                            NNMode.SW_SINGLE_MERGED: "SW Single-Merged",
-                            NNMode.SW_SINGLE_NATIVE: "SW Single-Native",
-                        }
-
-                        # Summarise lazy state across all viewers for a quick top-level read
-                        def _lazy_summary(attr):
-                            vs = self.controller.viewers.values()
-                            a = all(getattr(v, attr, False) for v in vs)
-                            n = any(getattr(v, attr, False) for v in vs)
-                            return "ALL ON" if a else ("SOME ON" if n else "OFF")
-
-                        _rs_mod._init_numba()
-                        lines = [
-                            f"Platform: {_plat.system()}   GL: {'ON' if GL_NEAREST_SUPPORTED else 'OFF'}   "
-                            f"Numba: {'ON' if _rs_mod._NUMBA_AVAILABLE else 'OFF (slow fusion!)'}   "
-                            f"debug: {getattr(self.controller, 'debug_mode', False)}",
-                            f"Lazy-Lin: {_lazy_summary('lazy_lin')}",
-                        ]
-                        for vtag, viewer in self.controller.viewers.items():
-                            vs = viewer.view_state
-                            pix = bool(vs and vs.display.pixelated_zoom) if vs else False
-                            tex = getattr(viewer, "texture_tag", "?")
-                            nn_mode = getattr(viewer, "nn_mode", None)
-                            lazy_lin = getattr(viewer, "lazy_lin", False)
-                            settled = getattr(viewer, "_nn_settle_done", True)
-                            live_s = "" if settled else " LIVE"
-                            lazy_tag = ""
-                            if lazy_lin:
-                                lazy_tag = f"  [lazy-lin{live_s}]"
-                            if pix and nn_mode is not None:
-                                mode = _nn_labels.get(nn_mode, f"mode-{nn_mode}") + lazy_tag
-                            elif pix:
-                                mode = "NN" + lazy_tag
-                            else:
-                                mode = "Bilinear"
-                            lines.append(f"  {vtag}: {mode}")
-                        dpg.set_value(render_input, "\n".join(lines))
+                    if debug_overlay:
+                        debug_overlay.update()
 
                     if time.time() > self.status_message_expire_time:
                         if dpg.does_item_exist("global_status_text"):
@@ -3149,6 +2829,62 @@ class MainGUI:
                 dpg.render_dearpygui_frame()
         finally:
             self._shutdown()
+
+    def _throttle_frame(self, last_frame_time):
+        """Sleep to the frame rate the activity needs: 60 fps while working or
+        interacting, 10 fps when idle in the window, 5 fps outside it.
+        Returns the new frame start time."""
+        t_now = time.perf_counter()
+
+        # Detect activity/necessity to run at full speed
+        has_active_tasks = (
+            len(self.tasks) > 0
+            or len(self._main_thread_callbacks) > 0
+            or len(self.controller._main_commits) > 0
+            or getattr(self.controller, "ui_needs_refresh", False)
+        )
+
+        # Get mouse position and viewport boundaries
+        mx, my = dpg.get_mouse_pos(local=False)
+        vw = dpg.get_viewport_width()
+        vh = dpg.get_viewport_height()
+
+        # Check if mouse is inside the window
+        mouse_in_viewport = (0 <= mx <= vw) and (0 <= my <= vh)
+
+        # Did mouse position change?
+        mouse_moved = (mx, my) != self._last_mouse_pos
+        if mouse_moved:
+            self._last_mouse_pos = (mx, my)
+
+        # Check if any mouse button is down
+        mouse_clicked = False
+        for btn in range(3):
+            if dpg.is_mouse_button_down(btn):
+                mouse_clicked = True
+                break
+
+        if mouse_moved or mouse_clicked or has_active_tasks:
+            self._last_interaction_time = t_now
+
+        # Set dynamic FPS target
+        if has_active_tasks:
+            target_fps = 60.0
+        elif not mouse_in_viewport:
+            # Hovering outside or window minimized/backgrounded: extremely low rate to save CPU
+            target_fps = 5.0
+        elif t_now - self._last_interaction_time > 2.0:
+            # Inside viewport but completely inactive/idle: low rate
+            target_fps = 10.0
+        else:
+            target_fps = 60.0
+
+        frame_budget = 1.0 / target_fps
+        t_elapsed = t_now - last_frame_time
+        t_sleep = frame_budget - t_elapsed
+        if t_sleep > 0.001:
+            time.sleep(t_sleep)
+        return time.perf_counter()
 
     def _shutdown(self):
         for plugin in self.plugins:
