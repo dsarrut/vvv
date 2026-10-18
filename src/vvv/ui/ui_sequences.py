@@ -30,14 +30,66 @@ def _apply_default_layout(gui, controller, img_id):
     controller.ui_needs_refresh = True
 
 
+def _show_message_and_wait(gui, title, message):
+    """[generator] Show the message modal and yield until the user closes it."""
+    gui.show_message(title, message)
+    while dpg.does_item_exist("generic_message_modal"):
+        yield
+
+
 def _handle_warnings_and_cleanup(gui, warnings, title, message):
     if dpg.does_item_exist("loading_modal"):
         dpg.delete_item("loading_modal")
     yield
     if warnings:
-        gui.show_message(title, f"{message}\n\n" + "\n".join(warnings))
-        while dpg.does_item_exist("generic_message_modal"):
-            yield
+        yield from _show_message_and_wait(
+            gui, title, f"{message}\n\n" + "\n".join(warnings)
+        )
+
+
+def _warn_rois_outside_fov(gui, controller, rois):
+    """[generator] Warn (modal) about the ROIs ({roi_id: ROIState}) lying
+    partially or fully outside their image field of view."""
+    outside = [
+        state.name
+        for r_id, state in rois.items()
+        if getattr(controller.volumes.get(r_id), "is_outside", False)
+    ]
+    if not outside:
+        return
+    yield
+    if len(outside) == 1:
+        msg = f"Warning: The loaded ROI '{outside[0]}' lies partially or fully outside the image field of view (FOV)."
+    else:
+        names_str = ", ".join(f"'{n}'" for n in outside)
+        msg = f"Warning: The loaded ROIs {names_str} lie partially or fully outside the image field of view (FOV)."
+    yield from _show_message_and_wait(gui, "ROI Warning", msg)
+
+
+def _run_parallel(jobs, work, on_done, max_workers=4, poll_s=0.01):
+    """[generator, main thread] Run work(job) for each job on a thread pool.
+
+    on_done(job, future) runs on the main thread as each job finishes, in
+    submission order within a frame; future.result() re-raises the worker's
+    exception. Yields once per frame while jobs are running, so DearPyGui
+    keeps rendering; waits at most poll_s per frame.
+    """
+    import concurrent.futures
+
+    if not jobs:
+        return
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=min(len(jobs), max_workers)
+    ) as executor:
+        running = {executor.submit(work, job): job for job in jobs}
+        while running:
+            done, _ = concurrent.futures.wait(
+                running, timeout=poll_s, return_when=concurrent.futures.FIRST_COMPLETED
+            )
+            for future in [f for f in running if f in done]:
+                on_done(running.pop(future), future)
+            if running:
+                yield
 
 
 def _compute_label_bboxes(img, labels=None):
@@ -59,9 +111,6 @@ def _compute_label_bboxes(img, labels=None):
 
 
 def load_single_image_sequence(gui, controller, file_path):
-    import os
-    import time
-    import concurrent.futures
 
     is_4d = file_path.startswith("4D:")
     display_name = "4D Sequence" if is_4d else os.path.basename(file_path)
@@ -72,32 +121,27 @@ def load_single_image_sequence(gui, controller, file_path):
     for _ in range(3):
         yield
 
-    img_id = None
-    load_error = None
+    # Non-blocking: DearPyGui keeps rendering while SimpleITK reads the file
+    result = {}
 
-    # NON-BLOCKING FOR SINGLE FILES & 4D SEQUENCES
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(controller.file.read_image, file_path)
-
-        # Keep DearPyGui spinning while SimpleITK loads the heavy file!
-        while not future.done():
-            yield  # Hands control back to gui.py so the UI doesn't freeze
-            time.sleep(0.01)
-
+    def on_done(path, future):
         try:
-            img_id = controller.file.register_image(future.result())
+            result["img_id"] = controller.file.register_image(future.result())
         except Exception as e:
-            load_error = e
+            result["error"] = e
+
+    yield from _run_parallel([file_path], controller.file.read_image, on_done)
+    img_id, load_error = result.get("img_id"), result.get("error")
 
     if load_error:
         if dpg.does_item_exist("loading_modal"):
             dpg.delete_item("loading_modal")
         yield
-        gui.show_message(
-            "File Load Error", f"Failed to load image:\n{display_name}\n\n{load_error}"
+        yield from _show_message_and_wait(
+            gui,
+            "File Load Error",
+            f"Failed to load image:\n{display_name}\n\n{load_error}",
         )
-        while dpg.does_item_exist("generic_message_modal"):
-            yield
         hide_loading_modal()
         return
 
@@ -111,8 +155,6 @@ def load_single_image_sequence(gui, controller, file_path):
 
 
 def load_batch_images_sequence(gui, controller, file_paths):
-    import time
-    import concurrent.futures
     import pydicom
     from collections import defaultdict
 
@@ -197,36 +239,21 @@ def load_batch_images_sequence(gui, controller, file_paths):
     loaded_ids = []
 
     # --- THE PARALLEL LOADER & REAL PROGRESS BAR ---
-    with concurrent.futures.ThreadPoolExecutor(
-        max_workers=min(total_files, 4)
-    ) as executor:
-        # Submit all tasks simultaneously
-        futures: list[concurrent.futures.Future | None] = [
-            executor.submit(controller.file.read_image, p) for p in clean_paths
-        ]
+    done_count = [0]
 
-        completed = 0
-        while completed < total_files:
-            for i, future in enumerate(futures):
-                if future is not None and future.done():
-                    try:
-                        img_id = controller.file.register_image(future.result())
-                        loaded_ids.append(img_id)
-                    except Exception as e:
-                        warnings.append(f"- Failed: {e}")
+    def on_done(path, future):
+        try:
+            loaded_ids.append(controller.file.register_image(future.result()))
+        except Exception as e:
+            warnings.append(f"- Failed: {e}")
+        done_count[0] += 1
+        show_loading_modal(
+            "Loading image...",
+            f"Loaded ({done_count[0]}/{total_files})",
+            progress=(done_count[0] / total_files),
+        )
 
-                    futures[i] = None  # Mark as processed
-                    completed += 1
-
-                    show_loading_modal(
-                        "Loading image...",
-                        f"Loaded ({completed}/{total_files})",
-                        progress=(completed / total_files),
-                    )
-
-            # Let DearPyGui render a frame while the background threads work!
-            yield
-            time.sleep(0.01)
+    yield from _run_parallel(clean_paths, controller.file.read_image, on_done)
 
     show_loading_modal("Loading image...", "Applying layouts...", progress=1.0)
     yield
@@ -316,21 +343,9 @@ def load_batch_rois_sequence(
 
     # Check for out-of-bounds ROIs
     new_roi_ids = set(vs.rois.keys()) - initial_roi_ids
-    outside_rois = []
-    for r_id in new_roi_ids:
-        r_vol = controller.volumes.get(r_id)
-        if r_vol and getattr(r_vol, "is_outside", False):
-            outside_rois.append(vs.rois[r_id].name)
-    if outside_rois:
-        yield
-        if len(outside_rois) == 1:
-            msg = f"Warning: The loaded ROI '{outside_rois[0]}' lies partially or fully outside the image field of view (FOV)."
-        else:
-            names_str = ", ".join(f"'{n}'" for n in outside_rois)
-            msg = f"Warning: The loaded ROIs {names_str} lie partially or fully outside the image field of view (FOV)."
-        gui.show_message("ROI Warning", msg)
-        while dpg.does_item_exist("generic_message_modal"):
-            yield
+    yield from _warn_rois_outside_fov(
+        gui, controller, {r: vs.rois[r] for r in new_roi_ids}
+    )
 
 
 def _parse_label_map_json(raw_dict):
@@ -459,21 +474,11 @@ def _rasterize_and_load_labels(
     saved_preferences=None,
     color_dict=None,
 ):
-    """
-    [REUSABLE_WORKER]
-    The core, multithreaded engine for rasterizing a label map.
-    Called by both the interactive loader and the workspace loader.
-    """
-    import time
-    import concurrent.futures
-    import numpy as np
+    """[generator] Extract each label of a label map as an ROI, in parallel,
+    then register them all (main thread). Updates the loading modal."""
     import SimpleITK as sitk
-    from vvv.maths.image import VolumeData
-    from vvv.core.roi_manager import ROIState
-    from vvv.config import ROI_COLORS
 
     vs = controller.view_states[base_image_id]
-    base_vol = controller.volumes[base_image_id]
     total_lbls = len(unique_labels)
     base_name = controller.roi._clean_roi_name(filepath)
     color_dict = color_dict or {}
@@ -485,45 +490,36 @@ def _rasterize_and_load_labels(
     # --- PRE-EXTRACT BOUNDING BOXES FOR THREAD SAFETY ---
     bboxes = _compute_label_bboxes(img, unique_labels)
 
-    def _process_label(val_int, custom_name, color, bbox):
+    jobs = []
+    for i, val in enumerate(unique_labels):
+        val_int = int(val)
+        custom_name = label_dict.get(val_int, f"{base_name} - Lbl {val_int}")
+        color = color_dict.get(val_int) or ROI_COLORS[(val_int - 1) % len(ROI_COLORS)]
+        jobs.append((i, val_int, custom_name, color, bboxes.get(val_int)))
+
+    def extract(job):
         # worker: compute only, registered below on the main thread
+        _, val_int, custom_name, color, bbox = job
         return controller.roi.extract_label_from_image(
             base_image_id, filepath, img, data, val_int, custom_name, color, bbox,
             defer=True,
         )
 
-    # --- PARALLEL PROCESSING ---
-    with concurrent.futures.ThreadPoolExecutor(
-        max_workers=min(total_lbls, 4)
-    ) as executor:
-        futures: list[concurrent.futures.Future | None] = []
-        for i, val in enumerate(unique_labels, 1):
-            val_int = int(val)
-            custom_name = label_dict.get(val_int, f"{base_name} - Lbl {val_int}")
-            color = (
-                color_dict.get(val_int)
-                or ROI_COLORS[(val_int - 1) % len(ROI_COLORS)]
-            )
-            bbox = bboxes.get(val_int)
-            futures.append(
-                executor.submit(_process_label, val_int, custom_name, color, bbox)
-            )
+    # Register all ROIs at the end: each registration re-renders the
+    # viewers with every ROI so far (150 labels = 150 ever slower frames).
+    pending = [None] * total_lbls
+    done_count = [0]
 
-        # Register all ROIs at the end: each registration re-renders the
-        # viewers with every ROI so far (150 labels = 150 ever slower frames).
-        pending = [None] * total_lbls
-        completed = 0
-        while completed < total_lbls:
-            for i, future in enumerate(futures):
-                if future is not None and future.done():
-                    pending[i] = future.result()
-                    futures[i] = None
-                    completed += 1
-                    yield "EXTRACTED"
+    def on_done(job, future):
+        pending[job[0]] = future.result()
+        done_count[0] += 1
+        show_loading_modal(
+            "Loading Label Map...",
+            f"Rasterizing Labels ({done_count[0]}/{total_lbls})...",
+            progress=(done_count[0] / total_lbls),
+        )
 
-            # Yield control to DearPyGui while waiting for threads
-            yield "KEEP_ALIVE"
-            time.sleep(0.01)
+    yield from _run_parallel(jobs, extract, on_done)
 
     for p in pending:
         res = controller.roi.register_roi(p)
@@ -669,8 +665,7 @@ def load_label_map_sequence(
         except Exception as e:
             print(f"Warning: Failed to parse {json_path}: {e}")
 
-    completed = 0
-    for roi_id in _rasterize_and_load_labels(
+    yield from _rasterize_and_load_labels(
         gui,
         controller,
         base_image_id,
@@ -679,19 +674,8 @@ def load_label_map_sequence(
         label_dict,
         saved_preferences,
         color_dict,
-    ):
-        if roi_id == "KEEP_ALIVE":
-            yield
-            continue
-
-        completed += 1
-
-        show_loading_modal(
-            "Loading Label Map...",
-            f"Rasterizing Labels ({completed}/{total_lbls})...",
-            progress=(completed / total_lbls),
-        )
-        yield
+    )
+    yield
 
     # Finalize
     yield from _handle_warnings_and_cleanup(gui, [], "", "")
@@ -707,21 +691,9 @@ def load_label_map_sequence(
 
     # Check for out-of-bounds ROIs
     new_roi_ids = set(vs.rois.keys()) - initial_roi_ids
-    outside_rois = []
-    for r_id in new_roi_ids:
-        r_vol = controller.volumes.get(r_id)
-        if r_vol and getattr(r_vol, "is_outside", False):
-            outside_rois.append(vs.rois[r_id].name)
-    if outside_rois:
-        yield
-        if len(outside_rois) == 1:
-            msg = f"Warning: The loaded ROI '{outside_rois[0]}' lies partially or fully outside the image field of view (FOV)."
-        else:
-            names_str = ", ".join(f"'{n}'" for n in outside_rois)
-            msg = f"Warning: The loaded ROIs {names_str} lie partially or fully outside the image field of view (FOV)."
-        gui.show_message("ROI Warning", msg)
-        while dpg.does_item_exist("generic_message_modal"):
-            yield
+    yield from _warn_rois_outside_fov(
+        gui, controller, {r: vs.rois[r] for r in new_roi_ids}
+    )
 
 
 def load_rtstruct_sequence(
@@ -783,21 +755,9 @@ def load_rtstruct_sequence(
 
     # Check for out-of-bounds ROIs
     new_roi_ids = set(vs.rois.keys()) - initial_roi_ids
-    outside_rois = []
-    for r_id in new_roi_ids:
-        r_vol = controller.volumes.get(r_id)
-        if r_vol and getattr(r_vol, "is_outside", False):
-            outside_rois.append(vs.rois[r_id].name)
-    if outside_rois:
-        yield
-        if len(outside_rois) == 1:
-            msg = f"Warning: The loaded ROI '{outside_rois[0]}' lies partially or fully outside the image field of view (FOV)."
-        else:
-            names_str = ", ".join(f"'{n}'" for n in outside_rois)
-            msg = f"Warning: The loaded ROIs {names_str} lie partially or fully outside the image field of view (FOV)."
-        gui.show_message("ROI Warning", msg)
-        while dpg.does_item_exist("generic_message_modal"):
-            yield
+    yield from _warn_rois_outside_fov(
+        gui, controller, {r: vs.rois[r] for r in new_roi_ids}
+    )
 
 
 def load_series_and_rtstruct_sequence(
@@ -853,322 +813,15 @@ def load_series_and_rtstruct_sequence(
             gui.show_message("Error", f"Failed to parse RT-Struct:\n{e}")
 
 
-def load_workspace_sequence(gui, controller, filepath):
-    """Safely restores a full workspace using ID mapping, strict hierarchy, and Parallel Loading."""
+def _gather_workspace_rois(controller, ws, id_map, warnings, resolve_workspace_path):
+    """List the ROIs of a workspace to load: [{"new_id", "path", "state"}].
+
+    Label maps give one entry per label present in the file on disk (the
+    workspace only supplies the user preferences). Missing files are added
+    to warnings.
+    """
     import json
-    import time
-    import concurrent.futures
-    from vvv.utils import ViewMode
 
-    try:
-        with open(filepath, "r") as f:
-            ws = json.load(f)
-    except Exception as e:
-        gui.show_status_message(f"Failed to load workspace: {e}")
-        return
-
-    display_name = "Reading Workspace Data..."
-    show_loading_modal("Loading image...", display_name)
-
-    warnings = []
-
-    workspace_path_stored = ws.get("workspace_path") or ws.get("workspace_file_path")
-    local_workspace_filepath = filepath
-
-    def resolve_workspace_path(stored_path):
-        if not stored_path:
-            return stored_path
-        if isinstance(stored_path, (list, tuple)):
-            if len(stored_path) == 0:
-                return stored_path
-            resolved_first = resolve_workspace_path(stored_path[0])
-            resolved_list = [resolved_first]
-            for item in stored_path[1:]:
-                if isinstance(item, str) and item.lower().endswith(".json"):
-                    try:
-                        orig_dir = os.path.dirname(os.path.expanduser(stored_path[0]))
-                        item_abs = os.path.expanduser(item)
-                        rel_to_orig = os.path.relpath(item_abs, orig_dir)
-                        resolved_dir = os.path.dirname(resolved_first)
-                        candidate = os.path.abspath(
-                            os.path.join(resolved_dir, rel_to_orig)
-                        )
-                        resolved_list.append(candidate)
-                    except Exception:
-                        resolved_list.append(resolve_workspace_path(item))
-                else:
-                    resolved_list.append(resolve_workspace_path(item))
-            return (
-                resolved_list if isinstance(stored_path, list) else tuple(resolved_list)
-            )
-        if isinstance(stored_path, str) and stored_path.startswith("4D:"):
-            return stored_path
-
-        p = os.path.expanduser(stored_path)
-        if os.path.exists(p):
-            return p
-
-        # Resolve relative to the local workspace location
-        if workspace_path_stored and local_workspace_filepath:
-            stored_ws_dir = os.path.dirname(os.path.expanduser(workspace_path_stored))
-            local_ws_dir = os.path.dirname(os.path.abspath(local_workspace_filepath))
-            try:
-                rel_p = os.path.relpath(p, stored_ws_dir)
-                local_resolved = os.path.abspath(os.path.join(local_ws_dir, rel_p))
-                if os.path.exists(local_resolved):
-                    return local_resolved
-            except Exception:
-                pass
-
-        # Try suffix matching/guesswork relative to local_ws_dir
-        if local_workspace_filepath:
-            local_ws_dir = os.path.dirname(os.path.abspath(local_workspace_filepath))
-            parts = p.split(os.sep)
-            for i in range(len(parts) - 1, 0, -1):
-                subpath = os.sep.join(parts[i:])
-                candidate = os.path.abspath(os.path.join(local_ws_dir, subpath))
-                if os.path.exists(candidate):
-                    return candidate
-                candidate_parent = os.path.abspath(
-                    os.path.join(os.path.dirname(local_ws_dir), subpath)
-                )
-                if os.path.exists(candidate_parent):
-                    return candidate_parent
-        return p
-
-    # --- PHASE 1: GATHER ALL UNIQUE FILES TO LOAD ---
-    tasks_to_load = []
-    legacy_overlays = []
-    for old_id, img_data in ws.get("images", {}).items():
-        # Add Base Image
-        raw_path = img_data.get("path")
-        if raw_path:
-            if isinstance(raw_path, list):
-                resolved_list = resolve_workspace_path(raw_path)
-                p0 = resolved_list[0]
-                if os.path.exists(p0):
-                    tasks_to_load.append((old_id, tuple(resolved_list)))
-                else:
-                    warnings.append(
-                        f"Missing DICOM File: {os.path.basename(raw_path[0])}"
-                    )
-            elif isinstance(raw_path, str) and raw_path.startswith("4D:"):
-                tasks_to_load.append((old_id, raw_path))
-            else:
-                p = resolve_workspace_path(raw_path)
-                if os.path.exists(p):
-                    tasks_to_load.append((old_id, p))
-                else:
-                    warnings.append(f"Missing File: {os.path.basename(raw_path)}")
-
-        # Add Fusion Overlay
-        ov_info = img_data.get("overlay")
-        if ov_info and "id" not in ov_info:
-            ov_raw_path = ov_info.get("path")
-            if ov_raw_path:
-                if isinstance(ov_raw_path, list):
-                    resolved_list = resolve_workspace_path(ov_raw_path)
-                    p0 = resolved_list[0]
-                    if os.path.exists(p0):
-                        legacy_overlays.append((old_id, tuple(resolved_list)))
-                    else:
-                        warnings.append(
-                            f"Missing Overlay DICOM: {os.path.basename(ov_raw_path[0])}"
-                        )
-                elif isinstance(ov_raw_path, str) and ov_raw_path.startswith("4D:"):
-                    legacy_overlays.append((old_id, ov_raw_path))
-                else:
-                    ov_path = resolve_workspace_path(ov_raw_path)
-                    if os.path.exists(ov_path):
-                        legacy_overlays.append((old_id, ov_path))
-                    else:
-                        warnings.append(
-                            f"Missing Overlay: {os.path.basename(ov_raw_path)}"
-                        )
-
-    total_files = len(tasks_to_load) + len(legacy_overlays)
-    id_map = {}
-    legacy_overlay_map = {}
-
-    # --- PHASE 2: PARALLEL LOAD ALL IMAGES & OVERLAYS ---
-    if total_files > 0:
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=min(total_files, 4)
-        ) as executor:
-            future_to_path = {}
-            for old_id, p in tasks_to_load:
-                f = executor.submit(
-                    controller.file.read_image,
-                    list(p) if isinstance(p, tuple) else p,
-                    ignore_history=True,
-                )
-                future_to_path[f] = ("base", old_id, p)
-            for parent_old_id, p in legacy_overlays:
-                f = executor.submit(
-                    controller.file.read_image,
-                    list(p) if isinstance(p, tuple) else p,
-                    ignore_history=True,
-                )
-                future_to_path[f] = ("legacy_ov", parent_old_id, p)
-
-            futures: list[concurrent.futures.Future | None] = [
-                f for f in future_to_path.keys()
-            ]
-            completed = 0
-
-            while completed < total_files:
-                for i, future in enumerate(futures):
-                    if future is not None and future.done():
-                        p = future_to_path[future]
-                        try:
-                            new_id = controller.file.register_image(future.result())
-                            task_type, task_id, _p = future_to_path[future]
-                            if task_type == "base":
-                                id_map[task_id] = new_id
-                            else:
-                                legacy_overlay_map[task_id] = new_id
-                        except Exception as e:
-                            task_type, task_id, _p = future_to_path[future]
-                            if isinstance(_p, tuple):
-                                warnings.append(f"- {os.path.basename(_p[0])}: {e}")
-                            else:
-                                warnings.append(f"- {os.path.basename(_p)}: {e}")
-
-                        futures[i] = None
-                        completed += 1
-
-                        show_loading_modal(
-                            "Loading image...",
-                            f"Restoring Images & Overlays ({completed}/{total_files})",
-                            progress=(completed / total_files),
-                        )
-                # Keep DearPyGui alive
-                yield
-                time.sleep(0.01)
-
-    # --- PHASE 3: APPLY STATES SYNCHRONOUSLY ---
-    from vvv.core.view_state import ProfileLineState
-
-    for old_id, img_data in ws.get("images", {}).items():
-        if old_id in id_map:
-            new_id = id_map[old_id]
-
-            controller.volumes[new_id].is_overlay_only = img_data.get(
-                "is_overlay_only", False
-            )
-            if "unit" in img_data and img_data["unit"] is not None:
-                controller.volumes[new_id].unit = img_data["unit"]
-            if "unit_source" in img_data and img_data["unit_source"] is not None:
-                controller.volumes[new_id].unit_source = img_data["unit_source"]
-
-            vs = controller.view_states[new_id]
-            vs.display.from_dict(img_data.get("display", {}))
-            vs.camera.from_dict(img_data.get("camera", {}))
-            if "extraction" in img_data:
-                vs.extraction.from_dict(img_data["extraction"])
-            if "dvf" in img_data:
-                vs.dvf.from_dict(img_data["dvf"])
-            # Restore plugin state (including ROI filter/sort via roi_plugin)
-            plugins_data = img_data.get("plugins", {})
-            # Backward compat: old workspaces stored roi_filter/roi_sort_order
-            # as top-level keys instead of under plugins.roi_plugin.
-            if "roi_plugin" not in plugins_data:
-                legacy_filter = img_data.get("roi_filter", "")
-                legacy_sort = img_data.get("roi_sort_order", 0)
-                if legacy_filter or legacy_sort:
-                    plugins_data["roi_plugin"] = {
-                        "roi_filter": legacy_filter,
-                        "roi_sort_order": legacy_sort,
-                    }
-            if plugins_data and gui:
-                for plugin in gui.plugins:
-                    plugin_data = plugins_data.get(plugin.plugin_id, {})
-                    if plugin_data:
-                        plugin.restore_image_state(
-                            new_id, plugin_data, context="workspace"
-                        )
-            vs.sync_group = img_data.get("sync_group", 0)
-            vs.sync_wl_group = img_data.get("sync_wl_group", 0)
-
-            # Restore Profiles
-            for p_dict in img_data.get("profiles", []):
-                p = ProfileLineState()
-                p.from_dict(p_dict)
-                vs.profiles[p.id] = p
-
-            # Apply Overlays immediately since they are already loaded in RAM
-            ov_info = img_data.get("overlay")
-            if ov_info:
-                ov_id = None
-                if "id" in ov_info:
-                    ov_id = id_map.get(ov_info["id"])
-                else:
-                    # Legacy support
-                    ov_id = legacy_overlay_map.get(old_id)
-                    if not ov_id:
-                        ov_raw_path = ov_info.get("path")
-                        if ov_raw_path:
-                            if isinstance(ov_raw_path, list):
-                                ov_p = tuple(resolve_workspace_path(ov_raw_path))
-                            elif isinstance(
-                                ov_raw_path, str
-                            ) and ov_raw_path.startswith("4D:"):
-                                ov_p = ov_raw_path
-                            else:
-                                ov_p = resolve_workspace_path(ov_raw_path)
-
-                                for t_old_id, t_p in tasks_to_load:
-                                    if t_p == ov_p and t_old_id in id_map:
-                                        ov_id = id_map[t_old_id]
-                                        break
-
-                if ov_id and ov_id in controller.volumes:
-                    if "id" not in ov_info:
-                        controller.volumes[ov_id].is_overlay_only = True
-                    ov_vs = controller.view_states[ov_id]
-                    ov_vs.display.colormap = ov_info.get("colormap", "Grayscale")
-                    if "threshold" in ov_info and ov_info["threshold"] is not None:
-                        ov_vs.display.min_threshold = ov_info["threshold"]
-
-                    vs.set_overlay(ov_id, controller.volumes[ov_id])
-                    # On the image's JobRunner: cannot race another resample of it
-                    controller.resample_image(new_id)
-                    vs.display.overlay.mode = ov_info.get("mode", "Registration")
-                    vs.display.overlay.opacity = ov_info.get("opacity", 0.5)
-
-    # --- PHASE 4: MAP VIEWERS ---
-    saved_viewers = ws.get("viewers", {})
-    for tag in ["V1", "V2", "V3", "V4"]:
-        if tag in saved_viewers and saved_viewers[tag].get("image_id") in id_map:
-            v_data = saved_viewers[tag]
-            new_id = id_map[v_data["image_id"]]
-
-            # 1. Update the global layout state
-            controller.layout[tag] = new_id
-
-            # 2. Force the mount immediately so we can safely override the default boot-up re-center flag.
-            viewer = controller.viewers.get(tag)
-            if viewer:
-                viewer.set_image(new_id)
-                viewer.orientation = ViewMode[v_data["orientation"]]
-                viewer.is_geometry_dirty = True
-                viewer.is_viewer_data_dirty = True
-                viewer.needs_recenter = False
-
-                if "zoom" in v_data:
-                    viewer.zoom = v_data["zoom"]
-                if "pan_offset" in v_data:
-                    viewer.pan_offset = v_data["pan_offset"]
-        else:
-            controller.layout[tag] = None
-            viewer = controller.viewers.get(tag)
-            if viewer:
-                viewer.drop_image()
-    yield
-
-    show_loading_modal("Loading image...", "Restoring ROIs...")
-
-    # --- PHASE 5: RESTORE ROIs (Parallelized to quickly load large label maps) ---
     # 1. Gather all valid ROIs first to calculate total progress
     valid_rois_to_load = []
     for old_id, img_data in ws.get("images", {}).items():
@@ -1354,202 +1007,489 @@ def load_workspace_sequence(gui, controller, filepath):
                     else:
                         warnings.append(f"Missing Label Map: {os.path.basename(p0)}")
 
-    total_rois = len(valid_rois_to_load)
+    return valid_rois_to_load
 
+
+def _load_workspace_roi_file(controller, r_path, tasks):
+    """Worker: read one ROI file (mask, label map or RT-Struct) and compute
+    the ROIs of its tasks; returns [(task, pending, error)], registered on
+    the main thread."""
+    import SimpleITK as sitk
+
+    results = []
+    is_rtstruct = any(t["state"].get("rtstruct_info") for t in tasks)
+
+    actual_path = list(r_path) if isinstance(r_path, tuple) else r_path
+    path_for_print = (
+        os.path.basename(actual_path[0])
+        if isinstance(actual_path, list)
+        else os.path.basename(actual_path)
+    )
+
+    if is_rtstruct:
+        try:
+            import pydicom
+
+            rt_path = (
+                actual_path[0] if isinstance(actual_path, list) else actual_path
+            )
+            ds = pydicom.dcmread(rt_path, force=True)
+            for task in tasks:
+                try:
+                    pending = controller.roi.load_rtstruct_roi(
+                        task["new_id"],
+                        rt_path,
+                        task["state"]["rtstruct_info"],
+                        ds=ds,
+                        defer=True,
+                    )
+                    results.append((task, pending, None))
+                except Exception as e:
+                    results.append(
+                        (
+                            task,
+                            None,
+                            f"- Failed to load {task['state'].get('name')}: {e}",
+                        )
+                    )
+        except Exception as e:
+            for task in tasks:
+                results.append(
+                    (
+                        task,
+                        None,
+                        f"- Failed to read {path_for_print}: {e}",
+                    )
+                )
+    else:
+        try:
+            read_path = actual_path
+            if isinstance(read_path, (list, tuple)):
+                read_path = [
+                    p for p in read_path if not p.lower().endswith(".json")
+                ]
+                if len(read_path) == 1:
+                    read_path = read_path[0]
+            img = sitk.ReadImage(read_path)
+            data = sitk.GetArrayViewFromImage(img)
+            bboxes = None
+
+            # Fast-path: Only compute heavy bboxes if a label map extraction is actually requested!
+            if any(
+                t["state"].get("source_mode") == "Target FG (val)"
+                for t in tasks
+            ):
+                bboxes = _compute_label_bboxes(img)
+
+            for task in tasks:
+                mode = task["state"].get("source_mode", "Ignore BG (val)")
+                target_val = task["state"].get("source_val", 0.0)
+                pending = None  # computed here, registered on the main thread
+                err = None
+
+                try:
+                    # --- FAST PATH FOR LABEL MAPS ---
+                    if mode == "Target FG (val)" and bboxes is not None:
+                        val_int = int(target_val)
+                        if float(val_int) == target_val:
+                            pending = controller.roi.extract_label_from_image(
+                                task["new_id"],
+                                read_path,
+                                img,
+                                data,
+                                val_int,
+                                task["state"].get("name"),
+                                task["state"].get("color", [255, 0, 0]),
+                                bboxes.get(val_int),
+                                defer=True,
+                            )
+
+                    # --- SLOW PATH FALLBACK ---
+                    # Note: For Label Maps (Target FG), if extract_label_from_image returned None,
+                    # the label is genuinely not in the image and should not be created as an empty mask.
+                    if pending is None and task["state"].get("source_type") != "Label Map":
+                        pending = controller.roi.load_binary_mask(
+                            task["new_id"],
+                            read_path,
+                            name=task["state"].get("name"),
+                            color=task["state"].get("color", [255, 0, 0]),
+                            mode=mode,
+                            target_val=target_val,
+                            preloaded_sitk=img,
+                            defer=True,
+                        )
+
+                    if pending is not None:
+                        vol = pending["vol"]
+                        if isinstance(actual_path, list):
+                            vol.file_paths = actual_path
+                        else:
+                            vol.file_paths = [actual_path]
+                except Exception as e:
+                    err = f"- Failed to load {task['state'].get('name')}: {e}"
+
+                results.append((task, pending, err))
+        except Exception as e:
+            for task in tasks:
+                results.append(
+                    (
+                        task,
+                        None,
+                        f"- Failed to read {path_for_print}: {e}",
+                    )
+                )
+
+    return results
+
+
+def _restore_workspace_rois(controller, ws, id_map, warnings, resolve_workspace_path):
+    """[generator] Load the ROIs of a workspace (PHASE 5 of
+    load_workspace_sequence), one file per worker, registered on the main thread."""
+    from collections import defaultdict
+
+    valid_rois_to_load = _gather_workspace_rois(
+        controller, ws, id_map, warnings, resolve_workspace_path
+    )
+    total_rois = len(valid_rois_to_load)
     if total_rois == 0:
         show_loading_modal("Loading image...", "Restoring ROIs...")
         yield
-    else:
-        from collections import defaultdict
-        import SimpleITK as sitk
+        return
 
-        tasks_by_path = defaultdict(list)
-        for task in valid_rois_to_load:
-            tasks_by_path[task["path"]].append(task)
+    tasks_by_path = defaultdict(list)
+    for task in valid_rois_to_load:
+        tasks_by_path[task["path"]].append(task)
 
-        def process_file_group(r_path, tasks):
-            results = []
-            is_rtstruct = any(t["state"].get("rtstruct_info") for t in tasks)
+    done_count = [0]
 
-            actual_path = list(r_path) if isinstance(r_path, tuple) else r_path
-            path_for_print = (
-                os.path.basename(actual_path[0])
-                if isinstance(actual_path, list)
-                else os.path.basename(actual_path)
+    def on_file_done(path, future):
+        tasks = tasks_by_path[path]
+        try:
+            group_results = future.result()
+        except Exception as e:
+            group_results = [
+                (task, None, f"- Failed to load {task['state'].get('name')}: {e}")
+                for task in tasks
+            ]
+        for task, pending, err in group_results:
+            roi_id = controller.roi.register_roi(pending)
+            if err:
+                warnings.append(err)
+            elif roi_id:
+                roi = controller.view_states[task["new_id"]].rois.get(roi_id)
+                if roi:
+                    r_state = task["state"]
+                    roi.opacity = r_state.get("opacity", 0.5)
+                    roi.visible = r_state.get("visible", True)
+                    roi.is_contour = r_state.get("is_contour", False)
+                    roi.thickness = r_state.get("thickness", 1.0)
+        done_count[0] += len(group_results)
+        show_loading_modal(
+            "Loading image...",
+            f"Restoring ROIs ({done_count[0]}/{total_rois})",
+            progress=(done_count[0] / total_rois),
+        )
+
+    yield from _run_parallel(
+        list(tasks_by_path),
+        lambda path: _load_workspace_roi_file(controller, path, tasks_by_path[path]),
+        on_file_done,
+    )
+
+
+def load_workspace_sequence(gui, controller, filepath):
+    """Safely restores a full workspace using ID mapping, strict hierarchy, and Parallel Loading."""
+    import json
+    from vvv.utils import ViewMode
+
+    try:
+        with open(filepath, "r") as f:
+            ws = json.load(f)
+    except Exception as e:
+        gui.show_status_message(f"Failed to load workspace: {e}")
+        return
+
+    display_name = "Reading Workspace Data..."
+    show_loading_modal("Loading image...", display_name)
+
+    warnings = []
+
+    workspace_path_stored = ws.get("workspace_path") or ws.get("workspace_file_path")
+    local_workspace_filepath = filepath
+
+    def resolve_workspace_path(stored_path):
+        if not stored_path:
+            return stored_path
+        if isinstance(stored_path, (list, tuple)):
+            if len(stored_path) == 0:
+                return stored_path
+            resolved_first = resolve_workspace_path(stored_path[0])
+            resolved_list = [resolved_first]
+            for item in stored_path[1:]:
+                if isinstance(item, str) and item.lower().endswith(".json"):
+                    try:
+                        orig_dir = os.path.dirname(os.path.expanduser(stored_path[0]))
+                        item_abs = os.path.expanduser(item)
+                        rel_to_orig = os.path.relpath(item_abs, orig_dir)
+                        resolved_dir = os.path.dirname(resolved_first)
+                        candidate = os.path.abspath(
+                            os.path.join(resolved_dir, rel_to_orig)
+                        )
+                        resolved_list.append(candidate)
+                    except Exception:
+                        resolved_list.append(resolve_workspace_path(item))
+                else:
+                    resolved_list.append(resolve_workspace_path(item))
+            return (
+                resolved_list if isinstance(stored_path, list) else tuple(resolved_list)
             )
+        if isinstance(stored_path, str) and stored_path.startswith("4D:"):
+            return stored_path
 
-            if is_rtstruct:
-                try:
-                    import pydicom
+        p = os.path.expanduser(stored_path)
+        if os.path.exists(p):
+            return p
 
-                    rt_path = (
-                        actual_path[0] if isinstance(actual_path, list) else actual_path
+        # Resolve relative to the local workspace location
+        if workspace_path_stored and local_workspace_filepath:
+            stored_ws_dir = os.path.dirname(os.path.expanduser(workspace_path_stored))
+            local_ws_dir = os.path.dirname(os.path.abspath(local_workspace_filepath))
+            try:
+                rel_p = os.path.relpath(p, stored_ws_dir)
+                local_resolved = os.path.abspath(os.path.join(local_ws_dir, rel_p))
+                if os.path.exists(local_resolved):
+                    return local_resolved
+            except Exception:
+                pass
+
+        # Try suffix matching/guesswork relative to local_ws_dir
+        if local_workspace_filepath:
+            local_ws_dir = os.path.dirname(os.path.abspath(local_workspace_filepath))
+            parts = p.split(os.sep)
+            for i in range(len(parts) - 1, 0, -1):
+                subpath = os.sep.join(parts[i:])
+                candidate = os.path.abspath(os.path.join(local_ws_dir, subpath))
+                if os.path.exists(candidate):
+                    return candidate
+                candidate_parent = os.path.abspath(
+                    os.path.join(os.path.dirname(local_ws_dir), subpath)
+                )
+                if os.path.exists(candidate_parent):
+                    return candidate_parent
+        return p
+
+    # --- PHASE 1: GATHER ALL UNIQUE FILES TO LOAD ---
+    tasks_to_load = []
+    legacy_overlays = []
+    for old_id, img_data in ws.get("images", {}).items():
+        # Add Base Image
+        raw_path = img_data.get("path")
+        if raw_path:
+            if isinstance(raw_path, list):
+                resolved_list = resolve_workspace_path(raw_path)
+                p0 = resolved_list[0]
+                if os.path.exists(p0):
+                    tasks_to_load.append((old_id, tuple(resolved_list)))
+                else:
+                    warnings.append(
+                        f"Missing DICOM File: {os.path.basename(raw_path[0])}"
                     )
-                    ds = pydicom.dcmread(rt_path, force=True)
-                    for task in tasks:
-                        try:
-                            pending = controller.roi.load_rtstruct_roi(
-                                task["new_id"],
-                                rt_path,
-                                task["state"]["rtstruct_info"],
-                                ds=ds,
-                                defer=True,
-                            )
-                            results.append((task, pending, None))
-                        except Exception as e:
-                            results.append(
-                                (
-                                    task,
-                                    None,
-                                    f"- Failed to load {task['state'].get('name')}: {e}",
-                                )
-                            )
-                except Exception as e:
-                    for task in tasks:
-                        results.append(
-                            (
-                                task,
-                                None,
-                                f"- Failed to read {path_for_print}: {e}",
-                            )
-                        )
+            elif isinstance(raw_path, str) and raw_path.startswith("4D:"):
+                tasks_to_load.append((old_id, raw_path))
             else:
-                try:
-                    read_path = actual_path
-                    if isinstance(read_path, (list, tuple)):
-                        read_path = [
-                            p for p in read_path if not p.lower().endswith(".json")
-                        ]
-                        if len(read_path) == 1:
-                            read_path = read_path[0]
-                    img = sitk.ReadImage(read_path)
-                    data = sitk.GetArrayViewFromImage(img)
-                    bboxes = None
+                p = resolve_workspace_path(raw_path)
+                if os.path.exists(p):
+                    tasks_to_load.append((old_id, p))
+                else:
+                    warnings.append(f"Missing File: {os.path.basename(raw_path)}")
 
-                    # Fast-path: Only compute heavy bboxes if a label map extraction is actually requested!
-                    if any(
-                        t["state"].get("source_mode") == "Target FG (val)"
-                        for t in tasks
-                    ):
-                        bboxes = _compute_label_bboxes(img)
-
-                    for task in tasks:
-                        mode = task["state"].get("source_mode", "Ignore BG (val)")
-                        target_val = task["state"].get("source_val", 0.0)
-                        pending = None  # computed here, registered on the main thread
-                        err = None
-
-                        try:
-                            # --- FAST PATH FOR LABEL MAPS ---
-                            if mode == "Target FG (val)" and bboxes is not None:
-                                val_int = int(target_val)
-                                if float(val_int) == target_val:
-                                    pending = controller.roi.extract_label_from_image(
-                                        task["new_id"],
-                                        read_path,
-                                        img,
-                                        data,
-                                        val_int,
-                                        task["state"].get("name"),
-                                        task["state"].get("color", [255, 0, 0]),
-                                        bboxes.get(val_int),
-                                        defer=True,
-                                    )
-
-                            # --- SLOW PATH FALLBACK ---
-                            # Note: For Label Maps (Target FG), if extract_label_from_image returned None,
-                            # the label is genuinely not in the image and should not be created as an empty mask.
-                            if pending is None and task["state"].get("source_type") != "Label Map":
-                                pending = controller.roi.load_binary_mask(
-                                    task["new_id"],
-                                    read_path,
-                                    name=task["state"].get("name"),
-                                    color=task["state"].get("color", [255, 0, 0]),
-                                    mode=mode,
-                                    target_val=target_val,
-                                    preloaded_sitk=img,
-                                    defer=True,
-                                )
-
-                            if pending is not None:
-                                vol = pending["vol"]
-                                if isinstance(actual_path, list):
-                                    vol.file_paths = actual_path
-                                else:
-                                    vol.file_paths = [actual_path]
-                        except Exception as e:
-                            err = f"- Failed to load {task['state'].get('name')}: {e}"
-
-                        results.append((task, pending, err))
-                except Exception as e:
-                    for task in tasks:
-                        results.append(
-                            (
-                                task,
-                                None,
-                                f"- Failed to read {path_for_print}: {e}",
-                            )
+        # Add Fusion Overlay
+        ov_info = img_data.get("overlay")
+        if ov_info and "id" not in ov_info:
+            ov_raw_path = ov_info.get("path")
+            if ov_raw_path:
+                if isinstance(ov_raw_path, list):
+                    resolved_list = resolve_workspace_path(ov_raw_path)
+                    p0 = resolved_list[0]
+                    if os.path.exists(p0):
+                        legacy_overlays.append((old_id, tuple(resolved_list)))
+                    else:
+                        warnings.append(
+                            f"Missing Overlay DICOM: {os.path.basename(ov_raw_path[0])}"
+                        )
+                elif isinstance(ov_raw_path, str) and ov_raw_path.startswith("4D:"):
+                    legacy_overlays.append((old_id, ov_raw_path))
+                else:
+                    ov_path = resolve_workspace_path(ov_raw_path)
+                    if os.path.exists(ov_path):
+                        legacy_overlays.append((old_id, ov_path))
+                    else:
+                        warnings.append(
+                            f"Missing Overlay: {os.path.basename(ov_raw_path)}"
                         )
 
-            return results
+    total_files = len(tasks_to_load) + len(legacy_overlays)
+    id_map = {}
+    legacy_overlay_map = {}
 
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=min(len(tasks_by_path), 4)
-        ) as executor:
-            future_to_tasks = {}
-            for path, tasks in tasks_by_path.items():
-                f = executor.submit(process_file_group, path, tasks)
-                future_to_tasks[f] = tasks
+    # --- PHASE 2: PARALLEL LOAD ALL IMAGES & OVERLAYS ---
+    load_jobs = [("base", old_id, p) for old_id, p in tasks_to_load] + [
+        ("legacy_ov", parent_old_id, p) for parent_old_id, p in legacy_overlays
+    ]
+    done_count = [0]
 
-            futures: list[concurrent.futures.Future | None] = list(
-                future_to_tasks.keys()
+    def read_job(job):
+        p = job[2]
+        return controller.file.read_image(
+            list(p) if isinstance(p, tuple) else p, ignore_history=True
+        )
+
+    def on_image_done(job, future):
+        task_type, task_id, p = job
+        try:
+            new_id = controller.file.register_image(future.result())
+            if task_type == "base":
+                id_map[task_id] = new_id
+            else:
+                legacy_overlay_map[task_id] = new_id
+        except Exception as e:
+            name = os.path.basename(p[0] if isinstance(p, tuple) else p)
+            warnings.append(f"- {name}: {e}")
+        done_count[0] += 1
+        show_loading_modal(
+            "Loading image...",
+            f"Restoring Images & Overlays ({done_count[0]}/{total_files})",
+            progress=(done_count[0] / total_files),
+        )
+
+    yield from _run_parallel(load_jobs, read_job, on_image_done)
+
+    # --- PHASE 3: APPLY STATES SYNCHRONOUSLY ---
+    from vvv.core.view_state import ProfileLineState
+
+    for old_id, img_data in ws.get("images", {}).items():
+        if old_id in id_map:
+            new_id = id_map[old_id]
+
+            controller.volumes[new_id].is_overlay_only = img_data.get(
+                "is_overlay_only", False
             )
+            if "unit" in img_data and img_data["unit"] is not None:
+                controller.volumes[new_id].unit = img_data["unit"]
+            if "unit_source" in img_data and img_data["unit_source"] is not None:
+                controller.volumes[new_id].unit_source = img_data["unit_source"]
 
-            completed_rois = 0
-            while completed_rois < total_rois:
-                for i, future in enumerate(futures):
-                    if future is not None and future.done():
-                        tasks = future_to_tasks[future]
-                        try:
-                            group_results = future.result()
-                            for task, pending, err in group_results:
-                                roi_id = controller.roi.register_roi(pending)
-                                if err:
-                                    warnings.append(err)
-                                elif roi_id:
-                                    vs = controller.view_states[task["new_id"]]
-                                    if roi_id in vs.rois:
-                                        r_state = task["state"]
-                                        vs.rois[roi_id].opacity = r_state.get(
-                                            "opacity", 0.5
-                                        )
-                                        vs.rois[roi_id].visible = r_state.get(
-                                            "visible", True
-                                        )
-                                        vs.rois[roi_id].is_contour = r_state.get(
-                                            "is_contour", False
-                                        )
-                                        vs.rois[roi_id].thickness = r_state.get(
-                                            "thickness", 1.0
-                                        )
-                            completed_rois += len(group_results)
-                        except Exception as e:
-                            for task in tasks:
-                                warnings.append(
-                                    f"- Failed to load {task['state'].get('name')}: {e}"
-                                )
-                                completed_rois += 1
-
-                        futures[i] = None
-
-                        show_loading_modal(
-                            "Loading image...",
-                            f"Restoring ROIs ({completed_rois}/{total_rois})",
-                            progress=(completed_rois / total_rois),
+            vs = controller.view_states[new_id]
+            vs.display.from_dict(img_data.get("display", {}))
+            vs.camera.from_dict(img_data.get("camera", {}))
+            if "extraction" in img_data:
+                vs.extraction.from_dict(img_data["extraction"])
+            if "dvf" in img_data:
+                vs.dvf.from_dict(img_data["dvf"])
+            # Restore plugin state (including ROI filter/sort via roi_plugin)
+            plugins_data = img_data.get("plugins", {})
+            # Backward compat: old workspaces stored roi_filter/roi_sort_order
+            # as top-level keys instead of under plugins.roi_plugin.
+            if "roi_plugin" not in plugins_data:
+                legacy_filter = img_data.get("roi_filter", "")
+                legacy_sort = img_data.get("roi_sort_order", 0)
+                if legacy_filter or legacy_sort:
+                    plugins_data["roi_plugin"] = {
+                        "roi_filter": legacy_filter,
+                        "roi_sort_order": legacy_sort,
+                    }
+            if plugins_data and gui:
+                for plugin in gui.plugins:
+                    plugin_data = plugins_data.get(plugin.plugin_id, {})
+                    if plugin_data:
+                        plugin.restore_image_state(
+                            new_id, plugin_data, context="workspace"
                         )
-                # Keep DearPyGui alive
-                yield
-                time.sleep(0.01)
+            vs.sync_group = img_data.get("sync_group", 0)
+            vs.sync_wl_group = img_data.get("sync_wl_group", 0)
+
+            # Restore Profiles
+            for p_dict in img_data.get("profiles", []):
+                p = ProfileLineState()
+                p.from_dict(p_dict)
+                vs.profiles[p.id] = p
+
+            # Apply Overlays immediately since they are already loaded in RAM
+            ov_info = img_data.get("overlay")
+            if ov_info:
+                ov_id = None
+                if "id" in ov_info:
+                    ov_id = id_map.get(ov_info["id"])
+                else:
+                    # Legacy support
+                    ov_id = legacy_overlay_map.get(old_id)
+                    if not ov_id:
+                        ov_raw_path = ov_info.get("path")
+                        if ov_raw_path:
+                            if isinstance(ov_raw_path, list):
+                                ov_p = tuple(resolve_workspace_path(ov_raw_path))
+                            elif isinstance(
+                                ov_raw_path, str
+                            ) and ov_raw_path.startswith("4D:"):
+                                ov_p = ov_raw_path
+                            else:
+                                ov_p = resolve_workspace_path(ov_raw_path)
+
+                                for t_old_id, t_p in tasks_to_load:
+                                    if t_p == ov_p and t_old_id in id_map:
+                                        ov_id = id_map[t_old_id]
+                                        break
+
+                if ov_id and ov_id in controller.volumes:
+                    if "id" not in ov_info:
+                        controller.volumes[ov_id].is_overlay_only = True
+                    ov_vs = controller.view_states[ov_id]
+                    ov_vs.display.colormap = ov_info.get("colormap", "Grayscale")
+                    if "threshold" in ov_info and ov_info["threshold"] is not None:
+                        ov_vs.display.min_threshold = ov_info["threshold"]
+
+                    vs.set_overlay(ov_id, controller.volumes[ov_id])
+                    # On the image's JobRunner: cannot race another resample of it
+                    controller.resample_image(new_id)
+                    vs.display.overlay.mode = ov_info.get("mode", "Registration")
+                    vs.display.overlay.opacity = ov_info.get("opacity", 0.5)
+
+    # --- PHASE 4: MAP VIEWERS ---
+    saved_viewers = ws.get("viewers", {})
+    for tag in ["V1", "V2", "V3", "V4"]:
+        if tag in saved_viewers and saved_viewers[tag].get("image_id") in id_map:
+            v_data = saved_viewers[tag]
+            new_id = id_map[v_data["image_id"]]
+
+            # 1. Update the global layout state
+            controller.layout[tag] = new_id
+
+            # 2. Force the mount immediately so we can safely override the default boot-up re-center flag.
+            viewer = controller.viewers.get(tag)
+            if viewer:
+                viewer.set_image(new_id)
+                viewer.orientation = ViewMode[v_data["orientation"]]
+                viewer.is_geometry_dirty = True
+                viewer.is_viewer_data_dirty = True
+                viewer.needs_recenter = False
+
+                if "zoom" in v_data:
+                    viewer.zoom = v_data["zoom"]
+                if "pan_offset" in v_data:
+                    viewer.pan_offset = v_data["pan_offset"]
+        else:
+            controller.layout[tag] = None
+            viewer = controller.viewers.get(tag)
+            if viewer:
+                viewer.drop_image()
+    yield
+
+    show_loading_modal("Loading image...", "Restoring ROIs...")
+
+    # --- PHASE 5: RESTORE ROIs (Parallelized to quickly load large label maps) ---
+    yield from _restore_workspace_rois(
+        controller, ws, id_map, warnings, resolve_workspace_path
+    )
 
     # --- PHASE 6: FINALIZE ---
     # 1. Reorder dictionaries to strictly match the original workspace save order
@@ -1636,30 +1576,15 @@ def load_workspace_sequence(gui, controller, filepath):
     )
 
     # Check for out-of-bounds ROIs
-    outside_rois = []
+    all_rois = {}
     for vs in controller.view_states.values():
-        for r_id in vs.rois.keys():
-            r_vol = controller.volumes.get(r_id)
-            if r_vol and getattr(r_vol, "is_outside", False):
-                outside_rois.append(vs.rois[r_id].name)
-    if outside_rois:
-        yield
-        if len(outside_rois) == 1:
-            msg = f"Warning: The loaded ROI '{outside_rois[0]}' lies partially or fully outside the image field of view (FOV)."
-        else:
-            names_str = ", ".join(f"'{n}'" for n in outside_rois)
-            msg = f"Warning: The loaded ROIs {names_str} lie partially or fully outside the image field of view (FOV)."
-        gui.show_message("ROI Warning", msg)
-        while dpg.does_item_exist("generic_message_modal"):
-            yield
+        all_rois.update(vs.rois)
+    yield from _warn_rois_outside_fov(gui, controller, all_rois)
 
 
 def create_boot_sequence(
     gui, controller, image_tasks, sync=False, link_all=False, link_all_wl=False
 ):
-    import time
-    import concurrent.futures
-
     if not image_tasks:
         return
 
@@ -1691,44 +1616,25 @@ def create_boot_sequence(
     else:
         # Show loading modal immediately without extra delays
         show_loading_modal("Loading images...", "Initializing...", progress=0.0)
+        done_count = [0]
 
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=min(total_files, 4)
-        ) as executor:
-            future_to_job = {
-                executor.submit(controller.file.read_image, job[2]): job
-                for job in jobs
-            }
-            futures: list[concurrent.futures.Future | None] = [
-                f for f in future_to_job.keys()
-            ]
+        def on_done(job, future):
+            idx, role, path = job
+            try:
+                img_id = controller.file.register_image(future.result())
+                task_results[(idx, role)] = img_id
+            except Exception as e:
+                warnings.append(f"- {os.path.basename(path)}: {e}")
+            done_count[0] += 1
+            show_loading_modal(
+                "Initializing...",
+                f"Loaded {os.path.basename(path)} ({done_count[0]}/{total_files})",
+                progress=(done_count[0] / total_files),
+            )
 
-            completed = 0
-            while completed < total_files:
-                for i, future in enumerate(futures):
-                    if future is not None and future.done():
-                        idx, role, path = future_to_job[future]
-                        try:
-                            img_id = controller.file.register_image(future.result())
-                            task_results[(idx, role)] = img_id
-                        except Exception as e:
-                            warnings.append(f"- {os.path.basename(path)}: {e}")
-
-                        futures[i] = None
-                        completed += 1
-
-                        show_loading_modal(
-                            "Initializing...",
-                            f"Loaded {os.path.basename(path)} ({completed}/{total_files})",
-                            progress=(completed / total_files),
-                        )
-
-                if completed >= total_files:
-                    break
-
-                # Let DearPyGui render a frame, but avoid excessive sleep
-                yield
-                time.sleep(0.005)
+        yield from _run_parallel(
+            jobs, lambda job: controller.file.read_image(job[2]), on_done, poll_s=0.005
+        )
     # -----------------------------------------------
 
     # 3. Now wire up the loaded data into the ViewStates synchronously
