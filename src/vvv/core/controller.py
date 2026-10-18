@@ -841,6 +841,7 @@ class Controller:
         size = [int(vol.shape3d[2]), int(vol.shape3d[1]), int(vol.shape3d[0])]
         spacing, origin = vol.spacing.tolist(), vol.origin.tolist()
         direction = vol.matrix.flatten().tolist()
+        fill_value = float(vol.get_data_range()[0])  # cached; outside the source FOV
 
         def _do_bake(job):
             try:
@@ -853,9 +854,7 @@ class Controller:
                 resampler = sitk.ResampleImageFilter()
                 resampler.SetReferenceImage(ref)
                 resampler.SetInterpolator(sitk.sitkLinear)
-                resampler.SetDefaultPixelValue(
-                    float(np.min(sitk.GetArrayViewFromImage(src)))
-                )
+                resampler.SetDefaultPixelValue(fill_value)
                 resampler.SetTransform(inverse)
                 new_sitk = resampler.Execute(sitk.Cast(src, sitk.sitkFloat32))
                 new_sitk = sitk.Cast(new_sitk, src.GetPixelID())

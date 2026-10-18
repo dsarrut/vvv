@@ -796,7 +796,13 @@ _NOT_DICOM_EXTENSIONS = (
 
 
 class VolumeData:
-    """Stores the immutable medical image data and physical metadata."""
+    """Stores the medical image data and physical metadata.
+
+    `data` is replaced (not edited in place) on reload, bake, save and
+    rescale; each replacement drops the caches computed from it.
+    """
+
+    _DATA_CACHES = ("_data_range_cache", "_nonzero_bbox_cache")
 
     SEQUENCE_PREFIXES = (
         "4D:",
@@ -963,6 +969,16 @@ class VolumeData:
         self.update_mtime_tracker()
         self._last_check_time: float = 0.0
         self._is_outdated = False
+
+    @property
+    def data(self):
+        return self._data
+
+    @data.setter
+    def data(self, value):
+        self._data = value
+        for cache in self._DATA_CACHES:
+            self.__dict__.pop(cache, None)
 
     def get_data_range(self):
         if not hasattr(self, "_data_range_cache"):
@@ -1618,8 +1634,8 @@ class VolumeData:
             logger.warning(f"Failed to reload {self.name}. Error: {e}")
             raise e
 
-        # Caches computed from the old data
-        for cache in ("_data_range_cache", "_nonzero_bbox_cache"):
+        # Caches computed from the old data (also dropped by the data setter)
+        for cache in self._DATA_CACHES:
             self.__dict__.pop(cache, None)
 
         new_shape = new_sitk.GetSize()

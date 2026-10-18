@@ -655,11 +655,7 @@ class IntensityScalingComponent:
         target_vol._cumulative_scale = float(current_cum * s_eff)
 
         # Scale array
-        target_vol.data = (target_vol.data * s_eff).astype(np.float32)
-
-        # Invalidate range cache
-        if hasattr(target_vol, "_data_range_cache"):
-            delattr(target_vol, "_data_range_cache")
+        target_vol.data = (target_vol.data * s_eff).astype(np.float32)  # drops the range cache
         target_vol._is_outdated = True
 
         # Scale Window / Level proportionally so visual appearance is preserved
@@ -696,8 +692,6 @@ class IntensityScalingComponent:
         if isinstance(cum, (int, float)) and abs(cum - 1.0) > 1e-6 and target_vol.data is not None:
             target_vol.data = (target_vol.data / cum).astype(np.float32)
             target_vol._cumulative_scale = 1.0
-            if hasattr(target_vol, "_data_range_cache"):
-                delattr(target_vol, "_data_range_cache")
             target_vol._is_outdated = True
 
             if target_vs and hasattr(target_vs, "display"):

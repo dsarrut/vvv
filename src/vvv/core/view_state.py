@@ -922,8 +922,7 @@ class ViewState:
             self.display.ww = max(1e-20, p98 - p2)
             self.display.wl = (p98 + p2) / 2
         elif "Min/Max" in preset_name:
-            min_v = float(np.min(self.volume.data))
-            max_v = float(np.max(self.volume.data))
+            min_v, max_v = self.volume.get_data_range()  # cached
             self.display.ww = max(1e-20, max_v - min_v)
             self.display.wl = (max_v + min_v) / 2
         else:
