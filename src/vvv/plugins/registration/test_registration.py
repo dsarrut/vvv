@@ -521,6 +521,20 @@ class TestRegistrationPlugin(unittest.TestCase):
         self.assertAlmostEqual(call_args[3], -5.0)
         self.mock_api.notify.assert_called_with("Inverted transform (Base)")
 
+    def test_controller_destroy_cancels_timer_and_stops_worker(self):
+        """Verify that destroy() cancels active auto-resample timer and halts preview worker (PA7)."""
+        controller = self.plugin._controller
+        controller.bind(self.mock_api)
+
+        mock_timer = MagicMock()
+        controller._auto_timer = mock_timer
+
+        with patch.object(controller._preview_queue, "put") as mock_put:
+            controller.destroy()
+            mock_timer.cancel.assert_called_once()
+            self.assertIsNone(controller._auto_timer)
+            mock_put.assert_called_once_with(None)
+
 
 if __name__ == "__main__":
     unittest.main()
