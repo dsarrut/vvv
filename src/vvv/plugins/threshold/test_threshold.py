@@ -311,6 +311,66 @@ class TestThresholdPlugin(unittest.TestCase):
         self.assertIn("source_id", saved_ws["images"])
         self.assertEqual(saved_ws["images"]["source_id"]["path"], source_path)
 
+    def test_create_image_worker_snapshots_inputs_and_cancels_previous(self):
+        """PB7: worker uses snapshot of data and state; launching again cancels prior worker."""
+        import SimpleITK as sitk
+
+        c = self.plugin._controller
+        state = self._state()
+        state.threshold_min = 20.0
+        state.threshold_max = 80.0
+        state.gen_fg_mode = "Constant"
+        state.gen_fg_val = 1.0
+        state.gen_bg_mode = "Constant"
+        state.gen_bg_val = 0.0
+
+        arr = np.zeros((5, 5, 5), dtype=np.float32)
+        arr[2, 2, 2] = 50.0  # inside threshold
+        self.mock_viewer.volume.data = arr
+        self.mock_viewer.volume.sitk_image = sitk.GetImageFromArray(arr)
+        self.mock_viewer.volume.name = "snap_test.nii"
+
+        # Track first stop event
+        c.on_create_image_clicked(None, None, None)
+        first_stop = c._generation_stop
+        self.assertIsNotNone(first_stop)
+        self.assertFalse(first_stop.is_set())
+
+        # Second launch must cancel first
+        c.on_create_image_clicked(None, None, None)
+        self.assertTrue(first_stop.is_set())
+        second_stop = c._generation_stop
+        self.assertIsNotNone(second_stop)
+        self.assertFalse(second_stop.is_set())
+
+    def test_create_image_worker_error_handling(self):
+        """PB7: worker logs exception and updates async status without crashing."""
+        import SimpleITK as sitk
+
+        c = self.plugin._controller
+        state = self._state()
+        arr = np.zeros((5, 5, 5), dtype=np.float32)
+        self.mock_viewer.volume.data = arr
+        self.mock_viewer.volume.sitk_image = sitk.GetImageFromArray(arr)
+
+        executed_main_callbacks = []
+        self.mock_api.run_on_main_thread.side_effect = lambda fn: executed_main_callbacks.append(fn)
+
+        # Inject error during ITK conversion
+        with patch("SimpleITK.GetImageFromArray", side_effect=RuntimeError("Simulated ITK failure")), \
+             patch("vvv.plugins.threshold.control_threshold.logger.exception") as mock_log_exc:
+            with patch("threading.Thread", side_effect=lambda target, **kw: MagicMock(start=target)):
+                c.on_create_image_clicked(None, None, None)
+
+            # Check that logger.exception was called with the failure
+            mock_log_exc.assert_called_once()
+
+            # Execute scheduled main thread error handler
+            for fn in executed_main_callbacks:
+                fn()
+
+            self.mock_api.set_async_status.assert_called_with("Failed to generate image: Simulated ITK failure")
+
 
 if __name__ == "__main__":
     unittest.main()

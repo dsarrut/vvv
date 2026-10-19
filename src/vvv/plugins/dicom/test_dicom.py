@@ -458,6 +458,96 @@ class TestDicomPlugin(unittest.TestCase):
 
         dpg.delete_item("test_parent")
 
+    def test_scan_cancellation_on_window_close_and_rescan(self):
+        """PB8: closing window or initiating a new scan cleanly cancels running scan thread."""
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+
+        self.plugin.show_window()
+        ui = self.plugin._ui
+        dpg.set_value(ui._t("input_folder_path"), "/mock/folder")
+
+        # Launch first scan with a generator that can be checked
+        first_scan_cancelled = False
+        def mock_generator_1():
+            nonlocal first_scan_cancelled
+            yield (0.1, "dir1")
+            # Wait until cancelled
+            for _ in range(50):
+                time.sleep(0.02)
+                yield (0.2, "dir2")
+            first_scan_cancelled = True
+
+        self.mock_api.scan_dicom_folder.side_effect = lambda *args, **kw: mock_generator_1()
+
+        with patch("os.path.exists", return_value=True):
+            ui.on_scan_clicked()
+
+        first_stop = ui._scan_stop_event
+        self.assertIsNotNone(first_stop)
+        self.assertFalse(first_stop.is_set())
+
+        # Second scan cancels the first
+        with patch("os.path.exists", return_value=True):
+            ui.on_scan_clicked()
+
+        self.assertTrue(first_stop.is_set())
+        second_stop = ui._scan_stop_event
+        self.assertFalse(second_stop.is_set())
+
+        # Closing window cancels the second scan
+        ui.on_window_close()
+        self.assertTrue(second_stop.is_set())
+        self.assertFalse(ui.is_scanning)
+
+        dpg.delete_item("test_parent")
+
+    def test_image_loaded_commits_on_main_thread_and_skips_removed_image(self):
+        """PB8: async tag reader commits on main thread only and skips removed images."""
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+
+        ui = self.plugin._ui
+        mock_vol = MagicMock()
+        mock_vol.file_paths = ["/path/to/test.dcm"]
+        self.mock_api.get_volumes.return_value = {"img_1": mock_vol}
+        self.mock_api.get_image_display_name.return_value = ("Test Image", False)
+
+        main_callbacks = []
+        self.mock_api.run_on_main_thread.side_effect = lambda fn: main_callbacks.append(fn)
+
+        mock_pydicom = MagicMock()
+        mock_ds = [MagicMock(tag=MagicMock(group=0x0010, element=0x0010), name="PatientName", value="Jane Doe")]
+        mock_pydicom.dcmread.return_value = mock_ds
+        mock_pydicom.sequence.Sequence = ()
+
+        with patch.dict("sys.modules", {"pydicom": mock_pydicom}):
+            with patch("os.path.isfile", return_value=True):
+                # Worker should execute synchronously with mocked Thread
+                with patch("threading.Thread", side_effect=lambda target, **kw: MagicMock(start=target)):
+                    ui.on_image_loaded("img_1")
+
+        # Worker should NOT have written open_image_tabs directly
+        self.assertNotIn("img_1", ui.open_image_tabs)
+        self.assertEqual(len(main_callbacks), 1)
+
+        # Case A: If image was removed before callback runs, it must not be added to open_image_tabs
+        self.mock_api.get_volumes.return_value = {}  # image removed!
+        main_callbacks[0]()
+        self.assertNotIn("img_1", ui.open_image_tabs)
+
+        # Case B: If image still exists, it is added to open_image_tabs on main thread
+        self.mock_api.get_volumes.return_value = {"img_1": mock_vol}
+        main_callbacks[0]()
+        self.assertIn("img_1", ui.open_image_tabs)
+        self.assertEqual(ui.open_image_tabs["img_1"]["title"], "Test Image")
+
+        dpg.delete_item("test_parent")
+
 
 if __name__ == "__main__":
     unittest.main()
