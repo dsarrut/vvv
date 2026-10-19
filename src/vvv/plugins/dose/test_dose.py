@@ -1026,6 +1026,73 @@ class TestDosePlugin(unittest.TestCase):
         self.assertAlmostEqual(c2.min_dose, 25.0, places=2)
         self.assertAlmostEqual(c2.max_dose, 25.0, places=2)
 
+    def test_dvh_virtual_scale_and_relative_mode(self):
+        """Verify that DVH properly applies the virtual scale factor in absolute (Gy) mode
+        and matches isodose thresholds in relative (%) mode (PA2).
+        """
+        import SimpleITK as sitk
+        from vvv.plugins.dose.dvh_calc import compute_roi_dvh
+        from vvv.plugins.dose.control_dose import DoseIsocontourLevel
+
+        ui = self.plugin._ui
+        ctrl = self.plugin._controller
+
+        # Dose volume with raw values around 25.0 (which with scale 2.0 = 50.0 Gy)
+        dose_arr = np.full((10, 10, 10), 25.0, dtype=np.float32)
+        self.mock_viewer.volume.unit = "Gy"
+        self.mock_viewer.volume.data = dose_arr
+        self.mock_viewer.volume.sitk_image = sitk.GetImageFromArray(dose_arr)
+        self.mock_viewer.volume.sitk_image.SetSpacing((1.0, 1.0, 1.0))
+        self.mock_viewer.volume.get_data_range.return_value = (25.0, 25.0)
+
+        roi_arr = np.ones((10, 10, 10), dtype=np.uint8)
+        mock_roi_vol = MagicMock()
+        mock_roi_vol.data = roi_arr
+        mock_roi_vol.sitk_image = sitk.GetImageFromArray(roi_arr)
+        mock_roi_vol.sitk_image.SetSpacing((1.0, 1.0, 1.0))
+
+        roi_state = MagicMock()
+        roi_state.name = "Target"
+        roi_state.color = [255, 0, 0, 255]
+        self.mock_viewer.view_state.rois = {"roi_target": roi_state}
+        self.mock_api.get_volumes.return_value = {
+            "img_1": self.mock_viewer.volume,
+            "roi_target": mock_roi_vol,
+        }
+
+        # Set virtual scaling: factor = 2.0, Prescription = 50.0 Gy
+        sc = ui.scaling_comp.get_state("img_1")
+        sc.scaling_factor = 2.0
+        sc.norm_mode = "Prescription"
+        sc.norm_target_value = 50.0
+
+        # Reference raw dose corresponding to 100% isodose: v_ref / user_s = 50 / 2 = 25.0
+        d_ref_raw = ctrl.get_reference_dose(self.mock_viewer.volume, False, "img_1")
+        self.assertEqual(d_ref_raw, 25.0)
+
+        # 100% isodose raw threshold in control_dose (within 0.999 boundary safety offset)
+        level_100 = DoseIsocontourLevel(value=100.0, color=[255, 0, 0, 255])
+        thr_100 = ctrl.compute_raw_threshold_for_level(level_100, self.mock_viewer.volume, False, "img_1")
+        self.assertAlmostEqual(thr_100, 25.0, delta=0.03)
+
+        # Open DVH window and compute curves
+        ui.on_open_dvh_clicked()
+        dvh_win = ui.dvh_win
+        self.assertEqual(len(dvh_win.curves), 1)
+        curve = dvh_win.curves[0]
+
+        # 1. In absolute Gy mode: mean dose must be 25.0 * 2.0 = 50.0 Gy (not raw 25.0)
+        self.assertAlmostEqual(curve.mean_dose, 50.0, places=2)
+        self.assertAlmostEqual(curve.min_dose, 50.0, places=2)
+        self.assertAlmostEqual(curve.max_dose, 50.0, places=2)
+
+        # 2. In relative (%) mode: norm_prescription_gy is 50.0 Gy.
+        # Since physical dose is 50.0 Gy, relative dose is (50.0 / 50.0) * 100 = 100.0%
+        self.assertAlmostEqual(dvh_win.norm_prescription_gy, 50.0, places=2)
+        rel_doses = (curve.doses / dvh_win.norm_prescription_gy) * 100.0
+        # Check that voxel dose 50.0 Gy maps to exactly 100% relative dose
+        self.assertAlmostEqual(curve.mean_dose / dvh_win.norm_prescription_gy * 100.0, 100.0, places=2)
+
     def test_dvh_window_ui(self):
         import SimpleITK as sitk
 

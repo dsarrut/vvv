@@ -31,6 +31,7 @@ def compute_roi_dvh(
     color: List[int],
     num_bins: int = 200,
     max_eval_dose: Optional[float] = None,
+    dose_scaling_factor: float = 1.0,
 ) -> Optional[ROI_DVH_Curve]:
     """
     Computes cumulative and differential DVH for a single ROI against a 3D dose volume.
@@ -91,7 +92,14 @@ def compute_roi_dvh(
         else:
             return None
 
-    vox_doses = dose_arr[mask].astype(np.float64)
+    scale = float(dose_scaling_factor) if dose_scaling_factor != 0 else 1.0
+    if scale == 1.0 and getattr(dose_vol, "scale_factor", None) is not None:
+        try:
+            scale = float(dose_vol.scale_factor)
+        except Exception:
+            scale = 1.0
+
+    vox_doses = dose_arr[mask].astype(np.float64) * scale
     if len(vox_doses) == 0:
         return None
 

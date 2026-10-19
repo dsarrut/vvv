@@ -450,15 +450,30 @@ class DVHWindow(PluginTagMixin):
         if dpg.does_item_exist(self._t("dvh_lbl_target_dose")):
             dpg.set_value(self._t("dvh_lbl_target_dose"), f"[{role}] {dose_name} ({unit_str})")
 
-        # Get scaling / prescription dose if available
+        # Get virtual scaling / prescription dose if available
+        user_s = 1.0
+        sc = None
         if hasattr(self._c, "_ui") and self._c._ui and hasattr(self._c._ui, "scaling_comp"):
             sc = self._c._ui.scaling_comp.get_state(target_id)
-            if sc and sc.norm_target_value > 0:
-                self.norm_prescription_gy = float(sc.norm_target_value)
+            if sc:
+                user_s = float(sc.scaling_factor) if sc.scaling_factor != 0 else 1.0
+        elif hasattr(dose_vol, "scale_factor") and dose_vol.scale_factor:
+            user_s = float(dose_vol.scale_factor)
+        if user_s == 0.0 or np.isnan(user_s):
+            user_s = 1.0
 
-        # Global evaluation upper limit across dose volume to ensure uniform domain
+        # Reference dose in physical units (Gy) corresponding to 100% relative dose
+        if hasattr(self._c, "get_reference_dose"):
+            raw_ref = self._c.get_reference_dose(dose_vol, is_ov, target_id)
+            self.norm_prescription_gy = float(raw_ref * user_s)
+        elif sc and sc.norm_target_value > 0:
+            self.norm_prescription_gy = float(sc.norm_target_value)
+        else:
+            self.norm_prescription_gy = float(user_s * 50.0)
+
+        # Global evaluation upper limit across dose volume to ensure uniform domain (in Gy)
         d_min, d_max = dose_vol.get_data_range()
-        global_max_dose = max(float(d_max) * 1.05, 10.0)
+        global_max_dose = max(float(d_max) * user_s * 1.05, 10.0)
 
         # Find reference image with ROIs (prioritize active viewer's view_state, or base)
         all_volumes = self._api.get_volumes()
@@ -478,6 +493,7 @@ class DVHWindow(PluginTagMixin):
                 roi_name=roi_state.name,
                 color=color,
                 max_eval_dose=global_max_dose,
+                dose_scaling_factor=user_s,
             )
             if curve:
                 curve.roi_id = roi_id
