@@ -668,6 +668,38 @@ class SliceViewer:
         if is_new_image and self.controller:
             self.controller.ui_needs_refresh = True
 
+    def restore_view(
+        self,
+        image_id: str | int,
+        orientation: ViewMode | str | None = None,
+        zoom: float | None = None,
+        pan_offset: list | tuple | None = None,
+        needs_recenter: bool = False,
+    ) -> None:
+        """Mount an image and restore saved view parameters (orientation, zoom, pan)
+        without triggering the default autonomous camera re-centering.
+        """
+        self.set_image(image_id)
+        if orientation is not None:
+            if isinstance(orientation, str):
+                self.orientation = ViewMode[orientation]
+            else:
+                self.orientation = orientation
+            vs = self.view_state
+            if vs:
+                vs.camera.last_orientation = self.orientation
+            self.set_current_slice_to_crosshair()
+
+        self.needs_recenter = bool(needs_recenter)
+
+        if zoom is not None:
+            self.zoom = float(zoom)
+        if pan_offset is not None:
+            self.pan_offset = list(pan_offset)
+
+        self.is_geometry_dirty = True
+        self.is_viewer_data_dirty = True
+
     def set_current_slice_to_crosshair(self):
         display_voxel = self._get_crosshair_display_voxel()
         if display_voxel is None:

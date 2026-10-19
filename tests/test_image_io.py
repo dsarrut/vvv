@@ -1052,3 +1052,107 @@ def test_workspace_label_map_is_read_only_once(tmp_path):
     finally:
         sitk.ReadImage = orig_read
 
+
+def test_viewer_restore_view_method(headless_gui_app):
+    """Test SliceViewer.restore_view properly restores image_id, orientation,
+    zoom, pan_offset and needs_recenter flags without triggering autonomous centering.
+    """
+    controller, gui, viewer, base_id = headless_gui_app
+    from vvv.utils import ViewMode
+
+    # Initial state verification
+    assert viewer.image_id == base_id
+
+    # Restore view with custom orientation, zoom, pan, and needs_recenter=False
+    viewer.restore_view(
+        base_id,
+        orientation="SAGITTAL",
+        zoom=3.0,
+        pan_offset=[45.0, -20.0],
+        needs_recenter=False,
+    )
+
+    assert viewer.orientation == ViewMode.SAGITTAL
+    assert viewer.view_state.camera.last_orientation == ViewMode.SAGITTAL
+    assert abs(viewer.zoom - 3.0) < 1e-4
+    assert viewer.pan_offset == [45.0, -20.0]
+    assert viewer.needs_recenter is False
+    assert viewer.is_geometry_dirty is True
+    assert viewer.is_viewer_data_dirty is True
+
+    # Test restoring with ViewMode enum and needs_recenter=True
+    viewer.restore_view(
+        base_id,
+        orientation=ViewMode.CORONAL,
+        zoom=1.5,
+        pan_offset=[0.0, 0.0],
+        needs_recenter=True,
+    )
+    assert viewer.orientation == ViewMode.CORONAL
+    assert viewer.zoom == 1.5
+    assert viewer.pan_offset == [0.0, 0.0]
+    assert viewer.needs_recenter is True
+
+
+def test_load_workspace_calls_restore_view(tmp_path):
+    """Test that load_workspace_sequence calls viewer.restore_view with the saved parameters."""
+    import json
+    from unittest.mock import MagicMock
+    from vvv.core.controller import Controller
+    from vvv.ui.ui_sequences import load_workspace_sequence
+
+    base_file = tmp_path / "base_rv.nii.gz"
+    base_img = sitk.GetImageFromArray(np.zeros((8, 8, 8), dtype=np.uint8))
+    sitk.WriteImage(base_img, str(base_file))
+
+    ws_data = {
+        "version": 1.0,
+        "workspace_path": str(tmp_path / "test_rv.vvw"),
+        "viewers": {
+            "V1": {
+                "image_id": "1",
+                "orientation": "CORONAL",
+                "zoom": 2.2,
+                "pan_offset": [10.0, -5.0],
+                "needs_recenter": False,
+            }
+        },
+        "images": {
+            "1": {
+                "path": str(base_file),
+                "display": {},
+                "camera": {},
+                "extraction": {},
+                "dvf": {},
+                "label_maps": [],
+                "rois": [],
+            }
+        },
+    }
+    ws_file = tmp_path / "test_rv.vvw"
+    with open(ws_file, "w") as f:
+        json.dump(ws_data, f)
+
+    controller = Controller()
+    mock_v1 = MagicMock()
+    mock_v2 = MagicMock()
+    controller.viewers = {"V1": mock_v1, "V2": mock_v2}
+
+    gui = MagicMock()
+    gui.plugins = []
+
+    gen = load_workspace_sequence(gui, controller, str(ws_file))
+    list(gen)
+
+    # V1 was in workspace: restore_view called with mapped id and params
+    mock_v1.restore_view.assert_called_once_with(
+        "1",
+        orientation="CORONAL",
+        zoom=2.2,
+        pan_offset=[10.0, -5.0],
+        needs_recenter=False,
+    )
+    # V2 was not in workspace: drop_image called
+    mock_v2.drop_image.assert_called_once()
+
+

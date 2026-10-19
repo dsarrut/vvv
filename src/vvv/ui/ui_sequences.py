@@ -1464,16 +1464,13 @@ def load_workspace_sequence(gui, controller, filepath):
             # 2. Force the mount immediately so we can safely override the default boot-up re-center flag.
             viewer = controller.viewers.get(tag)
             if viewer:
-                viewer.set_image(new_id)
-                viewer.orientation = ViewMode[v_data["orientation"]]
-                viewer.is_geometry_dirty = True
-                viewer.is_viewer_data_dirty = True
-                viewer.needs_recenter = False
-
-                if "zoom" in v_data:
-                    viewer.zoom = v_data["zoom"]
-                if "pan_offset" in v_data:
-                    viewer.pan_offset = v_data["pan_offset"]
+                viewer.restore_view(
+                    new_id,
+                    orientation=v_data.get("orientation"),
+                    zoom=v_data.get("zoom"),
+                    pan_offset=v_data.get("pan_offset"),
+                    needs_recenter=v_data.get("needs_recenter", False),
+                )
         else:
             controller.layout[tag] = None
             viewer = controller.viewers.get(tag)
