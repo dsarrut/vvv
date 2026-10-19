@@ -21,6 +21,7 @@ class TestThresholdPlugin(unittest.TestCase):
         self.mock_viewer.volume.is_rgb = False
         self.mock_viewer.volume.num_timepoints = 1
         self.mock_viewer.volume.data = np.array([0.0, 50.0, 100.0])
+        self.mock_viewer.volume.get_data_range.return_value = (0.0, 100.0)
         self.mock_viewer.volume._cached_min_val = 0.0
         self.mock_viewer.volume._cached_max_val = 100.0
         self.mock_viewer.view_state.display.ww = 100.0

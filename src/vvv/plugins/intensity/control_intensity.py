@@ -43,7 +43,6 @@ class IntensityController(PluginTagMixin):
         self._api: PluginAPI = None  # type: ignore
         self._ui: Optional["IntensityUI"] = None
 
-        self._minmax_cache = {}
         self._last_sidebar_image_id = None
         self._last_popup_visible = {}
         self._last_colorscale_states = {}
@@ -181,13 +180,7 @@ class IntensityController(PluginTagMixin):
                 dpg.set_value(minmax_tag, "---")
             else:
                 vol = viewer.volume
-                current_data_id = id(vol.data)
-                if current_data_id not in self._minmax_cache:
-                    self._minmax_cache[current_data_id] = (
-                        float(np.min(vol.data)),
-                        float(np.max(vol.data)),
-                    )
-                min_v, max_v = self._minmax_cache[current_data_id]
+                min_v, max_v = vol.get_data_range()
                 dpg.set_value(minmax_tag, f"{min_v:g} to {max_v:g}")
 
         ww_val = (
@@ -1014,9 +1007,6 @@ class IntensityController(PluginTagMixin):
             hs.computing_full_hist = False
             hs._vol_data_id = None
         self._last_colorscale_states.pop(image_id, None)
-        vol = self._api.get_volumes().get(image_id) if self._api else None
-        if vol is not None and vol.data is not None:
-            self._minmax_cache.pop(id(vol.data), None)
 
     def on_image_removed(self, image_id: str) -> None:
         hs = self._hist.pop(image_id, None)
@@ -1029,9 +1019,6 @@ class IntensityController(PluginTagMixin):
         self._last_popup_visible.pop(image_id, None)
         if self._last_sidebar_image_id == image_id:
             self._last_sidebar_image_id = None
-        vol = self._api.get_volumes().get(image_id)
-        if vol is not None:
-            self._minmax_cache.pop(id(vol.data), None)
 
     def serialize_image_state(self, image_id: str, context: str = "history") -> dict:
         hs = self._hist.get(image_id)

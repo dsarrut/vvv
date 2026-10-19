@@ -91,23 +91,11 @@ class ThresholdController(PluginTagMixin):
         return state
 
     def _init_state_from_volume(self, state: ThresholdState, vol) -> None:
-        if vol is not None:
-            current_data_id = id(vol.data)
-            if not hasattr(vol, "_cached_min_val") or getattr(vol, "_cached_data_id", None) != current_data_id:
-                if vol.data is not None and vol.data.size > 0:
-                    min_val = np.min(vol.data)
-                    max_val = np.max(vol.data)
-                    vol._cached_min_val = float(min_val) if min_val is not None else 0.0
-                    vol._cached_max_val = float(max_val) if max_val is not None else 1.0
-                else:
-                    vol._cached_min_val = 0.0
-                    vol._cached_max_val = 1.0
-                vol._cached_data_id = current_data_id
-
-            if not state.is_initialized:
-                state.threshold_min = float(np.clip(0.0, vol._cached_min_val, vol._cached_max_val))
-                state.threshold_max = vol._cached_max_val + 1.0
-                state.is_initialized = True
+        if vol is not None and not state.is_initialized:
+            min_v, max_v = vol.get_data_range()
+            state.threshold_min = float(np.clip(0.0, min_v, max_v))
+            state.threshold_max = max_v + 1.0
+            state.is_initialized = True
 
     def update(self, api: PluginAPI) -> None:
         if self._ui:
@@ -344,8 +332,9 @@ class ThresholdController(PluginTagMixin):
 
         elif sender in (self._t("drag_ext_threshold_min"), self._t("drag_ext_threshold_max")):
             val = dpg.get_value(sender)
-            if hasattr(viewer.volume, "_cached_min_val"):
-                val = float(np.clip(val, viewer.volume._cached_min_val, viewer.volume._cached_max_val + 1.0))
+            if hasattr(viewer.volume, "get_data_range"):
+                min_v, max_v = viewer.volume.get_data_range()
+                val = float(np.clip(val, min_v, max_v + 1.0))
 
             if sender == self._t("drag_ext_threshold_min"):
                 if val > state.threshold_max:
@@ -377,8 +366,9 @@ class ThresholdController(PluginTagMixin):
         step_size, _, _ = compute_adaptive_step_and_speed(ww_val)
         new_val = current_val + (step_size * direction)
 
-        if hasattr(viewer.volume, "_cached_min_val"):
-            new_val = np.clip(new_val, viewer.volume._cached_min_val, viewer.volume._cached_max_val + 1.0)
+        if hasattr(viewer.volume, "get_data_range"):
+            min_v, max_v = viewer.volume.get_data_range()
+            new_val = float(np.clip(new_val, min_v, max_v + 1.0))
 
         if is_min:
             if new_val > state.threshold_max:
