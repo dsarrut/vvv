@@ -35,6 +35,7 @@ class HistogramState:
         self._hist_cache: dict[int, tuple[np.ndarray, np.ndarray]] = {}
         # Threading
         self.stop_event = threading.Event()
+        self._generation: int = 0
 
 
 class IntensityController(PluginTagMixin):
@@ -305,18 +306,21 @@ class IntensityController(PluginTagMixin):
                     self._update_histogram(vol, hs, hs.bins, step, time_idx)
                     force_update_series = True
 
-                    hs.stop_event.clear()
-                    stop = hs.stop_event
+                    hs.stop_event.set()  # Cancel any previous in-flight thread
+                    stop = threading.Event()
+                    hs.stop_event = stop
+                    hs._generation += 1
+                    current_gen = hs._generation
 
-                    def _bg_compute(hs_obj, vol_obj, bins, t_idx):
+                    def _bg_compute(hs_obj, vol_obj, bins, t_idx, gen, stop_ev):
                         x, y = IntensityController._compute_histogram_data(
                             vol_obj, bins, 1, t_idx
                         )
-                        if stop.is_set():
+                        if stop_ev.is_set():
                             return
 
                         def _on_main_thread():
-                            if stop.is_set():
+                            if stop_ev.is_set() or hs_obj._generation != gen:
                                 return
                             hs_obj.data_x = x
                             hs_obj.data_y = y
@@ -334,7 +338,7 @@ class IntensityController(PluginTagMixin):
                     hs.computing_full_hist = True
                     threading.Thread(
                         target=_bg_compute,
-                        args=(hs, vol, hs.bins, time_idx),
+                        args=(hs, vol, hs.bins, time_idx, current_gen, stop),
                         daemon=True,
                     ).start()
 
