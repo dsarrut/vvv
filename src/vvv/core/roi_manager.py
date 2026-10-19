@@ -1115,6 +1115,7 @@ class ROIManager:
         sw, sh = vs.volume.get_physical_aspect_ratio(ori)
         base_z, base_y, base_x = vs.volume.shape3d
         from vvv.maths.contours import extract_2d_contours_from_slice
+        from vvv.maths.image import SliceRenderer
 
         extracted_any = False
         for roi_id, roi_state in list(vs.rois.items()):
@@ -1150,30 +1151,25 @@ class ROIManager:
             roi_slice = None
             offset_x, offset_y = 0, 0
 
-            # Isolate the exact 2D slice for this orientation
+            # Isolate the exact 2D slice for this orientation via unified SliceRenderer.extract_slice
             if ori == ViewMode.AXIAL:
                 if z0 <= s_idx < z1:
-                    if roi_vol.data.ndim == 4:
-                        roi_slice = roi_vol.data[t_idx, s_idx - z0, :, :]
-                    else:
-                        roi_slice = roi_vol.data[s_idx - z0, :, :]
+                    roi_slice = SliceRenderer.extract_slice(
+                        roi_vol.data, False, t_idx, s_idx - z0, ori
+                    )
                     offset_x, offset_y = x0, y0
             elif ori == ViewMode.CORONAL:
                 if y0 <= s_idx < y1:
-                    if roi_vol.data.ndim == 4:
-                        roi_slice = np.flipud(roi_vol.data[t_idx, :, s_idx - y0, :])
-                    else:
-                        roi_slice = np.flipud(roi_vol.data[:, s_idx - y0, :])
+                    roi_slice = SliceRenderer.extract_slice(
+                        roi_vol.data, False, t_idx, s_idx - y0, ori
+                    )
                     offset_x = x0
                     offset_y = base_z - z1
             elif ori == ViewMode.SAGITTAL:
                 if x0 <= s_idx < x1:
-                    if roi_vol.data.ndim == 4:
-                        roi_slice = np.flipud(
-                            np.fliplr(roi_vol.data[t_idx, :, :, s_idx - x0])
-                        )
-                    else:
-                        roi_slice = np.flipud(np.fliplr(roi_vol.data[:, :, s_idx - x0]))
+                    roi_slice = SliceRenderer.extract_slice(
+                        roi_vol.data, False, t_idx, s_idx - x0, ori
+                    )
                     offset_x = base_y - y1
                     offset_y = base_z - z1
 
