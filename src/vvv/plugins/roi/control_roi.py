@@ -590,16 +590,9 @@ class RoiPluginController(PluginTagMixin):
             new_r_z_mm = getattr(roi_state, "spheroid_radius_z", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
         new_r_z_mm = max(0.5, float(new_r_z_mm))
 
-        roi_state.spheroid_radius_x = new_r_x_mm
-        roi_state.spheroid_radius_y = new_r_y_mm
-        roi_state.spheroid_radius_z = new_r_z_mm
-        roi_state.spheroid_radius_xy = new_r_x_mm
-        roi_state.spheroid_radius = new_r_x_mm
-
         # Ensure center is within image FOV
-        if getattr(roi_state, "spheroid_center", None) is None:
-            roi_state.spheroid_center = [0.0, 0.0, 0.0]
-        phys_center = np.array(roi_state.spheroid_center)
+        curr_center = getattr(roi_state, "spheroid_center", None) or [0.0, 0.0, 0.0]
+        phys_center = np.array(curr_center)
         center_vox = base_vol.physic_coord_to_voxel_coord(phys_center)
         base_sz, base_sy, base_sx = base_vol.shape3d
         cx = np.clip(center_vox[0], 0.0, float(base_sx - 1))
@@ -607,7 +600,6 @@ class RoiPluginController(PluginTagMixin):
         cz = np.clip(center_vox[2], 0.0, float(base_sz - 1))
         clipped_center_vox = np.array([cx, cy, cz])
         clipped_center_phys = base_vol.voxel_coord_to_physic_coord(clipped_center_vox)
-        roi_state.spheroid_center = clipped_center_phys.tolist()
         phys_center = clipped_center_phys
 
         # 1. Find bounding box corners in voxel space
@@ -631,6 +623,13 @@ class RoiPluginController(PluginTagMixin):
 
         if min_x >= max_x or min_y >= max_y or min_z >= max_z:
             return
+
+        roi_state.spheroid_radius_x = new_r_x_mm
+        roi_state.spheroid_radius_y = new_r_y_mm
+        roi_state.spheroid_radius_z = new_r_z_mm
+        roi_state.spheroid_radius_xy = new_r_x_mm
+        roi_state.spheroid_radius = new_r_x_mm
+        roi_state.spheroid_center = clipped_center_phys.tolist()
 
         # 2. Create binary mask in the sub-grid
         zs = np.arange(min_z, max_z)
@@ -744,17 +743,16 @@ class RoiPluginController(PluginTagMixin):
         xs = np.arange(min_x, max_x)
         grid_z, grid_y, grid_x = np.meshgrid(zs, ys, xs, indexing='ij')
 
-        center_voxel = base_vol.physic_coord_to_voxel_coord(phys_center)
+        voxels = np.column_stack([grid_x.ravel(), grid_y.ravel(), grid_z.ravel()])
+        phys_pts = base_vol.origin + (base_vol.matrix @ (voxels * base_vol.spacing).T).T
 
-        rx = grid_x - center_voxel[0]
-        ry = grid_y - center_voxel[1]
-        rz = grid_z - center_voxel[2]
-
-        dist_x = np.abs(rx * base_vol.spacing[0])
-        dist_y = np.abs(ry * base_vol.spacing[1])
-        dist_z = np.abs(rz * base_vol.spacing[2])
-
-        mask_data = ((dist_x <= half_x) & (dist_y <= half_y) & (dist_z <= half_z)).astype(np.uint8)
+        diff = phys_pts - phys_center
+        mask_flat = (
+            (np.abs(diff[:, 0]) <= half_x)
+            & (np.abs(diff[:, 1]) <= half_y)
+            & (np.abs(diff[:, 2]) <= half_z)
+        )
+        mask_data = mask_flat.reshape((max_z - min_z, max_y - min_y, max_x - min_x)).astype(np.uint8)
 
         if not np.any(mask_data):
             cx_idx = int(round(center_voxel[0]))
@@ -821,14 +819,9 @@ class RoiPluginController(PluginTagMixin):
             new_size_z = getattr(roi_state, "box_size_z", None) or getattr(roi_state, "box_size", None) or 20.0
         new_size_z = max(1.0, float(new_size_z))
 
-        roi_state.box_size_x = new_size_x
-        roi_state.box_size_y = new_size_y
-        roi_state.box_size_z = new_size_z
-
         # Ensure center is within image FOV
-        if getattr(roi_state, "box_center", None) is None:
-            roi_state.box_center = [0.0, 0.0, 0.0]
-        phys_center = np.array(roi_state.box_center)
+        curr_center = getattr(roi_state, "box_center", None) or [0.0, 0.0, 0.0]
+        phys_center = np.array(curr_center)
         center_vox = base_vol.physic_coord_to_voxel_coord(phys_center)
         base_sz, base_sy, base_sx = base_vol.shape3d
         cx = np.clip(center_vox[0], 0.0, float(base_sx - 1))
@@ -836,7 +829,6 @@ class RoiPluginController(PluginTagMixin):
         cz = np.clip(center_vox[2], 0.0, float(base_sz - 1))
         clipped_center_vox = np.array([cx, cy, cz])
         clipped_center_phys = base_vol.voxel_coord_to_physic_coord(clipped_center_vox)
-        roi_state.box_center = clipped_center_phys.tolist()
         phys_center = clipped_center_phys
 
         half_x = new_size_x / 2.0
@@ -865,23 +857,27 @@ class RoiPluginController(PluginTagMixin):
         if min_x >= max_x or min_y >= max_y or min_z >= max_z:
             return
 
+        roi_state.box_size_x = new_size_x
+        roi_state.box_size_y = new_size_y
+        roi_state.box_size_z = new_size_z
+        roi_state.box_center = clipped_center_phys.tolist()
+
         # 2. Create binary mask in the sub-grid
         zs = np.arange(min_z, max_z)
         ys = np.arange(min_y, max_y)
         xs = np.arange(min_x, max_x)
         grid_z, grid_y, grid_x = np.meshgrid(zs, ys, xs, indexing='ij')
 
-        center_voxel = base_vol.physic_coord_to_voxel_coord(phys_center)
+        voxels = np.column_stack([grid_x.ravel(), grid_y.ravel(), grid_z.ravel()])
+        phys_pts = base_vol.origin + (base_vol.matrix @ (voxels * base_vol.spacing).T).T
 
-        rx = grid_x - center_voxel[0]
-        ry = grid_y - center_voxel[1]
-        rz = grid_z - center_voxel[2]
-
-        dist_x = np.abs(rx * base_vol.spacing[0])
-        dist_y = np.abs(ry * base_vol.spacing[1])
-        dist_z = np.abs(rz * base_vol.spacing[2])
-
-        mask_data = ((dist_x <= half_x) & (dist_y <= half_y) & (dist_z <= half_z)).astype(np.uint8)
+        diff = phys_pts - phys_center
+        mask_flat = (
+            (np.abs(diff[:, 0]) <= half_x)
+            & (np.abs(diff[:, 1]) <= half_y)
+            & (np.abs(diff[:, 2]) <= half_z)
+        )
+        mask_data = mask_flat.reshape((max_z - min_z, max_y - min_y, max_x - min_x)).astype(np.uint8)
 
         if not np.any(mask_data):
             cx_idx = int(round(center_voxel[0]))

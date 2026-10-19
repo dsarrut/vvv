@@ -2806,6 +2806,80 @@ class TestRoiPlugin(unittest.TestCase):
         roi_mgr.update_roi_contours(viewer)
         self.assertEqual(roi_state.polygons[ViewMode.AXIAL][4], [poly])
 
+    def test_box_mask_uses_direction_matrix_and_early_return_protects_state(self):
+        """Verify that box mask calculation respects direction matrix and early return protects state (PA12)."""
+        import SimpleITK as sitk
+        from vvv.maths.image import VolumeData
+
+        ctrl = self.plugin._controller
+        ctrl.api = self.mock_api
+
+        # Create a volume with a non-identity direction matrix (swapped X and Y axes)
+        # Direction: [[0, 1, 0], [1, 0, 0], [0, 0, 1]]
+        arr = np.zeros((20, 30, 40), dtype=np.float32)
+        sitk_img = sitk.GetImageFromArray(arr)
+        sitk_img.SetSpacing((1.0, 1.0, 1.0))
+        sitk_img.SetOrigin((0.0, 0.0, 0.0))
+        sitk_img.SetDirection([0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0])
+
+        base_vol = VolumeData("dummy_path", preloaded_sitk=sitk_img)
+        base_vol.matrix = np.array([[0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+        base_vol.inverse_matrix = np.linalg.inv(base_vol.matrix)
+        self.mock_api.get_volumes.return_value = {"base_oriented": base_vol}
+
+        vs = MagicMock()
+        vs.rois = {}
+        self.mock_api.get_view_states.return_value = {"base_oriented": vs}
+
+        # 1. Test update_box_mask with asymmetric extents in physical space:
+        # half_x = 2 mm (phys X), half_y = 10 mm (phys Y), half_z = 5 mm (phys Z)
+        # Because matrix maps vox X -> phys Y and vox Y -> phys X:
+        # In voxels, extent along voxel X should be half_y (10 mm -> 20 vox wide)
+        # and extent along voxel Y should be half_x (2 mm -> 4 vox wide).
+        box_size_x, box_size_y, box_size_z = 4.0, 20.0, 10.0
+        phys_center = base_vol.origin + np.array([15.0, 15.0, 10.0])
+
+        roi_state = MagicMock()
+        roi_state.box_size_x = 10.0
+        roi_state.box_size_y = 10.0
+        roi_state.box_size_z = 10.0
+        roi_state.box_center = phys_center.tolist()
+
+        roi_vol = MagicMock()
+        roi_vol.sitk_image = None
+
+        ctrl.update_box_mask(base_vol, roi_vol, roi_state, new_size_x=box_size_x, new_size_y=box_size_y, new_size_z=box_size_z)
+        mask = roi_vol.data
+        # In voxel coords, vox Y corresponds to phys X (size 4 -> span 4),
+        # and vox X corresponds to phys Y (size 20 -> span 20).
+        # Check that voxel X span > voxel Y span
+        span_z, span_y, span_x = mask.shape
+        self.assertGreater(span_x, span_y)
+
+        # 2. Test early return protects roi_state in update_box_mask & update_spheroid_mask
+        roi_state.box_size_x = 10.0
+        roi_state.box_size_y = 10.0
+        roi_state.box_size_z = 10.0
+        roi_state.box_center = [15.0, 15.0, 10.0]
+
+        roi_vol = MagicMock()
+        roi_vol.sitk_image = None
+
+        # Pass a mock base_vol where bounding box produces min_x >= max_x (e.g. inverted bounds)
+        bad_base_vol = MagicMock()
+        bad_base_vol.shape3d = (20, 20, 20)
+        bad_base_vol.physic_coord_to_voxel_coord.return_value = np.array([-10.0, -10.0, -10.0])
+        bad_base_vol.voxel_coord_to_physic_coord.return_value = np.array([0.0, 0.0, 0.0])
+
+        ctrl.update_box_mask(bad_base_vol, roi_vol, roi_state, new_size_x=50.0, new_size_y=50.0, new_size_z=50.0)
+        # Verify box_size was not overwritten with 50.0 on early return
+        self.assertEqual(roi_state.box_size_x, 10.0)
+
+        # Same for update_spheroid_mask
+        roi_state.spheroid_radius_x = 8.0
+        ctrl.update_spheroid_mask(bad_base_vol, roi_vol, roi_state, new_r_x_mm=99.0)
+        self.assertEqual(roi_state.spheroid_radius_x, 8.0)
+
 
 if __name__ == "__main__":
     unittest.main()
