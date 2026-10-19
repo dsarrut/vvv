@@ -1419,29 +1419,24 @@ class RoiPluginUI(PluginTagMixin):
         file_path = save_file_dialog("Save ROI As", default_name=default_name)
         if file_path:
             self.api.notify(f"Saving {roi_vol.name}...")
-            stop = self._c._stop_event
 
-            def _save():
-                self.api.save_image(roi_id, file_path)
+            def _on_done():
+                for vs in self.api.get_view_states().values():
+                    if roi_id in vs.rois:
+                        r = vs.rois[roi_id]
+                        r.source_type = "Binary"
+                        r.source_mode = "Target FG (val)"
+                        r.source_val = 1.0
+                        r.rtstruct_info = None
+                self.api.notify(f"Saved: {os.path.basename(file_path)}")
+                self.api.request_refresh()
 
-                if stop.is_set():
-                    return
+            def _on_error(err):
+                self.api.notify(f"Error saving {roi_vol.name}: {err}", color=[255, 100, 100])
 
-                def _on_done():
-                    for vs in self.api.get_view_states().values():
-                        if roi_id in vs.rois:
-                            r = vs.rois[roi_id]
-                            r.source_type = "Binary"
-                            r.source_mode = "Target FG (val)"
-                            r.source_val = 1.0
-                            r.rtstruct_info = None
-                    self.api.notify(f"Saved: {os.path.basename(file_path)}")
-                    self.api.request_refresh()
-
-                self.api.run_on_main_thread(_on_done)
-
-            import threading
-            threading.Thread(target=_save, daemon=True).start()
+            self.api.save_image_async(
+                roi_id, file_path, on_done=_on_done, on_error=_on_error
+            )
 
     def update_save_filename_ui(self):
         viewer = self.api.get_active_viewer() if self.api else None
@@ -1744,8 +1739,9 @@ class RoiPluginUI(PluginTagMixin):
 
                     self.api.run_on_main_thread(_on_done)
             except Exception as e:
-                self.api.notify(
-                    f"Error saving ROIs: {e}", color=[255, 100, 100]
+                err_msg = str(e)
+                self.api.run_on_main_thread(
+                    lambda: self.api.notify(f"Error saving ROIs: {err_msg}", color=[255, 100, 100])
                 )
 
         import threading

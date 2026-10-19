@@ -941,7 +941,7 @@ class RoiPluginController(PluginTagMixin):
             filtered_rois.append((roi_id, roi_state))
 
         if not filtered_rois:
-            self.api.notify("No filtered ROIs to save.")
+            self.api.run_on_main_thread(lambda: self.api.notify("No filtered ROIs to save."))
             return False
 
         # Calculate volumes for sorting if requested
@@ -1036,7 +1036,8 @@ class RoiPluginController(PluginTagMixin):
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(label_json, f, indent=4)
 
-        self.api.notify(f"Saved: {os.path.basename(filepath)}")
+        base_name = os.path.basename(filepath)
+        self.api.run_on_main_thread(lambda: self.api.notify(f"Saved: {base_name}"))
         return True
 
     def save_filtered_rois_as_individual_files(
@@ -1075,7 +1076,7 @@ class RoiPluginController(PluginTagMixin):
             filtered_rois.append((roi_id, roi_state))
 
         if not filtered_rois:
-            self.api.notify("No filtered ROIs to save.")
+            self.api.run_on_main_thread(lambda: self.api.notify("No filtered ROIs to save."))
             return False
 
         os.makedirs(out_dir, exist_ok=True)
@@ -1135,6 +1136,9 @@ class RoiPluginController(PluginTagMixin):
             sitk.WriteImage(sitk_full, out_file)
             saved_count += 1
 
-        self.api.notify(f"Saved {saved_count} ROI files to {os.path.basename(out_dir)}/")
+        out_name = os.path.basename(out_dir)
+        self.api.run_on_main_thread(
+            lambda: self.api.notify(f"Saved {saved_count} ROI files to {out_name}/")
+        )
         return True
 

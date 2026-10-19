@@ -2299,17 +2299,11 @@ class TestRoiPlugin(unittest.TestCase):
                 "Save ROI As", default_name="Tumor.nii.gz"
             )
 
-            # Wait for thread callback to complete
-            import time
-            for _ in range(50):
-                if self.mock_api.run_on_main_thread.called:
-                    break
-                time.sleep(0.01)
-
-            # Simulate the main-thread callback
-            call_args = self.mock_api.run_on_main_thread.call_args
-            self.assertIsNotNone(call_args)
-            on_done_callback = call_args[0][0]
+            # Verify save_image_async was called and execute its on_done callback
+            self.mock_api.save_image_async.assert_called_once()
+            call_kwargs = self.mock_api.save_image_async.call_args[1]
+            on_done_callback = call_kwargs.get("on_done")
+            self.assertIsNotNone(on_done_callback)
             on_done_callback()
 
             # Verify source metadata was updated

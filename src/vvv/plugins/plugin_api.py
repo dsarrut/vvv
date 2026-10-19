@@ -356,6 +356,9 @@ class PluginAPI:
     def save_image(self, image_id, file_path) -> None:
         self._controller.save_image(image_id, file_path)
 
+    def save_image_async(self, image_id, file_path, on_done=None, on_error=None) -> None:
+        self._controller.save_image_async(image_id, file_path, on_done=on_done, on_error=on_error)
+
     def load_rtstruct(self, image_id, filepath, selected_rois, ds=None) -> None:
         from vvv.ui.ui_sequences import load_rtstruct_sequence
 

@@ -79,3 +79,31 @@ def test_bake_commits_on_main_thread_and_relinks_overlay(tmp_path):
     assert vs.space.transform is None and not vs.space.is_active
     assert vs.display.overlay.image_id == ov and vs.display.overlay_data is not None
     assert c.status_message == "Transform baked into image" or "Resampling" in c.status_message
+
+
+def test_save_image_async_callbacks_run_on_main_thread(tmp_path):
+    c, base, _ = _make(tmp_path)
+    save_path = str(tmp_path / "saved_base.nii")
+    done_called = False
+    error_called = False
+
+    def on_done():
+        nonlocal done_called
+        done_called = True
+
+    def on_error(err):
+        nonlocal error_called
+        error_called = True
+
+    c.save_image_async(base, save_path, on_done=on_done, on_error=on_error)
+    # Background thread writes the file; main thread commit queue receives callback
+    deadline = time.time() + 5
+    while not c._main_commits and time.time() < deadline:
+        time.sleep(0.01)
+
+    assert not done_called  # Not called until run_main_thread_commits
+    c.run_main_thread_commits()
+    assert done_called
+    assert not error_called
+    assert c.volumes[base].path == save_path
+

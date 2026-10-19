@@ -338,7 +338,7 @@ class Controller:
         state = self._write_image_files(vol.sitk_image, getattr(vol, "unit", None), filepath)
         self._apply_saved_state(vol, filepath, state)
 
-    def save_image_async(self, vs_id, filepath):
+    def save_image_async(self, vs_id, filepath, on_done=None, on_error=None):
         """Same as save_image(), writing the files in a background thread.
 
         The image is captured now (main thread); the volume's path/name are
@@ -355,12 +355,24 @@ class Controller:
                 state = self._write_image_files(img, unit, filepath)
             except Exception as e:
                 msg = f"Save failed ({name}): {e}"
-                self.call_on_main(lambda: self._set_status(msg))
+                def _handle_error():
+                    self._set_status(msg)
+                    if on_error:
+                        try:
+                            on_error(e)
+                        except Exception as cb_err:
+                            logger.error(f"Error in on_error callback: {cb_err}")
+                self.call_on_main(_handle_error)
                 return
 
             def _commit():
                 self._apply_saved_state(vol, filepath, state)
                 self._set_status(f"Saved: {name}")
+                if on_done:
+                    try:
+                        on_done()
+                    except Exception as cb_err:
+                        logger.error(f"Error in on_done callback: {cb_err}")
 
             self.call_on_main(_commit)
 
