@@ -37,6 +37,7 @@ class MockViewState:
         self.is_data_dirty = False
         self.is_geometry_dirty = False
         self.display = MagicMock()
+        self.display.roi_above_overlay = False
         self.update_crosshair_from_phys = MagicMock()
 
 
@@ -1210,8 +1211,6 @@ class TestRoiPlugin(unittest.TestCase):
         base_vol.physic_coord_to_voxel_coord.side_effect = lambda pt: pt
         base_vol.voxel_coord_to_physic_coord.side_effect = lambda pt: pt
         base_vol.sitk_image = MagicMock()
-        # Ensure it is treated as mock to avoid SimpleITK initialization
-        type(base_vol.sitk_image).__name__ = "MagicMock"
 
         # Mock roi volume
         roi_vol = MagicMock()
@@ -1624,7 +1623,6 @@ class TestRoiPlugin(unittest.TestCase):
         base_vol.physic_coord_to_voxel_coord.side_effect = lambda pt: pt
         base_vol.voxel_coord_to_physic_coord.side_effect = lambda pt: pt
         base_vol.sitk_image = MagicMock()
-        type(base_vol.sitk_image).__name__ = "MagicMock"
 
         roi_vol = MagicMock()
         roi_vol.origin = np.array([5.0, 15.0, 25.0])

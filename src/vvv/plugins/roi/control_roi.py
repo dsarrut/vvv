@@ -255,7 +255,7 @@ class RoiPluginController(PluginTagMixin):
         filename = os.path.basename(filepath) if filepath else "Memory/Unknown"
 
         source_type = "Unknown"
-        if roi_state and type(roi_state).__name__ != "MagicMock":
+        if roi_state:
             stype = getattr(roi_state, "source_type", "Binary")
             smode = getattr(roi_state, "source_mode", "Ignore BG (val)")
             sval = getattr(roi_state, "source_val", 0.0)
@@ -274,11 +274,12 @@ class RoiPluginController(PluginTagMixin):
                     source_type = f"binary mask with FG={val_str}"
                 else:
                     source_type = f"binary mask with FG!={val_str}"
-            else:
+            elif isinstance(stype, str):
                 source_type = stype
 
 
         import numpy as np
+        import SimpleITK as sitk
 
         # 1. Voxel geometry calculations
         mask = roi_vol.data > 0
@@ -291,13 +292,10 @@ class RoiPluginController(PluginTagMixin):
         if len(indices) > 0:
             com_z, com_y, com_x = np.mean(indices, axis=0)
             com_pixel_cropped = [float(com_x), float(com_y), float(com_z)]
-            if "mock" in type(roi_vol.sitk_image).__name__.lower():
-                roi_dim = 3
+            if isinstance(getattr(roi_vol, "sitk_image", None), sitk.Image):
+                roi_dim = int(roi_vol.sitk_image.GetDimension())
             else:
-                try:
-                    roi_dim = int(roi_vol.sitk_image.GetDimension())
-                except Exception:
-                    roi_dim = 3
+                roi_dim = 3
 
             if len(com_pixel_cropped) < roi_dim:
                 com_pixel_cropped_padded = com_pixel_cropped + [0.0] * (roi_dim - len(com_pixel_cropped))
@@ -309,13 +307,10 @@ class RoiPluginController(PluginTagMixin):
             com_mm_full = list(roi_vol.sitk_image.TransformContinuousIndexToPhysicalPoint(com_pixel_cropped_padded))
             com_mm = com_mm_full[:3]
 
-            if "mock" in type(base_vol.sitk_image).__name__.lower():
-                base_dim = 3
+            if isinstance(getattr(base_vol, "sitk_image", None), sitk.Image):
+                base_dim = int(base_vol.sitk_image.GetDimension())
             else:
-                try:
-                    base_dim = int(base_vol.sitk_image.GetDimension())
-                except Exception:
-                    base_dim = 3
+                base_dim = 3
 
             if len(com_mm) < base_dim:
                 com_mm_padded = com_mm + [0.0] * (base_dim - len(com_mm))
@@ -663,15 +658,12 @@ class RoiPluginController(PluginTagMixin):
             if 0 <= sub_z < (max_z - min_z) and 0 <= sub_y < (max_y - min_y) and 0 <= sub_x < (max_x - min_x):
                 mask_data[sub_z, sub_y, sub_x] = 1
 
-        # 3. Create SimpleITK image if not mocked
+        # 3. Create SimpleITK image if base_vol has a valid sitk_image
         ref_origin = base_vol.voxel_coord_to_physic_coord(np.array([min_x, min_y, min_z]))
-        if "mock" not in type(base_vol.sitk_image).__name__.lower():
+        if isinstance(getattr(base_vol, "sitk_image", None), sitk.Image):
             mask_img = sitk.GetImageFromArray(mask_data)
             mask_img.SetSpacing(base_vol.spacing.tolist())
-            try:
-                mask_img.SetDirection(base_vol.sitk_image.GetDirection())
-            except Exception:
-                pass
+            mask_img.SetDirection(base_vol.sitk_image.GetDirection())
             mask_img.SetOrigin(ref_origin.tolist())
             roi_vol.sitk_image = mask_img
 
@@ -901,15 +893,12 @@ class RoiPluginController(PluginTagMixin):
             if 0 <= sub_z < (max_z - min_z) and 0 <= sub_y < (max_y - min_y) and 0 <= sub_x < (max_x - min_x):
                 mask_data[sub_z, sub_y, sub_x] = 1
 
-        # 3. Create SimpleITK image if not mocked
+        # 3. Create SimpleITK image if base_vol has a valid sitk_image
         ref_origin = base_vol.voxel_coord_to_physic_coord(np.array([min_x, min_y, min_z]))
-        if "mock" not in type(base_vol.sitk_image).__name__.lower():
+        if isinstance(getattr(base_vol, "sitk_image", None), sitk.Image):
             mask_img = sitk.GetImageFromArray(mask_data)
             mask_img.SetSpacing(base_vol.spacing.tolist())
-            try:
-                mask_img.SetDirection(base_vol.sitk_image.GetDirection())
-            except Exception:
-                pass
+            mask_img.SetDirection(base_vol.sitk_image.GetDirection())
             mask_img.SetOrigin(ref_origin.tolist())
             roi_vol.sitk_image = mask_img
 

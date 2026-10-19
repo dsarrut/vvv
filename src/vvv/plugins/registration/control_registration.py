@@ -334,25 +334,12 @@ class RegistrationPluginController(PluginTagMixin):
         if not vs.space.has_rotation():
             return
         rot_transform = vs.space.get_rotation_only_transform()
-        matrix_val = rot_transform.GetMatrix()
-        if (
-            hasattr(matrix_val, "_mock_return_value")
-            or not isinstance(matrix_val, (list, tuple, np.ndarray))
-            or len(matrix_val) != 9
-        ):
+        try:
+            R = np.array(rot_transform.GetMatrix(), dtype=np.float64).reshape(3, 3)
+            center = np.array(rot_transform.GetCenter(), dtype=np.float64)
+        except Exception:
             R = np.eye(3, dtype=np.float64)
-        else:
-            R = np.array(matrix_val, dtype=np.float64).reshape(3, 3)
-
-        center_val = rot_transform.GetCenter()
-        if (
-            hasattr(center_val, "_mock_return_value")
-            or not isinstance(center_val, (list, tuple, np.ndarray))
-            or len(center_val) != 3
-        ):
             center = np.zeros(3, dtype=np.float64)
-        else:
-            center = np.array(center_val, dtype=np.float64)
         viewer_slices = {}
         for v in self._api.get_viewers().values():
             if v.image_id == vs_id:
@@ -753,25 +740,12 @@ class RegistrationPluginController(PluginTagMixin):
         preview_thread_spawned = False
         if self._is_live_preview_enabled() and has_rotation:
             rot_transform = vs.space.get_rotation_only_transform()
-            matrix_val = rot_transform.GetMatrix()
-            if (
-                hasattr(matrix_val, "_mock_return_value")
-                or not isinstance(matrix_val, (list, tuple, np.ndarray))
-                or len(matrix_val) != 9
-            ):
+            try:
+                R = np.array(rot_transform.GetMatrix(), dtype=np.float64).reshape(3, 3)
+                center = np.array(rot_transform.GetCenter(), dtype=np.float64)
+            except Exception:
                 R = np.eye(3, dtype=np.float64)
-            else:
-                R = np.array(matrix_val, dtype=np.float64).reshape(3, 3)
-
-            center_val = rot_transform.GetCenter()
-            if (
-                hasattr(center_val, "_mock_return_value")
-                or not isinstance(center_val, (list, tuple, np.ndarray))
-                or len(center_val) != 3
-            ):
                 center = np.zeros(3, dtype=np.float64)
-            else:
-                center = np.array(center_val, dtype=np.float64)
             viewer_slices = {}
             for v in self._api.get_viewers().values():
                 if v.image_id == target_id:

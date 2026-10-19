@@ -531,11 +531,7 @@ class RoiPluginUI(PluginTagMixin):
                 dpg.configure_item(tag, enabled=enabled)
 
         if dpg.does_item_exist(self._t("btn_roi_above_overlay")) and viewer and viewer.view_state:
-            val = getattr(viewer.view_state.display, "roi_above_overlay", False)
-            if hasattr(val, "mock_calls"):
-                val = False
-            else:
-                val = bool(val)
+            val = bool(getattr(viewer.view_state.display, "roi_above_overlay", False))
             if val:
                 if dpg.does_item_exist("active_nav_button_theme"):
                     dpg.bind_item_theme(self._t("btn_roi_above_overlay"), "active_nav_button_theme")
@@ -3253,10 +3249,8 @@ class RoiPluginUI(PluginTagMixin):
         viewer = self.api.get_active_viewer()
         if not viewer or not viewer.view_state:
             return
-        val = getattr(viewer.view_state.display, "roi_above_overlay", False)
-        if hasattr(val, "mock_calls"):
-            val = False
-        new_val = not bool(val)
+        val = bool(getattr(viewer.view_state.display, "roi_above_overlay", False))
+        new_val = not val
         viewer.view_state.display.roi_above_overlay = new_val
         if new_val:
             if dpg.does_item_exist("active_nav_button_theme"):

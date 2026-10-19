@@ -85,6 +85,7 @@ def test_mip_scroll_rotation():
     gui = MagicMock()
     gui.plugins = [mip_plugin]
     controller.gui = gui
+    controller.get_plugin.side_effect = lambda pid: mip_plugin if pid == "mip_plugin" else None
     
     # Create the viewer
     viewer = SliceViewer("V1", controller)

@@ -140,31 +140,21 @@ def _validate_and_reshape(
     return reshaped_2d, actual_shape
 
 
-def _safe_get_plugin(controller, plugin_id):
-    """
-    Safely retrieves a plugin by ID, handling mock/test environments
-    where Controller or get_plugin might be MagicMocks.
-    """
+def _safe_get_plugin(controller, plugin_id: str):
+    """Retrieve a plugin by ID from controller or its GUI."""
     if not controller:
         return None
     get_plugin_func = getattr(controller, "get_plugin", None)
-    if get_plugin_func is not None and "Mock" not in type(get_plugin_func).__name__:
+    if callable(get_plugin_func):
         try:
             res = get_plugin_func(plugin_id)
-            if res is not None and "Mock" not in type(res).__name__:
+            if res is not None and getattr(res, "plugin_id", None) == plugin_id:
                 return res
         except Exception:
             pass
 
-    # Fallback/mock environment path
     gui = getattr(controller, "gui", None)
-    if gui and "Mock" not in type(gui).__name__:
-        plugins = getattr(gui, "plugins", None)
-        if plugins and "Mock" not in type(plugins).__name__:
-            for p in plugins:
-                if getattr(p, "plugin_id", None) == plugin_id:
-                    return p
-    elif gui:
+    if gui:
         plugins = getattr(gui, "plugins", None)
         if isinstance(plugins, list):
             for p in plugins:
