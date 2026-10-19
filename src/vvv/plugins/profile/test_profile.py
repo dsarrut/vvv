@@ -275,6 +275,65 @@ class TestProfilePlugin(unittest.TestCase):
         self.mock_api.notify.assert_called_with("Copied profile 'Copied Profile' to 'image_target'")
         self.mock_api.request_refresh.assert_called_once()
 
+    def test_on_image_removed_closes_tracked_plot_windows(self):
+        """Verify on_image_removed closes plot windows even when view_state is already deleted (PA10)."""
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        controller = self.plugin._controller
+        controller.bind(self.mock_api)
+
+        win_tag = controller._t("plot_win_test_p1")
+        if dpg.does_item_exist(win_tag):
+            dpg.delete_item(win_tag)
+        dpg.add_window(tag=win_tag)
+        self.assertTrue(dpg.does_item_exist(win_tag))
+
+        controller.track_plot_window("img_removed", win_tag)
+
+        # view state is already gone from api
+        self.mock_api.get_view_states.return_value = {}
+
+        controller.on_image_removed("img_removed")
+        self.assertFalse(dpg.does_item_exist(win_tag))
+
+    def test_on_plot_closed_when_another_image_is_active(self):
+        """Verify on_plot_closed marks plot_open=False on the owning image even if another image is active (PA10)."""
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        ui = self.plugin._ui
+        controller = self.plugin._controller
+        controller.bind(self.mock_api)
+
+        p1 = ProfileLineState()
+        p1.id = "p1"
+        p1.plot_open = True
+
+        vs_img1 = MagicMock()
+        vs_img1.profiles = {"p1": p1}
+
+        vs_img2 = MagicMock()
+        vs_img2.profiles = {}
+
+        self.mock_api.get_view_states.return_value = {"img1": vs_img1, "img2": vs_img2}
+
+        # Active viewer is for img2
+        viewer_img2 = MagicMock()
+        viewer_img2.image_id = "img2"
+        viewer_img2.view_state = vs_img2
+        self.mock_api.get_active_viewer.return_value = viewer_img2
+
+        win_tag = controller._t("plot_win_p1")
+        if dpg.does_item_exist(win_tag):
+            dpg.delete_item(win_tag)
+        dpg.add_window(tag=win_tag)
+        controller.track_plot_window("img1", win_tag)
+
+        # Close the window from img1
+        ui.on_plot_closed(win_tag, None, {"image_id": "img1", "profile_id": "p1"})
+
+        self.assertFalse(p1.plot_open)
+        self.assertFalse(dpg.does_item_exist(win_tag))
+
 
 if __name__ == "__main__":
     unittest.main()

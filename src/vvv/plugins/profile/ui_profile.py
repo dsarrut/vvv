@@ -395,7 +395,7 @@ class ProfilePluginUI(PluginTagMixin):
         p_id = user_data
         win_tag = self._t(f"plot_win_{p_id}")
         if dpg.does_item_exist(win_tag):
-            self.on_plot_closed(win_tag, None, p_id)
+            self.on_plot_closed(win_tag, None, {"image_id": viewer.image_id, "profile_id": p_id})
             return
 
         profile = viewer.view_state.profiles.get(p_id)
@@ -409,9 +409,11 @@ class ProfilePluginUI(PluginTagMixin):
             width=450,
             height=550,
             on_close=self.on_plot_closed,
-            user_data=profile.id,
+            user_data={"image_id": viewer.image_id, "profile_id": profile.id},
         ):
             self.build_plot_window_contents(profile)
+
+        self._c.track_plot_window(viewer.image_id, win_tag)
 
         # Position the window
         if getattr(profile, "plot_position", None) is not None:
@@ -721,15 +723,38 @@ class ProfilePluginUI(PluginTagMixin):
             dpg.fit_axis_data(self._t(f"yaxis_{p_id}"))
 
     def on_plot_closed(self, sender, app_data, user_data):
-        viewer = self._c._api.get_active_viewer() if self._c._api else None
-        if viewer and viewer.view_state:
-            profile = viewer.view_state.profiles.get(user_data)
-            if profile:
-                profile.plot_open = False
-                profile.hovered_distance = None
-                if dpg.does_item_exist(sender):
-                    profile.plot_position = dpg.get_item_pos(sender)
-        dpg.delete_item(sender)
+        image_id = None
+        p_id = user_data
+        if isinstance(user_data, dict):
+            image_id = user_data.get("image_id")
+            p_id = user_data.get("profile_id")
+        elif isinstance(user_data, tuple) and len(user_data) == 2:
+            image_id, p_id = user_data
+
+        if self._c._api:
+            vs = None
+            if image_id:
+                vs = self._c._api.get_view_states().get(image_id)
+            if not vs:
+                viewer = self._c._api.get_active_viewer()
+                if viewer and viewer.view_state:
+                    vs = viewer.view_state
+            if not vs or (hasattr(vs, "profiles") and p_id not in vs.profiles):
+                for candidate_vs in self._c._api.get_view_states().values():
+                    if hasattr(candidate_vs, "profiles") and p_id in candidate_vs.profiles:
+                        vs = candidate_vs
+                        break
+            if vs and hasattr(vs, "profiles"):
+                profile = vs.profiles.get(p_id)
+                if profile:
+                    profile.plot_open = False
+                    profile.hovered_distance = None
+                    if dpg.does_item_exist(sender):
+                        profile.plot_position = dpg.get_item_pos(sender)
+
+        self._c.untrack_plot_window(image_id, p_id, sender)
+        if dpg.does_item_exist(sender):
+            dpg.delete_item(sender)
 
     def on_copy_profile_clicked(self, sender, app_data, user_data):
         api = self._c._api

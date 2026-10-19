@@ -16,12 +16,25 @@ class ProfilePluginController(PluginTagMixin):
         self._api: Optional[PluginAPI] = None
         self._ui = None
         self.profile_filters: Dict[str, str] = {}
+        self._open_plot_windows: Dict[str, set[str]] = {}
 
     def bind(self, api: PluginAPI) -> None:
         self._api = api
 
     def bind_ui(self, ui) -> None:
         self._ui = ui
+
+    def track_plot_window(self, image_id: str, win_tag: str) -> None:
+        if image_id not in self._open_plot_windows:
+            self._open_plot_windows[image_id] = set()
+        self._open_plot_windows[image_id].add(win_tag)
+
+    def untrack_plot_window(self, image_id: Optional[str], p_id: Optional[str], win_tag: str) -> None:
+        if image_id and image_id in self._open_plot_windows:
+            self._open_plot_windows[image_id].discard(win_tag)
+        else:
+            for s in self._open_plot_windows.values():
+                s.discard(win_tag)
 
     def update(self, api: PluginAPI) -> None:
         if self._ui:
@@ -35,9 +48,13 @@ class ProfilePluginController(PluginTagMixin):
         pass
 
     def on_image_removed(self, image_id: str) -> None:
+        win_tags = self._open_plot_windows.pop(image_id, set())
+        for win_tag in win_tags:
+            if dpg.does_item_exist(win_tag):
+                dpg.delete_item(win_tag)
         if self._api:
             vs = self._api.get_view_states().get(image_id)
-            if vs:
+            if vs and hasattr(vs, "profiles"):
                 for p_id in vs.profiles:
                     win_tag = self._t(f"plot_win_{p_id}")
                     if dpg.does_item_exist(win_tag):
@@ -88,12 +105,18 @@ class ProfilePluginController(PluginTagMixin):
         pass
 
     def destroy(self) -> None:
+        for win_tags in self._open_plot_windows.values():
+            for win_tag in win_tags:
+                if dpg.does_item_exist(win_tag):
+                    dpg.delete_item(win_tag)
+        self._open_plot_windows.clear()
         if self._api:
             for vs in self._api.get_view_states().values():
-                for p_id in vs.profiles:
-                    win_tag = self._t(f"plot_win_{p_id}")
-                    if dpg.does_item_exist(win_tag):
-                        dpg.delete_item(win_tag)
+                if hasattr(vs, "profiles"):
+                    for p_id in vs.profiles:
+                        win_tag = self._t(f"plot_win_{p_id}")
+                        if dpg.does_item_exist(win_tag):
+                            dpg.delete_item(win_tag)
         if self._ui:
             reg_tag = self._ui._t("global_hover_reg")
             if dpg.does_item_exist(reg_tag):
