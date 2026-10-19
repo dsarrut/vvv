@@ -27,6 +27,7 @@ class DicomPluginUI(PluginTagMixin):
         self.last_split_width = 450
 
         # Asynchronous State
+        self.is_scanning = False
         self.scan_progress = 0.0
         self.scan_status_text = ""
         self.scan_finished = False
@@ -60,8 +61,8 @@ class DicomPluginUI(PluginTagMixin):
             self.scan_finished = False
             return
 
-        # Update progress and status text while scanning
-        if dpg.does_item_exist(self._t("scan_progress")):
+        # Update progress and status text only while scanning
+        if self.is_scanning and dpg.does_item_exist(self._t("scan_progress")):
             dpg.set_value(self._t("scan_progress"), self.scan_progress)
             dpg.set_value(self._t("scan_status"), self.scan_status_text)
 
@@ -428,6 +429,7 @@ class DicomPluginUI(PluginTagMixin):
         dpg.delete_item(self._t("series_list"), children_only=True)
 
         self._stop_event.clear()
+        self.is_scanning = True
         # Run scan in background so UI doesn't freeze
         threading.Thread(
             target=self._run_scan, args=(folder, recurse), daemon=True
@@ -439,6 +441,7 @@ class DicomPluginUI(PluginTagMixin):
         # Consume the generator yielded from PluginAPI (which delegates to controller/file.py)
         for result in self.api.scan_dicom_folder(folder, recursive=recurse):
             if self._stop_event.is_set():
+                self.is_scanning = False
                 return
             if len(result) == 2:
                 pct, dirname = result
@@ -449,10 +452,12 @@ class DicomPluginUI(PluginTagMixin):
                 _, _, self.scanned_series, self.scan_errors = result
 
         # Signal completion
+        self.is_scanning = False
         self.scan_finished = True
 
     def destroy(self) -> None:
         self._stop_event.set()
+        self.is_scanning = False
         if dpg.does_item_exist(self.window_tag):
             dpg.delete_item(self.window_tag)
 

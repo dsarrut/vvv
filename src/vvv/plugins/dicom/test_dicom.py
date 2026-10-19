@@ -434,6 +434,30 @@ class TestDicomPlugin(unittest.TestCase):
         themes = [theme_ct, theme_rtstruct, theme_rtdose, theme_pet, theme_nm, theme_mr]
         self.assertEqual(len(themes), len(set(themes)))
 
+    def test_tick_does_not_overwrite_scan_status_when_idle(self):
+        """Verify that tick() preserves the scan_status text after scan finishes (PA14)."""
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+
+        self.plugin.show_window()
+        ui = self.plugin._ui
+        ui.scanned_series = [self.series_data]
+        ui.scan_status_text = "  scanning_dir..."
+        ui.scan_finished = True
+
+        # First tick commits completion
+        ui.tick()
+        self.assertEqual(dpg.get_value(ui._t("scan_status")), "  (1 found)")
+
+        # Subsequent ticks when idle should NOT overwrite the status with scan_status_text
+        ui.tick()
+        ui.tick()
+        self.assertEqual(dpg.get_value(ui._t("scan_status")), "  (1 found)")
+
+        dpg.delete_item("test_parent")
+
 
 if __name__ == "__main__":
     unittest.main()
