@@ -509,6 +509,47 @@ class TestLandmarkPlugin(unittest.TestCase):
             plugin.tick()
             mock_api.request_refresh.assert_called_once()
 
+    def test_world_to_display_list_under_registration_transform(self):
+        """Verify that world_to_display correctly transforms a list (PA5), without raising
+        AttributeError on .tolist() and silently dropping the registration transform.
+        """
+        tx = sitk.Euler3DTransform()
+        tx.SetTranslation((10.0, 20.0, 30.0))
+        self.vs.space.transform = tx
+        self.vs.space.is_active = True
+
+        # Input is a Python list [10.0, 20.0, 30.0]
+        # Registration inverse should map world (10, 20, 30) -> native physical (0, 0, 0) -> voxel (0, 0, 0)
+        vox = self.vs.space.world_to_display([10.0, 20.0, 30.0])
+        self.assertIsNotNone(vox)
+        np.testing.assert_allclose(vox, [0.0, 0.0, 0.0], atol=1e-5)
+
+    def test_snap_landmark_with_registration_transform(self):
+        """Verify that snap_to_voxel_grid accounts for active registration transform (PA5)."""
+        ctrl = LandmarkPluginController("landmark_plugin")
+        mock_api = unittest.mock.MagicMock()
+        mock_api.get_active_viewer.return_value = unittest.mock.MagicMock(image_id="img1", view_state=self.vs)
+        mock_api.get_view_states.return_value = {"img1": self.vs}
+        mock_api.get_volumes.return_value = {"img1": self.volume}
+        ctrl.bind(mock_api)
+
+        # Set up active registration transform: translation (+10, +20, +30)
+        tx = sitk.Euler3DTransform()
+        tx.SetTranslation((10.0, 20.0, 30.0))
+        self.vs.space.transform = tx
+        self.vs.space.is_active = True
+
+        # World point [10.3, 20.7, 32.8]:
+        # Under transform: native phys = [0.3, 0.7, 2.8]
+        # Voxel index (spacing [1, 1, 2]) = [0.3, 0.7, 1.4] -> nearest voxel = [0, 1, 1]
+        # Snapped native phys = [0.0, 1.0, 2.0]
+        # World phys after forward transform = [10.0, 21.0, 32.0]
+        lm = Landmark(id="lm_reg", name="RegPoint", pt_phys=[10.3, 20.7, 32.8])
+        self.vs.landmarks["lm_reg"] = lm
+
+        ctrl.snap_landmark_to_grid("lm_reg", image_id="img1")
+        np.testing.assert_allclose(lm.pt_phys, [10.0, 21.0, 32.0], atol=1e-5)
+
 
 if __name__ == "__main__":
     unittest.main()

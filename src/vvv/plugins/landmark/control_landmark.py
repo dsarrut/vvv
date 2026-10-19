@@ -334,9 +334,10 @@ class LandmarkPluginController(PluginTagMixin):
             return
         vol = self._api.get_volumes().get(vs_id)
         landmarks = self.get_landmarks(vs_id)
+        vs = self._api.get_view_states().get(vs_id)
         if landmark_id in landmarks and vol:
-            landmarks[landmark_id].snap_to_voxel_grid(vol)
-            vs = self._api.get_view_states().get(vs_id)
+            space = vs.space if vs else None
+            landmarks[landmark_id].snap_to_voxel_grid(vol, space=space)
             if vs:
                 vs.is_geometry_dirty = True
             self._api.request_refresh()
@@ -347,10 +348,11 @@ class LandmarkPluginController(PluginTagMixin):
             return
         vol = self._api.get_volumes().get(vs_id)
         landmarks = self.get_landmarks(vs_id)
+        vs = self._api.get_view_states().get(vs_id)
         if vol and landmarks:
+            space = vs.space if vs else None
             for lm in landmarks.values():
-                lm.snap_to_voxel_grid(vol)
-            vs = self._api.get_view_states().get(vs_id)
+                lm.snap_to_voxel_grid(vol, space=space)
             if vs:
                 vs.is_geometry_dirty = True
             self._api.request_refresh()

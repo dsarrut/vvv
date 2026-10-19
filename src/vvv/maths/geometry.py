@@ -97,7 +97,8 @@ class SpatialEngine:
 
         if self.is_active and self.transform:
             # Always apply the full transform to get to world physical coordinates
-            return np.array(self.transform.TransformPoint(phys.tolist()))
+            pt = np.asarray(phys, dtype=np.float64).tolist()
+            return np.array(self.transform.TransformPoint(pt))
         return phys
 
     def world_to_display(self, world_phys, is_buffered=False):
@@ -107,11 +108,12 @@ class SpatialEngine:
         if self.is_active and self.transform:
             try:
                 # Reverse the full Registration transform to get to the image's native physical space
-                phys = np.array(self.transform.GetInverse().TransformPoint(world_phys.tolist()))
+                pt = np.asarray(world_phys, dtype=np.float64).tolist()
+                phys = np.array(self.transform.GetInverse().TransformPoint(pt))
             except Exception:
-                phys = np.array(world_phys)  # Failsafe against singular inverse matrices
+                phys = np.asarray(world_phys, dtype=np.float64)  # Failsafe against singular inverse matrices
         else:
-            phys = np.array(world_phys)
+            phys = np.asarray(world_phys, dtype=np.float64)
 
         # Convert physical coordinates back to display_voxel using the appropriate geometry
         return self.phys_to_raw_voxel(phys, use_buffered_geometry=is_buffered)

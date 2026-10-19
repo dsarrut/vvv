@@ -42,15 +42,22 @@ class Landmark:
             show_name=data.get("show_name", True),
         )
 
-    def snap_to_voxel_grid(self, volume) -> None:
+    def snap_to_voxel_grid(self, volume, space=None) -> None:
         """Snaps physical coordinate pt_phys to nearest voxel center in volume."""
         if volume is None or self.pt_phys is None:
             return
         import numpy as np
-        v_idx = volume.physic_coord_to_voxel_coord(self.pt_phys)
-        v_center = np.round(v_idx)
-        snapped_phys = volume.voxel_coord_to_physic_coord(v_center)
-        self.pt_phys = list(snapped_phys)
+
+        if space is not None and getattr(space, "is_active", False) and getattr(space, "transform", None):
+            v_idx = space.world_to_display(self.pt_phys, is_buffered=False)
+            v_center = np.round(v_idx)
+            snapped_phys = space.display_to_world(v_center, is_buffered=False)
+        else:
+            v_idx = volume.physic_coord_to_voxel_coord(self.pt_phys)
+            v_center = np.round(v_idx)
+            snapped_phys = volume.voxel_coord_to_physic_coord(v_center)
+
+        self.pt_phys = [float(x) for x in snapped_phys]
 
     def to_csv_row(self) -> dict:
         return {
