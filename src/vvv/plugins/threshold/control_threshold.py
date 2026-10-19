@@ -483,14 +483,18 @@ class ThresholdController(PluginTagMixin):
                     try:
                         # 3. Bypass Disk I/O to Create VolumeData
                         new_vol = VolumeData.__new__(VolumeData)
-                        new_vol.path = vol.path
-                        new_vol.file_paths = list(vol.file_paths)
+                        new_vol.path = None
+                        new_vol.file_paths = []
+                        new_vol._load_kwargs = {}
                         new_vol.name = f"Thr: {vol.name}"
                         new_vol.sitk_image = new_img
                         new_vol.data = new_data
                         new_vol.matrix_display_str = vol.matrix_display_str
                         new_vol.matrix_tooltip_str = vol.matrix_tooltip_str
                         new_vol.read_image_metadata()
+                        if getattr(vol, "unit", None):
+                            new_vol.unit = vol.unit
+                            new_vol.unit_source = getattr(vol, "unit_source", None)
                         new_vol.last_mtime = 0
                         new_vol._last_check_time = 0
                         new_vol._is_outdated = False

@@ -26,8 +26,12 @@ class HistoryManager:
         write_json_atomic(self.history_path, self.data)
 
     def save_image_state(self, controller, vs_id, save=True):
+        if vs_id not in controller.view_states or vs_id not in controller.volumes:
+            return
         vs = controller.view_states[vs_id]
         vol = controller.volumes[vs_id]
+        if not getattr(vol, "file_paths", None):
+            return
         primary_path = vol.file_paths[0]
         key = get_history_path_key(primary_path)
 
@@ -69,6 +73,8 @@ class HistoryManager:
             self.save()
 
     def get_image_state(self, volume):
+        if not getattr(volume, "file_paths", None):
+            return None
         primary_path = volume.file_paths[0]
         key = get_history_path_key(primary_path)
 

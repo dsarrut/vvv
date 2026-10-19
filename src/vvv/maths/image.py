@@ -1622,6 +1622,11 @@ class VolumeData:
         import SimpleITK as sitk
         from vvv.maths.image_utils import straighten_image
 
+        if not getattr(self, "file_paths", None):
+            raise RuntimeError(
+                f"Cannot reload {self.name}: image was generated in memory and has no file on disk."
+            )
+
         load_kwargs = getattr(self, "_load_kwargs", {})
         try:
             new_sitk = self.read_image_from_disk(self.file_paths)

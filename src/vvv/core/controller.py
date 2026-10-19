@@ -949,6 +949,11 @@ class Controller:
         vs = self.view_states[vs_id]
         vol = vs.volume
 
+        if not getattr(vol, "file_paths", None):
+            self.status_message = f"Cannot reload {vol.name}: generated/in-memory image has no file on disk."
+            self.ui_needs_refresh = True
+            return
+
         self.status_message = f"Reloading {vol.name} ..."
         self.ui_needs_refresh = True
 

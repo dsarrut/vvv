@@ -496,6 +496,8 @@ class FileManager:
 
         # for home as ~
         def portable_path(p):
+            if not p:
+                return ""
             if isinstance(p, list):
                 return [portable_path(x) for x in p]
             if isinstance(p, str) and p.startswith("4D:"):
@@ -553,9 +555,14 @@ class FileManager:
                 and vs.display.overlay.image_id in self.controller.volumes
             ):
                 ov_vol = self.controller.volumes[vs.display.overlay.image_id]
+                ov_path = ""
+                if getattr(ov_vol, "file_paths", None) and len(ov_vol.file_paths) > 0:
+                    ov_path = portable_path(ov_vol.file_paths[0])
+                elif getattr(ov_vol, "path", None):
+                    ov_path = portable_path(ov_vol.path)
                 overlay_info = {
                     "id": vs.display.overlay.image_id,
-                    "path": portable_path(ov_vol.file_paths[0]),
+                    "path": ov_path,
                     "mode": vs.display.overlay.mode,
                     "opacity": vs.display.overlay.opacity,
                     "colormap": self.controller.view_states[
@@ -621,12 +628,20 @@ class FileManager:
             # Extract Profiles Info
             profiles_list = [p.to_dict() for p in vs.profiles.values()]
 
+            if getattr(vol, "file_paths", None):
+                if len(vol.file_paths) > 1:
+                    img_path = portable_path(vol.file_paths)
+                elif len(vol.file_paths) == 1:
+                    img_path = portable_path(vol.file_paths[0])
+                else:
+                    img_path = ""
+            elif getattr(vol, "path", None):
+                img_path = portable_path(vol.path)
+            else:
+                img_path = ""
+
             image_entry = {
-                "path": (
-                    portable_path(vol.file_paths)
-                    if len(vol.file_paths) > 1
-                    else portable_path(vol.file_paths[0])
-                ),
+                "path": img_path,
                 "unit": getattr(vol, "unit", None),
                 "unit_source": getattr(vol, "unit_source", None),
                 "is_overlay_only": is_overlay,
