@@ -982,3 +982,73 @@ def test_load_workspace_when_label_map_file_changed_on_disk(tmp_path):
     r4 = next(r for r in vs.rois.values() if int(r.source_val) == 4)
     assert int(r4.source_val) == 4
     assert r4.visible is True
+
+
+def test_workspace_label_map_is_read_only_once(tmp_path):
+    """Verify that label map files are read only once during workspace loading (in worker, not in _gather_workspace_rois)."""
+    import json
+    import numpy as np
+    import SimpleITK as sitk
+    from unittest.mock import MagicMock
+    from vvv.core.controller import Controller
+    from vvv.ui.ui_sequences import load_workspace_sequence, _gather_workspace_rois
+
+    base_file = tmp_path / "base.nii.gz"
+    sitk.WriteImage(
+        sitk.GetImageFromArray(np.zeros((5, 5, 5), dtype=np.float32)), str(base_file)
+    )
+
+    lm_file = tmp_path / "labels.nii.gz"
+    arr = np.zeros((5, 5, 5), dtype=np.uint8)
+    arr[1:3, 1:3, 1:3] = 1
+    sitk.WriteImage(sitk.GetImageFromArray(arr), str(lm_file))
+
+    ws_data = {
+        "version": 1.0,
+        "images": {
+            "1": {
+                "path": str(base_file),
+                "label_maps": [
+                    {
+                        "path": str(lm_file),
+                        "labels": {"1": {"name": "L1", "color": [255, 0, 0]}},
+                    }
+                ],
+                "rois": [],
+            }
+        },
+    }
+    controller = Controller()
+
+    read_counts = []
+    orig_read = sitk.ReadImage
+
+    def spy_read(*args, **kwargs):
+        read_counts.append(args[0])
+        return orig_read(*args, **kwargs)
+
+    sitk.ReadImage = spy_read
+    try:
+        # 1. _gather_workspace_rois must NOT read the image from disk
+        _gather_workspace_rois(controller, ws_data, {"1": "1"}, [], lambda p: p)
+        assert not any(
+            str(lm_file) in str(c) for c in read_counts
+        ), "_gather_workspace_rois should not read label map from disk"
+
+        # 2. Entire workspace sequence must read lm_file exactly once
+        ws_file = tmp_path / "test.vvw"
+        with open(ws_file, "w") as f:
+            json.dump(ws_data, f)
+
+        gui = MagicMock()
+        gui.plugins = []
+        gen = load_workspace_sequence(gui, controller, str(ws_file))
+        list(gen)
+
+        lm_reads = [c for c in read_counts if str(lm_file) in str(c)]
+        assert (
+            len(lm_reads) == 1
+        ), f"Expected exactly 1 read of label map file, got {len(lm_reads)}"
+    finally:
+        sitk.ReadImage = orig_read
+

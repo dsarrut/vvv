@@ -887,126 +887,27 @@ def _gather_workspace_rois(controller, ws, id_map, warnings, resolve_workspace_p
                             sidecar_dict
                         )
 
-                        # Determine unique labels currently present on disk
-                        try:
-                            import SimpleITK as sitk
-                            lm_img = sitk.ReadImage(p0)
-                            lm_data_arr = sitk.GetArrayViewFromImage(lm_img)
-                            file_labels = np.unique(lm_data_arr)
-                            file_labels = file_labels[file_labels != 0]
-                        except Exception:
-                            file_labels = None
-
-                        if file_labels is not None:
-                            # The file on disk is the source of truth for which labels exist.
-                            # labels_dict from the workspace supplies user customization preferences.
-                            base_name = controller.roi._clean_roi_name(p0)
-                            for val in file_labels:
-                                val_int = int(val)
-                                val_str = str(val_int)
-                                l_info = labels_dict.get(val_str) or labels_dict.get(str(float(val)))
-
-                                if isinstance(l_info, dict):
-                                    name = (
-                                        sidecar_labels.get(val_int)
-                                        or l_info.get("name")
-                                        or f"Label {val_int}"
-                                    )
-                                    raw_col = sidecar_colors.get(val_int) or l_info.get(
-                                        "color"
-                                    )
-                                    opacity = l_info.get("opacity", 0.5)
-                                    visible = l_info.get("visible", True)
-                                    is_contour = l_info.get("is_contour", False)
-                                    thickness = l_info.get("thickness", 1.0)
-                                else:
-                                    name = sidecar_labels.get(val_int) or (
-                                        str(l_info) if l_info else f"{base_name} - Lbl {val_int}"
-                                    )
-                                    raw_col = sidecar_colors.get(val_int) or ROI_COLORS[(val_int - 1) % len(ROI_COLORS)]
-                                    opacity = 0.5
-                                    visible = True
-                                    is_contour = False
-                                    thickness = 1.0
-
-                                color = (
-                                    [int(c) for c in raw_col[:3]]
-                                    if isinstance(raw_col, (list, tuple))
-                                    and len(raw_col) >= 3
-                                    else [255, 0, 0]
-                                )
-
-                                state = {
+                        base_name = controller.roi._clean_roi_name(p0)
+                        expected_labels = set(labels_dict.keys()) | set(
+                            str(k) for k in sidecar_labels.keys()
+                        )
+                        valid_rois_to_load.append(
+                            {
+                                "new_id": new_id,
+                                "path": resolved_path,
+                                "is_label_map": True,
+                                "labels_dict": labels_dict,
+                                "sidecar_labels": sidecar_labels,
+                                "sidecar_colors": sidecar_colors,
+                                "base_name": base_name,
+                                "expected_count": max(1, len(expected_labels)),
+                                "state": {
                                     "source_mode": "Target FG (val)",
-                                    "source_val": float(val_int),
                                     "source_type": "Label Map",
-                                    "name": name,
-                                    "color": color,
-                                    "opacity": opacity,
-                                    "visible": visible,
-                                    "is_contour": is_contour,
-                                    "thickness": thickness,
-                                }
-                                valid_rois_to_load.append(
-                                    {
-                                        "new_id": new_id,
-                                        "path": resolved_path,
-                                        "state": state,
-                                    }
-                                )
-                        else:
-                            # Fallback if image could not be read ahead of time
-                            for val_str, l_info in labels_dict.items():
-                                val = float(val_str)
-                                val_int = int(val)
-                                if isinstance(l_info, dict):
-                                    name = (
-                                        sidecar_labels.get(val_int)
-                                        or l_info.get("name")
-                                        or f"Label {val_str}"
-                                    )
-                                    raw_col = sidecar_colors.get(val_int) or l_info.get(
-                                        "color"
-                                    )
-                                    opacity = l_info.get("opacity", 0.5)
-                                    visible = l_info.get("visible", True)
-                                    is_contour = l_info.get("is_contour", False)
-                                    thickness = l_info.get("thickness", 1.0)
-                                else:
-                                    name = sidecar_labels.get(val_int) or (
-                                        str(l_info) if l_info else f"Label {val_str}"
-                                    )
-                                    raw_col = sidecar_colors.get(val_int)
-                                    opacity = 0.5
-                                    visible = True
-                                    is_contour = False
-                                    thickness = 1.0
-
-                                color = (
-                                    [int(c) for c in raw_col[:3]]
-                                    if isinstance(raw_col, (list, tuple))
-                                    and len(raw_col) >= 3
-                                    else [255, 0, 0]
-                                )
-
-                                state = {
-                                    "source_mode": "Target FG (val)",
-                                    "source_val": val,
-                                    "source_type": "Label Map",
-                                    "name": name,
-                                    "color": color,
-                                    "opacity": opacity,
-                                    "visible": visible,
-                                    "is_contour": is_contour,
-                                    "thickness": thickness,
-                                }
-                                valid_rois_to_load.append(
-                                    {
-                                        "new_id": new_id,
-                                        "path": resolved_path,
-                                        "state": state,
-                                    }
-                                )
+                                    "name": base_name,
+                                },
+                            }
+                        )
                     else:
                         warnings.append(f"Missing Label Map: {os.path.basename(p0)}")
 
@@ -1079,12 +980,101 @@ def _load_workspace_roi_file(controller, r_path, tasks):
 
             # Fast-path: Only compute heavy bboxes if a label map extraction is actually requested!
             if any(
-                t["state"].get("source_mode") == "Target FG (val)"
+                t.get("is_label_map")
+                or t["state"].get("source_mode") == "Target FG (val)"
                 for t in tasks
             ):
                 bboxes = _compute_label_bboxes(img)
 
             for task in tasks:
+                if task.get("is_label_map"):
+                    labels_dict = task.get("labels_dict", {})
+                    sidecar_labels = task.get("sidecar_labels", {})
+                    sidecar_colors = task.get("sidecar_colors", {})
+                    base_name = task.get("base_name") or controller.roi._clean_roi_name(path_for_print)
+                    new_id = task["new_id"]
+
+                    # The file on disk is the source of truth for which labels exist.
+                    file_labels = sorted(bboxes.keys()) if bboxes else []
+                    if not file_labels and bboxes is not None:
+                        unique_vals = np.unique(data)
+                        file_labels = [int(v) for v in unique_vals if v != 0]
+
+                    for val_int in file_labels:
+                        val_str = str(val_int)
+                        l_info = labels_dict.get(val_str) or labels_dict.get(str(float(val_int)))
+
+                        if isinstance(l_info, dict):
+                            name = (
+                                sidecar_labels.get(val_int)
+                                or l_info.get("name")
+                                or f"Label {val_int}"
+                            )
+                            raw_col = sidecar_colors.get(val_int) or l_info.get("color")
+                            opacity = l_info.get("opacity", 0.5)
+                            visible = l_info.get("visible", True)
+                            is_contour = l_info.get("is_contour", False)
+                            thickness = l_info.get("thickness", 1.0)
+                        else:
+                            name = sidecar_labels.get(val_int) or (
+                                str(l_info) if l_info else f"{base_name} - Lbl {val_int}"
+                            )
+                            raw_col = sidecar_colors.get(val_int) or ROI_COLORS[(val_int - 1) % len(ROI_COLORS)]
+                            opacity = 0.5
+                            visible = True
+                            is_contour = False
+                            thickness = 1.0
+
+                        color = (
+                            [int(c) for c in raw_col[:3]]
+                            if isinstance(raw_col, (list, tuple)) and len(raw_col) >= 3
+                            else [255, 0, 0]
+                        )
+
+                        sub_state = {
+                            "source_mode": "Target FG (val)",
+                            "source_val": float(val_int),
+                            "source_type": "Label Map",
+                            "name": name,
+                            "color": color,
+                            "opacity": opacity,
+                            "visible": visible,
+                            "is_contour": is_contour,
+                            "thickness": thickness,
+                        }
+                        sub_task = {
+                            "new_id": new_id,
+                            "path": actual_path,
+                            "state": sub_state,
+                        }
+
+                        pending = None
+                        err = None
+                        try:
+                            bbox = bboxes.get(val_int) if bboxes else None
+                            pending = controller.roi.extract_label_from_image(
+                                new_id,
+                                read_path,
+                                img,
+                                data,
+                                val_int,
+                                name,
+                                color,
+                                bbox,
+                                defer=True,
+                            )
+                            if pending is not None:
+                                vol = pending["vol"]
+                                if isinstance(actual_path, list):
+                                    vol.file_paths = actual_path
+                                else:
+                                    vol.file_paths = [actual_path]
+                        except Exception as e:
+                            err = f"- Failed to load {name}: {e}"
+
+                        results.append((sub_task, pending, err))
+                    continue
+
                 mode = task["state"].get("source_mode", "Ignore BG (val)")
                 target_val = task["state"].get("source_val", 0.0)
                 pending = None  # computed here, registered on the main thread
@@ -1153,7 +1143,10 @@ def _restore_workspace_rois(controller, ws, id_map, warnings, resolve_workspace_
     valid_rois_to_load = _gather_workspace_rois(
         controller, ws, id_map, warnings, resolve_workspace_path
     )
-    total_rois = len(valid_rois_to_load)
+    total_rois = sum(
+        t.get("expected_count", 1) if t.get("is_label_map") else 1
+        for t in valid_rois_to_load
+    )
     if total_rois == 0:
         show_loading_modal("Loading image...", "Restoring ROIs...")
         yield
@@ -1187,10 +1180,11 @@ def _restore_workspace_rois(controller, ws, id_map, warnings, resolve_workspace_
                     roi.is_contour = r_state.get("is_contour", False)
                     roi.thickness = r_state.get("thickness", 1.0)
         done_count[0] += len(group_results)
+        cur_total = max(total_rois, done_count[0])
         show_loading_modal(
             "Loading image...",
-            f"Restoring ROIs ({done_count[0]}/{total_rois})",
-            progress=(done_count[0] / total_rois),
+            f"Restoring ROIs ({done_count[0]}/{cur_total})",
+            progress=(done_count[0] / cur_total) if cur_total > 0 else 1.0,
         )
 
     yield from _run_parallel(
