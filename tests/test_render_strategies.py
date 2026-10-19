@@ -140,3 +140,43 @@ def test_overlay_threshold_applied(headless_gui_app):
     # Assert thresholds are correctly retrieved from their respective ViewStates
     assert base_layer.threshold == 10.0
     assert overlay_layer.threshold == 20.0
+
+
+def test_overlay_kernel_background_compilation(headless_gui_app):
+    """Verify that compute_native_voxel_overlay compiles in background and matches NumPy fallback."""
+    import numpy as np
+    from vvv.ui.render_strategy import (
+        _ov_ready_signatures,
+        wait_for_ov_kernel,
+        compute_native_voxel_overlay,
+    )
+
+    controller, gui, viewer, base_id = headless_gui_app
+    vs2_id = list(controller.view_states.keys())[1]
+    viewer.view_state.set_overlay(vs2_id, controller.volumes[vs2_id])
+    ovs = controller.view_states[vs2_id]
+    controller._apply_overlay_resample(viewer.view_state, ovs)
+    viewer.view_state.display.overlay_mode = "Alpha"
+    viewer.view_state.display.pixelated_zoom = True
+    viewer.resize(100, 100)
+
+    # Compile kernel for float32
+    assert wait_for_ov_kernel(np.float32, timeout=5.0) is True
+    assert np.dtype(np.float32) in _ov_ready_signatures
+
+    # Render with Numba
+    controller.settings.data["rendering"] = {"numba": True}
+    res_numba = compute_native_voxel_overlay(
+        viewer, pmin=(0, 0), pmax=(100, 100), canvas_w=100, canvas_h=100
+    )
+
+    # Render with NumPy fallback
+    controller.settings.data["rendering"] = {"numba": False}
+    res_numpy = compute_native_voxel_overlay(
+        viewer, pmin=(0, 0), pmax=(100, 100), canvas_w=100, canvas_h=100
+    )
+
+    assert res_numba is not None
+    assert res_numpy is not None
+    # Outputs should match closely (within float precision)
+    np.testing.assert_allclose(res_numba, res_numpy, atol=1e-3)

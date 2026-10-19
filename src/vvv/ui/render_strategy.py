@@ -7,6 +7,7 @@ from enum import IntEnum
 import os as _os
 import time as _time
 import platform as _platform
+import threading as _threading
 
 GL_NEAREST_SUPPORTED = _platform.system() in ("Linux", "Windows")
 _gl_nearest_fn = None
@@ -15,6 +16,9 @@ numba = None
 _NUMBA_AVAILABLE = False
 _native_ov_kernel_nb = None
 _numba_init_done = False
+_ov_compile_lock = _threading.Lock()
+_ov_ready_signatures = set()
+_ov_pending_signatures = set()
 
 # Temporary diagnostic: set VVV_PROFILE=1 to log the native-overlay kernel's
 # actual workload (crop pixel count, overlay voxel count) every 30 calls.
@@ -195,6 +199,80 @@ def _init_numba():
         _NUMBA_AVAILABLE = True
     except ImportError:
         _NUMBA_AVAILABLE = False
+
+
+def _request_ov_compile(dtype: np.dtype):
+    dtype = np.dtype(dtype)
+    with _ov_compile_lock:
+        if dtype in _ov_pending_signatures or dtype in _ov_ready_signatures:
+            return
+        _ov_pending_signatures.add(dtype)
+
+    def _worker():
+        try:
+            _init_numba()
+            if not _NUMBA_AVAILABLE or _native_ov_kernel_nb is None:
+                return
+
+            dummy_ov = np.zeros((2, 2, 2), dtype=dtype)
+            dummy_rgba = np.zeros((2, 2, 4), dtype=np.float32)
+            dummy_v3 = np.zeros(3, dtype=np.float32)
+            dummy_idx = np.zeros(2, dtype=np.float32)
+            dummy_lut = np.zeros((2, 4), dtype=np.float32)
+            dummy_cw_thr = np.zeros(0, dtype=np.float32)
+            dummy_cw_col = np.zeros((0, 4), dtype=np.float32)
+            dummy_mask = np.zeros((0, 0), dtype=np.float32)
+            dummy_col = np.zeros((0, 0, 3), dtype=np.float32)
+
+            _native_ov_kernel_nb(
+                dummy_ov,
+                dummy_rgba,
+                dummy_v3,
+                dummy_v3,
+                dummy_v3,
+                dummy_idx,
+                dummy_idx,
+                dummy_lut,
+                np.float32(0.0),
+                np.float32(1.0),
+                np.float32(-1e30),
+                np.float32(1.0),
+                0,
+                0,
+                2,
+                2,
+                2,
+                False,
+                dummy_mask,
+                dummy_col,
+                dummy_idx,
+                dummy_idx,
+                dummy_cw_thr,
+                dummy_cw_col,
+            )
+            with _ov_compile_lock:
+                _ov_ready_signatures.add(dtype)
+        except Exception:
+            pass
+
+    _threading.Thread(target=_worker, daemon=True).start()
+
+
+def wait_for_ov_kernel(dtype=None, timeout: float = 10.0) -> bool:
+    """Wait for the native overlay numba kernel to finish background compiling."""
+    _init_numba()
+    if not _NUMBA_AVAILABLE:
+        return False
+    if dtype is None:
+        dtype = np.dtype(np.float32)
+    else:
+        dtype = np.dtype(dtype)
+    _request_ov_compile(dtype)
+    t0 = _time.time()
+    while dtype not in _ov_ready_signatures and _time.time() - t0 < timeout:
+        _time.sleep(0.02)
+    return dtype in _ov_ready_signatures
+
 
 
 class NNMode(IntEnum):
@@ -777,6 +855,12 @@ def compute_native_voxel_overlay(
             f"_NUMBA_AVAILABLE={_NUMBA_AVAILABLE}  "
             f"settings.numba={viewer.controller.settings.data.get('rendering', {}).get('numba', True)}"
         )
+
+    if use_numba:
+        ov_dtype = np.dtype(ov_data.dtype)
+        if ov_dtype not in _ov_ready_signatures:
+            _request_ov_compile(ov_dtype)
+            use_numba = False
 
     if use_numba:
         wl_min = np.float32(ovs.display.wl - ovs.display.ww * 0.5)
