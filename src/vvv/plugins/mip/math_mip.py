@@ -3,11 +3,25 @@ from typing import Any
 import numpy as np
 
 numba: Any
+_NUMBA_AVAILABLE = False
+_NUMBA_PARALLEL = False
+
 try:
     import numba as _numba
 
     numba = _numba
     _NUMBA_AVAILABLE = True
+
+    # Check if a thread-safe threading layer (TBB or OpenMP) is available.
+    # The default 'workqueue' layer is NOT thread-safe for concurrent access
+    # across multiple Python threads (e.g. background MIP thread + main thread).
+    for mod in ("numba.np.ufunc.omppool", "numba.np.ufunc.tbbpool"):
+        try:
+            __import__(mod)
+            _NUMBA_PARALLEL = True
+            break
+        except Exception:
+            pass
 except ImportError:
 
     class _Dummy:
@@ -22,8 +36,10 @@ except ImportError:
 
 
 if _NUMBA_AVAILABLE:
+    _njit = numba.njit(parallel=_NUMBA_PARALLEL, cache=True, fastmath=True)
 
-    @numba.njit(parallel=True, cache=True, fastmath=True)
+
+    @_njit
     def project_mip_z(data: np.ndarray, depth_cueing_strength: float) -> np.ndarray:
         """Compute MIP along the Z (depth) axis using Numba. Output shape is (H, W)."""
         D, H, W = data.shape
@@ -41,7 +57,7 @@ if _NUMBA_AVAILABLE:
                 out[y, x] = max_val
         return out
 
-    @numba.njit(parallel=True, cache=True, fastmath=True)
+    @_njit
     def project_mip_y(data: np.ndarray, depth_cueing_strength: float) -> np.ndarray:
         """Compute MIP along the Y (depth) axis using Numba. Output shape is (D, W)."""
         D, H, W = data.shape
@@ -59,7 +75,7 @@ if _NUMBA_AVAILABLE:
                 out[z, x] = max_val
         return out
 
-    @numba.njit(parallel=True, cache=True, fastmath=True)
+    @_njit
     def project_mip_x(data: np.ndarray, depth_cueing_strength: float) -> np.ndarray:
         """Compute MIP along the X (depth) axis using Numba. Output shape is (D, H)."""
         D, H, W = data.shape
@@ -77,7 +93,7 @@ if _NUMBA_AVAILABLE:
                 out[z, y] = max_val
         return out
 
-    @numba.njit(parallel=True, cache=True, fastmath=True)
+    @_njit
     def project_mip_z_rotated(
         data: np.ndarray, theta: float, depth_cueing_strength: float
     ) -> np.ndarray:
@@ -141,7 +157,7 @@ if _NUMBA_AVAILABLE:
                     out[y, x_out] = max_val
         return out
 
-    @numba.njit(parallel=True, cache=True, fastmath=True)
+    @_njit
     def project_mip_y_rotated(
         data: np.ndarray, theta: float, depth_cueing_strength: float
     ) -> np.ndarray:
@@ -205,7 +221,7 @@ if _NUMBA_AVAILABLE:
                     out[z, x_out] = max_val
         return out
 
-    @numba.njit(parallel=True, cache=True, fastmath=True)
+    @_njit
     def project_mip_x_rotated(
         data: np.ndarray, theta: float, depth_cueing_strength: float
     ) -> np.ndarray:

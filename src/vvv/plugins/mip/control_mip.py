@@ -462,6 +462,25 @@ class MIPPluginController(PluginTagMixin):
                     a += 360.0
                 all_angles.append(round(a, 2))
 
+        # Snapshot 3D arrays on the calling thread (main thread) so the background worker
+        # never accesses display views or buffers that may be retired or replaced.
+        if data_3d.ndim == 4:
+            t = min(time_idx, data_3d.shape[0] - 1)
+            base_3d = np.array(data_3d[t], copy=True)
+        else:
+            base_3d = np.array(data_3d, copy=True)
+
+        layers_snapshot = []
+        for layer_data, layer_id, layer_time_idx in extra_layers:
+            if layer_data.ndim == 4:
+                t = min(layer_time_idx, layer_data.shape[0] - 1)
+                l_arr = np.array(layer_data[t], copy=True)
+            else:
+                l_arr = np.array(layer_data, copy=True)
+            layers_snapshot.append((l_arr, layer_id, layer_time_idx, id(layer_data)))
+
+        base_data_id = id(data_3d)
+
         def _compute_and_cache(d3d, key):
             from vvv.plugins.mip.math_mip import compute_mip_projection
 
@@ -479,11 +498,12 @@ class MIPPluginController(PluginTagMixin):
                     else np.ascontiguousarray(np.flipud(mip_raw))
                 )
                 with cache_lock:
-                    if key not in cache_dict:
-                        if len(cache_dict) >= 400:
-                            cache_dict.pop(next(iter(cache_dict)), None)
-                        cache_dict[key] = preview
-                        viewer.controller.ui_needs_refresh = True
+                    if not new_stop.is_set():
+                        if key not in cache_dict:
+                            if len(cache_dict) >= 400:
+                                cache_dict.pop(next(iter(cache_dict)), None)
+                            cache_dict[key] = preview
+                            viewer.controller.ui_needs_refresh = True
             except Exception as e:
                 import traceback
 
@@ -501,22 +521,17 @@ class MIPPluginController(PluginTagMixin):
                     orientation,
                     depth_cueing,
                     angle,
-                    id(data_3d),
+                    base_data_id,
                 )
                 with cache_lock:
                     base_cached = base_key in cache_dict
                 if not base_cached:
                     if new_stop.is_set():
                         return
-                    if data_3d.ndim == 4:
-                        t = min(time_idx, data_3d.shape[0] - 1)
-                        d3d_base = data_3d[t]
-                    else:
-                        d3d_base = data_3d
-                    _compute_and_cache(d3d_base, base_key)
+                    _compute_and_cache(base_3d, base_key)
 
                 # Extra/overlay layers
-                for layer_data, layer_id, layer_time_idx in extra_layers:
+                for layer_arr, layer_id, layer_time_idx, layer_orig_id in layers_snapshot:
                     if new_stop.is_set():
                         return
                     # Overlays always use 0.0 depth cueing
@@ -526,19 +541,14 @@ class MIPPluginController(PluginTagMixin):
                         orientation,
                         0.0,
                         angle,
-                        id(layer_data),
+                        layer_orig_id,
                     )
                     with cache_lock:
                         layer_cached = layer_key in cache_dict
                     if not layer_cached:
                         if new_stop.is_set():
                             return
-                        if layer_data.ndim == 4:
-                            t = min(layer_time_idx, layer_data.shape[0] - 1)
-                            l_3d = layer_data[t]
-                        else:
-                            l_3d = layer_data
-                        _compute_and_cache(l_3d, layer_key)
+                        _compute_and_cache(layer_arr, layer_key)
 
         threading.Thread(target=_run, daemon=True).start()
 
