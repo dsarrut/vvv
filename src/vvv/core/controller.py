@@ -198,6 +198,7 @@ class Controller:
 
             vs.space.transform = new_transform
             vs.space.transform_file = os.path.basename(filepath)
+            self.invalidate_resample(vs_id)
             return True
         except Exception as e:
             logger.exception(f"Error loading transform: {e}")
@@ -685,6 +686,12 @@ class Controller:
             self._job_runners[vs_id] = runner
         return runner
 
+    def invalidate_resample(self, vs_id: str) -> None:
+        """Mark any in-flight resample/bake for this image as stale."""
+        runner = self._job_runners.get(vs_id)
+        if runner is not None:
+            runner.invalidate()
+
     def update_transform_manual(self, vs_id, tx, ty, tz, rx_deg, ry_deg, rz_deg):
         vs = self.view_states.get(vs_id)
         if not vs:
@@ -693,7 +700,7 @@ class Controller:
             tx, ty, tz, math.radians(rx_deg), math.radians(ry_deg), math.radians(rz_deg)
         )
         # Mark any in-flight resample/bake for this image as stale.
-        self._get_job_runner(vs_id).invalidate()
+        self.invalidate_resample(vs_id)
 
     def resample_image(self, image_id, include_dependents=True):
         """Resample image_id's rotated base and overlays on its background JobRunner.

@@ -234,6 +234,17 @@ class RegistrationPluginController(PluginTagMixin):
         if not vs or not vs.space:
             return
 
+        # Mark any in-flight resample/bake for this image as stale (e.g. from auto-applied .tfm)
+        self._api.invalidate_resample(image_id)
+        with self._auto_timer_lock:
+            if self._auto_timer_vs_id == image_id and self._auto_timer is not None:
+                self._auto_timer.cancel()
+                self._auto_timer = None
+                self._auto_timer_vs_id = None
+        with self._preview_lock:
+            self._preview_version += 1
+        vs.reset_preview_rotation()
+
         vs.space.is_active = data.get("is_active", False)
         vs.space.transform_file = data.get("transform_file", "None")
         vs.space.full_transform_path = data.get("full_transform_path", None)
@@ -254,6 +265,9 @@ class RegistrationPluginController(PluginTagMixin):
             vs.needs_resample = True
             self._api.resample_image(image_id)
         else:
+            if getattr(vs, "base_display_data", None) is not None:
+                vs.base_display_data = None
+                vs._sitk_base_cache = None
             self._api.update_all_viewers_of_image(image_id)
 
     def save_settings(self, api: PluginAPI) -> None:

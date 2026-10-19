@@ -216,6 +216,10 @@ class PluginAPI:
     def resample_image(self, image_id) -> None:
         self._controller.resample_image(image_id)
 
+    def invalidate_resample(self, image_id: str) -> None:
+        """Mark any in-flight resample/bake jobs for this image as stale."""
+        self._controller.invalidate_resample(image_id)
+
     def bake_transform_to_volume(self, image_id) -> None:
         self._controller.bake_transform_to_volume(image_id)
 

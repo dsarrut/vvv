@@ -551,6 +551,32 @@ class TestRegistrationPlugin(unittest.TestCase):
             mock_check.assert_any_call("base_img")
             mock_check.assert_any_call("overlay_img")
 
+    def test_restore_image_state_invalidates_in_flight_resample(self):
+        """Verify that restore_image_state invalidates pending resample and cancels timer (PA9)."""
+        controller = self.plugin._controller
+        controller.bind(self.mock_api)
+
+        vs = MagicMock()
+        vs.space.is_active = True
+        vs.base_display_data = "stale_data"
+        self.mock_api.get_view_states.return_value = {"img_ws": vs}
+
+        mock_timer = MagicMock()
+        controller._auto_timer = mock_timer
+        controller._auto_timer_vs_id = "img_ws"
+
+        # Restore state with is_active=False
+        state = {"is_active": False, "transform_file": "None"}
+        self.plugin.restore_image_state("img_ws", state, context="workspace")
+
+        self.mock_api.invalidate_resample.assert_called_with("img_ws")
+        mock_timer.cancel.assert_called_once()
+        self.assertIsNone(controller._auto_timer)
+        self.assertIsNone(vs.base_display_data)
+        self.assertIsNone(vs._sitk_base_cache)
+        vs.reset_preview_rotation.assert_called_once()
+        self.mock_api.update_all_viewers_of_image.assert_called_with("img_ws")
+
 
 if __name__ == "__main__":
     unittest.main()

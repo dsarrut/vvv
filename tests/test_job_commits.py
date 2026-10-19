@@ -53,6 +53,17 @@ def test_superseded_resample_is_discarded_at_commit(tmp_path):
     assert "discarded" in c.status_message
 
 
+def test_invalidate_resample_discards_job_at_commit(tmp_path):
+    c, base, _ = _make(tmp_path)
+    vs = c.view_states[base]
+    c.resample_image(base)
+    _wait_worker(c, base)
+    c.invalidate_resample(base)
+    c.run_main_thread_commits()
+    assert vs.display.overlay_data is None
+    assert "discarded" in c.status_message
+
+
 def test_bake_commits_on_main_thread_and_relinks_overlay(tmp_path):
     c, base, ov = _make(tmp_path)
     vs = c.view_states[base]
