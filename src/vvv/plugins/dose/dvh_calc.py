@@ -81,7 +81,7 @@ def compute_roi_dvh(
             r_sitk,
             sitk.Transform(),
             sitk.sitkLinear,
-            0.0,
+            float("nan"),
             sitk.sitkFloat32,
         )
         dose_arr = sitk.GetArrayFromImage(dose_in_roi)
@@ -100,8 +100,13 @@ def compute_roi_dvh(
             scale = 1.0
 
     vox_doses = dose_arr[mask].astype(np.float64) * scale
+    valid_mask = ~np.isnan(vox_doses)
+    vox_doses = vox_doses[valid_mask]
     if len(vox_doses) == 0:
         return None
+
+    total_voxels = len(vox_doses)
+    total_vol_cc = total_voxels * voxel_vol_cc
 
     sorted_doses = np.sort(vox_doses)
     min_dose = float(sorted_doses[0])

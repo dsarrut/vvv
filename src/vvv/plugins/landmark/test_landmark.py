@@ -550,6 +550,47 @@ class TestLandmarkPlugin(unittest.TestCase):
         ctrl.snap_landmark_to_grid("lm_reg", image_id="img1")
         np.testing.assert_allclose(lm.pt_phys, [10.0, 21.0, 32.0], atol=1e-5)
 
+    def test_load_landmarks_error_handling_and_fallback_id_collision(self):
+        """Verify error handling on malformed files and resolution of ID collisions (PA15)."""
+        import tempfile
+        import os
+        import json
+
+        ctrl = LandmarkPluginController("landmark_plugin")
+        mock_api = unittest.mock.MagicMock()
+        mock_api.get_active_viewer.return_value = unittest.mock.MagicMock(image_id="img1", view_state=self.vs)
+        mock_api.get_view_states.return_value = {"img1": self.vs}
+        ctrl.bind(mock_api)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # 1. Malformed JSON file doesn't crash, notifies error
+            bad_json = os.path.join(tmpdir, "corrupt.json")
+            with open(bad_json, "w") as f:
+                f.write("{invalid json content")
+
+            ctrl.load_landmarks(bad_json, image_id="img1")
+            mock_api.notify.assert_called()
+            self.assertTrue(any("Failed to load" in str(call) for call in mock_api.notify.call_args_list))
+
+            # 2. Duplicate and colliding IDs in JSON file
+            mock_api.notify.reset_mock()
+            collide_json = os.path.join(tmpdir, "collide.json")
+            with open(collide_json, "w") as f:
+                json.dump({
+                    "landmarks": [
+                        {"id": "same_id", "name": "P1", "pt_phys": [1.0, 2.0, 3.0]},
+                        {"id": "same_id", "name": "P2", "pt_phys": [4.0, 5.0, 6.0]},
+                        {"name": "No_ID_1", "pt_phys": [7.0, 8.0, 9.0]},
+                    ]
+                }, f)
+
+            ctrl.load_landmarks(collide_json, image_id="img1", replace=True)
+            self.assertEqual(len(self.vs.landmarks), 3)
+            # All 3 IDs must be unique
+            self.assertEqual(len(set(self.vs.landmarks.keys())), 3)
+            # Exactly one notification was sent
+            self.assertEqual(mock_api.notify.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

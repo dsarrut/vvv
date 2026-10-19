@@ -39,10 +39,10 @@ class DoseIsocontourState:
     colorwash_enabled: bool = False
     colorwash_opacity: float = 0.5
     subpixel_accurate: bool = True
-    levels: List[DoseIsocontourLevel] = field(default_factory=list)
+    levels: Optional[List[DoseIsocontourLevel]] = None
 
     def __post_init__(self):
-        if not self.levels:
+        if self.levels is None:
             self.levels = [
                 DoseIsocontourLevel(val, list(col), True, 1.5)
                 for val, col in DEFAULT_ISODOSE_LEVELS
@@ -816,17 +816,20 @@ class DosePluginController(PluginTagMixin):
     def restore_image_state(self, image_id: str, data: dict, context: str = "history") -> None:
         if not data:
             return
-        levels_data = data.get("levels", [])
-        if levels_data or "is_enabled" in data or "colorwash_enabled" in data:
-            levels = [
-                DoseIsocontourLevel(
-                    value=float(ld.get("value", 100.0)),
-                    color=list(ld.get("color", [255, 0, 0, 255])),
-                    enabled=bool(ld.get("enabled", True)),
-                    thickness=float(ld.get("thickness", 1.5)),
-                )
-                for ld in levels_data
-            ]
+        if "levels" in data or "is_enabled" in data or "colorwash_enabled" in data:
+            levels = (
+                [
+                    DoseIsocontourLevel(
+                        value=float(ld.get("value", 100.0)),
+                        color=list(ld.get("color", [255, 0, 0, 255])),
+                        enabled=bool(ld.get("enabled", True)),
+                        thickness=float(ld.get("thickness", 1.5)),
+                    )
+                    for ld in data["levels"]
+                ]
+                if "levels" in data
+                else None
+            )
             self._states[image_id] = DoseIsocontourState(
                 is_enabled=bool(data.get("is_enabled", True)),
                 colorwash_enabled=bool(data.get("colorwash_enabled", False)),

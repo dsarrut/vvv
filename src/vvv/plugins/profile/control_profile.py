@@ -131,7 +131,12 @@ class ProfilePluginController(PluginTagMixin):
         if not viewer or not viewer.image_id:
             self._api.notify("Please load an image first.")
             return
-        viewer.on_key_press(dpg.mvKey_P)
+        if hasattr(viewer, "action_add_profile"):
+            viewer.action_add_profile()
+        elif hasattr(viewer, "actions") and "add_profile" in viewer.actions:
+            viewer.actions["add_profile"]()
+        else:
+            viewer.on_key_press(dpg.mvKey_P)
 
     def on_color_changed(self, sender, app_data, user_data):
         api = self._api

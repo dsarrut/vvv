@@ -334,6 +334,18 @@ class TestProfilePlugin(unittest.TestCase):
         self.assertFalse(p1.plot_open)
         self.assertFalse(dpg.does_item_exist(win_tag))
 
+    def test_on_btn_add_clicked_calls_action_add_profile(self):
+        """Verify on_btn_add_clicked calls viewer.action_add_profile directly (PA15)."""
+        controller = self.plugin._controller
+        controller.bind(self.mock_api)
+
+        viewer = MagicMock()
+        viewer.image_id = "img1"
+        self.mock_api.get_active_viewer.return_value = viewer
+
+        controller.on_btn_add_clicked(None, None, None)
+        viewer.action_add_profile.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

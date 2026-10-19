@@ -1428,6 +1428,59 @@ class TestDosePlugin(unittest.TestCase):
         self.plugin.destroy()
         self.assertFalse(dpg.does_item_exist(ui.dvh_win.window_tag))
 
+    def test_restore_empty_levels_and_dvh_outside_voxels(self):
+        """Verify dose restore with empty level list preserves empty list, and DVH ignores voxels outside dose (PA15)."""
+        import SimpleITK as sitk
+        from vvv.plugins.dose.dvh_calc import compute_roi_dvh
+
+        controller = self.plugin._controller
+        controller.bind(self.mock_api)
+
+        # 1. Test restore_image_state with empty levels
+        state_data = {
+            "is_enabled": True,
+            "colorwash_enabled": False,
+            "levels": []
+        }
+        controller.restore_image_state("dose_empty", state_data, context="workspace")
+        restored_state = controller.get_isocontour_state("dose_empty")
+        self.assertEqual(len(restored_state.levels), 0)
+
+        # 2. Test DVH computation with an ROI partially outside the dose grid
+        # Dose grid: 10x10x10 cube, all voxels have 50.0 Gy, origin (0, 0, 0), spacing (1, 1, 1)
+        dose_arr = np.full((10, 10, 10), 50.0, dtype=np.float32)
+        dose_sitk = sitk.GetImageFromArray(dose_arr)
+        dose_sitk.SetOrigin((0.0, 0.0, 0.0))
+        dose_sitk.SetSpacing((1.0, 1.0, 1.0))
+        dose_vol = MagicMock()
+        dose_vol.data = dose_arr
+        dose_vol.sitk_image = dose_sitk
+        dose_vol.scale_factor = 1.0
+        dose_vol.get_data_range.return_value = (50.0, 50.0)
+
+        # ROI: 20x10x10, extends from x=0 to x=20 (so x=10..20 is OUTSIDE the dose grid)
+        roi_arr = np.ones((10, 10, 20), dtype=np.uint8)
+        roi_sitk = sitk.GetImageFromArray(roi_arr)
+        roi_sitk.SetOrigin((0.0, 0.0, 0.0))
+        roi_sitk.SetSpacing((1.0, 1.0, 1.0))
+        roi_vol = MagicMock()
+        roi_vol.data = roi_arr
+        roi_vol.sitk_image = roi_sitk
+        roi_vol.name = "ROI_Partial"
+
+        curve = compute_roi_dvh(
+            dose_vol=dose_vol,
+            roi_vol=roi_vol,
+            roi_name="ROI_Partial",
+            color=[255, 0, 0],
+            max_eval_dose=60.0,
+        )
+        self.assertIsNotNone(curve)
+        # Voxels outside the dose grid should be ignored, NOT counted as 0 Gy!
+        # Every valid voxel had dose 50.0 Gy, so min_dose must be 50.0 Gy (not 0.0 Gy)
+        self.assertAlmostEqual(curve.min_dose, 50.0)
+        self.assertAlmostEqual(curve.mean_dose, 50.0)
+
 
 if __name__ == "__main__":
     unittest.main()
