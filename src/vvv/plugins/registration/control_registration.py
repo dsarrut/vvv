@@ -109,9 +109,16 @@ class RegistrationPluginController(PluginTagMixin):
                     vs.needs_resample = True
                     api.resample_image(img_id)
 
-        viewer = api.get_active_viewer()
-        if viewer and viewer.image_id:
-            self._check_preview_slice_needed(viewer.image_id)
+        checked_ids = set()
+        for v in api.get_viewers().values():
+            if v and v.image_id and v.image_id not in checked_ids:
+                checked_ids.add(v.image_id)
+                self._check_preview_slice_needed(v.image_id)
+            if v and v.view_state and v.view_state.display.overlay.image_id:
+                ov_id = v.view_state.display.overlay.image_id
+                if ov_id not in checked_ids:
+                    checked_ids.add(ov_id)
+                    self._check_preview_slice_needed(ov_id)
         if self._ui:
             self._ui.update_ui(api)
 

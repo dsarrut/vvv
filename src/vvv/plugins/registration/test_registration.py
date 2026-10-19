@@ -535,6 +535,22 @@ class TestRegistrationPlugin(unittest.TestCase):
             self.assertIsNone(controller._auto_timer)
             mock_put.assert_called_once_with(None)
 
+    def test_update_checks_preview_slice_needed_for_overlays(self):
+        """Verify that update() checks _preview_slice_needed for overlays as well as base images (PA8)."""
+        controller = self.plugin._controller
+        controller.bind(self.mock_api)
+
+        viewer = MagicMock()
+        viewer.image_id = "base_img"
+        viewer.view_state.display.overlay.image_id = "overlay_img"
+        self.mock_api.get_viewers.return_value = {"v1": viewer}
+        self.mock_api.get_volumes.return_value = {}
+
+        with patch.object(controller, "_check_preview_slice_needed") as mock_check:
+            controller.update(self.mock_api)
+            mock_check.assert_any_call("base_img")
+            mock_check.assert_any_call("overlay_img")
+
 
 if __name__ == "__main__":
     unittest.main()
