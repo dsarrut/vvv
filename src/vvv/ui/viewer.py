@@ -3085,13 +3085,9 @@ class TextureManager:
 
         if not dpg.does_item_exist(new_texture_tag):
             _add_slice_texture(new_texture_tag, base_w, base_h)
-            if is_hw_gl:
-                try_set_gl_nearest(nn_active, base_w, base_h)
 
         if not dpg.does_item_exist(new_ov_texture_tag):
             _add_slice_texture(new_ov_texture_tag, ov_w, ov_h)
-            if is_hw_gl:
-                try_set_gl_nearest(nn_active, ov_w, ov_h)
 
         # Update viewer state
         v.texture_tag = new_texture_tag
@@ -3143,11 +3139,14 @@ class TextureManager:
             _profile_stats["gpu_upload"] += time.perf_counter() - t0
         else:
             dpg.set_value(tag, data)  # type: ignore
-        if GL_NEAREST_SUPPORTED:
-            nearest = v._effective_pixelated_zoom() and v._is_hw_gl
-            if nearest or getattr(v, "_last_nearest_applied", False):
-                try_set_gl_nearest(nearest, tex_w, tex_h)
-                v._last_nearest_applied = nearest
+        if GL_NEAREST_SUPPORTED and v._is_hw_gl:
+            nearest = v._effective_pixelated_zoom()
+            applied = getattr(v, "_tag_nearest_applied", None)
+            if applied is None:
+                applied = v._tag_nearest_applied = {}
+            if applied.get(tag) != nearest:
+                if try_set_gl_nearest(nearest, tex_w, tex_h):
+                    applied[tag] = nearest
         return True
 
     def upload_base_texture(self):

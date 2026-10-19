@@ -281,6 +281,7 @@ def try_set_gl_nearest(nearest: bool = True, width: int | None = None, height: i
 
             def _set(is_nearest, w_val=None, h_val=None):
                 val = _GL_NEAREST if is_nearest else _GL_LINEAR
+                found = False
                 try:
                     # Save current binding
                     prev = ctypes.c_int()
@@ -298,22 +299,26 @@ def try_set_gl_nearest(nearest: bool = True, width: int | None = None, height: i
                                 if tw.value == w_val and th.value == h_val:
                                     lib.glTexParameteri(_GL_TEXTURE_2D, _GL_TEXTURE_MIN_FILTER, val)
                                     lib.glTexParameteri(_GL_TEXTURE_2D, _GL_TEXTURE_MAG_FILTER, val)
+                                    found = True
                     else:
                         # Apply to currently bound texture
                         lib.glTexParameteri(_GL_TEXTURE_2D, _GL_TEXTURE_MIN_FILTER, val)
                         lib.glTexParameteri(_GL_TEXTURE_2D, _GL_TEXTURE_MAG_FILTER, val)
+                        found = True
 
                     # Restore binding
                     lib.glBindTexture(_GL_TEXTURE_2D, prev.value)
                 except Exception:
                     pass
+                return found
 
             _gl_nearest_fn = _set
         except Exception:
             _gl_nearest_fn = False
 
     if callable(_gl_nearest_fn):
-        _gl_nearest_fn(nearest, width, height)
+        return bool(_gl_nearest_fn(nearest, width, height))
+    return False
 
 
 def blend_slices_cpu(base_2d, ov_2d, opacity, shift_x, shift_y):
