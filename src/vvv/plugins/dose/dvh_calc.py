@@ -116,7 +116,12 @@ def compute_roi_dvh(
     d2 = float(np.percentile(sorted_doses, 98.0))
 
     # Evaluation dose bins for plotting
-    upper_limit = max_eval_dose if max_eval_dose is not None else max(max_dose * 1.05, 1.0)
+    if max_eval_dose is not None and max_eval_dose > 0:
+        upper_limit = float(max_eval_dose)
+    elif max_dose > 0:
+        upper_limit = float(max_dose) * 1.05
+    else:
+        upper_limit = 1.0
     d_eval = np.linspace(0.0, upper_limit, num_bins)
 
     # Fast cumulative calculation using searchsorted:

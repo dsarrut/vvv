@@ -411,9 +411,10 @@ class DVHWindow(PluginTagMixin):
         if self.is_dose_relative:
             norm = self.norm_prescription_gy if self.norm_prescription_gy > 0 else 1.0
             max_x = max((float(np.max(c.doses)) / norm * 100.0 for c in enabled_curves), default=100.0)
+            max_x = max_x * 1.05 if max_x > 0 else 100.0
         else:
             max_x = max((float(c.max_dose) for c in enabled_curves), default=60.0)
-        max_x = max(max_x * 1.05, 1.0)
+            max_x = max_x * 1.05 if max_x > 0 else 1.0
 
         # Y-Axis (Volume)
         if self.is_cumulative:
@@ -473,7 +474,8 @@ class DVHWindow(PluginTagMixin):
 
         # Global evaluation upper limit across dose volume to ensure uniform domain (in Gy)
         d_min, d_max = dose_vol.get_data_range()
-        global_max_dose = max(float(d_max) * user_s * 1.05, 10.0)
+        phys_d_max = float(d_max) * user_s
+        global_max_dose = phys_d_max * 1.05 if phys_d_max > 0 else 1.0
 
         # Find reference image with ROIs (prioritize active viewer's view_state, or base)
         all_volumes = self._api.get_volumes()

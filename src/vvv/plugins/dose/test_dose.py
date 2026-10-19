@@ -1093,6 +1093,76 @@ class TestDosePlugin(unittest.TestCase):
         # Check that voxel dose 50.0 Gy maps to exactly 100% relative dose
         self.assertAlmostEqual(curve.mean_dose / dvh_win.norm_prescription_gy * 100.0, 100.0, places=2)
 
+    def test_dvh_small_dose_axis_floor(self):
+        """Verify that small doses (< 10 Gy, e.g. 0.2 Gy) do not get floored to 10 Gy
+        or 1.0 Gy, preserving bin resolution across the 200 bins (PA3).
+        """
+        import SimpleITK as sitk
+        from vvv.plugins.dose.dvh_calc import compute_roi_dvh
+
+        ui = self.plugin._ui
+        ctrl = self.plugin._controller
+
+        # Setup low-dose volume (e.g. 0.2 Gy max)
+        self.mock_viewer.volume.unit = "Gy"
+        dose_arr = np.linspace(0.01, 0.20, 1000, dtype=np.float32).reshape((10, 10, 10))
+        self.mock_viewer.volume.data = dose_arr
+        self.mock_viewer.volume.sitk_image = sitk.GetImageFromArray(dose_arr)
+        self.mock_viewer.volume.sitk_image.SetSpacing((1.0, 1.0, 1.0))
+        self.mock_viewer.volume.get_data_range = MagicMock(return_value=(0.01, 0.20))
+        self.mock_viewer.volume.scale_factor = 1.0
+
+        # ROI volume
+        roi_arr = np.zeros((10, 10, 10), dtype=np.uint8)
+        roi_arr[2:5, 2:5, 2:5] = 1
+        mock_roi_vol = MagicMock()
+        mock_roi_vol.data = roi_arr
+        mock_roi_vol.sitk_image = sitk.GetImageFromArray(roi_arr)
+        mock_roi_vol.sitk_image.SetSpacing((1.0, 1.0, 1.0))
+
+        # 1. Standalone compute_roi_dvh without max_eval_dose
+        c_auto = compute_roi_dvh(self.mock_viewer.volume, mock_roi_vol, "LowDoseROI", [0, 255, 0, 255])
+        self.assertIsNotNone(c_auto)
+        # Bins must adapt to max dose (0.2 * 1.05 = 0.21), NOT floored to 1.0 or 10.0
+        self.assertAlmostEqual(c_auto.doses[-1], c_auto.max_dose * 1.05, places=3)
+        self.assertLess(c_auto.doses[-1], 0.3)
+        # Verify fine bin step
+        bin_step = c_auto.doses[1] - c_auto.doses[0]
+        self.assertLess(bin_step, 0.002)
+
+        # 2. DVH window recompute_and_update
+        self.mock_api.get_volumes.return_value = {
+            "vol_main": self.mock_viewer.volume,
+            "roi_small": mock_roi_vol,
+        }
+        roi_state = MagicMock()
+        roi_state.name = "LowDoseROI"
+        roi_state.color = [0, 255, 0, 255]
+        self.mock_viewer.view_state.rois = {"roi_small": roi_state}
+
+        ui.on_open_dvh_clicked()
+        dvh_win = ui.dvh_win
+        dvh_win.recompute_and_update(fit_axes=True)
+
+        self.assertEqual(len(dvh_win.curves), 1)
+        curve = dvh_win.curves[0]
+        # Evaluated upper limit should be ~0.21 Gy, NOT 10.0 Gy!
+        self.assertAlmostEqual(curve.doses[-1], 0.20 * 1.05, places=3)
+        self.assertLess(curve.doses[-1], 0.5)
+
+        # 3. Axis limit in absolute mode
+        with patch("dearpygui.dearpygui.does_item_exist", return_value=True), \
+             patch("dearpygui.dearpygui.set_axis_limits") as mock_set_axis_limits:
+            dvh_win.is_dose_relative = False
+            dvh_win._apply_axis_limits()
+            # X-axis should be limited to ~0.2 * 1.05, NOT 1.0 or 10.0
+            x_call = [call for call in mock_set_axis_limits.call_args_list if "dvh_plot_x_axis" in str(call[0][0])]
+            self.assertTrue(len(x_call) > 0)
+            x_min, x_max = x_call[0][0][1], x_call[0][0][2]
+            self.assertEqual(x_min, 0.0)
+            self.assertAlmostEqual(x_max, curve.max_dose * 1.05, places=3)
+            self.assertLess(x_max, 0.3)
+
     def test_dvh_window_ui(self):
         import SimpleITK as sitk
 
