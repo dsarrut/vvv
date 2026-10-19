@@ -93,7 +93,8 @@ def test_registration_preview_generation(headless_gui_app):
     # 2. Fire the preview generator directly (simulating the background worker)
     reg_ctrl._preview_version = 1
     reg_ctrl._trigger_fast_preview(vs_id, version=1, R=R, center=center, viewer_slices=viewer_slices)
-    
+    gui.step_callbacks()
+
     # 3. Assert the cache was populated correctly
     assert vs._preview_R is R
     assert vs._preview_center is center
@@ -141,6 +142,7 @@ def test_registration_auto_update_display(headless_gui_app):
 
     # 5. Fire the timer manually to avoid waiting for 0.7s in tests
     reg_ctrl._fire_auto_resample()
+    gui.step_callbacks()
 
     # 6. Assert the ITK resample was requested
     controller.resample_image.assert_called_once_with(vs_id)

@@ -175,6 +175,15 @@ class MainGUI:
         with self._main_thread_lock:
             self._main_thread_callbacks.append(callback)
 
+    def step_callbacks(self):
+        """Drain and run scheduled main-thread callbacks (e.g. for testing or outside the render loop)."""
+        callbacks_to_run = []
+        with self._main_thread_lock:
+            while self._main_thread_callbacks:
+                callbacks_to_run.append(self._main_thread_callbacks.popleft())
+        for cb in callbacks_to_run:
+            cb()
+
     def _run_dpg_callbacks(self):
         """Run DPG callbacks queued since the last frame, on the main thread.
 

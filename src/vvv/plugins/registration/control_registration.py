@@ -289,61 +289,55 @@ class RegistrationPluginController(PluginTagMixin):
                     break
             if req is None:
                 break
-            vs_id, version, R, center, viewer_slices = req
-            self._trigger_fast_preview(vs_id, version, R, center, viewer_slices)
+            vs_id, version, R, center, tasks, overlay_vol, t_idx = req
+            self._compute_fast_preview(vs_id, version, R, center, tasks, overlay_vol, t_idx)
 
-    def _trigger_fast_preview(self, image_id, version, R, center, viewer_slices):
+    def _compute_fast_preview(self, image_id, version, R, center, tasks, overlay_vol, t_idx):
         if not self._api:
-            return
-        vs: ViewState | None = self._api.get_view_states().get(image_id)
-        if not vs:
             return
 
         new_previews = {}
         new_overlay_previews = {}
-        overlay_vol = vs.volume
 
-        for viewer in self._api.get_viewers().values():
-            ctx = viewer_slices.get(id(viewer))
-            if ctx is None:
-                continue
-            kind, orientation, slice_idx = ctx
-
+        for viewer_id, kind, orientation, slice_idx, base_vol in tasks:
             if kind == "base":
-                vol = viewer.volume
-                if getattr(vol, "is_dvf", False):
+                if base_vol is None or getattr(base_vol, "is_dvf", False):
                     continue
                 preview = compute_preview_2d_affine(
-                    vol, orientation, slice_idx, R, center, vs.camera.time_idx
+                    base_vol, orientation, slice_idx, R, center, t_idx
                 )
                 if preview is not None:
                     new_previews[(orientation, slice_idx)] = preview
 
             elif kind == "overlay":
-                base_vol = viewer.volume
-                if base_vol is None or getattr(base_vol, "is_dvf", False):
+                if base_vol is None or getattr(base_vol, "is_dvf", False) or overlay_vol is None:
                     continue
-                t_idx = min(vs.camera.time_idx, overlay_vol.num_timepoints - 1)
                 ov_preview = compute_overlay_preview_2d_affine(
                     base_vol, overlay_vol, orientation, slice_idx, R, center, t_idx
                 )
                 if ov_preview is not None:
                     new_overlay_previews[(orientation, slice_idx)] = ov_preview
 
-        with self._preview_lock:
-            if self._preview_version != version:
-                return
-            vs._preview_R = R
-            vs._preview_center = center
+        def _commit():
+            with self._preview_lock:
+                if self._preview_version != version:
+                    return
+                vs: ViewState | None = self._api.get_view_states().get(image_id) if self._api else None
+                if not vs:
+                    return
+                vs._preview_R = R
+                vs._preview_center = center
 
-        for viewer in self._api.get_viewers().values():
-            if viewer.image_id == image_id:
-                viewer._preview_slices = new_previews
-            elif viewer.view_state and viewer.view_state.display.overlay.image_id == image_id:
-                viewer._overlay_preview_slices = new_overlay_previews
+            for viewer in self._api.get_viewers().values():
+                if viewer.image_id == image_id:
+                    viewer._preview_slices = new_previews
+                elif viewer.view_state and viewer.view_state.display.overlay.image_id == image_id:
+                    viewer._overlay_preview_slices = new_overlay_previews
 
-        vs.is_data_dirty = True
-        self._api.request_refresh()
+            vs.is_data_dirty = True
+            self._api.request_refresh()
+
+        self._api.run_on_main_thread(_commit)
 
     def _check_preview_slice_needed(self, vs_id):
         if not self._api:
@@ -361,18 +355,40 @@ class RegistrationPluginController(PluginTagMixin):
         except Exception:
             R = np.eye(3, dtype=np.float64)
             center = np.zeros(3, dtype=np.float64)
-        viewer_slices = {}
+        tasks = []
         for v in self._api.get_viewers().values():
             if v.image_id == vs_id:
-                viewer_slices[id(v)] = ("base", v.orientation, v.slice_idx)
+                tasks.append((id(v), "base", v.orientation, v.slice_idx, v.volume))
             elif v.view_state and v.view_state.display.overlay.image_id == vs_id:
-                viewer_slices[id(v)] = ("overlay", v.orientation, v.slice_idx)
-        if not viewer_slices:
+                tasks.append((id(v), "overlay", v.orientation, v.slice_idx, v.volume))
+        if not tasks:
             return
+        overlay_vol = vs.volume
+        t_idx = getattr(vs.camera, "time_idx", 0) if hasattr(vs, "camera") else 0
+        num_tp = getattr(overlay_vol, "num_timepoints", 1)
+        if isinstance(num_tp, int) and num_tp > 1 and isinstance(t_idx, int):
+            t_idx = min(t_idx, num_tp - 1)
         with self._preview_lock:
             self._preview_version += 1
             version = self._preview_version
-        self._preview_queue.put((vs_id, version, R, center, viewer_slices))
+        self._preview_queue.put((vs_id, version, R, center, tasks, overlay_vol, t_idx))
+
+    def _trigger_fast_preview(self, image_id, version, R, center, viewer_slices):
+        """Backwards compatibility helper: converts viewer_slices dict to tasks list and computes preview."""
+        tasks = []
+        if self._api:
+            for viewer in self._api.get_viewers().values():
+                ctx = viewer_slices.get(id(viewer))
+                if ctx is not None:
+                    kind, orientation, slice_idx = ctx
+                    tasks.append((id(viewer), kind, orientation, slice_idx, viewer.volume))
+            vs = self._api.get_view_states().get(image_id)
+            overlay_vol = vs.volume if vs else None
+            t_idx = getattr(vs.camera, "time_idx", 0) if vs and hasattr(vs, "camera") else 0
+        else:
+            overlay_vol = None
+            t_idx = 0
+        self._compute_fast_preview(image_id, version, R, center, tasks, overlay_vol, t_idx)
 
     def _is_live_preview_enabled(self):
         return True
@@ -404,7 +420,7 @@ class RegistrationPluginController(PluginTagMixin):
             self._auto_timer = None
             vs_id = self._auto_timer_vs_id
         if vs_id and self._api:
-            self._api.resample_image(vs_id)
+            self._api.run_on_main_thread(lambda: self._api.resample_image(vs_id))
 
     def destroy(self) -> None:
         self._cancel_auto_timer()
@@ -770,13 +786,18 @@ class RegistrationPluginController(PluginTagMixin):
             except Exception:
                 R = np.eye(3, dtype=np.float64)
                 center = np.zeros(3, dtype=np.float64)
-            viewer_slices = {}
+            tasks = []
             for v in self._api.get_viewers().values():
                 if v.image_id == target_id:
-                    viewer_slices[id(v)] = ("base", v.orientation, v.slice_idx)
+                    tasks.append((id(v), "base", v.orientation, v.slice_idx, v.volume))
                 elif v.view_state and v.view_state.display.overlay.image_id == target_id:
-                    viewer_slices[id(v)] = ("overlay", v.orientation, v.slice_idx)
-            self._preview_queue.put((target_id, version, R, center, viewer_slices))
+                    tasks.append((id(v), "overlay", v.orientation, v.slice_idx, v.volume))
+            overlay_vol = vs.volume
+            t_idx = getattr(vs.camera, "time_idx", 0) if hasattr(vs, "camera") else 0
+            num_tp = getattr(overlay_vol, "num_timepoints", 1)
+            if isinstance(num_tp, int) and num_tp > 1 and isinstance(t_idx, int):
+                t_idx = min(t_idx, num_tp - 1)
+            self._preview_queue.put((target_id, version, R, center, tasks, overlay_vol, t_idx))
             preview_thread_spawned = True
 
         if not preview_thread_spawned:
