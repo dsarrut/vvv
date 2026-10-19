@@ -1,0 +1,180 @@
+{
+  "schema": 1,
+  "bench": "core",
+  "date": "2026-10-19T08:01:37",
+  "env": {
+    "host": "cortinaire",
+    "platform": "Linux 7.0.0-31-generic (x86_64)",
+    "cpu_count": 40,
+    "python": "3.14.0",
+    "numpy": "2.4.2",
+    "simpleitk": "2.5.3",
+    "dearpygui": "2.3.1",
+    "numba": "0.65.0",
+    "commit": "45cf2e83",
+    "branch": "consolidate",
+    "dirty": false
+  },
+  "params": {
+    "frames": 120,
+    "warmup": 15,
+    "load_repeats": 10,
+    "viewport": [
+      1600,
+      1000
+    ],
+    "data_version": 1,
+    "quick": false
+  },
+  "loadavg": {
+    "start": [
+      1.1,
+      1.06,
+      1.27
+    ],
+    "end": [
+      4.03,
+      1.73,
+      1.48
+    ]
+  },
+  "render_modes": {
+    "ct": {
+      "nn_modes": {
+        "V1": "HW_GL_NEAREST",
+        "V2": "HW_GL_NEAREST",
+        "V3": "HW_GL_NEAREST",
+        "V4": "HW_GL_NEAREST"
+      },
+      "lazy_lin": {
+        "V1": false,
+        "V2": false,
+        "V3": false,
+        "V4": false
+      },
+      "fast_colorize": [
+        "<i2/C"
+      ]
+    },
+    "fusion": {
+      "nn_modes": {
+        "V1": "HW_GL_NEAREST",
+        "V2": "HW_GL_NEAREST",
+        "V3": "HW_GL_NEAREST",
+        "V4": "HW_GL_NEAREST"
+      },
+      "lazy_lin": {
+        "V1": false,
+        "V2": false,
+        "V3": false,
+        "V4": false
+      },
+      "fast_colorize": [
+        "<i2/C"
+      ]
+    },
+    "fusion_roi": {
+      "nn_modes": {
+        "V1": "HW_GL_NEAREST",
+        "V2": "HW_GL_NEAREST",
+        "V3": "HW_GL_NEAREST",
+        "V4": "HW_GL_NEAREST"
+      },
+      "lazy_lin": {
+        "V1": false,
+        "V2": false,
+        "V3": false,
+        "V4": false
+      },
+      "fast_colorize": [
+        "<i2/C"
+      ]
+    }
+  },
+  "results": {
+    "load.ct": {
+      "median_ms": 161.656,
+      "p90_ms": 165.06,
+      "mean_ms": 161.679,
+      "n": 10
+    },
+    "ct.idle": {
+      "median_ms": 2.985,
+      "p90_ms": 3.23,
+      "mean_ms": 3.035,
+      "n": 120
+    },
+    "ct.slice_scroll": {
+      "median_ms": 5.113,
+      "p90_ms": 5.332,
+      "mean_ms": 5.28,
+      "n": 120
+    },
+    "ct.crosshair_drag": {
+      "median_ms": 7.962,
+      "p90_ms": 8.167,
+      "mean_ms": 8.32,
+      "n": 120
+    },
+    "ct.wl_drag": {
+      "median_ms": 9.078,
+      "p90_ms": 26.247,
+      "mean_ms": 12.8,
+      "n": 120
+    },
+    "ct.pan": {
+      "median_ms": 3.882,
+      "p90_ms": 4.031,
+      "mean_ms": 3.881,
+      "n": 120
+    },
+    "ct.zoom": {
+      "median_ms": 4.015,
+      "p90_ms": 4.192,
+      "mean_ms": 4.028,
+      "n": 120
+    },
+    "fusion.idle": {
+      "median_ms": 3.198,
+      "p90_ms": 3.304,
+      "mean_ms": 3.194,
+      "n": 120
+    },
+    "fusion.slice_scroll": {
+      "median_ms": 5.75,
+      "p90_ms": 5.891,
+      "mean_ms": 5.793,
+      "n": 120
+    },
+    "fusion.crosshair_drag": {
+      "median_ms": 12.024,
+      "p90_ms": 12.352,
+      "mean_ms": 12.605,
+      "n": 120
+    },
+    "fusion.wl_drag": {
+      "median_ms": 13.1,
+      "p90_ms": 14.134,
+      "mean_ms": 14.042,
+      "n": 120
+    },
+    "fusion_roi.idle": {
+      "median_ms": 3.234,
+      "p90_ms": 3.515,
+      "mean_ms": 3.328,
+      "n": 120
+    },
+    "fusion_roi.slice_scroll": {
+      "median_ms": 23.26,
+      "p90_ms": 26.518,
+      "mean_ms": 24.256,
+      "n": 120
+    },
+    "fusion_roi.crosshair_drag": {
+      "median_ms": 22.931,
+      "p90_ms": 23.899,
+      "mean_ms": 22.838,
+      "n": 120
+    }
+  }
+}
