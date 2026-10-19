@@ -301,25 +301,30 @@ class TestDosePlugin(unittest.TestCase):
         self.assertIsNone(self.mock_viewer.volume.scale_unit)
 
     def test_scaling_component_bake_and_reset(self):
+        import SimpleITK as sitk
+
         self.mock_viewer.volume.unit = "Gy"
         self.mock_viewer.volume.data = np.full((4, 4, 4), 10.0, dtype=np.float32)
+        self.mock_viewer.volume.sitk_image = sitk.GetImageFromArray(self.mock_viewer.volume.data)
         self.mock_viewer.view_state.display.ww = 20.0
         self.mock_viewer.view_state.display.wl = 10.0
 
         comp = self.plugin._ui.scaling_comp
         comp._set_scale_factor(3.0)
 
-        # Bake (applies to array)
+        # Bake (applies to array and sitk_image)
         comp._on_bake_clicked()
         self.assertTrue(np.allclose(self.mock_viewer.volume.data, 30.0))
+        self.assertTrue(np.allclose(sitk.GetArrayFromImage(self.mock_viewer.volume.sitk_image), 30.0))
         self.assertEqual(getattr(self.mock_viewer.volume, "_cumulative_scale", 1.0), 3.0)
         self.assertEqual(self.mock_viewer.view_state.display.ww, 60.0)
         self.assertEqual(self.mock_viewer.view_state.display.wl, 30.0)
         self.assertEqual(comp.get_state("img_1").scaling_factor, 1.0)
 
-        # Reset (reverts array)
+        # Reset (reverts array and sitk_image)
         comp._on_reset_clicked()
         self.assertTrue(np.allclose(self.mock_viewer.volume.data, 10.0))
+        self.assertTrue(np.allclose(sitk.GetArrayFromImage(self.mock_viewer.volume.sitk_image), 10.0))
         self.assertEqual(getattr(self.mock_viewer.volume, "_cumulative_scale", 1.0), 1.0)
         self.assertEqual(self.mock_viewer.view_state.display.ww, 20.0)
         self.assertEqual(self.mock_viewer.view_state.display.wl, 10.0)
@@ -988,6 +993,38 @@ class TestDosePlugin(unittest.TestCase):
         self.assertTrue(curve.volume_percent[-1] <= 1.0)
         self.assertTrue(curve.min_dose < curve.max_dose)
         self.assertTrue(curve.d98 <= curve.median_dose <= curve.d2)
+
+    def test_dvh_uses_baked_dose(self):
+        """Verify that DVH calculation reflects baked/scaled dose rather than stale pre-bake dose (PA1)."""
+        import SimpleITK as sitk
+        from vvv.plugins.dose.dvh_calc import compute_roi_dvh
+
+        # 1. Base dose volume: 10 Gy everywhere
+        dose_arr = np.full((10, 10, 10), 10.0, dtype=np.float32)
+        mock_dose_vol = MagicMock()
+        mock_dose_vol.sitk_image = sitk.GetImageFromArray(dose_arr)
+        mock_dose_vol.sitk_image.SetSpacing((1.0, 1.0, 1.0))
+        mock_dose_vol.data = dose_arr
+
+        # 2. ROI volume: 8 voxels inside
+        roi_arr = np.zeros((10, 10, 10), dtype=np.uint8)
+        roi_arr[3:5, 3:5, 3:5] = 1
+        mock_roi_vol = MagicMock()
+        mock_roi_vol.sitk_image = sitk.GetImageFromArray(roi_arr)
+        mock_roi_vol.sitk_image.SetSpacing((1.0, 1.0, 1.0))
+        mock_roi_vol.data = roi_arr
+
+        # Initial DVH: mean dose should be 10.0
+        c1 = compute_roi_dvh(mock_dose_vol, mock_roi_vol, "PTV", [255, 0, 0, 255])
+        self.assertAlmostEqual(c1.mean_dose, 10.0, places=2)
+
+        # 3. Simulate dose bake: dose_vol.data multiplied by 2.5 (e.g. 25 Gy)
+        # Even if dose_vol.data is decoupled from sitk_image, compute_roi_dvh must reflect 25 Gy!
+        mock_dose_vol.data = (dose_arr * 2.5).astype(np.float32)
+        c2 = compute_roi_dvh(mock_dose_vol, mock_roi_vol, "PTV", [255, 0, 0, 255])
+        self.assertAlmostEqual(c2.mean_dose, 25.0, places=2)
+        self.assertAlmostEqual(c2.min_dose, 25.0, places=2)
+        self.assertAlmostEqual(c2.max_dose, 25.0, places=2)
 
     def test_dvh_window_ui(self):
         import SimpleITK as sitk

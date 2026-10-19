@@ -658,6 +658,22 @@ class IntensityScalingComponent:
         target_vol.data = (target_vol.data * s_eff).astype(np.float32)  # drops the range cache
         target_vol._is_outdated = True
 
+        # Keep sitk_image in sync with baked data (e.g. for DVH, export/saving)
+        if getattr(target_vol, "sitk_image", None) is not None:
+            import SimpleITK as sitk
+
+            if isinstance(target_vol.sitk_image, sitk.Image):
+                is_vector = target_vol.sitk_image.GetNumberOfComponentsPerPixel() > 1
+                d_arr = target_vol.data
+                if target_vol.sitk_image.GetDimension() == 3 and d_arr.ndim == 4 and d_arr.shape[0] == 1:
+                    d_arr = d_arr[0]
+                new_sitk = sitk.GetImageFromArray(d_arr, isVector=is_vector)
+                new_sitk.CopyInformation(target_vol.sitk_image)
+                for k in target_vol.sitk_image.GetMetaDataKeys():
+                    new_sitk.SetMetaData(k, target_vol.sitk_image.GetMetaData(k))
+                target_vol.sitk_image = new_sitk
+                target_vol.data = sitk.GetArrayViewFromImage(new_sitk)
+
         # Scale Window / Level proportionally so visual appearance is preserved
         if target_vs and hasattr(target_vs, "display"):
             target_vs.display.ww *= s_eff
@@ -693,6 +709,22 @@ class IntensityScalingComponent:
             target_vol.data = (target_vol.data / cum).astype(np.float32)
             target_vol._cumulative_scale = 1.0
             target_vol._is_outdated = True
+
+            # Keep sitk_image in sync with reverted data
+            if getattr(target_vol, "sitk_image", None) is not None:
+                import SimpleITK as sitk
+
+                if isinstance(target_vol.sitk_image, sitk.Image):
+                    is_vector = target_vol.sitk_image.GetNumberOfComponentsPerPixel() > 1
+                    d_arr = target_vol.data
+                    if target_vol.sitk_image.GetDimension() == 3 and d_arr.ndim == 4 and d_arr.shape[0] == 1:
+                        d_arr = d_arr[0]
+                    new_sitk = sitk.GetImageFromArray(d_arr, isVector=is_vector)
+                    new_sitk.CopyInformation(target_vol.sitk_image)
+                    for k in target_vol.sitk_image.GetMetaDataKeys():
+                        new_sitk.SetMetaData(k, target_vol.sitk_image.GetMetaData(k))
+                    target_vol.sitk_image = new_sitk
+                    target_vol.data = sitk.GetArrayViewFromImage(new_sitk)
 
             if target_vs and hasattr(target_vs, "display"):
                 target_vs.display.ww /= cum

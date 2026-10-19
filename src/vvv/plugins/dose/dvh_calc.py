@@ -57,9 +57,26 @@ def compute_roi_dvh(
     total_vol_cc = total_voxels * voxel_vol_cc
 
     # Sample dose into ROI geometry using SimpleITK linear interpolation
+    d_sitk = dose_vol.sitk_image
+    if getattr(dose_vol, "data", None) is not None and isinstance(d_sitk, sitk.Image):
+        try:
+            curr_view = sitk.GetArrayViewFromImage(d_sitk)
+            if curr_view.ctypes.data != dose_vol.data.ctypes.data:
+                is_vector = d_sitk.GetNumberOfComponentsPerPixel() > 1
+                d_arr = dose_vol.data
+                if d_sitk.GetDimension() == 3 and d_arr.ndim == 4 and d_arr.shape[0] == 1:
+                    d_arr = d_arr[0]
+                new_d_sitk = sitk.GetImageFromArray(d_arr, isVector=is_vector)
+                new_d_sitk.CopyInformation(d_sitk)
+                for k in d_sitk.GetMetaDataKeys():
+                    new_d_sitk.SetMetaData(k, d_sitk.GetMetaData(k))
+                d_sitk = new_d_sitk
+        except Exception:
+            pass
+
     try:
         dose_in_roi = sitk.Resample(
-            dose_vol.sitk_image,
+            d_sitk,
             r_sitk,
             sitk.Transform(),
             sitk.sitkLinear,
