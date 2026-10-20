@@ -5,8 +5,12 @@ def show_help_window(gui):
     """Toggle the "Shortcuts & Controls" window."""
     window_tag = "help_window"
     if dpg.does_item_exist(window_tag):
+        # Toggle: close if shown. A hidden one is a window closed with its
+        # close button whose on_close did not delete it: open it again.
+        was_shown = dpg.is_item_shown(window_tag)
         dpg.delete_item(window_tag)
-        return
+        if was_shown:
+            return
 
     active_col = gui.ui_cfg["colors"]["text_active"]
     ok_col = gui.ui_cfg["colors"]["text_status_ok"]

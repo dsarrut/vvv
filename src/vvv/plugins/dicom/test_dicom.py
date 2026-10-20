@@ -43,6 +43,32 @@ class TestDicomPlugin(unittest.TestCase):
         self.assertEqual(self.plugin._ui.api, self.mock_api)
         dpg.delete_item("test_parent")
 
+    def test_reopen_after_close_without_on_close_callback(self):
+        """The window's close button only hides it; if on_close did not run (or
+        raised) the menu must still show the browser again."""
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+        ui = self.plugin._ui
+
+        self.plugin.show_window()
+        self.assertTrue(dpg.is_item_shown(ui.window_tag))
+
+        dpg.configure_item(ui.window_tag, show=False)  # closed, callback not run
+        self.plugin.show_window()
+        self.assertTrue(dpg.does_item_exist(ui.window_tag))
+        self.assertTrue(dpg.is_item_shown(ui.window_tag))
+
+        # Normal close (callback run), then reopen
+        ui.on_window_close()
+        self.assertFalse(dpg.does_item_exist(ui.window_tag))
+        self.plugin.show_window()
+        self.assertTrue(dpg.is_item_shown(ui.window_tag))
+
+        ui.on_window_close()
+        dpg.delete_item("test_parent")
+
     def test_scan_and_selection_lifecycle(self):
         if not dpg.is_dearpygui_running():
             dpg.create_context()

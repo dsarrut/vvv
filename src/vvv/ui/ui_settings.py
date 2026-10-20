@@ -14,8 +14,12 @@ class SettingsWindow:
     def show(self):
         # If it's already open, close it (Toggle behavior)
         if dpg.does_item_exist(self.window_tag):
+            # Toggle: close if shown. A hidden one is a window closed with its
+            # close button whose on_close did not delete it: open it again.
+            was_shown = dpg.is_item_shown(self.window_tag)
             dpg.delete_item(self.window_tag)
-            return
+            if was_shown:
+                return
 
         with dpg.window(
             tag=self.window_tag,
