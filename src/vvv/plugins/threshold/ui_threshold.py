@@ -220,27 +220,13 @@ class ThresholdUI(PluginTagMixin):
         ext_state = self._c.get_image_state(viewer.image_id)
         img_id = viewer.image_id
 
-        # Update cache bounds if needed
-        current_data_id = id(vol.data)
-        if (
-            not hasattr(vol, "_cached_min_val")
-            or getattr(vol, "_cached_data_id", None) != current_data_id
-        ):
-            if vol.data is not None and vol.data.size > 0:
-                min_val = np.min(vol.data)
-                max_val = np.max(vol.data)
-                vol._cached_min_val = float(min_val) if min_val is not None else 0.0
-                vol._cached_max_val = float(max_val) if max_val is not None else 1.0
-            else:
-                vol._cached_min_val = 0.0
-                vol._cached_max_val = 1.0
-            vol._cached_data_id = current_data_id
+        min_val, max_val = vol.get_data_range()
 
         # Auto-clamp state to physical bounds
-        if ext_state.threshold_min < vol._cached_min_val:
-            ext_state.threshold_min = vol._cached_min_val
-        if ext_state.threshold_max > vol._cached_max_val + 1.0:
-            ext_state.threshold_max = vol._cached_max_val + 1.0
+        if ext_state.threshold_min < min_val:
+            ext_state.threshold_min = min_val
+        if ext_state.threshold_max > max_val + 1.0:
+            ext_state.threshold_max = max_val + 1.0
 
         # Dynamic Range Texts
         min_v = ext_state.threshold_min
@@ -272,7 +258,7 @@ class ThresholdUI(PluginTagMixin):
         for tag in [self._t("drag_ext_threshold_min"), self._t("drag_ext_threshold_max")]:
             if dpg.does_item_exist(tag):
                 dpg.configure_item(
-                    tag, min_value=vol._cached_min_val, max_value=vol._cached_max_val + 1.0, speed=speed, format=dpg_fmt
+                    tag, min_value=min_val, max_value=max_val + 1.0, speed=speed, format=dpg_fmt
                 )
 
         # Context Switch Snap

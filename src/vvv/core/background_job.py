@@ -9,6 +9,9 @@ reinvent their own thread + job-counter + discard dance.
 
 import queue
 import threading
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class Job:
@@ -42,6 +45,7 @@ class JobRunner:
     def __init__(self):
         self._lock = threading.Lock()
         self._version = 0
+        self._pending = 0  # submitted jobs not yet finished or dropped
         self._queue: "queue.Queue" = queue.Queue()
         threading.Thread(target=self._loop, daemon=True).start()
 
@@ -54,9 +58,19 @@ class JobRunner:
         """
         with self._lock:
             self._version += 1
+            self._pending += 1
             job = Job(self, self._version)
         self._queue.put((job, fn))
         return job
+
+    def is_idle(self) -> bool:
+        """True when no submitted job is waiting or running."""
+        with self._lock:
+            return self._pending == 0
+
+    def _done(self, n=1):
+        with self._lock:
+            self._pending -= n
 
     def invalidate(self) -> None:
         """Bump the version so any in-flight job's `is_current()` becomes False,
@@ -81,14 +95,16 @@ class JobRunner:
                     break
                 if nxt is None:
                     return
+                self._done()  # the previous item is dropped
                 item = nxt
             job, fn = item
-            if not job.is_current():
-                continue
             try:
-                fn(job)
+                if job.is_current():
+                    fn(job)
             except Exception as exc:
-                print(f"JobRunner: background job raised: {exc}")
+                logger.exception(f"JobRunner: background job raised: {exc}")
+            finally:
+                self._done()
 
     def shutdown(self) -> None:
         self._queue.put(None)

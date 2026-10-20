@@ -5,7 +5,9 @@ import os
 import json
 import shlex
 import time
+import inspect
 import threading
+import traceback
 import collections
 import numpy as np
 from vvv.utils import fmt, ViewMode, format_pixel_value
@@ -15,7 +17,6 @@ from vvv.ui.ui_contours import ContoursUI
 from vvv.ui.ui_settings import SettingsWindow
 from vvv.plugins.plugin_api import PluginAPI
 from vvv.plugins import discover_plugins
-from vvv.resources import load_fonts, setup_themes
 from vvv.ui.ui_interaction import InteractionManager
 from vvv.ui.ui_components import (
     build_section_title,
@@ -25,8 +26,12 @@ from vvv.ui.ui_components import (
 )
 from vvv.ui.ui_sync import build_tab_sync, refresh_sync_ui
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
-from vvv.ui.ui_theme import build_ui_config, register_dynamic_themes
-from vvv.ui.ui_notifications import show_message, show_status_message
+from vvv.ui.ui_theme import build_ui_config, register_dynamic_themes, load_fonts, setup_themes
+from vvv.ui.ui_notifications import (
+    show_message,
+    show_status_message,
+    hide_loading_modal,
+)
 from vvv.ui.ui_image_list import (
     build_tab_images,
     refresh_image_list_ui,
@@ -41,8 +46,19 @@ from vvv.ui.ui_sequences import (
 )
 from vvv.ui.ui_drop import install_os_drop, cleanup_os_drop
 from vvv.ui.ui_workspace import build_workspace_nav_icons
-from vvv.ui.render_strategy import GL_NEAREST_SUPPORTED, NNMode
-from vvv.utils import capture_whole_window, copy_image_to_clipboard, save_screenshot_to_file
+from vvv.ui.ui_debug import DebugOverlay
+from vvv.ui.ui_help import show_help_window
+from vvv.ui.render_strategy import GL_NEAREST_SUPPORTED
+from vvv.maths.image import fast_colorize_compiling_for
+from vvv.ui.ui_capture import capture_whole_window, copy_image_to_clipboard, save_screenshot_to_file
+import logging
+
+logger = logging.getLogger(__name__)
+
+_POSITIONAL_KINDS = (
+    inspect.Parameter.POSITIONAL_ONLY,
+    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+)
 
 
 class MainGUI:
@@ -121,6 +137,9 @@ class MainGUI:
         self.plugins = []
         self._plugin_map = {}
         self._plugin_errors: set[tuple[str, str]] = set()
+        self._frame_errors: set[tuple[str, str]] = set()
+        self.ui_dirty_this_frame = False
+        self._fast_render_notice = False
         self.plugin_api = PluginAPI(self)
         self._init_plugins()
 
@@ -156,6 +175,94 @@ class MainGUI:
         with self._main_thread_lock:
             self._main_thread_callbacks.append(callback)
 
+    def step_callbacks(self):
+        """Drain and run scheduled main-thread callbacks (e.g. for testing or outside the render loop)."""
+        callbacks_to_run = []
+        with self._main_thread_lock:
+            while self._main_thread_callbacks:
+                callbacks_to_run.append(self._main_thread_callbacks.popleft())
+        for cb in callbacks_to_run:
+            cb()
+
+    def _run_dpg_callbacks(self):
+        """Run DPG callbacks queued since the last frame, on the main thread.
+
+        With manual_callback_management, DPG queues callbacks instead of running
+        them on its own thread, so handlers never race the render loop.
+        Replaces dpg.run_callbacks() so that one failing callback neither drops
+        the rest of the queue nor kills the main loop.
+        """
+        jobs = dpg.get_callback_queue()
+        if not jobs:
+            return
+        for job in jobs:
+            cb = job[0]
+            if cb is None:
+                continue
+            try:
+                kinds = [p.kind for p in inspect.signature(cb).parameters.values()]
+                if inspect.Parameter.VAR_POSITIONAL in kinds:
+                    n = 3
+                else:
+                    n = min(3, sum(k in _POSITIONAL_KINDS for k in kinds))
+                cb(*job[1 : 1 + n])
+            except Exception:
+                traceback.print_exc()
+
+    def _step_task(self, task):
+        """Advance a generator task (loading sequence) by one step.
+
+        Returns False once the task is finished or has failed. A failing task is
+        dropped with an error message instead of taking the whole app down; the
+        UI is refreshed from whatever state it left (no rollback).
+        """
+        try:
+            next(task)
+            return True
+        except StopIteration:
+            return False
+        except Exception as e:
+            if self.controller.debug_mode:
+                raise
+            traceback.print_exc()
+            hide_loading_modal()
+            self.show_message(
+                "Task failed",
+                f"An operation failed and was stopped:\n\n{type(e).__name__}: {e}"
+                "\n\nSee the console for details.",
+            )
+            self.controller.ui_needs_refresh = True
+            return False
+
+    def _update_fast_render_notice(self):
+        """Tell the user while the fast colormap kernel compiles (numba, first
+        run mainly): rendering uses the slower numpy path meanwhile. Shown only
+        if compiling takes a while, so cached runs do not flash a message."""
+        elapsed = fast_colorize_compiling_for()
+        if elapsed is not None and elapsed > 0.3 and not self._fast_render_notice:
+            self._fast_render_notice = True
+            self.show_status_message(
+                "Preparing fast rendering (first run only)... display may be slower",
+                duration=120.0,
+                color=self.ui_cfg["colors"]["working"],
+            )
+        elif elapsed is None and self._fast_render_notice:
+            self._fast_render_notice = False
+            self.show_status_message("Fast rendering ready")
+
+    def _report_frame_error(self, e):
+        """Keep the main loop alive on an unexpected error, reporting each distinct one once."""
+        if self.controller.debug_mode:
+            raise e
+        key = (type(e).__name__, str(e))
+        if key in self._frame_errors:
+            return
+        self._frame_errors.add(key)
+        traceback.print_exc()
+        self.controller.status_message = (
+            f"Internal error: {type(e).__name__}: {e} (see console)"
+        )
+
     def notify_plugins_image_loaded(self, image_id: str) -> None:
         for plugin in self.plugins:
             if hasattr(plugin, "bind"):
@@ -185,9 +292,8 @@ class MainGUI:
             key = (plugin.plugin_id, method_name)
             if key not in self._plugin_errors:
                 self._plugin_errors.add(key)
-                print(
+                logger.exception(
                     f"[Plugin error] {plugin.plugin_id}.{method_name}: {e}",
-                    file=sys.stderr,
                 )
 
     # ==========================================
@@ -1060,73 +1166,6 @@ class MainGUI:
             # filename
             dpg.add_text("", tag=f"filename_text_{tag}", color=col, show=False)
 
-    def build_viewer_widget_OLD(self, tag):
-        viewer = self.controller.viewers[tag]
-        with dpg.child_window(
-            tag=f"win_{tag}", border=True, no_scrollbar=True, no_scroll_with_mouse=True
-        ):
-            with dpg.group(horizontal=True):
-                with dpg.drawlist(tag=f"drawlist_{tag}", width=-40, height=-1):
-                    with dpg.draw_node(tag=viewer.img_node_tag):
-                        dpg.draw_image(
-                            viewer.texture_tag, [0, 0], [1, 1], tag=viewer.image_tag
-                        )
-
-                    dpg.add_draw_node(tag=viewer.strips_a_tag)
-                    dpg.add_draw_node(tag=viewer.strips_b_tag)
-                    viewer.active_strips_node = viewer.strips_a_tag
-
-                    dpg.add_draw_node(tag=viewer.grid_a_tag)
-                    dpg.add_draw_node(tag=viewer.grid_b_tag)
-                    viewer.active_grid_node = viewer.grid_a_tag
-
-                    dpg.add_draw_node(tag=viewer.axis_a_tag)
-                    dpg.add_draw_node(tag=viewer.axis_b_tag)
-                    viewer.axes_nodes = [viewer.axis_a_tag, viewer.axis_b_tag]
-                    viewer.active_axes_idx = 0
-
-                    dpg.add_draw_node(tag=viewer.scale_bar_tag)
-                    dpg.add_draw_node(tag=viewer.crosshair_tag)
-                    dpg.add_draw_node(tag=viewer.legend_tag)
-                    dpg.add_draw_node(tag=viewer.contour_node_tag)
-                    dpg.add_draw_node(tag=viewer.profile_node_tag)
-                    dpg.add_draw_node(tag=viewer.landmark_node_tag)
-                    dpg.add_draw_node(tag=viewer.roi_handle_node_tag)
-                    dpg.add_draw_node(tag=viewer.vector_field_node_tag)
-
-                # vertical slider for slice scrolling (positioned as a sibling column)
-                dpg.add_slider_int(
-                    vertical=True,
-                    tag=f"slider_slice_{tag}",
-                    width=20,
-                    height=-1,
-                    show=False,
-                    format="",
-                    callback=self.on_viewer_slider_changed,
-                    user_data=tag,
-                )
-
-            col = self.controller.settings.data["colors"]["tracker_text"]
-            dpg.add_text("", tag=viewer.tracker_tag, color=col, pos=[5, 5])
-
-            # Beginner mode help text for non-active viewers
-            viewer_help_tag = f"viewer_help_text_{tag}"
-            mod = "Cmd" if sys.platform == "darwin" else "Ctrl"
-            help_text = (
-                "Scroll: Slice"
-                f"\n{mod}+Scroll or key I & O: Zoom"
-                f"\n{mod}+Drag: Pan"
-                "\nShift + Move: win/level"
-            )
-            help_col = self.ui_cfg["colors"]["text_dim"]
-            help_item = dpg.add_text(
-                help_text, tag=viewer_help_tag, color=help_col, show=False
-            )
-            self.beginner_tags.append(viewer_help_tag)
-
-            # filename
-            dpg.add_text("", tag=f"filename_text_{tag}", color=col, show=False)
-
     def register_handlers(self):
         with dpg.handler_registry():
             dpg.add_mouse_wheel_handler(callback=self.interaction.on_mouse_scroll)
@@ -1256,7 +1295,7 @@ class MainGUI:
                 path_obj = (
                     json.loads(path_str) if path_str.startswith("[") else path_str
                 )
-            except:
+            except Exception:
                 path_obj = path_str
 
             # Resolve the path to handle robust user profile path fallback
@@ -1280,7 +1319,7 @@ class MainGUI:
                         tokens = shlex.split(path_for_shlex)
                         # For 4D sequences, verify the first frame exists
                         exists = len(tokens) > 0 and os.path.exists(tokens[0])
-                    except:
+                    except Exception:
                         exists = False
                 else:
                     exists = os.path.exists(path_obj)
@@ -1874,6 +1913,9 @@ class MainGUI:
         try:
             window_w = dpg.get_viewport_client_width()
             window_h = dpg.get_viewport_client_height()
+        except Exception:
+            return  # no viewport yet (the GUI is built before it is created)
+        try:
             if not window_w or not window_h:
                 return
 
@@ -2065,8 +2107,9 @@ class MainGUI:
                     v_obj.quad_w, v_obj.quad_h = w, h
 
             self._update_viewer_help_texts()  # Recalculate positions for viewer help texts
-        except Exception:
-            pass
+        except Exception as e:
+            # A layout bug must not stop the app, but must not be silent either
+            self._report_frame_error(e)
 
     def _update_viewer_help_texts(self):
         """Manages visibility and positioning of help text in non-active viewers."""
@@ -2394,13 +2437,7 @@ class MainGUI:
         if vol.file_paths and os.path.exists(vol.file_paths[0]):
             file_path = vol.file_paths[0]
             self.show_status_message(f"Saving {vol.name}...")
-
-            def _save():
-                self.controller.save_image(vs_id, file_path)
-                self.controller.status_message = f"Saved: {os.path.basename(file_path)}"
-                self.controller.ui_needs_refresh = True
-
-            threading.Thread(target=_save, daemon=True).start()
+            self.controller.save_image_async(vs_id, file_path)
         else:
             self.on_save_image_clicked(vs_id)
 
@@ -2433,14 +2470,17 @@ class MainGUI:
 
         if file_path:
             self.show_status_message(f"Saving {vol.name}...")
+            # Files written in a background thread (heavy compression)
+            self.controller.save_image_async(vs_id, file_path)
 
-            # Run in a thread so the UI doesn't freeze during heavy compression!
-            def _save():
-                self.controller.save_image(vs_id, file_path)
-                self.controller.status_message = f"Saved: {os.path.basename(file_path)}"
-                self.controller.ui_needs_refresh = True
-
-            threading.Thread(target=_save, daemon=True).start()
+    def workspace_view(self):
+        """Viewport layout saved in a workspace (see FileManager.save_workspace)."""
+        cv = self.context_viewer
+        return {
+            "layout": str(self.active_layout),
+            "active_viewer": cv.tag if cv else None,
+            "visible_viewers": list(getattr(self, "visible_viewers", None) or []),
+        }
 
     def on_save_workspace_clicked(self, sender=None, app_data=None, user_data=None):
         file_path = save_file_dialog("Save VVV Workspace", default_name="workspace.vvw")
@@ -2450,7 +2490,7 @@ class MainGUI:
             if not file_path.endswith(".vvw"):
                 file_path += ".vvw"
 
-            self.controller.file.save_workspace(file_path)
+            self.controller.file.save_workspace(file_path, self.workspace_view())
             self.current_workspace_path = file_path
             self.refresh_workspace_bar()
             self.show_status_message(f"Workspace saved: {os.path.basename(file_path)}")
@@ -2469,7 +2509,7 @@ class MainGUI:
         self, sender=None, app_data=None, user_data=None
     ):
         if self.current_workspace_path:
-            self.controller.file.save_workspace(self.current_workspace_path)
+            self.controller.file.save_workspace(self.current_workspace_path, self.workspace_view())
             self.refresh_workspace_bar()
             self.show_status_message(
                 f"Workspace saved: {os.path.basename(self.current_workspace_path)}"
@@ -2660,182 +2700,7 @@ class MainGUI:
         show_status_message(self, message, duration, color)
 
     def show_help_window(self):
-        window_tag = "help_window"
-        if dpg.does_item_exist(window_tag):
-            dpg.delete_item(window_tag)
-            return
-
-        active_col = self.ui_cfg["colors"]["text_active"]
-        ok_col = self.ui_cfg["colors"]["text_status_ok"]
-
-        with dpg.window(
-            tag=window_tag,
-            show=True,
-            label="Shortcuts & Controls",
-            width=520,  # Slightly wider to accommodate longer shortcut names
-            height=750,  # Slightly taller for the new entry
-            no_collapse=False,
-            on_close=lambda: dpg.delete_item(window_tag),
-        ):
-            import sys
-
-            is_mac = sys.platform == "darwin"
-            cmd_name = "Cmd" if is_mac else "Ctrl"
-
-            dpg.add_spacer(height=5)
-            dpg.add_text("Mouse Controls", color=active_col)
-            dpg.add_separator()
-            if is_mac:
-                dpg.add_text("Left Click         : Move crosshair")
-                dpg.add_text("Scroll Wheel       : Change slice")
-                dpg.add_text("Cmd/Ctrl + Scroll  : Zoom in/out")
-                dpg.add_text("Cmd/Ctrl + L-Drag  : Pan view")
-                dpg.add_text("Mid-Drag           : Pan view")
-                dpg.add_text("Shift+Move / R-Drag: Adjust Window/Level")
-            else:
-                dpg.add_text("Left Click         : Move crosshair")
-                dpg.add_text("Scroll Wheel       : Change slice")
-                dpg.add_text("Ctrl + Scroll      : Zoom in/out")
-                dpg.add_text("Ctrl+L-Drag / M-Drag: Pan view")
-                dpg.add_text("Shift+Move / R-Drag: Adjust Window/Level")
-
-            dpg.add_spacer(height=15)
-            dpg.add_text("Keyboard Shortcuts", color=active_col)
-            dpg.add_separator()
-
-            shortcuts = self.controller.settings.data["shortcuts"]
-            descriptions = {
-                "open_file": "Open File(s)",
-                "next_image": "Next Image in List",
-                "auto_window": "Auto Window/Level (Base)",
-                "auto_window_overlay": "Auto Window/Level (Overlay)",
-                "scroll_up": "Scroll Slice Up",
-                "scroll_down": "Scroll Slice Down",
-                "fast_scroll_up": "Fast Scroll Up",
-                "fast_scroll_down": "Fast Scroll Down",
-                "time_backward": "Previous Time Frame (4D)",
-                "time_forward": "Next Time Frame (4D)",
-                "zoom_in": "Zoom In",
-                "zoom_out": "Zoom Out",
-                "reset_view": "Reset Zoom & Pan",
-                "hard_reset": "Hard Reset (Zoom, W/L, Defaults)",
-                "center_view": "Center View on Crosshair",
-                "view_axial": "Axial View",
-                "view_sagittal": "Sagittal View",
-                "view_coronal": "Coronal View",
-                "toggle_interp": "Toggle Pixelated Zoom (NN)",
-                "toggle_grid": "Toggle Voxel Grid",
-                "toggle_legend": "Toggle Legend",
-                "toggle_axis": "Toggle Axis Guide",
-                "toggle_scalebar": "Toggle Scalebar",
-                "toggle_mip": "Toggle MIP (Max Intensity Projection)",
-                "add_profile": "Add Profile Line",
-                "add_landmark": "Add Landmark at Crosshair",
-                "sync_all": "Sync All Viewers",
-                "hide_all": "Show/Hide Overlays",
-            }
-
-            def format_key(key_name, k):
-                if k == 517:
-                    return "Page Up"
-                if k == 518:
-                    return "Page Down"
-                if key_name == "open_file":
-                    return f"{cmd_name} + {k}"
-                if key_name == "hard_reset":
-                    return f"Shift + {k}"
-                return str(k)
-
-            # Removed the conflicting policy=dpg.mvTable_SizingFixedFit!
-            with dpg.table(header_row=False, borders_innerH=True):
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=140)
-                dpg.add_table_column(width_stretch=True)
-
-                for key_id, desc in descriptions.items():
-                    # Map the virtual "hard_reset" action to the physical "reset_view" key
-                    lookup_key = "reset_view" if key_id == "hard_reset" else key_id
-                    val = shortcuts.get(lookup_key, "N/A")
-                    if not val:
-                        continue
-
-                    with dpg.table_row():
-                        dpg.add_text(format_key(key_id, val), color=ok_col)
-                        dpg.add_text(desc)
-
-            dpg.add_spacer(height=15)
-            dpg.add_text("MIP Controls (when MIP is active)", color=active_col)
-            dpg.add_separator()
-
-            with dpg.table(header_row=False, borders_innerH=True):
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=140)
-                dpg.add_table_column(width_stretch=True)
-
-                mip_controls = [
-                    ("Left / Right", "Rotate MIP projection angle"),
-                    ("Up / Down", "Navigate 4D time frames"),
-                ]
-                for key_str, desc in mip_controls:
-                    with dpg.table_row():
-                        dpg.add_text(key_str, color=ok_col)
-                        dpg.add_text(desc)
-
-            dpg.add_spacer(height=15)
-            dpg.add_text("List & Table Navigation", color=active_col)
-            dpg.add_separator()
-
-            with dpg.table(header_row=False, borders_innerH=True):
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=140)
-                dpg.add_table_column(width_stretch=True)
-
-                list_controls = [
-                    (
-                        "Up / Down",
-                        "Navigate selection when hovering over ROI list or DICOM browser",
-                    ),
-                ]
-                for key_str, desc in list_controls:
-                    with dpg.table_row():
-                        dpg.add_text(key_str, color=ok_col)
-                        dpg.add_text(desc)
-
-            dpg.add_spacer(height=15)
-            dpg.add_text("Command Line Usage", color=active_col)
-            dpg.add_separator()
-
-            with dpg.table(header_row=False, borders_innerH=True):
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=220)
-                dpg.add_table_column(width_stretch=True)
-
-                cli_examples = [
-                    ("vvv image.nii", "Load a base image"),
-                    ("vvv ct.nii,pet.nii", "Load CT with transparent PET overlay"),
-                    (
-                        "vvv ct.nii,pet.nii,hot,0.7",
-                        "Overlay with custom colormap and opacity",
-                    ),
-                    ("vvv ct.nii + labels.nii", "Load label map ROIs on CT base image"),
-                    (
-                        "vvv 1:ct.nii 1:pet.nii",
-                        "Load and group images in spatial sync group 1",
-                    ),
-                    ("vvv 4D f1.nii f2.nii ...", "Load frames as a 4D sequence"),
-                ]
-                for cmd, desc in cli_examples:
-                    with dpg.table_row():
-                        dpg.add_text(cmd, color=ok_col)
-                        dpg.add_text(desc)
-
-            dpg.add_spacer(height=15)
-            with dpg.group(horizontal=True):
-                dpg.add_spacer(width=210)
-                dpg.add_button(
-                    label="Close",
-                    width=100,
-                    callback=lambda: dpg.delete_item(window_tag),
-                )
-
-        vp_width = max(dpg.get_viewport_client_width(), 800)
-        dpg.set_item_pos(window_tag, [vp_width - 540, 40])
+        show_help_window(self)
 
     def load_workspace_sequence(self, file_path):
         """Wrapper to pass the CLI workspace request into the external Sequence Manager."""
@@ -2874,6 +2739,8 @@ class MainGUI:
 
     def run(self, boot_generator=None, debug=False):
         self.controller.debug_mode = debug
+        # Callbacks are queued by DPG and run by _run_dpg_callbacks() in the loop
+        dpg.configure_app(manual_callback_management=True)
         dpg.setup_dearpygui()
 
         if not dpg.does_item_exist("global_texture_registry"):
@@ -2889,229 +2756,146 @@ class MainGUI:
 
         for _ in range(3):
             dpg.render_dearpygui_frame()
+            self._run_dpg_callbacks()
 
         install_os_drop(self.on_file_drop)
+        # Always run the shutdown (save history/settings) even if the loop dies
+        try:
+            if boot_generator:
+                while self._step_task(boot_generator):
+                    dpg.render_dearpygui_frame()
+                    self._run_dpg_callbacks()
 
-        if boot_generator:
-            for _ in boot_generator:
-                dpg.render_dearpygui_frame()
-
-        # --- DEBUG FPS + RENDER-ROUTE OVERLAY ---
-        import platform as _plat
-
-        fps_label = fps_series = x_axis = y_axis = render_input = None
-        fps_data = time_data = None
-        if debug:
-            fps_data = collections.deque(maxlen=600)
-            time_data = collections.deque(maxlen=600)
-            with dpg.window(
-                label="Debug",
-                tag="fps_debug_window",
-                width=480,
-                height=370,
-                pos=[10, 30],
-            ):
-                fps_label = dpg.add_text("FPS: --   Avg: --   Min: --")
-                # Multiline readonly input_text → user can select & copy the text
-                render_input = dpg.add_input_text(
-                    default_value="...",
-                    multiline=True,
-                    readonly=True,
-                    width=-1,
-                    height=120,
-                    tag="debug_render_info",
-                )
-                with dpg.plot(
-                    label="",
-                    height=180,
-                    width=-1,
-                    no_menus=True,
-                    no_title=True,
-                ):
-                    x_axis = dpg.add_plot_axis(
-                        dpg.mvXAxis, label="Time (s)", no_gridlines=True
-                    )
-                    y_axis = dpg.add_plot_axis(dpg.mvYAxis, label="FPS")
-                    dpg.set_axis_limits(y_axis, 0, 125)
-                    fps_series = dpg.add_line_series([], [], label="FPS", parent=y_axis)
-
-        target_fps = 60.0
-        frame_budget = 1.0 / target_fps
-        last_frame_time = time.perf_counter()
-
-        while dpg.is_dearpygui_running():
-            t_now = time.perf_counter()
-
-            # Detect activity/necessity to run at full speed
-            has_active_tasks = (
-                len(self.tasks) > 0
-                or len(self._main_thread_callbacks) > 0
-                or getattr(self.controller, "ui_needs_refresh", False)
-            )
-
-            # Get mouse position and viewport boundaries
-            mx, my = dpg.get_mouse_pos(local=False)
-            vw = dpg.get_viewport_width()
-            vh = dpg.get_viewport_height()
-
-            # Check if mouse is inside the window
-            mouse_in_viewport = (0 <= mx <= vw) and (0 <= my <= vh)
-
-            # Did mouse position change?
-            mouse_moved = (mx, my) != self._last_mouse_pos
-            if mouse_moved:
-                self._last_mouse_pos = (mx, my)
-
-            # Check if any mouse button is down
-            mouse_clicked = False
-            for btn in range(3):
-                if dpg.is_mouse_button_down(btn):
-                    mouse_clicked = True
-                    break
-
-            if mouse_moved or mouse_clicked or has_active_tasks:
-                self._last_interaction_time = t_now
-
-            # Set dynamic FPS target
-            if has_active_tasks:
-                target_fps = 60.0
-            elif not mouse_in_viewport:
-                # Hovering outside or window minimized/backgrounded: extremely low rate to save CPU
-                target_fps = 5.0
-            elif t_now - self._last_interaction_time > 2.0:
-                # Inside viewport but completely inactive/idle: low rate
-                target_fps = 10.0
-            else:
-                target_fps = 60.0
-
-            frame_budget = 1.0 / target_fps
-            t_elapsed = t_now - last_frame_time
-            t_sleep = frame_budget - t_elapsed
-            if t_sleep > 0.001:
-                time.sleep(t_sleep)
+            debug_overlay = DebugOverlay(self.controller) if debug else None
             last_frame_time = time.perf_counter()
 
-            # Process thread-safe callbacks scheduled from background threads
-            callbacks_to_run = []
-            with self._main_thread_lock:
-                while self._main_thread_callbacks:
-                    callbacks_to_run.append(self._main_thread_callbacks.popleft())
-            for cb in callbacks_to_run:
+            while dpg.is_dearpygui_running():
                 try:
-                    cb()
-                except Exception as cb_err:
-                    import sys
+                    self._run_dpg_callbacks()
+                    last_frame_time = self._throttle_frame(last_frame_time)
 
-                    print(
-                        f"Error executing scheduled main-thread callback: {cb_err}",
-                        file=sys.stderr,
+                    # Process thread-safe callbacks scheduled from background threads
+                    callbacks_to_run = []
+                    with self._main_thread_lock:
+                        while self._main_thread_callbacks:
+                            callbacks_to_run.append(self._main_thread_callbacks.popleft())
+                    for cb in callbacks_to_run:
+                        try:
+                            cb()
+                        except Exception as cb_err:
+                            import sys
+
+                            logger.exception(
+                                f"Error executing scheduled main-thread callback: {cb_err}",
+                            )
+                    if debug_overlay:
+                        debug_overlay.update()
+
+                    if time.time() > self.status_message_expire_time:
+                        if dpg.does_item_exist("global_status_text"):
+                            dpg.set_value("global_status_text", "")
+                        self.status_message_expire_time = float("inf")
+
+                    if self.tasks and not self._step_task(self.tasks[0]):
+                        self.tasks.pop(0)
+
+                    # Status messages are polled every frame so they appear immediately
+                    # Read and clear in one statement: a message or refresh request
+                    # set from now on (this refresh, plugins, a worker thread) is
+                    # kept for the next frame instead of being lost.
+                    msg, self.controller.status_message = self.controller.status_message, None
+                    if msg:
+                        text, level = msg if isinstance(msg, tuple) else (msg, None)
+                        color = self.ui_cfg["colors"].get(level) if level else None
+                        self.show_status_message(text, color=color)
+                    self._update_fast_render_notice()
+
+                    ui_dirty, self.controller.ui_needs_refresh = (
+                        self.controller.ui_needs_refresh,
+                        False,
                     )
-            if debug:
-                assert fps_data is not None and time_data is not None
-                assert fps_label is not None and fps_series is not None
-                assert x_axis is not None and render_input is not None
+                    self.ui_dirty_this_frame = ui_dirty  # what plugins see this frame
+                    if ui_dirty:
+                        self._refresh_all_ui_panels()
 
-                delta = dpg.get_delta_time()
-                t_now = dpg.get_total_time()
-                if 0.0001 < delta < 5.0:
-                    fps = 1.0 / delta
-                    fps_data.append(fps)
-                    time_data.append(t_now)
-                    avg = sum(fps_data) / len(fps_data)
-                    mn = min(fps_data)
-                    dpg.set_value(
-                        fps_label, f"FPS: {fps:.1f}   Avg: {avg:.1f}   Min: {mn:.1f}"
-                    )
-                    xs = list(time_data)
-                    dpg.set_value(fps_series, [xs, list(fps_data)])
-                    dpg.set_axis_limits(x_axis, max(0.0, t_now - 10.0), t_now + 0.2)
+                    self.interaction.update_trackers()
+                    self.sync_bound_ui()
 
-                # ---- render-route info (copyable text, updated every frame) ----
-                _nn_labels = {
-                    NNMode.HW_GL_NEAREST: "HW GL_NEAREST",
-                    NNMode.SW_DUAL_NATIVE: "SW Dual-Native",
-                    NNMode.SW_DUAL_RESAMPLED: "SW Dual-Resampled",
-                    NNMode.SW_SINGLE_MERGED: "SW Single-Merged",
-                    NNMode.SW_SINGLE_NATIVE: "SW Single-Native",
-                }
+                    # Update Plugins (only when state has changed)
+                    if self.plugin_api.is_dirty:
+                        for plugin in self.plugins:
+                            self._call_plugin(plugin, "update", self.plugin_api)
 
-                # Summarise lazy state across all viewers for a quick top-level read
-                def _lazy_summary(attr):
-                    vs = self.controller.viewers.values()
-                    a = all(getattr(v, attr, False) for v in vs)
-                    n = any(getattr(v, attr, False) for v in vs)
-                    return "ALL ON" if a else ("SOME ON" if n else "OFF")
+                    # Call tick on plugins (e.g. for high-frequency progress indicators)
+                    for plugin in self.plugins:
+                        if hasattr(plugin, "tick"):
+                            self._call_plugin(plugin, "tick")
 
-                _rs_mod._init_numba()
-                lines = [
-                    f"Platform: {_plat.system()}   GL: {'ON' if GL_NEAREST_SUPPORTED else 'OFF'}   "
-                    f"Numba: {'ON' if _rs_mod._NUMBA_AVAILABLE else 'OFF (slow fusion!)'}   "
-                    f"debug: {getattr(self.controller, 'debug_mode', False)}",
-                    f"Lazy-Lin: {_lazy_summary('lazy_lin')}",
-                ]
-                for vtag, viewer in self.controller.viewers.items():
-                    vs = viewer.view_state
-                    pix = bool(vs and vs.display.pixelated_zoom) if vs else False
-                    tex = getattr(viewer, "texture_tag", "?")
-                    nn_mode = getattr(viewer, "nn_mode", None)
-                    lazy_lin = getattr(viewer, "lazy_lin", False)
-                    settled = getattr(viewer, "_nn_settle_done", True)
-                    live_s = "" if settled else " LIVE"
-                    lazy_tag = ""
-                    if lazy_lin:
-                        lazy_tag = f"  [lazy-lin{live_s}]"
-                    if pix and nn_mode is not None:
-                        mode = _nn_labels.get(nn_mode, f"mode-{nn_mode}") + lazy_tag
-                    elif pix:
-                        mode = "NN" + lazy_tag
-                    else:
-                        mode = "Bilinear"
-                    lines.append(f"  {vtag}: {mode}")
-                dpg.set_value(render_input, "\n".join(lines))
+                    self.controller.tick()
+                except Exception as e:
+                    self._report_frame_error(e)
 
-            if time.time() > self.status_message_expire_time:
-                if dpg.does_item_exist("global_status_text"):
-                    dpg.set_value("global_status_text", "")
-                self.status_message_expire_time = float("inf")
+                dpg.render_dearpygui_frame()
+        finally:
+            self._shutdown()
 
-            if self.tasks:
-                try:
-                    next(self.tasks[0])
-                except StopIteration:
-                    self.tasks.pop(0)
+    def _throttle_frame(self, last_frame_time):
+        """Sleep to the frame rate the activity needs: 60 fps while working or
+        interacting, 10 fps when idle in the window, 5 fps outside it.
+        Returns the new frame start time."""
+        t_now = time.perf_counter()
 
-            # Status messages are polled every frame so they appear immediately
-            if getattr(self.controller, "status_message", None):
-                self.show_status_message(self.controller.status_message)
-                self.controller.status_message = None
+        # Detect activity/necessity to run at full speed
+        has_active_tasks = (
+            len(self.tasks) > 0
+            or len(self._main_thread_callbacks) > 0
+            or len(self.controller._main_commits) > 0
+            or getattr(self.controller, "ui_needs_refresh", False)
+        )
 
-            # Capture if the frame was flagged for refresh at the start
-            ui_dirty = getattr(self.controller, "ui_needs_refresh", False)
-            if ui_dirty:
-                self._refresh_all_ui_panels()
+        # Get mouse position and viewport boundaries
+        mx, my = dpg.get_mouse_pos(local=False)
+        vw = dpg.get_viewport_width()
+        vh = dpg.get_viewport_height()
 
-            self.interaction.update_trackers()
-            self.sync_bound_ui()
+        # Check if mouse is inside the window
+        mouse_in_viewport = (0 <= mx <= vw) and (0 <= my <= vh)
 
-            # Update Plugins (only when state has changed)
-            if self.plugin_api.is_dirty:
-                for plugin in self.plugins:
-                    self._call_plugin(plugin, "update", self.plugin_api)
+        # Did mouse position change?
+        mouse_moved = (mx, my) != self._last_mouse_pos
+        if mouse_moved:
+            self._last_mouse_pos = (mx, my)
 
-            # Clear the flag only after all logic and plugins have seen it
-            if ui_dirty:
-                self.controller.ui_needs_refresh = False
+        # Check if any mouse button is down
+        mouse_clicked = False
+        for btn in range(3):
+            if dpg.is_mouse_button_down(btn):
+                mouse_clicked = True
+                break
 
-            # Call tick on plugins (e.g. for high-frequency progress indicators)
-            for plugin in self.plugins:
-                if hasattr(plugin, "tick"):
-                    self._call_plugin(plugin, "tick")
+        if mouse_moved or mouse_clicked or has_active_tasks:
+            self._last_interaction_time = t_now
 
-            self.controller.tick()
+        # Set dynamic FPS target
+        if has_active_tasks:
+            target_fps = 60.0
+        elif not mouse_in_viewport:
+            # Hovering outside or window minimized/backgrounded: extremely low rate to save CPU
+            target_fps = 5.0
+        elif t_now - self._last_interaction_time > 2.0:
+            # Inside viewport but completely inactive/idle: low rate
+            target_fps = 10.0
+        else:
+            target_fps = 60.0
 
-            dpg.render_dearpygui_frame()
+        frame_budget = 1.0 / target_fps
+        t_elapsed = t_now - last_frame_time
+        t_sleep = frame_budget - t_elapsed
+        if t_sleep > 0.001:
+            time.sleep(t_sleep)
+        return time.perf_counter()
 
-        # Shutdown sequence
+    def _shutdown(self):
         for plugin in self.plugins:
             self._call_plugin(plugin, "save_settings", self.plugin_api)
             self._call_plugin(plugin, "destroy")
@@ -3124,7 +2908,16 @@ class MainGUI:
 
         if auto_save and hasattr(self.controller, "history"):
             for vs_id in list(self.controller.view_states.keys()):
-                self.controller.history.save_image_state(self.controller, vs_id)
+                try:
+                    self.controller.history.save_image_state(
+                        self.controller, vs_id, save=False
+                    )
+                except Exception:
+                    traceback.print_exc()
+            try:
+                self.controller.history.save()  # once, not once per image
+            except Exception:
+                traceback.print_exc()
 
         self.controller.save_settings()
         dpg.destroy_context()

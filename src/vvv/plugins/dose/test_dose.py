@@ -61,6 +61,7 @@ class TestDosePlugin(unittest.TestCase):
             "img_2": self.mock_overlay_vs,
         }
         self.mock_api.get_viewers.return_value = {"V1": self.mock_viewer}
+        self.mock_api.run_on_main_thread.side_effect = lambda fn: fn()
         self.mock_api.get_ui_config.return_value = {
             "colors": {
                 "text_header": [255, 255, 255, 255],
@@ -88,7 +89,7 @@ class TestDosePlugin(unittest.TestCase):
 
     def test_inactive_when_unit_not_gy(self):
         # Base image is HU, no overlay
-        is_active, target_vol, is_ov, unit = self.plugin._controller.get_dose_status()
+        is_active, target_vol, is_ov, unit, _, _ = self.plugin._controller.get_dose_target_info()
         self.assertFalse(is_active)
         self.assertEqual(unit, "HU")
 
@@ -100,7 +101,7 @@ class TestDosePlugin(unittest.TestCase):
 
     def test_active_when_base_has_gy(self):
         self.mock_viewer.volume.unit = "Gy"
-        is_active, target_vol, is_ov, unit = self.plugin._controller.get_dose_status()
+        is_active, target_vol, is_ov, unit, _, _ = self.plugin._controller.get_dose_target_info()
         self.assertTrue(is_active)
         self.assertFalse(is_ov)
         self.assertEqual(target_vol, self.mock_viewer.volume)
@@ -114,13 +115,13 @@ class TestDosePlugin(unittest.TestCase):
 
     def test_enable_button_assigns_gy_to_base(self):
         self.mock_viewer.volume.unit = "HU"
-        self.assertFalse(self.plugin._controller.get_dose_status()[0])
+        self.assertFalse(self.plugin._controller.get_dose_target_info()[0])
 
         self.plugin._controller.on_enable_clicked(None, None, None)
         self.assertEqual(self.mock_viewer.volume.unit, "Gy")
         self.mock_api.request_refresh.assert_called_once()
 
-        is_active, target_vol, is_ov, unit = self.plugin._controller.get_dose_status()
+        is_active, target_vol, is_ov, unit, _, _ = self.plugin._controller.get_dose_target_info()
         self.assertTrue(is_active)
         self.assertEqual(unit, "Gy")
 
@@ -132,7 +133,7 @@ class TestDosePlugin(unittest.TestCase):
         self.mock_viewer.view_state.display.overlay = MagicMock()
         self.mock_viewer.view_state.display.overlay.image_id = "img_2"
 
-        is_active, target_vol, is_ov, unit = self.plugin._controller.get_dose_status()
+        is_active, target_vol, is_ov, unit, _, _ = self.plugin._controller.get_dose_target_info()
         self.assertTrue(is_active)
         self.assertTrue(is_ov)
         self.assertEqual(target_vol, self.mock_overlay)
@@ -154,7 +155,7 @@ class TestDosePlugin(unittest.TestCase):
         self.assertEqual(self.mock_overlay.unit, "Gy")
         self.assertEqual(self.mock_viewer.volume.unit, "HU")
 
-        is_active, target_vol, is_ov, unit = self.plugin._controller.get_dose_status()
+        is_active, target_vol, is_ov, unit, _, _ = self.plugin._controller.get_dose_target_info()
         self.assertTrue(is_active)
         self.assertTrue(is_ov)
         self.assertEqual(target_vol, self.mock_overlay)
@@ -267,6 +268,50 @@ class TestDosePlugin(unittest.TestCase):
         # ROI Mean is 25.0 -> S = 100 / 25 = 4.0
         self.assertEqual(state.scaling_factor, 4.0)
 
+    def test_scaling_component_roi_mean_caching_and_invalidation(self):
+        self.mock_viewer.volume.unit = "Gy"
+        mock_roi = MagicMock()
+        mock_roi.data = np.ones((4, 4, 4), dtype=np.uint8)
+        self.mock_viewer.volume.data = np.full((4, 4, 4), 10.0, dtype=np.float32)
+        self.mock_api.get_volumes.return_value["roi_1"] = mock_roi
+
+        comp = self.plugin._ui.scaling_comp
+        comp.invalidate_roi_mean_cache()
+
+        # 1. First call computes and caches
+        mean1 = comp.compute_roi_mean(self.mock_viewer.volume, False, "roi_1")
+        self.assertEqual(mean1, 10.0)
+        self.assertEqual(len(comp._roi_mean_cache), 1)
+
+        # 2. Second call uses cache even if data range/values were perturbed in place
+        mean2 = comp.compute_roi_mean(self.mock_viewer.volume, False, "roi_1")
+        self.assertEqual(mean2, 10.0)
+
+        # 3. New ROI data array recomputes
+        new_roi = MagicMock()
+        new_roi.data = np.ones((4, 4, 4), dtype=np.uint8)
+        self.mock_api.get_volumes.return_value["roi_1"] = new_roi
+        self.mock_viewer.volume.data = np.full((4, 4, 4), 20.0, dtype=np.float32)
+        mean3 = comp.compute_roi_mean(self.mock_viewer.volume, False, "roi_1")
+        self.assertEqual(mean3, 20.0)
+
+        # 4. Invalidation clears cache
+        comp.invalidate_roi_mean_cache(roi_id="roi_1")
+        self.assertEqual(len(comp._roi_mean_cache), 0)
+
+    def test_compute_raw_threshold_with_precomputed_d_ref(self):
+        ctrl = self.plugin._controller
+        vol = MagicMock()
+        vol.get_data_range.return_value = (0.0, 100.0)
+        lvl = MagicMock()
+        lvl.value = 50.0
+
+        # With explicit d_ref, get_reference_dose is not called
+        with patch.object(ctrl, "get_reference_dose") as mock_get_ref:
+            thr = ctrl.compute_raw_threshold_for_level(lvl, vol, False, "target_1", d_ref=80.0)
+            self.assertEqual(thr, 40.0)
+            mock_get_ref.assert_not_called()
+
     @patch("dearpygui.dearpygui.configure_item")
     @patch("dearpygui.dearpygui.does_item_exist", return_value=True)
     def test_scaling_component_roi_mean_disabled_when_no_rois(self, mock_exist, mock_config):
@@ -301,52 +346,33 @@ class TestDosePlugin(unittest.TestCase):
         self.assertIsNone(self.mock_viewer.volume.scale_unit)
 
     def test_scaling_component_bake_and_reset(self):
+        import SimpleITK as sitk
+
         self.mock_viewer.volume.unit = "Gy"
         self.mock_viewer.volume.data = np.full((4, 4, 4), 10.0, dtype=np.float32)
+        self.mock_viewer.volume.sitk_image = sitk.GetImageFromArray(self.mock_viewer.volume.data)
         self.mock_viewer.view_state.display.ww = 20.0
         self.mock_viewer.view_state.display.wl = 10.0
 
         comp = self.plugin._ui.scaling_comp
         comp._set_scale_factor(3.0)
 
-        # Bake (applies to array)
+        # Bake (applies to array and sitk_image)
         comp._on_bake_clicked()
         self.assertTrue(np.allclose(self.mock_viewer.volume.data, 30.0))
+        self.assertTrue(np.allclose(sitk.GetArrayFromImage(self.mock_viewer.volume.sitk_image), 30.0))
         self.assertEqual(getattr(self.mock_viewer.volume, "_cumulative_scale", 1.0), 3.0)
         self.assertEqual(self.mock_viewer.view_state.display.ww, 60.0)
         self.assertEqual(self.mock_viewer.view_state.display.wl, 30.0)
         self.assertEqual(comp.get_state("img_1").scaling_factor, 1.0)
 
-        # Reset (reverts array)
+        # Reset (reverts array and sitk_image)
         comp._on_reset_clicked()
         self.assertTrue(np.allclose(self.mock_viewer.volume.data, 10.0))
+        self.assertTrue(np.allclose(sitk.GetArrayFromImage(self.mock_viewer.volume.sitk_image), 10.0))
         self.assertEqual(getattr(self.mock_viewer.volume, "_cumulative_scale", 1.0), 1.0)
         self.assertEqual(self.mock_viewer.view_state.display.ww, 20.0)
         self.assertEqual(self.mock_viewer.view_state.display.wl, 10.0)
-
-
-    def test_go_to_max(self):
-        self.mock_viewer.volume.unit = "Gy"
-        data = np.zeros((10, 10, 10), dtype=np.float32)
-        # Place maximum at z=3, y=4, x=5
-        data[3, 4, 5] = 95.0
-        self.mock_viewer.volume.data = data
-        self.mock_viewer.volume.sitk_image = None
-        self.mock_viewer.volume.voxel_coord_to_physic_coord.side_effect = (
-            lambda vox: np.array([vox[0] * 2.0, vox[1] * 2.0, vox[2] * 2.0])
-        )
-
-        self.plugin._controller.go_to_max()
-
-        expected_phys = np.array([10.0, 8.0, 6.0])  # x=5*2, y=4*2, z=3*2
-        np.testing.assert_allclose(self.mock_viewer.view_state.camera.target_center, expected_phys)
-        self.mock_viewer.view_state.update_crosshair_from_phys.assert_called()
-        np.testing.assert_allclose(
-            self.mock_viewer.view_state.update_crosshair_from_phys.call_args[0][0],
-            expected_phys,
-        )
-        self.mock_api.propagate_sync.assert_called_with("img_1")
-        self.mock_api.request_refresh.assert_called()
 
     def test_scaling_component_goto_max(self):
         self.mock_viewer.volume.unit = "Gy"
@@ -421,7 +447,7 @@ class TestDosePlugin(unittest.TestCase):
 
         # Check 100% and 50% levels
         rois = list(self.mock_viewer.view_state.contours.values())
-        dose_rois = [r for r in rois if getattr(r, "is_dose_isocontour", False)]
+        dose_rois = [r for r in rois if r.name.startswith("Isodose")]
         self.assertEqual(len(dose_rois), 8)
 
         # Test extraction even before normalizing (unnormalized mode uses raw max as 100% reference)
@@ -989,6 +1015,200 @@ class TestDosePlugin(unittest.TestCase):
         self.assertTrue(curve.min_dose < curve.max_dose)
         self.assertTrue(curve.d98 <= curve.median_dose <= curve.d2)
 
+    def test_dvh_uses_baked_dose(self):
+        """Verify that DVH calculation reflects baked/scaled dose rather than stale pre-bake dose (PA1)."""
+        import SimpleITK as sitk
+        from vvv.plugins.dose.dvh_calc import compute_roi_dvh
+
+        # 1. Base dose volume: 10 Gy everywhere
+        dose_arr = np.full((10, 10, 10), 10.0, dtype=np.float32)
+        mock_dose_vol = MagicMock()
+        mock_dose_vol.sitk_image = sitk.GetImageFromArray(dose_arr)
+        mock_dose_vol.sitk_image.SetSpacing((1.0, 1.0, 1.0))
+        mock_dose_vol.data = dose_arr
+
+        # 2. ROI volume: 8 voxels inside
+        roi_arr = np.zeros((10, 10, 10), dtype=np.uint8)
+        roi_arr[3:5, 3:5, 3:5] = 1
+        mock_roi_vol = MagicMock()
+        mock_roi_vol.sitk_image = sitk.GetImageFromArray(roi_arr)
+        mock_roi_vol.sitk_image.SetSpacing((1.0, 1.0, 1.0))
+        mock_roi_vol.data = roi_arr
+
+        # Initial DVH: mean dose should be 10.0
+        c1 = compute_roi_dvh(mock_dose_vol, mock_roi_vol, "PTV", [255, 0, 0, 255])
+        self.assertAlmostEqual(c1.mean_dose, 10.0, places=2)
+
+        # 3. Simulate dose bake: dose_vol.data multiplied by 2.5 (e.g. 25 Gy)
+        # Even if dose_vol.data is decoupled from sitk_image, compute_roi_dvh must reflect 25 Gy!
+        mock_dose_vol.data = (dose_arr * 2.5).astype(np.float32)
+        c2 = compute_roi_dvh(mock_dose_vol, mock_roi_vol, "PTV", [255, 0, 0, 255])
+        self.assertAlmostEqual(c2.mean_dose, 25.0, places=2)
+        self.assertAlmostEqual(c2.min_dose, 25.0, places=2)
+        self.assertAlmostEqual(c2.max_dose, 25.0, places=2)
+
+    def test_dvh_ignores_display_scale_factor_of_prescription_mode(self):
+        """Prescription / Ref Value mode sets vol.scale_factor = 100 / v_ref (a
+        display factor to %). With a user scale of 1 the DVH must stay in Gy."""
+        import SimpleITK as sitk
+        from vvv.plugins.dose.dvh_calc import compute_roi_dvh
+
+        dose_arr = np.full((10, 10, 10), 30.0, dtype=np.float32)
+        dose_arr[5, 5, 5] = 60.0
+        dose_vol = MagicMock()
+        dose_vol.data = dose_arr
+        dose_vol.sitk_image = sitk.GetImageFromArray(dose_arr)
+        dose_vol.scale_factor = 100.0 / 60.0  # Prescription mode, v_ref = 60 Gy
+
+        roi_arr = np.ones((10, 10, 10), dtype=np.uint8)
+        roi_vol = MagicMock()
+        roi_vol.data = roi_arr
+        roi_vol.sitk_image = sitk.GetImageFromArray(roi_arr)
+
+        curve = compute_roi_dvh(dose_vol, roi_vol, "PTV", [255, 0, 0, 255], dose_scaling_factor=1.0)
+
+        self.assertAlmostEqual(curve.max_dose, 60.0, places=3)
+        self.assertAlmostEqual(curve.min_dose, 30.0, places=3)
+
+    def test_dvh_virtual_scale_and_relative_mode(self):
+        """Verify that DVH properly applies the virtual scale factor in absolute (Gy) mode
+        and matches isodose thresholds in relative (%) mode (PA2).
+        """
+        import SimpleITK as sitk
+        from vvv.plugins.dose.dvh_calc import compute_roi_dvh
+        from vvv.plugins.dose.control_dose import DoseIsocontourLevel
+
+        ui = self.plugin._ui
+        ctrl = self.plugin._controller
+
+        # Dose volume with raw values around 25.0 (which with scale 2.0 = 50.0 Gy)
+        dose_arr = np.full((10, 10, 10), 25.0, dtype=np.float32)
+        self.mock_viewer.volume.unit = "Gy"
+        self.mock_viewer.volume.data = dose_arr
+        self.mock_viewer.volume.sitk_image = sitk.GetImageFromArray(dose_arr)
+        self.mock_viewer.volume.sitk_image.SetSpacing((1.0, 1.0, 1.0))
+        self.mock_viewer.volume.get_data_range.return_value = (25.0, 25.0)
+
+        roi_arr = np.ones((10, 10, 10), dtype=np.uint8)
+        mock_roi_vol = MagicMock()
+        mock_roi_vol.data = roi_arr
+        mock_roi_vol.sitk_image = sitk.GetImageFromArray(roi_arr)
+        mock_roi_vol.sitk_image.SetSpacing((1.0, 1.0, 1.0))
+
+        roi_state = MagicMock()
+        roi_state.name = "Target"
+        roi_state.color = [255, 0, 0, 255]
+        self.mock_viewer.view_state.rois = {"roi_target": roi_state}
+        self.mock_api.get_volumes.return_value = {
+            "img_1": self.mock_viewer.volume,
+            "roi_target": mock_roi_vol,
+        }
+
+        # Set virtual scaling: factor = 2.0, Prescription = 50.0 Gy
+        sc = ui.scaling_comp.get_state("img_1")
+        sc.scaling_factor = 2.0
+        sc.norm_mode = "Prescription"
+        sc.norm_target_value = 50.0
+
+        # Reference raw dose corresponding to 100% isodose: v_ref / user_s = 50 / 2 = 25.0
+        d_ref_raw = ctrl.get_reference_dose(self.mock_viewer.volume, False, "img_1")
+        self.assertEqual(d_ref_raw, 25.0)
+
+        # 100% isodose raw threshold in control_dose (within 0.999 boundary safety offset)
+        level_100 = DoseIsocontourLevel(value=100.0, color=[255, 0, 0, 255])
+        thr_100 = ctrl.compute_raw_threshold_for_level(level_100, self.mock_viewer.volume, False, "img_1")
+        self.assertAlmostEqual(thr_100, 25.0, delta=0.03)
+
+        # Open DVH window and compute curves
+        ui.on_open_dvh_clicked()
+        dvh_win = ui.dvh_win
+        dvh_win.wait_for_calculation(timeout=5.0)
+        self.assertEqual(len(dvh_win.curves), 1)
+        curve = dvh_win.curves[0]
+
+        # 1. In absolute Gy mode: mean dose must be 25.0 * 2.0 = 50.0 Gy (not raw 25.0)
+        self.assertAlmostEqual(curve.mean_dose, 50.0, places=2)
+        self.assertAlmostEqual(curve.min_dose, 50.0, places=2)
+        self.assertAlmostEqual(curve.max_dose, 50.0, places=2)
+
+        # 2. In relative (%) mode: norm_prescription_gy is 50.0 Gy.
+        # Since physical dose is 50.0 Gy, relative dose is (50.0 / 50.0) * 100 = 100.0%
+        self.assertAlmostEqual(dvh_win.norm_prescription_gy, 50.0, places=2)
+        rel_doses = (curve.doses / dvh_win.norm_prescription_gy) * 100.0
+        # Check that voxel dose 50.0 Gy maps to exactly 100% relative dose
+        self.assertAlmostEqual(curve.mean_dose / dvh_win.norm_prescription_gy * 100.0, 100.0, places=2)
+
+    def test_dvh_small_dose_axis_floor(self):
+        """Verify that small doses (< 10 Gy, e.g. 0.2 Gy) do not get floored to 10 Gy
+        or 1.0 Gy, preserving bin resolution across the 200 bins (PA3).
+        """
+        import SimpleITK as sitk
+        from vvv.plugins.dose.dvh_calc import compute_roi_dvh
+
+        ui = self.plugin._ui
+        ctrl = self.plugin._controller
+
+        # Setup low-dose volume (e.g. 0.2 Gy max)
+        self.mock_viewer.volume.unit = "Gy"
+        dose_arr = np.linspace(0.01, 0.20, 1000, dtype=np.float32).reshape((10, 10, 10))
+        self.mock_viewer.volume.data = dose_arr
+        self.mock_viewer.volume.sitk_image = sitk.GetImageFromArray(dose_arr)
+        self.mock_viewer.volume.sitk_image.SetSpacing((1.0, 1.0, 1.0))
+        self.mock_viewer.volume.get_data_range = MagicMock(return_value=(0.01, 0.20))
+        self.mock_viewer.volume.scale_factor = 1.0
+
+        # ROI volume
+        roi_arr = np.zeros((10, 10, 10), dtype=np.uint8)
+        roi_arr[2:5, 2:5, 2:5] = 1
+        mock_roi_vol = MagicMock()
+        mock_roi_vol.data = roi_arr
+        mock_roi_vol.sitk_image = sitk.GetImageFromArray(roi_arr)
+        mock_roi_vol.sitk_image.SetSpacing((1.0, 1.0, 1.0))
+
+        # 1. Standalone compute_roi_dvh without max_eval_dose
+        c_auto = compute_roi_dvh(self.mock_viewer.volume, mock_roi_vol, "LowDoseROI", [0, 255, 0, 255])
+        self.assertIsNotNone(c_auto)
+        # Bins must adapt to max dose (0.2 * 1.05 = 0.21), NOT floored to 1.0 or 10.0
+        self.assertAlmostEqual(c_auto.doses[-1], c_auto.max_dose * 1.05, places=3)
+        self.assertLess(c_auto.doses[-1], 0.3)
+        # Verify fine bin step
+        bin_step = c_auto.doses[1] - c_auto.doses[0]
+        self.assertLess(bin_step, 0.002)
+
+        # 2. DVH window recompute_and_update
+        self.mock_api.get_volumes.return_value = {
+            "vol_main": self.mock_viewer.volume,
+            "roi_small": mock_roi_vol,
+        }
+        roi_state = MagicMock()
+        roi_state.name = "LowDoseROI"
+        roi_state.color = [0, 255, 0, 255]
+        self.mock_viewer.view_state.rois = {"roi_small": roi_state}
+
+        ui.on_open_dvh_clicked()
+        dvh_win = ui.dvh_win
+        dvh_win.recompute_and_update(fit_axes=True)
+        dvh_win.wait_for_calculation(timeout=5.0)
+
+        self.assertEqual(len(dvh_win.curves), 1)
+        curve = dvh_win.curves[0]
+        # Evaluated upper limit should be ~0.21 Gy, NOT 10.0 Gy!
+        self.assertAlmostEqual(curve.doses[-1], 0.20 * 1.05, places=3)
+        self.assertLess(curve.doses[-1], 0.5)
+
+        # 3. Axis limit in absolute mode
+        with patch("dearpygui.dearpygui.does_item_exist", return_value=True), \
+             patch("dearpygui.dearpygui.set_axis_limits") as mock_set_axis_limits:
+            dvh_win.is_dose_relative = False
+            dvh_win._apply_axis_limits()
+            # X-axis should be limited to ~0.2 * 1.05, NOT 1.0 or 10.0
+            x_call = [call for call in mock_set_axis_limits.call_args_list if "dvh_plot_x_axis" in str(call[0][0])]
+            self.assertTrue(len(x_call) > 0)
+            x_min, x_max = x_call[0][0][1], x_call[0][0][2]
+            self.assertEqual(x_min, 0.0)
+            self.assertAlmostEqual(x_max, curve.max_dose * 1.05, places=3)
+            self.assertLess(x_max, 0.3)
+
     def test_dvh_window_ui(self):
         import SimpleITK as sitk
 
@@ -1020,6 +1240,7 @@ class TestDosePlugin(unittest.TestCase):
 
         # Open DVH window
         ui.on_open_dvh_clicked()
+        ui.dvh_win.wait_for_calculation(timeout=5.0)
         win_tag = ui.dvh_win.window_tag
         self.assertTrue(dpg.does_item_exist(win_tag))
         self.assertTrue(dpg.does_item_exist(ui.dvh_win._t("dvh_plot")))
@@ -1112,6 +1333,7 @@ class TestDosePlugin(unittest.TestCase):
 
         # Open DVH window
         ui.on_open_dvh_clicked()
+        ui.dvh_win.wait_for_calculation(timeout=5.0)
         self.assertTrue(dpg.does_item_exist(ui.dvh_win.window_tag))
         self.assertEqual(len(ui.dvh_win.curves), 1)
         self.assertEqual(ui.dvh_win.curves[0].color[:3], [255, 0, 0])
@@ -1187,6 +1409,7 @@ class TestDosePlugin(unittest.TestCase):
 
         # Open DVH window
         ui.on_open_dvh_clicked()
+        ui.dvh_win.wait_for_calculation(timeout=5.0)
         tbl_tag = ui.dvh_win._t("dvh_metrics_table")
         self.assertTrue(dpg.does_item_exist(tbl_tag))
         self.assertTrue(dpg.get_item_configuration(tbl_tag)["sortable"])
@@ -1253,6 +1476,123 @@ class TestDosePlugin(unittest.TestCase):
         self.assertTrue(dpg.does_item_exist(ui.dvh_win.window_tag))
         self.plugin.destroy()
         self.assertFalse(dpg.does_item_exist(ui.dvh_win.window_tag))
+
+    def test_restore_empty_levels_and_dvh_outside_voxels(self):
+        """Verify dose restore with empty level list preserves empty list, and DVH ignores voxels outside dose (PA15)."""
+        import SimpleITK as sitk
+        from vvv.plugins.dose.dvh_calc import compute_roi_dvh
+
+        controller = self.plugin._controller
+        controller.bind(self.mock_api)
+
+        # 1. Test restore_image_state with empty levels
+        state_data = {
+            "is_enabled": True,
+            "colorwash_enabled": False,
+            "levels": []
+        }
+        controller.restore_image_state("dose_empty", state_data, context="workspace")
+        restored_state = controller.get_isocontour_state("dose_empty")
+        self.assertEqual(len(restored_state.levels), 0)
+
+        # 2. Test DVH computation with an ROI partially outside the dose grid
+        # Dose grid: 10x10x10 cube, all voxels have 50.0 Gy, origin (0, 0, 0), spacing (1, 1, 1)
+        dose_arr = np.full((10, 10, 10), 50.0, dtype=np.float32)
+        dose_sitk = sitk.GetImageFromArray(dose_arr)
+        dose_sitk.SetOrigin((0.0, 0.0, 0.0))
+        dose_sitk.SetSpacing((1.0, 1.0, 1.0))
+        dose_vol = MagicMock()
+        dose_vol.data = dose_arr
+        dose_vol.sitk_image = dose_sitk
+        dose_vol.scale_factor = 1.0
+        dose_vol.get_data_range.return_value = (50.0, 50.0)
+
+        # ROI: 20x10x10, extends from x=0 to x=20 (so x=10..20 is OUTSIDE the dose grid)
+        roi_arr = np.ones((10, 10, 20), dtype=np.uint8)
+        roi_sitk = sitk.GetImageFromArray(roi_arr)
+        roi_sitk.SetOrigin((0.0, 0.0, 0.0))
+        roi_sitk.SetSpacing((1.0, 1.0, 1.0))
+        roi_vol = MagicMock()
+        roi_vol.data = roi_arr
+        roi_vol.sitk_image = roi_sitk
+        roi_vol.name = "ROI_Partial"
+
+        curve = compute_roi_dvh(
+            dose_vol=dose_vol,
+            roi_vol=roi_vol,
+            roi_name="ROI_Partial",
+            color=[255, 0, 0],
+            max_eval_dose=60.0,
+        )
+        self.assertIsNotNone(curve)
+        # Voxels outside the dose grid should be ignored, NOT counted as 0 Gy!
+        # Every valid voxel had dose 50.0 Gy, so min_dose must be 50.0 Gy (not 0.0 Gy)
+        self.assertAlmostEqual(curve.min_dose, 50.0)
+        self.assertAlmostEqual(curve.mean_dose, 50.0)
+
+    def test_dvh_window_async_calculation_and_cancellation(self):
+        """PC3: DVH computation runs in background thread and earlier workers can be cancelled."""
+        import SimpleITK as sitk
+
+        ui = self.plugin._ui
+        dose_arr = np.full((10, 10, 10), 30.0, dtype=np.float32)
+        dose_sitk = sitk.GetImageFromArray(dose_arr)
+        dose_vol = MagicMock()
+        dose_vol.data = dose_arr
+        dose_vol.sitk_image = dose_sitk
+        dose_vol.scale_factor = 1.0
+        dose_vol.get_data_range.return_value = (30.0, 30.0)
+        dose_vol.name = "Dose30"
+
+        roi_arr = np.ones((10, 10, 10), dtype=np.uint8)
+        roi_sitk = sitk.GetImageFromArray(roi_arr)
+        roi_vol = MagicMock()
+        roi_vol.data = roi_arr
+        roi_vol.sitk_image = roi_sitk
+        roi_vol.name = "ROI1"
+
+        self.mock_viewer.volume = dose_vol
+        self.mock_api.get_volumes.return_value = {
+            "img_1": dose_vol,
+            "roi_1": roi_vol,
+        }
+        roi_state = MagicMock()
+        roi_state.name = "ROI1"
+        roi_state.color = [255, 0, 0, 255]
+        self.mock_viewer.view_state.rois = {"roi_1": roi_state}
+
+        ui.on_open_dvh_clicked()
+        dvh_win = ui.dvh_win
+
+        # 1. Background worker runs and populates curves
+        dvh_win.recompute_and_update(fit_axes=True, async_calc=True)
+        self.assertTrue(dvh_win.wait_for_calculation(timeout=5.0))
+        self.assertEqual(len(dvh_win.curves), 1)
+        self.assertEqual(dvh_win.curves[0].roi_name, "ROI1")
+
+        # 2. Rapid recomputes: token increments and prior worker stop event is set
+        first_stop = dvh_win._calc_stop
+        first_token = dvh_win._calc_token
+        dvh_win.recompute_and_update(fit_axes=True, async_calc=True)
+        self.assertTrue(first_stop.is_set())
+        self.assertGreater(dvh_win._calc_token, first_token)
+        self.assertTrue(dvh_win.wait_for_calculation(timeout=5.0))
+        self.assertEqual(len(dvh_win.curves), 1)
+
+    def test_dvh_window_close_cancels_worker(self):
+        """PC3: closing DVH window sets stop_event and increments token."""
+        self.mock_viewer.volume.unit = "Gy"
+        ui = self.plugin._ui
+        ui.on_open_dvh_clicked()
+        dvh_win = ui.dvh_win
+
+        dvh_win.recompute_and_update(fit_axes=True, async_calc=True)
+        stop_ev = dvh_win._calc_stop
+        old_token = dvh_win._calc_token
+
+        dvh_win.on_window_close()
+        self.assertTrue(stop_ev.is_set())
+        self.assertGreater(dvh_win._calc_token, old_token)
 
 
 if __name__ == "__main__":

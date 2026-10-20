@@ -20,6 +20,7 @@ class TestIntensityPlugin(unittest.TestCase):
         self.mock_viewer.image_id = "test_img_id"
         self.mock_viewer.volume.is_rgb = False
         self.mock_viewer.volume.data = np.array([1, 2, 3])
+        self.mock_viewer.volume.get_data_range.return_value = (1.0, 3.0)
         self.mock_viewer.volume.num_components = 1
 
         self.mock_viewer.view_state.display.ww = 100.0

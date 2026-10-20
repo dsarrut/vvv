@@ -1,9 +1,20 @@
 from typing import Optional, Dict
 import threading
+import time
 import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.utils import ViewMode
+
+
+def normalize_mip_angle(angle: float) -> float:
+    """Normalize angle to (-180.0, 180.0] rounded to 1 decimal place."""
+    a = float(angle)
+    while a <= -180.0:
+        a += 360.0
+    while a > 180.0:
+        a -= 360.0
+    return round(a, 1)
 
 
 class MIPViewerState:
@@ -26,6 +37,11 @@ class MIPPluginController(PluginTagMixin):
         self._cache_locks: Dict[str, threading.Lock] = {}
         self._precompute_stops: Dict[str, threading.Event] = {}
         self._precompute_params: Dict[str, tuple] = {}
+        # Debounced precompute: viewer tag -> due time (time.monotonic()). No timer
+        # thread: tick() (main thread) re-renders the viewer when due, and that
+        # render starts the precompute from the data of that frame.
+        self._precompute_due: Dict[str, float] = {}
+        self._precompute_ready: set = set()
 
     def bind(self, api: PluginAPI) -> None:
         self._api = api
@@ -54,28 +70,43 @@ class MIPPluginController(PluginTagMixin):
         for tag in ["V1", "V2", "V3", "V4"]:
             _ = self.get_viewer_state(image_id, tag)
 
-    def on_image_reloading(self, image_id: str) -> None:
-        # Immediately abort all background precompute threads before C++ memory is freed
-        for tag, stop_ev in list(self._precompute_stops.items()):
-            stop_ev.set()
-
-        # Clear precomputed projection caches
-        for tag, cache_dict in list(self._caches.items()):
+    def clear_image_cache(self, image_id: str) -> None:
+        """Clear cached projections for a specific image across all viewer tags."""
+        for tag, cache_dict in self._caches.items():
             lock = self._cache_locks.get(tag)
             if lock:
                 with lock:
-                    cache_dict.clear()
+                    keys = [k for k in cache_dict if k[0] == image_id]
+                    for k in keys:
+                        cache_dict.pop(k, None)
             else:
-                cache_dict.clear()
+                keys = [k for k in cache_dict if k[0] == image_id]
+                for k in keys:
+                    cache_dict.pop(k, None)
 
-        self._precompute_params.clear()
+        for tag, params in list(self._precompute_params.items()):
+            if params and params[0] == image_id:
+                self._precompute_params.pop(tag, None)
+
+    def on_image_reloading(self, image_id: str) -> None:
+        # Immediately abort precompute threads/timers for this image
+        for tag in list(self._precompute_stops.keys()):
+            params = self._precompute_params.get(tag)
+            if params is None or params[0] == image_id:
+                stop_ev = self._precompute_stops.get(tag)
+                if stop_ev:
+                    stop_ev.set()
+                self._precompute_due.pop(tag, None)
+                self._precompute_ready.discard(tag)
+
+        self.clear_image_cache(image_id)
 
     def on_image_reloaded(self, image_id: str) -> None:
-        for tag in ["V1", "V2", "V3", "V4"]:
-            self.clear_viewer_cache(tag)
+        self.clear_image_cache(image_id)
 
     def on_image_removed(self, image_id: str) -> None:
         self._states.pop(image_id, None)
+        self.clear_image_cache(image_id)
 
     def serialize_image_state(self, image_id: str, context: str = "history") -> dict:
         states_dict = self._states.get(image_id)
@@ -176,6 +207,8 @@ class MIPPluginController(PluginTagMixin):
         return 0
 
     def destroy(self) -> None:
+        self._precompute_due.clear()
+        self._precompute_ready.clear()
         for stop_event in self._precompute_stops.values():
             stop_event.set()
         self._precompute_stops.clear()
@@ -236,6 +269,12 @@ class MIPPluginController(PluginTagMixin):
 
             # Sync orientation to match projection axis when turning MIP on
             if app_data:
+                try:
+                    from vvv.plugins.mip.math_mip import warmup_mip_kernels
+
+                    warmup_mip_kernels(async_warmup=True)
+                except Exception:
+                    pass
                 axis_map = {
                     "Z": ViewMode.AXIAL,
                     "Y": ViewMode.CORONAL,
@@ -283,7 +322,7 @@ class MIPPluginController(PluginTagMixin):
                 ViewMode.SAGITTAL: "X",
             }
             active_axis = orientation_map.get(viewer.orientation, "Y")
-            state.rotation_angles[active_axis] = float(app_data)
+            state.rotation_angles[active_axis] = normalize_mip_angle(app_data)
             self._mark_viewer_dirty(viewer)
             self.propagate_rotation(viewer.image_id, state.rotation_angles)
             self._api.request_refresh()
@@ -294,7 +333,7 @@ class MIPPluginController(PluginTagMixin):
         viewer = self._api.get_active_viewer()
         if viewer and viewer.image_id:
             state = self.get_viewer_state(viewer.image_id, viewer.tag)
-            state.rotation_step = float(app_data)
+            state.rotation_step = round(max(0.1, float(app_data)), 1)
             self._api.request_refresh()
 
     def on_rotation_step_button(self, _sender, _app_data, user_data):
@@ -311,11 +350,13 @@ class MIPPluginController(PluginTagMixin):
         }
         active_axis = orientation_map.get(viewer.orientation, "Y")
         current = state.rotation_angles.get(active_axis, 0.0)
-        new_val = max(
-            -180.0, min(180.0, current + state.rotation_step * user_data["dir"])
-        )
-        state.rotation_angles[active_axis] = round(new_val, 1)
-        dpg.set_value(user_data["tag"], new_val)
+        new_val = normalize_mip_angle(current + state.rotation_step * user_data["dir"])
+        state.rotation_angles[active_axis] = new_val
+        if user_data and "tag" in user_data:
+            try:
+                dpg.set_value(user_data["tag"], new_val)
+            except Exception:
+                pass
         self._mark_viewer_dirty(viewer)
         self.propagate_rotation(viewer.image_id, state.rotation_angles)
         self._api.request_refresh()
@@ -329,7 +370,11 @@ class MIPPluginController(PluginTagMixin):
         state = self.get_viewer_state(viewer.image_id, viewer.tag)
         new_val = max(1.0, min(45.0, state.rotation_step + user_data["dir"]))
         state.rotation_step = round(new_val, 1)
-        dpg.set_value(user_data["tag"], new_val)
+        if user_data and "tag" in user_data:
+            try:
+                dpg.set_value(user_data["tag"], new_val)
+            except Exception:
+                pass
         self._api.request_refresh()
 
     def get_mip_projection(
@@ -354,14 +399,17 @@ class MIPPluginController(PluginTagMixin):
         cache_dict = self._caches[tag]
         cache_lock = self._cache_locks[tag]
 
+        norm_angle = normalize_mip_angle(current_angle)
+        norm_depth = round(float(depth_cueing), 2)
+
         # Build cache key
         img_id = image_id or viewer.image_id
         cache_key = (
             img_id,
             time_idx,
             orientation,
-            depth_cueing,
-            current_angle,
+            norm_depth,
+            norm_angle,
             id(data_3d),
         )
 
@@ -382,9 +430,9 @@ class MIPPluginController(PluginTagMixin):
                 mip_raw = compute_mip_projection(
                     d3d,
                     axis=proj_axis,
-                    depth_cueing=depth_cueing > 0.0,
-                    depth_cueing_strength=depth_cueing,
-                    rotation_angle=current_angle,
+                    depth_cueing=norm_depth > 0.0,
+                    depth_cueing_strength=norm_depth,
+                    rotation_angle=norm_angle,
                 )
                 preview = (
                     np.ascontiguousarray(mip_raw)
@@ -397,33 +445,98 @@ class MIPPluginController(PluginTagMixin):
                         cache_dict.pop(next(iter(cache_dict)), None)
                     cache_dict[cache_key] = preview
 
-        # Start background precomputation for other angles if parameters changed (e.g. extra_layers added)
+        # Start background precomputation for other angles if parameters changed
         if extra_layers is not None:
             extra_layers_tuple = tuple((l_id, l_t) for _, l_id, l_t in extra_layers)
+            rot_step = round(float(mip_state.rotation_step), 1)
             params_key = (
                 img_id,
                 time_idx,
                 orientation,
-                depth_cueing,
-                current_angle,
-                mip_state.rotation_step,
+                norm_depth,
+                norm_angle,
+                rot_step,
                 extra_layers_tuple,
             )
             if self._precompute_params.get(tag) != params_key:
                 self._precompute_params[tag] = params_key
+                self._schedule_mip_precompute(
+                    viewer=viewer,
+                    data_3d=data_3d,
+                    proj_axis=proj_axis,
+                    depth_cueing=norm_depth,
+                    center_angle=norm_angle,
+                    rotation_step=rot_step,
+                    time_idx=time_idx,
+                    orientation=orientation,
+                    extra_layers=extra_layers,
+                )
+            elif tag in self._precompute_ready:
+                # Debounce over (tick): start with this frame's arrays
+                self._precompute_ready.discard(tag)
                 self._start_mip_precompute(
                     viewer=viewer,
                     data_3d=data_3d,
                     proj_axis=proj_axis,
-                    depth_cueing=depth_cueing,
-                    center_angle=current_angle,
-                    rotation_step=mip_state.rotation_step,
+                    depth_cueing=norm_depth,
+                    center_angle=norm_angle,
+                    rotation_step=rot_step,
                     time_idx=time_idx,
                     orientation=orientation,
                     extra_layers=extra_layers,
                 )
 
         return preview
+
+    def _schedule_mip_precompute(
+        self,
+        viewer,
+        data_3d,
+        proj_axis,
+        depth_cueing,
+        center_angle,
+        rotation_step,
+        time_idx,
+        orientation,
+        extra_layers=None,
+        delay: float = 0.25,
+    ):
+        """Main thread. With a delay (rotation drag), only record when to start:
+        the arrays are not kept, a display view must not outlive its frame."""
+        tag = viewer.tag.upper()
+        self._precompute_ready.discard(tag)
+        if delay > 0:
+            self._precompute_due[tag] = time.monotonic() + delay
+            return
+        self._precompute_due.pop(tag, None)
+        self._start_mip_precompute(
+            viewer=viewer,
+            data_3d=data_3d,
+            proj_axis=proj_axis,
+            depth_cueing=depth_cueing,
+            center_angle=center_angle,
+            rotation_step=rotation_step,
+            time_idx=time_idx,
+            orientation=orientation,
+            extra_layers=extra_layers,
+        )
+
+    def tick(self) -> None:
+        """Main thread, every frame: re-render the viewers whose debounced
+        precompute is due; get_mip_projection then starts it."""
+        if not self._precompute_due:
+            return
+        now = time.monotonic()
+        due = [tag for tag, t in self._precompute_due.items() if t <= now]
+        if not due:
+            return
+        viewers = self._api.get_viewers() if self._api else {}
+        for tag in due:
+            del self._precompute_due[tag]
+            viewer = viewers.get(tag)
+            if viewer is not None:
+                self._precompute_ready.add(tag)
+                self._mark_viewer_dirty(viewer)
 
     def _start_mip_precompute(
         self,
@@ -438,16 +551,21 @@ class MIPPluginController(PluginTagMixin):
         extra_layers=None,
     ):
         tag = viewer.tag.upper()
-        stop_event = self._precompute_stops[tag]
-        stop_event.set()
+        stop_event = self._precompute_stops.get(tag)
+        if stop_event:
+            stop_event.set()
 
         new_stop = threading.Event()
         self._precompute_stops[tag] = new_stop
 
         image_id = viewer.image_id
+        if not image_id or tag not in self._caches:
+            return
+
         cache_lock = self._cache_locks[tag]
         cache_dict = self._caches[tag]
-        step = max(0.1, rotation_step)
+        step = max(0.1, round(float(rotation_step), 1))
+        norm_center = normalize_mip_angle(center_angle)
         extra_layers = extra_layers or []
 
         # Build all angles in the full rotation ordered by distance from current
@@ -455,12 +573,46 @@ class MIPPluginController(PluginTagMixin):
         all_angles = []
         for i in range(1, n + 1):
             for sign in (1, -1):
-                a = center_angle + sign * i * step
-                while a > 180.0:
-                    a -= 360.0
-                while a <= -180.0:
-                    a += 360.0
-                all_angles.append(round(a, 2))
+                a = normalize_mip_angle(norm_center + sign * i * step)
+                if a not in all_angles:
+                    all_angles.append(a)
+
+        base_data_id = id(data_3d)
+
+        # Quick check: are all base angles already cached?
+        with cache_lock:
+            all_cached = True
+            for a in all_angles:
+                k = (
+                    image_id,
+                    time_idx,
+                    orientation,
+                    depth_cueing,
+                    a,
+                    base_data_id,
+                )
+                if k not in cache_dict:
+                    all_cached = False
+                    break
+        if all_cached and not extra_layers:
+            return
+
+        # Snapshot 3D arrays on the calling thread (main thread) so the background worker
+        # never accesses display views or buffers that may be retired or replaced.
+        if data_3d.ndim == 4:
+            t = min(time_idx, data_3d.shape[0] - 1)
+            base_3d = np.array(data_3d[t], copy=True)
+        else:
+            base_3d = np.array(data_3d, copy=True)
+
+        layers_snapshot = []
+        for layer_data, layer_id, layer_time_idx in extra_layers:
+            if layer_data.ndim == 4:
+                t = min(layer_time_idx, layer_data.shape[0] - 1)
+                l_arr = np.array(layer_data[t], copy=True)
+            else:
+                l_arr = np.array(layer_data, copy=True)
+            layers_snapshot.append((l_arr, layer_id, layer_time_idx, id(layer_data)))
 
         def _compute_and_cache(d3d, key):
             from vvv.plugins.mip.math_mip import compute_mip_projection
@@ -479,11 +631,33 @@ class MIPPluginController(PluginTagMixin):
                     else np.ascontiguousarray(np.flipud(mip_raw))
                 )
                 with cache_lock:
-                    if key not in cache_dict:
-                        if len(cache_dict) >= 400:
-                            cache_dict.pop(next(iter(cache_dict)), None)
-                        cache_dict[key] = preview
-                        viewer.controller.ui_needs_refresh = True
+                    if not new_stop.is_set():
+                        if key not in cache_dict:
+                            if len(cache_dict) >= 400:
+                                cache_dict.pop(next(iter(cache_dict)), None)
+                            cache_dict[key] = preview
+                            # Only trigger UI refresh if viewer is actively looking at this angle
+                            try:
+                                state = self.get_viewer_state(
+                                    viewer.image_id, viewer.tag
+                                )
+                                axis_map = {
+                                    ViewMode.AXIAL: "Z",
+                                    ViewMode.CORONAL: "Y",
+                                    ViewMode.SAGITTAL: "X",
+                                }
+                                current_axis = axis_map.get(orientation, "Y")
+                                current_active_angle = normalize_mip_angle(
+                                    state.rotation_angles.get(current_axis, 0.0)
+                                )
+                                if (
+                                    key[4] == current_active_angle
+                                    and hasattr(viewer, "controller")
+                                    and hasattr(viewer.controller, "ui_needs_refresh")
+                                ):
+                                    viewer.controller.ui_needs_refresh = True
+                            except Exception:
+                                pass
             except Exception as e:
                 import traceback
 
@@ -501,22 +675,17 @@ class MIPPluginController(PluginTagMixin):
                     orientation,
                     depth_cueing,
                     angle,
-                    id(data_3d),
+                    base_data_id,
                 )
                 with cache_lock:
                     base_cached = base_key in cache_dict
                 if not base_cached:
                     if new_stop.is_set():
                         return
-                    if data_3d.ndim == 4:
-                        t = min(time_idx, data_3d.shape[0] - 1)
-                        d3d_base = data_3d[t]
-                    else:
-                        d3d_base = data_3d
-                    _compute_and_cache(d3d_base, base_key)
+                    _compute_and_cache(base_3d, base_key)
 
                 # Extra/overlay layers
-                for layer_data, layer_id, layer_time_idx in extra_layers:
+                for layer_arr, layer_id, layer_time_idx, layer_orig_id in layers_snapshot:
                     if new_stop.is_set():
                         return
                     # Overlays always use 0.0 depth cueing
@@ -526,19 +695,14 @@ class MIPPluginController(PluginTagMixin):
                         orientation,
                         0.0,
                         angle,
-                        id(layer_data),
+                        layer_orig_id,
                     )
                     with cache_lock:
                         layer_cached = layer_key in cache_dict
                     if not layer_cached:
                         if new_stop.is_set():
                             return
-                        if layer_data.ndim == 4:
-                            t = min(layer_time_idx, layer_data.shape[0] - 1)
-                            l_3d = layer_data[t]
-                        else:
-                            l_3d = layer_data
-                        _compute_and_cache(l_3d, layer_key)
+                        _compute_and_cache(layer_arr, layer_key)
 
         threading.Thread(target=_run, daemon=True).start()
 

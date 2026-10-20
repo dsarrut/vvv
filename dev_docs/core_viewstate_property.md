@@ -7,7 +7,7 @@
 | `CameraState` | Spatial navigation: zoom, pan, slices, overlays, time | `is_geometry_dirty` |
 | `DisplayState` | Rendering parameters: W/L, colormap, overlay opacity/mode | `is_data_dirty` |
 | `DVFState` | DVF-specific visualization settings | `is_geometry_dirty` |
-| `SpaceState` | Registration transform | — (manual) |
+| `ExtractionState` | Interactive contour thresholding (min/max, preview) | `is_geometry_dirty` |
 
 ---
 
@@ -18,7 +18,8 @@
 - Affects **which slice is drawn or where**: → `CameraState`
 - Affects **how pixels are colored**: → `DisplayState`
 - Only relevant when the image is a DVF: → `DVFState`
-- Related to transforms: → `SpaceState`
+- Contour thresholding: → `ExtractionState`
+- Registration transform: not a sub-state, it lives in `vs.space` (`SpatialEngine`, `maths/geometry.py`)
 
 ### 2. Declare the type hint at class level
 

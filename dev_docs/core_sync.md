@@ -8,7 +8,7 @@ This document details VVV's multi-viewer synchronization system managed by `Sync
 * **Camera Sync**: Pushes `target_center` (physical world coords) and `target_ppm` to synced `ViewState`s.
 * **Data Sync**: Radiometrics (W/L, colormaps), Time/Component Index.
 * **Safety**:
-  * `_is_syncing` lock prevents A→B→A infinite recursion feedback loops.
+  * Propagation is one-way: the source pushes to its targets, which do not propagate further (no A→B→A feedback loop).
   * Zoom is synced via PPM (Pixels Per Millimeter) to ensure uniform physical scale regardless of differing voxel geometries.
   * Crosshair position sync is achieved by locking physical coordinates (not voxel slice indices).
 ---

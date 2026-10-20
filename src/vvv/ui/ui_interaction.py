@@ -644,7 +644,7 @@ class InteractionManager:
 
     def _check_profile_handle_hover(self, viewer):
         """Returns (profile_id, handle_key) if mouse is near an endpoint, else (None, None)."""
-        if not viewer or not viewer.view_state or not viewer.is_image_orientation():
+        if not viewer or not viewer.view_state:
             return None, None
 
         win_tag = f"win_{viewer.tag}"
@@ -718,7 +718,7 @@ class InteractionManager:
 
     def _check_landmark_hover(self, viewer):
         """Returns landmark_id if mouse is near a visible in-plane landmark, else None."""
-        if not viewer or not viewer.view_state or not viewer.is_image_orientation():
+        if not viewer or not viewer.view_state:
             return None
 
         win_tag = f"win_{viewer.tag}"
@@ -761,7 +761,7 @@ class InteractionManager:
 
     def _check_roi_hover(self, viewer):
         """Returns (roi_id, part) if mouse is near a spheroid ROI center/border on the current slice, else None."""
-        if not viewer or not viewer.view_state or not viewer.is_image_orientation():
+        if not viewer or not viewer.view_state:
             return None
 
         win_tag = f"win_{viewer.tag}"
@@ -1080,20 +1080,6 @@ class InteractionManager:
         ):
             self.gui.on_open_file_clicked()
             return
-
-        # DICOM Browser Arrow Keys
-        dicom_win = getattr(self.gui, "dicom_window", None)
-        if (
-            dicom_win
-            and dpg.does_item_exist(dicom_win.window_tag)
-            and dpg.is_item_shown(dicom_win.window_tag)
-        ):
-            if app_data == dpg.mvKey_Up:
-                dicom_win.move_selection(-1)
-                return
-            elif app_data == dpg.mvKey_Down:
-                dicom_win.move_selection(1)
-                return
 
         # Plugin DICOM Browser Arrow Keys
         dicom_plugin = next(

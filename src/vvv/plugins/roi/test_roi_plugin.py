@@ -37,6 +37,7 @@ class MockViewState:
         self.is_data_dirty = False
         self.is_geometry_dirty = False
         self.display = MagicMock()
+        self.display.roi_above_overlay = False
         self.update_crosshair_from_phys = MagicMock()
 
 
@@ -165,15 +166,6 @@ class TestRoiPlugin(unittest.TestCase):
 
         # Test mode change combo callback (no-op now)
         ui.on_roi_mode_changed(None, "Target FG (val)", None)
-
-        # Test mock actions
-        ui.on_mock_action("btn_test", None, None)
-        self.mock_api.notify.assert_called_with(
-            "ROI: Slider or combo callback (sender: btn_test)"
-        )
-
-        ui.on_export_roi_stats_clicked(None, None, None)
-        self.mock_api.notify.assert_called_with("ROI: Export stats clicked")
 
         dpg.delete_item("test_parent")
 
@@ -1072,7 +1064,6 @@ class TestRoiPlugin(unittest.TestCase):
         mock_viewer._ORIENTATION_MAP = {ViewMode.AXIAL: (2, 0, ("x", "y"), (1, 1))}
         mock_viewer.roi_mode = RoiInteractionMode.IDLE
         mock_viewer._is_buffered.return_value = False
-        mock_viewer.is_image_orientation.return_value = True
         mock_viewer.on_mouse_down = MagicMock()
 
         # Mock base volume
@@ -1193,7 +1184,6 @@ class TestRoiPlugin(unittest.TestCase):
         mock_viewer._ORIENTATION_MAP = {ViewMode.AXIAL: (2, 0, ("x", "y"), (1, 1))}
         mock_viewer.roi_mode = RoiInteractionMode.IDLE
         mock_viewer._is_buffered.return_value = False
-        mock_viewer.is_image_orientation.return_value = True
         mock_viewer.on_mouse_down = MagicMock()
         mock_viewer.get_pixels_per_mm.return_value = 1.0  # PPM = 1.0
         mock_viewer.view_state.world_to_display.side_effect = lambda pt, **kw: np.array(
@@ -1212,8 +1202,6 @@ class TestRoiPlugin(unittest.TestCase):
         base_vol.physic_coord_to_voxel_coord.side_effect = lambda pt: pt
         base_vol.voxel_coord_to_physic_coord.side_effect = lambda pt: pt
         base_vol.sitk_image = MagicMock()
-        # Ensure it is treated as mock to avoid SimpleITK initialization
-        type(base_vol.sitk_image).__name__ = "MagicMock"
 
         # Mock roi volume
         roi_vol = MagicMock()
@@ -1504,7 +1492,6 @@ class TestRoiPlugin(unittest.TestCase):
         mock_viewer._ORIENTATION_MAP = {ViewMode.AXIAL: (2, 0, ("x", "y"), (1, 1))}
         mock_viewer.roi_mode = RoiInteractionMode.IDLE
         mock_viewer._is_buffered.return_value = False
-        mock_viewer.is_image_orientation.return_value = True
         mock_viewer.on_mouse_down = MagicMock()
 
         # Mock base volume
@@ -1610,7 +1597,6 @@ class TestRoiPlugin(unittest.TestCase):
         mock_viewer._ORIENTATION_MAP = {ViewMode.AXIAL: (2, 0, ("x", "y"), (1, 1))}
         mock_viewer.roi_mode = RoiInteractionMode.IDLE
         mock_viewer._is_buffered.return_value = False
-        mock_viewer.is_image_orientation.return_value = True
         mock_viewer.on_mouse_down = MagicMock()
         mock_viewer.get_pixels_per_mm.return_value = 1.0
         mock_viewer.view_state.world_to_display.side_effect = lambda pt, **kw: np.array(
@@ -1628,7 +1614,6 @@ class TestRoiPlugin(unittest.TestCase):
         base_vol.physic_coord_to_voxel_coord.side_effect = lambda pt: pt
         base_vol.voxel_coord_to_physic_coord.side_effect = lambda pt: pt
         base_vol.sitk_image = MagicMock()
-        type(base_vol.sitk_image).__name__ = "MagicMock"
 
         roi_vol = MagicMock()
         roi_vol.origin = np.array([5.0, 15.0, 25.0])
@@ -1841,7 +1826,6 @@ class TestRoiPlugin(unittest.TestCase):
         mock_viewer._ORIENTATION_MAP = {ViewMode.AXIAL: (2, 0, ("x", "y"), (1, 1))}
         mock_viewer.roi_mode = RoiInteractionMode.IDLE
         mock_viewer._is_buffered.return_value = False
-        mock_viewer.is_image_orientation.return_value = True
         mock_viewer.on_mouse_down = MagicMock()
 
         base_vol = MagicMock()
@@ -1949,6 +1933,7 @@ class TestRoiPlugin(unittest.TestCase):
     def test_out_of_bounds_roi_warning(self):
         from vvv.core.roi_manager import ROIManager
         import numpy as np
+        import SimpleITK as sitk
 
         mock_gui = MagicMock()
         mock_controller = MagicMock()
@@ -1963,8 +1948,7 @@ class TestRoiPlugin(unittest.TestCase):
         base_vol.spacing = np.array([1.0, 1.0, 1.0])
         base_vol.origin = np.array([0.0, 0.0, 0.0])
         base_vol.matrix = np.eye(3)
-        base_vol.sitk_image = MagicMock()
-        base_vol.sitk_image.GetDirection.return_value = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+        base_vol.sitk_image = sitk.Image(10, 10, 10, sitk.sitkUInt8)  # origin 0, spacing 1
 
         # Mock mask_vol
         mask_vol = MagicMock()
@@ -1974,14 +1958,10 @@ class TestRoiPlugin(unittest.TestCase):
         mask_vol.data[2, 2, 2] = 1  # non-empty
 
         # Set up origin to be outside the base image FOV (e.g. at [15.0, 0.0, 0.0])
-        mask_vol.sitk_image = MagicMock()
-        mask_vol.sitk_image.GetOrigin.return_value = [15.0, 0.0, 0.0]
-        mask_vol.sitk_image.GetDirection.return_value = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+        mask_vol.sitk_image = sitk.GetImageFromArray(mask_vol.data)
+        mask_vol.sitk_image.SetOrigin((15.0, 0.0, 0.0))
 
         # Mock continuous index transform
-        base_vol.sitk_image.TransformPhysicalPointToContinuousIndex.side_effect = (
-            lambda pt: pt
-        )
 
         # Call process_binary_mask
         roi_mgr.process_binary_mask(base_vol, mask_vol, skip_initial_crop=True)
@@ -2074,6 +2054,7 @@ class TestRoiPlugin(unittest.TestCase):
     def test_completely_out_of_bounds_roi_warning(self):
         from vvv.core.roi_manager import ROIManager
         import numpy as np
+        import SimpleITK as sitk
 
         mock_gui = MagicMock()
         mock_controller = MagicMock()
@@ -2087,8 +2068,7 @@ class TestRoiPlugin(unittest.TestCase):
         base_vol.spacing = np.array([1.0, 1.0, 1.0])
         base_vol.origin = np.array([0.0, 0.0, 0.0])
         base_vol.matrix = np.eye(3)
-        base_vol.sitk_image = MagicMock()
-        base_vol.sitk_image.GetDirection.return_value = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+        base_vol.sitk_image = sitk.Image(10, 10, 10, sitk.sitkUInt8)  # origin 0, spacing 1
 
         # Mock mask_vol (completely out of bounds)
         mask_vol = MagicMock()
@@ -2097,17 +2077,9 @@ class TestRoiPlugin(unittest.TestCase):
         mask_vol.data = np.zeros((5, 5, 5), dtype=np.uint8)
         mask_vol.data[2, 2, 2] = 1
 
-        mask_vol.sitk_image = MagicMock()
-        mask_vol.sitk_image.GetOrigin.return_value = [
-            50.0,
-            50.0,
-            50.0,
-        ]  # Far outside base_vol [10, 10, 10]
-        mask_vol.sitk_image.GetDirection.return_value = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+        mask_vol.sitk_image = sitk.GetImageFromArray(mask_vol.data)
+        mask_vol.sitk_image.SetOrigin((50.0, 50.0, 50.0))  # Far outside base_vol [10, 10, 10]
 
-        base_vol.sitk_image.TransformPhysicalPointToContinuousIndex.side_effect = (
-            lambda pt: pt
-        )
 
         # Call process_binary_mask
         roi_mgr.process_binary_mask(base_vol, mask_vol, skip_initial_crop=True)
@@ -2318,17 +2290,11 @@ class TestRoiPlugin(unittest.TestCase):
                 "Save ROI As", default_name="Tumor.nii.gz"
             )
 
-            # Wait for thread callback to complete
-            import time
-            for _ in range(50):
-                if self.mock_api.run_on_main_thread.called:
-                    break
-                time.sleep(0.01)
-
-            # Simulate the main-thread callback
-            call_args = self.mock_api.run_on_main_thread.call_args
-            self.assertIsNotNone(call_args)
-            on_done_callback = call_args[0][0]
+            # Verify save_image_async was called and execute its on_done callback
+            self.mock_api.save_image_async.assert_called_once()
+            call_kwargs = self.mock_api.save_image_async.call_args[1]
+            on_done_callback = call_kwargs.get("on_done")
+            self.assertIsNotNone(on_done_callback)
             on_done_callback()
 
             # Verify source metadata was updated
@@ -2668,6 +2634,61 @@ class TestRoiPlugin(unittest.TestCase):
             read_img = sitk.ReadImage(os.path.join(out_dir, "Kidney_L.nii.gz"))
             self.assertEqual(read_img.GetSize(), (20, 20, 10))
 
+    def test_batch_save_worker_reads_no_live_state(self):
+        """PB1: the batch save reads the ROIs on the main thread and notifies on
+        the main thread; the worker only writes the files."""
+        import threading
+        import time
+
+        ctrl = self.plugin._controller
+        ctrl.api = self.mock_api
+        ui = self.plugin._ui
+        ui.api = self.mock_api
+        main = threading.current_thread()
+        threads = []
+
+        data_1 = np.zeros((10, 20, 20), dtype=np.uint8)
+        data_1[2:5, 5:10, 5:10] = 1
+        vol_1 = MagicMock()
+        vol_1.data = data_1
+        vol_1.shape3d = (10, 20, 20)
+        vol_1.sitk_image = sitk.GetImageFromArray(data_1)
+        vol_1.roi_bbox = None
+        mock_base = MagicMock()
+        mock_base.shape3d = (10, 20, 20)
+        mock_base.sitk_image = sitk.Image(20, 20, 10, sitk.sitkFloat32)
+        roi_state_1 = MagicMock()
+        roi_state_1.name = "Kidney_L"
+        roi_state_1.color = [0, 255, 0]
+        mock_vs = MagicMock()
+        mock_vs.rois = {"roi_1": roi_state_1}
+
+        def record(value):
+            def _f(*a, **k):
+                threads.append(threading.current_thread())
+                return value
+            return _f
+
+        self.mock_api.get_volumes.side_effect = record({"img_1": mock_base, "roi_1": vol_1})
+        self.mock_api.get_view_states.side_effect = record({"img_1": mock_vs})
+        self.mock_api.notify.side_effect = record(None)
+        queued = []
+        self.mock_api.run_on_main_thread.side_effect = queued.append
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_dir = os.path.join(tmpdir, "rois_dir")
+            ui._execute_save_rois("img_1", {"mode": "individual", "path": out_dir})
+            t_end = time.time() + 5
+            while not queued and time.time() < t_end:
+                time.sleep(0.01)
+            for cb in queued:  # what the GUI loop does on the main thread
+                cb()
+            self.assertIn("Kidney_L.nii.gz", os.listdir(out_dir))
+
+        self.assertTrue(threads)
+        self.assertTrue(all(t is main for t in threads))
+        self.mock_api.notify.assert_called_with("Saved 1 ROI files to rois_dir/")
+
     def test_ui_save_labels_buttons(self):
         """Test Save and Save As modal dialog and filename tracking."""
         if not dpg.is_dearpygui_running():
@@ -2824,6 +2845,187 @@ class TestRoiPlugin(unittest.TestCase):
         viewer.volume = base_vol
         roi_mgr.update_roi_contours(viewer)
         self.assertEqual(roi_state.polygons[ViewMode.AXIAL][4], [poly])
+
+    def test_box_mask_uses_direction_matrix_and_early_return_protects_state(self):
+        """Verify that box mask calculation respects direction matrix and early return protects state (PA12)."""
+        import SimpleITK as sitk
+        from vvv.maths.image import VolumeData
+
+        ctrl = self.plugin._controller
+        ctrl.api = self.mock_api
+
+        # Create a volume with a non-identity direction matrix (swapped X and Y axes)
+        # Direction: [[0, 1, 0], [1, 0, 0], [0, 0, 1]]
+        arr = np.zeros((20, 30, 40), dtype=np.float32)
+        sitk_img = sitk.GetImageFromArray(arr)
+        sitk_img.SetSpacing((1.0, 1.0, 1.0))
+        sitk_img.SetOrigin((0.0, 0.0, 0.0))
+        sitk_img.SetDirection([0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0])
+
+        base_vol = VolumeData("dummy_path", preloaded_sitk=sitk_img)
+        base_vol.matrix = np.array([[0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+        base_vol.inverse_matrix = np.linalg.inv(base_vol.matrix)
+        self.mock_api.get_volumes.return_value = {"base_oriented": base_vol}
+
+        vs = MagicMock()
+        vs.rois = {}
+        self.mock_api.get_view_states.return_value = {"base_oriented": vs}
+
+        # 1. Test update_box_mask with asymmetric extents in physical space:
+        # half_x = 2 mm (phys X), half_y = 10 mm (phys Y), half_z = 5 mm (phys Z)
+        # Because matrix maps vox X -> phys Y and vox Y -> phys X:
+        # In voxels, extent along voxel X should be half_y (10 mm -> 20 vox wide)
+        # and extent along voxel Y should be half_x (2 mm -> 4 vox wide).
+        box_size_x, box_size_y, box_size_z = 4.0, 20.0, 10.0
+        phys_center = base_vol.origin + np.array([15.0, 15.0, 10.0])
+
+        roi_state = MagicMock()
+        roi_state.box_size_x = 10.0
+        roi_state.box_size_y = 10.0
+        roi_state.box_size_z = 10.0
+        roi_state.box_center = phys_center.tolist()
+
+        roi_vol = MagicMock()
+        roi_vol.sitk_image = None
+
+        ctrl.update_box_mask(base_vol, roi_vol, roi_state, new_size_x=box_size_x, new_size_y=box_size_y, new_size_z=box_size_z)
+        mask = roi_vol.data
+        # In voxel coords, vox Y corresponds to phys X (size 4 -> span 4),
+        # and vox X corresponds to phys Y (size 20 -> span 20).
+        # Check that voxel X span > voxel Y span
+        span_z, span_y, span_x = mask.shape
+        self.assertGreater(span_x, span_y)
+
+        # 2. Test early return protects roi_state in update_box_mask & update_spheroid_mask
+        roi_state.box_size_x = 10.0
+        roi_state.box_size_y = 10.0
+        roi_state.box_size_z = 10.0
+        roi_state.box_center = [15.0, 15.0, 10.0]
+
+        roi_vol = MagicMock()
+        roi_vol.sitk_image = None
+
+        # Pass a mock base_vol where bounding box produces min_x >= max_x (e.g. inverted bounds)
+        bad_base_vol = MagicMock()
+        bad_base_vol.shape3d = (20, 20, 20)
+        bad_base_vol.physic_coord_to_voxel_coord.return_value = np.array([-10.0, -10.0, -10.0])
+        bad_base_vol.voxel_coord_to_physic_coord.return_value = np.array([0.0, 0.0, 0.0])
+
+        ctrl.update_box_mask(bad_base_vol, roi_vol, roi_state, new_size_x=50.0, new_size_y=50.0, new_size_z=50.0)
+        # Verify box_size was not overwritten with 50.0 on early return
+        self.assertEqual(roi_state.box_size_x, 10.0)
+
+        # Same for update_spheroid_mask
+        roi_state.spheroid_radius_x = 8.0
+        ctrl.update_spheroid_mask(bad_base_vol, roi_vol, roi_state, new_r_x_mm=99.0)
+        self.assertEqual(roi_state.spheroid_radius_x, 8.0)
+
+    def test_box_smaller_than_a_voxel_keeps_the_center_voxel(self):
+        """A box that contains no voxel center falls back to the voxel under its center
+        (the fallback used an undefined center_voxel: NameError)."""
+        import SimpleITK as sitk
+        from vvv.maths.image import VolumeData
+
+        ctrl = self.plugin._controller
+        ctrl.api = self.mock_api
+        sitk_img = sitk.GetImageFromArray(np.zeros((20, 30, 40), dtype=np.float32))
+        sitk_img.SetSpacing((3.0, 3.0, 3.0))  # sizes are clamped to >= 1 mm
+        base_vol = VolumeData("dummy_path", preloaded_sitk=sitk_img)
+
+        roi_state = MagicMock()
+        roi_state.box_center = [61.5, 45.0, 30.0]  # x between the voxel centers 60 and 63 mm
+        roi_vol = MagicMock()
+        roi_vol.sitk_image = None
+
+        ctrl.update_box_mask(base_vol, roi_vol, roi_state, new_size_x=1.0, new_size_y=1.0, new_size_z=1.0)
+
+        self.assertEqual(int(np.count_nonzero(roi_vol.data)), 1)
+
+    def test_detailed_stats_caching_and_invalidation(self):
+        """PC1: verify that compute_detailed_roi_stats caches results and invalidates properly."""
+        ctrl = self.plugin._controller
+        ctrl.bind(self.mock_api)
+
+        base_vol = MagicMock()
+        base_vol.data = np.full((5, 6, 7), 10.0, dtype=np.float32)
+        base_vol.spacing = np.array([2.0, 2.0, 2.0])
+        base_vol.shape3d = (5, 6, 7)
+        base_vol.num_timepoints = 1
+        base_vol.is_rgb = False
+        base_vol.sitk_image = MagicMock()
+
+        roi_vol = MagicMock()
+        roi_vol.data = np.zeros((5, 6, 7), dtype=np.uint8)
+        roi_vol.data[1, 2, 3] = 1
+        roi_vol.spacing = np.array([2.0, 2.0, 2.0])
+        roi_vol.shape3d = (5, 6, 7)
+        roi_vol.sitk_image = MagicMock()
+
+        roi_state = ROIState("roi_c", "CacheTest", [255, 0, 0])
+        self.mock_api.get_volumes.return_value = {
+            "img_c": base_vol,
+            "roi_c": roi_vol,
+        }
+        self.mock_api.get_view_states.return_value = {
+            "img_c": MockViewState(rois={"roi_c": roi_state}),
+        }
+
+        # First compute
+        stats1 = ctrl.compute_detailed_roi_stats("img_c", "roi_c")
+        self.assertIsNotNone(stats1)
+
+        # Second compute should hit cache and return exact same dict
+        stats2 = ctrl.compute_detailed_roi_stats("img_c", "roi_c")
+        self.assertIs(stats1, stats2)
+
+        # Invalidate cache for roi_c
+        ctrl.invalidate_stats_cache("roi_c")
+        self.assertEqual(len(ctrl._detailed_stats_cache), 0)
+
+        # Recomputes and produces new dict
+        stats3 = ctrl.compute_detailed_roi_stats("img_c", "roi_c")
+        self.assertIsNotNone(stats3)
+        self.assertEqual(len(ctrl._detailed_stats_cache), 1)
+
+        # Replacing data changes id(data) and also bypasses stale cache
+        roi_vol.data = np.zeros((5, 6, 7), dtype=np.uint8)
+        roi_vol.data[2, 2, 2] = 1
+        stats4 = ctrl.compute_detailed_roi_stats("img_c", "roi_c")
+        self.assertIsNot(stats3, stats4)
+
+    def test_refresh_rois_ui_table_state_caching(self):
+        """PC1: verify that refresh_rois_ui avoids rebuilding table rows when state is unchanged."""
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_cache_parent"):
+            self.plugin.create_ui(parent="test_cache_parent", api=self.mock_api)
+
+        ui = self.plugin._ui
+        ctrl = self.plugin._controller
+
+        rois = {
+            "roi_a": MockROI("roi_a", "ROI_A", [255, 0, 0]),
+            "roi_b": MockROI("roi_b", "ROI_B", [0, 255, 0]),
+        }
+        mock_viewer = MockViewer("img_cache", rois)
+        self.mock_api.get_active_viewer.return_value = mock_viewer
+
+        # Initial refresh: builds the table
+        ui.refresh_rois_ui()
+        self.assertIsNotNone(ui._last_table_state_key)
+        first_input = ui.roi_selectables["roi_a"]
+
+        # Second refresh with identical state: should skip table delete/rebuild
+        ui.refresh_rois_ui()
+        # Item tag for roi_a should still exist and match
+        self.assertEqual(ui.roi_selectables["roi_a"], first_input)
+
+        # State change (selection): should trigger rebuild
+        ctrl.on_roi_selected("roi_a")
+        # Item tag regenerated after selection rebuild
+        self.assertIn("roi_a", ui.roi_selectables)
+
+        dpg.delete_item("test_cache_parent")
 
 
 if __name__ == "__main__":

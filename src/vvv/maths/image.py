@@ -3,6 +3,7 @@ import glob
 import json
 import shlex
 import time
+import threading
 import numpy as np
 from vvv.utils import ViewMode
 from vvv.config import COLORMAPS
@@ -10,6 +11,9 @@ from typing import Any
 from dataclasses import dataclass, field
 from vvv.utils import get_history_path_key
 from vvv.maths.image_utils import straighten_image, extract_orientation_strings
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -127,6 +131,169 @@ def _cached_roi_mask_buffer(active_rois, h, w, cache_holder, cache_attr):
     return roi_mask, roi_color_buf
 
 
+# ---------------------------------------------------------------------------
+# Optional numba fast path for W/L + clip + colormap + threshold (one pass).
+# Bit-identical to the numpy path in SliceRenderer._colorize_layer (no fastmath,
+# true division, float32 like numpy; tests/test_fast_colorize.py). Each input
+# signature (dtype, memory layout) is compiled in a background thread on first
+# sight; until it is ready, or without numba / a thread-safe threading layer,
+# the numpy path is used. Called on the main thread only.
+# ---------------------------------------------------------------------------
+_fast_lock = threading.Lock()
+_fast = {
+    "kernel": None,
+    "ready": set(),
+    "pending": set(),
+    "disabled": False,
+    "compiling": 0,  # signatures being built right now
+    "compiling_since": None,
+}
+# The first build waits a bit: importing numba (~150 ms of GIL) during the boot
+# delays the first frame by ~100 ms; the numpy path is used meanwhile.
+_FAST_FIRST_BUILD_DELAY_S = 2.0
+
+
+def _fast_signature_key(slice_data):
+    return slice_data.dtype.str, ("C" if slice_data.flags.c_contiguous else "A")
+
+
+def _fast_colorize(slice_data, ww, wl, lut, threshold):
+    """(rgba, norm) from the numba kernel, or None to use the numpy path."""
+    if (
+        _fast["disabled"]
+        or ww <= 0
+        or slice_data.ndim != 2
+        or slice_data.dtype.kind not in "iuf"
+        or lut.dtype != np.float32
+        or lut.ndim != 2
+        or lut.shape[1] != 4
+        or not lut.flags.c_contiguous
+    ):
+        return None
+    key = _fast_signature_key(slice_data)
+    if key not in _fast["ready"]:
+        _request_fast_compile(key, slice_data.dtype)
+        return None
+    thr_type = np.float32 if slice_data.dtype == np.float32 else np.float64
+    norm = np.empty(slice_data.shape, np.float32)
+    rgba = np.empty(slice_data.shape + (4,), np.float32)
+    _fast["kernel"](
+        slice_data,
+        np.float32(wl - ww / 2.0),
+        np.float32(ww),
+        lut,
+        thr_type(0.0 if threshold is None else threshold),
+        threshold is not None,
+        norm,
+        rgba,
+    )
+    return rgba, norm
+
+
+def _request_fast_compile(key, dtype):
+    with _fast_lock:
+        if key in _fast["pending"] or _fast["disabled"]:
+            return
+        _fast["pending"].add(key)
+    threading.Thread(
+        target=_compile_fast_signature,
+        args=(key, dtype, _FAST_FIRST_BUILD_DELAY_S),
+        daemon=True,
+    ).start()
+
+
+def fast_colorize_compiling_for():
+    """Seconds the fast colormap kernel has been compiling, or None.
+
+    Lets the UI tell the user why the first renders are slower."""
+    since = _fast["compiling_since"]
+    return None if since is None or not _fast["compiling"] else time.time() - since
+
+
+def _compile_fast_signature(key, dtype, delay=0.0):
+    if delay and _fast["kernel"] is None:
+        time.sleep(delay)
+    try:
+        with _fast_lock:
+            if _fast["kernel"] is None:
+                _fast["kernel"] = _build_fast_kernel()  # numba import: every run
+        kernel = _fast["kernel"]
+        if kernel is None:
+            return
+        import numba
+
+        layout = key[1]
+        thr = numba.float32 if np.dtype(dtype) == np.float32 else numba.float64
+        signature = (
+            numba.types.Array(numba.from_dtype(np.dtype(dtype)), 2, layout),
+            numba.float32,
+            numba.float32,
+            numba.types.Array(numba.float32, 2, "C"),
+            thr,
+            numba.boolean,
+            numba.types.Array(numba.float32, 2, "C"),
+            numba.types.Array(numba.float32, 3, "C"),
+        )
+        # Only the compile is reported to the UI: from numba's disk cache it
+        # takes milliseconds, a real compile (first run) a fraction of a second
+        with _fast_lock:
+            if not _fast["compiling"]:
+                _fast["compiling_since"] = time.time()
+            _fast["compiling"] += 1
+        try:
+            kernel.compile(signature)
+        finally:
+            with _fast_lock:
+                _fast["compiling"] -= 1
+        _fast["ready"].add(key)
+    except Exception as e:  # numba missing or failing: stay on the numpy path
+        _fast["disabled"] = True
+        logger.warning(f"fast colormap path disabled ({type(e).__name__}: {e})")
+
+
+def _build_fast_kernel():
+    """Import numba and define the kernel, or None (numpy path) if numba is
+    missing or only its non-thread-safe 'workqueue' layer is available: another
+    parallel kernel may run concurrently (e.g. MIP in a background thread)."""
+    try:
+        import numba
+    except ImportError:
+        _fast["disabled"] = True
+        return None
+    safe_layer = False
+    for mod in ("numba.np.ufunc.omppool", "numba.np.ufunc.tbbpool"):
+        try:
+            __import__(mod)
+            safe_layer = True
+        except Exception:
+            pass
+    if not safe_layer:
+        _fast["disabled"] = True
+        return None
+
+    @numba.njit(parallel=True, cache=True)
+    def _wl_lut_kernel(sl, lo, ww, lut, thr, use_thr, norm_out, rgba_out):
+        H, W = sl.shape
+        for y in numba.prange(H):
+            for x in range(W):
+                s = sl[y, x]
+                v = (np.float32(s) - lo) / ww
+                if v < 0.0:
+                    v = np.float32(0.0)
+                elif v > 1.0:
+                    v = np.float32(1.0)
+                norm_out[y, x] = v  # NaN stays NaN, as np.clip
+                i = 0 if v != v else int(v * np.float32(255.0))
+                if use_thr and s <= thr:
+                    for c in range(4):
+                        rgba_out[y, x, c] = 0.0
+                else:
+                    for c in range(4):
+                        rgba_out[y, x, c] = lut[i, c]
+
+    return _wl_lut_kernel
+
+
 class SliceRenderer:
     """Pure utility to generate renderable RGBA arrays using a streamlined pipeline."""
 
@@ -148,7 +315,14 @@ class SliceRenderer:
         ):
             SliceRenderer._index_buffer = np.empty(shape, dtype=np.uint8)
         np.multiply(norm, 255.0, out=SliceRenderer._index_buffer, casting="unsafe")
-        return lut[SliceRenderer._index_buffer]
+        # np.take into a fresh buffer: same result as lut[idx], ~40 % faster.
+        # Fresh (not reused): base and overlay are both mapped in one frame.
+        return np.take(
+            lut,
+            SliceRenderer._index_buffer,
+            axis=0,
+            out=np.empty(shape + lut.shape[1:], dtype=lut.dtype),
+        )
 
     _AXIS_MAP = {
         ViewMode.AXIAL: (1, 2, 3),
@@ -434,8 +608,12 @@ class SliceRenderer:
                 rgba = norm
             return rgba, norm
         else:
-            norm = SliceRenderer.normalize_wl(slice_data, ww, wl)
             lut = COLORMAPS.get(cmap_name, COLORMAPS["Grayscale"])
+            fast = _fast_colorize(slice_data, ww, wl, lut, threshold)
+            if fast is not None:
+                return fast
+
+            norm = SliceRenderer.normalize_wl(slice_data, ww, wl)
             rgba = SliceRenderer.lut_lookup(lut, norm)
 
             if threshold is not None:
@@ -611,8 +789,20 @@ class SliceRenderer:
         return res_rgba.astype(np.float32, copy=False).ravel(), (h, w)
 
 
+_NOT_DICOM_EXTENSIONS = (
+    ".nii", ".nii.gz", ".mhd", ".mha", ".nrrd", ".nhdr", ".hdr", ".img",
+    ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".vtk", ".json",
+)
+
+
 class VolumeData:
-    """Stores the immutable medical image data and physical metadata."""
+    """Stores the medical image data and physical metadata.
+
+    `data` is replaced (not edited in place) on reload, bake, save and
+    rescale; each replacement drops the caches computed from it.
+    """
+
+    _DATA_CACHES = ("_data_range_cache", "_nonzero_bbox_cache")
 
     SEQUENCE_PREFIXES = (
         "4D:",
@@ -635,6 +825,12 @@ class VolumeData:
     ):
         self.path = path
         self.file_paths = []
+        # Kept so that reload() reads the file again the same way
+        self._load_kwargs = {
+            "is_roi": is_roi,
+            "roi_mode": roi_mode,
+            "roi_target_val": roi_target_val,
+        }
 
         if isinstance(path, list):
             self.file_paths = path
@@ -773,6 +969,16 @@ class VolumeData:
         self.update_mtime_tracker()
         self._last_check_time: float = 0.0
         self._is_outdated = False
+
+    @property
+    def data(self):
+        return self._data
+
+    @data.setter
+    def data(self, value):
+        self._data = value
+        for cache in self._DATA_CACHES:
+            self.__dict__.pop(cache, None)
 
     def get_data_range(self):
         if not hasattr(self, "_data_range_cache"):
@@ -998,7 +1204,7 @@ class VolumeData:
                     spacing[2] = 10.0 * (pts[5] - pts[4]) / max(1, dim3 - 1)
                     origin = [10.0 * pts[0], 10.0 * pts[2], 10.0 * pts[4]]
             except Exception as e:
-                print(f"Warning: Failed to parse AVS coordinates - {e}")
+                logger.warning(f"Failed to parse AVS coordinates - {e}")
 
         # Override with explicit spacing if provided in comments (rare but possible)
         spacing_match = re.search(
@@ -1201,8 +1407,8 @@ class VolumeData:
         try:
             self.inverse_matrix = np.linalg.inv(self.matrix)
         except np.linalg.LinAlgError:
-            print(
-                f"Warning: Singular spatial matrix detected in {self.name}. Falling back to Identity."
+            logger.warning(
+                f"Singular spatial matrix detected in {self.name}. Falling back to Identity."
             )
             self.matrix = np.eye(3)
             self.inverse_matrix = np.eye(3)
@@ -1299,8 +1505,11 @@ class VolumeData:
                 except Exception:
                     pass
 
-        # 2. Check DICOM metadata
-        if self.file_paths:
+        # 2. Check DICOM metadata (force=True parses any file as DICOM: on a
+        # NIfTI it never finds a modality, but can take 100+ ms per call)
+        if self.file_paths and not self.file_paths[0].lower().endswith(
+            _NOT_DICOM_EXTENSIONS
+        ):
             fp = self.file_paths[0]
             try:
                 import pydicom
@@ -1355,7 +1564,7 @@ class VolumeData:
                 try:
                     if os.path.exists(p):
                         self.last_mtimes[p] = os.path.getmtime(p)
-                except:
+                except Exception:
                     pass
         self.last_mtime = self._get_latest_mtime()
 
@@ -1369,7 +1578,7 @@ class VolumeData:
                     mtime = os.path.getmtime(p)
                     if mtime > max_mtime:
                         max_mtime = mtime
-            except:
+            except Exception:
                 pass
         return max_mtime
 
@@ -1388,7 +1597,7 @@ class VolumeData:
                         prev_mtime = self.last_mtimes.get(p, 0.0)
                         if self.last_mtime == 0.0 or curr_mtime > prev_mtime:
                             any_updated = True
-                except:
+                except Exception:
                     pass
             if any_updated:
                 self._is_outdated = True
@@ -1413,12 +1622,26 @@ class VolumeData:
         import SimpleITK as sitk
         from vvv.maths.image_utils import straighten_image
 
+        if not getattr(self, "file_paths", None):
+            raise RuntimeError(
+                f"Cannot reload {self.name}: image was generated in memory and has no file on disk."
+            )
+
+        load_kwargs = getattr(self, "_load_kwargs", {})
         try:
             new_sitk = self.read_image_from_disk(self.file_paths)
-            new_sitk = straighten_image(new_sitk, os.path.basename(self.file_paths[0]))
+            new_sitk = straighten_image(
+                new_sitk,
+                os.path.basename(self.file_paths[0]),
+                is_label_map=load_kwargs.get("is_roi", False),
+            )
         except Exception as e:
-            print(f"Warning: Failed to reload {self.name}. Error: {e}")
+            logger.warning(f"Failed to reload {self.name}. Error: {e}")
             raise e
+
+        # Caches computed from the old data (also dropped by the data setter)
+        for cache in self._DATA_CACHES:
+            self.__dict__.pop(cache, None)
 
         new_shape = new_sitk.GetSize()
         current_shape = self.sitk_image.GetSize() if self.sitk_image else None
@@ -1451,5 +1674,5 @@ class VolumeData:
             # old_sitk safely drops out of scope here
             return False
         else:
-            self.__init__(self.path)
+            self.__init__(self.path, **load_kwargs)
             return True

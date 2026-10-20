@@ -1,5 +1,4 @@
 import time
-import threading
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import (
     build_section_title,
@@ -746,20 +745,9 @@ class FusionUI:
             target_vol = self.controller.volumes[target_id]
 
             self.gui.show_status_message("Resampling overlay to physical grid...")
-
-            def _resample():
-                # Guard against user rapidly closing the image while the thread boots
-                if not viewer.view_state or viewer.image_id is None:
-                    return
-                viewer.view_state.set_overlay(target_id, target_vol)
-                ovs = self.controller.view_states.get(target_id)
-                if ovs:
-                    self.controller._apply_overlay_resample(viewer.view_state, ovs)
-                self.controller.update_all_viewers_of_image(viewer.image_id)
-                self.controller.status_message = "Overlay applied"
-                self.controller.ui_needs_refresh = True
-
-            threading.Thread(target=_resample, daemon=True).start()
+            viewer.view_state.set_overlay(target_id, target_vol)
+            # Resampled on the image's JobRunner: cannot race another resample of it
+            self.controller.resample_image(viewer.image_id)
 
     def on_fusion_mode_changed(self, sender, app_data, user_data):
         viewer = self.gui.context_viewer

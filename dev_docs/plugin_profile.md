@@ -105,4 +105,3 @@ Drawing is handled by `Drawer.draw_profiles()` in `src/vvv/ui/drawing.py`, calle
 - Profiles on the **current slice** are drawn as a full-opacity line with endpoint circles.
 - Profiles on **adjacent slices** (within ±6 slices) are drawn dimmed, with alpha decreasing linearly with distance.
 - **Cross-plane profiles** (orientation differs from the viewer) appear as a small ring at their midpoint projection.
-- Only works in 2D image-orientation views (`viewer.is_image_orientation()`); hidden in 3D/MPR modes.

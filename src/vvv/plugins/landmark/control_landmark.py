@@ -77,6 +77,11 @@ class LandmarkPluginController(PluginTagMixin):
                 new_landmarks = {}
                 for idx, item in enumerate(data["landmarks"], start=1):
                     lm_id = item.get("id") or f"lm_{idx:03d}"
+                    base_id = lm_id
+                    suffix = 1
+                    while lm_id in new_landmarks:
+                        lm_id = f"{base_id}_{suffix}"
+                        suffix += 1
                     new_landmarks[lm_id] = Landmark.from_dict(item)
                 vs.landmarks = new_landmarks
                 self.landmark_counters[image_id] = len(new_landmarks)
@@ -334,9 +339,10 @@ class LandmarkPluginController(PluginTagMixin):
             return
         vol = self._api.get_volumes().get(vs_id)
         landmarks = self.get_landmarks(vs_id)
+        vs = self._api.get_view_states().get(vs_id)
         if landmark_id in landmarks and vol:
-            landmarks[landmark_id].snap_to_voxel_grid(vol)
-            vs = self._api.get_view_states().get(vs_id)
+            space = vs.space if vs else None
+            landmarks[landmark_id].snap_to_voxel_grid(vol, space=space)
             if vs:
                 vs.is_geometry_dirty = True
             self._api.request_refresh()
@@ -347,10 +353,11 @@ class LandmarkPluginController(PluginTagMixin):
             return
         vol = self._api.get_volumes().get(vs_id)
         landmarks = self.get_landmarks(vs_id)
+        vs = self._api.get_view_states().get(vs_id)
         if vol and landmarks:
+            space = vs.space if vs else None
             for lm in landmarks.values():
-                lm.snap_to_voxel_grid(vol)
-            vs = self._api.get_view_states().get(vs_id)
+                lm.snap_to_voxel_grid(vol, space=space)
             if vs:
                 vs.is_geometry_dirty = True
             self._api.request_refresh()
@@ -427,33 +434,40 @@ class LandmarkPluginController(PluginTagMixin):
             current_landmarks = getattr(vs, "landmarks", {})
         count_added = 0
 
-        if path_str.lower().endswith(".csv"):
-            with open(path_str, "r", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                for idx, row in enumerate(reader, start=1):
-                    fallback_id = f"lm_{len(current_landmarks) + idx:03d}"
-                    lm_obj = Landmark.from_csv_row(row, fallback_id)
-                    # If ID collides, generate a unique ID
-                    if lm_obj.id in current_landmarks:
+        try:
+            if path_str.lower().endswith(".csv"):
+                with open(path_str, "r", encoding="utf-8") as f:
+                    reader = csv.DictReader(f)
+                    for idx, row in enumerate(reader, start=1):
+                        fallback_id = f"lm_{len(current_landmarks) + idx:03d}"
+                        lm_obj = Landmark.from_csv_row(row, fallback_id)
+                        # If ID collides, generate a unique ID
+                        while lm_obj.id in current_landmarks:
+                            curr_c = self.landmark_counters.get(vs_id, 0) + 1
+                            self.landmark_counters[vs_id] = curr_c
+                            lm_obj.id = f"lm_{curr_c:03d}"
+                        current_landmarks[lm_obj.id] = lm_obj
+                        count_added += 1
+            else:
+                with open(path_str, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                raw_list = data.get("landmarks", []) if isinstance(data, dict) else data
+                for idx, item in enumerate(raw_list, start=1):
+                    curr_c = self.landmark_counters.get(vs_id, 0) + 1
+                    self.landmark_counters[vs_id] = curr_c
+                    lm_id = item.get("id") or f"lm_{curr_c:03d}"
+                    while lm_id in current_landmarks:
                         curr_c = self.landmark_counters.get(vs_id, 0) + 1
                         self.landmark_counters[vs_id] = curr_c
-                        lm_obj.id = f"lm_{curr_c:03d}"
-                    current_landmarks[lm_obj.id] = lm_obj
+                        lm_id = f"lm_{curr_c:03d}"
+                    lm_obj = Landmark.from_dict(item)
+                    lm_obj.id = lm_id
+                    current_landmarks[lm_id] = lm_obj
                     count_added += 1
-        else:
-            with open(path_str, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            raw_list = data.get("landmarks", []) if isinstance(data, dict) else data
-            for idx, item in enumerate(raw_list, start=1):
-                curr_c = self.landmark_counters.get(vs_id, 0) + 1
-                self.landmark_counters[vs_id] = curr_c
-                lm_id = item.get("id") or f"lm_{curr_c:03d}"
-                if lm_id in current_landmarks:
-                    lm_id = f"lm_{curr_c:03d}"
-                lm_obj = Landmark.from_dict(item)
-                lm_obj.id = lm_id
-                current_landmarks[lm_id] = lm_obj
-                count_added += 1
+        except Exception as e:
+            if self._api:
+                self._api.notify(f"Failed to load landmarks: {e}")
+            return
 
         vs.landmarks = current_landmarks
         self.landmarks_file_path[vs_id] = path_str
@@ -469,9 +483,6 @@ class LandmarkPluginController(PluginTagMixin):
         if self._ui:
             self._ui._last_state_key = None
         self._api.request_refresh()
-        self._api.notify(
-            f"Added {count_added} landmark(s) from {os.path.basename(path_str)}"
-        )
         action_verb = "Reloaded" if replace else "Added"
         self._api.notify(
             f"{action_verb} {count_added} landmark(s) from {os.path.basename(path_str)}"
@@ -496,7 +507,7 @@ class LandmarkPluginController(PluginTagMixin):
         if not vs_id:
             return False
         path_str = self.landmarks_file_path.get(vs_id)
-        if not path_str or not os.path.exists(path_str):
+        if not path_str:
             self.landmarks_is_outdated[vs_id] = False
             return False
 
@@ -505,6 +516,9 @@ class LandmarkPluginController(PluginTagMixin):
         if now - last_check > 1.0:
             self._last_mtime_check[vs_id] = now
             try:
+                if not os.path.exists(path_str):
+                    self.landmarks_is_outdated[vs_id] = False
+                    return False
                 curr_mtime = os.path.getmtime(path_str)
                 prev_mtime = self.landmarks_last_mtimes.get(vs_id, 0.0)
                 if prev_mtime == 0.0:

@@ -1,6 +1,4 @@
-import threading
 import numpy as np
-from contextlib import contextmanager
 from vvv.config import WL_PRESETS
 from vvv.maths.geometry import SpatialEngine
 from vvv.utils import ViewMode
@@ -260,7 +258,6 @@ class DisplayState:
 
     def __init__(self, parent_vs: "ViewState | None" = None):
         self._parent = parent_vs
-        self._lock = threading.Lock()
         self.overlay_data: np.ndarray | None = None
         self._sitk_overlay_cache = None
         self.baked_overlay_translation = (0.0, 0.0, 0.0)
@@ -627,7 +624,6 @@ class ViewState:
         self.volume = volume
         self.is_data_dirty = True
         self.is_geometry_dirty = True
-        self.is_loading = False
         self.camera = CameraState(volume, parent_vs=self)
         self.display = DisplayState(parent_vs=self)
         self.extraction = ExtractionState(parent_vs=self)
@@ -732,15 +728,6 @@ class ViewState:
             return self.volume.physic_coord_to_voxel_coord(p_temp)
         return self.space.world_to_display(phys_coord, is_buffered=False)
 
-    @contextmanager
-    def loading_shield(self):
-        """A context manager that guarantees the viewer shield is raised and lowered safely."""
-        self.is_loading = True
-        try:
-            yield
-        finally:
-            self.is_loading = False
-
     def is_ct_image(self, flat_data):
         if flat_data is None or flat_data.size == 0:
             return False
@@ -829,9 +816,9 @@ class ViewState:
         max_sample_size = 100000
         if total_pixels > max_sample_size:
             stride = max(1, total_pixels // max_sample_size)
-            sample_data = self.volume.data.flatten()[::stride]
+            sample_data = self.volume.data.ravel()[::stride]
         else:
-            sample_data = self.volume.data.flatten()
+            sample_data = self.volume.data.ravel()
 
         if self.is_ct_image(sample_data):
             self.set_ct_window_level(sample_data)
@@ -930,13 +917,12 @@ class ViewState:
             return
         if "Optimal" in preset_name:
             stride = max(1, total_pixels // 100000)
-            sample_data = self.volume.data.flatten()[::stride]
+            sample_data = self.volume.data.ravel()[::stride]
             p2, p98 = np.percentile(sample_data, [2, 98])
             self.display.ww = max(1e-20, p98 - p2)
             self.display.wl = (p98 + p2) / 2
         elif "Min/Max" in preset_name:
-            min_v = float(np.min(self.volume.data))
-            max_v = float(np.max(self.volume.data))
+            min_v, max_v = self.volume.get_data_range()  # cached
             self.display.ww = max(1e-20, max_v - min_v)
             self.display.wl = (max_v + min_v) / 2
         else:
@@ -948,11 +934,10 @@ class ViewState:
 
     def set_overlay(self, overlay_id, other_vol):
         if overlay_id is None or other_vol is None:
-            with self.display._lock:
-                self.display.overlay.image_id = None
-                self.display.overlay_data = None
-                self.display._sitk_overlay_cache = None
-                self.display.baked_overlay_translation = (0.0, 0.0, 0.0)
+            self.display.overlay.image_id = None
+            self.display.overlay_data = None
+            self.display._sitk_overlay_cache = None
+            self.display.baked_overlay_translation = (0.0, 0.0, 0.0)
             self.is_data_dirty = True
             return True
 

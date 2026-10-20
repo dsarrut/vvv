@@ -180,8 +180,8 @@ def test_load_workspace_relative_path_resolution(tmp_path):
     # 3. Call load_workspace_sequence and verify it loads the resolved path
     gui = MagicMock()
     controller = MagicMock()
-    # Mock file load to return a dummy volume ID
-    controller.file.load_image.return_value = "img_1_loaded"
+    # Mock image registration to return a dummy volume ID
+    controller.file.register_image.return_value = "img_1_loaded"
     controller.volumes = {"img_1_loaded": MagicMock()}
     controller.view_states = MagicMock()
 
@@ -189,9 +189,9 @@ def test_load_workspace_relative_path_resolution(tmp_path):
     generator = load_workspace_sequence(gui, controller, str(ws_path))
     list(generator)  # Consume the generator
 
-    # Check that it called load_image with the resolved local path!
+    # Check that it read the image from the resolved local path!
     expected_local_path = str(img_path)
-    controller.file.load_image.assert_called_once_with(
+    controller.file.read_image.assert_called_once_with(
         expected_local_path, ignore_history=True
     )
 
@@ -261,7 +261,7 @@ def test_load_workspace_roi_json_filtering(tmp_path):
     # 3. Call load_workspace_sequence and verify it loads the resolved path
     gui = MagicMock()
     controller = MagicMock()
-    controller.file.load_image.return_value = "img_1_loaded"
+    controller.file.register_image.return_value = "img_1_loaded"
     controller.volumes = {"img_1_loaded": MagicMock()}
     controller.view_states = MagicMock()
 
@@ -357,7 +357,7 @@ def test_load_workspace_paths_with_json_and_tildes(tmp_path, monkeypatch):
     # 3. Setup GUI and Controller Mocks
     gui = MagicMock()
     controller = MagicMock()
-    controller.file.load_image.return_value = "img_1_loaded"
+    controller.file.register_image.return_value = "img_1_loaded"
 
     loaded_roi_vol = MagicMock()
     # Simulate the initial file_paths set by the loader (which will lack the JSON because it doesn't exist on disk)
@@ -366,8 +366,10 @@ def test_load_workspace_paths_with_json_and_tildes(tmp_path, monkeypatch):
 
     controller.view_states = MagicMock()
 
-    # Mock ROI creation to return our loaded_roi_vol ID
-    controller.roi.extract_label_from_image.return_value = "roi_1_loaded"
+    # Mock ROI creation: computed in the loader thread (pending ROI holding
+    # our loaded_roi_vol), then registered on the main thread
+    controller.roi.extract_label_from_image.return_value = {"vol": loaded_roi_vol}
+    controller.roi.register_roi.return_value = "roi_1_loaded"
 
     # Consume the generator
     generator = load_workspace_sequence(gui, controller, str(ws_path))
@@ -667,6 +669,13 @@ def test_load_workspace_label_maps_with_flat_string_sidecar(tmp_path):
     assert r1.name == "Flat_Liver"
 
 
+def gui_workspace_view(gui):
+    """MainGUI.workspace_view() on a mock GUI."""
+    from vvv.ui.gui import MainGUI
+
+    return MainGUI.workspace_view(gui)
+
+
 def test_save_and_load_workspace_viewport_layout(tmp_path):
     """Test that workspace saving and loading preserves the layout_mode (1, 2, 4) and active_viewer."""
     import json
@@ -701,7 +710,7 @@ def test_save_and_load_workspace_viewport_layout(tmp_path):
     controller.gui = gui
 
     ws_file = tmp_path / "layout_test.vvw"
-    controller.file.save_workspace(str(ws_file))
+    controller.file.save_workspace(str(ws_file), gui_workspace_view(gui))
 
     with open(ws_file, "r") as f:
         saved_ws = json.load(f)
@@ -773,7 +782,7 @@ def test_save_and_load_workspace_mip_multi_viewer_state(tmp_path):
     controller.gui = gui
 
     ws_file = tmp_path / "mip_multi_test.vvw"
-    controller.file.save_workspace(str(ws_file))
+    controller.file.save_workspace(str(ws_file), gui_workspace_view(gui))
 
     with open(ws_file, "r") as f:
         saved_ws = json.load(f)
@@ -973,3 +982,177 @@ def test_load_workspace_when_label_map_file_changed_on_disk(tmp_path):
     r4 = next(r for r in vs.rois.values() if int(r.source_val) == 4)
     assert int(r4.source_val) == 4
     assert r4.visible is True
+
+
+def test_workspace_label_map_is_read_only_once(tmp_path):
+    """Verify that label map files are read only once during workspace loading (in worker, not in _gather_workspace_rois)."""
+    import json
+    import numpy as np
+    import SimpleITK as sitk
+    from unittest.mock import MagicMock
+    from vvv.core.controller import Controller
+    from vvv.ui.ui_sequences import load_workspace_sequence, _gather_workspace_rois
+
+    base_file = tmp_path / "base.nii.gz"
+    sitk.WriteImage(
+        sitk.GetImageFromArray(np.zeros((5, 5, 5), dtype=np.float32)), str(base_file)
+    )
+
+    lm_file = tmp_path / "labels.nii.gz"
+    arr = np.zeros((5, 5, 5), dtype=np.uint8)
+    arr[1:3, 1:3, 1:3] = 1
+    sitk.WriteImage(sitk.GetImageFromArray(arr), str(lm_file))
+
+    ws_data = {
+        "version": 1.0,
+        "images": {
+            "1": {
+                "path": str(base_file),
+                "label_maps": [
+                    {
+                        "path": str(lm_file),
+                        "labels": {"1": {"name": "L1", "color": [255, 0, 0]}},
+                    }
+                ],
+                "rois": [],
+            }
+        },
+    }
+    controller = Controller()
+
+    read_counts = []
+    orig_read = sitk.ReadImage
+
+    def spy_read(*args, **kwargs):
+        read_counts.append(args[0])
+        return orig_read(*args, **kwargs)
+
+    sitk.ReadImage = spy_read
+    try:
+        # 1. _gather_workspace_rois must NOT read the image from disk
+        _gather_workspace_rois(controller, ws_data, {"1": "1"}, [], lambda p: p)
+        assert not any(
+            str(lm_file) in str(c) for c in read_counts
+        ), "_gather_workspace_rois should not read label map from disk"
+
+        # 2. Entire workspace sequence must read lm_file exactly once
+        ws_file = tmp_path / "test.vvw"
+        with open(ws_file, "w") as f:
+            json.dump(ws_data, f)
+
+        gui = MagicMock()
+        gui.plugins = []
+        gen = load_workspace_sequence(gui, controller, str(ws_file))
+        list(gen)
+
+        lm_reads = [c for c in read_counts if str(lm_file) in str(c)]
+        assert (
+            len(lm_reads) == 1
+        ), f"Expected exactly 1 read of label map file, got {len(lm_reads)}"
+    finally:
+        sitk.ReadImage = orig_read
+
+
+def test_viewer_restore_view_method(headless_gui_app):
+    """Test SliceViewer.restore_view properly restores image_id, orientation,
+    zoom, pan_offset and needs_recenter flags without triggering autonomous centering.
+    """
+    controller, gui, viewer, base_id = headless_gui_app
+    from vvv.utils import ViewMode
+
+    # Initial state verification
+    assert viewer.image_id == base_id
+
+    # Restore view with custom orientation, zoom, pan, and needs_recenter=False
+    viewer.restore_view(
+        base_id,
+        orientation="SAGITTAL",
+        zoom=3.0,
+        pan_offset=[45.0, -20.0],
+        needs_recenter=False,
+    )
+
+    assert viewer.orientation == ViewMode.SAGITTAL
+    assert viewer.view_state.camera.last_orientation == ViewMode.SAGITTAL
+    assert abs(viewer.zoom - 3.0) < 1e-4
+    assert viewer.pan_offset == [45.0, -20.0]
+    assert viewer.needs_recenter is False
+    assert viewer.is_geometry_dirty is True
+    assert viewer.is_viewer_data_dirty is True
+
+    # Test restoring with ViewMode enum and needs_recenter=True
+    viewer.restore_view(
+        base_id,
+        orientation=ViewMode.CORONAL,
+        zoom=1.5,
+        pan_offset=[0.0, 0.0],
+        needs_recenter=True,
+    )
+    assert viewer.orientation == ViewMode.CORONAL
+    assert viewer.zoom == 1.5
+    assert viewer.pan_offset == [0.0, 0.0]
+    assert viewer.needs_recenter is True
+
+
+def test_load_workspace_calls_restore_view(tmp_path):
+    """Test that load_workspace_sequence calls viewer.restore_view with the saved parameters."""
+    import json
+    from unittest.mock import MagicMock
+    from vvv.core.controller import Controller
+    from vvv.ui.ui_sequences import load_workspace_sequence
+
+    base_file = tmp_path / "base_rv.nii.gz"
+    base_img = sitk.GetImageFromArray(np.zeros((8, 8, 8), dtype=np.uint8))
+    sitk.WriteImage(base_img, str(base_file))
+
+    ws_data = {
+        "version": 1.0,
+        "workspace_path": str(tmp_path / "test_rv.vvw"),
+        "viewers": {
+            "V1": {
+                "image_id": "1",
+                "orientation": "CORONAL",
+                "zoom": 2.2,
+                "pan_offset": [10.0, -5.0],
+                "needs_recenter": False,
+            }
+        },
+        "images": {
+            "1": {
+                "path": str(base_file),
+                "display": {},
+                "camera": {},
+                "extraction": {},
+                "dvf": {},
+                "label_maps": [],
+                "rois": [],
+            }
+        },
+    }
+    ws_file = tmp_path / "test_rv.vvw"
+    with open(ws_file, "w") as f:
+        json.dump(ws_data, f)
+
+    controller = Controller()
+    mock_v1 = MagicMock()
+    mock_v2 = MagicMock()
+    controller.viewers = {"V1": mock_v1, "V2": mock_v2}
+
+    gui = MagicMock()
+    gui.plugins = []
+
+    gen = load_workspace_sequence(gui, controller, str(ws_file))
+    list(gen)
+
+    # V1 was in workspace: restore_view called with mapped id and params
+    mock_v1.restore_view.assert_called_once_with(
+        "1",
+        orientation="CORONAL",
+        zoom=2.2,
+        pan_offset=[10.0, -5.0],
+        needs_recenter=False,
+    )
+    # V2 was not in workspace: drop_image called
+    mock_v2.drop_image.assert_called_once()
+
+

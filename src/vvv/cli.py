@@ -11,7 +11,22 @@ import dearpygui.dearpygui as dpg
 from vvv.ui.viewer import SliceViewer
 from vvv.maths.image import VolumeData
 from vvv.core.controller import Controller
-from vvv.resources import get_resource_path
+from vvv.utils import get_resource_path
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def setup_logging(debug=False):
+    """Messages of the vvv modules go to stderr: warnings and errors, plus
+    debug details with --debug. Other libraries (numba...) are not affected."""
+    vvv_logger = logging.getLogger("vvv")
+    if not vvv_logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("vvv %(levelname)s: %(message)s"))
+        vvv_logger.addHandler(handler)
+    vvv_logger.setLevel(logging.DEBUG if debug else logging.WARNING)
+    vvv_logger.propagate = False
 
 
 def set_macos_dock_info(name, icon_path=None):
@@ -69,7 +84,6 @@ def parse_cli_arguments(datasets):
     Supports '+' prefix or separator to attach label map ROIs to base images.
     """
     import numpy as np
-    import SimpleITK as sitk
 
     # 1. Normalize datasets by splitting any tokens containing '+'
     normalized_datasets = []
@@ -107,6 +121,8 @@ def parse_cli_arguments(datasets):
 
     def get_info(path):
         """Ultra-fast header peek without loading pixel data."""
+        import SimpleITK as sitk  # lazy: an empty start does not need it
+
         try:
             reader = sitk.ImageFileReader()
             reader.SetFileName(path)
@@ -244,6 +260,85 @@ def parse_cli_arguments(datasets):
     return image_tasks
 
 
+# Formats vvv reads itself (no SimpleITK header to probe)
+_OWN_READER_EXTS = (".edf", ".hst", ".cbf", ".his")
+
+
+def _input_files(spec):
+    """Files/folders an image argument refers to (4D sequences may list several)."""
+    s = spec.strip()
+    if s.upper().startswith(VolumeData.SEQUENCE_PREFIXES):
+        rest = s[3:].strip()  # same prefix stripping as VolumeData
+        if os.path.isdir(rest):
+            return [rest]
+        if "*" in rest or "?" in rest:
+            import glob
+
+            return sorted(glob.glob(rest))
+        import shlex
+
+        return shlex.split(rest.replace("\\", "\\\\") if os.name == "nt" else rest)
+    return [s]
+
+
+def cannot_open_reason(spec):
+    """Why an image argument cannot be opened, or None if it looks openable.
+
+    Cheap (never reads pixel data) and mirrors VolumeData's reader routing: a
+    SimpleITK-readable header, a format vvv reads itself, an AVS/XDR file, or a
+    folder (DICOM series). A sequence is openable if one of its files is.
+    """
+    import SimpleITK as sitk
+
+    reasons = []
+    for path in _input_files(spec) or [spec]:
+        if not os.path.exists(path):
+            reasons.append(f"{path}: no such file or directory")
+            continue
+        if not os.access(path, os.R_OK):
+            reasons.append(f"{path}: permission denied")
+            continue
+        if os.path.isdir(path) or path.lower().endswith(_OWN_READER_EXTS):
+            return None
+        try:
+            reader = sitk.ImageFileReader()
+            reader.SetFileName(path)
+            reader.ReadImageInformation()
+            return None
+        except Exception:
+            pass
+        try:
+            with open(path, "rb") as f:
+                if b"\x0c\x0c" in f.read(4096):  # AVS/XDR header delimiter
+                    return None
+        except OSError:
+            pass
+        reasons.append(f"{path}: not a readable image")
+    return "; ".join(reasons)
+
+
+def check_inputs(image_tasks, workspace_file):
+    """Print what cannot be opened; return False if nothing given can be opened."""
+    if workspace_file:
+        if not os.path.isfile(workspace_file):
+            print(f"vvv: cannot open workspace {workspace_file}", file=sys.stderr)
+            return False
+        return True
+    n_ok = 0
+    for task in image_tasks:
+        reason = cannot_open_reason(task["base"])
+        if reason:
+            print(f"vvv: cannot open {reason}", file=sys.stderr)
+        else:
+            n_ok += 1
+        extra = ([task["fusion"]["path"]] if task.get("fusion") else []) + task.get("labels", [])
+        for path in extra:
+            reason = cannot_open_reason(path)
+            if reason:
+                print(f"vvv: cannot open {reason}", file=sys.stderr)
+    return n_ok > 0 or not image_tasks
+
+
 @click.command(context_settings=dict(help_option_names=["-h", "--help"]))
 @click.argument("datasets", nargs=-1)
 # --linkall is kept as a legacy alias from the old `vv` application; --sync is the preferred form.
@@ -256,7 +351,7 @@ def parse_cli_arguments(datasets):
     is_flag=True,
     help="Ignore saved history and load with defaults.",
 )
-@click.option("--debug", is_flag=True, help="Show FPS debug overlay with graph.")
+@click.option("--debug", is_flag=True, help="Show FPS debug overlay with graph, print debug messages, raise on internal errors.")
 @click.option("--fast-gl/--no-fast-gl", default=True, help="Enable/disable fast GL nearest-neighbor (Linux/Windows).")
 def main(no_history, datasets, linkall, sync, linkall_wl, debug, fast_gl):
     """VVV — multi-image medical viewer.
@@ -297,16 +392,17 @@ def main(no_history, datasets, linkall, sync, linkall_wl, debug, fast_gl):
       vvv session.vvw                      restore a previously saved workspace
     """
 
+    setup_logging(debug)
+
     # Check dearpygui version compatibility
     try:
         import dearpygui
         dpg_ver = dearpygui.__version__
         parts = [int(p) for p in dpg_ver.split(".") if p.isdigit()]
         if parts and (parts[0] < 2 or (parts[0] == 2 and len(parts) > 1 and parts[1] < 3)):
-            print(
-                f"WARNING: dearpygui version {dpg_ver} is detected. Version >= 2.3.1 is highly recommended "
+            logger.warning(
+                f"dearpygui version {dpg_ver} is detected. Version >= 2.3.1 is highly recommended "
                 f"to prevent segmentation faults/crashes, particularly under Python 3.14+ or in headless environments.",
-                file=sys.stderr
             )
     except Exception:
         pass
@@ -314,6 +410,12 @@ def main(no_history, datasets, linkall, sync, linkall_wl, debug, fast_gl):
     # Parse the tasks cleanly
     datasets = [ds for ds in datasets if ds.strip()]
     image_tasks = parse_cli_arguments(datasets)
+
+    # Do not open a window if none of the given images can be opened
+    workspace_file = next((f for f in datasets if f.lower().endswith(".vvw")), None)
+    if not check_inputs(image_tasks, workspace_file):
+        print("vvv: nothing to open, not starting the viewer.", file=sys.stderr)
+        sys.exit(1)
 
     import vvv.ui.render_strategy as rs_mod
     if fast_gl:
@@ -327,14 +429,16 @@ def main(no_history, datasets, linkall, sync, linkall_wl, debug, fast_gl):
     # JIT kernel for reasonable performance — the pure-NumPy fallback measured
     # ~40-50x slower in profiling, and silently falling back to it is easy to
     # miss (it produces correct but very slow results, not an error).
+    # find_spec only checks it is installed: importing numba costs ~150 ms at
+    # every start, it is imported on first use (fusion / MIP render).
     if not rs_mod.GL_NEAREST_SUPPORTED:
-        rs_mod._init_numba()
-        if not rs_mod._NUMBA_AVAILABLE:
-            print(
-                "WARNING: numba is not installed/importable in this environment. "
+        import importlib.util
+
+        if importlib.util.find_spec("numba") is None:
+            logger.warning(
+                "numba is not installed/importable in this environment. "
                 "Fusion overlay rendering will fall back to a much slower pure-NumPy "
                 "path (~40-50x slower). Install numba for smooth fusion rendering.",
-                file=sys.stderr,
             )
 
     # --- Setup Application ---
@@ -361,13 +465,11 @@ def main(no_history, datasets, linkall, sync, linkall_wl, debug, fast_gl):
     dpg.set_viewport_small_icon(active_icon)
     dpg.set_viewport_large_icon(active_icon)
 
-    # 1. Detect if a workspace file was passed in the arguments
-    workspace_file = next((f for f in datasets if f.lower().endswith(".vvw")), None)
-
+    # 1. A workspace file passed in the arguments (detected above)
     # 2. Swap the boot generator based on the file type
     if workspace_file:
         if len(datasets) > 1:
-            print(
+            logger.warning(
                 f"Find workspace {workspace_file}, ignoring other files on the command line"
             )
         # Use the workspace loader

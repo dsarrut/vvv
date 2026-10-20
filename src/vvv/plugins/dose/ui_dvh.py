@@ -1,11 +1,15 @@
 import os
 import csv
+import logging
+import threading
 from typing import TYPE_CHECKING, List, Dict, Optional, Any
 import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginTagMixin, PluginAPI
 from vvv.ui.ui_components import build_beginner_tooltip, build_name_filter_bar
 from vvv.plugins.dose.dvh_calc import ROI_DVH_Curve, compute_roi_dvh
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .control_dose import DosePluginController
@@ -27,15 +31,18 @@ class DVHWindow(PluginTagMixin):
         self.sort_column: Optional[str] = None
         self.sort_reverse: bool = False
         self.window_tag = self._t("dvh_window")
+        self._calc_token: int = 0
+        self._calc_stop: Optional[threading.Event] = None
+        self._calc_thread: Optional[threading.Thread] = None
 
-    def show_window(self, api: PluginAPI) -> None:
+    def show_window(self, api: PluginAPI, async_calc: bool = True) -> None:
         self._api = api
         cfg_c = api.get_ui_config()["colors"]
 
         # If window exists, bring to front
         if dpg.does_item_exist(self.window_tag):
             dpg.focus_item(self.window_tag)
-            self.recompute_and_update(fit_axes=True)
+            self.recompute_and_update(fit_axes=True, async_calc=async_calc)
             return
 
         # Viewport dimensions for positioning
@@ -285,9 +292,12 @@ class DVHWindow(PluginTagMixin):
                     )
 
         # Initial calculation
-        self.recompute_and_update(fit_axes=True)
+        self.recompute_and_update(fit_axes=True, async_calc=async_calc)
 
     def on_window_close(self):
+        if self._calc_stop is not None:
+            self._calc_stop.set()
+        self._calc_token += 1
         if dpg.does_item_exist(self.window_tag):
             dpg.delete_item(self.window_tag)
 
@@ -411,9 +421,10 @@ class DVHWindow(PluginTagMixin):
         if self.is_dose_relative:
             norm = self.norm_prescription_gy if self.norm_prescription_gy > 0 else 1.0
             max_x = max((float(np.max(c.doses)) / norm * 100.0 for c in enabled_curves), default=100.0)
+            max_x = max_x * 1.05 if max_x > 0 else 100.0
         else:
             max_x = max((float(c.max_dose) for c in enabled_curves), default=60.0)
-        max_x = max(max_x * 1.05, 1.0)
+            max_x = max_x * 1.05 if max_x > 0 else 1.0
 
         # Y-Axis (Volume)
         if self.is_cumulative:
@@ -431,10 +442,25 @@ class DVHWindow(PluginTagMixin):
         dpg.set_axis_limits(x_axis_tag, 0.0, float(max_x))
         dpg.set_axis_limits(y_axis_tag, 0.0, float(max_y))
 
-    def recompute_and_update(self, fit_axes: bool = True) -> None:
-        """Computes DVH for all currently loaded ROIs on the active dose target."""
+    def wait_for_calculation(self, timeout: float = 5.0) -> bool:
+        """Helper to wait for a background calculation to complete (primarily for tests)."""
+        if self._calc_thread is not None and self._calc_thread.is_alive():
+            self._calc_thread.join(timeout=timeout)
+            return not self._calc_thread.is_alive()
+        return True
+
+    def recompute_and_update(self, fit_axes: bool = True, async_calc: bool = True) -> None:
+        """Computes DVH for all currently loaded ROIs on the active dose target asynchronously."""
         if not self._api:
             return
+
+        # Cancel any previous calculation
+        if self._calc_stop is not None:
+            self._calc_stop.set()
+        stop_event = threading.Event()
+        self._calc_stop = stop_event
+        self._calc_token += 1
+        current_token = self._calc_token
 
         is_active, dose_vol, is_ov, unit_str, target_id, target_vs = (
             self._c.get_dose_target_info()
@@ -447,44 +473,117 @@ class DVHWindow(PluginTagMixin):
         # Target dose label
         dose_name = getattr(dose_vol, "name", "Dose")
         role = "Overlay" if is_ov else "Base"
-        if dpg.does_item_exist(self._t("dvh_lbl_target_dose")):
-            dpg.set_value(self._t("dvh_lbl_target_dose"), f"[{role}] {dose_name} ({unit_str})")
 
-        # Get scaling / prescription dose if available
+        # Get virtual scaling / prescription dose if available
+        user_s = 1.0
+        sc = None
         if hasattr(self._c, "_ui") and self._c._ui and hasattr(self._c._ui, "scaling_comp"):
             sc = self._c._ui.scaling_comp.get_state(target_id)
-            if sc and sc.norm_target_value > 0:
-                self.norm_prescription_gy = float(sc.norm_target_value)
+            if sc:
+                user_s = float(sc.scaling_factor) if sc.scaling_factor != 0 else 1.0
+        elif hasattr(dose_vol, "scale_factor") and dose_vol.scale_factor:
+            user_s = float(dose_vol.scale_factor)
+        if user_s == 0.0 or np.isnan(user_s):
+            user_s = 1.0
 
-        # Global evaluation upper limit across dose volume to ensure uniform domain
+        # Reference dose in physical units (Gy) corresponding to 100% relative dose
+        if hasattr(self._c, "get_reference_dose"):
+            raw_ref = self._c.get_reference_dose(dose_vol, is_ov, target_id)
+            norm_prescription_gy = float(raw_ref * user_s)
+        elif sc and sc.norm_target_value > 0:
+            norm_prescription_gy = float(sc.norm_target_value)
+        else:
+            norm_prescription_gy = float(user_s * 50.0)
+
+        # Global evaluation upper limit across dose volume to ensure uniform domain (in Gy)
         d_min, d_max = dose_vol.get_data_range()
-        global_max_dose = max(float(d_max) * 1.05, 10.0)
+        phys_d_max = float(d_max) * user_s
+        global_max_dose = phys_d_max * 1.05 if phys_d_max > 0 else 1.0
 
         # Find reference image with ROIs (prioritize active viewer's view_state, or base)
         all_volumes = self._api.get_volumes()
         rois_dict = self._find_all_rois()
 
-        self.curves = []
+        roi_tasks = []
         for roi_id, roi_state in rois_dict.items():
             r_vol = all_volumes.get(roi_id)
             if not r_vol or r_vol.data is None:
                 continue
-
-            # Compute DVH curve
             color = getattr(roi_state, "color", [255, 0, 0])
-            curve = compute_roi_dvh(
-                dose_vol=dose_vol,
-                roi_vol=r_vol,
-                roi_name=roi_state.name,
-                color=color,
-                max_eval_dose=global_max_dose,
-            )
-            if curve:
-                curve.roi_id = roi_id
-                self.curves.append(curve)
+            roi_tasks.append((roi_id, roi_state.name, color, r_vol))
 
-        self._rebuild_structure_checklist()
-        self._render_plot_and_table(fit_axes=fit_axes)
+        if not roi_tasks:
+            self.curves = []
+            self.norm_prescription_gy = norm_prescription_gy
+            if dpg.does_item_exist(self._t("dvh_lbl_target_dose")):
+                dpg.set_value(self._t("dvh_lbl_target_dose"), f"[{role}] {dose_name} ({unit_str})")
+            if dpg.does_item_exist(self._t("dvh_btn_refresh")):
+                dpg.configure_item(self._t("dvh_btn_refresh"), enabled=True)
+            self._rebuild_structure_checklist()
+            self._render_plot_and_table(fit_axes=fit_axes)
+            return
+
+        if dpg.does_item_exist(self._t("dvh_lbl_target_dose")):
+            dpg.set_value(
+                self._t("dvh_lbl_target_dose"),
+                f"[{role}] {dose_name} ({unit_str}) - Computing...",
+            )
+        if dpg.does_item_exist(self._t("dvh_btn_refresh")):
+            dpg.configure_item(self._t("dvh_btn_refresh"), enabled=False)
+
+        def _do_work():
+            new_curves = []
+            for roi_id, roi_name, color, r_vol in roi_tasks:
+                if stop_event.is_set() or self._calc_token != current_token:
+                    return
+
+                try:
+                    curve = compute_roi_dvh(
+                        dose_vol=dose_vol,
+                        roi_vol=r_vol,
+                        roi_name=roi_name,
+                        color=color,
+                        max_eval_dose=global_max_dose,
+                        dose_scaling_factor=user_s,
+                    )
+                    if curve:
+                        curve.roi_id = roi_id
+                        new_curves.append(curve)
+                except Exception:
+                    logger.exception("Error computing DVH for ROI %s", roi_name)
+
+            if stop_event.is_set() or self._calc_token != current_token:
+                return
+
+            def _commit_on_main():
+                if self._calc_token != current_token or stop_event.is_set():
+                    return
+                if not dpg.does_item_exist(self.window_tag):
+                    return
+                self.norm_prescription_gy = norm_prescription_gy
+                self.curves = new_curves
+                if dpg.does_item_exist(self._t("dvh_lbl_target_dose")):
+                    dpg.set_value(
+                        self._t("dvh_lbl_target_dose"),
+                        f"[{role}] {dose_name} ({unit_str})",
+                    )
+                if dpg.does_item_exist(self._t("dvh_btn_refresh")):
+                    dpg.configure_item(self._t("dvh_btn_refresh"), enabled=True)
+                self._rebuild_structure_checklist()
+                self._render_plot_and_table(fit_axes=fit_axes)
+
+            if self._api:
+                self._api.run_on_main_thread(_commit_on_main)
+
+        if async_calc:
+            self._calc_thread = threading.Thread(
+                target=_do_work,
+                name=f"dvh_calc_worker_{current_token}",
+                daemon=True,
+            )
+            self._calc_thread.start()
+        else:
+            _do_work()
 
     def _find_all_rois(self) -> Dict[str, Any]:
         """Finds all segmented ROIs across all view states."""

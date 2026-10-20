@@ -50,7 +50,7 @@ class PluginAPI:
 
     @property
     def is_dirty(self):
-        if self._controller.ui_needs_refresh:
+        if self.ui_needs_refresh:
             return True
         viewer = self._gui.context_viewer
         if not viewer or not viewer.view_state:
@@ -66,7 +66,11 @@ class PluginAPI:
 
     @property
     def ui_needs_refresh(self) -> bool:
-        return self._controller.ui_needs_refresh
+        # The loop clears the controller flag at the start of the frame; plugins
+        # see that frame's value (or a request made since)
+        return getattr(self._gui, "ui_dirty_this_frame", False) or bool(
+            self._controller.ui_needs_refresh
+        )
 
     def get_ui_config(self):
         return self._gui.ui_cfg
@@ -212,6 +216,10 @@ class PluginAPI:
     def resample_image(self, image_id) -> None:
         self._controller.resample_image(image_id)
 
+    def invalidate_resample(self, image_id: str) -> None:
+        """Mark any in-flight resample/bake jobs for this image as stale."""
+        self._controller.invalidate_resample(image_id)
+
     def bake_transform_to_volume(self, image_id) -> None:
         self._controller.bake_transform_to_volume(image_id)
 
@@ -291,7 +299,29 @@ class PluginAPI:
         self._controller.roi.close_roi(image_id, roi_id)
 
     def reload_roi(self, image_id, roi_id) -> None:
-        self._controller.roi.reload_roi(image_id, roi_id)
+        # A label map or RT-Struct is reloaded as a whole (all its ROIs)
+        batch = self._controller.roi.take_file_rois_for_reload(image_id, roi_id)
+        if batch is None:
+            self._controller.roi.reload_roi(image_id, roi_id)
+            return
+        source_type, filepath, info = batch
+        if source_type == "Label Map":
+            from vvv.ui.ui_sequences import load_label_map_sequence
+
+            self._gui.tasks.append(
+                load_label_map_sequence(
+                    self._gui, self._controller, image_id, filepath,
+                    saved_preferences=info,
+                )
+            )
+        elif info:
+            from vvv.ui.ui_sequences import load_rtstruct_sequence
+
+            self._gui.tasks.append(
+                load_rtstruct_sequence(
+                    self._gui, self._controller, image_id, filepath, info
+                )
+            )
 
     def center_on_roi(self, image_id, roi_id) -> None:
         self._controller.roi.center_on_roi(image_id, roi_id)
@@ -325,6 +355,9 @@ class PluginAPI:
 
     def save_image(self, image_id, file_path) -> None:
         self._controller.save_image(image_id, file_path)
+
+    def save_image_async(self, image_id, file_path, on_done=None, on_error=None) -> None:
+        self._controller.save_image_async(image_id, file_path, on_done=on_done, on_error=on_error)
 
     def load_rtstruct(self, image_id, filepath, selected_rois, ds=None) -> None:
         from vvv.ui.ui_sequences import load_rtstruct_sequence
@@ -367,8 +400,7 @@ class PluginAPI:
     def mount_generated_image(self, new_vol, new_vs) -> str:
         """Register a newly created volume+view_state and assign it to the active viewer."""
         with self._controller._state_lock:
-            new_id = str(self._controller.next_image_id)
-            self._controller.next_image_id += 1
+            new_id = self._controller.allocate_image_id()
             self._controller.volumes[new_id] = new_vol
             self._controller.view_states[new_id] = new_vs
         viewer = self._gui.context_viewer

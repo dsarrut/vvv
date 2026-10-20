@@ -2,7 +2,7 @@ import os
 import json
 import numpy as np
 from pathlib import Path
-from vvv.utils import get_config_dir, get_history_path_key
+from vvv.utils import get_config_dir, get_history_path_key, write_json_atomic
 
 
 class HistoryManager:
@@ -23,12 +23,15 @@ class HistoryManager:
 
     def save(self):
         self.config_dir.mkdir(parents=True, exist_ok=True)
-        with open(self.history_path, "w") as f:
-            json.dump(self.data, f, indent=4)
+        write_json_atomic(self.history_path, self.data)
 
-    def save_image_state(self, controller, vs_id):
+    def save_image_state(self, controller, vs_id, save=True):
+        if vs_id not in controller.view_states or vs_id not in controller.volumes:
+            return
         vs = controller.view_states[vs_id]
         vol = controller.volumes[vs_id]
+        if not getattr(vol, "file_paths", None):
+            return
         primary_path = vol.file_paths[0]
         key = get_history_path_key(primary_path)
 
@@ -66,9 +69,12 @@ class HistoryManager:
             oldest_key = next(iter(self.data))
             del self.data[oldest_key]
 
-        self.save()
+        if save:
+            self.save()
 
     def get_image_state(self, volume):
+        if not getattr(volume, "file_paths", None):
+            return None
         primary_path = volume.file_paths[0]
         key = get_history_path_key(primary_path)
 

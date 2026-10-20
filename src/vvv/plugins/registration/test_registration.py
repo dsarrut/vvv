@@ -521,6 +521,62 @@ class TestRegistrationPlugin(unittest.TestCase):
         self.assertAlmostEqual(call_args[3], -5.0)
         self.mock_api.notify.assert_called_with("Inverted transform (Base)")
 
+    def test_controller_destroy_cancels_timer_and_stops_worker(self):
+        """Verify that destroy() cancels active auto-resample timer and halts preview worker (PA7)."""
+        controller = self.plugin._controller
+        controller.bind(self.mock_api)
+
+        mock_timer = MagicMock()
+        controller._auto_timer = mock_timer
+
+        with patch.object(controller._preview_queue, "put") as mock_put:
+            controller.destroy()
+            mock_timer.cancel.assert_called_once()
+            self.assertIsNone(controller._auto_timer)
+            mock_put.assert_called_once_with(None)
+
+    def test_update_checks_preview_slice_needed_for_overlays(self):
+        """Verify that update() checks _preview_slice_needed for overlays as well as base images (PA8)."""
+        controller = self.plugin._controller
+        controller.bind(self.mock_api)
+
+        viewer = MagicMock()
+        viewer.image_id = "base_img"
+        viewer.view_state.display.overlay.image_id = "overlay_img"
+        self.mock_api.get_viewers.return_value = {"v1": viewer}
+        self.mock_api.get_volumes.return_value = {}
+
+        with patch.object(controller, "_check_preview_slice_needed") as mock_check:
+            controller.update(self.mock_api)
+            mock_check.assert_any_call("base_img")
+            mock_check.assert_any_call("overlay_img")
+
+    def test_restore_image_state_invalidates_in_flight_resample(self):
+        """Verify that restore_image_state invalidates pending resample and cancels timer (PA9)."""
+        controller = self.plugin._controller
+        controller.bind(self.mock_api)
+
+        vs = MagicMock()
+        vs.space.is_active = True
+        vs.base_display_data = "stale_data"
+        self.mock_api.get_view_states.return_value = {"img_ws": vs}
+
+        mock_timer = MagicMock()
+        controller._auto_timer = mock_timer
+        controller._auto_timer_vs_id = "img_ws"
+
+        # Restore state with is_active=False
+        state = {"is_active": False, "transform_file": "None"}
+        self.plugin.restore_image_state("img_ws", state, context="workspace")
+
+        self.mock_api.invalidate_resample.assert_called_with("img_ws")
+        mock_timer.cancel.assert_called_once()
+        self.assertIsNone(controller._auto_timer)
+        self.assertIsNone(vs.base_display_data)
+        self.assertIsNone(vs._sitk_base_cache)
+        vs.reset_preview_rotation.assert_called_once()
+        self.mock_api.update_all_viewers_of_image.assert_called_with("img_ws")
+
 
 if __name__ == "__main__":
     unittest.main()

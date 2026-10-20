@@ -1,5 +1,8 @@
 import itertools
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def extract_orientation_strings(raw_img):
@@ -42,6 +45,16 @@ def extract_orientation_strings(raw_img):
     return display_str, tooltip_str
 
 
+def _is_signed_permutation(m, atol=1e-4):
+    """True if the direction matrix only flips and/or swaps axes (entries 0 or ±1)."""
+    p = np.round(m)
+    return (
+        np.allclose(m, p, atol=atol)
+        and np.all(np.abs(p).sum(axis=0) == 1)
+        and np.all(np.abs(p).sum(axis=1) == 1)
+    )
+
+
 def straighten_image(img, filename="image", is_label_map=False):
     """
     Intercepts oblique/rotated images and warps them into a perfectly
@@ -60,19 +73,41 @@ def straighten_image(img, filename="image", is_label_map=False):
     if np.allclose(current_dir, identity_dir, atol=1e-4):
         return img
 
-    print(
+    # Axis flips/permutations only (e.g. RAS NIfTI, sagittal acquisitions):
+    # reorder the voxels exactly instead of resampling.
+    if dim == 3 and _is_signed_permutation(current_dir.reshape(3, 3)):
+        out = sitk.DICOMOrient(img, "LPS")
+        if np.allclose(out.GetDirection(), identity_dir, atol=1e-4):
+            out.SetDirection(identity_dir.tolist())
+            return out
+
+    logger.warning(
         f"Oblique orientation detected in {filename}. Straightening to physical grid..."
     )
+    return _resample_axis_aligned(img, is_label_map)
 
+
+def _resample_axis_aligned(img, is_label_map=False):
+    """Linearly resample img onto an identity-direction grid covering all its voxel centres.
+
+    Each output (physical) axis takes the spacing of the index axis that maps
+    mostly onto it, so a pure flip/permutation would give back the original grid.
+    """
+    import SimpleITK as sitk
+
+    dim = img.GetDimension()
+    identity_dir = np.eye(dim).flatten()
+
+    # Bounding box of the voxel centres (last index is size - 1)
     size = img.GetSize()
-    corners = list(itertools.product(*[(0, s) for s in size]))
+    corners = list(itertools.product(*[(0, s - 1) for s in size]))
     phys_corners = np.array([img.TransformIndexToPhysicalPoint(c) for c in corners])
-
     min_phys = np.min(phys_corners, axis=0)
     max_phys = np.max(phys_corners, axis=0)
 
-    spacing = np.array(img.GetSpacing())
-    new_size = np.ceil((max_phys - min_phys) / spacing).astype(int)
+    m = np.array(img.GetDirection()).reshape(dim, dim)
+    spacing = np.array(img.GetSpacing())[np.argmax(np.abs(m), axis=1)]
+    new_size = np.ceil((max_phys - min_phys) / spacing - 1e-6).astype(int) + 1
 
     resampler = sitk.ResampleImageFilter()
     resampler.SetOutputDirection(identity_dir.tolist())

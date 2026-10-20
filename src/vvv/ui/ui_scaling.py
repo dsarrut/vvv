@@ -46,6 +46,7 @@ class IntensityScalingComponent:
         self._ref_label = ref_label
         self._states: Dict[str, ScalingState] = {}
         self._api: Optional[Any] = None
+        self._roi_mean_cache: Dict[Tuple, float] = {}
 
     def _t(self, tag: str) -> str:
         return f"{self._prefix}_{tag}"
@@ -311,6 +312,22 @@ class IntensityScalingComponent:
         elif hasattr(self._api, "request_render"):
             self._api.request_render()
 
+    def invalidate_roi_mean_cache(
+        self, image_id: Optional[str] = None, roi_id: Optional[str] = None
+    ) -> None:
+        """Invalidates cached ROI mean values, either for a specific ROI/image or all."""
+        if image_id is None and roi_id is None:
+            self._roi_mean_cache.clear()
+            return
+        to_del = [
+            k
+            for k in self._roi_mean_cache
+            if (roi_id is not None and k[0] == roi_id)
+            or (image_id is not None and k[1] == image_id)
+        ]
+        for k in to_del:
+            self._roi_mean_cache.pop(k, None)
+
     def compute_roi_mean(self, target_vol, is_overlay: bool, roi_id: Optional[str]) -> float:
         """Computes mean raw voxel value inside the specified ROI."""
         if not target_vol or not roi_id:
@@ -325,38 +342,73 @@ class IntensityScalingComponent:
         if not roi_vol or roi_vol.data is None:
             return 0.0
 
-        mask = roi_vol.data > 0
-        if not np.any(mask):
-            return 0.0
-
         target_data = None
+        overlay_data = None
         if is_overlay:
-            target_data = viewer.view_state.display.overlay_data
-            if target_data is None:
-                target_data = target_vol.data
+            overlay_data = viewer.view_state.display.overlay_data
+            target_data = overlay_data if overlay_data is not None else target_vol.data
         else:
             target_data = target_vol.data
 
         if target_data is None:
             return 0.0
 
+        target_id = getattr(target_vol, "image_id", None) or getattr(target_vol, "id", None)
+        if not target_id and viewer and viewer.image_id:
+            target_id = viewer.image_id
+
         num_tp = getattr(target_vol, "num_timepoints", 1)
         if isinstance(num_tp, int) and num_tp > 1:
             t = min(viewer.view_state.camera.time_idx, target_data.shape[0] - 1)
-            target_data = target_data[t]
+            target_slice = target_data[t]
         elif target_data.ndim == 4 and not getattr(target_vol, "is_rgb", False):
-            target_data = target_data[0]
+            target_slice = target_data[0]
+            t = 0
+        else:
+            target_slice = target_data
+            t = 0
 
         roi_bbox = getattr(roi_vol, "roi_bbox", None)
-        if roi_bbox is not None and isinstance(roi_bbox, (list, tuple, np.ndarray)) and len(roi_bbox) == 6:
-            z0, z1, y0, y1, x0, x1 = roi_bbox
-            if z0 != z1:
-                target_data = target_data[z0:z1, y0:y1, x0:x1]
+        bbox_key = (
+            tuple(roi_bbox)
+            if roi_bbox is not None and isinstance(roi_bbox, (list, tuple, np.ndarray)) and len(roi_bbox) == 6
+            else None
+        )
 
-        if target_data.shape == mask.shape:
-            pixels = target_data[mask]
+        cache_key = (
+            roi_id,
+            str(target_id) if target_id is not None else None,
+            id(roi_vol.data),
+            id(target_vol.data),
+            is_overlay,
+            id(overlay_data) if overlay_data is not None else None,
+            t,
+            bbox_key,
+        )
+
+        if cache_key in self._roi_mean_cache:
+            return self._roi_mean_cache[cache_key]
+
+        mask = roi_vol.data > 0
+        if not np.any(mask):
+            self._roi_mean_cache[cache_key] = 0.0
+            return 0.0
+
+        if bbox_key is not None:
+            z0, z1, y0, y1, x0, x1 = bbox_key
+            if z0 != z1:
+                target_slice = target_slice[z0:z1, y0:y1, x0:x1]
+
+        if target_slice.shape == mask.shape:
+            pixels = target_slice[mask]
             if pixels.size > 0:
-                return float(np.mean(pixels))
+                mean_val = float(np.mean(pixels))
+                if len(self._roi_mean_cache) > 256:
+                    self._roi_mean_cache.pop(next(iter(self._roi_mean_cache)))
+                self._roi_mean_cache[cache_key] = mean_val
+                return mean_val
+
+        self._roi_mean_cache[cache_key] = 0.0
         return 0.0
 
     def compute_effective_scaling_factor(
@@ -655,12 +707,24 @@ class IntensityScalingComponent:
         target_vol._cumulative_scale = float(current_cum * s_eff)
 
         # Scale array
-        target_vol.data = (target_vol.data * s_eff).astype(np.float32)
-
-        # Invalidate range cache
-        if hasattr(target_vol, "_data_range_cache"):
-            delattr(target_vol, "_data_range_cache")
+        target_vol.data = (target_vol.data * s_eff).astype(np.float32)  # drops the range cache
         target_vol._is_outdated = True
+
+        # Keep sitk_image in sync with baked data (e.g. for DVH, export/saving)
+        if getattr(target_vol, "sitk_image", None) is not None:
+            import SimpleITK as sitk
+
+            if isinstance(target_vol.sitk_image, sitk.Image):
+                is_vector = target_vol.sitk_image.GetNumberOfComponentsPerPixel() > 1
+                d_arr = target_vol.data
+                if target_vol.sitk_image.GetDimension() == 3 and d_arr.ndim == 4 and d_arr.shape[0] == 1:
+                    d_arr = d_arr[0]
+                new_sitk = sitk.GetImageFromArray(d_arr, isVector=is_vector)
+                new_sitk.CopyInformation(target_vol.sitk_image)
+                for k in target_vol.sitk_image.GetMetaDataKeys():
+                    new_sitk.SetMetaData(k, target_vol.sitk_image.GetMetaData(k))
+                target_vol.sitk_image = new_sitk
+                target_vol.data = sitk.GetArrayViewFromImage(new_sitk)
 
         # Scale Window / Level proportionally so visual appearance is preserved
         if target_vs and hasattr(target_vs, "display"):
@@ -675,6 +739,7 @@ class IntensityScalingComponent:
         state.norm_mode = None
         target_vol.scale_factor = 1.0
         target_vol.scale_unit = None
+        self.invalidate_roi_mean_cache(image_id=str(target_id))
 
         self.update_ui(self._api)
         self._refresh()
@@ -690,15 +755,30 @@ class IntensityScalingComponent:
         state.norm_mode = None
         target_vol.scale_factor = 1.0
         target_vol.scale_unit = None
+        self.invalidate_roi_mean_cache(image_id=str(target_id))
 
         # Revert baked data if array was previously baked
         cum = getattr(target_vol, "_cumulative_scale", 1.0)
         if isinstance(cum, (int, float)) and abs(cum - 1.0) > 1e-6 and target_vol.data is not None:
             target_vol.data = (target_vol.data / cum).astype(np.float32)
             target_vol._cumulative_scale = 1.0
-            if hasattr(target_vol, "_data_range_cache"):
-                delattr(target_vol, "_data_range_cache")
             target_vol._is_outdated = True
+
+            # Keep sitk_image in sync with reverted data
+            if getattr(target_vol, "sitk_image", None) is not None:
+                import SimpleITK as sitk
+
+                if isinstance(target_vol.sitk_image, sitk.Image):
+                    is_vector = target_vol.sitk_image.GetNumberOfComponentsPerPixel() > 1
+                    d_arr = target_vol.data
+                    if target_vol.sitk_image.GetDimension() == 3 and d_arr.ndim == 4 and d_arr.shape[0] == 1:
+                        d_arr = d_arr[0]
+                    new_sitk = sitk.GetImageFromArray(d_arr, isVector=is_vector)
+                    new_sitk.CopyInformation(target_vol.sitk_image)
+                    for k in target_vol.sitk_image.GetMetaDataKeys():
+                        new_sitk.SetMetaData(k, target_vol.sitk_image.GetMetaData(k))
+                    target_vol.sitk_image = new_sitk
+                    target_vol.data = sitk.GetArrayViewFromImage(new_sitk)
 
             if target_vs and hasattr(target_vs, "display"):
                 target_vs.display.ww /= cum

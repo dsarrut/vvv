@@ -140,3 +140,63 @@ def test_overlay_threshold_applied(headless_gui_app):
     # Assert thresholds are correctly retrieved from their respective ViewStates
     assert base_layer.threshold == 10.0
     assert overlay_layer.threshold == 20.0
+
+
+def test_overlay_kernel_background_compilation(headless_gui_app):
+    """Verify that compute_native_voxel_overlay compiles in background and matches NumPy fallback."""
+    import numpy as np
+    from vvv.ui.render_strategy import (
+        _ov_ready_signatures,
+        wait_for_ov_kernel,
+        compute_native_voxel_overlay,
+    )
+
+    controller, gui, viewer, base_id = headless_gui_app
+    vs2_id = list(controller.view_states.keys())[1]
+    viewer.view_state.set_overlay(vs2_id, controller.volumes[vs2_id])
+    ovs = controller.view_states[vs2_id]
+    controller._apply_overlay_resample(viewer.view_state, ovs)
+    viewer.view_state.display.overlay_mode = "Alpha"
+    viewer.view_state.display.pixelated_zoom = True
+    viewer.resize(100, 100)
+
+    # Compile, in the background, the signature of this overlay array
+    import vvv.ui.render_strategy as rs
+
+    ov_data = viewer.view_state.display.overlay_data
+    dtype, readonly = rs._ov_kernel_key(ov_data)
+    assert wait_for_ov_kernel(dtype, timeout=10.0, readonly=readonly) is True
+    assert (dtype, readonly) in _ov_ready_signatures
+    n_signatures = len(rs._native_ov_kernel_nb.signatures)
+
+    # Render with Numba: uses the precompiled signature (no compile in render)
+    controller.settings.data["rendering"] = {"numba": True}
+    res_numba = compute_native_voxel_overlay(
+        viewer, pmin=(0, 0), pmax=(100, 100), canvas_w=100, canvas_h=100
+    )
+    assert len(rs._native_ov_kernel_nb.signatures) == n_signatures
+
+    # Render with NumPy fallback
+    controller.settings.data["rendering"] = {"numba": False}
+    res_numpy = compute_native_voxel_overlay(
+        viewer, pmin=(0, 0), pmax=(100, 100), canvas_w=100, canvas_h=100
+    )
+
+    assert res_numba is not None
+    assert res_numpy is not None
+    # Outputs should match closely (within float precision)
+    np.testing.assert_allclose(res_numba, res_numpy, atol=1e-3)
+
+
+def test_overlay_kernel_key_matches_itk_views():
+    """The kernel receives np.ascontiguousarray(ov_data): an ITK view stays a
+    read-only array, so the background compile must target read-only."""
+    import numpy as np
+    import SimpleITK as sitk
+    import vvv.ui.render_strategy as rs
+
+    view = sitk.GetArrayViewFromImage(sitk.Image(4, 4, 4, sitk.sitkFloat32))
+    assert rs._ov_kernel_key(view) == (np.dtype(np.float32), True)
+    assert rs._ov_kernel_key(np.zeros((4, 4, 4), np.float32)) == (np.dtype(np.float32), False)
+    # A non-contiguous view is copied by np.ascontiguousarray: writable
+    assert rs._ov_kernel_key(view[:, :, ::2]) == (np.dtype(np.float32), False)

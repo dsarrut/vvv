@@ -1,3 +1,4 @@
+import logging
 import threading
 import numpy as np
 import dearpygui.dearpygui as dpg
@@ -5,6 +6,9 @@ from typing import Optional
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.maths.contours import ContourROI
 from vvv.utils import compute_adaptive_step_and_speed
+
+logger = logging.getLogger(__name__)
+
 
 
 class ThresholdState:
@@ -73,6 +77,7 @@ class ThresholdController(PluginTagMixin):
         self._states: dict[str, ThresholdState] = {}
         self._last_sidebar_image_id = None
         self._generation_stop: Optional[threading.Event] = None
+        self._generation_token: int = 0
 
     def bind(self, api: PluginAPI) -> None:
         self._api = api
@@ -91,23 +96,11 @@ class ThresholdController(PluginTagMixin):
         return state
 
     def _init_state_from_volume(self, state: ThresholdState, vol) -> None:
-        if vol is not None:
-            current_data_id = id(vol.data)
-            if not hasattr(vol, "_cached_min_val") or getattr(vol, "_cached_data_id", None) != current_data_id:
-                if vol.data is not None and vol.data.size > 0:
-                    min_val = np.min(vol.data)
-                    max_val = np.max(vol.data)
-                    vol._cached_min_val = float(min_val) if min_val is not None else 0.0
-                    vol._cached_max_val = float(max_val) if max_val is not None else 1.0
-                else:
-                    vol._cached_min_val = 0.0
-                    vol._cached_max_val = 1.0
-                vol._cached_data_id = current_data_id
-
-            if not state.is_initialized:
-                state.threshold_min = float(np.clip(0.0, vol._cached_min_val, vol._cached_max_val))
-                state.threshold_max = vol._cached_max_val + 1.0
-                state.is_initialized = True
+        if vol is not None and not state.is_initialized:
+            min_v, max_v = vol.get_data_range()
+            state.threshold_min = float(np.clip(0.0, min_v, max_v))
+            state.threshold_max = max_v + 1.0
+            state.is_initialized = True
 
     def update(self, api: PluginAPI) -> None:
         if self._ui:
@@ -344,8 +337,9 @@ class ThresholdController(PluginTagMixin):
 
         elif sender in (self._t("drag_ext_threshold_min"), self._t("drag_ext_threshold_max")):
             val = dpg.get_value(sender)
-            if hasattr(viewer.volume, "_cached_min_val"):
-                val = float(np.clip(val, viewer.volume._cached_min_val, viewer.volume._cached_max_val + 1.0))
+            if hasattr(viewer.volume, "get_data_range"):
+                min_v, max_v = viewer.volume.get_data_range()
+                val = float(np.clip(val, min_v, max_v + 1.0))
 
             if sender == self._t("drag_ext_threshold_min"):
                 if val > state.threshold_max:
@@ -377,8 +371,9 @@ class ThresholdController(PluginTagMixin):
         step_size, _, _ = compute_adaptive_step_and_speed(ww_val)
         new_val = current_val + (step_size * direction)
 
-        if hasattr(viewer.volume, "_cached_min_val"):
-            new_val = np.clip(new_val, viewer.volume._cached_min_val, viewer.volume._cached_max_val + 1.0)
+        if hasattr(viewer.volume, "get_data_range"):
+            min_v, max_v = viewer.volume.get_data_range()
+            new_val = float(np.clip(new_val, min_v, max_v + 1.0))
 
         if is_min:
             if new_val > state.threshold_max:
@@ -424,8 +419,34 @@ class ThresholdController(PluginTagMixin):
         state = self.get_image_state(viewer.image_id)
         vs = viewer.view_state
 
+        # Snapshot all state and volume data on the main thread so worker
+        # is fully isolated from live view_state or volume mutations.
+        vol_data = np.copy(vol.data)
+        vol_name = str(vol.name)
+        is_dvf = bool(getattr(vol, "is_dvf", False))
+        matrix_display_str = vol.matrix_display_str
+        matrix_tooltip_str = vol.matrix_tooltip_str
+        unit = getattr(vol, "unit", None)
+        unit_source = getattr(vol, "unit_source", None)
+        vol_sitk = getattr(vol, "sitk_image", None)
+        spacing = vol_sitk.GetSpacing() if (vol_sitk is not None and hasattr(vol_sitk, "GetSpacing")) else None
+        origin = vol_sitk.GetOrigin() if (vol_sitk is not None and hasattr(vol_sitk, "GetOrigin")) else None
+        direction = vol_sitk.GetDirection() if (vol_sitk is not None and hasattr(vol_sitk, "GetDirection")) else None
+        camera_dict = vs.camera.to_dict() if hasattr(vs.camera, "to_dict") else {}
+
+        threshold_min = float(state.threshold_min)
+        threshold_max = float(state.threshold_max)
+        gen_fg_mode = str(state.gen_fg_mode)
+        gen_fg_val = float(state.gen_fg_val) if isinstance(state.gen_fg_val, (int, float)) else state.gen_fg_val
+        gen_bg_mode = str(state.gen_bg_mode)
+        gen_bg_val = float(state.gen_bg_val) if isinstance(state.gen_bg_val, (int, float)) else state.gen_bg_val
+
+        if self._generation_stop is not None:
+            self._generation_stop.set()
         stop_event = threading.Event()
         self._generation_stop = stop_event
+        self._generation_token += 1
+        current_token = self._generation_token
 
         api.set_async_status("Generating thresholded image...")
         api.request_refresh()
@@ -439,90 +460,107 @@ class ThresholdController(PluginTagMixin):
                 return
 
             try:
-                # 1. Generate Masks
-                new_data = np.zeros_like(vol.data)
+                # 1. Generate Masks from snapshotted data
+                new_data = np.zeros_like(vol_data)
 
                 # Frame-by-frame processing to prevent massive RAM spikes on 4D volumes
-                if vol.data.ndim == 4:
-                    for t in range(vol.data.shape[0]):
-                        mask_fg = (vol.data[t] >= state.threshold_min) & (vol.data[t] <= state.threshold_max)
+                if vol_data.ndim == 4:
+                    for t in range(vol_data.shape[0]):
+                        if stop_event.is_set():
+                            return
+                        mask_fg = (vol_data[t] >= threshold_min) & (vol_data[t] <= threshold_max)
                         mask_bg = ~mask_fg
 
-                        if state.gen_fg_mode == "Constant":
-                            new_data[t, mask_fg] = state.gen_fg_val
+                        if gen_fg_mode == "Constant":
+                            new_data[t, mask_fg] = gen_fg_val
                         else:
-                            new_data[t, mask_fg] = vol.data[t, mask_fg]
+                            new_data[t, mask_fg] = vol_data[t, mask_fg]
 
-                        if state.gen_bg_mode == "Constant":
-                            new_data[t, mask_bg] = state.gen_bg_val
+                        if gen_bg_mode == "Constant":
+                            new_data[t, mask_bg] = gen_bg_val
                         else:
-                            new_data[t, mask_bg] = vol.data[t, mask_bg]
+                            new_data[t, mask_bg] = vol_data[t, mask_bg]
                 else:
-                    mask_fg = (vol.data >= state.threshold_min) & (vol.data <= state.threshold_max)
+                    mask_fg = (vol_data >= threshold_min) & (vol_data <= threshold_max)
                     mask_bg = ~mask_fg
 
-                    if state.gen_fg_mode == "Constant":
-                        new_data[mask_fg] = state.gen_fg_val
+                    if gen_fg_mode == "Constant":
+                        new_data[mask_fg] = gen_fg_val
                     else:
-                        new_data[mask_fg] = vol.data[mask_fg]
+                        new_data[mask_fg] = vol_data[mask_fg]
 
-                    if state.gen_bg_mode == "Constant":
-                        new_data[mask_bg] = state.gen_bg_val
+                    if gen_bg_mode == "Constant":
+                        new_data[mask_bg] = gen_bg_val
                     else:
-                        new_data[mask_bg] = vol.data[mask_bg]
+                        new_data[mask_bg] = vol_data[mask_bg]
+
+                if stop_event.is_set():
+                    return
 
                 # 2. Build the ITK Image
-                if getattr(vol, "is_dvf", False):
+                if is_dvf:
                     data_to_build = np.moveaxis(new_data, 0, -1)
                     new_img = sitk.GetImageFromArray(data_to_build, isVector=True)
-                elif vol.data.ndim == 4:
+                elif vol_data.ndim == 4:
                     vols = [sitk.GetImageFromArray(new_data[t]) for t in range(new_data.shape[0])]
                     new_img = sitk.JoinSeries(vols)
                 else:
                     new_img = sitk.GetImageFromArray(new_data)
-                new_img.SetSpacing(vol.sitk_image.GetSpacing())
-                new_img.SetOrigin(vol.sitk_image.GetOrigin())
-                new_img.SetDirection(vol.sitk_image.GetDirection())
+
+                if spacing is not None:
+                    new_img.SetSpacing(spacing)
+                if origin is not None:
+                    new_img.SetOrigin(origin)
+                if direction is not None:
+                    new_img.SetDirection(direction)
 
                 if stop_event.is_set():
                     return
 
                 def _mount_on_main():
-                    if stop_event.is_set():
+                    if stop_event.is_set() or self._generation_token != current_token:
                         return
                     try:
                         # 3. Bypass Disk I/O to Create VolumeData
                         new_vol = VolumeData.__new__(VolumeData)
-                        new_vol.path = vol.path
-                        new_vol.file_paths = list(vol.file_paths)
-                        new_vol.name = f"Thr: {vol.name}"
+                        new_vol.path = None
+                        new_vol.file_paths = []
+                        new_vol._load_kwargs = {}
+                        new_vol.name = f"Thr: {vol_name}"
                         new_vol.sitk_image = new_img
                         new_vol.data = new_data
-                        new_vol.matrix_display_str = vol.matrix_display_str
-                        new_vol.matrix_tooltip_str = vol.matrix_tooltip_str
+                        new_vol.matrix_display_str = matrix_display_str
+                        new_vol.matrix_tooltip_str = matrix_tooltip_str
                         new_vol.read_image_metadata()
+                        if unit:
+                            new_vol.unit = unit
+                            new_vol.unit_source = unit_source
                         new_vol.last_mtime = 0
                         new_vol._last_check_time = 0
                         new_vol._is_outdated = False
 
                         # 4. Build ViewState and Mount it!
                         new_vs = ViewState(new_vol)
-                        new_vs.camera.from_dict(vs.camera.to_dict())
+                        if camera_dict and hasattr(new_vs.camera, "from_dict"):
+                            new_vs.camera.from_dict(camera_dict)
 
                         api.mount_generated_image(new_vol, new_vs)
                         api.set_async_status("Threshold image generated successfully")
                         api.request_refresh()
                     except Exception as inner_e:
-                        api.set_async_status(f"Failed to mount generated image: {inner_e}")
+                        logger.exception("Failed to mount thresholded image")
+                        err_msg = str(inner_e)
+                        api.set_async_status(f"Failed to mount generated image: {err_msg}")
                         api.request_refresh()
 
                 api.run_on_main_thread(_mount_on_main)
 
             except Exception as e:
+                logger.exception("Failed to generate thresholded image")
+                err_msg = str(e)
                 def _handle_error():
-                    api.set_async_status(f"Failed to generate image: {e}")
+                    api.set_async_status(f"Failed to generate image: {err_msg}")
                     api.request_refresh()
                 api.run_on_main_thread(_handle_error)
-                raise e
 
         threading.Thread(target=_extract, daemon=True).start()

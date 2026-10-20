@@ -5,6 +5,7 @@ import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.ui.file_dialog import open_file_dialog
 from vvv.ui.ui_notifications import show_message
+from vvv.utils import clean_string
 
 
 class DicomPluginUI(PluginTagMixin):
@@ -27,11 +28,14 @@ class DicomPluginUI(PluginTagMixin):
         self.last_split_width = 450
 
         # Asynchronous State
+        self.is_scanning = False
         self.scan_progress = 0.0
         self.scan_status_text = ""
         self.scan_finished = False
         self.scan_errors: list[str] = []
         self._stop_event = threading.Event()
+        self._scan_stop_event: Optional[threading.Event] = None
+        self._scan_token: int = 0
 
     def create_ui(self, parent, api) -> None:
         self.api = api
@@ -60,8 +64,8 @@ class DicomPluginUI(PluginTagMixin):
             self.scan_finished = False
             return
 
-        # Update progress and status text while scanning
-        if dpg.does_item_exist(self._t("scan_progress")):
+        # Update progress and status text only while scanning
+        if self.is_scanning and dpg.does_item_exist(self._t("scan_progress")):
             dpg.set_value(self._t("scan_progress"), self.scan_progress)
             dpg.set_value(self._t("scan_status"), self.scan_status_text)
 
@@ -136,6 +140,9 @@ class DicomPluginUI(PluginTagMixin):
 
     def on_window_close(self):
         self._save_ui_state()
+        if self._scan_stop_event is not None:
+            self._scan_stop_event.set()
+        self.is_scanning = False
         dpg.delete_item(self.window_tag)
 
     def show_window(self) -> None:
@@ -402,7 +409,7 @@ class DicomPluginUI(PluginTagMixin):
                     self.on_series_selected(sel_tag, None, self.active_idx)
 
         # Restore open image tabs!
-        for img_id, info in self.open_image_tabs.items():
+        for img_id, info in list(self.open_image_tabs.items()):
             self._create_image_tab(img_id, info["title"], info["tags"])
 
     def on_select_folder(self) -> None:
@@ -427,32 +434,63 @@ class DicomPluginUI(PluginTagMixin):
         dpg.configure_item(self._t("btn_scan"), enabled=False)
         dpg.delete_item(self._t("series_list"), children_only=True)
 
+        # Cancel any active scan worker before launching a new one
+        if self._scan_stop_event is not None:
+            self._scan_stop_event.set()
+        stop_event = threading.Event()
+        self._scan_stop_event = stop_event
+        self._scan_token += 1
+        current_token = self._scan_token
+
         self._stop_event.clear()
+        self.is_scanning = True
         # Run scan in background so UI doesn't freeze
         threading.Thread(
-            target=self._run_scan, args=(folder, recurse), daemon=True
+            target=self._run_scan,
+            args=(folder, recurse, stop_event, current_token),
+            daemon=True,
         ).start()
 
-    def _run_scan(self, folder, recurse):
+    def _run_scan(self, folder, recurse, stop_event=None, token=None):
         assert self.api is not None
-        self.scan_errors = []
+        if stop_event is None:
+            stop_event = self._stop_event
+        if token is None:
+            token = self._scan_token
+
+        local_series = []
+        local_errors = []
         # Consume the generator yielded from PluginAPI (which delegates to controller/file.py)
         for result in self.api.scan_dicom_folder(folder, recursive=recurse):
-            if self._stop_event.is_set():
+            if stop_event.is_set() or self._scan_token != token or self._stop_event.is_set():
+                if self._scan_token == token:
+                    self.is_scanning = False
                 return
             if len(result) == 2:
                 pct, dirname = result
-                self.scan_progress = pct
-                label = dirname if len(dirname) <= 30 else dirname[:27] + "..."
-                self.scan_status_text = f"  {label}"
+                if self._scan_token == token:
+                    self.scan_progress = pct
+                    label = dirname if len(dirname) <= 30 else dirname[:27] + "..."
+                    self.scan_status_text = f"  {label}"
             elif len(result) == 4:
-                _, _, self.scanned_series, self.scan_errors = result
+                _, _, local_series, local_errors = result
+
+        if stop_event.is_set() or self._scan_token != token or self._stop_event.is_set():
+            if self._scan_token == token:
+                self.is_scanning = False
+            return
 
         # Signal completion
+        self.scanned_series = local_series
+        self.scan_errors = local_errors
+        self.is_scanning = False
         self.scan_finished = True
 
     def destroy(self) -> None:
+        if self._scan_stop_event is not None:
+            self._scan_stop_event.set()
         self._stop_event.set()
+        self.is_scanning = False
         if dpg.does_item_exist(self.window_tag):
             dpg.delete_item(self.window_tag)
 
@@ -465,19 +503,6 @@ class DicomPluginUI(PluginTagMixin):
 
         dpg.delete_item(self._t("series_list"), children_only=True)
 
-        def clean_string(val):
-            if val is None:
-                return ""
-            try:
-                val_str = str(val).replace("\x00", "")
-                val_str = "".join(
-                    c for c in val_str if not (0xD800 <= ord(c) <= 0xDFFF)
-                )
-                return val_str.encode("utf-8", "ignore").decode("utf-8")
-            except Exception:
-                return "Unknown"
-
-        # Group series by (patient_name, study_date, frame_of_ref_uid)
         # Group series by (patient_name, study_date, frame_of_ref_uid)
         groups = {}
         for idx, s in enumerate(self.scanned_series):
@@ -604,18 +629,6 @@ class DicomPluginUI(PluginTagMixin):
         self.active_idx = user_data
         self.active_series = self.scanned_series[user_data]
         s = self.active_series
-
-        def clean_string(val):
-            if val is None:
-                return ""
-            try:
-                val_str = str(val).replace("\x00", "")
-                val_str = "".join(
-                    c for c in val_str if not (0xD800 <= ord(c) <= 0xDFFF)
-                )
-                return val_str.encode("utf-8", "ignore").decode("utf-8")
-            except Exception:
-                return "Unknown"
 
         dpg.set_value(self._t("lbl_patient"), clean_string(s["patient_name"]))
         dpg.set_value(self._t("lbl_study"), clean_string(s["study_desc"]))
@@ -792,14 +805,18 @@ class DicomPluginUI(PluginTagMixin):
         if self.api is None:
             return
 
-        def async_load():
-            vol = self.api.get_volumes().get(image_id)
-            if not vol or not vol.file_paths:
-                return
+        vol = self.api.get_volumes().get(image_id)
+        if not vol or not vol.file_paths:
+            return
 
+        # Snapshot file paths and display title on main thread
+        file_paths = list(vol.file_paths)
+        title, _ = self.api.get_image_display_name(image_id)
+
+        def async_load():
             # Find the first valid DICOM file path
             dcm_file = None
-            for p in vol.file_paths:
+            for p in file_paths:
                 if not p:
                     continue
                 if os.path.isdir(p):
@@ -863,11 +880,12 @@ class DicomPluginUI(PluginTagMixin):
                 # Not a DICOM file (or pydicom read failed)
                 return
 
-            title, _ = self.api.get_image_display_name(image_id)
-            self.open_image_tabs[image_id] = {"title": title, "tags": tags_list}
+            # Commit to open_image_tabs and build tab strictly on main thread
+            def _commit_on_main():
+                if not self.api or image_id not in self.api.get_volumes():
+                    return
+                self.open_image_tabs[image_id] = {"title": title, "tags": tags_list}
 
-            # If DICOM window is currently open, build the tab and focus it
-            def build_ui():
                 if dpg.does_item_exist(self.window_tag) and dpg.does_item_exist(
                     self._t("main_tab_bar")
                 ):
@@ -878,7 +896,7 @@ class DicomPluginUI(PluginTagMixin):
                     if dpg.does_item_exist(tab_tag):
                         dpg.set_value(self._t("main_tab_bar"), tab_tag)
 
-            self.api.run_on_main_thread(build_ui)
+            self.api.run_on_main_thread(_commit_on_main)
 
         threading.Thread(target=async_load, daemon=True).start()
 

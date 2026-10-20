@@ -19,8 +19,10 @@ class TestThresholdPlugin(unittest.TestCase):
         self.mock_viewer = MagicMock()
         self.mock_viewer.image_id = "test_img_id"
         self.mock_viewer.volume.is_rgb = False
+        self.mock_viewer.volume.is_dvf = False
         self.mock_viewer.volume.num_timepoints = 1
         self.mock_viewer.volume.data = np.array([0.0, 50.0, 100.0])
+        self.mock_viewer.volume.get_data_range.return_value = (0.0, 100.0)
         self.mock_viewer.volume._cached_min_val = 0.0
         self.mock_viewer.volume._cached_max_val = 100.0
         self.mock_viewer.view_state.display.ww = 100.0
@@ -229,6 +231,145 @@ class TestThresholdPlugin(unittest.TestCase):
         self.assertIn("test_img_id", c._states)
         c.on_image_removed("test_img_id")
         self.assertNotIn("test_img_id", c._states)
+
+    def test_threshold_generated_image_independent_path(self):
+        """Verify that generated thresholded image does NOT borrow source path / file_paths (PA4),
+        preventing history overwrite, workspace restore bugs, and improper reloads.
+        """
+        import SimpleITK as sitk
+        from vvv.core.history_manager import HistoryManager
+        from vvv.core.file_manager import FileManager
+
+        c = self.plugin._controller
+        state = self._state()
+        state.threshold_min = 20.0
+        state.threshold_max = 80.0
+
+        # Source volume setup
+        source_path = "/data/patient_ct.nii.gz"
+        arr = np.zeros((10, 10, 10), dtype=np.float32)
+        arr[3:7, 3:7, 3:7] = 50.0
+        self.mock_viewer.volume.path = source_path
+        self.mock_viewer.volume.file_paths = [source_path]
+        self.mock_viewer.volume.name = "patient_ct.nii.gz"
+        self.mock_viewer.volume.data = arr
+        self.mock_viewer.volume.sitk_image = sitk.GetImageFromArray(arr)
+        self.mock_viewer.volume.matrix_display_str = "Identity"
+        self.mock_viewer.volume.matrix_tooltip_str = "Identity"
+        self.mock_viewer.volume.unit = "HU"
+        self.mock_viewer.volume.unit_source = "Sidecar"
+
+        # Capture mounted volume
+        mounted_vols = []
+        self.mock_api.mount_generated_image.side_effect = lambda vol, vs: mounted_vols.append((vol, vs))
+        self.mock_api.run_on_main_thread.side_effect = lambda fn: fn()
+
+        # Execute extraction synchronously
+        with patch("threading.Thread", side_effect=lambda target, **kw: MagicMock(start=target)):
+            c.on_create_image_clicked(None, None, None)
+
+        self.assertEqual(len(mounted_vols), 1)
+        new_vol, new_vs = mounted_vols[0]
+
+        # 1. Path isolation: must NOT borrow source's path or file_paths!
+        self.assertIsNone(new_vol.path)
+        self.assertEqual(new_vol.file_paths, [])
+        self.assertNotEqual(new_vol.path, self.mock_viewer.volume.path)
+        self.assertEqual(new_vol.name, "Thr: patient_ct.nii.gz")
+
+        # 2. Reload safety: must fail gracefully without reading source file
+        with self.assertRaises(RuntimeError):
+            new_vol.reload()
+
+        # 3. History safety: history_manager must skip in-memory volumes with no file_paths
+        mock_controller = MagicMock()
+        mock_controller.volumes = {"thr_id": new_vol, "source_id": self.mock_viewer.volume}
+        mock_controller.view_states = {"thr_id": new_vs, "source_id": self.mock_viewer.view_state}
+        mock_controller.gui = None
+
+        with patch("pathlib.Path.mkdir"), patch("vvv.core.history_manager.write_json_atomic"):
+            hist = HistoryManager()
+            hist.data = {}
+            # Saving state of thresholded image must not write into history
+            hist.save_image_state(mock_controller, "thr_id", save=False)
+            self.assertEqual(len(hist.data), 0)
+
+            # Saving source must use source path
+            hist.save_image_state(mock_controller, "source_id", save=False)
+            self.assertEqual(len(hist.data), 1)
+            self.assertIn(source_path, hist.data)
+
+        # 4. Workspace safety: FileManager save_workspace must not save source path for thresholded image
+        mock_controller.viewers = {}
+        fm = FileManager(mock_controller)
+        saved_ws = {}
+        with patch("vvv.core.file_manager.write_json_atomic", side_effect=lambda path, data: saved_ws.update(data)):
+            fm.save_workspace("/tmp/test.vvw")
+
+        self.assertIn("thr_id", saved_ws["images"])
+        self.assertEqual(saved_ws["images"]["thr_id"]["path"], "")
+        self.assertIn("source_id", saved_ws["images"])
+        self.assertEqual(saved_ws["images"]["source_id"]["path"], source_path)
+
+    def test_create_image_worker_snapshots_inputs_and_cancels_previous(self):
+        """PB7: worker uses snapshot of data and state; launching again cancels prior worker."""
+        import SimpleITK as sitk
+
+        c = self.plugin._controller
+        state = self._state()
+        state.threshold_min = 20.0
+        state.threshold_max = 80.0
+        state.gen_fg_mode = "Constant"
+        state.gen_fg_val = 1.0
+        state.gen_bg_mode = "Constant"
+        state.gen_bg_val = 0.0
+
+        arr = np.zeros((5, 5, 5), dtype=np.float32)
+        arr[2, 2, 2] = 50.0  # inside threshold
+        self.mock_viewer.volume.data = arr
+        self.mock_viewer.volume.sitk_image = sitk.GetImageFromArray(arr)
+        self.mock_viewer.volume.name = "snap_test.nii"
+
+        # Track first stop event
+        c.on_create_image_clicked(None, None, None)
+        first_stop = c._generation_stop
+        self.assertIsNotNone(first_stop)
+        self.assertFalse(first_stop.is_set())
+
+        # Second launch must cancel first
+        c.on_create_image_clicked(None, None, None)
+        self.assertTrue(first_stop.is_set())
+        second_stop = c._generation_stop
+        self.assertIsNotNone(second_stop)
+        self.assertFalse(second_stop.is_set())
+
+    def test_create_image_worker_error_handling(self):
+        """PB7: worker logs exception and updates async status without crashing."""
+        import SimpleITK as sitk
+
+        c = self.plugin._controller
+        state = self._state()
+        arr = np.zeros((5, 5, 5), dtype=np.float32)
+        self.mock_viewer.volume.data = arr
+        self.mock_viewer.volume.sitk_image = sitk.GetImageFromArray(arr)
+
+        executed_main_callbacks = []
+        self.mock_api.run_on_main_thread.side_effect = lambda fn: executed_main_callbacks.append(fn)
+
+        # Inject error during ITK conversion
+        with patch("SimpleITK.GetImageFromArray", side_effect=RuntimeError("Simulated ITK failure")), \
+             patch("vvv.plugins.threshold.control_threshold.logger.exception") as mock_log_exc:
+            with patch("threading.Thread", side_effect=lambda target, **kw: MagicMock(start=target)):
+                c.on_create_image_clicked(None, None, None)
+
+            # Check that logger.exception was called with the failure
+            mock_log_exc.assert_called_once()
+
+            # Execute scheduled main thread error handler
+            for fn in executed_main_callbacks:
+                fn()
+
+            self.mock_api.set_async_status.assert_called_with("Failed to generate image: Simulated ITK failure")
 
 
 if __name__ == "__main__":

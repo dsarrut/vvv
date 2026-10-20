@@ -53,7 +53,6 @@ def test_chaos_monkey_survives_the_storm(headless_gui_app):
         v = random.choice(viewers)
         # Randomly throw it past the bounds of the volume
         v.slice_idx = random.randint(-50, 500)
-        v.update_crosshair_from_slice()
         controller.sync.propagate_sync(v.image_id)
 
     def action_random_spatial_sync():

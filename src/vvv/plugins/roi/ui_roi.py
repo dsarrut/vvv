@@ -1,4 +1,5 @@
 import os
+import logging
 import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.ui.ui_components import (
@@ -11,6 +12,8 @@ from vvv.ui.ui_components import (
     build_name_filter_bar,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class RoiPluginUI(PluginTagMixin):
     def __init__(self, plugin_id: str, controller):
@@ -20,8 +23,11 @@ class RoiPluginUI(PluginTagMixin):
         self.roi_selectables = {}
         self.open_stats_wins = set()
         self.stats_win_positions = {}
+        self.stats_win_colors = {}
         self.labels_save_paths: dict[str, str] = {}
         self.roi_save_settings: dict[str, dict] = {}
+        self._last_table_state_key = None
+        self._last_detail_state_key = None
 
     def create_ui(self, parent, api: PluginAPI) -> None:
         self.api = api
@@ -420,17 +426,6 @@ class RoiPluginUI(PluginTagMixin):
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
 
-            dpg.add_spacer(height=5)
-
-            # Export button
-            dpg.add_button(
-                label="Export All Stats to JSON",
-                width=-1,
-                callback=self.on_export_roi_stats_clicked,
-                tag=self._t("btn_roi_export_stats"),
-            )
-            dpg.add_spacer(height=10)
-
             # --- BOTTOM: The Detail Panel ---
             with dpg.group(tag=self._t("roi_detail_header_group"), show=False):
                 with dpg.group(horizontal=True):
@@ -462,12 +457,78 @@ class RoiPluginUI(PluginTagMixin):
         if not dpg.does_item_exist(table_id):
             return
 
+        assert self.api is not None
+        viewer = self.api.get_active_viewer()
+        volumes = self.api.get_volumes()
+        is_mip = bool(
+            viewer
+            and viewer.image_id
+            and self.api.is_mip_active(viewer.image_id, viewer.tag)
+        )
+        has_image = bool(
+            viewer and viewer.image_id and volumes.get(viewer.image_id)
+        )
+        has_rois = bool(has_image and viewer.view_state and viewer.view_state.rois)
+        vs_id = viewer.image_id if viewer else None
+        filter_text = self._c.roi_filters.get(vs_id, "") if vs_id else ""
+        invert = self._c.roi_filter_inverts.get(vs_id, False) if vs_id else False
+        sort_order = self._c.roi_sort_orders.get(vs_id, 0) if vs_id else 0
+        active_roi_id = self._c.active_roi_id
+        selected_roi_ids = tuple(sorted(self._c.selected_roi_ids))
+
+        rois = viewer.view_state.rois if (viewer and viewer.view_state) else {}
+        rois_summary = tuple(
+            (
+                r_id,
+                roi.name,
+                tuple(roi.color[:3]),
+                roi.visible,
+                roi.is_contour,
+                bool(getattr(volumes.get(r_id), "_is_outdated", False)),
+            )
+            for r_id, roi in rois.items()
+        )
+        has_overlay = (
+            bool(viewer and viewer.view_state and viewer.view_state.display.overlay.image_id)
+            if viewer
+            else False
+        )
+        roi_above_overlay = (
+            bool(getattr(viewer.view_state.display, "roi_above_overlay", False))
+            if (viewer and viewer.view_state)
+            else False
+        )
+
+        table_state_key = (
+            vs_id,
+            is_mip,
+            has_image,
+            has_rois,
+            filter_text,
+            invert,
+            sort_order,
+            active_roi_id,
+            selected_roi_ids,
+            has_overlay,
+            roi_above_overlay,
+            rois_summary,
+        )
+
+        if table_state_key == self._last_table_state_key and not getattr(
+            self._c, "_scroll_to_active", False
+        ):
+            self.refresh_all_open_stats_windows()
+            self.refresh_roi_detail_ui()
+            return
+
+        self._last_table_state_key = table_state_key
+
         current_scroll = dpg.get_y_scroll(table_id)
 
         # Explicitly delete children with custom tags to release their aliases in DPG registry
-        for viewer in self.api.get_viewers().values():
-            if viewer.view_state:
-                for roi_id in list(viewer.view_state.rois.keys()):
+        for v_item in self.api.get_viewers().values():
+            if v_item.view_state:
+                for roi_id in list(v_item.view_state.rois.keys()):
                     for tag in (
                         self._t(f"list_color_picker_{roi_id}"),
                         self._t(f"input_roi_name_{roi_id}"),
@@ -478,18 +539,6 @@ class RoiPluginUI(PluginTagMixin):
         # Delete row children inside table slot 1
         dpg.delete_item(table_id, children_only=True, slot=1)
         self.roi_selectables.clear()
-
-        assert self.api is not None
-        viewer = self.api.get_active_viewer()
-        is_mip = bool(
-            viewer
-            and viewer.image_id
-            and self.api.is_mip_active(viewer.image_id, viewer.tag)
-        )
-        has_image = bool(
-            viewer and viewer.image_id and self.api.get_volumes().get(viewer.image_id)
-        )
-        has_rois = bool(has_image and viewer.view_state and viewer.view_state.rois)
 
         load_controls = [
             "btn_roi_load_rtstruct",
@@ -513,7 +562,6 @@ class RoiPluginUI(PluginTagMixin):
             "btn_roi_reload_all",
             "btn_roi_sort",
             "btn_clear_filter",
-            "btn_roi_export_stats",
             "slider_roi_global_opacity",
             "slider_roi_global_thickness",
             "input_roi_filter",
@@ -531,11 +579,7 @@ class RoiPluginUI(PluginTagMixin):
                 dpg.configure_item(tag, enabled=enabled)
 
         if dpg.does_item_exist(self._t("btn_roi_above_overlay")) and viewer and viewer.view_state:
-            val = getattr(viewer.view_state.display, "roi_above_overlay", False)
-            if hasattr(val, "mock_calls"):
-                val = False
-            else:
-                val = bool(val)
+            val = bool(getattr(viewer.view_state.display, "roi_above_overlay", False))
             if val:
                 if dpg.does_item_exist("active_nav_button_theme"):
                     dpg.bind_item_theme(self._t("btn_roi_above_overlay"), "active_nav_button_theme")
@@ -546,7 +590,7 @@ class RoiPluginUI(PluginTagMixin):
             if (
                 viewer
                 and viewer.image_id
-                and self.api.get_volumes().get(viewer.image_id)
+                and volumes.get(viewer.image_id)
             ):
                 name_str, is_outdated = self.api.get_image_display_name(viewer.image_id)
                 dpg.set_value(self._t("text_roi_active_title"), name_str)
@@ -638,7 +682,7 @@ class RoiPluginUI(PluginTagMixin):
 
         any_outdated = False
         for roi_id in viewer.view_state.rois:
-            rvol = self.api.get_volumes().get(roi_id)
+            rvol = volumes.get(roi_id)
             if rvol and getattr(rvol, "_is_outdated", False):
                 any_outdated = True
                 break
@@ -712,7 +756,7 @@ class RoiPluginUI(PluginTagMixin):
 
                 is_active = roi_id == self._c.active_roi_id
                 is_selected = roi_id in self._c.selected_roi_ids
-                roi_vol = self.api.get_volumes().get(roi_id)
+                roi_vol = volumes.get(roi_id)
                 is_outdated = roi_vol._is_outdated if roi_vol else False
 
                 with dpg.group(horizontal=True):
@@ -870,6 +914,7 @@ class RoiPluginUI(PluginTagMixin):
         )
 
         if not has_single_selection:
+            self._last_detail_state_key = None
             if dpg.does_item_exist(header):
                 dpg.configure_item(header, show=False)
             if dpg.does_item_exist(window):
@@ -887,6 +932,21 @@ class RoiPluginUI(PluginTagMixin):
             )
             self.api.on_window_resize()
             return
+
+        roi_state = viewer.view_state.rois[self._c.active_roi_id]
+        detail_state_key = (
+            self._c.active_roi_id,
+            num_selected,
+            getattr(roi_state, "opacity", 0.5),
+            getattr(roi_state, "thickness", 1.0),
+            getattr(roi_state, "is_contour", False),
+            tuple(getattr(roi_state, "color", [255, 0, 0])[:3]),
+        )
+
+        if detail_state_key == self._last_detail_state_key:
+            self.update_roi_stats_ui()
+            return
+        self._last_detail_state_key = detail_state_key
 
         if dpg.does_item_exist(header):
             dpg.configure_item(header, show=True)
@@ -1423,29 +1483,24 @@ class RoiPluginUI(PluginTagMixin):
         file_path = save_file_dialog("Save ROI As", default_name=default_name)
         if file_path:
             self.api.notify(f"Saving {roi_vol.name}...")
-            stop = self._c._stop_event
 
-            def _save():
-                self.api.save_image(roi_id, file_path)
+            def _on_done():
+                for vs in self.api.get_view_states().values():
+                    if roi_id in vs.rois:
+                        r = vs.rois[roi_id]
+                        r.source_type = "Binary"
+                        r.source_mode = "Target FG (val)"
+                        r.source_val = 1.0
+                        r.rtstruct_info = None
+                self.api.notify(f"Saved: {os.path.basename(file_path)}")
+                self.api.request_refresh()
 
-                if stop.is_set():
-                    return
+            def _on_error(err):
+                self.api.notify(f"Error saving {roi_vol.name}: {err}", color=[255, 100, 100])
 
-                def _on_done():
-                    for vs in self.api.get_view_states().values():
-                        if roi_id in vs.rois:
-                            r = vs.rois[roi_id]
-                            r.source_type = "Binary"
-                            r.source_mode = "Target FG (val)"
-                            r.source_val = 1.0
-                            r.rtstruct_info = None
-                    self.api.notify(f"Saved: {os.path.basename(file_path)}")
-                    self.api.request_refresh()
-
-                self.api.run_on_main_thread(_on_done)
-
-            import threading
-            threading.Thread(target=_save, daemon=True).start()
+            self.api.save_image_async(
+                roi_id, file_path, on_done=_on_done, on_error=_on_error
+            )
 
     def update_save_filename_ui(self):
         viewer = self.api.get_active_viewer() if self.api else None
@@ -1727,30 +1782,37 @@ class RoiPluginUI(PluginTagMixin):
         sort_by_volume = settings.get("sort_by_volume", True)
         auto_crop = settings.get("auto_crop", True)
 
+        # Main thread: snapshot the ROIs; the worker only writes files
+        snapshot = self._c._collect_or_notify(base_id)
+        if snapshot is None:
+            return
         self.api.notify(f"Saving ROIs to {os.path.basename(dest_path)}...")
 
         def _save():
             try:
                 if mode == "single":
-                    success = self._c.save_filtered_rois_as_labels(
-                        base_id, dest_path, sort_by_volume=sort_by_volume
+                    msg = self._c.write_rois_as_labels(
+                        snapshot, dest_path, sort_by_volume=sort_by_volume
                     )
                 else:
-                    success = self._c.save_filtered_rois_as_individual_files(
-                        base_id, dest_path, auto_crop=auto_crop
+                    msg = self._c.write_rois_as_individual_files(
+                        snapshot, dest_path, auto_crop=auto_crop
                     )
-
-                if success:
-                    def _on_done():
-                        self.roi_save_settings[base_id] = settings
-                        self.labels_save_paths[base_id] = dest_path
-                        self.update_save_filename_ui()
-
-                    self.api.run_on_main_thread(_on_done)
             except Exception as e:
-                self.api.notify(
-                    f"Error saving ROIs: {e}", color=[255, 100, 100]
+                logger.exception(f"Saving ROIs to {dest_path} failed")
+                err_msg = str(e)
+                self.api.run_on_main_thread(
+                    lambda: self.api.notify(f"Error saving ROIs: {err_msg}", color=[255, 100, 100])
                 )
+                return
+
+            def _on_done():
+                self.roi_save_settings[base_id] = settings
+                self.labels_save_paths[base_id] = dest_path
+                self.update_save_filename_ui()
+                self.api.notify(msg)
+
+            self.api.run_on_main_thread(_on_done)
 
         import threading
 
@@ -3124,25 +3186,26 @@ class RoiPluginUI(PluginTagMixin):
             if dpg.does_item_exist(win_tag):
                 dpg.configure_item(win_tag, label=f"{roi.name} - {image_name}")
 
-                # Recreate and update the theme in case the ROI color was modified
-                theme_tag = self._t(f"stats_theme_{roi_id}")
-                if dpg.does_item_exist(theme_tag):
-                    dpg.delete_item(theme_tag, children_only=True)
-                else:
-                    dpg.add_theme(tag=theme_tag)
+                # Update the theme only if the ROI color was modified
+                color_key = tuple(roi.color[:3])
+                if self.stats_win_colors.get(roi_id) != color_key:
+                    self.stats_win_colors[roi_id] = color_key
+                    theme_tag = self._t(f"stats_theme_{roi_id}")
+                    if dpg.does_item_exist(theme_tag):
+                        dpg.delete_item(theme_tag, children_only=True)
+                    else:
+                        dpg.add_theme(tag=theme_tag)
 
-                r, g, b = roi.color[:3]
-                luminance = 0.299 * r + 0.587 * g + 0.114 * b
-                text_color = [0, 0, 0, 255] if luminance > 128 else [255, 255, 255, 255]
+                    r, g, b = color_key
+                    luminance = 0.299 * r + 0.587 * g + 0.114 * b
+                    text_color = [0, 0, 0, 255] if luminance > 128 else [255, 255, 255, 255]
 
-                with dpg.theme_component(dpg.mvWindowAppItem, parent=theme_tag):
-                    dpg.add_theme_color(dpg.mvThemeCol_TitleBg, roi.color + [255])
-                    dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, roi.color + [255])
-                    dpg.add_theme_color(dpg.mvThemeCol_TitleBg, list(roi.color[:3]) + [255])
-                    dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, list(roi.color[:3]) + [255])
-                    dpg.add_theme_color(dpg.mvThemeCol_Text, text_color)
+                    with dpg.theme_component(dpg.mvWindowAppItem, parent=theme_tag):
+                        dpg.add_theme_color(dpg.mvThemeCol_TitleBg, list(color_key) + [255])
+                        dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, list(color_key) + [255])
+                        dpg.add_theme_color(dpg.mvThemeCol_Text, text_color)
 
-                dpg.bind_item_theme(win_tag, theme_tag)
+                    dpg.bind_item_theme(win_tag, theme_tag)
 
             content_tag = self._t(f"stats_content_{roi_id}")
             if dpg.does_item_exist(content_tag):
@@ -3253,10 +3316,8 @@ class RoiPluginUI(PluginTagMixin):
         viewer = self.api.get_active_viewer()
         if not viewer or not viewer.view_state:
             return
-        val = getattr(viewer.view_state.display, "roi_above_overlay", False)
-        if hasattr(val, "mock_calls"):
-            val = False
-        new_val = not bool(val)
+        val = bool(getattr(viewer.view_state.display, "roi_above_overlay", False))
+        new_val = not val
         viewer.view_state.display.roi_above_overlay = new_val
         if new_val:
             if dpg.does_item_exist("active_nav_button_theme"):
@@ -3299,15 +3360,6 @@ class RoiPluginUI(PluginTagMixin):
 
     def on_sort_rois_clicked(self, sender, app_data, user_data):
         self._c.on_sort_rois()
-
-    def on_export_roi_stats_clicked(self, sender, app_data, user_data):
-        # Excluded from wiring in Step 2: remains mock popup
-        if self.api:
-            self.api.notify("ROI: Export stats clicked")
-
-    def on_mock_action(self, sender, app_data, user_data):
-        if self.api:
-            self.api.notify(f"ROI: Slider or combo callback (sender: {sender})")
 
     def on_roi_opacity_changed(self, sender, app_data, user_data):
         viewer = self.api.get_active_viewer()
@@ -3353,12 +3405,7 @@ class RoiPluginUI(PluginTagMixin):
             self.clear_roi_stats()
             return
 
-        combo_tag = self._t("combo_roi_image")
-        is_overlay = (
-            dpg.get_value(combo_tag) == "Active Overlay"
-            if dpg.does_item_exist(combo_tag)
-            else False
-        )
+        is_overlay = False
 
         stats = self.api.get_roi_stats(
             base_vs_id=viewer.image_id,

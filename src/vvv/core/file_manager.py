@@ -2,7 +2,7 @@ import os
 import json
 from vvv.maths.image import VolumeData
 from vvv.core.view_state import ViewState
-from vvv.utils import resolve_history_path_key
+from vvv.utils import clean_string, resolve_history_path_key, write_json_atomic
 
 
 class FileManager:
@@ -12,11 +12,17 @@ class FileManager:
         self.controller = controller
 
     def load_image(self, path, is_auto_overlay=False, ignore_history=False):
+        """Read and register an image (main thread). Returns its id."""
+        return self.register_image(self.read_image(path, is_auto_overlay, ignore_history))
 
-        img_id = str(self.controller.next_image_id)
-        self.controller.next_image_id += 1
+    def read_image(self, path, is_auto_overlay=False, ignore_history=False):
+        """Read an image from disk, without registering it. Safe in a worker thread.
+
+        Builds the VolumeData + ViewState (restoring its history) and also reads
+        the overlay remembered in its history, so that no disk read is left for
+        register_image(), which runs on the main thread.
+        """
         vol = VolumeData(path)
-        vol.name = vol.name
         vs = ViewState(vol)
 
         # History
@@ -49,6 +55,32 @@ class FileManager:
 
             vs.is_data_dirty = True
 
+        # Auto-load overlay
+        # Prevent infinite recursion with is_auto_overlay flag
+        overlay = None
+        if history_entry and history_entry.get("overlay_path") and not is_auto_overlay:
+            op_path = resolve_history_path_key(history_entry["overlay_path"])
+            if os.path.exists(op_path):
+                overlay = self.read_image(op_path, is_auto_overlay=True)
+
+        return {
+            "path": path,
+            "vol": vol,
+            "vs": vs,
+            "history": history_entry,
+            "is_auto_overlay": is_auto_overlay,
+            "overlay": overlay,
+        }
+
+    def register_image(self, loaded):
+        """Register an image returned by read_image() and notify plugins.
+
+        Main thread only: plugins may build UI, and settings are saved.
+        """
+        vol, vs, history_entry = loaded["vol"], loaded["vs"], loaded["history"]
+        is_auto_overlay = loaded["is_auto_overlay"]
+
+        img_id = self.controller.allocate_image_id()
         with self.controller._state_lock:
             self.controller.volumes[img_id] = vol
             self.controller.view_states[img_id] = vs
@@ -63,19 +95,13 @@ class FileManager:
                             img_id, plugin_data, context="history"
                         )
 
-        # Auto-load overlay
-        # Prevent infinite recursion with is_auto_overlay flag
-        if history_entry and history_entry.get("overlay_path") and not is_auto_overlay:
-            op_path = resolve_history_path_key(history_entry["overlay_path"])
-            if os.path.exists(op_path):
-                # Load the overlay quietly in the background
-                op_id = self.load_image(op_path, is_auto_overlay=True)
-                op_vol = self.controller.volumes[op_id]
-                # Restore the link (opacity, mode, threshold are already restored in from_dict).
-                vs.set_overlay(op_id, op_vol)
+        if loaded["overlay"] is not None:
+            op_id = self.register_image(loaded["overlay"])
+            # Restore the link (opacity, mode, threshold are already restored in from_dict).
+            vs.set_overlay(op_id, self.controller.volumes[op_id])
 
         if not is_auto_overlay:
-            self.controller.add_recent_file(path)
+            self.controller.add_recent_file(loaded["path"])
 
         self.controller.ui_needs_refresh = True
         return img_id
@@ -102,25 +128,6 @@ class FileManager:
         file_reader = sitk.ImageFileReader()
 
         # Silence the C++ GDCM Warnings
-        def clean_string(val):
-            if val is None:
-                return ""
-            try:
-                # Convert to string and strip null bytes
-                val_str = str(val).replace("\x00", "")
-                # Filter out surrogate escapes (range 0xD800 to 0xDFFF)
-                val_str = "".join(
-                    c
-                    for c in val_str
-                    if not (0xD800 <= ord(c) <= 0xDFFF)
-                )
-                # Encode as utf-8, ignoring any invalid bytes, and decode back
-                return val_str.encode("utf-8", "ignore").decode(
-                    "utf-8"
-                )
-            except Exception:
-                return "Unknown"
-
         sitk.ProcessObject.SetGlobalWarningDisplay(False)
 
         try:
@@ -178,9 +185,9 @@ class FileManager:
                                             dose_str = (
                                                 f"{float(raw_dose) / 1e6:.2f} MBq"
                                             )
-                                        except:
+                                        except Exception:
                                             dose_str = raw_dose
-                                    except:
+                                    except Exception:
                                         dose_str = ""
                                     dose_str = clean_string(dose_str)
                                     break
@@ -439,30 +446,18 @@ class FileManager:
 
         yield (1.0, "Done", found_series, scan_errors)
 
-    def save_workspace(self, filepath):
-        active_layout = (
-            str(self.controller.gui.active_layout)
-            if (
-                self.controller.gui
-                and isinstance(
-                    getattr(self.controller.gui, "active_layout", None), (str, int)
-                )
-            )
-            else "4"
-        )
-        active_viewer_tag = "V1"
-        if self.controller.gui and getattr(self.controller.gui, "context_viewer", None):
-            cv = self.controller.gui.context_viewer
-            if hasattr(cv, "tag") and isinstance(cv.tag, str):
-                active_viewer_tag = cv.tag
+    def save_workspace(self, filepath, view=None):
+        """Write the workspace file.
 
-        gui_vv = (
-            getattr(self.controller.gui, "visible_viewers", None)
-            if self.controller.gui
-            else None
-        )
-        if isinstance(gui_vv, (list, tuple)):
-            visible_viewers = [str(x) for x in gui_vv]
+        view: the GUI viewport layout, {"layout": "1"|"2"|"4", "active_viewer":
+        tag, "visible_viewers": [tags]}; any missing key gets a default.
+        """
+        view = view or {}
+        active_layout = str(view.get("layout") or "4")
+        active_viewer_tag = view.get("active_viewer") or "V1"
+        visible_viewers = view.get("visible_viewers")
+        if visible_viewers:
+            visible_viewers = [str(x) for x in visible_viewers]
         elif active_layout == "2":
             visible_viewers = ["V1", "V2"]
         elif active_layout == "1":
@@ -482,6 +477,8 @@ class FileManager:
 
         # for home as ~
         def portable_path(p):
+            if not p:
+                return ""
             if isinstance(p, list):
                 return [portable_path(x) for x in p]
             if isinstance(p, str) and p.startswith("4D:"):
@@ -539,9 +536,14 @@ class FileManager:
                 and vs.display.overlay.image_id in self.controller.volumes
             ):
                 ov_vol = self.controller.volumes[vs.display.overlay.image_id]
+                ov_path = ""
+                if getattr(ov_vol, "file_paths", None) and len(ov_vol.file_paths) > 0:
+                    ov_path = portable_path(ov_vol.file_paths[0])
+                elif getattr(ov_vol, "path", None):
+                    ov_path = portable_path(ov_vol.path)
                 overlay_info = {
                     "id": vs.display.overlay.image_id,
-                    "path": portable_path(ov_vol.file_paths[0]),
+                    "path": ov_path,
                     "mode": vs.display.overlay.mode,
                     "opacity": vs.display.overlay.opacity,
                     "colormap": self.controller.view_states[
@@ -607,12 +609,20 @@ class FileManager:
             # Extract Profiles Info
             profiles_list = [p.to_dict() for p in vs.profiles.values()]
 
+            if getattr(vol, "file_paths", None):
+                if len(vol.file_paths) > 1:
+                    img_path = portable_path(vol.file_paths)
+                elif len(vol.file_paths) == 1:
+                    img_path = portable_path(vol.file_paths[0])
+                else:
+                    img_path = ""
+            elif getattr(vol, "path", None):
+                img_path = portable_path(vol.path)
+            else:
+                img_path = ""
+
             image_entry = {
-                "path": (
-                    portable_path(vol.file_paths)
-                    if len(vol.file_paths) > 1
-                    else portable_path(vol.file_paths[0])
-                ),
+                "path": img_path,
                 "unit": getattr(vol, "unit", None),
                 "unit_source": getattr(vol, "unit_source", None),
                 "is_overlay_only": is_overlay,
@@ -639,13 +649,7 @@ class FileManager:
 
             workspace["images"][vs_id] = image_entry
 
-        with open(filepath, "w") as f:
-            json.dump(workspace, f, indent=4)
-
-        if self.controller.gui:
-            self.controller.gui.show_status_message(
-                f"Saved Workspace: {os.path.basename(filepath)}"
-            )
+        write_json_atomic(filepath, workspace)
 
     def close_image(self, vs_id):
         with self.controller._state_lock:
@@ -673,6 +677,7 @@ class FileManager:
 
                 del self.controller.view_states[vs_id]
                 del self.controller.volumes[vs_id]
+                self.controller.profiles.clear_cache(vs_id)
 
                 if self.controller.gui:
                     self.controller.gui.notify_plugins_image_removed(vs_id)
@@ -686,5 +691,4 @@ class FileManager:
 
                 self.controller.ui_needs_refresh = True
 
-                if self.controller.gui:
-                    self.controller.gui.show_status_message(f"Closed: {name}")
+                self.controller._set_status(f"Closed: {name}")

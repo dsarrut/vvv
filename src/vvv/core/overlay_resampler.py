@@ -3,9 +3,8 @@ Pure ITK resampling for base and overlay images.
 
 Both functions have no side effects: they take volumes and transforms,
 run ResampleImageFilter (which releases the GIL), and return the result.
-Thread-safety (tombstone pattern) and job-id staleness checks are the
-caller's responsibility — see Controller._apply_base_resample() and
-Controller._apply_overlay_resample().
+They run in background jobs (Controller.resample_image); the results are
+applied on the main thread by the caller.
 """
 
 from __future__ import annotations
@@ -17,6 +16,14 @@ if TYPE_CHECKING:
     from vvv.maths.image import VolumeData
 
 
+def _outside_value(vol) -> float:
+    """Value for voxels outside the resampled image: its minimum (background),
+    or 0 for a displacement field (no displacement, not a fake vector)."""
+    if getattr(vol, "is_dvf", False):
+        return 0.0
+    return float(vol.get_data_range()[0])  # cached: no full scan per resample
+
+
 def resample_overlay(
     base_vol: "VolumeData",
     overlay_vol: "VolumeData",
@@ -26,10 +33,7 @@ def resample_overlay(
     """
     Resample overlay_vol onto the physical grid of base_vol.
 
-    [ASYNC_BOUNDARY] SimpleITK ResampleImageFilter.Execute() releases the GIL.
-    The caller must keep the previous _sitk_overlay_cache alive as a local
-    variable throughout this call (tombstone pattern) so the 60fps render
-    thread never reads a freed numpy view.
+    Pure: safe in a worker thread (ResampleImageFilter.Execute releases the GIL).
 
     Returns:
         (sitk_cache, overlay_data, baked_translation)
@@ -58,7 +62,7 @@ def resample_overlay(
     resampler = sitk.ResampleImageFilter()
     resampler.SetReferenceImage(ref_img)
     resampler.SetInterpolator(sitk.sitkLinear)
-    resampler.SetDefaultPixelValue(np.min(overlay_vol.data).item())
+    resampler.SetDefaultPixelValue(_outside_value(overlay_vol))
 
     # Map from base physical space → overlay physical space via composite transform.
     composite = sitk.CompositeTransform(3)
@@ -120,9 +124,7 @@ def resample_base(vol: "VolumeData", rotation_transform) -> tuple:
     Resample vol onto its own grid after applying a rotation-only transform.
     Used when the base image has an active rotation (registration preview).
 
-    [ASYNC_BOUNDARY] ResampleImageFilter.Execute() releases the GIL.
-    The caller must clear base_display_data to None before calling so the
-    render thread sees no data rather than a stale view during Execute().
+    Pure: safe in a worker thread (ResampleImageFilter.Execute releases the GIL).
 
     Returns:
         (sitk_cache, base_display_data)
@@ -145,7 +147,7 @@ def resample_base(vol: "VolumeData", rotation_transform) -> tuple:
     resampler = sitk.ResampleImageFilter()
     resampler.SetReferenceImage(ref_img)
     resampler.SetInterpolator(sitk.sitkLinear)
-    resampler.SetDefaultPixelValue(float(np.min(vol.data)))
+    resampler.SetDefaultPixelValue(_outside_value(vol))
     resampler.SetTransform(rotation_transform.GetInverse())
 
     target_dim = vol.sitk_image.GetDimension()

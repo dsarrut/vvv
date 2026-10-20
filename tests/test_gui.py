@@ -1,7 +1,6 @@
 import os
 import pytest
 import platform
-import threading
 import numpy as np
 import SimpleITK as sitk
 from vvv.ui.gui import MainGUI
@@ -162,18 +161,6 @@ def test_gui_fusion_controls(headless_gui_app, synthetic_volume_factory, monkeyp
     controller, gui, viewer, base_id = headless_gui_app
     vs = viewer.view_state
 
-    # 1. Force threads to execute synchronously so the test doesn't finish before the resampler finishes
-    def fake_thread(target, *args, **kwargs):
-        target()
-
-        class DummyThread:
-            def start(self):
-                pass
-
-        return DummyThread()
-
-    monkeypatch.setattr(threading, "Thread", fake_thread)
-
     # 2. Load Overlay Image
     ov_path = synthetic_volume_factory("overlay.nii.gz", val=500.0)
     ov_id = controller.file.load_image(ov_path)
@@ -184,6 +171,9 @@ def test_gui_fusion_controls(headless_gui_app, synthetic_volume_factory, monkeyp
         sender=None, app_data=opt_name, user_data=None
     )
     assert vs.display.overlay.image_id == ov_id
+    # The resample runs on the image's background JobRunner, then is committed
+    # on the main thread: wait for both
+    assert controller.wait_for_jobs(timeout=10)
     assert vs.display.overlay_data is not None
 
     # 4. Simulate UI: Change Opacity
@@ -451,7 +441,6 @@ def test_zoom_to_cursor_no_drift(headless_gui_app, monkeypatch):
     gui.set_context_viewer(viewer)
 
     assert viewer.volume is not None, "fixture did not load a volume"
-    assert viewer.is_image_orientation(), "viewer is not in image orientation"
 
     # Manually prime the mapper to a valid canvas state.
     # _get_window_dims() returns (0,0) in headless tests so tick() never calls

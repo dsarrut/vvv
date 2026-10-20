@@ -20,6 +20,15 @@ class RoiPluginController(PluginTagMixin):
         self._last_roi_ids = set()
         self._scroll_to_active = False
         self._stop_event = threading.Event()
+        self._detailed_stats_cache = {}
+
+    def invalidate_stats_cache(self, roi_id: Optional[str] = None) -> None:
+        if roi_id is None:
+            self._detailed_stats_cache.clear()
+        else:
+            self._detailed_stats_cache = {
+                k: v for k, v in self._detailed_stats_cache.items() if k[1] != roi_id
+            }
 
     def bind(self, api: PluginAPI) -> None:
         self.api = api
@@ -56,6 +65,7 @@ class RoiPluginController(PluginTagMixin):
         self.roi_filters.pop(image_id, None)
         self.roi_filter_inverts.pop(image_id, None)
         self.roi_sort_orders.pop(image_id, None)
+        self.invalidate_stats_cache()
         if self.ui:
             self.ui.close_rtstruct_modal()
             self.ui.close_all_stats_windows()
@@ -243,6 +253,36 @@ class RoiPluginController(PluginTagMixin):
         base_vs = view_states.get(base_vs_id) if view_states else None
         roi_state = base_vs.rois.get(roi_id) if (base_vs and hasattr(base_vs, "rois")) else None
 
+        viewer = self.api.get_active_viewer()
+        t_base = 0
+        if viewer and viewer.view_state and base_vol.num_timepoints > 1:
+            t_base = min(viewer.view_state.camera.time_idx, base_vol.num_timepoints - 1)
+
+        overlay_id = base_vs.display.overlay.image_id if (base_vs and hasattr(base_vs, "display") and base_vs.display.overlay) else None
+        ov_data = getattr(base_vs.display, "overlay_data", None) if (base_vs and hasattr(base_vs, "display")) else None
+        ov_data_id = id(ov_data) if ov_data is not None else None
+        t_ov = 0
+        if overlay_id and overlay_id in volumes:
+            ov_vol = volumes[overlay_id]
+            if ov_vol and ov_vol.num_timepoints > 1 and viewer and viewer.view_state:
+                t_ov = min(viewer.view_state.camera.time_idx, ov_vol.num_timepoints - 1)
+
+        cache_key = (
+            base_vs_id,
+            roi_id,
+            id(base_vol.data),
+            id(roi_vol.data),
+            t_base,
+            overlay_id,
+            ov_data_id,
+            t_ov,
+            getattr(roi_state, "source_type", None),
+            getattr(roi_state, "source_mode", None),
+            getattr(roi_state, "source_val", None),
+        )
+        if cache_key in self._detailed_stats_cache:
+            return self._detailed_stats_cache[cache_key]
+
         filepath = getattr(roi_vol, "path", None)
         if not isinstance(filepath, str):
             filepath = None
@@ -255,7 +295,7 @@ class RoiPluginController(PluginTagMixin):
         filename = os.path.basename(filepath) if filepath else "Memory/Unknown"
 
         source_type = "Unknown"
-        if roi_state and type(roi_state).__name__ != "MagicMock":
+        if roi_state:
             stype = getattr(roi_state, "source_type", "Binary")
             smode = getattr(roi_state, "source_mode", "Ignore BG (val)")
             sval = getattr(roi_state, "source_val", 0.0)
@@ -274,11 +314,12 @@ class RoiPluginController(PluginTagMixin):
                     source_type = f"binary mask with FG={val_str}"
                 else:
                     source_type = f"binary mask with FG!={val_str}"
-            else:
+            elif isinstance(stype, str):
                 source_type = stype
 
 
         import numpy as np
+        import SimpleITK as sitk
 
         # 1. Voxel geometry calculations
         mask = roi_vol.data > 0
@@ -291,13 +332,10 @@ class RoiPluginController(PluginTagMixin):
         if len(indices) > 0:
             com_z, com_y, com_x = np.mean(indices, axis=0)
             com_pixel_cropped = [float(com_x), float(com_y), float(com_z)]
-            if "mock" in type(roi_vol.sitk_image).__name__.lower():
-                roi_dim = 3
+            if isinstance(getattr(roi_vol, "sitk_image", None), sitk.Image):
+                roi_dim = int(roi_vol.sitk_image.GetDimension())
             else:
-                try:
-                    roi_dim = int(roi_vol.sitk_image.GetDimension())
-                except Exception:
-                    roi_dim = 3
+                roi_dim = 3
 
             if len(com_pixel_cropped) < roi_dim:
                 com_pixel_cropped_padded = com_pixel_cropped + [0.0] * (roi_dim - len(com_pixel_cropped))
@@ -309,13 +347,10 @@ class RoiPluginController(PluginTagMixin):
             com_mm_full = list(roi_vol.sitk_image.TransformContinuousIndexToPhysicalPoint(com_pixel_cropped_padded))
             com_mm = com_mm_full[:3]
 
-            if "mock" in type(base_vol.sitk_image).__name__.lower():
-                base_dim = 3
+            if isinstance(getattr(base_vol, "sitk_image", None), sitk.Image):
+                base_dim = int(base_vol.sitk_image.GetDimension())
             else:
-                try:
-                    base_dim = int(base_vol.sitk_image.GetDimension())
-                except Exception:
-                    base_dim = 3
+                base_dim = 3
 
             if len(com_mm) < base_dim:
                 com_mm_padded = com_mm + [0.0] * (base_dim - len(com_mm))
@@ -427,7 +462,7 @@ class RoiPluginController(PluginTagMixin):
                     "peak": ov_peak,
                 }
 
-        return {
+        res = {
             "vol_cc": vol_cc,
             "voxel_count": voxel_count,
             "com_pixel": com_pixel,
@@ -447,6 +482,8 @@ class RoiPluginController(PluginTagMixin):
             "source_filepath": filepath,
             "source_type": source_type,
         }
+        self._detailed_stats_cache[cache_key] = res
+        return res
 
     def on_add_spheroid(self, base_id: str) -> None:
         import numpy as np
@@ -595,16 +632,9 @@ class RoiPluginController(PluginTagMixin):
             new_r_z_mm = getattr(roi_state, "spheroid_radius_z", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
         new_r_z_mm = max(0.5, float(new_r_z_mm))
 
-        roi_state.spheroid_radius_x = new_r_x_mm
-        roi_state.spheroid_radius_y = new_r_y_mm
-        roi_state.spheroid_radius_z = new_r_z_mm
-        roi_state.spheroid_radius_xy = new_r_x_mm
-        roi_state.spheroid_radius = new_r_x_mm
-
         # Ensure center is within image FOV
-        if getattr(roi_state, "spheroid_center", None) is None:
-            roi_state.spheroid_center = [0.0, 0.0, 0.0]
-        phys_center = np.array(roi_state.spheroid_center)
+        curr_center = getattr(roi_state, "spheroid_center", None) or [0.0, 0.0, 0.0]
+        phys_center = np.array(curr_center)
         center_vox = base_vol.physic_coord_to_voxel_coord(phys_center)
         base_sz, base_sy, base_sx = base_vol.shape3d
         cx = np.clip(center_vox[0], 0.0, float(base_sx - 1))
@@ -612,7 +642,6 @@ class RoiPluginController(PluginTagMixin):
         cz = np.clip(center_vox[2], 0.0, float(base_sz - 1))
         clipped_center_vox = np.array([cx, cy, cz])
         clipped_center_phys = base_vol.voxel_coord_to_physic_coord(clipped_center_vox)
-        roi_state.spheroid_center = clipped_center_phys.tolist()
         phys_center = clipped_center_phys
 
         # 1. Find bounding box corners in voxel space
@@ -636,6 +665,13 @@ class RoiPluginController(PluginTagMixin):
 
         if min_x >= max_x or min_y >= max_y or min_z >= max_z:
             return
+
+        roi_state.spheroid_radius_x = new_r_x_mm
+        roi_state.spheroid_radius_y = new_r_y_mm
+        roi_state.spheroid_radius_z = new_r_z_mm
+        roi_state.spheroid_radius_xy = new_r_x_mm
+        roi_state.spheroid_radius = new_r_x_mm
+        roi_state.spheroid_center = clipped_center_phys.tolist()
 
         # 2. Create binary mask in the sub-grid
         zs = np.arange(min_z, max_z)
@@ -663,21 +699,19 @@ class RoiPluginController(PluginTagMixin):
             if 0 <= sub_z < (max_z - min_z) and 0 <= sub_y < (max_y - min_y) and 0 <= sub_x < (max_x - min_x):
                 mask_data[sub_z, sub_y, sub_x] = 1
 
-        # 3. Create SimpleITK image if not mocked
+        # 3. Create SimpleITK image if base_vol has a valid sitk_image
         ref_origin = base_vol.voxel_coord_to_physic_coord(np.array([min_x, min_y, min_z]))
-        if "mock" not in type(base_vol.sitk_image).__name__.lower():
+        if isinstance(getattr(base_vol, "sitk_image", None), sitk.Image):
             mask_img = sitk.GetImageFromArray(mask_data)
             mask_img.SetSpacing(base_vol.spacing.tolist())
-            try:
-                mask_img.SetDirection(base_vol.sitk_image.GetDirection())
-            except Exception:
-                pass
+            mask_img.SetDirection(base_vol.sitk_image.GetDirection())
             mask_img.SetOrigin(ref_origin.tolist())
             roi_vol.sitk_image = mask_img
 
         roi_vol.data = mask_data
         roi_vol.origin = ref_origin
         roi_vol.roi_bbox = (min_z, max_z, min_y, max_y, min_x, max_x)
+        self.invalidate_stats_cache(roi_id=getattr(roi_state, "volume_id", None))
 
     def on_add_box(self, base_id: str) -> None:
         import numpy as np
@@ -752,19 +786,19 @@ class RoiPluginController(PluginTagMixin):
         xs = np.arange(min_x, max_x)
         grid_z, grid_y, grid_x = np.meshgrid(zs, ys, xs, indexing='ij')
 
-        center_voxel = base_vol.physic_coord_to_voxel_coord(phys_center)
+        voxels = np.column_stack([grid_x.ravel(), grid_y.ravel(), grid_z.ravel()])
+        phys_pts = base_vol.origin + (base_vol.matrix @ (voxels * base_vol.spacing).T).T
 
-        rx = grid_x - center_voxel[0]
-        ry = grid_y - center_voxel[1]
-        rz = grid_z - center_voxel[2]
-
-        dist_x = np.abs(rx * base_vol.spacing[0])
-        dist_y = np.abs(ry * base_vol.spacing[1])
-        dist_z = np.abs(rz * base_vol.spacing[2])
-
-        mask_data = ((dist_x <= half_x) & (dist_y <= half_y) & (dist_z <= half_z)).astype(np.uint8)
+        diff = phys_pts - phys_center
+        mask_flat = (
+            (np.abs(diff[:, 0]) <= half_x)
+            & (np.abs(diff[:, 1]) <= half_y)
+            & (np.abs(diff[:, 2]) <= half_z)
+        )
+        mask_data = mask_flat.reshape((max_z - min_z, max_y - min_y, max_x - min_x)).astype(np.uint8)
 
         if not np.any(mask_data):
+            center_voxel = base_vol.physic_coord_to_voxel_coord(phys_center)
             cx_idx = int(round(center_voxel[0]))
             cy_idx = int(round(center_voxel[1]))
             cz_idx = int(round(center_voxel[2]))
@@ -829,14 +863,9 @@ class RoiPluginController(PluginTagMixin):
             new_size_z = getattr(roi_state, "box_size_z", None) or getattr(roi_state, "box_size", None) or 20.0
         new_size_z = max(1.0, float(new_size_z))
 
-        roi_state.box_size_x = new_size_x
-        roi_state.box_size_y = new_size_y
-        roi_state.box_size_z = new_size_z
-
         # Ensure center is within image FOV
-        if getattr(roi_state, "box_center", None) is None:
-            roi_state.box_center = [0.0, 0.0, 0.0]
-        phys_center = np.array(roi_state.box_center)
+        curr_center = getattr(roi_state, "box_center", None) or [0.0, 0.0, 0.0]
+        phys_center = np.array(curr_center)
         center_vox = base_vol.physic_coord_to_voxel_coord(phys_center)
         base_sz, base_sy, base_sx = base_vol.shape3d
         cx = np.clip(center_vox[0], 0.0, float(base_sx - 1))
@@ -844,7 +873,6 @@ class RoiPluginController(PluginTagMixin):
         cz = np.clip(center_vox[2], 0.0, float(base_sz - 1))
         clipped_center_vox = np.array([cx, cy, cz])
         clipped_center_phys = base_vol.voxel_coord_to_physic_coord(clipped_center_vox)
-        roi_state.box_center = clipped_center_phys.tolist()
         phys_center = clipped_center_phys
 
         half_x = new_size_x / 2.0
@@ -873,25 +901,30 @@ class RoiPluginController(PluginTagMixin):
         if min_x >= max_x or min_y >= max_y or min_z >= max_z:
             return
 
+        roi_state.box_size_x = new_size_x
+        roi_state.box_size_y = new_size_y
+        roi_state.box_size_z = new_size_z
+        roi_state.box_center = clipped_center_phys.tolist()
+
         # 2. Create binary mask in the sub-grid
         zs = np.arange(min_z, max_z)
         ys = np.arange(min_y, max_y)
         xs = np.arange(min_x, max_x)
         grid_z, grid_y, grid_x = np.meshgrid(zs, ys, xs, indexing='ij')
 
-        center_voxel = base_vol.physic_coord_to_voxel_coord(phys_center)
+        voxels = np.column_stack([grid_x.ravel(), grid_y.ravel(), grid_z.ravel()])
+        phys_pts = base_vol.origin + (base_vol.matrix @ (voxels * base_vol.spacing).T).T
 
-        rx = grid_x - center_voxel[0]
-        ry = grid_y - center_voxel[1]
-        rz = grid_z - center_voxel[2]
-
-        dist_x = np.abs(rx * base_vol.spacing[0])
-        dist_y = np.abs(ry * base_vol.spacing[1])
-        dist_z = np.abs(rz * base_vol.spacing[2])
-
-        mask_data = ((dist_x <= half_x) & (dist_y <= half_y) & (dist_z <= half_z)).astype(np.uint8)
+        diff = phys_pts - phys_center
+        mask_flat = (
+            (np.abs(diff[:, 0]) <= half_x)
+            & (np.abs(diff[:, 1]) <= half_y)
+            & (np.abs(diff[:, 2]) <= half_z)
+        )
+        mask_data = mask_flat.reshape((max_z - min_z, max_y - min_y, max_x - min_x)).astype(np.uint8)
 
         if not np.any(mask_data):
+            center_voxel = base_vol.physic_coord_to_voxel_coord(phys_center)
             cx_idx = int(round(center_voxel[0]))
             cy_idx = int(round(center_voxel[1]))
             cz_idx = int(round(center_voxel[2]))
@@ -901,122 +934,105 @@ class RoiPluginController(PluginTagMixin):
             if 0 <= sub_z < (max_z - min_z) and 0 <= sub_y < (max_y - min_y) and 0 <= sub_x < (max_x - min_x):
                 mask_data[sub_z, sub_y, sub_x] = 1
 
-        # 3. Create SimpleITK image if not mocked
+        # 3. Create SimpleITK image if base_vol has a valid sitk_image
         ref_origin = base_vol.voxel_coord_to_physic_coord(np.array([min_x, min_y, min_z]))
-        if "mock" not in type(base_vol.sitk_image).__name__.lower():
+        if isinstance(getattr(base_vol, "sitk_image", None), sitk.Image):
             mask_img = sitk.GetImageFromArray(mask_data)
             mask_img.SetSpacing(base_vol.spacing.tolist())
-            try:
-                mask_img.SetDirection(base_vol.sitk_image.GetDirection())
-            except Exception:
-                pass
+            mask_img.SetDirection(base_vol.sitk_image.GetDirection())
             mask_img.SetOrigin(ref_origin.tolist())
             roi_vol.sitk_image = mask_img
 
         roi_vol.data = mask_data
         roi_vol.origin = ref_origin
         roi_vol.roi_bbox = (min_z, max_z, min_y, max_y, min_x, max_x)
+        self.invalidate_stats_cache(roi_id=getattr(roi_state, "volume_id", None))
 
-    def save_filtered_rois_as_labels(
-        self, base_id: str, filepath: str, sort_by_volume: bool = True
-    ) -> bool:
-        """
-        Combines all filtered ROIs on base_id into a single multi-label image (.nii.gz)
-        and exports a JSON sidecar mapping each label index to {name, color}.
-        If sort_by_volume is True, ROIs are sorted largest-to-smallest so smaller
-        nested structures burn on top without being completely overwritten.
-        """
-        import os
-        import json
-        import numpy as np
-        import SimpleITK as sitk
-
+    def collect_filtered_rois(self, base_id: str):
+        """Main thread: snapshot of what a batch ROI save needs, so the worker
+        never reads the live vs.rois dict or a VolumeData. None if the base
+        image is gone. The sitk images are kept to keep the arrays alive."""
         if not self.api:
-            return False
-
+            return None
         volumes = self.api.get_volumes()
-        view_states = self.api.get_view_states()
-
         base_vol = volumes.get(base_id)
-        base_vs = view_states.get(base_id)
+        base_vs = self.api.get_view_states().get(base_id)
         if not base_vol or not base_vs:
-            self.api.notify("Base image not found.")
-            return False
+            return None
 
-        # Get filtered ROIs
         filter_text = self.roi_filters.get(base_id, "").strip().lower()
         invert = self.roi_filter_inverts.get(base_id, False)
-
-        filtered_rois = []
+        rois = []
         for roi_id, roi_state in base_vs.rois.items():
             if filter_text:
                 match = filter_text in roi_state.name.lower()
                 if (not match) if not invert else match:
                     continue
-            filtered_rois.append((roi_id, roi_state))
-
-        if not filtered_rois:
-            self.api.notify("No filtered ROIs to save.")
-            return False
-
-        # Calculate volumes for sorting if requested
-        if sort_by_volume and len(filtered_rois) > 1:
-            def _roi_volume(item):
-                rid, _ = item
-                r_vol = volumes.get(rid)
-                if not r_vol or r_vol.data is None:
-                    return 0
-                r_data = r_vol.data[0] if r_vol.data.ndim == 4 else r_vol.data
-                return int(np.count_nonzero(r_data))
-
-            # Largest first (descending), so large bodies burn first and smaller organs burn on top
-            filtered_rois.sort(key=_roi_volume, reverse=True)
-
-        mz, my, mx = base_vol.shape3d
-        labels_arr = np.zeros((mz, my, mx), dtype=np.int32)
-        label_json = {}
-
-        for idx, (roi_id, roi_state) in enumerate(filtered_rois, start=1):
             r_vol = volumes.get(roi_id)
             if not r_vol or r_vol.data is None:
                 continue
+            rois.append(
+                {
+                    "name": roi_state.name,
+                    "color": getattr(roi_state, "color", None) or [255, 0, 0],
+                    "data": r_vol.data[0] if r_vol.data.ndim == 4 else r_vol.data,
+                    "bbox": getattr(r_vol, "roi_bbox", None),
+                    "shape3d": tuple(r_vol.shape3d),
+                    "sitk_image": getattr(r_vol, "sitk_image", None),
+                }
+            )
+        return {
+            "shape3d": tuple(base_vol.shape3d),
+            "sitk_image": getattr(base_vol, "sitk_image", None),
+            "rois": rois,
+        }
 
-            r_data = r_vol.data[0] if r_vol.data.ndim == 4 else r_vol.data
-            mask = r_data > 0
+    @staticmethod
+    def _paste_roi_mask(roi, mask, out, value):
+        """Write `value` where `mask` is set into `out` (base grid), using the ROI bbox."""
+        mz, my, mx = out.shape
+        if roi["bbox"]:
+            z0, z1, y0, y1, x0, x1 = roi["bbox"]
+            z0_c, z1_c = max(0, z0), min(mz, z1)
+            y0_c, y1_c = max(0, y0), min(my, y1)
+            x0_c, x1_c = max(0, x0), min(mx, x1)
+            if z0_c < z1_c and y0_c < y1_c and x0_c < x1_c:
+                sub_mask = mask[
+                    (z0_c - z0) : (z1_c - z0),
+                    (y0_c - y0) : (y1_c - y0),
+                    (x0_c - x0) : (x1_c - x0),
+                ]
+                out[z0_c:z1_c, y0_c:y1_c, x0_c:x1_c][sub_mask] = value
+        elif roi["shape3d"] == (mz, my, mx):
+            out[mask] = value
 
-            if hasattr(r_vol, "roi_bbox") and r_vol.roi_bbox:
-                z0, z1, y0, y1, x0, x1 = r_vol.roi_bbox
-                z0_c, z1_c = max(0, z0), min(mz, z1)
-                y0_c, y1_c = max(0, y0), min(my, y1)
-                x0_c, x1_c = max(0, x0), min(mx, x1)
+    def write_rois_as_labels(self, snapshot, filepath: str, sort_by_volume: bool = True) -> str:
+        """Worker-safe (uses only the snapshot): combine the ROIs into one
+        multi-label image (.nii.gz) + a JSON sidecar {index: {name, color}}.
+        If sort_by_volume, largest first so nested structures burn on top.
+        Returns the status message; raises on write errors."""
+        import os
+        import json
+        import numpy as np
+        import SimpleITK as sitk
 
-                if z0_c < z1_c and y0_c < y1_c and x0_c < x1_c:
-                    sub_mask = mask[
-                        (z0_c - z0) : (z1_c - z0),
-                        (y0_c - y0) : (y1_c - y0),
-                        (x0_c - x0) : (x1_c - x0),
-                    ]
-                    sub_slice = labels_arr[z0_c:z1_c, y0_c:y1_c, x0_c:x1_c]
-                    sub_slice[sub_mask] = idx
-            else:
-                rmz, rmy, rmx = r_vol.shape3d
-                if (rmz, rmy, rmx) == (mz, my, mx):
-                    labels_arr[mask] = idx
+        rois = list(snapshot["rois"])
+        if sort_by_volume and len(rois) > 1:
+            rois.sort(key=lambda r: int(np.count_nonzero(r["data"])), reverse=True)
 
-            color = getattr(roi_state, "color", None) or [255, 0, 0]
+        labels_arr = np.zeros(snapshot["shape3d"], dtype=np.int32)
+        label_json = {}
+        for idx, roi in enumerate(rois, start=1):
+            self._paste_roi_mask(roi, roi["data"] > 0, labels_arr, idx)
             try:
-                rgb = [max(0, min(255, int(c))) for c in color[:3]]
+                rgb = [max(0, min(255, int(c))) for c in roi["color"][:3]]
             except Exception:
                 rgb = [255, 0, 0]
+            label_json[str(idx)] = {"name": roi["name"], "color": rgb}
 
-            label_json[str(idx)] = {
-                "name": roi_state.name,
-                "color": rgb,
-            }
-
-        if len(filtered_rois) < 256:
+        if len(rois) < 256:
             dtype = np.uint8
-        elif len(filtered_rois) < 65536:
+        elif len(rois) < 65536:
             dtype = np.uint16
         else:
             dtype = np.int32
@@ -1026,20 +1042,11 @@ class RoiPluginController(PluginTagMixin):
             os.makedirs(dir_path, exist_ok=True)
 
         sitk_img = sitk.GetImageFromArray(labels_arr.astype(dtype))
-        if hasattr(base_vol, "sitk_image") and base_vol.sitk_image is not None:
-            try:
-                sitk_img.SetSpacing(base_vol.sitk_image.GetSpacing())
-            except Exception:
-                pass
-            try:
-                sitk_img.SetOrigin(base_vol.sitk_image.GetOrigin())
-            except Exception:
-                pass
-            try:
-                sitk_img.SetDirection(base_vol.sitk_image.GetDirection())
-            except Exception:
-                pass
-
+        base_sitk = snapshot["sitk_image"]
+        if base_sitk is not None:
+            sitk_img.SetSpacing(base_sitk.GetSpacing())
+            sitk_img.SetOrigin(base_sitk.GetOrigin())
+            sitk_img.SetDirection(base_sitk.GetDirection())
         sitk.WriteImage(sitk_img, filepath)
 
         # JSON sidecar
@@ -1047,109 +1054,79 @@ class RoiPluginController(PluginTagMixin):
             json_path = filepath[:-7] + ".json"
         else:
             json_path = os.path.splitext(filepath)[0] + ".json"
-
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(label_json, f, indent=4)
 
-        self.api.notify(f"Saved: {os.path.basename(filepath)}")
-        return True
+        return f"Saved: {os.path.basename(filepath)}"
 
-    def save_filtered_rois_as_individual_files(
-        self, base_id: str, out_dir: str, auto_crop: bool = True
-    ) -> bool:
-        """
-        Exports currently filtered ROIs on base_id as individual binary mask files
-        into out_dir (<roi_name>.nii.gz).
-        If auto_crop is False, each mask is saved matching base_vol shape/origin.
-        """
+    def write_rois_as_individual_files(self, snapshot, out_dir: str, auto_crop: bool = True) -> str:
+        """Worker-safe (uses only the snapshot): one binary mask file per ROI
+        (<roi_name>.nii.gz) in out_dir; without auto_crop each mask has the
+        base image grid. Returns the status message; raises on write errors."""
         import os
         import numpy as np
         import SimpleITK as sitk
 
-        if not self.api:
-            return False
-
-        volumes = self.api.get_volumes()
-        view_states = self.api.get_view_states()
-
-        base_vol = volumes.get(base_id)
-        base_vs = view_states.get(base_id)
-        if not base_vol or not base_vs:
-            self.api.notify("Base image not found.")
-            return False
-
-        filter_text = self.roi_filters.get(base_id, "").strip().lower()
-        invert = self.roi_filter_inverts.get(base_id, False)
-
-        filtered_rois = []
-        for roi_id, roi_state in base_vs.rois.items():
-            if filter_text:
-                match = filter_text in roi_state.name.lower()
-                if (not match) if not invert else match:
-                    continue
-            filtered_rois.append((roi_id, roi_state))
-
-        if not filtered_rois:
-            self.api.notify("No filtered ROIs to save.")
-            return False
-
         os.makedirs(out_dir, exist_ok=True)
         saved_count = 0
-
-        for roi_id, roi_state in filtered_rois:
-            r_vol = volumes.get(roi_id)
-            if not r_vol or r_vol.data is None:
-                continue
-
+        for roi in snapshot["rois"]:
             # Sanitize filename
             clean_name = "".join(
-                c for c in roi_state.name if c.isalnum() or c in (" ", "_", "-")
+                c for c in roi["name"] if c.isalnum() or c in (" ", "_", "-")
             ).strip()
             if not clean_name:
                 clean_name = f"roi_{saved_count + 1}"
             out_file = os.path.join(out_dir, f"{clean_name}.nii.gz")
 
-            r_data = r_vol.data[0] if r_vol.data.ndim == 4 else r_vol.data
-            mask_arr = (r_data > 0).astype(np.uint8)
-
-            if auto_crop:
-                # Use roi's own cropped sitk_image if available
-                if hasattr(r_vol, "sitk_image") and r_vol.sitk_image is not None:
-                    sitk_crop = sitk.GetImageFromArray(mask_arr)
-                    sitk_crop.CopyInformation(r_vol.sitk_image)
-                    sitk.WriteImage(sitk_crop, out_file)
-                    saved_count += 1
-                    continue
+            mask_arr = (roi["data"] > 0).astype(np.uint8)
+            if auto_crop and roi["sitk_image"] is not None:
+                # The ROI's own cropped grid
+                sitk_crop = sitk.GetImageFromArray(mask_arr)
+                sitk_crop.CopyInformation(roi["sitk_image"])
+                sitk.WriteImage(sitk_crop, out_file)
+                saved_count += 1
+                continue
 
             # Full uncropped volume
-            mz, my, mx = base_vol.shape3d
-            full_mask = np.zeros((mz, my, mx), dtype=np.uint8)
-
-            if hasattr(r_vol, "roi_bbox") and r_vol.roi_bbox:
-                z0, z1, y0, y1, x0, x1 = r_vol.roi_bbox
-                z0_c, z1_c = max(0, z0), min(mz, z1)
-                y0_c, y1_c = max(0, y0), min(my, y1)
-                x0_c, x1_c = max(0, x0), min(mx, x1)
-
-                if z0_c < z1_c and y0_c < y1_c and x0_c < x1_c:
-                    sub_m = mask_arr[
-                        (z0_c - z0) : (z1_c - z0),
-                        (y0_c - y0) : (y1_c - y0),
-                        (x0_c - x0) : (x1_c - x0),
-                    ]
-                    full_mask[z0_c:z1_c, y0_c:y1_c, x0_c:x1_c] = sub_m
-            else:
-                rmz, rmy, rmx = r_vol.shape3d
-                if (rmz, rmy, rmx) == (mz, my, mx):
-                    full_mask = mask_arr
-
+            full_mask = np.zeros(snapshot["shape3d"], dtype=np.uint8)
+            self._paste_roi_mask(roi, mask_arr > 0, full_mask, 1)
             sitk_full = sitk.GetImageFromArray(full_mask)
-            if hasattr(base_vol, "sitk_image") and base_vol.sitk_image is not None:
-                sitk_full.CopyInformation(base_vol.sitk_image)
-
+            if snapshot["sitk_image"] is not None:
+                sitk_full.CopyInformation(snapshot["sitk_image"])
             sitk.WriteImage(sitk_full, out_file)
             saved_count += 1
 
-        self.api.notify(f"Saved {saved_count} ROI files to {os.path.basename(out_dir)}/")
+        return f"Saved {saved_count} ROI files to {os.path.basename(out_dir)}/"
+
+    def save_filtered_rois_as_labels(
+        self, base_id: str, filepath: str, sort_by_volume: bool = True
+    ) -> bool:
+        """Main thread, synchronous: collect + write_rois_as_labels."""
+        snapshot = self._collect_or_notify(base_id)
+        if snapshot is None:
+            return False
+        self.api.notify(self.write_rois_as_labels(snapshot, filepath, sort_by_volume))
         return True
+
+    def save_filtered_rois_as_individual_files(
+        self, base_id: str, out_dir: str, auto_crop: bool = True
+    ) -> bool:
+        """Main thread, synchronous: collect + write_rois_as_individual_files."""
+        snapshot = self._collect_or_notify(base_id)
+        if snapshot is None:
+            return False
+        self.api.notify(self.write_rois_as_individual_files(snapshot, out_dir, auto_crop))
+        return True
+
+    def _collect_or_notify(self, base_id: str):
+        """collect_filtered_rois, or None after telling the user why (main thread)."""
+        snapshot = self.collect_filtered_rois(base_id)
+        if snapshot is None:
+            if self.api:
+                self.api.notify("Base image not found.")
+            return None
+        if not snapshot["rois"]:
+            self.api.notify("No filtered ROIs to save.")
+            return None
+        return snapshot
 

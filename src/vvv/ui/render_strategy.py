@@ -7,6 +7,10 @@ from enum import IntEnum
 import os as _os
 import time as _time
 import platform as _platform
+import threading as _threading
+import logging
+
+logger = logging.getLogger(__name__)
 
 GL_NEAREST_SUPPORTED = _platform.system() in ("Linux", "Windows")
 _gl_nearest_fn = None
@@ -15,6 +19,9 @@ numba = None
 _NUMBA_AVAILABLE = False
 _native_ov_kernel_nb = None
 _numba_init_done = False
+_ov_compile_lock = _threading.Lock()
+_ov_ready_signatures = set()
+_ov_pending_signatures = set()
 
 # Temporary diagnostic: set VVV_PROFILE=1 to log the native-overlay kernel's
 # actual workload (crop pixel count, overlay voxel count) every 30 calls.
@@ -197,6 +204,78 @@ def _init_numba():
         _NUMBA_AVAILABLE = False
 
 
+def _ov_kernel_key(ov_data):
+    """Signature key of the overlay array as the kernel receives it:
+    np.ascontiguousarray() returns a contiguous ITK view as is (read-only)."""
+    readonly = bool(ov_data.flags.c_contiguous and not ov_data.flags.writeable)
+    return (np.dtype(ov_data.dtype), readonly)
+
+
+def _request_ov_compile(key):
+    """Compile the native-overlay kernel for `key` = (dtype, readonly) in a
+    background thread. Compile only (dispatcher.compile, as maths/image.py
+    does): the parallel kernel never runs off the main thread."""
+    with _ov_compile_lock:
+        if key in _ov_pending_signatures or key in _ov_ready_signatures:
+            return
+        _ov_pending_signatures.add(key)
+
+    def _worker():
+        try:
+            _init_numba()
+            if not _NUMBA_AVAILABLE or _native_ov_kernel_nb is None:
+                return
+            dtype, readonly = key
+            dummy_ov = np.zeros((2, 2, 2), dtype=dtype)
+            if readonly:
+                dummy_ov.setflags(write=False)
+            f32 = np.float32
+            args = (
+                dummy_ov,
+                np.zeros((2, 2, 4), dtype=f32),  # rgba
+                np.zeros(3, dtype=f32),  # B_eff
+                np.zeros(3, dtype=f32),  # C_col
+                np.zeros(3, dtype=f32),  # C_row
+                np.zeros(2, dtype=f32),  # iy_adj
+                np.zeros(2, dtype=f32),  # ix_adj
+                np.zeros((2, 4), dtype=f32),  # lut
+                f32(0.0), f32(1.0), f32(-1e30), f32(1.0),  # wl_min, wl_scale, threshold, opacity
+                0, 0, 2, 2, 2,  # c_y0, c_x0, ov_D, ov_H, ov_W
+                False,  # precomposite
+                np.zeros((0, 0), dtype=f32),  # roi mask
+                np.zeros((0, 0, 3), dtype=f32),  # roi colors
+                np.zeros(2, dtype=f32),
+                np.zeros(2, dtype=f32),
+                np.zeros(0, dtype=f32),  # colorwash thresholds
+                np.zeros((0, 4), dtype=f32),  # colorwash colors
+            )
+            _native_ov_kernel_nb.compile(tuple(numba.typeof(x) for x in args))
+            with _ov_compile_lock:
+                _ov_ready_signatures.add(key)
+        except Exception:
+            logger.exception("native overlay kernel: background compile failed")
+        finally:
+            with _ov_compile_lock:
+                _ov_pending_signatures.discard(key)
+
+    _threading.Thread(target=_worker, daemon=True).start()
+
+
+def wait_for_ov_kernel(dtype=None, timeout: float = 10.0, readonly: bool = True) -> bool:
+    """Wait for the native overlay numba kernel to finish background compiling
+    (readonly: the overlay is an ITK view, the usual case)."""
+    _init_numba()
+    if not _NUMBA_AVAILABLE:
+        return False
+    key = (np.dtype(np.float32 if dtype is None else dtype), readonly)
+    _request_ov_compile(key)
+    t0 = _time.time()
+    while key not in _ov_ready_signatures and _time.time() - t0 < timeout:
+        _time.sleep(0.02)
+    return key in _ov_ready_signatures
+
+
+
 class NNMode(IntEnum):
     HW_GL_NEAREST = 0  # GPU GL_NEAREST filter — Linux/Windows only
     SW_DUAL_NATIVE = 1  # 2 textures; overlay at true voxel resolution via affine math
@@ -281,6 +360,7 @@ def try_set_gl_nearest(nearest: bool = True, width: int | None = None, height: i
 
             def _set(is_nearest, w_val=None, h_val=None):
                 val = _GL_NEAREST if is_nearest else _GL_LINEAR
+                found = False
                 try:
                     # Save current binding
                     prev = ctypes.c_int()
@@ -298,22 +378,26 @@ def try_set_gl_nearest(nearest: bool = True, width: int | None = None, height: i
                                 if tw.value == w_val and th.value == h_val:
                                     lib.glTexParameteri(_GL_TEXTURE_2D, _GL_TEXTURE_MIN_FILTER, val)
                                     lib.glTexParameteri(_GL_TEXTURE_2D, _GL_TEXTURE_MAG_FILTER, val)
+                                    found = True
                     else:
                         # Apply to currently bound texture
                         lib.glTexParameteri(_GL_TEXTURE_2D, _GL_TEXTURE_MIN_FILTER, val)
                         lib.glTexParameteri(_GL_TEXTURE_2D, _GL_TEXTURE_MAG_FILTER, val)
+                        found = True
 
                     # Restore binding
                     lib.glBindTexture(_GL_TEXTURE_2D, prev.value)
                 except Exception:
                     pass
+                return found
 
             _gl_nearest_fn = _set
         except Exception:
             _gl_nearest_fn = False
 
     if callable(_gl_nearest_fn):
-        _gl_nearest_fn(nearest, width, height)
+        return bool(_gl_nearest_fn(nearest, width, height))
+    return False
 
 
 def blend_slices_cpu(base_2d, ov_2d, opacity, shift_x, shift_y):
@@ -504,6 +588,29 @@ def _xfm_key(transform):
         return None
 
 
+def _nonzero_bbox(ov_vol, ov_data, time_idx, thr_val):
+    """(x0, x1, y0, y1, z0, z1) of the voxels above thr_val in this frame.
+
+    Cached on the volume per (frame, threshold): a 4D overlay has a different
+    extent per frame. VolumeData.reload() drops the cache.
+    """
+    cache = ov_vol.__dict__.setdefault("_nonzero_bbox_cache", {})
+    key = (time_idx, thr_val)
+    if key not in cache:
+        ov_D, ov_H, ov_W = ov_data.shape
+        nz_mask = ov_data > thr_val
+        if np.any(nz_mask):
+            nz_z, nz_y, nz_x = np.nonzero(nz_mask)
+            cache[key] = (
+                int(nz_x.min()), int(nz_x.max()) + 1,
+                int(nz_y.min()), int(nz_y.max()) + 1,
+                int(nz_z.min()), int(nz_z.max()) + 1,
+            )
+        else:
+            cache[key] = (0, ov_W, 0, ov_H, 0, ov_D)
+    return cache[key]
+
+
 def compute_native_voxel_overlay(
     viewer,
     pmin,
@@ -571,6 +678,7 @@ def compute_native_voxel_overlay(
         _xfm_key(base_xfm),
         _xfm_key(ov_xfm),
         thr_val,
+        time_idx,  # the culling bbox depends on the frame of a 4D overlay
         viewer.orientation,
         slice_w,
         slice_h,
@@ -603,23 +711,9 @@ def compute_native_voxel_overlay(
         try:
             A_inv = np.linalg.inv(A_total)
             if thr_val is not None:
-                if not hasattr(ov_vol, "_nonzero_bbox_cache"):
-                    ov_vol._nonzero_bbox_cache = {}
-                nz_box = ov_vol._nonzero_bbox_cache.get(thr_val)
-                if nz_box is None:
-                    nz_mask = ov_data > thr_val
-                    if np.any(nz_mask):
-                        nz_z, nz_y, nz_x = np.nonzero(nz_mask)
-                        nz_box = (
-                            int(nz_x.min()), int(nz_x.max()) + 1,
-                            int(nz_y.min()), int(nz_y.max()) + 1,
-                            int(nz_z.min()), int(nz_z.max()) + 1,
-                        )
-                    else:
-                        nz_box = (0, ov_W, 0, ov_H, 0, ov_D)
-                    ov_vol._nonzero_bbox_cache[thr_val] = nz_box
-
-                ox0, ox1, oy0, oy1, oz0, oz1 = nz_box
+                ox0, ox1, oy0, oy1, oz0, oz1 = _nonzero_bbox(
+                    ov_vol, ov_data, time_idx, thr_val
+                )
                 corners_ov = np.array(
                     [
                         [ox0, oy0, oz0],
@@ -762,6 +856,12 @@ def compute_native_voxel_overlay(
             f"_NUMBA_AVAILABLE={_NUMBA_AVAILABLE}  "
             f"settings.numba={viewer.controller.settings.data.get('rendering', {}).get('numba', True)}"
         )
+
+    if use_numba:
+        ov_key = _ov_kernel_key(ov_data)
+        if ov_key not in _ov_ready_signatures:
+            _request_ov_compile(ov_key)
+            use_numba = False
 
     if use_numba:
         wl_min = np.float32(ovs.display.wl - ovs.display.ww * 0.5)

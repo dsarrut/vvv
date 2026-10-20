@@ -35,6 +35,7 @@ class HistogramState:
         self._hist_cache: dict[int, tuple[np.ndarray, np.ndarray]] = {}
         # Threading
         self.stop_event = threading.Event()
+        self._generation: int = 0
 
 
 class IntensityController(PluginTagMixin):
@@ -43,7 +44,6 @@ class IntensityController(PluginTagMixin):
         self._api: PluginAPI = None  # type: ignore
         self._ui: Optional["IntensityUI"] = None
 
-        self._minmax_cache = {}
         self._last_sidebar_image_id = None
         self._last_popup_visible = {}
         self._last_colorscale_states = {}
@@ -181,13 +181,7 @@ class IntensityController(PluginTagMixin):
                 dpg.set_value(minmax_tag, "---")
             else:
                 vol = viewer.volume
-                current_data_id = id(vol.data)
-                if current_data_id not in self._minmax_cache:
-                    self._minmax_cache[current_data_id] = (
-                        float(np.min(vol.data)),
-                        float(np.max(vol.data)),
-                    )
-                min_v, max_v = self._minmax_cache[current_data_id]
+                min_v, max_v = vol.get_data_range()
                 dpg.set_value(minmax_tag, f"{min_v:g} to {max_v:g}")
 
         ww_val = (
@@ -312,18 +306,21 @@ class IntensityController(PluginTagMixin):
                     self._update_histogram(vol, hs, hs.bins, step, time_idx)
                     force_update_series = True
 
-                    hs.stop_event.clear()
-                    stop = hs.stop_event
+                    hs.stop_event.set()  # Cancel any previous in-flight thread
+                    stop = threading.Event()
+                    hs.stop_event = stop
+                    hs._generation += 1
+                    current_gen = hs._generation
 
-                    def _bg_compute(hs_obj, vol_obj, bins, t_idx):
+                    def _bg_compute(hs_obj, vol_obj, bins, t_idx, gen, stop_ev):
                         x, y = IntensityController._compute_histogram_data(
                             vol_obj, bins, 1, t_idx
                         )
-                        if stop.is_set():
+                        if stop_ev.is_set():
                             return
 
                         def _on_main_thread():
-                            if stop.is_set():
+                            if stop_ev.is_set() or hs_obj._generation != gen:
                                 return
                             hs_obj.data_x = x
                             hs_obj.data_y = y
@@ -341,7 +338,7 @@ class IntensityController(PluginTagMixin):
                     hs.computing_full_hist = True
                     threading.Thread(
                         target=_bg_compute,
-                        args=(hs, vol, hs.bins, time_idx),
+                        args=(hs, vol, hs.bins, time_idx, current_gen, stop),
                         daemon=True,
                     ).start()
 
@@ -480,10 +477,6 @@ class IntensityController(PluginTagMixin):
         theme = self._t("wl_hist_series_theme")
         if dpg.does_item_exist(theme):
             dpg.bind_item_theme(series_tag, theme)
-
-    def sync_wl_lines(self, viewer, vs):
-        if viewer and viewer.image_id:
-            self.sync_wl_lines_for_image(viewer.image_id)
 
     def sync_wl_lines_for_image(self, img_id: str):
         vs = self._api.get_view_states().get(img_id)
@@ -1014,9 +1007,6 @@ class IntensityController(PluginTagMixin):
             hs.computing_full_hist = False
             hs._vol_data_id = None
         self._last_colorscale_states.pop(image_id, None)
-        vol = self._api.get_volumes().get(image_id) if self._api else None
-        if vol is not None and vol.data is not None:
-            self._minmax_cache.pop(id(vol.data), None)
 
     def on_image_removed(self, image_id: str) -> None:
         hs = self._hist.pop(image_id, None)
@@ -1029,9 +1019,6 @@ class IntensityController(PluginTagMixin):
         self._last_popup_visible.pop(image_id, None)
         if self._last_sidebar_image_id == image_id:
             self._last_sidebar_image_id = None
-        vol = self._api.get_volumes().get(image_id)
-        if vol is not None:
-            self._minmax_cache.pop(id(vol.data), None)
 
     def serialize_image_state(self, image_id: str, context: str = "history") -> dict:
         hs = self._hist.get(image_id)

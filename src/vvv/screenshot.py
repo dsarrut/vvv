@@ -9,6 +9,9 @@ from PIL import Image
 from vvv.core.controller import Controller
 from vvv.ui.viewer import SliceViewer, ViewMode
 from vvv.ui.gui import MainGUI
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # Orientation mapping: user-facing names → internal ViewMode
@@ -31,7 +34,7 @@ def _resolve_orientation(name: str) -> ViewMode:
     return mode
 
 
-from vvv.utils import copy_image_to_clipboard, capture_whole_window
+from vvv.ui.ui_capture import copy_image_to_clipboard, capture_whole_window
 
 
 def vvv_screenshot(vvw_path: str, sc_json_path: str):
@@ -142,6 +145,10 @@ def vvv_screenshot(vvw_path: str, sc_json_path: str):
             except Exception:
                 pass
 
+    # Background resamples (overlays, rotations) and their main-thread commits
+    if not controller.wait_for_jobs(timeout=120):
+        logger.warning("background jobs still running, screenshots may be incomplete")
+
     # Stabilization frames
     for _ in range(20):
         if dpg.is_viewport_ok():
@@ -193,8 +200,8 @@ def _process_entry(controller, entry):
     # Resolve image_id
     target_vs_id = image_id
     if target_vs_id and target_vs_id not in controller.view_states:
-        print(
-            f"Warning: image_id='{image_id}' not found in workspace "
+        logger.warning(
+            f"image_id='{image_id}' not found in workspace "
             f"(loaded image ids: {list(controller.view_states.keys())}); "
             f"falling back to the first loaded image for '{output_path}'."
         )
@@ -203,7 +210,7 @@ def _process_entry(controller, entry):
         target_vs_id = list(controller.view_states.keys())[0]
 
     if target_vs_id not in controller.view_states:
-        print(f"Warning: No view state for image_id='{image_id}', skipping '{output_path}'.")
+        logger.warning(f"No view state for image_id='{image_id}', skipping '{output_path}'.")
         return
 
     # 1. Find or repurpose a viewer for the target image_id and orientation
@@ -246,12 +253,12 @@ def _capture_and_save(viewer, output_path, fov_mm):
     """Capture a viewer's rendered texture and save to a single PNG file."""
 
     if viewer.last_rgba_flat is None:
-        print(f"Warning: No render data for '{output_path}', skipping.")
+        logger.warning(f"No render data for '{output_path}', skipping.")
         return
 
     tex_h, tex_w = viewer.last_rgba_shape[0], viewer.last_rgba_shape[1]
     if len(viewer.last_rgba_flat) != tex_w * tex_h * 4:
-        print(f"Warning: Texture mismatch for '{output_path}', skipping.")
+        logger.warning(f"Texture mismatch for '{output_path}', skipping.")
         return
 
     # Base texture (includes base + ROIs; for non-Alpha modes also includes overlay)

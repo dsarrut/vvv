@@ -246,6 +246,9 @@ def main():
         print(f"{'Mode':<24} | {'Slicing':>9} | {'Pan Move':>9} | {'Zoom In':>9} | {'Zoom Out':>9} | {'W/L (W)':>9} | {'W/L (X)':>9}")
         print(sep)
 
+        from vvv.ui.render_strategy import wait_for_ov_kernel
+        wait_for_ov_kernel(ov_vol.data.dtype)
+
         for mode_name, nn_mode in modes:
             row_no_roi = bench_mode(nn_mode, False, actions, viewers, vs_base, n_iters, n_warmup)
             print(fmt_row(f"{mode_name} (no ROI)", row_no_roi))

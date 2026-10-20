@@ -38,9 +38,27 @@ from vvv.ui.render_strategy import (
 from typing import Any
 import logging
 
+logger = logging.getLogger(__name__)
+
 # Temporary diagnostic: set VVV_PROFILE=1 to log a per-stage timing breakdown
 # (extract / NN-compute / GPU upload) every 30 render calls. Zero overhead when unset.
 _PROFILE_NN = os.environ.get("VVV_PROFILE") == "1"
+# Raw textures: set_value only stores a reference to the buffer (no copy);
+# DPG uploads it at every frame. Contiguous float32 buffer required.
+
+
+def _add_slice_texture(tag: str, width: int, height: int) -> None:
+    """Create a viewer texture (RGBA float32 raw texture)."""
+    dpg.add_raw_texture(
+        width=width,
+        height=height,
+        default_value=np.zeros(width * height * 4, dtype=np.float32),  # type: ignore
+        format=dpg.mvFormat_Float_rgba,
+        tag=tag,
+        parent="global_texture_registry",
+    )
+
+
 _profile_stats = {
     "extract": 0.0,
     "base": 0.0,
@@ -112,7 +130,7 @@ def _validate_and_reshape(
         ):
             actual_shape = fallback_slice_shape
         else:
-            logging.warning(
+            logger.warning(
                 f"Shape mismatch in {context_name}: flat size is {flat_len}, "
                 f"but expected {expected_len} (shape {expected_shape}). Skipping."
             )
@@ -122,31 +140,21 @@ def _validate_and_reshape(
     return reshaped_2d, actual_shape
 
 
-def _safe_get_plugin(controller, plugin_id):
-    """
-    Safely retrieves a plugin by ID, handling mock/test environments
-    where Controller or get_plugin might be MagicMocks.
-    """
+def _safe_get_plugin(controller, plugin_id: str):
+    """Retrieve a plugin by ID from controller or its GUI."""
     if not controller:
         return None
     get_plugin_func = getattr(controller, "get_plugin", None)
-    if get_plugin_func is not None and "Mock" not in type(get_plugin_func).__name__:
+    if callable(get_plugin_func):
         try:
             res = get_plugin_func(plugin_id)
-            if res is not None and "Mock" not in type(res).__name__:
+            if res is not None and getattr(res, "plugin_id", None) == plugin_id:
                 return res
         except Exception:
             pass
 
-    # Fallback/mock environment path
     gui = getattr(controller, "gui", None)
-    if gui and "Mock" not in type(gui).__name__:
-        plugins = getattr(gui, "plugins", None)
-        if plugins and "Mock" not in type(plugins).__name__:
-            for p in plugins:
-                if getattr(p, "plugin_id", None) == plugin_id:
-                    return p
-    elif gui:
+    if gui:
         plugins = getattr(gui, "plugins", None)
         if isinstance(plugins, list):
             for p in plugins:
@@ -408,22 +416,10 @@ class SliceViewer:
                 pass
 
         if not dpg.does_item_exist(self.texture_tag):
-            dpg.add_dynamic_texture(
-                width=1,
-                height=1,
-                default_value=np.zeros(4, dtype=np.float32),  # type: ignore
-                tag=self.texture_tag,
-                parent="global_texture_registry",
-            )
+            _add_slice_texture(self.texture_tag, 1, 1)
 
         if not dpg.does_item_exist(self.overlay_texture_tag):
-            dpg.add_dynamic_texture(
-                width=1,
-                height=1,
-                default_value=np.zeros(4, dtype=np.float32),  # type: ignore
-                tag=self.overlay_texture_tag,
-                parent="global_texture_registry",
-            )
+            _add_slice_texture(self.overlay_texture_tag, 1, 1)
 
     @property
     def has_fusion(self) -> bool:
@@ -439,6 +435,8 @@ class SliceViewer:
     @property
     def lazy_lin(self) -> bool:
         cfg = self._rendering_cfg
+        if self.has_fusion and not self._is_hw_gl:
+            _rs._init_numba()  # first fusion: numba is not imported at startup
         use_numba = _rs._NUMBA_AVAILABLE and cfg.get("numba", True)
         return should_use_lazy_lin(cfg, self.has_fusion, self._is_hw_gl, use_numba)
 
@@ -670,6 +668,38 @@ class SliceViewer:
         if is_new_image and self.controller:
             self.controller.ui_needs_refresh = True
 
+    def restore_view(
+        self,
+        image_id: str | int,
+        orientation: ViewMode | str | None = None,
+        zoom: float | None = None,
+        pan_offset: list | tuple | None = None,
+        needs_recenter: bool = False,
+    ) -> None:
+        """Mount an image and restore saved view parameters (orientation, zoom, pan)
+        without triggering the default autonomous camera re-centering.
+        """
+        self.set_image(image_id)
+        if orientation is not None:
+            if isinstance(orientation, str):
+                self.orientation = ViewMode[orientation]
+            else:
+                self.orientation = orientation
+            vs = self.view_state
+            if vs:
+                vs.camera.last_orientation = self.orientation
+            self.set_current_slice_to_crosshair()
+
+        self.needs_recenter = bool(needs_recenter)
+
+        if zoom is not None:
+            self.zoom = float(zoom)
+        if pan_offset is not None:
+            self.pan_offset = list(pan_offset)
+
+        self.is_geometry_dirty = True
+        self.is_viewer_data_dirty = True
+
     def set_current_slice_to_crosshair(self):
         display_voxel = self._get_crosshair_display_voxel()
         if display_voxel is None:
@@ -682,9 +712,8 @@ class SliceViewer:
         if self.orientation == orientation:
             return
 
-        is_old_image = self.is_image_orientation()
-        old_ppm = self.get_pixels_per_mm() if is_old_image else None
-        old_center = self.get_center_physical_coord() if is_old_image else None
+        old_ppm = self.get_pixels_per_mm()
+        old_center = self.get_center_physical_coord()
 
         self.orientation = orientation
 
@@ -698,13 +727,12 @@ class SliceViewer:
             # It also handles sync propagation.
             self.set_image(self.image_id)
 
-        if self.is_image_orientation():
-            if old_ppm and old_ppm > 0:
-                self.set_pixels_per_mm(old_ppm)
-            if old_center is not None:
-                self.center_on_physical_coord(old_center)
-            self.set_current_slice_to_crosshair()
-            self.controller.sync.propagate_camera(self)
+        if old_ppm and old_ppm > 0:
+            self.set_pixels_per_mm(old_ppm)
+        if old_center is not None:
+            self.center_on_physical_coord(old_center)
+        self.set_current_slice_to_crosshair()
+        self.controller.sync.propagate_camera(self)
 
     def ensure_texture_exists(self):
         return self.texture_manager.ensure_texture_exists()
@@ -750,9 +778,6 @@ class SliceViewer:
 
         if self.controller:
             self.controller.ui_needs_refresh = True
-
-    def is_image_orientation(self):
-        return True
 
     def get_slice_shape(self):
         if not self.view_state or not self.volume:
@@ -918,7 +943,6 @@ class SliceViewer:
         vol = self.volume
         if (
             self.image_id is None
-            or not self.is_image_orientation()
             or not vol
             or not vs
         ):
@@ -1018,7 +1042,7 @@ class SliceViewer:
         # --- Slice Slider Overlay ---
         self.slider_overlay.tick()
 
-        if not vs or getattr(vs, "is_loading", False):
+        if not vs:
             self.last_drawn_image_id = None
             return False
 
@@ -1127,7 +1151,7 @@ class SliceViewer:
 
         # --- 5. DATA UPLOAD ---
         # texture_changed means a brand-new (empty) texture was just created → must fill it.
-        needs_reblend = vs.is_data_dirty or self.is_viewer_data_dirty or texture_changed
+        needs_reblend = self.is_viewer_data_dirty or texture_changed
 
         needs_nn_remap = False
         if self.is_geometry_dirty and pixelated and not self.should_use_voxels_strips():
@@ -1318,7 +1342,6 @@ class SliceViewer:
         vol = self.volume
         if (
             not vs
-            or not self.is_image_orientation()
             or not vol
             or getattr(vol, "is_rgb", False)
         ):
@@ -1350,9 +1373,6 @@ class SliceViewer:
 
         vs.update_crosshair_from_phys(phys)
 
-    def update_crosshair_from_slice(self):
-        pass
-
     def update_filename_overlay(self):
         vol = self.volume
         if not self.image_id or not self.view_state or not vol:
@@ -1364,7 +1384,7 @@ class SliceViewer:
         if isinstance(show_state, bool):
             show_state = 1 if show_state else 0
 
-        if show_state == 0 or not self.is_image_orientation():
+        if show_state == 0:
             dpg.configure_item(self.filename_text_tag, show=False)
             return
 
@@ -1728,7 +1748,7 @@ class SliceViewer:
     def update_overlays_and_decorations(self):
         vs = self.view_state
         vol = self.volume
-        if not self.is_image_orientation() or not vs or not vol:
+        if not vs or not vol:
             return
 
         if getattr(self, "last_rgba_shape", None) is not None:
@@ -1804,7 +1824,9 @@ class SliceViewer:
             dose_plugin._controller.update_isocontours(self)
 
         if not self.drawer._is_mip_active():
-            self.controller.roi.update_roi_contours(self)
+            self.controller.roi.update_roi_contours(
+                self.view_state, self.orientation, self.slice_idx
+            )
 
         self.drawer.draw_contours()
         self.drawer.draw_profiles()
@@ -1822,7 +1844,6 @@ class SliceViewer:
             or not vs
             or not vol
             or not vs.camera.show_tracker
-            or not self.is_image_orientation()
         ):
             if dpg.does_item_exist(self.tracker_tag):
                 dpg.delete_item(self.tracker_tag, children_only=True)
@@ -2338,7 +2359,7 @@ class SliceViewer:
                     angle += 360.0
                 elif angle > 180.0:
                     angle -= 360.0
-                mip_state.rotation_angles[proj_axis] = round(angle, 2)
+                mip_state.rotation_angles[proj_axis] = round(angle, 1)
                 if mip_plugin:
                     mip_plugin._controller.propagate_rotation(
                         self.image_id, mip_state.rotation_angles
@@ -2430,7 +2451,6 @@ class SliceViewer:
         vol = self.volume
         if (
             self.image_id is None
-            or not self.is_image_orientation()
             or not vs
             or not vol
         ):
@@ -2457,7 +2477,7 @@ class SliceViewer:
                 angle += 360.0
             while angle > 180.0:
                 angle -= 360.0
-            mip_state.rotation_angles[proj_axis] = round(angle, 2)
+            mip_state.rotation_angles[proj_axis] = round(angle, 1)
             if mip_plugin:
                 mip_plugin._controller.propagate_rotation(
                     self.image_id, mip_state.rotation_angles
@@ -2507,7 +2527,7 @@ class SliceViewer:
 
     def on_mouse_down(self):
         vs = self.view_state
-        if self.image_id is None or not self.is_image_orientation() or not vs:
+        if self.image_id is None or not vs:
             return
 
         # 1. Capture the absolute starting mouse position for Pan/Zoom
@@ -2525,7 +2545,7 @@ class SliceViewer:
 
     def on_drag(self, data):
         vs = self.view_state
-        if self.image_id is None or not self.is_image_orientation() or not vs:
+        if self.image_id is None or not vs:
             return
 
         # --- 3. CALCULATE ABSOLUTE DRAG ---
@@ -2587,7 +2607,6 @@ class SliceViewer:
         vol = self.volume
         if (
             self.image_id is None
-            or not self.is_image_orientation()
             or not vs
             or not vol
         ):
@@ -2746,7 +2765,7 @@ class LayerPackager:
                 else vol.data
             )
 
-        # Tombstone failsafe: Prevent the renderer from choking on dead memory
+        # No data (e.g. a failed reload): render an empty layer rather than fail
         if display_data is None:
             display_data = np.zeros((1, 1, 1), dtype=np.float32)
 
@@ -2776,126 +2795,125 @@ class LayerPackager:
         vol = v.volume
         if not vs or not vol:
             return None
-        with vs.display._lock:
-            if vs.display.overlay_data is None:
-                return None
-            if vs.display.overlay.image_id not in v.controller.view_states:
-                return None
+        if vs.display.overlay_data is None:
+            return None
+        if vs.display.overlay.image_id not in v.controller.view_states:
+            return None
 
-            ovs = v.controller.view_states[vs.display.overlay.image_id]
+        ovs = v.controller.view_states[vs.display.overlay.image_id]
 
-            # 2D OVERLAY PHYSICAL CLAMPING
-            if min(ovs.volume.shape3d) == 1:
-                center_phys = v.get_center_physical_coord()
-                if center_phys is not None:
-                    # Map the base view back into the overlay's native index space
-                    ov_vox = ovs.space.world_to_display(center_phys, is_buffered=False)
-                    if ov_vox is not None:
-                        # Check out-of-plane distances. Continuous index > 0.5 means we scrolled past it.
-                        if ovs.volume.shape3d[2] == 1 and abs(ov_vox[0]) > 0.5:
-                            return None
-                        if ovs.volume.shape3d[1] == 1 and abs(ov_vox[1]) > 0.5:
-                            return None
-                        if ovs.volume.shape3d[0] == 1 and abs(ov_vox[2]) > 0.5:
-                            return None
+        # 2D OVERLAY PHYSICAL CLAMPING
+        if min(ovs.volume.shape3d) == 1:
+            center_phys = v.get_center_physical_coord()
+            if center_phys is not None:
+                # Map the base view back into the overlay's native index space
+                ov_vox = ovs.space.world_to_display(center_phys, is_buffered=False)
+                if ov_vox is not None:
+                    # Check out-of-plane distances. Continuous index > 0.5 means we scrolled past it.
+                    if ovs.volume.shape3d[2] == 1 and abs(ov_vox[0]) > 0.5:
+                        return None
+                    if ovs.volume.shape3d[1] == 1 and abs(ov_vox[1]) > 0.5:
+                        return None
+                    if ovs.volume.shape3d[0] == 1 and abs(ov_vox[2]) > 0.5:
+                        return None
 
-            # --- Calculate Relative Pixel Shift ---
-            dx, dy, dz = vs.compute_overlay_pixel_shift(ovs, vol.spacing, v.orientation)
-            off_x, off_y, off_slice = 0, 0, 0
+        # --- Calculate Relative Pixel Shift ---
+        dx, dy, dz = vs.compute_overlay_pixel_shift(ovs, vol.spacing, v.orientation)
+        off_x, off_y, off_slice = 0, 0, 0
 
-            v.active_overlay_shift_x = dx
-            v.active_overlay_shift_y = dy
+        v.active_overlay_shift_x = dx
+        v.active_overlay_shift_y = dy
 
-            # Delegate to GPU if Alpha or DVF, fallback to CPU Array Slicing if Registration/Checkerboard
-            if vs.display.overlay.mode in ("Alpha", "DVF"):
-                off_x, off_y = 0, 0
-            else:
-                off_x = int(round(dx))
-                off_y = int(round(dy))
-                v.active_overlay_shift_x = 0.0
-                v.active_overlay_shift_y = 0.0
+        # Delegate to GPU if Alpha or DVF, fallback to CPU Array Slicing if Registration/Checkerboard
+        if vs.display.overlay.mode in ("Alpha", "DVF"):
+            off_x, off_y = 0, 0
+        else:
+            off_x = int(round(dx))
+            off_y = int(round(dy))
+            v.active_overlay_shift_x = 0.0
+            v.active_overlay_shift_y = 0.0
 
-            off_slice = int(round(dz))
+        off_slice = int(round(dz))
 
-            # Check MIP state first — it takes priority over the rotation-preview path.
-            mip_plugin = _safe_get_plugin(v.controller, "mip_plugin")
-            mip_state = (
-                mip_plugin._controller.get_viewer_state(v.image_id, v.tag)
-                if (mip_plugin and v.image_id)
-                else None
-            )
-            mip_active = bool(mip_state and mip_state.mip_enabled)
+        # Check MIP state first — it takes priority over the rotation-preview path.
+        mip_plugin = _safe_get_plugin(v.controller, "mip_plugin")
+        mip_state = (
+            mip_plugin._controller.get_viewer_state(v.image_id, v.tag)
+            if (mip_plugin and v.image_id)
+            else None
+        )
+        mip_active = bool(mip_state and mip_state.mip_enabled)
 
-            # Live rotation preview for the overlay (skipped when MIP is active).
-            overlay_preview = None
-            if (
-                not mip_active
-                and ovs._preview_R is not None
-                and vs.display.overlay_data is not None
-            ):
-                ov_key = (v.orientation, v.slice_idx)
-                overlay_preview = v._overlay_preview_slices.get(ov_key)
-                if overlay_preview is None:
-                    # Cache miss — signal worker; suppress overlay_data
-                    ovs._preview_slice_needed = True
-                    return None  # no overlay this frame; worker will deliver the correct one
+        # Live rotation preview for the overlay (skipped when MIP is active).
+        overlay_preview = None
+        if (
+            not mip_active
+            and ovs._preview_R is not None
+            and vs.display.overlay_data is not None
+        ):
+            ov_key = (v.orientation, v.slice_idx)
+            overlay_preview = v._overlay_preview_slices.get(ov_key)
+            if overlay_preview is None:
+                # Cache miss — signal worker; suppress overlay_data
+                ovs._preview_slice_needed = True
+                return None  # no overlay this frame; worker will deliver the correct one
 
-            if (
-                mip_plugin
-                and mip_state
-                and mip_active
-                and not getattr(ovs.volume, "is_dvf", False)
-            ):
-                ov_data_raw = vs.display.overlay_data
-                if ov_data_raw is not None:
-                    ov_time_idx = min(vs.camera.time_idx, ovs.volume.num_timepoints - 1)
-                    ov_data_3d = (
-                        ov_data_raw[ov_time_idx]
-                        if ov_data_raw.ndim == 4
-                        else ov_data_raw
+        if (
+            mip_plugin
+            and mip_state
+            and mip_active
+            and not getattr(ovs.volume, "is_dvf", False)
+        ):
+            ov_data_raw = vs.display.overlay_data
+            if ov_data_raw is not None:
+                ov_time_idx = min(vs.camera.time_idx, ovs.volume.num_timepoints - 1)
+                ov_data_3d = (
+                    ov_data_raw[ov_time_idx]
+                    if ov_data_raw.ndim == 4
+                    else ov_data_raw
+                )
+                if ov_data_3d.ndim == 3:
+                    axis_map = {
+                        ViewMode.AXIAL: "Z",
+                        ViewMode.CORONAL: "Y",
+                        ViewMode.SAGITTAL: "X",
+                    }
+                    proj_axis = axis_map.get(v.orientation, "Y")
+                    current_angle = mip_state.rotation_angles.get(proj_axis, 0.0)
+
+                    overlay_preview = mip_plugin._controller.get_mip_projection(
+                        viewer=v,
+                        data_3d=ov_data_raw,
+                        time_idx=ov_time_idx,
+                        orientation=v.orientation,
+                        depth_cueing=0.0,
+                        current_angle=current_angle,
+                        proj_axis=proj_axis,
+                        mip_state=mip_state,
+                        image_id=vs.display.overlay.image_id,
                     )
-                    if ov_data_3d.ndim == 3:
-                        axis_map = {
-                            ViewMode.AXIAL: "Z",
-                            ViewMode.CORONAL: "Y",
-                            ViewMode.SAGITTAL: "X",
-                        }
-                        proj_axis = axis_map.get(v.orientation, "Y")
-                        current_angle = mip_state.rotation_angles.get(proj_axis, 0.0)
 
-                        overlay_preview = mip_plugin._controller.get_mip_projection(
-                            viewer=v,
-                            data_3d=ov_data_raw,
-                            time_idx=ov_time_idx,
-                            orientation=v.orientation,
-                            depth_cueing=0.0,
-                            current_angle=current_angle,
-                            proj_axis=proj_axis,
-                            mip_state=mip_state,
-                            image_id=vs.display.overlay.image_id,
-                        )
+        colorwash = None
+        dose_plugin = _safe_get_plugin(v.controller, "dose_plugin")
+        if dose_plugin and hasattr(dose_plugin, "_controller"):
+            colorwash = dose_plugin._controller.get_colorwash_bands(vs.display.overlay.image_id, is_overlay=True)
 
-            colorwash = None
-            dose_plugin = _safe_get_plugin(v.controller, "dose_plugin")
-            if dose_plugin and hasattr(dose_plugin, "_controller"):
-                colorwash = dose_plugin._controller.get_colorwash_bands(vs.display.overlay.image_id, is_overlay=True)
-
-            return RenderLayer(
-                data=vs.display.overlay_data,
-                is_rgb=getattr(ovs.volume, "is_rgb", False),
-                num_components=ovs.volume.num_components,
-                ww=ovs.display.ww,
-                wl=ovs.display.wl,
-                cmap_name=ovs.display.colormap,
-                threshold=ovs.display.min_threshold,
-                time_idx=min(vs.camera.time_idx, ovs.volume.num_timepoints - 1),
-                spacing_2d=vol.get_physical_aspect_ratio(v.orientation),
-                offset_x=off_x,
-                offset_y=off_y,
-                offset_slice=off_slice,
-                preview_override=overlay_preview,
-                colorwash=colorwash,
-            )
+        return RenderLayer(
+            data=vs.display.overlay_data,
+            is_rgb=getattr(ovs.volume, "is_rgb", False),
+            num_components=ovs.volume.num_components,
+            ww=ovs.display.ww,
+            wl=ovs.display.wl,
+            cmap_name=ovs.display.colormap,
+            threshold=ovs.display.min_threshold,
+            time_idx=min(vs.camera.time_idx, ovs.volume.num_timepoints - 1),
+            spacing_2d=vol.get_physical_aspect_ratio(v.orientation),
+            offset_x=off_x,
+            offset_y=off_y,
+            offset_slice=off_slice,
+            preview_override=overlay_preview,
+            colorwash=colorwash,
+        )
 
     def package_roi_layers(self):
         v = self.viewer
@@ -3034,7 +3052,7 @@ class TextureManager:
         v = self.viewer
         vs = v.view_state
         vol = v.volume
-        if not v.is_image_orientation() or not vol:
+        if not vol:
             return False
 
         display_slice_shape = v.get_slice_shape()
@@ -3088,26 +3106,10 @@ class TextureManager:
             v._textures_to_delete.add(v.overlay_texture_tag)
 
         if not dpg.does_item_exist(new_texture_tag):
-            dpg.add_dynamic_texture(
-                width=base_w,
-                height=base_h,
-                default_value=np.zeros(base_w * base_h * 4, dtype=np.float32),  # type: ignore
-                tag=new_texture_tag,
-                parent="global_texture_registry",
-            )
-            if is_hw_gl:
-                try_set_gl_nearest(nn_active, base_w, base_h)
+            _add_slice_texture(new_texture_tag, base_w, base_h)
 
         if not dpg.does_item_exist(new_ov_texture_tag):
-            dpg.add_dynamic_texture(
-                width=ov_w,
-                height=ov_h,
-                default_value=np.zeros(ov_w * ov_h * 4, dtype=np.float32),  # type: ignore
-                tag=new_ov_texture_tag,
-                parent="global_texture_registry",
-            )
-            if is_hw_gl:
-                try_set_gl_nearest(nn_active, ov_w, ov_h)
+            _add_slice_texture(new_ov_texture_tag, ov_w, ov_h)
 
         # Update viewer state
         v.texture_tag = new_texture_tag
@@ -3150,17 +3152,23 @@ class TextureManager:
         if actual != expected:
             v.is_viewer_data_dirty = True
             return False
+        # A raw texture keeps a reference to this buffer and uploads it
+        # at each frame: it must be float32 and contiguous.
+        data = np.ascontiguousarray(data, dtype=np.float32)
         if _PROFILE_NN:
             t0 = time.perf_counter()
             dpg.set_value(tag, data)  # type: ignore
             _profile_stats["gpu_upload"] += time.perf_counter() - t0
         else:
             dpg.set_value(tag, data)  # type: ignore
-        if GL_NEAREST_SUPPORTED:
-            nearest = v._effective_pixelated_zoom() and v._is_hw_gl
-            if nearest or getattr(v, "_last_nearest_applied", False):
-                try_set_gl_nearest(nearest, tex_w, tex_h)
-                v._last_nearest_applied = nearest
+        if GL_NEAREST_SUPPORTED and v._is_hw_gl:
+            nearest = v._effective_pixelated_zoom()
+            applied = getattr(v, "_tag_nearest_applied", None)
+            if applied is None:
+                applied = v._tag_nearest_applied = {}
+            if applied.get(tag) != nearest:
+                if try_set_gl_nearest(nearest, tex_w, tex_h):
+                    applied[tag] = nearest
         return True
 
     def upload_base_texture(self):
@@ -3663,7 +3671,7 @@ class SliderOverlay:
                     margin_right = 10
                     margin_y = 10
                     margin_bottom = 10
-                    if vs and vs.camera.show_scalebar and v.is_image_orientation():
+                    if vs and vs.camera.show_scalebar:
                         margin_bottom = 50  # Prevent overlap with scalebar
 
                     x_pos = win_w - slider_w - margin_right

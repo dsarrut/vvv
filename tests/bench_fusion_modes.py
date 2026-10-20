@@ -234,6 +234,9 @@ def main():
         print(f"{'Mode':<28} | {'Slicing':>9} | {'Pan Move':>9} | {'Zoom In':>9} | {'Zoom Out':>9} | {'W/L (W)':>9} | {'W/L (X)':>9}")
         print(sep)
 
+        from vvv.ui.render_strategy import wait_for_ov_kernel
+        wait_for_ov_kernel(ov_data.dtype)
+
         full_results = []
         for mode_name, pix_zoom, nn_mode in sw_modes:
             row = bench_mode(pix_zoom, nn_mode, actions_full, viewers, vs_base, n_iters, lazy_lin=False, n_warmup=n_warmup)

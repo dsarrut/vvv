@@ -1,6 +1,7 @@
 from enum import Enum, auto
 import numpy as np
 import os
+import sys
 from pathlib import Path
 
 
@@ -144,20 +145,44 @@ def resolve_history_path_key(key):
     return str(Path(key).resolve())
 
 
-def get_relative_path(target_path, base_dir):
-    """Converts an absolute path to a relative path based on the workspace directory."""
+def clean_string(val) -> str:
+    """Sanitizes strings from DICOM or external headers by stripping null bytes and surrogate escapes."""
+    if val is None:
+        return ""
     try:
-        return os.path.relpath(os.path.abspath(target_path), os.path.abspath(base_dir))
-    except ValueError:
-        # Fallback for Windows if files are on different drives
-        return os.path.abspath(target_path)
+        val_str = str(val).replace("\x00", "")
+        val_str = "".join(c for c in val_str if not (0xD800 <= ord(c) <= 0xDFFF))
+        return val_str.encode("utf-8", "ignore").decode("utf-8")
+    except Exception:
+        return "Unknown"
 
 
-def resolve_relative_path(rel_path, base_dir):
-    """Converts a relative path back to an absolute path."""
-    if os.path.isabs(rel_path):
-        return rel_path
-    return os.path.normpath(os.path.join(os.path.abspath(base_dir), rel_path))
+def write_json_atomic(path, data, indent=4):
+    """Write JSON so that `path` always holds either the old or the new content.
+
+    The data goes to a temporary file in the same folder, which then replaces
+    `path` (os.replace is atomic). A crash, or an error while serialising, can
+    no longer leave a truncated settings / history / workspace file behind.
+    """
+    import json
+    import tempfile
+
+    path = os.fspath(path)
+    fd, tmp = tempfile.mkstemp(
+        dir=os.path.dirname(os.path.abspath(path)), prefix=".tmp_", suffix=".json"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=indent)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def get_config_dir() -> Path:
@@ -173,123 +198,8 @@ def get_config_dir() -> Path:
     return Path.home() / ".config" / "vvv"
 
 
-def save_screenshot_to_file(image) -> Path:
-    """Saves a screenshot PIL Image to ~/Pictures or ~/vvv_screenshot_<timestamp>.png."""
-    import time
-    from pathlib import Path
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    pictures_dir = Path.home() / "Pictures"
-    if pictures_dir.is_dir():
-        save_path = pictures_dir / f"vvv_screenshot_{timestamp}.png"
-    else:
-        save_path = Path.home() / f"vvv_screenshot_{timestamp}.png"
-    image.save(save_path, format="PNG")
-    return save_path
-
-
-def copy_image_to_clipboard(image) -> bool:
-    """Copies a PIL Image to the system clipboard (macOS, Windows, Linux)."""
-    import sys
-    if sys.platform == "darwin":
-        try:
-            from Cocoa import NSPasteboard, NSPasteboardTypePNG, NSData
-            import io
-            buf = io.BytesIO()
-            image.save(buf, format="PNG")
-            png_bytes = buf.getvalue()
-            pb = NSPasteboard.generalPasteboard()
-            pb.clearContents()
-            ns_data = NSData.dataWithBytes_length_(png_bytes, len(png_bytes))
-            return bool(pb.setData_forType_(ns_data, NSPasteboardTypePNG))
-        except Exception:
-            return False
-    elif sys.platform == "win32":
-        try:
-            import io
-            import win32clipboard
-            buf = io.BytesIO()
-            image.convert("RGB").save(buf, "BMP")
-            data = buf.getvalue()[14:]  # BMP header offset
-            buf.close()
-            win32clipboard.OpenClipboard()
-            win32clipboard.EmptyClipboard()
-            win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
-            win32clipboard.CloseClipboard()
-            return True
-        except Exception:
-            return False
-    else:
-        # Linux (wl-copy or xclip)
-        try:
-            import io
-            import subprocess
-            buf = io.BytesIO()
-            image.save(buf, format="PNG")
-            png_bytes = buf.getvalue()
-            # Note: xclip requires -i (or -in) to read from stdin into selection.
-            # wl-copy reads from stdin by default.
-            for cmd in [
-                ["wl-copy", "--type", "image/png"],
-                ["wl-copy", "-t", "image/png"],
-                ["xclip", "-selection", "clipboard", "-target", "image/png", "-i"],
-                ["xclip", "-selection", "clipboard", "-t", "image/png", "-i"],
-            ]:
-                try:
-                    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    proc.communicate(input=png_bytes)
-                    if proc.returncode == 0:
-                        return True
-                except FileNotFoundError:
-                    continue
-        except Exception:
-            pass
-        return False
-
-
-def capture_whole_window():
-    """Captures the entire active VVV application window contents."""
-    import sys
-    import dearpygui.dearpygui as dpg
-    from PIL import Image
-
-    if sys.platform == "darwin":
-        try:
-            import subprocess
-            import AppKit
-            app = AppKit.NSApplication.sharedApplication()
-            target_w = app.keyWindow() or app.mainWindow()
-            if target_w is None or not target_w.isVisible():
-                for w in app.windows():
-                    if w.isVisible() and w.frame().size.width >= 600:
-                        target_w = w
-                        break
-            if target_w:
-                wid = target_w.windowNumber()
-                tmp_out = f"/tmp/vvw_clip_{wid}_{os.getpid()}.png"
-                subprocess.run(["screencapture", "-l", str(wid), "-o", tmp_out])
-                if os.path.exists(tmp_out):
-                    im = Image.open(tmp_out)
-                    frame_rect = target_w.frame()
-                    content_rect = target_w.contentRectForFrameRect_(frame_rect)
-                    scale = im.size[0] / frame_rect.size.width
-                    titlebar_h = int((frame_rect.size.height - content_rect.size.height) * scale)
-                    cropped = im.crop((0, titlebar_h, im.size[0], im.size[1]))
-                    try:
-                        os.remove(tmp_out)
-                    except Exception:
-                        pass
-                    return cropped
-        except Exception:
-            pass
-
-    # Cross-platform fallback via ImageGrab
-    try:
-        from PIL import ImageGrab
-        vx, vy = dpg.get_viewport_pos()
-        vw = dpg.get_viewport_client_width()
-        vh = dpg.get_viewport_client_height()
-        return ImageGrab.grab(bbox=(vx, vy, vx + vw, vy + vh))
-    except Exception:
-        return None
-
-
+def get_resource_path(rel_path):
+    """Get absolute path to resource, works for dev and for PyInstaller/cx_Freeze"""
+    # PyInstaller creates a temp folder and stores path in _MEIPASS
+    base_path = getattr(sys, "_MEIPASS", os.path.abspath(os.path.dirname(__file__)))
+    return os.path.join(base_path, rel_path)

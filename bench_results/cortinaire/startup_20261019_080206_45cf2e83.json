@@ -1,0 +1,75 @@
+{
+  "schema": 1,
+  "bench": "startup",
+  "date": "2026-10-19T08:02:06",
+  "env": {
+    "host": "cortinaire",
+    "platform": "Linux 7.0.0-31-generic (x86_64)",
+    "cpu_count": 40,
+    "python": "3.14.0",
+    "numpy": "2.4.2",
+    "simpleitk": "2.5.3",
+    "dearpygui": "2.3.1",
+    "numba": "0.65.0",
+    "commit": "45cf2e83",
+    "branch": "consolidate",
+    "dirty": false
+  },
+  "params": {
+    "warmup": 1,
+    "boots": 5,
+    "boot_path": "vvv.cli.main",
+    "data_version": 1,
+    "quick": false
+  },
+  "loadavg": {
+    "start": [
+      3.95,
+      1.75,
+      1.49
+    ],
+    "end": [
+      5.51,
+      2.37,
+      1.71
+    ]
+  },
+  "results": {
+    "startup.empty": {
+      "median_ms": 707.225,
+      "p90_ms": 758.682,
+      "mean_ms": 632.91,
+      "n": 5
+    },
+    "startup.ct_large": {
+      "median_ms": 1118.51,
+      "p90_ms": 1150.44,
+      "mean_ms": 1073.223,
+      "n": 5
+    },
+    "startup.four_images": {
+      "median_ms": 955.463,
+      "p90_ms": 986.348,
+      "mean_ms": 962.604,
+      "n": 5
+    },
+    "startup.workspace": {
+      "median_ms": 1012.424,
+      "p90_ms": 1032.373,
+      "mean_ms": 986.838,
+      "n": 5
+    },
+    "startup.python": {
+      "median_ms": 14.378,
+      "p90_ms": 15.295,
+      "mean_ms": 14.432,
+      "n": 20
+    },
+    "startup.imports": {
+      "median_ms": 170.638,
+      "p90_ms": 175.338,
+      "mean_ms": 162.281,
+      "n": 20
+    }
+  }
+}

@@ -3,6 +3,9 @@ import pkgutil
 import os
 
 from vvv.plugins.plugin_api import PluginProtocol
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def discover_plugins():
@@ -44,16 +47,16 @@ def discover_plugins():
                 try:
                     plugin_instance = attr()
                     if not isinstance(plugin_instance, PluginProtocol):
-                        print(f"Plugin {attr_name} from {full_module_name} does not fully implement PluginProtocol")
+                        logger.warning(f"Plugin {attr_name} from {full_module_name} does not fully implement PluginProtocol")
                         continue
                     if getattr(plugin_instance, "order", 999) < 0:
                         continue
                     plugins.append(plugin_instance)
                 except Exception as inst_err:
-                    print(f"Error instantiating plugin {attr_name} from {full_module_name}: {inst_err}")
+                    logger.exception(f"Error instantiating plugin {attr_name} from {full_module_name}: {inst_err}")
         except Exception as imp_err:
             # Prevent import errors in a single plugin from crashing the whole app
-            print(f"Error importing plugin module {full_module_name}: {imp_err}")
+            logger.exception(f"Error importing plugin module {full_module_name}: {imp_err}")
             
     seen = {}
     for p in plugins:

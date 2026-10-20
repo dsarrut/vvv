@@ -243,9 +243,11 @@ class DosePluginUI(PluginTagMixin):
                 if dpg.does_item_exist("icon_button_theme"):
                     dpg.bind_item_theme(btn_dvh, "icon_button_theme")
 
-    def on_open_dvh_clicked(self, sender=None, app_data=None, user_data=None) -> None:
+    def on_open_dvh_clicked(
+        self, sender=None, app_data=None, user_data=None, async_calc: bool = True
+    ) -> None:
         if self._api:
-            self.dvh_win.show_window(self._api)
+            self.dvh_win.show_window(self._api, async_calc=async_calc)
 
     def rebuild_levels_ui(self, api: PluginAPI) -> None:
         """Reconstructs the list of isodose level rows."""

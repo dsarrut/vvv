@@ -4,9 +4,10 @@ import math
 import shlex
 import threading
 import numpy as np
+import collections
 import concurrent.futures
 from typing import Any
-from vvv.utils import ViewMode
+from vvv.utils import ViewMode, write_json_atomic
 from vvv.maths.image import VolumeData
 from vvv.maths.geometry import SpatialEngine
 from vvv.core.roi_manager import ROIManager
@@ -18,6 +19,15 @@ from vvv.core.settings_manager import SettingsManager
 from vvv.core.profile_manager import ProfileManager
 from vvv.core.overlay_resampler import resample_base, resample_overlay
 from vvv.core.background_job import JobRunner
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def _active_transform_copy(vs):
+    """Copy of an image's active transform (same type), for a background job."""
+    t = vs.space.transform if vs.space.is_active else None
+    return None if t is None else type(t)(t)
 
 
 class Controller:
@@ -29,18 +39,20 @@ class Controller:
        micromanage Viewers or the GUI. Its primary job is to sync data flags between
        the central 'ViewState' (Data) and the 'SliceViewer' (View).
 
-    2. TICK LOOP PRIORITY: Inside the tick() loop, the Viewers (View) must always
-       execute BEFORE the Bridge (Sync). The Bridge must broadcast 'is_geometry_dirty'
-       and 'is_data_dirty' to all relevant Viewers BEFORE resetting the source flags.
+    2. TICK LOOP PRIORITY: Inside the tick() loop, the Bridge broadcasts each
+       ViewState's 'is_geometry_dirty' / 'is_data_dirty' to the Viewers displaying it
+       (then resets the source flags) BEFORE the Viewers tick, so a change is
+       rendered exactly once, in the same frame. Viewers only read their own flags.
 
     3. NO IMPERATIVE UI CALLS: Never call 'gui.refresh_rois_ui()' or 'dpg.set_value()'
        from this class or any of its Managers (FileManager, SyncManager, etc.).
        Instead, set 'self.ui_needs_refresh = True' and let the MainGUI handle it
        reactively in the next frame.
 
-    4. THREAD SAFETY: Background threads (threading.Thread) must NEVER call UI functions.
-       To report a status update from a thread, set 'self.status_message = "..."'
-       and 'self.ui_needs_refresh = True'.
+    4. THREAD SAFETY: Only the main thread touches DPG and the state viewers
+       read (view states, volumes, display data). Background work computes from
+       inputs captured on the main thread and hands its result to
+       call_on_main(): the commit runs at the start of the next tick().
 
     5. GEOMETRY UPDATES: To force a viewer re-center, DO NOT set 'viewer.needs_recenter'.
        Instead, set 'vs.camera.target_center = world_pos'. The Viewers watch this
@@ -72,6 +84,14 @@ class Controller:
         self.use_history = True
         self.next_image_id = 1
 
+        # Background-job results to apply on the main thread (call_on_main)
+        self._main_commits = collections.deque()
+
+        # ITK images whose numpy views may still be in use by the main thread
+        # (see _retire); released at the start of the next tick().
+        self._retired = []
+        self._retired_lock = threading.Lock()
+
         # One JobRunner per image, lazily created. resample_image() and
         # bake_transform_to_volume() share the same runner for a given vs_id so
         # they can never race each other on that image's data.
@@ -88,6 +108,13 @@ class Controller:
             return self.gui.get_plugin(plugin_id)
         return None
 
+    def allocate_image_id(self) -> str:
+        """Return a new unique image id. Thread-safe: images load in parallel."""
+        with self._state_lock:
+            img_id = str(self.next_image_id)
+            self.next_image_id += 1
+            return img_id
+
     def get_next_image_id(self, current_id):
         with self._state_lock:
             if not self.view_states:
@@ -99,7 +126,10 @@ class Controller:
         return keys[next_idx]
 
     def default_viewers_orientation(self):
-        n = len(self.view_states)
+        # Count the displayed images: one only fused as overlay of another
+        # (e.g. CT + PET fusion) does not need its own viewers.
+        overlays = {vs.display.overlay.image_id for vs in self.view_states.values()}
+        n = len([i for i in self.view_states if i not in overlays]) or len(self.view_states)
         if n == 1:
             self.viewers["V1"].set_orientation(ViewMode.AXIAL)
             self.viewers["V2"].set_orientation(ViewMode.SAGITTAL)
@@ -149,7 +179,7 @@ class Controller:
                     loaded_volumes[path] = vol
                     # If you have a logger, this is a great place to log: f"Successfully loaded {vol.name}"
                 except Exception as exc:
-                    print(f"CRITICAL: Failed to load {path}. Error: {exc}")
+                    logger.exception(f"Failed to load {path}. Error: {exc}")
 
         return loaded_volumes
 
@@ -168,9 +198,10 @@ class Controller:
 
             vs.space.transform = new_transform
             vs.space.transform_file = os.path.basename(filepath)
+            self.invalidate_resample(vs_id)
             return True
         except Exception as e:
-            print(f"Error loading transform: {e}")
+            logger.exception(f"Error loading transform: {e}")
             return False
 
     def save_transform(self, vs_id, filepath):
@@ -187,7 +218,7 @@ class Controller:
                 vs.space.full_transform_path = os.path.abspath(filepath)
                 return True
             except Exception as e:
-                print(f"Failed to save transform: {e}")
+                logger.exception(f"Failed to save transform: {e}")
                 return False
         return False
 
@@ -204,7 +235,7 @@ class Controller:
                     tokens = shlex.split(path_for_shlex)
                     abs_tokens = [os.path.abspath(t) for t in tokens]
                     path = "4D:" + " ".join(f'"{t}"' for t in abs_tokens)
-                except:
+                except Exception:
                     pass
             else:
                 path = os.path.abspath(path)
@@ -243,7 +274,7 @@ class Controller:
                     tokens = shlex.split(path_for_shlex)
                     resolved_tokens = [self._resolve_single_path(t) for t in tokens]
                     return "4D:" + " ".join(f'"{t}"' for t in resolved_tokens)
-                except:
+                except Exception:
                     return path
             else:
                 return self._resolve_single_path(path)
@@ -300,17 +331,69 @@ class Controller:
         return name_str, is_outdated
 
     def save_image(self, vs_id, filepath):
-        """Exports the active volume to disk as a NIfTI, MHD, etc."""
-        if vs_id not in self.volumes:  # Guard against invalid vs_id
-            print(f"Error: Volume {vs_id} not found for saving.")
+        """Exports the volume to disk as a NIfTI, MHD, etc. (synchronous)."""
+        vol = self._volume_to_save(vs_id)
+        if vol is None:
             return
+        state = self._write_image_files(vol.sitk_image, getattr(vol, "unit", None), filepath)
+        self._apply_saved_state(vol, filepath, state)
+
+    def save_image_async(self, vs_id, filepath, on_done=None, on_error=None):
+        """Same as save_image(), writing the files in a background thread.
+
+        The image is captured now (main thread); the volume's path/name are
+        updated, or the error reported, on the main thread when it is done.
+        """
+        vol = self._volume_to_save(vs_id)
+        if vol is None:
+            return
+        img, unit = vol.sitk_image, getattr(vol, "unit", None)
+        name = os.path.basename(filepath)
+
+        def _save():
+            try:
+                state = self._write_image_files(img, unit, filepath)
+            except Exception as e:
+                msg = f"Save failed ({name}): {e}"
+                def _handle_error():
+                    self._set_status(msg)
+                    if on_error:
+                        try:
+                            on_error(e)
+                        except Exception as cb_err:
+                            logger.error(f"Error in on_error callback: {cb_err}")
+                self.call_on_main(_handle_error)
+                return
+
+            def _commit():
+                self._apply_saved_state(vol, filepath, state)
+                self._set_status(f"Saved: {name}")
+                if on_done:
+                    try:
+                        on_done()
+                    except Exception as cb_err:
+                        logger.error(f"Error in on_done callback: {cb_err}")
+
+            self.call_on_main(_commit)
+
+        threading.Thread(target=_save, daemon=True).start()
+
+    def _volume_to_save(self, vs_id):
+        vol = self.volumes.get(vs_id)
+        if vol is None:  # Guard against invalid vs_id
+            logger.error(f"Volume {vs_id} not found for saving.")
+            return None
+        if vol.data is None:  # Guard against unloaded data
+            logger.error(f"Volume {vs_id} has no data loaded.")
+            return None
+        return vol
+
+    @staticmethod
+    def _write_image_files(img, unit_val, filepath):
+        """Write the image and its unit sidecar JSON. Touches no app state."""
         import SimpleITK as sitk
 
-        vol = self.volumes[vs_id]
-        if vol.data is None:  # Guard against tombstoned or unloaded data
-            print(f"Error: Volume {vs_id} has no data loaded.")
-            return
-        sitk.WriteImage(vol.sitk_image, filepath)
+        sitk.WriteImage(img, filepath)
 
         # Update or create sidecar JSON if unit is set or sidecar exists
         if filepath.endswith(".nii.gz"):
@@ -318,7 +401,7 @@ class Controller:
         else:
             json_path = os.path.splitext(filepath)[0] + ".json"
 
-        unit_val = getattr(vol, "unit", None)
+        state = {}
         if unit_val is not None or os.path.isfile(json_path):
             try:
                 jdata = {}
@@ -332,15 +415,19 @@ class Controller:
                 elif "unit" in jdata:
                     del jdata["unit"]
                 if jdata:
-                    with open(json_path, "w", encoding="utf-8") as f:
-                        json.dump(jdata, f, indent=4)
-                    vol.sidecar_json_path = json_path
+                    write_json_atomic(json_path, jdata)
+                    state["sidecar_json_path"] = json_path
                     if unit_val:
-                        vol.unit_source = f"{os.path.basename(json_path)}"
+                        state["unit_source"] = os.path.basename(json_path)
             except Exception as e:
-                print(f"Warning: Failed to write sidecar JSON {json_path}: {e}")
+                logger.warning(f"Failed to write sidecar JSON {json_path}: {e}")
+        return state
 
-        # Update internal state so the UI reflects the new filename and path
+    @staticmethod
+    def _apply_saved_state(vol, filepath, state):
+        """Main thread: the volume now refers to the file it was saved to."""
+        for key, value in state.items():
+            setattr(vol, key, value)
         vol.path = filepath
         vol.file_paths = [filepath]
         vol.name = os.path.basename(filepath)
@@ -530,8 +617,7 @@ class Controller:
     def update_all_viewers_of_image(self, vs_id, data_dirty=True):
         if vs_id in self.view_states and data_dirty:
             self.view_states[vs_id].is_data_dirty = True
-            # GUARDRAIL 3: Push the data flag to viewers to prevent them
-            # from rendering tombstoned C++ memory during the 1-frame Bridge gap.
+            # Flag the viewers now rather than at the next tick's broadcast
             self._flag_viewers_for_image(vs_id, data_dirty=True)
         else:
             self._flag_viewers_for_image(vs_id, geometry_dirty=True)
@@ -585,6 +671,21 @@ class Controller:
         self.ui_needs_refresh = True
         self._flag_all_viewers_dirty()
 
+    def _retire(self, *objs):
+        """Keep ITK images alive until the main thread's next tick().
+
+        Display arrays are numpy *views* of ITK images (GetArrayViewFromImage)
+        and do not keep them alive: if a background thread drops an image while
+        the main thread is still reading a view of it, that read hits freed
+        memory. Anything a worker replaces is retired here instead; tick() on
+        the main thread releases it, when no view from the previous frame is
+        still in use (no main-thread code keeps such views across frames).
+        """
+        objs = [o for o in objs if o is not None]
+        if objs:
+            with self._retired_lock:
+                self._retired.extend(objs)
+
     def _get_job_runner(self, vs_id) -> JobRunner:
         """Return this image's background JobRunner, creating it on first use.
 
@@ -597,6 +698,12 @@ class Controller:
             self._job_runners[vs_id] = runner
         return runner
 
+    def invalidate_resample(self, vs_id: str) -> None:
+        """Mark any in-flight resample/bake for this image as stale."""
+        runner = self._job_runners.get(vs_id)
+        if runner is not None:
+            runner.invalidate()
+
     def update_transform_manual(self, vs_id, tx, ty, tz, rx_deg, ry_deg, rz_deg):
         vs = self.view_states.get(vs_id)
         if not vs:
@@ -605,15 +712,19 @@ class Controller:
             tx, ty, tz, math.radians(rx_deg), math.radians(ry_deg), math.radians(rz_deg)
         )
         # Mark any in-flight resample/bake for this image as stale.
-        self._get_job_runner(vs_id).invalidate()
+        self.invalidate_resample(vs_id)
 
-    def resample_image(self, image_id):
-        """Resample image_id and all dependent overlays on its background JobRunner.
+    def resample_image(self, image_id, include_dependents=True):
+        """Resample image_id's rotated base and overlays on its background JobRunner.
 
-        If the transform changes mid-resample (update_transform_manual() calls
-        invalidate()), or a newer resample/bake for the same image is submitted
-        before this one finishes, job.is_current() goes False and the result is
-        discarded without touching viewers.
+        Inputs are captured now (main thread), the worker only computes, and the
+        results are committed on the main thread (_commit_resample, run by
+        tick()): no other thread ever writes display data. A job superseded by a
+        newer submit, or by update_transform_manual() (invalidate()), is
+        discarded at commit. Recomputes the base rotation (if any), this image's
+        overlay and, with include_dependents, the overlays of images that
+        display this one as overlay. Each job is a full recompute because a
+        JobRunner keeps only the latest queued job.
         """
         vs = self.view_states.get(image_id)
         if not vs:
@@ -621,87 +732,85 @@ class Controller:
 
         self.ui_needs_refresh = True  # update UI debug indicator immediately
 
+        rot = (
+            vs.space.get_rotation_only_transform()
+            if vs.space.is_active and vs.space.has_rotation()
+            else None
+        )
+        pairs = []  # (target view state, overlay id): target displays overlay id
+        if vs.display.overlay.image_id in self.view_states:
+            pairs.append((vs, vs.display.overlay.image_id))
+        if include_dependents:
+            pairs += [
+                (other_vs, image_id)
+                for other_vs in self.view_states.values()
+                if other_vs.display.overlay.image_id == image_id
+            ]
+        inputs = [
+            (
+                target,
+                ov_id,
+                target.volume,
+                self.view_states[ov_id].volume,
+                _active_transform_copy(target),
+                _active_transform_copy(self.view_states[ov_id]),
+            )
+            for target, ov_id in pairs
+        ]
+        base_vol = vs.volume
+
         def _do(job):
-            vs = self.view_states.get(image_id)
-            if not vs:
-                return
-
-            vs.reset_preview_rotation()
-            self._apply_base_resample(vs)
-
-            # --- Early exit: check before touching any overlay data ---
-            # If the transform changed during base resampling, overlay_data was never
-            # modified so the old (pre-resample) overlay is still valid — no ghost.
-            if not job.is_current():
-                self._discard_resample()
-                return
-
-            if vs.display.overlay.image_id:
-                ovs = self.view_states.get(vs.display.overlay.image_id)
-                if ovs:
-                    self._apply_overlay_resample(vs, ovs, job)
-
-            for other_vs in self.view_states.values():
-                if other_vs.display.overlay.image_id == image_id:
-                    ovs = self.view_states.get(image_id)
-                    if ovs:
-                        self._apply_overlay_resample(other_vs, ovs, job)
-
-            # --- Late exit: check after overlay resampling ---
-            # If the transform changed during overlay resampling, the overlays now hold
-            # wrong-transform data. We discard the resample, but we do not clear the overlay
-            # data to None here because that causes a jarring flash/flicker.
-            if not job.is_current():
-                self._discard_resample()
-                return
-
-            # Sync crosshair AFTER all overlay resampling (avoids tombstone flash).
-            if (
-                vs.base_display_data is not None
-                and vs.camera.crosshair_phys_coord is not None
-            ):
-                vs.update_crosshair_from_phys(vs.camera.crosshair_phys_coord)
-
-            vs.needs_resample = False
-            self.update_all_viewers_of_image(image_id)
-            self.status_message = "Resampling complete"
-            self.ui_needs_refresh = True
+            base = resample_base(base_vol, rot) if rot is not None else (None, None)
+            overlays = []
+            for target, ov_id, t_vol, ov_vol, t_tr, ov_tr in inputs:
+                if not job.is_current():
+                    return  # superseded: the newer job will commit
+                overlays.append((target, ov_id, resample_overlay(t_vol, ov_vol, t_tr, ov_tr)))
+            self.call_on_main(lambda: self._commit_resample(job, image_id, base, overlays))
 
         self._get_job_runner(image_id).submit(_do)
+
+    def _commit_resample(self, job, image_id, base, overlays):
+        """Main thread: swap in the results of a resample_image() job."""
+        vs = self.view_states.get(image_id)
+        if not vs:
+            return
+        if not job.is_current():
+            self._discard_resample()
+            return
+
+        vs.reset_preview_rotation()
+        self._retire(vs._sitk_base_cache)  # views of it may be in use this frame
+        vs._sitk_base_cache, vs.base_display_data = base
+
+        for target, ov_id, (cache, data, baked) in overlays:
+            if target.display.overlay.image_id != ov_id:
+                continue  # overlay changed or removed meanwhile
+            self._retire(target.display._sitk_overlay_cache)
+            target.display._sitk_overlay_cache = cache
+            target.display.overlay_data = data
+            target.display.baked_overlay_translation = baked
+            target.is_data_dirty = True
+
+        if vs.base_display_data is not None and vs.camera.crosshair_phys_coord is not None:
+            vs.update_crosshair_from_phys(vs.camera.crosshair_phys_coord)
+
+        vs.needs_resample = False
+        self.update_all_viewers_of_image(image_id)
+        self.status_message = "Resampling complete"
+        self.ui_needs_refresh = True
 
     def _discard_resample(self):
         self.status_message = "Resample discarded (superseded)"
         self.ui_needs_refresh = True
 
-    def _apply_base_resample(self, vs):
-        """Tombstone-safe base resample. Wraps the pure resample_base() function.
-
-        Clears base_display_data to None before Execute() so the render thread
-        sees no data rather than a stale view during the GIL-releasing call.
-        """
-        if not vs.space.is_active or not vs.space.has_rotation():
-            vs.base_display_data = None
-            vs._sitk_base_cache = None
-            return
-
-        vs.base_display_data = None
-        _old_cache = vs._sitk_base_cache  # noqa: F841 — keep alive during Execute()
-        vs._sitk_base_cache = None
-
-        rot_transform = vs.space.get_rotation_only_transform()
-        new_cache, new_data = resample_base(vs.volume, rot_transform)
-
-        del _old_cache  # release old ITK object now that new data is ready
-        vs._sitk_base_cache = new_cache
-        vs.base_display_data = new_data
-
     def _apply_overlay_resample(self, base_vs, ovs, job=None):
-        """Tombstone-safe overlay resample. Wraps the pure resample_overlay() function.
+        """Resample ovs onto base_vs's grid and apply it now, synchronously.
 
-        Keeps the old ITK cache alive as a local during Execute() (tombstone pattern)
-        so the 60fps render thread never reads a freed numpy view.
-        If a `Job` is given, aborts (keeping the pre-resample overlay) if it has been
-        superseded (see background_job.JobRunner).
+        Main thread only (setup code, tests): background resampling goes through
+        resample_image(). The replaced ITK cache is retired, not freed, since
+        views of it may still be in use this frame. If a `Job` is given, keeps
+        the previous overlay when that job has been superseded.
         """
         _old_cache = base_vs.display._sitk_overlay_cache
         base_vs.display._sitk_overlay_cache = None
@@ -714,45 +823,25 @@ class Controller:
         )
 
         if job is not None and not job.is_current():
-            with base_vs.display._lock:
-                base_vs.display._sitk_overlay_cache = _old_cache
+            base_vs.display._sitk_overlay_cache = _old_cache
             return
 
-        _old_cache = (
-            None  # noqa: F841  — release old ITK object after new data is ready
-        )
-        with base_vs.display._lock:
-            base_vs.display._sitk_overlay_cache = new_cache
-            base_vs.display.overlay_data = new_data
-            base_vs.display.baked_overlay_translation = baked
+        base_vs.display._sitk_overlay_cache = new_cache
+        base_vs.display.overlay_data = new_data
+        base_vs.display.baked_overlay_translation = baked
+        # The main thread may still be reading the old overlay_data view
+        self._retire(_old_cache)
         base_vs.is_data_dirty = True
 
-    def _clear_overlay_data(self, image_id):
-        """Clear overlay data that was written with a wrong transform during a discarded resample.
-
-        Called when a resample is discarded AFTER overlay resampling has already run.
-        Sets overlay_data to None so viewers show no overlay rather than a ghost at
-        the wrong rotation. The next valid resample will restore correct overlay data.
-        """
-        vs = self.view_states.get(image_id)
-        if vs and vs.display.overlay.image_id:
-            with vs.display._lock:
-                vs.display.overlay_data = None
-                vs.display._sitk_overlay_cache = None
-        for other_vs in self.view_states.values():
-            if other_vs.display.overlay.image_id == image_id:
-                with other_vs.display._lock:
-                    other_vs.display.overlay_data = None
-                    other_vs.display._sitk_overlay_cache = None
-
     def bake_transform_to_volume(self, vs_id):
-        """Permanently apply the registration transform by resampling the volume in-place.
+        """Permanently apply the registration transform by resampling the volume.
 
-        Runs on this image's background JobRunner (shared with resample_image(), so the
-        two can never race on the same image's data). Uses the same tombstone pattern as
-        reload_image to safely sever old C++ memory before swapping in the new resampled
-        data. After baking, the transform is reset to identity and the image is
-        indistinguishable from one loaded without any transform.
+        The worker resamples from inputs captured now (main thread); the swap is
+        committed on the main thread (_commit_bake, run by tick()). After baking,
+        the transform is reset to identity and the image is indistinguishable
+        from one loaded without any transform. Shares the image's JobRunner with
+        resample_image(), so a newer resample/bake or a transform change
+        supersedes it.
         """
         import SimpleITK as sitk
 
@@ -766,90 +855,79 @@ class Controller:
             if vs.camera.crosshair_phys_coord is not None
             else None
         )
+        src = vol.sitk_image  # this reference keeps the source alive in the worker
+        inverse = vs.space.transform.GetInverse()
+        size = [int(vol.shape3d[2]), int(vol.shape3d[1]), int(vol.shape3d[0])]
+        spacing, origin = vol.spacing.tolist(), vol.origin.tolist()
+        direction = vol.matrix.flatten().tolist()
+        fill_value = float(vol.get_data_range()[0])  # cached; outside the source FOV
 
         def _do_bake(job):
-            assert vs is not None
-            assert vol is not None
-            with vs.loading_shield():
-                data_snapshot = self._capture_volume_data_snapshot(vs_id, vs, vol)
-                try:
-                    # Build reference grid (same size/spacing/origin/direction as original)
-                    ref = sitk.Image(
-                        int(vol.shape3d[2]),
-                        int(vol.shape3d[1]),
-                        int(vol.shape3d[0]),
-                        sitk.sitkFloat32,
-                    )
-                    ref.SetSpacing(vol.spacing.tolist())
-                    ref.SetOrigin(vol.origin.tolist())
-                    ref.SetDirection(vol.matrix.flatten().tolist())
+            try:
+                # Reference grid: same size/spacing/origin/direction as the original
+                ref = sitk.Image(*size, sitk.sitkFloat32)
+                ref.SetSpacing(spacing)
+                ref.SetOrigin(origin)
+                ref.SetDirection(direction)
 
-                    resampler = sitk.ResampleImageFilter()
-                    resampler.SetReferenceImage(ref)
-                    resampler.SetInterpolator(sitk.sitkLinear)
-                    resampler.SetDefaultPixelValue(
-                        float(np.min(vol.data) if vol.data is not None else 0)
-                    )
-                    transform = vs.space.transform
-                    assert transform is not None
-                    resampler.SetTransform(transform.GetInverse())
-
-                    src_img = sitk.Cast(vol.sitk_image, sitk.sitkFloat32)
-                    new_sitk = resampler.Execute(src_img)
-
-                    # If the transform changed (or another bake/resample was submitted)
-                    # while Execute() was running, nothing has been touched yet — just
-                    # discard the result rather than commit a stale bake.
-                    if not job.is_current():
-                        self.status_message = "Bake discarded (superseded)"
-                        self.ui_needs_refresh = True
-                        return
-
-                    # Capture pre-bake state for overlay rebuild
-                    old_state = self._capture_pre_reload_state(vs, vol)
-
-                    # Sever old C++ bindings (tombstone pattern)
-                    self._tombstone_image_memory(vs_id, vs, vol)
-
-                    # Swap in the resampled data
-                    vol.sitk_image = sitk.Cast(
-                        new_sitk,
-                        (
-                            vol.sitk_image.GetPixelID()
-                            if vol.sitk_image
-                            else sitk.sitkFloat32
-                        ),
-                    )
-                    vol.data = sitk.GetArrayViewFromImage(vol.sitk_image)
-                    vol._is_outdated = True
-
-                    # Reset transform to identity
-                    vs.space.transform = None
-                    vs.space.is_active = False
-                    vs.base_display_data = None
-                    vs._sitk_base_cache = None
-
-                    # Rebuild spatial engine (origin/spacing/matrix unchanged, no transform)
-                    vs.space = SpatialEngine(vol, view_state=vs)
-
-                    # Remap crosshair to new native voxel (transform is now identity)
-                    if anchor_world is not None:
-                        vs.update_crosshair_from_phys(anchor_world)
-
-                    # Rebuild overlays that depended on this image
-                    self._rebuild_dependent_overlays(vs_id, vs, vol, old_state)
-
-                    self.update_all_viewers_of_image(vs_id)
-                    self.sync.propagate_sync(vs_id)
-                    self.status_message = "Transform baked into image"
-                    self.ui_needs_refresh = True
-
-                except Exception as e:
-                    self._restore_volume_data_snapshot(vs_id, vs, vol, data_snapshot)
-                    self.status_message = f"Bake failed: {e}"
-                    self.ui_needs_refresh = True
+                resampler = sitk.ResampleImageFilter()
+                resampler.SetReferenceImage(ref)
+                resampler.SetInterpolator(sitk.sitkLinear)
+                resampler.SetDefaultPixelValue(fill_value)
+                resampler.SetTransform(inverse)
+                new_sitk = resampler.Execute(sitk.Cast(src, sitk.sitkFloat32))
+                new_sitk = sitk.Cast(new_sitk, src.GetPixelID())
+            except Exception as e:
+                msg = f"Bake failed: {e}"
+                self.call_on_main(lambda: self._set_status(msg))
+                return
+            self.call_on_main(lambda: self._commit_bake(job, vs_id, new_sitk, anchor_world))
 
         self._get_job_runner(vs_id).submit(_do_bake)
+
+    def _set_status(self, message, level=None):
+        """Status bar message, shown by the GUI at its next frame.
+
+        level: None, or a ui_cfg color name ("working", "warning").
+        """
+        self.status_message = message if level is None else (message, level)
+        self.ui_needs_refresh = True
+
+    def _commit_bake(self, job, vs_id, new_sitk, anchor_world):
+        """Main thread: swap the baked volume in, reset the transform, re-link overlays."""
+        import SimpleITK as sitk
+
+        vs, vol = self.view_states.get(vs_id), self.volumes.get(vs_id)
+        if not vs or not vol:
+            return
+        if not job.is_current():
+            self._set_status("Bake discarded (superseded)")
+            return
+
+        old_state = self._capture_pre_reload_state(vs, vol)
+        data_snapshot = self._capture_volume_data_snapshot(vs_id, vs, vol)
+        try:
+            self._drop_display_data(vs_id, vs, vol)
+            vol.sitk_image = new_sitk
+            vol.data = sitk.GetArrayViewFromImage(new_sitk)
+            vol._is_outdated = True
+
+            # Transform is now identity: rebuild the spatial engine
+            vs.space.transform = None
+            vs.space.is_active = False
+            vs.space = SpatialEngine(vol, view_state=vs)
+            if anchor_world is not None:
+                vs.update_crosshair_from_phys(anchor_world)
+        except Exception as e:
+            self._restore_volume_data_snapshot(vs_id, vs, vol, data_snapshot)
+            self._set_status(f"Bake failed: {e}")
+            return
+
+        self._retire(data_snapshot)  # old images: views may still be in use
+        self._rebuild_dependent_overlays(vs_id, vs, vol, old_state)
+        self.update_all_viewers_of_image(vs_id)
+        self.sync.propagate_sync(vs_id)
+        self._set_status("Transform baked into image")
 
     def reset_settings(self):
         self.settings.reset()
@@ -890,6 +968,11 @@ class Controller:
         vs = self.view_states[vs_id]
         vol = vs.volume
 
+        if not getattr(vol, "file_paths", None):
+            self.status_message = f"Cannot reload {vol.name}: generated/in-memory image has no file on disk."
+            self.ui_needs_refresh = True
+            return
+
         self.status_message = f"Reloading {vol.name} ..."
         self.ui_needs_refresh = True
 
@@ -897,44 +980,37 @@ class Controller:
         if self.gui:
             self.gui.notify_plugins_image_reloading(vs_id)
 
-        with vs.loading_shield():
-            # 1. Snapshot the world and memory before the reload
-            old_state = self._capture_pre_reload_state(vs, vol)
-            data_snapshot = self._capture_volume_data_snapshot(vs_id, vs, vol)
+        # 1. Snapshot the world and memory before the reload
+        old_state = self._capture_pre_reload_state(vs, vol)
+        data_snapshot = self._capture_volume_data_snapshot(vs_id, vs, vol)
 
-            try:
-                # 2. Safely destroy C++ bindings to prevent Segfaults
-                self._tombstone_image_memory(vs_id, vs, vol)
+        try:
+            # 2. Safely destroy C++ bindings to prevent Segfaults
+            self._drop_display_data(vs_id, vs, vol)
 
-                # 3. Read the disk
-                was_reset = vol.reload()
-                if not was_reset and vol.data is None:
-                    raise RuntimeError("Reload failed or was aborted.")
-            except Exception as e:
-                # Restore previous state on failure
-                self._restore_volume_data_snapshot(vs_id, vs, vol, data_snapshot)
-                self.status_message = f"Reload failed: {e}"
-                self.ui_needs_refresh = True
-                return
+            # 3. Read the disk
+            was_reset = vol.reload()
+            if not was_reset and vol.data is None:
+                raise RuntimeError("Reload failed or was aborted.")
+        except Exception as e:
+            # Restore previous state on failure
+            self._restore_volume_data_snapshot(vs_id, vs, vol, data_snapshot)
+            self.status_message = f"Reload failed: {e}"
+            self.ui_needs_refresh = True
+            return
 
-            # 4. Resolve the new spatial reality
-            shape_changed = self._resolve_reloaded_geometry(
-                vs_id, vs, vol, old_state, was_reset
-            )
+        # 4. Resolve the new spatial reality
+        self._resolve_reloaded_geometry(vs_id, vs, vol, old_state, was_reset)
 
-            # 5. Re-link Fusions/Overlays
-            self._rebuild_dependent_overlays(vs_id, vs, vol, old_state)
+        # 5. Re-link Fusions/Overlays
+        self._rebuild_dependent_overlays(vs_id, vs, vol, old_state)
 
-            # 6. Notify plugins that reload has finished so they can refresh caches
-            if self.gui:
-                self.gui.notify_plugins_image_reloaded(vs_id)
+        # 6. Notify plugins that reload has finished so they can refresh caches
+        if self.gui:
+            self.gui.notify_plugins_image_reloaded(vs_id)
 
-            # 7. Flag UI
-            self.status_message = f"Reloaded: {vol.name}"
-            if shape_changed and self.gui and hasattr(self.gui, "rois_need_refresh"):
-                self.gui.rois_need_refresh = True
-
-        self.ui_needs_refresh = True
+        # 7. Flag UI
+        self._set_status(f"Reloaded: {vol.name}")
 
     # --- RELOAD HELPER METHODS ---
 
@@ -951,23 +1027,24 @@ class Controller:
             "overlay_opacity": vs.display.overlay.opacity,
         }
 
-    def _tombstone_image_memory(self, vs_id, vs, vol):
-        """Severs all Numpy views pointing to ITK C++ memory to prevent segfaults."""
+    def _drop_display_data(self, vs_id, vs, vol):
+        """Drop everything displayed from this image's data before it is replaced
+        (main thread): its own buffers, the overlays other images derive from it,
+        and the viewers' slice caches. The old ITK images stay alive in the
+        caller's snapshot (restored on failure, else retired)."""
         vs.base_display_data = None
         vs._sitk_base_cache = None
-        with vs.display._lock:
-            vs.display.overlay_data = None
-            vs.display._sitk_overlay_cache = None
+        vs.display.overlay_data = None
+        vs.display._sitk_overlay_cache = None
         vol.data = None
         vol.data_4d = None
 
         for other_vs in self.view_states.values():
             if other_vs.display.overlay.image_id == vs_id:
-                with other_vs.display._lock:
-                    other_vs.display.overlay_data = (
-                        None  # Sever the other viewstate's overlay if it points to us
-                    )
-                    other_vs.display._sitk_overlay_cache = None  # Also sever the cache
+                other_vs.display.overlay_data = (
+                    None  # Sever the other viewstate's overlay if it points to us
+                )
+                other_vs.display._sitk_overlay_cache = None  # Also sever the cache
 
         # Instantly blind the viewers and flush temporary slice preview caches
         for v in self.viewers.values():
@@ -1056,24 +1133,28 @@ class Controller:
         vol.data = snapshot["vol_data"]
         vs.base_display_data = snapshot["vs_base_display_data"]
         vs._sitk_base_cache = snapshot["vs_sitk_base_cache"]
-        with vs.display._lock:
-            vs.display.overlay_data = snapshot["vs_overlay_data"]
-            vs.display._sitk_overlay_cache = snapshot["vs_sitk_overlay_cache"]
+        vs.display.overlay_data = snapshot["vs_overlay_data"]
+        vs.display._sitk_overlay_cache = snapshot["vs_sitk_overlay_cache"]
 
         for other_id, other_snapshot in snapshot["dependent_overlays"].items():
             other_vs = self.view_states.get(other_id)
             if other_vs:
-                with other_vs.display._lock:
-                    other_vs.display.overlay_data = other_snapshot["overlay_data"]
-                    other_vs.display._sitk_overlay_cache = other_snapshot[
-                        "sitk_overlay_cache"
-                    ]
+                other_vs.display.overlay_data = other_snapshot["overlay_data"]
+                other_vs.display._sitk_overlay_cache = other_snapshot[
+                    "sitk_overlay_cache"
+                ]
 
         self.update_all_viewers_of_image(vs_id)
 
     def _rebuild_dependent_overlays(self, vs_id, vs, vol, old_state):
-        """Restores fusions that were attached to this image, or that this image was attached to."""
-        # 1. Fix images that rely on us
+        """Restore the fusions attached to this image, or that this image was attached to.
+
+        Main thread. The links (mode, opacity) are restored now; the overlay data
+        is recomputed by background resample jobs. Submitting them also
+        supersedes any job still computing from the old data.
+        """
+        # 1. Images that display us as overlay
+        dependents = []
         for other_id, other_vs in list(self.view_states.items()):
             if other_vs.display.overlay.image_id == vs_id:
                 old_m = other_vs.display.overlay.mode
@@ -1081,53 +1162,79 @@ class Controller:
                 other_vs.set_overlay(vs_id, vol)
                 other_vs.display.overlay.mode = old_m
                 other_vs.display.overlay.opacity = old_o
-                ovs = self.view_states.get(vs_id)
-                if ovs:
-                    self._apply_overlay_resample(other_vs, ovs)
-                self.update_all_viewers_of_image(other_id)
+                dependents.append(other_id)
 
-        # 2. Fix our own overlays
+        # 2. Our own overlay
         if old_state["overlay_id"] and old_state["overlay_id"] in self.volumes:
-            ov_vol = self.volumes[old_state["overlay_id"]]
-            vs.set_overlay(old_state["overlay_id"], ov_vol)
+            vs.set_overlay(old_state["overlay_id"], self.volumes[old_state["overlay_id"]])
             vs.display.overlay.mode = old_state["overlay_mode"]
             vs.display.overlay.opacity = old_state["overlay_opacity"]
-            ovs = self.view_states.get(old_state["overlay_id"])
-            if ovs:
-                self._apply_overlay_resample(vs, ovs)
-            self.update_all_viewers_of_image(vs_id)
+
+        self.resample_image(vs_id, include_dependents=False)
+        for other_id in dependents:
+            self.resample_image(other_id)
 
     def save_settings(self):
         try:
             return self.settings.save()
         except Exception as e:
-            import logging
-
-            logging.warning(f"Could not save settings: {e}")
+            logger.warning(f"Could not save settings: {e}")
             return None
 
+    def call_on_main(self, fn):
+        """Queue fn to run on the main thread, at the start of the next tick()."""
+        self._main_commits.append(fn)
+
+    def run_main_thread_commits(self):
+        """Run the queued background-job commits (main thread; tick() calls it)."""
+        while self._main_commits:
+            fn = self._main_commits.popleft()
+            try:
+                fn()
+            except Exception as e:
+                import traceback
+
+                traceback.print_exc()
+                self._set_status(f"Background job commit failed: {e}")
+
+    def wait_for_jobs(self, timeout=60.0):
+        """Main thread, without a running GUI loop (scripts, screenshots, tests):
+        wait for every background job and run its commit. False on timeout."""
+        import time
+
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            self.run_main_thread_commits()
+            if not self._main_commits and all(
+                r.is_idle() for r in list(self._job_runners.values())
+            ):
+                return True
+            time.sleep(0.005)
+        return False
+
     def tick(self):
-        for viewer in self.viewers.values():
-            viewer.tick()
+        # Previous frame is over: retired ITK images can be freed now
+        with self._retired_lock:
+            self._retired.clear()
+        self.run_main_thread_commits()
 
         with self._state_lock:
             vs_items = list(self.view_states.items())
             vol_items = list(self.volumes.values())
 
-        # Optimized: Consolidate geometry and data checks into a single loop
+        # Broadcast flags from each central ViewState to the Viewers displaying it,
+        # then let the Viewers render. Read and reset are kept adjacent so a flag
+        # set by another thread is not lost in between.
         for vs_id, vs in vs_items:
-            # Broadcast flags from central ViewState to all Viewers displaying it
-            is_geom = getattr(vs, "is_geometry_dirty", False)
-            is_data = getattr(vs, "is_data_dirty", False)
-
+            is_geom, vs.is_geometry_dirty = vs.is_geometry_dirty, False
+            is_data, vs.is_data_dirty = vs.is_data_dirty, False
             if is_geom or is_data:
                 self._flag_viewers_for_image(
                     vs_id, data_dirty=is_data, geometry_dirty=is_geom
                 )
 
-            # Safe Reset (ONLY after all viewers in the loop have been flagged)
-            vs.is_data_dirty = False
-            vs.is_geometry_dirty = False
+        for viewer in self.viewers.values():
+            viewer.tick()
 
         # Check if files changed on disk, update UI if needed
         outdated_changed = False

@@ -21,6 +21,9 @@ class MIPPlugin(PluginProtocol):
     def update(self, api: PluginAPI) -> None:
         self._controller.update(api)
 
+    def tick(self) -> None:
+        self._controller.tick()
+
     def on_image_loaded(self, image_id: str) -> None:
         self._controller.on_image_loaded(image_id)
 

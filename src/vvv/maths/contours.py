@@ -1,6 +1,9 @@
 import numpy as np
 from vvv.utils import ViewMode
 from vvv.maths.image import SliceRenderer
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ContourROI:
@@ -25,7 +28,6 @@ class ContourROI:
         self.is_draft_max = False
         self.is_plugin_draft_min = False
         self.is_plugin_draft_max = False
-        self.is_dose_isocontour = False
         self.last_computed_level = None
         self.last_computed_threshold_min = None
         self.last_computed_threshold_max = None
@@ -48,7 +50,7 @@ def extract_2d_contours_from_slice(slice2d, threshold, sw=1.0, sh=1.0):
     try:
         from skimage import measure
     except ImportError:
-        print("scikit-image is required for contour extraction...")
+        logger.error("scikit-image is required for contour extraction...")
         return []
 
     # Pad the slice to ensure contours touching the image borders form closed loops

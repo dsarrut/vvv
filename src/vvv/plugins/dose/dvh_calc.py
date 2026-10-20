@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple, Any
 import numpy as np
-import SimpleITK as sitk
 
 
 @dataclass
@@ -32,12 +31,15 @@ def compute_roi_dvh(
     color: List[int],
     num_bins: int = 200,
     max_eval_dose: Optional[float] = None,
+    dose_scaling_factor: float = 1.0,
 ) -> Optional[ROI_DVH_Curve]:
     """
     Computes cumulative and differential DVH for a single ROI against a 3D dose volume.
     Handles differing spatial resolution/orientation between dose and ROI grids
     using SimpleITK linear interpolation within the ROI.
     """
+    import SimpleITK as sitk  # lazy: not needed to start vvv
+
     if not hasattr(roi_vol, "sitk_image") or roi_vol.sitk_image is None:
         return None
     if not hasattr(dose_vol, "sitk_image") or dose_vol.sitk_image is None:
@@ -56,13 +58,30 @@ def compute_roi_dvh(
     total_vol_cc = total_voxels * voxel_vol_cc
 
     # Sample dose into ROI geometry using SimpleITK linear interpolation
+    d_sitk = dose_vol.sitk_image
+    if getattr(dose_vol, "data", None) is not None and isinstance(d_sitk, sitk.Image):
+        try:
+            curr_view = sitk.GetArrayViewFromImage(d_sitk)
+            if curr_view.ctypes.data != dose_vol.data.ctypes.data:
+                is_vector = d_sitk.GetNumberOfComponentsPerPixel() > 1
+                d_arr = dose_vol.data
+                if d_sitk.GetDimension() == 3 and d_arr.ndim == 4 and d_arr.shape[0] == 1:
+                    d_arr = d_arr[0]
+                new_d_sitk = sitk.GetImageFromArray(d_arr, isVector=is_vector)
+                new_d_sitk.CopyInformation(d_sitk)
+                for k in d_sitk.GetMetaDataKeys():
+                    new_d_sitk.SetMetaData(k, d_sitk.GetMetaData(k))
+                d_sitk = new_d_sitk
+        except Exception:
+            pass
+
     try:
         dose_in_roi = sitk.Resample(
-            dose_vol.sitk_image,
+            d_sitk,
             r_sitk,
             sitk.Transform(),
             sitk.sitkLinear,
-            0.0,
+            float("nan"),
             sitk.sitkFloat32,
         )
         dose_arr = sitk.GetArrayFromImage(dose_in_roi)
@@ -73,9 +92,18 @@ def compute_roi_dvh(
         else:
             return None
 
-    vox_doses = dose_arr[mask].astype(np.float64)
+    # The caller passes the user scale (Gy per raw unit). Not vol.scale_factor:
+    # in Prescription / Ref Value mode it is the display factor to %, 100 / v_ref.
+    scale = float(dose_scaling_factor) if dose_scaling_factor != 0 else 1.0
+
+    vox_doses = dose_arr[mask].astype(np.float64) * scale
+    valid_mask = ~np.isnan(vox_doses)
+    vox_doses = vox_doses[valid_mask]
     if len(vox_doses) == 0:
         return None
+
+    total_voxels = len(vox_doses)
+    total_vol_cc = total_voxels * voxel_vol_cc
 
     sorted_doses = np.sort(vox_doses)
     min_dose = float(sorted_doses[0])
@@ -90,7 +118,12 @@ def compute_roi_dvh(
     d2 = float(np.percentile(sorted_doses, 98.0))
 
     # Evaluation dose bins for plotting
-    upper_limit = max_eval_dose if max_eval_dose is not None else max(max_dose * 1.05, 1.0)
+    if max_eval_dose is not None and max_eval_dose > 0:
+        upper_limit = float(max_eval_dose)
+    elif max_dose > 0:
+        upper_limit = float(max_dose) * 1.05
+    else:
+        upper_limit = 1.0
     d_eval = np.linspace(0.0, upper_limit, num_bins)
 
     # Fast cumulative calculation using searchsorted:
