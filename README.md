@@ -28,6 +28,10 @@
 pip install open-vvv
 ```
 
+> **The package is `open-vvv`**: `pip install vvv` installs an unrelated project (a 2012 code-validation tool) that happens to own the `vvv` name on PyPI. The installed command is `vvv`.
+
+Requires Python 3.10 to 3.14, on Linux (x64), Windows (x64) or macOS 13+ on Apple Silicon. Intel Macs and Windows on ARM are not supported: DearPyGui (and SimpleITK on Windows ARM) provide no wheels for them.
+
 Or install the development version from source:
 
 ```bash
