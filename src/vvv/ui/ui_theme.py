@@ -365,20 +365,41 @@ def register_dynamic_themes(ui_cfg, controller):
                 dpg.add_theme_color(dpg.mvThemeCol_Text, [20, 25, 30, 255])
 
 
+# macOS: the system Helvetica (sharpest on 1x external screens, the layout was
+# tuned on it). Elsewhere: the shipped Liberation Sans (SIL OFL 1.1, see
+# fonts/LiberationSans-LICENSE.txt). DPG sizes a font by its line height
+# (ascent + descent) and does not hint glyphs, so on 1x screens text is sharp
+# only when the cap height lands on whole pixels: Liberation Sans cap height =
+# 0.6158 x size -> 16.24 gives 10 px (Helvetica 14: 10.04 px), 13 gives 8 px.
+MACOS_UI_FONT = ("/System/Library/Fonts/Helvetica.ttc", 14, 11)
+SHIPPED_UI_FONT = ("LiberationSans-Regular.ttf", 16.24, 13)
+
+
+def _pick_ui_font():
+    """(path, size, small size) of the UI text font, or None for the DPG default."""
+    if sys.platform == "darwin" and os.path.exists(MACOS_UI_FONT[0]):
+        return MACOS_UI_FONT
+    name, size, small = SHIPPED_UI_FONT
+    path = get_resource_path(os.path.join("fonts", name))
+    if os.path.exists(path):
+        return path, size, small
+    logger.warning(f"UI font not found ({path}), using a system font instead.")
+    if sys.platform == "win32":
+        windir = os.environ.get("WINDIR", "C:\\Windows")
+        path = os.path.join(windir, "Fonts", "segoeui.ttf")
+    else:
+        path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+    if os.path.exists(path):
+        return path, 14, 11
+    logger.warning("No system font found: using the DearPyGui default font.")
+    return None
+
+
 def load_fonts():
-    main_font_path = get_resource_path(os.path.join("fonts", "Roboto-Regular.ttf"))
+    ui_font = _pick_ui_font()
     icon_font_path = get_resource_path(
         os.path.join("fonts", "Font Awesome 7 Free-Solid-900.otf")
     )
-
-    if not os.path.exists(main_font_path):
-        if sys.platform == "darwin":
-            main_font_path = "/System/Library/Fonts/Helvetica.ttc"  # Native macOS font
-        elif sys.platform == "win32":
-            windir = os.environ.get("WINDIR", "C:\\Windows")
-            main_font_path = os.path.join(windir, "Fonts", "segoeui.ttf")
-        else:
-            main_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
     # Check DPG version to avoid calling deprecated no-op functions in >= 2.3
     is_legacy_dpg = False
@@ -398,8 +419,9 @@ def load_fonts():
         default_font = None
 
         # 1. Load the UI Text Font
-        if os.path.exists(main_font_path):
-            with dpg.font(main_font_path, 14) as font:
+        if ui_font:
+            main_font_path, size, small_size = ui_font
+            with dpg.font(main_font_path, size) as font:
                 if is_legacy_dpg:
                     try:
                         # pyrefly: ignore [deprecated]
@@ -408,7 +430,7 @@ def load_fonts():
                         pass
                 default_font = font
 
-            with dpg.font(main_font_path, 11, tag="small_font_tag"):
+            with dpg.font(main_font_path, small_size, tag="small_font_tag"):
                 if is_legacy_dpg:
                     try:
                         # pyrefly: ignore [deprecated]
