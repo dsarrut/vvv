@@ -513,21 +513,25 @@ def compute_mip_projection(
         raise ValueError(f"Invalid projection axis: {axis}")
 
 
+_WARMED_UP = False
+
+
 def warmup_mip_kernels(async_warmup: bool = True):
     """Warm up Numba kernels in a background thread to prevent UI freezes on first use."""
-    if not _NUMBA_AVAILABLE:
+    global _WARMED_UP
+    if not _NUMBA_AVAILABLE or _WARMED_UP:
         return
+    _WARMED_UP = True
 
     def _warmup():
         try:
-            for dtype in (np.float32, np.int16):
-                d = np.zeros((2, 2, 2), dtype=dtype)
-                project_mip_z(d, 0.0)
-                project_mip_y(d, 0.0)
-                project_mip_x(d, 0.0)
-                project_mip_z_rotated(d, 0.1, 0.0)
-                project_mip_y_rotated(d, 0.1, 0.0)
-                project_mip_x_rotated(d, 0.1, 0.0)
+            d = np.zeros((2, 2, 2), dtype=np.float32)
+            project_mip_z(d, 0.0)
+            project_mip_y(d, 0.0)
+            project_mip_x(d, 0.0)
+            project_mip_z_rotated(d, 0.1, 0.0)
+            project_mip_y_rotated(d, 0.1, 0.0)
+            project_mip_x_rotated(d, 0.1, 0.0)
         except Exception:
             pass
 

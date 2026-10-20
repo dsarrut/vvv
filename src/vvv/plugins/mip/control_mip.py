@@ -37,12 +37,6 @@ class MIPPluginController(PluginTagMixin):
         self._precompute_stops: Dict[str, threading.Event] = {}
         self._precompute_params: Dict[str, tuple] = {}
         self._precompute_timers: Dict[str, threading.Timer] = {}
-        try:
-            from vvv.plugins.mip.math_mip import warmup_mip_kernels
-
-            warmup_mip_kernels(async_warmup=True)
-        except Exception:
-            pass
 
     def bind(self, api: PluginAPI) -> None:
         self._api = api
@@ -272,6 +266,12 @@ class MIPPluginController(PluginTagMixin):
 
             # Sync orientation to match projection axis when turning MIP on
             if app_data:
+                try:
+                    from vvv.plugins.mip.math_mip import warmup_mip_kernels
+
+                    warmup_mip_kernels(async_warmup=True)
+                except Exception:
+                    pass
                 axis_map = {
                     "Z": ViewMode.AXIAL,
                     "Y": ViewMode.CORONAL,
