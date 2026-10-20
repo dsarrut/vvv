@@ -61,6 +61,7 @@ class TestDosePlugin(unittest.TestCase):
             "img_2": self.mock_overlay_vs,
         }
         self.mock_api.get_viewers.return_value = {"V1": self.mock_viewer}
+        self.mock_api.run_on_main_thread.side_effect = lambda fn: fn()
         self.mock_api.get_ui_config.return_value = {
             "colors": {
                 "text_header": [255, 255, 255, 255],
@@ -1122,6 +1123,7 @@ class TestDosePlugin(unittest.TestCase):
         # Open DVH window and compute curves
         ui.on_open_dvh_clicked()
         dvh_win = ui.dvh_win
+        dvh_win.wait_for_calculation(timeout=5.0)
         self.assertEqual(len(dvh_win.curves), 1)
         curve = dvh_win.curves[0]
 
@@ -1187,6 +1189,7 @@ class TestDosePlugin(unittest.TestCase):
         ui.on_open_dvh_clicked()
         dvh_win = ui.dvh_win
         dvh_win.recompute_and_update(fit_axes=True)
+        dvh_win.wait_for_calculation(timeout=5.0)
 
         self.assertEqual(len(dvh_win.curves), 1)
         curve = dvh_win.curves[0]
@@ -1238,6 +1241,7 @@ class TestDosePlugin(unittest.TestCase):
 
         # Open DVH window
         ui.on_open_dvh_clicked()
+        ui.dvh_win.wait_for_calculation(timeout=5.0)
         win_tag = ui.dvh_win.window_tag
         self.assertTrue(dpg.does_item_exist(win_tag))
         self.assertTrue(dpg.does_item_exist(ui.dvh_win._t("dvh_plot")))
@@ -1330,6 +1334,7 @@ class TestDosePlugin(unittest.TestCase):
 
         # Open DVH window
         ui.on_open_dvh_clicked()
+        ui.dvh_win.wait_for_calculation(timeout=5.0)
         self.assertTrue(dpg.does_item_exist(ui.dvh_win.window_tag))
         self.assertEqual(len(ui.dvh_win.curves), 1)
         self.assertEqual(ui.dvh_win.curves[0].color[:3], [255, 0, 0])
@@ -1405,6 +1410,7 @@ class TestDosePlugin(unittest.TestCase):
 
         # Open DVH window
         ui.on_open_dvh_clicked()
+        ui.dvh_win.wait_for_calculation(timeout=5.0)
         tbl_tag = ui.dvh_win._t("dvh_metrics_table")
         self.assertTrue(dpg.does_item_exist(tbl_tag))
         self.assertTrue(dpg.get_item_configuration(tbl_tag)["sortable"])
@@ -1524,6 +1530,70 @@ class TestDosePlugin(unittest.TestCase):
         # Every valid voxel had dose 50.0 Gy, so min_dose must be 50.0 Gy (not 0.0 Gy)
         self.assertAlmostEqual(curve.min_dose, 50.0)
         self.assertAlmostEqual(curve.mean_dose, 50.0)
+
+    def test_dvh_window_async_calculation_and_cancellation(self):
+        """PC3: DVH computation runs in background thread and earlier workers can be cancelled."""
+        import SimpleITK as sitk
+
+        ui = self.plugin._ui
+        dose_arr = np.full((10, 10, 10), 30.0, dtype=np.float32)
+        dose_sitk = sitk.GetImageFromArray(dose_arr)
+        dose_vol = MagicMock()
+        dose_vol.data = dose_arr
+        dose_vol.sitk_image = dose_sitk
+        dose_vol.scale_factor = 1.0
+        dose_vol.get_data_range.return_value = (30.0, 30.0)
+        dose_vol.name = "Dose30"
+
+        roi_arr = np.ones((10, 10, 10), dtype=np.uint8)
+        roi_sitk = sitk.GetImageFromArray(roi_arr)
+        roi_vol = MagicMock()
+        roi_vol.data = roi_arr
+        roi_vol.sitk_image = roi_sitk
+        roi_vol.name = "ROI1"
+
+        self.mock_viewer.volume = dose_vol
+        self.mock_api.get_volumes.return_value = {
+            "img_1": dose_vol,
+            "roi_1": roi_vol,
+        }
+        roi_state = MagicMock()
+        roi_state.name = "ROI1"
+        roi_state.color = [255, 0, 0, 255]
+        self.mock_viewer.view_state.rois = {"roi_1": roi_state}
+
+        ui.on_open_dvh_clicked()
+        dvh_win = ui.dvh_win
+
+        # 1. Background worker runs and populates curves
+        dvh_win.recompute_and_update(fit_axes=True, async_calc=True)
+        self.assertTrue(dvh_win.wait_for_calculation(timeout=5.0))
+        self.assertEqual(len(dvh_win.curves), 1)
+        self.assertEqual(dvh_win.curves[0].roi_name, "ROI1")
+
+        # 2. Rapid recomputes: token increments and prior worker stop event is set
+        first_stop = dvh_win._calc_stop
+        first_token = dvh_win._calc_token
+        dvh_win.recompute_and_update(fit_axes=True, async_calc=True)
+        self.assertTrue(first_stop.is_set())
+        self.assertGreater(dvh_win._calc_token, first_token)
+        self.assertTrue(dvh_win.wait_for_calculation(timeout=5.0))
+        self.assertEqual(len(dvh_win.curves), 1)
+
+    def test_dvh_window_close_cancels_worker(self):
+        """PC3: closing DVH window sets stop_event and increments token."""
+        self.mock_viewer.volume.unit = "Gy"
+        ui = self.plugin._ui
+        ui.on_open_dvh_clicked()
+        dvh_win = ui.dvh_win
+
+        dvh_win.recompute_and_update(fit_axes=True, async_calc=True)
+        stop_ev = dvh_win._calc_stop
+        old_token = dvh_win._calc_token
+
+        dvh_win.on_window_close()
+        self.assertTrue(stop_ev.is_set())
+        self.assertGreater(dvh_win._calc_token, old_token)
 
 
 if __name__ == "__main__":
