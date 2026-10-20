@@ -92,12 +92,9 @@ def compute_roi_dvh(
         else:
             return None
 
+    # The caller passes the user scale (Gy per raw unit). Not vol.scale_factor:
+    # in Prescription / Ref Value mode it is the display factor to %, 100 / v_ref.
     scale = float(dose_scaling_factor) if dose_scaling_factor != 0 else 1.0
-    if scale == 1.0 and getattr(dose_vol, "scale_factor", None) is not None:
-        try:
-            scale = float(dose_vol.scale_factor)
-        except Exception:
-            scale = 1.0
 
     vox_doses = dose_arr[mask].astype(np.float64) * scale
     valid_mask = ~np.isnan(vox_doses)

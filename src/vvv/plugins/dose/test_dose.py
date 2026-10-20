@@ -1047,6 +1047,29 @@ class TestDosePlugin(unittest.TestCase):
         self.assertAlmostEqual(c2.min_dose, 25.0, places=2)
         self.assertAlmostEqual(c2.max_dose, 25.0, places=2)
 
+    def test_dvh_ignores_display_scale_factor_of_prescription_mode(self):
+        """Prescription / Ref Value mode sets vol.scale_factor = 100 / v_ref (a
+        display factor to %). With a user scale of 1 the DVH must stay in Gy."""
+        import SimpleITK as sitk
+        from vvv.plugins.dose.dvh_calc import compute_roi_dvh
+
+        dose_arr = np.full((10, 10, 10), 30.0, dtype=np.float32)
+        dose_arr[5, 5, 5] = 60.0
+        dose_vol = MagicMock()
+        dose_vol.data = dose_arr
+        dose_vol.sitk_image = sitk.GetImageFromArray(dose_arr)
+        dose_vol.scale_factor = 100.0 / 60.0  # Prescription mode, v_ref = 60 Gy
+
+        roi_arr = np.ones((10, 10, 10), dtype=np.uint8)
+        roi_vol = MagicMock()
+        roi_vol.data = roi_arr
+        roi_vol.sitk_image = sitk.GetImageFromArray(roi_arr)
+
+        curve = compute_roi_dvh(dose_vol, roi_vol, "PTV", [255, 0, 0, 255], dose_scaling_factor=1.0)
+
+        self.assertAlmostEqual(curve.max_dose, 60.0, places=3)
+        self.assertAlmostEqual(curve.min_dose, 30.0, places=3)
+
     def test_dvh_virtual_scale_and_relative_mode(self):
         """Verify that DVH properly applies the virtual scale factor in absolute (Gy) mode
         and matches isodose thresholds in relative (%) mode (PA2).
