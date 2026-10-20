@@ -88,3 +88,4 @@ if __name__ == "__main__":
         repo_root, "src", "vvv", "fonts", "Font Awesome 7 Free-Solid-900.otf"
     )
     add_custom_icons_to_font(target_font)
+
