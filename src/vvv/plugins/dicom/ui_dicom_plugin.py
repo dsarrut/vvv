@@ -139,14 +139,20 @@ class DicomPluginUI(PluginTagMixin):
         return theme_tag
 
     def on_window_close(self):
-        self._save_ui_state()
-        if self._scan_stop_event is not None:
-            self._scan_stop_event.set()
-        self.is_scanning = False
-        dpg.delete_item(self.window_tag)
+        try:
+            self._save_ui_state()
+        finally:
+            if self._scan_stop_event is not None:
+                self._scan_stop_event.set()
+            self.is_scanning = False
+            if dpg.does_item_exist(self.window_tag):
+                dpg.delete_item(self.window_tag)
 
     def show_window(self) -> None:
         if dpg.does_item_exist(self.window_tag):
+            # The close button only hides the window; on_close deletes it. If
+            # that callback did not run, show the hidden window again.
+            dpg.configure_item(self.window_tag, show=True)
             dpg.focus_item(self.window_tag)
             return
 

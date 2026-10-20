@@ -41,6 +41,9 @@ class DVHWindow(PluginTagMixin):
 
         # If window exists, bring to front
         if dpg.does_item_exist(self.window_tag):
+            # The close button only hides it; on_close deletes it. If that did
+            # not run, show the hidden window again.
+            dpg.configure_item(self.window_tag, show=True)
             dpg.focus_item(self.window_tag)
             self.recompute_and_update(fit_axes=True, async_calc=async_calc)
             return
