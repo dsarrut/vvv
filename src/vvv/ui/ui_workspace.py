@@ -3,7 +3,7 @@ import dearpygui.dearpygui as dpg
 # FontAwesome 4 codepoints — same encoding the rest of the nav uses
 _ICON_OPEN = "\uf07c"  # fa-folder-open
 _ICON_SAVE = "\uf0c7"  # fa-save (floppy disk)
-_ICON_SAVE_AS = "\uf019"  # fa-download / save as
+_ICON_SAVE_AS = "\ue001"  # custom: floppy disk with down arrow badge
 
 
 def build_workspace_nav_icons(gui):
@@ -16,8 +16,8 @@ def build_workspace_nav_icons(gui):
         ─────────  (separator)
         [spacer]
         [  📁  ]   Open Workspace
-        [  📥  ]   Save Workspace As
         [  💾  ]   Save Workspace (shown only when a path is set)
+        [  📥  ]   Save Workspace As
     """
     cfg_l = gui.ui_cfg["layout"]
     btn_h = cfg_l["nav_btn_h"]
@@ -40,18 +40,18 @@ def build_workspace_nav_icons(gui):
                 None,
             ),
             (
-                "ws_nav_btn_save_as",
-                _ICON_SAVE_AS,
-                "Save Workspace As",
-                gui.on_save_workspace_clicked,
-                None,
-            ),
-            (
                 "ws_nav_btn_save",
                 _ICON_SAVE,
                 "Save Workspace",
                 gui.on_save_workspace_current_clicked,
                 "ws_save_tooltip_text",
+            ),
+            (
+                "ws_nav_btn_save_as",
+                _ICON_SAVE_AS,
+                "Save Workspace As",
+                gui.on_save_workspace_clicked,
+                None,
             ),
         ]:
             btn = dpg.add_button(

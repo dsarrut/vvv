@@ -2,6 +2,8 @@ import math
 import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import (
+    ICON_SAVE,
+    ICON_SAVE_AS,
     build_stepped_slider,
     build_section_title,
     build_help_button,
@@ -66,28 +68,37 @@ class RegistrationPluginUI(PluginTagMixin):
                 with dpg.group(horizontal=True):
                     btn_load = dpg.add_button(
                         label="\uf07c",
+                        width=20,
                         tag=self._t("btn_reg_load"),
                         callback=self._c.on_reg_load_clicked,
                     )
                     self._bind_icon_font(btn_load)
+                    if dpg.does_item_exist("icon_button_theme"):
+                        dpg.bind_item_theme(btn_load, "icon_button_theme")
                     build_beginner_tooltip(btn_load, "Load Transform matrix file (.tfm, .mat, .txt)", api)
 
-                    btn_save_as = dpg.add_button(
-                        label="\uf019",
-                        tag=self._t("btn_reg_save_as"),
-                        callback=self._c.on_reg_save_as_clicked,
-                    )
-                    self._bind_icon_font(btn_save_as)
-                    build_beginner_tooltip(btn_save_as, "Save Transform matrix as (.tfm)...", api)
-
                     btn_save = dpg.add_button(
-                        label="\uf0c7",
+                        label=ICON_SAVE,
+                        width=20,
                         tag=self._t("btn_reg_save"),
                         callback=self._c.on_reg_save_clicked,
                         show=False,
                     )
                     self._bind_icon_font(btn_save)
+                    if dpg.does_item_exist("icon_button_theme"):
+                        dpg.bind_item_theme(btn_save, "icon_button_theme")
                     build_beginner_tooltip(btn_save, "Save Transform matrix to current file (.tfm)", api)
+
+                    btn_save_as = dpg.add_button(
+                        label=ICON_SAVE_AS,
+                        width=20,
+                        tag=self._t("btn_reg_save_as"),
+                        callback=self._c.on_reg_save_as_clicked,
+                    )
+                    self._bind_icon_font(btn_save_as)
+                    if dpg.does_item_exist("icon_button_theme"):
+                        dpg.bind_item_theme(btn_save_as, "icon_button_theme")
+                    build_beginner_tooltip(btn_save_as, "Save Transform matrix as (.tfm)...", api)
 
                     lbl_file = dpg.add_text(
                         "",

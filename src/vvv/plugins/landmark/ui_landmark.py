@@ -2,6 +2,8 @@ import os
 import math
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import (
+    ICON_SAVE,
+    ICON_SAVE_AS,
     build_section_title,
     build_help_button,
     build_beginner_tooltip,
@@ -163,48 +165,60 @@ class LandmarkPluginUI(PluginTagMixin):
 
                 btn_load = dpg.add_button(
                     label="\uf07c",
+                    width=20,
                     tag=self._t("btn_load"),
                     callback=self._c.on_btn_load_clicked,
                 )
                 self._bind_icon_font(btn_load)
+                if dpg.does_item_exist("icon_button_theme"):
+                    dpg.bind_item_theme(btn_load, "icon_button_theme")
                 build_beginner_tooltip(
                     btn_load,
                     "Load landmarks from a .json or .csv file.",
                     api,
                 )
 
-                btn_save_as = dpg.add_button(
-                    label="\uf019",
-                    tag=self._t("btn_save_as"),
-                    callback=self._c.on_btn_save_as_clicked,
-                )
-                self._bind_icon_font(btn_save_as)
-                build_beginner_tooltip(
-                    btn_save_as,
-                    "Save landmarks as... (choose new file name)",
-                    api,
-                )
-
                 btn_save = dpg.add_button(
-                    label="\uf0c7",
+                    label=ICON_SAVE,
+                    width=20,
                     tag=self._t("btn_save"),
                     callback=self._c.on_btn_save_clicked,
                     show=False,
                 )
                 self._bind_icon_font(btn_save)
+                if dpg.does_item_exist("icon_button_theme"):
+                    dpg.bind_item_theme(btn_save, "icon_button_theme")
                 build_beginner_tooltip(
                     btn_save,
                     "Save landmarks to file.",
                     api,
                 )
 
+                btn_save_as = dpg.add_button(
+                    label=ICON_SAVE_AS,
+                    width=20,
+                    tag=self._t("btn_save_as"),
+                    callback=self._c.on_btn_save_as_clicked,
+                )
+                self._bind_icon_font(btn_save_as)
+                if dpg.does_item_exist("icon_button_theme"):
+                    dpg.bind_item_theme(btn_save_as, "icon_button_theme")
+                build_beginner_tooltip(
+                    btn_save_as,
+                    "Save landmarks as... (choose new file name)",
+                    api,
+                )
+
                 btn_reload = dpg.add_button(
                     label="\uf01e",
+                    width=20,
                     tag=self._t("btn_reload"),
                     callback=self._c.on_btn_reload_clicked,
                     show=False,
                 )
                 self._bind_icon_font(btn_reload)
+                if dpg.does_item_exist("icon_button_theme"):
+                    dpg.bind_item_theme(btn_reload, "icon_button_theme")
                 build_beginner_tooltip(
                     btn_reload,
                     "Reload landmarks from disk.",

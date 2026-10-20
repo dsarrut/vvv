@@ -1,5 +1,7 @@
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import (
+    ICON_SAVE,
+    ICON_SAVE_AS,
     build_section_title,
     build_horizontal_separator,
     build_help_button,
@@ -261,7 +263,7 @@ def refresh_image_list_ui(gui):
                     )
 
                     btn_save = dpg.add_button(
-                        label="\uf0c7",
+                        label=ICON_SAVE,
                         width=20,
                         callback=lambda s, a, u: gui.on_quick_save_image_clicked(u),
                         user_data=vs_id,
@@ -269,7 +271,7 @@ def refresh_image_list_ui(gui):
                     build_beginner_tooltip(btn_save, "Save image to current file", gui)
 
                     btn_save_as = dpg.add_button(
-                        label="\uf019",
+                        label=ICON_SAVE_AS,
                         width=20,
                         callback=lambda s, a, u: gui.on_save_image_clicked(u),
                         user_data=vs_id,

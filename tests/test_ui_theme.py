@@ -21,3 +21,19 @@ def test_macos_uses_helvetica_when_present(monkeypatch):
         lambda p: p == ui_theme.MACOS_UI_FONT[0] or real_exists(p),
     )
     assert ui_theme._pick_ui_font() == ui_theme.MACOS_UI_FONT
+
+
+def test_icon_font_has_custom_save_as_glyph():
+    from fontTools.ttLib import TTFont
+    from vvv.utils import get_resource_path
+    from vvv.ui.ui_components import ICON_SAVE_AS
+
+    font_path = get_resource_path(
+        os.path.join("fonts", "Font Awesome 7 Free-Solid-900.otf")
+    )
+    assert os.path.exists(font_path)
+    font = TTFont(font_path)
+    cmap = font.getBestCmap()
+    save_as_cp = ord(ICON_SAVE_AS)
+    assert save_as_cp in cmap
+    assert cmap[save_as_cp] == "floppy-disk-arrow-down"

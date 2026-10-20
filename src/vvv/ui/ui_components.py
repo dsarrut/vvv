@@ -1,5 +1,9 @@
 import dearpygui.dearpygui as dpg
 
+# Standard UI toolbar icon glyphs
+ICON_SAVE = "\uf0c7"  # Floppy disk
+ICON_SAVE_AS = "\ue001"  # Floppy disk with down arrow badge
+
 
 def _ensure_separator_theme():
     """Ensures clean_separator_theme exists, creating it if register_dynamic_themes has not been called."""

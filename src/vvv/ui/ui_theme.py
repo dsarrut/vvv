@@ -448,6 +448,7 @@ def load_fonts():
                         # pyrefly: ignore [deprecated]
                         dpg.add_font_chars(
                             [
+                                0xE001,  # Custom: Save As (floppy with down arrow badge)
                                 0xF0C5,
                                 0xF06E,
                                 0xF070,
@@ -483,7 +484,7 @@ def load_fonts():
                 if is_legacy_dpg:
                     try:
                         # pyrefly: ignore [deprecated]
-                        dpg.add_font_chars([0xF77C, 0xF059, 0xF013])
+                        dpg.add_font_chars([0xE001, 0xF77C, 0xF059, 0xF013])
                         # pyrefly: ignore [deprecated]
                         dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
                     except Exception:

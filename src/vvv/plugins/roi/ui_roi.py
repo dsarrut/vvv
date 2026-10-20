@@ -205,17 +205,17 @@ class RoiPluginUI(PluginTagMixin):
                 )
 
             with dpg.group(horizontal=True):
-                btn_save_as = dpg.add_button(
-                    label="Save as...",
-                    width=90,
-                    callback=self.on_save_filtered_rois_as_clicked,
-                    tag=self._t("btn_roi_save_as"),
-                )
                 btn_save = dpg.add_button(
                     label="Save",
                     width=60,
                     callback=self.on_save_filtered_rois_clicked,
                     tag=self._t("btn_roi_save"),
+                )
+                btn_save_as = dpg.add_button(
+                    label="Save as...",
+                    width=90,
+                    callback=self.on_save_filtered_rois_as_clicked,
+                    tag=self._t("btn_roi_save_as"),
                 )
                 dpg.add_text(
                     "",
@@ -223,13 +223,13 @@ class RoiPluginUI(PluginTagMixin):
                     color=cfg_c["text_dim"],
                 )
                 build_beginner_tooltip(
-                    btn_save_as,
-                    "Save all filtered ROIs as a multi-label image (.nii.gz) and JSON sidecar (prompts for filename).",
+                    btn_save,
+                    "Save all filtered ROIs to the current label image file and JSON sidecar.",
                     self.api,
                 )
                 build_beginner_tooltip(
-                    btn_save,
-                    "Save all filtered ROIs to the current label image file and JSON sidecar.",
+                    btn_save_as,
+                    "Save all filtered ROIs as a multi-label image (.nii.gz) and JSON sidecar (prompts for filename).",
                     self.api,
                 )
 
