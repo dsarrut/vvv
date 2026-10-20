@@ -781,8 +781,6 @@ class DosePluginController(PluginTagMixin):
                 v.drawer._last_contour_image = None
             if hasattr(v, "drawer") and hasattr(v.drawer, "_last_leg_state"):
                 v.drawer._last_leg_state = None
-            if hasattr(v, "update_render"):
-                v.update_render(force_reblend=True)
         self._api.request_refresh()
 
     def on_image_loaded(self, image_id: str) -> None:

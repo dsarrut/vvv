@@ -507,7 +507,7 @@ class LandmarkPluginController(PluginTagMixin):
         if not vs_id:
             return False
         path_str = self.landmarks_file_path.get(vs_id)
-        if not path_str or not os.path.exists(path_str):
+        if not path_str:
             self.landmarks_is_outdated[vs_id] = False
             return False
 
@@ -516,6 +516,9 @@ class LandmarkPluginController(PluginTagMixin):
         if now - last_check > 1.0:
             self._last_mtime_check[vs_id] = now
             try:
+                if not os.path.exists(path_str):
+                    self.landmarks_is_outdated[vs_id] = False
+                    return False
                 curr_mtime = os.path.getmtime(path_str)
                 prev_mtime = self.landmarks_last_mtimes.get(vs_id, 0.0)
                 if prev_mtime == 0.0:

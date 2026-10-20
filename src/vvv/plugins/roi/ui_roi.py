@@ -467,13 +467,14 @@ class RoiPluginUI(PluginTagMixin):
 
         assert self.api is not None
         viewer = self.api.get_active_viewer()
+        volumes = self.api.get_volumes()
         is_mip = bool(
             viewer
             and viewer.image_id
             and self.api.is_mip_active(viewer.image_id, viewer.tag)
         )
         has_image = bool(
-            viewer and viewer.image_id and self.api.get_volumes().get(viewer.image_id)
+            viewer and viewer.image_id and volumes.get(viewer.image_id)
         )
         has_rois = bool(has_image and viewer.view_state and viewer.view_state.rois)
         vs_id = viewer.image_id if viewer else None
@@ -491,7 +492,7 @@ class RoiPluginUI(PluginTagMixin):
                 tuple(roi.color[:3]),
                 roi.visible,
                 roi.is_contour,
-                bool(getattr(self.api.get_volumes().get(r_id), "_is_outdated", False)),
+                bool(getattr(volumes.get(r_id), "_is_outdated", False)),
             )
             for r_id, roi in rois.items()
         )
@@ -598,7 +599,7 @@ class RoiPluginUI(PluginTagMixin):
             if (
                 viewer
                 and viewer.image_id
-                and self.api.get_volumes().get(viewer.image_id)
+                and volumes.get(viewer.image_id)
             ):
                 name_str, is_outdated = self.api.get_image_display_name(viewer.image_id)
                 dpg.set_value(self._t("text_roi_active_title"), name_str)
@@ -690,7 +691,7 @@ class RoiPluginUI(PluginTagMixin):
 
         any_outdated = False
         for roi_id in viewer.view_state.rois:
-            rvol = self.api.get_volumes().get(roi_id)
+            rvol = volumes.get(roi_id)
             if rvol and getattr(rvol, "_is_outdated", False):
                 any_outdated = True
                 break
@@ -764,7 +765,7 @@ class RoiPluginUI(PluginTagMixin):
 
                 is_active = roi_id == self._c.active_roi_id
                 is_selected = roi_id in self._c.selected_roi_ids
-                roi_vol = self.api.get_volumes().get(roi_id)
+                roi_vol = volumes.get(roi_id)
                 is_outdated = roi_vol._is_outdated if roi_vol else False
 
                 with dpg.group(horizontal=True):
