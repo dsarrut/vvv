@@ -69,6 +69,10 @@ jobs:
       - run: vvv --help
       - run: vvv_image_info --help
 
+      - name: Check drag-and-drop too (branch wheel only; 0.5.1 cannot)
+        if: matrix.source == 'wheel'
+        shell: bash
+        run: echo "CHECK_DROP=1" >> "$GITHUB_ENV"
       - name: Launch vvv (Linux, under Xvfb)
         if: runner.os == 'Linux'
         run: xvfb-run -a -s "-screen 0 1600x1000x24" python .github/scripts/launch_check.py 15

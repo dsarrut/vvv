@@ -257,9 +257,34 @@ def _get_dpg_hwnd_windows():
     except Exception:
         pass
 
-    # Fallback: find by viewport title
-    windll = getattr(ctypes, "windll")
-    return windll.user32.FindWindowW(None, "VVV")
+    # On Windows DPG uses Win32 + DirectX, not GLFW: find the window by its
+    # current title (run() sets "VVV --- n loaded images..." before this),
+    # else the visible top-level window of this process.
+    import dearpygui.dearpygui as dpg
+    from ctypes import wintypes
+
+    user32 = getattr(ctypes, "windll").user32
+    try:
+        hwnd = user32.FindWindowW(None, dpg.get_viewport_title())
+        if hwnd:
+            return hwnd
+    except Exception:
+        pass
+
+    found = []
+    pid = os.getpid()
+    EnumWindowsProc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+    def _check(hwnd, _):
+        owner = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if owner.value == pid and user32.IsWindowVisible(hwnd):
+            found.append(hwnd)
+            return False  # stop
+        return True
+
+    user32.EnumWindows(EnumWindowsProc(_check), 0)
+    return found[0] if found else None
 
 
 def _install_windows_drop(callback):

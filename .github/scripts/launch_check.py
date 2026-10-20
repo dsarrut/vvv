@@ -1,7 +1,8 @@
 """Start the installed `vvv` command on a small image and check it keeps running.
 
 Usage: python launch_check.py [seconds]
-Fails (exit 1) if vvv exits early or prints a traceback.
+Fails (exit 1) if vvv exits early or prints a traceback; with CHECK_DROP=1,
+also if it could not install drag-and-drop.
 """
 import os
 import shutil
@@ -43,4 +44,6 @@ if not alive:
     sys.exit(f"vvv exited after {time.time() - t0:.1f} s with code {p.returncode}")
 if "Traceback" in out:
     sys.exit("vvv printed a traceback")
+if os.environ.get("CHECK_DROP") == "1" and "drag-and-drop" in out:
+    sys.exit("vvv could not install drag-and-drop")
 print(f"OK: vvv ran for {seconds:.0f} s without error")
