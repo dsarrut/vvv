@@ -72,7 +72,9 @@ class DicomPluginUI(PluginTagMixin):
     def _save_ui_state(self):
         if dpg.does_item_exist(self.window_tag):
             self.last_pos = dpg.get_item_pos(self.window_tag)
-            size = dpg.get_item_rect_size(self.window_tag)
+            # rect_size is absent from the item state once the window is hidden
+            # (the close button hides it before on_close runs).
+            size = dpg.get_item_state(self.window_tag).get("rect_size")
             if size and len(size) >= 2:
                 self.last_size = (size[0], size[1])
 
@@ -86,7 +88,7 @@ class DicomPluginUI(PluginTagMixin):
 
         # Save split width
         if dpg.does_item_exist(self._t("col_list")):
-            rect = dpg.get_item_rect_size(self._t("col_list"))
+            rect = dpg.get_item_state(self._t("col_list")).get("rect_size")
             if rect and rect[0] > 0:
                 self.last_split_width = rect[0]
 
