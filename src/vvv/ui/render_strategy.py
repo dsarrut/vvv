@@ -8,6 +8,9 @@ import os as _os
 import time as _time
 import platform as _platform
 import threading as _threading
+import logging
+
+logger = logging.getLogger(__name__)
 
 GL_NEAREST_SUPPORTED = _platform.system() in ("Linux", "Windows")
 _gl_nearest_fn = None
@@ -201,77 +204,75 @@ def _init_numba():
         _NUMBA_AVAILABLE = False
 
 
-def _request_ov_compile(dtype: np.dtype):
-    dtype = np.dtype(dtype)
+def _ov_kernel_key(ov_data):
+    """Signature key of the overlay array as the kernel receives it:
+    np.ascontiguousarray() returns a contiguous ITK view as is (read-only)."""
+    readonly = bool(ov_data.flags.c_contiguous and not ov_data.flags.writeable)
+    return (np.dtype(ov_data.dtype), readonly)
+
+
+def _request_ov_compile(key):
+    """Compile the native-overlay kernel for `key` = (dtype, readonly) in a
+    background thread. Compile only (dispatcher.compile, as maths/image.py
+    does): the parallel kernel never runs off the main thread."""
     with _ov_compile_lock:
-        if dtype in _ov_pending_signatures or dtype in _ov_ready_signatures:
+        if key in _ov_pending_signatures or key in _ov_ready_signatures:
             return
-        _ov_pending_signatures.add(dtype)
+        _ov_pending_signatures.add(key)
 
     def _worker():
         try:
             _init_numba()
             if not _NUMBA_AVAILABLE or _native_ov_kernel_nb is None:
                 return
-
+            dtype, readonly = key
             dummy_ov = np.zeros((2, 2, 2), dtype=dtype)
-            dummy_rgba = np.zeros((2, 2, 4), dtype=np.float32)
-            dummy_v3 = np.zeros(3, dtype=np.float32)
-            dummy_idx = np.zeros(2, dtype=np.float32)
-            dummy_lut = np.zeros((2, 4), dtype=np.float32)
-            dummy_cw_thr = np.zeros(0, dtype=np.float32)
-            dummy_cw_col = np.zeros((0, 4), dtype=np.float32)
-            dummy_mask = np.zeros((0, 0), dtype=np.float32)
-            dummy_col = np.zeros((0, 0, 3), dtype=np.float32)
-
-            _native_ov_kernel_nb(
+            if readonly:
+                dummy_ov.setflags(write=False)
+            f32 = np.float32
+            args = (
                 dummy_ov,
-                dummy_rgba,
-                dummy_v3,
-                dummy_v3,
-                dummy_v3,
-                dummy_idx,
-                dummy_idx,
-                dummy_lut,
-                np.float32(0.0),
-                np.float32(1.0),
-                np.float32(-1e30),
-                np.float32(1.0),
-                0,
-                0,
-                2,
-                2,
-                2,
-                False,
-                dummy_mask,
-                dummy_col,
-                dummy_idx,
-                dummy_idx,
-                dummy_cw_thr,
-                dummy_cw_col,
+                np.zeros((2, 2, 4), dtype=f32),  # rgba
+                np.zeros(3, dtype=f32),  # B_eff
+                np.zeros(3, dtype=f32),  # C_col
+                np.zeros(3, dtype=f32),  # C_row
+                np.zeros(2, dtype=f32),  # iy_adj
+                np.zeros(2, dtype=f32),  # ix_adj
+                np.zeros((2, 4), dtype=f32),  # lut
+                f32(0.0), f32(1.0), f32(-1e30), f32(1.0),  # wl_min, wl_scale, threshold, opacity
+                0, 0, 2, 2, 2,  # c_y0, c_x0, ov_D, ov_H, ov_W
+                False,  # precomposite
+                np.zeros((0, 0), dtype=f32),  # roi mask
+                np.zeros((0, 0, 3), dtype=f32),  # roi colors
+                np.zeros(2, dtype=f32),
+                np.zeros(2, dtype=f32),
+                np.zeros(0, dtype=f32),  # colorwash thresholds
+                np.zeros((0, 4), dtype=f32),  # colorwash colors
             )
+            _native_ov_kernel_nb.compile(tuple(numba.typeof(x) for x in args))
             with _ov_compile_lock:
-                _ov_ready_signatures.add(dtype)
+                _ov_ready_signatures.add(key)
         except Exception:
-            pass
+            logger.exception("native overlay kernel: background compile failed")
+        finally:
+            with _ov_compile_lock:
+                _ov_pending_signatures.discard(key)
 
     _threading.Thread(target=_worker, daemon=True).start()
 
 
-def wait_for_ov_kernel(dtype=None, timeout: float = 10.0) -> bool:
-    """Wait for the native overlay numba kernel to finish background compiling."""
+def wait_for_ov_kernel(dtype=None, timeout: float = 10.0, readonly: bool = True) -> bool:
+    """Wait for the native overlay numba kernel to finish background compiling
+    (readonly: the overlay is an ITK view, the usual case)."""
     _init_numba()
     if not _NUMBA_AVAILABLE:
         return False
-    if dtype is None:
-        dtype = np.dtype(np.float32)
-    else:
-        dtype = np.dtype(dtype)
-    _request_ov_compile(dtype)
+    key = (np.dtype(np.float32 if dtype is None else dtype), readonly)
+    _request_ov_compile(key)
     t0 = _time.time()
-    while dtype not in _ov_ready_signatures and _time.time() - t0 < timeout:
+    while key not in _ov_ready_signatures and _time.time() - t0 < timeout:
         _time.sleep(0.02)
-    return dtype in _ov_ready_signatures
+    return key in _ov_ready_signatures
 
 
 
@@ -857,9 +858,9 @@ def compute_native_voxel_overlay(
         )
 
     if use_numba:
-        ov_dtype = np.dtype(ov_data.dtype)
-        if ov_dtype not in _ov_ready_signatures:
-            _request_ov_compile(ov_dtype)
+        ov_key = _ov_kernel_key(ov_data)
+        if ov_key not in _ov_ready_signatures:
+            _request_ov_compile(ov_key)
             use_numba = False
 
     if use_numba:

@@ -160,15 +160,21 @@ def test_overlay_kernel_background_compilation(headless_gui_app):
     viewer.view_state.display.pixelated_zoom = True
     viewer.resize(100, 100)
 
-    # Compile kernel for float32
-    assert wait_for_ov_kernel(np.float32, timeout=5.0) is True
-    assert np.dtype(np.float32) in _ov_ready_signatures
+    # Compile, in the background, the signature of this overlay array
+    import vvv.ui.render_strategy as rs
 
-    # Render with Numba
+    ov_data = viewer.view_state.display.overlay_data
+    dtype, readonly = rs._ov_kernel_key(ov_data)
+    assert wait_for_ov_kernel(dtype, timeout=10.0, readonly=readonly) is True
+    assert (dtype, readonly) in _ov_ready_signatures
+    n_signatures = len(rs._native_ov_kernel_nb.signatures)
+
+    # Render with Numba: uses the precompiled signature (no compile in render)
     controller.settings.data["rendering"] = {"numba": True}
     res_numba = compute_native_voxel_overlay(
         viewer, pmin=(0, 0), pmax=(100, 100), canvas_w=100, canvas_h=100
     )
+    assert len(rs._native_ov_kernel_nb.signatures) == n_signatures
 
     # Render with NumPy fallback
     controller.settings.data["rendering"] = {"numba": False}
@@ -180,3 +186,17 @@ def test_overlay_kernel_background_compilation(headless_gui_app):
     assert res_numpy is not None
     # Outputs should match closely (within float precision)
     np.testing.assert_allclose(res_numba, res_numpy, atol=1e-3)
+
+
+def test_overlay_kernel_key_matches_itk_views():
+    """The kernel receives np.ascontiguousarray(ov_data): an ITK view stays a
+    read-only array, so the background compile must target read-only."""
+    import numpy as np
+    import SimpleITK as sitk
+    import vvv.ui.render_strategy as rs
+
+    view = sitk.GetArrayViewFromImage(sitk.Image(4, 4, 4, sitk.sitkFloat32))
+    assert rs._ov_kernel_key(view) == (np.dtype(np.float32), True)
+    assert rs._ov_kernel_key(np.zeros((4, 4, 4), np.float32)) == (np.dtype(np.float32), False)
+    # A non-contiguous view is copied by np.ascontiguousarray: writable
+    assert rs._ov_kernel_key(view[:, :, ::2]) == (np.dtype(np.float32), False)
