@@ -181,4 +181,144 @@ def test_mip_save_movie():
         mock_hide.assert_called_once()
 
 
+def test_normalize_mip_angle():
+    from vvv.plugins.mip.control_mip import normalize_mip_angle
+
+    assert normalize_mip_angle(0.0) == 0.0
+    assert normalize_mip_angle(180.0) == 180.0
+    assert normalize_mip_angle(-180.0) == 180.0  # wraps -180 to 180
+    assert normalize_mip_angle(184.0) == -176.0
+    assert normalize_mip_angle(-185.0) == 175.0
+    # Floating point rounding
+    assert normalize_mip_angle(12.34567) == 12.3
+    assert normalize_mip_angle(12.36) == 12.4
+
+
+def test_mip_cache_and_step_button():
+    from unittest.mock import MagicMock
+    from vvv.plugins.mip.control_mip import MIPPluginController, MIPViewerState
+    from vvv.utils import ViewMode
+
+    controller = MIPPluginController("mip_plugin")
+    api = MagicMock()
+    controller.bind(api)
+
+    viewer = MagicMock()
+    viewer.tag = "V1"
+    viewer.image_id = "test_img"
+    viewer.orientation = ViewMode.CORONAL
+    api.get_active_viewer.return_value = viewer
+
+    state = controller.get_viewer_state("test_img", "V1")
+    state.rotation_step = 10.0
+    state.rotation_angles = {"X": 0.0, "Y": 0.0, "Z": 0.0}
+
+    # Step forward (+10 deg)
+    user_data = {"dir": 1, "tag": "slider_tag"}
+    controller.on_rotation_step_button(None, None, user_data)
+    assert state.rotation_angles["Y"] == 10.0
+
+    # Step forward again (+10 deg -> 20.0)
+    controller.on_rotation_step_button(None, None, user_data)
+    assert state.rotation_angles["Y"] == 20.0
+
+    # Test get_mip_projection cache population and hit
+    vol_data = np.zeros((8, 8, 8), dtype=np.float32)
+    vol_data[4, 4, 4] = 50.0
+
+    # First call -> computes and caches
+    proj1 = controller.get_mip_projection(
+        viewer=viewer,
+        data_3d=vol_data,
+        time_idx=0,
+        orientation=ViewMode.CORONAL,
+        depth_cueing=0.0,
+        current_angle=20.00004,  # Slight float drift should normalize to 20.0
+        proj_axis="Y",
+        mip_state=state,
+        extra_layers=[],
+    )
+    assert proj1 is not None
+
+    # Cache should now have an entry
+    cache_dict = controller._caches.get("V1", {})
+    assert len(cache_dict) >= 1
+
+    # Second call with exact 20.0 -> cache hit
+    proj2 = controller.get_mip_projection(
+        viewer=viewer,
+        data_3d=vol_data,
+        time_idx=0,
+        orientation=ViewMode.CORONAL,
+        depth_cueing=0.0,
+        current_angle=20.0,
+        proj_axis="Y",
+        mip_state=state,
+        extra_layers=[],
+    )
+    assert proj1 is proj2  # Exact object identity from cache hit
+
+    controller.destroy()
+
+
+def test_mip_precompute_debounce_and_invalidation():
+    import time
+    from unittest.mock import MagicMock
+    from vvv.plugins.mip.control_mip import MIPPluginController
+    from vvv.utils import ViewMode
+
+    controller = MIPPluginController("mip_plugin")
+    api = MagicMock()
+    controller.bind(api)
+
+    viewer = MagicMock()
+    viewer.tag = "V1"
+    viewer.image_id = "test_img"
+    viewer.orientation = ViewMode.CORONAL
+    api.get_active_viewer.return_value = viewer
+
+    state = controller.get_viewer_state("test_img", "V1")
+    state.rotation_step = 45.0
+    vol_data = np.zeros((6, 6, 6), dtype=np.float32)
+
+    # Calling get_mip_projection schedules debounced precomputation
+    _ = controller.get_mip_projection(
+        viewer=viewer,
+        data_3d=vol_data,
+        time_idx=0,
+        orientation=ViewMode.CORONAL,
+        depth_cueing=0.0,
+        current_angle=0.0,
+        proj_axis="Y",
+        mip_state=state,
+        extra_layers=[(np.zeros((6, 6, 6), dtype=np.float32), "ov_img", 0)],
+    )
+
+    timer = controller._precompute_timers.get("V1")
+    assert timer is not None
+    assert timer.is_alive()
+
+    # Second call before debounce delay resets the timer
+    _ = controller.get_mip_projection(
+        viewer=viewer,
+        data_3d=vol_data,
+        time_idx=0,
+        orientation=ViewMode.CORONAL,
+        depth_cueing=0.0,
+        current_angle=1.0,  # Dragged to 1.0
+        proj_axis="Y",
+        mip_state=state,
+        extra_layers=[(np.zeros((6, 6, 6), dtype=np.float32), "ov_img", 0)],
+    )
+    new_timer = controller._precompute_timers.get("V1")
+    assert new_timer is not timer
+
+    # Test per-image cache invalidation
+    controller.clear_image_cache("test_img")
+    assert len(controller._caches.get("V1", {})) == 0
+
+    controller.destroy()
+
+
+
 

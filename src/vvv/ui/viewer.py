@@ -2359,7 +2359,7 @@ class SliceViewer:
                     angle += 360.0
                 elif angle > 180.0:
                     angle -= 360.0
-                mip_state.rotation_angles[proj_axis] = round(angle, 2)
+                mip_state.rotation_angles[proj_axis] = round(angle, 1)
                 if mip_plugin:
                     mip_plugin._controller.propagate_rotation(
                         self.image_id, mip_state.rotation_angles
@@ -2477,7 +2477,7 @@ class SliceViewer:
                 angle += 360.0
             while angle > 180.0:
                 angle -= 360.0
-            mip_state.rotation_angles[proj_axis] = round(angle, 2)
+            mip_state.rotation_angles[proj_axis] = round(angle, 1)
             if mip_plugin:
                 mip_plugin._controller.propagate_rotation(
                     self.image_id, mip_state.rotation_angles
