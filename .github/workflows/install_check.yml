@@ -1,0 +1,81 @@
+name: Install check
+
+# pip install open-vvv (from PyPI and from the branch wheel), then run the
+# installed vvv command for real: --help, then a GUI launch on a small image.
+on:
+  workflow_dispatch:
+  push:
+    branches: [install_check]
+
+jobs:
+  build-wheel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - run: pip install build && python -m build --wheel
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wheel
+          path: dist/
+
+  install:
+    needs: [build-wheel]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        source: [pypi, wheel]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/scripts
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/download-artifact@v8
+        if: matrix.source == 'wheel'
+        with:
+          name: wheel
+          path: dist/
+
+      - name: Linux display (Xvfb + Mesa OpenGL)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q xvfb libgl1 libglx-mesa0 libegl1 libxrandr2 libxinerama1 libxcursor1 libxi6
+
+      - name: pip install (PyPI)
+        if: matrix.source == 'pypi'
+        run: |
+          python -m pip install --upgrade pip
+          pip install open-vvv
+      - name: pip install (wheel, Unix)
+        if: matrix.source == 'wheel' && runner.os != 'Windows'
+        run: |
+          python -m pip install --upgrade pip
+          pip install dist/*.whl
+      - name: pip install (wheel, Windows)
+        if: matrix.source == 'wheel' && runner.os == 'Windows'
+        run: |
+          python -m pip install --upgrade pip
+          Get-ChildItem dist\*.whl | ForEach-Object { pip install $_.FullName }
+
+      - run: pip show open-vvv
+      - run: vvv --help
+      - run: vvv_image_info --help
+
+      - name: Check drag-and-drop too (branch wheel only; 0.5.1 cannot)
+        if: matrix.source == 'wheel'
+        shell: bash
+        run: echo "CHECK_DROP=1" >> "$GITHUB_ENV"
+      - name: Launch vvv (Linux, under Xvfb)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a -s "-screen 0 1600x1000x24" python .github/scripts/launch_check.py 15
+      - name: Launch vvv (Windows / macOS)
+        if: runner.os != 'Linux'
+        run: python .github/scripts/launch_check.py 15
