@@ -1,3 +1,5 @@
+import weakref
+
 import numpy as np
 
 
@@ -53,9 +55,13 @@ class ProfileManager:
         else:
             target_shape = vol.shape3d
 
+        # The transform is edited in place (SetTranslation / SetRotation): key on
+        # its parameters, not on the object
+        space = getattr(vs, "space", None)
+        tx = getattr(space, "transform", None)
         transform_token = (
-            id(vs.space.transform)
-            if getattr(vs, "space", None) and getattr(vs.space, "transform", None)
+            (bool(space.is_active), tuple(tx.GetParameters()), tuple(tx.GetFixedParameters()))
+            if tx is not None
             else None
         )
         profile_id = getattr(profile, "id", "")
@@ -72,8 +78,13 @@ class ProfileManager:
             in_preview,
             transform_token,
         )
-        if cache_key in self._cache:
-            return self._cache[cache_key]
+        # The entry holds a weak reference to the sampled array: a hit only if it
+        # is still that array (an id can be reused once an array is freed), and
+        # the cache keeps no image alive
+        hit = self._cache.get(cache_key)
+        if hit is not None and hit[4]() is data:
+            distances, intensities, pts_phys, distances_list, _ = hit
+            return (distances, intensities, pts_phys, vs, vol, distances_list)
 
         sx, sy, sz = target_shape[2], target_shape[1], target_shape[0]
 
@@ -142,11 +153,10 @@ class ProfileManager:
         intensities = (c0 * (1 - zd) + c1 * zd).tolist()
         distances_list = distances.tolist()
 
-        result = (distances, intensities, pts_phys, vs, vol, distances_list)
         if len(self._cache) > 256:
             self._cache.pop(next(iter(self._cache)))
-        self._cache[cache_key] = result
-        return result
+        self._cache[cache_key] = (distances, intensities, pts_phys, distances_list, weakref.ref(data))
+        return (distances, intensities, pts_phys, vs, vol, distances_list)
 
     def get_profile_data(self, vs_id, profile):
         result = self._sample_points(vs_id, profile)

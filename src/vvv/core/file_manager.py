@@ -677,6 +677,7 @@ class FileManager:
 
                 del self.controller.view_states[vs_id]
                 del self.controller.volumes[vs_id]
+                self.controller.profiles.clear_cache(vs_id)
 
                 if self.controller.gui:
                     self.controller.gui.notify_plugins_image_removed(vs_id)
