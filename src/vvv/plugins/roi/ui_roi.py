@@ -1,4 +1,5 @@
 import os
+import logging
 import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.ui.ui_components import (
@@ -10,6 +11,8 @@ from vvv.ui.ui_components import (
     build_delete_button,
     build_name_filter_bar,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class RoiPluginUI(PluginTagMixin):
@@ -1779,31 +1782,37 @@ class RoiPluginUI(PluginTagMixin):
         sort_by_volume = settings.get("sort_by_volume", True)
         auto_crop = settings.get("auto_crop", True)
 
+        # Main thread: snapshot the ROIs; the worker only writes files
+        snapshot = self._c._collect_or_notify(base_id)
+        if snapshot is None:
+            return
         self.api.notify(f"Saving ROIs to {os.path.basename(dest_path)}...")
 
         def _save():
             try:
                 if mode == "single":
-                    success = self._c.save_filtered_rois_as_labels(
-                        base_id, dest_path, sort_by_volume=sort_by_volume
+                    msg = self._c.write_rois_as_labels(
+                        snapshot, dest_path, sort_by_volume=sort_by_volume
                     )
                 else:
-                    success = self._c.save_filtered_rois_as_individual_files(
-                        base_id, dest_path, auto_crop=auto_crop
+                    msg = self._c.write_rois_as_individual_files(
+                        snapshot, dest_path, auto_crop=auto_crop
                     )
-
-                if success:
-                    def _on_done():
-                        self.roi_save_settings[base_id] = settings
-                        self.labels_save_paths[base_id] = dest_path
-                        self.update_save_filename_ui()
-
-                    self.api.run_on_main_thread(_on_done)
             except Exception as e:
+                logger.exception(f"Saving ROIs to {dest_path} failed")
                 err_msg = str(e)
                 self.api.run_on_main_thread(
                     lambda: self.api.notify(f"Error saving ROIs: {err_msg}", color=[255, 100, 100])
                 )
+                return
+
+            def _on_done():
+                self.roi_save_settings[base_id] = settings
+                self.labels_save_paths[base_id] = dest_path
+                self.update_save_filename_ui()
+                self.api.notify(msg)
+
+            self.api.run_on_main_thread(_on_done)
 
         import threading
 

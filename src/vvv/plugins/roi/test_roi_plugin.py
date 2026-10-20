@@ -2634,6 +2634,61 @@ class TestRoiPlugin(unittest.TestCase):
             read_img = sitk.ReadImage(os.path.join(out_dir, "Kidney_L.nii.gz"))
             self.assertEqual(read_img.GetSize(), (20, 20, 10))
 
+    def test_batch_save_worker_reads_no_live_state(self):
+        """PB1: the batch save reads the ROIs on the main thread and notifies on
+        the main thread; the worker only writes the files."""
+        import threading
+        import time
+
+        ctrl = self.plugin._controller
+        ctrl.api = self.mock_api
+        ui = self.plugin._ui
+        ui.api = self.mock_api
+        main = threading.current_thread()
+        threads = []
+
+        data_1 = np.zeros((10, 20, 20), dtype=np.uint8)
+        data_1[2:5, 5:10, 5:10] = 1
+        vol_1 = MagicMock()
+        vol_1.data = data_1
+        vol_1.shape3d = (10, 20, 20)
+        vol_1.sitk_image = sitk.GetImageFromArray(data_1)
+        vol_1.roi_bbox = None
+        mock_base = MagicMock()
+        mock_base.shape3d = (10, 20, 20)
+        mock_base.sitk_image = sitk.Image(20, 20, 10, sitk.sitkFloat32)
+        roi_state_1 = MagicMock()
+        roi_state_1.name = "Kidney_L"
+        roi_state_1.color = [0, 255, 0]
+        mock_vs = MagicMock()
+        mock_vs.rois = {"roi_1": roi_state_1}
+
+        def record(value):
+            def _f(*a, **k):
+                threads.append(threading.current_thread())
+                return value
+            return _f
+
+        self.mock_api.get_volumes.side_effect = record({"img_1": mock_base, "roi_1": vol_1})
+        self.mock_api.get_view_states.side_effect = record({"img_1": mock_vs})
+        self.mock_api.notify.side_effect = record(None)
+        queued = []
+        self.mock_api.run_on_main_thread.side_effect = queued.append
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_dir = os.path.join(tmpdir, "rois_dir")
+            ui._execute_save_rois("img_1", {"mode": "individual", "path": out_dir})
+            t_end = time.time() + 5
+            while not queued and time.time() < t_end:
+                time.sleep(0.01)
+            for cb in queued:  # what the GUI loop does on the main thread
+                cb()
+            self.assertIn("Kidney_L.nii.gz", os.listdir(out_dir))
+
+        self.assertTrue(threads)
+        self.assertTrue(all(t is main for t in threads))
+        self.mock_api.notify.assert_called_with("Saved 1 ROI files to rois_dir/")
+
     def test_ui_save_labels_buttons(self):
         """Test Save and Save As modal dialog and filename tracking."""
         if not dpg.is_dearpygui_running():
