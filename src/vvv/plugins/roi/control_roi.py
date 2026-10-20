@@ -798,6 +798,7 @@ class RoiPluginController(PluginTagMixin):
         mask_data = mask_flat.reshape((max_z - min_z, max_y - min_y, max_x - min_x)).astype(np.uint8)
 
         if not np.any(mask_data):
+            center_voxel = base_vol.physic_coord_to_voxel_coord(phys_center)
             cx_idx = int(round(center_voxel[0]))
             cy_idx = int(round(center_voxel[1]))
             cz_idx = int(round(center_voxel[2]))
@@ -923,6 +924,7 @@ class RoiPluginController(PluginTagMixin):
         mask_data = mask_flat.reshape((max_z - min_z, max_y - min_y, max_x - min_x)).astype(np.uint8)
 
         if not np.any(mask_data):
+            center_voxel = base_vol.physic_coord_to_voxel_coord(phys_center)
             cx_idx = int(round(center_voxel[0]))
             cy_idx = int(round(center_voxel[1]))
             cz_idx = int(round(center_voxel[2]))

@@ -2865,6 +2865,27 @@ class TestRoiPlugin(unittest.TestCase):
         ctrl.update_spheroid_mask(bad_base_vol, roi_vol, roi_state, new_r_x_mm=99.0)
         self.assertEqual(roi_state.spheroid_radius_x, 8.0)
 
+    def test_box_smaller_than_a_voxel_keeps_the_center_voxel(self):
+        """A box that contains no voxel center falls back to the voxel under its center
+        (the fallback used an undefined center_voxel: NameError)."""
+        import SimpleITK as sitk
+        from vvv.maths.image import VolumeData
+
+        ctrl = self.plugin._controller
+        ctrl.api = self.mock_api
+        sitk_img = sitk.GetImageFromArray(np.zeros((20, 30, 40), dtype=np.float32))
+        sitk_img.SetSpacing((3.0, 3.0, 3.0))  # sizes are clamped to >= 1 mm
+        base_vol = VolumeData("dummy_path", preloaded_sitk=sitk_img)
+
+        roi_state = MagicMock()
+        roi_state.box_center = [61.5, 45.0, 30.0]  # x between the voxel centers 60 and 63 mm
+        roi_vol = MagicMock()
+        roi_vol.sitk_image = None
+
+        ctrl.update_box_mask(base_vol, roi_vol, roi_state, new_size_x=1.0, new_size_y=1.0, new_size_z=1.0)
+
+        self.assertEqual(int(np.count_nonzero(roi_vol.data)), 1)
+
     def test_detailed_stats_caching_and_invalidation(self):
         """PC1: verify that compute_detailed_roi_stats caches results and invalidates properly."""
         ctrl = self.plugin._controller
