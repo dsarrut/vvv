@@ -1,5 +1,6 @@
 from typing import Optional, Dict
 import threading
+import time
 import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
@@ -36,7 +37,11 @@ class MIPPluginController(PluginTagMixin):
         self._cache_locks: Dict[str, threading.Lock] = {}
         self._precompute_stops: Dict[str, threading.Event] = {}
         self._precompute_params: Dict[str, tuple] = {}
-        self._precompute_timers: Dict[str, threading.Timer] = {}
+        # Debounced precompute: viewer tag -> due time (time.monotonic()). No timer
+        # thread: tick() (main thread) re-renders the viewer when due, and that
+        # render starts the precompute from the data of that frame.
+        self._precompute_due: Dict[str, float] = {}
+        self._precompute_ready: set = set()
 
     def bind(self, api: PluginAPI) -> None:
         self._api = api
@@ -91,9 +96,8 @@ class MIPPluginController(PluginTagMixin):
                 stop_ev = self._precompute_stops.get(tag)
                 if stop_ev:
                     stop_ev.set()
-                timer = self._precompute_timers.pop(tag, None)
-                if timer:
-                    timer.cancel()
+                self._precompute_due.pop(tag, None)
+                self._precompute_ready.discard(tag)
 
         self.clear_image_cache(image_id)
 
@@ -203,9 +207,8 @@ class MIPPluginController(PluginTagMixin):
         return 0
 
     def destroy(self) -> None:
-        for timer in self._precompute_timers.values():
-            timer.cancel()
-        self._precompute_timers.clear()
+        self._precompute_due.clear()
+        self._precompute_ready.clear()
         for stop_event in self._precompute_stops.values():
             stop_event.set()
         self._precompute_stops.clear()
@@ -468,6 +471,20 @@ class MIPPluginController(PluginTagMixin):
                     orientation=orientation,
                     extra_layers=extra_layers,
                 )
+            elif tag in self._precompute_ready:
+                # Debounce over (tick): start with this frame's arrays
+                self._precompute_ready.discard(tag)
+                self._start_mip_precompute(
+                    viewer=viewer,
+                    data_3d=data_3d,
+                    proj_axis=proj_axis,
+                    depth_cueing=norm_depth,
+                    center_angle=norm_angle,
+                    rotation_step=rot_step,
+                    time_idx=time_idx,
+                    orientation=orientation,
+                    extra_layers=extra_layers,
+                )
 
         return preview
 
@@ -484,43 +501,42 @@ class MIPPluginController(PluginTagMixin):
         extra_layers=None,
         delay: float = 0.25,
     ):
+        """Main thread. With a delay (rotation drag), only record when to start:
+        the arrays are not kept, a display view must not outlive its frame."""
         tag = viewer.tag.upper()
-        old_timer = self._precompute_timers.pop(tag, None)
-        if old_timer:
-            old_timer.cancel()
-
-        if delay <= 0:
-            self._start_mip_precompute(
-                viewer=viewer,
-                data_3d=data_3d,
-                proj_axis=proj_axis,
-                depth_cueing=depth_cueing,
-                center_angle=center_angle,
-                rotation_step=rotation_step,
-                time_idx=time_idx,
-                orientation=orientation,
-                extra_layers=extra_layers,
-            )
+        self._precompute_ready.discard(tag)
+        if delay > 0:
+            self._precompute_due[tag] = time.monotonic() + delay
             return
-
-        timer = threading.Timer(
-            delay,
-            self._start_mip_precompute,
-            kwargs=dict(
-                viewer=viewer,
-                data_3d=data_3d,
-                proj_axis=proj_axis,
-                depth_cueing=depth_cueing,
-                center_angle=center_angle,
-                rotation_step=rotation_step,
-                time_idx=time_idx,
-                orientation=orientation,
-                extra_layers=extra_layers,
-            ),
+        self._precompute_due.pop(tag, None)
+        self._start_mip_precompute(
+            viewer=viewer,
+            data_3d=data_3d,
+            proj_axis=proj_axis,
+            depth_cueing=depth_cueing,
+            center_angle=center_angle,
+            rotation_step=rotation_step,
+            time_idx=time_idx,
+            orientation=orientation,
+            extra_layers=extra_layers,
         )
-        timer.daemon = True
-        self._precompute_timers[tag] = timer
-        timer.start()
+
+    def tick(self) -> None:
+        """Main thread, every frame: re-render the viewers whose debounced
+        precompute is due; get_mip_projection then starts it."""
+        if not self._precompute_due:
+            return
+        now = time.monotonic()
+        due = [tag for tag, t in self._precompute_due.items() if t <= now]
+        if not due:
+            return
+        viewers = self._api.get_viewers() if self._api else {}
+        for tag in due:
+            del self._precompute_due[tag]
+            viewer = viewers.get(tag)
+            if viewer is not None:
+                self._precompute_ready.add(tag)
+                self._mark_viewer_dirty(viewer)
 
     def _start_mip_precompute(
         self,

@@ -294,11 +294,11 @@ def test_mip_precompute_debounce_and_invalidation():
         extra_layers=[(np.zeros((6, 6, 6), dtype=np.float32), "ov_img", 0)],
     )
 
-    timer = controller._precompute_timers.get("V1")
-    assert timer is not None
-    assert timer.is_alive()
+    # Debounced: only a due time is recorded, no thread and no array kept
+    assert "V1" in controller._precompute_due
+    first_due = controller._precompute_due["V1"]
 
-    # Second call before debounce delay resets the timer
+    # Second call before the debounce delay pushes the due time back
     _ = controller.get_mip_projection(
         viewer=viewer,
         data_3d=vol_data,
@@ -310,8 +310,36 @@ def test_mip_precompute_debounce_and_invalidation():
         mip_state=state,
         extra_layers=[(np.zeros((6, 6, 6), dtype=np.float32), "ov_img", 0)],
     )
-    new_timer = controller._precompute_timers.get("V1")
-    assert new_timer is not timer
+    assert controller._precompute_due["V1"] >= first_due
+
+    # When due, tick() (main thread) re-renders the viewer ...
+    controller._precompute_due["V1"] = 0.0
+    api.get_viewers.return_value = {"V1": viewer}
+    viewer.is_viewer_data_dirty = False
+    controller.tick()
+    assert viewer.is_viewer_data_dirty and "V1" not in controller._precompute_due
+
+    # ... and that render starts the precompute on its own thread, with its data
+    import threading
+    started = []
+    controller._start_mip_precompute = lambda **kw: started.append(
+        (threading.current_thread(), kw["data_3d"])
+    )
+    frame_data = np.ones((6, 6, 6), dtype=np.float32)
+    _ = controller.get_mip_projection(
+        viewer=viewer,
+        data_3d=frame_data,
+        time_idx=0,
+        orientation=ViewMode.CORONAL,
+        depth_cueing=0.0,
+        current_angle=1.0,
+        proj_axis="Y",
+        mip_state=state,
+        extra_layers=[(np.zeros((6, 6, 6), dtype=np.float32), "ov_img", 0)],
+    )
+    assert len(started) == 1
+    assert started[0][0] is threading.current_thread() and started[0][1] is frame_data
+    del controller._start_mip_precompute
 
     # Test per-image cache invalidation
     controller.clear_image_cache("test_img")
