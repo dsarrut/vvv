@@ -20,6 +20,15 @@ class RoiPluginController(PluginTagMixin):
         self._last_roi_ids = set()
         self._scroll_to_active = False
         self._stop_event = threading.Event()
+        self._detailed_stats_cache = {}
+
+    def invalidate_stats_cache(self, roi_id: Optional[str] = None) -> None:
+        if roi_id is None:
+            self._detailed_stats_cache.clear()
+        else:
+            self._detailed_stats_cache = {
+                k: v for k, v in self._detailed_stats_cache.items() if k[1] != roi_id
+            }
 
     def bind(self, api: PluginAPI) -> None:
         self.api = api
@@ -56,6 +65,7 @@ class RoiPluginController(PluginTagMixin):
         self.roi_filters.pop(image_id, None)
         self.roi_filter_inverts.pop(image_id, None)
         self.roi_sort_orders.pop(image_id, None)
+        self.invalidate_stats_cache()
         if self.ui:
             self.ui.close_rtstruct_modal()
             self.ui.close_all_stats_windows()
@@ -243,6 +253,36 @@ class RoiPluginController(PluginTagMixin):
         base_vs = view_states.get(base_vs_id) if view_states else None
         roi_state = base_vs.rois.get(roi_id) if (base_vs and hasattr(base_vs, "rois")) else None
 
+        viewer = self.api.get_active_viewer()
+        t_base = 0
+        if viewer and viewer.view_state and base_vol.num_timepoints > 1:
+            t_base = min(viewer.view_state.camera.time_idx, base_vol.num_timepoints - 1)
+
+        overlay_id = base_vs.display.overlay.image_id if (base_vs and hasattr(base_vs, "display") and base_vs.display.overlay) else None
+        ov_data = getattr(base_vs.display, "overlay_data", None) if (base_vs and hasattr(base_vs, "display")) else None
+        ov_data_id = id(ov_data) if ov_data is not None else None
+        t_ov = 0
+        if overlay_id and overlay_id in volumes:
+            ov_vol = volumes[overlay_id]
+            if ov_vol and ov_vol.num_timepoints > 1 and viewer and viewer.view_state:
+                t_ov = min(viewer.view_state.camera.time_idx, ov_vol.num_timepoints - 1)
+
+        cache_key = (
+            base_vs_id,
+            roi_id,
+            id(base_vol.data),
+            id(roi_vol.data),
+            t_base,
+            overlay_id,
+            ov_data_id,
+            t_ov,
+            getattr(roi_state, "source_type", None),
+            getattr(roi_state, "source_mode", None),
+            getattr(roi_state, "source_val", None),
+        )
+        if cache_key in self._detailed_stats_cache:
+            return self._detailed_stats_cache[cache_key]
+
         filepath = getattr(roi_vol, "path", None)
         if not isinstance(filepath, str):
             filepath = None
@@ -422,7 +462,7 @@ class RoiPluginController(PluginTagMixin):
                     "peak": ov_peak,
                 }
 
-        return {
+        res = {
             "vol_cc": vol_cc,
             "voxel_count": voxel_count,
             "com_pixel": com_pixel,
@@ -442,6 +482,8 @@ class RoiPluginController(PluginTagMixin):
             "source_filepath": filepath,
             "source_type": source_type,
         }
+        self._detailed_stats_cache[cache_key] = res
+        return res
 
     def on_add_spheroid(self, base_id: str) -> None:
         import numpy as np
@@ -669,6 +711,7 @@ class RoiPluginController(PluginTagMixin):
         roi_vol.data = mask_data
         roi_vol.origin = ref_origin
         roi_vol.roi_bbox = (min_z, max_z, min_y, max_y, min_x, max_x)
+        self.invalidate_stats_cache(roi_id=getattr(roi_state, "volume_id", None))
 
     def on_add_box(self, base_id: str) -> None:
         import numpy as np
@@ -901,6 +944,7 @@ class RoiPluginController(PluginTagMixin):
         roi_vol.data = mask_data
         roi_vol.origin = ref_origin
         roi_vol.roi_bbox = (min_z, max_z, min_y, max_y, min_x, max_x)
+        self.invalidate_stats_cache(roi_id=getattr(roi_state, "volume_id", None))
 
     def save_filtered_rois_as_labels(
         self, base_id: str, filepath: str, sort_by_volume: bool = True

@@ -20,8 +20,11 @@ class RoiPluginUI(PluginTagMixin):
         self.roi_selectables = {}
         self.open_stats_wins = set()
         self.stats_win_positions = {}
+        self.stats_win_colors = {}
         self.labels_save_paths: dict[str, str] = {}
         self.roi_save_settings: dict[str, dict] = {}
+        self._last_table_state_key = None
+        self._last_detail_state_key = None
 
     def create_ui(self, parent, api: PluginAPI) -> None:
         self.api = api
@@ -462,23 +465,6 @@ class RoiPluginUI(PluginTagMixin):
         if not dpg.does_item_exist(table_id):
             return
 
-        current_scroll = dpg.get_y_scroll(table_id)
-
-        # Explicitly delete children with custom tags to release their aliases in DPG registry
-        for viewer in self.api.get_viewers().values():
-            if viewer.view_state:
-                for roi_id in list(viewer.view_state.rois.keys()):
-                    for tag in (
-                        self._t(f"list_color_picker_{roi_id}"),
-                        self._t(f"input_roi_name_{roi_id}"),
-                    ):
-                        if dpg.does_item_exist(tag):
-                            dpg.delete_item(tag)
-
-        # Delete row children inside table slot 1
-        dpg.delete_item(table_id, children_only=True, slot=1)
-        self.roi_selectables.clear()
-
         assert self.api is not None
         viewer = self.api.get_active_viewer()
         is_mip = bool(
@@ -490,6 +476,76 @@ class RoiPluginUI(PluginTagMixin):
             viewer and viewer.image_id and self.api.get_volumes().get(viewer.image_id)
         )
         has_rois = bool(has_image and viewer.view_state and viewer.view_state.rois)
+        vs_id = viewer.image_id if viewer else None
+        filter_text = self._c.roi_filters.get(vs_id, "") if vs_id else ""
+        invert = self._c.roi_filter_inverts.get(vs_id, False) if vs_id else False
+        sort_order = self._c.roi_sort_orders.get(vs_id, 0) if vs_id else 0
+        active_roi_id = self._c.active_roi_id
+        selected_roi_ids = tuple(sorted(self._c.selected_roi_ids))
+
+        rois = viewer.view_state.rois if (viewer and viewer.view_state) else {}
+        rois_summary = tuple(
+            (
+                r_id,
+                roi.name,
+                tuple(roi.color[:3]),
+                roi.visible,
+                roi.is_contour,
+                bool(getattr(self.api.get_volumes().get(r_id), "_is_outdated", False)),
+            )
+            for r_id, roi in rois.items()
+        )
+        has_overlay = (
+            bool(viewer and viewer.view_state and viewer.view_state.display.overlay.image_id)
+            if viewer
+            else False
+        )
+        roi_above_overlay = (
+            bool(getattr(viewer.view_state.display, "roi_above_overlay", False))
+            if (viewer and viewer.view_state)
+            else False
+        )
+
+        table_state_key = (
+            vs_id,
+            is_mip,
+            has_image,
+            has_rois,
+            filter_text,
+            invert,
+            sort_order,
+            active_roi_id,
+            selected_roi_ids,
+            has_overlay,
+            roi_above_overlay,
+            rois_summary,
+        )
+
+        if table_state_key == self._last_table_state_key and not getattr(
+            self._c, "_scroll_to_active", False
+        ):
+            self.refresh_all_open_stats_windows()
+            self.refresh_roi_detail_ui()
+            return
+
+        self._last_table_state_key = table_state_key
+
+        current_scroll = dpg.get_y_scroll(table_id)
+
+        # Explicitly delete children with custom tags to release their aliases in DPG registry
+        for v_item in self.api.get_viewers().values():
+            if v_item.view_state:
+                for roi_id in list(v_item.view_state.rois.keys()):
+                    for tag in (
+                        self._t(f"list_color_picker_{roi_id}"),
+                        self._t(f"input_roi_name_{roi_id}"),
+                    ):
+                        if dpg.does_item_exist(tag):
+                            dpg.delete_item(tag)
+
+        # Delete row children inside table slot 1
+        dpg.delete_item(table_id, children_only=True, slot=1)
+        self.roi_selectables.clear()
 
         load_controls = [
             "btn_roi_load_rtstruct",
@@ -866,6 +922,7 @@ class RoiPluginUI(PluginTagMixin):
         )
 
         if not has_single_selection:
+            self._last_detail_state_key = None
             if dpg.does_item_exist(header):
                 dpg.configure_item(header, show=False)
             if dpg.does_item_exist(window):
@@ -883,6 +940,21 @@ class RoiPluginUI(PluginTagMixin):
             )
             self.api.on_window_resize()
             return
+
+        roi_state = viewer.view_state.rois[self._c.active_roi_id]
+        detail_state_key = (
+            self._c.active_roi_id,
+            num_selected,
+            getattr(roi_state, "opacity", 0.5),
+            getattr(roi_state, "thickness", 1.0),
+            getattr(roi_state, "is_contour", False),
+            tuple(getattr(roi_state, "color", [255, 0, 0])[:3]),
+        )
+
+        if detail_state_key == self._last_detail_state_key:
+            self.update_roi_stats_ui()
+            return
+        self._last_detail_state_key = detail_state_key
 
         if dpg.does_item_exist(header):
             dpg.configure_item(header, show=True)
@@ -3116,25 +3188,26 @@ class RoiPluginUI(PluginTagMixin):
             if dpg.does_item_exist(win_tag):
                 dpg.configure_item(win_tag, label=f"{roi.name} - {image_name}")
 
-                # Recreate and update the theme in case the ROI color was modified
-                theme_tag = self._t(f"stats_theme_{roi_id}")
-                if dpg.does_item_exist(theme_tag):
-                    dpg.delete_item(theme_tag, children_only=True)
-                else:
-                    dpg.add_theme(tag=theme_tag)
+                # Update the theme only if the ROI color was modified
+                color_key = tuple(roi.color[:3])
+                if self.stats_win_colors.get(roi_id) != color_key:
+                    self.stats_win_colors[roi_id] = color_key
+                    theme_tag = self._t(f"stats_theme_{roi_id}")
+                    if dpg.does_item_exist(theme_tag):
+                        dpg.delete_item(theme_tag, children_only=True)
+                    else:
+                        dpg.add_theme(tag=theme_tag)
 
-                r, g, b = roi.color[:3]
-                luminance = 0.299 * r + 0.587 * g + 0.114 * b
-                text_color = [0, 0, 0, 255] if luminance > 128 else [255, 255, 255, 255]
+                    r, g, b = color_key
+                    luminance = 0.299 * r + 0.587 * g + 0.114 * b
+                    text_color = [0, 0, 0, 255] if luminance > 128 else [255, 255, 255, 255]
 
-                with dpg.theme_component(dpg.mvWindowAppItem, parent=theme_tag):
-                    dpg.add_theme_color(dpg.mvThemeCol_TitleBg, roi.color + [255])
-                    dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, roi.color + [255])
-                    dpg.add_theme_color(dpg.mvThemeCol_TitleBg, list(roi.color[:3]) + [255])
-                    dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, list(roi.color[:3]) + [255])
-                    dpg.add_theme_color(dpg.mvThemeCol_Text, text_color)
+                    with dpg.theme_component(dpg.mvWindowAppItem, parent=theme_tag):
+                        dpg.add_theme_color(dpg.mvThemeCol_TitleBg, list(color_key) + [255])
+                        dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, list(color_key) + [255])
+                        dpg.add_theme_color(dpg.mvThemeCol_Text, text_color)
 
-                dpg.bind_item_theme(win_tag, theme_tag)
+                    dpg.bind_item_theme(win_tag, theme_tag)
 
             content_tag = self._t(f"stats_content_{roi_id}")
             if dpg.does_item_exist(content_tag):

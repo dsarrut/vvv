@@ -2874,6 +2874,92 @@ class TestRoiPlugin(unittest.TestCase):
         ctrl.update_spheroid_mask(bad_base_vol, roi_vol, roi_state, new_r_x_mm=99.0)
         self.assertEqual(roi_state.spheroid_radius_x, 8.0)
 
+    def test_detailed_stats_caching_and_invalidation(self):
+        """PC1: verify that compute_detailed_roi_stats caches results and invalidates properly."""
+        ctrl = self.plugin._controller
+        ctrl.bind(self.mock_api)
+
+        base_vol = MagicMock()
+        base_vol.data = np.full((5, 6, 7), 10.0, dtype=np.float32)
+        base_vol.spacing = np.array([2.0, 2.0, 2.0])
+        base_vol.shape3d = (5, 6, 7)
+        base_vol.num_timepoints = 1
+        base_vol.is_rgb = False
+        base_vol.sitk_image = MagicMock()
+
+        roi_vol = MagicMock()
+        roi_vol.data = np.zeros((5, 6, 7), dtype=np.uint8)
+        roi_vol.data[1, 2, 3] = 1
+        roi_vol.spacing = np.array([2.0, 2.0, 2.0])
+        roi_vol.shape3d = (5, 6, 7)
+        roi_vol.sitk_image = MagicMock()
+
+        roi_state = ROIState("roi_c", "CacheTest", [255, 0, 0])
+        self.mock_api.get_volumes.return_value = {
+            "img_c": base_vol,
+            "roi_c": roi_vol,
+        }
+        self.mock_api.get_view_states.return_value = {
+            "img_c": MockViewState(rois={"roi_c": roi_state}),
+        }
+
+        # First compute
+        stats1 = ctrl.compute_detailed_roi_stats("img_c", "roi_c")
+        self.assertIsNotNone(stats1)
+
+        # Second compute should hit cache and return exact same dict
+        stats2 = ctrl.compute_detailed_roi_stats("img_c", "roi_c")
+        self.assertIs(stats1, stats2)
+
+        # Invalidate cache for roi_c
+        ctrl.invalidate_stats_cache("roi_c")
+        self.assertEqual(len(ctrl._detailed_stats_cache), 0)
+
+        # Recomputes and produces new dict
+        stats3 = ctrl.compute_detailed_roi_stats("img_c", "roi_c")
+        self.assertIsNotNone(stats3)
+        self.assertEqual(len(ctrl._detailed_stats_cache), 1)
+
+        # Replacing data changes id(data) and also bypasses stale cache
+        roi_vol.data = np.zeros((5, 6, 7), dtype=np.uint8)
+        roi_vol.data[2, 2, 2] = 1
+        stats4 = ctrl.compute_detailed_roi_stats("img_c", "roi_c")
+        self.assertIsNot(stats3, stats4)
+
+    def test_refresh_rois_ui_table_state_caching(self):
+        """PC1: verify that refresh_rois_ui avoids rebuilding table rows when state is unchanged."""
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_cache_parent"):
+            self.plugin.create_ui(parent="test_cache_parent", api=self.mock_api)
+
+        ui = self.plugin._ui
+        ctrl = self.plugin._controller
+
+        rois = {
+            "roi_a": MockROI("roi_a", "ROI_A", [255, 0, 0]),
+            "roi_b": MockROI("roi_b", "ROI_B", [0, 255, 0]),
+        }
+        mock_viewer = MockViewer("img_cache", rois)
+        self.mock_api.get_active_viewer.return_value = mock_viewer
+
+        # Initial refresh: builds the table
+        ui.refresh_rois_ui()
+        self.assertIsNotNone(ui._last_table_state_key)
+        first_input = ui.roi_selectables["roi_a"]
+
+        # Second refresh with identical state: should skip table delete/rebuild
+        ui.refresh_rois_ui()
+        # Item tag for roi_a should still exist and match
+        self.assertEqual(ui.roi_selectables["roi_a"], first_input)
+
+        # State change (selection): should trigger rebuild
+        ctrl.on_roi_selected("roi_a")
+        # Item tag regenerated after selection rebuild
+        self.assertIn("roi_a", ui.roi_selectables)
+
+        dpg.delete_item("test_cache_parent")
+
 
 if __name__ == "__main__":
     unittest.main()
