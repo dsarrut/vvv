@@ -1097,9 +1097,18 @@ class ROIManager:
 
             self.controller.update_all_viewers_of_image(base_id)
 
-    def update_roi_contours(self, vs, ori, s_idx):
+    def update_roi_contours(self, vs, ori=None, s_idx=None):
         """Extracts 2D marching squares for all contour ROIs on slice s_idx of orientation ori."""
-        if not vs:
+        viewer = None
+        if hasattr(vs, "view_state"):
+            viewer = vs
+            vs = viewer.view_state
+            if ori is None:
+                ori = getattr(viewer, "orientation", None)
+            if s_idx is None:
+                s_idx = getattr(viewer, "slice_idx", None)
+
+        if not vs or ori is None or s_idx is None:
             return
 
         needs_update = False
@@ -1112,8 +1121,12 @@ class ROIManager:
         if not needs_update:
             return
 
-        sw, sh = vs.volume.get_physical_aspect_ratio(ori)
-        base_z, base_y, base_x = vs.volume.shape3d
+        vol = getattr(vs, "volume", None) or (getattr(viewer, "volume", None) if viewer else None)
+        if not vol:
+            return
+
+        sw, sh = vol.get_physical_aspect_ratio(ori)
+        base_z, base_y, base_x = vol.shape3d
         from vvv.maths.contours import extract_2d_contours_from_slice
         from vvv.maths.image import SliceRenderer
 
