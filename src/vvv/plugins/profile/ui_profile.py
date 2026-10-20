@@ -636,6 +636,14 @@ class ProfilePluginUI(PluginTagMixin):
         if not viewer or not viewer.view_state:
             return
         vs = viewer.view_state
+        pts_key = (
+            tuple(profile.pt1_phys.tolist()) if profile.pt1_phys is not None else None,
+            tuple(profile.pt2_phys.tolist()) if profile.pt2_phys is not None else None,
+        )
+        if getattr(profile, "_last_info_pts", None) == pts_key:
+            return
+        profile._last_info_pts = pts_key
+
         for i, pt_phys in enumerate([profile.pt1_phys, profile.pt2_phys], 1):
             input_tag = self._t(f"input_phys_p{i}_{profile.id}")
             vox_tag = self._t(f"text_vox_p{i}_{profile.id}")
@@ -666,6 +674,10 @@ class ProfilePluginUI(PluginTagMixin):
         distances, intensities = api.get_profile_data(viewer.image_id, profile)
         series_tag = self._t(f"series_{profile.id}")
         if dpg.does_item_exist(series_tag) and distances is not None:
+            plot_key = (id(distances), id(intensities))
+            if getattr(profile, "_last_plot_key", None) == plot_key:
+                return
+            profile._last_plot_key = plot_key
             dpg.set_value(series_tag, [distances, intensities])
 
     def _on_plot_hover(self, _sender, _app_data, _user_data) -> None:

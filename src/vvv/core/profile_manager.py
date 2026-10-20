@@ -4,9 +4,16 @@ import numpy as np
 class ProfileManager:
     def __init__(self, controller):
         self.controller = controller
+        self._cache = {}
+
+    def clear_cache(self, vs_id=None):
+        if vs_id is None:
+            self._cache.clear()
+        else:
+            self._cache = {k: v for k, v in self._cache.items() if k[0] != vs_id}
 
     def _sample_points(self, vs_id, profile):
-        """Returns (distances, intensities, pts_phys, vs, vol) or None on failure."""
+        """Returns (distances, intensities, pts_phys, vs, vol, distances_list) or None on failure."""
         vs = self.controller.view_states.get(vs_id)
         vol = self.controller.volumes.get(vs_id)
         if not vs or not vol:
@@ -46,53 +53,113 @@ class ProfileManager:
         else:
             target_shape = vol.shape3d
 
-        def get_val(ix, iy, iz):
-            if not (0 <= ix < target_shape[2] and 0 <= iy < target_shape[1] and 0 <= iz < target_shape[0]):
-                return 0.0
-            v = data[t_idx, iz, iy, ix] if t_idx is not None else data[iz, iy, ix]
-            return float(np.linalg.norm(v) if is_dvf else np.mean(v) if is_rgb else v)
+        transform_token = (
+            id(vs.space.transform)
+            if getattr(vs, "space", None) and getattr(vs.space, "transform", None)
+            else None
+        )
+        profile_id = getattr(profile, "id", "")
+        spacing_key = tuple(vol.spacing.tolist()) if getattr(vol, "spacing", None) is not None else None
+        cache_key = (
+            vs_id,
+            profile_id,
+            tuple(p1.tolist()),
+            tuple(p2.tolist()),
+            spacing_key,
+            t_idx,
+            id(data),
+            use_buffer,
+            in_preview,
+            transform_token,
+        )
+        if cache_key in self._cache:
+            return self._cache[cache_key]
 
-        intensities = []
+        sx, sy, sz = target_shape[2], target_shape[1], target_shape[0]
+
+        # Convert physical coordinates to voxel coordinates
+        vox_list = []
         for pt in pts_phys:
             if use_buffer:
                 vox = vs.world_to_display(pt, is_buffered=True)
-                if vox is None:
-                    x, y, z = 0.0, 0.0, 0.0
-                else:
-                    x, y, z = vox
             else:
                 vox = vs.world_to_display(pt, is_buffered=False)
-                if vox is None:
-                    x, y, z = 0.0, 0.0, 0.0
+            if vox is None:
+                vox_list.append([0.0, 0.0, 0.0])
+            else:
+                vox_list.append(vox)
+        vox_arr = np.asarray(vox_list, dtype=np.float64)
+
+        xs = vox_arr[:, 0]
+        ys = vox_arr[:, 1]
+        zs = vox_arr[:, 2]
+
+        x0 = np.floor(xs).astype(np.int64)
+        y0 = np.floor(ys).astype(np.int64)
+        z0 = np.floor(zs).astype(np.int64)
+        x1 = x0 + 1
+        y1 = y0 + 1
+        z1 = z0 + 1
+
+        xd = (xs - x0).astype(np.float32)
+        yd = (ys - y0).astype(np.float32)
+        zd = (zs - z0).astype(np.float32)
+
+        def sample_corner(cx, cy, cz):
+            valid = (cx >= 0) & (cx < sx) & (cy >= 0) & (cy < sy) & (cz >= 0) & (cz < sz)
+            cx_c = np.clip(cx, 0, sx - 1)
+            cy_c = np.clip(cy, 0, sy - 1)
+            cz_c = np.clip(cz, 0, sz - 1)
+
+            if is_dvf or is_rgb:
+                vals = np.zeros(len(cx), dtype=np.float32)
+                valid_idx = np.nonzero(valid)[0]
+                if valid_idx.size > 0:
+                    if t_idx is not None:
+                        sub = data[t_idx, cz_c[valid_idx], cy_c[valid_idx], cx_c[valid_idx]]
+                    else:
+                        sub = data[cz_c[valid_idx], cy_c[valid_idx], cx_c[valid_idx]]
+                    if is_dvf:
+                        vals[valid_idx] = np.linalg.norm(sub, axis=-1)
+                    else:
+                        vals[valid_idx] = np.mean(sub, axis=-1)
+                return vals
+            else:
+                if t_idx is not None:
+                    raw = data[t_idx, cz_c, cy_c, cx_c].astype(np.float32)
                 else:
-                    x, y, z = vox
-            x0, y0, z0 = int(np.floor(x)), int(np.floor(y)), int(np.floor(z))
-            x1, y1, z1 = x0 + 1, y0 + 1, z0 + 1
-            xd, yd, zd = x - x0, y - y0, z - z0
+                    raw = data[cz_c, cy_c, cx_c].astype(np.float32)
+                return np.where(valid, raw, 0.0)
 
-            c00 = get_val(x0, y0, z0) * (1 - xd) + get_val(x1, y0, z0) * xd
-            c01 = get_val(x0, y0, z1) * (1 - xd) + get_val(x1, y0, z1) * xd
-            c10 = get_val(x0, y1, z0) * (1 - xd) + get_val(x1, y1, z0) * xd
-            c11 = get_val(x0, y1, z1) * (1 - xd) + get_val(x1, y1, z1) * xd
-            c0 = c00 * (1 - yd) + c10 * yd
-            c1 = c01 * (1 - yd) + c11 * yd
-            intensities.append(c0 * (1 - zd) + c1 * zd)
+        c00 = sample_corner(x0, y0, z0) * (1 - xd) + sample_corner(x1, y0, z0) * xd
+        c01 = sample_corner(x0, y0, z1) * (1 - xd) + sample_corner(x1, y0, z1) * xd
+        c10 = sample_corner(x0, y1, z0) * (1 - xd) + sample_corner(x1, y1, z0) * xd
+        c11 = sample_corner(x0, y1, z1) * (1 - xd) + sample_corner(x1, y1, z1) * xd
 
-        return distances, intensities, pts_phys, vs, vol
+        c0 = c00 * (1 - yd) + c10 * yd
+        c1 = c01 * (1 - yd) + c11 * yd
+
+        intensities = (c0 * (1 - zd) + c1 * zd).tolist()
+        distances_list = distances.tolist()
+
+        result = (distances, intensities, pts_phys, vs, vol, distances_list)
+        if len(self._cache) > 256:
+            self._cache.pop(next(iter(self._cache)))
+        self._cache[cache_key] = result
+        return result
 
     def get_profile_data(self, vs_id, profile):
         result = self._sample_points(vs_id, profile)
         if result is None:
             return None, None
-        distances, intensities, _, _, _ = result
-        return distances.tolist(), intensities
+        return result[5], result[1]
 
     def get_full_export_data(self, vs_id, profile):
         """Returns a dict with name, image, and per-point mm/voxel/intensity data."""
         result = self._sample_points(vs_id, profile)
         if result is None:
             return []
-        distances, intensities, pts_phys, vs, vol = result
+        distances, intensities, pts_phys, vs, vol = result[:5]
 
         use_buffer = isinstance(vs.base_display_data, np.ndarray)
         if use_buffer:

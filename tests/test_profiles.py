@@ -379,6 +379,28 @@ class TestProfileExtraction(unittest.TestCase):
         self.assertIsNone(dist)
         self.assertIsNone(vals)
 
+    def test_caching_and_invalidation(self):
+        """PC4: profile data is cached by endpoints/data, cache hit returns same reference."""
+        self.pm.clear_cache()
+        p = make_profile([2.0, 5.0, 5.0], [8.0, 5.0, 5.0])
+        dist1, vals1 = self.pm.get_profile_data("v1", p)
+        self.assertEqual(len(self.pm._cache), 1)
+
+        # Second call returns identical cached lists
+        dist2, vals2 = self.pm.get_profile_data("v1", p)
+        self.assertIs(dist1, dist2)
+        self.assertIs(vals1, vals2)
+
+        # Moving endpoint causes cache miss
+        p.pt2_phys = np.array([7.0, 5.0, 5.0], dtype=float)
+        dist3, vals3 = self.pm.get_profile_data("v1", p)
+        self.assertEqual(len(self.pm._cache), 2)
+        self.assertIsNot(vals1, vals3)
+
+        # clear_cache empties cache
+        self.pm.clear_cache("v1")
+        self.assertEqual(len(self.pm._cache), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
