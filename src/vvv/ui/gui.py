@@ -2,8 +2,6 @@ import sys
 from typing import Any
 import os
 
-import json
-import shlex
 import time
 import inspect
 import threading
@@ -48,7 +46,7 @@ from vvv.ui.ui_drop import install_os_drop, cleanup_os_drop
 from vvv.ui.ui_workspace import build_workspace_nav_icons
 from vvv.ui.ui_debug import DebugOverlay
 from vvv.ui.ui_help import show_help_window
-from vvv.ui.render_strategy import GL_NEAREST_SUPPORTED
+from vvv.ui.ui_menu import build_menu_bar, refresh_recent_menu, refresh_rendering_menu
 from vvv.maths.image import fast_colorize_compiling_for
 from vvv.ui.ui_capture import capture_whole_window, copy_image_to_clipboard, save_screenshot_to_file
 import logging
@@ -145,7 +143,7 @@ class MainGUI:
 
         # Go
         self.build_main_layout()
-        self._init_rendering_menu()
+        self.refresh_rendering_menu()
         self.register_handlers()
         self._update_viewer_help_texts()  # Initial update for viewer help texts
 
@@ -326,7 +324,7 @@ class MainGUI:
             no_title_bar=True,
             no_bring_to_front_on_focus=True,
         ):
-            self.build_menu_bar()
+            build_menu_bar(self)
 
             with dpg.item_handler_registry(tag="window_resize_handler"):
                 dpg.add_item_resize_handler(callback=lambda: self.on_window_resize())
@@ -342,208 +340,6 @@ class MainGUI:
             dpg.bind_item_theme(f"win_{tag}", "black_viewer_theme")
             if dpg.does_item_exist(f"win_slider_{tag}"):
                 dpg.bind_item_theme(f"win_slider_{tag}", "slider_overlay_theme")
-
-    def build_menu_bar(self):
-        """Builds the floating top menu bar."""
-        cfg_l = self.ui_cfg["layout"]
-
-        with dpg.child_window(
-            tag="menu_container",
-            height=cfg_l["menu_h"],
-            border=False,
-            menubar=True,
-            no_scrollbar=True,
-        ):
-            with dpg.menu_bar(tag="main_menu_bar"):
-                with dpg.menu(label="File"):
-                    dpg.add_menu_item(
-                        label="Open Image(s)...", callback=self.on_open_file_clicked
-                    )
-                    with dpg.menu(label="Open Recent...", tag="menu_recent_files"):
-                        pass
-                    menu_item_dicom = dpg.add_menu_item(
-                        label="Open DICOM Browser...",
-                        callback=self.open_dicom_plugin_window,
-                    )
-                    build_beginner_tooltip(
-                        menu_item_dicom,
-                        "Scan local directories for DICOM series and load them.",
-                        self,
-                    )
-                    dpg.add_menu_item(
-                        label="Open a 4D Sequence...",
-                        callback=self.on_open_4d_sequence_clicked,
-                    )
-
-                    dpg.add_separator()
-
-                    # Fetch the current setting state
-                    auto_save = self.controller.settings.data.get("behavior", {}).get(
-                        "auto_save_history", True
-                    )
-
-                    dpg.add_menu_item(
-                        label="Auto-Save History on Exit",
-                        check=True,
-                        default_value=auto_save,
-                        callback=self.on_toggle_auto_save,
-                    )
-
-                    dpg.add_separator()
-
-                    dpg.add_menu_item(
-                        label="Settings...",
-                        callback=lambda: self.settings_window.show(),
-                    )
-                    dpg.add_menu_item(label="Exit", callback=self.cleanup)
-
-                with dpg.menu(label="Workspace"):
-                    dpg.add_menu_item(
-                        label="Open Workspace...",
-                        callback=self.on_open_workspace_clicked,
-                    )
-                    dpg.add_menu_item(
-                        label="Save Workspace As...",
-                        callback=self.on_save_workspace_clicked,
-                    )
-                    dpg.add_menu_item(
-                        label="Save Workspace",
-                        tag="menu_save_workspace",
-                        show=False,
-                        callback=self.on_save_workspace_current_clicked,
-                    )
-
-                with dpg.menu(label="System", tag="menu_system"):
-                    with dpg.menu(label="Rendering Options"):
-                        dpg.add_menu_item(
-                            label="NN Interpolation  [K]",
-                            tag="menu_item_pixelated",
-                            check=True,
-                            callback=self.on_menu_pixelated_zoom_toggled,
-                        )
-                        dpg.add_separator()
-                        with dpg.menu(label="NN Options"):
-                            lazy_combo = dpg.add_combo(
-                                ["Auto", "On", "Off"],
-                                label="Lazy-Lin",
-                                tag="menu_combo_lazy_lin",
-                                width=100,
-                                callback=self.on_adv_rendering_changed,
-                            )
-                            build_beginner_tooltip(
-                                lazy_combo,
-                                "Auto: use bilinear during drag when fusion is active,\nrestore NN after interaction stops.\nOn/Off: force always on or always off.",
-                                self,
-                            )
-                            tex_combo = dpg.add_combo(
-                                ["Auto", "Single", "Dual"],
-                                label="Texture Mode",
-                                tag="menu_combo_single_tex",
-                                width=100,
-                                callback=self.on_adv_rendering_changed,
-                            )
-                            build_beginner_tooltip(
-                                tex_combo,
-                                "Auto: Single texture when fusion is active, Dual otherwise.\nSingle: CPU-blend base+overlay into one canvas texture.\nDual: separate textures for base and overlay.",
-                                self,
-                            )
-                            vox_combo = dpg.add_combo(
-                                ["Auto", "Native", "Resampled"],
-                                label="Voxel Mode",
-                                tag="menu_combo_native_vox",
-                                width=100,
-                                callback=self.on_adv_rendering_changed,
-                            )
-                            build_beginner_tooltip(
-                                vox_combo,
-                                "Auto/Native: overlay rendered at its true voxel resolution.\nResampled: overlay NN-scaled from the base image grid.",
-                                self,
-                            )
-                            if GL_NEAREST_SUPPORTED:
-                                gl_check = dpg.add_checkbox(
-                                    label="Hardware NN Filter",
-                                    tag="menu_check_gl_nearest",
-                                    callback=self.on_adv_rendering_changed,
-                                )
-                                build_beginner_tooltip(
-                                    gl_check,
-                                    "Use GPU GL_NEAREST for fast hardware NN upscaling.\nNot available on macOS.",
-                                    self,
-                                )
-                            from vvv.ui.render_strategy import _NUMBA_AVAILABLE
-
-                            if _NUMBA_AVAILABLE:
-                                nb_check = dpg.add_checkbox(
-                                    label="Numba Acceleration",
-                                    tag="menu_check_numba",
-                                    callback=self.on_adv_rendering_changed,
-                                )
-                                build_beginner_tooltip(
-                                    nb_check,
-                                    "Use Numba JIT for native voxel overlay rendering.\n~40x faster than NumPy for SW NN modes on macOS.\nDisable to fall back to NumPy (useful for debugging).",
-                                    self,
-                                )
-
-                dpg.add_spacer(width=20)
-                dpg.add_text(
-                    "",
-                    tag="global_status_text",
-                    color=self.ui_cfg["colors"]["text_status_ok"],
-                )
-
-                dpg.add_text(
-                    "",
-                    tag="active_image_path_text",
-                    color=self.ui_cfg["colors"]["text_dim"],
-                )
-                with dpg.tooltip("active_image_path_text"):
-                    dpg.add_text("", tag="active_image_path_tooltip_text")
-                with dpg.item_handler_registry(tag="active_image_path_click_handler"):
-                    dpg.add_item_clicked_handler(
-                        callback=self.on_active_image_path_clicked
-                    )
-                dpg.bind_item_handler_registry(
-                    "active_image_path_text", "active_image_path_click_handler"
-                )
-
-                # Define layout & screenshot buttons inside the menu_bar so they aren't clipped, but position them absolutely
-                btn_screenshot = dpg.add_button(
-                    label="\uf030",
-                    callback=self.on_copy_window_screenshot_clicked,
-                    tag="btn_screenshot",
-                )
-                btn_layout_4 = dpg.add_button(
-                    label="\uf009",
-                    callback=lambda: self.set_viewport_layout("4"),
-                    tag="btn_layout_4",
-                )
-                btn_layout_2 = dpg.add_button(
-                    label="\uf0db",
-                    callback=lambda: self.set_viewport_layout("2"),
-                    tag="btn_layout_2",
-                )
-                btn_layout_1 = dpg.add_button(
-                    label="\uf0c8",
-                    callback=lambda: self.set_viewport_layout("1"),
-                    tag="btn_layout_1",
-                )
-
-                for btn in [btn_screenshot, btn_layout_4, btn_layout_2, btn_layout_1]:
-                    if dpg.does_item_exist("icon_font_tag"):
-                        dpg.bind_item_font(btn, "icon_font_tag")
-                    if dpg.does_item_exist("icon_button_theme"):
-                        dpg.bind_item_theme(btn, "icon_button_theme")
-
-                build_beginner_tooltip(
-                    "btn_screenshot", "Copy Window Screenshot to Clipboard", self
-                )
-                build_beginner_tooltip("btn_layout_4", "4 Viewers Layout", self)
-                build_beginner_tooltip(
-                    "btn_layout_2", "2 Viewers (Left/Right) Layout", self
-                )
-                build_beginner_tooltip("btn_layout_1", "1 Viewer (Full) Layout", self)
-
-        dpg.bind_item_theme("menu_container", "floating_menu_theme")
 
     def build_sidebar(self):
         """Constructs the left side panel with the new Vertical Navigation."""
@@ -1272,114 +1068,10 @@ class MainGUI:
             roi_plugin._ui.refresh_rois_ui()
 
     def refresh_recent_menu(self):
-        if not dpg.does_item_exist("menu_recent_files"):
-            return
+        refresh_recent_menu(self)
 
-        dpg.delete_item("menu_recent_files", children_only=True)
-        recent = self.controller.settings.data.get("behavior", {}).get(
-            "recent_files", []
-        )
-
-        if not recent:
-            dpg.add_menu_item(
-                label="No recent files", parent="menu_recent_files", enabled=False
-            )
-            return
-
-        # Define an orange color for missing files (RGB: 255, 140, 0)
-        orange_color = [255, 140, 0, 255]
-
-        for path_str in recent:
-            # Safely attempt to decode DICOM lists
-            try:
-                path_obj = (
-                    json.loads(path_str) if path_str.startswith("[") else path_str
-                )
-            except Exception:
-                path_obj = path_str
-
-            # Resolve the path to handle robust user profile path fallback
-            path_obj = self.controller.resolve_recent_path(path_obj)
-
-            # Check if the file/directory actually exists on disk
-            exists = False
-            if isinstance(path_obj, list):
-                # For DICOM series, verify if at least the first file exists
-                exists = len(path_obj) > 0 and os.path.exists(path_obj[0])
-            elif isinstance(path_obj, str):
-                if path_obj.startswith("4D:"):
-                    import shlex
-
-                    try:
-                        path_for_shlex = (
-                            path_obj[3:].replace("\\", "\\\\")
-                            if os.name == "nt"
-                            else path_obj[3:]
-                        )
-                        tokens = shlex.split(path_for_shlex)
-                        # For 4D sequences, verify the first frame exists
-                        exists = len(tokens) > 0 and os.path.exists(tokens[0])
-                    except Exception:
-                        exists = False
-                else:
-                    exists = os.path.exists(path_obj)
-
-            # Create a clean display name
-            if isinstance(path_obj, list) and len(path_obj) > 0:
-                display_name = (
-                    os.path.basename(os.path.dirname(path_obj[0])) + " (DICOM Series)"
-                )
-                tooltip_path = "\n".join(path_obj)
-            elif isinstance(path_obj, str) and path_obj.startswith("4D:"):
-                import shlex
-
-                path_for_shlex = (
-                    path_obj[3:].replace("\\", "\\\\")
-                    if os.name == "nt"
-                    else path_obj[3:]
-                )
-                tokens = shlex.split(path_for_shlex)
-                display_name = (
-                    "4D: " + os.path.basename(tokens[0]) + "..."
-                    if tokens
-                    else "4D Sequence"
-                )
-                tooltip_path = path_obj
-            elif isinstance(path_obj, str):
-                display_name = os.path.basename(path_obj)
-                tooltip_path = path_obj
-            else:
-                display_name = str(path_obj)
-                tooltip_path = str(path_obj)
-
-            # Add a visual indicator suffix to the label if missing
-            if not exists:
-                display_name += " (Missing)"
-
-            # 1. Create the unique menu item
-            item = dpg.add_menu_item(
-                label=display_name,
-                parent="menu_recent_files",
-                user_data=path_obj,
-                callback=self.on_recent_file_clicked,
-            )
-
-            # 2. If the file doesn't exist, bind a custom orange color theme to this specific item
-            if not exists:
-                with dpg.theme() as missing_item_theme:
-                    with dpg.theme_component(dpg.mvMenuItem):
-                        dpg.add_theme_color(dpg.mvThemeCol_Text, orange_color)
-                dpg.bind_item_theme(item, missing_item_theme)
-
-            # 3. Attach the tooltip showing the absolute path
-            build_beginner_tooltip(item, tooltip_path, self)
-
-        dpg.add_separator(parent="menu_recent_files")
-        dpg.add_menu_item(
-            label="Clear Recent Files",
-            parent="menu_recent_files",
-            callback=self.on_clear_recent_clicked,
-        )
+    def refresh_rendering_menu(self):
+        refresh_rendering_menu(self)
 
     def pan_viewers_by_delta(self, vs_id, dtx, dty, dtz):
         """Translates the 2D cameras to perfectly match the physical 3D shift."""
@@ -2425,11 +2117,6 @@ class MainGUI:
 
         self.controller.ui_needs_refresh = True
 
-    def on_toggle_auto_save(self, sender, app_data, user_data):
-        self.controller.settings.data.setdefault("behavior", {})[
-            "auto_save_history"
-        ] = app_data
-
     def on_quick_save_image_clicked(self, vs_id):
         vol = self.controller.volumes.get(vs_id)
         if not vol:
@@ -2558,17 +2245,6 @@ class MainGUI:
             )
             self._safe_configure("menu_save_workspace", show=False)
 
-    def on_recent_file_clicked(self, sender, app_data, user_data):
-        path = user_data
-        if isinstance(path, str) and path.startswith("4D:"):
-            self.tasks.append(load_single_image_sequence(self, self.controller, path))
-        else:
-            self.tasks.append(load_batch_images_sequence(self, self.controller, [path]))
-
-    def on_clear_recent_clicked(self, sender, app_data, user_data):
-        self.controller.settings.data.setdefault("behavior", {})["recent_files"] = []
-        self.refresh_recent_menu()
-
     def on_global_reset_clicked(self, sender=None, app_data=None, user_data=None):
         for vs_id in self.controller.view_states:
             self.controller.reset_image_view(vs_id, hard=False)
@@ -2581,113 +2257,6 @@ class MainGUI:
             for v in self.controller.viewers.values():
                 if v.image_id:
                     v.action_center_view()
-
-    def on_menu_pixelated_zoom_toggled(self, sender, app_data, user_data):
-        if self.context_viewer and self.context_viewer.view_state:
-            self.context_viewer.view_state.display.pixelated_zoom = app_data
-            self.context_viewer.view_state.is_data_dirty = True
-            self.controller.ui_needs_refresh = True
-
-    def _init_rendering_menu(self):
-        cfg = self.controller.settings.data.get("rendering", {})
-        viewer = self.context_viewer
-
-        has_fusion = False
-        is_hw = False
-        nn_on = False
-        if viewer:
-            vs = viewer.view_state
-            has_fusion = bool(
-                vs
-                and vs.display.overlay.image_id
-                and vs.display.overlay.mode == "Alpha"
-            )
-            use_gl = cfg.get("gl_nearest", True)
-            is_hw = GL_NEAREST_SUPPORTED and use_gl
-            nn_on = bool(vs and vs.display.pixelated_zoom)
-
-        # Build the effective-mode suffix shown on the top-level menu item
-        if nn_on:
-            if is_hw:
-                _mode_tag = "HW GL_NEAREST"
-            else:
-                _st = cfg.get("single_texture", "Auto")
-                _nv = cfg.get("native_voxel", "Auto")
-                _is_single = (
-                    has_fusion if _st == "Auto" else (_st is True or _st == "Single")
-                )
-                _is_native = True if _nv == "Auto" else (_nv is True or _nv == "Native")
-                _ll = cfg.get("lazy_lin", "Auto")
-                _lazy_on = (
-                    (has_fusion and not is_hw)
-                    if _ll == "Auto"
-                    else (_ll is True or _ll == "On")
-                )
-                _tex = "Single" if _is_single else "Dual"
-                _vox = "Native" if _is_native else "Resampled"
-                _lazy = " + Lazy" if _lazy_on else ""
-                _mode_tag = f"{_tex}-{_vox}{_lazy}"
-            nn_label = f"NN: {_mode_tag}  [K]"
-        else:
-            nn_label = "NN Interpolation  [K]"
-
-        self._safe_configure("menu_item_pixelated", label=nn_label)
-
-        ll_auto_str = f"Auto ({'On' if (has_fusion and not is_hw) else 'Off'})"
-        st_auto_str = f"Auto ({'Single' if has_fusion else 'Dual'})"
-        nv_auto_str = "Auto (Native)"
-
-        self._safe_configure(
-            "menu_combo_lazy_lin", items=[ll_auto_str, "On", "Off"], enabled=not is_hw
-        )
-        v = cfg.get("lazy_lin", "Auto")
-        self._safe_set(
-            "menu_combo_lazy_lin",
-            ll_auto_str if v == "Auto" else ("On" if v else "Off"),
-        )
-
-        self._safe_configure(
-            "menu_combo_single_tex", items=[st_auto_str, "Single", "Dual"]
-        )
-        v = cfg.get("single_texture", "Auto")
-        self._safe_set(
-            "menu_combo_single_tex",
-            st_auto_str if v == "Auto" else ("Single" if v else "Dual"),
-        )
-
-        self._safe_configure(
-            "menu_combo_native_vox", items=[nv_auto_str, "Native", "Resampled"]
-        )
-        v = cfg.get("native_voxel", "Auto")
-        self._safe_set(
-            "menu_combo_native_vox",
-            nv_auto_str if v == "Auto" else ("Native" if v else "Resampled"),
-        )
-
-        self._safe_set("menu_check_gl_nearest", cfg.get("gl_nearest", True))
-        self._safe_set("menu_check_numba", cfg.get("numba", True))
-
-    def on_adv_rendering_changed(self, sender, app_data, user_data):
-        cfg = self.controller.settings.data.setdefault("rendering", {})
-        if sender == "menu_combo_lazy_lin":
-            cfg["lazy_lin"] = (
-                "Auto" if app_data.startswith("Auto") else (app_data == "On")
-            )
-        elif sender == "menu_combo_single_tex":
-            cfg["single_texture"] = (
-                "Auto" if app_data.startswith("Auto") else (app_data == "Single")
-            )
-        elif sender == "menu_combo_native_vox":
-            cfg["native_voxel"] = (
-                "Auto" if app_data.startswith("Auto") else (app_data == "Native")
-            )
-        elif sender == "menu_check_gl_nearest":
-            cfg["gl_nearest"] = app_data
-        elif sender == "menu_check_numba":
-            cfg["numba"] = app_data
-        self.controller.save_settings()
-        self.controller._flag_all_viewers_dirty()
-        self._init_rendering_menu()
 
     # ==========================================
     # 5. MODALS & POPUPS
@@ -2732,7 +2301,7 @@ class MainGUI:
         self.fusion_ui.refresh_fusion_ui()
         self.contours_ui.refresh_contours_ui()
 
-        self._init_rendering_menu()
+        self.refresh_rendering_menu()
 
         # Safely update the sidebar between frames when the DPG stack is completely empty!
         self.update_sidebar_info(self.context_viewer)

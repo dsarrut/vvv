@@ -2426,7 +2426,7 @@ class SliceViewer:
                 self.controller.status_message = f"Debug NN: Single={st}, Native={nv}"
                 self.controller.ui_needs_refresh = True
                 if self.controller.gui:
-                    self.controller.gui._init_rendering_menu()
+                    self.controller.gui.refresh_rendering_menu()
                 return
             if key == dpg.mvKey_T:
                 cfg = self.controller.settings.data.setdefault("rendering", {})
@@ -2443,7 +2443,7 @@ class SliceViewer:
                 self.controller.status_message = f"Debug Lazy-Lin: {ll}"
                 self.controller.ui_needs_refresh = True
                 if self.controller.gui:
-                    self.controller.gui._init_rendering_menu()
+                    self.controller.gui.refresh_rendering_menu()
                 return
 
     def on_scroll(self, delta=1):
