@@ -267,6 +267,50 @@ class TestDosePlugin(unittest.TestCase):
         # ROI Mean is 25.0 -> S = 100 / 25 = 4.0
         self.assertEqual(state.scaling_factor, 4.0)
 
+    def test_scaling_component_roi_mean_caching_and_invalidation(self):
+        self.mock_viewer.volume.unit = "Gy"
+        mock_roi = MagicMock()
+        mock_roi.data = np.ones((4, 4, 4), dtype=np.uint8)
+        self.mock_viewer.volume.data = np.full((4, 4, 4), 10.0, dtype=np.float32)
+        self.mock_api.get_volumes.return_value["roi_1"] = mock_roi
+
+        comp = self.plugin._ui.scaling_comp
+        comp.invalidate_roi_mean_cache()
+
+        # 1. First call computes and caches
+        mean1 = comp.compute_roi_mean(self.mock_viewer.volume, False, "roi_1")
+        self.assertEqual(mean1, 10.0)
+        self.assertEqual(len(comp._roi_mean_cache), 1)
+
+        # 2. Second call uses cache even if data range/values were perturbed in place
+        mean2 = comp.compute_roi_mean(self.mock_viewer.volume, False, "roi_1")
+        self.assertEqual(mean2, 10.0)
+
+        # 3. New ROI data array recomputes
+        new_roi = MagicMock()
+        new_roi.data = np.ones((4, 4, 4), dtype=np.uint8)
+        self.mock_api.get_volumes.return_value["roi_1"] = new_roi
+        self.mock_viewer.volume.data = np.full((4, 4, 4), 20.0, dtype=np.float32)
+        mean3 = comp.compute_roi_mean(self.mock_viewer.volume, False, "roi_1")
+        self.assertEqual(mean3, 20.0)
+
+        # 4. Invalidation clears cache
+        comp.invalidate_roi_mean_cache(roi_id="roi_1")
+        self.assertEqual(len(comp._roi_mean_cache), 0)
+
+    def test_compute_raw_threshold_with_precomputed_d_ref(self):
+        ctrl = self.plugin._controller
+        vol = MagicMock()
+        vol.get_data_range.return_value = (0.0, 100.0)
+        lvl = MagicMock()
+        lvl.value = 50.0
+
+        # With explicit d_ref, get_reference_dose is not called
+        with patch.object(ctrl, "get_reference_dose") as mock_get_ref:
+            thr = ctrl.compute_raw_threshold_for_level(lvl, vol, False, "target_1", d_ref=80.0)
+            self.assertEqual(thr, 40.0)
+            mock_get_ref.assert_not_called()
+
     @patch("dearpygui.dearpygui.configure_item")
     @patch("dearpygui.dearpygui.does_item_exist", return_value=True)
     def test_scaling_component_roi_mean_disabled_when_no_rois(self, mock_exist, mock_config):

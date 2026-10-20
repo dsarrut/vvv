@@ -119,10 +119,13 @@ class DosePluginController(PluginTagMixin):
 
         bands = []
         op = 1.0 if is_overlay else float(state.colorwash_opacity)
+        d_ref = self.get_reference_dose(vol, is_overlay, str(image_id))
         for lvl in state.levels:
             if not lvl.enabled:
                 continue
-            raw_thr = self.compute_raw_threshold_for_level(lvl, vol, is_overlay, str(image_id))
+            raw_thr = self.compute_raw_threshold_for_level(
+                lvl, vol, is_overlay, str(image_id), d_ref=d_ref
+            )
             col = [
                 lvl.color[0] / 255.0,
                 lvl.color[1] / 255.0,
@@ -345,14 +348,20 @@ class DosePluginController(PluginTagMixin):
         return 1.0
 
     def compute_raw_threshold_for_level(
-        self, level: DoseIsocontourLevel, target_vol, is_overlay: bool, target_id: str
+        self,
+        level: DoseIsocontourLevel,
+        target_vol,
+        is_overlay: bool,
+        target_id: str,
+        d_ref: Optional[float] = None,
     ) -> float:
         """
         Converts the isodose level value (%) to raw voxel threshold:
         raw_threshold = (level.value / 100.0) * D_ref
         where D_ref is determined by get_reference_dose() (Prescription, Max, ROI Mean, or raw Max).
         """
-        d_ref = self.get_reference_dose(target_vol, is_overlay, target_id)
+        if d_ref is None:
+            d_ref = self.get_reference_dose(target_vol, is_overlay, target_id)
         raw_thr = float((level.value / 100.0) * d_ref)
         try:
             rng = target_vol.get_data_range()
@@ -491,6 +500,7 @@ class DosePluginController(PluginTagMixin):
 
         # Compute each enabled level
         c_max = np.max(slice_data) if slice_data.size > 0 else 0.0
+        d_ref = self.get_reference_dose(target_vol, is_overlay, target_id)
 
         for idx, lvl in enumerate(state.levels):
             c_roi = rois_map.get(idx)
@@ -499,7 +509,9 @@ class DosePluginController(PluginTagMixin):
                     c_roi.polygons[ori][s_idx] = []
                 continue
 
-            raw_thr = self.compute_raw_threshold_for_level(lvl, target_vol, is_overlay, target_id)
+            raw_thr = self.compute_raw_threshold_for_level(
+                lvl, target_vol, is_overlay, target_id, d_ref=d_ref
+            )
 
             # Check if threshold value, subpixel, or data array changed
             if (
@@ -779,6 +791,8 @@ class DosePluginController(PluginTagMixin):
     def on_image_removed(self, image_id: str) -> None:
         self._states.pop(image_id, None)
         self._contour_rois.pop(image_id, None)
+        if self._ui and hasattr(self._ui, "scaling_comp"):
+            self._ui.scaling_comp.invalidate_roi_mean_cache(image_id=str(image_id))
         if self._ui and hasattr(self._ui, "dvh_win") and self._ui.dvh_win:
             if dpg.does_item_exist(self._ui.dvh_win.window_tag):
                 is_active, dose_vol, _, _, target_id, _ = self.get_dose_target_info()
