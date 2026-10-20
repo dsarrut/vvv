@@ -214,6 +214,12 @@ def register_dynamic_themes(ui_cfg, controller):
             with dpg.theme_component(dpg.mvAll):
                 dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0, 0)
 
+    if not dpg.does_item_exist("clean_separator_theme"):
+        with dpg.theme(tag="clean_separator_theme"):
+            with dpg.theme_component(dpg.mvTable):
+                dpg.add_theme_style(dpg.mvStyleVar_CellPadding, 0, 0)
+                dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0, 0)
+
     if not dpg.does_item_exist("sidebar_bg_theme"):
         with dpg.theme(tag="sidebar_bg_theme"):
             with dpg.theme_component(dpg.mvChildWindow):

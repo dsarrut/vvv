@@ -1,6 +1,7 @@
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import (
     build_section_title,
+    build_horizontal_separator,
     build_help_button,
     build_beginner_tooltip,
     build_renamable_input,
@@ -332,8 +333,7 @@ def refresh_image_list_ui(gui):
                     )
 
         dpg.add_spacer(height=4, parent=container)
-        dpg.add_separator(parent=container)
-        dpg.add_spacer(height=4, parent=container)
+        build_horizontal_separator(parent=container)
 
     gui.refresh_recent_menu()
     if gui.context_viewer and gui.context_viewer.image_id:

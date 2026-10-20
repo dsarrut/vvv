@@ -4,6 +4,7 @@ import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.ui.ui_components import (
     build_section_title,
+    build_horizontal_separator,
     build_help_button,
     build_beginner_tooltip,
     build_stepped_slider,
@@ -232,7 +233,7 @@ class RoiPluginUI(PluginTagMixin):
                     self.api,
                 )
 
-            dpg.add_separator()
+            build_horizontal_separator()
             dpg.add_spacer(height=10)
 
             # --- MIDDLE: Master List Controls ---
@@ -375,7 +376,7 @@ class RoiPluginUI(PluginTagMixin):
                     self.api,
                 )
 
-            dpg.add_separator()
+            build_horizontal_separator()
 
             # Filter Group
             with dpg.group(
@@ -438,7 +439,7 @@ class RoiPluginUI(PluginTagMixin):
                     )
                     if dpg.does_item_exist("icon_font_tag"):
                         dpg.bind_item_font(btn_close_detail, "icon_font_tag")
-                dpg.add_separator()
+                build_horizontal_separator()
 
             with dpg.child_window(
                 tag=self._t("roi_detail_window"),

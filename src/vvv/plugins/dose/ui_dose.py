@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Any
 from vvv.plugins.plugin_api import PluginTagMixin, PluginAPI
 from vvv.ui.ui_components import (
     build_section_title,
+    build_horizontal_separator,
     build_beginner_tooltip,
     build_help_button,
     build_stepped_slider,
@@ -215,7 +216,7 @@ class DosePluginUI(PluginTagMixin):
                 dpg.add_group(tag=self._t("group_isodose_levels"))
 
                 dpg.add_spacer(height=10)
-                dpg.add_separator()
+                build_horizontal_separator()
                 dpg.add_spacer(height=6)
 
                 # --- Dose-Volume Histogram (DVH) Section ---

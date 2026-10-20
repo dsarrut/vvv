@@ -1,10 +1,46 @@
 import dearpygui.dearpygui as dpg
 
 
-def build_section_title(label, color):
+def _ensure_separator_theme():
+    """Ensures clean_separator_theme exists, creating it if register_dynamic_themes has not been called."""
+    if not dpg.does_item_exist("clean_separator_theme"):
+        with dpg.theme(tag="clean_separator_theme"):
+            with dpg.theme_component(dpg.mvTable):
+                dpg.add_theme_style(dpg.mvStyleVar_CellPadding, 0, 0)
+                dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0, 0)
+
+
+def build_horizontal_separator(width=-8, space_below=4, parent=None):
+    """A reusable UI component for a clean horizontal separator with margins on both sides and below."""
+    _ensure_separator_theme()
+    kwargs = {
+        "header_row": False,
+        "policy": dpg.mvTable_SizingStretchProp,
+    }
+    if width is not None:
+        kwargs["width"] = width
+    if parent is not None:
+        kwargs["parent"] = parent
+
+    with dpg.table(**kwargs) as table:
+        dpg.bind_item_theme(table, "clean_separator_theme")
+        dpg.add_table_column()
+        with dpg.table_row():
+            dpg.add_separator()
+
+    if space_below and space_below > 0:
+        if parent is not None:
+            dpg.add_spacer(height=space_below, parent=parent)
+        else:
+            dpg.add_spacer(height=space_below)
+
+    return table
+
+
+def build_section_title(label, color, sep_width=-8, space_below=4):
     """A reusable UI component for a section title with a horizontal separator."""
     dpg.add_text(label, color=color)
-    dpg.add_separator()
+    return build_horizontal_separator(width=sep_width, space_below=space_below)
 
 
 def build_help_button(text, gui):
