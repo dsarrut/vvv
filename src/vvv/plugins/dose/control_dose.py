@@ -224,11 +224,6 @@ class DosePluginController(PluginTagMixin):
 
         return False, base_vol, False, base_unit_str, str(base_id) if base_id is not None else None, base_vs
 
-    def get_dose_status(self) -> Tuple[bool, Any, bool, Optional[str]]:
-        """Backwards compatible status accessor."""
-        is_active, target_vol, is_ov, unit_str, _, _ = self.get_dose_target_info()
-        return is_active, target_vol, is_ov, unit_str
-
     def on_enable_clicked(self, sender=None, app_data=None, user_data=None) -> None:
         """Sets unit to 'Gy' on the target volume and updates UI."""
         if not self._api:
@@ -259,58 +254,6 @@ class DosePluginController(PluginTagMixin):
                     v.drawer.draw_legend()
 
             self._api.request_refresh()
-
-
-
-    def go_to_max(self) -> None:
-        """Finds the maximum dose voxel in the active target volume and centers crosshair and camera on it."""
-        is_active, target_vol, is_overlay, _, target_id, target_vs = self.get_dose_target_info()
-        if not is_active or not target_vol or not self._api:
-            return
-
-        viewer = self._api.get_active_viewer()
-        if not viewer or not viewer.view_state:
-            return
-
-        arr = target_vol.data
-        if arr is None or arr.size == 0:
-            return
-
-        if arr.ndim == 4 and not getattr(target_vol, "is_rgb", False):
-            t_idx = min(getattr(viewer.view_state.camera, "time_idx", 0), arr.shape[0] - 1)
-            arr_3d = arr[t_idx]
-        else:
-            arr_3d = arr
-
-        try:
-            if np.isnan(arr_3d).any():
-                idx_flat = int(np.nanargmax(arr_3d))
-            else:
-                idx_flat = int(np.argmax(arr_3d))
-            z_idx, y_idx, x_idx = np.unravel_index(idx_flat, arr_3d.shape)
-        except Exception:
-            return
-
-        if getattr(target_vol, "sitk_image", None):
-            try:
-                phys = target_vol.sitk_image.TransformIndexToPhysicalPoint([int(x_idx), int(y_idx), int(z_idx)])
-                phys_coord = np.array(phys[:3], dtype=np.float64)
-            except Exception:
-                phys_coord = target_vol.voxel_coord_to_physic_coord(np.array([float(x_idx), float(y_idx), float(z_idx)]))
-        else:
-            phys_coord = target_vol.voxel_coord_to_physic_coord(np.array([float(x_idx), float(y_idx), float(z_idx)]))
-
-        vs = viewer.view_state
-        vs.camera.target_center = phys_coord
-        vs.update_crosshair_from_phys(phys_coord)
-
-        base_id = getattr(viewer, "image_id", None)
-        if base_id and hasattr(self._api, "propagate_sync"):
-            self._api.propagate_sync(base_id)
-
-        self._api.request_refresh()
-        if hasattr(self._api, "update_sidebar_crosshair"):
-            self._api.update_sidebar_crosshair(viewer)
 
     def get_reference_dose(self, target_vol, is_overlay: bool, target_id: str) -> float:
         """Computes reference dose value (in physical/raw Gy) for the active target volume."""
@@ -404,7 +347,6 @@ class DosePluginController(PluginTagMixin):
             name = f"Isodose {lvl.value:g}%"
             if idx not in rois_map:
                 c_roi = ContourROI(name=name, color=list(lvl.color), thickness=lvl.thickness)
-                c_roi.is_dose_isocontour = True
                 c_roi.visible = lvl.enabled
                 self._api.add_contour(target_id, c_roi)
                 rois_map[idx] = c_roi

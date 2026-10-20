@@ -167,15 +167,6 @@ class TestRoiPlugin(unittest.TestCase):
         # Test mode change combo callback (no-op now)
         ui.on_roi_mode_changed(None, "Target FG (val)", None)
 
-        # Test mock actions
-        ui.on_mock_action("btn_test", None, None)
-        self.mock_api.notify.assert_called_with(
-            "ROI: Slider or combo callback (sender: btn_test)"
-        )
-
-        ui.on_export_roi_stats_clicked(None, None, None)
-        self.mock_api.notify.assert_called_with("ROI: Export stats clicked")
-
         dpg.delete_item("test_parent")
 
     def test_refresh_rois_ui(self):

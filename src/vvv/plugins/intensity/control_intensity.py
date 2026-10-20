@@ -478,10 +478,6 @@ class IntensityController(PluginTagMixin):
         if dpg.does_item_exist(theme):
             dpg.bind_item_theme(series_tag, theme)
 
-    def sync_wl_lines(self, viewer, vs):
-        if viewer and viewer.image_id:
-            self.sync_wl_lines_for_image(viewer.image_id)
-
     def sync_wl_lines_for_image(self, img_id: str):
         vs = self._api.get_view_states().get(img_id)
         if not vs:

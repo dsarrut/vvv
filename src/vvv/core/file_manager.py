@@ -2,7 +2,7 @@ import os
 import json
 from vvv.maths.image import VolumeData
 from vvv.core.view_state import ViewState
-from vvv.utils import resolve_history_path_key, write_json_atomic
+from vvv.utils import clean_string, resolve_history_path_key, write_json_atomic
 
 
 class FileManager:
@@ -128,25 +128,6 @@ class FileManager:
         file_reader = sitk.ImageFileReader()
 
         # Silence the C++ GDCM Warnings
-        def clean_string(val):
-            if val is None:
-                return ""
-            try:
-                # Convert to string and strip null bytes
-                val_str = str(val).replace("\x00", "")
-                # Filter out surrogate escapes (range 0xD800 to 0xDFFF)
-                val_str = "".join(
-                    c
-                    for c in val_str
-                    if not (0xD800 <= ord(c) <= 0xDFFF)
-                )
-                # Encode as utf-8, ignoring any invalid bytes, and decode back
-                return val_str.encode("utf-8", "ignore").decode(
-                    "utf-8"
-                )
-            except Exception:
-                return "Unknown"
-
         sitk.ProcessObject.SetGlobalWarningDisplay(False)
 
         try:

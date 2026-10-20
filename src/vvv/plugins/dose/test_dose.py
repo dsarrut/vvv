@@ -89,7 +89,7 @@ class TestDosePlugin(unittest.TestCase):
 
     def test_inactive_when_unit_not_gy(self):
         # Base image is HU, no overlay
-        is_active, target_vol, is_ov, unit = self.plugin._controller.get_dose_status()
+        is_active, target_vol, is_ov, unit, _, _ = self.plugin._controller.get_dose_target_info()
         self.assertFalse(is_active)
         self.assertEqual(unit, "HU")
 
@@ -101,7 +101,7 @@ class TestDosePlugin(unittest.TestCase):
 
     def test_active_when_base_has_gy(self):
         self.mock_viewer.volume.unit = "Gy"
-        is_active, target_vol, is_ov, unit = self.plugin._controller.get_dose_status()
+        is_active, target_vol, is_ov, unit, _, _ = self.plugin._controller.get_dose_target_info()
         self.assertTrue(is_active)
         self.assertFalse(is_ov)
         self.assertEqual(target_vol, self.mock_viewer.volume)
@@ -115,13 +115,13 @@ class TestDosePlugin(unittest.TestCase):
 
     def test_enable_button_assigns_gy_to_base(self):
         self.mock_viewer.volume.unit = "HU"
-        self.assertFalse(self.plugin._controller.get_dose_status()[0])
+        self.assertFalse(self.plugin._controller.get_dose_target_info()[0])
 
         self.plugin._controller.on_enable_clicked(None, None, None)
         self.assertEqual(self.mock_viewer.volume.unit, "Gy")
         self.mock_api.request_refresh.assert_called_once()
 
-        is_active, target_vol, is_ov, unit = self.plugin._controller.get_dose_status()
+        is_active, target_vol, is_ov, unit, _, _ = self.plugin._controller.get_dose_target_info()
         self.assertTrue(is_active)
         self.assertEqual(unit, "Gy")
 
@@ -133,7 +133,7 @@ class TestDosePlugin(unittest.TestCase):
         self.mock_viewer.view_state.display.overlay = MagicMock()
         self.mock_viewer.view_state.display.overlay.image_id = "img_2"
 
-        is_active, target_vol, is_ov, unit = self.plugin._controller.get_dose_status()
+        is_active, target_vol, is_ov, unit, _, _ = self.plugin._controller.get_dose_target_info()
         self.assertTrue(is_active)
         self.assertTrue(is_ov)
         self.assertEqual(target_vol, self.mock_overlay)
@@ -155,7 +155,7 @@ class TestDosePlugin(unittest.TestCase):
         self.assertEqual(self.mock_overlay.unit, "Gy")
         self.assertEqual(self.mock_viewer.volume.unit, "HU")
 
-        is_active, target_vol, is_ov, unit = self.plugin._controller.get_dose_status()
+        is_active, target_vol, is_ov, unit, _, _ = self.plugin._controller.get_dose_target_info()
         self.assertTrue(is_active)
         self.assertTrue(is_ov)
         self.assertEqual(target_vol, self.mock_overlay)
@@ -374,30 +374,6 @@ class TestDosePlugin(unittest.TestCase):
         self.assertEqual(self.mock_viewer.view_state.display.ww, 20.0)
         self.assertEqual(self.mock_viewer.view_state.display.wl, 10.0)
 
-
-    def test_go_to_max(self):
-        self.mock_viewer.volume.unit = "Gy"
-        data = np.zeros((10, 10, 10), dtype=np.float32)
-        # Place maximum at z=3, y=4, x=5
-        data[3, 4, 5] = 95.0
-        self.mock_viewer.volume.data = data
-        self.mock_viewer.volume.sitk_image = None
-        self.mock_viewer.volume.voxel_coord_to_physic_coord.side_effect = (
-            lambda vox: np.array([vox[0] * 2.0, vox[1] * 2.0, vox[2] * 2.0])
-        )
-
-        self.plugin._controller.go_to_max()
-
-        expected_phys = np.array([10.0, 8.0, 6.0])  # x=5*2, y=4*2, z=3*2
-        np.testing.assert_allclose(self.mock_viewer.view_state.camera.target_center, expected_phys)
-        self.mock_viewer.view_state.update_crosshair_from_phys.assert_called()
-        np.testing.assert_allclose(
-            self.mock_viewer.view_state.update_crosshair_from_phys.call_args[0][0],
-            expected_phys,
-        )
-        self.mock_api.propagate_sync.assert_called_with("img_1")
-        self.mock_api.request_refresh.assert_called()
-
     def test_scaling_component_goto_max(self):
         self.mock_viewer.volume.unit = "Gy"
         data = np.zeros((8, 8, 8), dtype=np.float32)
@@ -471,7 +447,7 @@ class TestDosePlugin(unittest.TestCase):
 
         # Check 100% and 50% levels
         rois = list(self.mock_viewer.view_state.contours.values())
-        dose_rois = [r for r in rois if getattr(r, "is_dose_isocontour", False)]
+        dose_rois = [r for r in rois if r.name.startswith("Isodose")]
         self.assertEqual(len(dose_rois), 8)
 
         # Test extraction even before normalizing (unnormalized mode uses raw max as 100% reference)

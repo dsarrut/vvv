@@ -390,9 +390,6 @@ class RegistrationPluginController(PluginTagMixin):
             t_idx = 0
         self._compute_fast_preview(image_id, version, R, center, tasks, overlay_vol, t_idx)
 
-    def _is_live_preview_enabled(self):
-        return True
-
     def _is_auto_resample_enabled(self):
         tag = self._t("check_reg_auto_resample")
         exists = dpg.does_item_exist(tag)
@@ -778,7 +775,7 @@ class RegistrationPluginController(PluginTagMixin):
             vs.reset_preview_rotation()
 
         preview_thread_spawned = False
-        if self._is_live_preview_enabled() and has_rotation:
+        if has_rotation:
             rot_transform = vs.space.get_rotation_only_transform()
             try:
                 R = np.array(rot_transform.GetMatrix(), dtype=np.float64).reshape(3, 3)

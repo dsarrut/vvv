@@ -423,17 +423,6 @@ class RoiPluginUI(PluginTagMixin):
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
 
-            dpg.add_spacer(height=5)
-
-            # Export button
-            dpg.add_button(
-                label="Export All Stats to JSON",
-                width=-1,
-                callback=self.on_export_roi_stats_clicked,
-                tag=self._t("btn_roi_export_stats"),
-            )
-            dpg.add_spacer(height=10)
-
             # --- BOTTOM: The Detail Panel ---
             with dpg.group(tag=self._t("roi_detail_header_group"), show=False):
                 with dpg.group(horizontal=True):
@@ -570,7 +559,6 @@ class RoiPluginUI(PluginTagMixin):
             "btn_roi_reload_all",
             "btn_roi_sort",
             "btn_clear_filter",
-            "btn_roi_export_stats",
             "slider_roi_global_opacity",
             "slider_roi_global_thickness",
             "input_roi_filter",
@@ -3364,15 +3352,6 @@ class RoiPluginUI(PluginTagMixin):
     def on_sort_rois_clicked(self, sender, app_data, user_data):
         self._c.on_sort_rois()
 
-    def on_export_roi_stats_clicked(self, sender, app_data, user_data):
-        # Excluded from wiring in Step 2: remains mock popup
-        if self.api:
-            self.api.notify("ROI: Export stats clicked")
-
-    def on_mock_action(self, sender, app_data, user_data):
-        if self.api:
-            self.api.notify(f"ROI: Slider or combo callback (sender: {sender})")
-
     def on_roi_opacity_changed(self, sender, app_data, user_data):
         viewer = self.api.get_active_viewer()
         if not viewer or not viewer.view_state:
@@ -3417,12 +3396,7 @@ class RoiPluginUI(PluginTagMixin):
             self.clear_roi_stats()
             return
 
-        combo_tag = self._t("combo_roi_image")
-        is_overlay = (
-            dpg.get_value(combo_tag) == "Active Overlay"
-            if dpg.does_item_exist(combo_tag)
-            else False
-        )
+        is_overlay = False
 
         stats = self.api.get_roi_stats(
             base_vs_id=viewer.image_id,

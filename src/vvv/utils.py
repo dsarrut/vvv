@@ -145,6 +145,18 @@ def resolve_history_path_key(key):
     return str(Path(key).resolve())
 
 
+def clean_string(val) -> str:
+    """Sanitizes strings from DICOM or external headers by stripping null bytes and surrogate escapes."""
+    if val is None:
+        return ""
+    try:
+        val_str = str(val).replace("\x00", "")
+        val_str = "".join(c for c in val_str if not (0xD800 <= ord(c) <= 0xDFFF))
+        return val_str.encode("utf-8", "ignore").decode("utf-8")
+    except Exception:
+        return "Unknown"
+
+
 def write_json_atomic(path, data, indent=4):
     """Write JSON so that `path` always holds either the old or the new content.
 

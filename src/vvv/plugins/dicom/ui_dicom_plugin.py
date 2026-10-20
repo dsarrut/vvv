@@ -5,6 +5,7 @@ import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.ui.file_dialog import open_file_dialog
 from vvv.ui.ui_notifications import show_message
+from vvv.utils import clean_string
 
 
 class DicomPluginUI(PluginTagMixin):
@@ -502,19 +503,6 @@ class DicomPluginUI(PluginTagMixin):
 
         dpg.delete_item(self._t("series_list"), children_only=True)
 
-        def clean_string(val):
-            if val is None:
-                return ""
-            try:
-                val_str = str(val).replace("\x00", "")
-                val_str = "".join(
-                    c for c in val_str if not (0xD800 <= ord(c) <= 0xDFFF)
-                )
-                return val_str.encode("utf-8", "ignore").decode("utf-8")
-            except Exception:
-                return "Unknown"
-
-        # Group series by (patient_name, study_date, frame_of_ref_uid)
         # Group series by (patient_name, study_date, frame_of_ref_uid)
         groups = {}
         for idx, s in enumerate(self.scanned_series):
@@ -641,18 +629,6 @@ class DicomPluginUI(PluginTagMixin):
         self.active_idx = user_data
         self.active_series = self.scanned_series[user_data]
         s = self.active_series
-
-        def clean_string(val):
-            if val is None:
-                return ""
-            try:
-                val_str = str(val).replace("\x00", "")
-                val_str = "".join(
-                    c for c in val_str if not (0xD800 <= ord(c) <= 0xDFFF)
-                )
-                return val_str.encode("utf-8", "ignore").decode("utf-8")
-            except Exception:
-                return "Unknown"
 
         dpg.set_value(self._t("lbl_patient"), clean_string(s["patient_name"]))
         dpg.set_value(self._t("lbl_study"), clean_string(s["study_desc"]))
