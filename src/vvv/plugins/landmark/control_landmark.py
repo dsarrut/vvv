@@ -10,7 +10,7 @@ import dearpygui.dearpygui as dpg
 from vvv.config import ROI_COLORS
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
-from vvv.ui.ui_components import name_matches
+from vvv.ui.ui_components import name_matches, next_sort_order, sort_by_name
 from .landmark_state import Landmark
 
 
@@ -23,6 +23,7 @@ class LandmarkPluginController(PluginTagMixin):
         self._ui = None
         self.landmark_filters: Dict[str, str] = {}
         self.landmark_filter_inverts: Dict[str, bool] = {}
+        self.landmark_sort_orders: Dict[str, int] = {}
         self.landmark_counters: Dict[str, int] = {}
         self.landmarks_file_path: Dict[str, Optional[str]] = {}
         self.landmarks_last_mtimes: Dict[str, float] = {}
@@ -46,6 +47,7 @@ class LandmarkPluginController(PluginTagMixin):
     def on_image_removed(self, image_id: str) -> None:
         self.landmark_filters.pop(image_id, None)
         self.landmark_filter_inverts.pop(image_id, None)
+        self.landmark_sort_orders.pop(image_id, None)
         self.landmarks_file_path.pop(image_id, None)
         self.landmarks_last_mtimes.pop(image_id, None)
         self.landmarks_is_outdated.pop(image_id, None)
@@ -150,11 +152,14 @@ class LandmarkPluginController(PluginTagMixin):
         vs_id = image_id or self._get_active_vs_id()
         text = self.landmark_filters.get(vs_id, "")
         invert = self.landmark_filter_inverts.get(vs_id, False)
-        return {
-            lm_id: lm
+        lms = [
+            (lm_id, lm)
             for lm_id, lm in self.get_landmarks(vs_id).items()
             if name_matches(lm.name, text, invert)
-        }
+        ]
+        order = self.landmark_sort_orders.get(vs_id, 0)
+        return dict(sort_by_name(lms, order, name=lambda x: x[1].name))
+
     def add_landmark(
         self,
         image_id: Optional[str] = None,
@@ -626,6 +631,17 @@ class LandmarkPluginController(PluginTagMixin):
             self.landmark_filter_inverts[vs_id] = not self.landmark_filter_inverts.get(
                 vs_id, False
             )
+            if self._api:
+                self._api.request_refresh()
+
+    def on_sort_landmarks(self) -> None:
+        vs_id = self._get_active_vs_id()
+        if vs_id:
+            self.landmark_sort_orders[vs_id] = next_sort_order(
+                self.landmark_sort_orders.get(vs_id, 0)
+            )
+            if self._ui:
+                self._ui._last_state_key = None
             if self._api:
                 self._api.request_refresh()
 

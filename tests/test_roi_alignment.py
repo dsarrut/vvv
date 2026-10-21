@@ -68,11 +68,11 @@ def test_reload_all_modified_rois(headless_gui_app, tmp_path):
     roi_plugin = next((p for p in gui.plugins if p.plugin_id == "roi_plugin"), None)
     assert roi_plugin is not None
 
-    # Initially, the ROI is not outdated, so the reload all button should be hidden
+    # Reload all button is always visible on the toolbar
     roi_vol._is_outdated = False
     roi_plugin._ui.refresh_rois_ui()
     btn_tag = roi_plugin._ui._t("btn_roi_reload_all")
-    assert dpg.is_item_shown(btn_tag) is False
+    assert dpg.is_item_shown(btn_tag) is True
 
     # Touch the file on disk to simulate external modification (set mtime to future)
     new_mtime = time.time() + 10.0
@@ -85,17 +85,22 @@ def test_reload_all_modified_rois(headless_gui_app, tmp_path):
     # Verify that it detected the modification and updated the flag
     assert roi_vol._is_outdated is True
 
-    # Refresh the UI and verify that the reload all button becomes visible
+    # Refresh the UI and verify that the reload all button remains visible
     roi_plugin._ui.refresh_rois_ui()
     assert dpg.is_item_shown(btn_tag) is True
 
     # Trigger the reload all callback
     roi_plugin._ui.on_roi_reload_all(None, None, None)
+    while gui.tasks:
+        try:
+            next(gui.tasks[0])
+        except StopIteration:
+            gui.tasks.pop(0)
 
-    # After reload, the ROI is no longer outdated, and the button should be hidden
+    # After reload, the ROI is no longer outdated, and the button remains visible
     assert roi_vol._is_outdated is False
     roi_plugin._ui.refresh_rois_ui()
-    assert dpg.is_item_shown(btn_tag) is False
+    assert dpg.is_item_shown(btn_tag) is True
 
 
 def test_reload_label_map_with_json_outdated(headless_gui_app, tmp_path):

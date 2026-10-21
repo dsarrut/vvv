@@ -65,27 +65,35 @@ def build_help_button(text, gui):
 
 
 def build_icon_button(
-    icon,
+    icon=None,
+    label=None,
     callback=None,
     tooltip=None,
     gui=None,
+    api=None,
     width=20,
     theme="icon_button_theme",
     tag=None,
     user_data=None,
     enabled=True,
     show=True,
+    **kwargs,
 ):
     """Creates a standardized icon button with optional always-on tooltip (U15.1, U21)."""
-    kwargs = {"label": icon, "width": width, "enabled": enabled, "show": show}
+    if icon is None and label is not None:
+        icon = label
+    if gui is None and api is not None:
+        gui = api
+    btn_kwargs = {"label": icon, "width": width, "enabled": enabled, "show": show}
     if tag is not None:
-        kwargs["tag"] = tag
+        btn_kwargs["tag"] = tag
     if user_data is not None:
-        kwargs["user_data"] = user_data
+        btn_kwargs["user_data"] = user_data
     if callback is not None:
-        kwargs["callback"] = callback
+        btn_kwargs["callback"] = callback
+    btn_kwargs.update(kwargs)
 
-    btn = dpg.add_button(**kwargs)
+    btn = dpg.add_button(**btn_kwargs)
     if dpg.does_item_exist("icon_font_tag"):
         dpg.bind_item_font(btn, "icon_font_tag")
     if theme and dpg.does_item_exist(theme):
@@ -96,9 +104,24 @@ def build_icon_button(
 
 
 def build_delete_button(
-    label="\uf00d", width=20, user_data=None, callback=None, tooltip="Delete", gui=None
+    label="\uf00d",
+    icon=None,
+    width=20,
+    user_data=None,
+    callback=None,
+    tooltip="Delete",
+    gui=None,
+    api=None,
+    tag=None,
+    show=True,
+    enabled=True,
+    **kwargs,
 ):
     """Creates a standardized red icon close/delete button."""
+    if icon is not None:
+        label = icon
+    if gui is None and api is not None:
+        gui = api
     return build_icon_button(
         icon=label,
         width=width,
@@ -107,6 +130,10 @@ def build_delete_button(
         tooltip=tooltip,
         gui=gui,
         theme="delete_button_theme",
+        tag=tag,
+        show=show,
+        enabled=enabled,
+        **kwargs,
     )
 
 
@@ -140,6 +167,28 @@ def set_filter_invert_state(btn_invert_tag, invert):
         dpg.bind_item_theme(btn_invert_tag, 0)
 
 
+# Name sort shared by the filtered lists: 0 = insertion order, 1 = A-Z, -1 = Z-A
+SORT_ICONS = {0: "\uf0dc", 1: "\uf15d", -1: "\uf15e"}
+
+
+def next_sort_order(order):
+    """Sort button cycle: off -> A-Z -> Z-A -> off."""
+    return {0: 1, 1: -1}.get(order, 0)
+
+
+def sort_by_name(items, order, name=lambda x: x.name):
+    """items sorted by case-insensitive name for order 1 / -1, unchanged for 0."""
+    if order not in (1, -1):
+        return list(items)
+    return sorted(items, key=lambda x: (name(x) or "").lower(), reverse=order == -1)
+
+
+def set_sort_button(btn_sort_tag, order):
+    """Show the current sort order on the sort button."""
+    if dpg.does_item_exist(btn_sort_tag):
+        dpg.configure_item(btn_sort_tag, label=SORT_ICONS.get(order, SORT_ICONS[0]))
+
+
 def set_filter_count(count_tag, shown, total):
     """'M / N': items listed by the filter / all items."""
     if dpg.does_item_exist(count_tag):
@@ -155,19 +204,31 @@ def build_name_filter_bar(
     api=None,
     btn_invert_tag=None,
     on_invert_clicked=None,
+    btn_sort_tag=None,
+    on_sort_clicked=None,
+    sort_tooltip="Sort alphabetically",
     count_tag=None,
     hint="Filter ...",
 ):
     """Name filter row shared by the ROI, landmark, profile and DVH lists: input
-    (fills the row), invert (!), clear (X) and an item count (see
+    (fills the row), optional sort, invert (!), clear (X) and an item count (see
     set_filter_count). Match names with name_matches."""
     if input_tag:
         REGISTERED_INPUT_FILTER_TAGS.add(input_tag)
+
+    btn_count = 1  # btn_clear
+    if btn_invert_tag and on_invert_clicked:
+        btn_count += 1
+    if btn_sort_tag and on_sort_clicked:
+        btn_count += 1
+
+    reserve_w = btn_count * (_FILTER_BTN_W + 8) + (_FILTER_COUNT_W + 8 if count_tag else 8)
+
     with dpg.group(horizontal=True, tag=group_tag):
         dpg.add_input_text(
             hint=hint,
             tag=input_tag,
-            width=-_FILTER_RESERVE_W,
+            width=-reserve_w,
             callback=lambda s, a: on_filter_changed(a),
         )
         if api:
@@ -177,12 +238,22 @@ def build_name_filter_bar(
                 api,
             )
 
+        if btn_sort_tag and on_sort_clicked:
+            build_icon_button(
+                label=SORT_ICONS[0],
+                tag=btn_sort_tag,
+                width=_FILTER_BTN_W,
+                callback=lambda *_: on_sort_clicked(),
+                tooltip=sort_tooltip,
+                gui=api,
+            )
+
         if btn_invert_tag and on_invert_clicked:
             btn_invert = dpg.add_button(
                 label="!",
                 tag=btn_invert_tag,
                 width=_FILTER_BTN_W,
-                callback=lambda: on_invert_clicked(),
+                callback=lambda *_: on_invert_clicked(),
             )
             if dpg.does_item_exist("icon_font_tag"):
                 dpg.bind_item_font(btn_invert, "icon_font_tag")
@@ -198,7 +269,7 @@ def build_name_filter_bar(
             label="X",
             tag=btn_clear_tag,
             width=_FILTER_BTN_W,
-            callback=lambda: on_clear_clicked(),
+            callback=lambda *_: on_clear_clicked(),
         )
         if api:
             build_tooltip(

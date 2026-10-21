@@ -156,7 +156,42 @@ def test_tooltip_delays_and_components():
             set_item_show(btn4, False, mock_gui)
             assert dpg.get_item_configuration(btn4)["show"] is False
             assert dpg.get_item_configuration(tt4)["show"] is False
+
+            # Test build_name_filter_bar with sort button
+            from vvv.ui.ui_components import build_name_filter_bar
+
+            build_name_filter_bar(
+                group_tag="test_filter_group",
+                input_tag="test_filter_input",
+                btn_clear_tag="test_filter_clear",
+                on_filter_changed=lambda a: None,
+                on_clear_clicked=lambda: None,
+                btn_invert_tag="test_filter_invert",
+                on_invert_clicked=lambda: None,
+                btn_sort_tag="test_filter_sort",
+                on_sort_clicked=lambda: None,
+                count_tag="test_filter_count",
+            )
+            assert dpg.does_item_exist("test_filter_group")
+            assert dpg.does_item_exist("test_filter_input")
+            assert dpg.does_item_exist("test_filter_sort")
+            assert dpg.does_item_exist("test_filter_invert")
+            assert dpg.does_item_exist("test_filter_clear")
+            assert dpg.does_item_exist("test_filter_count")
     finally:
         if created_ctx:
             dpg.destroy_context()
 
+
+
+def test_sort_helpers():
+    from types import SimpleNamespace as N
+    from vvv.ui.ui_components import next_sort_order, sort_by_name
+
+    assert [next_sort_order(o) for o in (0, 1, -1)] == [1, -1, 0]
+    items = [N(name="b"), N(name="A"), N(name="c")]
+    assert [x.name for x in sort_by_name(items, 0)] == ["b", "A", "c"]
+    assert [x.name for x in sort_by_name(items, 1)] == ["A", "b", "c"]
+    assert [x.name for x in sort_by_name(items, -1)] == ["c", "b", "A"]
+    pairs = [("k1", N(name="z")), ("k2", N(name="y"))]
+    assert [k for k, _ in sort_by_name(pairs, 1, name=lambda p: p[1].name)] == ["k2", "k1"]

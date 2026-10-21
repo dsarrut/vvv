@@ -2248,6 +2248,14 @@ class TestRoiPlugin(unittest.TestCase):
 
         self.assertEqual(ctrl.roi_filters["img_1"], "")
 
+        # Also verify sort button callback works with both 0 and 3 DPG arguments
+        sort_btn = ui._t("btn_roi_sort")
+        sort_cb = dpg.get_item_configuration(sort_btn)["callback"]
+        sort_cb("sender", "app_data", "user_data")
+        self.assertEqual(ctrl.roi_sort_orders["img_1"], 1)
+        sort_cb()
+        self.assertEqual(ctrl.roi_sort_orders["img_1"], -1)
+
         dpg.delete_item("test_parent")
 
     @patch("vvv.ui.file_dialog.save_file_dialog")

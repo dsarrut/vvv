@@ -12,6 +12,9 @@ from vvv.ui.ui_components import (
     name_matches,
     set_filter_count,
     set_filter_invert_state,
+    next_sort_order,
+    set_sort_button,
+    sort_by_name,
 )
 from vvv.plugins.dose.dvh_calc import ROI_DVH_Curve, compute_roi_dvh
 
@@ -30,6 +33,7 @@ class DVHWindow(PluginTagMixin):
         self.curves: List[ROI_DVH_Curve] = []
         self.filter_text: str = ""
         self.filter_invert: bool = False
+        self.structure_sort_order: int = 0
         self.is_cumulative: bool = True
         self.is_volume_relative: bool = True   # True: %, False: cc
         self.is_dose_relative: bool = False     # True: %, False: Gy
@@ -211,6 +215,9 @@ class DVHWindow(PluginTagMixin):
                             api=self._api,
                             btn_invert_tag=self._t("btn_dvh_filter_invert"),
                             on_invert_clicked=self._on_toggle_filter_invert,
+                            btn_sort_tag=self._t("btn_dvh_sort"),
+                            on_sort_clicked=self._on_sort_structures,
+                            sort_tooltip="Sort structures alphabetically",
                             count_tag=self._t("dvh_filter_count"),
                         )
 
@@ -336,11 +343,17 @@ class DVHWindow(PluginTagMixin):
         dpg.configure_item(leg_tag, location=loc, outside=outside)
 
     def _get_filtered_curves(self) -> List[ROI_DVH_Curve]:
-        return [
+        curves = [
             c
             for c in self.curves
             if name_matches(c.roi_name, self.filter_text, self.filter_invert)
         ]
+        return sort_by_name(curves, self.structure_sort_order, name=lambda c: c.roi_name)
+
+    def _on_sort_structures(self):
+        self.structure_sort_order = next_sort_order(self.structure_sort_order)
+        set_sort_button(self._t("btn_dvh_sort"), self.structure_sort_order)
+        self._rebuild_structure_checklist()
 
     def _on_filter_changed(self, text: str):
         self.filter_text = text or ""

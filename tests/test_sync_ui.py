@@ -25,14 +25,14 @@ def test_sync_ui_layout_and_beginner_mode(headless_gui_app):
     ]
     assert len(cols) == 2
 
-    # Width when beginner mode is OFF vs ON
+    # Width when beginner mode is OFF vs ON (-8 to match separator bar, -36 to leave room for help button)
     gui.is_beginner_mode = False
     refresh_sync_ui(gui)
-    assert dpg.get_item_configuration("sync_buttons_table")["width"] == -1
+    assert dpg.get_item_configuration("sync_buttons_table")["width"] == -8
 
     gui.is_beginner_mode = True
     refresh_sync_ui(gui)
-    assert dpg.get_item_configuration("sync_buttons_table")["width"] == -28
+    assert dpg.get_item_configuration("sync_buttons_table")["width"] == -36
 
 
 def test_sync_ui_spatial_state_transitions(headless_gui_app, synthetic_volume_factory):

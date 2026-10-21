@@ -6,6 +6,7 @@ import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.utils import ViewMode, voxel_to_slice, slice_to_voxel
 from vvv.ui.file_dialog import save_file_dialog
+from vvv.ui.ui_components import next_sort_order
 
 
 class ProfilePluginController(PluginTagMixin):
@@ -17,6 +18,7 @@ class ProfilePluginController(PluginTagMixin):
         self._ui = None
         self.profile_filters: Dict[str, str] = {}
         self.profile_filter_inverts: Dict[str, bool] = {}
+        self.profile_sort_orders: Dict[str, int] = {}
         self._open_plot_windows: Dict[str, set[str]] = {}
 
     def bind(self, api: PluginAPI) -> None:
@@ -62,6 +64,7 @@ class ProfilePluginController(PluginTagMixin):
                         dpg.delete_item(win_tag)
         self.profile_filters.pop(image_id, None)
         self.profile_filter_inverts.pop(image_id, None)
+        self.profile_sort_orders.pop(image_id, None)
         if self._ui:
             self._ui._last_profile_key = None
 
@@ -96,6 +99,18 @@ class ProfilePluginController(PluginTagMixin):
             vs_id = viewer.image_id
             self.profile_filter_inverts[vs_id] = not self.profile_filter_inverts.get(
                 vs_id, False
+            )
+            if self._ui:
+                self._ui._last_profile_key = None
+                self._ui.update_ui(self._api)
+
+    def on_sort_profiles(self) -> None:
+        if not self._api:
+            return
+        viewer = self._api.get_active_viewer()
+        if viewer and viewer.image_id:
+            self.profile_sort_orders[viewer.image_id] = next_sort_order(
+                self.profile_sort_orders.get(viewer.image_id, 0)
             )
             if self._ui:
                 self._ui._last_profile_key = None

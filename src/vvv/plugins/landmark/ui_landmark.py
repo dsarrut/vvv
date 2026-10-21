@@ -14,6 +14,7 @@ from vvv.ui.ui_components import (
     build_renamable_input,
     set_filter_count,
     set_filter_invert_state,
+    set_sort_button,
     set_item_show,
 )
 from vvv.plugins.plugin_api import PluginTagMixin
@@ -267,6 +268,9 @@ class LandmarkPluginUI(PluginTagMixin):
                 api=api,
                 btn_invert_tag=self._t("btn_filter_invert"),
                 on_invert_clicked=self.on_toggle_filter_invert_clicked,
+                btn_sort_tag=self._t("btn_sort"),
+                on_sort_clicked=self._c.on_sort_landmarks,
+                sort_tooltip="Sort landmarks alphabetically",
                 count_tag=self._t("filter_count"),
             )
 
@@ -338,6 +342,9 @@ class LandmarkPluginUI(PluginTagMixin):
         file_path = self._c.landmarks_file_path.get(vs_id)
         set_filter_invert_state(self._t("btn_filter_invert"), invert)
 
+        sort_order = self._c.landmark_sort_orders.get(vs_id, 0)
+        set_sort_button(self._t("btn_sort"), sort_order)
+
         # Resync the visible filter box to this image's own remembered filter —
         # otherwise switching images leaves stale text in the box while the
         # list itself (correctly) filters by the new image's filter_text above.
@@ -398,7 +405,7 @@ class LandmarkPluginUI(PluginTagMixin):
             )
             for lm_id, lm in landmarks.items()
         )
-        state_key = (vs_id, filter_text, invert, file_path, is_outdated, lm_tuples)
+        state_key = (vs_id, filter_text, invert, sort_order, file_path, is_outdated, lm_tuples)
 
         if state_key == self._last_state_key:
             return

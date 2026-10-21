@@ -60,7 +60,7 @@ def build_tab_sync(gui):
                 borders_innerV=False,
                 borders_outerH=False,
                 borders_outerV=False,
-                width=-28 if is_beg else -1,
+                width=-36 if is_beg else -8,
             ):
                 dpg.add_table_column(width_stretch=True)
                 dpg.add_table_column(width_stretch=True)
@@ -115,7 +115,7 @@ def refresh_sync_ui(gui):
 
     is_beg = getattr(gui, "is_beginner_mode", False)
     if dpg.does_item_exist("sync_buttons_table"):
-        dpg.set_item_width("sync_buttons_table", -28 if is_beg else -1)
+        dpg.set_item_width("sync_buttons_table", -36 if is_beg else -8)
 
     vs_list = list(gui.controller.view_states.values())
     num_total = len(vs_list)

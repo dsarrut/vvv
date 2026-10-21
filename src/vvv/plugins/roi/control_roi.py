@@ -1,7 +1,7 @@
 import threading
 from typing import Optional
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
-from vvv.ui.ui_components import name_matches
+from vvv.ui.ui_components import name_matches, next_sort_order, sort_by_name
 
 
 class RoiPluginController(PluginTagMixin):
@@ -139,13 +139,7 @@ class RoiPluginController(PluginTagMixin):
         if not viewer or not viewer.image_id:
             return
         vs_id = viewer.image_id
-        current = self.roi_sort_orders.get(vs_id, 0)
-        if current == 0:
-            self.roi_sort_orders[vs_id] = 1
-        elif current == 1:
-            self.roi_sort_orders[vs_id] = -1
-        else:
-            self.roi_sort_orders[vs_id] = 0
+        self.roi_sort_orders[vs_id] = next_sort_order(self.roi_sort_orders.get(vs_id, 0))
         if self.ui:
             self.ui.refresh_rois_ui()
 
@@ -207,11 +201,9 @@ class RoiPluginController(PluginTagMixin):
         invert = self.roi_filter_inverts.get(vs_id, False)
         sort_order = self.roi_sort_orders.get(vs_id, 0)
 
-        roi_items = list(viewer.view_state.rois.items())
-        if sort_order == 1:
-            roi_items.sort(key=lambda x: x[1].name.lower())
-        elif sort_order == -1:
-            roi_items.sort(key=lambda x: x[1].name.lower(), reverse=True)
+        roi_items = sort_by_name(
+            viewer.view_state.rois.items(), sort_order, name=lambda x: x[1].name
+        )
 
         # Filter the items
         filtered_roi_ids = []

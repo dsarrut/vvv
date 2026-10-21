@@ -8,6 +8,7 @@ from vvv.ui.ui_components import (
     build_help_button,
     build_beginner_tooltip,
     build_tooltip,
+    build_icon_button,
     build_stepped_slider,
     build_renamable_input,
     build_delete_button,
@@ -15,6 +16,9 @@ from vvv.ui.ui_components import (
     name_matches,
     set_filter_count,
     set_filter_invert_state,
+    set_item_show,
+    set_sort_button,
+    sort_by_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -170,40 +174,24 @@ class RoiPluginUI(PluginTagMixin):
                     color=cfg_c["text_header"],
                 )
 
-                btn_sph_icon = dpg.add_button(
+                btn_sph_icon = build_icon_button(
                     label="\uf111",
                     width=20,
                     callback=self.on_add_spheroid_clicked,
                     tag=self._t("btn_roi_add_spheroid_icon"),
-                )
-                if dpg.does_item_exist("icon_font_tag"):
-                    dpg.bind_item_font(btn_sph_icon, "icon_font_tag")
-                if dpg.does_item_exist("icon_button_theme"):
-                    dpg.bind_item_theme(btn_sph_icon, "icon_button_theme")
-                build_tooltip(
-                    btn_sph_icon,
-                    "Create a new spheroid ROI centered at the crosshair.",
-                    self.api,
-                    always_on=True,
+                    tooltip="Create a new spheroid ROI centered at the crosshair.",
+                    api=self.api,
                 )
 
                 dpg.add_spacer(width=5)
 
-                btn_rec_icon = dpg.add_button(
+                btn_rec_icon = build_icon_button(
                     label="\uf0c8",
                     width=20,
                     callback=self.on_add_rect_clicked,
                     tag=self._t("btn_roi_add_rect_icon"),
-                )
-                if dpg.does_item_exist("icon_font_tag"):
-                    dpg.bind_item_font(btn_rec_icon, "icon_font_tag")
-                if dpg.does_item_exist("icon_button_theme"):
-                    dpg.bind_item_theme(btn_rec_icon, "icon_button_theme")
-                build_tooltip(
-                    btn_rec_icon,
-                    "Create a new rectangular box ROI centered at the crosshair.",
-                    self.api,
-                    always_on=True,
+                    tooltip="Create a new rectangular box ROI centered at the crosshair.",
+                    api=self.api,
                 )
                 build_help_button(
                     "Spheroid/Box ROI creation:\n"
@@ -257,60 +245,81 @@ class RoiPluginUI(PluginTagMixin):
                     tag=self._t("btn_roi_color_picker"),
                     callback=self.on_global_roi_color_picker_changed,
                 )
-                btn_show = dpg.add_button(
-                    label="\uf06e",
+                btn_show = build_icon_button(
+                    icon="\uf06e",
                     width=20,
                     callback=self.on_roi_show_all,
+                    tooltip="Show Listed (Raster)",
+                    gui=self.api,
                     tag=self._t("btn_roi_show_all"),
                 )
-                btn_contour = dpg.add_button(
-                    label="\uf040",
+                btn_contour = build_icon_button(
+                    icon="\uf040",
                     width=20,
                     callback=self.on_roi_contour_all,
+                    tooltip="Show Listed (Contour)",
+                    gui=self.api,
                     tag=self._t("btn_roi_contour_all"),
                 )
-                btn_hide = dpg.add_button(
-                    label="\uf070",
+                btn_hide = build_icon_button(
+                    icon="\uf070",
                     width=20,
                     callback=self.on_roi_hide_all,
+                    tooltip="Hide Listed",
+                    gui=self.api,
                     tag=self._t("btn_roi_hide_all"),
                 )
-                btn_roi_above_overlay = dpg.add_button(
-                    label="\uf5fd",
+                btn_roi_above_overlay = build_icon_button(
+                    icon="\uf5fd",
                     width=20,
                     callback=self.on_roi_above_overlay_clicked,
+                    tooltip="Toggle ROI on top of Fusion",
+                    gui=self.api,
                     tag=self._t("btn_roi_above_overlay"),
                 )
-                btn_close_all = dpg.add_button(
-                    label="\uf00d",
-                    width=20,
-                    callback=self.on_roi_close_all,
-                    tag=self._t("btn_roi_close_all"),
-                )
-                btn_toggle_all_stats = dpg.add_button(
-                    label="\uf08e",
+                btn_toggle_all_stats = build_icon_button(
+                    icon="\uf08e",
                     width=20,
                     callback=self.on_roi_toggle_all_stats,
+                    tooltip="Toggle statistics windows for listed ROIs",
+                    gui=self.api,
                     tag=self._t("btn_roi_toggle_all_stats"),
                 )
-                btn_reload_all = dpg.add_button(
-                    label="\uf01e",
+                btn_reload_all = build_icon_button(
+                    icon="\uf01e",
                     width=20,
                     callback=self.on_roi_reload_all,
+                    tooltip="Reload ROIs from disk",
+                    gui=self.api,
                     tag=self._t("btn_roi_reload_all"),
-                    show=False,
+                    show=True,
                 )
-                dpg.add_text(
+                txt_selected = dpg.add_text(
                     "",
                     tag=self._t("text_roi_selected_count"),
                     color=cfg_c.get("text_dim", [150, 150, 150]),
                 )
-                btn_clear_sel = dpg.add_button(
+                build_tooltip(
+                    txt_selected,
+                    "Selection active. Press Esc to deselect.",
+                    self.api,
+                    always_on=True,
+                )
+                build_icon_button(
+                    icon="\uf00d",
+                    callback=self.on_clear_selection_clicked,
+                    tooltip="Clear ROI selection (Esc)",
+                    gui=self.api,
+                    tag=self._t("btn_roi_clear_selection"),
+                    show=False,
+                )
+                btn_close_all = build_delete_button(
                     label="\uf00d",
                     width=20,
-                    tag=self._t("btn_roi_clear_selection"),
-                    callback=self.on_clear_selection_clicked,
-                    show=False,
+                    callback=self.on_roi_close_all,
+                    tag=self._t("btn_roi_close_all"),
+                    tooltip="Close Listed",
+                    gui=self.api,
                 )
                 build_help_button(
                     "Global ROI Actions:\n"
@@ -322,33 +331,6 @@ class RoiPluginUI(PluginTagMixin):
                     "- Close All [X Icon]: Permanently remove all ROIs from the current view state.",
                     self.api,
                 )
-
-                if dpg.does_item_exist("icon_font_tag"):
-                    for btn in [
-                        btn_show,
-                        btn_contour,
-                        btn_hide,
-                        btn_toggle_all_stats,
-                        btn_reload_all,
-                        btn_roi_above_overlay,
-                        btn_close_all,
-                        btn_clear_sel,
-                    ]:
-                        dpg.bind_item_font(btn, "icon_font_tag")
-
-                if dpg.does_item_exist("delete_button_theme"):
-                    dpg.bind_item_theme(btn_close_all, "delete_button_theme")
-                    dpg.bind_item_theme(btn_clear_sel, "delete_button_theme")
-
-                if api:
-                    build_tooltip(btn_show, "Show Listed (Raster)", api, always_on=True)
-                    build_tooltip(btn_contour, "Show Listed (Contour)", api, always_on=True)
-                    build_tooltip(btn_hide, "Hide Listed", api, always_on=True)
-                    build_tooltip(btn_roi_above_overlay, "Toggle ROI on top of Fusion", api, always_on=True)
-                    build_tooltip(btn_close_all, "Close Listed", api, always_on=True)
-                    build_tooltip(btn_toggle_all_stats, "Toggle statistics windows for listed ROIs", api, always_on=True)
-                    build_tooltip(btn_reload_all, "Reload all modified ROIs", api, always_on=True)
-                    build_tooltip(btn_clear_sel, "Clear ROI selection (Esc)", api, always_on=True)
 
             dpg.add_spacer(height=2)
 
@@ -388,30 +370,20 @@ class RoiPluginUI(PluginTagMixin):
             build_horizontal_separator()
 
             # Filter Group
-            with dpg.group(
-                tag=self._t("group_roi_filter"), horizontal=True
-            ):
-                btn_sort = dpg.add_button(
-                    label="\uf0dc",
-                    width=20,
-                    tag=self._t("btn_roi_sort"),
-                    callback=self.on_sort_rois_clicked,
-                )
-                if dpg.does_item_exist("icon_font_tag"):
-                    dpg.bind_item_font(btn_sort, "icon_font_tag")
-                build_tooltip(btn_sort, "Sort ROIs alphabetically", self.api, always_on=True)
-
-                build_name_filter_bar(
-                    group_tag=self._t("subgroup_roi_filter"),
-                    input_tag=self._t("input_roi_filter"),
-                    btn_clear_tag=self._t("btn_clear_filter"),
-                    on_filter_changed=self.on_roi_filter_changed,
-                    on_clear_clicked=self.on_clear_roi_filter_clicked,
-                    api=self.api,
-                    btn_invert_tag=self._t("btn_roi_filter_invert"),
-                    on_invert_clicked=self.on_toggle_filter_invert_clicked,
-                    count_tag=self._t("text_roi_filter_count"),
-                )
+            build_name_filter_bar(
+                group_tag=self._t("group_roi_filter"),
+                input_tag=self._t("input_roi_filter"),
+                btn_clear_tag=self._t("btn_clear_filter"),
+                on_filter_changed=self.on_roi_filter_changed,
+                on_clear_clicked=self.on_clear_roi_filter_clicked,
+                api=self.api,
+                btn_invert_tag=self._t("btn_roi_filter_invert"),
+                on_invert_clicked=self.on_toggle_filter_invert_clicked,
+                btn_sort_tag=self._t("btn_roi_sort"),
+                on_sort_clicked=self.on_sort_rois_clicked,
+                sort_tooltip="Sort ROIs alphabetically",
+                count_tag=self._t("text_roi_filter_count"),
+            )
 
             # Table child window
             with dpg.child_window(
@@ -440,15 +412,14 @@ class RoiPluginUI(PluginTagMixin):
             with dpg.group(tag=self._t("roi_detail_header_group"), show=False):
                 with dpg.group(horizontal=True):
                     dpg.add_text("Selected ROI Properties", color=cfg_c["text_header"])
-                    btn_close_detail = dpg.add_button(
+                    btn_close_detail = build_icon_button(
                         label="\uf057",
                         width=20,
                         callback=self.on_close_roi_properties,
                         tag=self._t("btn_close_detail"),
+                        tooltip="Close properties panel",
+                        api=self.api,
                     )
-                    if dpg.does_item_exist("icon_font_tag"):
-                        dpg.bind_item_font(btn_close_detail, "icon_font_tag")
-                    build_tooltip(btn_close_detail, "Close properties panel", self.api, always_on=True)
                 build_horizontal_separator()
 
             with dpg.child_window(
@@ -620,8 +591,6 @@ class RoiPluginUI(PluginTagMixin):
 
         if not viewer or not viewer.view_state or not viewer.view_state.rois:
             set_filter_count(self._t("text_roi_filter_count"), 0, 0)
-            if dpg.does_item_exist(self._t("btn_roi_reload_all")):
-                dpg.configure_item(self._t("btn_roi_reload_all"), show=False)
             self.refresh_roi_detail_ui()
             return
 
@@ -668,13 +637,7 @@ class RoiPluginUI(PluginTagMixin):
         ):
             dpg.set_value(self._t("input_roi_filter"), filter_text)
 
-        if dpg.does_item_exist(self._t("btn_roi_sort")):
-            if sort_order == 1:
-                dpg.configure_item(self._t("btn_roi_sort"), label="\uf15d")
-            elif sort_order == -1:
-                dpg.configure_item(self._t("btn_roi_sort"), label="\uf15e")
-            else:
-                dpg.configure_item(self._t("btn_roi_sort"), label="\uf0dc")
+        set_sort_button(self._t("btn_roi_sort"), sort_order)
 
         any_outdated = False
         for roi_id in viewer.view_state.rois:
@@ -682,14 +645,10 @@ class RoiPluginUI(PluginTagMixin):
             if rvol and getattr(rvol, "_is_outdated", False):
                 any_outdated = True
                 break
-        if dpg.does_item_exist(self._t("btn_roi_reload_all")):
-            dpg.configure_item(self._t("btn_roi_reload_all"), show=any_outdated)
 
-        roi_items = list(viewer.view_state.rois.items())
-        if sort_order == 1:
-            roi_items.sort(key=lambda x: x[1].name.lower())
-        elif sort_order == -1:
-            roi_items.sort(key=lambda x: x[1].name.lower(), reverse=True)
+        roi_items = sort_by_name(
+            viewer.view_state.rois.items(), sort_order, name=lambda x: x[1].name
+        )
 
         visible_rois = [
             (roi_id, roi)
@@ -708,14 +667,18 @@ class RoiPluginUI(PluginTagMixin):
         if dpg.does_item_exist(self._t("text_roi_selected_count")):
             count_label = f"({num_selected} selected)" if num_selected > 0 else ""
             dpg.set_value(self._t("text_roi_selected_count"), count_label)
-        if dpg.does_item_exist(self._t("btn_roi_clear_selection")):
-            dpg.configure_item(self._t("btn_roi_clear_selection"), show=num_selected > 0)
+        set_item_show(self._t("btn_roi_clear_selection"), num_selected > 0, self.api)
 
         # Update dynamic tooltips on top buttons
         top_button_tooltips = {
             self._t("btn_roi_show_all"): f"Show {scope_str} ROIs as raster ({target_count})",
             self._t("btn_roi_contour_all"): f"Show {scope_str} ROIs as contour ({target_count})",
             self._t("btn_roi_hide_all"): f"Hide {scope_str} ROIs ({target_count})",
+            self._t("btn_roi_reload_all"): (
+                f"Reload {scope_str} ROIs (modifications detected)"
+                if any_outdated
+                else f"Reload {scope_str} ROIs from disk"
+            ),
             self._t("btn_roi_close_all"): f"Close {scope_str} ROIs ({target_count})",
             self._t("btn_roi_toggle_all_stats"): f"Toggle statistics for {scope_str} ROIs ({target_count})",
         }
@@ -798,82 +761,57 @@ class RoiPluginUI(PluginTagMixin):
                         ),
                     )
 
-                btn_eye = dpg.add_button(
+                btn_eye = build_icon_button(
                     label=lbl_eye,
                     width=20,
                     user_data=roi_id,
                     callback=self.on_roi_toggle_visible,
+                    tooltip="Toggle visibility (show / contour / hide)",
+                    api=self.api,
                 )
-                if self.api:
-                    build_tooltip(
-                        btn_eye,
-                        "Toggle visibility (show / contour / hide)",
-                        self.api,
-                        always_on=True,
-                    )
 
-                btn_center = dpg.add_button(
+                btn_center = build_icon_button(
                     label="\uf05b",
                     width=20,
                     user_data=roi_id,
                     callback=self.on_roi_center,
+                    tooltip="Center camera on ROI",
+                    api=self.api,
                 )
-                if self.api:
-                    build_tooltip(
-                        btn_center,
-                        "Center camera on ROI",
-                        self.api,
-                        always_on=True,
-                    )
 
-                btn_stats = dpg.add_button(
+                btn_stats = build_icon_button(
                     label="\uf08e",
                     width=20,
                     user_data=roi_id,
                     callback=self.on_roi_stats_toggle,
+                    tooltip="Toggle ROI statistics window",
+                    api=self.api,
                 )
-                if self.api:
-                    build_tooltip(
-                        btn_stats,
-                        "Toggle ROI statistics window",
-                        self.api,
-                        always_on=True,
-                    )
 
                 source_type = getattr(roi, "source_type", "Binary")
 
                 if is_outdated:
-                    btn_action = dpg.add_button(
+                    btn_action = build_icon_button(
                         label="\uf01e",
                         width=20,
                         user_data=roi_id,
                         callback=self.on_roi_reload,
+                        tooltip="Reload modified file",
+                        api=self.api,
                     )
-                    if self.api:
-                        build_tooltip(
-                            btn_action,
-                            "Reload modified file",
-                            self.api,
-                            always_on=True,
-                        )
                 else:
-                    btn_action = dpg.add_button(
+                    btn_action = build_icon_button(
                         label="\uf0c7",
                         width=20,
                         user_data=roi_id,
                         callback=self.on_roi_save,
+                        tooltip=(
+                            "Save ROI As..."
+                            if source_type == "Binary"
+                            else "Extract & Save ROI"
+                        ),
+                        api=self.api,
                     )
-                    if self.api:
-                        build_tooltip(
-                            btn_action,
-                            (
-                                "Save ROI As..."
-                                if source_type == "Binary"
-                                else "Extract & Save ROI"
-                            ),
-                            self.api,
-                            always_on=True,
-                        )
 
                 btn_close = build_delete_button(
                     label="\uf00d",
@@ -882,10 +820,6 @@ class RoiPluginUI(PluginTagMixin):
                     callback=self.on_roi_close,
                     tooltip="Delete ROI",
                 )
-
-                if dpg.does_item_exist("icon_font_tag"):
-                    for btn in [btn_eye, btn_action, btn_center, btn_stats]:
-                        dpg.bind_item_font(btn, "icon_font_tag")
 
                 if is_mip:
                     for btn in [btn_eye, btn_action, btn_center, btn_stats, btn_close]:
@@ -1481,14 +1415,29 @@ class RoiPluginUI(PluginTagMixin):
         viewer = self.api.get_active_viewer()
         if not viewer or not viewer.image_id or not viewer.view_state:
             return
-        outdated_ids = []
-        for roi_id in list(viewer.view_state.rois.keys()):
-            roi_vol = self.api.get_volumes().get(roi_id)
-            if roi_vol and getattr(roi_vol, "_is_outdated", False):
-                outdated_ids.append(roi_id)
-        for roi_id in outdated_ids:
-            if roi_id in viewer.view_state.rois:
-                self.api.reload_roi(viewer.image_id, roi_id)
+        volumes = self.api.get_volumes()
+        outdated_ids = [
+            roi_id
+            for roi_id in list(viewer.view_state.rois.keys())
+            if getattr(volumes.get(roi_id), "_is_outdated", False)
+        ]
+        if outdated_ids:
+            reload_ids = outdated_ids
+        else:
+            targets = self._get_target_rois(viewer)
+            target_ids = (
+                [roi_id for roi_id, _ in targets]
+                if targets
+                else list(viewer.view_state.rois.keys())
+            )
+            reload_ids = [
+                roi_id
+                for roi_id in target_ids
+                if getattr(volumes.get(roi_id), "file_paths", None)
+            ]
+
+        if reload_ids:
+            self.api.reload_rois(viewer.image_id, reload_ids)
 
     def on_roi_save(self, sender, app_data, user_data):
         roi_id = user_data
@@ -2272,54 +2221,39 @@ class RoiPluginUI(PluginTagMixin):
             )
 
             # Copy to Clipboard Button (Icon)
-            btn_copy = dpg.add_button(
+            btn_copy = build_icon_button(
                 label="\uf0c5",
                 width=20,
                 callback=self.on_copy_stats_to_clipboard,
                 user_data={"base_vs_id": base_vs_id, "roi_id": roi_id},
+                tooltip="Copy statistics to clipboard",
+                api=self.api,
             )
-            if self.api:
-                build_tooltip(
-                    btn_copy,
-                    "Copy statistics to clipboard",
-                    self.api,
-                    always_on=True,
-                )
 
             # Contour/Visibility Toggle
             if roi.visible:
                 lbl_eye = "\uf040" if roi.is_contour else "\uf06e"
             else:
                 lbl_eye = "\uf070"
-            btn_eye = dpg.add_button(
+            btn_eye = build_icon_button(
                 label=lbl_eye,
                 width=20,
                 tag=self._t(f"stats_btn_eye_{roi_id}"),
                 user_data=roi_id,
                 callback=self.on_roi_toggle_visible,
+                tooltip="Toggle visibility (show / contour / hide)",
+                api=self.api,
             )
-            if self.api:
-                build_tooltip(
-                    btn_eye,
-                    "Toggle visibility (show / contour / hide)",
-                    self.api,
-                    always_on=True,
-                )
 
             # Center Camera
-            btn_center = dpg.add_button(
+            btn_center = build_icon_button(
                 label="\uf05b",
                 width=20,
                 user_data=roi_id,
                 callback=self.on_roi_center,
+                tooltip="Center camera on ROI",
+                api=self.api,
             )
-            if self.api:
-                build_tooltip(
-                    btn_center,
-                    "Center camera on ROI",
-                    self.api,
-                    always_on=True,
-                )
 
             # Save / Reload
             roi_vol = self.api.get_volumes().get(roi_id)
@@ -2327,39 +2261,29 @@ class RoiPluginUI(PluginTagMixin):
             source_type = getattr(roi, "source_type", "Binary")
             btn_action_tag = self._t(f"stats_btn_action_{roi_id}")
             if is_outdated:
-                btn_action = dpg.add_button(
+                btn_action = build_icon_button(
                     label="\uf01e",
                     width=20,
                     tag=btn_action_tag,
                     user_data=roi_id,
                     callback=self.on_roi_reload,
+                    tooltip="Reload modified file",
+                    api=self.api,
                 )
-                if self.api:
-                    build_tooltip(
-                        btn_action,
-                        "Reload modified file",
-                        self.api,
-                        always_on=True,
-                    )
             else:
-                btn_action = dpg.add_button(
+                btn_action = build_icon_button(
                     label="\uf0c7",
                     width=20,
                     tag=btn_action_tag,
                     user_data=roi_id,
                     callback=self.on_roi_save,
+                    tooltip=(
+                        "Save ROI As..."
+                        if source_type == "Binary"
+                        else "Extract & Save ROI"
+                    ),
+                    api=self.api,
                 )
-                if self.api:
-                    build_tooltip(
-                        btn_action,
-                        (
-                            "Save ROI As..."
-                            if source_type == "Binary"
-                            else "Extract & Save ROI"
-                        ),
-                        self.api,
-                        always_on=True,
-                    )
 
             # Slider Opacity/Thickness
             dpg.add_spacer(width=5)
@@ -2402,10 +2326,6 @@ class RoiPluginUI(PluginTagMixin):
                 "- Opac/Thick Slider: Drag to change opacity (for solid fill) or line width (for contour outlines).",
                 self.api,
             )
-
-            if dpg.does_item_exist("icon_font_tag"):
-                for btn in [btn_copy, btn_eye, btn_center, btn_action]:
-                    dpg.bind_item_font(btn, "icon_font_tag")
 
         # Spheroid Parameters group
         spheroid_group_tag = self._t(f"stats_group_spheroid_{roi_id}")
@@ -2842,8 +2762,6 @@ class RoiPluginUI(PluginTagMixin):
             user_data=roi_id,
             callback=self.on_roi_close,
         )
-        if dpg.does_item_exist("delete_button_theme"):
-            dpg.bind_item_theme(btn_delete, "delete_button_theme")
 
     def update_stats_window_contents(self, base_vs_id, roi_id):
         viewer = self.api.get_active_viewer()
@@ -3404,7 +3322,7 @@ class RoiPluginUI(PluginTagMixin):
             dpg.set_value(self._t("input_roi_filter"), "")
         self._c.on_clear_roi_filter()
 
-    def on_sort_rois_clicked(self, sender, app_data, user_data):
+    def on_sort_rois_clicked(self, sender=None, app_data=None, user_data=None):
         self._c.on_sort_rois()
 
     def on_roi_opacity_changed(self, sender, app_data, user_data):

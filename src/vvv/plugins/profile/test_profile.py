@@ -346,6 +346,22 @@ class TestProfilePlugin(unittest.TestCase):
         controller.on_btn_add_clicked(None, None, None)
         viewer.action_add_profile.assert_called_once()
 
+    def test_profile_sorting(self):
+        controller = self.plugin._controller
+        controller.bind(self.mock_api)
+
+        viewer = MagicMock()
+        viewer.image_id = "img1"
+        self.mock_api.get_active_viewer.return_value = viewer
+
+        self.assertEqual(controller.profile_sort_orders.get("img1", 0), 0)
+        controller.on_sort_profiles()
+        self.assertEqual(controller.profile_sort_orders.get("img1", 0), 1)
+        controller.on_sort_profiles()
+        self.assertEqual(controller.profile_sort_orders.get("img1", 0), -1)
+        controller.on_sort_profiles()
+        self.assertEqual(controller.profile_sort_orders.get("img1", 0), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

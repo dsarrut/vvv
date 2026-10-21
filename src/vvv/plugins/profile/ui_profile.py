@@ -10,6 +10,8 @@ from vvv.ui.ui_components import (
     name_matches,
     set_filter_count,
     set_filter_invert_state,
+    set_sort_button,
+    sort_by_name,
 )
 from vvv.utils import ViewMode, fmt
 from .control_profile import ProfilePluginController
@@ -136,6 +138,9 @@ class ProfilePluginUI(PluginTagMixin):
                 api=api,
                 btn_invert_tag=self._t("btn_filter_invert"),
                 on_invert_clicked=self._c.on_toggle_filter_invert,
+                btn_sort_tag=self._t("btn_sort"),
+                on_sort_clicked=self._c.on_sort_profiles,
+                sort_tooltip="Sort profiles alphabetically",
                 count_tag=self._t("filter_count"),
             )
 
@@ -229,8 +234,11 @@ class ProfilePluginUI(PluginTagMixin):
         ):
             dpg.set_value(input_filter_tag, filter_text)
 
+        sort_order = self._c.profile_sort_orders.get(viewer.image_id, 0) if has_image else 0
+        set_sort_button(self._t("btn_sort"), sort_order)
+
         profile_key = (
-            (viewer.image_id, tuple(viewer.view_state.profiles.keys()), filter_text, invert)
+            (viewer.image_id, tuple(viewer.view_state.profiles.keys()), filter_text, invert, sort_order)
             if active
             else None
         )
@@ -251,6 +259,8 @@ class ProfilePluginUI(PluginTagMixin):
             for p_id, profile in profiles.items()
             if name_matches(profile.name, filter_text, invert)
         ]
+        listed = sort_by_name(listed, sort_order, name=lambda x: x[1].name)
+
         set_filter_count(self._t("filter_count"), len(listed), len(profiles))
         for p_id, profile in listed:
             with dpg.table_row(parent=table_id):

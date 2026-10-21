@@ -1443,6 +1443,21 @@ class TestDosePlugin(unittest.TestCase):
         ui.dvh_win._on_table_sort(sort_specs=None)
         self.assertIsNone(ui.dvh_win.sort_column)
 
+        # 6. Test structure filter sort button
+        self.assertEqual(ui.dvh_win.structure_sort_order, 0)
+        ui.dvh_win._on_sort_structures()
+        self.assertEqual(ui.dvh_win.structure_sort_order, 1)
+        filtered_names = [c.roi_name for c in ui.dvh_win._get_filtered_curves()]
+        self.assertEqual(filtered_names, ["Bladder", "PTV", "Rectum"])
+
+        ui.dvh_win._on_sort_structures()
+        self.assertEqual(ui.dvh_win.structure_sort_order, -1)
+        filtered_names = [c.roi_name for c in ui.dvh_win._get_filtered_curves()]
+        self.assertEqual(filtered_names, ["Rectum", "PTV", "Bladder"])
+
+        ui.dvh_win._on_sort_structures()
+        self.assertEqual(ui.dvh_win.structure_sort_order, 0)
+
         ui.dvh_win.on_window_close()
 
     def test_isodose_input_tag_shielding(self):

@@ -622,6 +622,91 @@ class TestLandmarkPlugin(unittest.TestCase):
             # Exactly one notification was sent
             self.assertEqual(mock_api.notify.call_count, 1)
 
+    def test_landmark_sorting(self):
+        ctrl = LandmarkPluginController("landmark_plugin")
+        mock_api = unittest.mock.MagicMock()
+        mock_api.get_active_viewer.return_value = unittest.mock.MagicMock(image_id="img1")
+        mock_api.get_view_states.return_value = {"img1": self.vs}
+        ctrl.bind(mock_api)
+
+        self.vs.landmarks = {
+            "lm_1": Landmark(id="lm_1", name="Zeta", pt_phys=[0, 0, 0]),
+            "lm_2": Landmark(id="lm_2", name="Alpha", pt_phys=[0, 0, 0]),
+            "lm_3": Landmark(id="lm_3", name="Beta", pt_phys=[0, 0, 0]),
+        }
+
+        # Default: insertion order
+        listed = list(ctrl.listed_landmarks("img1").values())
+        self.assertEqual([lm.name for lm in listed], ["Zeta", "Alpha", "Beta"])
+
+        # Sort A->Z
+        ctrl.on_sort_landmarks()
+        listed = list(ctrl.listed_landmarks("img1").values())
+        self.assertEqual([lm.name for lm in listed], ["Alpha", "Beta", "Zeta"])
+
+        # Sort Z->A
+        ctrl.on_sort_landmarks()
+        listed = list(ctrl.listed_landmarks("img1").values())
+        self.assertEqual([lm.name for lm in listed], ["Zeta", "Beta", "Alpha"])
+
+        # Unsort
+        ctrl.on_sort_landmarks()
+        listed = list(ctrl.listed_landmarks("img1").values())
+        self.assertEqual([lm.name for lm in listed], ["Zeta", "Alpha", "Beta"])
+
+    def test_landmark_ui_sort_rerenders(self):
+        ui = LandmarkPluginUI("landmark_plugin", LandmarkPluginController("landmark_plugin"))
+        mock_api = unittest.mock.MagicMock()
+        mock_viewer = unittest.mock.MagicMock(image_id="img1", view_state=self.vs, volume=unittest.mock.MagicMock())
+        mock_api.get_active_viewer.return_value = mock_viewer
+        mock_api.get_view_states.return_value = {"img1": self.vs}
+        mock_api.get_image_display_name.return_value = ("img1", False)
+        mock_api.get_ui_config.return_value = {"colors": {"text_dim": [180, 180, 180, 255]}}
+        ui._c.bind(mock_api)
+        ui._c.bind_ui(ui)
+
+        self.vs.landmarks = {
+            "lm_1": Landmark(id="lm_1", name="Zeta", pt_phys=[0, 0, 0]),
+            "lm_2": Landmark(id="lm_2", name="Alpha", pt_phys=[0, 0, 0]),
+        }
+
+        table_tag = ui._t("list_table")
+        sort_btn = ui._t("btn_sort")
+
+        with unittest.mock.patch("dearpygui.dearpygui.does_item_exist", return_value=True), \
+             unittest.mock.patch("dearpygui.dearpygui.is_item_focused", return_value=False), \
+             unittest.mock.patch("dearpygui.dearpygui.get_item_configuration", return_value={"show": True}), \
+             unittest.mock.patch("dearpygui.dearpygui.delete_item") as mock_del, \
+             unittest.mock.patch("dearpygui.dearpygui.configure_item") as mock_cfg, \
+             unittest.mock.patch("dearpygui.dearpygui.set_item_label"), \
+             unittest.mock.patch("dearpygui.dearpygui.bind_item_theme"), \
+             unittest.mock.patch("dearpygui.dearpygui.bind_item_font"), \
+             unittest.mock.patch("dearpygui.dearpygui.set_value"), \
+             unittest.mock.patch("dearpygui.dearpygui.add_color_edit"), \
+             unittest.mock.patch("dearpygui.dearpygui.add_input_text"), \
+             unittest.mock.patch("dearpygui.dearpygui.add_button"), \
+             unittest.mock.patch("dearpygui.dearpygui.add_tooltip"), \
+             unittest.mock.patch("dearpygui.dearpygui.add_text"), \
+             unittest.mock.patch("dearpygui.dearpygui.item_handler_registry"), \
+             unittest.mock.patch("dearpygui.dearpygui.add_item_deactivated_after_edit_handler"), \
+             unittest.mock.patch("dearpygui.dearpygui.bind_item_handler_registry"), \
+             unittest.mock.patch("dearpygui.dearpygui.tooltip"), \
+             unittest.mock.patch("dearpygui.dearpygui.group"), \
+             unittest.mock.patch("dearpygui.dearpygui.table_row"):
+            # Initial render
+            ui.update_ui(mock_api)
+            self.assertEqual(mock_del.call_count, 1)
+
+            # Redraw with same state: no re-render
+            ui.update_ui(mock_api)
+            self.assertEqual(mock_del.call_count, 1)
+
+            # Sort triggered: must invalidate cache and re-render
+            ui._c.on_sort_landmarks()
+            ui.update_ui(mock_api)
+            self.assertEqual(mock_del.call_count, 2)
+            mock_cfg.assert_any_call(sort_btn, label="\uf15d")
+
 
 if __name__ == "__main__":
     unittest.main()
