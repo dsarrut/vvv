@@ -308,6 +308,10 @@ def refresh_image_list_ui(gui):
                     for btn in [btn_all, btn_save, btn_save_as, btn_reload, btn_close]:
                         if dpg.does_item_exist("icon_font_tag"):
                             dpg.bind_item_font(btn, "icon_font_tag")
+                        if dpg.does_item_exist("icon_button_theme"):
+                            dpg.bind_item_theme(btn, "icon_button_theme")
+                    if dpg.does_item_exist("delete_button_theme"):
+                        dpg.bind_item_theme(btn_close, "delete_button_theme")
 
                     if vs.volume.num_timepoints > 1:
                         dpg.add_spacer(width=5)
@@ -328,17 +332,6 @@ def refresh_image_list_ui(gui):
                             user_data=vs_id,
                         )
                         dpg.add_text(f"/ {vs.volume.num_timepoints}")
-
-                    if dpg.does_item_exist("icon_font_tag"):
-                        dpg.bind_item_font(btn_all, "icon_font_tag")
-                        dpg.bind_item_font(btn_save, "icon_font_tag")
-                        dpg.bind_item_font(btn_reload, "icon_font_tag")
-                        dpg.bind_item_font(btn_close, "icon_font_tag")
-                    if dpg.does_item_exist("delete_button_theme"):
-                        dpg.bind_item_theme(btn_close, "delete_button_theme")
-                    if dpg.does_item_exist("icon_button_theme"):
-                        dpg.bind_item_theme(btn_all, "icon_button_theme")
-                        dpg.bind_item_theme(btn_reload, "icon_button_theme")
 
                     build_help_button(
                         "The 4 checkboxes assign this image to the 4 viewers (V1: Top Left, V2: Top Right, V3: Bottom Left, V4: Bottom Right).",

@@ -28,9 +28,12 @@ class LandmarkPluginUI(PluginTagMixin):
         self._last_state_key = None
         self._api = None
 
-    def _bind_icon_font(self, item):
+    def _style_icon_button(self, item):
+        """Icon font + transparent icon button theme (black row background)."""
         if dpg.does_item_exist("icon_font_tag"):
             dpg.bind_item_font(item, "icon_font_tag")
+        if dpg.does_item_exist("icon_button_theme"):
+            dpg.bind_item_theme(item, "icon_button_theme")
 
     def on_btn_enhanced_vis_clicked(self, sender, app_data, user_data=None):
         new_val = not self._c.is_enhanced_vis()
@@ -160,7 +163,7 @@ class LandmarkPluginUI(PluginTagMixin):
                     width=25,
                     callback=self.on_btn_enhanced_vis_clicked,
                 )
-                self._bind_icon_font(btn_enhanced)
+                self._style_icon_button(btn_enhanced)
                 if dpg.does_item_exist("icon_button_theme"):
                     dpg.bind_item_theme(btn_enhanced, "icon_button_theme")
                 build_tooltip(
@@ -179,7 +182,7 @@ class LandmarkPluginUI(PluginTagMixin):
                     tag=self._t("btn_load"),
                     callback=self._c.on_btn_load_clicked,
                 )
-                self._bind_icon_font(btn_load)
+                self._style_icon_button(btn_load)
                 if dpg.does_item_exist("icon_button_theme"):
                     dpg.bind_item_theme(btn_load, "icon_button_theme")
                 build_tooltip(
@@ -196,7 +199,7 @@ class LandmarkPluginUI(PluginTagMixin):
                     callback=self._c.on_btn_save_clicked,
                     show=False,
                 )
-                self._bind_icon_font(btn_save)
+                self._style_icon_button(btn_save)
                 if dpg.does_item_exist("icon_button_theme"):
                     dpg.bind_item_theme(btn_save, "icon_button_theme")
                 build_tooltip(
@@ -212,7 +215,7 @@ class LandmarkPluginUI(PluginTagMixin):
                     tag=self._t("btn_save_as"),
                     callback=self._c.on_btn_save_as_clicked,
                 )
-                self._bind_icon_font(btn_save_as)
+                self._style_icon_button(btn_save_as)
                 if dpg.does_item_exist("icon_button_theme"):
                     dpg.bind_item_theme(btn_save_as, "icon_button_theme")
                 build_tooltip(
@@ -229,7 +232,7 @@ class LandmarkPluginUI(PluginTagMixin):
                     callback=self._c.on_btn_reload_clicked,
                     show=False,
                 )
-                self._bind_icon_font(btn_reload)
+                self._style_icon_button(btn_reload)
                 if dpg.does_item_exist("icon_button_theme"):
                     dpg.bind_item_theme(btn_reload, "icon_button_theme")
                 build_tooltip(
@@ -470,7 +473,7 @@ class LandmarkPluginUI(PluginTagMixin):
                     user_data=lm_id,
                     callback=self.on_landmark_toggle_visible,
                 )
-                self._bind_icon_font(btn_eye)
+                self._style_icon_button(btn_eye)
                 build_tooltip(
                     btn_eye,
                     "Show" if not lm.visible else "Hide",
@@ -486,7 +489,7 @@ class LandmarkPluginUI(PluginTagMixin):
                     user_data=lm_id,
                     callback=self.on_landmark_toggle_show_name,
                 )
-                self._bind_icon_font(btn_tag)
+                self._style_icon_button(btn_tag)
                 build_tooltip(
                     btn_tag,
                     "Hide name" if lm.show_name else "Show name",
@@ -496,11 +499,11 @@ class LandmarkPluginUI(PluginTagMixin):
 
                 # 5. Snap to Grid Button
                 btn_snap = dpg.add_button(
-                    label="\uf076",
+                    label="\uf076", width=20,
                     user_data=lm_id,
                     callback=lambda s, a, u: self._c.snap_landmark_to_grid(u),
                 )
-                self._bind_icon_font(btn_snap)
+                self._style_icon_button(btn_snap)
                 build_tooltip(
                     btn_snap,
                     "Snap landmark to nearest voxel grid center",
@@ -510,11 +513,11 @@ class LandmarkPluginUI(PluginTagMixin):
 
                 # 6. Goto Crosshair Button
                 btn_goto = dpg.add_button(
-                    label="\uf05b",
+                    label="\uf05b", width=20,
                     user_data=lm_id,
                     callback=lambda s, a, u: self._c.center_on_landmark(u),
                 )
-                self._bind_icon_font(btn_goto)
+                self._style_icon_button(btn_goto)
                 build_tooltip(
                     btn_goto,
                     "Jump crosshair to landmark position",

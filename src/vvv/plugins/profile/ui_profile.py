@@ -34,9 +34,12 @@ class ProfilePluginUI(PluginTagMixin):
             dpg.set_value(self._t("input_filter"), "")
         self._c.on_clear_filter_clicked()
 
-    def _bind_icon_font(self, item):
+    def _style_icon_button(self, item):
+        """Icon font + transparent icon button theme (black row background)."""
         if dpg.does_item_exist("icon_font_tag"):
             dpg.bind_item_font(item, "icon_font_tag")
+        if dpg.does_item_exist("icon_button_theme"):
+            dpg.bind_item_theme(item, "icon_button_theme")
 
     def create_ui(self, parent, api) -> None:
         cfg_c = api.get_ui_config()["colors"]
@@ -287,45 +290,45 @@ class ProfilePluginUI(PluginTagMixin):
 
                 # Plot button
                 btn_plot = dpg.add_button(
-                    label="\uf08e", user_data=p_id, callback=self.on_plot_clicked
+                    label="\uf08e", width=20, user_data=p_id, callback=self.on_plot_clicked
                 )
-                self._bind_icon_font(btn_plot)
+                self._style_icon_button(btn_plot)
                 if api:
                     build_tooltip(btn_plot, "Open intensity plot", api, always_on=True)
 
                 # Horizontal alignment
                 btn_h = dpg.add_button(
-                    label="\uf07e",
+                    label="\uf07e", width=20,
                     user_data=(p_id, "h"),
                     callback=self._c.on_align_clicked,
                 )
-                self._bind_icon_font(btn_h)
+                self._style_icon_button(btn_h)
                 if api:
                     build_tooltip(btn_h, "Align purely horizontal on current slice", api, always_on=True)
 
                 # Vertical alignment
                 btn_v = dpg.add_button(
-                    label="\uf07d",
+                    label="\uf07d", width=20,
                     user_data=(p_id, "v"),
                     callback=self._c.on_align_clicked,
                 )
-                self._bind_icon_font(btn_v)
+                self._style_icon_button(btn_v)
                 if api:
                     build_tooltip(btn_v, "Align purely vertical on current slice", api, always_on=True)
 
                 # Pixel snap
                 btn_snap = dpg.add_button(
-                    label="\uf076", user_data=p_id, callback=self._c.on_snap_clicked
+                    label="\uf076", width=20, user_data=p_id, callback=self._c.on_snap_clicked
                 )
-                self._bind_icon_font(btn_snap)
+                self._style_icon_button(btn_snap)
                 if api:
                     build_tooltip(btn_snap, "Snap endpoints to closest pixel center", api, always_on=True)
 
                 # Goto button
                 btn_goto = dpg.add_button(
-                    label="\uf05b", user_data=p_id, callback=self._c.on_goto_clicked
+                    label="\uf05b", width=20, user_data=p_id, callback=self._c.on_goto_clicked
                 )
-                self._bind_icon_font(btn_goto)
+                self._style_icon_button(btn_goto)
                 if api:
                     build_tooltip(btn_goto, "Center camera on this profile", api, always_on=True)
 
@@ -487,75 +490,75 @@ class ProfilePluginUI(PluginTagMixin):
 
             # 1. Plot Toggle (Closes current)
             btn_plot = dpg.add_button(
-                label="\uf08e", user_data=p_id, callback=self.on_plot_clicked
+                label="\uf08e", width=20, user_data=p_id, callback=self.on_plot_clicked
             )
-            self._bind_icon_font(btn_plot)
+            self._style_icon_button(btn_plot)
             if api:
                 build_tooltip(btn_plot, "Close plot window", api, always_on=True)
 
             # 2. Alignment
             btn_h = dpg.add_button(
-                label="\uf07e", user_data=(p_id, "h"), callback=self._c.on_align_clicked
+                label="\uf07e", width=20, user_data=(p_id, "h"), callback=self._c.on_align_clicked
             )
             btn_v = dpg.add_button(
-                label="\uf07d", user_data=(p_id, "v"), callback=self._c.on_align_clicked
+                label="\uf07d", width=20, user_data=(p_id, "v"), callback=self._c.on_align_clicked
             )
-            self._bind_icon_font(btn_h)
-            self._bind_icon_font(btn_v)
+            self._style_icon_button(btn_h)
+            self._style_icon_button(btn_v)
             if api:
                 build_tooltip(btn_h, "Align purely horizontal", api, always_on=True)
                 build_tooltip(btn_v, "Align purely vertical", api, always_on=True)
 
             # 2b. Snap
             btn_snap = dpg.add_button(
-                label="\uf076", user_data=p_id, callback=self._c.on_snap_clicked
+                label="\uf076", width=20, user_data=p_id, callback=self._c.on_snap_clicked
             )
-            self._bind_icon_font(btn_snap)
+            self._style_icon_button(btn_snap)
             if api:
                 build_tooltip(btn_snap, "Snap to pixel center", api, always_on=True)
 
             # 3. Goto
             btn_goto = dpg.add_button(
-                label="\uf05b", callback=self._c.on_goto_clicked, user_data=p_id
+                label="\uf05b", width=20, callback=self._c.on_goto_clicked, user_data=p_id
             )
-            self._bind_icon_font(btn_goto)
+            self._style_icon_button(btn_goto)
             if api:
                 build_tooltip(btn_goto, "Center camera on profile", api, always_on=True)
 
             # 4. Slice Navigation
             btn_prev = dpg.add_button(
-                label="\uf062",
+                label="\uf062", width=20,
                 user_data=(p_id, -1),
                 callback=self._c.on_change_slice_clicked,
             )
             btn_next = dpg.add_button(
-                label="\uf063",
+                label="\uf063", width=20,
                 user_data=(p_id, 1),
                 callback=self._c.on_change_slice_clicked,
             )
-            self._bind_icon_font(btn_prev)
-            self._bind_icon_font(btn_next)
+            self._style_icon_button(btn_prev)
+            self._style_icon_button(btn_next)
             if api:
                 build_tooltip(btn_prev, "Move profile to previous slice", api, always_on=True)
                 build_tooltip(btn_next, "Move profile to next slice", api, always_on=True)
 
-            # 5. Delete
-            btn_del = dpg.add_button(
-                label="\uf00d", user_data=p_id, callback=self._c.on_delete_clicked
+            # 5. Copy
+            btn_copy = dpg.add_button(
+                label="\uf0c5", width=20, user_data=p_id, callback=self.on_copy_profile_clicked
             )
-            self._bind_icon_font(btn_del)
+            self._style_icon_button(btn_copy)
+            if api:
+                build_tooltip(btn_copy, "Copy profile to another image", api, always_on=True)
+
+            # 6. Delete (last)
+            btn_del = dpg.add_button(
+                label="\uf00d", width=20, user_data=p_id, callback=self._c.on_delete_clicked
+            )
+            self._style_icon_button(btn_del)
             if dpg.does_item_exist("delete_button_theme"):
                 dpg.bind_item_theme(btn_del, "delete_button_theme")
             if api:
                 build_tooltip(btn_del, "Delete profile", api, always_on=True)
-
-            # 6. Copy
-            btn_copy = dpg.add_button(
-                label="\uf0c5", user_data=p_id, callback=self.on_copy_profile_clicked
-            )
-            self._bind_icon_font(btn_copy)
-            if api:
-                build_tooltip(btn_copy, "Copy profile to another image", api, always_on=True)
 
             build_help_button(
                 "Toolbar buttons (left to right):\n"
