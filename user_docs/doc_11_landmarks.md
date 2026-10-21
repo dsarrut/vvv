@@ -20,7 +20,7 @@ Open the **Landmark** tab on the sidebar:
 * **Rename & Label**: Assign descriptive anatomical names (e.g., `Bifurcation`, `Apex`, `Tumor Center`).
 * **Color Coding**: Customize marker colors individually or by group.
 * **Delete / Clear**: Remove individual points or reset the list.
-* **Name Filter**: Type part of a name to list only the matching landmarks (case-insensitive); **`!`** inverts the filter (lists the non-matching ones), **X** clears it. The count next to it shows listed / total. The batch buttons (color, show / hide, names, snap, delete) act on the listed landmarks.
+* **Name Filter**: Type part of a name to list only the matching landmarks (case-insensitive); **`!`** inverts the filter (lists the non-matching ones), **X** clears it, the sort button orders the list (A→Z, Z→A, off). The count next to it shows listed / total. The batch buttons (color, show / hide, names, snap, delete) act on the listed landmarks.
 
 ---
 
