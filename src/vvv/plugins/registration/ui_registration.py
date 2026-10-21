@@ -8,6 +8,7 @@ from vvv.ui.ui_components import (
     build_section_title,
     build_help_button,
     build_beginner_tooltip,
+    build_tooltip,
 )
 from vvv.plugins.plugin_api import PluginTagMixin
 from .control_registration import RegistrationPluginController
@@ -75,7 +76,12 @@ class RegistrationPluginUI(PluginTagMixin):
                     self._bind_icon_font(btn_load)
                     if dpg.does_item_exist("icon_button_theme"):
                         dpg.bind_item_theme(btn_load, "icon_button_theme")
-                    build_beginner_tooltip(btn_load, "Load Transform matrix file (.tfm, .mat, .txt)", api)
+                    build_tooltip(
+                        btn_load,
+                        "Load Transform matrix file (.tfm, .mat, .txt)",
+                        api,
+                        always_on=True,
+                    )
 
                     btn_save = dpg.add_button(
                         label=ICON_SAVE,
@@ -87,7 +93,12 @@ class RegistrationPluginUI(PluginTagMixin):
                     self._bind_icon_font(btn_save)
                     if dpg.does_item_exist("icon_button_theme"):
                         dpg.bind_item_theme(btn_save, "icon_button_theme")
-                    build_beginner_tooltip(btn_save, "Save Transform matrix to current file (.tfm)", api)
+                    build_tooltip(
+                        btn_save,
+                        "Save Transform matrix to current file (.tfm)",
+                        api,
+                        always_on=True,
+                    )
 
                     btn_save_as = dpg.add_button(
                         label=ICON_SAVE_AS,
@@ -98,7 +109,12 @@ class RegistrationPluginUI(PluginTagMixin):
                     self._bind_icon_font(btn_save_as)
                     if dpg.does_item_exist("icon_button_theme"):
                         dpg.bind_item_theme(btn_save_as, "icon_button_theme")
-                    build_beginner_tooltip(btn_save_as, "Save Transform matrix as (.tfm)...", api)
+                    build_tooltip(
+                        btn_save_as,
+                        "Save Transform matrix as (.tfm)...",
+                        api,
+                        always_on=True,
+                    )
 
                     lbl_file = dpg.add_text(
                         "",
@@ -116,7 +132,12 @@ class RegistrationPluginUI(PluginTagMixin):
                     self._bind_icon_font(btn_reload)
                     if dpg.does_item_exist("icon_button_theme"):
                         dpg.bind_item_theme(btn_reload, "icon_button_theme")
-                    build_beginner_tooltip(btn_reload, "Reload transform from disk", api)
+                    build_tooltip(
+                        btn_reload,
+                        "Reload transform from disk",
+                        api,
+                        always_on=True,
+                    )
 
                     btn_invert_icon = dpg.add_button(
                         label="\uf0ec",
@@ -127,7 +148,12 @@ class RegistrationPluginUI(PluginTagMixin):
                     self._bind_icon_font(btn_invert_icon)
                     if dpg.does_item_exist("icon_button_theme"):
                         dpg.bind_item_theme(btn_invert_icon, "icon_button_theme")
-                    build_beginner_tooltip(btn_invert_icon, "Invert transform (T <-> T^-1)", api)
+                    build_tooltip(
+                        btn_invert_icon,
+                        "Invert transform (T <-> T^-1)",
+                        api,
+                        always_on=True,
+                    )
 
                     build_help_button(
                         "A Transform file (.tfm, .mat, .txt) contains a rigid 3D spatial matrix (Translations and Rotations) that aligns this image with another.",
@@ -151,6 +177,12 @@ class RegistrationPluginUI(PluginTagMixin):
                             label="\uf05b ", callback=self._c.on_reg_center_cor_clicked
                         )
                         self._bind_icon_font(b)
+                        build_tooltip(
+                            b,
+                            "Move crosshair to Center of Rotation",
+                            api,
+                            always_on=True,
+                        )
                         dpg.add_button(
                             label="Snap CoR",
                             width=100,

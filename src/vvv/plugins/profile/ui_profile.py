@@ -3,6 +3,7 @@ from vvv.ui.ui_components import (
     build_section_title,
     build_help_button,
     build_beginner_tooltip,
+    build_tooltip,
     build_renamable_input,
     build_delete_button,
     build_name_filter_bar,
@@ -280,7 +281,7 @@ class ProfilePluginUI(PluginTagMixin):
                 )
                 self._bind_icon_font(btn_plot)
                 if api:
-                    build_beginner_tooltip(btn_plot, "Open intensity plot", api)
+                    build_tooltip(btn_plot, "Open intensity plot", api, always_on=True)
 
                 # Horizontal alignment
                 btn_h = dpg.add_button(
@@ -290,7 +291,7 @@ class ProfilePluginUI(PluginTagMixin):
                 )
                 self._bind_icon_font(btn_h)
                 if api:
-                    build_beginner_tooltip(btn_h, "Align purely horizontal on current slice", api)
+                    build_tooltip(btn_h, "Align purely horizontal on current slice", api, always_on=True)
 
                 # Vertical alignment
                 btn_v = dpg.add_button(
@@ -300,7 +301,7 @@ class ProfilePluginUI(PluginTagMixin):
                 )
                 self._bind_icon_font(btn_v)
                 if api:
-                    build_beginner_tooltip(btn_v, "Align purely vertical on current slice", api)
+                    build_tooltip(btn_v, "Align purely vertical on current slice", api, always_on=True)
 
                 # Pixel snap
                 btn_snap = dpg.add_button(
@@ -308,7 +309,7 @@ class ProfilePluginUI(PluginTagMixin):
                 )
                 self._bind_icon_font(btn_snap)
                 if api:
-                    build_beginner_tooltip(btn_snap, "Snap endpoints to closest pixel center", api)
+                    build_tooltip(btn_snap, "Snap endpoints to closest pixel center", api, always_on=True)
 
                 # Goto button
                 btn_goto = dpg.add_button(
@@ -316,7 +317,7 @@ class ProfilePluginUI(PluginTagMixin):
                 )
                 self._bind_icon_font(btn_goto)
                 if api:
-                    build_beginner_tooltip(btn_goto, "Center camera on this profile", api)
+                    build_tooltip(btn_goto, "Center camera on this profile", api, always_on=True)
 
                 # Delete icon
                 build_delete_button(
@@ -480,7 +481,7 @@ class ProfilePluginUI(PluginTagMixin):
             )
             self._bind_icon_font(btn_plot)
             if api:
-                build_beginner_tooltip(btn_plot, "Close plot window", api)
+                build_tooltip(btn_plot, "Close plot window", api, always_on=True)
 
             # 2. Alignment
             btn_h = dpg.add_button(
@@ -492,8 +493,8 @@ class ProfilePluginUI(PluginTagMixin):
             self._bind_icon_font(btn_h)
             self._bind_icon_font(btn_v)
             if api:
-                build_beginner_tooltip(btn_h, "Align purely horizontal", api)
-                build_beginner_tooltip(btn_v, "Align purely vertical", api)
+                build_tooltip(btn_h, "Align purely horizontal", api, always_on=True)
+                build_tooltip(btn_v, "Align purely vertical", api, always_on=True)
 
             # 2b. Snap
             btn_snap = dpg.add_button(
@@ -501,7 +502,7 @@ class ProfilePluginUI(PluginTagMixin):
             )
             self._bind_icon_font(btn_snap)
             if api:
-                build_beginner_tooltip(btn_snap, "Snap to pixel center", api)
+                build_tooltip(btn_snap, "Snap to pixel center", api, always_on=True)
 
             # 3. Goto
             btn_goto = dpg.add_button(
@@ -509,7 +510,7 @@ class ProfilePluginUI(PluginTagMixin):
             )
             self._bind_icon_font(btn_goto)
             if api:
-                build_beginner_tooltip(btn_goto, "Center camera on profile", api)
+                build_tooltip(btn_goto, "Center camera on profile", api, always_on=True)
 
             # 4. Slice Navigation
             btn_prev = dpg.add_button(
@@ -525,8 +526,8 @@ class ProfilePluginUI(PluginTagMixin):
             self._bind_icon_font(btn_prev)
             self._bind_icon_font(btn_next)
             if api:
-                build_beginner_tooltip(btn_prev, "Move profile to previous slice", api)
-                build_beginner_tooltip(btn_next, "Move profile to next slice", api)
+                build_tooltip(btn_prev, "Move profile to previous slice", api, always_on=True)
+                build_tooltip(btn_next, "Move profile to next slice", api, always_on=True)
 
             # 5. Delete
             btn_del = dpg.add_button(
@@ -536,7 +537,7 @@ class ProfilePluginUI(PluginTagMixin):
             if dpg.does_item_exist("delete_button_theme"):
                 dpg.bind_item_theme(btn_del, "delete_button_theme")
             if api:
-                build_beginner_tooltip(btn_del, "Delete profile", api)
+                build_tooltip(btn_del, "Delete profile", api, always_on=True)
 
             # 6. Copy
             btn_copy = dpg.add_button(
@@ -544,7 +545,7 @@ class ProfilePluginUI(PluginTagMixin):
             )
             self._bind_icon_font(btn_copy)
             if api:
-                build_beginner_tooltip(btn_copy, "Copy profile to another image", api)
+                build_tooltip(btn_copy, "Copy profile to another image", api, always_on=True)
 
             build_help_button(
                 "Toolbar buttons (left to right):\n"

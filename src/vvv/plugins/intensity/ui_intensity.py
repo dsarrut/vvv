@@ -1,6 +1,12 @@
 import dearpygui.dearpygui as dpg
 from vvv.config import WL_PRESETS, COLORMAPS
-from vvv.ui.ui_components import build_stepped_slider, build_section_title, build_help_button, build_beginner_tooltip
+from vvv.ui.ui_components import (
+    build_stepped_slider,
+    build_section_title,
+    build_help_button,
+    build_beginner_tooltip,
+    build_tooltip,
+)
 from .control_intensity import IntensityController
 from vvv.plugins.plugin_api import PluginTagMixin
 
@@ -140,7 +146,12 @@ class IntensityUI(PluginTagMixin):
                 )
                 if dpg.does_item_exist("icon_font_tag"):
                     dpg.bind_item_font(btn_popup, "icon_font_tag")
-                build_beginner_tooltip(btn_popup, "Open standalone floating histogram window", api)
+                build_tooltip(
+                    btn_popup,
+                    "Open standalone floating histogram window",
+                    api,
+                    always_on=True,
+                )
                 dpg.add_text(
                     "computing full histogram",
                     tag=self._t("txt_computing_full_hist"),

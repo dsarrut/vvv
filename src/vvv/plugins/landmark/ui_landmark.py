@@ -7,6 +7,7 @@ from vvv.ui.ui_components import (
     build_section_title,
     build_help_button,
     build_beginner_tooltip,
+    build_tooltip,
     build_delete_button,
     build_name_filter_bar,
     build_batch_action_toolbar,
@@ -160,13 +161,14 @@ class LandmarkPluginUI(PluginTagMixin):
                 self._bind_icon_font(btn_enhanced)
                 if dpg.does_item_exist("icon_button_theme"):
                     dpg.bind_item_theme(btn_enhanced, "icon_button_theme")
-                build_beginner_tooltip(
+                build_tooltip(
                     btn_enhanced,
                     "Toggle Enhanced Visualization Mode:\n"
                     "• High-contrast text labels with background badges\n"
                     "• Larger markers on adjacent slices with depth arrows (^ / v)\n"
                     "• Extended slice visibility range and contrast halos",
                     api,
+                    always_on=True,
                 )
 
                 btn_load = dpg.add_button(
@@ -178,10 +180,11 @@ class LandmarkPluginUI(PluginTagMixin):
                 self._bind_icon_font(btn_load)
                 if dpg.does_item_exist("icon_button_theme"):
                     dpg.bind_item_theme(btn_load, "icon_button_theme")
-                build_beginner_tooltip(
+                build_tooltip(
                     btn_load,
                     "Load landmarks from a .json or .csv file.",
                     api,
+                    always_on=True,
                 )
 
                 btn_save = dpg.add_button(
@@ -194,10 +197,11 @@ class LandmarkPluginUI(PluginTagMixin):
                 self._bind_icon_font(btn_save)
                 if dpg.does_item_exist("icon_button_theme"):
                     dpg.bind_item_theme(btn_save, "icon_button_theme")
-                build_beginner_tooltip(
+                build_tooltip(
                     btn_save,
                     "Save landmarks to file.",
                     api,
+                    always_on=True,
                 )
 
                 btn_save_as = dpg.add_button(
@@ -209,10 +213,11 @@ class LandmarkPluginUI(PluginTagMixin):
                 self._bind_icon_font(btn_save_as)
                 if dpg.does_item_exist("icon_button_theme"):
                     dpg.bind_item_theme(btn_save_as, "icon_button_theme")
-                build_beginner_tooltip(
+                build_tooltip(
                     btn_save_as,
                     "Save landmarks as... (choose new file name)",
                     api,
+                    always_on=True,
                 )
 
                 btn_reload = dpg.add_button(
@@ -225,10 +230,11 @@ class LandmarkPluginUI(PluginTagMixin):
                 self._bind_icon_font(btn_reload)
                 if dpg.does_item_exist("icon_button_theme"):
                     dpg.bind_item_theme(btn_reload, "icon_button_theme")
-                build_beginner_tooltip(
+                build_tooltip(
                     btn_reload,
                     "Reload landmarks from disk.",
                     api,
+                    always_on=True,
                 )
 
                 build_help_button(
@@ -459,8 +465,11 @@ class LandmarkPluginUI(PluginTagMixin):
                     callback=self.on_landmark_toggle_visible,
                 )
                 self._bind_icon_font(btn_eye)
-                build_beginner_tooltip(
-                    btn_eye, "Show" if not lm.visible else "Hide", api
+                build_tooltip(
+                    btn_eye,
+                    "Show" if not lm.visible else "Hide",
+                    api,
+                    always_on=True,
                 )
 
                 # 4. Show/Hide Name Label Toggle
@@ -472,8 +481,11 @@ class LandmarkPluginUI(PluginTagMixin):
                     callback=self.on_landmark_toggle_show_name,
                 )
                 self._bind_icon_font(btn_tag)
-                build_beginner_tooltip(
-                    btn_tag, "Hide name" if lm.show_name else "Show name", api
+                build_tooltip(
+                    btn_tag,
+                    "Hide name" if lm.show_name else "Show name",
+                    api,
+                    always_on=True,
                 )
 
                 # 5. Snap to Grid Button
@@ -483,8 +495,11 @@ class LandmarkPluginUI(PluginTagMixin):
                     callback=lambda s, a, u: self._c.snap_landmark_to_grid(u),
                 )
                 self._bind_icon_font(btn_snap)
-                build_beginner_tooltip(
-                    btn_snap, "Snap landmark to nearest voxel grid center", api
+                build_tooltip(
+                    btn_snap,
+                    "Snap landmark to nearest voxel grid center",
+                    api,
+                    always_on=True,
                 )
 
                 # 6. Goto Crosshair Button
@@ -494,8 +509,11 @@ class LandmarkPluginUI(PluginTagMixin):
                     callback=lambda s, a, u: self._c.center_on_landmark(u),
                 )
                 self._bind_icon_font(btn_goto)
-                build_beginner_tooltip(
-                    btn_goto, "Jump crosshair to landmark position", api
+                build_tooltip(
+                    btn_goto,
+                    "Jump crosshair to landmark position",
+                    api,
+                    always_on=True,
                 )
 
                 # 7. Delete Button (Red cross)

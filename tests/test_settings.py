@@ -31,6 +31,18 @@ class TestSettingsUpdate(unittest.TestCase):
         self.controller.update_setting(["behavior", "flat_val", "deeper_nested"], 42)
         self.assertEqual(self.controller.settings.data["behavior"]["flat_val"], "hello")
 
+    def test_update_tooltip_delay_notifies_gui(self):
+        from unittest.mock import MagicMock
+        mock_gui = MagicMock()
+        self.controller.gui = mock_gui
+
+        self.controller.update_setting(["interaction", "tooltip_delay"], 1.2)
+        self.assertEqual(
+            self.controller.settings.data["interaction"]["tooltip_delay"],
+            1.2
+        )
+        mock_gui.update_tooltip_delays.assert_called_once()
+
     def test_add_recent_file_absolute(self):
         # Storing a relative path should make it absolute
         self.controller.add_recent_file("test_file.nii")

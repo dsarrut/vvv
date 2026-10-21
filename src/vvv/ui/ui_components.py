@@ -64,19 +64,50 @@ def build_help_button(text, gui):
     return btn
 
 
-def build_delete_button(label="\uf00d", width=20, user_data=None, callback=None, tooltip="Delete", gui=None):
-    """Creates a standardized red icon close/delete button."""
+def build_icon_button(
+    icon,
+    callback=None,
+    tooltip=None,
+    gui=None,
+    width=20,
+    theme="icon_button_theme",
+    tag=None,
+    user_data=None,
+    enabled=True,
+    show=True,
+):
+    """Creates a standardized icon button with optional always-on tooltip (U15.1, U21)."""
+    kwargs = {"label": icon, "width": width, "enabled": enabled, "show": show}
+    if tag is not None:
+        kwargs["tag"] = tag
+    if user_data is not None:
+        kwargs["user_data"] = user_data
     if callback is not None:
-        btn = dpg.add_button(label=label, width=width, user_data=user_data, callback=callback)
-    else:
-        btn = dpg.add_button(label=label, width=width, user_data=user_data)
+        kwargs["callback"] = callback
+
+    btn = dpg.add_button(**kwargs)
     if dpg.does_item_exist("icon_font_tag"):
         dpg.bind_item_font(btn, "icon_font_tag")
-    if dpg.does_item_exist("delete_button_theme"):
-        dpg.bind_item_theme(btn, "delete_button_theme")
+    if theme and dpg.does_item_exist(theme):
+        dpg.bind_item_theme(btn, theme)
     if tooltip and gui:
-        build_beginner_tooltip(btn, tooltip, gui)
+        build_tooltip(btn, tooltip, gui, always_on=True)
     return btn
+
+
+def build_delete_button(
+    label="\uf00d", width=20, user_data=None, callback=None, tooltip="Delete", gui=None
+):
+    """Creates a standardized red icon close/delete button."""
+    return build_icon_button(
+        icon=label,
+        width=width,
+        user_data=user_data,
+        callback=callback,
+        tooltip=tooltip,
+        gui=gui,
+        theme="delete_button_theme",
+    )
 
 
 REGISTERED_INPUT_FILTER_TAGS = set()
@@ -156,10 +187,11 @@ def build_name_filter_bar(
             if dpg.does_item_exist("icon_font_tag"):
                 dpg.bind_item_font(btn_invert, "icon_font_tag")
             if api:
-                build_beginner_tooltip(
+                build_tooltip(
                     btn_invert,
                     "Invert filter: when active, excludes items containing this text.",
                     api,
+                    always_on=True,
                 )
 
         btn_clear = dpg.add_button(
@@ -169,10 +201,11 @@ def build_name_filter_bar(
             callback=lambda: on_clear_clicked(),
         )
         if api:
-            build_beginner_tooltip(
+            build_tooltip(
                 btn_clear,
                 "Clears the name filter (and the invert).",
                 api,
+                always_on=True,
             )
         if count_tag:
             ui_cfg = getattr(api, "ui_cfg", None)
@@ -241,7 +274,7 @@ def build_color_picker_row(
             if dpg.does_item_exist("icon_font_tag"):
                 dpg.bind_item_font(btn_reset_col, "icon_font_tag")
             if g_obj:
-                build_beginner_tooltip(btn_reset_col, "Reset colors to default initial sequence", g_obj)
+                build_tooltip(btn_reset_col, "Reset colors to default initial sequence", g_obj, always_on=True)
 
         # 3. Toggle Visible (or Show/Hide)
         if on_toggle_visible:
@@ -254,7 +287,7 @@ def build_color_picker_row(
             if dpg.does_item_exist("icon_font_tag"):
                 dpg.bind_item_font(btn_toggle_vis, "icon_font_tag")
             if g_obj:
-                build_beginner_tooltip(btn_toggle_vis, "Toggle show/hide listed/filtered items", g_obj)
+                build_tooltip(btn_toggle_vis, "Toggle show/hide listed/filtered items", g_obj, always_on=True)
         else:
             # Legacy: separate show/hide buttons
             if on_show_clicked:
@@ -267,7 +300,7 @@ def build_color_picker_row(
                 if dpg.does_item_exist("icon_font_tag"):
                     dpg.bind_item_font(btn_show, "icon_font_tag")
                 if g_obj:
-                    build_beginner_tooltip(btn_show, "Show listed/filtered items", g_obj)
+                    build_tooltip(btn_show, "Show listed/filtered items", g_obj, always_on=True)
 
             if on_hide_clicked:
                 btn_hide = dpg.add_button(
@@ -279,7 +312,7 @@ def build_color_picker_row(
                 if dpg.does_item_exist("icon_font_tag"):
                     dpg.bind_item_font(btn_hide, "icon_font_tag")
                 if g_obj:
-                    build_beginner_tooltip(btn_hide, "Hide listed/filtered items", g_obj)
+                    build_tooltip(btn_hide, "Hide listed/filtered items", g_obj, always_on=True)
 
         # 4. Toggle Name Labels
         if on_toggle_names:
@@ -292,7 +325,7 @@ def build_color_picker_row(
             if dpg.does_item_exist("icon_font_tag"):
                 dpg.bind_item_font(btn_names, "icon_font_tag")
             if g_obj:
-                build_beginner_tooltip(btn_names, "Toggle name labels for listed/filtered items", g_obj)
+                build_tooltip(btn_names, "Toggle name labels for listed/filtered items", g_obj, always_on=True)
 
         # 5. Snap All
         if on_snap_clicked:
@@ -305,7 +338,7 @@ def build_color_picker_row(
             if dpg.does_item_exist("icon_font_tag"):
                 dpg.bind_item_font(btn_snap, "icon_font_tag")
             if g_obj:
-                build_beginner_tooltip(btn_snap, "Snap all items to nearest voxel grid center", g_obj)
+                build_tooltip(btn_snap, "Snap all items to nearest voxel grid center", g_obj, always_on=True)
 
         # Contour & Overlay options
         if show_contour and on_contour_clicked:
@@ -318,7 +351,7 @@ def build_color_picker_row(
             if dpg.does_item_exist("icon_font_tag"):
                 dpg.bind_item_font(btn_contour, "icon_font_tag")
             if g_obj:
-                build_beginner_tooltip(btn_contour, "Show as contour", g_obj)
+                build_tooltip(btn_contour, "Show as contour", g_obj, always_on=True)
 
         if show_above_overlay and on_above_overlay_clicked:
             btn_overlay = dpg.add_button(
@@ -330,7 +363,7 @@ def build_color_picker_row(
             if dpg.does_item_exist("icon_font_tag"):
                 dpg.bind_item_font(btn_overlay, "icon_font_tag")
             if g_obj:
-                build_beginner_tooltip(btn_overlay, "Toggle on top of fusion overlay", g_obj)
+                build_tooltip(btn_overlay, "Toggle on top of fusion overlay", g_obj, always_on=True)
 
         # 6. Delete
         if on_delete_clicked:
@@ -346,16 +379,51 @@ def build_color_picker_row(
 build_batch_action_toolbar = build_color_picker_row
 
 
-def build_beginner_tooltip(parent, text, gui, text_tag=None):
-    """A reusable tooltip attached to an existing widget that only appears when Beginner Mode is active."""
+def get_tooltip_delay(gui, always_on=True):
+    """Returns the delay in seconds for tooltips based on beginner mode and settings."""
     target_gui = getattr(gui, "_gui", gui) if hasattr(gui, "_gui") else gui
     is_beg = getattr(target_gui, "is_beginner_mode", False)
+    controller = getattr(target_gui, "controller", None)
+    cfg = {}
+    if controller and hasattr(controller, "settings"):
+        cfg = controller.settings.data.get("interaction", {})
+    if is_beg:
+        return float(cfg.get("tooltip_delay_beginner", 0.1))
+    return float(cfg.get("tooltip_delay", 0.6)) if always_on else float(cfg.get("tooltip_delay_beginner", 0.1))
+
+
+def build_tooltip(parent, text, gui, text_tag=None, always_on=True):
+    """A reusable tooltip attached to an existing widget.
+
+    If always_on=True (icon buttons, toolbars):
+        Visible in both normal and beginner modes with an activation delay:
+        - tooltip_delay (default 0.6s) in normal mode
+        - tooltip_delay_beginner (default 0.1s) in beginner mode
+        Registered in gui.icon_tooltip_tags so toggling beginner mode updates delay.
+    If always_on=False (educational tooltips on text/sliders):
+        Visible only when Beginner Mode is active (show=is_beginner, delay=0.1s).
+        Registered in gui.beginner_tags so toggling beginner mode toggles visibility.
+    """
+    target_gui = getattr(gui, "_gui", gui) if hasattr(gui, "_gui") else gui
+    is_beg = getattr(target_gui, "is_beginner_mode", False)
+    delay = get_tooltip_delay(target_gui, always_on=always_on)
+    show_initial = True if always_on else is_beg
+
     try:
-        tag = dpg.add_tooltip(parent=parent, show=is_beg)
+        tag = dpg.add_tooltip(parent=parent, show=show_initial, delay=delay)
     except (Exception, SystemError):
         return None
-    colors = getattr(target_gui, "ui_cfg", {}).get("colors", {}) if hasattr(target_gui, "ui_cfg") else {}
-    dim_col = colors.get("text_dim", [150, 150, 150]) if isinstance(colors, dict) else [150, 150, 150]
+
+    colors = (
+        getattr(target_gui, "ui_cfg", {}).get("colors", {})
+        if hasattr(target_gui, "ui_cfg")
+        else {}
+    )
+    dim_col = (
+        colors.get("text_dim", [150, 150, 150])
+        if isinstance(colors, dict)
+        else [150, 150, 150]
+    )
     try:
         if text_tag:
             dpg.add_text(text, parent=tag, color=dim_col, tag=text_tag)
@@ -363,9 +431,26 @@ def build_beginner_tooltip(parent, text, gui, text_tag=None):
             dpg.add_text(text, parent=tag, color=dim_col)
     except (Exception, SystemError):
         pass
-    if hasattr(target_gui, "beginner_tags") and isinstance(target_gui.beginner_tags, list):
-        target_gui.beginner_tags.append(tag)
+
+    if always_on:
+        if not hasattr(target_gui, "icon_tooltip_tags") or not isinstance(
+            target_gui.icon_tooltip_tags, list
+        ):
+            target_gui.icon_tooltip_tags = []
+        target_gui.icon_tooltip_tags.append(tag)
+    else:
+        if hasattr(target_gui, "beginner_tags") and isinstance(
+            target_gui.beginner_tags, list
+        ):
+            target_gui.beginner_tags.append(tag)
     return tag
+
+
+def build_beginner_tooltip(parent, text, gui, text_tag=None, always_on=False):
+    """A reusable tooltip attached to an existing widget that only appears when Beginner Mode is active."""
+    return build_tooltip(
+        parent=parent, text=text, gui=gui, text_tag=text_tag, always_on=always_on
+    )
 
 def build_stepped_slider(
     label,

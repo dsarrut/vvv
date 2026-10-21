@@ -668,6 +668,10 @@ class Controller:
         if keys[0] == "layout":
             self.ui_needs_layout_rebuild = True
 
+        if keys[0] == "interaction" and any("tooltip_delay" in str(k) for k in keys):
+            if hasattr(self, "gui") and self.gui and hasattr(self.gui, "update_tooltip_delays"):
+                self.gui.update_tooltip_delays()
+
         self.ui_needs_refresh = True
         self._flag_all_viewers_dirty()
 

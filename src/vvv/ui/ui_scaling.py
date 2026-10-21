@@ -3,7 +3,12 @@ from typing import Optional, Callable, Tuple, Any, Dict
 import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI
-from vvv.ui.ui_components import build_beginner_tooltip, build_help_button, build_section_title
+from vvv.ui.ui_components import (
+    build_beginner_tooltip,
+    build_tooltip,
+    build_help_button,
+    build_section_title,
+)
 
 
 @dataclass
@@ -156,10 +161,11 @@ class IntensityScalingComponent:
                     callback=self._on_goto_max_clicked,
                 )
                 self._bind_icon_font(b_goto_max)
-                build_beginner_tooltip(
+                build_tooltip(
                     b_goto_max,
                     "Go to Max: Center crosshair and camera on maximum dose voxel.",
                     api,
+                    always_on=True,
                 )
 
             # Prescription / Reference Value row below

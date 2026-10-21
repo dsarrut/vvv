@@ -6,6 +6,7 @@ from vvv.ui.ui_components import (
     build_horizontal_separator,
     build_help_button,
     build_beginner_tooltip,
+    build_tooltip,
     build_renamable_input,
 )
 
@@ -258,8 +259,11 @@ def refresh_image_list_ui(gui):
                         callback=lambda s, a, u: gui.on_set_all_viewers_image(u),
                         user_data=vs_id,
                     )
-                    build_beginner_tooltip(
-                        btn_all, "Show this image in all 4 viewers", gui
+                    build_tooltip(
+                        btn_all,
+                        "Show this image in all 4 viewers",
+                        gui,
+                        always_on=True,
                     )
 
                     btn_save = dpg.add_button(
@@ -268,7 +272,12 @@ def refresh_image_list_ui(gui):
                         callback=lambda s, a, u: gui.on_quick_save_image_clicked(u),
                         user_data=vs_id,
                     )
-                    build_beginner_tooltip(btn_save, "Save image to current file", gui)
+                    build_tooltip(
+                        btn_save,
+                        "Save image to current file",
+                        gui,
+                        always_on=True,
+                    )
 
                     btn_save_as = dpg.add_button(
                         label=ICON_SAVE_AS,
@@ -276,7 +285,7 @@ def refresh_image_list_ui(gui):
                         callback=lambda s, a, u: gui.on_save_image_clicked(u),
                         user_data=vs_id,
                     )
-                    build_beginner_tooltip(btn_save_as, "Save image as...", gui)
+                    build_tooltip(btn_save_as, "Save image as...", gui, always_on=True)
 
                     btn_reload = dpg.add_button(
                         label="\uf01e",
@@ -284,7 +293,9 @@ def refresh_image_list_ui(gui):
                         callback=lambda s, a, u: gui.controller.reload_image(u),
                         user_data=vs_id,
                     )
-                    build_beginner_tooltip(btn_reload, "Reload image from disk", gui)
+                    build_tooltip(
+                        btn_reload, "Reload image from disk", gui, always_on=True
+                    )
 
                     btn_close = dpg.add_button(
                         label="\uf00d",
@@ -292,7 +303,7 @@ def refresh_image_list_ui(gui):
                         callback=lambda s, a, u: gui.controller.file.close_image(u),
                         user_data=vs_id,
                     )
-                    build_beginner_tooltip(btn_close, "Close image", gui)
+                    build_tooltip(btn_close, "Close image", gui, always_on=True)
 
                     for btn in [btn_all, btn_save, btn_save_as, btn_reload, btn_close]:
                         if dpg.does_item_exist("icon_font_tag"):

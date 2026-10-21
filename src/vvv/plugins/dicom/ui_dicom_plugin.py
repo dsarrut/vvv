@@ -5,6 +5,7 @@ import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.ui.file_dialog import open_file_dialog
 from vvv.ui.ui_notifications import show_message
+from vvv.ui.ui_components import build_tooltip
 from vvv.utils import clean_string
 
 
@@ -191,6 +192,12 @@ class DicomPluginUI(PluginTagMixin):
                         )
                         if dpg.does_item_exist("icon_font_tag"):
                             dpg.bind_item_font(btn_dir, "icon_font_tag")
+                        build_tooltip(
+                            btn_dir,
+                            "Select folder to scan for DICOM files",
+                            self.api,
+                            always_on=True,
+                        )
 
                         dpg.add_input_text(
                             default_value=self.last_folder,

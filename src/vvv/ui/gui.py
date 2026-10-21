@@ -21,6 +21,7 @@ from vvv.ui.ui_components import (
     build_help_button,
     build_renamable_input,
     build_beginner_tooltip,
+    build_tooltip,
 )
 from vvv.ui.ui_sync import build_tab_sync, refresh_sync_ui
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
@@ -88,6 +89,7 @@ class MainGUI:
             self.controller.settings.data.get("behavior", {}).get("beginner_mode", False)
         )
         self.beginner_tags = []
+        self.icon_tooltip_tags = []
         self.active_tab = "tab_images"
         self.active_layout = "4"
         self.last_tab_for_image: dict[str, str] = {}
@@ -451,6 +453,7 @@ class MainGUI:
                 dpg.bind_item_theme(btn_settings, "theme_rounded_nav")
                 if dpg.does_item_exist("icon_font_tag"):
                     dpg.bind_item_font(btn_settings, "icon_font_tag")
+                build_tooltip(btn_settings, "Settings", self, always_on=True)
 
                 with dpg.group(horizontal=True, horizontal_spacing=5):
                     init_theme = (
@@ -470,6 +473,7 @@ class MainGUI:
                         dpg.bind_item_font(btn_beginner, "icon_font_18_tag")
                     elif dpg.does_item_exist("icon_font_tag"):
                         dpg.bind_item_font(btn_beginner, "icon_font_tag")
+                    build_tooltip(btn_beginner, "Toggle Beginner Mode", self, always_on=True)
 
                     btn_help = dpg.add_button(
                         label="\uf059",
@@ -481,6 +485,7 @@ class MainGUI:
                     dpg.bind_item_theme(btn_help, "theme_rounded_nav")
                     if dpg.does_item_exist("icon_font_tag"):
                         dpg.bind_item_font(btn_help, "icon_font_tag")
+                    build_tooltip(btn_help, "Help & Documentation", self, always_on=True)
 
     def build_sidebar_top(self):
         """Builds the content containers without the native tab_bar."""
@@ -554,11 +559,12 @@ class MainGUI:
                         )
                         if dpg.does_item_exist("icon_font_tag"):
                             dpg.bind_item_font(btn_toggle, "icon_font_tag")
-                        build_beginner_tooltip(
+                        build_tooltip(
                             btn_toggle,
                             "Toggle between Base and Fusion image info",
                             self,
                             text_tag="text_tooltip_info_fusion",
+                            always_on=True,
                         )
                         dpg.add_input_text(
                             tag="input_info_name",
@@ -667,8 +673,8 @@ class MainGUI:
                                     callback=on_select_unit_preset,
                                     user_data=u_val,
                                 )
-                        build_beginner_tooltip(
-                            btn_preset, "Select a standard unit preset", self
+                        build_tooltip(
+                            btn_preset, "Select a standard unit preset", self, always_on=True
                         )
                         dpg.add_text("", tag="info_unit_source", color=dim_col)
 
@@ -1421,6 +1427,8 @@ class MainGUI:
                 valid_tags.append(tag)
         self.beginner_tags = valid_tags
 
+        self.update_tooltip_delays()
+
         w = -100 if self.is_beginner_mode else -60
 
         if self.is_beginner_mode:
@@ -1442,6 +1450,21 @@ class MainGUI:
         self.show_status_message(
             f"Beginner Mode {'ON' if self.is_beginner_mode else 'OFF'}"
         )
+
+    def update_tooltip_delays(self):
+        """Updates activation delays on all registered icon tooltips."""
+        from vvv.ui.ui_components import get_tooltip_delay
+
+        delay = get_tooltip_delay(self, always_on=True)
+        valid_icon_tags = []
+        for tag in getattr(self, "icon_tooltip_tags", []):
+            if dpg.does_item_exist(tag):
+                try:
+                    dpg.configure_item(tag, delay=delay)
+                except Exception:
+                    pass
+                valid_icon_tags.append(tag)
+        self.icon_tooltip_tags = valid_icon_tags
 
     def on_nav_clicked(self, sender, app_data, user_data):
         """Replaces on_tab_changed. Handles hiding/showing the content groups."""

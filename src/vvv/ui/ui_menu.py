@@ -7,7 +7,7 @@ import shlex
 import dearpygui.dearpygui as dpg
 
 from vvv.ui.render_strategy import GL_NEAREST_SUPPORTED, _NUMBA_AVAILABLE
-from vvv.ui.ui_components import build_beginner_tooltip
+from vvv.ui.ui_components import build_beginner_tooltip, build_tooltip
 from vvv.ui.ui_sequences import load_batch_images_sequence, load_single_image_sequence
 
 MISSING_RECENT_COLOR = [255, 140, 0, 255]  # orange
@@ -202,14 +202,22 @@ def build_menu_bar(gui):
                 if dpg.does_item_exist("icon_button_theme"):
                     dpg.bind_item_theme(btn, "icon_button_theme")
 
-            build_beginner_tooltip(
-                "btn_screenshot", "Copy Window Screenshot to Clipboard", gui
+            build_tooltip(
+                "btn_screenshot",
+                "Copy Window Screenshot to Clipboard",
+                gui,
+                always_on=True,
             )
-            build_beginner_tooltip("btn_layout_4", "4 Viewers Layout", gui)
-            build_beginner_tooltip(
-                "btn_layout_2", "2 Viewers (Left/Right) Layout", gui
+            build_tooltip("btn_layout_4", "4 Viewers Layout", gui, always_on=True)
+            build_tooltip(
+                "btn_layout_2",
+                "2 Viewers (Left/Right) Layout",
+                gui,
+                always_on=True,
             )
-            build_beginner_tooltip("btn_layout_1", "1 Viewer (Full) Layout", gui)
+            build_tooltip(
+                "btn_layout_1", "1 Viewer (Full) Layout", gui, always_on=True
+            )
 
     dpg.bind_item_theme("menu_container", "floating_menu_theme")
 

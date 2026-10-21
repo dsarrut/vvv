@@ -7,6 +7,9 @@ from vvv.utils import get_resource_path
 
 logger = logging.getLogger(__name__)
 
+TOOLTIP_DELAY_NORMAL = 0.6
+TOOLTIP_DELAY_BEGINNER = 0.1
+
 
 def build_ui_config(controller):
     """Centralizes all layout dimensions, margins, and colors."""

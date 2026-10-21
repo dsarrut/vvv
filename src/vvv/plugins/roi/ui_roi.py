@@ -7,6 +7,7 @@ from vvv.ui.ui_components import (
     build_horizontal_separator,
     build_help_button,
     build_beginner_tooltip,
+    build_tooltip,
     build_stepped_slider,
     build_renamable_input,
     build_delete_button,
@@ -189,15 +190,17 @@ class RoiPluginUI(PluginTagMixin):
                     dpg.bind_item_font(btn_sph_icon, "icon_font_tag")
                     dpg.bind_item_font(btn_rec_icon, "icon_font_tag")
 
-                build_beginner_tooltip(
+                build_tooltip(
                     btn_sph_icon,
                     "Create a new spheroid ROI centered at the crosshair.",
                     self.api,
+                    always_on=True,
                 )
-                build_beginner_tooltip(
+                build_tooltip(
                     btn_rec_icon,
                     "Create a new rectangular ROI centered at the crosshair (not implemented yet).",
                     self.api,
+                    always_on=True,
                 )
                 build_help_button(
                     "Spheroid/Box ROI creation:\n"
@@ -335,14 +338,14 @@ class RoiPluginUI(PluginTagMixin):
                     dpg.bind_item_theme(btn_clear_sel, "delete_button_theme")
 
                 if api:
-                    build_beginner_tooltip(btn_show, "Show Listed (Raster)", api)
-                    build_beginner_tooltip(btn_contour, "Show Listed (Contour)", api)
-                    build_beginner_tooltip(btn_hide, "Hide Listed", api)
-                    build_beginner_tooltip(btn_roi_above_overlay, "Toggle ROI on top of Fusion", api)
-                    build_beginner_tooltip(btn_close_all, "Close Listed", api)
-                    build_beginner_tooltip(btn_toggle_all_stats, "Toggle statistics windows for listed ROIs", api)
-                    build_beginner_tooltip(btn_reload_all, "Reload all modified ROIs", api)
-                    build_beginner_tooltip(btn_clear_sel, "Clear ROI selection (Esc)", api)
+                    build_tooltip(btn_show, "Show Listed (Raster)", api, always_on=True)
+                    build_tooltip(btn_contour, "Show Listed (Contour)", api, always_on=True)
+                    build_tooltip(btn_hide, "Hide Listed", api, always_on=True)
+                    build_tooltip(btn_roi_above_overlay, "Toggle ROI on top of Fusion", api, always_on=True)
+                    build_tooltip(btn_close_all, "Close Listed", api, always_on=True)
+                    build_tooltip(btn_toggle_all_stats, "Toggle statistics windows for listed ROIs", api, always_on=True)
+                    build_tooltip(btn_reload_all, "Reload all modified ROIs", api, always_on=True)
+                    build_tooltip(btn_clear_sel, "Clear ROI selection (Esc)", api, always_on=True)
 
             dpg.add_spacer(height=2)
 
@@ -393,6 +396,7 @@ class RoiPluginUI(PluginTagMixin):
                 )
                 if dpg.does_item_exist("icon_font_tag"):
                     dpg.bind_item_font(btn_sort, "icon_font_tag")
+                build_tooltip(btn_sort, "Sort ROIs alphabetically", self.api, always_on=True)
 
                 build_name_filter_bar(
                     group_tag=self._t("subgroup_roi_filter"),
@@ -441,6 +445,7 @@ class RoiPluginUI(PluginTagMixin):
                     )
                     if dpg.does_item_exist("icon_font_tag"):
                         dpg.bind_item_font(btn_close_detail, "icon_font_tag")
+                    build_tooltip(btn_close_detail, "Close properties panel", self.api, always_on=True)
                 build_horizontal_separator()
 
             with dpg.child_window(
@@ -796,12 +801,28 @@ class RoiPluginUI(PluginTagMixin):
                     user_data=roi_id,
                     callback=self.on_roi_toggle_visible,
                 )
+                if self.api:
+                    build_tooltip(
+                        btn_eye,
+                        "Toggle visibility (show / contour / hide)",
+                        self.api,
+                        always_on=True,
+                    )
+
                 btn_center = dpg.add_button(
                     label="\uf05b",
                     width=20,
                     user_data=roi_id,
                     callback=self.on_roi_center,
                 )
+                if self.api:
+                    build_tooltip(
+                        btn_center,
+                        "Center camera on ROI",
+                        self.api,
+                        always_on=True,
+                    )
+
                 btn_stats = dpg.add_button(
                     label="\uf08e",
                     width=20,
@@ -809,7 +830,12 @@ class RoiPluginUI(PluginTagMixin):
                     callback=self.on_roi_stats_toggle,
                 )
                 if self.api:
-                    build_beginner_tooltip(btn_stats, "Toggle ROI statistics window", self.api)
+                    build_tooltip(
+                        btn_stats,
+                        "Toggle ROI statistics window",
+                        self.api,
+                        always_on=True,
+                    )
 
                 source_type = getattr(roi, "source_type", "Binary")
 
@@ -821,7 +847,12 @@ class RoiPluginUI(PluginTagMixin):
                         callback=self.on_roi_reload,
                     )
                     if self.api:
-                        build_beginner_tooltip(btn_action, "Reload modified file", self.api)
+                        build_tooltip(
+                            btn_action,
+                            "Reload modified file",
+                            self.api,
+                            always_on=True,
+                        )
                 else:
                     btn_action = dpg.add_button(
                         label="\uf0c7",
@@ -830,10 +861,15 @@ class RoiPluginUI(PluginTagMixin):
                         callback=self.on_roi_save,
                     )
                     if self.api:
-                        build_beginner_tooltip(
+                        build_tooltip(
                             btn_action,
-                            "Save ROI As..." if source_type == "Binary" else "Extract & Save ROI",
+                            (
+                                "Save ROI As..."
+                                if source_type == "Binary"
+                                else "Extract & Save ROI"
+                            ),
                             self.api,
+                            always_on=True,
                         )
 
                 btn_close = build_delete_button(
@@ -2237,7 +2273,12 @@ class RoiPluginUI(PluginTagMixin):
                 user_data={"base_vs_id": base_vs_id, "roi_id": roi_id},
             )
             if self.api:
-                build_beginner_tooltip(btn_copy, "Copy statistics to clipboard", self.api)
+                build_tooltip(
+                    btn_copy,
+                    "Copy statistics to clipboard",
+                    self.api,
+                    always_on=True,
+                )
 
             # Contour/Visibility Toggle
             if roi.visible:
@@ -2252,7 +2293,12 @@ class RoiPluginUI(PluginTagMixin):
                 callback=self.on_roi_toggle_visible,
             )
             if self.api:
-                build_beginner_tooltip(btn_eye, "Toggle visibility (show / contour / hide)", self.api)
+                build_tooltip(
+                    btn_eye,
+                    "Toggle visibility (show / contour / hide)",
+                    self.api,
+                    always_on=True,
+                )
 
             # Center Camera
             btn_center = dpg.add_button(
@@ -2262,7 +2308,12 @@ class RoiPluginUI(PluginTagMixin):
                 callback=self.on_roi_center,
             )
             if self.api:
-                build_beginner_tooltip(btn_center, "Center camera on ROI", self.api)
+                build_tooltip(
+                    btn_center,
+                    "Center camera on ROI",
+                    self.api,
+                    always_on=True,
+                )
 
             # Save / Reload
             roi_vol = self.api.get_volumes().get(roi_id)
@@ -2278,7 +2329,12 @@ class RoiPluginUI(PluginTagMixin):
                     callback=self.on_roi_reload,
                 )
                 if self.api:
-                    build_beginner_tooltip(btn_action, "Reload modified file", self.api)
+                    build_tooltip(
+                        btn_action,
+                        "Reload modified file",
+                        self.api,
+                        always_on=True,
+                    )
             else:
                 btn_action = dpg.add_button(
                     label="\uf0c7",
@@ -2288,7 +2344,7 @@ class RoiPluginUI(PluginTagMixin):
                     callback=self.on_roi_save,
                 )
                 if self.api:
-                    build_beginner_tooltip(
+                    build_tooltip(
                         btn_action,
                         (
                             "Save ROI As..."
@@ -2296,6 +2352,7 @@ class RoiPluginUI(PluginTagMixin):
                             else "Extract & Save ROI"
                         ),
                         self.api,
+                        always_on=True,
                     )
 
             # Slider Opacity/Thickness
