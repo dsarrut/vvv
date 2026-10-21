@@ -1,5 +1,11 @@
 import dearpygui.dearpygui as dpg
-from vvv.ui.ui_components import build_section_title, build_horizontal_separator, build_help_button, build_beginner_tooltip
+from vvv.ui.ui_components import (
+    FIELD_RIGHT_MARGIN,
+    build_section_title,
+    build_horizontal_separator,
+    build_help_button,
+    build_beginner_tooltip,
+)
 from vvv.ui.ui_image_list import highlight_active_image_in_list
 
 """
@@ -123,16 +129,10 @@ def refresh_sync_ui(gui):
     if not vs_list:
         if dpg.does_item_exist("sync_toggle_spatial_btn"):
             dpg.set_item_label("sync_toggle_spatial_btn", "Link Views")
-            dpg.bind_item_theme(
-                "sync_toggle_spatial_btn",
-                "theme_rounded_nav" if dpg.does_item_exist("theme_rounded_nav") else 0,
-            )
+            dpg.bind_item_theme("sync_toggle_spatial_btn", 0)
         if dpg.does_item_exist("sync_toggle_wl_btn"):
             dpg.set_item_label("sync_toggle_wl_btn", "Link W/L")
-            dpg.bind_item_theme(
-                "sync_toggle_wl_btn",
-                "theme_rounded_nav" if dpg.does_item_exist("theme_rounded_nav") else 0,
-            )
+            dpg.bind_item_theme("sync_toggle_wl_btn", 0)
         if dpg.does_item_exist("tooltip_text_sync_spatial"):
             dpg.set_value("tooltip_text_sync_spatial", "Spatial View Sync:\nNo images loaded.")
         if dpg.does_item_exist("tooltip_text_sync_wl"):
@@ -147,14 +147,11 @@ def refresh_sync_ui(gui):
         if dpg.does_item_exist("sync_toggle_spatial_btn"):
             if all_spatial:
                 dpg.set_item_label("sync_toggle_spatial_btn", "Unlink Views")
-                if dpg.does_item_exist("active_nav_button_theme"):
-                    dpg.bind_item_theme("sync_toggle_spatial_btn", "active_nav_button_theme")
+                if dpg.does_item_exist("active_button_theme"):
+                    dpg.bind_item_theme("sync_toggle_spatial_btn", "active_button_theme")
             else:
                 dpg.set_item_label("sync_toggle_spatial_btn", "Link Views")
-                if dpg.does_item_exist("theme_rounded_nav"):
-                    dpg.bind_item_theme("sync_toggle_spatial_btn", "theme_rounded_nav")
-                else:
-                    dpg.bind_item_theme("sync_toggle_spatial_btn", 0)
+                dpg.bind_item_theme("sync_toggle_spatial_btn", 0)
 
         if dpg.does_item_exist("tooltip_text_sync_spatial"):
             if all_spatial:
@@ -184,14 +181,11 @@ def refresh_sync_ui(gui):
         if dpg.does_item_exist("sync_toggle_wl_btn"):
             if all_wl:
                 dpg.set_item_label("sync_toggle_wl_btn", "Unlink W/L")
-                if dpg.does_item_exist("active_nav_button_theme"):
-                    dpg.bind_item_theme("sync_toggle_wl_btn", "active_nav_button_theme")
+                if dpg.does_item_exist("active_button_theme"):
+                    dpg.bind_item_theme("sync_toggle_wl_btn", "active_button_theme")
             else:
                 dpg.set_item_label("sync_toggle_wl_btn", "Link W/L")
-                if dpg.does_item_exist("theme_rounded_nav"):
-                    dpg.bind_item_theme("sync_toggle_wl_btn", "theme_rounded_nav")
-                else:
-                    dpg.bind_item_theme("sync_toggle_wl_btn", 0)
+                dpg.bind_item_theme("sync_toggle_wl_btn", 0)
 
         if dpg.does_item_exist("tooltip_text_sync_wl"):
             if all_wl:
@@ -245,28 +239,44 @@ def refresh_sync_ui(gui):
 
                 gui.sync_label_tags[vs_id] = lbl_id
 
-            # --- LINE 2: Dropdowns ---
-            with dpg.group(horizontal=True, horizontal_spacing=8):
-                dpg.add_spacer(width=17)
-                dpg.add_text("Sync:", color=gui.ui_cfg["colors"]["text_dim"])
+            # --- LINE 2: Dropdowns (equal widths, ending on the separator margin) ---
+            dim = gui.ui_cfg["colors"]["text_dim"]
+            with dpg.table(
+                header_row=False,
+                borders_innerH=False,
+                borders_innerV=False,
+                borders_outerH=False,
+                borders_outerV=False,
+                width=-FIELD_RIGHT_MARGIN,
+            ):
+                dpg.add_table_column(width_fixed=True, init_width_or_weight=17)
+                dpg.add_table_column(width_fixed=True)
+                dpg.add_table_column(width_stretch=True)
+                dpg.add_table_column(width_fixed=True)
+                dpg.add_table_column(width_stretch=True)
+                row = dpg.add_table_row()
+                dpg.add_spacer(width=1, parent=row)
+                dpg.add_text("Sync:", color=dim, parent=row)
                 dpg.add_combo(
+                    parent=row,
                     items=sp_items,
                     default_value=(
                         "None" if not vs.sync_group else f"Grp {vs.sync_group}"
                     ),
-                    width=70,
+                    width=-1,
                     user_data=(vs_id, sp_items),
                     callback=lambda s, a, u: handle_sync_group_change(gui, s, a, u),
                 )
 
-                dpg.add_text("W/L:", color=gui.ui_cfg["colors"]["text_dim"])
+                dpg.add_text("W/L:", color=dim, parent=row)
                 wl_val = vs.sync_wl_group
                 is_rgb = vs.volume.is_rgb
 
                 dpg.add_combo(
+                    parent=row,
                     items=wl_items,
                     default_value=("None" if not wl_val else f"Grp {chr(64 + wl_val)}"),
-                    width=70,
+                    width=-1,
                     user_data=(vs_id, wl_items),
                     callback=lambda s, a, u: handle_wl_group_change(gui, s, a, u),
                     enabled=not is_rgb,

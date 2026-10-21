@@ -2,6 +2,7 @@ import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import (
     ICON_SAVE,
     ICON_SAVE_AS,
+    FIELD_RIGHT_MARGIN,
     build_section_title,
     build_horizontal_separator,
     build_help_button,
@@ -241,7 +242,7 @@ def refresh_image_list_ui(gui):
                         default_value=name_str,
                         callback=on_rename,
                         user_data=vs_id,
-                        width=180,
+                        width=-FIELD_RIGHT_MARGIN,
                         tooltip=vs.volume.get_human_readable_file_path(),
                         gui=gui,
                     )
