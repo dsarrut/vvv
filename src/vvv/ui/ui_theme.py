@@ -14,9 +14,10 @@ def build_ui_config(controller):
     is_mac = sys.platform == "darwin"
 
     # macOS uses Helvetica (14/11 px), Linux/Windows uses Liberation Sans (16.24/13 px)
-    # With larger fonts and wider line height on Linux/Windows, panels need more vertical room
-    av_h = 345 if is_mac else 395  # Active Viewer Height
-    ch_h = 160 if is_mac else 185  # Crosshair Height
+    # With larger fonts and wider line height on Linux/Windows, panels need slightly more vertical room
+    # Sized so the bottom space below the last control matches the top space (~5-7 px)
+    av_h = 345 if is_mac else 365  # Active Viewer Height
+    ch_h = 160 if is_mac else 168  # Crosshair Height
     nav_w = controller.settings.data["layout"]["nav_panel_width"]
     if not is_mac:
         nav_w = max(nav_w, 90)

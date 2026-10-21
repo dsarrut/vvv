@@ -63,7 +63,7 @@ def test_ui_config_panel_heights_per_platform(monkeypatch):
     for plat in ("linux", "win32"):
         monkeypatch.setattr(ui_theme.sys, "platform", plat)
         cfg_linux = ui_theme.build_ui_config(controller)
-        assert cfg_linux["layout"]["panel_av_h"] == 395
-        assert cfg_linux["layout"]["panel_ch_h"] == 185
+        assert cfg_linux["layout"]["panel_av_h"] == 365
+        assert cfg_linux["layout"]["panel_ch_h"] == 168
         assert cfg_linux["layout"]["nav_panel_w"] >= 90
 
