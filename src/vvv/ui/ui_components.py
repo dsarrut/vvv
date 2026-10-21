@@ -1,3 +1,5 @@
+from contextlib import ExitStack, contextmanager
+
 import dearpygui.dearpygui as dpg
 
 # Standard UI toolbar icon glyphs
@@ -451,6 +453,21 @@ def build_beginner_tooltip(parent, text, gui, text_tag=None, always_on=False):
         parent=parent, text=text, gui=gui, text_tag=text_tag, always_on=always_on
     )
 
+# Right margin of the fields in a side panel: the same as build_horizontal_separator
+FIELD_RIGHT_MARGIN = 8
+
+
+@contextmanager
+def label_row(label, label_w, **text_kwargs):
+    """A row 'label | field(s)' whose fields start at label_w, whatever the label
+    length: items added in the with-block go in a horizontal group after the
+    label. Give the last field width=-FIELD_RIGHT_MARGIN to end on the margin."""
+    with dpg.group(horizontal=True, xoffset=label_w):
+        dpg.add_text(label, **text_kwargs)
+        with dpg.group(horizontal=True) as fields:
+            yield fields
+
+
 def build_stepped_slider(
     label,
     tag,
@@ -472,8 +489,13 @@ def build_stepped_slider(
     label_width=None,
     user_data=None,
     use_slider=False,
+    label_col=None,
 ):
-    """A reusable UI component for a slider with + and - step buttons."""
+    """A reusable UI component for a slider with + and - step buttons.
+
+    label_col: the label takes a column of this width (see label_row) and the
+    field + buttons end on FIELD_RIGHT_MARGIN; the checkbox / color, if any,
+    go after the label."""
 
     # --- INTERNAL STATE (Hidden closure) ---
     # Python closures capture dictionaries by reference. This means both buttons
@@ -497,7 +519,12 @@ def build_stepped_slider(
 
     # ---------------------------------------
 
-    with dpg.group(horizontal=True):
+    gap = gui.ui_cfg["layout"].get("sidebar_item_gap", 8) if (gui and hasattr(gui, "ui_cfg")) else 8
+    with ExitStack() as row:
+        row.enter_context(dpg.group(horizontal=True, xoffset=label_col or 0))
+        if label_col:
+            dpg.add_text(label.strip())
+            row.enter_context(dpg.group(horizontal=True))
         if has_checkbox:
             dpg.add_checkbox(tag=check_tag or 0, enabled=False, callback=check_cb)  # type: ignore
 
@@ -513,7 +540,9 @@ def build_stepped_slider(
                 height=20,
             )
 
-        if label_width:
+        if label_col:
+            pass
+        elif label_width:
             lw = label_width
             if has_color:
                 spacing = gui.ui_cfg["layout"].get("sidebar_item_gap", 8) if (gui and hasattr(gui, "ui_cfg")) else 8
@@ -525,12 +554,16 @@ def build_stepped_slider(
             dpg.add_text(label)
 
         is_beg = getattr(gui, "is_beginner_mode", False) if gui else False
+        if label_col:  # the 2 step buttons, then the right margin
+            field_w = -(2 * (20 + gap) + FIELD_RIGHT_MARGIN)
+        else:
+            field_w = -100 if (help_text and is_beg) else -60
 
         # 1. The Slider
         if use_slider:
             dpg.add_slider_float(
                 tag=tag,
-                width=-100 if (help_text and is_beg) else -60,
+                width=field_w,
                 format=format,
                 min_value=min_val,
                 max_value=max_val,
@@ -542,7 +575,7 @@ def build_stepped_slider(
         else:
             dpg.add_drag_float(
                 tag=tag,
-                width=-100 if (help_text and is_beg) else -60,
+                width=field_w,
                 format=format,
                 speed=1.0,
                 min_value=min_val,

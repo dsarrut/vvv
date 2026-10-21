@@ -5,7 +5,13 @@ from vvv.ui.ui_components import (
     build_stepped_slider,
     build_help_button,
     build_beginner_tooltip,
+    label_row,
+    FIELD_RIGHT_MARGIN,
 )
+
+# Fusion rows: labels in one column, fields from LABEL_W to the right margin
+LABEL_W = 72
+RIGHT = -FIELD_RIGHT_MARGIN
 from vvv.utils import compute_adaptive_step_and_speed
 from vvv.config import WL_PRESETS, COLORMAPS
 
@@ -18,22 +24,26 @@ class FusionUI:
         self.controller = controller
 
     @staticmethod
+    def mode_combo_width(gui):
+        """The Mode combo leaves room for the help button in beginner mode."""
+        gap = gui.ui_cfg["layout"].get("sidebar_item_gap", 8)
+        return RIGHT - (20 + gap) if getattr(gui, "is_beginner_mode", False) else RIGHT
+
+    @staticmethod
     def build_tab_fusion(gui):
         cfg_c = gui.ui_cfg["colors"]
         with dpg.group(tag="tab_fusion", show=False):
             build_section_title("Active Fusion", cfg_c["text_header"])
             with dpg.group(tag="image_fusion_group"):
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Base   ")
+                with label_row("Base", LABEL_W):
                     dpg.add_text(
                         "-", tag="text_fusion_base_image", color=cfg_c["text_active"]
                     )
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Target ")
+                with label_row("Target", LABEL_W):
                     dpg.add_combo(
                         ["None"],
                         tag="combo_fusion_select",
-                        width=-1,
+                        width=RIGHT,
                         callback=gui.fusion_ui.on_fusion_target_selected,
                     )
                 build_beginner_tooltip(
@@ -41,22 +51,20 @@ class FusionUI:
                     "Select the image to fuse as an overlay on top of the base image.",
                     gui,
                 )
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Opacity", tag="text_fusion_opacity_label")
+                with label_row("Opacity", LABEL_W, tag="text_fusion_opacity_label"):
                     dpg.add_slider_float(
                         tag="slider_fusion_opacity",
                         min_value=0.0,
                         max_value=1.0,
-                        width=-1,
+                        width=RIGHT,
                         callback=gui.fusion_ui.on_fusion_opacity_changed,
                     )
 
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Mode   ")
+                with label_row("Mode", LABEL_W):
                     combo = dpg.add_combo(
                         ["Alpha", "Registration", "Checkerboard", "DVF"],
                         tag="combo_fusion_mode",
-                        width=-30,
+                        width=FusionUI.mode_combo_width(gui),
                         callback=gui.fusion_ui.on_fusion_mode_changed,
                     )
                     build_help_button(
@@ -73,10 +81,9 @@ class FusionUI:
                     show=False,
                     color=cfg_c.get("outdated", [255, 200, 50, 200]),
                 )
-                with dpg.group(
-                    horizontal=True, tag="group_fusion_checkerboard", show=False
+                with dpg.group(tag="group_fusion_checkerboard", show=False), label_row(
+                    "Square", LABEL_W
                 ):
-                    dpg.add_text("Square ")
                     dpg.add_slider_float(
                         tag="slider_fusion_chk_size",
                         min_value=1.0,
@@ -95,51 +102,52 @@ class FusionUI:
                 build_section_title("Fusion Image Intensity", cfg_c["text_header"])
                 dpg.add_spacer(height=2)
 
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Preset: ")
+                with label_row("Preset", LABEL_W):
                     dpg.add_combo(
                         list(WL_PRESETS.keys()) + ["Custom"],
                         default_value="Custom",
                         tag="combo_fusion_wl_presets",
-                        width=-1,
+                        width=RIGHT,
                         callback=gui.fusion_ui.on_fusion_preset_changed,
                     )
 
                 build_stepped_slider(
-                    "Window:",
+                    "Window",
                     "drag_fusion_ww",
                     callback=gui.fusion_ui.on_fusion_ww_changed,
                     step_callback=gui.fusion_ui.on_step_button_clicked,
                     min_val=1e-5,
+                    gui=gui,
+                    label_col=LABEL_W,
                 )
                 build_stepped_slider(
-                    "Level: ",
+                    "Level",
                     "drag_fusion_wl",
                     callback=gui.fusion_ui.on_fusion_wl_changed,
                     step_callback=gui.fusion_ui.on_step_button_clicked,
+                    gui=gui,
+                    label_col=LABEL_W,
                 )
 
-                from vvv.config import COLORMAPS
-
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Map:    ")
+                with label_row("Map", LABEL_W):
                     dpg.add_combo(
                         list(COLORMAPS.keys()),
                         default_value="Grayscale",
                         tag="combo_fusion_colormap",
-                        width=-1,
+                        width=RIGHT,
                         callback=gui.fusion_ui.on_fusion_colormap_changed,
                     )
 
                 build_stepped_slider(
-                    "Min Thr (Target):",
+                    "Min Thr",
                     "drag_fusion_threshold",
                     callback=gui.fusion_ui.on_fusion_threshold_changed,
                     step_callback=gui.fusion_ui.on_step_button_clicked,
                     has_checkbox=True,
                     check_tag="check_fusion_threshold",
                     check_cb=gui.fusion_ui.on_fusion_threshold_toggle,
-                    label_width=110,
+                    gui=gui,
+                    label_col=LABEL_W,
                 )
                 build_beginner_tooltip(
                     "drag_fusion_threshold",
@@ -152,6 +160,8 @@ class FusionUI:
                 )
 
     def refresh_fusion_ui(self):
+        if dpg.does_item_exist("combo_fusion_mode"):
+            dpg.set_item_width("combo_fusion_mode", self.mode_combo_width(self.gui))
         viewer = self.gui.context_viewer
         has_image = bool(viewer and viewer.view_state and viewer.volume)
 

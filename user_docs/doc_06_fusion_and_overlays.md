@@ -35,7 +35,7 @@ Controls the radiometric rendering of the **overlay image only**, leaving the ba
 * **Preset**: Colormap and W/L presets (`Custom`, `Optimal`, `Min/Max`).
 * **Window / Level**: Adjust contrast width and center level of the overlay.
 * **Map**: Choose overlay colormap (`Hot`, `Cold`, `Jet`, `Dosimetry`, `Grayscale`, `Segmentation`).
-* **Min Thr (Target)**: Minimum intensity threshold cutoff. Target voxels below this value are rendered fully transparent, removing background noise without altering tissue signal.
+* **Min Thr**: Minimum intensity threshold cutoff of the target (overlay) image, enabled by its checkbox. Target voxels below this value are rendered fully transparent, removing background noise without altering tissue signal.
 
 ---
 
