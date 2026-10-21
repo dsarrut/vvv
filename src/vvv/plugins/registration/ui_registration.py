@@ -9,6 +9,7 @@ from vvv.ui.ui_components import (
     build_help_button,
     build_beginner_tooltip,
     build_tooltip,
+    set_item_show,
 )
 from vvv.plugins.plugin_api import PluginTagMixin
 from .control_registration import RegistrationPluginController
@@ -128,6 +129,7 @@ class RegistrationPluginUI(PluginTagMixin):
                         width=20,
                         tag=self._t("btn_reg_reload"),
                         callback=self._c.on_reg_reload_clicked,
+                        show=False,
                     )
                     self._bind_icon_font(btn_reload)
                     if dpg.does_item_exist("icon_button_theme"):
@@ -451,10 +453,10 @@ class RegistrationPluginUI(PluginTagMixin):
                 dpg.configure_item(file_tag, show=False)
 
         if dpg.does_item_exist(btn_save_tag):
-            dpg.configure_item(btn_save_tag, show=has_transform_file)
+            set_item_show(btn_save_tag, has_transform_file, api)
 
         if dpg.does_item_exist(btn_reload_tag):
-            dpg.configure_item(btn_reload_tag, show=has_transform_file)
+            set_item_show(btn_reload_tag, has_transform_file, api)
 
         # Disable out-of-plane sliders if 2D
         is_2d = False

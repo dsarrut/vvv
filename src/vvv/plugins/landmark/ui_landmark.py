@@ -14,6 +14,7 @@ from vvv.ui.ui_components import (
     build_renamable_input,
     set_filter_count,
     set_filter_invert_state,
+    set_item_show,
 )
 from vvv.plugins.plugin_api import PluginTagMixin
 from .control_landmark import LandmarkPluginController
@@ -370,11 +371,9 @@ class LandmarkPluginUI(PluginTagMixin):
                     color=outdated_color if is_outdated else cfg_c["text_dim"],
                 )
             if dpg.does_item_exist(btn_save_tag):
-                dpg.configure_item(btn_save_tag, show=True)
+                set_item_show(btn_save_tag, True, api)
             if dpg.does_item_exist(btn_reload_tag):
-                dpg.configure_item(btn_reload_tag, show=True)
-                # Reload button is only visible when file is out of date
-                dpg.configure_item(btn_reload_tag, show=is_outdated)
+                set_item_show(btn_reload_tag, is_outdated, api)
                 if is_outdated and dpg.does_item_exist("outdated_image_input_theme"):
                     dpg.bind_item_theme(btn_reload_tag, "outdated_image_input_theme")
                 elif dpg.does_item_exist("icon_button_theme"):
@@ -383,9 +382,9 @@ class LandmarkPluginUI(PluginTagMixin):
             if dpg.does_item_exist(lbl_file_tag):
                 dpg.configure_item(lbl_file_tag, show=False)
             if dpg.does_item_exist(btn_save_tag):
-                dpg.configure_item(btn_save_tag, show=False)
+                set_item_show(btn_save_tag, False, api)
             if dpg.does_item_exist(btn_reload_tag):
-                dpg.configure_item(btn_reload_tag, show=False)
+                set_item_show(btn_reload_tag, False, api)
 
         # Rebuild key to avoid unneeded redraws if nothing changed
         lm_tuples = tuple(

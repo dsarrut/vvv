@@ -90,6 +90,7 @@ class MainGUI:
         )
         self.beginner_tags = []
         self.icon_tooltip_tags = []
+        self.tooltip_parent_map = {}
         self.active_tab = "tab_images"
         self.active_layout = "4"
         self.last_tab_for_image: dict[str, str] = {}
@@ -307,6 +308,15 @@ class MainGUI:
     def _safe_configure(self, tag, **kwargs):
         if dpg.does_item_exist(tag):
             dpg.configure_item(tag, **kwargs)
+        if "show" in kwargs and hasattr(self, "tooltip_parent_map"):
+            for tt_tag, p in self.tooltip_parent_map.items():
+                if p == tag and dpg.does_item_exist(tt_tag):
+                    is_icon = tt_tag in getattr(self, "icon_tooltip_tags", [])
+                    tt_show = kwargs["show"] if is_icon else (self.is_beginner_mode and kwargs["show"])
+                    try:
+                        dpg.configure_item(tt_tag, show=tt_show)
+                    except Exception:
+                        pass
 
     def _set_enabled(self, enabled, *tags):
         for tag in tags:
@@ -1423,7 +1433,13 @@ class MainGUI:
         valid_tags = []
         for tag in self.beginner_tags:
             if dpg.does_item_exist(tag):
-                self._safe_configure(tag, show=self.is_beginner_mode)
+                parent = getattr(self, "tooltip_parent_map", {}).get(tag)
+                p_show = (
+                    bool(dpg.get_item_configuration(parent).get("show", True))
+                    if (parent and dpg.does_item_exist(parent))
+                    else True
+                )
+                self._safe_configure(tag, show=(self.is_beginner_mode and p_show))
                 valid_tags.append(tag)
         self.beginner_tags = valid_tags
 
@@ -1460,7 +1476,14 @@ class MainGUI:
         for tag in getattr(self, "icon_tooltip_tags", []):
             if dpg.does_item_exist(tag):
                 try:
-                    dpg.configure_item(tag, delay=delay)
+                    parent = getattr(self, "tooltip_parent_map", {}).get(tag)
+                    if parent and dpg.does_item_exist(parent):
+                        p_show = bool(
+                            dpg.get_item_configuration(parent).get("show", True)
+                        )
+                        dpg.configure_item(tag, delay=delay, show=p_show)
+                    else:
+                        dpg.configure_item(tag, delay=delay)
                 except Exception:
                     pass
                 valid_icon_tags.append(tag)

@@ -504,12 +504,18 @@ class RoiPluginController(PluginTagMixin):
 
         # 2. Get FOV and calculate radius (1/10 of FOV)
         ppm = getattr(viewer.view_state.camera, "target_ppm", None) or viewer.get_pixels_per_mm()
-        win_w = dpg.get_item_width(f"win_{viewer.tag}") if dpg.does_item_exist(f"win_{viewer.tag}") else 300
-        win_h = dpg.get_item_height(f"win_{viewer.tag}") if dpg.does_item_exist(f"win_{viewer.tag}") else 300
+        win_w = getattr(viewer, "quad_w", 0) or (dpg.get_item_width(f"win_{viewer.tag}") if dpg.does_item_exist(f"win_{viewer.tag}") else 0)
+        win_h = getattr(viewer, "quad_h", 0) or (dpg.get_item_height(f"win_{viewer.tag}") if dpg.does_item_exist(f"win_{viewer.tag}") else 0)
+        if not win_w or win_w <= 0:
+            win_w = 300
+        if not win_h or win_h <= 0:
+            win_h = 300
         if not ppm or ppm <= 0:
             ppm = 1.0
         fov = min(win_w / ppm, win_h / ppm)
-        r_mm = 0.1 * fov
+        if fov <= 0:
+            fov = 100.0
+        r_mm = max(1.0, 0.1 * fov)
 
         # 3. Get base image volume
         base_vol = self.api.get_volumes().get(base_id)
@@ -732,14 +738,20 @@ class RoiPluginController(PluginTagMixin):
 
         # 2. Get FOV and calculate size (0.2 * FOV, meaning radius/half-length is 0.1 * FOV)
         ppm = getattr(viewer.view_state.camera, "target_ppm", None) or viewer.get_pixels_per_mm()
-        win_w = dpg.get_item_width(f"win_{viewer.tag}") if dpg.does_item_exist(f"win_{viewer.tag}") else 300
-        win_h = dpg.get_item_height(f"win_{viewer.tag}") if dpg.does_item_exist(f"win_{viewer.tag}") else 300
+        win_w = getattr(viewer, "quad_w", 0) or (dpg.get_item_width(f"win_{viewer.tag}") if dpg.does_item_exist(f"win_{viewer.tag}") else 0)
+        win_h = getattr(viewer, "quad_h", 0) or (dpg.get_item_height(f"win_{viewer.tag}") if dpg.does_item_exist(f"win_{viewer.tag}") else 0)
+        if not win_w or win_w <= 0:
+            win_w = 300
+        if not win_h or win_h <= 0:
+            win_h = 300
         if not ppm or ppm <= 0:
             ppm = 1.0
         fov = min(win_w / ppm, win_h / ppm)
-        half_x = 0.1 * fov
-        half_y = 0.1 * fov
-        half_z = 0.1 * fov
+        if fov <= 0:
+            fov = 100.0
+        half_x = max(0.5, 0.1 * fov)
+        half_y = max(0.5, 0.1 * fov)
+        half_z = max(0.5, 0.1 * fov)
         size_x = 2.0 * half_x
         size_y = 2.0 * half_y
         size_z = 2.0 * half_z

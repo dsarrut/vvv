@@ -140,6 +140,22 @@ def test_tooltip_delays_and_components():
             )
             assert dpg.does_item_exist(btn3)
             assert dpg.get_item_configuration(btn3)["width"] == 20
+
+            # Test hidden button tooltip visibility synchronization
+            from vvv.ui.ui_components import set_item_show
+
+            btn4 = dpg.add_button(label="HiddenBtn", show=False)
+            tt4 = build_tooltip(btn4, "Hidden Action", mock_gui, always_on=True)
+            # Tooltip on hidden button should start hidden
+            assert dpg.get_item_configuration(tt4)["show"] is False
+
+            set_item_show(btn4, True, mock_gui)
+            assert dpg.get_item_configuration(btn4)["show"] is True
+            assert dpg.get_item_configuration(tt4)["show"] is True
+
+            set_item_show(btn4, False, mock_gui)
+            assert dpg.get_item_configuration(btn4)["show"] is False
+            assert dpg.get_item_configuration(tt4)["show"] is False
     finally:
         if created_ctx:
             dpg.destroy_context()

@@ -176,6 +176,16 @@ class RoiPluginUI(PluginTagMixin):
                     callback=self.on_add_spheroid_clicked,
                     tag=self._t("btn_roi_add_spheroid_icon"),
                 )
+                if dpg.does_item_exist("icon_font_tag"):
+                    dpg.bind_item_font(btn_sph_icon, "icon_font_tag")
+                if dpg.does_item_exist("icon_button_theme"):
+                    dpg.bind_item_theme(btn_sph_icon, "icon_button_theme")
+                build_tooltip(
+                    btn_sph_icon,
+                    "Create a new spheroid ROI centered at the crosshair.",
+                    self.api,
+                    always_on=True,
+                )
 
                 dpg.add_spacer(width=5)
 
@@ -185,20 +195,13 @@ class RoiPluginUI(PluginTagMixin):
                     callback=self.on_add_rect_clicked,
                     tag=self._t("btn_roi_add_rect_icon"),
                 )
-
                 if dpg.does_item_exist("icon_font_tag"):
-                    dpg.bind_item_font(btn_sph_icon, "icon_font_tag")
                     dpg.bind_item_font(btn_rec_icon, "icon_font_tag")
-
-                build_tooltip(
-                    btn_sph_icon,
-                    "Create a new spheroid ROI centered at the crosshair.",
-                    self.api,
-                    always_on=True,
-                )
+                if dpg.does_item_exist("icon_button_theme"):
+                    dpg.bind_item_theme(btn_rec_icon, "icon_button_theme")
                 build_tooltip(
                     btn_rec_icon,
-                    "Create a new rectangular ROI centered at the crosshair (not implemented yet).",
+                    "Create a new rectangular box ROI centered at the crosshair.",
                     self.api,
                     always_on=True,
                 )
@@ -2181,8 +2184,11 @@ class RoiPluginUI(PluginTagMixin):
         if roi_id in self.stats_win_positions:
             win_pos = self.stats_win_positions[roi_id]
         else:
-            vp_w = dpg.get_viewport_client_width()
-            vp_h = dpg.get_viewport_client_height()
+            try:
+                vp_w = dpg.get_viewport_client_width()
+                vp_h = dpg.get_viewport_client_height()
+            except Exception:
+                vp_w, vp_h = 1000, 800
             win_w, win_h = 320, win_h
 
             base_x = max(10, vp_w - win_w - 50)

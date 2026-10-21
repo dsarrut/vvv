@@ -392,7 +392,21 @@ def get_tooltip_delay(gui, always_on=True):
     return float(cfg.get("tooltip_delay", 0.6)) if always_on else float(cfg.get("tooltip_delay_beginner", 0.1))
 
 
-def build_tooltip(parent, text, gui, text_tag=None, always_on=True):
+def set_item_show(item, show, gui=None):
+    """Sets item visibility and synchronizes any attached tooltip visibility."""
+    if dpg.does_item_exist(item):
+        dpg.configure_item(item, show=show)
+    target_gui = getattr(gui, "_gui", gui) if hasattr(gui, "_gui") else gui
+    if target_gui and hasattr(target_gui, "tooltip_parent_map"):
+        for tt_tag, p in getattr(target_gui, "tooltip_parent_map", {}).items():
+            if p == item and dpg.does_item_exist(tt_tag):
+                is_beg = getattr(target_gui, "is_beginner_mode", False)
+                is_icon = tt_tag in getattr(target_gui, "icon_tooltip_tags", [])
+                tt_show = show if is_icon else (is_beg and show)
+                dpg.configure_item(tt_tag, show=tt_show)
+
+
+def build_tooltip(parent, text, gui, tag=None, text_tag=None, always_on=True):
     """A reusable tooltip attached to an existing widget.
 
     If always_on=True (icon buttons, toolbars):
@@ -407,12 +421,24 @@ def build_tooltip(parent, text, gui, text_tag=None, always_on=True):
     target_gui = getattr(gui, "_gui", gui) if hasattr(gui, "_gui") else gui
     is_beg = getattr(target_gui, "is_beginner_mode", False)
     delay = get_tooltip_delay(target_gui, always_on=always_on)
-    show_initial = True if always_on else is_beg
+    parent_shown = True
+    if dpg.does_item_exist(parent):
+        parent_shown = bool(dpg.get_item_configuration(parent).get("show", True))
+    show_initial = parent_shown if always_on else (is_beg and parent_shown)
 
+    tt_kwargs = {"parent": parent, "show": show_initial, "delay": delay}
+    if tag:
+        tt_kwargs["tag"] = tag
     try:
-        tag = dpg.add_tooltip(parent=parent, show=show_initial, delay=delay)
+        tt_tag = dpg.add_tooltip(**tt_kwargs)
     except (Exception, SystemError):
         return None
+
+    if not hasattr(target_gui, "tooltip_parent_map") or not isinstance(
+        target_gui.tooltip_parent_map, dict
+    ):
+        target_gui.tooltip_parent_map = {}
+    target_gui.tooltip_parent_map[tt_tag] = parent
 
     colors = (
         getattr(target_gui, "ui_cfg", {}).get("colors", {})
@@ -426,9 +452,9 @@ def build_tooltip(parent, text, gui, text_tag=None, always_on=True):
     )
     try:
         if text_tag:
-            dpg.add_text(text, parent=tag, color=dim_col, tag=text_tag)
+            dpg.add_text(text, parent=tt_tag, color=dim_col, tag=text_tag)
         else:
-            dpg.add_text(text, parent=tag, color=dim_col)
+            dpg.add_text(text, parent=tt_tag, color=dim_col)
     except (Exception, SystemError):
         pass
 
@@ -437,13 +463,13 @@ def build_tooltip(parent, text, gui, text_tag=None, always_on=True):
             target_gui.icon_tooltip_tags, list
         ):
             target_gui.icon_tooltip_tags = []
-        target_gui.icon_tooltip_tags.append(tag)
+        target_gui.icon_tooltip_tags.append(tt_tag)
     else:
         if hasattr(target_gui, "beginner_tags") and isinstance(
             target_gui.beginner_tags, list
         ):
-            target_gui.beginner_tags.append(tag)
-    return tag
+            target_gui.beginner_tags.append(tt_tag)
+    return tt_tag
 
 
 def build_beginner_tooltip(parent, text, gui, text_tag=None, always_on=False):

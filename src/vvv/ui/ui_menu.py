@@ -180,43 +180,55 @@ def build_menu_bar(gui):
                 callback=gui.on_copy_window_screenshot_clicked,
                 tag="btn_screenshot",
             )
+            if dpg.does_item_exist("icon_font_tag"):
+                dpg.bind_item_font(btn_screenshot, "icon_font_tag")
+            if dpg.does_item_exist("icon_button_theme"):
+                dpg.bind_item_theme(btn_screenshot, "icon_button_theme")
+            build_tooltip(
+                btn_screenshot,
+                "Copy Window Screenshot to Clipboard",
+                gui,
+                always_on=True,
+            )
+
             btn_layout_4 = dpg.add_button(
                 label="\uf009",
                 callback=lambda: gui.set_viewport_layout("4"),
                 tag="btn_layout_4",
             )
+            if dpg.does_item_exist("icon_font_tag"):
+                dpg.bind_item_font(btn_layout_4, "icon_font_tag")
+            if dpg.does_item_exist("icon_button_theme"):
+                dpg.bind_item_theme(btn_layout_4, "icon_button_theme")
+            build_tooltip(btn_layout_4, "4 Viewers Layout", gui, always_on=True)
+
             btn_layout_2 = dpg.add_button(
                 label="\uf0db",
                 callback=lambda: gui.set_viewport_layout("2"),
                 tag="btn_layout_2",
             )
+            if dpg.does_item_exist("icon_font_tag"):
+                dpg.bind_item_font(btn_layout_2, "icon_font_tag")
+            if dpg.does_item_exist("icon_button_theme"):
+                dpg.bind_item_theme(btn_layout_2, "icon_button_theme")
+            build_tooltip(
+                btn_layout_2,
+                "2 Viewers (Left/Right) Layout",
+                gui,
+                always_on=True,
+            )
+
             btn_layout_1 = dpg.add_button(
                 label="\uf0c8",
                 callback=lambda: gui.set_viewport_layout("1"),
                 tag="btn_layout_1",
             )
-
-            for btn in [btn_screenshot, btn_layout_4, btn_layout_2, btn_layout_1]:
-                if dpg.does_item_exist("icon_font_tag"):
-                    dpg.bind_item_font(btn, "icon_font_tag")
-                if dpg.does_item_exist("icon_button_theme"):
-                    dpg.bind_item_theme(btn, "icon_button_theme")
-
+            if dpg.does_item_exist("icon_font_tag"):
+                dpg.bind_item_font(btn_layout_1, "icon_font_tag")
+            if dpg.does_item_exist("icon_button_theme"):
+                dpg.bind_item_theme(btn_layout_1, "icon_button_theme")
             build_tooltip(
-                "btn_screenshot",
-                "Copy Window Screenshot to Clipboard",
-                gui,
-                always_on=True,
-            )
-            build_tooltip("btn_layout_4", "4 Viewers Layout", gui, always_on=True)
-            build_tooltip(
-                "btn_layout_2",
-                "2 Viewers (Left/Right) Layout",
-                gui,
-                always_on=True,
-            )
-            build_tooltip(
-                "btn_layout_1", "1 Viewer (Full) Layout", gui, always_on=True
+                btn_layout_1, "1 Viewer (Full) Layout", gui, always_on=True
             )
 
     dpg.bind_item_theme("menu_container", "floating_menu_theme")

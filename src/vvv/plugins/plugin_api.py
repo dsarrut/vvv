@@ -115,7 +115,18 @@ class PluginAPI:
         return [0, 0]
 
     def get_active_viewer(self):
-        return self._gui.context_viewer
+        viewer = self._gui.context_viewer
+        if (not viewer or not viewer.image_id) and hasattr(self._controller, "viewers"):
+            active_tag = getattr(self._controller, "active_viewer_tag", "V1")
+            cand = self._controller.viewers.get(active_tag)
+            if cand and cand.image_id:
+                viewer = cand
+            elif self._controller.viewers:
+                for v in self._controller.viewers.values():
+                    if v.image_id:
+                        viewer = v
+                        break
+        return viewer
 
     def get_active_image_id(self) -> str | None:
         """Returns the image ID currently being displayed in the active viewer, or None."""
