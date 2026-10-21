@@ -38,3 +38,32 @@ def test_icon_font_has_custom_save_as_glyph():
     save_as_cp = ord(ICON_SAVE_AS)
     assert save_as_cp in cmap
     assert cmap[save_as_cp] == "floppy-disk-arrow-down"
+
+
+def test_ui_config_panel_heights_per_platform(monkeypatch):
+    from unittest.mock import MagicMock
+
+    controller = MagicMock()
+    controller.settings.data = {
+        "layout": {
+            "side_panel_width": 380,
+            "nav_panel_width": 80,
+            "sidebar_gap": 5,
+        }
+    }
+
+    # Darwin / macOS
+    monkeypatch.setattr(ui_theme.sys, "platform", "darwin")
+    cfg_mac = ui_theme.build_ui_config(controller)
+    assert cfg_mac["layout"]["panel_av_h"] == 345
+    assert cfg_mac["layout"]["panel_ch_h"] == 160
+    assert cfg_mac["layout"]["nav_panel_w"] == 80
+
+    # Linux / Windows
+    for plat in ("linux", "win32"):
+        monkeypatch.setattr(ui_theme.sys, "platform", plat)
+        cfg_linux = ui_theme.build_ui_config(controller)
+        assert cfg_linux["layout"]["panel_av_h"] == 395
+        assert cfg_linux["layout"]["panel_ch_h"] == 185
+        assert cfg_linux["layout"]["nav_panel_w"] >= 90
+

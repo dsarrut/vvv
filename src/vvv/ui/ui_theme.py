@@ -13,9 +13,13 @@ def build_ui_config(controller):
     shared_margin = 7
     is_mac = sys.platform == "darwin"
 
-    # Mac Retina scaling makes text blocks taller and gaps slightly tighter
-    av_h = 345 if is_mac else 345  # Active Viewer Height
-    ch_h = 145 if is_mac else 145  # Crosshair Height
+    # macOS uses Helvetica (14/11 px), Linux/Windows uses Liberation Sans (16.24/13 px)
+    # With larger fonts and wider line height on Linux/Windows, panels need more vertical room
+    av_h = 345 if is_mac else 395  # Active Viewer Height
+    ch_h = 160 if is_mac else 185  # Crosshair Height
+    nav_w = controller.settings.data["layout"]["nav_panel_width"]
+    if not is_mac:
+        nav_w = max(nav_w, 90)
     item_gap = 6 if is_mac else 8
 
     return {
@@ -34,7 +38,7 @@ def build_ui_config(controller):
             "menu_m_left": 0,
             "menu_m_right": 0,
             "side_panel_w": controller.settings.data["layout"]["side_panel_width"],
-            "nav_panel_w": controller.settings.data["layout"]["nav_panel_width"],
+            "nav_panel_w": nav_w,
             "nav_btn_h": 35,
             "gap_center": shared_margin,
             "left_m_left": shared_margin,

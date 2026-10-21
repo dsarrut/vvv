@@ -1660,7 +1660,7 @@ class MainGUI:
 
                 # --- THE COMPUTED LAYOUT ENGINE ---
                 hide_av = getattr(self, "_hide_av_panel", False)
-                ch_h = cfg["panel_ch_h"] + 15
+                ch_h = cfg["panel_ch_h"]
                 av_h = cfg["panel_av_h"]
                 gap = cfg.get("sidebar_gap", 5)
 
