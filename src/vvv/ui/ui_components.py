@@ -81,6 +81,39 @@ def build_delete_button(label="\uf00d", width=20, user_data=None, callback=None,
 
 REGISTERED_INPUT_FILTER_TAGS = set()
 
+# Room kept right of the filter input (it fills the rest of the row): the two
+# 24 px buttons, the "M / N" count and the item spacing (6-8 px).
+_FILTER_BTN_W = 24
+_FILTER_COUNT_W = 56
+_FILTER_RESERVE_W = 2 * (_FILTER_BTN_W + 8) + _FILTER_COUNT_W + 8
+_FILTER_COUNT_DY = 2  # (frame height - small text height) / 2 - frame padding
+
+
+def name_matches(name, filter_text, invert=False):
+    """Name filter rule shared by all lists: case-insensitive substring of the
+    stripped filter text; invert keeps the non-matching names. An empty filter
+    keeps everything, inverted or not."""
+    text = (filter_text or "").strip().lower()
+    if not text:
+        return True
+    return (text in (name or "").lower()) != bool(invert)
+
+
+def set_filter_invert_state(btn_invert_tag, invert):
+    """Highlight the invert button while the inverted filter is on."""
+    if not dpg.does_item_exist(btn_invert_tag):
+        return
+    if invert and dpg.does_item_exist("active_nav_button_theme"):
+        dpg.bind_item_theme(btn_invert_tag, "active_nav_button_theme")
+    else:
+        dpg.bind_item_theme(btn_invert_tag, 0)
+
+
+def set_filter_count(count_tag, shown, total):
+    """'M / N': items listed by the filter / all items."""
+    if dpg.does_item_exist(count_tag):
+        dpg.set_value(count_tag, f"{shown} / {total}")
+
 
 def build_name_filter_bar(
     group_tag,
@@ -88,20 +121,22 @@ def build_name_filter_bar(
     btn_clear_tag,
     on_filter_changed,
     on_clear_clicked,
-    hint="Filter by name...",
-    width=180,
     api=None,
     btn_invert_tag=None,
     on_invert_clicked=None,
+    count_tag=None,
+    hint="Filter ...",
 ):
-    """Creates a standardized search/filter input field with a clear button (X) and optional invert button."""
+    """Name filter row shared by the ROI, landmark, profile and DVH lists: input
+    (fills the row), invert (!), clear (X) and an item count (see
+    set_filter_count). Match names with name_matches."""
     if input_tag:
         REGISTERED_INPUT_FILTER_TAGS.add(input_tag)
     with dpg.group(horizontal=True, tag=group_tag):
         dpg.add_input_text(
             hint=hint,
             tag=input_tag,
-            width=width,
+            width=-_FILTER_RESERVE_W,
             callback=lambda s, a: on_filter_changed(a),
         )
         if api:
@@ -115,7 +150,7 @@ def build_name_filter_bar(
             btn_invert = dpg.add_button(
                 label="!",
                 tag=btn_invert_tag,
-                width=24,
+                width=_FILTER_BTN_W,
                 callback=lambda: on_invert_clicked(),
             )
             if dpg.does_item_exist("icon_font_tag"):
@@ -130,15 +165,33 @@ def build_name_filter_bar(
         btn_clear = dpg.add_button(
             label="X",
             tag=btn_clear_tag,
-            width=24,
+            width=_FILTER_BTN_W,
             callback=lambda: on_clear_clicked(),
         )
         if api:
             build_beginner_tooltip(
                 btn_clear,
-                "Clears the name filter.",
+                "Clears the name filter (and the invert).",
                 api,
             )
+        if count_tag:
+            ui_cfg = getattr(api, "ui_cfg", None)
+            color = (
+                ui_cfg["colors"]["text_dim"]
+                if isinstance(ui_cfg, dict)
+                else (150, 150, 150)
+            )
+            # Small font: a spacer (no item spacing) centers it on the input row
+            with dpg.group() as count_group:
+                dpg.add_spacer(height=_FILTER_COUNT_DY)
+                count = dpg.add_text("", tag=count_tag, color=color)
+            if dpg.does_item_exist("small_font_tag"):
+                dpg.bind_item_font(count, "small_font_tag")
+            if not dpg.does_item_exist("filter_count_theme"):
+                with dpg.theme(tag="filter_count_theme"):
+                    with dpg.theme_component(dpg.mvAll):
+                        dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0, 0)
+            dpg.bind_item_theme(count_group, "filter_count_theme")
     return group_tag
 
 

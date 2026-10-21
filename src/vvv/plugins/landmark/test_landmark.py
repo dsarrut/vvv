@@ -144,6 +144,37 @@ class TestLandmarkPlugin(unittest.TestCase):
         ctrl.on_clear_filter_clicked()
         self.assertEqual(ctrl.landmark_filters["img1"], "")
 
+    def test_all_batch_actions_follow_filter_and_invert(self):
+        ctrl = LandmarkPluginController("landmark_plugin")
+        mock_api = unittest.mock.MagicMock()
+        mock_api.get_active_viewer.return_value = unittest.mock.MagicMock(image_id="img1", view_state=self.vs)
+        mock_api.get_active_image_id.return_value = "img1"
+        mock_api.get_view_states.return_value = {"img1": self.vs}
+        ctrl.bind(mock_api)
+        lm1 = Landmark(id="lm_1", name="Tumor_1", pt_phys=[1.0, 1.0, 1.0], color=[1, 2, 3, 255])
+        lm2 = Landmark(id="lm_2", name="Vessel_1", pt_phys=[2.0, 2.0, 2.0], color=[1, 2, 3, 255])
+        self.vs.landmarks = {"lm_1": lm1, "lm_2": lm2}
+        lm1.show_name = lm2.show_name = True
+
+        ctrl.on_filter_changed("tumor")
+        ctrl.on_toggle_filter_invert()  # -> Vessel_1 only
+        self.assertEqual(list(ctrl.listed_landmarks("img1")), ["lm_2"])
+
+        ctrl.toggle_all_show_names()
+        self.assertTrue(lm1.show_name)
+        self.assertFalse(lm2.show_name)
+
+        ctrl.on_batch_reset_colors()
+        self.assertEqual(lm1.color, [1, 2, 3, 255])
+        self.assertNotEqual(lm2.color, [1, 2, 3, 255])
+
+        ctrl.on_clear_filter_clicked()
+        self.assertFalse(ctrl.landmark_filter_inverts["img1"])
+        self.assertEqual(list(ctrl.listed_landmarks("img1")), ["lm_1", "lm_2"])
+
+        ctrl.on_image_removed("img1")
+        self.assertNotIn("img1", ctrl.landmark_filter_inverts)
+
     def test_grid_snapping(self):
         ctrl = LandmarkPluginController("landmark_plugin")
         mock_api = unittest.mock.MagicMock()

@@ -54,3 +54,16 @@ def test_build_horizontal_separator_and_section_title():
         if created_ctx:
             dpg.destroy_context()
 
+
+
+def test_name_matches_rule():
+    from vvv.ui.ui_components import name_matches
+
+    assert name_matches("Lung_L", "lung")
+    assert name_matches("Lung_L", "  LUNG ")  # stripped, case-insensitive
+    assert not name_matches("Liver", "lung")
+    assert name_matches("Liver", "lung", invert=True)
+    assert not name_matches("Lung_L", "lung", invert=True)
+    # an empty filter keeps everything, inverted or not
+    assert name_matches("Liver", "") and name_matches("Liver", "  ", invert=True)
+    assert name_matches(None, "") and not name_matches(None, "x")

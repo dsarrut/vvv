@@ -11,6 +11,8 @@ from vvv.ui.ui_components import (
     build_name_filter_bar,
     build_batch_action_toolbar,
     build_renamable_input,
+    set_filter_count,
+    set_filter_invert_state,
 )
 from vvv.plugins.plugin_api import PluginTagMixin
 from .control_landmark import LandmarkPluginController
@@ -106,6 +108,10 @@ class LandmarkPluginUI(PluginTagMixin):
 
     def on_batch_reset_colors(self):
         self._c.on_batch_reset_colors()
+        self._last_state_key = None
+
+    def on_toggle_filter_invert_clicked(self):
+        self._c.on_toggle_filter_invert()
         self._last_state_key = None
 
     def create_ui(self, parent, api) -> None:
@@ -251,9 +257,10 @@ class LandmarkPluginUI(PluginTagMixin):
                 btn_clear_tag=self._t("btn_clear_filter"),
                 on_filter_changed=self._c.on_filter_changed,
                 on_clear_clicked=self.on_clear_filter_clicked,
-                hint="Filter landmarks by name...",
-                width=180,
                 api=api,
+                btn_invert_tag=self._t("btn_filter_invert"),
+                on_invert_clicked=self.on_toggle_filter_invert_clicked,
+                count_tag=self._t("filter_count"),
             )
 
             build_batch_action_toolbar(
@@ -265,13 +272,6 @@ class LandmarkPluginUI(PluginTagMixin):
                 on_snap_clicked=self._c.on_btn_snap_all_clicked,
                 on_delete_clicked=self._c.on_batch_delete_clicked,
                 api=api,
-            )
-
-            # --- Footer Landmark Counter ---
-            dpg.add_text(
-                "Landmarks: 0",
-                tag=self._t("footer_counter"),
-                color=cfg_c["text_dim"],
             )
 
             dpg.add_spacer(height=5)
@@ -313,21 +313,23 @@ class LandmarkPluginUI(PluginTagMixin):
                 dpg.set_value(active_title, "No Image Selected")
 
         table_id = self._t("list_table")
-        footer_id = self._t("footer_counter")
+        count_id = self._t("filter_count")
         if not dpg.does_item_exist(table_id):
             return
 
         if not has_image:
             dpg.delete_item(table_id, children_only=True, slot=1)
-            if dpg.does_item_exist(footer_id):
-                dpg.set_value(footer_id, "Landmarks: 0")
+            set_filter_count(count_id, 0, 0)
             self._last_state_key = None
             return
 
         vs_id = viewer.image_id
         landmarks = self._c.get_landmarks(vs_id)
-        filter_text = self._c.landmark_filters.get(vs_id, "").lower()
+        filter_text = self._c.landmark_filters.get(vs_id, "")
+        invert = self._c.landmark_filter_inverts.get(vs_id, False)
+        listed = self._c.listed_landmarks(vs_id)
         file_path = self._c.landmarks_file_path.get(vs_id)
+        set_filter_invert_state(self._t("btn_filter_invert"), invert)
 
         # Resync the visible filter box to this image's own remembered filter —
         # otherwise switching images leaves stale text in the box while the
@@ -391,8 +393,7 @@ class LandmarkPluginUI(PluginTagMixin):
             )
             for lm_id, lm in landmarks.items()
         )
-        state_key = (vs_id, filter_text, file_path, lm_tuples)
-        state_key = (vs_id, filter_text, file_path, is_outdated, lm_tuples)
+        state_key = (vs_id, filter_text, invert, file_path, is_outdated, lm_tuples)
 
         if state_key == self._last_state_key:
             return
@@ -401,26 +402,20 @@ class LandmarkPluginUI(PluginTagMixin):
         # Re-render table rows
         dpg.delete_item(table_id, children_only=True, slot=1)
 
-        total_count = len(landmarks)
-        filtered_count = 0
+        set_filter_count(count_id, len(listed), len(landmarks))
 
         # Update batch toolbar icon labels based on current states
         btn_vis_tag = self._t("lm_batch_toggle_visible")
         if dpg.does_item_exist(btn_vis_tag):
-            any_visible = any(lm.visible for lm in landmarks.values())
+            any_visible = any(lm.visible for lm in listed.values())
             dpg.set_item_label(btn_vis_tag, "\uf06e" if any_visible else "\uf070")
 
         btn_names_tag = self._t("lm_batch_toggle_names")
         if dpg.does_item_exist(btn_names_tag):
-            any_names = any(lm.show_name for lm in landmarks.values())
+            any_names = any(lm.show_name for lm in listed.values())
             dpg.set_item_label(btn_names_tag, "\uf02b" if any_names else "\uf02c")
 
-        for lm_id, lm in landmarks.items():
-            if filter_text and filter_text not in lm.name.lower():
-                continue
-
-            filtered_count += 1
-
+        for lm_id, lm in listed.items():
             with dpg.table_row(parent=table_id):
                 # 1. Color Picker
                 dpg.add_color_edit(
@@ -512,11 +507,3 @@ class LandmarkPluginUI(PluginTagMixin):
                 )
                 build_beginner_tooltip(btn_del, "Delete landmark", api)
 
-        # Update counter footer text
-        if dpg.does_item_exist(footer_id):
-            if filter_text:
-                dpg.set_value(
-                    footer_id, f"Landmarks: {total_count} (Filtered: {filtered_count})"
-                )
-            else:
-                dpg.set_value(footer_id, f"Landmarks: {total_count}")

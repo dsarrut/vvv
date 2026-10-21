@@ -1,6 +1,7 @@
 import threading
 from typing import Optional
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
+from vvv.ui.ui_components import name_matches
 
 
 class RoiPluginController(PluginTagMixin):
@@ -127,6 +128,7 @@ class RoiPluginController(PluginTagMixin):
         viewer = self.api.get_active_viewer()
         if viewer and viewer.image_id:
             self.roi_filters[viewer.image_id] = ""
+            self.roi_filter_inverts[viewer.image_id] = False
             if self.ui:
                 self.ui.refresh_rois_ui()
 
@@ -214,8 +216,7 @@ class RoiPluginController(PluginTagMixin):
         # Filter the items
         filtered_roi_ids = []
         for roi_id, roi in roi_items:
-            match = (filter_text in roi.name.lower()) if filter_text else True
-            if filter_text and ((not match) if not invert else match):
+            if not name_matches(roi.name, filter_text, invert):
                 continue
             filtered_roi_ids.append(roi_id)
 
@@ -960,14 +961,12 @@ class RoiPluginController(PluginTagMixin):
         if not base_vol or not base_vs:
             return None
 
-        filter_text = self.roi_filters.get(base_id, "").strip().lower()
+        filter_text = self.roi_filters.get(base_id, "")
         invert = self.roi_filter_inverts.get(base_id, False)
         rois = []
         for roi_id, roi_state in base_vs.rois.items():
-            if filter_text:
-                match = filter_text in roi_state.name.lower()
-                if (not match) if not invert else match:
-                    continue
+            if not name_matches(roi_state.name, filter_text, invert):
+                continue
             r_vol = volumes.get(roi_id)
             if not r_vol or r_vol.data is None:
                 continue

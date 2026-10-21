@@ -1269,8 +1269,9 @@ class TestDosePlugin(unittest.TestCase):
         self.assertEqual(len(ui.dvh_win._get_filtered_curves()), 1)
         self.assertEqual(ui.dvh_win._get_filtered_curves()[0].roi_name, "Bladder")
 
-        # Clear filter
+        # Clear filter (also turns the invert off)
         ui.dvh_win._on_clear_filter()
+        self.assertFalse(ui.dvh_win.filter_invert)
         self.assertEqual(len(ui.dvh_win._get_filtered_curves()), 1)
 
         # Test Fit View

@@ -138,8 +138,8 @@ Clicking **DVH Window...** in the Dose sidebar opens the dedicated analysis wind
 ### Structure List & Interactive Controls
 
 * **Visibility**: Toggle individual organ curves on and off via checkboxes. Use **All** and **None** for batch selection.
-* **Filter Bar**: Fast real-time substring search to find structures in complex RTSTRUCT sets (e.g. typing `ptv` or `cord`).
-* **Invert Filter (`!`)**: Inverts the match condition to inspect all non-matching structures.
+* **Filter Bar**: Fast real-time substring search to find structures in complex RTSTRUCT sets (e.g. typing `ptv` or `cord`); the count next to it shows listed / total. **All**, **None**, the metrics table and the CSV export follow the filter.
+* **Invert Filter (`!`)**: Inverts the match condition to inspect all non-matching structures. **X** clears the text and the invert.
 * **Two-Way Color Synchronization**:
   * Curves, legend markers, list color swatches, and metrics table labels automatically reflect the structure colors configured in the ROI plugin.
   * Clicking any color swatch inside the DVH checklist opens an interactive color picker: updating the color synchronizes the DVH curve, viewports, and ROI plugin in real time.

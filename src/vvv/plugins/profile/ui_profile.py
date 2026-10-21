@@ -6,6 +6,9 @@ from vvv.ui.ui_components import (
     build_renamable_input,
     build_delete_button,
     build_name_filter_bar,
+    name_matches,
+    set_filter_count,
+    set_filter_invert_state,
 )
 from vvv.utils import ViewMode, fmt
 from .control_profile import ProfilePluginController
@@ -129,9 +132,10 @@ class ProfilePluginUI(PluginTagMixin):
                 btn_clear_tag=self._t("btn_clear_filter"),
                 on_filter_changed=self._on_filter_changed,
                 on_clear_clicked=self._on_clear_filter,
-                hint="Filter profiles by name...",
-                width=180,
                 api=api,
+                btn_invert_tag=self._t("btn_filter_invert"),
+                on_invert_clicked=self._c.on_toggle_filter_invert,
+                count_tag=self._t("filter_count"),
             )
 
             dpg.add_spacer(height=5)
@@ -208,6 +212,12 @@ class ProfilePluginUI(PluginTagMixin):
             return
 
         filter_text = self._c.profile_filters.get(viewer.image_id, "") if has_image else ""
+        invert = (
+            self._c.profile_filter_inverts.get(viewer.image_id, False)
+            if has_image
+            else False
+        )
+        set_filter_invert_state(self._t("btn_filter_invert"), invert)
 
         # Resync the visible filter box to this image's own remembered filter —
         # otherwise switching images leaves stale text in the box while the
@@ -219,7 +229,7 @@ class ProfilePluginUI(PluginTagMixin):
             dpg.set_value(input_filter_tag, filter_text)
 
         profile_key = (
-            (viewer.image_id, tuple(viewer.view_state.profiles.keys()))
+            (viewer.image_id, tuple(viewer.view_state.profiles.keys()), filter_text, invert)
             if active
             else None
         )
@@ -231,12 +241,17 @@ class ProfilePluginUI(PluginTagMixin):
         dpg.delete_item(table_id, children_only=True, slot=1)
 
         if not active:
+            set_filter_count(self._t("filter_count"), 0, 0)
             return
 
-        filter_text = filter_text.lower()
-        for p_id, profile in viewer.view_state.profiles.items():
-            if filter_text and filter_text not in profile.name.lower():
-                continue
+        profiles = viewer.view_state.profiles
+        listed = [
+            (p_id, profile)
+            for p_id, profile in profiles.items()
+            if name_matches(profile.name, filter_text, invert)
+        ]
+        set_filter_count(self._t("filter_count"), len(listed), len(profiles))
+        for p_id, profile in listed:
             with dpg.table_row(parent=table_id):
                 # Color picker
                 dpg.add_color_edit(

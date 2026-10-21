@@ -23,6 +23,7 @@ You can load segmentation volumes and ROIs in several ways:
 Switch to the **ROI** tab on the sidebar to manage loaded structures:
 
 ### 1. Structure List & Controls
+* **Name Filter**: Type part of a name to list only the matching ROIs (case-insensitive); **`!`** inverts the filter (lists the non-matching ones), **X** clears it. The count next to it shows listed / total. The batch buttons act on the listed ROIs (or on the selected ones, if any).
 * **Visibility (Eye Icon)**: Toggle display of individual ROIs on/off.
 * **Color Swatch**: Click to customize the display color for each structure.
 * **Contour Width**: Adjust line thickness for contour outlines.

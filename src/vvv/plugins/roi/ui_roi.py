@@ -11,6 +11,9 @@ from vvv.ui.ui_components import (
     build_renamable_input,
     build_delete_button,
     build_name_filter_bar,
+    name_matches,
+    set_filter_count,
+    set_filter_invert_state,
 )
 
 logger = logging.getLogger(__name__)
@@ -380,7 +383,7 @@ class RoiPluginUI(PluginTagMixin):
 
             # Filter Group
             with dpg.group(
-                tag=self._t("group_roi_filter"), show=False, horizontal=True
+                tag=self._t("group_roi_filter"), horizontal=True
             ):
                 btn_sort = dpg.add_button(
                     label="\uf0dc",
@@ -397,11 +400,10 @@ class RoiPluginUI(PluginTagMixin):
                     btn_clear_tag=self._t("btn_clear_filter"),
                     on_filter_changed=self.on_roi_filter_changed,
                     on_clear_clicked=self.on_clear_roi_filter_clicked,
-                    hint="Filter ROIs by name...",
-                    width=170,
                     api=self.api,
                     btn_invert_tag=self._t("btn_roi_filter_invert"),
                     on_invert_clicked=self.on_toggle_filter_invert_clicked,
+                    count_tag=self._t("text_roi_filter_count"),
                 )
 
             # Table child window
@@ -609,8 +611,7 @@ class RoiPluginUI(PluginTagMixin):
                 )
 
         if not viewer or not viewer.view_state or not viewer.view_state.rois:
-            if dpg.does_item_exist(self._t("group_roi_filter")):
-                dpg.configure_item(self._t("group_roi_filter"), show=False)
+            set_filter_count(self._t("text_roi_filter_count"), 0, 0)
             if dpg.does_item_exist(self._t("btn_roi_reload_all")):
                 dpg.configure_item(self._t("btn_roi_reload_all"), show=False)
             self.refresh_roi_detail_ui()
@@ -621,27 +622,17 @@ class RoiPluginUI(PluginTagMixin):
         invert = self._c.roi_filter_inverts.get(vs_id, False)
         sort_order = self._c.roi_sort_orders.get(vs_id, 0)
 
-        # Update invert button theme to show active state if invert is True
-        btn_invert_tag = self._t("btn_roi_filter_invert")
-        if dpg.does_item_exist(btn_invert_tag):
-            if invert:
-                if dpg.does_item_exist("active_nav_button_theme"):
-                    dpg.bind_item_theme(btn_invert_tag, "active_nav_button_theme")
-            else:
-                dpg.bind_item_theme(btn_invert_tag, 0)
+        set_filter_invert_state(self._t("btn_roi_filter_invert"), invert)
 
         color_picker_tag = self._t("btn_roi_color_picker")
         if dpg.does_item_exist(color_picker_tag):
-            filter_text_lower = filter_text.lower()
             matching_colors = []
             for roi_id, roi in viewer.view_state.rois.items():
                 if self._c.selected_roi_ids:
                     if roi_id not in self._c.selected_roi_ids:
                         continue
-                elif filter_text_lower:
-                    match = filter_text_lower in roi.name.lower()
-                    if (not match) if not invert else match:
-                        continue
+                elif not name_matches(roi.name, filter_text, invert):
+                    continue
                 matching_colors.append(tuple(roi.color[:3]))
 
             unique_colors = set(matching_colors)
@@ -677,10 +668,6 @@ class RoiPluginUI(PluginTagMixin):
             else:
                 dpg.configure_item(self._t("btn_roi_sort"), label="\uf0dc")
 
-        total_rois = len(viewer.view_state.rois)
-        if dpg.does_item_exist(self._t("group_roi_filter")):
-            dpg.configure_item(self._t("group_roi_filter"), show=total_rois > 10)
-
         any_outdated = False
         for roi_id in viewer.view_state.rois:
             rvol = volumes.get(roi_id)
@@ -696,15 +683,14 @@ class RoiPluginUI(PluginTagMixin):
         elif sort_order == -1:
             roi_items.sort(key=lambda x: x[1].name.lower(), reverse=True)
 
-        # Pre-filter items
-        filter_text_lower = filter_text.lower()
-        visible_rois = []
-        for roi_id, roi in roi_items:
-            if filter_text_lower:
-                match = filter_text_lower in roi.name.lower()
-                if (not match) if not invert else match:
-                    continue
-            visible_rois.append((roi_id, roi))
+        visible_rois = [
+            (roi_id, roi)
+            for roi_id, roi in roi_items
+            if name_matches(roi.name, filter_text, invert)
+        ]
+        set_filter_count(
+            self._t("text_roi_filter_count"), len(visible_rois), len(roi_items)
+        )
 
         # Update selection indicator and dynamic tooltips on top buttons
         num_selected = len(self._c.selected_roi_ids)
@@ -1160,7 +1146,7 @@ class RoiPluginUI(PluginTagMixin):
         if not viewer or not viewer.view_state or not viewer.view_state.rois:
             return []
         vs_id = viewer.image_id
-        filter_text = self._c.roi_filters.get(vs_id, "").lower()
+        filter_text = self._c.roi_filters.get(vs_id, "")
         invert = self._c.roi_filter_inverts.get(vs_id, False)
 
         targets = []
@@ -1168,11 +1154,7 @@ class RoiPluginUI(PluginTagMixin):
             if self._c.selected_roi_ids:
                 if roi_id in self._c.selected_roi_ids:
                     targets.append((roi_id, roi))
-            else:
-                if filter_text:
-                    match = filter_text in roi.name.lower()
-                    if (not match) if not invert else match:
-                        continue
+            elif name_matches(roi.name, filter_text, invert):
                 targets.append((roi_id, roi))
         return targets
 

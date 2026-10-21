@@ -2524,6 +2524,34 @@ class TestRoiPlugin(unittest.TestCase):
 
         dpg.delete_item("test_parent")
 
+    def test_filter_clear_resets_invert_and_ignores_spaces(self):
+        """The list, the batch targets and the export use one matching rule:
+        a trailing space no longer empties the list while the export matches;
+        Clear also turns the invert off."""
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+        ui = self.plugin._ui
+        ctrl = self.plugin._controller
+        rois = {
+            "r1": MockROI("r1", "Lung_L", [255, 0, 0]),
+            "r2": MockROI("r2", "Liver", [0, 255, 0]),
+        }
+        mock_viewer = MockViewer("img_1", rois)
+        self.mock_api.get_active_viewer.return_value = mock_viewer
+
+        ctrl.on_roi_filter_changed("lung ")
+        self.assertEqual([i for i, _ in ui._get_target_rois(mock_viewer)], ["r1"])
+
+        ctrl.on_toggle_roi_filter_invert()
+        self.assertEqual([i for i, _ in ui._get_target_rois(mock_viewer)], ["r2"])
+
+        ctrl.on_clear_roi_filter()
+        self.assertFalse(ctrl.roi_filter_inverts["img_1"])
+        self.assertEqual(len(ui._get_target_rois(mock_viewer)), 2)
+        dpg.delete_item("test_parent")
+
     def test_save_filtered_rois_as_labels(self):
         """Test controller combining filtered ROIs into label image and JSON sidecar."""
         import tempfile

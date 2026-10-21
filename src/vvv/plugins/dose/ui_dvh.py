@@ -6,7 +6,13 @@ from typing import TYPE_CHECKING, List, Dict, Optional, Any
 import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginTagMixin, PluginAPI
-from vvv.ui.ui_components import build_beginner_tooltip, build_name_filter_bar
+from vvv.ui.ui_components import (
+    build_beginner_tooltip,
+    build_name_filter_bar,
+    name_matches,
+    set_filter_count,
+    set_filter_invert_state,
+)
 from vvv.plugins.dose.dvh_calc import ROI_DVH_Curve, compute_roi_dvh
 
 logger = logging.getLogger(__name__)
@@ -202,11 +208,10 @@ class DVHWindow(PluginTagMixin):
                             btn_clear_tag=self._t("btn_clear_dvh_filter"),
                             on_filter_changed=self._on_filter_changed,
                             on_clear_clicked=self._on_clear_filter,
-                            hint="Filter...",
-                            width=140,
                             api=self._api,
                             btn_invert_tag=self._t("btn_dvh_filter_invert"),
                             on_invert_clicked=self._on_toggle_filter_invert,
+                            count_tag=self._t("dvh_filter_count"),
                         )
 
                         dpg.add_spacer(height=4)
@@ -331,15 +336,11 @@ class DVHWindow(PluginTagMixin):
         dpg.configure_item(leg_tag, location=loc, outside=outside)
 
     def _get_filtered_curves(self) -> List[ROI_DVH_Curve]:
-        filter_lower = self.filter_text.strip().lower()
-        if not filter_lower:
-            return self.curves
-        res = []
-        for c in self.curves:
-            match = filter_lower in c.roi_name.lower()
-            if match if not self.filter_invert else not match:
-                res.append(c)
-        return res
+        return [
+            c
+            for c in self.curves
+            if name_matches(c.roi_name, self.filter_text, self.filter_invert)
+        ]
 
     def _on_filter_changed(self, text: str):
         self.filter_text = text or ""
@@ -348,6 +349,8 @@ class DVHWindow(PluginTagMixin):
 
     def _on_clear_filter(self):
         self.filter_text = ""
+        self.filter_invert = False
+        set_filter_invert_state(self._t("btn_dvh_filter_invert"), False)
         inp_tag = self._t("input_dvh_filter")
         if dpg.does_item_exist(inp_tag):
             dpg.set_value(inp_tag, "")
@@ -356,13 +359,7 @@ class DVHWindow(PluginTagMixin):
 
     def _on_toggle_filter_invert(self):
         self.filter_invert = not self.filter_invert
-        btn_invert_tag = self._t("btn_dvh_filter_invert")
-        if dpg.does_item_exist(btn_invert_tag):
-            if self.filter_invert:
-                if dpg.does_item_exist("active_nav_button_theme"):
-                    dpg.bind_item_theme(btn_invert_tag, "active_nav_button_theme")
-            else:
-                dpg.bind_item_theme(btn_invert_tag, 0)
+        set_filter_invert_state(self._t("btn_dvh_filter_invert"), self.filter_invert)
         self._rebuild_structure_checklist()
         self._render_metrics_table()
 
@@ -683,6 +680,7 @@ class DVHWindow(PluginTagMixin):
         dpg.delete_item(list_tag, children_only=True)
 
         filtered = self._get_filtered_curves()
+        set_filter_count(self._t("dvh_filter_count"), len(filtered), len(self.curves))
         for c in filtered:
             row_tag = self._t(f"dvh_struct_row_{c.roi_id}")
             with dpg.group(horizontal=True, parent=list_tag, tag=row_tag):
@@ -906,7 +904,7 @@ class DVHWindow(PluginTagMixin):
                 writer = csv.writer(f)
 
                 # Export filtered curves if search filter active, otherwise all
-                export_curves = list(self._get_filtered_curves() if self.filter_text else self.curves)
+                export_curves = self._get_filtered_curves()
                 if self.sort_column:
                     attr = self.sort_column
                     if attr == "roi_name":
