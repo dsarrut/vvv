@@ -315,6 +315,7 @@ def register_dynamic_themes(ui_cfg, controller):
     if not dpg.does_item_exist("orange_button_theme"):
         with dpg.theme(tag="orange_button_theme"):
             with dpg.theme_component(dpg.mvButton):
+                dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 6)
                 dpg.add_theme_color(dpg.mvThemeCol_Button, cfg_c["outdated"])
                 dpg.add_theme_color(
                     dpg.mvThemeCol_ButtonHovered,
