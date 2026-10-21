@@ -543,6 +543,11 @@ def setup_themes():
             dpg.add_theme_color(dpg.mvThemeCol_Button, [0, 0, 0, 0])
             dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, [60, 60, 60])
             dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 3)
+        with dpg.theme_component(dpg.mvButton, enabled_state=False):  # dimmed, no box
+            dpg.add_theme_color(dpg.mvThemeCol_Button, [0, 0, 0, 0])
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, [0, 0, 0, 0])
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, [0, 0, 0, 0])
+            dpg.add_theme_color(dpg.mvThemeCol_Text, [150, 150, 150])  # = text_muted
 
     # Delete Button Theme
     with dpg.theme(tag="delete_button_theme"):
@@ -550,6 +555,11 @@ def setup_themes():
             dpg.add_theme_color(dpg.mvThemeCol_Button, [0, 0, 0, 0])
             dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, [150, 40, 40])
             dpg.add_theme_color(dpg.mvThemeCol_Text, [200, 100, 100])
+        with dpg.theme_component(dpg.mvButton, enabled_state=False):  # dimmed, no box
+            dpg.add_theme_color(dpg.mvThemeCol_Button, [0, 0, 0, 0])
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, [0, 0, 0, 0])
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, [0, 0, 0, 0])
+            dpg.add_theme_color(dpg.mvThemeCol_Text, [150, 150, 150])  # = text_muted
 
     # Read-only Input Theme (for sidebar info)
     with dpg.theme(tag="readonly_theme"):

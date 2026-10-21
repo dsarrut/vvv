@@ -116,6 +116,18 @@ class LandmarkPluginUI(PluginTagMixin):
         self._c.on_batch_reset_colors()
         self._last_state_key = None
 
+    # Filter + batch toolbar: greyed out while there is no landmark to act on
+    _LIST_CONTROLS = (
+        "input_filter", "btn_sort", "btn_filter_invert", "btn_clear_filter",
+        "lm_batch_color", "lm_batch_reset_colors", "lm_batch_toggle_visible",
+        "lm_batch_toggle_names", "lm_batch_snap", "lm_batch_delete",
+    )
+
+    def _set_list_controls_enabled(self, enabled):
+        for name in self._LIST_CONTROLS:
+            if dpg.does_item_exist(self._t(name)):
+                dpg.configure_item(self._t(name), enabled=enabled)
+
     def on_toggle_filter_invert_clicked(self):
         self._c.on_toggle_filter_invert()
         self._last_state_key = None
@@ -334,11 +346,13 @@ class LandmarkPluginUI(PluginTagMixin):
         if not has_image:
             dpg.delete_item(table_id, children_only=True, slot=1)
             set_filter_count(count_id, 0, 0)
+            self._set_list_controls_enabled(False)
             self._last_state_key = None
             return
 
         vs_id = viewer.image_id
         landmarks = self._c.get_landmarks(vs_id)
+        self._set_list_controls_enabled(bool(landmarks))
         filter_text = self._c.landmark_filters.get(vs_id, "")
         invert = self._c.landmark_filter_inverts.get(vs_id, False)
         listed = self._c.listed_landmarks(vs_id)

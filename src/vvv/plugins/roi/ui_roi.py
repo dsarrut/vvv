@@ -233,7 +233,24 @@ class RoiPluginUI(PluginTagMixin):
             build_horizontal_separator()
             dpg.add_spacer(height=10)
 
-            # --- MIDDLE: Master List Controls ---
+            # Filter first: the buttons below act on the listed (filtered) ROIs
+            build_name_filter_bar(
+                group_tag=self._t("group_roi_filter"),
+                input_tag=self._t("input_roi_filter"),
+                btn_clear_tag=self._t("btn_clear_filter"),
+                on_filter_changed=self.on_roi_filter_changed,
+                on_clear_clicked=self.on_clear_roi_filter_clicked,
+                api=self.api,
+                btn_invert_tag=self._t("btn_roi_filter_invert"),
+                on_invert_clicked=self.on_toggle_filter_invert_clicked,
+                btn_sort_tag=self._t("btn_roi_sort"),
+                on_sort_clicked=self.on_sort_rois_clicked,
+                sort_tooltip="Sort ROIs alphabetically",
+                count_tag=self._t("text_roi_filter_count"),
+            )
+            dpg.add_spacer(height=4)
+
+            # --- MIDDLE: Master List Controls (on the listed / selected ROIs) ---
             with dpg.group(horizontal=True):
                 btn_color_picker = dpg.add_color_edit(
                     default_value=[255, 255, 255, 255],
@@ -369,21 +386,6 @@ class RoiPluginUI(PluginTagMixin):
 
             build_horizontal_separator()
 
-            # Filter Group
-            build_name_filter_bar(
-                group_tag=self._t("group_roi_filter"),
-                input_tag=self._t("input_roi_filter"),
-                btn_clear_tag=self._t("btn_clear_filter"),
-                on_filter_changed=self.on_roi_filter_changed,
-                on_clear_clicked=self.on_clear_roi_filter_clicked,
-                api=self.api,
-                btn_invert_tag=self._t("btn_roi_filter_invert"),
-                on_invert_clicked=self.on_toggle_filter_invert_clicked,
-                btn_sort_tag=self._t("btn_roi_sort"),
-                on_sort_clicked=self.on_sort_rois_clicked,
-                sort_tooltip="Sort ROIs alphabetically",
-                count_tag=self._t("text_roi_filter_count"),
-            )
 
             # Table child window
             with dpg.child_window(
@@ -543,6 +545,7 @@ class RoiPluginUI(PluginTagMixin):
             "btn_roi_toggle_all_stats",
             "btn_roi_reload_all",
             "btn_roi_sort",
+            "btn_roi_filter_invert",
             "btn_clear_filter",
             "slider_roi_global_opacity",
             "slider_roi_global_thickness",

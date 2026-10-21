@@ -303,6 +303,34 @@ class TestLandmarkPlugin(unittest.TestCase):
                 mock_dialog.assert_not_called()
 
 
+    def test_list_controls_disabled_without_landmarks(self):
+        ui = LandmarkPluginUI("landmark_plugin", LandmarkPluginController("landmark_plugin"))
+        mock_api = unittest.mock.MagicMock()
+        mock_viewer = unittest.mock.MagicMock(image_id="img1", view_state=self.vs, volume=unittest.mock.MagicMock())
+        mock_api.get_active_viewer.return_value = mock_viewer
+        mock_api.get_view_states.return_value = {"img1": self.vs}
+        ui._c.bind(mock_api)
+        calls = []
+        self.vs.landmarks = {}
+        with unittest.mock.patch.object(ui, "_set_list_controls_enabled", side_effect=calls.append), \
+             unittest.mock.patch("dearpygui.dearpygui.does_item_exist", side_effect=lambda t: t == ui._t("list_table")), \
+             unittest.mock.patch("dearpygui.dearpygui.delete_item"), \
+             unittest.mock.patch("dearpygui.dearpygui.set_value"):
+            try:
+                ui.update_ui(mock_api)
+            except Exception:
+                pass  # rows are not mocked: only the enabled request matters
+        self.assertEqual(calls[:1], [False])
+
+        enabled = {}
+        tags = [ui._t(n) for n in ui._LIST_CONTROLS]
+        with unittest.mock.patch("dearpygui.dearpygui.does_item_exist", return_value=True), \
+             unittest.mock.patch("dearpygui.dearpygui.configure_item", side_effect=lambda t, **kw: enabled.__setitem__(t, kw["enabled"])):
+            ui._set_list_controls_enabled(False)
+        self.assertEqual(set(enabled), set(tags))
+        self.assertIn(ui._t("lm_batch_delete"), enabled)
+        self.assertFalse(any(enabled.values()))
+
     def test_batch_toolbar_dynamic_icons(self):
         ui = LandmarkPluginUI("landmark_plugin", LandmarkPluginController("landmark_plugin"))
         mock_api = unittest.mock.MagicMock()

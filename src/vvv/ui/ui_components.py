@@ -348,6 +348,7 @@ def build_batch_action_toolbar(
             build_delete_button(
                 label="\uf00d",
                 width=20,
+                tag=f"{tag_prefix}_batch_delete",
                 callback=lambda *_: on_delete_clicked(),
                 tooltip="Delete listed/filtered items",
                 gui=g_obj,
