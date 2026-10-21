@@ -1,3 +1,4 @@
+import pytest
 import os
 
 from vvv.ui import ui_theme
@@ -24,7 +25,7 @@ def test_macos_uses_helvetica_when_present(monkeypatch):
 
 
 def test_icon_font_has_custom_save_as_glyph():
-    from fontTools.ttLib import TTFont
+    TTFont = pytest.importorskip("fontTools.ttLib").TTFont
     from vvv.utils import get_resource_path
     from vvv.ui.ui_components import ICON_SAVE_AS
 

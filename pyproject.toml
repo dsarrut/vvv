@@ -24,7 +24,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest"
+    "pytest",
+    "fonttools"
 ]
 memory = [
     "psutil"
