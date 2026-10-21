@@ -149,10 +149,6 @@ def refresh_sync_ui(gui):
                 dpg.set_item_label("sync_toggle_spatial_btn", "Unlink Views")
                 if dpg.does_item_exist("active_nav_button_theme"):
                     dpg.bind_item_theme("sync_toggle_spatial_btn", "active_nav_button_theme")
-            elif partial_spatial:
-                dpg.set_item_label("sync_toggle_spatial_btn", "Link Views")
-                if dpg.does_item_exist("orange_button_theme"):
-                    dpg.bind_item_theme("sync_toggle_spatial_btn", "orange_button_theme")
             else:
                 dpg.set_item_label("sync_toggle_spatial_btn", "Link Views")
                 if dpg.does_item_exist("theme_rounded_nav"):
@@ -190,10 +186,6 @@ def refresh_sync_ui(gui):
                 dpg.set_item_label("sync_toggle_wl_btn", "Unlink W/L")
                 if dpg.does_item_exist("active_nav_button_theme"):
                     dpg.bind_item_theme("sync_toggle_wl_btn", "active_nav_button_theme")
-            elif partial_wl:
-                dpg.set_item_label("sync_toggle_wl_btn", "Link W/L")
-                if dpg.does_item_exist("orange_button_theme"):
-                    dpg.bind_item_theme("sync_toggle_wl_btn", "orange_button_theme")
             else:
                 dpg.set_item_label("sync_toggle_wl_btn", "Link W/L")
                 if dpg.does_item_exist("theme_rounded_nav"):
