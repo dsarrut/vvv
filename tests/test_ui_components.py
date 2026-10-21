@@ -195,3 +195,37 @@ def test_sort_helpers():
     assert [x.name for x in sort_by_name(items, -1)] == ["c", "b", "A"]
     pairs = [("k1", N(name="z")), ("k2", N(name="y"))]
     assert [k for k, _ in sort_by_name(pairs, 1, name=lambda p: p[1].name)] == ["k2", "k1"]
+
+
+def test_batch_action_toolbar_uses_icon_buttons():
+    import dearpygui.dearpygui as dpg
+    from vvv.ui.ui_components import build_batch_action_toolbar
+
+    created_ctx = False
+    try:
+        dpg.get_active_window()
+    except Exception:
+        dpg.create_context()
+        created_ctx = True
+    try:
+        for t in ("icon_button_theme", "delete_button_theme"):
+            if not dpg.does_item_exist(t):
+                with dpg.theme(tag=t):
+                    pass
+        calls = []
+        with dpg.window():
+            build_batch_action_toolbar(
+                "t",
+                on_reset_colors=lambda: calls.append("reset"),
+                on_toggle_visible=lambda: calls.append("vis"),
+                on_delete_clicked=lambda: calls.append("del"),
+            )
+        kids = dpg.get_item_children("t_batch_toolbar", 1)
+        assert [dpg.get_item_alias(k) for k in kids[:2]] == ["t_batch_reset_colors", "t_batch_toggle_visible"]
+        assert dpg.get_item_theme("t_batch_reset_colors") == "icon_button_theme"
+        assert dpg.get_item_theme(kids[-1]) == "delete_button_theme"  # delete last
+        dpg.get_item_callback("t_batch_toggle_visible")("s", None, None)
+        assert calls == ["vis"]
+    finally:
+        if created_ctx:
+            dpg.destroy_context()
