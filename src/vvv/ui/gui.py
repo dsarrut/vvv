@@ -22,6 +22,7 @@ from vvv.ui.ui_components import (
     build_renamable_input,
     build_beginner_tooltip,
     build_tooltip,
+    apply_help_field_widths,
 )
 from vvv.ui.ui_sync import build_tab_sync, refresh_sync_ui
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
@@ -1445,7 +1446,7 @@ class MainGUI:
 
         self.update_tooltip_delays()
 
-        w = -100 if self.is_beginner_mode else -60
+        apply_help_field_widths(self.is_beginner_mode)
 
         if self.is_beginner_mode:
             dpg.bind_item_theme(sender, "theme_beginner_active")

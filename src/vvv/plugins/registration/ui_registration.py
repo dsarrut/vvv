@@ -10,8 +10,14 @@ from vvv.ui.ui_components import (
     build_beginner_tooltip,
     build_tooltip,
     set_item_show,
+    help_aware_width,
+    label_row,
+    FIELD_RIGHT_MARGIN,
+    LABEL_COL_W,
 )
 from vvv.plugins.plugin_api import PluginTagMixin
+
+RIGHT = -FIELD_RIGHT_MARGIN
 from .control_registration import RegistrationPluginController
 
 
@@ -45,8 +51,7 @@ class RegistrationPluginUI(PluginTagMixin):
 
             with dpg.group(tag=self._t("group_reg_target"), show=False):
                 dpg.add_spacer(height=5)
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Target:")
+                with label_row("Target", LABEL_COL_W):
                     dpg.add_radio_button(
                         items=["Base", "Fusion"],
                         default_value="Base",
@@ -165,10 +170,11 @@ class RegistrationPluginUI(PluginTagMixin):
                 # --- CoR Goto and Set ---
                 with dpg.group(tag=self._t("group_reg_cor")):
                     dpg.add_spacer(height=10)
-                    with dpg.group(horizontal=True):
-                        dpg.add_text("CoR:")
+                    with label_row("CoR", LABEL_COL_W):
                         dpg.add_input_text(
-                            tag=self._t("input_reg_cor"), width=-28, readonly=True
+                            tag=self._t("input_reg_cor"),
+                            width=help_aware_width(self._t("input_reg_cor"), RIGHT, api),
+                            readonly=True,
                         )
                         build_help_button(
                             "Center of Rotation (CoR): The 3D pivot point around which rotations are applied. Snapping it to your crosshair makes rotating around anatomical landmarks easy.",
@@ -196,8 +202,7 @@ class RegistrationPluginUI(PluginTagMixin):
                 build_section_title(
                     "Rigid Adjustment (Euler R = Rz Ry Rx)", cfg_c["text_header"]
                 )
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Step:")
+                with label_row("Step", LABEL_COL_W):
                     dpg.add_radio_button(
                         items=["Coarse", "Fine"],
                         default_value="Coarse",
@@ -210,7 +215,7 @@ class RegistrationPluginUI(PluginTagMixin):
 
                 # Translation Drag Floats
                 build_stepped_slider(
-                    "Tx ",
+                    "Tx",
                     self._t("drag_reg_tx"),
                     callback=self._c.on_reg_manual_changed,
                     step_callback=self._c.on_reg_step_button_clicked,
@@ -218,10 +223,11 @@ class RegistrationPluginUI(PluginTagMixin):
                     max_val=5000.0,
                     format="%.2f mm",
                     gui=api,
+                    label_col=LABEL_COL_W,
                     help_text="X Translation (Left/Right shift in mm)",
                 )
                 build_stepped_slider(
-                    "Ty ",
+                    "Ty",
                     self._t("drag_reg_ty"),
                     callback=self._c.on_reg_manual_changed,
                     step_callback=self._c.on_reg_step_button_clicked,
@@ -229,10 +235,11 @@ class RegistrationPluginUI(PluginTagMixin):
                     max_val=5000.0,
                     format="%.2f mm",
                     gui=api,
+                    label_col=LABEL_COL_W,
                     help_text="Y Translation (Anterior/Posterior shift in mm)",
                 )
                 build_stepped_slider(
-                    "Tz ",
+                    "Tz",
                     self._t("drag_reg_tz"),
                     callback=self._c.on_reg_manual_changed,
                     step_callback=self._c.on_reg_step_button_clicked,
@@ -240,6 +247,7 @@ class RegistrationPluginUI(PluginTagMixin):
                     max_val=5000.0,
                     format="%.2f mm",
                     gui=api,
+                    label_col=LABEL_COL_W,
                     help_text="Z Translation (Superior/Inferior shift in mm)",
                 )
 
@@ -247,7 +255,7 @@ class RegistrationPluginUI(PluginTagMixin):
 
                 # Rotation Drag Floats (Euler)
                 build_stepped_slider(
-                    "Rx ",
+                    "Rx",
                     self._t("drag_reg_rx"),
                     callback=self._c.on_reg_manual_changed,
                     step_callback=self._c.on_reg_step_button_clicked,
@@ -255,10 +263,11 @@ class RegistrationPluginUI(PluginTagMixin):
                     max_val=360.0,
                     format="%.2f \u00b0",
                     gui=api,
+                    label_col=LABEL_COL_W,
                     help_text="X Rotation (Pitch rotation around Left/Right axis in degrees)",
                 )
                 build_stepped_slider(
-                    "Ry ",
+                    "Ry",
                     self._t("drag_reg_ry"),
                     callback=self._c.on_reg_manual_changed,
                     step_callback=self._c.on_reg_step_button_clicked,
@@ -266,10 +275,11 @@ class RegistrationPluginUI(PluginTagMixin):
                     max_val=360.0,
                     format="%.2f \u00b0",
                     gui=api,
+                    label_col=LABEL_COL_W,
                     help_text="Y Rotation (Roll rotation around Anterior/Posterior axis in degrees)",
                 )
                 build_stepped_slider(
-                    "Rz ",
+                    "Rz",
                     self._t("drag_reg_rz"),
                     callback=self._c.on_reg_manual_changed,
                     step_callback=self._c.on_reg_step_button_clicked,
@@ -277,18 +287,33 @@ class RegistrationPluginUI(PluginTagMixin):
                     max_val=360.0,
                     format="%.2f \u00b0",
                     gui=api,
+                    label_col=LABEL_COL_W,
                     help_text="Z Rotation (Yaw rotation around Superior/Inferior axis in degrees)",
                 )
 
                 dpg.add_spacer(height=5)
-                with dpg.group(horizontal=True):
+                # Two equal buttons ending on the right margin
+                with dpg.table(
+                    header_row=False,
+                    borders_innerH=False,
+                    borders_innerV=False,
+                    borders_outerH=False,
+                    borders_outerV=False,
+                    width=RIGHT,
+                ):
+                    dpg.add_table_column(width_stretch=True)
+                    dpg.add_table_column(width_stretch=True)
+                    row = dpg.add_table_row()
                     dpg.add_button(
                         label="Reset to Identity",
+                        width=-1,
+                        parent=row,
                         callback=self._c.on_reg_reset_clicked,
                     )
                     btn_inv = dpg.add_button(
                         label="Invert Transform",
                         width=-1,
+                        parent=row,
                         tag=self._t("btn_reg_invert"),
                         callback=self._c.on_reg_invert_clicked,
                     )
@@ -305,7 +330,7 @@ class RegistrationPluginUI(PluginTagMixin):
                 with dpg.group(horizontal=True):
                     dpg.add_button(
                         label="Update Preview",
-                        width=-28,
+                        width=help_aware_width(self._t("btn_reg_resample"), RIGHT, api),
                         tag=self._t("btn_reg_resample"),
                         callback=self._c.on_reg_resample_clicked,
                     )
@@ -318,7 +343,7 @@ class RegistrationPluginUI(PluginTagMixin):
                         label="Resample Image",
                         tag=self._t("btn_reg_bake"),
                         callback=self._c.on_reg_bake_clicked,
-                        width=-28,
+                        width=help_aware_width(self._t("btn_reg_bake"), RIGHT, api),
                     )
                     build_help_button(
                         "Permanently applies the active spatial transform to the\n"
@@ -339,6 +364,7 @@ class RegistrationPluginUI(PluginTagMixin):
                             borders_innerV=True,
                             borders_innerH=True,
                             resizable=False,
+                            width=RIGHT,
                         ):
                             for _ in range(4):
                                 dpg.add_table_column()

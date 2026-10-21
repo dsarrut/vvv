@@ -6,11 +6,11 @@ from vvv.ui.ui_components import (
     build_help_button,
     build_beginner_tooltip,
     label_row,
+    help_aware_width,
     FIELD_RIGHT_MARGIN,
+    LABEL_COL_W as LABEL_W,
 )
 
-# Fusion rows: labels in one column, fields from LABEL_W to the right margin
-LABEL_W = 72
 RIGHT = -FIELD_RIGHT_MARGIN
 from vvv.utils import compute_adaptive_step_and_speed
 from vvv.config import WL_PRESETS, COLORMAPS
@@ -22,12 +22,6 @@ class FusionUI:
     def __init__(self, gui, controller):
         self.gui = gui
         self.controller = controller
-
-    @staticmethod
-    def mode_combo_width(gui):
-        """The Mode combo leaves room for the help button in beginner mode."""
-        gap = gui.ui_cfg["layout"].get("sidebar_item_gap", 8)
-        return RIGHT - (20 + gap) if getattr(gui, "is_beginner_mode", False) else RIGHT
 
     @staticmethod
     def build_tab_fusion(gui):
@@ -64,7 +58,7 @@ class FusionUI:
                     combo = dpg.add_combo(
                         ["Alpha", "Registration", "Checkerboard", "DVF"],
                         tag="combo_fusion_mode",
-                        width=FusionUI.mode_combo_width(gui),
+                        width=help_aware_width("combo_fusion_mode", RIGHT, gui),
                         callback=gui.fusion_ui.on_fusion_mode_changed,
                     )
                     build_help_button(
@@ -160,8 +154,6 @@ class FusionUI:
                 )
 
     def refresh_fusion_ui(self):
-        if dpg.does_item_exist("combo_fusion_mode"):
-            dpg.set_item_width("combo_fusion_mode", self.mode_combo_width(self.gui))
         viewer = self.gui.context_viewer
         has_image = bool(viewer and viewer.view_state and viewer.volume)
 

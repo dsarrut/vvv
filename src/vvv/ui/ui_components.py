@@ -455,6 +455,36 @@ def build_beginner_tooltip(parent, text, gui, text_tag=None, always_on=False):
 
 # Right margin of the fields in a side panel: the same as build_horizontal_separator
 FIELD_RIGHT_MARGIN = 8
+# Label column of the 'label | field' rows (label_row, build_stepped_slider)
+LABEL_COL_W = 72
+
+# Fields followed by a beginner-only help button: tag -> (width, width in beginner mode)
+_HELP_FIELDS = {}
+
+
+def _item_gap(gui):
+    cfg = getattr(gui, "ui_cfg", None)
+    return cfg["layout"].get("sidebar_item_gap", 8) if isinstance(cfg, dict) else 8
+
+
+def help_aware_width(tag, width, gui, extra=None):
+    """Width of a field followed by a help button shown in beginner mode only:
+    `width` normally, minus the button (`extra`, default 20 px + spacing) in
+    beginner mode. Registered so apply_help_field_widths resizes it when the
+    mode is toggled."""
+    if extra is None:
+        extra = 20 + _item_gap(gui)
+    _HELP_FIELDS[tag] = (width, width - extra)
+    return _HELP_FIELDS[tag][1] if getattr(gui, "is_beginner_mode", False) else width
+
+
+def apply_help_field_widths(is_beginner):
+    """Beginner mode toggled: resize the fields registered by help_aware_width."""
+    for tag, (w, w_beg) in list(_HELP_FIELDS.items()):
+        if dpg.does_item_exist(tag):
+            dpg.set_item_width(tag, w_beg if is_beginner else w)
+        else:
+            del _HELP_FIELDS[tag]
 
 
 @contextmanager
@@ -519,7 +549,7 @@ def build_stepped_slider(
 
     # ---------------------------------------
 
-    gap = gui.ui_cfg["layout"].get("sidebar_item_gap", 8) if (gui and hasattr(gui, "ui_cfg")) else 8
+    gap = _item_gap(gui)
     with ExitStack() as row:
         row.enter_context(dpg.group(horizontal=True, xoffset=label_col or 0))
         if label_col:
@@ -556,6 +586,8 @@ def build_stepped_slider(
         is_beg = getattr(gui, "is_beginner_mode", False) if gui else False
         if label_col:  # the 2 step buttons, then the right margin
             field_w = -(2 * (20 + gap) + FIELD_RIGHT_MARGIN)
+            if help_text and gui:  # + spacer (2 px) and help button
+                field_w = help_aware_width(tag, field_w, gui, extra=2 + 20 + 2 * gap)
         else:
             field_w = -100 if (help_text and is_beg) else -60
 

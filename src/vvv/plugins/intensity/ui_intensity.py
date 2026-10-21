@@ -6,6 +6,9 @@ from vvv.ui.ui_components import (
     build_help_button,
     build_beginner_tooltip,
     build_tooltip,
+    label_row,
+    FIELD_RIGHT_MARGIN,
+    LABEL_COL_W,
 )
 from .control_intensity import IntensityController
 from vvv.plugins.plugin_api import PluginTagMixin
@@ -30,44 +33,45 @@ class IntensityUI(PluginTagMixin):
                 color=cfg_c["text_active"],
             )
 
-            with dpg.group(horizontal=True):
-                dpg.add_text("Preset: ")
+            with label_row("Preset", LABEL_COL_W):
                 dpg.add_combo(
                     list(WL_PRESETS.keys()) + ["Custom"],
                     default_value="Custom",
                     tag=self._t("combo_wl_presets"),
-                    width=-1,
+                    width=-FIELD_RIGHT_MARGIN,
                     callback=self._c.on_preset_changed,
                 )
 
             build_stepped_slider(
-                "Window: ",
+                "Window",
                 self._t("drag_ww"),
                 callback=self._c.on_ww_changed,
                 step_callback=self._c.on_step_button_clicked,
                 min_val=1e-5,
                 help_text="Window / Level controls image contrast and brightness.\nWindow: The range of visible values.\nLevel: The center point of the visible range.",
                 gui=api,
+                label_col=LABEL_COL_W,
             )
             build_stepped_slider(
-                "Level:  ",
+                "Level",
                 self._t("drag_wl"),
                 callback=self._c.on_wl_changed,
                 step_callback=self._c.on_step_button_clicked,
+                gui=api,
+                label_col=LABEL_COL_W,
             )
 
-            with dpg.group(horizontal=True):
-                dpg.add_text("Map:    ")
+            with label_row("Map", LABEL_COL_W):
                 dpg.add_combo(
                     list(COLORMAPS.keys()),
                     default_value="Grayscale",
                     tag=self._t("combo_colormap"),
-                    width=-1,
+                    width=-FIELD_RIGHT_MARGIN,
                     callback=self._c.on_colormap_changed,
                 )
 
             build_stepped_slider(
-                "Min Thr:",
+                "Min Thr",
                 self._t("drag_min_threshold"),
                 callback=self._c.on_threshold_changed,
                 step_callback=self._c.on_step_button_clicked,
@@ -76,6 +80,7 @@ class IntensityUI(PluginTagMixin):
                 check_cb=self._c.on_threshold_toggle,
                 help_text="Pixels below this threshold value are rendered completely transparent.",
                 gui=api,
+                label_col=LABEL_COL_W,
             )
 
             dpg.add_spacer(height=5)
@@ -87,7 +92,7 @@ class IntensityUI(PluginTagMixin):
             with dpg.plot(
                 tag=self._t("wl_hist_plot"),
                 height=120,
-                width=-1,
+                width=-FIELD_RIGHT_MARGIN,
                 no_title=True,
                 no_mouse_pos=True,
                 no_box_select=True,

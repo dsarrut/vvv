@@ -1,6 +1,18 @@
 import numpy as np
 import dearpygui.dearpygui as dpg
-from vvv.ui.ui_components import build_section_title, build_stepped_slider, build_help_button, build_beginner_tooltip
+from vvv.ui.ui_components import (
+    build_section_title,
+    build_stepped_slider,
+    build_help_button,
+    build_beginner_tooltip,
+    help_aware_width,
+    label_row,
+    FIELD_RIGHT_MARGIN,
+    LABEL_COL_W,
+)
+
+RIGHT = -FIELD_RIGHT_MARGIN
+GEN_COMBO_W = 95  # BG / FG mode combo
 from vvv.utils import compute_adaptive_step_and_speed
 from .control_threshold import ThresholdController
 from vvv.plugins.plugin_api import PluginTagMixin
@@ -34,7 +46,7 @@ class ThresholdUI(PluginTagMixin):
             dpg.add_spacer(height=5)
 
             build_stepped_slider(
-                "Min:",
+                "Min",
                 self._t("drag_ext_threshold_min"),
                 callback=self._c.on_threshold_drag,
                 step_callback=self._c.on_step_button_clicked,
@@ -44,10 +56,11 @@ class ThresholdUI(PluginTagMixin):
                 color_tag=self._t("color_ext_preview_min"),
                 color_cb=self._c.on_threshold_drag,
                 gui=api,
+                label_col=LABEL_COL_W,
             )
 
             build_stepped_slider(
-                "Max:",
+                "Max",
                 self._t("drag_ext_threshold_max"),
                 callback=self._c.on_threshold_drag,
                 step_callback=self._c.on_step_button_clicked,
@@ -58,6 +71,7 @@ class ThresholdUI(PluginTagMixin):
                 color_cb=self._c.on_threshold_drag,
                 color_default=(0, 0, 255, 255),
                 gui=api,
+                label_col=LABEL_COL_W,
             )
 
             dpg.add_spacer(height=5)
@@ -80,11 +94,10 @@ class ThresholdUI(PluginTagMixin):
 
             # Thickness Slider
             dpg.add_spacer(height=5)
-            with dpg.group(horizontal=True):
-                dpg.add_text("Thickness:")
+            with label_row("Thickness", LABEL_COL_W):
                 dpg.add_slider_float(
                     tag=self._t("drag_ext_thickness"),
-                    width=-1,
+                    width=RIGHT,
                     min_value=0.5,
                     max_value=10.0,
                     default_value=2.0,
@@ -96,45 +109,41 @@ class ThresholdUI(PluginTagMixin):
             dpg.add_spacer(height=10)
             build_section_title("Image Generation", cfg_c["text_header"])
 
-            with dpg.group(horizontal=True):
-                dpg.add_text("BG Range:", color=cfg_c["text_dim"])
+            with label_row("BG range", LABEL_COL_W, color=cfg_c["text_dim"]):
                 dpg.add_text("---", tag=self._t("text_ext_bg_range"))
 
-            with dpg.group(horizontal=True):
-                dpg.add_text("FG Range:", color=cfg_c["text_dim"])
+            with label_row("FG range", LABEL_COL_W, color=cfg_c["text_dim"]):
                 dpg.add_text("---", tag=self._t("text_ext_fg_range"))
 
             dpg.add_spacer(height=5)
-            with dpg.group(horizontal=True):
-                dpg.add_text("BG:")
+            with label_row("BG", LABEL_COL_W):
                 dpg.add_combo(
                     ["Constant", "Image"],
                     default_value="Constant",
-                    width=95,
+                    width=GEN_COMBO_W,
                     tag=self._t("combo_ext_bg_mode"),
                     callback=self._c.on_gen_mode_changed,
                 )
                 dpg.add_input_float(
                     default_value=0.0,
-                    width=95,
+                    width=RIGHT,
                     tag=self._t("input_ext_bg_val"),
                     step=0,
                     callback=self._c.on_gen_mode_changed,
                 )
             build_beginner_tooltip(self._t("combo_ext_bg_mode"), "Background: value assigned to voxels outside the threshold range. 'Constant' uses a fixed value; 'Image' keeps the original.", api)
 
-            with dpg.group(horizontal=True):
-                dpg.add_text("FG:")
+            with label_row("FG", LABEL_COL_W):
                 dpg.add_combo(
                     ["Constant", "Image"],
                     default_value="Constant",
-                    width=85,
+                    width=GEN_COMBO_W,
                     tag=self._t("combo_ext_fg_mode"),
                     callback=self._c.on_gen_mode_changed,
                 )
                 dpg.add_input_float(
                     default_value=1.0,
-                    width=75,
+                    width=help_aware_width(self._t("input_ext_fg_val"), RIGHT, api),
                     tag=self._t("input_ext_fg_val"),
                     step=0,
                     callback=self._c.on_gen_mode_changed,
@@ -146,7 +155,7 @@ class ThresholdUI(PluginTagMixin):
             with dpg.group(horizontal=True):
                 btn_create = dpg.add_button(
                     label="Create Image",
-                    width=-28,
+                    width=help_aware_width(self._t("btn_ext_create"), RIGHT, api),
                     tag=self._t("btn_ext_create"),
                     callback=self._c.on_create_image_clicked,
                 )
