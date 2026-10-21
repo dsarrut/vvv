@@ -250,3 +250,18 @@ class TestIntensityPlugin(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_hist_toggle_labels_show_current_mode():
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from vvv.plugins.intensity import control_intensity as ci
+
+    labels = {}
+    with patch.object(ci.dpg, "does_item_exist", return_value=True), patch.object(
+        ci.dpg, "configure_item", side_effect=lambda t, label: labels.__setitem__(t, label)
+    ):
+        ci.set_hist_toggle_labels("bar", "log", SimpleNamespace(use_bars=True, use_log=True))
+        assert labels == {"bar": "Bar", "log": "Log"}
+        ci.set_hist_toggle_labels("bar", "log", SimpleNamespace(use_bars=False, use_log=False))
+        assert labels == {"bar": "Line", "log": "Lin"}
