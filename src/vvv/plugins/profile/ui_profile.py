@@ -6,6 +6,11 @@ from vvv.ui.ui_components import (
     build_tooltip,
     build_renamable_input,
     build_delete_button,
+    build_icon_button,
+    ICON_ADD,
+    ICON_FIT,
+    ICON_EXPORT,
+    SMALL_BTN_W,
     build_name_filter_bar,
     name_matches,
     set_filter_count,
@@ -65,16 +70,27 @@ class ProfilePluginUI(PluginTagMixin):
             )
 
             with dpg.group(horizontal=True):
-                btn_add = dpg.add_button(
-                    label="Add Profile (P)",
+                build_icon_button(
+                    icon=ICON_ADD,
                     tag=self._t("btn_add"),
                     callback=self._c.on_btn_add_clicked,
+                    tooltip="Add a profile on the active slice (P)",
+                    api=api,
                 )
-                build_beginner_tooltip(
-                    btn_add,
-                    "Adds a new intensity profile line to the active image.\n"
-                    "You can also press P while hovering over a viewer.",
-                    api,
+                # Plot windows of the profiles of the active image
+                build_icon_button(
+                    icon="\uf08e",
+                    tag=self._t("btn_toggle_plots"),
+                    callback=self.on_toggle_all_plots_clicked,
+                    tooltip="Open / close the plot windows of all profiles",
+                    api=api,
+                )
+                build_icon_button(
+                    icon="\uf247",
+                    tag=self._t("btn_gather_plots"),
+                    callback=self.on_gather_plots_clicked,
+                    tooltip="Gather the open plot windows (bottom right of the window)",
+                    api=api,
                 )
                 build_help_button(
                     "Press P (configurable in Settings > Shortcuts) to add a new\n"
@@ -94,38 +110,6 @@ class ProfilePluginUI(PluginTagMixin):
                 build_beginner_tooltip(
                     chk_show,
                     "Toggles drawing the profile lines directly on the image viewer.",
-                    api,
-                )
-
-            with dpg.group(horizontal=True):
-                btn_open_all = dpg.add_button(
-                    label="Open All",
-                    tag=self._t("btn_open_all"),
-                    callback=self.on_open_all_clicked,
-                )
-                build_beginner_tooltip(
-                    btn_open_all,
-                    "Opens intensity plot windows for all profiles of the active image.",
-                    api,
-                )
-                btn_close_all = dpg.add_button(
-                    label="Close All",
-                    tag=self._t("btn_close_all"),
-                    callback=self.on_close_all_clicked,
-                )
-                build_beginner_tooltip(
-                    btn_close_all,
-                    "Closes intensity plot windows for all profiles of the active image.",
-                    api,
-                )
-                btn_gather = dpg.add_button(
-                    label="Gather Plots",
-                    tag=self._t("btn_gather_plots"),
-                    callback=self.on_gather_plots_clicked,
-                )
-                build_beginner_tooltip(
-                    btn_gather,
-                    "Gathers all open profile plot windows around the bottom right quarter of the current window.",
                     api,
                 )
 
@@ -181,7 +165,7 @@ class ProfilePluginUI(PluginTagMixin):
                 dpg.set_value(chk_show, val_bool)
 
         # Update action buttons
-        for btn_name in ["btn_open_all", "btn_close_all", "btn_gather_plots"]:
+        for btn_name in ["btn_toggle_plots", "btn_gather_plots"]:
             btn = self._t(btn_name)
             if dpg.does_item_exist(btn):
                 dpg.configure_item(btn, enabled=active)
@@ -367,6 +351,22 @@ class ProfilePluginUI(PluginTagMixin):
             win_tag = self._t(f"plot_win_{p_id}")
             if not dpg.does_item_exist(win_tag):
                 self.on_plot_clicked(None, None, p_id)
+
+    def on_toggle_all_plots_clicked(self, sender=None, app_data=None, user_data=None):
+        """Closes the plot windows if any is open, else opens them all (like
+        the ROI statistics windows)."""
+        api = self._c._api
+        viewer = api.get_active_viewer() if api else None
+        if not viewer or not viewer.view_state:
+            return
+        any_open = any(
+            dpg.does_item_exist(self._t(f"plot_win_{p_id}"))
+            for p_id in viewer.view_state.profiles
+        )
+        if any_open:
+            self.on_close_all_clicked(sender, app_data, user_data)
+        else:
+            self.on_open_all_clicked(sender, app_data, user_data)
 
     def on_close_all_clicked(self, sender, app_data, user_data):
         api = self._c._api
@@ -624,27 +624,32 @@ class ProfilePluginUI(PluginTagMixin):
 
         dpg.add_spacer(height=5)
         with dpg.group(horizontal=True):
-            dpg.add_button(
-                label="Fit Plot",
+            build_icon_button(
+                icon=ICON_FIT,
                 user_data=profile.id,
                 callback=self.on_fit_plot_clicked,
+                tooltip="Fit the plot to the data",
+                api=self._c._api,
             )
+            # Shows the current Y scale; a click switches it
             dpg.add_button(
-                label="Linear / Log",
+                label="Log" if getattr(profile, "use_log", False) else "Lin",
+                width=SMALL_BTN_W,
                 user_data=profile.id,
                 callback=self._c.on_toggle_log_clicked,
             )
-            dpg.add_button(
-                label="Export JSON",
-                width=-1,
+            build_icon_button(
+                icon=ICON_EXPORT,
                 callback=self._c.on_export_profile_clicked,
                 user_data=profile.id,
+                tooltip="Export the profile data to a JSON file...",
+                api=self._c._api,
             )
             build_help_button(
-                "Fit Plot    : Auto-scales both axes to the current data range\n"
-                "Linear / Log: Toggles the Y axis between linear and log scale\n"
-                "Export JSON : Saves the full profile data (distance, intensity,\n"
-                "              physical coordinates, voxel indices) to a JSON file\n\n"
+                "Fit : Auto-scales both axes to the current data range\n"
+                "Lin / Log : the Y axis scale (click to switch)\n"
+                "Export : Saves the full profile data (distance, intensity,\n"
+                "         physical coordinates, voxel indices) to a JSON file\n\n"
                 "P1 / P2 (mm): The 3D physical coordinates of each endpoint.\n"
                 "              You can type values directly to reposition precisely.",
                 self._c._api,

@@ -5,6 +5,15 @@ import dearpygui.dearpygui as dpg
 # Standard UI toolbar icon glyphs
 ICON_SAVE = "\uf0c7"  # Floppy disk
 ICON_SAVE_AS = "\ue001"  # Floppy disk with down arrow badge
+ICON_ADD = "\uf067"  # Plus: add an item (landmark, profile, isodose level)
+ICON_EXPORT = "\uf56e"  # File export: write data (stats, curves) to a file
+ICON_FIT = "\uf065"  # Expand: fit a plot to its data
+ICON_REFRESH = "\uf021"  # Arrows rotate: compute again (not a reload from disk)
+ICON_SNAP = "\uf076"  # Magnet: snap to the image / crosshair
+
+# Short text buttons: toggles showing their current mode (Lin / Log,
+# Bar / Line, Ctr) and All / None selections
+SMALL_BTN_W = 40
 
 
 def _ensure_separator_theme():
@@ -469,6 +478,11 @@ _HELP_FIELDS = {}
 def _item_gap(gui):
     cfg = getattr(gui, "ui_cfg", None)
     return cfg["layout"].get("sidebar_item_gap", 8) if isinstance(cfg, dict) else 8
+
+
+def icons_width(n, gui):
+    """Room taken by n icon buttons (20 px) and their spacing, after a field."""
+    return n * (20 + _item_gap(gui))
 
 
 def help_aware_width(tag, width, gui, extra=None):

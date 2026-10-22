@@ -4,6 +4,8 @@ import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import (
     ICON_SAVE,
     ICON_SAVE_AS,
+    ICON_ADD,
+    build_icon_button,
     build_section_title,
     build_help_button,
     build_beginner_tooltip,
@@ -157,16 +159,12 @@ class LandmarkPluginUI(PluginTagMixin):
 
             # --- Top Action Bar ---
             with dpg.group(horizontal=True):
-                btn_add = dpg.add_button(
-                    label="Add",
+                build_icon_button(
+                    icon=ICON_ADD,
                     tag=self._t("btn_add"),
                     callback=self._c.on_btn_add_clicked,
-                )
-                build_beginner_tooltip(
-                    btn_add,
-                    "Adds a 3D landmark at the current physical crosshair coordinate.\n"
-                    "Shortcut: Press Space bar while hovering over an active viewer.",
-                    api,
+                    tooltip="Add a landmark at the crosshair (Space)",
+                    api=api,
                 )
 
                 btn_enhanced = dpg.add_button(

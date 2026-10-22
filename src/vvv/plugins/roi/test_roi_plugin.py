@@ -742,16 +742,16 @@ class TestRoiPlugin(unittest.TestCase):
             # 1. Open first window, offset should be 0
             ui.on_roi_stats_toggle(None, None, "roi_1")
             # base_x = 1000 - 320 - 50 = 630
-            # base_y = (800 - 530) // 2 = 135
-            self.assertEqual(dpg.get_item_pos(ui._t("stats_win_roi_1")), [630, 135])
+            # base_y = (800 - 470) // 2 = 165
+            self.assertEqual(dpg.get_item_pos(ui._t("stats_win_roi_1")), [630, 165])
 
             # 2. Open second window, offset should be 25px
             ui.on_roi_stats_toggle(None, None, "roi_2")
-            self.assertEqual(dpg.get_item_pos(ui._t("stats_win_roi_2")), [605, 160])
+            self.assertEqual(dpg.get_item_pos(ui._t("stats_win_roi_2")), [605, 190])
 
             # 3. Open third window, offset should be 50px
             ui.on_roi_stats_toggle(None, None, "roi_3")
-            self.assertEqual(dpg.get_item_pos(ui._t("stats_win_roi_3")), [580, 185])
+            self.assertEqual(dpg.get_item_pos(ui._t("stats_win_roi_3")), [580, 215])
 
             # Clean them up
             ui.close_all_stats_windows()

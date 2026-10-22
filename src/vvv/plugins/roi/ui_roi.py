@@ -5,7 +5,11 @@ from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.plugins.roi.control_roi import CREATED_SOURCE, roi_source
 from vvv.ui.ui_components import (
     FIELD_RIGHT_MARGIN,
+    ICON_EXPORT,
+    ICON_SAVE,
+    ICON_SAVE_AS,
     LIST_BOTTOM_H,
+    SMALL_BTN_W,
     build_section_title,
     build_horizontal_separator,
     build_help_button,
@@ -242,32 +246,24 @@ class RoiPluginUI(PluginTagMixin):
                 )
 
             with dpg.group(horizontal=True):
-                btn_save = dpg.add_button(
-                    label="Save",
-                    width=60,
+                build_icon_button(
+                    icon=ICON_SAVE,
                     callback=self.on_save_filtered_rois_clicked,
                     tag=self._t("btn_roi_save"),
+                    tooltip="Save the listed ROIs (to the last saved file)",
+                    api=self.api,
                 )
-                btn_save_as = dpg.add_button(
-                    label="Save as...",
-                    width=90,
+                build_icon_button(
+                    icon=ICON_SAVE_AS,
                     callback=self.on_save_filtered_rois_as_clicked,
                     tag=self._t("btn_roi_save_as"),
+                    tooltip="Save the listed ROIs as... (label image + JSON, or one file per ROI)",
+                    api=self.api,
                 )
                 dpg.add_text(
                     "",
                     tag=self._t("text_roi_save_filename"),
                     color=cfg_c["text_dim"],
-                )
-                build_beginner_tooltip(
-                    btn_save,
-                    "Save all filtered ROIs to the current label image file and JSON sidecar.",
-                    self.api,
-                )
-                build_beginner_tooltip(
-                    btn_save_as,
-                    "Save all filtered ROIs as a multi-label image (.nii.gz) and JSON sidecar (prompts for filename).",
-                    self.api,
                 )
 
             build_horizontal_separator()
@@ -1106,13 +1102,15 @@ class RoiPluginUI(PluginTagMixin):
 
             with dpg.group(horizontal=True):
                 dpg.add_button(
-                    label="Select All",
+                    label="All",
+                    width=SMALL_BTN_W,
                     callback=lambda: [
                         dpg.set_value(cb_id, True) for cb_id in self._rtstruct_cb_ids
                     ],
                 )
                 dpg.add_button(
-                    label="Select None",
+                    label="None",
+                    width=SMALL_BTN_W,
                     callback=lambda: [
                         dpg.set_value(cb_id, False) for cb_id in self._rtstruct_cb_ids
                     ],
@@ -2216,11 +2214,11 @@ class RoiPluginUI(PluginTagMixin):
         is_spheroid = getattr(roi, "is_spheroid", False)
         is_box = getattr(roi, "is_box", False)
         if is_spheroid or is_box:
-            win_h = 820 if has_overlay else 710
+            win_h = 760 if has_overlay else 650
         elif is_created:
-            win_h = 750 if has_overlay else 640
+            win_h = 690 if has_overlay else 580
         else:
-            win_h = 650 if has_overlay else 530
+            win_h = 590 if has_overlay else 470
 
         # Determine initial position
         if roi_id in self.stats_win_positions:
@@ -2322,6 +2320,13 @@ class RoiPluginUI(PluginTagMixin):
                 tooltip="Copy statistics to clipboard",
                 api=self.api,
             )
+            build_icon_button(
+                icon=ICON_EXPORT,
+                callback=self.on_export_stats_to_json,
+                user_data={"base_vs_id": base_vs_id, "roi_id": roi_id},
+                tooltip="Export statistics to JSON...",
+                api=self.api,
+            )
 
             # Contour/Visibility Toggle
             if roi.visible:
@@ -2409,14 +2414,22 @@ class RoiPluginUI(PluginTagMixin):
                     build_beginner_tooltip(slider, "Adjust ROI opacity", self.api)
 
             dpg.bind_item_theme(slider, slider_theme_tag)
+            build_delete_button(
+                user_data=roi_id,
+                callback=self.on_roi_close,
+                tooltip="Delete ROI",
+                api=self.api,
+            )
             build_help_button(
                 "ROI Actions Toolbar:\n"
                 "- Color Block: Click to change the display color of the ROI.\n"
                 "- Copy [Clipboard Icon]: Copy detailed statistics to your clipboard.\n"
+                "- Export [File Icon]: Save the statistics to a JSON file.\n"
                 "- Eye/Pencil Icon: Toggle display mode (solid raster fill, contour lines, or hidden).\n"
                 "- Target Icon: Recenter and focus all slice view cameras on the ROI's center of mass.\n"
                 "- Floppy/Sync Icon: Save ROI to disk, or reload if outdated.\n"
-                "- Opac/Thick Slider: Drag to change opacity (for solid fill) or line width (for contour outlines).",
+                "- Opac/Thick Slider: Drag to change opacity (for solid fill) or line width (for contour outlines).\n"
+                "- X: Delete the ROI.",
                 self.api,
             )
 
@@ -2839,22 +2852,6 @@ class RoiPluginUI(PluginTagMixin):
                     min_max_str, tag=self._t(f"stats_txt_overlay_min_max_{roi_id}")
                 )
 
-        dpg.add_spacer(height=10, parent=parent_tag)
-        dpg.add_button(
-            label="Export Stats to JSON",
-            parent=parent_tag,
-            width=-1,
-            user_data={"base_vs_id": base_vs_id, "roi_id": roi_id},
-            callback=self.on_export_stats_to_json,
-        )
-        dpg.add_spacer(height=5, parent=parent_tag)
-        btn_delete = dpg.add_button(
-            label="Delete ROI",
-            parent=parent_tag,
-            width=-1,
-            user_data=roi_id,
-            callback=self.on_roi_close,
-        )
 
     def update_stats_window_contents(self, base_vs_id, roi_id):
         viewer = self.api.get_active_viewer()
@@ -3123,11 +3120,11 @@ class RoiPluginUI(PluginTagMixin):
             is_spheroid = getattr(roi, "is_spheroid", False)
             is_box = getattr(roi, "is_box", False)
             if is_spheroid or is_box:
-                win_h = 820 if ov_stats else 710
+                win_h = 760 if ov_stats else 650
             elif is_created:
-                win_h = 750 if ov_stats else 640
+                win_h = 690 if ov_stats else 580
             else:
-                win_h = 650 if ov_stats else 530
+                win_h = 590 if ov_stats else 470
             dpg.configure_item(win_tag, height=win_h)
 
     def on_copy_stats_to_clipboard(self, sender, app_data, user_data):

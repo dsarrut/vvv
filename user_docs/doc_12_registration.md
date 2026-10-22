@@ -27,8 +27,8 @@ Use the interactive sliders or numeric step inputs to adjust the rigid transform
 * **$R_x$ (Pitch)**: Rotation around the lateral axis.
 * **$R_y$ (Roll)**: Rotation around the anteroposterior axis.
 * **$R_z$ (Yaw)**: Rotation around the craniocaudal axis.
-* **Center of Rotation (CoR)**: Pivot point around which rotations occur. Click the crosshair icon to jump to the CoR, or **Snap CoR** to set it to the current 3D crosshair position.
-* **Invert Transform**: Invert the current transform matrix ($T \leftrightarrow T^{-1}$) at the click of a button (or via the top toolbar icon **⇄**).
+* **Center of Rotation (CoR)**: Pivot point around which rotations occur. Click the crosshair icon to jump to the CoR, or the magnet icon to snap it to the current 3D crosshair position.
+* **Invert Transform**: Invert the current transform matrix ($T \leftrightarrow T^{-1}$) with the **Invert Transform** button.
 * **Reset to Identity**: Resets all translations and rotations back to zero.
 
 ---
@@ -58,7 +58,7 @@ To inspect the quality of the spatial alignment:
 | Action | Shortcut |
 | :--- | :--- |
 | **Reset Transformation** | Click **Reset to Identity** |
-| **Invert Transformation** | Click **Invert Transform** or top toolbar **⇄** |
+| **Invert Transformation** | Click **Invert Transform** |
 | **Step Step Translations ($1\text{ mm}$)** | Arrow keys (when slider focused) |
 | **Toggle Checkerboard** | Accessible via Fusion overlay modes |
 

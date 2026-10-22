@@ -1595,6 +1595,22 @@ class TestDosePlugin(unittest.TestCase):
         self.assertTrue(dvh_win.wait_for_calculation(timeout=5.0))
         self.assertEqual(len(dvh_win.curves), 1)
 
+    def test_dvh_button_toggles_window(self):
+        """The DVH button shows / hides the window and shows its state."""
+        self.mock_viewer.volume.unit = "Gy"
+        ui = self.plugin._ui
+        btn = ui._t("btn_open_dvh")
+        ui.on_open_dvh_clicked(async_calc=False)
+        self.assertTrue(ui.dvh_win.is_open())
+        self.assertEqual(dpg.get_item_label(btn), "Hide DVH")
+        ui.on_open_dvh_clicked(async_calc=False)
+        self.assertFalse(ui.dvh_win.is_open())
+        self.assertEqual(dpg.get_item_label(btn), "Show DVH")
+        # Closed with the window's own close button
+        ui.on_open_dvh_clicked(async_calc=False)
+        ui.dvh_win.on_window_close()
+        self.assertEqual(dpg.get_item_label(btn), "Show DVH")
+
     def test_dvh_window_close_cancels_worker(self):
         """PC3: closing DVH window sets stop_event and increments token."""
         self.mock_viewer.volume.unit = "Gy"

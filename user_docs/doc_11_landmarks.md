@@ -11,7 +11,7 @@ VVV enables placing, labeling, measuring, and navigating anatomical and fiducial
 Open the **Landmark** tab on the sidebar:
 
 ### 1. Adding Points
-* Click **Add Landmark** or hold <kbd>Shift + Left Click</kbd> at any point in any 2D viewer slice.
+* Click the **+** button (adds a landmark at the crosshair, also <kbd>Space</kbd>) or hold <kbd>Shift + Left Click</kbd> at any point in any 2D viewer slice.
 * A 3D marker is registered at the exact physical coordinates $(X, Y, Z)$ in millimeters.
 * Markers are projected onto all active viewers, rendering crosshairs and numeric identifiers.
 

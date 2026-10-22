@@ -117,6 +117,12 @@ class TestProfilePlugin(unittest.TestCase):
         self.assertFalse(dpg.does_item_exist(win_tag))
         self.assertFalse(profile.plot_open)
 
+        # The toolbar button toggles: opens all when none is open, else closes all
+        self.plugin._ui.on_toggle_all_plots_clicked()
+        self.assertTrue(dpg.does_item_exist(win_tag))
+        self.plugin._ui.on_toggle_all_plots_clicked()
+        self.assertFalse(dpg.does_item_exist(win_tag))
+
         dpg.delete_item("test_parent")
 
     def test_plot_position_persistence(self):

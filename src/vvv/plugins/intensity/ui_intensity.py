@@ -10,11 +10,12 @@ from vvv.ui.ui_components import (
     label_row,
     FIELD_RIGHT_MARGIN,
     LABEL_COL_W,
+    SMALL_BTN_W,
 )
 from .control_intensity import IntensityController
 from vvv.plugins.plugin_api import PluginTagMixin
 
-HIST_BTN_W = 40  # Ctr / Bar-Line / Lin-Log: fits the longer labels ("Line")
+HIST_BTN_W = SMALL_BTN_W  # Ctr / Bar-Line / Lin-Log: fits the longer labels ("Line")
 
 
 class IntensityUI(PluginTagMixin):

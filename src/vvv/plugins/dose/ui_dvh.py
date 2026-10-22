@@ -8,7 +8,12 @@ import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginTagMixin, PluginAPI
 from vvv.ui.ui_components import (
     build_beginner_tooltip,
+    build_icon_button,
     build_name_filter_bar,
+    ICON_EXPORT,
+    ICON_FIT,
+    ICON_REFRESH,
+    SMALL_BTN_W,
     name_matches,
     set_filter_count,
     set_filter_invert_state,
@@ -29,6 +34,8 @@ class DVHWindow(PluginTagMixin):
         self._plugin_id = plugin_id
         self._c = controller
         self._api: Optional[PluginAPI] = None
+        # Called with True / False when the window opens / closes (button state)
+        self.on_visibility_changed = None
 
         self.curves: List[ROI_DVH_Curve] = []
         self.filter_text: str = ""
@@ -79,30 +86,31 @@ class DVHWindow(PluginTagMixin):
                 dpg.add_text("Dose:", color=cfg_c["text_dim"])
                 dpg.add_text("---", tag=self._t("dvh_lbl_target_dose"), color=cfg_c["text_active"])
                 dpg.add_spacer(width=20)
-                dpg.add_button(
-                    label="Refresh DVH",
+                build_icon_button(
+                    icon=ICON_REFRESH,
                     callback=lambda: self.recompute_and_update(fit_axes=True),
                     tag=self._t("dvh_btn_refresh"),
+                    tooltip="Compute the DVH again",
+                    api=self._api,
                 )
-                btn_fit = dpg.add_button(
-                    label="Fit View",
+                build_icon_button(
+                    icon=ICON_FIT,
                     callback=lambda: self.fit_view(),
                     tag=self._t("dvh_btn_fit_view"),
+                    tooltip="Fit the plot to the visible curves",
+                    api=self._api,
                 )
-                build_beginner_tooltip(
-                    btn_fit,
-                    "Resets the plot view to comfortably fit all visible DVH curves.",
-                    self._api,
-                )
-                dpg.add_button(
-                    label="Export CSV...",
+                build_icon_button(
+                    icon=ICON_EXPORT,
                     callback=self.on_export_csv_clicked,
                     tag=self._t("dvh_btn_export"),
+                    tooltip="Export the DVH to CSV...",
+                    api=self._api,
                 )
 
             dpg.add_spacer(height=4)
 
-            # View Options Row
+            # View options, row 1: curve type and legend
             with dpg.group(horizontal=True):
                 # Cumulative vs Differential
                 dpg.add_radio_button(
@@ -110,24 +118,6 @@ class DVHWindow(PluginTagMixin):
                     default_value="Cumulative (cDVH)",
                     horizontal=True,
                     tag=self._t("dvh_radio_curve_type"),
-                    callback=self._on_display_option_changed,
-                )
-                dpg.add_spacer(width=12)
-                # Volume Scale: % vs cc
-                dpg.add_radio_button(
-                    items=["Volume: %", "Volume: cm³"],
-                    default_value="Volume: %",
-                    horizontal=True,
-                    tag=self._t("dvh_radio_volume_scale"),
-                    callback=self._on_display_option_changed,
-                )
-                dpg.add_spacer(width=12)
-                # Dose Scale: Gy vs %
-                dpg.add_radio_button(
-                    items=["Dose: Gy", "Dose: %"],
-                    default_value="Dose: Gy",
-                    horizontal=True,
-                    tag=self._t("dvh_radio_dose_scale"),
                     callback=self._on_display_option_changed,
                 )
                 dpg.add_spacer(width=12)
@@ -148,6 +138,26 @@ class DVHWindow(PluginTagMixin):
                     combo_leg,
                     "Switch plot legend corner (Top-Right, Top-Left, Bottom-Left, Bottom-Right, or Outside).\nYou can also right-click the legend inside the plot to configure it.",
                     self._api,
+                )
+
+            # View options, row 2: axis units
+            with dpg.group(horizontal=True):
+                # Volume Scale: % vs cc
+                dpg.add_radio_button(
+                    items=["Volume: %", "Volume: cm³"],
+                    default_value="Volume: %",
+                    horizontal=True,
+                    tag=self._t("dvh_radio_volume_scale"),
+                    callback=self._on_display_option_changed,
+                )
+                dpg.add_spacer(width=12)
+                # Dose Scale: Gy vs %
+                dpg.add_radio_button(
+                    items=["Dose: Gy", "Dose: %"],
+                    default_value="Dose: Gy",
+                    horizontal=True,
+                    tag=self._t("dvh_radio_dose_scale"),
+                    callback=self._on_display_option_changed,
                 )
 
             dpg.add_spacer(height=6)
@@ -190,14 +200,14 @@ class DVHWindow(PluginTagMixin):
                             dpg.add_spacer(width=10)
                             btn_all = dpg.add_button(
                                 label="All",
-                                width=40,
+                                width=SMALL_BTN_W,
                                 callback=self._on_select_all_structures,
                                 tag=self._t("dvh_btn_select_all"),
                             )
                             build_beginner_tooltip(btn_all, "Check all visible structures", self._api)
                             btn_none = dpg.add_button(
                                 label="None",
-                                width=40,
+                                width=SMALL_BTN_W,
                                 callback=self._on_select_none_structures,
                                 tag=self._t("dvh_btn_select_none"),
                             )
@@ -308,6 +318,11 @@ class DVHWindow(PluginTagMixin):
 
         # Initial calculation
         self.recompute_and_update(fit_axes=True, async_calc=async_calc)
+        if self.on_visibility_changed:
+            self.on_visibility_changed(True)
+
+    def is_open(self) -> bool:
+        return dpg.does_item_exist(self.window_tag)
 
     def on_window_close(self):
         if self._calc_stop is not None:
@@ -315,6 +330,8 @@ class DVHWindow(PluginTagMixin):
         self._calc_token += 1
         if dpg.does_item_exist(self.window_tag):
             dpg.delete_item(self.window_tag)
+        if self.on_visibility_changed:
+            self.on_visibility_changed(False)
 
     def _on_toggle_legend(self, sender=None, app_data=None, user_data=None):
         chk_tag = self._t("dvh_chk_show_legend")

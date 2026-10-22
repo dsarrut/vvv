@@ -7,6 +7,9 @@ from vvv.ui.ui_components import (
     build_beginner_tooltip,
     build_help_button,
     build_stepped_slider,
+    build_delete_button,
+    build_icon_button,
+    FIELD_RIGHT_MARGIN,
 )
 from vvv.utils import compute_adaptive_step_and_speed
 from vvv.ui.ui_scaling import IntensityScalingComponent
@@ -28,6 +31,7 @@ class DosePluginUI(PluginTagMixin):
             ref_label="Prescription",
         )
         self.dvh_win = DVHWindow(plugin_id=self._plugin_id, controller=self._c)
+        self.dvh_win.on_visibility_changed = self.set_dvh_button_state
 
     def _get_scaling_target(self):
         is_active, target_vol, is_ov, unit_str, target_id, target_vs = (
@@ -194,19 +198,12 @@ class DosePluginUI(PluginTagMixin):
                         api,
                     )
 
-                    btn_reset_lvls = dpg.add_button(
-                        label="\uf01e",
+                    build_icon_button(
+                        icon="\uf0e2",  # arrow-rotate-left: back to the defaults
                         tag=self._t("btn_reset_levels"),
-                        width=22,
                         callback=self._c.on_reset_levels_clicked,
-                    )
-                    self._bind_icon_font(btn_reset_lvls)
-                    if dpg.does_item_exist("icon_button_theme"):
-                        dpg.bind_item_theme(btn_reset_lvls, "icon_button_theme")
-                    build_beginner_tooltip(
-                        btn_reset_lvls,
-                        "Reset default isodose levels (10% to 107%).",
-                        api,
+                        tooltip="Reset the default isodose levels (10% to 107%)",
+                        api=api,
                     )
 
                 dpg.add_spacer(height=4)
@@ -221,34 +218,38 @@ class DosePluginUI(PluginTagMixin):
 
                 # --- Dose-Volume Histogram (DVH) Section ---
                 build_section_title("Dose-Volume Histogram (DVH)", cfg_c["text_header"])
-                dpg.add_spacer(height=4)
-                dpg.add_text(
-                    "Compute cumulative & differential DVH curves\n"
-                    "and clinical dosimetric metrics for all ROIs.",
-                    color=cfg_c["text_dim"],
-                )
-                dpg.add_spacer(height=6)
                 btn_dvh = dpg.add_button(
-                    label="Open DVH Window",
-                    width=-1,
-                    height=28,
+                    label="Show DVH",
+                    width=-FIELD_RIGHT_MARGIN,
                     callback=self.on_open_dvh_clicked,
                     tag=self._t("btn_open_dvh"),
                 )
                 build_beginner_tooltip(
                     btn_dvh,
-                    "Opens the interactive Dose-Volume Histogram (DVH/HDV) floating window\n"
-                    "to analyze dose coverage, D98, D50, D2, and export metrics.",
+                    "Shows / hides the Dose-Volume Histogram (DVH) window: cumulative and\n"
+                    "differential curves of the ROIs, D98, D50, D2, and metrics export.",
                     api,
                 )
-                if dpg.does_item_exist("icon_button_theme"):
-                    dpg.bind_item_theme(btn_dvh, "icon_button_theme")
 
     def on_open_dvh_clicked(
         self, sender=None, app_data=None, user_data=None, async_calc: bool = True
     ) -> None:
-        if self._api:
+        """Shows the DVH window, or hides it when it is open."""
+        if not self._api:
+            return
+        if self.dvh_win.is_open():
+            self.dvh_win.on_window_close()
+        else:
             self.dvh_win.show_window(self._api, async_calc=async_calc)
+
+    def set_dvh_button_state(self, is_open: bool) -> None:
+        """The DVH button shows whether the window is open (blue), like the sync links."""
+        btn = self._t("btn_open_dvh")
+        if not dpg.does_item_exist(btn):
+            return
+        dpg.configure_item(btn, label="Hide DVH" if is_open else "Show DVH")
+        theme = "active_button_theme"
+        dpg.bind_item_theme(btn, theme if is_open and dpg.does_item_exist(theme) else 0)
 
     def rebuild_levels_ui(self, api: PluginAPI) -> None:
         """Reconstructs the list of isodose level rows."""
@@ -306,16 +307,13 @@ class DosePluginUI(PluginTagMixin):
                 # Unit label
                 dpg.add_text(unit_str, color=[255, 255, 255, 255])
 
-                # Delete button (red X)
-                btn_del = dpg.add_button(
-                    label="X",
+                build_delete_button(
                     user_data=idx,
-                    width=20,
                     callback=self._c.on_delete_level_clicked,
                     tag=self._t(f"btn_del_lvl_{idx}"),
+                    tooltip="Delete this isodose level",
+                    api=self._api,
                 )
-                if dpg.does_item_exist("delete_button_theme"):
-                    dpg.bind_item_theme(btn_del, "delete_button_theme")
 
     def update_ui(self, api: PluginAPI) -> None:
         if not dpg.does_item_exist(self._t("group_dose_requirement")):
