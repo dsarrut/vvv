@@ -50,6 +50,7 @@ Checking a box displays the volume in that viewport. Multiple viewports can disp
 ### 2. Renaming Images
 * Click or double-click the filename text field to rename the image display label.
 * The new name updates across all viewports and info panels.
+* The number in front of the name, e.g. **(2)**, identifies the image everywhere (viewer overlays, fusion target, plugin titles). It is given in load order and kept while the image is open: closing an image does not renumber the others.
 
 ### 3. Action Buttons
 Each image entry features a row of quick actions:
