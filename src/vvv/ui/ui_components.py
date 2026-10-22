@@ -456,6 +456,9 @@ def build_beginner_tooltip(parent, text, gui, text_tag=None, always_on=False):
 
 # Right margin of the fields in a side panel: the same as build_horizontal_separator
 FIELD_RIGHT_MARGIN = 8
+# Height below a list that fills its panel (negative child window height):
+# the panel bottom margin
+LIST_BOTTOM_H = 8
 # Label column of the 'label | field' rows (label_row, build_stepped_slider)
 LABEL_COL_W = 72
 

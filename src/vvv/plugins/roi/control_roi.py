@@ -3,6 +3,19 @@ from typing import Optional
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.ui.ui_components import name_matches, next_sort_order, sort_by_name
 
+# Source key of the ROIs made in vvv (sphere, box), which have no file
+CREATED_SOURCE = ""
+
+
+def roi_source(roi, vol) -> str:
+    """The file an ROI was read from (its source key), CREATED_SOURCE if none."""
+    if getattr(roi, "source_type", None) == "Created":
+        return CREATED_SOURCE
+    paths = getattr(vol, "file_paths", None)
+    if isinstance(paths, (list, tuple)) and paths and isinstance(paths[0], str):
+        return paths[0]
+    return CREATED_SOURCE
+
 
 class RoiPluginController(PluginTagMixin):
     def __init__(self, plugin_id: str):
@@ -16,6 +29,8 @@ class RoiPluginController(PluginTagMixin):
         self.roi_filters = {}
         self.roi_filter_inverts = {}  # image_id -> bool
         self.roi_sort_orders = {}
+        # image_id -> source key of the listed ROIs (absent: all); not saved
+        self.roi_source_filters = {}
 
         self._last_image_id = None
         self._last_roi_ids = set()
@@ -66,6 +81,7 @@ class RoiPluginController(PluginTagMixin):
         self.roi_filters.pop(image_id, None)
         self.roi_filter_inverts.pop(image_id, None)
         self.roi_sort_orders.pop(image_id, None)
+        self.roi_source_filters.pop(image_id, None)
         self.invalidate_stats_cache()
         if self.ui:
             self.ui.close_rtstruct_modal()
@@ -129,6 +145,47 @@ class RoiPluginController(PluginTagMixin):
         if viewer and viewer.image_id:
             self.roi_filters[viewer.image_id] = ""
             self.roi_filter_inverts[viewer.image_id] = False
+            if self.ui:
+                self.ui.refresh_rois_ui()
+
+    def is_roi_listed(self, vs_id, roi_id, roi, volumes) -> bool:
+        """The rule of the listed ROIs (list, navigation, batch actions, save):
+        name filter, then source filter."""
+        if not name_matches(
+            roi.name,
+            self.roi_filters.get(vs_id, ""),
+            self.roi_filter_inverts.get(vs_id, False),
+        ):
+            return False
+        source = self.roi_source_filters.get(vs_id)
+        return source is None or roi_source(roi, volumes.get(roi_id)) == source
+
+    @staticmethod
+    def list_roi_sources(rois, volumes) -> dict:
+        """source key -> (source_type of its first ROI, number of ROIs), in load order."""
+        sources = {}
+        for roi_id, roi in rois.items():
+            key = roi_source(roi, volumes.get(roi_id))
+            kind, count = sources.get(key, (getattr(roi, "source_type", "Binary"), 0))
+            sources[key] = (kind, count + 1)
+        return sources
+
+    def prune_roi_source_filter(self, vs_id, sources) -> None:
+        """Forget the source filter once its file is gone or only one source is left."""
+        source = self.roi_source_filters.get(vs_id)
+        if source is not None and (source not in sources or len(sources) <= 1):
+            del self.roi_source_filters[vs_id]
+
+    def on_roi_source_changed(self, source) -> None:
+        """source: a source key, or None for all the ROIs."""
+        if not self.api:
+            return
+        viewer = self.api.get_active_viewer()
+        if viewer and viewer.image_id:
+            if source is None:
+                self.roi_source_filters.pop(viewer.image_id, None)
+            else:
+                self.roi_source_filters[viewer.image_id] = source
             if self.ui:
                 self.ui.refresh_rois_ui()
 
@@ -197,20 +254,17 @@ class RoiPluginController(PluginTagMixin):
             return
 
         vs_id = viewer.image_id
-        filter_text = self.roi_filters.get(vs_id, "")
-        invert = self.roi_filter_inverts.get(vs_id, False)
         sort_order = self.roi_sort_orders.get(vs_id, 0)
+        volumes = self.api.get_volumes()
 
         roi_items = sort_by_name(
             viewer.view_state.rois.items(), sort_order, name=lambda x: x[1].name
         )
-
-        # Filter the items
-        filtered_roi_ids = []
-        for roi_id, roi in roi_items:
-            if not name_matches(roi.name, filter_text, invert):
-                continue
-            filtered_roi_ids.append(roi_id)
+        filtered_roi_ids = [
+            roi_id
+            for roi_id, roi in roi_items
+            if self.is_roi_listed(vs_id, roi_id, roi, volumes)
+        ]
 
         if not filtered_roi_ids:
             return
@@ -965,17 +1019,16 @@ class RoiPluginController(PluginTagMixin):
         if not base_vol or not base_vs:
             return None
 
-        filter_text = self.roi_filters.get(base_id, "")
-        invert = self.roi_filter_inverts.get(base_id, False)
         rois = []
         for roi_id, roi_state in base_vs.rois.items():
-            if not name_matches(roi_state.name, filter_text, invert):
+            if not self.is_roi_listed(base_id, roi_id, roi_state, volumes):
                 continue
             r_vol = volumes.get(roi_id)
             if not r_vol or r_vol.data is None:
                 continue
             rois.append(
                 {
+                    "roi_id": roi_id,
                     "name": roi_state.name,
                     "color": getattr(roi_state, "color", None) or [255, 0, 0],
                     "data": r_vol.data[0] if r_vol.data.ndim == 4 else r_vol.data,
@@ -1032,6 +1085,7 @@ class RoiPluginController(PluginTagMixin):
             except Exception:
                 rgb = [255, 0, 0]
             label_json[str(idx)] = {"name": roi["name"], "color": rgb}
+            roi["saved_path"], roi["saved_label"] = filepath, idx
 
         if len(rois) < 256:
             dtype = np.uint8
@@ -1059,6 +1113,7 @@ class RoiPluginController(PluginTagMixin):
             json_path = os.path.splitext(filepath)[0] + ".json"
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(label_json, f, indent=4)
+        snapshot["saved_json_path"] = json_path
 
         return f"Saved: {os.path.basename(filepath)}"
 
@@ -1087,6 +1142,7 @@ class RoiPluginController(PluginTagMixin):
                 sitk_crop = sitk.GetImageFromArray(mask_arr)
                 sitk_crop.CopyInformation(roi["sitk_image"])
                 sitk.WriteImage(sitk_crop, out_file)
+                roi["saved_path"] = out_file
                 saved_count += 1
                 continue
 
@@ -1097,9 +1153,41 @@ class RoiPluginController(PluginTagMixin):
             if snapshot["sitk_image"] is not None:
                 sitk_full.CopyInformation(snapshot["sitk_image"])
             sitk.WriteImage(sitk_full, out_file)
+            roi["saved_path"] = out_file
             saved_count += 1
 
         return f"Saved {saved_count} ROI files to {os.path.basename(out_dir)}/"
+
+    def attach_saved_rois(self, base_id: str, snapshot) -> None:
+        """Main thread, after a batch save: each saved ROI now comes from the
+        file it was written to (its source, reload), as after a single ROI
+        save; the file it was read from is left as it was."""
+        import os
+
+        if not self.api:
+            return
+        vs = self.api.get_view_states().get(base_id)
+        volumes = self.api.get_volumes()
+        if not vs:
+            return
+        json_path = snapshot.get("saved_json_path")
+        for r in snapshot["rois"]:
+            roi_id, path = r.get("roi_id"), r.get("saved_path")
+            roi, vol = vs.rois.get(roi_id), volumes.get(roi_id)
+            if not path or roi is None or vol is None:
+                continue
+            label = r.get("saved_label")
+            vol.path = path
+            vol.file_paths = [path]
+            if label is not None and json_path and os.path.exists(json_path):
+                vol.file_paths.append(json_path)
+            vol.update_mtime_tracker()
+            vol._is_outdated = False
+            roi.rtstruct_info = None
+            roi.source_type = "Binary" if label is None else "Label Map"
+            roi.source_mode = "Target FG (val)"
+            roi.source_val = 1.0 if label is None else float(label)
+        self.api.request_refresh()
 
     def save_filtered_rois_as_labels(
         self, base_id: str, filepath: str, sort_by_volume: bool = True
@@ -1109,6 +1197,7 @@ class RoiPluginController(PluginTagMixin):
         if snapshot is None:
             return False
         self.api.notify(self.write_rois_as_labels(snapshot, filepath, sort_by_volume))
+        self.attach_saved_rois(base_id, snapshot)
         return True
 
     def save_filtered_rois_as_individual_files(
@@ -1119,6 +1208,7 @@ class RoiPluginController(PluginTagMixin):
         if snapshot is None:
             return False
         self.api.notify(self.write_rois_as_individual_files(snapshot, out_dir, auto_crop))
+        self.attach_saved_rois(base_id, snapshot)
         return True
 
     def _collect_or_notify(self, base_id: str):

@@ -65,7 +65,18 @@ When loading an integer label map (multi-label segmentation), `load_label_map_se
 
 ---
 
-## 7. Beginner Mode & Settings Persistence
+## 7. ROI Sources (Files)
+
+Each ROI comes from a file: `roi_source(roi, vol)` ([control_roi.py](../src/vvv/plugins/roi/control_roi.py)) returns `vol.file_paths[0]`, or `CREATED_SOURCE` (`""`) for the ROIs created in vvv (sphere, box: `source_type == "Created"`, no real file).
+
+- **Source filter**: `roi_source_filters[image_id]` (absent = all), set by the source combo above the name filter; the combo is shown only with 2 sources or more. Not saved in workspaces.
+- **One listing rule**: `is_roi_listed(vs_id, roi_id, roi, volumes)` = name filter, then source filter. Used by the list, ↑/↓ navigation, the batch actions (`_get_target_rois`) and the batch save (`collect_filtered_rois`): choosing a file and clicking Reload / Close Listed reloads / closes that file.
+- `prune_roi_source_filter` forgets the filter once its file is gone, or only one source is left.
+- **After a batch save** (`attach_saved_rois`): the saved ROIs come from the written file (label map: `source_type = "Label Map"`, `source_val` = its label, the JSON sidecar in `file_paths`; individual files: `"Binary"`, `Target FG 1`), like a single ROI save. The file they were read from is left as it was.
+
+---
+
+## 8. Beginner Mode & Settings Persistence
 
 - **Beginner Mode Tooltips**: Explanatory tooltips (`build_beginner_tooltip`) are attached to the load button, rule combo box, global opacity and thickness sliders, and search filter input.
 - **Settings Persistence**: Implemented `save_settings` and `load_settings` in [ui_roi.py](../src/vvv/plugins/roi/ui_roi.py) to save and load default loading settings (mode and default values) into the main settings database.

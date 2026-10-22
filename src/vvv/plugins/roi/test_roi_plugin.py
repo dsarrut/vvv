@@ -576,13 +576,13 @@ class TestRoiPlugin(unittest.TestCase):
         with (
             patch("dearpygui.dearpygui.get_y_scroll") as mock_get_scroll,
             patch("dearpygui.dearpygui.set_y_scroll") as mock_set_scroll,
-            patch("dearpygui.dearpygui.get_item_height") as mock_get_height,
+            patch("dearpygui.dearpygui.get_item_rect_size") as mock_get_height,
             patch("dearpygui.dearpygui.get_y_scroll_max") as mock_get_scroll_max,
         ):
 
             # Mock scroll values
             mock_get_scroll.return_value = 0.0
-            mock_get_height.return_value = 150.0
+            mock_get_height.return_value = [400, 150.0]
             mock_get_scroll_max.return_value = 200.0
 
             # 1. Trigger move_roi_selection (selects first item)
@@ -3062,6 +3062,144 @@ class TestRoiPlugin(unittest.TestCase):
         self.assertIn("roi_a", ui.roi_selectables)
 
         dpg.delete_item("test_cache_parent")
+
+    def _source_setup(self):
+        """3 ROIs from 2 files + 1 created ROI, with their volumes."""
+        rois = {
+            "r1": MockROI("r1", "Liver", [255, 0, 0]),
+            "r2": MockROI("r2", "Lung", [0, 255, 0]),
+            "r3": MockROI("r3", "Lung", [0, 0, 255]),
+            "r4": MockROI("r4", "Sphere_4", [0, 0, 255]),
+        }
+        rois["r1"].source_type = rois["r2"].source_type = "Label Map"
+        rois["r4"].source_type = "Created"
+        vols = {}
+        for rid, path in (
+            ("r1", "/a/organs.nii.gz"),
+            ("r2", "/a/organs.nii.gz"),
+            ("r3", "/b/lung_mask.nii.gz"),
+            ("r4", "spheroid_roi"),
+        ):
+            vols[rid] = MagicMock()
+            vols[rid].file_paths = [path]
+        self.mock_api.get_volumes.side_effect = None
+        self.mock_api.get_volumes.return_value = vols
+        return rois, vols
+
+    def test_source_combo_items(self):
+        """U17: one item per file (kind, name, count), created ROIs last;
+        same file name in two folders gets its folder."""
+        from vvv.plugins.roi.ui_roi import source_combo_items
+
+        sources = {
+            "": ("Created", 1),
+            "/a/organs.nii.gz": ("Label Map", 2),
+            "/b/organs.nii.gz": ("Label Map", 3),
+            "/b/rt.dcm": ("RT-Struct", 4),
+        }
+        items = source_combo_items(sources)
+        self.assertEqual(
+            list(items),
+            [
+                "All sources (10)",
+                "Labels \u00b7 a/organs.nii.gz (2)",
+                "Labels \u00b7 b/organs.nii.gz (3)",
+                "RT \u00b7 rt.dcm (4)",
+                "Created (1)",
+            ],
+        )
+        self.assertIsNone(items["All sources (10)"])
+        self.assertEqual(items["Created (1)"], "")
+        self.assertEqual(items["RT \u00b7 rt.dcm (4)"], "/b/rt.dcm")
+
+    def test_source_filter_lists_one_file(self):
+        """U17: the source filter narrows the listed ROIs (with the name
+        filter), so the batch actions act on one file; it is forgotten once
+        its file is gone."""
+        if not dpg.is_dearpygui_running():
+            dpg.create_context()
+        with dpg.window(tag="test_parent"):
+            self.plugin.create_ui(parent="test_parent", api=self.mock_api)
+        ui = self.plugin._ui
+        ctrl = self.plugin._controller
+        rois, vols = self._source_setup()
+        viewer = MockViewer("img_1", rois)
+        self.mock_api.get_active_viewer.return_value = viewer
+
+        ui.refresh_rois_ui()
+        self.assertTrue(dpg.is_item_shown(ui._t("group_roi_source")))
+        self.assertEqual(len(dpg.get_item_configuration(ui._t("combo_roi_source"))["items"]), 4)
+
+        ctrl.on_roi_source_changed("/a/organs.nii.gz")
+        self.assertEqual([i for i, _ in ui._get_target_rois(viewer)], ["r1", "r2"])
+        self.assertEqual(list(ui.roi_selectables), ["r1", "r2"])
+        self.assertTrue(dpg.get_value(ui._t("combo_roi_source")).startswith("Labels"))
+
+        ctrl.on_roi_filter_changed("lung")
+        self.assertEqual([i for i, _ in ui._get_target_rois(viewer)], ["r2"])
+        ctrl.on_clear_roi_filter()
+
+        ctrl.on_roi_source_changed("")  # created ROIs
+        self.assertEqual([i for i, _ in ui._get_target_rois(viewer)], ["r4"])
+
+        # The file is gone: back to all the ROIs; one source left: combo hidden
+        ctrl.on_roi_source_changed("/b/lung_mask.nii.gz")
+        del rois["r3"], rois["r4"]
+        ui.refresh_rois_ui()
+        self.assertNotIn("img_1", ctrl.roi_source_filters)
+        self.assertFalse(dpg.is_item_shown(ui._t("group_roi_source")))
+        self.assertEqual(len(ui._get_target_rois(viewer)), 2)
+        dpg.delete_item("test_parent")
+
+    def test_source_tooltip(self):
+        from vvv.plugins.roi.ui_roi import source_tooltip
+
+        rois, vols = self._source_setup()
+        rois["r1"].source_val = 3.0
+        self.assertEqual(
+            source_tooltip(rois["r1"], vols["r1"]),
+            "From: organs.nii.gz (label 3)\n/a/organs.nii.gz",
+        )
+        self.assertTrue(source_tooltip(rois["r4"], vols["r4"]).startswith("Created"))
+
+    def test_saved_rois_come_from_the_saved_file(self):
+        """U17: after a batch save, the saved ROIs come from the new file
+        (label value / binary mask); the ROIs not saved are unchanged."""
+        ctrl = self.plugin._controller
+        ctrl.api = self.mock_api
+        base = MagicMock()
+        base.shape3d = (10, 20, 20)
+        base.sitk_image = sitk.Image(20, 20, 10, sitk.sitkFloat32)
+        rois, vols = self._source_setup()
+        for rid in ("r1", "r2", "r3"):
+            data = np.zeros((10, 20, 20), dtype=np.uint8)
+            data[2:5, 5:10, 5:10] = 1
+            vols[rid].data = data
+            vols[rid].shape3d = (10, 20, 20)
+            vols[rid].sitk_image = sitk.GetImageFromArray(data)
+            vols[rid].roi_bbox = None
+        rois["r3"].rtstruct_info = {"number": 1}
+        vols["base"] = base
+        vs = MockViewState(rois)
+        self.mock_api.get_view_states.return_value = {"base": vs}
+        ctrl.roi_filters["base"] = "lung"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = os.path.join(tmpdir, "lungs.nii.gz")
+            self.assertTrue(ctrl.save_filtered_rois_as_labels("base", out, sort_by_volume=False))
+            for rid, label in (("r2", 1), ("r3", 2)):
+                self.assertEqual(vols[rid].file_paths, [out, os.path.join(tmpdir, "lungs.json")])
+                self.assertEqual(rois[rid].source_type, "Label Map")
+                self.assertEqual(rois[rid].source_val, float(label))
+            self.assertIsNone(rois["r3"].rtstruct_info)
+            self.assertEqual(vols["r1"].file_paths, ["/a/organs.nii.gz"])
+
+            out_dir = os.path.join(tmpdir, "masks")
+            ctrl.roi_filters["base"] = "liver"
+            self.assertTrue(ctrl.save_filtered_rois_as_individual_files("base", out_dir))
+            self.assertEqual(vols["r1"].file_paths, [os.path.join(out_dir, "Liver.nii.gz")])
+            self.assertEqual(rois["r1"].source_type, "Binary")
+            self.assertEqual(rois["r1"].source_val, 1.0)
 
 
 if __name__ == "__main__":

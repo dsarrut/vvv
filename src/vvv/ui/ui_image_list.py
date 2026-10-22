@@ -142,9 +142,8 @@ def refresh_image_list_ui(gui):
                 dpg.add_theme_color(dpg.mvThemeCol_FrameBg, [30, 30, 30, 255])
                 dpg.add_theme_color(dpg.mvThemeCol_CheckMark, [50, 50, 50, 255])
 
-    for idx, (vs_id, vs) in enumerate(
-        list(gui.controller.view_states.items()), start=1
-    ):
+    items = list(gui.controller.view_states.items())
+    for idx, (vs_id, vs) in enumerate(items, start=1):
         with dpg.group(parent=container, horizontal=True):
             layout = getattr(gui, "active_layout", "4")
             with dpg.group():
@@ -336,7 +335,8 @@ def refresh_image_list_ui(gui):
                     )
 
         dpg.add_spacer(height=4, parent=container)
-        build_horizontal_separator(parent=container)
+        if idx < len(items):  # between the images, none after the last one
+            build_horizontal_separator(parent=container)
 
     gui.refresh_recent_menu()
     if gui.context_viewer and gui.context_viewer.image_id:

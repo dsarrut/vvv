@@ -23,6 +23,7 @@ from vvv.ui.ui_components import (
     build_beginner_tooltip,
     build_tooltip,
     apply_help_field_widths,
+    LIST_BOTTOM_H,
 )
 from vvv.ui.ui_sync import build_tab_sync, refresh_sync_ui
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
@@ -1743,33 +1744,18 @@ class MainGUI:
                 # Recalculate inner width for all the sliders to adapt!
                 inner_w = col_w - cfg["left_inner_m"] - cfg["right_inner_m"]
 
-                if dpg.does_item_exist("roi_list_window"):
-                    detail_shown = dpg.does_item_exist(
-                        "roi_detail_header_group"
-                    ) and dpg.is_item_shown("roi_detail_header_group")
-                    detail_h = cfg.get("roi_detail_h", 300) if detail_shown else 0
-
-                    # 250px provides padding for the top controls and the "Export" button below the list
-                    list_h = top_h - detail_h - 250
-
-                    dpg.set_item_width("roi_list_window", inner_w)
-                    dpg.set_item_height("roi_list_window", max(50, int(list_h)))
-
-                    if dpg.does_item_exist("roi_detail_window"):
-                        dpg.set_item_height("roi_detail_window", max(10, detail_h - 30))
-
                 if dpg.does_item_exist("roi_plugin_roi_list_window"):
                     detail_shown = dpg.does_item_exist(
                         "roi_plugin_roi_detail_header_group"
                     ) and dpg.is_item_shown("roi_plugin_roi_detail_header_group")
                     detail_h = cfg.get("roi_detail_h", 300) if detail_shown else 0
 
-                    # 250px provides padding for the top controls and the "Export" button below the list
-                    list_h = top_h - detail_h - 250
-
+                    # Negative height: the list fills the panel down to its
+                    # bottom, minus the detail panel and the separator below
+                    # the list (whatever the rows above it)
                     dpg.set_item_width("roi_plugin_roi_list_window", inner_w)
                     dpg.set_item_height(
-                        "roi_plugin_roi_list_window", max(50, int(list_h))
+                        "roi_plugin_roi_list_window", -(detail_h + LIST_BOTTOM_H)
                     )
 
                     if dpg.does_item_exist("roi_plugin_roi_detail_window"):

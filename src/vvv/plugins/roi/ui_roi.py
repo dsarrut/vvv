@@ -2,7 +2,10 @@ import os
 import logging
 import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
+from vvv.plugins.roi.control_roi import CREATED_SOURCE, roi_source
 from vvv.ui.ui_components import (
+    FIELD_RIGHT_MARGIN,
+    LIST_BOTTOM_H,
     build_section_title,
     build_horizontal_separator,
     build_help_button,
@@ -13,7 +16,6 @@ from vvv.ui.ui_components import (
     build_renamable_input,
     build_delete_button,
     build_name_filter_bar,
-    name_matches,
     set_filter_count,
     set_filter_invert_state,
     set_item_show,
@@ -22,6 +24,42 @@ from vvv.ui.ui_components import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Source combo: short name of each kind of file
+SOURCE_KINDS = {"RT-Struct": "RT", "Label Map": "Labels", "Binary": "Mask"}
+
+
+def source_combo_items(sources) -> dict:
+    """Source combo item -> source key (None: all the ROIs). sources: the
+    controller's list_roi_sources(); the ROIs created in vvv come last."""
+    total = sum(count for _, count in sources.values())
+    items = {f"All sources ({total})": None}
+    names = [os.path.basename(k) for k in sources if k != CREATED_SOURCE]
+    for key, (kind, count) in sources.items():
+        if key == CREATED_SOURCE:
+            continue
+        name = os.path.basename(key)
+        if names.count(name) > 1:  # same file name in two folders
+            name = os.path.join(os.path.basename(os.path.dirname(key)), name)
+        label = f"{SOURCE_KINDS.get(kind, kind)} \u00b7 {name} ({count})"
+        items[label if label not in items else f"{key} ({count})"] = key
+    if CREATED_SOURCE in sources:
+        items[f"Created ({sources[CREATED_SOURCE][1]})"] = CREATED_SOURCE
+    return items
+
+
+def source_tooltip(roi, vol) -> str:
+    """Where an ROI comes from, shown on its name in the list."""
+    key = roi_source(roi, vol)
+    if key == CREATED_SOURCE:
+        return "Created in vvv (no file)"
+    text = f"From: {os.path.basename(key)}"
+    if getattr(roi, "source_type", None) == "Label Map":
+        try:
+            text += f" (label {int(roi.source_val)})"
+        except (TypeError, ValueError):
+            pass
+    return f"{text}\n{key}"
 
 
 class RoiPluginUI(PluginTagMixin):
@@ -37,6 +75,8 @@ class RoiPluginUI(PluginTagMixin):
         self.roi_save_settings: dict[str, dict] = {}
         self._last_table_state_key = None
         self._last_detail_state_key = None
+        # Source combo item -> source key (see source_combo_items)
+        self._source_items: dict = {}
 
     def create_ui(self, parent, api: PluginAPI) -> None:
         self.api = api
@@ -233,6 +273,22 @@ class RoiPluginUI(PluginTagMixin):
             build_horizontal_separator()
             dpg.add_spacer(height=10)
 
+            # Source (file) of the listed ROIs: shown with 2 sources or more
+            with dpg.group(tag=self._t("group_roi_source"), show=False):
+                dpg.add_combo(
+                    [],
+                    tag=self._t("combo_roi_source"),
+                    width=-FIELD_RIGHT_MARGIN,
+                    callback=self.on_roi_source_changed,
+                )
+                build_tooltip(
+                    self._t("combo_roi_source"),
+                    "List the ROIs of one file",
+                    self.api,
+                    text_tag=self._t("text_roi_source_tooltip"),
+                )
+                dpg.add_spacer(height=4)
+
             # Filter first: the buttons below act on the listed (filtered) ROIs
             build_name_filter_bar(
                 group_tag=self._t("group_roi_filter"),
@@ -386,11 +442,10 @@ class RoiPluginUI(PluginTagMixin):
 
             build_horizontal_separator()
 
-
-            # Table child window
+            # Table child window: fills the panel (height set by gui.on_window_resize)
             with dpg.child_window(
                 tag=self._t("roi_list_window"),
-                height=300,
+                height=-LIST_BOTTOM_H,
                 border=False,
                 no_scrollbar=True,
                 no_scroll_with_mouse=True,
@@ -461,6 +516,10 @@ class RoiPluginUI(PluginTagMixin):
         selected_roi_ids = tuple(sorted(self._c.selected_roi_ids))
 
         rois = viewer.view_state.rois if (viewer and viewer.view_state) else {}
+        sources = self._c.list_roi_sources(rois, volumes) if vs_id else {}
+        if vs_id:
+            self._c.prune_roi_source_filter(vs_id, sources)
+        source_filter = self._c.roi_source_filters.get(vs_id) if vs_id else None
         rois_summary = tuple(
             (
                 r_id,
@@ -469,6 +528,8 @@ class RoiPluginUI(PluginTagMixin):
                 roi.visible,
                 roi.is_contour,
                 bool(getattr(volumes.get(r_id), "_is_outdated", False)),
+                roi_source(roi, volumes.get(r_id)),
+                getattr(roi, "source_type", None),
             )
             for r_id, roi in rois.items()
         )
@@ -490,6 +551,7 @@ class RoiPluginUI(PluginTagMixin):
             has_rois,
             filter_text,
             invert,
+            source_filter,
             sort_order,
             active_roi_id,
             selected_roi_ids,
@@ -563,6 +625,8 @@ class RoiPluginUI(PluginTagMixin):
                     enabled = enabled and has_overlay
                 dpg.configure_item(tag, enabled=enabled)
 
+        self._update_source_combo(sources, source_filter)
+
         if dpg.does_item_exist(self._t("btn_roi_above_overlay")) and viewer and viewer.view_state:
             val = bool(getattr(viewer.view_state.display, "roi_above_overlay", False))
             if val:
@@ -611,7 +675,7 @@ class RoiPluginUI(PluginTagMixin):
                 if self._c.selected_roi_ids:
                     if roi_id not in self._c.selected_roi_ids:
                         continue
-                elif not name_matches(roi.name, filter_text, invert):
+                elif not self._c.is_roi_listed(vs_id, roi_id, roi, volumes):
                     continue
                 matching_colors.append(tuple(roi.color[:3]))
 
@@ -656,7 +720,7 @@ class RoiPluginUI(PluginTagMixin):
         visible_rois = [
             (roi_id, roi)
             for roi_id, roi in roi_items
-            if name_matches(roi.name, filter_text, invert)
+            if self._c.is_roi_listed(vs_id, roi_id, roi, volumes)
         ]
         set_filter_count(
             self._t("text_roi_filter_count"), len(visible_rois), len(roi_items)
@@ -732,6 +796,7 @@ class RoiPluginUI(PluginTagMixin):
                         dpg.add_text("*", color=self.api.ui_cfg["colors"]["outdated"])
 
                 self.roi_selectables[roi_id] = input_id
+                build_tooltip(input_id, source_tooltip(roi, roi_vol), self.api)
                 dpg.bind_item_handler_registry(
                     input_id, self._t("item_clicked_handler")
                 )
@@ -838,8 +903,9 @@ class RoiPluginUI(PluginTagMixin):
                     row_height = 28.0  # Estimated height with padding
                     item_top = active_idx * row_height
                     item_bottom = item_top + row_height
+                    # Drawn height (the configured one is negative: fill)
                     view_height = (
-                        dpg.get_item_height(self._t("roi_list_window")) or 300.0
+                        dpg.get_item_rect_size(self._t("roi_list_window"))[1] or 300.0
                     )
                     scroll_max = dpg.get_y_scroll_max(table_id)
 
@@ -1122,15 +1188,14 @@ class RoiPluginUI(PluginTagMixin):
         if not viewer or not viewer.view_state or not viewer.view_state.rois:
             return []
         vs_id = viewer.image_id
-        filter_text = self._c.roi_filters.get(vs_id, "")
-        invert = self._c.roi_filter_inverts.get(vs_id, False)
+        volumes = self.api.get_volumes()
 
         targets = []
         for roi_id, roi in viewer.view_state.rois.items():
             if self._c.selected_roi_ids:
                 if roi_id in self._c.selected_roi_ids:
                     targets.append((roi_id, roi))
-            elif name_matches(roi.name, filter_text, invert):
+            elif self._c.is_roi_listed(vs_id, roi_id, roi, volumes):
                 targets.append((roi_id, roi))
         return targets
 
@@ -1159,6 +1224,32 @@ class RoiPluginUI(PluginTagMixin):
 
     def on_clear_selection_clicked(self, sender=None, app_data=None, user_data=None):
         self._c.clear_roi_selection()
+
+    def _update_source_combo(self, sources, source_filter):
+        """Fill the source combo; shown when the ROIs come from 2 sources or more."""
+        self._source_items = source_combo_items(sources)
+        show = len(sources) > 1
+        set_item_show(self._t("group_roi_source"), show, self.api)
+        combo = self._t("combo_roi_source")
+        if not show or not dpg.does_item_exist(combo):
+            return
+        items = list(self._source_items)
+        current = next(
+            (i for i, k in self._source_items.items() if k == source_filter), items[0]
+        )
+        dpg.configure_item(combo, items=items)
+        dpg.set_value(combo, current)
+        tooltip = self._t("text_roi_source_tooltip")
+        if dpg.does_item_exist(tooltip):
+            dpg.set_value(
+                tooltip,
+                "List the ROIs of one file\n(the buttons below act on the listed ROIs)"
+                if source_filter is None
+                else source_filter or "ROIs created in vvv (no file)",
+            )
+
+    def on_roi_source_changed(self, sender, app_data, user_data=None):
+        self._c.on_roi_source_changed(self._source_items.get(app_data))
 
     def on_toggle_filter_invert_clicked(self):
         self._c.on_toggle_roi_filter_invert()
@@ -1433,10 +1524,11 @@ class RoiPluginUI(PluginTagMixin):
                 if targets
                 else list(viewer.view_state.rois.keys())
             )
+            rois = viewer.view_state.rois
             reload_ids = [
                 roi_id
                 for roi_id in target_ids
-                if getattr(volumes.get(roi_id), "file_paths", None)
+                if roi_source(rois[roi_id], volumes.get(roi_id)) != CREATED_SOURCE
             ]
 
         if reload_ids:
@@ -1778,6 +1870,7 @@ class RoiPluginUI(PluginTagMixin):
                 return
 
             def _on_done():
+                self._c.attach_saved_rois(base_id, snapshot)
                 self.roi_save_settings[base_id] = settings
                 self.labels_save_paths[base_id] = dest_path
                 self.update_save_filename_ui()

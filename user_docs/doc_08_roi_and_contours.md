@@ -23,6 +23,7 @@ You can load segmentation volumes and ROIs in several ways:
 Switch to the **ROI** tab on the sidebar to manage loaded structures:
 
 ### 1. Structure List & Controls
+* **Source**: When the ROIs come from more than one file (an RT-Struct, label maps, masks, or ROIs created in vvv), a combo above the name filter lists them, with their number of ROIs. Choose one file to list only its ROIs: the batch buttons then act on that file, so you can reload it or close it. Hover an ROI name to see the file it comes from. After a **Save** / **Save as**, the saved ROIs come from the new file; the original file is not changed.
 * **Name Filter**: Type part of a name to list only the matching ROIs (case-insensitive); **`!`** inverts the filter (lists the non-matching ones), **X** clears it, the sort button orders the list (A→Z, Z→A, off). The count next to it shows listed / total. The batch buttons act on the listed ROIs (or on the selected ones, if any).
 * **Visibility (Eye Icon)**: Toggle display of individual ROIs on/off.
 * **Color Swatch**: Click to customize the display color for each structure.
