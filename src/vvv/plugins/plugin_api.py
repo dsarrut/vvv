@@ -167,6 +167,10 @@ class PluginAPI:
     def get_image_display_name(self, image_id):
         return self._controller.get_image_display_name(image_id)
 
+    def get_image_name(self, image_id) -> str:
+        """The image name alone (no number, no outdated mark)."""
+        return self._controller.get_image_name(image_id)
+
     def get_view_states(self) -> dict[str, ViewState]:
         with self._controller._state_lock:
             return self._controller.view_states.copy()

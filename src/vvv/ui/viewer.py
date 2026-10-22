@@ -1393,17 +1393,8 @@ class SliceViewer:
         if show_state == 1:
             f_name, _ = self.controller.get_image_display_name(self.image_id)
         else:
-            img_idx_str = "?"
-            if self.image_id is not None:
-                try:
-                    idx = (
-                        list(self.controller.view_states.keys()).index(self.image_id)
-                        + 1
-                    )
-                    img_idx_str = str(idx)
-                except ValueError:
-                    pass
-            f_name = f"({img_idx_str}) {vol.get_human_readable_file_path()}"
+            number = self.controller.image_number(self.image_id) or "?"
+            f_name = f"({number}) {vol.get_human_readable_file_path()}"
 
         ov_id = self.view_state.display.overlay.image_id
         if ov_id and ov_id in self.controller.volumes:
@@ -1411,13 +1402,8 @@ class SliceViewer:
             if show_state == 1:
                 ov_name, _ = self.controller.get_image_display_name(ov_id)
             else:
-                ov_idx_str = "?"
-                try:
-                    idx = list(self.controller.view_states.keys()).index(ov_id) + 1
-                    ov_idx_str = str(idx)
-                except ValueError:
-                    pass
-                ov_name = f"({ov_idx_str}) {ov_vol.get_human_readable_file_path()}"
+                number = self.controller.image_number(ov_id) or "?"
+                ov_name = f"({number}) {ov_vol.get_human_readable_file_path()}"
             f_name += f"\n+ {ov_name}"
 
         dpg.set_value(self.filename_text_tag, f_name)

@@ -540,11 +540,7 @@ class MainGUI:
                             val = dpg.get_value(sender)
                             if val is None:
                                 return
-                            new_name = val.strip()
-                            import re
-
-                            new_name = re.sub(r"\s*\*$", "", new_name)
-                            new_name = re.sub(r"^\(\d+\)\s*", "", new_name)
+                            new_name = val.strip()  # the field holds the name only
                             vol = self.controller.volumes.get(target_id)
                             if vol and new_name:
                                 vol.name = new_name
@@ -577,6 +573,7 @@ class MainGUI:
                             text_tag="text_tooltip_info_fusion",
                             always_on=True,
                         )
+                        dpg.add_text("", tag="info_name_number")
                         dpg.add_input_text(
                             tag="input_info_name",
                             width=-1,
@@ -1249,12 +1246,11 @@ class MainGUI:
             if not dpg.is_item_focused("input_info_name") and not dpg.is_item_active(
                 "input_info_name"
             ):
-                name_str, _ = self.controller.get_image_display_name(target_id)
-                # Strip trailing outdated stars if they are present in display name
-                import re
-
-                name_clean = re.sub(r"\s*\*$", "", name_str)
-                dpg.set_value("input_info_name", name_clean)
+                dpg.set_value("input_info_name", self.controller.get_image_name(target_id))
+        if dpg.does_item_exist("info_name_number"):
+            dpg.set_value(
+                "info_name_number", f"({self.controller.image_number(target_id) or '?'})"
+            )
         dpg.set_value("info_name_label", viewer.tag)
         dpg.set_value("info_voxel_type", f"{vol.pixel_type}")
         if dpg.does_item_exist("input_info_unit"):

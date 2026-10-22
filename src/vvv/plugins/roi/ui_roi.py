@@ -1524,10 +1524,7 @@ class RoiPluginUI(PluginTagMixin):
         if dpg.does_item_exist(modal_tag):
             dpg.delete_item(modal_tag)
 
-        base_name, _ = self.api.get_image_display_name(base_id)
-        import re
-
-        clean_base = re.sub(r"^\(\d+\)\s*", "", base_name).strip()
+        clean_base = self.api.get_image_name(base_id).strip()
         for ext in (".nii.gz", ".nii", ".mhd", ".nrrd", ".dcm"):
             if clean_base.lower().endswith(ext):
                 clean_base = clean_base[: -len(ext)]

@@ -84,9 +84,9 @@ def sync_image_list_ui(gui):
         input_tag = f"input_name_{vs_id}"
         if dpg.does_item_exist(input_tag):
             if not dpg.is_item_focused(input_tag) and not dpg.is_item_active(input_tag):
-                name_str, _ = gui.controller.get_image_display_name(vs_id)
-                if dpg.get_value(input_tag) != name_str:
-                    dpg.set_value(input_tag, name_str)
+                name = gui.controller.get_image_name(vs_id)
+                if dpg.get_value(input_tag) != name:
+                    dpg.set_value(input_tag, name)
 
 
 def _on_time_slider_changed(gui, vs_id, time_idx):
@@ -208,13 +208,7 @@ def refresh_image_list_ui(gui):
                         val = dpg.get_value(sender)
                         if val is None:
                             return
-                        new_name = val.strip()
-
-                        # Strip trailing modification stars * if user left them in
-                        import re
-
-                        new_name = re.sub(r"\s*\*$", "", new_name)
-                        new_name = re.sub(r"^\(\d+\)\s*", "", new_name)
+                        new_name = val.strip()  # the field holds the name only
 
                         vol = gui.controller.volumes.get(img_vs_id)
                         if vol and new_name:
@@ -237,9 +231,11 @@ def refresh_image_list_ui(gui):
                                     dpg.set_value("input_info_name", new_name)
                             gui.controller.ui_needs_refresh = True
 
+                    # Number as a fixed label: the field holds the name only
+                    dpg.add_text(f"({gui.controller.image_number(vs_id) or '?'})")
                     lbl_id = build_renamable_input(
                         tag=input_name_tag,
-                        default_value=name_str,
+                        default_value=gui.controller.get_image_name(vs_id),
                         callback=on_rename,
                         user_data=vs_id,
                         width=-FIELD_RIGHT_MARGIN,

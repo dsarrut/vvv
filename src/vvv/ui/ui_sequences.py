@@ -1653,6 +1653,9 @@ def load_workspace_sequence(gui, controller, filepath):
 
     controller.view_states.clear()
     controller.view_states.update(ordered_vs)
+    # The images of this workspace are numbered in its order (loaded in parallel)
+    loaded = set(id_map.values())
+    controller.renumber_images([v_id for v_id in ordered_vs if v_id in loaded])
 
     controller.volumes.clear()
     controller.volumes.update(ordered_vol)

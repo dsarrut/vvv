@@ -22,6 +22,8 @@ class FusionUI:
     def __init__(self, gui, controller):
         self.gui = gui
         self.controller = controller
+        # Target combo: displayed item -> image id (the items are display names)
+        self._target_ids: dict[str, str] = {}
 
     @staticmethod
     def build_tab_fusion(gui):
@@ -225,14 +227,15 @@ class FusionUI:
 
         if dpg.does_item_exist("combo_fusion_select"):
             options = ["None"]
+            self._target_ids = {}
             for vid, ovs in list(self.controller.view_states.items()):
                 if vid != viewer.image_id:
                     # Filter out RGB as they cannot be used as overlays
                     if getattr(ovs.volume, "is_rgb", False):
                         continue
-                    # Use the new helper for the dropdown options
                     opt_name, _ = self.controller.get_image_display_name(vid)
                     options.append(opt_name)
+                    self._target_ids[opt_name] = vid
 
             dpg.configure_item("combo_fusion_select", items=options)
             dpg.configure_item("combo_fusion_select", enabled=True)
@@ -734,14 +737,16 @@ class FusionUI:
             viewer.view_state.set_overlay(None, None)
             self.controller.ui_needs_refresh = True
         else:
-            target_id = None
-            for vid in list(self.controller.view_states.keys()):
-                opt_name, _ = self.controller.get_image_display_name(vid)
-                if opt_name == app_data:
-                    target_id = vid
-                    break
-
-            if not target_id:
+            # The items listed when the combo was filled (fallback: current names)
+            target_id = self._target_ids.get(app_data) or next(
+                (
+                    vid
+                    for vid in list(self.controller.view_states)
+                    if self.controller.get_image_display_name(vid)[0] == app_data
+                ),
+                None,
+            )
+            if target_id not in self.controller.volumes:
                 return
 
             target_vol = self.controller.volumes[target_id]
