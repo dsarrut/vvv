@@ -1562,3 +1562,101 @@ def test_cli_boot_images_then_workspaces(headless_gui_app, synthetic_volume_fact
     assert gui.current_workspace_path == ws[1]
     assert len(gui.workspace_image_ids) == n0
     assert str(gui.active_layout) == "1"
+
+
+def test_registration_translation_moves_the_target_on_screen(
+    headless_gui_app, synthetic_volume_factory
+):
+    """U4: the screen is fixed in space. Translating the base moves the base
+    (its pixels) on screen, the overlay and the crosshair (world) stay; translating
+    the overlay moves the overlay only."""
+    from vvv.ui.drawing import world_to_screen_pos
+
+    controller, gui, viewer, base_id = headless_gui_app
+    vs = viewer.view_state
+    ov_id = controller.file.load_image(synthetic_volume_factory("ov.nii.gz", val=9.0))
+    gui.fusion_ui.on_fusion_target_selected(
+        None, controller.get_image_display_name(ov_id)[0], None
+    )
+    assert controller.wait_for_jobs(timeout=10)
+    ovs = controller.view_states[ov_id]
+    world = np.array(vs.volume.origin, dtype=float) + 5.0
+
+    def screen():
+        """x on screen of: the base origin, the overlay origin, a world point.
+        A resample folds the translation into the overlay data (its baked
+        part): its pixel 0 is then baked mm away from the overlay origin."""
+        shape = viewer.get_slice_shape()
+        sw, sh = viewer.volume.get_physical_aspect_ratio(viewer.orientation)
+        pmin, pmax = viewer.mapper.update(
+            400, 400, shape[1], shape[0], sw, sh, viewer.zoom, viewer.pan_offset
+        )
+        vox_w = (pmax[0] - pmin[0]) / shape[1]
+        dx, _, _ = vs.compute_overlay_pixel_shift(ovs, vs.volume.spacing, viewer.orientation)
+        baked = vs.display.baked_overlay_translation[0] / vs.volume.spacing[0]
+        return (
+            pmin[0],
+            pmin[0] + (dx + baked) * vox_w,
+            world_to_screen_pos(viewer, world)[0],
+        )
+
+    b0, o0, w0 = screen()
+    vox_w = (viewer.mapper.pmax[0] - viewer.mapper.pmin[0]) / viewer.get_slice_shape()[1]
+    mm = vox_w / vs.volume.spacing[0]  # screen px per mm
+
+    # Target Base: +10 mm in x, live (before the resample) and after it
+    vs.space.is_active = True
+    controller.update_transform_manual(base_id, 10.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    for _ in range(2):
+        b, o, w = screen()
+        assert b == pytest.approx(b0 + 10 * mm)
+        assert o == pytest.approx(o0) and w == pytest.approx(w0)
+        controller.resample_image(base_id)
+        assert controller.wait_for_jobs(timeout=10)
+    controller.update_transform_manual(base_id, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+
+    # Target Fusion: +10 mm in x
+    ovs.space.is_active = True
+    controller.update_transform_manual(ov_id, 10.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    b, o, w = screen()
+    assert b == pytest.approx(b0) and w == pytest.approx(w0)
+    assert o == pytest.approx(o0 + 10 * mm)
+
+
+@pytest.mark.parametrize(
+    "orientation, t, sign",
+    [
+        (ViewMode.AXIAL, (0.0, 4.0, 0.0), None),  # +y: down on screen
+        (ViewMode.CORONAL, (4.0, 0.0, 0.0), 1),  # +x: right
+        (ViewMode.SAGITTAL, (0.0, 4.0, 0.0), -1),  # +y: left (fliplr)
+    ],
+)
+def test_translation_shift_all_orientations(headless_gui_app, orientation, t, sign):
+    """U4: in each orientation an in-plane translation moves the image on
+    screen by its length, and a world point stays where it is."""
+    from vvv.ui.drawing import world_to_screen_pos
+
+    controller, gui, viewer, base_id = headless_gui_app
+    vs = viewer.view_state
+    viewer.orientation = orientation
+    world = np.array(vs.volume.origin, dtype=float) + 2.0
+
+    def screen():
+        shape = viewer.get_slice_shape()
+        sw, sh = viewer.volume.get_physical_aspect_ratio(viewer.orientation)
+        pmin, pmax = viewer.mapper.update(
+            400, 400, shape[1], shape[0], sw, sh, viewer.zoom, viewer.pan_offset
+        )
+        return np.array(pmin), np.array(world_to_screen_pos(viewer, world))
+
+    p0, w0 = screen()
+    vs.space.is_active = True
+    controller.update_transform_manual(base_id, *t, 0.0, 0.0, 0.0)
+    p1, w1 = screen()
+    assert w1 == pytest.approx(w0)
+    moved = p1 - p0
+    assert np.count_nonzero(np.abs(moved) > 1e-6) == 1  # along one screen axis
+    if sign is not None:
+        assert np.sign(moved[0]) == sign
+    else:
+        assert moved[1] > 0

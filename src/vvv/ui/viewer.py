@@ -176,6 +176,18 @@ class ViewportMapper:
         self.pmax = [1.0, 1.0]
         self.disp_w = 1
         self.disp_h = 1
+        # The image's registration translation, in slice pixels (w, h): the
+        # image is drawn where it is in space, the screen stays fixed in space
+        # (set by the viewer: a callable returning (dw, dh))
+        self.shift_provider = None
+        self.shift_px = (0.0, 0.0)  # that shift on screen, at the last update
+
+    def _shift_on_screen(self, real_w, real_h, new_w, new_h):
+        dw, dh = self.shift_provider() if self.shift_provider else (0.0, 0.0)
+        return (
+            dw / max(1e-5, real_w) * new_w,
+            dh / max(1e-5, real_h) * new_h,
+        )
 
     @property
     def current_pmin(self):
@@ -199,8 +211,11 @@ class ViewportMapper:
         final_scale = base_scale * zoom
         new_w, new_h = mm_w * final_scale, mm_h * final_scale
 
+        self.shift_px = self._shift_on_screen(real_w, real_h, new_w, new_h)
         off_x = (target_w - new_w) / 2.0 + pan_offset[0] + self.margin_left
         off_y = (target_h - new_h) / 2.0 + pan_offset[1] + self.margin_top
+        off_x += self.shift_px[0]
+        off_y += self.shift_px[1]
 
         self.pmin = [off_x, off_y]
         self.pmax = [off_x + new_w, off_y + new_h]
@@ -238,8 +253,9 @@ class ViewportMapper:
         origin_x = (target_w - new_w) / 2.0
         origin_y = (target_h - new_h) / 2.0
 
-        cx_zero_pan_x = (tx / real_w) * new_w + origin_x
-        cx_zero_pan_y = (ty / real_h) * new_h + origin_y
+        shift_x, shift_y = self._shift_on_screen(real_w, real_h, new_w, new_h)
+        cx_zero_pan_x = (tx / real_w) * new_w + origin_x + shift_x
+        cx_zero_pan_y = (ty / real_h) * new_h + origin_y + shift_y
 
         return [(target_w / 2.0) - cx_zero_pan_x, (target_h / 2.0) - cx_zero_pan_y]
 
@@ -250,8 +266,9 @@ class ViewportMapper:
         dw, dh = (ow * ratio) - ow, (oh * ratio) - oh
         rx, ry = mouse_x - self.pmin[0], mouse_y - self.pmin[1]
 
-        dx = -(rx * (ratio - 1)) + (dw / 2.0)
-        dy = -(ry * (ratio - 1)) + (dh / 2.0)
+        # The translation shift scales with the zoom too
+        dx = -(rx * (ratio - 1)) + (dw / 2.0) - self.shift_px[0] * (ratio - 1)
+        dy = -(ry * (ratio - 1)) + (dh / 2.0) - self.shift_px[1] * (ratio - 1)
 
         return dx, dy
 
@@ -374,6 +391,7 @@ class SliceViewer:
         self.last_dy = 0
         self.last_dx = 0
         self.mapper = ViewportMapper()
+        self.mapper.shift_provider = self._translation_slice_shift
         self.orientation = ViewMode.AXIAL
 
         self.mouse_phys_coord: np.ndarray | None = None
@@ -504,6 +522,26 @@ class SliceViewer:
         ViewMode.SAGITTAL: (0, 2, ("y", "z"), (-1, -1)),
         ViewMode.CORONAL: (1, 1, ("x", "z"), (1, -1)),
     }
+
+    def _translation_slice_shift(self):
+        """The image's registration translation as an in-plane shift in slice
+        pixels (w, h), so that the image is drawn where it is in space: what is
+        placed in world coordinates (crosshair, the overlay of another image)
+        stays fixed on screen when the image moves (U4). The through-plane part
+        is the slice index (world_to_display)."""
+        vs, vol = self.view_state, self.volume
+        if not vs or not vol or not vs.space.is_active or not vs.space.transform:
+            return 0.0, 0.0
+        t = np.asarray(vs.space.transform.GetTranslation(), dtype=float)
+        if not t.any():
+            return 0.0, 0.0
+        shape = self.get_slice_shape()
+        c = np.asarray(vol.origin, dtype=float)
+        v0 = vol.physic_coord_to_voxel_coord(c)
+        v1 = vol.physic_coord_to_voxel_coord(c - t)  # where world c is displayed
+        s0 = voxel_to_slice(v0[0], v0[1], v0[2], self.orientation, shape)
+        s1 = voxel_to_slice(v1[0], v1[1], v1[2], self.orientation, shape)
+        return s0[0] - s1[0], s0[1] - s1[1]
 
     def _is_buffered(self) -> bool:
         vs = self.view_state
