@@ -2191,17 +2191,16 @@ class MainGUI:
         if not app_data:
             return
         file_paths = list(app_data) if not isinstance(app_data, list) else app_data
-        workspace_files = [p for p in file_paths if p.endswith(".vvw")]
-        image_files = [p for p in file_paths if not p.endswith(".vvw")]
-        if workspace_files:
-            path = workspace_files[0]
-            self.current_workspace_path = path
-            self.refresh_workspace_bar()
-            self.tasks.append(load_workspace_sequence(self, self.controller, path))
+        workspace_files = [p for p in file_paths if p.lower().endswith(".vvw")]
+        image_files = [p for p in file_paths if not p.lower().endswith(".vvw")]
+        # Images first, then each workspace in order (tasks run one after the
+        # other): the last workspace takes precedence, the others keep their images
         if image_files:
             self.tasks.append(
                 load_batch_images_sequence(self, self.controller, image_files)
             )
+        for path in workspace_files:
+            self.tasks.append(self.load_workspace_sequence(path))
 
     def open_dicom_plugin_window(self):
         dicom_plugin = next(

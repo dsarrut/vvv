@@ -12,7 +12,7 @@ from vvv.ui.viewer import SliceViewer
 from vvv.maths.image import VolumeData
 from vvv.core.controller import Controller
 from vvv.utils import get_resource_path
-from vvv.config import DEFAULT_SETTINGS
+from vvv.config import COLORMAPS, DEFAULT_SETTINGS
 from vvv.ui.ui_screen import main_screen_size, start_window_geometry
 import logging
 
@@ -78,6 +78,40 @@ def set_macos_dock_info(name, icon_path=None):
         pass
 
 
+def _warn(msg):
+    print(f"vvv: {msg}", file=sys.stderr)
+
+
+def _parse_number(text, what, default, lo=None, hi=None):
+    """A number field of an overlay argument; a bad value is reported and
+    replaced by the default, a value out of [lo, hi] is clamped."""
+    if text == "":
+        return default
+    try:
+        v = float(text)
+    except ValueError:
+        _warn(f"invalid {what} '{text}', using {default}")
+        return default
+    if (lo is not None and v < lo) or (hi is not None and v > hi):
+        clamped = min(max(v, lo), hi)
+        _warn(f"{what} {text} out of [{lo}, {hi}], using {clamped:g}")
+        return clamped
+    return v
+
+
+def _parse_colormap(text, default):
+    """Colormap name, any case; an unknown one is reported and gets the default."""
+    by_lower = {name.lower(): name for name in COLORMAPS}
+    name = by_lower.get(text.lower())
+    if name is None:
+        _warn(
+            f"unknown colormap '{text}', using {default} "
+            f"(known: {', '.join(n.lower() for n in COLORMAPS)})"
+        )
+        return default
+    return name
+
+
 def parse_cli_arguments(datasets):
     """
     Parses raw command line arguments into structured image tasks.
@@ -88,11 +122,12 @@ def parse_cli_arguments(datasets):
     import numpy as np
 
     # 1. Normalize datasets by splitting any tokens containing '+'
+    #    (not an existing file whose name holds a '+')
     normalized_datasets = []
     for item in datasets:
         if item == "+":
             normalized_datasets.append("+")
-        elif "+" in item:
+        elif "+" in item and not os.path.exists(item):
             parts = item.split("+")
             for i, part in enumerate(parts):
                 if i > 0:
@@ -102,24 +137,25 @@ def parse_cli_arguments(datasets):
         else:
             normalized_datasets.append(item)
 
-    # 2. Extract label maps associated with base images
-    clean_datasets = []
-    labels_for_path = {}  # maps base_path -> list of label paths
-    current_base = None
+    # 2. Extract label maps: they belong to the argument just before the '+'
+    clean_datasets = []  # [item, its label paths]
     expect_label = False
 
     for item in normalized_datasets:
         if item == "+":
             expect_label = True
             continue
-        
+
         if expect_label:
-            if current_base:
-                labels_for_path.setdefault(current_base, []).append(item)
+            if clean_datasets:
+                clean_datasets[-1][1].append(item)
+            else:
+                _warn(f"labels {item} given before any image, ignored")
             expect_label = False
         else:
-            clean_datasets.append(item)
-            current_base = item
+            clean_datasets.append([item, []])
+    if expect_label:
+        _warn("'+' at the end with no label file after it, ignored")
 
     def get_info(path):
         """Ultra-fast header peek without loading pixel data."""
@@ -133,24 +169,30 @@ def parse_cli_arguments(datasets):
         except Exception:
             return None, None
 
-    grouped_datasets = []
+    grouped_datasets = []  # (composite string, label paths)
     buf = []
+    buf_labels = []
     in_4d = False
     ref_size = None
     ref_spacing = None
 
     def flush():
-        nonlocal buf, in_4d, ref_size, ref_spacing
+        nonlocal buf, buf_labels, in_4d, ref_size, ref_spacing
         if buf:
-            grouped_datasets.append(" ".join(buf))
+            grouped_datasets.append((" ".join(buf), buf_labels))
             buf = []
+            buf_labels = []
         in_4d = False
         ref_size = None
         ref_spacing = None
 
+    def add(item, item_labels):
+        buf.append(item)
+        buf_labels.extend(item_labels)
+
     # 3. Re-group shell-split arguments dynamically
     seq_prefixes = VolumeData.SEQUENCE_PREFIXES
-    for item in clean_datasets:
+    for item, item_labels in clean_datasets:
         is_4d_tag = item.upper() in seq_prefixes
         clean_item = item.rstrip(",:")
 
@@ -164,10 +206,10 @@ def parse_cli_arguments(datasets):
             continue
 
         if is_4d_tag:
-            if in_4d and not expecting_more:
-                flush()
+            if buf and not expecting_more:
+                flush()  # also a plain image before the tag
             in_4d = True
-            buf.append(item)
+            add(item, item_labels)
             continue
 
         if in_4d and not expecting_more:
@@ -177,39 +219,30 @@ def parse_cli_arguments(datasets):
                     if ref_size is None:
                         ref_size = size
                         ref_spacing = spacing
-                        buf.append(item)
+                        add(item, item_labels)
                     else:
                         if size == ref_size and spacing is not None and ref_spacing is not None and np.allclose(
                             spacing, ref_spacing, atol=1e-3
                         ):
-                            buf.append(item)
+                            add(item, item_labels)
                         else:
                             flush()
-                            buf.append(item)
+                            add(item, item_labels)
                 else:
-                    buf.append(item)
+                    add(item, item_labels)
             else:
-                buf.append(item)
+                add(item, item_labels)
         else:
             if not expecting_more and len(buf) > 0:
                 flush()
-            buf.append(item)
+            add(item, item_labels)
 
     flush()
 
     # 4. Parse the composite strings into tasks
     image_tasks = []
 
-    known_cmaps = {
-        "grayscale": "Grayscale",
-        "hot": "Hot",
-        "cold": "Cold",
-        "jet": "Jet",
-        "dosimetry": "Dosimetry",
-        "segmentation": "Segmentation",
-    }
-
-    for ds in grouped_datasets:
+    for ds, ds_labels in grouped_datasets:
         parts = [p.strip() for p in ds.split(",")]
         base_part = parts[0]
         sync_group = 0
@@ -224,38 +257,41 @@ def parse_cli_arguments(datasets):
             "fusion": None,
             "sync_group": sync_group,
             "base_cmap": None,
-            "labels": [],
+            "labels": list(ds_labels),
         }
 
         if len(parts) > 1:
             overlay_path = parts[1].strip()
-            cmap_input = parts[2].strip() if len(parts) > 2 else "Jet"
+            cmap_input = parts[2].strip() if len(parts) > 2 else ""
             mode = "Alpha"
 
-            cmap_lower = cmap_input.lower()
-            if cmap_lower in ["reg", "registration"]:
+            if cmap_input.lower() in ["reg", "registration"]:
                 cmap = "Grayscale"
                 mode = "Registration"
+            elif cmap_input:
+                cmap = _parse_colormap(cmap_input, "Jet" if overlay_path else None)
             else:
-                cmap = known_cmaps.get(cmap_lower, cmap_input.capitalize())
+                cmap = "Jet" if overlay_path else None
+            opacity_text = parts[3] if len(parts) > 3 else ""
+            threshold_text = parts[4] if len(parts) > 4 else ""
+            if len(parts) > 5:
+                _warn(f"{ds}: extra fields after the threshold ignored")
 
             if overlay_path:
                 task["fusion"] = {
                     "path": overlay_path,
                     "cmap": cmap,
                     "mode": mode,
-                    "opacity": float(parts[3]) if len(parts) > 3 else 0.5,
-                    "threshold": float(parts[4]) if len(parts) > 4 else None,
+                    "opacity": _parse_number(opacity_text, "opacity", 0.5, 0.0, 1.0),
+                    "threshold": _parse_number(threshold_text, "threshold", None),
                 }
             else:
                 task["base_cmap"] = cmap
-                if len(parts) > 4:
-                    task["min_threshold"] = float(parts[4])
-
-        # Associate labels with this task
-        for path, lbls in labels_for_path.items():
-            if path in ds:
-                task["labels"].extend(lbls)
+                if opacity_text:
+                    _warn(f"{ds}: opacity ignored, there is no overlay")
+                thr = _parse_number(threshold_text, "threshold", None)
+                if thr is not None:
+                    task["min_threshold"] = thr
 
         image_tasks.append(task)
 
@@ -319,14 +355,15 @@ def cannot_open_reason(spec):
     return "; ".join(reasons)
 
 
-def check_inputs(image_tasks, workspace_file):
+def check_inputs(image_tasks, workspace_files=()):
     """Print what cannot be opened; return False if nothing given can be opened."""
-    if workspace_file:
-        if not os.path.isfile(workspace_file):
-            print(f"vvv: cannot open workspace {workspace_file}", file=sys.stderr)
-            return False
-        return True
+    workspace_files = list(workspace_files or [])
     n_ok = 0
+    for ws in workspace_files:
+        if os.path.isfile(ws):
+            n_ok += 1
+        else:
+            print(f"vvv: cannot open workspace {ws}", file=sys.stderr)
     for task in image_tasks:
         reason = cannot_open_reason(task["base"])
         if reason:
@@ -338,7 +375,16 @@ def check_inputs(image_tasks, workspace_file):
             reason = cannot_open_reason(path)
             if reason:
                 print(f"vvv: cannot open {reason}", file=sys.stderr)
-    return n_ok > 0 or not image_tasks
+    return n_ok > 0 or not (image_tasks or workspace_files)
+
+
+def boot_sequence(gui, image_tasks, workspace_files, sync=False, link_wl=False):
+    """Images first, then each workspace in order: the last one takes precedence
+    (layout, active viewer, Save / Reload target), the others keep their images."""
+    if image_tasks:
+        yield from gui.create_boot_sequence(image_tasks, sync, False, link_wl)
+    for ws in workspace_files:
+        yield from gui.load_workspace_sequence(ws)
 
 
 @click.command(context_settings=dict(help_option_names=["-h", "--help"]))
@@ -383,7 +429,7 @@ def main(no_history, datasets, linkall, sync, linkall_wl, debug, fast_gl):
     \b
     4D SEQUENCES
       vvv 4D frame1.nii frame2.nii ...    explicit 4D stack (use // to end the sequence)
-      vvv frame*.nii                       shell glob: auto-grouped if same size and spacing
+      vvv 4D frame*.nii                    shell glob: the sequence stops at a size/spacing change
 
     \b
     LABEL MAPS / ROIs
@@ -392,6 +438,9 @@ def main(no_history, datasets, linkall, sync, linkall_wl, debug, fast_gl):
     \b
     WORKSPACE
       vvv session.vvw                      restore a previously saved workspace
+      vvv ct.nii a.vvw b.vvw               images first, then each workspace in order;
+                                           the last one sets the layout (and is the one
+                                           Save / Reload act on)
     """
 
     setup_logging(debug)
@@ -409,13 +458,15 @@ def main(no_history, datasets, linkall, sync, linkall_wl, debug, fast_gl):
     except Exception:
         pass
 
-    # Parse the tasks cleanly
+    # Parse the tasks cleanly: workspaces apart, the images are parsed together
     datasets = [ds for ds in datasets if ds.strip()]
-    image_tasks = parse_cli_arguments(datasets)
+    workspace_files = [f for f in datasets if f.lower().endswith(".vvw")]
+    image_tasks = parse_cli_arguments(
+        [f for f in datasets if not f.lower().endswith(".vvw")]
+    )
 
     # Do not open a window if none of the given images can be opened
-    workspace_file = next((f for f in datasets if f.lower().endswith(".vvw")), None)
-    if not check_inputs(image_tasks, workspace_file):
+    if not check_inputs(image_tasks, workspace_files):
         print("vvv: nothing to open, not starting the viewer.", file=sys.stderr)
         sys.exit(1)
 
@@ -473,20 +524,10 @@ def main(no_history, datasets, linkall, sync, linkall_wl, debug, fast_gl):
     dpg.set_viewport_small_icon(active_icon)
     dpg.set_viewport_large_icon(active_icon)
 
-    # 1. A workspace file passed in the arguments (detected above)
-    # 2. Swap the boot generator based on the file type
-    if workspace_file:
-        if len(datasets) > 1:
-            logger.warning(
-                f"Find workspace {workspace_file}, ignoring other files on the command line"
-            )
-        # Use the workspace loader
-        boot_gen = gui.load_workspace_sequence(workspace_file)
-    else:
-        # Standard image loading sequence
-        boot_gen = gui.create_boot_sequence(image_tasks, sync, linkall, linkall_wl)
-
-    # 3. Run the application
+    workspace_files = [f for f in workspace_files if os.path.isfile(f)]
+    boot_gen = boot_sequence(
+        gui, image_tasks, workspace_files, sync or linkall, linkall_wl
+    )
     gui.run(boot_generator=boot_gen, debug=debug)
 
 

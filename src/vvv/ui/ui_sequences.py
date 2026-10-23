@@ -1335,6 +1335,7 @@ def load_workspace_sequence(gui, controller, filepath):
             ws = json.load(f)
     except Exception as e:
         gui.show_status_message(f"Failed to load workspace: {e}")
+        gui.workspace_image_ids = set()  # a reload must not close another one's images
         return
 
     display_name = "Reading Workspace Data..."
@@ -1779,8 +1780,9 @@ def create_boot_sequence(
         loaded_ids.append(base_id)
         id_to_group[base_id] = task.get("sync_group", 0)
 
-        if task.get("base_cmap"):
-            controller.view_states[base_id].display.colormap = task["base_cmap"]
+        if task.get("base_cmap") or task.get("min_threshold") is not None:
+            if task.get("base_cmap"):
+                controller.view_states[base_id].display.colormap = task["base_cmap"]
             if task.get("min_threshold") is not None:
                 controller.view_states[base_id].display.min_threshold = task[
                     "min_threshold"

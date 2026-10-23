@@ -1540,3 +1540,25 @@ def test_reload_workspace_replaces_only_its_images(
     new_ws = set(gui.workspace_image_ids)
     assert len(new_ws) == n and new_ws <= ids and len(ids) == 2 * n + 1
     assert all(controller.view_states[i].display.ww == saved_ww for i in new_ws)
+
+
+def test_cli_boot_images_then_workspaces(headless_gui_app, synthetic_volume_factory, tmp_path):
+    """vvv img a.vvw b.vvw: the image, then both workspaces; the last one is
+    current (layout, Reload target), the other images stay."""
+    from vvv.cli import boot_sequence, parse_cli_arguments
+
+    controller, gui, viewer, base_id = headless_gui_app
+    ws = []
+    for name, layout in (("a", "4"), ("b", "1")):
+        path = str(tmp_path / f"{name}.vvw")
+        controller.file.save_workspace(path, {"layout": layout})
+        ws.append(path)
+    n0 = len(controller.view_states)
+
+    img = synthetic_volume_factory("img.nii.gz", val=3.0)
+    list(boot_sequence(gui, parse_cli_arguments([img]), ws))
+
+    assert len(controller.view_states) == n0 + 1 + 2 * n0  # image + both workspaces
+    assert gui.current_workspace_path == ws[1]
+    assert len(gui.workspace_image_ids) == n0
+    assert str(gui.active_layout) == "1"

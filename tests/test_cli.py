@@ -200,3 +200,72 @@ def test_check_inputs_start_only_if_something_opens(dummy_images, tmp_path):
     assert check_inputs(parse_cli_arguments([f"{ok},{missing},hot"]), None) is True
     assert check_inputs([], None) is True  # no argument: empty viewer
     assert check_inputs([], str(tmp_path / "s.vvw")) is False
+
+
+def test_cli_4d_after_plain_image(dummy_images):
+    """A 4D tag after a plain image closes that image first (it was swallowed)."""
+    ct = dummy_images("ct.mhd", size=(8, 8, 8))
+    f1 = dummy_images("f1.mhd", size=(5, 5, 5))
+    f2 = dummy_images("f2.mhd", size=(5, 5, 5))
+    tasks = parse_cli_arguments([ct, "4D", f1, f2])
+    assert [t["base"] for t in tasks] == [ct, f"4D {f1} {f2}"]
+
+
+def test_cli_labels_stay_with_their_image(dummy_images):
+    """Labels go to the image before the '+', not to any name containing it."""
+    ct = dummy_images("ct.mhd", size=(5, 5, 5))
+    my_ct = dummy_images("my_ct.mhd", size=(5, 5, 5))
+    lab = dummy_images("lab.mhd", size=(5, 5, 5))
+    tasks = parse_cli_arguments([ct, "+", lab, my_ct])
+    assert [t["labels"] for t in tasks] == [[lab], []]
+    # labels after an image of a 4D sequence or an overlay argument
+    tasks = parse_cli_arguments([my_ct, f"{ct},{my_ct}", "+", lab])
+    assert [t["labels"] for t in tasks] == [[], [lab]]
+
+
+def test_cli_plus_in_an_existing_file_name(dummy_images):
+    a_b = dummy_images("a+b.mhd", size=(5, 5, 5))
+    tasks = parse_cli_arguments([a_b])
+    assert len(tasks) == 1 and tasks[0]["base"] == a_b and tasks[0]["labels"] == []
+
+
+def test_cli_bad_fields_warn_and_use_defaults(dummy_images, capsys):
+    ct = dummy_images("ct.mhd", size=(5, 5, 5))
+    pet = dummy_images("pet.mhd", size=(5, 5, 5))
+
+    (t,) = parse_cli_arguments([f"{ct},{pet},jet,abc,xyz"])  # no crash
+    assert t["fusion"]["opacity"] == 0.5 and t["fusion"]["threshold"] is None
+    (t,) = parse_cli_arguments([f"{ct},{pet},jet,7"])
+    assert t["fusion"]["opacity"] == 1.0  # clamped
+    (t,) = parse_cli_arguments([f"{ct},{pet},viridis"])
+    assert t["fusion"]["cmap"] == "Jet"  # unknown: default
+    (t,) = parse_cli_arguments([f"{ct},{pet},HOT"])
+    assert t["fusion"]["cmap"] == "Hot"
+    (t,) = parse_cli_arguments([f"{ct},,,,5"])  # base threshold, no colormap
+    assert t["base_cmap"] is None and t["min_threshold"] == 5.0
+    parse_cli_arguments([f"{ct},,hot,0.3"])  # opacity without an overlay
+    parse_cli_arguments([ct, "+"])
+    parse_cli_arguments(["+", pet, ct])
+    err = capsys.readouterr().err
+    for msg in (
+        "invalid opacity 'abc'",
+        "invalid threshold 'xyz'",
+        "opacity 7 out of [0.0, 1.0]",
+        "unknown colormap 'viridis'",
+        "opacity ignored, there is no overlay",
+        "'+' at the end",
+        "given before any image",
+    ):
+        assert msg in err
+
+
+def test_check_inputs_with_workspaces(dummy_images, tmp_path):
+    from vvv.cli import check_inputs
+
+    ct = dummy_images("ct.mhd", size=(5, 5, 5))
+    ws = tmp_path / "a.vvw"
+    ws.write_text("{}")
+    missing_ws = str(tmp_path / "missing.vvw")
+    assert check_inputs(parse_cli_arguments([ct]), [missing_ws]) is True  # ct opens
+    assert check_inputs([], [missing_ws, str(ws)]) is True
+    assert check_inputs([], [missing_ws]) is False
