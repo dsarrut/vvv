@@ -1660,3 +1660,32 @@ def test_translation_shift_all_orientations(headless_gui_app, orientation, t, si
         assert np.sign(moved[0]) == sign
     else:
         assert moved[1] > 0
+
+
+def test_unit_saved_alone_in_the_sidecar(headless_gui_app):
+    """J3: an edited unit is "(modified, unsaved)" with a save icon; saving it
+    writes only the json side-car (other keys kept), not the image; the image
+    itself is not marked as changed."""
+    import json
+
+    controller, gui, viewer, base_id = headless_gui_app
+    vol = controller.volumes[base_id]
+    img_path = vol.file_paths[0]
+    js = img_path[: -len(".nii.gz")] + ".json"
+    with open(js, "w") as f:
+        json.dump({"note": "mine"}, f)
+    mtime = os.path.getmtime(img_path)
+
+    vol.unit, vol.unit_source = "Gy", "modified, unsaved"
+    gui._refresh_unit_sidecar_ui(vol)
+    assert dpg.get_item_configuration("btn_info_unit_save")["show"] is True
+    assert not getattr(vol, "_is_outdated", False)
+
+    gui.save_unit_sidecar(base_id)
+    with open(js) as f:
+        assert json.load(f) == {"note": "mine", "unit": "Gy"}
+    assert os.path.getmtime(img_path) == mtime  # image not rewritten
+    assert vol.unit_source == os.path.basename(js)
+    gui._refresh_unit_sidecar_ui(vol)
+    assert dpg.get_item_configuration("btn_info_unit_save")["show"] is False
+    assert js in dpg.get_value("info_unit_source_tooltip")

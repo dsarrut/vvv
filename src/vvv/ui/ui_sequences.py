@@ -781,23 +781,13 @@ def load_label_map_sequence(
     for _ in range(3):
         yield
 
-    # Attempt to load sidecar JSON for label names
-    if filepath.lower().endswith(".nii.gz"):
-        json_path = filepath[:-7] + ".json"
-    else:
-        json_path = os.path.splitext(filepath)[0] + ".json"
+    # Label names / colors from the side-car json
+    from vvv.core.sidecar import read_sidecar
 
-    label_dict = {}
-    color_dict = {}
-    if os.path.exists(json_path):
-        try:
-            import json
-
-            with open(json_path, "r") as f:
-                raw_dict = json.load(f)
-                label_dict, color_dict = _parse_label_map_json(raw_dict)
-        except Exception as e:
-            logger.warning(f"Failed to parse {json_path}: {e}")
+    raw_dict, json_path, error = read_sidecar(filepath)
+    if error:
+        logger.warning(f"Side-car not read: {error}")
+    label_dict, color_dict = _parse_label_map_json(raw_dict)
 
     yield from _rasterize_and_load_labels(
         gui,
@@ -1003,16 +993,12 @@ def _gather_workspace_rois(controller, ws, id_map, warnings, resolve_workspace_p
                         p0 = resolved_path
 
                     if os.path.exists(p0):
-                        # Sidecar JSON check
-                        sidecar_dict = {}
-                        base_p = p0[:-3] if p0.lower().endswith(".gz") else p0
-                        json_candidate = os.path.splitext(base_p)[0] + ".json"
-                        if os.path.exists(json_candidate):
-                            try:
-                                with open(json_candidate, "r") as jf:
-                                    sidecar_dict = json.load(jf)
-                            except Exception:
-                                sidecar_dict = {}
+                        # Label names / colors from the side-car json
+                        from vvv.core.sidecar import read_sidecar
+
+                        sidecar_dict, _, error = read_sidecar(p0)
+                        if error:
+                            warnings.append(f"- side-car not read: {error}")
 
                         sidecar_labels, sidecar_colors = _parse_label_map_json(
                             sidecar_dict

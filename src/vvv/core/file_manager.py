@@ -102,6 +102,10 @@ class FileManager:
 
         if not is_auto_overlay:
             self.controller.add_recent_file(loaded["path"])
+        if getattr(vol, "sidecar_error", None):
+            self.controller._set_status(
+                f"Side-car not read: {vol.sidecar_error}", level="warning"
+            )
 
         self.controller.ui_needs_refresh = True
         return img_id

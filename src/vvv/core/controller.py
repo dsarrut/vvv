@@ -394,7 +394,9 @@ class Controller:
 
             def _commit():
                 self._apply_saved_state(vol, filepath, state)
-                self._set_status(f"Saved: {name}")
+                json_path = state.get("sidecar_json_path")
+                side = f" (+ {os.path.basename(json_path)})" if json_path else ""
+                self._set_status(f"Saved: {name}{side}")
                 if on_done:
                     try:
                         on_done()
@@ -422,32 +424,18 @@ class Controller:
 
         sitk.WriteImage(img, filepath)
 
-        # Update or create sidecar JSON if unit is set or sidecar exists
-        if filepath.endswith(".nii.gz"):
-            json_path = filepath[:-7] + ".json"
-        else:
-            json_path = os.path.splitext(filepath)[0] + ".json"
+        # The unit goes to the side-car json (other keys kept)
+        from vvv.core.sidecar import update_sidecar
 
         state = {}
-        if unit_val is not None or os.path.isfile(json_path):
-            try:
-                jdata = {}
-                if os.path.isfile(json_path):
-                    with open(json_path, "r", encoding="utf-8") as f:
-                        jdata = json.load(f)
-                    if not isinstance(jdata, dict):
-                        jdata = {}
+        try:
+            json_path = update_sidecar(filepath, {"unit": unit_val or None})
+            if json_path:
+                state["sidecar_json_path"] = json_path
                 if unit_val:
-                    jdata["unit"] = unit_val
-                elif "unit" in jdata:
-                    del jdata["unit"]
-                if jdata:
-                    write_json_atomic(json_path, jdata)
-                    state["sidecar_json_path"] = json_path
-                    if unit_val:
-                        state["unit_source"] = os.path.basename(json_path)
-            except Exception as e:
-                logger.warning(f"Failed to write sidecar JSON {json_path}: {e}")
+                    state["unit_source"] = os.path.basename(json_path)
+        except Exception as e:
+            logger.warning(f"Side-car json of {filepath} not written: {e}")
         return state
 
     @staticmethod

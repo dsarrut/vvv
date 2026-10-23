@@ -64,12 +64,16 @@ def source_tooltip(roi, vol) -> str:
     if key == CREATED_SOURCE:
         return "Created in vvv (no file)"
     text = f"From: {os.path.basename(key)}"
+    side = ""
     if getattr(roi, "source_type", None) == "Label Map":
         try:
             text += f" (label {int(roi.source_val)})"
         except (TypeError, ValueError):
             pass
-    return f"{text}\n{key}"
+        jsons = [p for p in getattr(vol, "file_paths", None) or [] if str(p).endswith(".json")]
+        if jsons:
+            side = f"\nName and color from {os.path.basename(jsons[0])} (side-car file)"
+    return f"{text}\n{key}{side}"
 
 
 class RoiPluginUI(PluginTagMixin):

@@ -107,9 +107,9 @@ def merge_masks(input_folder, output_file, ext, tol):
     click.secho(f"\nSuccessfully saved merged label map to {output_file}", fg="green")
 
     # 5. Save the dictionary map as a sidecar JSON so you know which label is which
-    json_path = Path(output_file).with_suffix(".json")
-    with open(json_path, "w") as f:
-        json.dump(label_mapping, f, indent=4)
+    from vvv.core.sidecar import update_sidecar
+
+    json_path = update_sidecar(output_file, {str(k): v for k, v in label_mapping.items()})
     click.secho(f"Saved label mapping dictionary to {json_path}", fg="green")
 
 

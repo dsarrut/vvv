@@ -1106,16 +1106,17 @@ class RoiPluginController(PluginTagMixin):
             sitk_img.SetDirection(base_sitk.GetDirection())
         sitk.WriteImage(sitk_img, filepath)
 
-        # JSON sidecar
-        if filepath.lower().endswith(".nii.gz"):
-            json_path = filepath[:-7] + ".json"
-        else:
-            json_path = os.path.splitext(filepath)[0] + ".json"
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(label_json, f, indent=4)
+        # Side-car json: the label entries are replaced, other keys (unit...) kept
+        from vvv.core.sidecar import update_sidecar
+
+        def is_label_entry(key):
+            return key.isdigit() or key in ("labels", "colors")
+
+        json_path = update_sidecar(filepath, label_json, drop=is_label_entry)
         snapshot["saved_json_path"] = json_path
 
-        return f"Saved: {os.path.basename(filepath)}"
+        side = f" (+ {os.path.basename(json_path)})" if json_path else ""
+        return f"Saved: {os.path.basename(filepath)}{side}"
 
     def write_rois_as_individual_files(self, snapshot, out_dir: str, auto_crop: bool = True) -> str:
         """Worker-safe (uses only the snapshot): one binary mask file per ROI
